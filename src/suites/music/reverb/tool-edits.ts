@@ -83,21 +83,21 @@ export function findReverbRef(song: MusicProject, input: Input) {
   const all = reverbs(song);
   const list = () =>
     all.length
-      ? `The song's Reverbs: ${all.map((r) => `${r.effect.id} (${trackLabel(song, r.track)}, slot ${r.slot + 1})`).join(", ")}.`
-      : 'The song has none: add_vocal_reverb sets up a vocal\'s, add_mixer_effect with plugin "Reverb" puts one in a slot.';
+      ? `The song's YT-R instances: ${all.map((r) => `${r.effect.id} (${trackLabel(song, r.track)}, slot ${r.slot + 1})`).join(", ")}.`
+      : 'The song has none: add_vocal_reverb sets up a vocal\'s, add_mixer_effect with plugin "YT-R" puts one in a slot.';
   if (typeof input.effect === "string" && input.effect.trim()) {
     const found = findReverb(song, input.effect.trim());
-    if (!found) throw new Error(`There's no Reverb "${input.effect}". ${list()}`);
+    if (!found) throw new Error(`There's no YT-R "${input.effect}". ${list()}`);
     return found;
   }
   if (input.track !== undefined && input.track !== "") {
     const track = findTrack(song, input.track);
     const on = all.filter((r) => r.track.id === track.id && (!Number.isInteger(input.effectSlot) || r.slot === (input.effectSlot as number) - 1));
-    if (!on.length) throw new Error(`${trackLabel(song, track)} has no Reverb${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
+    if (!on.length) throw new Error(`${trackLabel(song, track)} has no YT-R${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
     return on[0];
   }
   if (all.length === 1) return all[0];
-  throw new Error(all.length ? `Say which Reverb ("effect", or "track"). ${list()}` : list());
+  throw new Error(all.length ? `Say which YT-R ("effect", or "track"). ${list()}` : list());
 }
 
 /** The pitch a modulation makes at its peak (cents): 1731 · 2π · f · A. */
@@ -112,7 +112,7 @@ export function describeReverb(song: MusicProject, input: Input): string {
   const key = keyId ? song.mixer.tracks.find((t) => t.id === keyId) : null;
   const pre = predelaySeconds(r, bpm);
   const lines = [
-    `Reverb ${effect.id} on ${trackLabel(song, track)}, slot ${slot + 1}${effect.enabled ? "" : " (bypassed)"}${r.preset ? `, preset "${r.preset}"` : ", edited"}; A/B slot ${r.slot.toUpperCase()}.`,
+    `YT-R ${effect.id} on ${trackLabel(song, track)}, slot ${slot + 1}${effect.enabled ? "" : " (bypassed)"}${r.preset ? `, preset "${r.preset}"` : ", edited"}; A/B slot ${r.slot.toUpperCase()}.`,
     `${REVERB_MODE_SPECS[r.mode].name}, ${REVERB_ERA_SPECS[r.era].name}. Mix ${percent(r.mix)}${r.mixLock ? " (locked)" : ""}${effect.mix < 1 ? `, slot mix ${percent(effect.mix)}` : ""}${r.freeze ? ", FROZEN" : ""}.`,
     `Decay ${formatDecay(r.decay)} at 1 kHz; pre-delay ${r.sync ? `${formatNote(r.predelayNote)}${r.predelayOffset !== 1 ? ` × ${round(r.predelayOffset, 2)}` : ""} (${formatSeconds(pre)} at ${bpm} BPM)` : formatSeconds(pre)}; size ${percent(r.size)}, distance ${percent(r.distance)}, diffusion ${percent(r.diffusion)}.`,
     `Modulation ${r.late.modShape}, ${round(r.modRate, 2)} Hz at ${percent(r.modDepth)} (about ${round(cents(r.modRate, r.modDepth), 1)} cents); width ${percent(r.width)}.`,
@@ -298,7 +298,7 @@ export function updateReverbTool(song: MusicProject, input: Input): EditResult {
   if (input.duckKey !== undefined) {
     const self = String(input.duckKey).toLowerCase() === "self" || input.duckKey === null;
     const keyTrack = self ? null : findTrack(next, input.duckKey);
-    if (keyTrack && keyTrack.id === track.id) throw new Error(`The key can't be the Reverb's own track (${trackLabel(next, track)}): give another track, or "self" for its own input.`);
+    if (keyTrack && keyTrack.id === track.id) throw new Error(`The key can't be the YT-R's own track (${trackLabel(next, track)}): give another track, or "self" for its own input.`);
     const keyed = setReverbKey(next, id, keyTrack ? keyTrack.id : null);
     if (keyTrack && keyed === next && reverbKey(next, id) !== keyTrack.id)
       throw new Error(`${trackLabel(next, keyTrack)} can't key ${trackLabel(next, track)} (${trackLabel(next, track)}'s sound reaches it, so it would loop): choose a track that comes before it.`);
@@ -311,7 +311,7 @@ export function updateReverbTool(song: MusicProject, input: Input): EditResult {
     done.push(ab === "switch" ? "switched A/B" : "copied to the other A/B slot");
   }
   if (!done.length) throw new Error("Nothing to change: give a preset or a control (mode, decay, predelay, size, distance, diffusion, mix, the cuts, deEss, duck, ...).");
-  return { song: next, text: `Reverb ${id}: ${done.join("; ")}.\n${describeReverb(next, { effect: id })}` };
+  return { song: next, text: `YT-R ${id}: ${done.join("; ")}.\n${describeReverb(next, { effect: id })}` };
 }
 
 // ---------------------------------------------------------------------------
@@ -368,7 +368,7 @@ export function setReverbDecayTool(song: MusicProject, input: Input): EditResult
   }
   if (!done.length) throw new Error('Nothing to change: give "bands", "clear" or "bypass".');
   const t60 = reverbT60(findReverb(next, id)!.reverb);
-  return { song: next, text: `Reverb ${id}: ${done.join("; ")}. T60 by octave band now: ${REVERB_OCTAVES.map((f, b) => `${formatHz(f)} ${round(t60[b], 2)} s`).join(", ")}.` };
+  return { song: next, text: `YT-R ${id}: ${done.join("; ")}. T60 by octave band now: ${REVERB_OCTAVES.map((f, b) => `${formatHz(f)} ${round(t60[b], 2)} s`).join(", ")}.` };
 }
 
 // ---------------------------------------------------------------------------
@@ -425,7 +425,7 @@ export function addVocalReverbTool(song: MusicProject, input: Input, ids: string
     const gain = send.lu === null ? null : send.lu - PRESET_LOUDNESS;
     next = setSend(next, vocal.id, track.id, gain === null ? 0 : sendLevel(gain));
     next = setReverbKey(next, effectId, vocal.id);
-    made.push(`${trackLabel(next, track)} (${track.id}) with Reverb ${effectId} "${send.preset}", ${gain === null ? "its send at 0 (automate it on the words to throw)" : `the send at ${db(gain)}`}`);
+    made.push(`${trackLabel(next, track)} (${track.id}) with YT-R ${effectId} "${send.preset}", ${gain === null ? "its send at 0 (automate it on the words to throw)" : `the send at ${db(gain)}`}`);
     k++;
   }
   return {

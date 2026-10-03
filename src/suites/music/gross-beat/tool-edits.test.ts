@@ -16,8 +16,8 @@ describe("the assistant's Gross Beat", () => {
     expect(findGross(s, { effect: "fx_gross" }).effect.id).toBe("fx_gross");
     expect(findGross(s, { track: 2 }).slot).toBe(3);
     expect(findGross(s, {}).effect.id).toBe("fx_gross");
-    expect(() => findGross(s, { track: 1 })).toThrow(/Insert 1.*has no Gross Beat.*fx_gross \(insert 2/i);
-    expect(() => findGross(createMusicProject("None"), {})).toThrow(/add_mixer_effect with plugin "Gross Beat"/);
+    expect(() => findGross(s, { track: 1 })).toThrow(/Insert 1.*has no YT-Time.*fx_gross \(insert 2/i);
+    expect(() => findGross(createMusicProject("None"), {})).toThrow(/add_mixer_effect with plugin "YT-Time"/);
   });
 
   it("names slots by number or name", () => {
@@ -70,6 +70,6 @@ describe("the assistant's Gross Beat", () => {
   it("automates its slots: add_automation's controls", () => {
     expect(resolveControl(song(), { control: "time slot", track: 2, slot: 4 })).toEqual({ kind: "grossBeat", effect: "fx_gross", control: "timeSlot" });
     const plugin = setEffect(song(), "insert_2", 0, { id: "VST3-Pro-Q", name: "Pro-Q", format: "VST3" }, "fx_eq");
-    expect(() => resolveControl(plugin, { control: "volume slot", track: 2, slot: 1 })).toThrow(/holds Pro-Q, not a Gross Beat/);
+    expect(() => resolveControl(plugin, { control: "volume slot", track: 2, slot: 1 })).toThrow(/holds Pro-Q, not a YT-Time/);
   });
 });

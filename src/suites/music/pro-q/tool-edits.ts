@@ -57,20 +57,20 @@ const round = (n: number, digits = 2) => Math.round(n * 10 ** digits) / 10 ** di
 export function findEq(song: MusicProject, input: Input) {
   const all = proQs(song);
   const list = () =>
-    all.length ? `The song's Pro-Qs: ${all.map((q) => `${q.effect.id} (${trackLabel(song, q.track)}, slot ${q.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "Pro-Q" puts one on a track.';
+    all.length ? `The song's YT-EQ instances: ${all.map((q) => `${q.effect.id} (${trackLabel(song, q.track)}, slot ${q.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "YT-EQ" puts one on a track.';
   if (typeof input.effect === "string" && input.effect.trim()) {
     const found = findProQ(song, input.effect.trim());
-    if (!found) throw new Error(`There's no Pro-Q "${input.effect}". ${list()}`);
+    if (!found) throw new Error(`There's no YT-EQ "${input.effect}". ${list()}`);
     return found;
   }
   if (input.track !== undefined && input.track !== "") {
     const track = findTrack(song, input.track);
     const on = all.filter((q) => q.track.id === track.id && (!Number.isInteger(input.effectSlot) || q.slot === (input.effectSlot as number) - 1));
-    if (!on.length) throw new Error(`${trackLabel(song, track)} has no Pro-Q${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
+    if (!on.length) throw new Error(`${trackLabel(song, track)} has no YT-EQ${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
     return on[0];
   }
   if (all.length === 1) return all[0];
-  throw new Error(`Say which Pro-Q ("effect" or "track"). ${list()}`);
+  throw new Error(`Say which YT-EQ ("effect" or "track"). ${list()}`);
 }
 
 /** A band said in a line: "Band 2: Bell at 1.20 kHz, +4.50 dB, Q 1.40, 12 dB/oct". */
@@ -110,7 +110,7 @@ export function describeProQ(song: MusicProject, input: Input): string {
   const { track, slot, effect, proQ: pq } = findEq(song, input);
   const latency = pq.mode === "zeroLatency" ? "no latency" : pq.mode === "naturalPhase" ? "7.3 ms latency" : `${round((LINEAR_PHASE_LATENCY[pq.resolution] / 44100) * 1000, 1)} ms latency`;
   const lines = [
-    `Pro-Q ${effect.id} on ${trackLabel(song, track)}, slot ${slot + 1}${effect.enabled ? "" : " (bypassed)"}${effect.mix < 1 ? `, mix ${Math.round(effect.mix * 100)}%` : ""}.`,
+    `YT-EQ ${effect.id} on ${trackLabel(song, track)}, slot ${slot + 1}${effect.enabled ? "" : " (bypassed)"}${effect.mix < 1 ? `, mix ${Math.round(effect.mix * 100)}%` : ""}.`,
     `Mode: ${MODE_NAMES[pq.mode]}${pq.mode === "linearPhase" ? `, ${RESOLUTION_NAMES[pq.resolution]} resolution` : ""} (${latency}).`,
     `Output: ${pq.output <= EQ_MIN_OUTPUT ? "silent" : gainText(pq.output)}${pq.autoGain ? `, Auto Gain on (${gainText(autoGain(pq))})` : ""}${pq.pan ? `, pan ${round(pq.pan)} (${pq.panMode === "lr" ? "left/right" : "mid/side"})` : ""}${pq.invert ? ", phase inverted" : ""}; Gain Scale ${Math.round(pq.gainScale * 100)}%${pq.gainQ ? "; Gain-Q interaction on" : ""}. Editing ${pq.ab.toUpperCase()} of A/B.`,
     `Analyzer: ${[pq.analyzer.pre && "pre", pq.analyzer.post && "post"].filter(Boolean).join(" and ") || "off"}, range ${pq.analyzer.range} dB, tilt ${pq.analyzer.tilt} dB/oct.`,

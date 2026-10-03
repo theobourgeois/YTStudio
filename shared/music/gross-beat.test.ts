@@ -277,7 +277,7 @@ describe("compiling", () => {
   it("names its controls for automation clips", () => {
     const song = updateGrossBeat(withGrossBeat(), "fx_gross", { timeSlot: 30 });
     const slot = controlOf(song, { kind: "grossBeat", effect: "fx_gross", control: "timeSlot" });
-    expect(slot).toMatchObject({ name: "Time slot", owner: "Gross Beat (Insert 1)", exists: true });
+    expect(slot).toMatchObject({ name: "Time slot", owner: "YT-Time (Insert 1)", exists: true });
     expect(slot.own).toBeCloseTo(30 / 35);
     expect(slot.format(slot.own!)).toBe("31: 1/2 Speed");
     expect(slot.toControl(1)).toBe(35);

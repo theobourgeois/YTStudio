@@ -197,7 +197,7 @@ describe("what the engine plays", () => {
     const song = withAutoTune();
     expect(targetKey({ kind: "autoTune", effect: FX, control: "flexTune" })).toBe("tune:fx_tune:flexTune");
     const info = controlOf(song, { kind: "autoTune", effect: FX, control: "transpose" });
-    expect(info).toMatchObject({ name: "Transpose", owner: "Auto-Tune (Insert 1)", exists: true, own: 0.5 });
+    expect(info).toMatchObject({ name: "Transpose", owner: "YT-Tune (Insert 1)", exists: true, own: 0.5 });
     expect(info.toControl(1)).toBe(12);
     expect(info.format(0.75)).toBe("+6 st");
     expect(controlOf(song, { kind: "autoTune", effect: FX, control: "key" }).format(9 / 11)).toBe("A");

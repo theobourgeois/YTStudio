@@ -614,9 +614,9 @@ const PANMAN_ITEM: PickerItem = { id: PANMAN_PLUGIN.id, name: PANMAN_PLUGIN.name
 const GROSS_BEAT_ITEM: PickerItem = { id: GROSS_BEAT_PLUGIN.id, name: GROSS_BEAT_PLUGIN.name, detail: "Chops, repeats, half speed, gates", group: BUILT_IN, plugin: null };
 const ECHO_BOY_ITEM: PickerItem = { id: ECHO_BOY_PLUGIN.id, name: ECHO_BOY_PLUGIN.name, detail: "Tape, analogue and digital echoes, 31 styles", group: BUILT_IN, plugin: null };
 const AUTO_TUNE_ITEM: PickerItem = { id: AUTO_TUNE_PLUGIN.id, name: AUTO_TUNE_PLUGIN.name, detail: "Pitch correction, hard tune to natural", group: BUILT_IN, plugin: null };
-const PRO_Q_ITEM: PickerItem = { id: PRO_Q_PLUGIN.id, name: PRO_Q_PLUGIN.name, detail: "FabFilter's EQ: 24 bands, dynamic, linear phase", group: BUILT_IN, plugin: null };
-const OTT_ITEM: PickerItem = { id: OTT_PLUGIN.id, name: OTT_PLUGIN.name, detail: "Xfer's multiband upward and downward compressor", group: BUILT_IN, plugin: null };
-const PRO_C_ITEM: PickerItem = { id: PRO_C_PLUGIN.id, name: PRO_C_PLUGIN.name, detail: "The all-in-one compressor: FabFilter's styles, vintage units, vocals first", group: BUILT_IN, plugin: null };
+const PRO_Q_ITEM: PickerItem = { id: PRO_Q_PLUGIN.id, name: PRO_Q_PLUGIN.name, detail: "Equalizer: 24 bands, dynamic, linear phase", group: BUILT_IN, plugin: null };
+const OTT_ITEM: PickerItem = { id: OTT_PLUGIN.id, name: OTT_PLUGIN.name, detail: "Multiband upward and downward compressor", group: BUILT_IN, plugin: null };
+const PRO_C_ITEM: PickerItem = { id: PRO_C_PLUGIN.id, name: PRO_C_PLUGIN.name, detail: "Compressor: versatile styles, vintage character, vocals first", group: BUILT_IN, plugin: null };
 const REVERB_ITEM: PickerItem = { id: REVERB_PLUGIN.id, name: REVERB_PLUGIN.name, detail: "Reverb: plates, halls and rooms for vocals", group: BUILT_IN, plugin: null };
 const PITCH_WHEEL_ITEM: PickerItem = { id: PITCH_WHEEL_PLUGIN.id, name: PITCH_WHEEL_PLUGIN.name, detail: "Pitch and formants by hand, swings, harmonies from notes", group: BUILT_IN, plugin: null };
 /** Ours, by their picker item's id. */

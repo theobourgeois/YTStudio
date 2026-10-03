@@ -68,8 +68,8 @@ export function Keyboard({ effectId, origin, multi, onOrigin, height = 46 }: { e
         ref={canvas}
         className="block cursor-pointer rounded-sm"
         style={{ width: "100%", height }}
-        aria-label="Keyboard: press a key to play the Pitch Wheel; right-click to make it the origin"
-        title="Press a key: the Pitch Wheel plays it (drag to glide; Shift+click holds one on). Right-click: make it the origin"
+        aria-label="Keyboard: press a key to play the YT-Pitch; right-click to make it the origin"
+        title="Press a key: the YT-Pitch plays it (drag to glide; Shift+click holds one on). Right-click: make it the origin"
         data-testid="wheel-keyboard"
         onContextMenu={(e) => {
           e.preventDefault();

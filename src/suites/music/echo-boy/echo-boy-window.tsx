@@ -123,12 +123,12 @@ function PresetBar({ effectId, eb }: { effectId: string; eb: EchoBoy }) {
         ))}
       </LcdMenu>
       <span className="ml-auto flex items-baseline gap-1.5 pr-1">
-        <span className="text-[13px] font-bold tracking-tight">EchoBoy</span>
+        <span className="text-[13px] font-bold tracking-tight">YT-Delay</span>
         <span className="text-[10px] text-muted-foreground">Analog Echo Processor</span>
       </span>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" aria-label="EchoBoy's options" className={arrow}>
+          <button type="button" aria-label="YT-Delay's options" className={arrow}>
             <PiDotsThreeVertical className="size-3.5" />
           </button>
         </DropdownMenuTrigger>
@@ -319,7 +319,7 @@ function Centre({ effectId, eb }: { effectId: string; eb: EchoBoy }) {
           <button
             type="button"
             aria-label="Tap Tempo"
-            title={eb.followTempo ? "Tap to keep EchoBoy to a tempo of its own (MIDI goes off)" : "Tap in time"}
+            title={eb.followTempo ? "Tap to keep YT-Delay to a tempo of its own (MIDI goes off)" : "Tap in time"}
             className="size-7 rounded-md raised hover:raised-hover active:pressed"
             data-testid="echo-tap"
             onPointerDown={(e) => e.button === 0 && tapTempo(effectId)}
@@ -328,7 +328,7 @@ function Centre({ effectId, eb }: { effectId: string; eb: EchoBoy }) {
             value={Math.round(bpm)}
             min={MIN_ECHO_BPM}
             max={MAX_ECHO_BPM}
-            label="EchoBoy's tempo"
+            label="YT-Delay's tempo"
             text={`${bpm.toFixed(1)} bpm`}
             derived={eb.followTempo}
             className="lcd h-6 w-[88px] rounded border-0 text-[11px]"

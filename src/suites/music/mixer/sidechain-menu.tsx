@@ -155,7 +155,7 @@ export function SidechainToItems({ menu, source }: { menu: MenuParts; source: st
             ))}
             {effects.length > 0 && <Separator />}
             <Item disabled={!possible || track.effects.every(Boolean)} onSelect={() => duckFrom(source, track.id)} data-testid="duck-with-pro-c">
-              Duck with a new Pro-C
+              Duck with a new YT-C
             </Item>
           </SubContent>
         </Sub>

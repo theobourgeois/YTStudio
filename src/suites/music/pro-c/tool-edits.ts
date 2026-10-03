@@ -86,20 +86,20 @@ const percent = (v: number) => `${Math.round(v * 100)}%`;
 export function findProCRef(song: MusicProject, input: Input) {
   const all = proCs(song);
   const list = () =>
-    all.length ? `The song's Pro-Cs: ${all.map((p) => `${p.effect.id} (${trackLabel(song, p.track)}, slot ${p.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "Pro-C" puts one on a track, add_vocal_compression sets up a vocal\'s.';
+    all.length ? `The song's YT-C instances: ${all.map((p) => `${p.effect.id} (${trackLabel(song, p.track)}, slot ${p.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "YT-C" puts one on a track, add_vocal_compression sets up a vocal\'s.';
   if (typeof input.effect === "string" && input.effect.trim()) {
     const found = findProC(song, input.effect.trim());
-    if (!found) throw new Error(`There's no Pro-C "${input.effect}". ${list()}`);
+    if (!found) throw new Error(`There's no YT-C "${input.effect}". ${list()}`);
     return found;
   }
   if (input.track !== undefined && input.track !== "") {
     const track = findTrack(song, input.track);
     const on = all.filter((p) => p.track.id === track.id && (!Number.isInteger(input.effectSlot) || p.slot === (input.effectSlot as number) - 1));
-    if (!on.length) throw new Error(`${trackLabel(song, track)} has no Pro-C${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
+    if (!on.length) throw new Error(`${trackLabel(song, track)} has no YT-C${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
     return on[0];
   }
   if (all.length === 1) return all[0];
-  throw new Error(all.length ? `Say which Pro-C ("effect", or "track"). ${list()}` : list());
+  throw new Error(all.length ? `Say which YT-C ("effect", or "track"). ${list()}` : list());
 }
 
 /** get_pro_c: its style, knobs, curve, side chain, latency; and, while the song plays, what it's doing. */
@@ -109,7 +109,7 @@ export function describeProC(song: MusicProject, input: Input, live?: EngineProC
   const style = PRO_C_STYLE_INFO[proC.style];
   const vintage = isVintage(proC.style);
   const lines = [
-    `Pro-C ${effect.id} on ${trackLabel(song, track)}, slot ${slot + 1}${effect.enabled ? "" : " (bypassed)"}${proC.preset ? `, preset "${proC.preset}"` : ""}${effect.mix < 1 ? `, slot mix ${percent(effect.mix)}` : ""}, A/B on ${proC.slot.toUpperCase()}.`,
+    `YT-C ${effect.id} on ${trackLabel(song, track)}, slot ${slot + 1}${effect.enabled ? "" : " (bypassed)"}${proC.preset ? `, preset "${proC.preset}"` : ""}${effect.mix < 1 ? `, slot mix ${percent(effect.mix)}` : ""}, A/B on ${proC.slot.toUpperCase()}.`,
     `Style ${proC.style} (${style.name}): ${style.detail}.`,
   ];
   const knobs = [
@@ -280,7 +280,7 @@ export function updateProCTool(song: MusicProject, input: Input): EditResult {
     done.push(input.ab === "switch" ? "switched A/B" : "copied to the other side of A/B");
   }
   if (!done.length) throw new Error("Nothing to change: give a preset, a style, a knob (threshold, ratio, attack, release...), options, or ab.");
-  return { song: next, text: `Pro-C ${id}: ${done.join("; ")}.\n${describeProC(next, { effect: id })}` };
+  return { song: next, text: `YT-C ${id}: ${done.join("; ")}.\n${describeProC(next, { effect: id })}` };
 }
 
 /** set_pro_c_sidechain: the trigger, its source track, Host Sync's pulse, level and link. */
@@ -292,7 +292,7 @@ export function setProCSidechainTool(song: MusicProject, input: Input): EditResu
   const trigger = choice(input, "trigger", ["internal", "external", "sync"] as const);
   if (input.source !== undefined && input.source !== "") {
     const source = findTrack(song, input.source);
-    if (source.id === track.id) throw new Error(`${trackLabel(song, source)} is the Pro-C's own track: key it from another one.`);
+    if (source.id === track.id) throw new Error(`${trackLabel(song, source)} is the YT-C's own track: key it from another one.`);
     const tap = choice(input, "tap", SIDECHAIN_TAPS);
     const keyed = setProCSidechain(next, id, source.id, tap);
     if (findProC(keyed, id)!.effect.sidechain?.track !== source.id) throw new Error(`${trackLabel(song, source)} can't key ${trackLabel(song, track)}: ${trackLabel(song, track)}'s sound already reaches it (a loop).`);
@@ -316,7 +316,7 @@ export function setProCSidechainTool(song: MusicProject, input: Input): EditResu
     done.push(Object.keys(sidechain).join(", "));
   }
   if (!done.length) throw new Error("Nothing to change: give trigger, source, level, link, linkMode, or Host Sync's note, offset and length.");
-  return { song: next, text: `Pro-C ${id}'s side chain: ${done.join("; ")}.\n${describeProC(next, { effect: id })}` };
+  return { song: next, text: `YT-C ${id}'s side chain: ${done.join("; ")}.\n${describeProC(next, { effect: id })}` };
 }
 
 /** set_pro_c_bands: the side chain EQ's bands, added, changed or removed. */
@@ -364,7 +364,7 @@ export function setProCBandsTool(song: MusicProject, input: Input): EditResult {
     done.push(`added band ${added.id} (${fields.shape ?? "bell"} at ${Math.round(fields.frequency)} Hz)`);
   }
   if (!done.length) throw new Error('Nothing to change: give "bands" (or "clear").');
-  return { song: next, text: `Pro-C ${id}'s side chain EQ: ${done.join("; ")}.\n${describeProC(next, { effect: id })}` };
+  return { song: next, text: `YT-C ${id}'s side chain EQ: ${done.join("; ")}.\n${describeProC(next, { effect: id })}` };
 }
 
 /** How hard each chain of add_vocal_compression is set: thresholds (dB) for light, medium and heavy. */

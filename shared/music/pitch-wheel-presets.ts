@@ -22,7 +22,7 @@ import {
 } from "./types.ts";
 
 /** What a Pitch Wheel effect is, as a slot's plugin: one of ours, run by the engine itself. */
-export const PITCH_WHEEL_PLUGIN: PluginRef = { id: "vaudio:pitch-wheel", name: "Pitch Wheel", format: "Vaudio" };
+export const PITCH_WHEEL_PLUGIN: PluginRef = { id: "vaudio:pitch-wheel", name: "YT-Pitch", format: "Vaudio" };
 export const isPitchWheel = (plugin: Pick<PluginRef, "id">) => plugin.id === PITCH_WHEEL_PLUGIN.id;
 
 /** How far the actual pitch (or timbre) can go, either way, however it's swung: four octaves. */

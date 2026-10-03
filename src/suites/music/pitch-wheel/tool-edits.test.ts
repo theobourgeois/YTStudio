@@ -20,9 +20,9 @@ describe("the assistant's Pitch Wheel", () => {
     expect(findWheel(s, { effect: "fx_wheel" }).effect.id).toBe("fx_wheel");
     expect(findWheel(s, { track: 2 }).slot).toBe(1);
     expect(findWheel(s, {}).effect.id).toBe("fx_wheel");
-    expect(() => findWheel(s, { track: 1 })).toThrow(/Insert 1.*has no Pitch Wheel.*fx_wheel \(insert 2/i);
-    expect(() => findWheel(s, { effect: "fx_nope" })).toThrow(/There's no Pitch Wheel "fx_nope".*fx_wheel/);
-    expect(() => findWheel(createMusicProject("None"), {})).toThrow(/add_mixer_effect with plugin "Pitch Wheel"/);
+    expect(() => findWheel(s, { track: 1 })).toThrow(/Insert 1.*has no YT-Pitch.*fx_wheel \(insert 2/i);
+    expect(() => findWheel(s, { effect: "fx_nope" })).toThrow(/There's no YT-Pitch "fx_nope".*fx_wheel/);
+    expect(() => findWheel(createMusicProject("None"), {})).toThrow(/add_mixer_effect with plugin "YT-Pitch"/);
   });
 
   it("sets a preset, then the wheels, the Timbre tab and where its notes come from", () => {
@@ -71,7 +71,7 @@ describe("the assistant's Pitch Wheel", () => {
 
   it("says its settings, presets and what the engine heard", () => {
     const text = describePitchWheel(song(), {}, { latency: 2048, pitch: 6.5, timbre: 0, voices: [{ key: 64, pitch: 4 }], input: 0.4, notes: [64] }, true);
-    expect(text).toMatch(/Pitch Wheel fx_wheel, slot 2 of insert 2/i);
+    expect(text).toMatch(/YT-Pitch fx_wheel, slot 2 of insert 2/i);
     expect(text).toContain("Pitch wheel: pointer 0 st, range 24 (±12), snap semitone, gravity 0.75");
     expect(text).toContain("Single (always heard");
     expect(text).toContain("Origin C5 (MIDI 60)");
@@ -79,7 +79,7 @@ describe("the assistant's Pitch Wheel", () => {
     expect(text).toContain("Now (sound is going through it): pitch heard +6.5 st");
     expect(text).toContain("notes held: E5; voices: E5 at +4 st");
     expect(liveText(null, false)).toMatch(/hasn't said/);
-    expect(describeMixer(song(), null)).toContain("Pitch Wheel (Vaudio), effect fx_wheel, pitch 0 semitones, formants kept, single (get_pitch_wheel)");
+    expect(describeMixer(song(), null)).toContain("YT-Pitch (Vaudio), effect fx_wheel, pitch 0 semitones, formants kept, single (get_pitch_wheel)");
   });
 
   it("automates its controls by name, and isn't a plugin's parameters", () => {

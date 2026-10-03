@@ -86,6 +86,7 @@ export function GrossBeatWindow({ effectId, index }: { effectId: string; index: 
     >
       <div className="flex h-full min-h-0 select-none text-xs" data-testid="gross-beat" data-effect={effectId}>
         <aside className="flex w-[330px] shrink-0 flex-col gap-2 overflow-y-auto border-r border-line bg-surface-1 p-2">
+          <span className="shrink-0 px-1 text-[13px] font-semibold tracking-wide">YT-Time</span>
           <TimeHeader effectId={effectId} gb={gb} />
           <SlotGrid effectId={effectId} gb={gb} kind="time" />
           <SlotGrid effectId={effectId} gb={gb} kind="volume" />
@@ -159,7 +160,7 @@ function OptionsMenu({ effectId, gb }: { effectId: string; gb: GrossBeat }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" data-testid="gross-options">
-        <DropdownMenuCheckboxItem checked={false} disabled title="Gross Beat can't hear MIDI yet: pick slots by clicking them, or automate them">
+        <DropdownMenuCheckboxItem checked={false} disabled title="YT-Time can't hear MIDI yet: pick slots by clicking them, or automate them">
           Trigger slots from MIDI notes
         </DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem checked={gb.clickReduction} onCheckedChange={(clickReduction) => set({ clickReduction })}>
@@ -699,7 +700,7 @@ function BottomBar({ effectId, gb }: { effectId: string; gb: GrossBeat }) {
       <StripButton label="Link slots: picking a time slot picks the volume slot of the same number, and back" on={gb.linkSlots} onClick={() => set({ linkSlots: !gb.linkSlots })}>
         <PiLinkSimple className="size-3.5" />
       </StripButton>
-      <StripButton label="Key-held: needs slots triggered from MIDI notes, which Gross Beat can't hear yet" disabled onClick={() => {}}>
+      <StripButton label="Key-held: needs slots triggered from MIDI notes, which YT-Time can't hear yet" disabled onClick={() => {}}>
         <PiPianoKeys className="size-3.5" />
       </StripButton>
       <StripButton label="One-shot: a slot plays once (a bar), then slot 1" on={gb.oneShot} onClick={() => set({ oneShot: !gb.oneShot })}>

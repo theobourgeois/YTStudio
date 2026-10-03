@@ -47,20 +47,20 @@ const hz = (v: number) => (v >= 1000 ? `${round(v / 1000, 2)} kHz` : `${Math.rou
 export function findEcho(song: MusicProject, input: Input) {
   const all = echoBoys(song);
   const list = () =>
-    all.length ? `The song's EchoBoys: ${all.map((e) => `${e.effect.id} (${trackLabel(song, e.track)}, slot ${e.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "EchoBoy" puts one on a track.';
+    all.length ? `The song's YT-Delay instances: ${all.map((e) => `${e.effect.id} (${trackLabel(song, e.track)}, slot ${e.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "YT-Delay" puts one on a track.';
   if (typeof input.effect === "string" && input.effect.trim()) {
     const found = findEchoBoy(song, input.effect.trim());
-    if (!found) throw new Error(`There's no EchoBoy "${input.effect}". ${list()}`);
+    if (!found) throw new Error(`There's no YT-Delay "${input.effect}". ${list()}`);
     return found;
   }
   if (input.track !== undefined && input.track !== "") {
     const track = findTrack(song, input.track);
     const on = all.filter((e) => e.track.id === track.id && (!Number.isInteger(input.effectSlot) || e.slot === (input.effectSlot as number) - 1));
-    if (!on.length) throw new Error(`${trackLabel(song, track)} has no EchoBoy${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
+    if (!on.length) throw new Error(`${trackLabel(song, track)} has no YT-Delay${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
     return on[0];
   }
   if (all.length === 1) return all[0];
-  throw new Error(`Say which EchoBoy ("effect" or "track"). ${list()}`);
+  throw new Error(`Say which YT-Delay ("effect" or "track"). ${list()}`);
 }
 
 const MODE_NAMES = { single: "Single Echo", dual: "Dual Echo", pingPong: "Ping-Pong", rhythm: "Rhythm Echo" } as const;
@@ -72,7 +72,7 @@ const said = (time: EchoTime, bpm: number) => (time.sync === "time" ? timeText(t
 export function describeEchoBoy(song: MusicProject, input: Input): string {
   const { effect, track, slot, echoBoy: eb } = findEcho(song, input);
   const bpm = echoTempo(eb, song.settings.tempo);
-  const lines = [`EchoBoy ${effect.id} on ${trackLabel(song, track)}, slot ${slot + 1}${effect.enabled ? "" : " (bypassed)"}${eb.preset ? `, preset "${eb.preset}"` : ""}.`];
+  const lines = [`YT-Delay ${effect.id} on ${trackLabel(song, track)}, slot ${slot + 1}${effect.enabled ? "" : " (bypassed)"}${eb.preset ? `, preset "${eb.preset}"` : ""}.`];
   lines.push(`Mode: ${MODE_NAMES[eb.mode]}.`);
   if (eb.mode === "single") lines.push(`Echo time: ${said(eb.echo1, bpm)}.`);
   if (eb.mode === "dual") lines.push(`Echo 1 (left): ${said(eb.echo1, bpm)}. Echo 2 (right): ${said(eb.echo2, bpm)}.`);
@@ -155,7 +155,7 @@ export function updateEchoBoyTool(song: MusicProject, input: Input): EditResult 
   if (input.tempo !== undefined) {
     if (input.tempo === "song") tempo = { followTempo: true };
     else if (isFiniteNumber(input.tempo) && input.tempo >= 30 && input.tempo <= 300) tempo = { followTempo: false, bpm: input.tempo };
-    else throw new Error('"tempo" must be "song" (follow the song\'s) or EchoBoy\'s own BPM, 30 to 300.');
+    else throw new Error('"tempo" must be "song" (follow the song\'s) or YT-Delay\'s own BPM, 30 to 300.');
   }
   const patch: EchoBoyPatch = {
     mode: input.mode as EchoBoy["mode"] | undefined,

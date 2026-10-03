@@ -38,20 +38,20 @@ const percent = (v: number) => `${Math.round(v * 100)}%`;
 export function findGross(song: MusicProject, input: Input) {
   const all = grossBeats(song);
   const list = () =>
-    all.length ? `The song's Gross Beats: ${all.map((g) => `${g.effect.id} (${trackLabel(song, g.track)}, slot ${g.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "Gross Beat" puts one on a track.';
+    all.length ? `The song's YT-Time instances: ${all.map((g) => `${g.effect.id} (${trackLabel(song, g.track)}, slot ${g.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "YT-Time" puts one on a track.';
   if (typeof input.effect === "string" && input.effect.trim()) {
     const found = findGrossBeat(song, input.effect.trim());
-    if (!found) throw new Error(`There's no Gross Beat "${input.effect}". ${list()}`);
+    if (!found) throw new Error(`There's no YT-Time "${input.effect}". ${list()}`);
     return found;
   }
   if (input.track !== undefined && input.track !== "") {
     const track = findTrack(song, input.track);
     const on = all.filter((g) => g.track.id === track.id && (!Number.isInteger(input.effectSlot) || g.slot === (input.effectSlot as number) - 1));
-    if (!on.length) throw new Error(`${trackLabel(song, track)} has no Gross Beat${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
+    if (!on.length) throw new Error(`${trackLabel(song, track)} has no YT-Time${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
     return on[0];
   }
   if (all.length === 1) return all[0];
-  throw new Error(`Say which Gross Beat ("effect" or "track"). ${list()}`);
+  throw new Error(`Say which YT-Time ("effect" or "track"). ${list()}`);
 }
 
 const kindOf = (value: unknown): GrossKind => {
@@ -88,7 +88,7 @@ export function describeEnvelope(points: readonly AutomationPoint[], kind: Gross
 export function describeGrossBeat(song: MusicProject, input: Input): string {
   const { track, slot, effect, grossBeat: gb } = findGross(song, input);
   const lines = [
-    `Gross Beat ${effect.id}, slot ${slot + 1} of ${trackLabel(song, track)}${effect.enabled ? "" : " (bypassed)"}${effect.mix < 1 ? `, slot mix ${percent(effect.mix)}` : ""}.`,
+    `YT-Time ${effect.id}, slot ${slot + 1} of ${trackLabel(song, track)}${effect.enabled ? "" : " (bypassed)"}${effect.mix < 1 ? `, slot mix ${percent(effect.mix)}` : ""}.`,
     `Playing: time slot ${gb.timeSlot + 1} "${grossSlot(gb, "time", gb.timeSlot).name}", volume slot ${gb.volumeSlot + 1} "${grossSlot(gb, "volume", gb.volumeSlot).name}".`,
     `Knobs: time ${percent(gb.timeMix)}, volume ${percent(gb.volumeMix)}, attack ${Math.round(gb.attack * 1000)} ms, release ${Math.round(gb.release * 1000)} ms, tension ${round(gb.tension)}.`,
     `Options: link slots ${gb.linkSlots ? "on" : "off"}, one-shot ${gb.oneShot ? "on" : "off"}, HOLD ${gb.hold}, trig sync ${syncText(gb.trigSync)}, pos sync ${syncText(gb.posSync)}, ` +
@@ -152,7 +152,7 @@ export function updateGrossBeatTool(song: MusicProject, input: Input): EditResul
   const now = findGrossBeat(next, effect.id)!.grossBeat;
   return {
     song: next,
-    text: `Gross Beat ${effect.id}: time slot ${now.timeSlot + 1} "${grossSlot(now, "time", now.timeSlot).name}", volume slot ${now.volumeSlot + 1} "${grossSlot(now, "volume", now.volumeSlot).name}", time ${percent(now.timeMix)}, volume ${percent(now.volumeMix)}.`,
+    text: `YT-Time ${effect.id}: time slot ${now.timeSlot + 1} "${grossSlot(now, "time", now.timeSlot).name}", volume slot ${now.volumeSlot + 1} "${grossSlot(now, "volume", now.volumeSlot).name}", time ${percent(now.timeMix)}, volume ${percent(now.volumeMix)}.`,
   };
 }
 

@@ -221,7 +221,7 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "gross release":
     case "gross tension": {
       const { track, effect } = effectAt(song, input);
-      if (!effect.grossBeat) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Gross Beat: a "${control}" is Gross Beat's.`);
+      if (!effect.grossBeat) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a YT-Time: a "${control}" is YT-Time's.`);
       return { kind: "grossBeat", effect: effect.id, control: GROSS_CONTROLS[control] };
     }
     case "retune speed":
@@ -241,7 +241,7 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "vibrato amplitude":
     case "vibrato formant": {
       const { track, effect } = effectAt(song, input);
-      if (!effect.autoTune) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an Auto-Tune: "${control}" is Auto-Tune's.`);
+      if (!effect.autoTune) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a YT-Tune: "${control}" is YT-Tune's.`);
       return { kind: "autoTune", effect: effect.id, control: TUNE_CONTROLS[control] };
     }
     case "echo mix":
@@ -283,7 +283,7 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "echo decay sat":
     case "echo out sat": {
       const { track, effect } = effectAt(song, input);
-      if (!effect.echoBoy) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an EchoBoy: an "${control}" is EchoBoy's.`);
+      if (!effect.echoBoy) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a YT-Delay: an "${control}" is YT-Delay's.`);
       return { kind: "echoBoy", effect: effect.id, control: ECHO_TOOL_CONTROLS[control as EchoToolControl] };
     }
     case "eq frequency":
@@ -294,10 +294,10 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "eq pan":
     case "eq gain scale": {
       const { track, effect } = effectAt(song, input);
-      if (!effect.proQ) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Pro-Q: an "${control}" is Pro-Q's.`);
+      if (!effect.proQ) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a YT-EQ: an "${control}" is YT-EQ's.`);
       if (control === "eq output" || control === "eq pan" || control === "eq gain scale") return { kind: "proQ", effect: effect.id, band: 0, control: EQ_TOOL_CONTROLS[control] };
       const band = effect.proQ.bands.find((b) => b.id === Number(input.band));
-      if (!band) throw new Error(`Give the Pro-Q's "band" (its number): it has ${effect.proQ.bands.map((b) => b.id).join(", ") || "no bands yet (set_pro_q_bands adds them)"}.`);
+      if (!band) throw new Error(`Give the YT-EQ's "band" (its number): it has ${effect.proQ.bands.map((b) => b.id).join(", ") || "no bands yet (set_pro_q_bands adds them)"}.`);
       return { kind: "proQ", effect: effect.id, band: band.id, control: EQ_TOOL_CONTROLS[control] };
     }
     case "ott depth":
@@ -313,7 +313,7 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "ott mid gain":
     case "ott high gain": {
       const { track, effect } = effectAt(song, input);
-      if (!effect.ott) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an OTT: an "${control}" is OTT's.`);
+      if (!effect.ott) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a YT-Multiband: an "${control}" is YT-Multiband's.`);
       return { kind: "ott", effect: effect.id, control: OTT_TOOL_CONTROLS[control as OttToolControl] };
     }
     case "pro-c threshold":
@@ -332,7 +332,7 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "pro-c output":
     case "pro-c emphasis": {
       const { track, effect } = effectAt(song, input);
-      if (!effect.proC) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Pro-C: a "${control}" is Pro-C's.`);
+      if (!effect.proC) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a YT-C: a "${control}" is YT-C's.`);
       return { kind: "proC", effect: effect.id, control: PRO_C_TOOL_CONTROLS[control as ProCToolControl] };
     }
     case "panman offset":
@@ -354,7 +354,7 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "panman width mod":
     case "panman rate mod": {
       const { track, effect } = effectAt(song, input);
-      if (!effect.panMan) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a PanMan: a "${control}" is PanMan's.`);
+      if (!effect.panMan) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a YT-Pan: a "${control}" is YT-Pan's.`);
       return { kind: "panMan", effect: effect.id, control: PAN_CONTROLS_BY_NAME[control] };
     }
     case "wheel pitch":
@@ -366,7 +366,7 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "wheel timbre inertia":
     case "wheel timbre smooth": {
       const { track, effect } = effectAt(song, input);
-      if (!effect.pitchWheel) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Pitch Wheel: "${control}" is Pitch Wheel's.`);
+      if (!effect.pitchWheel) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a YT-Pitch: "${control}" is YT-Pitch's.`);
       return { kind: "pitchWheel", effect: effect.id, control: WHEEL_CONTROL_NAMES[control] };
     }
     case "parameter": {

@@ -198,7 +198,7 @@ describe("in the engine", () => {
   it("names its controls for automation", () => {
     const song = withWheel();
     const control = controlOf(song, { kind: "pitchWheel", effect: FX, control: "pitch" });
-    expect(control).toMatchObject({ name: "Pitch", owner: "Pitch Wheel (Insert 1)", exists: true, own: 0.5 });
+    expect(control).toMatchObject({ name: "Pitch", owner: "YT-Pitch (Insert 1)", exists: true, own: 0.5 });
     expect(control.format(0.75)).toBe("+12.00 st");
     expect(targetKey({ kind: "pitchWheel", effect: FX, control: "timbreSmooth" })).toBe(`wheel:${FX}:timbreSmooth`);
     expect(controlOf(song, { kind: "pitchWheel", effect: "fx_gone", control: "pitch" }).exists).toBe(false);

@@ -95,7 +95,7 @@ export function drawPanel(ctx: CanvasRenderingContext2D, scene: GrossScene) {
   ctx.textBaseline = "bottom";
   ctx.globalAlpha = 0.09;
   ctx.fillStyle = palette.foreground;
-  ctx.fillText("Gross Beat", width - 10, height - 6);
+  ctx.fillText("YT-Time", width - 10, height - 6);
   ctx.restore();
 
   drawEnvelope(ctx, scene);

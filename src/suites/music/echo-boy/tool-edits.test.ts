@@ -16,8 +16,8 @@ describe("the assistant's EchoBoy", () => {
     expect(findEcho(s, { effect: "fx_echo" }).effect.id).toBe("fx_echo");
     expect(findEcho(s, { track: 2 }).slot).toBe(3);
     expect(findEcho(s, {}).effect.id).toBe("fx_echo");
-    expect(() => findEcho(s, { track: 1 })).toThrow(/has no EchoBoy.*fx_echo/);
-    expect(() => findEcho(createMusicProject("None"), {})).toThrow(/add_mixer_effect with plugin "EchoBoy"/);
+    expect(() => findEcho(s, { track: 1 })).toThrow(/has no YT-Delay.*fx_echo/);
+    expect(() => findEcho(createMusicProject("None"), {})).toThrow(/add_mixer_effect with plugin "YT-Delay"/);
   });
 
   it("says what it is, at the tempo, and what can be chosen", () => {

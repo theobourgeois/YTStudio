@@ -23,21 +23,21 @@ export function findWheel(song: MusicProject, input: Input) {
   const all = pitchWheels(song);
   const list = () =>
     all.length
-      ? `The song's Pitch Wheels: ${all.map((w) => `${w.effect.id} (${trackLabel(song, w.track)}, slot ${w.slot + 1})`).join(", ")}.`
-      : 'The song has none: add_mixer_effect with plugin "Pitch Wheel" puts one on a track.';
+      ? `The song's YT-Pitch instances: ${all.map((w) => `${w.effect.id} (${trackLabel(song, w.track)}, slot ${w.slot + 1})`).join(", ")}.`
+      : 'The song has none: add_mixer_effect with plugin "YT-Pitch" puts one on a track.';
   if (typeof input.effect === "string" && input.effect.trim()) {
     const found = findPitchWheel(song, input.effect.trim());
-    if (!found) throw new Error(`There's no Pitch Wheel "${input.effect}". ${list()}`);
+    if (!found) throw new Error(`There's no YT-Pitch "${input.effect}". ${list()}`);
     return found;
   }
   if (input.track !== undefined && input.track !== "") {
     const track = findTrack(song, input.track);
     const on = all.filter((w) => w.track.id === track.id && (!Number.isInteger(input.effectSlot) || w.slot === (input.effectSlot as number) - 1));
-    if (!on.length) throw new Error(`${trackLabel(song, track)} has no Pitch Wheel${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
+    if (!on.length) throw new Error(`${trackLabel(song, track)} has no YT-Pitch${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
     return on[0];
   }
   if (all.length === 1) return all[0];
-  throw new Error(`Say which Pitch Wheel ("effect" or "track"). ${list()}`);
+  throw new Error(`Say which YT-Pitch ("effect" or "track"). ${list()}`);
 }
 
 const semis = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100) / 100} st`;
@@ -87,7 +87,7 @@ export function liveText(live: EnginePitchWheelState | null, now: boolean): stri
 export function describePitchWheel(song: MusicProject, input: Input, live: EnginePitchWheelState | null = null, now = false): string {
   const { track, slot, effect, pitchWheel: pw } = findWheel(song, input);
   return [
-    `Pitch Wheel ${effect.id}, slot ${slot + 1} of ${trackLabel(song, track)}${effect.enabled ? "" : " (bypassed)"}${effect.mix < 1 ? `, slot mix ${Math.round(effect.mix * 100)}%` : ""}.`,
+    `YT-Pitch ${effect.id}, slot ${slot + 1} of ${trackLabel(song, track)}${effect.enabled ? "" : " (bypassed)"}${effect.mix < 1 ? `, slot mix ${Math.round(effect.mix * 100)}%` : ""}.`,
     ...settingsText(song, pw),
     `Preset: ${currentPreset(pw) ?? "none (custom)"}. Presets: ${PITCH_WHEEL_PRESETS.map((p) => `${p.name} (${p.detail})`).join("; ")}.`,
     liveText(live, now),
@@ -177,6 +177,6 @@ export function updatePitchWheelTool(song: MusicProject, input: Input): EditResu
   if (now.midiMode === "multi" && !now.notesFrom) warnings.push("Multi with no channel's notes is silent until notes play it: set notesFrom.");
   return {
     song: next,
-    text: [`Pitch Wheel ${effect.id}${next === song ? " (already so)" : ""}:`, ...settingsText(next, now), `Preset: ${currentPreset(now) ?? "custom"}.`, ...warnings].join(" "),
+    text: [`YT-Pitch ${effect.id}${next === song ? " (already so)" : ""}:`, ...settingsText(next, now), `Preset: ${currentPreset(now) ?? "custom"}.`, ...warnings].join(" "),
   };
 }

@@ -139,8 +139,7 @@ function TopBar({ effectId, pq }: { effectId: string; pq: ProQ }) {
   return (
     <div className="flex h-8 shrink-0 items-center gap-1 bg-[var(--eq-bar)] px-2" data-testid="pro-q-top">
       <span className="mr-3 font-semibold tracking-wide">
-        <span className="text-[var(--eq-curve)]">Pro·Q</span>
-        <sup className="ml-0.5 text-[9px] text-[var(--eq-curve)]">3</sup>
+        <span className="text-[var(--eq-curve)]">YT-EQ</span>
       </span>
       <button type="button" aria-label="Undo" className={button} disabled={!history || !canUndo(history)} onClick={() => useMusic.getState().undo()}>
         <PiArrowArcLeft className="size-3.5" />
@@ -336,7 +335,7 @@ function AnalyzerButton({ effectId, pq }: { effectId: string; pq: ProQ }) {
           </button>
         </div>
         <div className="space-y-1">
-          <div className="text-[10px] text-[var(--eq-label)]">External spectrum (another Pro-Q's, after it)</div>
+          <div className="text-[10px] text-[var(--eq-label)]">External spectrum (another YT-EQ's, after it)</div>
           <div className="flex flex-wrap gap-1">
             <button type="button" className={toggle(a.external === null)} onClick={() => set({ external: null })}>
               Off
@@ -346,7 +345,7 @@ function AnalyzerButton({ effectId, pq }: { effectId: string; pq: ProQ }) {
                 {o.name}
               </button>
             ))}
-            {!others.length && <span className="text-[10px] text-[var(--eq-label)]">(no other Pro-Q in the song)</span>}
+            {!others.length && <span className="text-[10px] text-[var(--eq-label)]">(no other YT-EQ in the song)</span>}
           </div>
         </div>
         <div className="flex flex-wrap gap-1">

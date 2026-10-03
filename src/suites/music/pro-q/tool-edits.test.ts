@@ -38,7 +38,7 @@ describe("the assistant's Pro-Q", () => {
     expect(() => setProQBandsTool(s, { bands: [{ shape: "notch", frequency: 100, range: -3 }] })).toThrow(/can't be dynamic/);
     expect(() => setProQBandsTool(s, { bands: [{ band: 1, slope: "brickwall" }] })).toThrow(/takes slopes 12, 18/);
     expect(() => setProQBandsTool(s, { bands: [{ gain: 3 }] })).toThrow(/give its "frequency"/);
-    expect(() => findEq(createMusicProject("None", 120), {})).toThrow(/add_mixer_effect with plugin "Pro-Q"/);
+    expect(() => findEq(createMusicProject("None", 120), {})).toThrow(/add_mixer_effect with plugin "YT-EQ"/);
   });
 
   it("finds a Pro-Q by track, and asks which when there are several", () => {
@@ -46,7 +46,7 @@ describe("the assistant's Pro-Q", () => {
     const insert = s.mixer.tracks[1].id;
     s = setEffect(s, insert, 0, PRO_Q_PLUGIN, "fx_two");
     expect(findEq(s, { track: 1 }).effect.id).toBe("fx_two");
-    expect(() => findEq(s, {})).toThrow(/Say which Pro-Q/);
+    expect(() => findEq(s, {})).toThrow(/Say which YT-EQ/);
   });
 
   it("sets the mode, output and Gain Scale, loads presets, switches A/B; and reads it all back", () => {

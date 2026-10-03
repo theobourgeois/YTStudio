@@ -453,7 +453,7 @@ export const setSidechainTool: SongEdit = (song, input) => {
   const slot = slotOf(input);
   const effect = effectIn(song, track, slot);
   const tap = tapOf(input);
-  if (!takesKey(effect)) throw new Error(`${effect.plugin.name} has no side chain: Pro-C, Pro-Q and plugins with a sidechain input hear a key.`);
+  if (!takesKey(effect)) throw new Error(`${effect.plugin.name} has no side chain: YT-C, YT-EQ and plugins with a sidechain input hear a key.`);
   if (input.source === "none" || input.source === null) {
     if (!effect.sidechain) return { song, text: `${effect.plugin.name} in slot ${slot + 1} of ${label(song, track)} has no key.` };
     return { song: setSidechain(song, effect.id, null), text: `${effect.plugin.name} in slot ${slot + 1} of ${label(song, track)} hears no key now.` };
@@ -476,7 +476,7 @@ export const duckWithSidechainTool = (song: MusicProject, input: Input, effectId
   const next = duckWithProC(song, source.id, track.id, effectId, tapOf(input));
   if (!next) throw new Error(`${label(song, source)} can't key ${label(song, track)}: ${label(song, track)}'s sound already reaches it (a loop).`);
   const slot = getMixerTrack(next, track.id)!.effects.findIndex((e) => e?.id === effectId);
-  return { song: next, text: `Pro-C ${effectId} in slot ${slot + 1} of ${label(next, track)} ducks it to ${label(next, source)} (preset "${DUCK_PRESET}"). update_pro_c sets how deep (threshold) and how long (release).` };
+  return { song: next, text: `YT-C ${effectId} in slot ${slot + 1} of ${label(next, track)} ducks it to ${label(next, source)} (preset "${DUCK_PRESET}"). update_pro_c sets how deep (threshold) and how long (release).` };
 };
 
 const keyOf = (song: MusicProject, effectId: string) => findSlot(song, effectId)?.effect.sidechain;

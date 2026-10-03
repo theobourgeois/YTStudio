@@ -91,6 +91,7 @@ function TopBar({ effectId, pw }: { effectId: string; pw: PitchWheel }) {
   const copied = useWheelUi((s) => s.copiedState !== null);
   return (
     <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-line bg-surface-2 px-2">
+      <span className="shrink-0 px-1 text-[13px] font-semibold tracking-wide">YT-Pitch</span>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button type="button" className="flex h-7 w-52 items-center gap-1.5 rounded-sm px-2 raised hover:raised-hover" aria-label={`Preset: ${preset ?? "Custom"}`} data-testid="wheel-preset">

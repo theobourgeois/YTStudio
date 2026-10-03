@@ -21,7 +21,7 @@ import {
 } from "./types.ts";
 
 /** What an Auto-Tune effect is, as a slot's plugin: one of ours, run by the engine itself. */
-export const AUTO_TUNE_PLUGIN: PluginRef = { id: "vaudio:auto-tune", name: "Auto-Tune", format: "Vaudio" };
+export const AUTO_TUNE_PLUGIN: PluginRef = { id: "vaudio:auto-tune", name: "YT-Tune", format: "Vaudio" };
 export const isAutoTune = (plugin: Pick<PluginRef, "id">) => plugin.id === AUTO_TUNE_PLUGIN.id;
 
 /**
