@@ -345,6 +345,7 @@ export const linkGroup = (groupId: string, linked: boolean) => commit((doc) => s
 
 /** Rename a track, or every selected track if it's one of them (the same name for all). */
 export const renameTrack = (id: string, name: string) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { name }));
+export const renameAndColorTrack = (id: string, name: string, color: string | null) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { name, color }));
 
 /** Dock a track, or every selected track if it's one of them, to the mixer's left, middle or right (never the master). */
 export const dockTracks = (id: string, dock: MixerDock) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { dock }));

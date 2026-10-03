@@ -33,8 +33,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Popover as PopoverPrimitive } from "radix-ui";
-import { Popover, PopoverContent } from "@/components/ui/popover";
+import { NameColorEditor } from "../name-color-editor";
 import { Input } from "@/components/ui/input";
 import { PERCENT, SongKnob, panText, percent } from "../knob";
 import { songGesture, useMusic, useSong } from "../store";
@@ -54,7 +53,7 @@ import {
   deleteTracks,
   moveSelectedTracks,
   pasteTrackStateOnto,
-  renameTrack,
+  renameAndColorTrack,
   routeSelectedChannels,
   routeSelectedTracksTo,
   selectChannelsOn,
@@ -662,38 +661,11 @@ function TrackFader({ track, name, selected }: { track: MixerTrack; name: string
  * clicking away does too if it was changed; Escape doesn't. An empty name goes back to the track's number.
  */
 function RenameField({ track, name }: { track: MixerTrack; name: string }) {
-  const initial = track.name ?? name;
-  const finished = useRef(false);
-  const done = (value: string | null) => {
-    // Once: the field's blur as it goes away comes after Enter or Escape.
-    if (finished.current) return;
-    finished.current = true;
-    if (value !== null) renameTrack(track.id, value);
-    useMixerView.getState().rename(null);
-  };
   return (
-    <Popover open onOpenChange={(open) => !open && done(null)}>
-      <PopoverPrimitive.Anchor asChild>
-        <span className="text-[11px] leading-none [writing-mode:vertical-rl] rotate-180" style={{ color: "var(--mixer-name)" }}>{name}</span>
-      </PopoverPrimitive.Anchor>
-      <PopoverContent side="right" align="start" className="w-56" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onEscapeKeyDown={() => done(null)}>
-        <label className="mb-2 block text-xs font-medium" htmlFor={`track-name-${track.id}`}>Track name</label>
-        <Input
-          id={`track-name-${track.id}`}
-          autoFocus
-          aria-label="Track name"
-          defaultValue={initial}
-          className="h-8 bg-surface-1 text-xs"
-          onFocus={(e) => e.currentTarget.select()}
-          onBlur={(e) => done(e.currentTarget.value !== initial ? e.currentTarget.value : null)}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Enter") done(e.currentTarget.value);
-            if (e.key === "Escape") done(null);
-          }}
-        />
-      </PopoverContent>
-    </Popover>
+    <NameColorEditor name={track.name ?? name} color={track.color} label="Track name"
+      onSave={(name, color) => renameAndColorTrack(track.id, name, color)} onClose={() => useMixerView.getState().rename(null)}>
+      <span className="text-[11px] leading-none [writing-mode:vertical-rl] rotate-180" style={{ color: "var(--mixer-name)" }}>{name}</span>
+    </NameColorEditor>
   );
 }
 
@@ -707,7 +679,7 @@ function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: 
   return (
     <ContextMenuContent>
       <ContextMenuItem onSelect={() => setTimeout(() => useMixerView.getState().rename(id), 0)}>
-        Rename… <ContextMenuShortcut>⇧⌘N</ContextMenuShortcut>
+        Rename and color… <ContextMenuShortcut>⇧⌘N</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSub>
         <ContextMenuSubTrigger>Colour</ContextMenuSubTrigger>

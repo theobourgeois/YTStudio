@@ -601,15 +601,12 @@ test("a channel is renamed and coloured from its menu; a sampler's loop, filter,
 
   // Its menu: Rename… makes its button a box to type in; Color tints it.
   await channelButton(page, "Kick").click({ button: "right" });
-  await page.getByTestId("channel-menu").getByRole("menuitem", { name: "Rename…" }).click();
+  await page.getByTestId("channel-menu").getByRole("menuitem", { name: "Rename and color…" }).click();
   const box = page.getByRole("textbox", { name: "Channel name" });
   await box.fill("Big kick");
-  await box.press("Enter");
-  await expect(row(page, "Big kick")).toBeVisible();
-  await channelButton(page, "Big kick").click({ button: "right" });
-  await page.getByTestId("channel-menu").getByRole("menuitem", { name: "Color" }).hover();
   await page.getByRole("radio", { name: "#3f5ea8" }).click();
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(row(page, "Big kick")).toBeVisible();
   await expect.poll(async () => (await kick())?.color).toBe("#3f5ea8");
   await expect(channelButton(page, "Big kick")).toHaveAttribute("data-color", "#3f5ea8");
 
