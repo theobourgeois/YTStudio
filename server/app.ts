@@ -1,3 +1,9 @@
+import { inspectPreview } from "./preview-media.ts";
+import fs from "node:fs/promises";
+import { ProjectPreviews } from "./project-previews.ts";
+import { renderSongPreview } from "./music/project-preview.ts";
+import type { MusicProject } from "../shared/music/types.ts";
+import type { Project } from "../shared/types.ts";
 import path from "node:path";
 import express, { type ErrorRequestHandler, type Express, type Response } from "express";
 import type { HostWindow } from "../shared/music/engine.ts";
@@ -127,6 +133,20 @@ export async function createApp({
   saveStates = () => engine.saveStates().catch(() => {});
   const musicExports = new MusicExports(paths, engine, { samplePath: engineOptions?.samplePath ?? samplePath, adopt: adoptTake, ...musicExportOptions });
 
+  const previews = new ProjectPreviews(paths, projects, {
+    video: async (_id, doc, folder, signal, inputs) => {
+      const project = doc as Project;
+      if (!project.clips.length) return null;
+      const rendered = await exports.preview(project, inputs.texts ?? {}, signal);
+      const file = path.join(folder, "preview.mp4");
+      try { await fs.copyFile(rendered, file); } finally { await fs.rm(rendered, { force: true }); }
+      return file;
+    },
+    music: (id, doc, folder, signal) => renderSongPreview(paths, {
+      samplePath, projectDir: (projectId) => projects.dir(projectId), ...engineOptions,
+    }, id, doc as MusicProject, folder, signal),
+  }, inspectPreview);
+
   const browser = new SampleBrowser(paths);
   await browser.load();
 
@@ -144,7 +164,7 @@ export async function createApp({
     next();
   });
 
-  app.use("/api/projects", projectRoutes(projects, (id) => assistant.remove(id)));
+  app.use("/api/projects", projectRoutes(projects, previews, (id) => assistant.remove(id)));
   app.use("/api/media", mediaRoutes(library, projects));
   app.use("/api/web", webRoutes(web, projects));
   app.use("/api/library", libraryRoutes(shared));
@@ -216,6 +236,7 @@ export async function createApp({
     app,
     setHostWindow: (host) => engine.setHost(host),
     shutdown() {
+      previews.shutdown();
       projects.shutdown();
       library.shutdown();
       libraryMedia.shutdown();

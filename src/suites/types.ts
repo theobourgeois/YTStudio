@@ -2,7 +2,7 @@ import type { ComponentType } from "react";
 import type { IconType } from "react-icons";
 import type { SuiteId } from "@shared/suites";
 import type { ToolResult } from "@shared/tool-spec";
-import type { SuiteProjectSummary } from "@shared/types";
+import type { SuiteProjectSummary, TextLayoutAt } from "@shared/types";
 
 /** A tool call to run in this tab (see `src/assistant/bridge.ts`). */
 export interface ToolRunContext {
@@ -54,6 +54,8 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
    * Load a project into the suite's store. `useProjects` closes the previous project's suite first, and
    * calls `open` again with another id to switch (the suite drops a load that's been overtaken).
    */
+  /** Layouts needed to render a saved project without opening its editor. */
+  previewInputs?(projectId: string): Promise<{ texts?: Record<string, TextLayoutAt[]> }>;
   open(projectId: string): Promise<void>;
   /** Close its project (saving it first), cancelling a load in progress. */
   close(): Promise<void>;

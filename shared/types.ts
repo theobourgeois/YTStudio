@@ -396,6 +396,18 @@ interface ProjectSummaryBase {
   thumbnail: string | null;
 }
 
+/** A cached rendition of the first 30 seconds of the saved project. */
+export interface ProjectPreview {
+  revision: number;
+  state: "idle" | "queued" | "rendering" | "ready" | "empty" | "error";
+  src?: string;
+  poster?: string;
+  duration?: number;
+  /** Small, normalised amplitude buckets of the rendered mix, not its source samples. */
+  peaks?: number[];
+  error?: string;
+}
+
 /** What the Home screen knows of each suite's projects without opening them (see `server/suites/`). */
 export interface SuiteSummaries {
   video: {

@@ -1,3 +1,4 @@
+import { ProjectPreviewPicture } from "./project-preview";
 import { memo, useState, type ComponentType, type ReactNode } from "react";
 import {
   PiCheckCircle,
@@ -194,7 +195,6 @@ export const ProjectCard = memo(function ProjectCard({ project, now }: ProjectCa
 
 /** Its picture (a video's first frame), else its suite's icon; a missing one says what to do. */
 function Picture({ project }: { project: ProjectSummary }) {
-  const { icon: Icon, tint } = clientSuite(project.suite);
   if (project.missing) {
     return (
       <div className="flex aspect-[16/10] flex-col items-center justify-center gap-2 bg-sunken px-4 text-center">
@@ -211,25 +211,7 @@ function Picture({ project }: { project: ProjectSummary }) {
       </div>
     );
   }
-  return (
-    <div className={cn("relative grid aspect-[16/10] place-items-center overflow-hidden", project.thumbnail ? "bg-black" : tint)}>
-      {project.thumbnail ? (
-        <>
-          {/* Blurred behind, so a tall video's frame fills the card without being cropped. */}
-          <img src={project.thumbnail} alt="" draggable={false} className="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-md" />
-          <img src={project.thumbnail} alt="" draggable={false} className="relative h-full object-contain" />
-        </>
-      ) : (
-        <>
-          {/* A faint grid of its suite's colour, so a picture-less card still reads as a document. */}
-          <span aria-hidden className="absolute inset-0 bg-[linear-gradient(to_right,currentColor_1px,transparent_1px),linear-gradient(to_bottom,currentColor_1px,transparent_1px)] [background-size:22px_22px] opacity-[0.07]" />
-          <span className="raised relative grid size-14 place-items-center rounded-md">
-            <Icon className="size-8" />
-          </span>
-        </>
-      )}
-    </div>
-  );
+  return <ProjectPreviewPicture project={project} />;
 }
 
 function SuiteBadge({ project }: { project: ProjectSummary }) {
