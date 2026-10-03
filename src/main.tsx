@@ -4,9 +4,11 @@ import "./index.css";
 import App from "./App";
 import { exposeDesktopHooks } from "./lib/desktop";
 import { trackKeyboardNavigation } from "./lib/focus-rings";
+import { useAppIcon } from "./stores/app-icon";
 
 exposeDesktopHooks();
 trackKeyboardNavigation();
+void useAppIcon.getState().init();
 
 // The component gallery (src/gallery/), in development only: every control in every state, per theme.
 const Gallery = import.meta.env.DEV && location.pathname === "/gallery" ? lazy(() => import("./gallery/gallery")) : null;

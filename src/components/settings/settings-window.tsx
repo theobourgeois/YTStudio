@@ -17,7 +17,7 @@ export const SETTINGS_KEYS = `${MOD},`;
 
 /** A tab's name, the line at the top of it, and its icon. */
 function sectionInfo(section: SettingsSection) {
-  if (section === "general") return { title: "General", description: "How the whole app looks: its theme and its fonts.", icon: PiGearSix, tint: "bg-surface-3 text-muted-foreground" };
+  if (section === "general") return { title: "General", description: "How the whole app looks: its theme, app icon and fonts.", icon: PiGearSix, tint: "bg-surface-3 text-muted-foreground" };
   const suite = clientSuite(section);
   return { title: suite.settings.title, description: suite.settings.description, icon: suite.icon, tint: suite.tint };
 }

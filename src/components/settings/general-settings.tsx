@@ -3,6 +3,7 @@ import { cn } from "cn";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type FontChoice, FONTS, MONO_FONTS, THEMES, type ThemeChoice, type ThemeId, themeClasses, useTheme } from "@/stores/theme";
 import { SettingsBlock, SettingsGroup, SettingsRow } from "./settings-ui";
+import { AppIconPicker } from "./app-icon-picker";
 
 /** Settings' own section: how the whole app looks, whichever suite is open. */
 export function GeneralSettings() {
@@ -13,6 +14,7 @@ export function GeneralSettings() {
           <ThemePicker />
         </SettingsBlock>
       </SettingsGroup>
+      <AppIconPicker />
       <SettingsGroup title="Text">
         <FontRow title="Interface font" description="Menus, panels, labels and the assistant's chat." fonts={FONTS} which="font" />
         <FontRow title="Numbers and code" description="Times, values, the position and tempo displays, expressions." fonts={MONO_FONTS} which="monoFont" />
