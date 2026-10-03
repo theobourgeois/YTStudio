@@ -1,4 +1,4 @@
-import { musicApi } from "./api";
+import { focusMusicWindowElement } from "./window-focus";
 import { create } from "zustand";
 import type { TrackState } from "@shared/music/mixer";
 import type { Channel, MusicProject, Note } from "@shared/music/types";
@@ -172,32 +172,27 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   setRackSteps: (steps) => set({ rackSteps: Math.max(MIN_RACK_STEPS, Math.round(steps)) }),
   setGraphOpen: (graphOpen) => set({ graphOpen }),
   setRackOpen(rackOpen) {
-    if (rackOpen) windows().focus("rack");
+    if (rackOpen) { windows().focus("rack"); focusMusicWindowElement("rack"); }
     set({ rackOpen });
   },
 
   setPianoOpen(pianoOpen) {
     if (pianoOpen) {
       windows().focus("piano");
-      // The native editors float above Electron until explicitly lowered.
-      void musicApi.engine("lowerEditors", {}).catch(() => {}).then(() => window.editorDesktopInfo?.focusEditor?.());
-      requestAnimationFrame(() => {
-        const piano = document.querySelector<HTMLElement>('[data-window="piano"]');
-        if (piano) { piano.tabIndex = -1; piano.focus({ preventScroll: true }); }
-      });
+      focusMusicWindowElement("piano");
     }
     else windows().remove("piano");
     set({ pianoOpen });
   },
 
   setPlaylistOpen(playlistOpen) {
-    if (playlistOpen) windows().focus("playlist");
+    if (playlistOpen) { windows().focus("playlist"); focusMusicWindowElement("playlist"); }
     else windows().remove("playlist");
     set({ playlistOpen });
   },
 
   setMixerOpen(mixerOpen) {
-    if (mixerOpen) windows().focus("mixer");
+    if (mixerOpen) { windows().focus("mixer"); focusMusicWindowElement("mixer"); }
     set({ mixerOpen });
   },
   setRackGroup: (rackGroup) => set({ rackGroup }),

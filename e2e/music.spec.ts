@@ -83,6 +83,44 @@ test("a song opens on the Playlist, filling the desktop, with the channel rack o
   expect(await z("rack")).toBeGreaterThan(await z("playlist"));
 });
 
+test("activating music windows returns focus and lowers native plugin editors without stealing control focus", async ({ page }) => {
+  const projectId = await openNewSong(page, "Window focus");
+  await page.getByTestId("channel-rack").getByRole("button", { name: "Add a channel" }).click();
+  await page.getByTestId("channel-picker").getByRole("option", { name: "Fake Synth" }).click();
+  await expect(channelButton(page, "Fake Synth")).toHaveAttribute("aria-expanded", "true");
+  const channel = (await savedSong(page, projectId)).channels[0].id;
+
+  for (const [id, label] of [["rack", "Channel rack"], ["playlist", "Playlist"], ["piano", "Piano roll"], ["mixer", "Mixer"]]) {
+    const surface = page.locator(`[data-window="${id}"]`);
+    const opened = page.waitForResponse((r) => r.url().endsWith("/api/engine/lowerEditors") && r.ok());
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await opened;
+    await expect(surface).toBeFocused();
+
+    // The plugin comes forward again while this browser window is already highest in its stack.
+    await page.request.post("/api/engine/channelEditor", { data: { channel, open: true } });
+    await page.getByRole("textbox", { name: "Tempo" }).focus();
+    const lowered = page.waitForResponse((r) => r.url().endsWith("/api/engine/lowerEditors") && r.ok());
+    // Click the title bar's gap, rather than its channel/clip-source menu button.
+    const title = (await surface.locator("header h2").boundingBox())!;
+    const header = surface.locator("header").first();
+    const bar = (await header.boundingBox())!;
+    await header.click({ position: { x: title.x + title.width + 2 - bar.x, y: 14 } });
+    await lowered;
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest<HTMLElement>("[data-window]")?.dataset.window)).toBe(id);
+  }
+
+  await page.getByRole("button", { name: "Channel rack", exact: true }).click();
+  await channelButton(page, "Fake Synth").click({ button: "right" });
+  await page.getByTestId("channel-menu").getByRole("menuitem", { name: "Rename and color…" }).click();
+  const name = page.getByRole("textbox", { name: "Channel name" });
+  await name.click();
+  await expect(name).toBeFocused();
+  await name.fill("Focused synth");
+  await page.keyboard.press("Enter");
+  await expect(channelButton(page, "Focused synth")).toBeVisible();
+});
+
 test("makes a beat in the channel rack as in FL Studio: left turns steps on, right turns them off", async ({ page }) => {
   const id = await openNewSong(page, "First beat");
   const rack = page.getByTestId("channel-rack");
