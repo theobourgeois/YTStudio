@@ -1,11 +1,18 @@
 import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
+import { MASTER_TRACK_ID } from "@shared/music/project";
 import type { Mixer } from "@shared/music/types";
+import { useMixerView } from "./view";
 
 interface Cable {
-  /** The track it goes to. */
+  /** "from>to". */
   key: string;
+  from: string;
+  /** The track it goes to. */
+  to: string;
   /** A send at 0: only a sidechain (FL draws it faint). */
   faint: boolean;
+  /** Coming into a selected track from one that isn't selected (it feeds it): dashed. */
+  incoming: boolean;
 }
 
 /**
@@ -18,24 +25,61 @@ export function cablePath(from: { x: number; y: number }, to: { x: number; y: nu
   return `M ${from.x} ${from.y} C ${from.x} ${below}, ${to.x} ${below}, ${to.x} ${to.y}`;
 }
 
+/** A cable being plugged: from the current track's down-arrow to the pointer, while it's dragged. */
+function PluggedCable({ area }: { area: RefObject<HTMLElement | null> }) {
+  const plugging = useMixerView((s) => s.plugging);
+  const root = area.current;
+  const plug = plugging && root?.querySelector<HTMLElement>(`[data-track="${CSS.escape(plugging.from)}"] [data-plug]`);
+  if (!plugging || !root || !plug) return null;
+  const box = root.getBoundingClientRect();
+  const r = plug.getBoundingClientRect();
+  const from = { x: r.left + r.width / 2 - box.left, y: r.bottom - 14 - box.top };
+  const to = { x: plugging.x - box.left, y: plugging.y - box.top };
+  // It hangs below both ends, inside the strips (which clip it).
+  const sag = Math.min(box.height - 4, Math.max(from.y, to.y) + 40);
+  return (
+    <path
+      d={`M ${from.x} ${from.y} C ${from.x} ${sag}, ${to.x} ${sag}, ${to.x} ${to.y}`}
+      className="fill-none"
+      stroke="var(--mixer-on)"
+      strokeWidth={2}
+      strokeDasharray={plugging.over ? undefined : "5 4"}
+      strokeLinecap="round"
+      data-testid="plugged-cable"
+    />
+  );
+}
+
 /** How far a cable plugged in `age` ms ago has swung from where it hangs: a quick damped bounce. */
 export const cableSwing = (age: number) => (age >= SETTLE_MS ? 0 : 18 * Math.exp(-age / 160) * Math.cos(age / 55));
 const SETTLE_MS = 900;
 
 /**
- * FL Studio's routing cables: from the selected track's send switch to each track it sends to, drawn
+ * FL Studio's routing cables: from each selected track's send switch to each track it sends to, and
+ * (dashed) from each track that feeds a selected one into it, so a bus shows what's on it. Drawn
  * over the strips (`area`, which clips them at its bottom). Which cables there are is React's; where they
  * are is measured from the strips and written straight into the paths, on every scroll, resize and frame
  * of a swing, so they never lag behind the strips. A cable just plugged in swings a moment before it settles.
  */
-export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement | null>; mixer: Mixer; current: string }) {
+export function Cables({ area, mixer, sources }: { area: RefObject<HTMLElement | null>; mixer: Mixer; sources: readonly string[] }) {
   const paths = useRef(new Map<string, SVGPathElement>());
   // When each cable was plugged in (a send made from the track shown), for its swing.
   const born = useRef(new Map<string, number>());
-  // Null until the first: the cables there when the mixer opens (or another track is shown) don't swing.
+  // Null until the first: the cables there when the mixer opens (or other tracks are selected) don't swing.
   const shownFor = useRef<string | null>(null);
-  const sends = mixer.tracks.find((t) => t.id === current)?.sends ?? [];
-  const cables: Cable[] = sends.map((send) => ({ key: send.to, faint: send.level === 0 }));
+  const shown = sources.join(" ");
+  const selected = new Set(sources);
+  const cables: Cable[] = [
+    ...sources.flatMap((from) =>
+      (mixer.tracks.find((t) => t.id === from)?.sends ?? []).map((send) => ({ key: `${from}>${send.to}`, from, to: send.to, faint: send.level === 0, incoming: false })),
+    ),
+    ...mixer.tracks.flatMap((t) =>
+      // Not into the master: everything goes there.
+      selected.has(t.id) ? [] : t.sends.filter((s) => selected.has(s.to) && s.to !== MASTER_TRACK_ID).map((send) => ({ key: `in:${t.id}>${send.to}`, from: t.id, to: send.to, faint: send.level === 0, incoming: true })),
+    ),
+  ];
+  const ends = useRef(new Map<string, Cable>());
+  ends.current = new Map(cables.map((c) => [c.key, c]));
 
   /** Measure the strips and put every cable where it is now. */
   const place = useRef(() => {});
@@ -44,15 +88,23 @@ export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement |
     if (!root) return;
     const box = root.getBoundingClientRect();
     const point = (id: string) => {
-      const cell = root.querySelector<HTMLElement>(`[data-track="${CSS.escape(id)}"] [data-send-point]`);
+      const strip = `[data-track="${CSS.escape(id)}"]`;
+      // Its send knob or source arrow; else (a track feeding a selected one) its send switch.
+      const cell = root.querySelector<HTMLElement>(`${strip} [data-send-point]`) ?? root.querySelector<HTMLElement>(`${strip} [data-send] button`);
       if (!cell) return null;
       const r = cell.getBoundingClientRect();
       return { x: r.left + r.width / 2 - box.left, y: r.bottom - box.top };
     };
-    const from = point(current);
     const now = performance.now();
+    const points = new Map<string, { x: number; y: number } | null>();
+    const at = (id: string) => {
+      if (!points.has(id)) points.set(id, point(id));
+      return points.get(id)!;
+    };
     for (const [key, path] of paths.current) {
-      const to = point(key);
+      const cable = ends.current.get(key);
+      const from = cable && at(cable.from);
+      const to = cable && at(cable.to);
       // An end that isn't drawn (scrolled far off): no cable for now.
       if (!from || !to) {
         path.setAttribute("d", "");
@@ -62,13 +114,13 @@ export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement |
     }
   };
 
-  // The cables of the track shown: new ones plugged in swing.
+  // The cables of the tracks shown: new ones plugged in swing.
   useLayoutEffect(() => {
-    const sameTrack = shownFor.current === current;
-    shownFor.current = current;
+    const sameTracks = shownFor.current === shown;
+    shownFor.current = shown;
     const time = performance.now();
-    for (const key of [...born.current.keys()]) if (!sends.some((s) => s.to === key)) born.current.delete(key);
-    for (const send of sends) if (!born.current.has(send.to)) born.current.set(send.to, sameTrack ? time : -Infinity);
+    for (const key of [...born.current.keys()]) if (!ends.current.has(key)) born.current.delete(key);
+    for (const key of ends.current.keys()) if (!born.current.has(key)) born.current.set(key, sameTracks ? time : -Infinity);
     place.current();
     // While one swings, a frame at a time.
     let frame = 0;
@@ -102,6 +154,7 @@ export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement |
 
   return (
     <svg className="pointer-events-none absolute inset-0 z-10 size-full overflow-visible" aria-hidden data-testid="cables">
+      <PluggedCable area={area} />
       {cables.map((cable) => (
         <path
           key={cable.key}
@@ -110,11 +163,14 @@ export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement |
             else paths.current.delete(cable.key);
           }}
           className="fill-none"
-          stroke="var(--mixer-on)"
-          strokeWidth={1.75}
-          strokeOpacity={cable.faint ? 0.35 : 0.9}
+          stroke={cable.incoming ? "var(--mixer-name)" : "var(--mixer-on)"}
+          strokeWidth={cable.incoming ? 1.25 : 1.75}
+          strokeDasharray={cable.incoming ? "4 3" : undefined}
+          strokeOpacity={cable.faint ? 0.35 : cable.incoming ? 0.75 : 0.9}
           strokeLinecap="round"
-          data-cable={cable.key}
+          data-cable={cable.to}
+          data-cable-from={cable.from}
+          data-incoming={cable.incoming || undefined}
         />
       ))}
     </svg>

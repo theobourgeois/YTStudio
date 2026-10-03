@@ -199,7 +199,7 @@ describe("the mixer", () => {
     const { mixer, channels } = createMusicProject();
     expect(mixer.tracks.map((t) => t.id)).toEqual([MASTER_TRACK_ID, ...Array.from({ length: 16 }, (_, i) => `insert_${i + 1}`)]);
     expect(mixer.tracks[0].sends).toEqual([]);
-    expect(mixer.tracks[3]).toEqual({ id: "insert_3", name: null, color: null, dock: "middle", separator: false, group: null, volume: 0.8, pan: 0, muted: false, invert: false, swap: false, stereo: 0, latencyOffset: 0, input: null, monitor: "armed", inputOffset: 0, effects: Array(10).fill(null), sends: [{ to: MASTER_TRACK_ID, level: 1 }] });
+    expect(mixer.tracks[3]).toEqual({ id: "insert_3", name: null, color: null, dock: "middle", separator: false, group: null, volume: 0.8, pan: 0, muted: false, solo: false, soloSafe: false, invert: false, swap: false, stereo: 0, latencyOffset: 0, input: null, monitor: "armed", inputOffset: 0, effects: Array(10).fill(null), sends: [{ to: MASTER_TRACK_ID, level: 1 }] });
     expect(channels[0].mixerTrack).toBe(MASTER_TRACK_ID);
   });
 

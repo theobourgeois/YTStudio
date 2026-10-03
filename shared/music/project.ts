@@ -279,6 +279,8 @@ export function createMixerTrack(id = createId("insert")): MixerTrack {
     volume: DEFAULT_FADER,
     pan: 0,
     muted: false,
+    solo: false,
+    soloSafe: false,
     invert: false,
     swap: false,
     stereo: 0,
@@ -629,7 +631,12 @@ function normalizeMixer(input: unknown): Mixer {
   const ids = [MASTER_TRACK_ID, ...[...raws.keys()].filter((id) => id !== MASTER_TRACK_ID)];
   const groups: MixerGroup[] = [];
   for (const raw of Array.isArray(input.groups) ? input.groups : []) {
-    if (isObject(raw) && isId(raw.id) && !groups.some((g) => g.id === raw.id)) groups.push({ id: raw.id, name: text(raw.name, "Group") });
+    if (isObject(raw) && isId(raw.id) && !groups.some((g) => g.id === raw.id)) groups.push({
+        id: raw.id,
+        name: text(raw.name, "Group"),
+        ...(raw.linked === true && { linked: true as const }),
+        ...(isFiniteNumber(raw.vca) && { vca: clamp(raw.vca, 0, 1) }),
+      });
   }
   const effectIds = new Set<string>();
   const tracks: MixerTrack[] = ids.map((id) => {
@@ -641,10 +648,13 @@ function normalizeMixer(input: unknown): Mixer {
       color: isColor(raw.color) ? raw.color.toLowerCase() : null,
       dock: id === MASTER_TRACK_ID ? "left" : raw.dock === "left" || raw.dock === "right" ? raw.dock : "middle",
       separator: raw.separator === true,
+      ...(id !== MASTER_TRACK_ID && raw.folded === true && { folded: true as const }),
       group: id !== MASTER_TRACK_ID && typeof raw.group === "string" && groups.some((g) => g.id === raw.group) ? raw.group : null,
       volume: number(raw.volume, 0, 1, DEFAULT_FADER),
       pan: number(raw.pan, -1, 1, 0),
       muted: raw.muted === true,
+      solo: id !== MASTER_TRACK_ID && raw.solo === true,
+      soloSafe: raw.soloSafe === true,
       invert: raw.invert === true,
       swap: raw.swap === true,
       stereo: number(raw.stereo, -1, 1, 0),
@@ -666,7 +676,7 @@ function normalizeMixer(input: unknown): Mixer {
     for (const send of list) {
       if (!isObject(send) || typeof send.to !== "string" || !byId.has(send.to)) continue;
       if (track.sends.some((s) => s.to === send.to) || reaches(sendsOf, send.to, track.id)) continue;
-      track.sends.push({ to: send.to, level: number(send.level, 0, 1, 1) });
+      track.sends.push({ to: send.to, level: number(send.level, 0, 1, 1), ...(send.preFader === true && { preFader: true as const }) });
     }
   }
   // A group no track is in any more goes.

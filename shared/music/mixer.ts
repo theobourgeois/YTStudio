@@ -14,7 +14,7 @@ import { PRO_Q_PLUGIN, isProQ } from "./pro-q-presets.ts";
 import { DEFAULT_OTT, OTT_PLUGIN, isOtt } from "./ott-presets.ts";
 import { DEFAULT_PRO_C, PRO_C_PLUGIN, isProC } from "./pro-c-presets.ts";
 import { DEFAULT_GROSS_BEAT, DEFAULT_PRO_Q, EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_OFFSET, MAX_INSERTS, MAX_LATENCY_OFFSET, MAX_NAME, createMixerTrack, normalizeInput, reaches, trimTracks } from "./project.ts";
-import type { Channel, MixerEffect, MixerGroup, MixerSend, MixerTrack, MusicProject, PluginRef } from "./types.ts";
+import type { Channel, MixerDock, MixerEffect, MixerGroup, MixerSend, MixerTrack, MusicProject, PluginRef } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -142,8 +142,71 @@ export function moveMixerTracks(song: MusicProject, ids: readonly string[], dire
   return any ? withTracks(song, tracks) : song;
 }
 
+/**
+ * Insert tracks dragged to another place (by their numbers): put before `before` (null: at the end), in
+ * their order, never before the master. With `dock`, they take that dock (dropped among its tracks).
+ * Their channels and sends go with them (they're linked by id).
+ */
+export function moveMixerTracksTo(song: MusicProject, ids: readonly string[], before: string | null, dock?: MixerDock): MusicProject {
+  const wanted = new Set(ids);
+  const moving = song.mixer.tracks.filter((t) => wanted.has(t.id) && t.id !== MASTER_TRACK_ID);
+  if (!moving.length) return song;
+  // Before one of those moving: before the first after it that isn't.
+  let anchor = before;
+  if (anchor !== null && wanted.has(anchor)) {
+    const from = trackNumber(song, anchor);
+    anchor = song.mixer.tracks.slice(from).find((t) => !wanted.has(t.id))?.id ?? null;
+  }
+  const rest = song.mixer.tracks.filter((t) => !wanted.has(t.id) || t.id === MASTER_TRACK_ID);
+  const found = anchor === null ? rest.length : rest.findIndex((t) => t.id === anchor);
+  if (found < 0) return song;
+  const at = Math.max(1, found);
+  const placed = moving.map((t) => (dock && t.dock !== dock ? { ...t, dock } : t));
+  const tracks = [...rest.slice(0, at), ...placed, ...rest.slice(at)];
+  return tracks.every((t, i) => t === song.mixer.tracks[i]) ? song : withTracks(song, tracks);
+}
+
+/** Fold a bus (its tracks hidden under it), or unfold it. Never the master (everything would go). */
+export const setTrackFolded = (song: MusicProject, ids: readonly string[], folded: boolean) =>
+  updateTracks(song, ids, (t) => (t.id === MASTER_TRACK_ID || !!t.folded === folded ? t : folded ? { ...t, folded: true as const } : withoutFolded(t)));
+
+const withoutFolded = ({ folded: _, ...track }: MixerTrack): MixerTrack => track;
+
+/**
+ * A track's main output: its first send that carries sound (as Logic's output beside its aux sends; a
+ * reverb send made after it doesn't change where the track goes). Null when it goes nowhere.
+ */
+export const mainOutput = (track: MixerTrack): string | null => track.sends.find((s) => s.level > 0)?.to ?? null;
+
+/**
+ * The tracks folded away under folded buses: every track whose main output is a folded bus, or a track
+ * folded away itself (so a bus inside a folded bus goes too, with its own tracks). Its other sends (to a
+ * reverb, say) don't keep it out.
+ */
+export function foldedAway(song: Pick<MusicProject, "mixer">): Set<string> {
+  const folded = new Set(song.mixer.tracks.filter((t) => t.folded).map((t) => t.id));
+  const away = new Set<string>();
+  if (!folded.size) return away;
+  // Until nothing more goes (each pass reaches at least one level further down).
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const track of song.mixer.tracks) {
+      if (away.has(track.id) || track.id === MASTER_TRACK_ID) continue;
+      const main = mainOutput(track);
+      if (main && (folded.has(main) || away.has(main))) {
+        away.add(track.id);
+        changed = true;
+      }
+    }
+  }
+  return away;
+}
+
+/** How many tracks have a track as their main output: what folding it would hide first. */
+export const feedersOf = (song: Pick<MusicProject, "mixer">, id: string) => song.mixer.tracks.filter((t) => mainOutput(t) === id).length;
+
 export type MixerTrackPatch = Partial<
-  Pick<MixerTrack, "name" | "color" | "dock" | "separator" | "volume" | "pan" | "muted" | "invert" | "swap" | "stereo" | "latencyOffset" | "input" | "monitor" | "inputOffset">
+  Pick<MixerTrack, "name" | "color" | "dock" | "separator" | "volume" | "pan" | "muted" | "solo" | "soloSafe" | "invert" | "swap" | "stereo" | "latencyOffset" | "input" | "monitor" | "inputOffset">
 >;
 
 function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
@@ -159,6 +222,9 @@ function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
     volume: clamp(patch.volume ?? track.volume, 0, 1),
     pan: clamp(patch.pan ?? track.pan, -1, 1),
     muted: patch.muted ?? track.muted,
+    // The master is what's heard: it's never soloed.
+    solo: track.id === MASTER_TRACK_ID ? false : (patch.solo ?? track.solo),
+    soloSafe: patch.soloSafe ?? track.soloSafe,
     invert: patch.invert ?? track.invert,
     swap: patch.swap ?? track.swap,
     stereo: patch.stereo === undefined || !Number.isFinite(patch.stereo) ? track.stereo : clamp(patch.stereo, -1, 1),
@@ -185,31 +251,43 @@ export const updateMixerTrack = (song: MusicProject, id: string, patch: MixerTra
 /** The same change to several tracks at once (a colour or a name given to every selected track). */
 export const updateMixerTracks = (song: MusicProject, ids: readonly string[], patch: MixerTrackPatch) => updateTracks(song, ids, (t) => patchedTrack(t, patch));
 
-/** Set several tracks' faders at once, each to its own level (FL moves every selected track's fader together). */
-export const setMixerVolumes = (song: MusicProject, volumes: ReadonlyMap<string, number>) =>
-  updateTracks(song, [...volumes.keys()], (t) => {
-    const volume = volumes.get(t.id)!;
-    return Number.isFinite(volume) ? patchedTrack(t, { volume }) : t;
+/** Set a control of several tracks at once, each to its own value (the selected tracks' pans moved together). */
+export const setMixerControls = (song: MusicProject, control: "volume" | "pan" | "stereo", values: ReadonlyMap<string, number>) =>
+  updateTracks(song, [...values.keys()], (t) => {
+    const value = values.get(t.id)!;
+    return Number.isFinite(value) ? patchedTrack(t, { [control]: value }) : t;
   });
+
+/** Set several tracks' faders at once, each to its own level (FL moves every selected track's fader together). */
+export const setMixerVolumes = (song: MusicProject, volumes: ReadonlyMap<string, number>) => setMixerControls(song, "volume", volumes);
 
 export const setMixerMuted = (song: MusicProject, ids: readonly string[], muted: boolean) => updateTracks(song, ids, (t) => patchedTrack(t, { muted }));
 
-/**
- * Solo a track, FL Studio's way: solo is a state of the mutes. Every other insert track is muted and
- * this one unmuted (the master never: it's what's heard); soloing a track that's already alone unmutes
- * them all. `linked` is FL's Alt solo: the tracks whose sound reaches this one, and those it reaches,
- * stay on too, so its whole path is heard.
- */
-export function soloMixerTrack(song: MusicProject, id: string, linked = false): MusicProject {
-  if (!getMixerTrack(song, id)) return song;
-  const sends = sendsOf(song);
-  const kept = (t: MixerTrack) => t.id === id || t.id === MASTER_TRACK_ID || (linked && (reaches(sends, t.id, id) || reaches(sends, id, t.id)));
-  const keep = new Set(song.mixer.tracks.filter(kept).map((t) => t.id));
-  const others = song.mixer.tracks.filter((t) => !keep.has(t.id)).map((t) => t.id);
-  const alone = song.mixer.tracks.every((t) => (keep.has(t.id) ? !t.muted : t.muted));
-  if (alone) return setMixerMuted(song, others, false);
-  return setMixerMuted(setMixerMuted(song, others, true), [...keep], false);
+/** Solo tracks, or unsolo them (`shared/music/solo.ts`: a state of its own, the mutes left as they are). Never the master. */
+export const setMixerSolo = (song: MusicProject, ids: readonly string[], solo: boolean) => updateTracks(song, ids, (t) => patchedTrack(t, { solo }));
+
+/** A click on S: the tracks join the solo, or leave it if they're all soloed already (Pro Tools' and Logic's additive solo). */
+export function toggleMixerSolo(song: MusicProject, ids: readonly string[]): MusicProject {
+  const tracks = song.mixer.tracks.filter((t) => ids.includes(t.id) && t.id !== MASTER_TRACK_ID);
+  return setMixerSolo(song, ids, !tracks.every((t) => t.solo));
 }
+
+/**
+ * Solo these tracks alone (Alt+click, FL's solo): every other solo goes. Soloing again the tracks that are
+ * the only ones soloed clears the solo.
+ */
+export function soloMixerTrack(song: MusicProject, ids: string | readonly string[]): MusicProject {
+  const wanted = new Set((typeof ids === "string" ? [ids] : ids).filter((id) => id !== MASTER_TRACK_ID && getMixerTrack(song, id)));
+  if (!wanted.size) return song;
+  const alone = song.mixer.tracks.every((t) => t.solo === wanted.has(t.id));
+  return updateTracks(song, song.mixer.tracks.map((t) => t.id), (t) => patchedTrack(t, { solo: !alone && wanted.has(t.id) }));
+}
+
+/** Clear every solo (the mutes stay as they were). */
+export const clearMixerSolo = (song: MusicProject) => setMixerSolo(song, song.mixer.tracks.map((t) => t.id), false);
+
+/** Make tracks solo safe, or not: another track's solo never silences a safe one. */
+export const setSoloSafe = (song: MusicProject, ids: readonly string[], soloSafe: boolean) => updateTracks(song, ids, (t) => patchedTrack(t, { soloSafe }));
 
 // ---------------------------------------------------------------------------
 // Routing
@@ -279,9 +357,35 @@ export function setSend(song: MusicProject, from: string, to: string, level: num
   if (level === null) return current ? updateTracks(song, [from], (t) => ({ ...t, sends: t.sends.filter((s) => s !== current) })) : song;
   if (!Number.isFinite(level)) return song;
   const value = clamp(level, 0, 1);
-  if (current) return current.level === value ? song : updateTracks(song, [from], (t) => ({ ...t, sends: t.sends.map((s) => (s === current ? { to, level: value } : s)) }));
+  if (current) return current.level === value ? song : updateTracks(song, [from], (t) => ({ ...t, sends: t.sends.map((s) => (s === current ? { ...s, level: value } : s)) }));
   if (!canSend(song, from, to)) return song;
   return updateTracks(song, [from], (t) => ({ ...t, sends: [...t.sends, { to, level: value }] }));
+}
+
+/** "Bus", "Bus 2"...: the first such name no track has. */
+export function nextBusName(song: MusicProject): string {
+  const names = new Set(song.mixer.tracks.map((t) => t.name));
+  if (!names.has("Bus")) return "Bus";
+  for (let n = 2; ; n++) if (!names.has(`Bus ${n}`)) return `Bus ${n}`;
+}
+
+/**
+ * Route tracks to a new bus (Ableton's and Bitwig's ⌘G, Logic's summing stack): an insert added right after
+ * the last of them, `name`d, that their sound now goes to instead of where it went (their sidechains stay).
+ * The bus goes where they all went, when that was one same track, else to the master. Never the master
+ * itself; the same song when there's nothing to route or no room for a track.
+ */
+export function routeToNewBus(song: MusicProject, ids: readonly string[], busId = createId("insert"), name = nextBusName(song)): MusicProject {
+  const members = song.mixer.tracks.filter((t) => ids.includes(t.id) && t.id !== MASTER_TRACK_ID);
+  if (!members.length) return song;
+  const added = addMixerTracks(song, members[members.length - 1].id, 1, [busId]);
+  if (added === song) return song;
+  // Where they all went, if it's one place.
+  const outs = members.map((t) => t.sends.filter((s) => s.level > 0).map((s) => s.to));
+  const shared = outs.every((o) => o.length === 1 && o[0] === outs[0][0]) ? outs[0][0] : MASTER_TRACK_ID;
+  const routed = updateTracks(added, members.map((t) => t.id), (t) => ({ ...t, sends: [...t.sends.filter((s) => s.level === 0 && s.to !== busId), { to: busId, level: 1 }] }));
+  const named = updateMixerTrack(routed, busId, { name });
+  return shared !== MASTER_TRACK_ID && canSend(named, busId, shared) ? sendOnly(named, busId, shared) : named;
 }
 
 /**
@@ -291,9 +395,16 @@ export function setSend(song: MusicProject, from: string, to: string, level: num
 export function sendOnly(song: MusicProject, from: string, to: string): MusicProject {
   const track = getMixerTrack(song, from);
   if (!track || (!track.sends.some((s) => s.to === to) && !canSend(song, from, to))) return song;
-  const level = track.sends.find((s) => s.to === to)?.level ?? 1;
+  const kept = track.sends.find((s) => s.to === to) ?? { to, level: 1 };
   if (track.sends.length === 1 && track.sends[0].to === to) return song;
-  return updateTracks(song, [from], (t) => ({ ...t, sends: [{ to, level }] }));
+  return updateTracks(song, [from], (t) => ({ ...t, sends: [kept] }));
+}
+
+/** A send taken before the track's fader and pan (`preFader`), or after them as usual. */
+export function setSendPreFader(song: MusicProject, from: string, to: string, preFader: boolean): MusicProject {
+  const send = getMixerTrack(song, from)?.sends.find((s) => s.to === to);
+  if (!send || !!send.preFader === preFader) return song;
+  return updateTracks(song, [from], (t) => ({ ...t, sends: t.sends.map((s) => (s === send ? (preFader ? { ...s, preFader: true as const } : { to: s.to, level: s.level }) : s)) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -460,6 +571,35 @@ export function createGroup(song: MusicProject, ids: readonly string[], name = n
 export function ungroup(song: MusicProject, ids: readonly string[]): MusicProject {
   const next = updateTracks(song, ids, (t) => (t.group === null ? t : { ...t, group: null }));
   return next === song ? song : withGroups(next, keptGroups(next));
+}
+
+/** Link a group's controls (a fader moved on one of its tracks moves them all), or unlink them. */
+export function setGroupLinked(song: MusicProject, groupId: string, linked: boolean): MusicProject {
+  const group = song.mixer.groups.find((g) => g.id === groupId);
+  if (!group || !!group.linked === linked) return song;
+  return withGroups(song, song.mixer.groups.map((g) => (g === group ? (linked ? { ...g, linked: true as const } : withoutLinked(g)) : g)));
+}
+
+/** Give a group a VCA fader at `vca` (0..1), move it, or take it away (null). */
+export function setGroupVca(song: MusicProject, groupId: string, vca: number | null): MusicProject {
+  const group = song.mixer.groups.find((g) => g.id === groupId);
+  if (!group || (vca !== null && !Number.isFinite(vca))) return song;
+  const value = vca === null ? undefined : clamp(vca, 0, 1);
+  if (group.vca === value) return song;
+  return withGroups(song, song.mixer.groups.map((g) => (g !== group ? g : value === undefined ? withoutVca(g) : { ...g, vca: value })));
+}
+
+const withoutVca = ({ vca: _, ...group }: MixerGroup): MixerGroup => group;
+
+const withoutLinked = ({ linked: _, ...group }: MixerGroup): MixerGroup => group;
+
+/** `ids` and every track in a linked group with one of them: what a control touched on them moves. */
+export function withLinkedTracks(song: MusicProject, ids: readonly string[]): string[] {
+  const linked = new Set(song.mixer.groups.filter((g) => g.linked).map((g) => g.id));
+  if (!linked.size) return [...ids];
+  const wanted = new Set(ids);
+  const groups = new Set(song.mixer.tracks.filter((t) => wanted.has(t.id) && t.group && linked.has(t.group)).map((t) => t.group));
+  return [...ids, ...song.mixer.tracks.filter((t) => !wanted.has(t.id) && t.group && groups.has(t.group)).map((t) => t.id)];
 }
 
 export function renameGroup(song: MusicProject, groupId: string, name: string): MusicProject {

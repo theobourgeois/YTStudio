@@ -1141,11 +1141,16 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
                 continue;
             }
             const auto step = 1.0f / (float) numSamples;
+            const auto* preLeft = track.preBuffer >= 0 ? song->audio.getReadPointer (track.preBuffer * 2) : l;
+            const auto* preRight = track.preBuffer >= 0 ? song->audio.getReadPointer (track.preBuffer * 2 + 1) : r;
             for (const auto& send : track.sends)
             {
                 const auto& target = song->tracks[(size_t) send.track];
                 if (target.buffer < 0)
                     continue;
+                // Before the fader, or after it.
+                const auto* sendLeft = send.preFader ? preLeft : l;
+                const auto* sendRight = send.preFader ? preRight : r;
                 auto* toLeft = song->audio.getWritePointer (target.buffer * 2);
                 auto* toRight = song->audio.getWritePointer (target.buffer * 2 + 1);
                 // A send that waits for the track's later inputs goes in through its delay line.
@@ -1162,16 +1167,16 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
                 };
                 if ((! glide && ! send.automated) || juce::exactlyEqual (send.from, send.gain))
                 {
-                    juce::FloatVectorOperations::addWithMultiply (toLeft, l, send.gain, numSamples);
-                    juce::FloatVectorOperations::addWithMultiply (toRight, r, send.gain, numSamples);
+                    juce::FloatVectorOperations::addWithMultiply (toLeft, sendLeft, send.gain, numSamples);
+                    juce::FloatVectorOperations::addWithMultiply (toRight, sendRight, send.gain, numSamples);
                     flush();
                     continue;
                 }
                 for (int i = 0; i < numSamples; ++i)
                 {
                     const auto gain = send.from + (send.gain - send.from) * (float) (i + 1) * step;
-                    toLeft[i] += l[i] * gain;
-                    toRight[i] += r[i] * gain;
+                    toLeft[i] += sendLeft[i] * gain;
+                    toRight[i] += sendRight[i] * gain;
                 }
                 flush();
             }
@@ -1264,6 +1269,13 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
             else
                 effect.pan->skipped();
         }
+
+    // What its pre-fader sends take: the sound before its gains.
+    if (track.preBuffer >= 0)
+    {
+        song->audio.copyFrom (track.preBuffer * 2, 0, l, numSamples);
+        song->audio.copyFrom (track.preBuffer * 2 + 1, 0, r, numSamples);
+    }
 
     // The fader, pan and mute: each side out from both sides in (gliding after a new song, or automated).
     glide = glide || track.automated;

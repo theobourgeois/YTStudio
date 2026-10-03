@@ -602,6 +602,7 @@ export const MUSIC_TOOLS = [
         latencyOffset: num("Milliseconds (-1000 to 1000) added to the delay its plugins report, for one that reports it wrong: positive if its sound is late against the others."),
         dock: oneOf(["left", "middle", "right"], "Which of the mixer's docks it's shown in: the left and right ones stay put while the middle scrolls (the master is always left)."),
         separator: bool("A divider before it, to set tracks apart."),
+        folded: bool("Fold a bus: the tracks whose sound all goes into it are hidden in the mixer (only how it's shown); false shows them."),
         input: str(
           'The device input it records (list_audio_inputs has them): "1" for input 1 alone (mono, heard on both sides), "1-2" for inputs 1 and 2 as a stereo pair, or "none". Never on the master.',
         ),
@@ -706,18 +707,29 @@ export const MUSIC_TOOLS = [
         level: num("0 to 1 (1, the default, sends it as it is; 0 keeps the link silent: a sidechain)."),
         remove: bool("Remove the send instead."),
         only: bool("Send to this track alone, removing its other sends (the master's too)."),
+        preFader: bool("Take the send before the track's fader and pan (true: a parallel compression bus, a headphone mix) or after them (false, the default for a new send). Still silent while the track is muted."),
       },
       ["from", "to"],
     ),
   }),
   tool({
     name: "solo_mixer_track",
-    title: "Solo a mixer track",
+    title: "Solo mixer tracks",
     kind: "edit",
     description:
-      "Solo a mixer track: every other insert is muted (never the master); soloing the track that's already alone unmutes them all. " +
-      "`withRouted` keeps the tracks routed to and from it on too (FL's Alt solo), so its whole path is heard.",
-    inputSchema: obj({ track: mixerTrack(), withRouted: bool("Keep the tracks routed to and from it on.") }, ["track"]),
+      "Solo mixer tracks, unsolo them, or clear every solo. Solo is a state of its own (it never changes the mutes) and follows the routing: " +
+      "while any track is soloed, only the soloed ones are heard, with every track their sound goes through to the master (their buses) " +
+      "and every track feeding them (soloing a bus brings its tracks); the rest is silenced, except the master and tracks that are solo safe. " +
+      "Solos add up: soloing a track keeps the others soloed, unless `alone`. `safe` makes a track solo safe (a reverb return another " +
+      "track's solo shouldn't silence) or not.",
+    inputSchema: obj({
+      tracks: arr(mixerTrack("A track"), "The tracks (or `track` for one)."),
+      track: mixerTrack(),
+      solo: bool("Solo them (true, the default) or unsolo them (false)."),
+      alone: bool("Solo them alone: every other solo goes."),
+      safe: bool("Instead of soloing: make them solo safe (true) or not (false)."),
+      clear: bool("Clear every solo (no tracks needed)."),
+    }),
   }),
   tool({
     name: "add_mixer_track",
@@ -741,13 +753,33 @@ export const MUSIC_TOOLS = [
     inputSchema: obj({ track: mixerTrack(), direction: oneOf(["left", "right"], "Which way.") }, ["track", "direction"]),
   }),
   tool({
+    name: "route_to_new_bus",
+    title: "Route tracks to a new bus",
+    kind: "edit",
+    description:
+      "Make a bus for mixer tracks (Ableton's ⌘G: drums to a Drums bus, say): an insert added right after the last of them, named, that " +
+      "their sound goes to instead of where it went (their sidechains stay). The bus goes where they all went, if that was one same track, " +
+      "else to the master. Effects on the bus then act on all of them together.",
+    inputSchema: obj({ tracks: arr(mixerTrack("A track"), "The tracks."), name: str('The bus\'s name (default: "Bus", "Bus 2"...).') }, ["tracks"]),
+  }),
+  tool({
     name: "group_mixer_tracks",
     title: "Group mixer tracks",
     kind: "edit",
     description:
       "Put mixer tracks in a named group (FL's Create group: a band with its name across their tops, dividers at its edges), taking them out of any " +
-      "other; or take them out of their groups (`ungroup`). Grouping is only how the mixer shows them: it doesn't route anything (set_send does).",
-    inputSchema: obj({ tracks: arr(mixerTrack(), "The tracks."), name: str("The group's name (default: Group N)."), ungroup: bool("Take them out of their groups instead.") }, ["tracks"]),
+      "other; or take them out of their groups (`ungroup`). Grouping doesn't route anything (set_send and route_to_new_bus do); a `linked` group " +
+      "links its tracks' controls in the mixer (the user moving one's fader, mute, solo or pan moves them all, Pro Tools' mix groups).",
+    inputSchema: obj(
+      {
+        tracks: arr(mixerTrack(), "The tracks."),
+        name: str("The group's name (default: Group N)."),
+        linked: bool("Link their controls."),
+        vca: num("Give the group a VCA fader at this level in dB (0 leaves them as they are; -6 turns all of them down 6 dB, each keeping its own fader)."),
+        ungroup: bool("Take them out of their groups instead."),
+      },
+      ["tracks"],
+    ),
   }),
   tool({
     name: "add_mixer_effect",

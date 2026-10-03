@@ -83,6 +83,25 @@ export function faderAt(db: number): number {
 }
 
 /**
+ * Where faders that started at `starts` go when one of them (at `from`) is dragged to `to`: each moves by
+ * as many dB as it did (Logic's and Pro Tools' way), so a mix's balance is kept. One at −∞ stays there,
+ * and every one goes to −∞ with it. Positions, 0..1.
+ */
+export function moveFadersTogether(starts: ReadonlyMap<string, number>, from: number, to: number): Map<string, number> {
+  const delta = toDb(faderGain(to)) - toDb(faderGain(from));
+  return new Map(
+    [...starts].map(([id, start]) => {
+      if (start === from) return [id, to];
+      // Dragged up from −∞, the others can't follow by dB: they stay where they are.
+      if (delta === Infinity) return [id, start];
+      const db = toDb(faderGain(start)) + delta;
+      // One at −∞ can't be moved by dB either.
+      return [id, Number.isNaN(db) ? start : faderAt(db)];
+    }),
+  );
+}
+
+/**
  * A fader's travel with a hold at `at` (0 dB), FL Studio's: within `width` of it either way the fader stays
  * at `at`; past that it carries on from there, the rest of the travel stretched so both ends are still
  * reached and nothing jumps. Values are 0..1.

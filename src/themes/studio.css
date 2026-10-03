@@ -262,6 +262,8 @@
   --mixer-strip-selected: var(--surface-2);
   --mixer-upper-shade: rgb(30 40 52 / 0.045);
   --mixer-muted-opacity: 0.7;
+  /* A track that makes sound but isn't heard (a muted bus further down). */
+  --mixer-unheard-opacity: 0.82;
   --mixer-line: var(--line);
   --mixer-header: var(--surface-0);
   --mixer-header-text: var(--muted-foreground);
@@ -279,6 +281,9 @@
   /* A track that takes an input (it records): its number bar, so it's found again in a reopened song. */
   --mixer-input: #7d55c7;
   --mixer-arm: #d8343f;
+  /* A soloed track's switch (the same in every theme, as a console's yellow), and its letter. */
+  --mixer-solo: #e8b525;
+  --mixer-solo-text: #2a2005;
   --fader-slot: rgb(30 40 52 / 0.05);
   /* The mixer's lights (`mixer/led.tsx`): their bezel, and their lens when off. */
   --led-bezel-light: #a9b0b9;
@@ -417,6 +422,7 @@
 
   --mixer-upper-shade: rgb(0 0 0 / 0.1);
   --mixer-muted-opacity: 0.65;
+  --mixer-unheard-opacity: 0.8;
   --mixer-tint-base: #16181c;
   --mixer-name-tint: #ffffff;
   --fader-slot: rgb(0 0 0 / 0.12);

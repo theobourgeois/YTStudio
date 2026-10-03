@@ -323,7 +323,7 @@ function runPlaylistKey(action: PlaylistKeyAction) {
 function runMixerKey(action: MixerKeyAction) {
   switch (action.type) {
     case "solo":
-      return mixer.soloTrack(mixer.currentTrack(), action.linked);
+      return action.alone ? mixer.soloAlone(mixer.currentTrack()) : mixer.toggleSolo(mixer.currentTrack());
     case "route":
       return mixer.routeSelectedChannels(undefined, action.starting);
     case "selectChannels":
@@ -334,6 +334,10 @@ function runMixerKey(action: MixerKeyAction) {
       return mixer.selectNeighbourTrack(action.direction);
     case "selectAll":
       return mixer.selectAllTracks();
+    case "bus":
+      return mixer.routeSelectedToNewBus();
+    case "deselect":
+      return mixer.selectOnlyCurrent();
     case "rename":
       return useMixerView.getState().rename(mixer.currentTrack());
     case "delete":

@@ -3,10 +3,12 @@
  * like the rest of `tool-edits.ts`, and what `get_mixer` says. Errors go to the model: they say what
  * exists and what would work.
  */
+import { createId } from "@shared/ids";
 import { isFiniteNumber } from "@shared/math";
 import { keyText } from "@shared/music/auto-tune";
 import type { EngineEffects } from "@shared/music/engine";
 import { snapped } from "@shared/music/pitch-wheel";
+import { hearing } from "@shared/music/solo";
 import {
   addMixerTracks,
   canSend,
@@ -22,7 +24,14 @@ import {
   sendOnly,
   setEffect,
   setSend,
-  soloMixerTrack,
+  clearMixerSolo,
+  routeToNewBus,
+  setMixerSolo,
+  setSendPreFader,
+  setGroupLinked,
+  setGroupVca,
+  setTrackFolded,
+  setSoloSafe,
   trackName,
   trackNumber,
   ungroup,
@@ -101,6 +110,8 @@ export function describeTrack(song: MusicProject, track: MixerTrack): string {
     `level ${faderDb(track.volume)}`,
     track.pan ? `pan ${percent(Math.abs(track.pan))} ${track.pan < 0 ? "left" : "right"}` : null,
     track.muted ? "muted" : null,
+    track.solo ? "soloed" : null,
+    track.soloSafe ? "solo safe" : null,
     track.invert ? "phase inverted" : null,
     track.swap ? "sides swapped" : null,
     track.stereo ? `stereo ${percent(Math.abs(track.stereo))} ${track.stereo > 0 ? "narrower" : "wider"}` : null,
@@ -109,10 +120,18 @@ export function describeTrack(song: MusicProject, track: MixerTrack): string {
     track.inputOffset ? `input offset ${track.inputOffset} ms` : null,
     track.dock !== "middle" && track.id !== MASTER_TRACK_ID ? `docked ${track.dock}` : null,
     track.separator ? "a divider before it" : null,
-    track.group ? `in the group "${song.mixer.groups.find((g) => g.id === track.group)?.name ?? track.group}"` : null,
+    track.folded ? "folded (the tracks going into it are hidden in the mixer)" : null,
+    track.group ? groupText(song, track.group) : null,
     track.color ? `colour ${COLOR_NAMES[TRACK_COLORS.indexOf(track.color as (typeof TRACK_COLORS)[number])] ?? track.color}` : null,
   ];
   return `${label(song, track)} (id ${track.id}): ${parts.filter(Boolean).join(", ")}`;
+}
+
+/** A track's group, as `describeTrack` says it: its name, and whether its controls are linked or it has a VCA fader. */
+function groupText(song: MusicProject, id: string): string {
+  const group = song.mixer.groups.find((g) => g.id === id);
+  const extras = [group?.linked ? "its controls linked" : null, group?.vca !== undefined ? `its VCA fader at ${faderDb(group.vca)}` : null].filter(Boolean);
+  return `in the group "${group?.name ?? id}"${extras.length ? ` (${extras.join(", ")})` : ""}`;
 }
 
 /** A Pitch Wheel in a few words: the shift it plays, its Timbre, where its notes come from. */
@@ -154,11 +173,12 @@ export function describeMixer(song: MusicProject, effects: EngineEffects | null,
       lines.push(`    slot ${slot + 1}: ${effect.plugin.name} (${effect.plugin.format})${effect.enabled ? "" : ", bypassed"}${effect.mix < 1 ? `, mix ${percent(effect.mix)}` : ""}${state ? `, ${state}` : ""}${gross || ""}`);
     });
     if (number > 0) {
-      const sends = track.sends.map((s) => `${label(song, getMixerTrack(song, s.to)!)}${s.level < 1 ? ` at ${percent(s.level)}` : ""}${s.level === 0 ? " (sidechain only)" : ""}`);
+      const sends = track.sends.map((s) => `${label(song, getMixerTrack(song, s.to)!)}${s.level < 1 ? ` at ${percent(s.level)}` : ""}${s.level === 0 ? " (sidechain only)" : ""}${s.preFader ? " (pre-fader)" : ""}`);
       lines.push(`    sends to: ${sends.length ? sends.join(", ") : "nothing (it isn't heard)"}`);
     }
   });
   if (quiet.length) lines.push(`- Inserts ${ranges(quiet)}: unused (no channels, effects or name; at 0 dB, sending to the master).`);
+  if (song.mixer.tracks.some((t) => t.solo)) lines.push(soloText(song));
   return lines.join("\n");
 }
 
@@ -168,7 +188,7 @@ function isUntouched(song: MusicProject, track: MixerTrack): boolean {
   return (
     isFreeTrack(song, track) &&
     track.color === null &&
-    (["volume", "pan", "muted", "invert", "swap", "stereo", "latencyOffset", "input", "monitor", "inputOffset"] as const).every((key) => track[key] === fresh[key]) &&
+    (["volume", "pan", "muted", "solo", "soloSafe", "invert", "swap", "stereo", "latencyOffset", "input", "monitor", "inputOffset"] as const).every((key) => track[key] === fresh[key]) &&
     track.sends.length === 1 &&
     track.sends[0].to === MASTER_TRACK_ID &&
     track.sends[0].level === 1
@@ -242,7 +262,9 @@ export const updateMixerTrackTool: SongEdit = (song, input) => {
     if (track.id === MASTER_TRACK_ID && input.dock !== "left") throw new Error("The master is always docked on the left.");
     patch.dock = input.dock;
   }
-  const next = updateMixerTrack(song, track.id, patch);
+  if (typeof input.folded === "boolean" && track.id === MASTER_TRACK_ID) throw new Error("The master can't be folded: everything goes into it.");
+  const patched = updateMixerTrack(song, track.id, patch);
+  const next = typeof input.folded === "boolean" ? setTrackFolded(patched, [track.id], input.folded) : patched;
   const now = getMixerTrack(next, track.id)!;
   return { song: next, text: next === song ? `${label(song, track)} is already like that.` : `Changed ${describeTrack(next, now)}.` };
 };
@@ -265,14 +287,52 @@ export const setSendTool: SongEdit = (song, input) => {
   }
   let next = setSend(song, from.id, to.id, level);
   if (input.only === true) next = sendOnly(next, from.id, to.id);
+  if (typeof input.preFader === "boolean") next = setSendPreFader(next, from.id, to.id, input.preFader);
   return { song: next, text: `${label(next, from)} sends to ${sends(next)}.` };
 };
 
 export const soloMixerTrackTool: SongEdit = (song, input) => {
-  const track = findTrack(song, input.track);
-  const next = soloMixerTrack(song, track.id, input.withRouted === true);
-  const muted = next.mixer.tracks.filter((t) => t.muted).length;
-  return { song: next, text: muted ? `${label(next, track)} is soloed (${muted} other track${muted === 1 ? " is" : "s are"} muted).` : "Nothing is soloed now: every track is unmuted." };
+  let next: MusicProject;
+  if (input.clear === true) next = clearMixerSolo(song);
+  else {
+    const refs = Array.isArray(input.tracks) ? input.tracks : input.track !== undefined ? [input.track] : [];
+    if (!refs.length) throw new Error('Name the tracks ("tracks", or "track" for one), or clear every solo with "clear".');
+    const ids = refs.map((ref) => findTrack(song, ref).id);
+    if (typeof input.safe === "boolean") next = setSoloSafe(song, ids, input.safe);
+    else {
+      if (ids.includes(MASTER_TRACK_ID)) throw new Error("The master can't be soloed: it's what's heard. Solo the tracks you want to hear.");
+      next = input.solo === false ? setMixerSolo(song, ids, false) : input.alone === true ? setMixerSolo(clearMixerSolo(song), ids, true) : setMixerSolo(song, ids, true);
+    }
+  }
+  return { song: next, text: soloText(next) };
+};
+
+/** What's soloed, and what that silences, in a line. */
+function soloText(song: MusicProject): string {
+  const soloed = song.mixer.tracks.filter((t) => t.solo);
+  const safe = song.mixer.tracks.filter((t) => t.soloSafe);
+  const safeText = safe.length ? ` Solo safe: ${safe.map((t) => label(song, t)).join(", ")}.` : "";
+  if (!soloed.length) return `Nothing is soloed: every track that isn't muted is heard.${safeText}`;
+  const heard = hearing(song.mixer);
+  const silenced = song.mixer.tracks.filter((t) => heard.get(t.id)!.soloedOut).length;
+  const implied = song.mixer.tracks.filter((t) => heard.get(t.id)!.implied);
+  return (
+    `Soloed: ${soloed.map((t) => label(song, t)).join(", ")}.` +
+    (implied.length ? ` Kept on for them (on their path): ${implied.map((t) => label(song, t)).join(", ")}.` : "") +
+    ` ${silenced} other track${silenced === 1 ? " is" : "s are"} silenced by the solo.${safeText}`
+  );
+}
+
+export const routeToNewBusTool: SongEdit = (song, input) => {
+  if (!Array.isArray(input.tracks) || !input.tracks.length) throw new Error('"tracks" must be a list of mixer tracks (numbers, ids or names).');
+  const tracks = input.tracks.map((ref) => findTrack(song, ref));
+  if (tracks.some((t) => t.id === MASTER_TRACK_ID)) throw new Error("The master can't go to a bus: it's what's heard.");
+  const id = createId("insert");
+  const name = typeof input.name === "string" && input.name.trim() ? input.name : undefined;
+  const next = routeToNewBus(song, tracks.map((t) => t.id), id, name);
+  if (next === song) throw new Error("The mixer is full (500 inserts): remove a track first.");
+  const bus = getMixerTrack(next, id)!;
+  return { song: next, text: `${tracks.map((t) => label(next, t)).join(", ")} now go${tracks.length === 1 ? "es" : ""} to the new bus ${label(next, bus)}, which sends to ${bus.sends.map((x) => label(next, getMixerTrack(next, x.to)!)).join(", ")}.` };
 };
 
 export const groupMixerTracksTool: SongEdit = (song, input) => {
@@ -282,9 +342,15 @@ export const groupMixerTracksTool: SongEdit = (song, input) => {
   const list = tracks.map((t) => label(song, t)).join(", ");
   if (input.ungroup === true) return { song: ungroup(song, ids), text: `${list} ${tracks.length === 1 ? "is" : "are"} in no group now.` };
   if (ids.includes(MASTER_TRACK_ID)) throw new Error("The master can't be in a group.");
-  const next = createGroup(song, ids, typeof input.name === "string" ? input.name : undefined);
-  const group = next.mixer.groups[next.mixer.groups.length - 1];
-  return { song: next, text: `Grouped ${list} as "${group.name}".` };
+  const grouped = createGroup(song, ids, typeof input.name === "string" ? input.name : undefined);
+  const group = grouped.mixer.groups[grouped.mixer.groups.length - 1];
+  const vca = numberIn(input, "vca", -Infinity, 5.8);
+  const linked = setGroupLinked(grouped, group.id, input.linked === true);
+  const next = vca === undefined ? linked : setGroupVca(linked, group.id, vca <= -60 ? 0 : faderAt(vca));
+  return {
+    song: next,
+    text: `Grouped ${list} as "${group.name}"${input.linked === true ? ", their controls linked" : ""}${vca === undefined ? "" : `, a VCA fader at ${faderDb(next.mixer.groups.find((g) => g.id === group.id)!.vca!)}`}.`,
+  };
 };
 
 export const addMixerTrackTool: SongEdit = (song, input) => {

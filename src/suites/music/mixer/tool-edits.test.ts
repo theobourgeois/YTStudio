@@ -17,6 +17,7 @@ import {
   setSendTool,
   slotForEffect,
   soloMixerTrackTool,
+  routeToNewBusTool,
   updateMixerEffectTool,
   updateMixerTrackTool,
 } from "./tool-edits";
@@ -77,8 +78,28 @@ describe("the assistant's mixer edits", () => {
     expect(() => setSendTool(song, { from: 2, to: 2 }, env)).toThrow(/can't send to itself/);
   });
 
+  it("group tracks, their controls linked, with a VCA fader", () => {
+    const grouped = groupMixerTracksTool(rack(), { tracks: [1, 2], name: "Drums", linked: true, vca: -6 }, env);
+    expect(grouped.text).toBe('Grouped insert 1 ("Insert 1"), insert 2 ("Insert 2") as "Drums", their controls linked, a VCA fader at −6.0 dB.');
+    expect(grouped.song.mixer.groups[0]).toMatchObject({ name: "Drums", linked: true });
+  });
+
+  it("route tracks to a new bus", () => {
+    const routed = routeToNewBusTool(rack(), { tracks: [1, "insert_2"], name: "Drums" }, env);
+    expect(routed.text).toBe('insert 1 ("Insert 1"), insert 2 ("Insert 2") now go to the new bus insert 3 ("Drums"), which sends to the master.');
+    expect(track(routed.song, 1).sends.map((s) => s.to)).toEqual([track(routed.song, 3).id]);
+    expect(() => routeToNewBusTool(rack(), { tracks: ["master"] }, env)).toThrow(/master can't go to a bus/);
+  });
+
   it("solo, add, remove and move tracks", () => {
-    expect(soloMixerTrackTool(rack(), { track: 2 }, env).text).toBe('insert 2 ("Insert 2") is soloed (15 other tracks are muted).');
+    const solo = soloMixerTrackTool(rack(), { track: 2 }, env);
+    expect(solo.text).toBe('Soloed: insert 2 ("Insert 2"). 15 other tracks are silenced by the solo.');
+    expect(solo.song.mixer.tracks.some((t) => t.muted)).toBe(false);
+    const both = soloMixerTrackTool(solo.song, { tracks: [3], safe: true }, env);
+    expect(both.song.mixer.tracks[3].soloSafe).toBe(true);
+    expect(soloMixerTrackTool(both.song, { track: 4, alone: true }, env).song.mixer.tracks.filter((t) => t.solo).map((t) => t.id)).toEqual(["insert_4"]);
+    expect(soloMixerTrackTool(both.song, { clear: true }, env).text).toBe('Nothing is soloed: every track that isn\'t muted is heard. Solo safe: insert 3 ("Insert 3").');
+    expect(() => soloMixerTrackTool(rack(), { track: "master" }, env)).toThrow(/can't be soloed/);
     const added = addMixerTrackTool(rack(), { after: 2, name: "Verb" }, env);
     expect(track(added.song, 3).name).toBe("Verb");
     expect(added.text).toMatch(/^Added insert 3 \("Verb"\)/);

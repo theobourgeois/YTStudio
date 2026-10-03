@@ -3,38 +3,55 @@
  * commits one edit from `shared/music/mixer.ts`. Kept out of the components so a menu item and its
  * shortcut can't drift apart.
  */
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { createId } from "@shared/ids";
+import { startPointerDrag } from "@/lib/pointer-drag";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import {
   addMixerTracks,
+  canSend,
   createGroup,
   effectToTrack,
   freeSlot,
   getMixerTrack,
   moveMixerTracks,
+  moveMixerTracksTo,
   pasteTrackState,
   removeMixerTracks,
   renameGroup,
+  setMixerControls,
+  setMixerMuted,
+  setMixerSolo,
+  setSendPreFader,
+  setGroupLinked,
+  setGroupVca,
+  setTrackFolded,
+  withLinkedTracks,
+  type MixerTrackPatch,
   routeChannels,
   routeChannelsFrom,
   routeToFreeTracks,
+  routeToNewBus,
   sendOnly,
   setSend,
+  setSoloSafe,
+  clearMixerSolo,
   soloMixerTrack,
+  toggleMixerSolo,
   trackState,
   ungroup,
-  updateMixerTrack,
   updateMixerTracks,
 } from "@shared/music/mixer";
-import { MASTER_TRACK_ID } from "@shared/music/project";
+import { DEFAULT_FADER, MASTER_TRACK_ID } from "@shared/music/project";
 import { assignAudioTracks } from "@shared/music/recording";
 import type { MixerDock, MusicProject } from "@shared/music/types";
 import { musicApi } from "../api";
 import { selectedIds as selectedChannelIds } from "../rack-actions";
-import { useMusic } from "../store";
+import { songGesture, useMusic } from "../store";
 import { currentTrackId, useMusicUi } from "../ui";
-import { useMixerView } from "./view";
+import { sendToggle } from "./send-states";
+import { trackAt, useMixerView } from "./view";
 
 const song = (): MusicProject | null => useMusic.getState().history?.doc ?? null;
 const commit = (update: (song: MusicProject) => MusicProject) => useMusic.getState().commit(update);
@@ -53,8 +70,68 @@ export function selectedTracks(): string[] {
   return doc.mixer.tracks.filter((t) => selected.has(t.id)).map((t) => t.id);
 }
 
-export const toggleTrackMute = (id: string) => commit((doc) => updateMixerTrack(doc, id, { muted: !getMixerTrack(doc, id)?.muted }));
-export const soloTrack = (id: string, linked = false) => commit((doc) => soloMixerTrack(doc, id, linked));
+/*
+ * A strip's switches act on every selected track when it's one of them (Logic's, Reaper's, Bitwig's way),
+ * and on it alone when it isn't, so a click on an unselected strip never surprises. Each takes its state
+ * from the strip clicked: muting a muted track unmutes all of them.
+ */
+
+/** The mute light: the track (and the selected tracks with it) muted, or unmuted if it's muted. */
+export const toggleTrackMute = (id: string) => commit((doc) => setMixerMuted(doc, controlTargets(id), !getMixerTrack(doc, id)?.muted));
+/** S: the tracks join the solo, or leave it (the other solos kept). */
+export const toggleSolo = (id: string) => commit((doc) => toggleMixerSolo(doc, controlTargets(id)));
+/** Alt+S, Alt+click, a right-click on the mute light: the tracks soloed alone (again: no solo). */
+export const soloAlone = (id: string) => commit((doc) => soloMixerTrack(doc, controlTargets(id)));
+/** Shift+click on S: another track's solo never silences them. */
+export const toggleSoloSafe = (id: string) => commit((doc) => setSoloSafe(doc, controlTargets(id), !getMixerTrack(doc, id)?.soloSafe));
+/**
+ * A plain press on a mute light or an S, painted across the strips (Pro Tools', Reaper's, Ableton's):
+ * the press switches its tracks (the selected ones with it) as a click would, and every strip the pointer
+ * then passes over is switched the same way. One undo step; Escape puts them all back.
+ */
+export function paintSwitch(e: ReactPointerEvent<Element>, id: string, kind: "mute" | "solo") {
+  const doc = song();
+  if (!doc || e.button !== 0) return;
+  const targets = controlTargets(id);
+  const tracks = doc.mixer.tracks.filter((t) => targets.includes(t.id) && (kind === "mute" || t.id !== MASTER_TRACK_ID));
+  const on = kind === "mute" ? !getMixerTrack(doc, id)?.muted : !tracks.every((t) => t.solo);
+  const set = (song: MusicProject, ids: string[]) => (kind === "mute" ? setMixerMuted(song, ids, on) : setMixerSolo(song, ids, on));
+  const painted = new Set(targets);
+  const gesture = songGesture();
+  gesture.begin();
+  gesture.apply((song) => set(song, [...painted]));
+  startPointerDrag(e, {
+    threshold: 0,
+    onMove(ev) {
+      const over = trackAt(ev.clientX, ev.clientY);
+      if (!over || painted.has(over)) return;
+      painted.add(over);
+      gesture.apply((song) => set(song, [over]));
+    },
+    onEnd: () => gesture.end(),
+    onClick: () => gesture.end(),
+    onCancel: () => gesture.cancel(),
+  });
+}
+
+/** A strip's switch (invert phase, swap sides) set on it and the selected tracks with it. */
+export const setTrackSwitch = (id: string, patch: Pick<MixerTrackPatch, "invert" | "swap">) => commit((doc) => updateMixerTracks(doc, controlTargets(id), patch));
+
+/**
+ * A strip's knob (pan, stereo separation) as an edit of the tracks it acts on (`menuTargets`). Dragged,
+ * every one moves by as much as this one from where it started, so their offsets are kept; set outright
+ * (a reset, a typed value), they all take the value.
+ */
+export function groupKnob(id: string, control: "pan" | "stereo") {
+  return (doc: MusicProject, value: number): MusicProject => {
+    const targets = controlTargets(id);
+    const base = useMusic.getState().history?.gestureBase ?? null;
+    if (!base || targets.length < 2) return updateMixerTracks(doc, targets, { [control]: value });
+    const delta = value - (getMixerTrack(base, id)?.[control] ?? value);
+    return setMixerControls(doc, control, new Map(targets.map((t) => [t, (getMixerTrack(base, t)?.[control] ?? 0) + delta])));
+  };
+}
+export const clearSolo = () => commit(clearMixerSolo);
 
 /** The rack's selected channels to a track (Ctrl+L), or to it and the tracks after it, one each (Ctrl+Shift+L). */
 export function routeSelectedChannels(trackId = currentTrack(), starting = false) {
@@ -107,6 +184,93 @@ export function selectNeighbourTrack(direction: -1 | 1) {
   useMixerView.getState().reveal(next.id);
 }
 
+/** A click on a strip (not on one of its controls): Ctrl+Shift toggles it in the selection, Ctrl adds it, Shift selects a range, else it alone. */
+export function clickTrack(id: string, keys: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) {
+  const ui = useMusicUi.getState();
+  const command = keys.ctrlKey || keys.metaKey;
+  if (command && keys.shiftKey) ui.selectTrack(id, "add");
+  // Cmd (or Ctrl) alone: it joins the selection (dragging on adds the tracks passed over).
+  else if (command) ui.includeTracks([id]);
+  // Shift: every track from the current one to this one.
+  else if (keys.shiftKey) selectTrackRange(id);
+  else ui.selectTrack(id);
+}
+
+/**
+ * A strip dragged by its number: it moves (the selected tracks with it, if it's one of them) to where it's
+ * let go, before or after the strip there, taking that strip's dock; a line shows where. Not dragged, it's
+ * a click on the strip.
+ */
+export function dragTracks(e: ReactPointerEvent<Element>, id: string) {
+  if (e.button !== 0 || id === MASTER_TRACK_ID) return;
+  e.stopPropagation();
+  const keys = { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey };
+  // Pressed on a track that isn't selected, the click is at once (so that's what's dragged); on a selected
+  // one, once it's let go without a drag (a drag takes them all).
+  const wasSelected = useMusicUi.getState().selectedTrackIds.includes(id);
+  if (!wasSelected) clickTrack(id, keys);
+  const view = useMixerView.getState();
+  let drop: { before: string | null; dock: MixerDock } | null = null;
+  startPointerDrag(e, {
+    threshold: 5,
+    cursor: "grabbing",
+    onMove(ev) {
+      const strip = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-track]");
+      const area = strip?.closest('[data-testid="mixer"]')?.querySelector<HTMLElement>('[role="list"]');
+      const doc = song();
+      if (!strip || !area || !doc) return;
+      const over = strip.dataset.track!;
+      const box = strip.getBoundingClientRect();
+      const after = ev.clientX > box.left + box.width / 2;
+      const index = doc.mixer.tracks.findIndex((t) => t.id === over);
+      drop = { before: after ? (doc.mixer.tracks[index + 1]?.id ?? null) : over, dock: (strip.closest<HTMLElement>("[data-dock]")?.dataset.dock as MixerDock) ?? "middle" };
+      // The master's dock is the left one: dropped on it, they go first in the middle.
+      if (over === MASTER_TRACK_ID) drop = { before: doc.mixer.tracks[1]?.id ?? null, dock: doc.mixer.tracks[1]?.dock ?? "middle" };
+      const rect = area.getBoundingClientRect();
+      view.reorder({ x: over === MASTER_TRACK_ID || after ? box.right : box.left, top: rect.top, height: rect.height });
+    },
+    onEnd() {
+      view.reorder(null);
+      const target = drop;
+      if (target) commit((doc) => moveMixerTracksTo(doc, menuTargets(id), target.before, target.dock));
+    },
+    onCancel: () => view.reorder(null),
+    onClick: () => wasSelected && clickTrack(id, keys),
+  });
+}
+
+/** Only the current track stays selected (Escape, a click on the mixer's empty space). */
+export function selectOnlyCurrent() {
+  const ui = useMusicUi.getState();
+  if (ui.selectedTrackIds.length > 1) ui.setTrackSelection([currentTrack()]);
+}
+
+/**
+ * Shift+click: the tracks from the current one to `id`, in the mixer's order, selected (the current one
+ * stays first, so the inspector keeps showing it).
+ */
+export function selectTrackRange(id: string) {
+  const doc = song();
+  if (!doc) return;
+  const from = currentTrack();
+  const a = doc.mixer.tracks.findIndex((t) => t.id === from);
+  const b = doc.mixer.tracks.findIndex((t) => t.id === id);
+  if (a < 0 || b < 0) return;
+  const range = doc.mixer.tracks.slice(Math.min(a, b), Math.max(a, b) + 1).map((t) => t.id);
+  useMusicUi.getState().setTrackSelection([from, ...range.filter((t) => t !== from)]);
+}
+
+/** A click on a group's band: its tracks selected (with Cmd, added to the selection). */
+export function selectGroup(groupId: string, add: boolean) {
+  const doc = song();
+  if (!doc) return;
+  const members = doc.mixer.tracks.filter((t) => t.group === groupId).map((t) => t.id);
+  if (!members.length) return;
+  const ui = useMusicUi.getState();
+  if (add) ui.includeTracks(members);
+  else ui.setTrackSelection(members);
+}
+
 export function selectAllTracks() {
   const doc = song();
   if (!doc) return;
@@ -134,6 +298,20 @@ export function addTrackAtEnd() {
   }
 }
 
+/**
+ * ⌘G: the selected tracks (or `id`'s alone, if it isn't one of them) to a new bus right after them, which
+ * is selected, scrolled to, and named at once.
+ */
+export function routeSelectedToNewBus(id = currentTrack()) {
+  const busId = createId("insert");
+  commit((doc) => routeToNewBus(doc, menuTargets(id), busId));
+  if (!song()?.mixer.tracks.some((t) => t.id === busId)) return;
+  useMusicUi.getState().setTrackSelection([busId]);
+  useMixerView.getState().reveal(busId);
+  // Once it's drawn.
+  setTimeout(() => useMixerView.getState().rename(busId), 0);
+}
+
 /** Delete tracks (never the master); the selection goes to the track before the first. */
 export function deleteTracks(ids: string[]) {
   const doc = song();
@@ -148,6 +326,22 @@ export function menuTargets(id: string): string[] {
   const selected = selectedTracks();
   return selected.includes(id) ? selected : [id];
 }
+
+/** The tracks a control touched on a strip moves: `menuTargets`, and the rest of any linked group they're in. */
+export function controlTargets(id: string): string[] {
+  const doc = song();
+  return doc ? withLinkedTracks(doc, menuTargets(id)) : [id];
+}
+
+/** A bus folded (the tracks going into it hidden), or unfolded. */
+export const toggleFold = (id: string) => commit((doc) => setTrackFolded(doc, [id], !getMixerTrack(doc, id)?.folded));
+
+/** Give a group a VCA fader (at 0 dB), or take it away. */
+export const toggleVca = (groupId: string) =>
+  commit((doc) => setGroupVca(doc, groupId, doc.mixer.groups.find((g) => g.id === groupId)?.vca === undefined ? DEFAULT_FADER : null));
+
+/** Link a group's controls, or unlink them. */
+export const linkGroup = (groupId: string, linked: boolean) => commit((doc) => setGroupLinked(doc, groupId, linked));
 
 /** Rename a track, or every selected track if it's one of them (the same name for all). */
 export const renameTrack = (id: string, name: string) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { name }));
@@ -174,19 +368,89 @@ export const renameMixerGroup = (groupId: string, name: string) => commit((doc) 
 /** Colour a track, or every selected track if it's one of them. */
 export const colourTrack = (id: string, color: string | null) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { color }));
 
-/** The current track sends to `to`, or stops (a click on the send switch). */
-export function toggleSend(to: string, from = currentTrack()) {
+/** The tracks sends are made from: every selected track, the current one first. */
+export function sendSources(): string[] {
+  const current = currentTrack();
+  return [current, ...selectedTracks().filter((id) => id !== current)];
+}
+
+/**
+ * A click on a track's send switch: the selected tracks stop sending to `to` if they all do, else the ones
+ * that don't (and can) start (`sendToggle`).
+ */
+export function toggleSend(to: string) {
   commit((doc) => {
-    const sending = getMixerTrack(doc, from)?.sends.some((s) => s.to === to);
-    return setSend(doc, from, to, sending ? null : 1);
+    const { remove, add } = sendToggle(doc.mixer, sendSources(), to);
+    const removed = remove.reduce((next, from) => setSend(next, from, to, null), doc);
+    return add.reduce((next, from) => setSend(next, from, to, 1), removed);
   });
 }
 
-/** "Route to this track only": the current track's sound goes to `to` and nowhere else. */
-export const sendOnlyTo = (to: string, from = currentTrack()) => commit((doc) => sendOnly(doc, from, to));
+/** "Route to this track only": the selected tracks' sound goes to `to` and nowhere else. */
+export const sendOnlyTo = (to: string) => commit((doc) => sendSources().reduce((next, from) => sendOnly(next, from, to), doc));
 
-/** "Sidechain to this track": a send at 0, which plugins on `to` can hear but the track doesn't. */
-export const sidechainTo = (to: string, from = currentTrack()) => commit((doc) => setSend(doc, from, to, 0));
+/** The output label's choice: `id` (and the selected tracks with it, if it's one of them) go to `to` alone (their sidechains stay). */
+export const sendOnlyFrom = (id: string, to: string) =>
+  commit((doc) => menuTargets(id).reduce((next, from) => onlyTo(next, from, to), doc));
+
+/** `from`'s sound to `to` alone, its sidechains (sends at 0) kept; nothing if that would loop. */
+function onlyTo(doc: MusicProject, from: string, to: string): MusicProject {
+  const track = getMixerTrack(doc, from);
+  if (!track || from === to || (!track.sends.some((s) => s.to === to) && !canSend(doc, from, to))) return doc;
+  // Its level if it went there already (a sidechain there becomes a send as it is).
+  const level = track.sends.find((s) => s.to === to)?.level || 1;
+  const removed = track.sends.filter((s) => s.level > 0 && s.to !== to).reduce((next, s) => setSend(next, from, s.to, null), doc);
+  return setSend(removed, from, to, level);
+}
+
+/**
+ * A selected track's down-arrow dragged onto another strip (a cable plugged in): the selected tracks go
+ * there alone (sidechains kept), or with ⌘ / Alt it's a send besides where they go. Let go anywhere else,
+ * nothing changes.
+ */
+export function plugCable(e: ReactPointerEvent<Element>) {
+  const view = useMixerView.getState();
+  const from = (e.currentTarget as HTMLElement).closest<HTMLElement>("[data-track]")?.dataset.track;
+  if (!from) return;
+  startPointerDrag(e, {
+    threshold: 4,
+    cursor: "grabbing",
+    onMove(ev) {
+      const over = trackAt(ev.clientX, ev.clientY);
+      view.plug({ from, x: ev.clientX, y: ev.clientY, over: over && !sendSources().includes(over) ? over : null, add: ev.metaKey || ev.ctrlKey || ev.altKey });
+    },
+    onEnd() {
+      const plugging = useMixerView.getState().plugging;
+      view.plug(null);
+      if (!plugging?.over) return;
+      const to = plugging.over;
+      if (plugging.add) commit((doc) => sendSources().reduce((next, from) => (getMixerTrack(next, from)?.sends.some((s) => s.to === to) ? next : setSend(next, from, to, 1)), doc));
+      else commit((doc) => sendSources().reduce((next, from) => onlyTo(next, from, to), doc));
+    },
+    onCancel: () => view.plug(null),
+  });
+}
+
+/** The selected tracks' sends to `to` taken before their faders (a parallel bus, a headphone mix), or after. */
+export const setSendsPreFader = (to: string, preFader: boolean) => commit((doc) => sendSources().reduce((next, from) => setSendPreFader(next, from, to, preFader), doc));
+
+/** "Sidechain to this track": sends at 0, which plugins on `to` can hear but the track doesn't. */
+export const sidechainTo = (to: string) => commit((doc) => sendSources().reduce((next, from) => setSend(next, from, to, 0), doc));
+
+/**
+ * A send knob as an edit of every selected track's send to `to` (`owner`'s is the one it shows). Dragged,
+ * each moves by as much as `owner`'s from where it started; set outright, they all take the value.
+ */
+export function groupSend(to: string, owner: string) {
+  return (doc: MusicProject, value: number): MusicProject => {
+    const base = useMusic.getState().history?.gestureBase ?? doc;
+    const levelIn = (song: MusicProject, from: string) => getMixerTrack(song, from)?.sends.find((s) => s.to === to)?.level;
+    const senders = sendSources().filter((from) => levelIn(doc, from) !== undefined);
+    const dragged = useMusic.getState().history?.gestureBase != null;
+    const delta = value - (levelIn(base, owner) ?? value);
+    return senders.reduce((next, from) => setSend(next, from, to, dragged ? (levelIn(base, from) ?? levelIn(doc, from)!) + delta : value), doc);
+  };
+}
 
 /**
  * The track menu's "Selected tracks to this track": each selected track (but `to`) sends to it, alone

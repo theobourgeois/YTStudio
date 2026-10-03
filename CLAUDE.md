@@ -385,8 +385,13 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   the stars are `plugin-favourites.ts`, this computer's), FL's favourites. An effect slot dragged onto
   another strip moves the effect there, ⌘-drag copies it (onto a slot too; `effectToTrack`).
   The mixer's look is its own theme tokens (`--mixer-*`, `--fader-*`; knobs everywhere use `--knob-*`), FL
-  Studio's colours: use them in the mixer rather than the app's surfaces. A track's `dock`, `separator` and
-  `group` (`Mixer.groups`) are only how the mixer shows it; they route nothing.
+  Studio's colours: use them in the mixer rather than the app's surfaces. A track's `dock`, `separator`,
+  `folded` and `group` (`Mixer.groups`) are only how the mixer shows it; they route nothing (a group's
+  `linked` links its controls in the window; its `vca` fader is folded into its tracks' gains by
+  `compileSong`). **Solo** is `MixerTrack.solo`, never a rewrite of the mutes, and follows the routing
+  (`shared/music/solo.ts`: `heardMixer` is what `compileSong` plays, `hearing` what the strips show). A
+  send can be `preFader` (the engine keeps the track's sound before its gains for it). A selected strip's
+  controls act on every selected track (`menuTargets`; `controlTargets` adds linked groups).
   The Mixer window is `src/suites/music/mixer/` (F9): `mixer-window.tsx` (strips, the send row, menus),
   `inspector.tsx` (effect slots), `fader.tsx`, `meters.ts` (one animation loop draws every strip's meter from
   `useTransport().meters`; the falling in `meter.ts`, tested), `actions.ts` (what menus and keys do), `keys.ts`

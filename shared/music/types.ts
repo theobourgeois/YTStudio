@@ -751,6 +751,11 @@ export interface MixerSend {
   to: string;
   /** 0..1, as a knob: 1 sends it as it is. At 0 the link is kept but silent (FL's sidechain-only send). */
   level: number;
+  /**
+   * Taken before the track's fader and pan (a parallel compression bus, a headphone mix), rather than after
+   * them (absent: after, FL's only way). Still silenced when the track is muted.
+   */
+  preFader?: true;
 }
 
 /**
@@ -770,6 +775,11 @@ export interface MixerTrack {
   dock: MixerDock;
   /** A divider before it (FL's Separator), to set tracks apart. */
   separator: boolean;
+  /**
+   * A bus folded (Logic's track stacks, Reaper's folders): the tracks whose sound all goes into it aren't
+   * shown (`foldedAway`). Only how the mixer shows them. Absent: unfolded.
+   */
+  folded?: true;
   /** The group it's in (`Mixer.groups`), or null. */
   group: string | null;
   /** 0..1, the fader; `DEFAULT_FADER` leaves the sound as it is. */
@@ -777,6 +787,13 @@ export interface MixerTrack {
   /** -1 (left) .. 1 (right). */
   pan: number;
   muted: boolean;
+  /**
+   * Soloed: while any track is, only the soloed ones, the tracks on their way to the master and the tracks
+   * feeding them are heard (`shared/music/solo.ts`). Its own state: it never changes the mutes. Never the master.
+   */
+  solo: boolean;
+  /** Solo safe: another track's solo never silences it (a reverb return, a reference track). */
+  soloSafe: boolean;
   /** Its sound's sign flipped (FL's invert phase): a kick recorded out of phase with another, say. */
   invert: boolean;
   /** Its left and right swapped. */
@@ -830,6 +847,16 @@ export type InputMonitor = "off" | "armed" | "on";
 export interface MixerGroup {
   id: string;
   name: string;
+  /**
+   * Its tracks' controls linked (Pro Tools' mix groups): a fader, mute, solo, pan or switch moved on one
+   * moves them all. Absent: it's only how the mixer shows them.
+   */
+  linked?: true;
+  /**
+   * Its VCA fader (0..1, as a track's: `DEFAULT_FADER` leaves them as they are): it scales every one of its
+   * tracks' levels without mixing their sound (each keeps its own fader, sends and automation). Absent: none.
+   */
+  vca?: number;
 }
 
 export interface Mixer {

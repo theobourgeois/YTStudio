@@ -494,6 +494,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         Track::Send made;
                         made.track = to;
                         made.gain = (float) number (send["gain"], 1, 0, 64);
+                        made.preFader = (bool) send["preFader"];
                         track.sends.push_back (std::move (made));
                     }
                 }
@@ -543,6 +544,10 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     }
     song->capacity = juce::jmax (0, capacity);
     song->playingPlugins.reserve (song->channels.size());
+    // A pair for each reached track with a pre-fader send: its sound before its gains.
+    for (auto& track : song->tracks)
+        if (track.buffer >= 0 && std::any_of (track.sends.begin(), track.sends.end(), [] (const Track::Send& s) { return s.preFader; }))
+            track.preBuffer = buffers++;
     // And one more pair: the selected tracks' sound added up, for the mixer's selection meter.
     song->selectionBuffer = buffers;
     song->audio.setSize (buffers * 2 + 2, song->capacity);

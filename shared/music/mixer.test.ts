@@ -11,19 +11,31 @@ import {
   moveEffect,
   moveEffectTo,
   moveMixerTracks,
+  moveMixerTracksTo,
   pasteTrackState,
   renameGroup,
   removeMixerTracks,
   routeChannels,
   routeChannelsFrom,
   routeToFreeTracks,
+  routeToNewBus,
   sendOnly,
   sendersTo,
   setEffect,
+  clearMixerSolo,
   setMixerMuted,
+  setMixerSolo,
   setMixerVolumes,
   setSend,
+  setGroupLinked,
+  setGroupVca,
+  setTrackFolded,
+  foldedAway,
+  feedersOf,
+  setSendPreFader,
+  setSoloSafe,
   soloMixerTrack,
+  toggleMixerSolo,
   trackName,
   trackNumber,
   trackState,
@@ -31,9 +43,11 @@ import {
   updateEffect,
   updateMixerTrack,
   updateMixerTracks,
+  withLinkedTracks,
 } from "./mixer.ts";
 import { updateTrack } from "./playlist.ts";
-import { MASTER_TRACK_ID, MAX_INSERTS, createMusicProject } from "./project.ts";
+import { compileSong } from "./compile.ts";
+import { MASTER_TRACK_ID, MAX_INSERTS, createMusicProject, normalizeMusicProject } from "./project.ts";
 import type { MusicProject } from "./types.ts";
 
 const M = MASTER_TRACK_ID;
@@ -137,19 +151,39 @@ describe("inputs", () => {
 });
 
 describe("solo", () => {
-  it("mutes every other insert (never the master), and soloing the lone track again unmutes them", () => {
-    const song = rack();
-    const solo = soloMixerTrack(song, "insert_2");
-    expect(mutes(solo)).toEqual([false, true, false, true, true, true]);
-    expect(mutes(soloMixerTrack(solo, "insert_2"))).toEqual([false, false, false, false, false, false]);
-    expect(mutes(soloMixerTrack(solo, "insert_3"))).toEqual([false, true, true, false, true, true]);
+  const solos = (song: MusicProject) => song.mixer.tracks.slice(0, 6).map((t) => t.solo);
+
+  it("is a state of its own: the mutes stay as they were, and clearing it brings back exactly what was heard", () => {
+    const muted = setMixerMuted(rack(), ["insert_3"], true);
+    const solo = soloMixerTrack(muted, "insert_2");
+    expect(mutes(solo)).toEqual(mutes(muted));
+    expect(solos(solo)).toEqual([false, false, true, false, false, false]);
+    expect(clearMixerSolo(solo).mixer).toEqual(muted.mixer);
   });
 
-  it("with Alt keeps the tracks routed to and from it on", () => {
-    let song = sendOnly(rack(), "insert_1", "insert_2");
-    song = sendOnly(song, "insert_2", "insert_3");
-    expect(mutes(soloMixerTrack(song, "insert_2", true))).toEqual([false, false, false, false, true, true]);
-    expect(mutes(soloMixerTrack(song, "insert_2"))).toEqual([false, true, false, true, true, true]);
+  it("adds up with S, and Alt solos alone (again: no solo)", () => {
+    const one = toggleMixerSolo(rack(), ["insert_1"]);
+    const two = toggleMixerSolo(one, ["insert_2"]);
+    expect(solos(two)).toEqual([false, true, true, false, false, false]);
+    expect(solos(toggleMixerSolo(two, ["insert_2"]))).toEqual([false, true, false, false, false, false]);
+    // Several at once: soloed unless they all are already.
+    expect(solos(toggleMixerSolo(one, ["insert_1", "insert_3"]))).toEqual([false, true, false, true, false, false]);
+    expect(solos(toggleMixerSolo(two, ["insert_1", "insert_2"]))).toEqual([false, false, false, false, false, false]);
+    expect(solos(soloMixerTrack(two, "insert_3"))).toEqual([false, false, false, true, false, false]);
+    expect(solos(soloMixerTrack(soloMixerTrack(two, "insert_3"), "insert_3"))).toEqual([false, false, false, false, false, false]);
+  });
+
+  it("never solos the master", () => {
+    const song = rack();
+    expect(soloMixerTrack(song, M)).toBe(song);
+    expect(setMixerSolo(song, [M], true)).toBe(song);
+    expect(updateMixerTrack(song, M, { solo: true })).toBe(song);
+  });
+
+  it("makes tracks solo safe", () => {
+    const safe = setSoloSafe(rack(), ["insert_4"], true);
+    expect(safe.mixer.tracks[4].soloSafe).toBe(true);
+    expect(setSoloSafe(safe, ["insert_4"], true)).toBe(safe);
   });
 });
 
@@ -313,5 +347,127 @@ describe("separators and groups", () => {
     expect(ungroup(song, ["insert_2"]).mixer.groups).toEqual([]);
     expect(removeMixerTracks(song, ["insert_2"]).mixer.groups).toEqual([]);
     expect(createGroup(rack(), [M])).toEqual(rack());
+  });
+});
+
+describe("a new bus for tracks", () => {
+  it("goes right after them, and takes their sound instead of where it went (sidechains kept)", () => {
+    let song = setSend(rack(), "insert_2", "insert_6", 0);
+    song = routeToNewBus(song, ["insert_2", "insert_1", M], "bus");
+    expect(ids(song).slice(0, 5)).toEqual([M, "insert_1", "insert_2", "bus", "insert_3"]);
+    expect(trackName(song, "bus")).toBe("Bus");
+    expect(sends(song, "insert_1")).toEqual([{ to: "bus", level: 1 }]);
+    expect(sends(song, "insert_2")).toEqual([{ to: "insert_6", level: 0 }, { to: "bus", level: 1 }]);
+    expect(sends(song, "bus")).toEqual([{ to: M, level: 1 }]);
+    expect(trackName(routeToNewBus(song, ["insert_5"], "bus_2"), "bus_2")).toBe("Bus 2");
+  });
+
+  it("goes where they all went, when that was one same track", () => {
+    let song = sendOnly(rack(), "insert_1", "insert_8");
+    song = sendOnly(song, "insert_2", "insert_8");
+    expect(sends(routeToNewBus(song, ["insert_1", "insert_2"], "bus"), "bus")).toEqual([{ to: "insert_8", level: 1 }]);
+    const apart = sendOnly(song, "insert_2", "insert_9");
+    expect(sends(routeToNewBus(apart, ["insert_1", "insert_2"], "bus"), "bus")).toEqual([{ to: M, level: 1 }]);
+  });
+
+  it("needs a track to route, and room for the bus", () => {
+    const song = rack();
+    expect(routeToNewBus(song, [M])).toBe(song);
+    const full = addMixerTracks(song, null, MAX_INSERTS);
+    expect(routeToNewBus(full, ["insert_1"])).toBe(full);
+  });
+});
+
+describe("tracks dragged to another place", () => {
+  it("go before the track they're dropped on, together and in their order, never before the master", () => {
+    const song = rack();
+    expect(ids(moveMixerTracksTo(song, ["insert_5", "insert_2"], "insert_1")).slice(0, 6)).toEqual([M, "insert_2", "insert_5", "insert_1", "insert_3", "insert_4"]);
+    expect(ids(moveMixerTracksTo(song, ["insert_2"], M)).slice(0, 3)).toEqual([M, "insert_2", "insert_1"]);
+    expect(ids(moveMixerTracksTo(song, ["insert_1"], null)).slice(-2)).toEqual(["insert_16", "insert_1"]);
+    // Dropped on one of themselves: before the next one that isn't moving.
+    expect(ids(moveMixerTracksTo(song, ["insert_1", "insert_2"], "insert_2")).slice(0, 4)).toEqual([M, "insert_1", "insert_2", "insert_3"]);
+    expect(moveMixerTracksTo(song, ["insert_1", "insert_2"], "insert_3")).toBe(song);
+    expect(moveMixerTracksTo(song, [M], "insert_3")).toBe(song);
+  });
+
+  it("take the dock they're dropped in", () => {
+    const moved = moveMixerTracksTo(rack(), ["insert_3"], "insert_9", "right");
+    expect(moved.mixer.tracks.find((t) => t.id === "insert_3")!.dock).toBe("right");
+  });
+});
+
+describe("pre-fader sends", () => {
+  it("are switched on a send, and kept as its level changes or it becomes the only one", () => {
+    const song = setSend(rack(), "insert_1", "insert_4", 0.5);
+    const pre = setSendPreFader(song, "insert_1", "insert_4", true);
+    expect(sends(pre, "insert_1")).toEqual([{ to: M, level: 1 }, { to: "insert_4", level: 0.5, preFader: true }]);
+    expect(setSendPreFader(pre, "insert_1", "insert_4", true)).toBe(pre);
+    expect(sends(setSend(pre, "insert_1", "insert_4", 0.8), "insert_1")[1]).toEqual({ to: "insert_4", level: 0.8, preFader: true });
+    expect(sends(sendOnly(pre, "insert_1", "insert_4"), "insert_1")).toEqual([{ to: "insert_4", level: 0.5, preFader: true }]);
+    expect(sends(setSendPreFader(pre, "insert_1", "insert_4", false), "insert_1")[1]).toEqual({ to: "insert_4", level: 0.5 });
+    expect(setSendPreFader(song, "insert_1", "insert_9", true)).toBe(song);
+  });
+
+  it("survive a save and load", () => {
+    const pre = setSendPreFader(setSend(rack(), "insert_1", "insert_4", 0.5), "insert_1", "insert_4", true);
+    expect(normalizeMusicProject(JSON.parse(JSON.stringify(pre))).mixer).toEqual(pre.mixer);
+  });
+
+  it("are compiled to be taken before the fader, and silent while the track is muted", () => {
+    const pre = setSendPreFader(setSend(rack(), "insert_1", "insert_4", 1), "insert_1", "insert_4", true);
+    const sendOf = (song: MusicProject) => compileSong(song, null).tracks.find((t) => t.id === "insert_1")!.sends.find((s) => s.preFader);
+    expect(sendOf(pre)).toMatchObject({ gain: 1, preFader: true });
+    expect(sendOf(setMixerMuted(pre, ["insert_1"], true))).toMatchObject({ gain: 0, preFader: true });
+    expect(sendOf(setMixerSolo(pre, ["insert_2"], true))).toMatchObject({ gain: 0 });
+  });
+});
+
+describe("linked groups", () => {
+  it("link their tracks' controls: a track touched brings the rest of its group", () => {
+    const grouped = createGroup(rack(), ["insert_2", "insert_3"], "Drums", "drums");
+    expect(withLinkedTracks(grouped, ["insert_2"])).toEqual(["insert_2"]);
+    const linked = setGroupLinked(grouped, "drums", true);
+    expect(linked.mixer.groups).toEqual([{ id: "drums", name: "Drums", linked: true }]);
+    expect(setGroupLinked(linked, "drums", true)).toBe(linked);
+    expect(withLinkedTracks(linked, ["insert_2", "insert_5"])).toEqual(["insert_2", "insert_5", "insert_3"]);
+    expect(normalizeMusicProject(JSON.parse(JSON.stringify(linked))).mixer.groups).toEqual(linked.mixer.groups);
+    expect(setGroupLinked(linked, "drums", false).mixer.groups).toEqual([{ id: "drums", name: "Drums" }]);
+  });
+});
+
+describe("folded buses", () => {
+  it("hide the tracks whose sound all goes into them, and the buses inside them with theirs", () => {
+    let song = sendOnly(rack(), "insert_1", "insert_3");
+    song = sendOnly(song, "insert_2", "insert_3");
+    // Insert 2 also sends to a reverb (insert 9): it still goes, its main output is the bus.
+    song = setSend(song, "insert_2", "insert_9", 0.5);
+    // Insert 4 goes to the master first, and only sends to 3 besides: it stays.
+    song = setSend(song, "insert_4", "insert_3", 0.5);
+    song = sendOnly(song, "insert_5", "insert_6");
+    song = sendOnly(song, "insert_6", "insert_3");
+    expect(foldedAway(song).size).toBe(0);
+    const folded = setTrackFolded(song, ["insert_3"], true);
+    // Insert 6 (a bus into 3) goes, and insert 5 with it.
+    expect([...foldedAway(folded)].sort()).toEqual(["insert_1", "insert_2", "insert_5", "insert_6"]);
+    expect([feedersOf(folded, "insert_3"), feedersOf(folded, "insert_9")]).toEqual([3, 0]);
+    expect(setTrackFolded(folded, ["insert_3"], true)).toBe(folded);
+    expect(setTrackFolded(folded, [M], true)).toBe(folded);
+    expect(normalizeMusicProject(JSON.parse(JSON.stringify(folded))).mixer).toEqual(folded.mixer);
+    expect(setTrackFolded(folded, ["insert_3"], false).mixer).toEqual(song.mixer);
+  });
+});
+
+describe("VCA faders", () => {
+  it("are a group's, and scale its tracks' levels in what's played, their own faders untouched", () => {
+    const grouped = createGroup(rack(), ["insert_2", "insert_3"], "Drums", "drums");
+    const vca = setGroupVca(grouped, "drums", 0.4);
+    expect(vca.mixer.groups[0].vca).toBe(0.4);
+    expect(setGroupVca(vca, "drums", 0.4)).toBe(vca);
+    expect(normalizeMusicProject(JSON.parse(JSON.stringify(vca))).mixer.groups).toEqual(vca.mixer.groups);
+    expect(setGroupVca(vca, "drums", null).mixer.groups).toEqual(grouped.mixer.groups);
+    // At half of 0 dB's travel, an eighth of the gain, on its tracks alone.
+    const gains = new Map(compileSong(vca, null).tracks.map((t) => [t.id, t.gains[0]]));
+    expect([gains.get("insert_1"), gains.get("insert_2"), gains.get("insert_3")]).toEqual([1, expect.closeTo(0.125, 6), expect.closeTo(0.125, 6)]);
+    expect(vca.mixer.tracks[2].volume).toBe(grouped.mixer.tracks[2].volume);
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SILENT_METER, detent, faderAt, faderDb, isClipping, meterFraction, meterScale, stepMeter } from "./meter";
+import { faderGain } from "@shared/music/compile";
+import { SILENT_METER, detent, faderAt, faderDb, isClipping, meterFraction, meterScale, moveFadersTogether, stepMeter, toDb } from "./meter";
 
 describe("meters", () => {
   it("put 0 dB near the top, and silence at the bottom", () => {
@@ -60,5 +61,27 @@ describe("a fader's hold at 0 dB", () => {
     expect(tall[1].at).toBeCloseTo(meterFraction(1), 6);
     expect(meterScale(200).map((m) => m.db)).toEqual([0, -6, -12, -18, -24, -30, -36, -42, -48]);
     expect(meterScale(100).map((m) => m.db)).toEqual([0, -12, -24, -36, -48]);
+  });
+});
+
+describe("faders moved together", () => {
+  const db = (v: number) => Math.round(toDb(faderGain(v)) * 10) / 10;
+  it("keep their offsets in dB", () => {
+    const starts = new Map([["a", faderAt(-3)], ["b", faderAt(-10)]]);
+    const moved = moveFadersTogether(starts, starts.get("a")!, faderAt(-5));
+    expect([db(moved.get("a")!), db(moved.get("b")!)]).toEqual([-5, -12]);
+  });
+
+  it("leave one at −∞ there, and take them all to −∞ with the one dragged", () => {
+    const starts = new Map([["a", faderAt(0)], ["b", 0]]);
+    expect(moveFadersTogether(starts, faderAt(0), faderAt(-6)).get("b")).toBe(0);
+    expect(moveFadersTogether(starts, faderAt(0), 0).get("a")).toBe(0);
+    // Dragged up from −∞, the others stay.
+    expect(moveFadersTogether(new Map([["a", 0], ["b", faderAt(-6)]]), 0, faderAt(-3)).get("b")).toBe(faderAt(-6));
+  });
+
+  it("stop at the top", () => {
+    const starts = new Map([["a", faderAt(0)], ["b", faderAt(4)]]);
+    expect(moveFadersTogether(starts, faderAt(0), faderAt(3)).get("b")).toBe(1);
   });
 });

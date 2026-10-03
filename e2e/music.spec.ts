@@ -939,7 +939,7 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await expect(page.getByRole("listitem")).toHaveCount(4);
   const mixer = page.getByTestId("mixer");
   const strip = (name: string) => mixer.locator(`[data-track-name="${name}"]`);
-  const mixerOf = async () => (await savedSong(page, id)).mixer.tracks as { id: string; name: string | null; volume: number; muted: boolean; sends: { to: string; level: number }[] }[];
+  const mixerOf = async () => (await savedSong(page, id)).mixer.tracks as { id: string; name: string | null; volume: number; muted: boolean; solo: boolean; sends: { to: string; level: number }[] }[];
 
   // Every channel starts on the master ("---"); Ctrl+L in the rack gives the selected ones free tracks named after them.
   await expect(row(page, "Kick").getByRole("spinbutton")).toHaveText("---");
@@ -995,13 +995,43 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await strip("Insert 3").locator("canvas").click();
   await expect(strip("Kick").getByRole("button", { name: "Send to Kick" })).toBeDisabled();
 
-  // The mute light mutes; a right-click solos (the other inserts muted, never the master); again, all back on.
+  // The mute light mutes. A right-click solos the track alone (FL's): the others are silenced, their mutes left as they are.
   await strip("Insert 2").getByRole("button", { name: "Mute Insert 2" }).click();
   await expect.poll(async () => (await mixerOf())[2].muted).toBe(true);
-  await strip("Insert 2").getByRole("button", { name: "Unmute Insert 2" }).click({ button: "right" });
-  await expect.poll(async () => (await mixerOf()).slice(0, 4).map((t) => t.muted)).toEqual([false, true, false, true]);
+  await strip("Insert 2").getByRole("button", { name: "Unmute Insert 2" }).click();
   await strip("Insert 2").getByRole("button", { name: "Mute Insert 2" }).click({ button: "right" });
+  await expect.poll(async () => (await mixerOf()).slice(0, 5).map((t) => t.solo)).toEqual([false, false, true, false, false]);
+  expect((await mixerOf()).some((t) => t.muted)).toBe(false);
+  await expect(strip("Insert 4")).toHaveAttribute("data-soloed-out", "true");
+  await expect(strip("Insert 2")).not.toHaveAttribute("data-soloed-out");
+  // S adds a track to the solo; Alt+click solos it alone; clicked again, nothing is soloed.
+  await strip("Insert 4").getByRole("button", { name: "Solo Insert 4" }).click();
+  await expect.poll(async () => (await mixerOf()).slice(0, 5).map((t) => t.solo)).toEqual([false, false, true, false, true]);
+  await expect(strip("Insert 4")).not.toHaveAttribute("data-soloed-out");
+  await strip("Insert 4").getByRole("button", { name: "Unsolo Insert 4" }).click({ modifiers: ["Alt"] });
+  await expect.poll(async () => (await mixerOf()).slice(0, 5).map((t) => t.solo)).toEqual([false, false, false, false, true]);
+  await strip("Insert 4").getByRole("button", { name: "Unsolo Insert 4" }).click();
+  await expect.poll(async () => (await mixerOf()).some((t) => t.solo)).toBe(false);
+  // The title bar's SOLO light is lit while anything is soloed, and clears every solo.
+  await expect(page.getByTestId("solo-indicator")).toBeDisabled();
+  await strip("Insert 4").getByRole("button", { name: "Solo Insert 4" }).click();
+  await strip("Insert 5").getByRole("button", { name: "Solo Insert 5" }).click();
+  await expect(page.getByTestId("solo-indicator")).toHaveText("SOLO 2");
+  // Mono and Dim, for listening: switched on the title bar, never in the song.
+  await page.getByRole("button", { name: "Listen in mono" }).click();
+  await expect(page.getByRole("button", { name: "Listen in mono" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Listen in mono" }).click();
+  await expect(page.getByRole("button", { name: "Listen in mono" })).toHaveAttribute("aria-pressed", "false");
+  await page.getByTestId("solo-indicator").click();
+  await expect.poll(async () => (await mixerOf()).some((t) => t.solo)).toBe(false);
+  // A mute light dragged across the strips paints them all (one undo step); the same with S.
+  await drag(page, strip("Insert 2").getByRole("button", { name: "Mute Insert 2" }), strip("Insert 4").getByRole("button", { name: "Mute Insert 4" }));
+  await expect.poll(async () => (await mixerOf()).slice(1, 6).map((t) => t.muted)).toEqual([false, true, true, true, false]);
+  await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => (await mixerOf()).some((t) => t.muted)).toBe(false);
+  await drag(page, strip("Insert 5").getByRole("button", { name: "Solo Insert 5" }), strip("Insert 3").getByRole("button", { name: "Solo Insert 3" }));
+  await expect.poll(async () => (await mixerOf()).slice(1, 6).map((t) => t.solo)).toEqual([false, false, true, true, true]);
+  await page.getByTestId("solo-indicator").click();
 
   // A double-click on a name renames the track; + adds a track after the selected one.
   await strip("Insert 3").locator("span").first().dblclick();
@@ -1043,6 +1073,48 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
     });
   await expect.poll(lit).toBeGreaterThan(10);
   await page.getByRole("button", { name: "Stop", exact: true }).click();
+
+  // ⌘G routes the selected tracks to a new bus right after them, named at once.
+  await strip("Insert 5").locator("canvas").click();
+  await strip("Insert 6").locator("canvas").click({ modifiers: ["Shift"] });
+  await page.keyboard.press("ControlOrMeta+g");
+  await page.getByRole("textbox", { name: "Track name" }).fill("Pads bus");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await mixerOf())[7]?.name).toBe("Pads bus");
+  const bus = (await mixerOf())[7];
+  expect((await mixerOf()).slice(5, 7).map((t) => t.sends)).toEqual([[{ to: bus.id, level: 1 }], [{ to: bus.id, level: 1 }]]);
+  expect(bus.sends).toEqual([{ to: "master", level: 1 }]);
+  await expect(strip("Pads bus")).toHaveAttribute("aria-selected", "true");
+  // Every strip says where it goes; its output label's menu routes it (and the selected tracks with it) elsewhere.
+  await expect(strip("Insert 5").getByTestId("output-label")).toHaveText("→ 7");
+  await strip("Insert 5").getByTestId("output-label").click();
+  await page.getByRole("menuitemcheckbox", { name: /Master/ }).click();
+  await expect.poll(async () => (await mixerOf())[5].sends).toEqual([{ to: "master", level: 1 }]);
+  await expect(strip("Insert 5").getByTestId("output-label")).toHaveText("→ M");
+  // A bus selected shows what feeds it: a dashed cable from each track sending to it.
+  await strip("Pads bus").locator("canvas").click();
+  await expect(page.getByTestId("cables").locator("[data-incoming]")).toHaveCount(1);
+  await expect(page.getByTestId("cables").locator(`[data-incoming][data-cable-from="${(await mixerOf())[6].id}"]`)).toHaveCount(1);
+  // A selected track's down-arrow dragged onto another strip plugs its cable in there: it goes there alone.
+  await strip("Insert 9").locator("canvas").click();
+  await drag(page, strip("Insert 9").locator("[data-plug]"), strip("Insert 10").locator("canvas"));
+  await expect.poll(async () => (await mixerOf())[9].sends).toEqual([{ to: (await mixerOf())[10].id, level: 1 }]);
+  // A strip dragged by its number moves there (a line shows where): insert 11 before insert 13.
+  const moving = (await mixerOf())[11].id;
+  await drag(page, strip("Insert 11").locator("[data-reorder]"), strip("Insert 13").locator("canvas"), { dx: -10 });
+  await expect.poll(async () => (await mixerOf())[12].id).toBe(moving);
+  // The track menu's Route to the master only undoes any routing (of the selected tracks, if it's one of them).
+  await strip("Insert 9").locator("span").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Track routing" }).click();
+  await page.getByRole("menuitem", { name: "Route to the master only" }).click();
+  await expect.poll(async () => (await mixerOf())[9].sends).toEqual([{ to: "master", level: 1 }]);
+  // A bus folds away the tracks going into it (its chip says how many), and unfolds them.
+  await strip("Pads bus").getByRole("button", { name: "Fold Pads bus" }).click();
+  await expect(strip("Insert 6")).toHaveCount(0);
+  await expect(strip("Pads bus").getByTestId("fold")).toHaveText("1");
+  await strip("Pads bus").getByRole("button", { name: "Unfold Pads bus" }).click();
+  await expect(strip("Insert 6")).toHaveCount(1);
+  await expect(page.getByTestId("reorder-line")).toHaveCount(0);
 });
 
 test("an effect goes in a mixer track's slot: chosen from the effect plugins, its window opened by its name, bypassed, moved", async ({ page }) => {
@@ -1175,6 +1247,23 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await page.getByRole("textbox", { name: "Track name" }).fill("Pads");
   await page.keyboard.press("Enter");
   await expect.poll(async () => [(await track(5)).name, (await track(6)).name]).toEqual(["Pads", "Pads"]);
+  // Their controls act on both: a click on one's mute light, phase switch or S; a drag of one's pan moves both by as much.
+  await strip("Pads").nth(1).getByRole("button", { name: "Mute Pads" }).click();
+  await expect.poll(async () => [(await track(5)).muted, (await track(6)).muted]).toEqual([true, true]);
+  await strip("Pads").nth(0).getByRole("button", { name: "Unmute Pads" }).click();
+  await strip("Pads").nth(0).getByRole("button", { name: "Invert Pads's phase" }).click();
+  await strip("Pads").nth(1).getByRole("button", { name: "Solo Pads" }).click();
+  await expect.poll(async () => [(await track(5)).invert, (await track(6)).invert, (await track(5)).solo, (await track(6)).solo, (await track(5)).muted]).toEqual([true, true, true, true, false]);
+  await strip("Pads").nth(1).getByRole("button", { name: "Unsolo Pads" }).click();
+  const pan = strip("Pads").nth(1).getByRole("slider", { name: "Pads pan" });
+  await drag(page, pan, pan, { dy: -30 });
+  await expect.poll(async () => (await track(6)).pan).toBeGreaterThan(0.1);
+  expect((await track(5)).pan).toBe((await track(6)).pan);
+  await expect(strip("Pads").nth(0)).toHaveAttribute("aria-selected", "true");
+  // A control of a track that isn't selected acts on it alone.
+  await strip("Insert 4").getByRole("button", { name: "Mute Insert 4" }).click();
+  await expect.poll(async () => [(await track(4)).muted, (await track(5)).muted]).toEqual([true, false]);
+  await strip("Insert 4").getByRole("button", { name: "Unmute Insert 4" }).click();
 
   // The views: Compact, Wide, Extra large (its strips list their effects), from the title bar; kept for next time.
   const width = async () => (await strip("Insert 1").boundingBox())!.width;
@@ -1206,12 +1295,55 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await expect.poll(async () => (await savedSong(page, id)).mixer.groups.map((g: { name: string }) => g.name)).toEqual(["Drums"]);
   await expect(mixer.locator("[data-group]").first()).toContainText("Drums");
   expect([(await track(11)).group, (await track(12)).group]).toEqual([(await savedSong(page, id)).mixer.groups[0].id, (await savedSong(page, id)).mixer.groups[0].id]);
+  // Shift+click selects every track from the current one; Escape leaves the current one; a click on a group's band selects its tracks.
+  await strip("Insert 9").locator("canvas").click();
+  await strip("Insert 12").locator("canvas").click({ modifiers: ["Shift"] });
+  expect(await selectedNames()).toEqual(["Insert 9", "Insert 10", "Insert 11", "Insert 12"]);
+  await page.keyboard.press("Escape");
+  expect(await selectedNames()).toEqual(["Insert 9"]);
+  await mixer.locator('[data-group]').first().click();
+  expect(await selectedNames()).toEqual(["Insert 11", "Insert 12"]);
+  // Its controls linked (the track menu), a mute light pressed on one of its tracks mutes both, though only one is selected.
+  await strip("Insert 11").getByTitle("Insert 11 (double-click to rename)").click({ button: "right" });
+  await page.getByRole("menuitemcheckbox", { name: "Link the group's controls" }).click();
+  await expect(mixer.getByTestId("group-linked")).toBeVisible();
+  await strip("Insert 9").locator("canvas").click();
+  await strip("Insert 11").getByRole("button", { name: "Mute Insert 11" }).click();
+  await expect.poll(async () => [(await track(11)).muted, (await track(12)).muted, (await track(9)).muted]).toEqual([true, true, false]);
+  await strip("Insert 12").getByRole("button", { name: "Unmute Insert 12" }).click();
+  await expect.poll(async () => [(await track(11)).muted, (await track(12)).muted]).toEqual([false, false]);
+  // A VCA fader for the group: a strip after the master whose fader turns its tracks down together, theirs untouched.
+  await strip("Insert 11").getByTitle("Insert 11 (double-click to rename)").click({ button: "right" });
+  await page.getByRole("menuitemcheckbox", { name: "VCA fader for the group" }).click();
+  const vca = mixer.getByRole("slider", { name: "Drums VCA" });
+  await expect(vca).toBeVisible();
+  await drag(page, vca, vca, { dy: 40 });
+  await expect.poll(async () => (await savedSong(page, id)).mixer.groups[0].vca).toBeLessThan(0.75);
+  expect((await track(11)).volume).toBe(0.8);
 
   // Sending to insert 3 draws a cable from it.
   await strip("Insert 1").locator("canvas").click();
   await expect(page.getByTestId("cables").locator("path")).toHaveCount(1);
   await strip("Insert 3").getByRole("button", { name: "Send to Insert 3" }).click();
   await expect(page.getByTestId("cables").locator("path")).toHaveCount(2);
+  // With insert 2 selected too, both are sources: insert 3's switch is half lit (only insert 1 sends there), and a
+  // click sends both there, a cable from each; clicked again, neither does.
+  await strip("Insert 2").locator("canvas").click({ modifiers: ["ControlOrMeta", "Shift"] });
+  await expect(strip("Insert 3").getByRole("button", { name: "Send to Insert 3" })).toHaveAttribute("data-partial", "true");
+  await expect(page.getByTestId("cables").locator("path")).toHaveCount(3);
+  await strip("Insert 3").getByRole("button", { name: "Send to Insert 3" }).click();
+  await expect.poll(async () => (await track(2)).sends.map((s: { to: string }) => s.to)).toEqual(["master", "insert_3"]);
+  await expect(page.getByTestId("cables").locator("path")).toHaveCount(4);
+  await strip("Insert 3").getByRole("button", { name: "Stop sending to Insert 3" }).click();
+  await expect.poll(async () => [(await track(1)).sends.length, (await track(2)).sends.length]).toEqual([1, 1]);
+  await strip("Insert 1").locator("canvas").click();
+  await strip("Insert 3").getByRole("button", { name: "Send to Insert 3" }).click();
+  await expect(page.getByTestId("cables").locator("path")).toHaveCount(2);
+  // Its menu takes the send before the fader.
+  await strip("Insert 3").getByRole("button", { name: "Stop sending to Insert 3" }).click({ button: "right" });
+  await page.getByRole("menuitemcheckbox", { name: "Pre-fader" }).click();
+  await expect.poll(async () => (await track(1)).sends[1]).toEqual({ to: "insert_3", level: 1, preFader: true });
+  await expect(strip("Insert 3").getByTestId("pre-fader")).toBeVisible();
   // Scrolled (Wide, so the strips overflow), a cable's end is on its track's send knob as soon as the scroll is (it doesn't lag a frame behind the strips).
   await page.getByRole("button", { name: "Mixer view: Compact" }).click();
   const offBy = () =>
