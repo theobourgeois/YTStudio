@@ -157,9 +157,8 @@ Every component file, both editors. For each: surfaces to the new levels, corner
 dots, avatars, the record light), soft shadows removed except on floating things, hand-rolled buttons moved
 onto the primitives. Do it area by area and look at each:
 
-- **Platform**: the sidebar (`components/sidebar/`: project list, new project picker, chat status), the
-  header (`components/header/`), the settings and export windows, the empty state
-  (`components/workspace/empty-state.tsx`).
+- **Platform**: the Home screen (`components/home/`: the recents' cards, new project picker, chat status), the
+  header (`components/header/`), the settings and export windows.
 - **The assistant** (`components/assistant/`): the chat panel, messages, tool steps, the model and thinking
   pickers, Markdown, the activity pill. It's the most SaaS-looking part now: make the panel a surface like
   the others, the input a sunken field, the send button a raised one.
