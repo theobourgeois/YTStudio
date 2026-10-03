@@ -16,6 +16,7 @@ import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { type EngineEq, engineProQ } from "./pro-q.ts";
 import { type EngineOtt, OTT_CONTROL_SPECS, OTT_LANES, OTT_LANES_OF, type OttLane, engineOtt } from "./ott.ts";
 import { type EngineProC, PRO_C_CONTROL_SPECS, PRO_C_LANES, PRO_C_LANES_OF, type ProCLane, engineProC } from "./pro-c.ts";
+import { type EngineReverb, REVERB_CONTROL_SPECS, REVERB_LANES, REVERB_LANES_OF, REVERB_LANE_NAMES, type ReverbLane, engineReverb, reverbSeed } from "./reverb.ts";
 import { type EnginePitchWheel, controlValue as pitchWheelValue, engineControlValue as engineWheelValue, enginePitchWheel } from "./pitch-wheel.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
@@ -40,6 +41,8 @@ import {
   type MusicProject,
   OTT_CONTROLS,
   PRO_C_CONTROLS,
+  REVERB_CONTROLS,
+  type ReverbState,
   type PanControl,
   type ProCState,
   PITCH_WHEEL_CONTROLS,
@@ -127,6 +130,8 @@ export interface EngineEffect {
   proC?: EngineProC;
   /** A PanMan (ours, likewise: `PANMAN_PLUGIN`'s id): its settings and pattern. */
   panMan?: EnginePanMan;
+  /** A Reverb (ours, `REVERB_PLUGIN`): its network, decay and vocal tools as numbers, its ducking key's track. */
+  reverb?: EngineReverb;
   /** A Pitch Wheel (ours too, `PITCH_WHEEL_PLUGIN`): its wheels, and where its notes come from. */
   pitchWheel?: EnginePitchWheel;
 }
@@ -240,6 +245,8 @@ export type EngineLaneTarget =
   /** A PanMan's control; or its pattern (`shape`: `PAN_SHAPE_POINTS` positions evenly over it), Smoothing, Feel or Groove automated. */
   | { kind: "panman"; track: number; effect: number; control: PanControl | "shape" }
   | { kind: "wheel"; track: number; effect: number; control: PitchWheelControl }
+  /** A Reverb's lane (`ReverbLane`): its values in the engine's units (Hz, seconds, linear gains; the ten T60s). */
+  | { kind: "verb"; track: number; effect: number; control: ReverbLane }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
 /**
@@ -488,6 +495,12 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
           return [{ ...effect, proC: { ...proC, sidechain: { ...proC.sidechain, key: key < index.get(track.id)! ? key : -1 } } }];
         }
         if (e.panMan) return [{ ...effect, panMan: enginePanMan(e.panMan, e.id) }];
+        if (e.reverb) {
+          // Ducked from another track: only one that sends here (so it runs first); otherwise its own input.
+          const from = e.reverb.ducking.key ? song.mixer.tracks.find((t) => t.id === e.reverb!.ducking.key) : undefined;
+          const key = from && from.sends.some((s) => s.to === track.id) ? (index.get(from.id) ?? -1) : -1;
+          return [{ ...effect, reverb: engineReverb(e.reverb, song.settings.tempo, reverbSeed(e.id), key < index.get(track.id)! ? key : -1) }];
+        }
         if (e.pitchWheel) {
           // Notes from a channel the song no longer has: none.
           const wheel = enginePitchWheel(e.pitchWheel);
@@ -981,6 +994,21 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
           add({ kind: "comp", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick) => {
             const at = moving.reduce((settings, c) => (c.key ? PRO_C_CONTROL_SPECS[c.control].set(settings, c.value(tick)) : settings), pc as ProCState);
             return PRO_C_LANES[lane](engineProC(at));
+          });
+        }
+      }
+      const rv = effect.reverb;
+      if (rv) {
+        // As OTT's: each engine lane from the controls that move it, the settings at the tick as the engine has them.
+        const controls = REVERB_CONTROLS.map((control) => {
+          const target: AutomationTarget = { kind: "reverb", effect: effect.id, control };
+          return { control, key: automated(target), value: valueOf(target, REVERB_CONTROL_SPECS[control].get(rv)) };
+        });
+        for (const lane of REVERB_LANE_NAMES) {
+          const moving = controls.filter((c) => REVERB_LANES_OF[c.control].includes(lane));
+          add({ kind: "verb", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick) => {
+            const at = moving.reduce((settings, c) => (c.key ? REVERB_CONTROL_SPECS[c.control].set(settings, c.value(tick)) : settings), rv as ReverbState);
+            return REVERB_LANES[lane](engineReverb(at, song.settings.tempo, 0, -1, true));
           });
         }
       }
