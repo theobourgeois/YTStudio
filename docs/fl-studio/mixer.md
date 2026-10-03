@@ -393,3 +393,7 @@ The rest of the table is still to build.
 - **What's in the first version**: tracks, routing channels, level, pan, mute and solo, meters and the
   effect slots; then sends, then the EQ, then PDC. Or does something move up (sends for a reverb bus,
   say)?
+
+### Mac shortcuts (2026-10-03)
+
+Rename uses ⌘⇧N (Ctrl+Shift+N elsewhere); F2 remains available. The window toolbar shows Option+1–5 for Playlist, Channel rack, Piano roll, Mixer and Browser, so function keys are optional.

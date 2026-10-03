@@ -30,6 +30,7 @@ export function resolveMixerKey(e: KeyLike): MixerKeyAction | null {
   const letter = /^Key([A-Z])$/.exec(e.code)?.[1] ?? "";
   const horizontal = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : null;
 
+  if (letter === "N" && command && e.shiftKey && !e.altKey) return { type: "rename" };
   if (e.key === "F2" && !command && !e.altKey && !e.shiftKey) return { type: "rename" };
   if (e.key === "Escape" && !command && !e.altKey && !e.shiftKey) return { type: "deselect" };
   if ((e.key === "Delete" || e.key === "Backspace") && e.altKey && !command && !e.shiftKey) return { type: "delete" };

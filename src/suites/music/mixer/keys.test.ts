@@ -13,6 +13,8 @@ describe("the mixer's keys", () => {
     expect(key("KeyL", { altKey: true }, "¬")).toEqual({ type: "selectChannels" });
     expect(key("KeyA", { metaKey: true })).toEqual({ type: "selectAll" });
     expect(key("KeyG", { metaKey: true })).toEqual({ type: "bus" });
+    expect(key("KeyN", { metaKey: true, shiftKey: true })).toEqual({ type: "rename" });
+    expect(key("KeyN", { ctrlKey: true, shiftKey: true })).toEqual({ type: "rename" });
     expect(key("F2", {}, "F2")).toEqual({ type: "rename" });
     expect(key("Escape", {}, "Escape")).toEqual({ type: "deselect" });
     expect(key("Delete", { altKey: true }, "Delete")).toEqual({ type: "delete" });

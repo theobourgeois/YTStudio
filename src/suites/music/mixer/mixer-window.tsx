@@ -707,7 +707,7 @@ function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: 
   return (
     <ContextMenuContent>
       <ContextMenuItem onSelect={() => setTimeout(() => useMixerView.getState().rename(id), 0)}>
-        Rename… <ContextMenuShortcut>F2</ContextMenuShortcut>
+        Rename… <ContextMenuShortcut>⇧⌘N</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSub>
         <ContextMenuSubTrigger>Colour</ContextMenuSubTrigger>
