@@ -959,6 +959,8 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
     await page.getByRole("menuitem", { name: "Type in value…" }).click();
     await page.getByRole("textbox", { name: /Hat's mixer track.*type a value/ }).fill(value);
     await page.keyboard.press("Enter");
+    // Gone, and the keyboard with it (F9 next would be typed into it).
+    await expect(page.getByRole("textbox", { name: /Hat's mixer track.*type a value/ })).toHaveCount(0);
   };
   await typeTrack("5");
   await expect(row(page, "Hat").getByRole("spinbutton")).toHaveText("5");

@@ -1217,7 +1217,7 @@ test("goes Home and back, and opens, renames, duplicates, removes and trashes pr
   expect(existsSync(copy.path)).toBe(true);
   await page.keyboard.press("ControlOrMeta+KeyO");
   await page.getByRole("textbox", { name: "Project path" }).fill(copy.path);
-  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Open", exact: true }).click();
   await expect(page).toHaveURL(`/p/${copy.id}`);
   await expect.poll(async () => (await timelineClips(page)).length).toBe(copy.clipCount);
 
