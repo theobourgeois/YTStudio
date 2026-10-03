@@ -394,6 +394,8 @@ private:
     Recorder recording;
     /** The audio thread's play generation, and how many times round the loop it's been since play started. */
     juce::uint32 generation = 0, pass = 0;
+    /** MIDI passes start at punch-in; clip decoding keeps its existing pass. */
+    juce::uint32 midiPassBase = 0;
     std::atomic<bool> playingNow { false };
     std::atomic<double> positionNow { 0.0 };
     std::atomic<juce::int64> countInNow { 0 };

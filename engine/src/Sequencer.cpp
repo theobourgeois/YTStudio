@@ -396,8 +396,7 @@ void Sequencer::takeRequests()
             // Punch in on the next block: keep the voices, clips and transport where they are.
             through = playThrough.load();
             recordWaiting = true;
-            playStart = position_;
-            pass = 0;
+            midiPassBase = pass;
             return;
         }
         // Played while playing (the ruler clicked): it goes there, the notes sounding cut short; a
@@ -413,6 +412,7 @@ void Sequencer::takeRequests()
         position_ = song != nullptr ? std::fmod (playFrom.load(), song->loopTicks) : 0;
         generation = requestedGeneration.load();
         pass = 0;
+        midiPassBase = 0;
         sliceClock = 0;
         // Modulation's slices count from here too, so a render plays them where the export does.
         modClock = 0;
@@ -645,7 +645,7 @@ void Sequencer::playMidi()
     const auto report = [&] (int channel, int key, float velocity, bool on) {
         const auto out = playedQueue.write (1);
         if (out.blockSize1 > 0)
-            played[(size_t) out.startIndex1] = { channel, key, velocity, on, playing, playing && countInLeft > 0, position_, pass };
+            played[(size_t) out.startIndex1] = { channel, key, velocity, on, playing, playing && countInLeft > 0, position_, pass - midiPassBase };
     };
     for (int i = 0; i < count; ++i)
     {
