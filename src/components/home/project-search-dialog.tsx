@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { addWindowListener } from "@/lib/window-events";
 import { PiArrowDown, PiArrowUp, PiMagnifyingGlass } from "react-icons/pi";
 import { formatRelative } from "@shared/format";
 import { SUITES } from "@shared/suites";
@@ -49,8 +50,8 @@ export function useProjectShortcuts() {
         if (!e.repeat) void useProjects.getState().toggleHome();
       }
     };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    // (In the editor's native windows too.)
+    return addWindowListener("keydown", onKeyDown, true);
   }, []);
 }
 

@@ -1,4 +1,5 @@
 import { type KeyboardEvent as ReactKeyboardEvent, Suspense, useEffect, useRef, useState } from "react";
+import { addWindowListener, queryAnywhere } from "@/lib/window-events";
 import { PiGearSix, PiPushPin, PiSpinnerGap } from "react-icons/pi";
 import { cn } from "cn";
 import { SUITE_IDS, SUITES, type SuiteId, suiteNoun } from "@shared/suites";
@@ -37,11 +38,10 @@ export function useSettingsShortcut() {
       if (e.repeat) return;
       const settings = useSettings.getState();
       if (settings.open) return settings.close();
-      if (document.querySelector(":is([role=dialog], [role=alertdialog])[data-state=open]")) return;
+      if (queryAnywhere(":is([role=dialog], [role=alertdialog])[data-state=open]")) return;
       settings.show(projectSuite(useProjects.getState().openId) ?? "general");
     };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    return addWindowListener("keydown", onKeyDown, true);
   }, []);
 }
 

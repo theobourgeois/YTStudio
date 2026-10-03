@@ -642,6 +642,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (params.open) editors.add(params.channel);
     else editors.delete(params.channel);
   }
+  if (cmd === "raiseEditor" && !editors.has(params.target)) return fail("That plugin has no window open.");
   if (cmd === "effectEditor") {
     if (!effects().loaded.some((e) => e.effect === params.effect)) return fail("That effect's plugin isn't loaded.");
     if (params.open) editors.add(params.effect);

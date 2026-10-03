@@ -1,9 +1,11 @@
 import { useEffect } from "react";
+import { addWindowListener } from "@/lib/window-events";
 
 /**
  * Dropping a file anywhere that isn't a real drop target would make the
  * browser navigate away to open it. Real drop targets call `preventDefault`
- * themselves, so only unhandled file drags are neutralised here.
+ * themselves, so only unhandled file drags are neutralised here (in the
+ * editor's native windows too).
  */
 export function usePreventFileNavigation() {
   useEffect(() => {
@@ -12,11 +14,9 @@ export function usePreventFileNavigation() {
       e.preventDefault();
       if (e.type === "dragover") e.dataTransfer.dropEffect = "none";
     };
-    window.addEventListener("dragover", guard);
-    window.addEventListener("drop", guard);
+    const stops = [addWindowListener("dragover", guard), addWindowListener("drop", guard)];
     return () => {
-      window.removeEventListener("dragover", guard);
-      window.removeEventListener("drop", guard);
+      for (const stop of stops) stop();
     };
   }, []);
 }

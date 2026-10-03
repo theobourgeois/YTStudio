@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { addWindowListener, ownerDocument } from "@/lib/window-events";
 import { PiChartLine, PiListDashes, PiPlus, PiWaveform } from "react-icons/pi";
 import { cn } from "cn";
 import { renamePattern } from "@shared/music/edits";
@@ -84,8 +85,7 @@ function useDeselectAway() {
       if (target?.closest?.("[data-picker-item], [data-radix-popper-content-wrapper], [role=menu], [role=dialog], [data-window='transpose']")) return;
       usePlaylist.setState({ patternSelection: new Set(), audioSelection: new Set(), automationSelection: new Set() });
     };
-    window.addEventListener("pointerdown", press, true);
-    return () => window.removeEventListener("pointerdown", press, true);
+    return addWindowListener("pointerdown", press, true);
   }, []);
 }
 
@@ -308,7 +308,9 @@ const carried = (item: Pattern | Channel | Automation): Carried => ({ id: item.i
  * name, on a stack of cards when there are more (with how many), so it doesn't look like the clips
  * themselves, which the Playlist shows where they'd land.
  */
-function dragBadge(transfer: DataTransfer, kind: ClipSource["kind"], items: readonly Carried[]) {
+function dragBadge(transfer: DataTransfer, source: Element, kind: ClipSource["kind"], items: readonly Carried[]) {
+  // Drawn in the window the drag starts in: a native one has a document of its own.
+  const document = ownerDocument(source);
   const colours = (item: Carried) => (item.color ? clipColours(item.color) : KIND_COLOURS[kind]);
   const badge = document.createElement("div");
   badge.style.cssText = "position:fixed;top:-200px;left:0;padding:0 8px 8px 0;font:600 11px/1 var(--font-sans);pointer-events:none";
@@ -394,7 +396,7 @@ function PickerItem({ kind, id, name, color, selected, chosen, onClick, carries,
       onDragStart={(e) => {
         const sources = carries.map((c) => ({ kind, ref: c.id }));
         e.dataTransfer.setData(CLIP_DRAG_TYPE, JSON.stringify(sources));
-        dragBadge(e.dataTransfer, kind, carries);
+        dragBadge(e.dataTransfer, e.currentTarget, kind, carries);
         e.dataTransfer.effectAllowed = "copy";
         usePlaylist.setState({ carried: sources });
       }}

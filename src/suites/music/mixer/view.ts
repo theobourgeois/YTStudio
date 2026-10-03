@@ -70,8 +70,8 @@ export const useMixerView = create<MixerViewState>((set) => ({
   reorder: (reordering) => set({ reordering }),
 }));
 
-/** The mixer track whose strip is at a point of the page, or null. */
-export function trackAt(x: number, y: number): string | null {
-  const strip = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-track]");
+/** The mixer track whose strip is at a point of the window `doc` is (the pointer's: a native window has its own), or null. */
+export function trackAt(x: number, y: number, doc: Document = document): string | null {
+  const strip = doc.elementFromPoint(x, y)?.closest<HTMLElement>("[data-track]");
   return strip?.closest('[data-testid="mixer"]') ? (strip.dataset.track ?? null) : null;
 }

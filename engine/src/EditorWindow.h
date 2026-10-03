@@ -1,7 +1,7 @@
 // A plugin's own interface in a window of ours (FL Studio's plugin wrapper: docs/fl-studio/plugin-window.md).
 // The engine is a program of its own, so the window can't be inside the app's: it's made to act as if it
-// were (our own title bar; the keys the plugin doesn't use go to the app; `PluginHost::setHost` floats,
-// hides and moves it with the app's window).
+// were (our own title bar; the keys the plugin doesn't use go to the app; `PluginHost::setHost` puts it at the
+// level of the app's floating windows, hides it and moves it with the app's window).
 #pragma once
 
 #include <functional>
@@ -38,8 +38,11 @@ public:
     /** Its wrapper button (FL's Wrapper settings): the channel's settings window, in the app. */
     std::function<void()> onSettings;
     void resized() override;
+    /** Called when it becomes the active window (it was clicked, or opened): the app stacks its own windows by it. */
+    std::function<void()> onActivated;
 
 private:
+    void activeWindowStatusChanged() override;
     using DocumentWindow::keyPressed;
     /** Keys the plugin didn't use (Space, F6, ⌘Z…) go to the app, which runs its shortcut (`EngineEvent` "key"). */
     bool keyPressed (const juce::KeyPress&, juce::Component*) override;

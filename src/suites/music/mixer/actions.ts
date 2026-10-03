@@ -3,6 +3,7 @@
  * commits one edit from `shared/music/mixer.ts`. Kept out of the components so a menu item and its
  * shortcut can't drift apart.
  */
+import { ownerDocument } from "@/lib/window-events";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { createId } from "@shared/ids";
 import { startPointerDrag } from "@/lib/pointer-drag";
@@ -103,7 +104,7 @@ export function paintSwitch(e: ReactPointerEvent<Element>, id: string, kind: "mu
   startPointerDrag(e, {
     threshold: 0,
     onMove(ev) {
-      const over = trackAt(ev.clientX, ev.clientY);
+      const over = trackAt(ev.clientX, ev.clientY, ownerDocument(ev.target));
       if (!over || painted.has(over)) return;
       painted.add(over);
       gesture.apply((song) => set(song, [over]));
@@ -215,7 +216,7 @@ export function dragTracks(e: ReactPointerEvent<Element>, id: string) {
     threshold: 5,
     cursor: "grabbing",
     onMove(ev) {
-      const strip = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-track]");
+      const strip = ownerDocument(ev.target).elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-track]");
       const area = strip?.closest('[data-testid="mixer"]')?.querySelector<HTMLElement>('[role="list"]');
       const doc = song();
       if (!strip || !area || !doc) return;
@@ -417,7 +418,7 @@ export function plugCable(e: ReactPointerEvent<Element>) {
     threshold: 4,
     cursor: "grabbing",
     onMove(ev) {
-      const over = trackAt(ev.clientX, ev.clientY);
+      const over = trackAt(ev.clientX, ev.clientY, ownerDocument(ev.target));
       view.plug({ from, x: ev.clientX, y: ev.clientY, over: over && !sendSources().includes(over) ? over : null, add: ev.metaKey || ev.ctrlKey || ev.altKey });
     },
     onEnd() {

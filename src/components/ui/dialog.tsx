@@ -4,6 +4,7 @@ import { PiX } from "react-icons/pi"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { Button } from "@/components/ui/button"
+import { usePortalContainer } from "@/components/ui/portal-container"
 
 function Dialog({
   ...props
@@ -20,7 +21,7 @@ function DialogTrigger({
 function DialogPortal({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
+  return <DialogPrimitive.Portal data-slot="dialog-portal" container={usePortalContainer()} {...props} />
 }
 
 function DialogClose({

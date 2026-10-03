@@ -303,12 +303,16 @@ export class AudioEngine {
   }
 
   /**
-   * The desktop app's window changed (focus, minimised, moved): plugin windows follow it. Only sent to a
-   * running engine (it's no reason to start one); a new one is told when it starts.
+   * The desktop app changed (it's the one in use or not, minimised, moved): plugin windows follow. Only
+   * sent to a running engine (it's no reason to start one); a new one is told when it starts.
    */
-  setHost(host: HostWindow) {
+  setHost(host: HostWindow): Promise<void> {
     this.host = host;
-    if (this.child) void this.request("host", { ...host }).catch(() => {});
+    if (!this.child) return Promise.resolve();
+    return this.request("host", { ...host }).then(
+      () => {},
+      () => {},
+    );
   }
 
   /**
@@ -571,7 +575,6 @@ export class AudioEngine {
   /** A command's parameters for the engine, checked. Throws `HttpError(400)`. */
   private async params(name: EngineCommand, body: Record<string, unknown>): Promise<Record<string, unknown>> {
     switch (name) {
-      case "lowerEditors":
       case "status":
         return {};
       case "stop":
@@ -618,6 +621,11 @@ export class AudioEngine {
       case "meterTracks": {
         const tracks = Array.isArray(body.tracks) ? body.tracks.filter((t): t is string => typeof t === "string" && /^[\w-]{1,64}$/.test(t)) : [];
         return { tracks: tracks.slice(0, 1024) };
+      }
+      case "raiseEditor": {
+        if (body.owner !== "channel" && body.owner !== "effect") throw new HttpError(400, '"owner" must be "channel" or "effect".');
+        if (typeof body.target !== "string" || !body.target) throw new HttpError(400, '"target" must be the channel\'s or effect\'s id.');
+        return { owner: body.owner, target: body.target };
       }
       case "effectEditor": {
         if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be an effect\'s id.');
@@ -823,6 +831,8 @@ export class AudioEngine {
         } else if (
           message.event === "transport" ||
           message.event === "key" ||
+          message.event === "foreground" ||
+          message.event === "editorFocus" ||
           message.event === "export" ||
           message.event === "touch" ||
           message.event === "automate" ||

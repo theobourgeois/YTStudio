@@ -130,7 +130,9 @@ async function dev() {
     process.exit(code);
   };
   const launch = () => {
-    const child = spawn(ELECTRON, [path.join(outdir, "main.mjs")], {
+    // EDITOR_DESKTOP_ARGS: more arguments for Electron (tests attach with `--remote-debugging-port=0`).
+    const extra = (process.env.EDITOR_DESKTOP_ARGS ?? "").split(/\s+/).filter(Boolean);
+    const child = spawn(ELECTRON, [path.join(outdir, "main.mjs"), ...extra], {
       cwd: ROOT,
       stdio: "inherit",
       env: electronEnv({ ...env, EDITOR_DESKTOP_DEV_URL: `http://localhost:${web}` }),

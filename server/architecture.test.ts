@@ -78,6 +78,9 @@ const PLATFORM = [
   "src/lib/desktop.ts",
   "src/lib/focus-rings.ts",
   "src/lib/pointer-drag.ts",
+  // Which window an element is in: the editor's windows can be windows of the system (docs/windows.md).
+  "src/lib/window-events.ts",
+  "shared/panels.ts",
   "src/lib/document-history.ts",
   "src/lib/autosaver.ts",
   "src/lib/color.ts",

@@ -397,6 +397,13 @@ export type EngineEvent =
       recording?: { id: string; levels: Record<string, number[] | number> } | null;
     } & EngineTransport)
   | { event: "status"; status: EngineStatus }
+  /**
+   * The engine became the app in front (`on`: one of its plugin windows has the focus), or stopped being:
+   * the desktop app stacks its own floating windows by it (`electron/floating.ts`).
+   */
+  | { event: "foreground"; on: boolean }
+  /** A plugin's window became the active one (`owner`: "channel" or "effect"; `id` the channel's or effect's). */
+  | { event: "editorFocus"; owner: "channel" | "effect"; id: string }
   | ({ event: "key" } & EngineKey)
   | ({ event: "touch" | "automate" } & PluginParameter)
   /**
@@ -472,16 +479,19 @@ export type EngineExportEvent = { event: "export"; id: string } & (
 );
 
 /**
- * The desktop app's window, which it tells the engine about whenever it changes, so plugin windows act
- * as if they were part of it: floating above it while it (or they) are in use, hidden while another app
- * is or it's minimised, moving along with it (`docs/fl-studio/plugin-window.md`).
+ * What the desktop app tells the engine about itself whenever it changes, so plugin windows act as
+ * windows of its own, stacked among its floating ones (`docs/fl-studio/plugin-window.md`).
  */
 export interface HostWindow {
-  /** It's the window in front (it has the focus). */
-  active: boolean;
-  /** Neither minimised nor hidden. */
+  /**
+   * The app is the one in use (one of its windows, or a plugin's, has the focus): its floating windows,
+   * the plugins' too, are above the other apps' windows and stack among each other by use. Otherwise
+   * they're ordinary windows, behind whatever app was switched to.
+   */
+  floating: boolean;
+  /** The app's window isn't minimised or hidden: if it is, plugin windows hide with it. */
   visible: boolean;
-  /** Where it is on the screen, in points. */
+  /** Where its window is on the screen, in points: plugin windows move when it does. */
   bounds: { x: number; y: number; width: number; height: number };
 }
 
@@ -661,13 +671,13 @@ export interface EngineCommands {
   /** The channel MIDI keyboards play (the rack's selected one), or none. */
   midiTarget: { channel: string | null };
   typingKeyboard: { on: boolean };
-  /** Keep native plugin editors open behind the main editor. */
-  lowerEditors: Record<string, never>;
   /**
    * MIDI messages as a keyboard would send them (a status byte, then its data: `[0x90, 60, 100]` is a
    * middle C): played on the MIDI target and told back in `midi` events. The typing keyboard's notes.
    */
   midiIn: { messages: number[][] };
+  /** A plugin's window in front of the other windows, without the keyboard (the app puts its windows back in order). */
+  raiseEditor: { owner: "channel" | "effect"; target: string };
   /** Show or close the window of a plugin channel's plugin. */
   channelEditor: { channel: string; open: boolean };
   /** Show or close the window of an effect in the mixer (by `MixerEffect.id`). */

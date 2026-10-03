@@ -144,6 +144,8 @@ private:
     juce::int64 latencies = 0;
     /** What the last transport event said, to say it again only when it changes. */
     bool saidPlaying = false;
+    /** Whether the engine (one of its plugin windows) was the app in front when the app was last told. */
+    bool saidForeground = false;
     bool saidQuiet = true;
     bool saidPreviewing = false;
 

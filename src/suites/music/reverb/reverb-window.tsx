@@ -1,4 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { whenPointerReleased } from "@/lib/window-events";
 import { PiArrowCounterClockwise, PiCaretLeftFill, PiCaretRightFill, PiCopySimple, PiLock, PiLockOpen, PiPower, PiSnowflake } from "react-icons/pi";
 import { cn } from "cn";
 import { mixerTrackName } from "@shared/music/automation";
@@ -285,13 +286,7 @@ function TopBar({ effectId, reverb, enabled }: { effectId: string; reverb: Rever
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           holdKill(effectId, true);
-          const up = () => {
-            holdKill(effectId, false);
-            window.removeEventListener("pointerup", up);
-            window.removeEventListener("pointercancel", up);
-          };
-          window.addEventListener("pointerup", up);
-          window.addEventListener("pointercancel", up);
+          whenPointerReleased(() => holdKill(effectId, false));
         }}
       >
         <PiPower className="size-3.5" />
@@ -308,11 +303,7 @@ function TopBar({ effectId, reverb, enabled }: { effectId: string; reverb: Rever
           // Alt: momentary, let go when released.
           e.preventDefault();
           holdFreeze(effectId, true);
-          const up = () => {
-            holdFreeze(effectId, false);
-            window.removeEventListener("pointerup", up);
-          };
-          window.addEventListener("pointerup", up);
+          whenPointerReleased(() => holdFreeze(effectId, false));
         }}
         onClick={(e) => !e.altKey && toggleFreeze(effectId)}
       >

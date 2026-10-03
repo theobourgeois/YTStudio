@@ -6,9 +6,10 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
 import type { AppIconId } from "../shared/app-icons.ts";
 
+type Rect = { x: number; y: number; width: number; height: number };
+
 contextBridge.exposeInMainWorld("editorDesktopInfo", {
   platform: process.platform,
-  focusEditor: () => ipcRenderer.invoke("focus-editor") as Promise<void>,
   appIcon: {
     get: () => ipcRenderer.invoke("app-icon-get") as Promise<AppIconId>,
     set: (id: AppIconId) => ipcRenderer.invoke("app-icon-set", id) as Promise<void>,
@@ -23,6 +24,33 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
   chooseFolder: (defaultPath?: string) => ipcRenderer.invoke("choose-folder", { defaultPath }) as Promise<string | null>,
   // A project was opened: the Dock's and File › Open Recent's recent documents list it.
   projectOpened: (path: string) => ipcRenderer.send("project-opened", path),
+  // The editor's windows, native ones (electron/panels.ts, src/components/windows/native/): the page opens each with
+  // `window.open` and draws into it; this is what only the main process can do for them.
+  panels: {
+    show: (name: string, focus: boolean) => ipcRenderer.send("panels:show", name, focus),
+    raise: (name: string) => ipcRenderer.send("panels:raise", name),
+    hide: (name: string) => ipcRenderer.send("panels:hide", name),
+    place: (name: string, rect: Rect) => ipcRenderer.send("panels:place", name, rect),
+    configure: (name: string, options: { minWidth?: number; minHeight?: number; resizable?: boolean; backgroundColor?: string; title?: string }) =>
+      ipcRenderer.send("panels:configure", name, options),
+    close: (name: string) => ipcRenderer.send("panels:close", name),
+    /** Where the main window's content is on the screen (points), now. */
+    contentBounds: () => ipcRenderer.sendSync("panels:content-bounds") as Rect | null,
+    /** The displays' usable areas on the screen. */
+    workAreas: () => ipcRenderer.sendSync("panels:work-areas") as Rect[],
+    /** The main window moved or was resized. */
+    onContentBounds: (listener: (bounds: Rect) => void) => {
+      const on = (_event: unknown, bounds: Rect) => listener(bounds);
+      ipcRenderer.on("panels:content-bounds", on);
+      return () => void ipcRenderer.removeListener("panels:content-bounds", on);
+    },
+    /** A panel's window was closed by something other than the page (the system, the window menu). */
+    onClosed: (listener: (name: string) => void) => {
+      const on = (_event: unknown, name: string) => listener(name);
+      ipcRenderer.on("panels:closed", on);
+      return () => void ipcRenderer.removeListener("panels:closed", on);
+    },
+  },
   // Whether the engine may read inputs (recording): macOS asks Vaudio, which started it.
   microphone: {
     status: () => ipcRenderer.invoke("microphone-status") as Promise<string>,

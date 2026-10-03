@@ -9,6 +9,7 @@
  * (`--piano-*`, `readPalette`); the notes' are content, the same in every theme (`note-colours.ts`),
  * darker the quieter a note is.
  */
+import { ownerWindow } from "@/lib/window-events";
 import type { Note } from "@shared/music/types";
 import { type SongScale, inScale, isRoot } from "@shared/music/scales";
 import { BLACK_KEY_WIDTH, LANE_PAD, type PianoView, type Snap, isBlackKey, laneY, lineTicks, pitchName, pitchToY, tailWidth, tickToX, visibleRange, whiteKeys, xToTick, yToPitch } from "./geometry";
@@ -119,7 +120,7 @@ export interface Scene {
 
 /** A canvas ready to draw on at the screen's resolution, in CSS pixels. */
 export function prepare(canvas: HTMLCanvasElement, width: number, height: number): CanvasRenderingContext2D | null {
-  const ratio = window.devicePixelRatio || 1;
+  const ratio = ownerWindow(canvas).devicePixelRatio || 1;
   const w = Math.max(1, Math.round(width * ratio));
   const h = Math.max(1, Math.round(height * ratio));
   if (canvas.width !== w || canvas.height !== h) {

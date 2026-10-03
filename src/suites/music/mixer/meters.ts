@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { ownerWindow } from "@/lib/window-events";
 import { useTransport } from "../transport";
 import { METER_COLOUR_STOPS, type MeterState, SILENT_METER, isClipping, meterFraction, stepMeter } from "./meter";
 
@@ -78,7 +79,7 @@ export function useMeters(): (trackId: string) => (canvas: HTMLCanvasElement | n
  * through amber, to red at 0 dB, blended, over a grey track; a red cap while they've lately been over 0 dB.
  */
 function draw(canvas: HTMLCanvasElement, heights: number[], clipping: boolean[], colours: Colours) {
-  const ratio = window.devicePixelRatio || 1;
+  const ratio = ownerWindow(canvas).devicePixelRatio || 1;
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   if (!width || !height) return;
