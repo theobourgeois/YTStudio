@@ -22,6 +22,12 @@ import { RATIO_DOT_FRACTIONS } from "./pro-c/geometry";
 import { mergePoints } from "./pro-c/history";
 import { ArcSlider, BarSlider, Caption, CompKnob } from "./pro-c/knob";
 import { type DialScene, drawDial, wheelColours } from "./pitch-wheel/draw";
+import { reverbT60, shapeEnvelope } from "@shared/music/reverb";
+import { REVERB_OCTAVES, naturalCurve } from "@shared/music/reverb-modes";
+import { DEFAULT_REVERB } from "@shared/music/reverb-presets";
+import type { Reverb } from "@shared/music/types";
+import { drawDecay, drawShape, readVerbPalette } from "./reverb/draw";
+import { shapeSpan } from "./reverb/geometry";
 
 /** A knob with a value of its own (nothing in the song). */
 function LooseKnob(props: Omit<React.ComponentProps<typeof Knob>, "value" | "onBegin" | "onDrag" | "onEnd" | "onCancel" | "onSet"> & { initial: number }) {
@@ -325,6 +331,44 @@ function Wheels() {
   );
 }
 
+/** The Reverb's displays as they're drawn (`reverb/draw.ts`), in its tokens: a Decay EQ shaping a Hall, and a Room's shape. */
+function ReverbDisplays() {
+  const decay = useRef<HTMLCanvasElement>(null);
+  const shape = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const reverb: Reverb = {
+      ...DEFAULT_REVERB,
+      mode: "hall",
+      decay: 2.6,
+      lowCut: 200,
+      highCut: 8000,
+      bands: [
+        { id: 1, enabled: true, shape: "highShelf", frequency: 6000, multiplier: 0.55, q: 1 },
+        { id: 2, enabled: true, shape: "bell", frequency: 400, multiplier: 0.75, q: 1 },
+      ],
+    };
+    const plot = { left: 40, top: 10, width: 520, height: 150 };
+    const t60 = reverbT60(reverb);
+    const natural = REVERB_OCTAVES.map((f) => reverb.decay * naturalCurve(reverb.mode, reverb.decay, f));
+    const spectrum = Float32Array.from({ length: 480 }, (_, i) => -24 - i * 0.07 + 8 * Math.exp(-(((i - 170) / 40) ** 2)));
+    if (decay.current) {
+      const ctx = prepare(decay.current, 600, 180);
+      if (ctx) drawDecay(ctx, { width: 600, height: 180, plot, palette: readVerbPalette(decay.current), reverb, t60, natural, showNatural: true, spectrum, frozen: false, selected: [1], hover: null, bypassed: false });
+    }
+    if (shape.current) {
+      const room: Reverb = { ...DEFAULT_REVERB, mode: "room", decay: 0.8, predelay: 0.02, sync: false, distance: 0.2, duck: -6 };
+      const ctx = prepare(shape.current, 600, 180);
+      if (ctx) drawShape(ctx, { width: 600, height: 180, plot, palette: readVerbPalette(shape.current), shape: shapeEnvelope(room, 120, 7), span: shapeSpan(room), log: false, duck: room.duck, hover: null });
+    }
+  }, []);
+  return (
+    <div className="flex flex-col gap-2">
+      <canvas ref={decay} className="block rounded-sm" style={{ width: 600, height: 180 }} />
+      <canvas ref={shape} className="block rounded-sm" style={{ width: 600, height: 180 }} />
+    </div>
+  );
+}
+
 /** The music suite's controls, for the component gallery (`src/gallery/`). */
 export const MUSIC_SECTIONS: GallerySection[] = [
   { id: "music-controls", title: "Music: knobs, LCDs, PAT / SONG, faders and the arm light", source: "suites/music/knob.tsx, lcd.tsx, mode-switch.tsx, mixer/fader.tsx, mixer/arm-button.tsx", render: () => <Controls /> },
@@ -332,5 +376,6 @@ export const MUSIC_SECTIONS: GallerySection[] = [
   { id: "music-curves", title: "Music: automation curve types (FL's), with points and tension handles", source: "suites/music/automation/draw-curve.ts", render: () => <Curves /> },
   { id: "music-pro-q", title: "Music: Pro-Q's knobs (the dynamic ring on GAIN) and its shapes", source: "suites/music/pro-q/knob.tsx, shape-icon.tsx", render: () => <EqControls /> },
   { id: "music-pro-c", title: "Music: Pro-C's knobs (the key's ring on Threshold, the ratio's dots, a greyed one, Wet's pan ring), arcs, a bar, and its level and knee display", source: "suites/music/pro-c/knob.tsx, draw.ts", render: () => <CompControls /> },
+  { id: "music-reverb", title: "Music: the Reverb's displays (DECAY: a Hall's T60 shaped by two bands, the Post EQ, the tail's spectrum; SHAPE: a Room, its early taps, its duck)", source: "suites/music/reverb/draw.ts", render: () => <ReverbDisplays /> },
   { id: "music-ott", title: "Music: OTT's display rows (upward brown, downward green; a band at rest, sounding and hot, its upward off)", source: "suites/music/ott/draw.ts", render: () => <OttRows /> },
 ];

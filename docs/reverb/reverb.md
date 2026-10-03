@@ -1,6 +1,8 @@
 # Reverb: a vocal reverb for Vaudio
 
-The design of our reverb, mostly for vocals, before anything is built. Théo uses FabFilter Pro-R 2 and finds
+The design of our reverb, mostly for vocals, written before it was built. **Steps 1–4 of 8.1 are built**
+(3 October 2026); what was decided on the open questions and where the build differs from this design are
+in [section 13](#13-as-built-the-answers-and-where-it-differs). Théo uses FabFilter Pro-R 2 and finds
 it "isn't the best"; he asked for "a really good reverb mostly for vocals" and for research into better ones.
 So this document first surveys what the engineers behind pop, rap, R&B and hyperpop records put on vocals,
 and why ([1](#1-the-survey)); then chooses what to base ours on ([2](#2-the-choice)); then designs it
@@ -1668,3 +1670,43 @@ as "rv".
 | 9.6 | `add_vocal_reverb` sets the send for about −14 LU, keys the Duck, offers `pair` and `throw` | rv 1.2, 5 |
 | 9.7 | Test 1 at Size 100 % and at 20 Hz / 20 kHz; new tests 22 (grain on a held note), 23 (preset loudness), 24 (the Plate against the EMT 140); test 14 with an external key | rv 2.1, 5 |
 | 10 | Questions 2, 3, 4, 9, 10 updated; 12 (Smooth Plate's modulation) and 13 (a Spring mode) added | rv 2, 3 |
+
+## 13. As built: the answers, and where it differs
+
+### 13.1 The open questions, answered
+
+Taken as proposed in section 10, by judgement, for Théo to overrule:
+
+| Question | As built |
+| --- | --- |
+| 1. The name | "Reverb", `vaudio:reverb` |
+| 2. The basis | The hybrid; the classic units are preset families (7), the EMT 140's curve is Plate's |
+| 4. Default Mix | 18 % on an insert; 100 % with Mix Lock on a track with no channel of its own (a bus, not the master) and from `add_vocal_reverb` |
+| 5. The first modes | All six: Smooth Plate, Plate, Room, Chamber, Hall, Ambience |
+| 6. Decay EQ units | Drawn in seconds, edited as multipliers of Decay |
+| 7. Tone Lock | On by default |
+| 8. De-ess and Duck | On in the vocal presets, off in Init |
+| 9. The eras | Subtle; 1980s at 18 kHz, 1970s at 9 kHz |
+| 10. `add_vocal_reverb` | One send at about −14 LU; `pair` and `throw` on request |
+| 11. CPU | Eco is automatic: a band of a line's absorption with next to nothing to do isn't run |
+| 12. Smooth Plate's modulation | A gentle chorus, about 1.4 cents |
+| 13. Spring | Later, with Space and Nonlin |
+
+### 13.2 Where it differs from this design
+
+| Here | As built | Why |
+| --- | --- | --- |
+| 6.5.2 Smooth Plate | Sixteen lines of 75–105 ms (about 1.4 s of memory, as designed), each all-pass short (3–9 ms), mixed by A4 ⊗ A4, half of them modulated; not the doubled figure-eight | The figure-eight's long in-line all-passes rang on held vocal notes (tests 4–6, 22); the A4 ⊗ A4 network is dense from its first pass |
+| 6.5, 6.6 | Every in-line all-pass is lossy: its own absorption, the whole two-stage design, sits inside its loop | What circulates inside a long all-pass (a plate's) otherwise rang past the band's T60 at short decays |
+| 6.7 | The early energy feeds the late network through a velvet pattern of its own for each line (Fagerström's velvet-noise FDN), not one shared pattern | One pattern into every line is one FIR filter on the whole tail: it coloured it (test 4) |
+| 6.6 | The tone corrector is on the late network's output, not its input | The same in a linear network, but it leaves the early energy alone |
+| 6.4 | Room's and Ambience's lines are half again as long (0.39 s of memory), Chamber's a quarter (0.68 s) | A short tail through few modes beat on a held note (test 22) |
+| 6.6 | Size is lowered as Decay shortens so no line loses more than 24 dB a pass, 125 Hz to 8 kHz (`sizeScale`) | Past it the decay is a staircase of passes; a big network can't make a very short decay |
+| 6.10 | The band limit is an 8th-order Butterworth in and another out, −1.5 dB each at the limit (−3 dB together), not a 7th-order elliptic | No ripple to colour the passband; still −20 dB within 1.6 × the limit (test 19) |
+| 6.12 | A new absorption glides in over 30 ms (the loss itself over 10 ms), a new tone corrector crossfades over 20 ms, a new network takes the input over in 20 ms (the old one keeps its feeds and rings out at the level it had), the line feeds crossfade with the pre-delay, an early layout waits for the last crossfade, the output taps read between samples while Size glides | Each was a click under automation; test 16 listens above 5 kHz under a held tone while Decay, Pre-delay and Size are automated, in a Plate and a Hall |
+| 6.13 | The energy keeper is proportional (back to the target in about 4 s, at most 1 dB a second), its target taken half a second in, the energy smoothed over 250 ms | The designed keeper integrated: a gain a pass already integrates, so the level swung ±10 dB over tens of seconds |
+| 4.3, 9.6 | The Duck key is the slot's sidechain key (`docs/sidechain.md`), taken after the source's fader, not a 0 % send made for it | Keys came to every effect slot (Pro-C's too) while the Reverb was built |
+| 9.5 | Decay's lane moves the T60s only; Size's cap isn't re-applied while Decay is automated | A Size change mid-tail is a second network; Decay automation shouldn't make one |
+| 9.7 | Test 3's mixing times per mode (Plate's sparser onset is Dattorro's) with dips allowed in 4 % of windows; test 21 reads the direct sound against what builds up in 100 ms; test 22 averages the flutter over the band and several tails, Plate and Hall allowed 8 dB (Dattorro's beating lines, the Hall's chorus); test 1's fit starts no later than a quarter of a short decay | One tail's loudest bin, or a fit starting 50 dB down in an octave of a few modes, scattered more than the tolerances |
+| 7 | The modes are level-matched (`calibration`, Init at 1.8 s) and the presets trimmed (`PRESET_LEVELS`), both measured by test 23 | Measured, not worked out: every change to a network moves them |
+

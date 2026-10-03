@@ -1,13 +1,14 @@
 /**
  * Keys (`docs/sidechain.md`): an effect hearing another mixer track's sound, as a compressor ducking to a
  * kick. Any slot can have one (`MixerEffect.sidechain`); Pro-C's External trigger, Pro-Q's external dynamic
- * bands and a plugin's sidechain input read it. A key orders the tracks as a send does (its source runs
+ * bands, the Reverb's ducker and a plugin's sidechain input read it. A key orders the tracks as a send does (its source runs
  * first), so it never makes a loop through sends and other keys. Pure, returning the same song when nothing
  * changes, like `mixer.ts`.
  */
 import { MASTER_TRACK_ID, reaches, routeOf } from "./project.ts";
 import { PRO_C_PLUGIN } from "./pro-c-presets.ts";
 import { PRO_Q_PLUGIN } from "./pro-q-presets.ts";
+import { REVERB_PLUGIN } from "./reverb-presets.ts";
 import type { MixerEffect, MixerTrack, MusicProject, Sidechain, SidechainTap } from "./types.ts";
 
 /** What each tap is called in menus. */
@@ -19,11 +20,11 @@ export const DEFAULT_TAP: SidechainTap = "postFx";
 const KEYLESS = new Set(["vaudio:gross-beat", "vaudio:echo-boy", "vaudio:auto-tune", "vaudio:ott", "vaudio:panman", "vaudio:pitch-wheel"]);
 
 /**
- * Whether an effect can hear a key: Pro-C, Pro-Q (its dynamic bands), or a plugin (which hears it only if
+ * Whether an effect can hear a key: Pro-C, Pro-Q (its dynamic bands), the Reverb (its ducker), or a plugin (which hears it only if
  * it has a sidechain input: `hasInput`, the engine's word once it's loaded; unknown until then).
  */
 export function takesKey(effect: Pick<MixerEffect, "plugin">, hasInput?: boolean): boolean {
-  if (effect.plugin.id === PRO_C_PLUGIN.id || effect.plugin.id === PRO_Q_PLUGIN.id) return true;
+  if (effect.plugin.id === PRO_C_PLUGIN.id || effect.plugin.id === PRO_Q_PLUGIN.id || effect.plugin.id === REVERB_PLUGIN.id) return true;
   if (KEYLESS.has(effect.plugin.id)) return false;
   return hasInput !== false;
 }

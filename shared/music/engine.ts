@@ -130,6 +130,8 @@ export interface EngineTransport {
   otts?: Record<string, EngineOttState>;
   /** Each Pro-C in the song (by effect id): its levels and gain reduction since the last event, for its display (absent from engines that don't say). */
   proCs?: Record<string, EngineProCState>;
+  /** Each Reverb in the song (by effect id): its meters, ducking and (watched: `verbWatch`) its tail's spectrum (absent from engines that don't say). */
+  reverbs?: Record<string, EngineReverbState>;
   /** Each Pro-Q being watched (`eqWatch`), by effect id: its spectra and its dynamic bands (absent from engines that don't say). */
   eq?: Record<string, EngineEqState>;
   /** Each PanMan in the song (by effect id): where it's put the sound (absent from engines that don't say). */
@@ -201,6 +203,27 @@ export interface EngineProCState {
   output: [number, number];
   latency: number;
   match?: { input: number; output: number; done: boolean };
+}
+
+/**
+ * What a Reverb is doing, for its window (`docs/reverb/reverb.md` 4.7): the peaks into it and out of its
+ * wet sound (each side, 1 full scale, falling), the ducker's reduction (dB, ≤ 0), the key's level and the
+ * threshold it ducks at (dB; Auto moves it), the de-esser's reduction (dB, ≥ 0), how much shorter
+ * Auto-Decay has made the tail (×T60, 1: not), whether the loop's guard clipped, whether it's frozen,
+ * and, while its window is open, the wet sound's spectrum (dB at `EQ_SPECTRUM_POINTS` log-spaced
+ * frequencies, as Pro-Q's analyzer; null when nothing's come through since).
+ */
+export interface EngineReverbState {
+  input: [number, number];
+  output: [number, number];
+  duck: number;
+  key: number;
+  threshold: number;
+  deEss: number;
+  decay: number;
+  clip: boolean;
+  frozen: boolean;
+  spectrum?: number[] | null;
 }
 
 /**
@@ -667,6 +690,14 @@ export interface EngineCommands {
   compAudition: { effect: string; mode: "off" | "key" | "triggering" };
   /** Measure a Pro-C's loudness in and out while it plays, for `seconds` (Match: the tab sets Wet Gain from it). */
   compMatch: { effect: string; seconds: number };
+  /** The Reverbs whose windows are open: their wet sound is measured for the Decay display's analyzer (Pro-Q's FFT, `size` long). */
+  verbWatch: { effects: { effect: string; size: number }[] };
+  /**
+   * A Reverb's live controls (never in the song or an export): Freeze held (momentary: F, or Alt-click),
+   * Kill held (its input muted, the tail heard), or a click played through it (`audition`, the Shape
+   * display's double-click).
+   */
+  verb: { effect: string; freeze?: boolean; kill?: boolean; audition?: boolean };
   /**
    * A Pitch Wheel's live controls, held by the hand (the song has the wheels where they're let go):
    * `pitch` and `timbre` hold a wheel's pointer (semitones, snapped) for a quarter of a second (renewed

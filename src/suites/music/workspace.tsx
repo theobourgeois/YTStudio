@@ -55,6 +55,10 @@ import { OttWindow } from "./ott/ott-window";
 import { useOttUi } from "./ott/store";
 import { ProCWindow } from "./pro-c/pro-c-window";
 import { useCompUi } from "./pro-c/store";
+import { holdFreeze, reverbOf, stepReverbPreset, toggleFreeze, toggleReverbAB, setReverb } from "./reverb/actions";
+import { HOLD_MS, resolveReverbKey } from "./reverb/keys";
+import { ReverbWindow } from "./reverb/reverb-window";
+import { useVerbUi } from "./reverb/store";
 import { PanManWindow } from "./panman/panman-window";
 import { usePanUi } from "./panman/store";
 import { AutomationChooser } from "./automation/chooser";
@@ -111,6 +115,7 @@ function Windows() {
   const openProQs = useEqUi((s) => s.openIds);
   const openOtts = useOttUi((s) => s.openIds);
   const openProCs = useCompUi((s) => s.openIds);
+  const openReverbs = useVerbUi((s) => s.openIds);
   const openPanMen = usePanUi((s) => s.openIds);
   const openPitchWheels = useWheelUi((s) => s.openIds);
   return (
@@ -157,6 +162,9 @@ function Windows() {
       {openProCs.map((effectId, index) => (
         <ProCWindow key={effectId} effectId={effectId} index={index} />
       ))}
+      {openReverbs.map((effectId, index) => (
+        <ReverbWindow key={effectId} effectId={effectId} index={index} />
+      ))}
       {openPanMen.map((effectId, index) => (
         <PanManWindow key={effectId} effectId={effectId} index={index} />
       ))}
@@ -190,10 +198,43 @@ function frontWindow(): WindowId | null {
     : id.startsWith("proq:") ? useEqUi.getState().openIds.includes(id.slice("proq:".length))
     : id.startsWith("ott:") ? useOttUi.getState().openIds.includes(id.slice("ott:".length))
     : id.startsWith("proc:") ? useCompUi.getState().openIds.includes(id.slice("proc:".length))
+    : id.startsWith("verb:") ? useVerbUi.getState().openIds.includes(id.slice("verb:".length))
     : id.startsWith("panman:") ? usePanUi.getState().openIds.includes(id.slice("panman:".length))
     : id.startsWith("wheel:") ? useWheelUi.getState().openIds.includes(id.slice("wheel:".length))
     : ui.openChannelIds.includes(id.slice("channel:".length));
   return [...useMusicWindows.getState().order].reverse().find(open) ?? null;
+}
+
+/** A Reverb window's key (`reverb/keys.ts`). F: a tap toggles the song's Freeze; held past `HOLD_MS`, it's momentary until let go. */
+function runReverbKey(effectId: string, action: ReturnType<typeof resolveReverbKey> & object) {
+  switch (action.type) {
+    case "preset":
+      return stepReverbPreset(effectId, action.by);
+    case "ab":
+      return toggleReverbAB(effectId);
+    case "display": {
+      const reverb = reverbOf(effectId);
+      if (reverb) setReverb(effectId, { view: { display: reverb.view.display === "decay" ? "shape" : "decay" } });
+      return;
+    }
+    case "freeze": {
+      const down = performance.now();
+      let held = false;
+      const timer = window.setTimeout(() => {
+        held = true;
+        holdFreeze(effectId, true);
+      }, HOLD_MS);
+      const up = (e: KeyboardEvent) => {
+        if (e.key.toLowerCase() !== "f") return;
+        window.removeEventListener("keyup", up, true);
+        window.clearTimeout(timer);
+        if (held) holdFreeze(effectId, false);
+        else if (performance.now() - down < HOLD_MS) toggleFreeze(effectId);
+      };
+      window.addEventListener("keyup", up, true);
+      return;
+    }
+  }
 }
 
 function runPianoKey(action: PianoKeyAction) {
@@ -450,6 +491,16 @@ function useMusicKeys(enabled: boolean) {
           e.preventDefault();
           e.stopPropagation();
           return runPlaylistKey(own);
+        }
+      }
+      // A Reverb's, while it's in front: F (a tap toggles Freeze, held it's momentary), ← →, Tab, A.
+      const front = frontWindow();
+      if (front?.startsWith("verb:") && !e.repeat) {
+        const own = resolveReverbKey(e);
+        if (own) {
+          e.preventDefault();
+          e.stopPropagation();
+          return runReverbKey(front.slice("verb:".length), own);
         }
       }
       // The mixer's, while it's in front.

@@ -16,6 +16,7 @@ import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS, MAX_GROSS_ATTACK
 import { EQ_CONTROL_SCALES } from "./pro-q-presets.ts";
 import { OTT_CONTROL_SPECS } from "./ott.ts";
 import { PRO_C_CONTROL_SPECS } from "./pro-c.ts";
+import { REVERB_CONTROL_SPECS } from "./reverb.ts";
 import { PAN_CONTROLS, panControlFraction, panControlValue } from "./panman-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
 import { DEFAULT_LFO, MAX_TEMPO, MIN_TEMPO, PITCH_KNOB_RANGE, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
@@ -208,6 +209,8 @@ export function targetKey(target: AutomationTarget): string {
       return `panman:${target.effect}:${target.control}`;
     case "pitchWheel":
       return `wheel:${target.effect}:${target.control}`;
+    case "reverb":
+      return `verb:${target.effect}:${target.control}`;
     case "main":
       return "main";
     case "tempo":
@@ -452,6 +455,20 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
         owner: found && ott ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted OTT",
         exists: !!ott,
         own: ott ? spec.fromControl(spec.get(ott)) : null,
+        toControl: spec.toControl,
+        fromControl: spec.fromControl,
+        format: (v) => spec.format(spec.toControl(v)),
+      };
+    }
+    case "reverb": {
+      const found = findEffect(song, target.effect);
+      const reverb = found?.effect?.reverb ?? null;
+      const spec = REVERB_CONTROL_SPECS[target.control];
+      return {
+        name: spec.name,
+        owner: found && reverb ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Reverb",
+        exists: !!reverb,
+        own: reverb ? spec.fromControl(spec.get(reverb)) : null,
         toControl: spec.toControl,
         fromControl: spec.fromControl,
         format: (v) => spec.format(spec.toControl(v)),

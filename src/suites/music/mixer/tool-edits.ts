@@ -45,6 +45,7 @@ import { duckWithProC } from "@shared/music/pro-c";
 import { DUCK_PRESET } from "@shared/music/pro-c-presets";
 import { type SongEdit, findChannel } from "../tool-edits";
 import { faderAt, faderDb } from "./meter";
+import { reverbLine } from "../reverb/tool-edits";
 
 type Input = Record<string, unknown>;
 
@@ -172,7 +173,8 @@ export function describeMixer(song: MusicProject, effects: EngineEffects | null,
         (effect.ott && `, effect ${effect.id}, depth ${percent(effect.ott.depth)}${effect.ott.preset ? `, preset "${effect.ott.preset}"` : ""} (get_ott)`) ||
         (effect.proC && `, effect ${effect.id}, style ${effect.proC.style}, threshold ${Math.round(effect.proC.threshold)} dB${effect.proC.preset ? `, preset "${effect.proC.preset}"` : ""} (get_pro_c)`) ||
         (effect.panMan && `, effect ${effect.id}, ${effect.panMan.mode} mode, preset "${effect.panMan.preset}" (get_panman)`) ||
-        (effect.pitchWheel && `, effect ${effect.id}, ${wheelSummary(song, effect.pitchWheel)} (get_pitch_wheel)`);
+        (effect.pitchWheel && `, effect ${effect.id}, ${wheelSummary(song, effect.pitchWheel)} (get_pitch_wheel)`) ||
+        (effect.reverb && `, effect ${effect.id}, Reverb: ${reverbLine(song, effect.id)}, mix ${percent(effect.reverb.mix)} (get_reverb)`);
       const source = effect.sidechain && getMixerTrack(song, effect.sidechain.track);
       const keyed = source
         ? `, keyed by ${label(song, source)} (${SIDECHAIN_TAP_NAMES[effect.sidechain!.tap].toLowerCase()})${loaded?.sidechain === false ? " but it has no sidechain input" : ""}`

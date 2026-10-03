@@ -50,9 +50,11 @@ They agree on three things, which are ours:
 - **Solo**: a source silenced by another track's solo still feeds its keys, at every tap (the post-fader
   tap takes its fader as if it weren't soloed out). A muted source is silent at the post-fader tap only.
 - Pro-C's External trigger reads its slot's key (songs from before keep theirs: `proC.sidechain.track`
-  becomes the slot's key, tapped post-fader, as it was heard).
+  becomes the slot's key, tapped post-fader, as it was heard). So does the Reverb's ducker, keyed after the
+  source's fader by default (`setReverbKey`; a Reverb's own `ducking.key` from before becomes its slot's).
 
-**Which effects take one** (`takesKey`): Pro-C (External), Pro-Q (a dynamic band set to External), and
+**Which effects take one** (`takesKey`): Pro-C (External), Pro-Q (a dynamic band set to External), the
+Reverb (its Duck), and
 any plugin with a sidechain input (the engine reports it: `EngineEffects.loaded[].sidechain`). Choosing a
 key on a plugin that has none is allowed (it's kept and heard once the plugin has one) but the menu says so.
 

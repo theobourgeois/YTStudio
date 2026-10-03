@@ -179,7 +179,7 @@ export interface Pattern {
  * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; Auto-Tune:
  * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`; Pro-Q: `PRO_Q_PLUGIN` and
  * `proQ`; PanMan: `PANMAN_PLUGIN` and `panMan`; Pitch Wheel: `PITCH_WHEEL_PLUGIN` and `pitchWheel`; OTT:
- * `OTT_PLUGIN` and `ott`; Pro-C: `PRO_C_PLUGIN` and `proC`).
+ * `OTT_PLUGIN` and `ott`; Pro-C: `PRO_C_PLUGIN` and `proC`; Reverb: `REVERB_PLUGIN` and `reverb`).
  */
 export interface MixerEffect {
   /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
@@ -210,6 +210,8 @@ export interface MixerEffect {
   panMan?: PanMan;
   /** Pitch Wheel's settings, on a Pitch Wheel (absent on a plugin). */
   pitchWheel?: PitchWheel;
+  /** The Reverb's settings, on a Reverb (absent on a plugin). */
+  reverb?: Reverb;
 }
 
 /** OTT's bands (`docs/xfer/ott.md`), low to high: split at 88.3 Hz and 2.5 kHz. Its display shows them high first (H, M, L). */
@@ -398,6 +400,160 @@ export interface ProC extends ProCState {
   slot: "a" | "b";
   /** How its window shows it (kept with the song, as Pro-Q's display range is). */
   view: { knee: boolean; scale: number; compact: boolean; sidechain: boolean };
+}
+
+/**
+ * The Reverb's algorithms (`docs/reverb/reverb.md` 4.4): colours of one engine, each a table of numbers
+ * for it (`shared/music/reverb-modes.ts`). Smooth Plate is the vocal default.
+ */
+export const REVERB_MODES = ["smoothPlate", "plate", "room", "chamber", "hall", "ambience"] as const;
+export type ReverbMode = (typeof REVERB_MODES)[number];
+/** The eras (4.5): Now leaves the sound alone; 1980s and 1970s are the old units' band limits, converters and warble. */
+export const REVERB_ERAS = ["now", "1980s", "1970s"] as const;
+export type ReverbEra = (typeof REVERB_ERAS)[number];
+/** A Decay EQ band's shape (4.6): a multiplier of Decay below, around or above its frequency, or a notch. */
+export const REVERB_BAND_SHAPES = ["lowShelf", "bell", "highShelf", "notch"] as const;
+export type ReverbBandShape = (typeof REVERB_BAND_SHAPES)[number];
+/** The note values a synced pre-delay or release can be, as their denominators (1/64 .. 1/2). */
+export const REVERB_NOTES = [64, 32, 16, 8, 4, 2] as const;
+export type ReverbNoteValue = (typeof REVERB_NOTES)[number];
+/** A note value: straight, dotted (×1.5) or triplet (×2/3). */
+export interface ReverbNote {
+  note: ReverbNoteValue;
+  feel: "straight" | "dotted" | "triplet";
+}
+
+/** One of the Decay EQ's bands (Pro-R 2's Decay Rate EQ): how much longer or shorter than Decay its frequencies ring. */
+export interface ReverbDecayBand {
+  /** 1..6, never renumbered. */
+  id: number;
+  enabled: boolean;
+  shape: ReverbBandShape;
+  /** Hz. */
+  frequency: number;
+  /** ×0.25 .. ×4 of Decay (a notch's depth too). */
+  multiplier: number;
+  /** 0.1 .. 10. */
+  q: number;
+}
+
+/**
+ * What the Reverb sounds like (`docs/reverb/reverb.md` 4): every knob in its own units. What they mean to
+ * the sound is `engineReverb`'s. A/B's other side is one of these.
+ */
+export interface ReverbState {
+  mode: ReverbMode;
+  era: ReverbEra;
+  /** 0..1, equal power: dry and wet. */
+  mix: number;
+  /** The tail held for ever (the input closed). */
+  freeze: boolean;
+  /** Seconds, 0 .. 0.5: the pre-delay when it isn't synced. */
+  predelay: number;
+  /** The pre-delay a note value (`predelayNote`) at the song's tempo, times `predelayOffset`. Both are kept, so switching loses neither. */
+  sync: boolean;
+  predelayNote: ReverbNote;
+  /** 0.5 .. 2: scales a synced pre-delay (Pro-R 2's Offset). */
+  predelayOffset: number;
+  /** Seconds, 0.1 .. 60 (the RT60 at 1 kHz); `REVERB_INFINITE` is ∞ (the loop held, the input open). */
+  decay: number;
+  /** 0..1: the network's scale (bigger is smoother, slower to start). */
+  size: number;
+  /** 0..1: near (strong early sound) to far (a slow, darker build). */
+  distance: number;
+  /** 0..1: the early density (Plate: its input diffusers). */
+  diffusion: number;
+  /** Hz, 0.05 .. 10. */
+  modRate: number;
+  /** 0..1: the delays' excursion goes as its square (1 ms at the top). */
+  modDepth: number;
+  /** 0 .. 1.5: mono to wider than the speakers. */
+  width: number;
+  /** Hz: on the wet sound; `REVERB_CUT_OFF` (20 Hz, 20 kHz) at their ends is off. */
+  lowCut: number;
+  highCut: number;
+  /** dB/octave of each cut. */
+  lowCutSlope: 12 | 24;
+  highCutSlope: 12 | 24;
+  /** dB, 0 .. 24: sibilance turned down on the way into the reverb. */
+  deEss: number;
+  /** dB, -24 .. 0: the wet sound turned down while the key plays. */
+  duck: number;
+  /** What the network hears. */
+  input: {
+    mode: "auto" | "mono" | "stereo";
+    /** 0..1: how much of each side reaches the other's lines. */
+    cross: number;
+    /** Hz, before the reverb (20 and 20 000: off). */
+    lowCut: number;
+    highCut: number;
+    /** Hz, 4 .. 12 kHz: where the de-esser listens and cuts. */
+    deEssFreq: number;
+    /** dB, -18 .. 0: a shelf under 200 Hz on the onset (the M7's VLF Cut). */
+    vlfCut: number;
+  };
+  early: {
+    /** 0..1: how much of the early energy (rather than the input itself) feeds the late network. */
+    send: number;
+    /** 0..1: the early sound's spread between sides. */
+    cross: number;
+  };
+  late: {
+    /** 0..1: the in-line all-passes' gain, or null for the mode's. */
+    diffusion: number | null;
+    /** Chorus (sine LFOs) or Random (random walks, no audible pitch). */
+    modShape: "chorus" | "random";
+    /** 1..1000: the seed of the velvet taps and the random modulation. */
+    variation: number;
+    /** The Decay EQ changes length only (Jot's tone corrector), not level. */
+    toneLock: boolean;
+  };
+  /** What the ducker listens to: this track's input, or its slot's key (`MixerEffect.sidechain`, `docs/sidechain.md`). */
+  ducking: {
+    /** dB, -60 .. 0, or null for Auto (the key's level minus 12 dB). */
+    threshold: number | null;
+    /** Seconds. */
+    attack: number;
+    release: number;
+    /** The release a note value at the song's tempo. */
+    releaseSync: boolean;
+    releaseNote: ReverbNote;
+    hold: number;
+    /** Only the late tail, or the early sound too. */
+    what: "tail" | "all";
+    /** 0 .. 0.9: rather than turned down, the tail shortened by this much at full key level (SuperPlate's Auto-Decay). */
+    autoDecay: number;
+    /** Seconds, 0.001 .. 0.5: how fast the decay comes back. */
+    recovery: number;
+  };
+  /** On the wet sound, after the network. */
+  output: {
+    lowShelf: { frequency: number; gain: number };
+    highShelf: { frequency: number; gain: number };
+    /** Abbey Road's send filters: 600 Hz and 10 kHz, 24 dB/octave. */
+    studio: boolean;
+    /** Hz: the wet sound's side taken out below it (0: off). */
+    monoBelow: number;
+    /** dB, -24 .. 12: the wet sound's level. */
+    level: number;
+  };
+  /** The Decay EQ, up to `REVERB_BANDS`. */
+  bands: ReverbDecayBand[];
+  /** Every band off at once (to hear what they do). */
+  bandsBypass: boolean;
+}
+
+/** The Reverb's settings (`docs/reverb/reverb.md`): what's heard, plus the preset named, Mix Lock, A/B and how its window shows it. */
+export interface Reverb extends ReverbState {
+  /** The preset last chosen (`REVERB_PRESETS` by name), null once it's been changed by hand. */
+  preset: string | null;
+  /** Presets and A/B leave Mix alone. */
+  mixLock: boolean;
+  /** A/B: the other state, and which one this is. */
+  other: ReverbState | null;
+  slot: "a" | "b";
+  /** How its window shows it (kept with the song, as Pro-C's view is). */
+  view: { display: "decay" | "shape"; advanced: boolean; analyzer: boolean; natural: boolean; logTime: boolean };
 }
 
 /** What a Pitch Wheel's dial spans, in semitones, from one end to the other (QuikQuak's Range). */
@@ -1179,6 +1335,7 @@ export type AutomationTarget =
   | { kind: "proC"; effect: string; control: ProCControl }
   | { kind: "panMan"; effect: string; control: PanControl }
   | { kind: "pitchWheel"; effect: string; control: PitchWheelControl }
+  | { kind: "reverb"; effect: string; control: ReverbControl }
   | { kind: "main" }
   | { kind: "tempo" }
   | {
@@ -1252,6 +1409,46 @@ export type ProCControl = (typeof PRO_C_CONTROLS)[number];
 export type EqControl = "frequency" | "gain" | "q" | "range" | "output" | "pan" | "gainScale";
 /** Pro-Q's controls that are its own, not a band's (their targets' band is 0). */
 export const EQ_OWN_CONTROLS = ["output", "pan", "gainScale"] as const satisfies readonly EqControl[];
+
+/** The Reverb's controls an automation clip can drive: every knob of its window (`REVERB_CONTROL_SPECS`), and Freeze. */
+export const REVERB_CONTROLS = [
+  "mix",
+  "decay",
+  "freeze",
+  "predelay",
+  "size",
+  "distance",
+  "diffusion",
+  "modRate",
+  "modDepth",
+  "width",
+  "lowCut",
+  "highCut",
+  "deEss",
+  "duck",
+  "inputCross",
+  "inputLowCut",
+  "inputHighCut",
+  "deEssFreq",
+  "vlfCut",
+  "predelayOffset",
+  "earlySend",
+  "earlyCross",
+  "lateDiffusion",
+  "threshold",
+  "attack",
+  "release",
+  "hold",
+  "autoDecay",
+  "recovery",
+  "lowShelfFreq",
+  "lowShelfGain",
+  "highShelfFreq",
+  "highShelfGain",
+  "monoBelow",
+  "level",
+] as const;
+export type ReverbControl = (typeof REVERB_CONTROLS)[number];
 
 /** Pitch Wheel's controls an automation clip can drive: both wheels, and each one's knobs. */
 export const PITCH_WHEEL_CONTROLS = ["pitch", "timbre", "pitchGravity", "pitchInertia", "pitchSmooth", "timbreGravity", "timbreInertia", "timbreSmooth"] as const;

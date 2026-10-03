@@ -113,6 +113,8 @@ private:
     panman::Registry panMen;
     /** Its Pitch Wheels' sounds, by effect id. */
     wheel::Registry pitchWheels;
+    /** Its Reverbs' sounds, by effect id (measured for their windows when status and events are said, hence mutable). */
+    mutable verb::Registry reverbs;
     Sequencer sequencer;
     /** The Browser's preview of a file, outside the song. */
     FilePreview preview;

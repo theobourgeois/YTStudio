@@ -13,6 +13,7 @@ import { DEFAULT_PANMAN, PANMAN_PLUGIN, isPanMan } from "./panman-presets.ts";
 import { PRO_Q_PLUGIN, isProQ } from "./pro-q-presets.ts";
 import { DEFAULT_OTT, OTT_PLUGIN, isOtt } from "./ott-presets.ts";
 import { DEFAULT_PRO_C, PRO_C_PLUGIN, isProC } from "./pro-c-presets.ts";
+import { DEFAULT_REVERB, REVERB_PLUGIN, isReverb } from "./reverb-presets.ts";
 import { DEFAULT_GROSS_BEAT, DEFAULT_PRO_Q, EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_OFFSET, MAX_INSERTS, MAX_LATENCY_OFFSET, MAX_NAME, createMixerTrack, normalizeInput, reaches, routeOf, trimTracks } from "./project.ts";
 import { withValidKeys } from "./sidechain.ts";
 import type { Channel, MixerDock, MixerEffect, MixerGroup, MixerTrack, MusicProject, PluginRef } from "./types.ts";
@@ -427,13 +428,19 @@ export function setEffect(song: MusicProject, trackId: string, slot: number, plu
   return updateSlots(song, trackId, (effects) => {
     if (!plugin && !effects[slot]) return null;
     const next = [...effects];
-    next[slot] = plugin ? newEffect(plugin, id) : null;
+    next[slot] = plugin ? newEffect(plugin, id, onBus(song, trackId)) : null;
     return next;
   });
 }
 
+/**
+ * A bus: an insert track no channel plays into (a send's return). A Reverb put on one comes fully wet
+ * with its Mix locked; on a channel's track (or the master) it comes at an insert's Mix.
+ */
+const onBus = (song: MusicProject, trackId: string) => trackId !== MASTER_TRACK_ID && !song.channels.some((c) => c.mixerTrack === trackId);
+
 /** A new effect for a slot: ours with their settings as they come, or a plugin. */
-function newEffect(plugin: PluginRef, id: string): MixerEffect {
+function newEffect(plugin: PluginRef, id: string, bus = false): MixerEffect {
   if (isGrossBeat(plugin)) return { id, plugin: GROSS_BEAT_PLUGIN, enabled: true, mix: 1, grossBeat: DEFAULT_GROSS_BEAT };
   if (isAutoTune(plugin)) return { id, plugin: AUTO_TUNE_PLUGIN, enabled: true, mix: 1, autoTune: DEFAULT_AUTO_TUNE };
   if (isEchoBoy(plugin)) return { id, plugin: ECHO_BOY_PLUGIN, enabled: true, mix: 1, echoBoy: DEFAULT_ECHO_BOY };
@@ -442,6 +449,7 @@ function newEffect(plugin: PluginRef, id: string): MixerEffect {
   if (isProC(plugin)) return { id, plugin: PRO_C_PLUGIN, enabled: true, mix: 1, proC: DEFAULT_PRO_C };
   if (isPanMan(plugin)) return { id, plugin: PANMAN_PLUGIN, enabled: true, mix: 1, panMan: DEFAULT_PANMAN };
   if (isPitchWheel(plugin)) return { id, plugin: PITCH_WHEEL_PLUGIN, enabled: true, mix: 1, pitchWheel: DEFAULT_PITCH_WHEEL };
+  if (isReverb(plugin)) return { id, plugin: REVERB_PLUGIN, enabled: true, mix: 1, reverb: bus ? { ...DEFAULT_REVERB, mix: 1, mixLock: true } : DEFAULT_REVERB };
   return { id, plugin, enabled: true, mix: 1 };
 }
 

@@ -6,7 +6,11 @@ namespace
 {
 constexpr double toneHz = 440.0;
 constexpr float toneGain = 0.15f;
-constexpr double offlineSampleRate = 48000.0;
+/** Offline (tests, `--offline`), the rate it renders at: 48 kHz, or what VAUDIO_OFFLINE_RATE says (the tests of sounds at other rates). */
+const double offlineSampleRate = [] {
+    const auto wanted = juce::SystemStats::getEnvironmentVariable ("VAUDIO_OFFLINE_RATE", "48000").getDoubleValue();
+    return wanted >= 8000 && wanted <= 192000 ? wanted : 48000.0;
+}();
 constexpr int offlineBlockSize = 512;
 /** A buffer small enough to play along to, where the device allows it. */
 constexpr int preferredBlockSize = 256;
@@ -98,6 +102,7 @@ juce::var Engine::transport() const
                                { "echoBoys", echoBoys.describe() },
                                { "otts", otts.describe() },
                                { "proCs", procs.describe (false) },
+                               { "reverbs", reverbs.describe() },
                                { "panMen", panMen.describe() },
                                { "pitchWheels", pitchWheels.describe() },
                                { "modulators", sequencer.describeModulators() } });
@@ -294,6 +299,30 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         if (state == nullptr)
             return reply (fail ("The song playing has no such Pro-C."), {});
         state->startMatch (params["seconds"].isVoid() ? 8.0 : (double) params["seconds"]);
+        return ok();
+    }
+    if (command == "verbWatch")
+    {
+        // The Reverbs whose windows are open: their wet sound is measured for the Decay display's analyzer.
+        std::map<juce::String, int> sizes;
+        if (const auto* list = params["effects"].getArray())
+            for (const auto& item : *list)
+                sizes[item["effect"].toString()] = juce::jlimit (256, 32768, (int) item["size"]);
+        reverbs.watch (sizes);
+        return ok();
+    }
+    if (command == "verb")
+    {
+        // A Reverb's live controls: Freeze or Kill held, a click played through it.
+        const auto state = reverbs.find (params["effect"].toString());
+        if (state == nullptr)
+            return reply (fail ("The song playing has no such Reverb."), {});
+        if (params.hasProperty ("freeze"))
+            state->freezeHeld.store ((bool) params["freeze"]);
+        if (params.hasProperty ("kill"))
+            state->killHeld.store ((bool) params["kill"]);
+        if ((bool) params["audition"])
+            state->audition.store (true);
         return ok();
     }
     if (command == "panMan")
@@ -532,7 +561,7 @@ juce::StringArray Engine::applySong()
     // During an export the song waits: it's made when the export ends (its plugins are busy).
     if (exportJob != nullptr)
         return unreadable;
-    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, autoTunes, echoBoys, eqs, otts, procs, panMen, pitchWheels, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
+    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, autoTunes, echoBoys, eqs, otts, procs, panMen, pitchWheels, reverbs, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
     latencies = plugins.latencySignature() * 7 + effects.latencySignature();
     armed.clear();
     for (const auto& track : song->tracks)
@@ -613,6 +642,7 @@ void Engine::silence()
     eqs.clear();
     otts.clear();
     procs.clear();
+    reverbs.clear();
     panMen.clear();
     pitchWheels.clear();
     sequencer.forgetDelayLines();
@@ -672,6 +702,7 @@ void Engine::timerCallback()
                                             { "echoBoys", echoBoys.describe() },
                                             { "otts", otts.describe() },
                                             { "proCs", procs.describe (true) },
+                                            { "reverbs", reverbs.describe() },
                                             { "eq", eqs.describe() },
                                             { "panMen", panMen.describe() },
                                             { "pitchWheels", pitchWheels.describe() },
@@ -879,7 +910,8 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
     ott::Registry exportOtts;
     comp::Registry exportProCs;
     wheel::Registry exportPitchWheels;
-    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, exportAutoTunes, exportEchoBoys, exportEqs, exportOtts, exportProCs, exportPanMen, exportPitchWheels, unreadable, exportBlockSize, rate(), false);
+    verb::Registry exportReverbs;
+    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, exportAutoTunes, exportEchoBoys, exportEqs, exportOtts, exportProCs, exportPanMen, exportPitchWheels, exportReverbs, unreadable, exportBlockSize, rate(), false);
     if ((plugins.anyLoading() || effects.anyLoading()) && attempt < exportWaits)
     {
         juce::Timer::callAfterDelay (100, [this, stillAlive = alive, params, reply, attempt] {
@@ -895,7 +927,7 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
             missing.add (channel.id);
     for (const auto& track : song->tracks)
         for (const auto& effect : track.effects)
-            if (effect.plugin == nullptr && effect.gross == nullptr && effect.tune == nullptr && effect.echo == nullptr && effect.eq == nullptr && effect.ott == nullptr && effect.comp == nullptr && effect.pan == nullptr && effect.wheel == nullptr)
+            if (effect.plugin == nullptr && effect.gross == nullptr && effect.tune == nullptr && effect.echo == nullptr && effect.eq == nullptr && effect.ott == nullptr && effect.comp == nullptr && effect.pan == nullptr && effect.wheel == nullptr && effect.verb == nullptr)
                 missing.add (effect.id);
 
     // Playback stops and lets go of the plugins; they're prepared for the export.

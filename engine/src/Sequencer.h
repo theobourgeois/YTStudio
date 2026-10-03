@@ -267,6 +267,8 @@ private:
     void runProQ (const Song::Track::Effect&, float* left, float* right, int numSamples, const float* keyLeft, const float* keyRight);
     /** Put a track's sound through an OTT (`mix` of it heard against the dry sound). */
     void runOtt (const Song::Track::Effect&, float* left, float* right, int numSamples);
+    /** Put a track's sound through a Reverb (its own Mix in it; `mix` of it heard against the dry sound; its key another track's sound, or its own). */
+    void runReverb (const Song::Track::Effect&, float* left, float* right, int numSamples, const float* keyLeft, const float* keyRight);
     /** An automation lane's value for a Pro-Q's band control (`Song::Lane::band`, `control`). */
     static void setEqControl (eq::Settings&, int band, int control, float value);
     /** An automation lane's value for a Gross Beat's control (`Song::Lane::control`). */

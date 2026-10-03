@@ -8,6 +8,8 @@ import { EXPORT_FORMATS } from "./export.ts";
 import { ECHO_TOOL_CONTROL_NAMES } from "./echo-boy-presets.ts";
 import { OTT_TOOL_CONTROL_NAMES } from "./ott-presets.ts";
 import { PRO_C_PRESETS, PRO_C_TOOL_CONTROL_NAMES } from "./pro-c-presets.ts";
+import { REVERB_PRESETS, REVERB_TOOL_CONTROL_NAMES } from "./reverb-presets.ts";
+import { REVERB_BAND_SHAPES, REVERB_ERAS, REVERB_MODES } from "./types.ts";
 import { PRO_C_AUDIO_MODES, PRO_C_CHARACTERS, PRO_C_DETECTORS, PRO_C_LINK_MODES, PRO_C_RECOVERIES, PRO_C_STYLES, PRO_C_TIME_MODES, SIDECHAIN_TAPS } from "./types.ts";
 import { PANMAN_PRESETS, PAN_CURVES, PAN_MODES, PAN_RHYTHMS, PAN_STYLES } from "./panman-presets.ts";
 import { CURVE_TYPES, STRETCH_MODES } from "./types.ts";
@@ -49,6 +51,15 @@ const proCRef = {
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
+/** Which Reverb a tool acts on. */
+const reverbRef = {
+  effect: str("The Reverb: its effect id (from get_mixer or get_reverb). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
+/** A value in units ("2.4 s", "-6 dB", "1/8 dot", "200 Hz") or a number in the control's own. */
+const unitValue = (what: string) => ({ description: what, anyOf: [{ type: "number" }, { type: "string" }] }) as const;
+
 /** A side chain band, as set_pro_c_bands takes one (Pro-Q's fields, no dynamics). */
 const proCBand = obj(
   {
@@ -134,6 +145,7 @@ const controlFields = {
       ...ECHO_TOOL_CONTROL_NAMES,
       ...OTT_TOOL_CONTROL_NAMES,
       ...PRO_C_TOOL_CONTROL_NAMES,
+      ...REVERB_TOOL_CONTROL_NAMES,
       ...["panman offset", "panman width", "panman rate", "panman input", "panman output"],
       ...["panman smoothing", "panman feel", "panman groove", "panman trigger", "panman divider", "panman cutoff", "panman filter gain", "panman threshold", "panman attack", "panman release", "panman offset mod", "panman width mod", "panman rate mod"],
       ...["wheel pitch", "wheel timbre", "wheel pitch gravity", "wheel pitch inertia", "wheel pitch smooth", "wheel timbre gravity", "wheel timbre inertia", "wheel timbre smooth"],
@@ -153,7 +165,11 @@ const controlFields = {
       "or a Pro-Q's (the effect in `track`'s `slot`, \"eq ...\"): a band's (`band`) frequency (values in Hz: a filter sweep), gain or " +
       "dynamic range (dB) or Q, or its output (dB), pan (-1 to 1) or gain scale (0 to 2, 1 is 100%); or an OTT's (\"ott ...\"): depth 0 to 1, time 0 to 10 (1 is 100%), in and out gain dB, " +
       "upward and downward 0 to 2 (1 is 100%), a band's threshold 0 to 2 or gain dB; or a Pro-C's (\"pro-c ...\"): threshold dB -60 to 0, ratio 1 to 100 (100: ∞:1), knee and range dB, " +
-      "attack, release and hold in milliseconds, wet, dry, side chain level, input and output in dB, mix 0 to 2 (1 is 100%), drive 0 to 1, emphasis dB 0 to 10 (Opto 2A); or a PanMan's (\"panman ...\": " +
+      "attack, release and hold in milliseconds, wet, dry, side chain level, input and output in dB, mix 0 to 2 (1 is 100%), drive 0 to 1, emphasis dB 0 to 10 (Opto 2A); or a Reverb's (\"reverb ...\": " +
+      "mix 0 to 1, decay seconds 0.1 to 60 (61 is ∞), freeze 0 or 1 (hold curves: a throw frozen on a word), predelay ms, size, distance, " +
+      "diffusion, mod, width 0 to 1.5, low cut and high cut Hz, de-ess dB 0 to 24, duck dB -24 to 0, auto decay 0 to 0.9, the duck's " +
+      "threshold dB and attack, release and hold in ms, the shelves, mono below Hz, output dB; drier verses and a wetter chorus are a " +
+      "\"reverb mix\" curve); or a PanMan's (\"panman ...\": " +
       "offset in degrees, -105 left to 105 right, width in degrees 0 to 210, LFO rate in Hz 0.01 to 10, input and output in dB -24 to 24, " +
       "smoothing 0 to 1, feel and groove -1 to 1, trigger and threshold dB -40 to 0, divider 1 to 12, cutoff Hz, filter gain dB, attack and " +
       "release seconds, offset mod and width mod degrees, rate mod octaves); or a Pitch Wheel's (\"wheel ...\": " +
@@ -803,8 +819,10 @@ export const MUSIC_TOOLS = [
       "user opens from the mixer: you can't set them. OTT (plugin \"OTT\": Xfer's multiband upward/downward compressor, the squashed, " +
       "bright, loud sound; set with update_ott) is ours as well, and so is Pro-C (plugin \"Pro-C\": FabFilter's Pro-C 3 compressor, ours, " +
       "with 21 styles: Pro-C's own, Vox (one-knob vocal, after Waves' RVox) and a Vintage group after the 1176, LA-2A, CL 1B, Distressor, dbx 160 and " +
-      "Neve 33609; a side chain EQ, an external side chain, Host Sync pumping; set with update_pro_c; add_vocal_compression sets up a vocal's compressors in one step).",
-    inputSchema: obj({ track: mixerTrack(), plugin: str('"Pro-C", "Pro-Q", "OTT", "EchoBoy", "Gross Beat", "Auto-Tune", "PanMan", "Pitch Wheel", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
+      "Neve 33609; a side chain EQ, an external side chain, Host Sync pumping; set with update_pro_c; add_vocal_compression sets up a vocal's compressors in one step), " +
+      "and so is the Reverb (plugin \"Reverb\": plates, rooms, chambers and halls made for vocals, with ducking, a de-esser and a synced " +
+      "pre-delay built in; set with update_reverb and set_reverb_decay; add_vocal_reverb sets up a vocal's reverb send in one step, which is usually better).",
+    inputSchema: obj({ track: mixerTrack(), plugin: str('"Reverb", "Pro-C", "Pro-Q", "OTT", "EchoBoy", "Gross Beat", "Auto-Tune", "PanMan", "Pitch Wheel", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
   }),
   tool({
     name: "update_mixer_effect",
@@ -1116,6 +1134,131 @@ export const MUSIC_TOOLS = [
         track: mixerTrack("The vocal's mixer track"),
         kind: oneOf(["twoStage", "tracking", "rough", "vox", "parallel"], "Which chain."),
         amount: oneOf(["light", "medium", "heavy"], "How hard."),
+      },
+      ["track"],
+    ),
+  }),
+  tool({
+    name: "get_reverb",
+    title: "Read a Reverb",
+    kind: "look",
+    description:
+      "A Reverb (ours, in a mixer track's slot: a vocal reverb): its mode and era, every setting in its units (Decay at 1 kHz, the " +
+      "pre-delay in ms or as a note value and what that is at the tempo, size, distance, diffusion, modulation and how many cents it " +
+      "makes, width, the cuts, de-ess and ducking with its key, the advanced controls), the T60 at each octave band (the Decay EQ's " +
+      "bands shaping it), Mix and Mix Lock; the modes with a line each, the eras, and the presets.",
+    inputSchema: obj({ ...reverbRef }),
+  }),
+  tool({
+    name: "update_reverb",
+    title: "Change a Reverb",
+    kind: "edit",
+    description:
+      "Set a Reverb: a preset first (it sets the sound; Mix stays while Mix Lock is on), then any control over it. Values can be given in " +
+      `units ("2.4 s", "-6 dB", "200 Hz", "40 ms", "1/16", "1/8 dot") or as numbers in the control's own (seconds, dB, Hz, 0 to 1). How a ` +
+      "vocal reverb sits: pre-delay 20 to 80 ms (or 1/64 to 1/16 at the tempo) leaves the consonants clear; duck -4 to -10 dB keeps the " +
+      "tail out of the words; de-ess 4 to 10 dB keeps esses out of it; low cut 150 to 300 Hz and high cut 6 to 9 kHz on the return; " +
+      "decay 1 to 2.5 s for a lead (plates), 0.4 to 1 s for a room under a rap vocal. Err dry: on an insert, mix 0.1 to 0.25; on a send, mix 1.",
+    inputSchema: obj({
+      ...reverbRef,
+      preset: str(`A factory preset's name: ${REVERB_PRESETS.map((p) => p.name).join(", ")}.`),
+      mode: oneOf(REVERB_MODES, "smoothPlate (the vocal default: a plate without the metal), plate (Dattorro's Lexicon-style plate, an EMT 140's curve), room, chamber, hall, ambience (air, almost no tail)."),
+      era: oneOf(REVERB_ERAS, "now (clean), 1980s (18 kHz, 16-bit, the 480L's sheen), 1970s (9 kHz, 12-bit, the 224's grain)."),
+      mix: num("0 to 1, equal power."),
+      mixLock: bool("Mix Lock: presets and A/B leave Mix alone."),
+      decay: unitValue('Seconds at 1 kHz, 0.1 to 60, or "inf" (∞: the loop held, input open).'),
+      predelay: unitValue('Milliseconds (0 to 500), "40 ms", or a note value ("1/64", "1/16 dot", "1/8 tri"): synced to the tempo.'),
+      predelayOffset: num("0.5 to 2: × a synced pre-delay."),
+      size: num("0 to 1."),
+      distance: num("0 (near: strong early sound) to 1 (far: a slow, darker build)."),
+      diffusion: num("0 to 1 (low to moderate is clearer on vocals)."),
+      modRate: unitValue("Hz, 0.05 to 10."),
+      modDepth: num("0 to 1 (0.3 to 0.5: the metal gone, no pitch heard; 0.9: a chorus)."),
+      modShape: oneOf(["chorus", "random"], "Chorus (sine) or Random (no audible pitch)."),
+      width: num("0 (mono) to 1.5."),
+      lowCut: unitValue("Hz, 20 (off) to 2000."),
+      highCut: unitValue("Hz, 1000 to 20000 (off)."),
+      cutSlope: { type: "integer", enum: [12, 24], description: "Both cuts' slope, dB per octave." },
+      deEss: unitValue("dB, 0 to 24: sibilance kept out of the reverb."),
+      deEssFreq: unitValue("Hz, 4000 to 12000."),
+      duck: unitValue("dB, -24 to 0: the tail turned down while the key plays."),
+      duckKey: mixerTrack(`The ducking key: another track (a lead ducking its backing vocals' reverb; it becomes the slot's sidechain key, after that track's fader), or "self" for this track's own input`),
+      duckThreshold: unitValue('dB, -60 to 0, or "auto".'),
+      duckAttack: unitValue("Milliseconds, 1 to 100."),
+      duckRelease: unitValue('Milliseconds, 20 to 3000, or a note value ("1/8").'),
+      duckHold: unitValue("Milliseconds, 0 to 500."),
+      duckWhat: oneOf(["tail", "all"], "Duck only the late tail (keeps the sense of space) or the early sound too."),
+      autoDecay: num("0 to 0.9: instead of turning it down, shorten the tail while the key is loud."),
+      autoDecayRecovery: unitValue("Milliseconds, 1 to 500."),
+      freeze: bool("Hold the tail for ever (nothing new goes in)."),
+      input: oneOf(["auto", "mono", "stereo"], "What the network hears (auto: the mode's)."),
+      inputCross: num("0 to 1."),
+      inputLowCut: unitValue("Hz, before the reverb (20: off)."),
+      inputHighCut: unitValue("Hz, before the reverb (20000: off)."),
+      vlfCut: unitValue("dB, -18 to 0: the onset's lows (the M7's VLF Cut)."),
+      earlySend: num("0 to 1."),
+      earlyCross: num("0 to 1."),
+      lateDiffusion: num("0 to 1, or -1 for the mode's."),
+      variation: int("1 to 1000: another early pattern and random modulation."),
+      toneLock: bool("Decay EQ changes length only (on), or length and level."),
+      lowShelf: obj({ frequency: num("Hz, 50 to 500."), gain: num("dB, -12 to 12.") }, [], "On the wet sound."),
+      highShelf: obj({ frequency: num("Hz, 1000 to 16000."), gain: num("dB, -12 to 12.") }, [], "On the wet sound."),
+      studio: bool("Abbey Road's send filters: 600 Hz and 10 kHz, steep."),
+      monoBelow: unitValue("Hz, 20 to 500, or 0: the wet side taken out below it."),
+      output: unitValue("dB, -24 to 12: the wet sound's level."),
+      ab: oneOf(["switch", "copy"], "A/B: switch to the other state, or copy this one there."),
+    }),
+  }),
+  tool({
+    name: "set_reverb_decay",
+    title: "Shape a Reverb's decay",
+    kind: "edit",
+    description:
+      "The Decay EQ (Pro-R 2's Decay Rate EQ): how much longer or shorter than Decay each frequency rings, up to 6 bands. A band is a " +
+      "lowShelf, bell, highShelf or notch at a frequency, as a multiplier of Decay (0.25 to 4) or a T60 in seconds there (`seconds`). " +
+      "Vocals: shorter highs (a high shelf at 5 to 8 kHz, ×0.5 to 0.8) keep sibilance from hissing on; shorter lows (a low shelf at 200 " +
+      "to 400 Hz, ×0.6 to 0.85) keep mud out; a notch at 5 to 8 kHz takes a sibilant ring away. A band without `band` is added; with it, " +
+      "only what's given changes; `remove` takes it out; `clear` removes every band first; `bypass` turns them all off at once.",
+    inputSchema: obj({
+      ...reverbRef,
+      clear: bool("Remove every band first."),
+      bypass: bool("Every band off at once (true) or back on."),
+      bands: arr(
+        obj(
+          {
+            band: int("The band's number (1 to 6) to change or remove; none to add one."),
+            remove: bool("Take the band out."),
+            shape: oneOf(REVERB_BAND_SHAPES, "Its shape."),
+            frequency: num("Hz, 20 to 20000."),
+            multiplier: num("× Decay there, 0.25 to 4."),
+            seconds: num("Or: the T60 wanted there, in seconds (made a multiplier of the mode's curve)."),
+            q: num("0.1 to 10; 1 is about an octave."),
+            enabled: bool("On or off."),
+          },
+          [],
+          "A band.",
+        ),
+        "Bands to add, change or remove.",
+      ),
+    }),
+  }),
+  tool({
+    name: "add_vocal_reverb",
+    title: "Add a vocal reverb",
+    kind: "edit",
+    description:
+      "Set up a vocal's reverb the way mix engineers do, in one step: a new insert track named after the vocal (\"Vox Verb\"), a Reverb " +
+      "on it at 100% wet with Mix Lock on and a vocal preset, a post-fader send from the vocal's track at a level that sits the reverb " +
+      "about 14 LU under the voice (listeners prefer it that dry; 9 LU or less is too wet), its Duck keyed from the vocal. kind: lead " +
+      "(the default: Vocal Plate), rap (Rap Room), ballad (Ballad Hall), backing (Harmony Plate), or a preset's name. pair: two sends, " +
+      "the short space where the voice sits and the depth behind it (Pair A and Pair B). throw: a third, long, fully ducked wash whose " +
+      "send is off: automate it (or copy words to a channel on it) for throws. Returns the tracks and effects made.",
+    inputSchema: obj(
+      {
+        track: mixerTrack("The vocal's mixer track"),
+        kind: str('lead, rap, ballad, backing, or a preset\'s name.'),
+        pair: bool("Two sends: the short space and the long tail."),
+        throw: bool("Also a throw send (a long wash, its send at 0 to automate)."),
       },
       ["track"],
     ),

@@ -22,6 +22,7 @@ import { currentTrackId, useMusicUi } from "./ui";
 import { automateParameter } from "./automation/actions";
 import { useMixerView } from "./mixer/view";
 import { useAutomationUi } from "./automation/store";
+import { takeReverbs } from "./reverb/live";
 
 /**
  * Keeps the audio engine playing the open song: every change of the document (even mid-drag, so a
@@ -155,6 +156,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       takePitchWheels(event.pitchWheels);
       // What each Pro-C did: its level display's points, kept outside React.
       takeProCs(event.proCs);
+      // What each Reverb is doing: its meters and its tail's spectrum, likewise.
+      takeReverbs(event.reverbs);
       // Each modulator's level: the controls it moves show it.
       takeModulatorLevels(event.modulators);
     } else if (event.event === "midi") {

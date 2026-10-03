@@ -13,6 +13,7 @@ import { AUTO_TUNE_PLUGIN, isAutoTune, normalizeAutoTune } from "./auto-tune-pre
 import { ECHO_BOY_PLUGIN, isEchoBoy, normalizeEchoBoy } from "./echo-boy-presets.ts";
 import { OTT_PLUGIN, isOtt, normalizeOtt } from "./ott-presets.ts";
 import { PRO_C_PLUGIN, isProC, normalizeProC } from "./pro-c-presets.ts";
+import { REVERB_PLUGIN, isReverb, normalizeReverb } from "./reverb-presets.ts";
 import {
   DEFAULT_ANALYZER,
   DEFAULT_PRO_Q_STATE,
@@ -44,6 +45,8 @@ import {
   ECHO_CONTROLS,
   OTT_CONTROLS,
   PRO_C_CONTROLS,
+  REVERB_CONTROLS,
+  type ReverbControl,
   type OttControl,
   type ProCControl,
   type EchoControl,
@@ -523,8 +526,9 @@ function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null 
   seen.add(input.id);
   const effect: MixerEffect = { id: input.id, plugin, enabled: input.enabled !== false, mix: number(input.mix, 0, 1, 1) };
   // Its key (checked against the tracks once they're all known: `normalizeMixer`). A Pro-C from before keys
-  // were every effect's kept its source in its own settings, taken after the fader.
-  const legacy = isObject(input.proC) && isObject(input.proC.sidechain) ? input.proC.sidechain.track : undefined;
+  // were every effect's kept its source in its own settings, taken after the fader; a Reverb's Duck key too.
+  const legacy =
+    isObject(input.proC) && isObject(input.proC.sidechain) ? input.proC.sidechain.track : isObject(input.reverb) && isObject(input.reverb.ducking) ? input.reverb.ducking.key : undefined;
   const sidechain = normalizeSidechain(input.sidechain) ?? (isId(legacy) ? { track: legacy, tap: "postFader" as const } : null);
   if (sidechain) effect.sidechain = sidechain;
   // Ours: its settings are the song's (a plugin's are its own, in a file beside it).
@@ -536,6 +540,7 @@ function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null 
   if (isProC(plugin)) return { ...effect, plugin: PRO_C_PLUGIN, proC: normalizeProC(input.proC) };
   if (isPanMan(plugin)) return { ...effect, plugin: PANMAN_PLUGIN, panMan: normalizePanMan(input.panMan) };
   if (isPitchWheel(plugin)) return { ...effect, plugin: PITCH_WHEEL_PLUGIN, pitchWheel: normalizePitchWheel(input.pitchWheel) };
+  if (isReverb(plugin)) return { ...effect, plugin: REVERB_PLUGIN, reverb: normalizeReverb(input.reverb) };
   return effect;
 }
 
@@ -793,6 +798,8 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
       return isId(raw.effect) && PRO_C_CONTROLS.includes(raw.control as ProCControl) ? { kind: "proC", effect: raw.effect, control: raw.control as ProCControl } : null;
     case "panMan":
       return isId(raw.effect) && PAN_CONTROL_IDS.includes(raw.control as PanControl) ? { kind: "panMan", effect: raw.effect, control: raw.control as PanControl } : null;
+    case "reverb":
+      return isId(raw.effect) && REVERB_CONTROLS.includes(raw.control as ReverbControl) ? { kind: "reverb", effect: raw.effect, control: raw.control as ReverbControl } : null;
     case "pitchWheel":
       return isId(raw.effect) && PITCH_WHEEL_CONTROLS.includes(raw.control as PitchWheelControl) ? { kind: "pitchWheel", effect: raw.effect, control: raw.control as PitchWheelControl } : null;
     case "main":

@@ -646,6 +646,24 @@ export class AudioEngine {
         if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a Pro-C\'s effect id.');
         return { effect: body.effect, seconds: isFiniteNumber(body.seconds) ? clamp(body.seconds, 1, 30) : 8 };
       }
+      case "verbWatch": {
+        const list = Array.isArray(body.effects) ? body.effects : [];
+        const effects = list.flatMap((e) =>
+          e && typeof e === "object" && typeof (e as { effect?: unknown }).effect === "string" && /^[\w-]{1,64}$/.test((e as { effect: string }).effect)
+            ? [{ effect: (e as { effect: string }).effect, size: isFiniteNumber((e as { size?: unknown }).size) ? Math.round(clamp((e as { size: number }).size, 256, 32768)) : 4096 }]
+            : [],
+        );
+        return { effects: effects.slice(0, 256) };
+      }
+      case "verb": {
+        if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a Reverb\'s effect id.');
+        return {
+          effect: body.effect,
+          ...(typeof body.freeze === "boolean" && { freeze: body.freeze }),
+          ...(typeof body.kill === "boolean" && { kill: body.kill }),
+          ...(body.audition === true && { audition: true }),
+        };
+      }
       case "panMan": {
         if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a PanMan\'s effect id.');
         return { effect: body.effect, ...(body.trigger === true && { trigger: true }) };
