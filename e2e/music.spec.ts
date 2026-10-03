@@ -518,7 +518,10 @@ test("knobs work as in FL Studio, and a channel opens its settings window", asyn
   const tempo = page.getByRole("textbox", { name: "Tempo" });
   await tempo.fill("128");
   await tempo.press("Enter");
-  await expect(page.locator(`[data-project-id="${id}"]`)).toContainText("128 BPM");
+  // What the Home screen's card says.
+  await expect
+    .poll(async () => ((await (await page.request.get("/api/projects")).json()) as { id: string; tempo?: number }[]).find((p) => p.id === id)?.tempo)
+    .toBe(128);
 
   // A knob is dragged up and down (one undo step); Alt+click resets it; its menu resets, copies, pastes and takes a typed value.
   const volume = row(page, "Kick").getByRole("slider", { name: "Volume" });
@@ -859,7 +862,7 @@ test("the toolbar, as FL Studio's: the tempo LCD drags, + makes a pattern, the p
   await tempo.press("Enter");
   await tempo.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Make 128 BPM the default" }).click();
-  await page.getByRole("button", { name: "New project" }).click();
+  await page.keyboard.press("ControlOrMeta+Shift+KeyO");
   await page.getByRole("dialog").getByRole("textbox").fill("song");
   await page.keyboard.press("Enter");
   await expect.poll(() => page.url()).not.toContain(id);
@@ -956,6 +959,8 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
     await page.getByRole("menuitem", { name: "Type in value…" }).click();
     await page.getByRole("textbox", { name: /Hat's mixer track.*type a value/ }).fill(value);
     await page.keyboard.press("Enter");
+    // Gone, and the keyboard with it (F9 next would be typed into it).
+    await expect(page.getByRole("textbox", { name: /Hat's mixer track.*type a value/ })).toHaveCount(0);
   };
   await typeTrack("5");
   await expect(row(page, "Hat").getByRole("spinbutton")).toHaveText("5");
@@ -1205,6 +1210,8 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
 });
 
 test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separation, colour, cables, its state copied to another track", async ({ page }) => {
+  // As wide as the desktop was beside the sidebar, so the Wide view's strips overflow (and scroll) further on.
+  await page.setViewportSize({ width: 1136, height: 900 });
   const id = await openNewSong(page, "Strips");
   await page.keyboard.press("F9");
   const mixer = page.getByTestId("mixer");

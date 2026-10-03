@@ -42,6 +42,9 @@ const PLATFORM = [
   "shared/errors.ts",
   // The HTTP API's types, with the video editor's domain types still among them.
   "shared/types.ts",
+  // The app's icon (the desktop app's, picked in Settings).
+  "shared/app-icons.ts",
+  "src/stores/app-icon.ts",
   "server/index.ts",
   "server/config.ts",
   "server/storage.ts",
@@ -50,6 +53,7 @@ const PLATFORM = [
   // Music analysis (tempo, beats): the video editor's beat sync and the music suite's Detect tempo.
   "server/beats.ts",
   "server/projects.ts",
+  "server/packages.ts",
   "server/routes/projects.ts",
   "server/routes/assistant.ts",
   "server/routes/util.ts",
@@ -77,11 +81,13 @@ const PLATFORM = [
   "src/lib/autosaver.ts",
   "src/lib/color.ts",
   "src/hooks/use-now.ts",
+  "src/hooks/use-file-drop.ts",
+  "src/lib/dnd.ts",
   "src/assistant/bridge.ts",
   "src/components/ui/",
   "src/gallery/",
   "src/components/color-picker.tsx",
-  "src/components/sidebar/",
+  "src/components/home/",
   "src/components/assistant/",
   "src/components/header/header.tsx",
   "src/components/header/project-name.tsx",
@@ -90,7 +96,6 @@ const PLATFORM = [
   "src/components/dock/",
   "src/components/workspace/workspace.tsx",
   "src/components/workspace/plain-workspace.tsx",
-  "src/components/workspace/empty-state.tsx",
 ];
 
 /**
@@ -118,9 +123,6 @@ const DEBT: string[] = [
   "src/components/header/header.tsx -> src/components/header/settings-dialog.tsx",
   "src/components/header/header.tsx -> src/hooks/shortcuts.ts",
   "src/components/header/header.tsx -> src/stores/editor.ts",
-  "src/components/sidebar/sidebar.tsx -> src/hooks/shortcuts.ts",
-  "src/components/workspace/empty-state.tsx -> src/components/media/import-media.ts",
-  "src/components/workspace/empty-state.tsx -> src/hooks/use-file-drop.ts",
   "src/stores/assistant.ts -> src/stores/editor.ts",
   "src/stores/projects.ts -> src/stores/autosave.ts",
 ];

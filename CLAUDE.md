@@ -6,7 +6,8 @@ It's a React app (`src/`) plus a local Express + ffmpeg server (`server/`), shar
 README.md is the user-facing guide. This file is for working on the code.
 
 It's growing into a **creative suite**: every project belongs to one app, a *suite* (`SuiteId`: video, music; image
-next), picked in the sidebar's New project picker. The video editor is the furthest along; **music is a DAW modelled on
+next), picked on the Home screen or in the New project picker. **Every project is a file of its own**, a `.vaudio`
+package on disk (see "Projects are files"). The video editor is the furthest along; **music is a DAW modelled on
 FL Studio** (see "The music suite"). See "Suites" below: most of this file is about the video editor, which lives at the roots of
 `shared/`, `server/` and `src/`; every other suite has folders of its own.
 
@@ -143,7 +144,10 @@ server/
   index.ts → app.ts  Startup wiring; routes live in routes/<resource>.ts (one Router each).
   suites/            Each suite's server side (SuiteBackend): create/normalise/summarise its documents, what its
                      assistant is told. index.ts is the registry; video.ts wraps the video editor's.
-  projects.ts        ProjectStore: every suite's projects (meta.json says the suite; none = video), opaque documents.
+  projects.ts        ProjectStore: every suite's projects, each a package on disk (`Name.vaudio`: project.json, meta.json
+                     says the suite (none = video), media/, a song's plugins/ and recordings/), opaque documents, and
+                     this computer's recents (`data/projects.json`). packages.ts: names, unique paths, moves, the Trash.
+  migrate.ts         Older data folders: data/project.json and data/projects + data/media become packages, on startup.
   media.ts, web-media.ts, exports.ts   Services behind the routes.
   library.ts         LibraryStore: library.json (folders, items) + its own MediaLibrary under data/library/media.
   render.ts          Export plan (pure, unit-tested): planRender (decoders + per-frame layers), audioArgs, encoderArgs.
@@ -207,7 +211,7 @@ electron/          The desktop app (Vaudio). main.ts: runs the server (electron/
                      the page (`html.desktop`: drag regions, room for the window buttons in src/index.css).
                      scripts/desktop.ts bundles it with esbuild: the packaged app ships no node_modules.
 src/
-  suites/            Each suite in the tab (ClientSuite): open/close its store, its Workspace, sidebar line, the
+  suites/            Each suite in the tab (ClientSuite): open/close its store, its Workspace, Home card line, the
                      assistant's side (message context, chat texts, tool handlers). index.ts is the registry;
                      video.ts plugs in the video editor; music/ is the music editor: store.ts (the song, undo,
                      autosave), ui.ts (selection, which windows are open and where), engine-sync.ts +
@@ -236,7 +240,12 @@ src/
                      context.ts).
   lib/document-history.ts, autosaver.ts   Undo (with gestures) and autosave for any suite's document; music uses
                      them, the video editor still has its own in stores/editor.ts and stores/autosave.ts.
-  stores/projects.ts The project list (every suite) and which one is open (`openId`, in the URL); hands it to its suite.
+  stores/projects.ts The recents (every suite) and which one is open (`openId`, in the URL; null is Home); hands it to
+                     its suite. Opening and closing one tell the server (`opened`, `closed`).
+  components/home/   The Home screen (home.tsx: New tiles, Open…, the recents as cards in project-card.tsx, search
+                     and suite filter), the corner's Home button, Open… / Locate… (open-project-dialog.tsx: the
+                     desktop app's dialog, else a path), the New project picker (⇧⌘O) and ⌘P's search, and the
+                     app's project keys (project-search-dialog.tsx `useProjectShortcuts`: ⌘O, ⇧⌘H too).
   stores/editor.ts   THE video document store: project, assets, selection, undo history, gestures, edit commands.
   stores/autosave.ts, asset-polling.ts   Side effects of the editor store (kept out of it).
   stores/playback.ts The playback clock (rAF). layout.ts = panel/tool UI state.
@@ -265,7 +274,6 @@ src/
                      category chips and cards; thumbnails.ts draws every card with one shared compositor).
   components/workspace/workspace.tsx   The main column: the open project's suite's Workspace, or the empty state.
   components/workspace/video-workspace.tsx   The video editor's (header, its docked panels, assistant).
-  components/sidebar/new-project-dialog.tsx  The New project picker (a suite per row, ⌘1, ⌘2…).
   components/windows/  Floating windows, FL Studio's way, for every suite (docs/windows.md): `FloatingWindow` on a
                      `Desktop`, a store per desktop (`createWindows`: places, stacking, snaps), the maths in
                      geometry.ts. The music editor's desktop is one; the app's (`stores/app-windows.ts`, drawn by
@@ -298,10 +306,10 @@ src/
                      (Program monitor, a background video drawn offscreen, media frames), bridge.ts (the tab's event
                      stream; one call queue per video), context.ts.
                      layout.ts: what `get_layout` reports (clips' boxes on the canvas in px, a text's letters).
-  stores/assistant.ts  The side panel, the open video's chat, every chat's activity (sidebar), provider status, live
+  stores/assistant.ts  The side panel, the open video's chat, every chat's activity (Home's cards), provider status, live
                      activity, clip highlights, confirmations, Revert.
   components/assistant/  The chat panel (right, full height), the model + thinking pickers, its steps, Markdown, the
-                     header button, the preview pill. The sidebar's chat status is components/sidebar/chat-status.ts.
+                     header button, the preview pill. A card's chat status is components/home/chat-status.ts.
   components/ui/     shadcn/ui (generated; icons adapted to react-icons/pi).
 ```
 
@@ -319,13 +327,13 @@ extension** (Node ESM through tsx).
   (`server/suites/`) and `clientSuite` (`src/suites/`). Don't branch on a suite id anywhere else.
 - `useProjects.openId` is the open project, of any suite. Opening one closes the previous suite's store and calls
   the new suite's `open`. `useEditor.projectId` is only the *video* store's project: use `openId` for anything
-  that isn't the video editor (sidebar, assistant panel, bridge).
+  that isn't the video editor (Home, assistant panel, bridge).
 - The assistant: one chat per project, for every suite. The chat's suite decides the system prompt (`systemPrompt`
   around `SuiteBackend.assistant`), the MCP tools listed (`/mcp?chat=<id>`; outside clients get video's, or
   `?suite=`) and who runs the calls in the tab (`clientSuite(suite).runTool`). Tool names are unique across suites
   (tested). The panel (`AssistantPanel suite=…`) takes its texts from `ClientSuite.chat`.
 - **Layering** (`server/architecture.test.ts` checks every import): the *platform* is what every suite stands on
-  (projects, sidebar, assistant, storage, `components/ui`, `lib/api.ts`...: its `PLATFORM` list); a *suite* is its
+  (projects, Home, assistant, storage, `components/ui`, `lib/api.ts`...: its `PLATFORM` list); a *suite* is its
   own folders (`shared/<suite>/`, `server/<suite>/`, `src/suites/<suite>/`), and video is everything else at the
   roots. A suite imports the platform and itself, never another suite; the platform never imports a suite except
   through a registry. So a new suite's routes go in `server/<suite>/routes.ts`, its client in
@@ -359,7 +367,7 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   the channel's PITCH in whole semitones), and shows its own window when the channel's button is clicked. Its
   settings window is FL's wrapper (`plugin-tab.tsx`): the channel's knobs, and the plugin's presets (its own
   programs, and the user's saved in the engine's data folder, `PluginHost::savePreset`; `/api/engine/presets`). **A plugin's settings aren't in the document**: they're
-  a file beside it (`data/projects/<id>/plugins/<channel id>.bin`), written by the engine every few seconds when
+  a file beside it in its package (`<project>.vaudio/plugins/<channel id>.bin`), written by the engine every few seconds when
   they've changed, when the channel is removed (so undoing that brings the plugin back as it was) and when the
   engine quits. So what's turned inside a plugin's window isn't an undo step, as in FL Studio. **Musical time is whole ticks, `PPQ` (96) to a quarter note**, never
   seconds; a step is `STEP_TICKS` (24). A step of the sequencer is simply a note starting on the grid
@@ -757,6 +765,28 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   hardened runtime, the engine needs the `com.apple.security.cs.disable-library-validation` entitlement.
 - JUCE is used under its free Starter licence (a personal tool); selling this changes that.
 
+## Projects are files
+
+- A project is a package, `Name.vaudio/` (`server/packages.ts`): `project.json`, `meta.json` (id, suite, dates),
+  `media/<id>/` and whatever its suite keeps beside them. New ones go in the location (`~/Documents/Vaudio`; Settings ›
+  General changes it; `EDITOR_PROJECTS_DIR`; a given `EDITOR_DATA_DIR` keeps them in its own `Documents/Vaudio`, so
+  tests and throwaway setups never touch the user's). The server keeps the recents in `data/projects.json`: a path per
+  project, and what was known of it, for when its package isn't there (`ProjectSummary.missing`).
+- Media keep their URLs (`/files/media/<id>/...`), served from whichever package holds them (`MediaLibrary`'s
+  `projectDirs`, `filesDir`): never build a path from a media id or a project id yourself. A project's own files are
+  under `ProjectStore.dir(id)` (the audio engine's `projectDir` option); `DataPaths.projectDir` is the old layout.
+- A package is named after its project, but **its folder isn't renamed while a tab has it open** (media being
+  added, filmstrips being made, a song's plugin states and recordings are written into it): renaming changes the
+  document, and the folder follows on `closed`, at the next startup, or at once for one that isn't open (Home's
+  Rename, the assistant in the background). A busy one (`MediaLibrary.busy`) waits.
+- Open… (`POST /api/projects/open`) takes a package from anywhere: one that is a recent's new place takes over (and
+  its name becomes its folder's, if it was renamed in Finder); a copy of one that's here gets a project id and media
+  ids of its own (`reId`). Delete is the Trash (Electron's `shell.trashItem` in the desktop app); a package inside the
+  data folder (a starting point, a test's) is deleted.
+- The desktop app declares the type (`fileAssociations`, a package Finder shows as one file), opens one
+  double-clicked or launched with (`open-file`, argv) through `editorDesktop.openFile`, and lists opened ones in
+  File › Open Recent (`app.addRecentDocument`). Its File menu runs the page's `DesktopCommand`s.
+
 ## Data model (shared/types.ts)
 
 - `Project = { version, name, settings: { aspectRatio, fps }, tracks, clips }`. All times are seconds (floats).
@@ -1039,7 +1069,7 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   tab: one per change of its words, size or font, `TextLayoutAt.from`).
 - After changing the compositor or the export, run the integration tests (`server/integration.test.ts` checks
   positions, transitions and colours of real exports).
-- `data/` (or `EDITOR_DATA_DIR`) holds the projects, media, exports (never cleaned up yet) and `tmp`, which is wiped
+- `data/` (or `EDITOR_DATA_DIR`) holds the recents (`projects.json`), the starting points (`templates/`), exports (never cleaned up yet) and `tmp`, which is wiped
   on startup. Export jobs live in memory.
 - The audio engine: `EDITOR_ENGINE_PATH` (default: `engine/build/...`, else the packaged app's resources) and
   `EDITOR_PLUGIN_PATHS` (extra VST3 folders; default: the test synth's build folder). The e2e suite sets the first to

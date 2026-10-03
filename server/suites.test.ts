@@ -49,7 +49,7 @@ describe("suites", () => {
     await start();
     const created = await send<ProjectSummary>("POST", "/api/projects", { suite: "music", name: "Demo" });
     expect(created.status).toBe(201);
-    expect(created.body).toMatchObject({ suite: "music", name: "Demo", status: "active", tempo: 140, duration: 0, thumbnail: null });
+    expect(created.body).toMatchObject({ suite: "music", name: "Demo", tempo: 140, duration: 0, thumbnail: null });
     const id = created.body.id;
     expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body).toEqual(createMusicProject("Demo"));
 
@@ -75,8 +75,8 @@ describe("suites", () => {
     const beat = (await send<ProjectSummary>("POST", "/api/projects", { suite: "music", name: "My setup" })).body;
     await send("PUT", `/api/projects/${beat.id}`, { ...createMusicProject("My setup"), settings: { tempo: 142, timeSignature: [4, 4], swing: 0 } });
     // A plugin's settings beside the document go with it.
-    mkdirSync(path.join(dataDir, "projects", beat.id, "plugins"), { recursive: true });
-    writeFileSync(path.join(dataDir, "projects", beat.id, "plugins", "chan_serum.bin"), "state");
+    mkdirSync(path.join(beat.path, "plugins"), { recursive: true });
+    writeFileSync(path.join(beat.path, "plugins", "chan_serum.bin"), "state");
 
     expect((await send("GET", "/api/projects/templates")).body).toEqual({});
     const templates = (await send<Record<string, { name: string }>>("POST", `/api/projects/${beat.id}/template`)).body;
@@ -86,7 +86,7 @@ describe("suites", () => {
 
     const next = (await send<ProjectSummary>("POST", "/api/projects", { suite: "music" })).body;
     expect(next).toMatchObject({ suite: "music", name: "Untitled", tempo: 142 });
-    expect(readFileSync(path.join(dataDir, "projects", next.id, "plugins", "chan_serum.bin"), "utf8")).toBe("state");
+    expect(readFileSync(path.join(next.path, "plugins", "chan_serum.bin"), "utf8")).toBe("state");
     expect((await send<ProjectSummary>("POST", "/api/projects", { suite: "music", blank: true })).body).toMatchObject({ tempo: 140 });
     // The tempo set as the default (the tab's) goes over the starting point's, and into blank songs.
     expect((await send<ProjectSummary>("POST", "/api/projects", { suite: "music", options: { tempo: 96 } })).body).toMatchObject({ tempo: 96 });
@@ -119,6 +119,7 @@ describe("suites", () => {
     const dir = path.join(dataDir, "projects", id);
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, "project.json"), JSON.stringify({ ...createDefaultProject(), name: "Old one" }));
+    // (In the layout before packages, which is migrated into one.)
     writeFileSync(path.join(dir, "meta.json"), JSON.stringify({ id, status: "active", createdAt: 1, updatedAt: 2, settledAt: null }));
     await start();
     const [summary] = (await send<ProjectSummary[]>("GET", "/api/projects")).body;

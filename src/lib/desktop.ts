@@ -13,10 +13,25 @@ declare global {
       pathForFile?: (file: File) => string;
       saveFile?: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
       microphone?: { status(): Promise<string>; ask(): Promise<string> };
+      /** The system's Open dialog for a project (a `.vaudio` package); null if cancelled. */
+      chooseProject?: (defaultPath?: string) => Promise<string | null>;
+      /** The system's dialog for a folder; null if cancelled. */
+      chooseFolder?: (defaultPath?: string) => Promise<string | null>;
+      /** A project was opened: the system's recent documents (the Dock, File › Open Recent) list it. */
+      projectOpened?: (path: string) => void;
     };
-    editorDesktop?: { flush(): Promise<void> };
+    editorDesktop?: {
+      flush(): Promise<void>;
+      /** Open a project's package (double-clicked in Finder, or picked from File › Open Recent). */
+      openFile(path: string): Promise<void>;
+      /** A menu command of the app's (`DesktopCommand`). */
+      command(name: DesktopCommand): void;
+    };
   }
 }
+
+/** What the desktop app's menu asks the page to do (electron/main.ts's File menu). */
+export type DesktopCommand = "home" | "open" | "newProject" | "reveal" | `new:${string}`;
 
 /** Whether the editor runs in the desktop app rather than a browser tab. */
 export const isDesktop = typeof window !== "undefined" && window.editorDesktopInfo !== undefined;
@@ -51,6 +66,32 @@ export function askMicrophone(): Promise<string> | undefined {
   return window.editorDesktopInfo?.microphone?.ask();
 }
 
+/** The system's Open dialog for a project (the desktop app only; undefined in a browser, which asks for a path). */
+export function chooseProjectFile(defaultPath?: string): Promise<string | null> | undefined {
+  return window.editorDesktopInfo?.chooseProject?.(defaultPath);
+}
+
+/** The system's dialog for a folder (the desktop app only). */
+export function chooseFolder(defaultPath?: string): Promise<string | null> | undefined {
+  return window.editorDesktopInfo?.chooseFolder?.(defaultPath);
+}
+
+/** Tell the system a project was opened (its recent documents), in the desktop app. */
+export function noteOpenedProject(path: string): void {
+  window.editorDesktopInfo?.projectOpened?.(path);
+}
+
+/** What the page does for the desktop app's menu commands; set by the Home screen's module. */
+let commands: (name: DesktopCommand) => void = () => {};
+export function onDesktopCommand(run: (name: DesktopCommand) => void): void {
+  commands = run;
+}
+
 export function exposeDesktopHooks() {
-  if (isDesktop) window.editorDesktop = { flush: () => useProjects.getState().flush() };
+  if (!isDesktop) return;
+  window.editorDesktop = {
+    flush: () => useProjects.getState().flush(),
+    openFile: (path) => useProjects.getState().openFile(path),
+    command: (name) => commands(name),
+  };
 }

@@ -368,31 +368,35 @@ export interface Subclip {
 }
 
 // ---------------------------------------------------------------------------
-// Project list (the "workspace"): every project (a video, a song... see
-// `shared/suites.ts`) is either being worked on (`active`) or finished and put
-// away (`settled`).
+// Projects: each one is a package on disk (`Name.vaudio/`, see `server/packages.ts`) of one suite (a
+// video, a song... see `shared/suites.ts`), wherever the user keeps it. The app lists the ones this
+// computer has opened, its recents, the latest first, on the Home screen.
 // ---------------------------------------------------------------------------
-
-export type ProjectStatus = "active" | "settled";
 
 interface ProjectSummaryBase {
   id: string;
-  /** Mirrors the document's `name`. */
+  /** Mirrors the document's `name` (and its package's, once it's closed). */
   name: string;
-  status: ProjectStatus;
   /** Epoch milliseconds. */
   createdAt: number;
   /** Last time the project document was saved (epoch ms). */
   updatedAt: number;
-  /** When it was last settled (epoch ms), null while active. */
-  settledAt: number | null;
+  /** Last time it was opened on this computer (epoch ms; when it was made or added, until then). */
+  openedAt: number;
+  /** Its package on this computer (`.../Summer edit.vaudio`). */
+  path: string;
+  /**
+   * It isn't where it was last seen (moved or renamed in Finder, deleted, on a drive that's gone): the rest is
+   * what was known of it then. Locate it (open it where it is now) or remove it from the recents.
+   */
+  missing?: true;
   /** Length in seconds (0 when empty). */
   duration: number;
-  /** A picture for the sidebar, if it has one. */
+  /** A picture for its card, if it has one. */
   thumbnail: string | null;
 }
 
-/** What the sidebar knows of each suite's projects without opening them (see `server/suites/`). */
+/** What the Home screen knows of each suite's projects without opening them (see `server/suites/`). */
 export interface SuiteSummaries {
   video: {
     aspectRatio: AspectRatio;
@@ -431,8 +435,20 @@ export interface ProjectTemplate {
 export type ProjectTemplates = Partial<Record<SuiteId, ProjectTemplate>>;
 
 export interface UpdateProjectRequest {
-  name?: string;
-  status?: ProjectStatus;
+  /** Renames the project and its package. */
+  name: string;
+}
+
+/** `POST /api/projects/open`: a package on this computer (its folder, or a file inside it). */
+export interface OpenProjectRequest {
+  path: string;
+}
+
+/** Where new projects are made (`~/Documents/Vaudio` unless the user picked another folder). */
+export interface ProjectLocation {
+  path: string;
+  /** Where they go unless the user picks another. */
+  default: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -823,15 +839,22 @@ export interface ToolCallProgressRequest {
 //
 //   GET    /api/health                  -> HealthResponse
 //
-//   GET    /api/projects                -> ProjectSummary[] (most recently updated first; every suite)
-//   POST   /api/projects  body: CreateProjectRequest -> ProjectSummary (201), status active
+//   GET    /api/projects                -> ProjectSummary[] (this computer's recents, every suite, the
+//                                        latest opened or saved first; missing ones too, flagged `missing`)
+//   POST   /api/projects  body: CreateProjectRequest -> ProjectSummary (201): a new package in the location
+//   POST   /api/projects/open  body: OpenProjectRequest -> ProjectSummary: a package from anywhere, added to
+//                                        the recents (a copy of one already open gets ids of its own)
+//   GET    /api/projects/location       -> ProjectLocation;  PUT body: { path } -> ProjectLocation
 //   GET    /api/projects/:id            -> SuiteDocument (its suite's; a video's normalized against its media)
 //   PUT    /api/projects/:id  body: SuiteDocument -> ProjectSummary (bumps updatedAt)
-//   PATCH  /api/projects/:id  body: UpdateProjectRequest -> ProjectSummary
-//                                        (rename; settle/unsettle sets/clears settledAt)
-//   POST   /api/projects/:id/duplicate  -> ProjectSummary (201): a copy with its own copy of the media,
-//                                        named "<name> copy", status active
-//   DELETE /api/projects/:id            -> 204 (also deletes the project's media)
+//   PATCH  /api/projects/:id  body: UpdateProjectRequest -> ProjectSummary (renames it and its package)
+//   POST   /api/projects/:id/opened     -> ProjectSummary (bumps openedAt)
+//   POST   /api/projects/:id/closed     -> ProjectSummary: its package takes its name, if it was renamed open
+//   POST   /api/projects/:id/reveal     -> 204: shows its package in Finder
+//   POST   /api/projects/:id/duplicate  -> ProjectSummary (201): a copy beside it with its own copy of the
+//                                        media, named "<name> copy"
+//   DELETE /api/projects/:id            -> 204: its package goes to the Trash
+//   DELETE /api/projects/:id/recent     -> 204: forgotten by the recents; its package stays where it is
 //   GET    /api/projects/templates      -> ProjectTemplates (each suite's starting point, if it has one)
 //   POST   /api/projects/:id/template   -> ProjectTemplates: a copy of the project (document, media and the
 //                                        files beside it) becomes its suite's starting point, replacing any

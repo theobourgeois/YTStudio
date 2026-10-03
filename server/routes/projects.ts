@@ -1,7 +1,7 @@
 import { Router, json } from "express";
 import type { ProjectStore } from "../projects.ts";
 
-/** `/api/projects`: the project list and each project's document. `onRemove` cleans up after a deleted one. */
+/** `/api/projects`: the recents, each project's document and its package. `onRemove` cleans up after a deleted one. */
 export function projectRoutes(projects: ProjectStore, onRemove?: (id: string) => Promise<void>): Router {
   const router = Router();
   router.use(json({ limit: "10mb" }));
@@ -12,6 +12,16 @@ export function projectRoutes(projects: ProjectStore, onRemove?: (id: string) =>
   });
   router.post("/", async (req, res) => {
     res.status(201).json(await projects.create(req.body));
+  });
+  router.post("/open", async (req, res) => {
+    res.json(await projects.openPath(req.body));
+  });
+  router.get("/location", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(projects.getLocation());
+  });
+  router.put("/location", async (req, res) => {
+    res.json(await projects.setLocation(req.body));
   });
   router.get("/templates", (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -33,8 +43,22 @@ export function projectRoutes(projects: ProjectStore, onRemove?: (id: string) =>
   router.patch("/:id", async (req, res) => {
     res.json(await projects.update(req.params.id, req.body));
   });
+  router.post("/:id/opened", async (req, res) => {
+    res.json(await projects.opened(req.params.id));
+  });
+  router.post("/:id/closed", async (req, res) => {
+    res.json(await projects.closed(req.params.id));
+  });
+  router.post("/:id/reveal", async (req, res) => {
+    await projects.reveal(req.params.id);
+    res.sendStatus(204);
+  });
   router.post("/:id/duplicate", async (req, res) => {
     res.status(201).json(await projects.duplicate(req.params.id));
+  });
+  router.delete("/:id/recent", async (req, res) => {
+    await projects.forget(req.params.id);
+    res.sendStatus(204);
   });
   router.delete("/:id", async (req, res) => {
     await projects.remove(req.params.id);

@@ -9,7 +9,6 @@ import { songTicks } from "@shared/music/playlist";
 import { DEFAULT_TEMPO, DEFAULT_VOLUME, MAX_TEMPO, MIN_TEMPO, stepsPerBar } from "@shared/music/project";
 import { STEP_TICKS } from "@shared/music/types";
 import { AssistantButton } from "@/components/assistant/assistant-button";
-import { SettleButton, SettledBadge } from "@/components/header/header";
 import { ProjectName } from "@/components/header/project-name";
 import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
@@ -58,7 +57,7 @@ const MAIN_VOLUME: AutomationTarget = { kind: "main" };
  * The music editor's toolbar, FL Studio's (`docs/fl-studio/toolbar.md`), with only what Vaudio does: the
  * title and the hint bar, the transport (play, stop, the metronome, tempo, position), the windows,
  * the pattern selector and the song position, the engine's load and output, and at the right end the
- * app's own (undo, Settings, Settle, the assistant). In the middle, two rows: the transport and the
+ * app's own (undo, Settings, the assistant). In the middle, two rows: the transport and the
  * monitors above, the windows, the pattern and the song position below; groups apart by grooves.
  */
 export function MusicToolbar() {
@@ -67,11 +66,10 @@ export function MusicToolbar() {
 
   return (
     <header data-titlebar="header" className="flex h-[98px] shrink-0 items-stretch gap-3 border-b border-line bg-surface-1 px-3 py-2 select-none">
-      {/* At the top, level with the sidebar's toggle and the window's buttons. */}
+      {/* At the top, level with the Home button and the window's buttons. */}
       <div className="flex w-36 min-w-20 flex-col gap-1 pt-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <ProjectName name={name} onRename={(next) => void useMusic.getState().rename(next)} className="-ml-1 h-7 px-1 text-[14px]" />
-          <SettledBadge />
         </div>
         <HintBar />
       </div>
@@ -124,9 +122,6 @@ export function MusicToolbar() {
         <Groove className="mx-1.5 h-6 self-center" />
         <ExportButton />
         <SettingsButton />
-        <div className="ml-1.5 flex items-center">
-          <SettleButton />
-        </div>
         <Groove className="mx-1.5 h-6 self-center" />
         <AssistantButton />
       </div>

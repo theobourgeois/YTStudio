@@ -25,17 +25,26 @@ pnpm dev:desktop         # a window with hot reload, using ./data like pnpm dev 
 pnpm build:desktop       # release/mac-arm64/Vaudio.app: drag it into Applications (unsigned: right-click → Open the first time)
 ```
 
-The built app keeps its videos in `~/Library/Application Support/Vaudio/data` (Help → Show Data Folder), separate
-from `./data`. It finds ffmpeg and the rest through your shell's PATH, and draws exports in its own Chromium.
+Projects are files of their own, in `~/Documents/Vaudio` by default (see below). The built app keeps the rest (its
+recents, the Library, settings) in `~/Library/Application Support/Vaudio/data` (Help → Show Data Folder), separate
+from `./data`. Double-click a project in Finder to open it, or pick one from File › Open Recent. It finds ffmpeg and
+the rest through your shell's PATH, and draws exports in its own Chromium.
 
 ## Using it
 
-Every video is its own project with its own media. Start one with **New project** in the sidebar (it asks what to
-make: a **Video**, or a **Music** project, which is only an empty shell so far), or drop clips on the empty screen,
-work on it, then hit **Settle** when it's done: it moves to the *Settled* pile at the bottom of the sidebar and the
-editor jumps to your next project in progress. Open a settled project any time, and **Unsettle** it to put it back in
-progress. Right-click a project in the sidebar (or use its **⋯** menu) to settle, duplicate or delete it; a duplicate
-gets its own copy of the media. Toggle the sidebar with `⌘\`.
+Every project (a video, a song) is a file of its own: a `.vaudio` package holding its document, its media and
+anything else it keeps (a song's plugin settings and recordings). New ones are saved in `~/Documents/Vaudio` (change
+it in Settings › General); move, copy, back up or send them in Finder like any other file.
+
+The app opens on **Home**: a tile per kind of project (**New video** `⌘1`, **New song** `⌘2`; `⌥`-click starts blank
+when it has a starting point), **Open a project…** (`⌘O`: any `.vaudio` file, from anywhere), and your recent
+projects as cards, the latest first, with a search (`⌘F`) and a Videos / Songs filter. Drop clips on Home to start a
+video with them. Click a card to open it; right-click it (or its **⋯**) to **Rename** (its file too), **Duplicate**
+(a copy beside it, with its own media), **Show in Finder**, **Use as starting point**, **Remove from Recents** (its
+file stays: Open… brings it back) or **Move to Trash**. A project moved, renamed or deleted in Finder shows as missing:
+**Locate…** it where it is now, or remove it. Inside a project, the house in the top-left corner (`⇧⌘H`) goes back
+Home, and `⇧⌘H` again returns to it; `⌘P` finds any project from anywhere and `⇧⌘O` starts a new one. A project
+renamed while it's open takes its new file name when it's closed.
 
 | Action | How |
 | --- | --- |
@@ -337,9 +346,9 @@ the Library, and export. It can also measure the canvas (where each clip, and ea
   what was said so far.
 - Each video keeps its own chat, and the conversation carries on after a restart; **New chat** starts over.
 - Chats run side by side: ask one video's chat for something, switch to another video and start its chat too. A chat
-  always edits its own video (in the background while you're elsewhere; it can still look at its frames), and the
-  sidebar shows each video's chat: **Working** (and the step it's on), **Done** or **Failed** until you look at it, or
-  **Needs you** when it's asking before deleting something.
+  always edits its own video (in the background while you're elsewhere; it can still look at its frames), and its
+  card on Home says how it's going: **Working** (and the step it's on), **Done** or **Failed** until you look at it,
+  or **Needs you** when it's asking before deleting something.
 
 Needs Claude Code (`claude` in a terminal) and/or Codex (`npm install -g @openai/codex`, then `codex login`) installed
 and logged in. Set `CLAUDE_PATH` or `CODEX_PATH` if they aren't on the `PATH`.
@@ -483,7 +492,7 @@ Keyframes stay on their frame of the media when a clip is moved, trimmed or spli
 ## How it works
 
 - **Suites** — the editor is growing into a creative suite: every project belongs to one app (`SuiteId`: video, music…),
-  chosen when it's made. The project list, sidebar, URL, assistant chats and MCP server are shared; each suite brings
+  chosen when it's made. Projects (each a `.vaudio` package on disk), the Home screen, the URL, assistant chats and the MCP server are shared; each suite brings
   its document (`shared/suites.ts`, `server/suites/`), its workspace and store (`src/suites/`) and its assistant's
   prompt and tools (`shared/suite-tools.ts`). The video editor is below; music is a shell (`shared/music/`, `src/suites/music/`).
 - **`src/`** — React + Vite + Tailwind + shadcn/ui. The document lives in the zustand store `stores/editor.ts`

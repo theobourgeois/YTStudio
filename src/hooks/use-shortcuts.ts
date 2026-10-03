@@ -84,7 +84,7 @@ export function useShortcuts() {
 }
 
 /** Actions for the whole app; the others are the video editor's, and need a video open. */
-const APP_ACTIONS = new Set<ShortcutAction>(["toggleSidebar", "toggleAssistant", "showShortcuts"]);
+const APP_ACTIONS = new Set<ShortcutAction>(["toggleAssistant", "showShortcuts"]);
 
 /** Performs the action; returns false when it didn't apply (so the event is left alone). */
 function run(action: ShortcutAction): boolean {
@@ -105,9 +105,6 @@ function run(action: ShortcutAction): boolean {
   const hasGapOrTransition = editor.selectedGap !== null || editor.selectedTransition !== null;
 
   switch (action) {
-    case "toggleSidebar":
-      useLayout.getState().toggleSidebar();
-      return true;
     case "toggleAssistant":
       useAssistant.getState().toggle();
       return true;

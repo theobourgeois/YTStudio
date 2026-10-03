@@ -17,6 +17,11 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
   // Where to save a file (a song's export), from the Mac's save dialog; null if it's cancelled.
   saveFile: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) =>
     ipcRenderer.invoke("save-file", options) as Promise<string | null>,
+  // Projects are files (`.vaudio` packages): the Mac's Open dialog for one, and its folder picker (where new ones go).
+  chooseProject: (defaultPath?: string) => ipcRenderer.invoke("choose-project", { defaultPath }) as Promise<string | null>,
+  chooseFolder: (defaultPath?: string) => ipcRenderer.invoke("choose-folder", { defaultPath }) as Promise<string | null>,
+  // A project was opened: the Dock's and File › Open Recent's recent documents list it.
+  projectOpened: (path: string) => ipcRenderer.send("project-opened", path),
   // Whether the engine may read inputs (recording): macOS asks Vaudio, which started it.
   microphone: {
     status: () => ipcRenderer.invoke("microphone-status") as Promise<string>,

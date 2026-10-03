@@ -87,6 +87,8 @@ export interface EngineOptions {
   env?: Record<string, string>;
   /** Makes a recorded take the project's media (default: it can't, and takes are reported without it). */
   adoptTake?: AdoptTake;
+  /** A project's package, where its plugins' settings and recordings are kept (default: the data folder's old layout, for tests). */
+  projectDir?: (projectId: string) => string;
 }
 
 /** A recording in progress: whose it is and what its takes are called. */
@@ -186,6 +188,7 @@ export class AudioEngine {
   /** The desktop app's window, to tell a restarted engine too. */
   private host: HostWindow | null = null;
   private readonly adoptTake: AdoptTake | null;
+  private readonly projectDir: (projectId: string) => string;
   /** The engine running was built before its source last changed (a checkout's, after a pull without `pnpm engine:build`). */
   private outdated = false;
   /** Recordings by id, while their takes may still come. */
@@ -208,6 +211,7 @@ export class AudioEngine {
     this.samplePath = options.samplePath ?? (() => null);
     this.env = options.env;
     this.adoptTake = options.adoptTake ?? null;
+    this.projectDir = options.projectDir ?? ((id) => this.paths.projectDir(id));
     this.flags = [...(options.offline ? ["--offline"] : []), ...(options.onlyPluginPaths ? ["--only-plugin-paths"] : [])];
   }
 
@@ -280,7 +284,7 @@ export class AudioEngine {
     const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop, mode, held, armed, listening);
     const clock = songClock(mode === "song" ? tempoMap(doc) : null, loop && loop.end > loop.start ? Math.max(0, loop.start) : 0);
     // A plugin's state is a file of its own beside the project's document: `plugins/<channel id>.bin`, or the effect's id.
-    const states = path.join(this.paths.projectDir(projectId), "plugins");
+    const states = path.join(this.projectDir(projectId), "plugins");
     const song = {
       ...compiled,
       resampling: isResampling(body.resampling) ? body.resampling : "hermite",
@@ -363,7 +367,7 @@ export class AudioEngine {
     const copies = Array.isArray(body.copies) ? body.copies : [];
     if (!copies.every((c) => isObject(c) && isOwner(c.from) && isOwner(c.to))) throw new HttpError(400, '"copies" must be a list of { from, to } plugin owners\' ids.');
     await this.saveStates();
-    const states = path.join(this.paths.projectDir(body.projectId), "plugins");
+    const states = path.join(this.projectDir(body.projectId), "plugins");
     let copied = 0;
     for (const { from, to } of copies as { from: string; to: string }[]) {
       const source = path.join(states, `${from}.bin`);
@@ -460,7 +464,7 @@ export class AudioEngine {
     if (isObject(body.names))
       for (const [track, name] of Object.entries(body.names)) if (typeof name === "string" && /^[\w-]{1,64}$/.test(track)) names[track] = name.trim().slice(0, 80);
     const recordingId = createId("rec");
-    const folder = path.join(this.paths.projectDir(body.projectId), "recordings");
+    const folder = path.join(this.projectDir(body.projectId), "recordings");
     await fs.mkdir(folder, { recursive: true });
     const from = Math.max(0, this.clock.toEngine(isFiniteNumber(body.from) ? Math.max(0, body.from) : 0));
     this.recordings.set(recordingId, { projectId: body.projectId, names, started: new Date(), folder, from, finals: new Set() });

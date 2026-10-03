@@ -211,11 +211,24 @@ async function pack(targets: "dir" | "installers") {
       afterPack: async (packed) => {
         if (packed.electronPlatformName === "darwin") adHocSign(path.join(packed.appOutDir, `${packed.packager.appInfo.productFilename}.app`), { always: true });
       },
+      // Projects are packages (`Name.vaudio/`): Finder shows each as one file, and double-clicking one opens it here.
+      fileAssociations: [{ ext: "vaudio", name: "Vaudio Project", role: "Editor", rank: "Owner", isPackage: true }],
       mac: {
         category: "public.app-category.video",
         identity: null,
         // The engine it starts records from inputs (a mixer track armed): macOS asks the app responsible.
-        extendInfo: { NSMicrophoneUsageDescription: "Vaudio records your microphone or audio interface when you arm a mixer track." },
+        extendInfo: {
+          NSMicrophoneUsageDescription: "Vaudio records your microphone or audio interface when you arm a mixer track.",
+          // The project type, a package (a folder Finder shows as one file), declared so macOS knows it.
+          UTExportedTypeDeclarations: [
+            {
+              UTTypeIdentifier: "gg.jestr.vaudio.project",
+              UTTypeDescription: "Vaudio Project",
+              UTTypeConformsTo: ["com.apple.package", "public.composite-content"],
+              UTTypeTagSpecification: { "public.filename-extension": ["vaudio"] },
+            },
+          ],
+        },
         target: targets === "dir" ? ["dir"] : ["dmg", "zip"],
       },
       linux: { target: targets === "dir" ? ["dir"] : ["AppImage"] },

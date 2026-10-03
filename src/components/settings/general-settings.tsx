@@ -4,11 +4,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { type FontChoice, FONTS, MONO_FONTS, THEMES, type ThemeChoice, type ThemeId, themeClasses, useTheme } from "@/stores/theme";
 import { SettingsBlock, SettingsGroup, SettingsRow } from "./settings-ui";
 import { AppIconPicker } from "./app-icon-picker";
+import { ProjectsLocation } from "./projects-location";
 
-/** Settings' own section: how the whole app looks, whichever suite is open. */
+/** Settings' own section: where projects are saved and how the whole app looks, whichever suite is open. */
 export function GeneralSettings() {
   return (
     <>
+      <ProjectsLocation />
       <SettingsGroup title="Theme" description="System is Light or Dark, as your computer is set.">
         <SettingsBlock>
           <ThemePicker />

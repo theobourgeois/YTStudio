@@ -48,7 +48,7 @@ export interface SuiteSettings {
 export interface ClientSuite<S extends SuiteId = SuiteId> {
   id: S;
   icon: IconType;
-  /** Classes for its icon's tile (background and colour), in the sidebar and the New project picker. */
+  /** Classes for its icon's tile (background and colour), on the Home screen and in the New project picker. */
   tint: string;
   /**
    * Load a project into the suite's store. `useProjects` closes the previous project's suite first, and
@@ -68,7 +68,7 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
   Workspace: ComponentType;
   /** Its section of Settings (⌘, opens on it while one of its projects is open). */
   settings: SuiteSettings;
-  /** The sidebar's line under a project's name. */
+  /** The line under a project's name on the Home screen. */
   describe(summary: SuiteProjectSummary<S>): string;
   /** Hook: the project's name while it's open and being edited (before it's saved), else null. */
   useLiveName(projectId: string): string | null;
@@ -77,6 +77,11 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
   messageContext(): { context: string; label: string } | null;
   /** Run one of the suite's assistant tools (`shared/suite-tools.ts`). Throwing is fine: it becomes an error result. */
   runTool(name: string, input: Record<string, unknown>, ctx: ToolRunContext): Promise<ToolResult>;
+  /**
+   * Of files dropped on the Home screen, those it starts a project with (the first suite in `SUITE_IDS` that
+   * takes any gets them, put in the new project by `importFiles`).
+   */
+  startsWith?(files: File[]): File[];
   /** Put files dropped to start a project into the new project, for suites that take them. */
   importFiles?(files: File[]): Promise<void>;
   /** The suite's choices for a new project, kept in this browser (`CreateProjectRequest.options`: music's default tempo). */

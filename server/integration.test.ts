@@ -96,6 +96,9 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
       headers: { "Content-Type": "application/octet-stream" },
       body: readFileSync(file),
     });
+  /** Every project's media folders (`<package>/media/<id>`), wherever their packages are now. */
+  const mediaFolders = async () =>
+    (await json<ProjectSummary[]>("/api/projects")).flatMap((p) => readdirSync(path.join(p.path, "media")).map((id) => path.join(p.path, "media", id)));
   const sendJson = (method: string, p: string, body: unknown) =>
     api(p, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const clip = (asset: string, trackId: string, start: number, inPoint: number, out: number): Clip => ({
@@ -180,15 +183,19 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(res.status).toBe(201);
     projects.main = (await res.json()) as ProjectSummary;
     expect(projects.main).toMatchObject({
-      name: "Untitled", status: "active", settledAt: null,
-      aspectRatio: "9:16", duration: 0, clipCount: 0, thumbnail: null,
+      name: "Untitled", aspectRatio: "9:16", duration: 0, clipCount: 0, thumbnail: null,
+      // A package of its own, in the data folder's Projects (a test's: never the user's Documents).
+      path: path.join(dataDir, "Documents", "Vaudio", "Untitled.vaudio"),
     });
+    expect(existsSync(path.join(projects.main.path, "meta.json"))).toBe(true);
     expect(projects.main.id).toMatch(/^project_[0-9a-f]{12}$/);
     expect(projects.main.updatedAt).toBe(projects.main.createdAt);
 
     projects.other = (await (await sendJson("POST", "/api/projects", { name: "  B-roll\n " })).json()) as ProjectSummary;
     expect(projects.other.name).toBe("B-roll");
-    expect((await api("/api/projects", { method: "POST" })).status).toBe(201); // body is optional
+    const third = await api("/api/projects", { method: "POST" }); // body is optional
+    expect(third.status).toBe(201);
+    expect(path.basename(((await third.json()) as ProjectSummary).path)).toBe("Untitled 2.vaudio");
 
     const doc = await json<Project>(`/api/projects/${projects.other.id}`);
     expect(doc).toEqual({ ...createDefaultProject(), name: "B-roll" });
@@ -261,7 +268,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
       expect(res.status).toBe(404);
       expect(await errorOf(res)).toBe("Project not found");
     }
-    expect(readdirSync(path.join(dataDir, "media"))).toHaveLength(4);
+    expect(await mediaFolders()).toHaveLength(4);
     await until(async () => (readdirSync(path.join(dataDir, "tmp")).length === 0 ? true : undefined), 5000);
   });
 
@@ -364,7 +371,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(res.status).toBe(200);
     const summary = (await res.json()) as ProjectSummary;
     expect(summary).toMatchObject({
-      id: projects.main.id, name: "Untitled", status: "active", aspectRatio: "16:9",
+      id: projects.main.id, name: "Untitled", aspectRatio: "16:9",
       clipCount: 3, thumbnail: assets.landscape.poster,
     });
     expect(summary.duration).toBeCloseTo(9 + assets.portrait.duration, 5);
@@ -393,7 +400,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(await order()).toEqual([projects.other.id, projects.main.id]);
   });
 
-  it("renames, settles and unsettles projects", async () => {
+  it("renames projects and their packages", async () => {
     const url = `/api/projects/${projects.main.id}`;
     const patch = async (body: unknown) => {
       const res = await sendJson("PATCH", url, body);
@@ -405,18 +412,14 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(renamed.name).toBe("Launch teaser");
     expect(renamed.updatedAt).toBeGreaterThan(projects.main.updatedAt);
     expect((await json<Project>(url)).name).toBe("Launch teaser");
+    // Its package follows (no tab has it open), and its media are served from there.
+    expect(path.basename(renamed.path)).toBe("Launch teaser.vaudio");
+    expect(existsSync(projects.main.path)).toBe(false);
+    expect(existsSync(path.join(renamed.path, "project.json"))).toBe(true);
+    expect((await api(assets.landscape.src)).status).toBe(200);
+    expect((await json<ProjectSummary[]>("/api/projects")).find((p) => p.id === projects.main.id)).toEqual(renamed);
 
-    const before = Date.now();
-    const settled = await patch({ status: "settled" });
-    expect(settled).toMatchObject({ status: "settled", updatedAt: renamed.updatedAt, clipCount: 3 });
-    expect(settled.settledAt).toBeGreaterThanOrEqual(before);
-    expect((await patch({ status: "settled" })).settledAt).toBe(settled.settledAt); // already settled
-
-    const reopened = await patch({ status: "active" });
-    expect(reopened).toMatchObject({ status: "active", settledAt: null, updatedAt: renamed.updatedAt });
-    expect((await json<ProjectSummary[]>("/api/projects"))[0]).toEqual(reopened);
-
-    for (const body of [{}, [], { status: "archived" }, { name: "" }, { name: 1 }, { name: "ok", status: "done" }]) {
+    for (const body of [{}, [], { status: "settled" }, { name: "" }, { name: 1 }]) {
       expect((await sendJson("PATCH", url, body)).status, JSON.stringify(body)).toBe(400);
     }
     expect((await json<Project>(url)).name).toBe("Launch teaser");
@@ -426,7 +429,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     const res = await api(`/api/projects/${projects.main.id}/duplicate`, { method: "POST" });
     expect(res.status).toBe(201);
     const copy = (await res.json()) as ProjectSummary;
-    expect(copy).toMatchObject({ name: "Launch teaser copy", status: "active", clipCount: 3, aspectRatio: "16:9" });
+    expect(copy).toMatchObject({ name: "Launch teaser copy", clipCount: 3, aspectRatio: "16:9", path: path.join(dataDir, "Documents", "Vaudio", "Launch teaser copy.vaudio") });
     expect(copy.id).not.toBe(projects.main.id);
     expect(copy.duration).toBeCloseTo(projects.main.duration, 5);
     expect((await json<ProjectSummary[]>("/api/projects"))[0].id).toBe(copy.id);
@@ -955,8 +958,9 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect((await api(url)).status).toBe(404);
     expect((await api(url, { method: "DELETE" })).status).toBe(404);
     expect((await api(`/api/media/${other.id}`)).status).toBe(404);
-    expect(existsSync(path.join(dataDir, "media", other.id))).toBe(false);
-    expect(existsSync(path.join(dataDir, "projects", projects.other.id))).toBe(false);
+    // Its package was in the data folder (a test's): deleted rather than put in the Trash.
+    expect(existsSync(projects.other.path)).toBe(false);
+    expect((await mediaFolders()).some((dir) => dir.endsWith(other.id))).toBe(false);
     expect((await json<ProjectSummary[]>("/api/projects")).map((p) => p.id)).toEqual([projects.main.id]);
     // The remaining project's media is untouched.
     expect((await json<MediaAsset[]>(`/api/media?projectId=${projects.main.id}`))).toHaveLength(7);
@@ -968,7 +972,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect((await api(`/api/media/${id}`)).status).toBe(404);
     expect((await api(`/api/media/${id}`, { method: "DELETE" })).status).toBe(404);
     expect((await api("/api/media/..%2F..%2Fetc")).status).toBe(404);
-    expect(existsSync(path.join(dataDir, "media", id))).toBe(false);
+    expect((await mediaFolders()).some((dir) => dir.endsWith(id))).toBe(false);
   });
 
   describe("library", () => {

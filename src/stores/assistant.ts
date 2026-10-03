@@ -1,7 +1,7 @@
 /**
  * The assistant in the editor: its side panel, the open video's chat (kept by
  * the server and streamed in, see `src/assistant/bridge.ts`), which chats are
- * working (every video's, for the sidebar), what it's doing right now, the
+ * working (every project's, for the Home screen), what it's doing right now, the
  * clips it just changed (highlighted on the timeline), the confirmations it's
  * waiting for, and each answer's edits (to revert them).
  */

@@ -17,7 +17,7 @@ const CLIENT_SUITES: { [S in SuiteId]: ClientSuite<S> } = {
 
 export const clientSuite = <S extends SuiteId>(suite: S): ClientSuite<S> => CLIENT_SUITES[suite];
 
-/** The sidebar's line under a project's name, from its suite. */
+/** The line under a project's name on the Home screen, from its suite. */
 export function describeProject(project: ProjectSummary): string {
   return (CLIENT_SUITES[project.suite].describe as (p: ProjectSummary) => string)(project);
 }

@@ -50,10 +50,14 @@ export interface MediaRoot {
   url: string;
 }
 
+/** Where a project keeps its media (`<project>.vaudio/media`), or null if there's no such project. */
+export type ProjectMediaDirs = (projectId: string) => string | null;
+
 /**
- * Media files on disk under `<root>/<id>/` plus background processing: every
- * project's media (`data/media`), and separately the shared Library's
- * (`data/library/media`, with `projectId: null`).
+ * Media files on disk plus background processing: every project's media, each in its own package
+ * (`<project>.vaudio/media/<id>/`, through `projectDirs`; loaded with `loadProject`), and separately the
+ * shared Library's (`data/library/media/<id>/`, with `projectId: null`). Either way an asset's files are
+ * served at `<url>/<id>/...`, by id alone, so moving a project never changes them.
  */
 export class MediaLibrary {
   private assets = new Map<string, MediaAsset>();
@@ -62,35 +66,64 @@ export class MediaLibrary {
   /** Reversed copies being made, by asset id. */
   private reversing = new Map<string, { done: Promise<void>; controller: AbortController }>();
   private reverseLimit = createLimiter(REVERSE_CONCURRENCY);
+  /** Files being added to each project right now (by project id): its package mustn't move meanwhile. */
+  private adding = new Map<string, number>();
   private root: MediaRoot;
 
   constructor(
     private paths: DataPaths,
     root?: MediaRoot,
+    private projectDirs?: ProjectMediaDirs,
   ) {
     this.root = root ?? { dir: paths.media, url: "/files/media" };
   }
 
-  /** Load every asset (call `resume()` once they all belong to a project). */
+  /** Load every asset under the root (the Library's; call `resume()` then). */
   async load(): Promise<void> {
-    for (const entry of await fs.readdir(this.root.dir, { withFileTypes: true })) {
+    for (const asset of await this.read(this.root.dir)) this.assets.set(asset.id, asset);
+  }
+
+  /**
+   * Load a project's media from its package (`dir`), as `projectId`'s (an asset saved under another id, a
+   * copy made in Finder, is told it's this one's), and finish what a restart interrupted.
+   */
+  async loadProject(projectId: string, dir: string): Promise<MediaAsset[]> {
+    const loaded: MediaAsset[] = [];
+    for (const saved of await this.read(dir)) {
+      const asset = saved.projectId === projectId ? saved : { ...saved, projectId };
+      if (asset !== saved) await writeJson(path.join(dir, asset.id, "meta.json"), asset);
+      this.assets.set(asset.id, asset);
+      loaded.push(asset);
+    }
+    for (const asset of loaded) this.resumeAsset(asset);
+    return loaded;
+  }
+
+  /** Assets saved in `dir` (`<id>/meta.json`); what an ingest that died left is removed. */
+  private async read(dir: string): Promise<MediaAsset[]> {
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+    const assets: MediaAsset[] = [];
+    for (const entry of entries) {
       if (!entry.isDirectory() || !isValidId(entry.name)) continue;
-      const asset = await readJson<MediaAsset>(this.metaFile(entry.name));
+      const asset = await readJson<MediaAsset>(path.join(dir, entry.name, "meta.json"));
       if (!asset || asset.id !== entry.name) {
         // Ingest died before the asset was committed.
-        await fs.rm(this.dir(entry.name), { recursive: true, force: true });
+        await fs.rm(path.join(dir, entry.name), { recursive: true, force: true });
         continue;
       }
-      this.assets.set(asset.id, asset);
+      assets.push(asset);
     }
+    return assets;
   }
 
   /** Finish processing interrupted by a restart. */
   resume(): void {
-    for (const asset of this.assets.values()) {
-      if (asset.status === "processing") this.enqueue(asset.id);
-      if (asset.reversed?.status === "processing") void this.startReversing(asset.id);
-    }
+    for (const asset of this.assets.values()) this.resumeAsset(asset);
+  }
+
+  private resumeAsset(asset: MediaAsset): void {
+    if (asset.status === "processing" && !this.jobs.has(asset.id)) this.enqueue(asset.id);
+    if (asset.reversed?.status === "processing") void this.startReversing(asset.id);
   }
 
   /** Every asset (or one project's), newest first. */
@@ -183,7 +216,29 @@ export class MediaLibrary {
     const { size } = await fs.stat(file);
     if (size === 0) throw new HttpError(400, "The file is empty.");
     const probe = await probeMedia(file);
-    return await this.commit(file, { name: displayName(rawName), projectId, size, probe, origin }, projectExists);
+    return await this.adds(projectId, () => this.commit(file, { name: displayName(rawName), projectId, size, probe, origin }, projectExists));
+  }
+
+  /** Run an addition to a project, counted while it lasts (`busy`). */
+  private async adds<T>(projectId: string | null, run: () => Promise<T>): Promise<T> {
+    if (projectId === null) return run();
+    this.adding.set(projectId, (this.adding.get(projectId) ?? 0) + 1);
+    try {
+      return await run();
+    } finally {
+      const left = (this.adding.get(projectId) ?? 1) - 1;
+      if (left > 0) this.adding.set(projectId, left);
+      else this.adding.delete(projectId);
+    }
+  }
+
+  /**
+   * Whether anything is writing into a project's media now (a file being added, a filmstrip or reversed
+   * copy being made): its package can't be renamed or moved until it's done.
+   */
+  busy(projectId: string): boolean {
+    if (this.adding.has(projectId)) return true;
+    return this.list(projectId).some((a) => this.jobs.has(a.id) || this.reversing.has(a.id));
   }
 
   private async commit(
@@ -192,7 +247,7 @@ export class MediaLibrary {
     projectExists: () => boolean,
   ): Promise<MediaAsset> {
     const id = createId("media");
-    const dir = this.dir(id);
+    const dir = this.dirFor(projectId, id);
     const sourceName = `source.${sourceExtension(name, probe.formatName)}`;
     const url = (file: string) => `${this.root.url}/${id}/${file}`;
     try {
@@ -236,7 +291,7 @@ export class MediaLibrary {
         waveform: null,
         ...(origin ? { origin } : {}),
       };
-      await writeJson(this.metaFile(id), asset);
+      await writeJson(path.join(dir, "meta.json"), asset);
       // No await between this check and `set`: a concurrent project deletion either
       // happened already (we clean up) or will see and remove this asset.
       if (!projectExists()) throw new HttpError(404, "Project not found");
@@ -259,6 +314,14 @@ export class MediaLibrary {
   async copyFrom(
     source: MediaLibrary,
     asset: MediaAsset,
+    options: { projectId: string | null; name?: string; exists?: () => boolean; duplicate?: boolean },
+  ): Promise<MediaAsset> {
+    return this.adds(options.projectId, () => this.copyAsset(source, asset, options));
+  }
+
+  private async copyAsset(
+    source: MediaLibrary,
+    asset: MediaAsset,
     {
       projectId,
       name,
@@ -267,7 +330,7 @@ export class MediaLibrary {
     }: { projectId: string | null; name?: string; exists?: () => boolean; duplicate?: boolean },
   ): Promise<MediaAsset> {
     const id = createId("media");
-    const dir = this.dir(id);
+    const dir = this.dirFor(projectId, id);
     const rebase = (url: string) => url.replace(`${source.root.url}/${asset.id}/`, `${this.root.url}/${id}/`);
     try {
       await fs.cp(source.dir(asset.id), dir, {
@@ -292,7 +355,7 @@ export class MediaLibrary {
       // A reversed copy still being made (or that failed) is made again when it's needed.
       if (asset.reversed?.status === "ready") copy.reversed = { status: "ready", src: rebase(asset.reversed.src) };
       else delete copy.reversed;
-      await writeJson(this.metaFile(id), copy);
+      await writeJson(path.join(dir, "meta.json"), copy);
       if (!exists()) throw new HttpError(404, "Project not found");
       this.assets.set(id, copy);
       if (processing) this.enqueue(id);
@@ -307,17 +370,51 @@ export class MediaLibrary {
   }
 
   async remove(id: string): Promise<void> {
-    this.get(id);
-    this.assets.delete(id);
-    this.jobs.get(id)?.abort();
-    this.reversing.get(id)?.controller.abort();
-    await fs.rm(this.dir(id), { recursive: true, force: true, maxRetries: 5 });
+    const dir = this.dir(this.get(id).id);
+    this.forget(id);
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5 });
   }
 
   /** Delete all of a project's media, cancelling its background jobs. */
   async removeProject(projectId: string): Promise<void> {
     // `remove` forgets each asset synchronously, so they're all gone before the first await.
     await Promise.all(this.list(projectId).map((a) => this.remove(a.id)));
+  }
+
+  /** Stop knowing a project's media (its package is closed, or goes to the Trash whole): its files stay. */
+  forgetProject(projectId: string): void {
+    for (const asset of this.list(projectId)) this.forget(asset.id);
+  }
+
+  private forget(id: string): void {
+    this.assets.delete(id);
+    this.jobs.get(id)?.abort();
+    this.reversing.get(id)?.controller.abort();
+  }
+
+  /**
+   * An asset saved under `id` instead (a copy of a project opened beside it gets media ids of its own): its
+   * URLs follow, so the files it names are its own folder's once that's renamed `id`.
+   */
+  renamed(asset: MediaAsset, id: string, projectId: string): MediaAsset {
+    const from = `${this.root.url}/${asset.id}/`;
+    const to = `${this.root.url}/${id}/`;
+    const rebase = (url: string) => (url.startsWith(from) ? to + url.slice(from.length) : url);
+    return {
+      ...asset,
+      id,
+      projectId,
+      src: rebase(asset.src),
+      poster: asset.poster && rebase(asset.poster),
+      filmstrip: asset.filmstrip && { ...asset.filmstrip, urlPattern: rebase(asset.filmstrip.urlPattern) },
+      waveform: asset.waveform && rebase(asset.waveform),
+      ...(asset.reversed?.status === "ready" && { reversed: { ...asset.reversed, src: rebase(asset.reversed.src) } }),
+    };
+  }
+
+  /** The folder an asset's files are served from (`<url>/<id>/...`), if it's one of these. */
+  filesDir(id: string): string | null {
+    return this.find(id) ? this.dir(id) : null;
   }
 
   /**
@@ -331,15 +428,6 @@ export class MediaLibrary {
       ids.set(asset.id, (await this.copyFrom(this, asset, { projectId: toProject, duplicate: true })).id);
     }
     return ids;
-  }
-
-  /** Move assets into a project, rewriting their metadata (legacy migration). */
-  async assign(ids: string[], projectId: string): Promise<void> {
-    for (const id of ids) {
-      const asset: MediaAsset = { ...this.get(id), projectId };
-      this.assets.set(id, asset);
-      await writeJson(this.metaFile(id), asset);
-    }
   }
 
   /** Stop all background work (server shutdown). */
@@ -374,15 +462,23 @@ export class MediaLibrary {
     return path.join(this.dir(id), path.basename(reversed.src));
   }
 
-  /** An asset's directory (throws 400 for an invalid id). */
   /** Cached transcripts of an asset (see `transcription/service.ts`), removed with it. */
   transcriptsDir(id: string) {
     return path.join(this.dir(id), "transcripts");
   }
 
+  /** An asset's directory (throws 400 for an invalid id). */
   private dir(id: string) {
+    return this.dirFor(this.assets.get(id)?.projectId ?? null, id);
+  }
+
+  /** Where an asset of `projectId` (null: the root's) keeps its files. */
+  private dirFor(projectId: string | null, id: string) {
     if (!isValidId(id)) throw new HttpError(400, "Invalid media id");
-    return path.join(this.root.dir, id);
+    if (projectId === null || !this.projectDirs) return path.join(this.root.dir, id);
+    const dir = this.projectDirs(projectId);
+    if (!dir) throw new HttpError(404, "Project not found");
+    return path.join(dir, id);
   }
 
   private metaFile(id: string) {
