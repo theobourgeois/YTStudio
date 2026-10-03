@@ -4,7 +4,7 @@
  * screen (points, which is what moving a real window takes). The page may be zoomed, so a CSS px isn't
  * always a point: `scale` is how many points one is. Pure, so it's tested.
  */
-import type { Rect } from "../geometry";
+import type { Rect, ResizeEdge } from "../geometry";
 
 export interface Metrics {
   /** Where the main window's content is on the screen, in points. */
@@ -84,3 +84,24 @@ export function capSize(size: { width: number; height: number }, area: Rect | nu
 
 /** Whether two rectangles are the same to the pixel (windows are moved by whole points). */
 export const sameRect = (a: Rect, b: Rect) => Math.round(a.x) === Math.round(b.x) && Math.round(a.y) === Math.round(b.y) && Math.round(a.width) === Math.round(b.width) && Math.round(a.height) === Math.round(b.height);
+
+/**
+ * A window resized by dragging `edge` by `dx`, `dy`, as `resizeRect` does, but it may go anywhere: a native window
+ * isn't kept to the desktop. The opposite edges stay put and it's never smaller than `min`.
+ */
+export function resizeFree(start: Rect, edge: ResizeEdge, dx: number, dy: number, min: { width: number; height: number }): Rect {
+  let { x, y, width, height } = start;
+  const right = start.x + start.width;
+  const bottom = start.y + start.height;
+  if (edge.includes("e")) width = Math.max(min.width, start.width + dx);
+  if (edge.includes("s")) height = Math.max(min.height, start.height + dy);
+  if (edge.includes("w")) {
+    x = Math.min(right - min.width, start.x + dx);
+    width = right - x;
+  }
+  if (edge.includes("n")) {
+    y = Math.min(bottom - min.height, start.y + dy);
+    height = bottom - y;
+  }
+  return { x, y, width, height };
+}

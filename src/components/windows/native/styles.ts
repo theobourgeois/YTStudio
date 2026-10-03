@@ -33,10 +33,13 @@ export function mirrorStyles(from: Document, to: Document): { ready: Promise<voi
     for (const node of [...from.head.children]) {
       if (!isStyle(node)) continue;
       const clone = to.importNode(node, true) as HTMLLinkElement | HTMLStyleElement;
+      // (`instanceof` would be the other window's HTMLLinkElement.)
+      const isLink = clone.localName === "link";
+      // Whole, not relative to the new document, which an about:blank has no address of its own for.
+      if (isLink) clone.setAttribute("href", (node as HTMLLinkElement).href);
       fresh.push(clone);
       to.head.append(clone);
-      // (`instanceof` would be the other window's HTMLLinkElement.)
-      if (clone.localName === "link") {
+      if (isLink) {
         waits.push(
           new Promise((resolve) => {
             clone.addEventListener("load", () => resolve(), { once: true });

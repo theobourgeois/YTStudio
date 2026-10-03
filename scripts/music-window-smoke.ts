@@ -129,6 +129,22 @@ try {
   assert(await rackPage.evaluate(() => document.hasFocus()), "the rack has the keyboard after a click on it");
   console.log("ok   the rack has the keyboard after a click");
 
+  // A window is dragged by its title bar, and resized by its edges, as a window of the system.
+  await use("R");
+  const before = rect("R");
+  native("drag", String(before.X + 160), String(before.Y + 14), String(before.X + 160 + 120), String(before.Y + 14 + 70), "30");
+  await sleep(800);
+  const moved = rect("R");
+  assert(Math.abs(moved.X - before.X - 120) <= 12 && Math.abs(moved.Y - before.Y - 70) <= 12, `the rack follows its title bar's drag (moved ${moved.X - before.X}, ${moved.Y - before.Y} of 120, 70)`);
+  await use("L");
+  const big = rect("L");
+  native("drag", String(big.X + big.Width - 4), String(big.Y + big.Height - 4), String(big.X + big.Width - 4 - 80), String(big.Y + big.Height - 4 - 60), "20");
+  await sleep(800);
+  const small = rect("L");
+  assert(Math.abs(big.Width - small.Width - 80) <= 6 && Math.abs(big.Height - small.Height - 60) <= 6, `the Playlist is resized by its corner (${big.Width}x${big.Height} to ${small.Width}x${small.Height})`);
+  console.log("ok   a window is dragged by its title bar and resized by its edges");
+  await use("R");
+
   // Switching to another program and back keeps their order.
   execFileSync("osascript", ["-e", 'tell application "Finder" to activate']);
   await sleep(1500);

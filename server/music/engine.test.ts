@@ -145,6 +145,16 @@ describe("AudioEngine", () => {
     await expect(engine.command("host", host)).rejects.toMatchObject({ status: 404 });
   });
 
+  it("raises a plugin's window on request, which only one that's open can be", async () => {
+    const song = addPluginChannel(createMusicProject("Raised"), { id: "VST3-Fake Synth-1", name: "Fake Synth", format: "VST3" }, "chan_synth");
+    await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });
+    await expect(engine.command("raiseEditor", { owner: "channel", target: "chan_synth" })).rejects.toMatchObject({ status: 409 });
+    await engine.command("channelEditor", { channel: "chan_synth", open: true });
+    await expect(engine.command("raiseEditor", { owner: "channel", target: "chan_synth" })).resolves.toBeDefined();
+    await expect(engine.command("raiseEditor", { owner: "bench", target: "chan_synth" })).rejects.toMatchObject({ status: 400 });
+    await expect(engine.command("raiseEditor", { owner: "channel" })).rejects.toMatchObject({ status: 400 });
+  });
+
   it("lists a plugin's parameters, passes on those touched in its window, and leaves out automation the hand holds", async () => {
     let song = addPluginChannel(createMusicProject("Automated"), { id: "VST3-Fake Synth-1", name: "Fake Synth", format: "VST3" }, "chan_synth");
     song = editClips(song, (clips) => addClips(clips, [{ kind: "pattern", ref: FIRST_PATTERN_ID, track: 0, start: 0, length: 384 }]).clips);

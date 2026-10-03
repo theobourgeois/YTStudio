@@ -11,7 +11,7 @@ import { type Rect, type ResizeEdge, type WindowSnap, cascade, edgeSnap, magneti
 import { workAreas } from "./native/bridge";
 import { acquirePopups, alignPopups, usePopupContainerElement } from "./native/popups";
 import { type DeskTracker, createDeskTracker, openPanels, useDeskVersion, usePanelWindow } from "./native/use-panel";
-import { areaFor, capSize, deskToScreen, keepReachable, pointToDesk, sameRect, screenToDesk } from "./native/geometry";
+import { areaFor, capSize, deskToScreen, keepReachable, pointToDesk, resizeFree, screenToDesk } from "./native/geometry";
 import type { WindowPlace, WindowsStore } from "./store";
 
 /** How much of a window must stay on the desktop (px), so it can always be grabbed again. */
@@ -166,10 +166,6 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
 
   // --- Native: where the window is on the screen, and when it's shown --------------------------------------
   const [measured, setMeasured] = useState<{ width: number; height: number } | null>(null);
-  const applied = useRef<Rect | null>(null);
-  /** False while a size we asked for is on its way (the window's resize events then aren't the user's). */
-  const settled = useRef(true);
-  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shown = useRef(false);
   const configured = useRef("");
   useLayoutEffect(() => {
@@ -223,29 +219,17 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
     else return;
     const screen = keepReachable(deskToScreen(m, r), workAreas(), 80, KEEP_TITLE);
     const next = { x: Math.round(screen.x), y: Math.round(screen.y), width: Math.round(screen.width), height: Math.round(screen.height) };
-    const options = JSON.stringify([resizable ? [Math.round(resizable.minWidth * m.scale), Math.round(resizable.minHeight * m.scale)] : null, resizable && !snap]);
-    if (configured.current !== options) {
-      configured.current = options;
-      desktopPanels()?.configure(panel.name, {
-        ...(resizable && { minWidth: resizable.minWidth * m.scale, minHeight: resizable.minHeight * m.scale }),
-        resizable: !!resizable && !snap,
-        backgroundColor: cssColour(panel.win, ownerDocument(panel.container).body),
-        title,
-      });
+    if (!configured.current) {
+      configured.current = "done";
+      // (The page resizes it, by its edges below: the system's own resizing of a frameless window differs from one system to the next.)
+      desktopPanels()?.configure(panel.name, { resizable: false, backgroundColor: cssColour(panel.win, ownerDocument(panel.container).body), title });
     }
     const win = panel.win;
     const moved = win.screenX !== next.x || win.screenY !== next.y;
     const resized = win.outerWidth !== next.width || win.outerHeight !== next.height;
     // (Both at once or not at all: a move followed by a resize from the page undoes the move.)
-    if (resized) {
-      settled.current = false;
-      if (settle.current) clearTimeout(settle.current);
-      settle.current = setTimeout(() => (settled.current = true), 400);
-      desktopPanels()?.place(panel.name, next);
-    } else if (moved) {
-      win.moveTo(next.x, next.y);
-    }
-    applied.current = next;
+    if (resized) desktopPanels()?.place(panel.name, next);
+    else if (moved) win.moveTo(next.x, next.y);
     if (!shown.current) {
       shown.current = true;
       const front = windows.getState().order[windows.getState().order.length - 1] === id;
@@ -254,27 +238,6 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `size` is a function of `place` and `initial`
   }, [panel, desk, deskVersion, snap, resizable, place, measured]);
-
-  // The user resizes it by its edges (the system's): that's its place now.
-  useEffect(() => {
-    if (!panel || !desk || !resizable) return;
-    const win = panel.win;
-    const onResize = () => {
-      const m = desk.metrics();
-      if (!m || !shown.current) return;
-      const now = { x: win.screenX, y: win.screenY, width: win.outerWidth, height: win.outerHeight };
-      if (applied.current && sameRect(now, applied.current)) {
-        settled.current = true;
-        return;
-      }
-      if (!settled.current) return;
-      applied.current = now;
-      const d = screenToDesk(m, now);
-      windows.getState().place(id, { x: Math.round(d.x), y: Math.round(d.y), width: Math.round(d.width), height: Math.round(d.height), snap: null });
-    };
-    win.addEventListener("resize", onResize);
-    return () => win.removeEventListener("resize", onResize);
-  }, [panel, desk, resizable, windows, id]);
 
   // Menus and the like are drawn in the window the panels share, which lies over this one's corner as the pointer comes.
   const popups = usePopupContainerElement();
@@ -391,7 +354,6 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
       const rounded = { x: Math.round(s.x), y: Math.round(s.y), width: Math.round(s.width), height: Math.round(s.height) };
       if (sized) desktopPanels()?.place(panel.name, rounded);
       else win.moveTo(rounded.x, rounded.y);
-      applied.current = rounded;
     };
     const settle = (next: WindowPlace | null) => {
       windows.getState().setSnapPreview(null);
@@ -428,8 +390,35 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
     });
   };
 
+  /** A native window resized by an edge: the pointer's travel on the screen, the window set to the new size (no lower than its least). */
+  const dragNativeEdge = (e: ReactPointerEvent<HTMLElement>, edge: ResizeEdge) => {
+    const m = desk?.metrics();
+    if (!resizable || !desk || !panel || !m) return;
+    e.stopPropagation();
+    const win = panel.win;
+    const start = screenToDesk(m, { x: win.screenX, y: win.screenY, width: win.outerWidth, height: win.outerHeight });
+    const put = (r: Rect) => {
+      const s = deskToScreen(m, r);
+      desktopPanels()?.place(panel.name, { x: Math.round(s.x), y: Math.round(s.y), width: Math.round(s.width), height: Math.round(s.height) });
+    };
+    let next = start;
+    startPointerDrag(e, {
+      threshold: 0,
+      cursor: EDGE_CURSOR[edge],
+      onMove(ev) {
+        next = resizeFree(start, edge, (ev.screenX - e.screenX) / m.scale, (ev.screenY - e.screenY) / m.scale, { width: resizable.minWidth, height: resizable.minHeight });
+        put(next);
+      },
+      onEnd() {
+        windows.getState().place(id, { x: Math.round(next.x), y: Math.round(next.y), width: Math.round(next.width), height: Math.round(next.height), snap: null });
+      },
+      onCancel: () => put(start),
+    });
+  };
+
   const dragEdge = (e: ReactPointerEvent<HTMLElement>, edge: ResizeEdge) => {
     if (!resizable) return;
+    if (native) return dragNativeEdge(e, edge);
     e.stopPropagation();
     const element = e.currentTarget.parentElement!;
     const { desk, rect: start } = measure(element);
@@ -462,7 +451,7 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
       className={cn(
         // A floating surface (the theme's outline and short shadow), its title bar a step darker than its body.
         "floating flex flex-col overflow-hidden bg-card outline-none",
-        native ? (resizable ? "size-full rounded-none shadow-none" : "relative rounded-none shadow-none") : "absolute",
+        native ? (resizable ? "relative size-full rounded-none shadow-none" : "relative rounded-none shadow-none") : "absolute",
         !native && (snap ? "rounded-none shadow-none" : "rounded-md"),
         className,
       )}
@@ -516,8 +505,7 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
         </div>
       </header>
       {children}
-      {/* A native window is resized by the system, by its edges. */}
-      {!native && resizable && !snap && EDGES.map((edge) => <div key={edge} aria-hidden className={cn("absolute z-20", EDGE_BOX[edge])} style={{ cursor: EDGE_CURSOR[edge] }} onPointerDown={(e) => dragEdge(e, edge)} data-resize={edge} />)}
+      {resizable && !snap && EDGES.map((edge) => <div key={edge} aria-hidden className={cn("absolute z-20", EDGE_BOX[edge])} style={{ cursor: EDGE_CURSOR[edge] }} onPointerDown={(e) => dragEdge(e, edge)} data-resize={edge} />)}
     </section>
   );
 

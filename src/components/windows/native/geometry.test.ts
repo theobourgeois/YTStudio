@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { areaFor, capSize, deskToScreen, keepReachable, pointToDesk, sameRect, scaleOf, screenToDesk, type Metrics } from "./geometry";
+import { areaFor, capSize, deskToScreen, keepReachable, pointToDesk, resizeFree, sameRect, scaleOf, screenToDesk, type Metrics } from "./geometry";
 
 const metrics: Metrics = { content: { x: 100, y: 50, width: 1200, height: 800 }, scale: 1, desk: { x: 0, y: 72, width: 1200, height: 728 } };
 
@@ -61,5 +61,17 @@ describe("native panel geometry", () => {
   it("says two rectangles are the same when they land on the same pixels", () => {
     expect(sameRect({ x: 1.2, y: 2.4, width: 100.4, height: 50.1 }, { x: 1, y: 2, width: 100, height: 50 })).toBe(true);
     expect(sameRect({ x: 1, y: 2, width: 100, height: 50 }, { x: 1, y: 2, width: 101, height: 50 })).toBe(false);
+  });
+
+  it("resizes by an edge without keeping to the desktop, never below the least, the opposite edges staying put", () => {
+    const start = { x: 100, y: 100, width: 400, height: 300 };
+    const least = { width: 200, height: 150 };
+    expect(resizeFree(start, "e", 50, 999, least)).toEqual({ x: 100, y: 100, width: 450, height: 300 });
+    expect(resizeFree(start, "se", -500, -500, least)).toEqual({ x: 100, y: 100, width: 200, height: 150 });
+    // The west edge may go left of the desktop's corner, and stops at the least width.
+    expect(resizeFree(start, "w", -300, 0, least)).toEqual({ x: -200, y: 100, width: 700, height: 300 });
+    expect(resizeFree(start, "w", 400, 0, least)).toEqual({ x: 300, y: 100, width: 200, height: 300 });
+    expect(resizeFree(start, "nw", -20, -30, least)).toEqual({ x: 80, y: 70, width: 420, height: 330 });
+    expect(resizeFree(start, "n", 0, 500, least)).toEqual({ x: 100, y: 250, width: 400, height: 150 });
   });
 });
