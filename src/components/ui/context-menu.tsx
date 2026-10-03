@@ -4,7 +4,7 @@ import * as React from "react"
 import { cn } from "cn"
 import { PiCaretRight, PiCheck, PiCircleFill } from "react-icons/pi"
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui"
-import { usePortalContainer } from "@/components/ui/portal-container"
+import { usePopupContainer } from "@/components/ui/portal-container"
 
 /**
  * Radix menus select the item under the pointer on pointerup (press-drag-release).
@@ -27,7 +27,7 @@ function ContextMenuPortal({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Portal>) {
   return (
-    <ContextMenuPrimitive.Portal data-slot="context-menu-portal" container={usePortalContainer()} {...props} />
+    <ContextMenuPrimitive.Portal data-slot="context-menu-portal" container={usePopupContainer()} {...props} />
   )
 }
 
@@ -47,7 +47,7 @@ function ContextMenuContent({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Content>) {
   return (
-    <ContextMenuPrimitive.Portal container={usePortalContainer()}>
+    <ContextMenuPrimitive.Portal container={usePopupContainer()}>
       <ContextMenuPrimitive.Content
         data-slot="context-menu-content"
         className={cn(

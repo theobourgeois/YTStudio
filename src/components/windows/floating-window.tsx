@@ -3,12 +3,13 @@ import { createPortal } from "react-dom";
 import { PiCornersIn, PiCornersOut, PiX } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
-import { PortalContainerProvider } from "@/components/ui/portal-container";
+import { PopupContainerProvider, PortalContainerProvider } from "@/components/ui/portal-container";
 import { desktopPanels } from "@/lib/desktop";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { isElement, ownerDocument } from "@/lib/window-events";
 import { type Rect, type ResizeEdge, type WindowSnap, cascade, edgeSnap, magnetise, resizeRect, snappedRect, unsnapAt, EDGE_ZONE } from "./geometry";
 import { workAreas } from "./native/bridge";
+import { acquirePopups, alignPopups, usePopupContainerElement } from "./native/popups";
 import { type DeskTracker, createDeskTracker, openPanels, useDeskVersion, usePanelWindow } from "./native/use-panel";
 import { areaFor, capSize, deskToScreen, keepReachable, pointToDesk, sameRect, screenToDesk } from "./native/geometry";
 import type { WindowPlace, WindowsStore } from "./store";
@@ -166,6 +167,9 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
   // --- Native: where the window is on the screen, and when it's shown --------------------------------------
   const [measured, setMeasured] = useState<{ width: number; height: number } | null>(null);
   const applied = useRef<Rect | null>(null);
+  /** False while a size we asked for is on its way (the window's resize events then aren't the user's). */
+  const settled = useRef(true);
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shown = useRef(false);
   const configured = useRef("");
   useLayoutEffect(() => {
@@ -230,8 +234,17 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
       });
     }
     const win = panel.win;
-    if (win.screenX !== next.x || win.screenY !== next.y) win.moveTo(next.x, next.y);
-    if (win.outerWidth !== next.width || win.outerHeight !== next.height) win.resizeTo(next.width, next.height);
+    const moved = win.screenX !== next.x || win.screenY !== next.y;
+    const resized = win.outerWidth !== next.width || win.outerHeight !== next.height;
+    // (Both at once or not at all: a move followed by a resize from the page undoes the move.)
+    if (resized) {
+      settled.current = false;
+      if (settle.current) clearTimeout(settle.current);
+      settle.current = setTimeout(() => (settled.current = true), 400);
+      desktopPanels()?.place(panel.name, next);
+    } else if (moved) {
+      win.moveTo(next.x, next.y);
+    }
     applied.current = next;
     if (!shown.current) {
       shown.current = true;
@@ -250,7 +263,11 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
       const m = desk.metrics();
       if (!m || !shown.current) return;
       const now = { x: win.screenX, y: win.screenY, width: win.outerWidth, height: win.outerHeight };
-      if (applied.current && sameRect(now, applied.current)) return;
+      if (applied.current && sameRect(now, applied.current)) {
+        settled.current = true;
+        return;
+      }
+      if (!settled.current) return;
       applied.current = now;
       const d = screenToDesk(m, now);
       windows.getState().place(id, { x: Math.round(d.x), y: Math.round(d.y), width: Math.round(d.width), height: Math.round(d.height), snap: null });
@@ -258,6 +275,22 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
     win.addEventListener("resize", onResize);
     return () => win.removeEventListener("resize", onResize);
   }, [panel, desk, resizable, windows, id]);
+
+  // Menus and the like are drawn in the window the panels share, which lies over this one's corner as the pointer comes.
+  const popups = usePopupContainerElement();
+  useEffect(() => {
+    if (!panel) return;
+    const release = acquirePopups();
+    const align = () => alignPopups(panel);
+    panel.win.addEventListener("pointermove", align, { passive: true });
+    panel.win.addEventListener("focus", align);
+    align();
+    return () => {
+      panel.win.removeEventListener("pointermove", align);
+      panel.win.removeEventListener("focus", align);
+      release();
+    };
+  }, [panel]);
 
   // The system's focus and the stacking order the editor keeps are one: a window clicked is the front one,
   // and one brought to the front (opened again from the toolbar) is raised.
@@ -355,9 +388,10 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
     let snapTo: WindowSnap | null = null;
     const put = (r: Rect, sized: boolean) => {
       const s = deskToScreen(m, r);
-      if (sized) win.resizeTo(Math.round(s.width), Math.round(s.height));
-      win.moveTo(Math.round(s.x), Math.round(s.y));
-      applied.current = { x: Math.round(s.x), y: Math.round(s.y), width: Math.round(s.width), height: Math.round(s.height) };
+      const rounded = { x: Math.round(s.x), y: Math.round(s.y), width: Math.round(s.width), height: Math.round(s.height) };
+      if (sized) desktopPanels()?.place(panel.name, rounded);
+      else win.moveTo(rounded.x, rounded.y);
+      applied.current = rounded;
     };
     const settle = (next: WindowPlace | null) => {
       windows.getState().setSnapPreview(null);
@@ -489,7 +523,14 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
 
   if (!native) return frame;
   // Until its window is open there's nothing to draw it in.
-  return panel ? createPortal(<PortalContainerProvider value={panel.container}>{frame}</PortalContainerProvider>, panel.container) : null;
+  return panel
+    ? createPortal(
+        <PortalContainerProvider value={panel.container}>
+          <PopupContainerProvider value={popups}>{frame}</PopupContainerProvider>
+        </PortalContainerProvider>,
+        panel.container,
+      )
+    : null;
 }
 
 /** A desk tracker that never changes, for a window that isn't native (hooks can't be skipped). */

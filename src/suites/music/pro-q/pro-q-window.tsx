@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { addWindowListener } from "@/lib/window-events";
 import { PiArrowArcLeft, PiArrowArcRight, PiCaretDown, PiCaretLeftFill, PiCaretRightFill, PiPower, PiSnowflake, PiWarningFill } from "react-icons/pi";
 import { cn } from "cn";
 import { mixerTrackName } from "@shared/music/automation";
@@ -107,8 +108,7 @@ function useEqKeys(effectId: string) {
         selectBands(effectId, []);
       }
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
+    return addWindowListener("keydown", onKey, true);
   }, [effectId]);
 }
 

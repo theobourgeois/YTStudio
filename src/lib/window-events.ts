@@ -106,3 +106,13 @@ export function isElement(value: unknown): value is Element {
 export function isHtmlElement(value: unknown): value is HTMLElement {
   return isElement(value) && (value as HTMLElement).namespaceURI === "http://www.w3.org/1999/xhtml";
 }
+
+/** Run `handler` once, when the pointer is let go (or cancelled), wherever it is: in any of the editor's windows. */
+export function whenPointerReleased(handler: () => void): void {
+  const stops: Array<() => void> = [];
+  const release = () => {
+    for (const stop of stops) stop();
+    handler();
+  };
+  stops.push(addWindowListener("pointerup", release, true), addWindowListener("pointercancel", release, true));
+}

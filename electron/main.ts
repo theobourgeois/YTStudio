@@ -13,7 +13,8 @@ import { loadShellPath } from "./shell-path.ts";
 import { loadWindowState, trackWindowState } from "./window-state.ts";
 import { desktopIcon, initializeAppIcon } from "./app-icon.ts";
 import { FloatingGroup, type FloatingState } from "./floating.ts";
-import { Panels, answerPanelRequests, isPanelName, panelOptions } from "./panels.ts";
+import { POPUP_WINDOW } from "../shared/panels.ts";
+import { Panels, answerPanelRequests, isPanelName, panelOptions, popupOptions } from "./panels.ts";
 import { Restacker, WindowStack } from "./stacking.ts";
 
 const APP_NAME = "Vaudio";
@@ -133,7 +134,6 @@ async function start() {
     server.onEngineWindow((event) => {
       if (event.type === "foreground") group?.setEngineForeground(event.on);
       else stack.raise(`engine:${event.owner}:${event.id}`);
-      if (process.env.EDITOR_DEBUG_STACK) console.log("[stack] engine event", JSON.stringify(event), "->", stack.order().join(" < "));
     });
     appUrl = DEV_URL ?? `http://127.0.0.1:${server.port}`;
   } catch (err) {
@@ -144,7 +144,6 @@ async function start() {
   Menu.setApplicationMenu(buildMenu());
   group = new FloatingGroup((state) => {
     floatingState = state;
-    if (process.env.EDITOR_DEBUG_STACK) console.log("[stack] floating state", JSON.stringify(state), stack.order().join(" < "));
     panels?.setState(state);
     // The levels change, which doesn't keep the windows in order across programs: they're put back in the stack's.
     void tellEngineWhereWeAre().then(async () => {
@@ -324,7 +323,10 @@ function flushBeforeClose(win: BrowserWindow) {
  * than the main window under it, which the panels float over.
  */
 function dialogParent(sender: Electron.WebContents): BrowserWindow | null {
-  return BrowserWindow.getFocusedWindow() ?? BrowserWindow.fromWebContents(sender);
+  const focused = BrowserWindow.getFocusedWindow();
+  // (Not the window menus are drawn in: it's gone once the menu item has been chosen.)
+  if (focused && !panels?.isPopup(focused)) return focused;
+  return BrowserWindow.fromWebContents(sender);
 }
 
 /**
@@ -335,7 +337,7 @@ function dialogParent(sender: Electron.WebContents): BrowserWindow | null {
 function openPanels(win: BrowserWindow, owned: Panels) {
   const isApp = (url: string) => url === "about:blank" || url.startsWith(appUrl);
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
-    if (isPanelName(frameName) && isApp(url)) return { action: "allow", overrideBrowserWindowOptions: panelOptions() };
+    if (isPanelName(frameName) && isApp(url)) return { action: "allow", overrideBrowserWindowOptions: frameName === POPUP_WINDOW ? popupOptions() : panelOptions() };
     if (/^https?:/.test(url) && !url.startsWith(appUrl)) void shell.openExternal(url);
     return { action: "deny" };
   });
@@ -362,7 +364,9 @@ function followByPluginWindows(win: BrowserWindow) {
     group?.setMainVisible(win.isVisible() && !win.isMinimized());
     void tellEngineWhereWeAre();
   };
-  for (const event of ["show", "hide", "minimize", "restore", "move", "resize"] as const) win.on(event as "move", tell);
+  // (A window that isn't shown yet isn't visible: it's told again as it shows, and when the page has loaded in it.)
+  for (const event of ["show", "hide", "minimize", "restore", "move", "resize", "focus", "ready-to-show"] as const) win.on(event as "move", tell);
+  win.webContents.on("did-finish-load", tell);
   win.on("closed", () => {
     group?.setMainVisible(false);
     void tellEngineWhereWeAre();

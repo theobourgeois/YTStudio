@@ -24,12 +24,15 @@ export interface PanelWindow {
 }
 
 let sequence = 0;
+/** The page is going away: nothing more is opened for it (the windows would outlive what draws them). */
+let unloading = false;
+if (typeof window !== "undefined") window.addEventListener("pagehide", () => (unloading = true));
 
 /** Open a panel's window, hidden: null where there are no native windows (a browser tab), or if it was refused. */
-export function openPanelWindow(id: string, title: string): PanelWindow | null {
+export function openPanelWindow(id: string, title: string, exactName?: string): PanelWindow | null {
   const panels = desktopPanels();
-  if (!panels) return null;
-  const name = `${PANEL_PREFIX}${id}:${++sequence}`;
+  if (!panels || unloading) return null;
+  const name = exactName ?? `${PANEL_PREFIX}${id}:${++sequence}`;
   const win = window.open("about:blank", name, "popup=yes,width=480,height=320");
   if (!win) return null;
   const doc = win.document;

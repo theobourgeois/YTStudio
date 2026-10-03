@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ownerDocument } from "@/lib/window-events";
 import { PiCaretRightFill, PiClock, PiKey, PiSlidersHorizontal, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import { createId } from "@shared/ids";
@@ -140,12 +141,12 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
       onClick: () => pressed?.click(),
       onStart: () => (dragged.current = true),
       onMove(ev) {
-        const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-slot]");
+        const over = ownerDocument(ev.target).elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-slot]");
         target = over && list?.contains(over) ? Number(over.dataset.slot) : null;
         setDropping(target);
         copying = isCopyDrag(ev);
         // Out of the slots, it's carried to a track: another, or its own for a copy.
-        const track = target === null ? trackAt(ev.clientX, ev.clientY) : null;
+        const track = target === null ? trackAt(ev.clientX, ev.clientY, ownerDocument(ev.target)) : null;
         onto = track && (track !== trackId || copying) ? { track, copy: copying } : null;
         view.carry(target === null ? { from: trackId, x: ev.clientX, y: ev.clientY, over: onto?.track ?? null, effect: { name: effect.plugin.name, copy: copying } } : null);
       },

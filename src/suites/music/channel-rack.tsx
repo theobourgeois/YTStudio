@@ -1,4 +1,5 @@
 import { type RefObject, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ownerDocument } from "@/lib/window-events";
 import { PiCaretDownBold, PiCaretRightFill, PiChartBar, PiPlugs, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
@@ -96,7 +97,7 @@ const LEAD_WITH_TRACK = "w-[246px]";
 
 /** The element with `[data-<key>]` under a point, if it's inside `root`. */
 function under(root: Element, x: number, y: number, key: string): HTMLElement | null {
-  const hit = document.elementFromPoint(x, y)?.closest<HTMLElement>(`[data-${key}]`);
+  const hit = ownerDocument(root).elementFromPoint(x, y)?.closest<HTMLElement>(`[data-${key}]`);
   return hit && root.contains(hit) ? hit : null;
 }
 /**
@@ -848,7 +849,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
         onDoubleClick={() => openPianoRoll(id)}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
-          const rack = e.currentTarget.closest("[data-window]") ?? document.body;
+          const rack = e.currentTarget.closest("[data-window]") ?? ownerDocument(e.currentTarget).body;
           const ui = useMusicUi.getState();
           if (e.button === 0) {
             // Shift+click: everything from the last one clicked to this one.

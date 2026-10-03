@@ -7,7 +7,7 @@
  * window is.
  */
 import { type BrowserWindow, type BrowserWindowConstructorOptions, type Rectangle, ipcMain, screen } from "electron";
-import { PANEL_PREFIX } from "../shared/panels.ts";
+import { PANEL_PREFIX, POPUP_WINDOW } from "../shared/panels.ts";
 import type { FloatingState } from "./floating.ts";
 import type { WindowStack } from "./stacking.ts";
 
@@ -42,11 +42,18 @@ export function panelOptions(): BrowserWindowConstructorOptions {
   };
 }
 
+/** The shared window for menus and popovers: transparent, no shadow, never in the stack of windows in use. */
+export function popupOptions(): BrowserWindowConstructorOptions {
+  return { ...panelOptions(), transparent: true, hasShadow: false, backgroundColor: "#00000000", resizable: false, focusable: true };
+}
+
 export class Panels {
   private readonly windows = new Map<string, BrowserWindow>();
   /** The ones the page has shown (the others are still being drawn, or hidden with the main window). */
   private readonly shown = new Set<string>();
   private state: FloatingState = { floating: false, visible: true };
+  /** The page is being replaced: a window it opens has no one to draw it. */
+  private navigating = false;
 
   /**
    * `stack` is told which panel is used (it has the focus) and which are new; `restack` puts every floating
@@ -63,20 +70,27 @@ export class Panels {
     for (const event of ["move", "resize", "enter-full-screen", "leave-full-screen", "maximize", "unmaximize"] as const) main.on(event as "move", send);
     // A reload or another page: the windows of the old one have no one to draw them.
     main.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
-      if (isMainFrame && !isInPlace) this.closeAll();
+      if (!isMainFrame || isInPlace) return;
+      this.navigating = true;
+      this.closeAll();
     });
+    // (The old page may still open one as it goes: those are closed as they're made, until the new one has loaded.)
+    main.webContents.on("dom-ready", () => (this.navigating = false));
     main.on("closed", () => this.closeAll());
   }
 
   /** A window the page opened (`window.open` with a panel's name, made with `panelOptions`). */
   adopt(name: string, win: BrowserWindow) {
+    if (this.navigating) return void win.destroy();
     this.windows.set(name, win);
     win.setAlwaysOnTop(this.state.floating, "floating");
-    win.on("focus", () => this.stack.raise(panelKey(name)));
+    // The popup window is transient: it isn't one of the windows in use that the stack keeps in order.
+    const stacked = name !== POPUP_WINDOW;
+    if (stacked) win.on("focus", () => this.stack.raise(panelKey(name)));
     win.on("closed", () => {
       this.windows.delete(name);
       this.shown.delete(name);
-      this.stack.drop(panelKey(name));
+      if (stacked) this.stack.drop(panelKey(name));
       if (!this.main.isDestroyed()) this.main.webContents.send("panels:closed", name);
     });
   }
@@ -99,6 +113,10 @@ export class Panels {
     const win = this.windows.get(name);
     if (!win || win.isDestroyed()) return;
     this.shown.add(name);
+    if (name === POPUP_WINDOW) {
+      if (this.state.visible) win.show();
+      return;
+    }
     if (focus) this.stack.raise(panelKey(name));
     else this.stack.lower(panelKey(name));
     if (!this.state.visible) return;
@@ -136,6 +154,20 @@ export class Panels {
     if (options.title) win.setTitle(options.title);
   }
 
+  /** Position and size at once: moving and then resizing from the page undoes the move (the resize starts from the old place). */
+  place(name: string, rect: Rectangle) {
+    const win = this.windows.get(name);
+    if (!win || win.isDestroyed()) return;
+    win.setBounds({ x: Math.round(rect.x), y: Math.round(rect.y), width: Math.max(1, Math.round(rect.width)), height: Math.max(1, Math.round(rect.height)) });
+  }
+
+  hide(name: string) {
+    const win = this.windows.get(name);
+    if (!win || win.isDestroyed()) return;
+    this.shown.delete(name);
+    win.hide();
+  }
+
   close(name: string) {
     const win = this.windows.get(name);
     if (win && !win.isDestroyed()) win.close();
@@ -147,8 +179,9 @@ export class Panels {
     this.shown.clear();
   }
 
-  has(win: BrowserWindow) {
-    return [...this.windows.values()].includes(win);
+  /** The shared window menus are drawn in: never the one a dialog belongs to. */
+  isPopup(win: BrowserWindow) {
+    return this.windows.get(POPUP_WINDOW) === win;
   }
 }
 
@@ -169,6 +202,13 @@ export function answerPanelRequests(current: () => { main: BrowserWindow; panels
   });
   ipcMain.on("panels:configure", (event, name: unknown, options: unknown) => {
     if (typeof name === "string" && options && typeof options === "object") from(event.sender)?.panels.configure(name, options as Parameters<Panels["configure"]>[1]);
+  });
+  ipcMain.on("panels:place", (event, name: unknown, rect: unknown) => {
+    const r = rect as Partial<Rectangle> | null;
+    if (typeof name === "string" && r && [r.x, r.y, r.width, r.height].every((v) => typeof v === "number" && Number.isFinite(v))) from(event.sender)?.panels.place(name, r as Rectangle);
+  });
+  ipcMain.on("panels:hide", (event, name: unknown) => {
+    if (typeof name === "string") from(event.sender)?.panels.hide(name);
   });
   ipcMain.on("panels:close", (event, name: unknown) => {
     if (typeof name === "string") from(event.sender)?.panels.close(name);

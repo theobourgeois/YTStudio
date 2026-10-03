@@ -16,6 +16,7 @@ export function contentBounds(): ScreenRect {
   if (!stop) {
     stop = panels.onContentBounds((bounds) => {
       content = bounds;
+      areas = null;
       for (const listener of listeners) listener(bounds);
     });
     content = panels.contentBounds();
@@ -33,5 +34,18 @@ export function onContentBounds(listener: (bounds: ScreenRect) => void): () => v
 /** Points to a CSS px (the page's zoom). */
 export const pageScale = (): number => scaleOf(contentBounds().width, window.innerWidth);
 
-/** The displays' usable areas, in points. */
-export const workAreas = (): ScreenRect[] => desktopPanels()?.workAreas() ?? [];
+let areas: ScreenRect[] | null = null;
+let areasAt = 0;
+
+/**
+ * The displays' usable areas, in points. Asking the main process takes a synchronous call, and this is read as
+ * windows are placed and the pointer moves, so it's kept for a moment (and forgotten when the main window moves).
+ */
+export function workAreas(): ScreenRect[] {
+  const now = performance.now();
+  if (!areas || now - areasAt > 1500) {
+    areas = desktopPanels()?.workAreas() ?? [];
+    areasAt = now;
+  }
+  return areas;
+}

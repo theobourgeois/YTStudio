@@ -20,6 +20,9 @@ export interface ScreenRect {
 export interface DesktopPanels {
   show(name: string, focus: boolean): void;
   raise(name: string): void;
+  hide(name: string): void;
+  /** Move and resize a panel's window at once, to a place on the screen (points). */
+  place(name: string, rect: ScreenRect): void;
   configure(name: string, options: { minWidth?: number; minHeight?: number; resizable?: boolean; backgroundColor?: string; title?: string }): void;
   close(name: string): void;
   /** Where the main window's content is on the screen. */

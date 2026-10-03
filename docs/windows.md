@@ -41,6 +41,51 @@ same title bars, snapping, stacking and keys.
   suite and below menus and dialogs. Only its windows take the pointer. Settings is on it.
 - In the desktop app, a window is never part of the title bar's drag region (`index.css`), even over it.
 
+## Native windows (the desktop app)
+
+In the desktop app the music editor's windows (and Settings) are not boxes in the page but **windows of the
+operating system**, so a plugin's window, which is the audio engine's (another program), can sit *between* them:
+the channel rack in front, the plugin behind it, the Playlist behind that. In a browser tab they stay boxes in the
+page, exactly as above (`Desktop`'s `native` only takes effect where there is a desktop app,
+`desktopPanels()`).
+
+- **One React tree, several documents.** `FloatingWindow` opens a window with `window.open` (same origin, same
+  renderer: Electron's `setWindowOpenHandler` makes it frameless, hidden and floating, `electron/panels.ts`),
+  copies the page's theme and stylesheets into it (`native/styles.ts`, kept in step for hot updates) and draws its
+  chrome and content into it with a portal. Every store, hook and canvas is the page's own; the window is only a
+  place to draw. The page moves it with `moveTo`, or with `panels.place` when its size changes too (a move and a
+  resize from the page undo each other); it is resized by its edges by the system, and its title bar drags it
+  (`startPointerDrag` on the pointer's place on the *screen*, the edges still sticking to the desktop's and to other
+  windows').
+- **A window's place is still its place on the desktop** (`WindowPlace`, CSS px from the desktop element's corner);
+  `native/geometry.ts` turns it into the screen's points and back, and a window follows the main window when it
+  moves. One may leave the main window and the screen, but never all of them (`keepReachable`).
+- **Stacking.** Panels and the engine's plugin windows are all at the *floating level*, so a click raises whichever
+  it lands on, whoever it belongs to. The main window (the toolbar, the stage) is an ordinary window and can't
+  cover them. Clicking the toolbar's Play never buries a plugin. While another program is in use they drop to the
+  ordinary level (behind it, still showing), and rise again with the app (`electron/floating.ts`: the app is in
+  use while one of its windows or a plugin's has the focus, with a grace for the moment between the two). The system
+  doesn't keep their order across those level changes, so the main process keeps it (`electron/stacking.ts`: every
+  window used moves to the top, the engine says which of its windows was, `editorFocus`) and puts the windows back in it,
+  one at a time, after the app is in front again (`Restacker`).
+- **What pops up over a window** (menus, selects, popovers, context menus) can't be drawn outside it, and a small
+  window's menu would be cut off. They're drawn in one transparent window shared by all the panels
+  (`native/popups.ts`), lying over the display from the corner of the panel the pointer is in, so that a menu's place
+  against the control that opened it (worked out in the control's window) is its place there. It appears while
+  something is in it and hides after. Tooltips and dialogs stay in their panel (`PortalContainerProvider`,
+  `PopupContainerProvider`).
+- **Code that runs in a window can't assume `window` and `document` are its own.** They're the main page's.
+  Listen for the keyboard or a drag's end with `addWindowListener` (every window, those opened later too), find what
+  the pointer is over with `ownerDocument(event.target).elementFromPoint`, measure a canvas against
+  `ownerWindow(canvas).devicePixelRatio`, ask whether something is an element with `isElement` / `isHtmlElement`
+  (`instanceof Element` is false for another window's), and look across windows with `queryAnywhere`. A new Radix
+  portal takes `container={usePopupContainer()}` (menus) or `usePortalContainer()` (tooltips, dialogs).
+  `ResizeObserver`, `IntersectionObserver` and `requestAnimationFrame` of the page work on a panel's elements.
+- **Known limits.** A panel's menu can't reach above or left of its corner (the popup window starts there). A window
+  isn't shown on a full-screen Space of the main window (the engine's can't be told to: it would take macOS calls
+  of our own). The snap preview (dragging a window to the desktop's edge) is drawn in the main window, under the
+  panels. A modal dialog opened from a small panel is limited to that panel.
+
 ## Where it goes next
 
 1. Done: **the video editor's dialogs are windows** (export, Auto captions, the video's settings, Save to

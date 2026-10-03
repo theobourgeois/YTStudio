@@ -54,10 +54,8 @@ export class Restacker {
     try {
       do {
         this.again = false;
-        if (process.env.EDITOR_DEBUG_STACK) console.log("[stack] restack", this.stack.order().join(" < "));
         for (const key of [...this.stack.order()]) {
           const ok = await this.raise(key);
-          if (process.env.EDITOR_DEBUG_STACK) console.log("[stack] raised", key, ok);
           if (!ok) this.stack.drop(key);
           else if (this.pauseMs > 0) await new Promise((resolve) => setTimeout(resolve, this.pauseMs));
         }

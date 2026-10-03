@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import type { EngineKey } from "@shared/music/engine";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { keptByWindow } from "@/components/windows/floating-window";
+import { addWindowListener, isHtmlElement, ownerWindow, queryAnywhere } from "@/lib/window-events";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
 import { BrowserPanel } from "./browser/browser-panel";
 import { carriesSamples, dropAsChannels } from "./browser/drops";
@@ -226,12 +227,12 @@ function runReverbKey(effectId: string, action: ReturnType<typeof resolveReverbK
       }, HOLD_MS);
       const up = (e: KeyboardEvent) => {
         if (e.key.toLowerCase() !== "f") return;
-        window.removeEventListener("keyup", up, true);
+        stop();
         window.clearTimeout(timer);
         if (held) holdFreeze(effectId, false);
         else if (performance.now() - down < HOLD_MS) toggleFreeze(effectId);
       };
-      window.addEventListener("keyup", up, true);
+      const stop = addWindowListener("keyup", up, true);
       return;
     }
   }
@@ -450,7 +451,7 @@ function runKey(action: MusicKeyAction) {
 }
 
 /** Dialogs and open menus own the keyboard. */
-const dialogOpen = () => document.querySelector(":is([role=dialog], [role=alertdialog], [role=menu]):not([data-state=closed])") !== null;
+const dialogOpen = () => queryAnywhere(":is([role=dialog], [role=alertdialog], [role=menu]):not([data-state=closed])") !== null;
 
 /**
  * A key a plugin's window passed on (the engine's own window: the page doesn't have the focus). Only a
@@ -477,7 +478,7 @@ function useMusicKeys(enabled: boolean) {
       }
       if (keptByWindow(e.target)) return;
       // The Browser's list has keys of its own (`browser/keys.ts`): only the editor-wide ones pass it.
-      const inBrowser = e.target instanceof HTMLElement && e.target.closest("[data-browser]") !== null;
+      const inBrowser = isHtmlElement(e.target) && e.target.closest("[data-browser]") !== null;
       // The Piano roll's own keys, while it's the window in front.
       if (frontWindow() === "piano") {
         const piano = resolvePianoKey(e);
@@ -521,9 +522,9 @@ function useMusicKeys(enabled: boolean) {
       // With the Piano roll or the mixer in front, only the keys for everything (play, undo, the windows) are the rack's.
       if ((frontWindow() === "piano" || frontWindow() === "mixer" || frontWindow() === "playlist") && !isGlobalKey(action)) return;
       // Copying text that's selected on the page is still the browser's.
-      if (action.type === "copy" && window.getSelection()?.toString()) return;
+      if (action.type === "copy" && ownerWindow(e.target).getSelection()?.toString()) return;
       // A focused knob, number or list keeps its own arrows. (A menu's button doesn't: it opens with Enter.)
-      const own = e.target instanceof HTMLElement && e.target.closest("[role=slider], [role=spinbutton], [role=combobox]");
+      const own = isHtmlElement(e.target) && e.target.closest("[role=slider], [role=spinbutton], [role=combobox]");
       if (own && action.type === "select") return;
       e.preventDefault();
       // Ours alone: whatever has the focus (a menu's button opens on Alt+Down, a knob turns) doesn't see it too.
@@ -535,11 +536,12 @@ function useMusicKeys(enabled: boolean) {
       if (typingKey(e, false)) e.stopPropagation();
     };
     // Before the page's own handlers, for the same reason.
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("keyup", onKeyUp, true);
+    // (In every window the editor's are: a native one is a window of its own.)
+    const stopDown = addWindowListener("keydown", onKeyDown, true);
+    const stopUp = addWindowListener("keyup", onKeyUp, true);
     return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("keyup", onKeyUp, true);
+      stopDown();
+      stopUp();
     };
   }, [enabled]);
 }

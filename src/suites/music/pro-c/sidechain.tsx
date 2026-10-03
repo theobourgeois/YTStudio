@@ -4,6 +4,7 @@
  * Sync's note, offset and length, the Stereo Link and its mode, and the side chain EQ filling the rest.
  * The Side Chain button that opens it glows when anything here is changed from its default.
  */
+import { whenPointerReleased } from "@/lib/window-events";
 import { PiArrowLineRight, PiCaretDoubleDown, PiCaretDown, PiCaretDoubleUp, PiHeadphones, PiMusicNote, PiPlugsConnected, PiWarningFill } from "react-icons/pi";
 import { cn } from "cn";
 import { updateProC } from "@shared/music/pro-c";
@@ -82,13 +83,7 @@ export function SidechainSection({ effectId, proC }: { effectId: string; proC: P
           onPointerDown={(e) => {
             if (e.button !== 0) return;
             audition(effectId, "key");
-            const up = () => {
-              audition(effectId, null);
-              window.removeEventListener("pointerup", up);
-              window.removeEventListener("pointercancel", up);
-            };
-            window.addEventListener("pointerup", up);
-            window.addEventListener("pointercancel", up);
+            whenPointerReleased(() => audition(effectId, null));
           }}
         >
           <PiHeadphones className="size-3.5" />

@@ -4,7 +4,7 @@ import * as React from "react"
 import { cn } from "cn"
 import { PiCaretRight, PiCheck, PiCircleFill } from "react-icons/pi"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
-import { usePortalContainer } from "@/components/ui/portal-container"
+import { usePopupContainer } from "@/components/ui/portal-container"
 
 function DropdownMenu({
   ...props
@@ -16,7 +16,7 @@ function DropdownMenuPortal({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
   return (
-    <DropdownMenuPrimitive.Portal data-slot="dropdown-menu-portal" container={usePortalContainer()} {...props} />
+    <DropdownMenuPrimitive.Portal data-slot="dropdown-menu-portal" container={usePopupContainer()} {...props} />
   )
 }
 
@@ -37,7 +37,7 @@ function DropdownMenuContent({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
-    <DropdownMenuPrimitive.Portal container={usePortalContainer()}>
+    <DropdownMenuPrimitive.Portal container={usePopupContainer()}>
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}

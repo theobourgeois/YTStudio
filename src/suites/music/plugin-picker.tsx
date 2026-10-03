@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { cn } from "cn";
 import { errorMessage } from "@shared/errors";
 import type { EnginePlugin } from "@shared/music/engine";
+import { isHtmlElement, ownerDocument } from "@/lib/window-events";
 import { Input } from "@/components/ui/input";
 import { musicApi } from "./api";
 import { PINNED, type PickerItem, besideIndex, pickerColumns, pickerOrder, pickerSize } from "./plugin-groups";
@@ -135,7 +136,9 @@ export function PluginPicker({ noun, items, loading, error, firstGroups, onChoos
   const highlighted = order[Math.min(at, order.length - 1)]?.item ?? null;
   // Out of the search field first: it lingers while the picker closes, and the editor's keys (⌘Z) skip a field.
   const choose = (item: PickerItem) => {
-    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    // (In a native window the focus is in that window's own document.)
+    const focused = list.current ? ownerDocument(list.current).activeElement : document.activeElement;
+    if (isHtmlElement(focused)) focused.blur();
     onChoose(item);
   };
 

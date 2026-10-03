@@ -3,6 +3,8 @@
  * Pure, so they're tested; `workspace.tsx` listens and runs them. "Ctrl" is Ctrl or ⌘.
  */
 
+import { isHtmlElement } from "@/lib/window-events";
+
 export type MusicKeyAction =
   | {
       type:
@@ -131,5 +133,5 @@ export function resolvePluginWindowKey(e: KeyLike): MusicKeyAction | null {
 
 /** Typing into a field: the keyboard is the field's. */
 export function isTyping(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select") !== null);
+  return isHtmlElement(target) && (target.isContentEditable || target.closest("input, textarea, select") !== null);
 }
