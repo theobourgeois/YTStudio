@@ -316,7 +316,6 @@ const QUANTIZE_LABELS: Record<NoteQuantize, string> = {
  */
 function TypingKeyboardToggle() {
   const typing = useMidi((s) => s.typing);
-  const octave = useMidi((s) => s.octave);
   const lastNoteAt = useMidi((s) => s.lastNoteAt);
   const [lit, setLit] = useState(false);
   useEffect(() => {
@@ -328,11 +327,7 @@ function TypingKeyboardToggle() {
   return (
     <TransportButton
       label="Typing keyboard"
-      title={
-        typing
-          ? `Typing keyboard to piano is on (Ctrl+T): Z and Q play C${octave} and C${octave + 1} on the selected channel, [ and ] change the octave`
-          : "Typing keyboard to piano (Ctrl+T): play the selected channel from the computer's keyboard"
-      }
+      title={`Typing piano ${typing ? "on" : "off"} (⌘T)`}
       on={typing}
       className="relative"
       onClick={() => useMidi.getState().setTyping(!typing)}
