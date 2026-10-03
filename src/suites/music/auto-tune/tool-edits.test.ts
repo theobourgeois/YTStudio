@@ -18,8 +18,8 @@ describe("the assistant's Auto-Tune", () => {
     expect(findTune(s, { effect: "fx_tune" }).effect.id).toBe("fx_tune");
     expect(findTune(s, { track: 2 }).slot).toBe(1);
     expect(findTune(s, {}).effect.id).toBe("fx_tune");
-    expect(() => findTune(s, { track: 1 })).toThrow(/Insert 1.*has no Auto-Tune.*fx_tune \(insert 2/i);
-    expect(() => findTune(createMusicProject("None"), {})).toThrow(/add_mixer_effect with plugin "Auto-Tune"/);
+    expect(() => findTune(s, { track: 1 })).toThrow(/Insert 1.*has no YT-Tune.*fx_tune \(insert 2/i);
+    expect(() => findTune(createMusicProject("None"), {})).toThrow(/add_mixer_effect with plugin "YT-Tune"/);
   });
 
   it("names notes as musicians do", () => {
@@ -73,7 +73,7 @@ describe("the assistant's Auto-Tune", () => {
       { n: 3, sung: -1, tuned: -1, target: -1 },
       { n: 4, sung: 59.9, tuned: 60, target: 60 },
     ]);
-    expect(text).toMatch(/Auto-Tune fx_tune, slot 2 of insert 2/i);
+    expect(text).toMatch(/YT-Tune fx_tune, slot 2 of insert 2/i);
     expect(text).toContain("Input type Alto/Tenor (altoTenor). Key C Chromatic");
     expect(text).toContain("Retune speed 0 ms, humanize 0, flex-tune 0");
     expect(text).toContain("Preset: Hard Tune.");

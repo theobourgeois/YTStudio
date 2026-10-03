@@ -277,7 +277,7 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         // A band soloed while its solo button is held.
         const auto state = eqs.find (params["effect"].toString());
         if (state == nullptr)
-            return reply (fail ("The song playing has no such Pro-Q."), {});
+            return reply (fail ("The song playing has no such YT-EQ."), {});
         state->soloBand.store (params["band"].isVoid() ? 0 : juce::jlimit (0, eq::maxBands, (int) params["band"]));
         state->soloGain.store ((float) std::pow (10.0, juce::jlimit (-30.0, 30.0, (double) params["gain"]) / 20));
         return ok();
@@ -287,7 +287,7 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         // A Pro-C's listening, while its button is held: its key, or what it takes away.
         const auto state = procs.find (params["effect"].toString());
         if (state == nullptr)
-            return reply (fail ("The song playing has no such Pro-C."), {});
+            return reply (fail ("The song playing has no such YT-C."), {});
         const auto mode = params["mode"].toString();
         state->audition.store (mode == "key" ? 1 : mode == "triggering" ? 2 : 0);
         return ok();
@@ -297,7 +297,7 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         // Match: measure a Pro-C's loudness in and out while it plays.
         const auto state = procs.find (params["effect"].toString());
         if (state == nullptr)
-            return reply (fail ("The song playing has no such Pro-C."), {});
+            return reply (fail ("The song playing has no such YT-C."), {});
         state->startMatch (params["seconds"].isVoid() ? 8.0 : (double) params["seconds"]);
         return ok();
     }

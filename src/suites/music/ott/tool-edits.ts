@@ -24,27 +24,27 @@ const BAND_NAMES = { low: "Low (below 88 Hz)", mid: "Mid (88 Hz to 2.5 kHz)", hi
 export function findOttRef(song: MusicProject, input: Input) {
   const all = otts(song);
   const list = () =>
-    all.length ? `The song's OTTs: ${all.map((o) => `${o.effect.id} (${trackLabel(song, o.track)}, slot ${o.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "OTT" puts one on a track.';
+    all.length ? `The song's YT-Multiband instances: ${all.map((o) => `${o.effect.id} (${trackLabel(song, o.track)}, slot ${o.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "YT-Multiband" puts one on a track.';
   if (typeof input.effect === "string" && input.effect.trim()) {
     const found = findOtt(song, input.effect.trim());
-    if (!found) throw new Error(`There's no OTT "${input.effect}". ${list()}`);
+    if (!found) throw new Error(`There's no YT-Multiband "${input.effect}". ${list()}`);
     return found;
   }
   if (input.track !== undefined && input.track !== "") {
     const track = findTrack(song, input.track);
     const on = all.filter((o) => o.track.id === track.id && (!Number.isInteger(input.effectSlot) || o.slot === (input.effectSlot as number) - 1));
-    if (!on.length) throw new Error(`${trackLabel(song, track)} has no OTT${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
+    if (!on.length) throw new Error(`${trackLabel(song, track)} has no YT-Multiband${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
     return on[0];
   }
   if (all.length === 1) return all[0];
-  throw new Error(all.length ? `Say which OTT ("effect", or "track"). ${list()}` : list());
+  throw new Error(all.length ? `Say which YT-Multiband ("effect", or "track"). ${list()}` : list());
 }
 
 /** get_ott: its knobs, its bands, and what each band does at a few levels. */
 export function describeOtt(song: MusicProject, input: Input): string {
   const { effect, track, slot, ott } = findOttRef(song, input);
   const engine = engineOtt(ott);
-  const lines = [`OTT ${effect.id} on ${trackLabel(song, track)}, slot ${slot + 1}${effect.enabled ? "" : " (bypassed)"}${ott.preset ? `, preset "${ott.preset}"` : ""}${effect.mix < 1 ? `, slot mix ${percent(effect.mix)}` : ""}.`];
+  const lines = [`YT-Multiband ${effect.id} on ${trackLabel(song, track)}, slot ${slot + 1}${effect.enabled ? "" : " (bypassed)"}${ott.preset ? `, preset "${ott.preset}"` : ""}${effect.mix < 1 ? `, slot mix ${percent(effect.mix)}` : ""}.`];
   lines.push(
     `Depth ${round(ott.depth, 2)} (${percent(ott.depth)}), time ${round(ott.time, 2)} (${OTT_CONTROL_SPECS.time.format(ott.time)}), in gain ${db(ott.input)}, out gain ${db(ott.output)}, ` +
       `upward ${round(ott.upward, 2)} (${percent(ott.upward)}), downward ${round(ott.downward, 2)} (${percent(ott.downward)}).`,
@@ -112,5 +112,5 @@ export function updateOttTool(song: MusicProject, input: Input): EditResult {
     }
   }
   if (!done.length) throw new Error("Nothing to change: give a preset, a knob (depth, time, input, output, upward, downward) or bands.");
-  return { song: next, text: `OTT ${id}: ${done.join("; ")}.\n${describeOtt(next, { effect: id })}` };
+  return { song: next, text: `YT-Multiband ${id}: ${done.join("; ")}.\n${describeOtt(next, { effect: id })}` };
 }

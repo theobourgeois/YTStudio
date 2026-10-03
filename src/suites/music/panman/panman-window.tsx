@@ -213,6 +213,7 @@ function PresetBar({ effectId, pm }: { effectId: string; pm: PanMan }) {
   const copied = usePanUi((s) => s.copied !== null);
   return (
     <div className="flex h-9 items-center gap-1 border-b border-line bg-surface-2 px-2">
+      <span className="shrink-0 px-1 text-[13px] font-semibold tracking-wide">YT-Pan</span>
       <LitButton label="Previous preset" on={false} onClick={() => stepPreset(effectId, -1)}>
         <PiCaretLeft className="size-3.5" />
       </LitButton>
@@ -255,7 +256,7 @@ function PresetBar({ effectId, pm }: { effectId: string; pm: PanMan }) {
       <div className="flex-1" />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" aria-label="PanMan's menu" className="grid size-6 place-items-center rounded-sm text-muted-foreground raised hover:raised-hover">
+          <button type="button" aria-label="YT-Pan's menu" className="grid size-6 place-items-center rounded-sm text-muted-foreground raised hover:raised-hover">
             <PiDotsThree className="size-4" />
           </button>
         </DropdownMenuTrigger>
@@ -477,7 +478,7 @@ function RhythmControls({ effectId, pm }: { effectId: string; pm: PanMan }) {
           className="w-[76px] justify-center"
           edit={(s, tempo) => updatePanMan(s, effectId, { tempo, sync: false })}
         />
-        <LitButton label="Sync: in time with the song (PanMan's MIDI switch)" on={pm.sync} onClick={() => set(effectId, { sync: !pm.sync, tempo: pm.sync ? songTempo : pm.tempo })}>
+        <LitButton label="Sync: in time with the song (YT-Pan's MIDI switch)" on={pm.sync} onClick={() => set(effectId, { sync: !pm.sync, tempo: pm.sync ? songTempo : pm.tempo })}>
           Sync
         </LitButton>
       </div>

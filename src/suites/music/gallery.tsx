@@ -372,10 +372,10 @@ function ReverbDisplays() {
 /** The music suite's controls, for the component gallery (`src/gallery/`). */
 export const MUSIC_SECTIONS: GallerySection[] = [
   { id: "music-controls", title: "Music: knobs, LCDs, PAT / SONG, faders and the arm light", source: "suites/music/knob.tsx, lcd.tsx, mode-switch.tsx, mixer/fader.tsx, mixer/arm-button.tsx", render: () => <Controls /> },
-  { id: "music-wheels", title: "Music: Pitch Wheel's dials (at rest, swinging, Multi's voices, closed)", source: "suites/music/pitch-wheel/draw.ts", render: () => <Wheels /> },
+  { id: "music-wheels", title: "Music: YT-Pitch's dials (at rest, swinging, Multi's voices, closed)", source: "suites/music/pitch-wheel/draw.ts", render: () => <Wheels /> },
   { id: "music-curves", title: "Music: automation curve types (FL's), with points and tension handles", source: "suites/music/automation/draw-curve.ts", render: () => <Curves /> },
-  { id: "music-pro-q", title: "Music: Pro-Q's knobs (the dynamic ring on GAIN) and its shapes", source: "suites/music/pro-q/knob.tsx, shape-icon.tsx", render: () => <EqControls /> },
-  { id: "music-pro-c", title: "Music: Pro-C's knobs (the key's ring on Threshold, the ratio's dots, a greyed one, Wet's pan ring), arcs, a bar, and its level and knee display", source: "suites/music/pro-c/knob.tsx, draw.ts", render: () => <CompControls /> },
-  { id: "music-reverb", title: "Music: the Reverb's displays (DECAY: a Hall's T60 shaped by two bands, the Post EQ, the tail's spectrum; SHAPE: a Room, its early taps, its duck)", source: "suites/music/reverb/draw.ts", render: () => <ReverbDisplays /> },
-  { id: "music-ott", title: "Music: OTT's display rows (upward brown, downward green; a band at rest, sounding and hot, its upward off)", source: "suites/music/ott/draw.ts", render: () => <OttRows /> },
+  { id: "music-pro-q", title: "Music: YT-EQ's knobs (the dynamic ring on GAIN) and its shapes", source: "suites/music/pro-q/knob.tsx, shape-icon.tsx", render: () => <EqControls /> },
+  { id: "music-pro-c", title: "Music: YT-C's knobs (the key's ring on Threshold, the ratio's dots, a greyed one, Wet's pan ring), arcs, a bar, and its level and knee display", source: "suites/music/pro-c/knob.tsx, draw.ts", render: () => <CompControls /> },
+  { id: "music-reverb", title: "Music: YT-R's displays (DECAY: a Hall's T60 shaped by two bands, the Post EQ, the tail's spectrum; SHAPE: a Room, its early taps, its duck)", source: "suites/music/reverb/draw.ts", render: () => <ReverbDisplays /> },
+  { id: "music-ott", title: "Music: YT-Multiband's display rows (upward brown, downward green; a band at rest, sounding and hot, its upward off)", source: "suites/music/ott/draw.ts", render: () => <OttRows /> },
 ];

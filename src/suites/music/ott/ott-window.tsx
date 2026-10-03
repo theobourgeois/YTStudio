@@ -124,12 +124,12 @@ function PresetBar({ effectId, ott }: { effectId: string; ott: Ott }) {
         </DropdownMenuContent>
       </DropdownMenu>
       <span className="ml-auto flex items-baseline gap-1.5 pr-1">
-        <span className="text-[14px] font-black tracking-tight">OTT</span>
+        <span className="text-[14px] font-black tracking-tight">YT-Multiband</span>
         <span className="text-[10px] whitespace-nowrap text-muted-foreground">Multiband Compressor</span>
       </span>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" aria-label="OTT's options" className={arrow}>
+          <button type="button" aria-label="YT-Multiband's options" className={arrow}>
             <PiDotsThreeVertical className="size-3.5" />
           </button>
         </DropdownMenuTrigger>

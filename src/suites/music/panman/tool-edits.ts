@@ -52,20 +52,20 @@ const modeName = (mode: PanManMode) => PAN_MODES.find((m) => m.id === mode)!.nam
 export function findPan(song: MusicProject, input: Input) {
   const all = panMans(song);
   const list = () =>
-    all.length ? `The song's PanMen: ${all.map((p) => `${p.effect.id} (${trackLabel(song, p.track)}, slot ${p.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "PanMan" puts one on a track.';
+    all.length ? `The song's PanMen: ${all.map((p) => `${p.effect.id} (${trackLabel(song, p.track)}, slot ${p.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "YT-Pan" puts one on a track.';
   if (typeof input.effect === "string" && input.effect.trim()) {
     const found = findPanMan(song, input.effect.trim());
-    if (!found) throw new Error(`There's no PanMan "${input.effect}". ${list()}`);
+    if (!found) throw new Error(`There's no YT-Pan "${input.effect}". ${list()}`);
     return found;
   }
   if (input.track !== undefined && input.track !== "") {
     const track = findTrack(song, input.track);
     const on = all.filter((p) => p.track.id === track.id && (!Number.isInteger(input.effectSlot) || p.slot === (input.effectSlot as number) - 1));
-    if (!on.length) throw new Error(`${trackLabel(song, track)} has no PanMan${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
+    if (!on.length) throw new Error(`${trackLabel(song, track)} has no YT-Pan${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
     return on[0];
   }
   if (all.length === 1) return all[0];
-  throw new Error(`Say which PanMan ("effect" or "track"). ${list()}`);
+  throw new Error(`Say which YT-Pan ("effect" or "track"). ${list()}`);
 }
 
 /** What a PanMan does, said for the model (and its knobs, and where it is now if the engine has said). */
@@ -89,7 +89,7 @@ export function describePanMan(song: MusicProject, input: Input, now?: EnginePan
               ? `side to side on every ${pm.divider === 1 ? "" : `${pm.divider}th `}hit over ${pm.trigger >= -0.01 ? "(off)" : `${round(pm.trigger, 1)} dB`}`
               : `a random place on every ${pm.divider === 1 ? "" : `${pm.divider}th `}hit over ${pm.trigger >= -0.01 ? "(off)" : `${round(pm.trigger, 1)} dB`}`;
   const lines = [
-    `PanMan ${effect.id}, slot ${slot + 1} of ${trackLabel(song, track)}${effect.enabled ? "" : " (bypassed)"}. Preset "${pm.preset}"${panEdited(pm) ? " (changed)" : ""}.`,
+    `YT-Pan ${effect.id}, slot ${slot + 1} of ${trackLabel(song, track)}${effect.enabled ? "" : " (bypassed)"}. Preset "${pm.preset}"${panEdited(pm) ? " (changed)" : ""}.`,
     `Mode ${pm.mode} (${modeName(pm.mode)}): ${moves}${isRhythmMode(pm.mode) ? (pm.sync ? ", in time with the song" : ` at ${round(pm.tempo, 1)} BPM`) : ""}.`,
     `Offset ${degreesText(pm.offset)}, width ${Math.round(pm.width)}°, smoothing ${Math.round(pm.smoothing * 100)}%` +
       (pm.mode === "rhythmStep" ? `, feel ${round(pm.feel)}, smoothing mode ${pm.stepPattern.curve}` : pm.mode === "rhythmShape" ? `, groove ${round(pm.groove)}` : "") +

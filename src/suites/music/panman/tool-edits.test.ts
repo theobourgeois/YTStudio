@@ -15,8 +15,8 @@ describe("the assistant's PanMan", () => {
     expect(findPan(s, { effect: "fx_pan" }).effect.id).toBe("fx_pan");
     expect(findPan(s, { track: 2 }).slot).toBe(1);
     expect(findPan(s, {}).effect.id).toBe("fx_pan");
-    expect(() => findPan(s, { track: 1 })).toThrow(/Insert 1.*has no PanMan.*fx_pan \(insert 2/i);
-    expect(() => findPan(createMusicProject("None"), {})).toThrow(/add_mixer_effect with plugin "PanMan"/);
+    expect(() => findPan(s, { track: 1 })).toThrow(/Insert 1.*has no YT-Pan.*fx_pan \(insert 2/i);
+    expect(() => findPan(createMusicProject("None"), {})).toThrow(/add_mixer_effect with plugin "YT-Pan"/);
   });
 
   it("says what it does, in degrees and beats, and where it is now", () => {
@@ -68,6 +68,6 @@ describe("the assistant's PanMan", () => {
     const s = song();
     expect(resolveControl(s, { control: "panman offset", track: 2, slot: 2 })).toEqual({ kind: "panMan", effect: "fx_pan", control: "offset" });
     const other = setEffect(s, "insert_2", 0, { id: "vst3:x", name: "Comp", format: "VST3" }, "fx_comp");
-    expect(() => resolveControl(other, { control: "panman rate", track: 2, slot: 1 })).toThrow(/holds Comp, not a PanMan/);
+    expect(() => resolveControl(other, { control: "panman rate", track: 2, slot: 1 })).toThrow(/holds Comp, not a YT-Pan/);
   });
 });

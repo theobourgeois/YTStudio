@@ -15,8 +15,8 @@ describe("the assistant's OTT", () => {
     expect(findOttRef(s, { effect: "fx_ott" }).effect.id).toBe("fx_ott");
     expect(findOttRef(s, { track: 2 }).slot).toBe(1);
     expect(findOttRef(s, {}).effect.id).toBe("fx_ott");
-    expect(() => findOttRef(s, { track: 1 })).toThrow(/has no OTT.*fx_ott/);
-    expect(() => findOttRef(createMusicProject("None"), {})).toThrow(/add_mixer_effect with plugin "OTT"/);
+    expect(() => findOttRef(s, { track: 1 })).toThrow(/has no YT-Multiband.*fx_ott/);
+    expect(() => findOttRef(createMusicProject("None"), {})).toThrow(/add_mixer_effect with plugin "YT-Multiband"/);
   });
 
   it("says its knobs, its bands and what they do at a few levels", () => {
@@ -45,7 +45,7 @@ describe("the assistant's OTT", () => {
     expect(() => resolveControl(s, { control: "ott depth", track: 2, slot: 1 })).toThrow(/no effect in slot 1/);
     const made = addAutomationEdit(s, { bar: 1, length: 2, points: [{ at: 0, value: 0 }, { at: 2, value: 1 }] }, { kind: "ott", effect: "fx_ott", control: "midThreshold" });
     const automation = made.song.automations.find((a) => a.id === made.automationId)!;
-    expect(automation.name).toBe("Mid threshold (OTT (Insert 2))");
+    expect(automation.name).toBe("Mid threshold (YT-Multiband (Insert 2))");
     // 0 to 1 of 0..2: the curve's 0 to 0.5.
     expect(automation.points.map((p) => p.value)).toEqual([0, 0.5]);
   });

@@ -164,8 +164,8 @@ function TopBar({ effectId, reverb, enabled }: { effectId: string; reverb: Rever
   const mixSpec = REVERB_CONTROL_SPECS.mix;
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 border-b border-black/50 bg-[var(--verb-bar)] px-2" data-testid="reverb-top">
-      <span className="mr-2 flex items-baseline font-semibold tracking-wide" aria-hidden>
-        <span className="text-[15px] text-[var(--verb-decay)]">Reverb</span>
+      <span className="mr-2 flex shrink-0 items-baseline font-semibold tracking-wide whitespace-nowrap" aria-hidden>
+        <span className="text-[15px] text-[var(--verb-decay)]">YT-R</span>
       </span>
       <button type="button" aria-label="Previous preset" className={button} onClick={() => stepReverbPreset(effectId, -1)}>
         <PiCaretLeftFill className="size-2.5" />

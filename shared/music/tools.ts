@@ -21,39 +21,39 @@ const mixerTrack = (what = "A mixer track") =>
 const slot = int("An effect slot of the track, 1 to 10 (as the mixer numbers them).");
 /** Which Gross Beat a tool acts on, and its slots. */
 const grossRef = {
-  effect: str("The Gross Beat: its effect id (from get_mixer or get_gross_beat). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  effect: str("The YT-Time: its effect id (from get_mixer or get_gross_beat). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
 const grossKind = oneOf(["time", "volume"], "A time slot or a volume slot.");
 /** Which Pro-Q a tool acts on. */
 const eqRef = {
-  effect: str("The Pro-Q: its effect id (from get_mixer or get_pro_q). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  effect: str("The YT-EQ: its effect id (from get_mixer or get_pro_q). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
 const grossSlot = { description: "A slot: its number, 1 to 36, or its name (\"1/2 Speed\").", anyOf: [{ type: "string" }, { type: "integer" }] } as const;
 /** Which Auto-Tune a tool acts on. */
 const tuneRef = {
-  effect: str("The Auto-Tune: its effect id (from get_mixer or get_auto_tune). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  effect: str("The YT-Tune: its effect id (from get_mixer or get_auto_tune). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
 /** Which OTT a tool acts on. */
 const ottRef = {
-  effect: str("The OTT: its effect id (from get_mixer or get_ott). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  effect: str("The YT-Multiband: its effect id (from get_mixer or get_ott). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
 /** Which Pro-C a tool acts on. */
 const proCRef = {
-  effect: str("The Pro-C: its effect id (from get_mixer or get_pro_c). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  effect: str("The YT-C: its effect id (from get_mixer or get_pro_c). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
 /** Which Reverb a tool acts on. */
 const reverbRef = {
-  effect: str("The Reverb: its effect id (from get_mixer or get_reverb). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  effect: str("The YT-R: its effect id (from get_mixer or get_reverb). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
@@ -65,7 +65,7 @@ const proCBand = obj(
   {
     band: int("The band's number (1 to 6) to change or remove; none to add one."),
     remove: bool("Take the band out."),
-    shape: oneOf(["bell", "lowShelf", "lowCut", "highShelf", "highCut", "notch", "bandPass", "tiltShelf", "flatTilt"], "Its shape (Pro-Q's)."),
+    shape: oneOf(["bell", "lowShelf", "lowCut", "highShelf", "highCut", "notch", "bandPass", "tiltShelf", "flatTilt"], "Its shape (YT-EQ's)."),
     frequency: num("Hz, 10 to 30000."),
     gain: num("dB, -30 to 30 (bells, shelves, tilts)."),
     q: num("0.025 to 40; 1 is the default width."),
@@ -78,13 +78,13 @@ const proCBand = obj(
 );
 /** Which EchoBoy a tool acts on. */
 const echoRef = {
-  effect: str("The EchoBoy: its effect id (from get_mixer or get_echo_boy). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  effect: str("The YT-Delay: its effect id (from get_mixer or get_echo_boy). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
 /** Which Pitch Wheel a tool acts on. */
 const wheelRef = {
-  effect: str("The Pitch Wheel: its effect id (from get_mixer or get_pitch_wheel). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  effect: str("The YT-Pitch: its effect id (from get_mixer or get_pitch_wheel). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
@@ -105,7 +105,7 @@ const wheelFields = (what: string, value: string) =>
 const echoTime = (what: string) => ({ description: `${what}: a note value at the tempo ("1/8", "1/8 dot", "1/16 tri"; 1/2 to 1/64) or milliseconds ("350 ms", or a number), up to 15 s.`, anyOf: [{ type: "string" }, { type: "number" }] }) as const;
 /** Which PanMan a tool acts on. */
 const panRef = {
-  effect: str("The PanMan: its effect id (from get_mixer or get_panman). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  effect: str("The YT-Pan: its effect id (from get_mixer or get_panman). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
@@ -151,28 +151,28 @@ const controlFields = {
       ...["wheel pitch", "wheel timbre", "wheel pitch gravity", "wheel pitch inertia", "wheel pitch smooth", "wheel timbre gravity", "wheel timbre inertia", "wheel timbre smooth"],
     ],
     "Which control: a channel's or mixer track's volume or pan, a channel's pitch (semitones: a sampler's notes bend as they sound, a plugin channel's move by whole semitones), a track's stereo separation, the song's tempo (in BPM; it plays in song mode only, like all automation), a send's level, an effect slot's mix, the main volume, " +
-      "a plugin's own parameter, a Gross Beat's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
+      "a plugin's own parameter, a YT-Time's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
       "use hold curves, so each bar plays a slot: that's how chops are arranged), its time or volume knob, or its attack and release " +
-      "(\"gross attack\", \"gross release\": seconds, 0 to 0.5 and 0 to 1) or tension (\"gross tension\", -1 to 1); an Auto-Tune's (likewise): " +
+      "(\"gross attack\", \"gross release\": seconds, 0 to 0.5 and 0 to 1) or tension (\"gross tension\", -1 to 1); a YT-Tune's (likewise): " +
       "its retune speed (ms, 0 to 400), humanize and flex-tune (0 to 100), natural vibrato (dB, -12 to 12), transpose (semitones, -12 to 12), " +
       "throat (50 to 180), key (0 C .. 11 B, with hold curves: a key change), detune (cents, -100 to 100), tracking (0 to 100), or " +
       "Create Vibrato's (\"vibrato ...\": rate Hz 0.1 to 10, onset delay and onset rate ms 0 to 1500, variation 0 to 100, pitch cents 0 to 100, " +
-      "amplitude 0 to 30, formant 0 to 100); or an EchoBoy's (\"echo ...\": " +
+      "amplitude 0 to 30, formant 0 to 100); or a YT-Delay's (\"echo ...\": " +
       "mix and feedback 0 to 1, cuts in Hz, saturation 0 to 1, input and output dB, groove and feel -1 to 1, width 0 to 1, an echo time's " +
       "knob 0 to 1: automating a Time echo bends its pitch like tape, a note value steps through 1/2 .. 1/64; and Tweak's, Rhythm Echo's and " +
       "the Style Editor's knobs: offset, balance, accent, fb mix, fb balance, rhythm, rhythm shape, rhythm accent, low/mid/high freq, gain " +
       "and decay, mid res, diffusion, diffusion size, wobble depth, rate and sync, decay sat, out sat, in their knobs' units); " +
-      "or a Pro-Q's (the effect in `track`'s `slot`, \"eq ...\"): a band's (`band`) frequency (values in Hz: a filter sweep), gain or " +
-      "dynamic range (dB) or Q, or its output (dB), pan (-1 to 1) or gain scale (0 to 2, 1 is 100%); or an OTT's (\"ott ...\"): depth 0 to 1, time 0 to 10 (1 is 100%), in and out gain dB, " +
-      "upward and downward 0 to 2 (1 is 100%), a band's threshold 0 to 2 or gain dB; or a Pro-C's (\"pro-c ...\"): threshold dB -60 to 0, ratio 1 to 100 (100: ∞:1), knee and range dB, " +
-      "attack, release and hold in milliseconds, wet, dry, side chain level, input and output in dB, mix 0 to 2 (1 is 100%), drive 0 to 1, emphasis dB 0 to 10 (Opto 2A); or a Reverb's (\"reverb ...\": " +
+      "or a YT-EQ's (the effect in `track`'s `slot`, \"eq ...\"): a band's (`band`) frequency (values in Hz: a filter sweep), gain or " +
+      "dynamic range (dB) or Q, or its output (dB), pan (-1 to 1) or gain scale (0 to 2, 1 is 100%); or a YT-Multiband's (\"ott ...\"): depth 0 to 1, time 0 to 10 (1 is 100%), in and out gain dB, " +
+      "upward and downward 0 to 2 (1 is 100%), a band's threshold 0 to 2 or gain dB; or a YT-C's (\"pro-c ...\"): threshold dB -60 to 0, ratio 1 to 100 (100: ∞:1), knee and range dB, " +
+      "attack, release and hold in milliseconds, wet, dry, side chain level, input and output in dB, mix 0 to 2 (1 is 100%), drive 0 to 1, emphasis dB 0 to 10 (Opto 2A); or a YT-R's (\"reverb ...\": " +
       "mix 0 to 1, decay seconds 0.1 to 60 (61 is ∞), freeze 0 or 1 (hold curves: a throw frozen on a word), predelay ms, size, distance, " +
       "diffusion, mod, width 0 to 1.5, low cut and high cut Hz, de-ess dB 0 to 24, duck dB -24 to 0, auto decay 0 to 0.9, the duck's " +
       "threshold dB and attack, release and hold in ms, the shelves, mono below Hz, output dB; drier verses and a wetter chorus are a " +
-      "\"reverb mix\" curve); or a PanMan's (\"panman ...\": " +
+      "\"reverb mix\" curve); or a YT-Pan's (\"panman ...\": " +
       "offset in degrees, -105 left to 105 right, width in degrees 0 to 210, LFO rate in Hz 0.01 to 10, input and output in dB -24 to 24, " +
       "smoothing 0 to 1, feel and groove -1 to 1, trigger and threshold dB -40 to 0, divider 1 to 12, cutoff Hz, filter gain dB, attack and " +
-      "release seconds, offset mod and width mod degrees, rate mod octaves); or a Pitch Wheel's (\"wheel ...\": " +
+      "release seconds, offset mod and width mod degrees, rate mod octaves); or a YT-Pitch's (\"wheel ...\": " +
       "its pitch or timbre wheel in semitones, -24 to 24, snapped as the wheel snaps, its gravity, inertia and smooth followed as it moves, so a " +
       "jump with low gravity swings; or a wheel's gravity, inertia or smooth, 0 to 1).",
   ),
@@ -181,7 +181,7 @@ const controlFields = {
   to: mixerTrack("The track a send goes to"),
   slot: int("An effect slot of the track, 1 to 10 (its mix, or its plugin's parameters)."),
   parameter: str("A plugin's parameter: its name or id, from list_controls."),
-  band: int("A Pro-Q band's number (from get_pro_q), for its eq controls."),
+  band: int("A YT-EQ band's number (from get_pro_q), for its eq controls."),
 } as const;
 const automationPoints = arr(
   obj(
@@ -803,26 +803,25 @@ export const MUSIC_TOOLS = [
     kind: "action",
     description:
       "Put an effect in a mixer track's slot: the first empty one, or the slot given (replacing what's there). Its sound goes through the track's " +
-      "effects in slot order, before its fader. Either one of ours, whose settings you set: Pro-Q (plugin \"Pro-Q\": FabFilter's " +
-      "Pro-Q 3, a 24-band EQ with dynamic bands, mid/side, zero latency, natural or linear phase, set with set_pro_q_bands and " +
-      "update_pro_q), EchoBoy (plugin \"EchoBoy\": Soundtoys' echo: " +
+      "effects in slot order, before its fader. Either one of ours, whose settings you set: YT-EQ (plugin \"YT-EQ\": a 24-band EQ with dynamic bands, mid/side, zero latency, natural or linear phase, set with set_pro_q_bands and " +
+      "update_pro_q), YT-Delay (plugin \"YT-Delay\": Soundtoys' echo: " +
       "tape, analogue, digital, radio, chorus and diffused echoes in 31 styles, Single, Dual, Ping-Pong and Rhythm Echo, set with " +
-      "update_echo_boy), Gross Beat (plugin \"Gross Beat\": chops, repeats, stutters, half speed, tape stops, scratches, gates and " +
-      "sidechain pumping in time with the song, set with update_gross_beat and set_gross_beat_slot), Auto-Tune (plugin \"Auto-Tune\": " +
-      "pitch correction for vocals, from the hard-tuned sound to natural, set with update_auto_tune; put it on the vocal's track), PanMan (plugin \"PanMan\": " +
-      "Soundtoys' auto-panner, the sound moved across the stereo field by an LFO, a rhythm in time with the song, at random or on its " +
-      "hits, set with update_panman and set_panman_pattern) or Pitch Wheel " +
-      "(plugin \"Pitch Wheel\": QuikQuak's Pitchwheel, a pitch shifter played like a dial, the length kept: octaves, harmonies played by a " +
+      "update_echo_boy), YT-Time (plugin \"YT-Time\": chops, repeats, stutters, half speed, tape stops, scratches, gates and " +
+      "sidechain pumping in time with the song, set with update_gross_beat and set_gross_beat_slot), YT-Tune (plugin \"YT-Tune\": " +
+      "pitch correction for vocals, from the hard-tuned sound to natural, set with update_auto_tune; put it on the vocal's track), YT-Pan (plugin \"YT-Pan\": " +
+      "an auto-panner, the sound moved across the stereo field by an LFO, a rhythm in time with the song, at random or on its " +
+      "hits, set with update_panman and set_panman_pattern) or YT-Pitch " +
+      "(plugin \"YT-Pitch\": a pitch shifter played like a dial, the length kept: octaves, harmonies played by a " +
       "channel's notes, helium or giant voices with its Timbre wheel, tape slow-downs and swinging, springy pitch moves; set with " +
       "update_pitch_wheel), or " +
       "an effect plugin installed on this computer (list_plugins with kind \"effect\"), whose settings are its own, in its window, which the " +
-      "user opens from the mixer: you can't set them. OTT (plugin \"OTT\": Xfer's multiband upward/downward compressor, the squashed, " +
-      "bright, loud sound; set with update_ott) is ours as well, and so is Pro-C (plugin \"Pro-C\": FabFilter's Pro-C 3 compressor, ours, " +
-      "with 21 styles: Pro-C's own, Vox (one-knob vocal, after Waves' RVox) and a Vintage group after the 1176, LA-2A, CL 1B, Distressor, dbx 160 and " +
+      "user opens from the mixer: you can't set them. YT-Multiband (plugin \"YT-Multiband\": a multiband upward/downward compressor, the squashed, " +
+      "bright, loud sound; set with update_ott) is ours as well, and so is YT-C (plugin \"YT-C\": our compressor, " +
+      "with 21 styles: YT-C's own, Vox (one-knob vocal, after Waves' RVox) and a Vintage group after the 1176, LA-2A, CL 1B, Distressor, dbx 160 and " +
       "Neve 33609; a side chain EQ, an external side chain, Host Sync pumping; set with update_pro_c; add_vocal_compression sets up a vocal's compressors in one step), " +
-      "and so is the Reverb (plugin \"Reverb\": plates, rooms, chambers and halls made for vocals, with ducking, a de-esser and a synced " +
+      "and so is YT-R (plugin \"YT-R\": plates, rooms, chambers and halls made for vocals, with ducking, a de-esser and a synced " +
       "pre-delay built in; set with update_reverb and set_reverb_decay; add_vocal_reverb sets up a vocal's reverb send in one step, which is usually better).",
-    inputSchema: obj({ track: mixerTrack(), plugin: str('"Reverb", "Pro-C", "Pro-Q", "OTT", "EchoBoy", "Gross Beat", "Auto-Tune", "PanMan", "Pitch Wheel", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
+    inputSchema: obj({ track: mixerTrack(), plugin: str('"YT-R", "YT-C", "YT-EQ", "YT-Multiband", "YT-Delay", "YT-Time", "YT-Tune", "YT-Pan", "YT-Pitch", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
   }),
   tool({
     name: "update_mixer_effect",
@@ -867,7 +866,7 @@ export const MUSIC_TOOLS = [
     description:
       "Give an effect in a mixer track's slot a key (a sidechain: another track's sound it hears, as a compressor ducking the bass under the kick), " +
       "or take it off with source \"none\". No send is needed: the key orders the tracks itself, and a source whose sound already reaches the " +
-      "effect's track is refused (a loop). Pro-C hears it with its External trigger (turned on here), a Pro-Q's dynamic bands set to external " +
+      "effect's track is refused (a loop). YT-C hears it with its External trigger (turned on here), a YT-EQ's dynamic bands set to external " +
       "with it, and a plugin with a sidechain input (get_mixer says whether it has one) on that input. `tap`: where the source's sound is taken: " +
       "preFx (before its effects), postFx (after them, before its fader: the default; its fader and mute don't change the ducking, so a muted " +
       "\"ghost\" kick still keys) or postFader (what leaves the track, FL's way). duck_with_sidechain sets up a whole duck in one step.",
@@ -881,7 +880,7 @@ export const MUSIC_TOOLS = [
     title: "Duck a track to another",
     kind: "edit",
     description:
-      "The quickest sidechain duck (a bass or a bus pumping under the kick): a Pro-C in `track`'s first empty slot with the " +
+      "The quickest sidechain duck (a bass or a bus pumping under the kick): a YT-C in `track`'s first empty slot with the " +
       "\"Sidechain – Duck to Kick\" preset (Clean, ∞:1, 1 ms attack, 150 ms release), keyed by `source`, in one step. Tune it after with " +
       "update_pro_c (threshold: how deep; release: how long it pumps).",
     inputSchema: obj({ source: mixerTrack("The track that ducks the other (the kick)"), track: mixerTrack("The track that's ducked"), tap: oneOf(SIDECHAIN_TAPS, "Where the key is taken (default postFx).") }, ["source", "track"]),
@@ -897,22 +896,22 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "get_pro_q",
-    title: "Read a Pro-Q",
+    title: "Read a YT-EQ",
     kind: "look",
     description:
-      "A Pro-Q (FabFilter's Pro-Q 3 EQ, ours, in a mixer track's slot): its processing mode and latency, output, Gain Scale and Auto Gain, " +
+      "A YT-EQ (our equalizer, in a mixer track's slot): its processing mode and latency, output, Gain Scale and Auto Gain, " +
       "its bands (shape, frequency, gain, Q, slope, placement, dynamics) and the curve they make, in dB at each octave's centre.",
     inputSchema: obj({ ...eqRef }),
   }),
   tool({
     name: "set_pro_q_bands",
-    title: "Shape a Pro-Q",
+    title: "Shape a YT-EQ",
     kind: "edit",
     description:
-      "Add, change or remove a Pro-Q's bands (24 at most). A band without `band` is added (give its frequency); with `band` (its number), " +
+      "Add, change or remove a YT-EQ's bands (24 at most). A band without `band` is added (give its frequency); with `band` (its number), " +
       "only what's given changes, or `remove` takes it out. Shapes: bell, lowShelf, lowCut, highShelf, highCut, notch, bandPass, tiltShelf " +
       "(tilts round its frequency: -gain/2 below, +gain/2 above), flatTilt (a straight tilt over the whole spectrum: gain/5 dB per octave). " +
-      "Q is Pro-Q's: 1 is the default width (a Bell 1.9 octaves wide at half its gain; Q 2 is 1 octave), higher is narrower; on a cut it's " +
+      "Q is YT-EQ's: 1 is the default width (a Bell 1.9 octaves wide at half its gain; Q 2 is 1 octave), higher is narrower; on a cut it's " +
       "resonance (1 is flat Butterworth, 0.71 is -6 dB at the frequency). Slope in dB/oct, 6 to 96 (Bell and Notch from 12), or brickwall on " +
       "cuts. A dynamic band (`range` not 0, Bell and shelves) moves its gain toward gain + range when the sound in its range is loud " +
       "(negative: tame a resonance, de-ess; positive: bring out what's loud); its threshold is auto by default. Placement puts a band on " +
@@ -946,10 +945,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "update_pro_q",
-    title: "Change a Pro-Q",
+    title: "Change a YT-EQ",
     kind: "edit",
     description:
-      "Set a Pro-Q's processing mode (zeroLatency; naturalPhase: analog phase, 7.3 ms late; linearPhase: no phase change, more latency by " +
+      "Set a YT-EQ's processing mode (zeroLatency; naturalPhase: analog phase, 7.3 ms late; linearPhase: no phase change, more latency by " +
       "resolution, and dynamic bands only up to high), output level and pan, phase, Auto Gain, Gain Scale (scales every band's gain), Gain-Q " +
       "interaction, display range; load a factory preset; or switch or copy A/B.",
     inputSchema: obj({
@@ -970,21 +969,21 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "get_ott",
-    title: "Read an OTT",
+    title: "Read a YT-Multiband",
     kind: "look",
     description:
-      "An OTT (Xfer's multiband upward and downward compressor, ours, in a mixer track's slot): its depth, time, in and out gain, upward " +
+      "An YT-Multiband (a multiband upward and downward compressor, ours, in a mixer track's slot): its depth, time, in and out gain, upward " +
       "and downward strength, each band's (low below 88 Hz, mid, high above 2.5 kHz) threshold, gain and which compressors are on, where " +
       "each band's upward and downward ranges start, and what it does to a band at a few levels; the presets.",
     inputSchema: obj({ ...ottRef }),
   }),
   tool({
     name: "update_ott",
-    title: "Change an OTT",
+    title: "Change a YT-Multiband",
     kind: "edit",
     description:
-      "Set an OTT's knobs or load a preset. Depth is how much of it there is (0 leaves the sound alone; 0.2 to 0.5 is a common amount, " +
-      "1 is OTT's over-the-top default). Time scales the release (1 is OTT's own, 100%; lower pumps faster). In gain pushes the sound into " +
+      "Set a YT-Multiband's knobs or load a preset. Depth is how much of it there is (0 leaves the sound alone; 0.2 to 0.5 is a common amount, " +
+      "1 is YT-Multiband's over-the-top default). Time scales the release (1 is YT-Multiband's own, 100%; lower pumps faster). In gain pushes the sound into " +
       "the downward compression (more squash), out gain makes up level after. Upward lifts quiet sound, downward pushes loud sound down " +
       "(each 0 to 2, 1 is 100%). Each band (low, mid, high) has a threshold (0 to 2, 1 is 100%: higher moves both its thresholds up, more " +
       "lift for quiet sound and less push on loud), a gain (dB, -24 to 6), and its upward and downward compressors on or off.",
@@ -992,7 +991,7 @@ export const MUSIC_TOOLS = [
       ...ottRef,
       preset: str("A preset's name (it sets everything): Default, Gentle, Half, Upward only, Downward only, Bright, Sub tamer, Vocal glue, Drum smash, Pad bloom."),
       depth: num("0 to 1."),
-      time: num("0 to 10 (1 is 100%, OTT's own)."),
+      time: num("0 to 10 (1 is 100%, YT-Multiband's own)."),
       input: num("In gain, dB, -24 to 19.1."),
       output: num("Out gain, dB, -24 to 19.1."),
       upward: num("Upward strength, 0 to 2 (1 is 100%)."),
@@ -1015,21 +1014,21 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "get_pro_c",
-    title: "Read a Pro-C",
+    title: "Read a YT-C",
     kind: "look",
     description:
-      "A Pro-C (FabFilter's Pro-C 3 compressor, ours, in a mixer track's slot): its style and what it is, every knob in its units (a " +
+      "A YT-C (our compressor, in a mixer track's slot): its style and what it is, every knob in its units (a " +
       "Vintage style's Input, ratio buttons and time dials too), its static curve (what comes out for a few levels in), its side chain " +
       "(trigger, source track, EQ bands, link), its latency, and while the song plays the gain reduction now and the key's level; the styles and presets.",
     inputSchema: obj({ ...proCRef }),
   }),
   tool({
     name: "update_pro_c",
-    title: "Change a Pro-C",
+    title: "Change a YT-C",
     kind: "edit",
     description:
-      "Set a Pro-C's style, knobs or a preset. Styles: clean, versatile, smooth, punch, upward (turns quiet sound up), ttm (three-band " +
-      "OTT-style), opEl (opto tube), variMu, classic (feedback), opto, vocal (automatic knee and ratio: just set the threshold), vox (one " +
+      "Set a YT-C's style, knobs or a preset. Styles: clean, versatile, smooth, punch, upward (turns quiet sound up), ttm (three-band " +
+      "YT-Multiband-style), opEl (opto tube), variMu, classic (feedback), opto, vocal (automatic knee and ratio: just set the threshold), vox (one " +
       "fader after Waves' RVox: threshold is its Compression fader, with options.gate and options.ceiling), mastering, bus (the SSL bus), " +
       "pumping, and the Vintage units: fet (the 1176: ratios 4, 8, 12, 20, options.allButtons; attack 0.02 to 0.8 ms, release 50 to 1100 ms), " +
       "opto2a (the LA-2A: threshold is -0.4 × its Peak Reduction 0 to 100; options.limit, options.emphasis), optoTube (the CL 1B: ratio 2 to " +
@@ -1062,7 +1061,7 @@ export const MUSIC_TOOLS = [
       input: num("Input level, dB, -36 to 36 (before everything)."),
       output: num("Output level, dB, -36 to 36 (after everything)."),
       oversampling: { type: "integer", enum: [1, 2, 4, 8, 16], description: "Oversampling (1: off). Adds latency." },
-      character: obj({ mode: oneOf(PRO_C_CHARACTERS, "Saturation: off, tube, diode, bright."), drive: num("0 to 1."), post: bool("After the compression (true, the default) or before.") }, [], "Pro-C 3's Character."),
+      character: obj({ mode: oneOf(PRO_C_CHARACTERS, "Saturation: off, tube, diode, bright."), drive: num("0 to 1."), post: bool("After the compression (true, the default) or before.") }, [], "Saturation character."),
       options: obj(
         {
           link: bool("Vintage: Output follows Input."),
@@ -1088,10 +1087,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "set_pro_c_sidechain",
-    title: "Set a Pro-C's side chain",
+    title: "Set a YT-C's side chain",
     kind: "edit",
     description:
-      "What a Pro-C listens to and how. trigger: internal (its own input), external (its key: another mixer track's sound, " +
+      "What a YT-C listens to and how. trigger: internal (its own input), external (its key: another mixer track's sound, " +
       "ducking the bass under the kick, a vocal ducking the beat; give `source` (no send is needed) and optionally `tap`; set_sidechain " +
       "does the same for any effect), or sync (pulses on the song's beat: pumping with no kick; `note` 1 to 32 as 1/n, `offset` 0.5 to 2 " +
       "for dotted / triplet feels, `length` 0 to 1 of the period). level: dB into the detector. link: 0 to 2 (0 unlinked, 1 linked, past 1 " +
@@ -1111,10 +1110,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "set_pro_c_bands",
-    title: "Shape a Pro-C's side chain",
+    title: "Shape a YT-C's side chain",
     kind: "edit",
     description:
-      "Add, change or remove a Pro-C's side chain EQ bands (6 at most): what the detector hears, not what's heard. A high-pass at 80 to " +
+      "Add, change or remove a YT-C's side chain EQ bands (6 at most): what the detector hears, not what's heard. A high-pass at 80 to " +
       "150 Hz stops a vocal's plosives and the low end triggering it; a bell boost at 5 to 8 kHz makes it react to sibilance (a wide " +
       "de-esser); a cut makes it ignore a range. A band without `band` is added; with it, only what's given changes, or `remove` takes it out.",
     inputSchema: obj({ ...proCRef, clear: bool("Remove every band first."), bands: arr(proCBand, "Bands to add, change or remove.") }),
@@ -1124,10 +1123,10 @@ export const MUSIC_TOOLS = [
     title: "Compress a vocal",
     kind: "edit",
     description:
-      "Set up a vocal track's compression the way mix engineers do, in one step, in its first free effect slots (after an Auto-Tune or Pro-Q " +
+      "Set up a vocal track's compression the way mix engineers do, in one step, in its first free effect slots (after a YT-Tune or YT-EQ " +
       "already there). kind: twoStage (the default: FET 76 catching the peaks at 4:1, attack 3, release 7, then Opto 2A levelling the " +
       "phrase: the 1176-into-LA-2A chain), tracking (one Opto Tube, the CL 1B rap and R&B vocals are recorded through), rough (one Vocal " +
-      "style: the quick dense vocal to write over, in place of a heavy OTT), vox (Waves RVox's one-fader way), or parallel (the two-stage " +
+      "style: the quick dense vocal to write over, in place of a heavy YT-Multiband), vox (Waves RVox's one-fader way), or parallel (the two-stage " +
       "chain plus FET all buttons crushing under it). `amount` is how hard: light, medium (the default) or heavy. Returns the effects' ids.",
     inputSchema: obj(
       {
@@ -1140,10 +1139,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "get_reverb",
-    title: "Read a Reverb",
+    title: "Read YT-R",
     kind: "look",
     description:
-      "A Reverb (ours, in a mixer track's slot: a vocal reverb): its mode and era, every setting in its units (Decay at 1 kHz, the " +
+      "YT-R (ours, in a mixer track's slot: a vocal reverb): its mode and era, every setting in its units (Decay at 1 kHz, the " +
       "pre-delay in ms or as a note value and what that is at the tempo, size, distance, diffusion, modulation and how many cents it " +
       "makes, width, the cuts, de-ess and ducking with its key, the advanced controls), the T60 at each octave band (the Decay EQ's " +
       "bands shaping it), Mix and Mix Lock; the modes with a line each, the eras, and the presets.",
@@ -1151,10 +1150,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "update_reverb",
-    title: "Change a Reverb",
+    title: "Change YT-R",
     kind: "edit",
     description:
-      "Set a Reverb: a preset first (it sets the sound; Mix stays while Mix Lock is on), then any control over it. Values can be given in " +
+      "Set YT-R: a preset first (it sets the sound; Mix stays while Mix Lock is on), then any control over it. Values can be given in " +
       `units ("2.4 s", "-6 dB", "200 Hz", "40 ms", "1/16", "1/8 dot") or as numbers in the control's own (seconds, dB, Hz, 0 to 1). How a ` +
       "vocal reverb sits: pre-delay 20 to 80 ms (or 1/64 to 1/16 at the tempo) leaves the consonants clear; duck -4 to -10 dB keeps the " +
       "tail out of the words; de-ess 4 to 10 dB keeps esses out of it; low cut 150 to 300 Hz and high cut 6 to 9 kHz on the return; " +
@@ -1211,7 +1210,7 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "set_reverb_decay",
-    title: "Shape a Reverb's decay",
+    title: "Shape a YT-R's decay",
     kind: "edit",
     description:
       "The Decay EQ (Pro-R 2's Decay Rate EQ): how much longer or shorter than Decay each frequency rings, up to 6 bands. A band is a " +
@@ -1247,7 +1246,7 @@ export const MUSIC_TOOLS = [
     title: "Add a vocal reverb",
     kind: "edit",
     description:
-      "Set up a vocal's reverb the way mix engineers do, in one step: a new insert track named after the vocal (\"Vox Verb\"), a Reverb " +
+      "Set up a vocal's reverb the way mix engineers do, in one step: a new insert track named after the vocal (\"Vox Verb\"), YT-R " +
       "on it at 100% wet with Mix Lock on and a vocal preset, a post-fader send from the vocal's track at a level that sits the reverb " +
       "about 14 LU under the voice (listeners prefer it that dry; 9 LU or less is too wet), its Duck keyed from the vocal. kind: lead " +
       "(the default: Vocal Plate), rap (Rap Room), ballad (Ballad Hall), backing (Harmony Plate), or a preset's name. pair: two sends, " +
@@ -1265,20 +1264,20 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "get_echo_boy",
-    title: "Read an EchoBoy",
+    title: "Read a YT-Delay",
     kind: "look",
     description:
-      "An EchoBoy (Soundtoys' echo, ours, in a mixer track's slot): its mode, echo times (and what they are at the tempo), mix, feedback, " +
+      "An YT-Delay (Soundtoys' echo, ours, in a mixer track's slot): its mode, echo times (and what they are at the tempo), mix, feedback, " +
       "cuts, saturation and levels, groove and feel, its mode's Tweak controls, Rhythm Echo's taps, its style (and, edited or asked for, " +
       "the style's settings), and the styles and presets to choose from.",
     inputSchema: obj({ ...echoRef, style: bool("Say the style's settings even if it hasn't been edited.") }),
   }),
   tool({
     name: "update_echo_boy",
-    title: "Change an EchoBoy",
+    title: "Change a YT-Delay",
     kind: "edit",
     description:
-      "Set an EchoBoy: load a preset (first, then the rest applies over it), its mode and echo times, its knobs, its style, Rhythm Echo's " +
+      "Set a YT-Delay: load a preset (first, then the rest applies over it), its mode and echo times, its knobs, its style, Rhythm Echo's " +
       "pattern or taps, and the Style Editor's settings (it then says Custom). How it sounds: each repeat goes round again through the style " +
       "(its EQ's Decay darkens or thins every repeat, its saturation dirties it), so feedback makes the repeats change, not just repeat. " +
       "Single Echo is one time (stereo, Width spreads it); Dual is Echo 1 left, Echo 2 right; Ping-Pong is Ping left then Pong right after it; " +
@@ -1299,7 +1298,7 @@ export const MUSIC_TOOLS = [
       input: num("dB, -24 to 24: into the echo (pushing it dirties it)."),
       output: num("dB, -24 to 24: the echo's level out (the dry sound is untouched)."),
       style: str("An Echo Style: Studio Tape, Space Echo, Memory Man, DM-2, TelRay, Telephone, Digital Delay... (get_echo_boy lists all 31)."),
-      tempo: { description: '"song" to follow the song\'s tempo, or EchoBoy\'s own BPM (30 to 300).', anyOf: [{ type: "string" }, { type: "number" }] },
+      tempo: { description: '"song" to follow the song\'s tempo, or YT-Delay\'s own BPM (30 to 300).', anyOf: [{ type: "string" }, { type: "number" }] },
       groove: num("-1 (shuffle: every other repeat later) to 1 (swing: earlier); 0 straight."),
       feel: num("-1 (rushin': every echo up to 30 ms early) to 1 (draggin': late)."),
       width: num("0 (mono echo) to 1 (wider than the speakers); 0.75 is full stereo."),
@@ -1361,10 +1360,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "get_gross_beat",
-    title: "Read a Gross Beat",
+    title: "Read a YT-Time",
     kind: "look",
     description:
-      "A Gross Beat (FL Studio's time and volume effect, in a mixer track's slot): what it plays, its knobs and options, its 36 time and 36 " +
+      "YT-Time (our time and volume effect, in a mixer track's slot): what it plays, its knobs and options, its 36 time and 36 " +
       "volume slots by name, and slots' envelopes (the two playing, or those asked for). A slot is a bar (4 beats) that repeats while it plays. " +
       "A time envelope says how many beats back the sound is read from (0 is now, 8 the most): flat is normal speed, down 1 beat per beat is " +
       "paused, down 2 per beat is backwards at normal speed, a step down is a jump back (a repeat), up is faster. A volume envelope is a level.",
@@ -1375,10 +1374,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "update_gross_beat",
-    title: "Change a Gross Beat",
+    title: "Change a YT-Time",
     kind: "edit",
     description:
-      "Pick which time and volume slots a Gross Beat plays (from its next TRIG SYNC point, while the song plays), turn its knobs and set its " +
+      "Pick which time and volume slots a YT-Time plays (from its next TRIG SYNC point, while the song plays), turn its knobs and set its " +
       "options. To change slots over the song (a chop arrangement), automate them: add_automation with control \"time slot\" or \"volume slot\".",
     inputSchema: obj({
       ...grossRef,
@@ -1402,10 +1401,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "set_gross_beat_slot",
-    title: "Draw a Gross Beat slot",
+    title: "Draw a YT-Time slot",
     kind: "edit",
     description:
-      "Draw a Gross Beat slot's envelope (a custom chop, stutter, gate...), name it, clear it (empty: a time slot at now, a volume slot at full), " +
+      "Draw a YT-Time slot's envelope (a custom chop, stutter, gate...), name it, clear it (empty: a time slot at now, a volume slot at full), " +
       "or give it back its preset (`reset`). It's picked so it plays, unless `pick` is false. Points are in order of `beat` (0 to 4, across " +
       "the bar; the first is at 0): for a time slot `back` (beats back the sound is read from, 0 to 8), for a volume slot `level` (0 to 1). " +
       "A point's `curve` is how the line gets there from the point before: single (straight, or bent by tension), hold (stays at the last " +
@@ -1434,7 +1433,7 @@ export const MUSIC_TOOLS = [
         ),
         name: str("The slot's new name."),
         clear: bool("Empty it first."),
-        reset: bool("Give it back its preset (its points and name as Gross Beat comes)."),
+        reset: bool("Give it back its preset (its points and name as YT-Time comes)."),
         pick: bool("Pick it so it plays (default true)."),
       },
       ["kind", "slot"],
@@ -1442,10 +1441,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "get_auto_tune",
-    title: "Read an Auto-Tune",
+    title: "Read a YT-Tune",
     kind: "look",
     description:
-      "An Auto-Tune (Antares Auto-Tune Pro's Auto mode, ours, in a mixer track's slot): its input type, key and scale and each note's state " +
+      "An YT-Tune (Antares YT-Tune Pro's Auto mode, ours, in a mixer track's slot): its input type, key and scale and each note's state " +
       "(tuned to, bypassed: left as sung, removed: never a target), detune, retune speed, humanize, flex-tune, natural vibrato, tracking, " +
       "transpose, formant and throat, classic mode, created vibrato, the preset its sound matches and the presets there are, the key the song's " +
       "notes suggest, and what it heard lately (the notes sung and how far they were corrected) while sound went through it.",
@@ -1453,10 +1452,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "update_auto_tune",
-    title: "Change an Auto-Tune",
+    title: "Change a YT-Tune",
     kind: "edit",
     description:
-      "Set an Auto-Tune. Retune speed is how fast a note is pulled to its target: 0 ms is the hard-tuned, robotic sound (T-Pain, modern rap), " +
+      "Set a YT-Tune. Retune speed is how fast a note is pulled to its target: 0 ms is the hard-tuned, robotic sound (T-Pain, modern rap), " +
       "10 to 20 tight modern pop, 30 to 80 natural, more is barely there. Humanize slows it on long notes only; flex-tune only corrects what's " +
       "sung near a note (0 corrects everything). Set the key and scale to the song's (or `detectKey`: from the song's notes): a note not in " +
       "the scale is never a target. A preset sets the sound (retune, humanize, flex-tune, vibrato, transpose, formant...) and leaves the key, " +
@@ -1485,7 +1484,7 @@ export const MUSIC_TOOLS = [
       transpose: int("Semitones, -12 to 12."),
       formant: bool("Keep the voice's formants (its character) when its pitch moves (on by default); off, they move with it (a chipmunk up, a giant down)."),
       throat: num("50 to 180 (100 as sung): the throat modelled longer (deeper) or shorter (brighter). Needs formant on."),
-      classic: bool("Classic mode: the Auto-Tune 5 sound, sharper steps between notes (no formant, throat, transpose or flex-tune)."),
+      classic: bool("Classic mode: the YT-Tune 5 sound, sharper steps between notes (no formant, throat, transpose or flex-tune)."),
       ignoreVibrato: bool("The target note is chosen from the sung pitch's centre, so a wide vibrato doesn't flip between notes."),
       vibrato: obj(
         {
@@ -1505,20 +1504,20 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "get_panman",
-    title: "Read a PanMan",
+    title: "Read a YT-Pan",
     kind: "look",
     description:
-      "A PanMan (Soundtoys' auto-panner, in a mixer track's slot): its mode, its knobs and options, its pattern, its preset, and where it's " +
+      "A YT-Pan (an auto-panner, in a mixer track's slot): its mode, its knobs and options, its pattern, its preset, and where it's " +
       "putting the sound now. Positions are degrees: 0 the centre, -90 / 90 hard left / right, ±105 beyond the speakers. The sound (summed " +
       "to mono) moves around Offset over Width.",
     inputSchema: obj(panRef),
   }),
   tool({
     name: "update_panman",
-    title: "Change a PanMan",
+    title: "Change a YT-Pan",
     kind: "edit",
     description:
-      "Load a PanMan's factory preset and / or set its controls. Modes: lfo (a shape repeated at `rate` Hz, out of time with the song), " +
+      "Load a YT-Pan's factory preset and / or set its controls. Modes: lfo (a shape repeated at `rate` Hz, out of time with the song), " +
       "rhythmStep (steps between `steps` positions, one a `rhythm` long), rhythmShape (one cycle of the direction's shape a `rhythm` long), " +
       "pingPong (side to side on the sound's hits over `trigger` dB, every `divider`th), random (a new place every `rhythm`), step (a new " +
       "random place on the hits). The dynamics (lfo and the rhythms) move the offset, width and rate with the sound's level over " +
@@ -1563,10 +1562,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "set_panman_pattern",
-    title: "Draw a PanMan rhythm",
+    title: "Draw a YT-Pan rhythm",
     kind: "edit",
     description:
-      "Draw a PanMan's own rhythm, as its editors do, and play it (custom). For rhythmStep, `points`: positions held from their beat until the " +
+      "Draw a YT-Pan's own rhythm, as its editors do, and play it (custom). For rhythmStep, `points`: positions held from their beat until the " +
       "next point (moving into it over the last Smoothing of the time). For rhythmShape, `events`: each plays one whole cycle of the direction's " +
       "shape (a sweep, or there and back) over its length. Beats count from the pattern's start (0) across its `bars` of `beatsPerBar` " +
       "beats; it repeats. Example, a dotted pan: points { beat 0, position -1 } { beat 0.75, position 1 } { beat 1.5, position 0 }.",
@@ -1584,10 +1583,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "get_pitch_wheel",
-    title: "Read a Pitch Wheel",
+    title: "Read a YT-Pitch",
     kind: "look",
     description:
-      "A Pitch Wheel (QuikQuak's Pitchwheel, ours, in a mixer track's slot): its pitch wheel and Timbre wheel (each: where its pointer is, in " +
+      "YT-Pitch (our pitch shifter, in a mixer track's slot): its pitch wheel and Timbre wheel (each: where its pointer is, in " +
       "semitones, and what that plays once snapped, its range, snap, gravity, inertia and smooth), whether the Timbre tab is on, Single or Multi, " +
       "the channel whose notes play it and its origin note, its resolution, the preset its sound matches and the presets there are, and what the " +
       "engine last said it was doing (the pitch and timbre actually heard, which lag and swing behind the pointers; the notes playing it; " +
@@ -1596,10 +1595,10 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "update_pitch_wheel",
-    title: "Change a Pitch Wheel",
+    title: "Change a YT-Pitch",
     kind: "edit",
     description:
-      "Set a Pitch Wheel: it shifts the pitch of what goes through it without changing its length. The pitch wheel's pointer is the shift in " +
+      "Set a YT-Pitch: it shifts the pitch of what goes through it without changing its length. The pitch wheel's pointer is the shift in " +
       "semitones (12 an octave up, -5 a fourth down), within half its range either way; what's heard follows the pointer as its gravity, inertia " +
       "and smooth say (high gravity: at once; low gravity: it overshoots and swings, the turntable feel; smooth: glides). With the Timbre tab on " +
       "(`timbreOn`, the default) the voice's formants are the Timbre wheel's: at 0 the character stays as it was while the pitch moves (no " +

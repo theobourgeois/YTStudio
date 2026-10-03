@@ -423,45 +423,45 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const slot = slotForEffect(target.song, track, input);
     const wanted = String(input.plugin ?? "").trim().toLowerCase();
     // Ours first: Pro-Q and Gross Beat aren't plugins, and their settings are the song's (the tools set them).
-    if (wanted === PRO_Q_PLUGIN.name.toLowerCase() || wanted === PRO_Q_PLUGIN.id || wanted === "proq" || wanted === "pro-q 3" || wanted === "pro q") {
+    if (wanted === PRO_Q_PLUGIN.name.toLowerCase() || wanted === PRO_Q_PLUGIN.id || wanted === "pro-q" || wanted === "proq" || wanted === "pro-q 3" || wanted === "pro q") {
       const replaced = track.effects[slot];
       const id = createId("fx");
       await apply(target, (song) => setEffect(song, track.id, slot, PRO_Q_PLUGIN, id));
       return textResult(
-        `Put Pro-Q (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}. ` +
+        `Put YT-EQ (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}. ` +
           "It has no bands yet (the sound as it is): set_pro_q_bands shapes it, update_pro_q sets its mode and output, get_pro_q reads it.",
       );
     }
-    if (wanted === PRO_C_PLUGIN.name.toLowerCase() || wanted === PRO_C_PLUGIN.id || wanted === "proc" || wanted === "pro c" || wanted === "pro-c 3" || wanted === "compressor") {
+    if (wanted === PRO_C_PLUGIN.name.toLowerCase() || wanted === PRO_C_PLUGIN.id || wanted === "pro-c" || wanted === "proc" || wanted === "pro c" || wanted === "pro-c 3" || wanted === "compressor") {
       const replaced = track.effects[slot];
       const id = createId("fx");
       await apply(target, (song) => setEffect(song, track.id, slot, PRO_C_PLUGIN, id));
       return textResult(
-        `Put Pro-C (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}, at its default: the Vocal style, -18 dB, a side chain high-pass at 120 Hz. ` +
+        `Put YT-C (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}, at its default: the Vocal style, -18 dB, a side chain high-pass at 120 Hz. ` +
           "update_pro_c sets its style and knobs (or a preset), set_pro_c_sidechain and set_pro_c_bands its side chain, get_pro_c reads it.",
       );
     }
-    if (wanted === REVERB_PLUGIN.name.toLowerCase() || wanted === REVERB_PLUGIN.id || wanted === "verb" || wanted === "vocal reverb") {
+    if (wanted === REVERB_PLUGIN.name.toLowerCase() || wanted === REVERB_PLUGIN.id || wanted === "reverb" || wanted === "verb" || wanted === "vocal reverb") {
       const replaced = track.effects[slot];
       const id = createId("fx");
       const made = findReverb(setEffect(target.song, track.id, slot, REVERB_PLUGIN, id), id)?.reverb;
       await apply(target, (song) => setEffect(song, track.id, slot, REVERB_PLUGIN, id));
       return textResult(
-        `Put a Reverb (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}: the Vocal Plate preset, ` +
+        `Put YT-R (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}: the Vocal Plate preset, ` +
           `${made && made.mixLock ? "fully wet with Mix Lock on (this track has no channel of its own: a send's return)" : `at an insert's mix of ${Math.round((made?.mix ?? 0.18) * 100)}%`}. ` +
           "update_reverb sets it (a preset, mode, decay, pre-delay, ducking...), set_reverb_decay shapes its decay, get_reverb reads it. For a vocal, add_vocal_reverb (a send) is usually better than an insert.",
       );
     }
-    if (wanted === OTT_PLUGIN.name.toLowerCase() || wanted === OTT_PLUGIN.id || wanted === "xfer ott") {
+    if (wanted === OTT_PLUGIN.name.toLowerCase() || wanted === OTT_PLUGIN.id || wanted === "ott" || wanted === "xfer ott") {
       const replaced = track.effects[slot];
       const id = createId("fx");
       await apply(target, (song) => setEffect(song, track.id, slot, OTT_PLUGIN, id));
       return textResult(
-        `Put OTT (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}, at OTT's defaults (depth 100%: over the top). ` +
+        `Put YT-Multiband (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}, at YT-Multiband's defaults (depth 100%: over the top). ` +
           "update_ott sets it (a depth of 0.2 to 0.5 is common), get_ott reads it.",
       );
     }
-    if (wanted === GROSS_BEAT_PLUGIN.name.toLowerCase() || wanted === GROSS_BEAT_PLUGIN.id || wanted === "grossbeat") {
+    if (wanted === GROSS_BEAT_PLUGIN.name.toLowerCase() || wanted === GROSS_BEAT_PLUGIN.id || wanted === "gross beat" || wanted === "grossbeat") {
       const replaced = track.effects[slot];
       const id = createId("fx");
       await apply(target, (song) => setEffect(song, track.id, slot, GROSS_BEAT_PLUGIN, id));
@@ -470,7 +470,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           "It plays its Empty slots (the sound as it is) until you pick others: get_gross_beat lists them, update_gross_beat picks them, set_gross_beat_slot draws your own.",
       );
     }
-    if (wanted === AUTO_TUNE_PLUGIN.name.toLowerCase() || wanted === AUTO_TUNE_PLUGIN.id || wanted === "autotune" || wanted === "auto tune") {
+    if (wanted === AUTO_TUNE_PLUGIN.name.toLowerCase() || wanted === AUTO_TUNE_PLUGIN.id || wanted === "auto-tune" || wanted === "autotune" || wanted === "auto tune") {
       const replaced = track.effects[slot];
       const id = createId("fx");
       await apply(target, (song) => setEffect(song, track.id, slot, AUTO_TUNE_PLUGIN, id));
@@ -479,7 +479,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           "It comes hard-tuned (retune speed 0), Alto/Tenor, C Chromatic: set the song's key with update_auto_tune (key and scale, or detectKey), and its sound (a preset, or retune speed, humanize, flex-tune).",
       );
     }
-    if (wanted === ECHO_BOY_PLUGIN.name.toLowerCase() || wanted === ECHO_BOY_PLUGIN.id || wanted === "echo boy") {
+    if (wanted === ECHO_BOY_PLUGIN.name.toLowerCase() || wanted === ECHO_BOY_PLUGIN.id || wanted === "echoboy" || wanted === "echo boy") {
       const replaced = track.effects[slot];
       const id = createId("fx");
       await apply(target, (song) => setEffect(song, track.id, slot, ECHO_BOY_PLUGIN, id));
@@ -488,7 +488,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           "update_echo_boy sets it (a preset, its mode, times, style...); get_echo_boy reads it.",
       );
     }
-    if (wanted === PANMAN_PLUGIN.name.toLowerCase() || wanted === PANMAN_PLUGIN.id || wanted === "pan man") {
+    if (wanted === PANMAN_PLUGIN.name.toLowerCase() || wanted === PANMAN_PLUGIN.id || wanted === "panman" || wanted === "pan man") {
       const replaced = track.effects[slot];
       const id = createId("fx");
       await apply(target, (song) => setEffect(song, track.id, slot, PANMAN_PLUGIN, id));
@@ -497,7 +497,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           "It pans slowly back and forth (its Slow Pan preset) until you change it: get_panman reads it, update_panman sets it (presets, modes, knobs), set_panman_pattern draws your own rhythm.",
       );
     }
-    if (wanted === PITCH_WHEEL_PLUGIN.name.toLowerCase() || wanted === PITCH_WHEEL_PLUGIN.id || wanted === "pitchwheel" || wanted === "pitch-wheel") {
+    if (wanted === PITCH_WHEEL_PLUGIN.name.toLowerCase() || wanted === PITCH_WHEEL_PLUGIN.id || wanted === "pitch wheel" || wanted === "pitchwheel" || wanted === "pitch-wheel") {
       const replaced = track.effects[slot];
       const id = createId("fx");
       await apply(target, (song) => setEffect(song, track.id, slot, PITCH_WHEEL_PLUGIN, id));

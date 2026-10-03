@@ -322,7 +322,7 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
     case "proQ": {
       const found = findEffect(song, target.effect);
       const pq = found?.effect?.proQ;
-      const owner = found && pq ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Pro-Q";
+      const owner = found && pq ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted YT-EQ";
       const scale = EQ_CONTROL_SCALES[target.control];
       const own = target.control === "output" || target.control === "pan" || target.control === "gainScale" ? target.control : null;
       const band = own ? null : pq?.bands.find((b) => b.id === target.band);
@@ -349,7 +349,7 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
     case "grossBeat": {
       const found = findEffect(song, target.effect);
       const gb = found?.effect?.grossBeat;
-      const owner = found && gb ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Gross Beat";
+      const owner = found && gb ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted YT-Time";
       const control = target.control;
       if (control === "timeMix" || control === "volumeMix")
         return { name: control === "timeMix" ? "Time" : "Volume", owner, exists: !!gb, own: gb ? gb[control] : null, ...unit, format: percent };
@@ -386,7 +386,7 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
       const control = PAN_CONTROLS[target.control];
       return {
         name: control.name,
-        owner: found && pm ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted PanMan",
+        owner: found && pm ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted YT-Pan",
         exists: !!pm,
         own: pm ? panControlFraction(target.control, pm[target.control]) : null,
         toControl: (v) => panControlValue(target.control, v),
@@ -397,7 +397,7 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
     case "autoTune": {
       const found = findEffect(song, target.effect);
       const at = found?.effect?.autoTune;
-      const owner = found && at ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Auto-Tune";
+      const owner = found && at ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted YT-Tune";
       const info = AUTO_TUNE_CONTROL_INFO[target.control];
       const span = info.max - info.min;
       const toControl = (v: number) => {
@@ -417,7 +417,7 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
     case "pitchWheel": {
       const found = findEffect(song, target.effect);
       const pw = found?.effect?.pitchWheel;
-      const owner = found && pw ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Pitch Wheel";
+      const owner = found && pw ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted YT-Pitch";
       const info = PITCH_WHEEL_CONTROL_INFO[target.control];
       const span = info.max - info.min;
       const toControl = (v: number) => info.min + clamp(v, 0, 1) * span;
@@ -438,7 +438,7 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
       const spec = ECHO_CONTROL_SPECS[target.control];
       return {
         name: spec.name,
-        owner: found && eb ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted EchoBoy",
+        owner: found && eb ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted YT-Delay",
         exists: !!eb,
         own: eb ? spec.fromControl(spec.get(eb)) : null,
         toControl: spec.toControl,
@@ -452,7 +452,7 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
       const spec = OTT_CONTROL_SPECS[target.control];
       return {
         name: spec.name,
-        owner: found && ott ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted OTT",
+        owner: found && ott ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted YT-Multiband",
         exists: !!ott,
         own: ott ? spec.fromControl(spec.get(ott)) : null,
         toControl: spec.toControl,
@@ -466,7 +466,7 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
       const spec = REVERB_CONTROL_SPECS[target.control];
       return {
         name: spec.name,
-        owner: found && reverb ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Reverb",
+        owner: found && reverb ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted YT-R",
         exists: !!reverb,
         own: reverb ? spec.fromControl(spec.get(reverb)) : null,
         toControl: spec.toControl,
@@ -480,7 +480,7 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
       const spec = PRO_C_CONTROL_SPECS[target.control];
       return {
         name: spec.name,
-        owner: found && proC ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Pro-C",
+        owner: found && proC ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted YT-C",
         exists: !!proC,
         own: proC ? spec.fromControl(spec.get(proC)) : null,
         toControl: spec.toControl,

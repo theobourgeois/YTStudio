@@ -24,7 +24,7 @@ describe("the assistant's Reverb", () => {
     expect(findReverbRef(s, { effect: "fx_verb" }).effect.id).toBe("fx_verb");
     expect(findReverbRef(s, { track: 2 }).slot).toBe(1);
     expect(findReverbRef(s, {}).effect.id).toBe("fx_verb");
-    expect(() => findReverbRef(s, { track: 1 })).toThrow(/has no Reverb.*fx_verb/);
+    expect(() => findReverbRef(s, { track: 1 })).toThrow(/has no YT-R.*fx_verb/);
     expect(() => findReverbRef(createMusicProject("None"), {})).toThrow(/add_vocal_reverb/);
   });
 

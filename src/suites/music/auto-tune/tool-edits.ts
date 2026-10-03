@@ -31,20 +31,20 @@ type Input = Record<string, unknown>;
 export function findTune(song: MusicProject, input: Input) {
   const all = autoTunes(song);
   const list = () =>
-    all.length ? `The song's Auto-Tunes: ${all.map((t) => `${t.effect.id} (${trackLabel(song, t.track)}, slot ${t.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "Auto-Tune" puts one on a track.';
+    all.length ? `The song's YT-Tune instances: ${all.map((t) => `${t.effect.id} (${trackLabel(song, t.track)}, slot ${t.slot + 1})`).join(", ")}.` : 'The song has none: add_mixer_effect with plugin "YT-Tune" puts one on a track.';
   if (typeof input.effect === "string" && input.effect.trim()) {
     const found = findAutoTune(song, input.effect.trim());
-    if (!found) throw new Error(`There's no Auto-Tune "${input.effect}". ${list()}`);
+    if (!found) throw new Error(`There's no YT-Tune "${input.effect}". ${list()}`);
     return found;
   }
   if (input.track !== undefined && input.track !== "") {
     const track = findTrack(song, input.track);
     const on = all.filter((t) => t.track.id === track.id && (!Number.isInteger(input.effectSlot) || t.slot === (input.effectSlot as number) - 1));
-    if (!on.length) throw new Error(`${trackLabel(song, track)} has no Auto-Tune${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
+    if (!on.length) throw new Error(`${trackLabel(song, track)} has no YT-Tune${Number.isInteger(input.effectSlot) ? ` in slot ${String(input.effectSlot)}` : ""}. ${list()}`);
     return on[0];
   }
   if (all.length === 1) return all[0];
-  throw new Error(`Say which Auto-Tune ("effect" or "track"). ${list()}`);
+  throw new Error(`Say which YT-Tune ("effect" or "track"). ${list()}`);
 }
 
 const FLATS: Record<string, string> = { DB: "C#", EB: "D#", GB: "F#", AB: "G#", BB: "A#", CB: "B", FB: "E", "E#": "F", "B#": "C" };
@@ -105,7 +105,7 @@ export function describeAutoTune(song: MusicProject, input: Input, heard: readon
   const { track, slot, effect, autoTune: at } = findTune(song, input);
   const detected = detectKey(song);
   return [
-    `Auto-Tune ${effect.id}, slot ${slot + 1} of ${trackLabel(song, track)}${effect.enabled ? "" : " (bypassed)"}${effect.mix < 1 ? `, slot mix ${amount(effect.mix)}%` : ""}.`,
+    `YT-Tune ${effect.id}, slot ${slot + 1} of ${trackLabel(song, track)}${effect.enabled ? "" : " (bypassed)"}${effect.mix < 1 ? `, slot mix ${amount(effect.mix)}%` : ""}.`,
     ...settingsText(at),
     `Preset: ${currentPreset(at) ?? "none (custom)"}. Presets: ${AUTO_TUNE_PRESETS.map((p) => `${p.name} (${p.detail})`).join("; ")}.`,
     detected ? `The song's notes suggest ${keyText(detected.key, detected.scale)}${detected.fit > 0.75 ? "" : " (not clearly)"}.` : "The song has too few pitched notes to suggest a key.",
@@ -200,6 +200,6 @@ export function updateAutoTuneTool(song: MusicProject, input: Input): EditResult
   const now = findAutoTune(next, effect.id)!.autoTune;
   return {
     song: next,
-    text: [`Auto-Tune ${effect.id}${next === song ? " (already so)" : ""}:`, ...settingsText(now), `Preset: ${currentPreset(now) ?? "custom"}.`].join(" "),
+    text: [`YT-Tune ${effect.id}${next === song ? " (already so)" : ""}:`, ...settingsText(now), `Preset: ${currentPreset(now) ?? "custom"}.`].join(" "),
   };
 }

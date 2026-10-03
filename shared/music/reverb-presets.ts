@@ -8,7 +8,7 @@ import { clamp, isFiniteNumber } from "../math.ts";
 import { REVERB_ERAS, REVERB_MODES, REVERB_NOTES, REVERB_BAND_SHAPES, type PluginRef, type Reverb, type ReverbControl, type ReverbDecayBand, type ReverbNote, type ReverbState } from "./types.ts";
 
 /** What a Reverb effect is, as a slot's plugin: one of ours, run by the engine itself. */
-export const REVERB_PLUGIN: PluginRef = { id: "vaudio:reverb", name: "Reverb", format: "Vaudio" };
+export const REVERB_PLUGIN: PluginRef = { id: "vaudio:reverb", name: "YT-R", format: "Vaudio" };
 export const isReverb = (plugin: Pick<PluginRef, "id">) => plugin.id === REVERB_PLUGIN.id;
 
 /** Decay's range (s) and its ∞ (the top of the knob): the loop held, the input open. */

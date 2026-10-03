@@ -152,7 +152,7 @@ function TopBar({ effectId, proC }: { effectId: string; proC: ProC }) {
   return (
     <div className="flex h-8 shrink-0 items-center gap-1 border-b border-black/50 bg-[var(--comp-bar)] px-2" data-testid="pro-c-top">
       <span className="mr-3 flex items-baseline font-semibold tracking-wide" aria-hidden>
-        <span className="text-[15px] text-[var(--comp-arc)]">Pro·C</span>
+        <span className="text-[15px] text-[var(--comp-arc)]">YT-C</span>
         <span className="ml-1.5 text-[9.5px] font-medium tracking-[0.14em] text-[var(--comp-label)]">COMPRESSOR</span>
       </span>
       <button type="button" aria-label="Undo" className={button} disabled={!history || !canUndo(history)} onClick={() => useMusic.getState().undo()}>
@@ -215,7 +215,7 @@ function TopBar({ effectId, proC }: { effectId: string; proC: ProC }) {
       </span>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" aria-label="Pro-C's options" className={button}>
+          <button type="button" aria-label="YT-C's options" className={button}>
             <PiDotsThreeVertical className="size-3.5" />
           </button>
         </DropdownMenuTrigger>

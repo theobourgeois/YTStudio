@@ -321,7 +321,7 @@ describe("PanMan's sound", () => {
   it("names its controls for automation clips, the rate along a log scale", () => {
     const song = withPanMan({ rate: 1 });
     const rate = controlOf(song, { kind: "panMan", effect: FX, control: "rate" });
-    expect(rate).toMatchObject({ name: "Rate", owner: "PanMan (Insert 1)", exists: true });
+    expect(rate).toMatchObject({ name: "Rate", owner: "YT-Pan (Insert 1)", exists: true });
     close(rate.toControl(rate.own!), 1);
     close(panControlValue("rate", 0.5), Math.sqrt(0.01 * 10));
     close(panControlFraction("offset", 0), 0.5);

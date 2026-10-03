@@ -146,7 +146,7 @@ describe("OTT's automation", () => {
     expect(OTT_CONTROL_SPECS.time.toControl(0.5)).toBeCloseTo(1, 9);
     expect(OTT_CONTROL_SPECS.time.toControl(1)).toBe(10);
     expect(controlOf(song, { kind: "ott", effect: "fx_ott", control: "input" }).format(1)).toBe("+19.1 dB");
-    expect(controlOf(song, { kind: "ott", effect: "fx_nope", control: "depth" })).toMatchObject({ exists: false, owner: "A deleted OTT" });
+    expect(controlOf(song, { kind: "ott", effect: "fx_nope", control: "depth" })).toMatchObject({ exists: false, owner: "A deleted YT-Multiband" });
     expect(normalizeTarget({ kind: "ott", effect: "fx_ott", control: "midGain" })).toEqual({ kind: "ott", effect: "fx_ott", control: "midGain" });
     expect(normalizeTarget({ kind: "ott", effect: "fx_ott", control: "ratio" })).toBeNull();
   });

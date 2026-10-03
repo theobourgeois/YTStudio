@@ -247,7 +247,7 @@ describe("EchoBoy's automation", () => {
     expect(normalizeTarget({ kind: "echoBoy", effect: "fx_echo", control: "volume" })).toBeNull();
     const song = updateEchoBoy(withEchoBoy(), "fx_echo", { highCut: 4000 });
     const cut = controlOf(song, { kind: "echoBoy", effect: "fx_echo", control: "highCut" });
-    expect(cut).toMatchObject({ name: "High Cut", owner: "EchoBoy (Insert 1)", exists: true });
+    expect(cut).toMatchObject({ name: "High Cut", owner: "YT-Delay (Insert 1)", exists: true });
     expect(cut.format(cut.own!)).toBe("4.00 kHz");
     expect(cut.toControl(1)).toBeCloseTo(20_000);
     expect(cut.toControl(cut.own!)).toBeCloseTo(4000);

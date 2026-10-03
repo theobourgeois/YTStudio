@@ -151,6 +151,7 @@ function TopBar({ effectId, at }: { effectId: string; at: AutoTune }) {
   const copied = useTuneUi((s) => s.copiedState !== null);
   return (
     <div className="@container flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-surface-1 px-2">
+      <span className="shrink-0 px-1 text-[13px] font-semibold tracking-wide">YT-Tune</span>
       <Choice label="Input" testId="tune-input" value={at.input} options={AUTO_TUNE_INPUTS.map((v) => ({ value: v, text: INPUT_TYPES[v].name }))} onChange={(input) => setTune(effectId, { input })} />
       <span className="mx-0.5 h-5 w-px bg-line" />
       <Choice label="Key" testId="tune-key" value={at.key} options={NOTE_NAMES.map((name, key) => ({ value: key, text: name }))} onChange={(key) => setTune(effectId, { key })} />
@@ -220,7 +221,7 @@ function TopBar({ effectId, at }: { effectId: string; at: AutoTune }) {
         title={at.classic ? "Classic mode has no formant correction" : "Formant: keep the voice's character when its pitch moves (off, it moves with the pitch, as a tape would)"}
         onClick={() => setTune(effectId, { formant: !at.formant })}
       />
-      <Toggle label="Classic" on={at.classic} title="Classic mode: the Auto-Tune 5 sound, sharper between notes (no Formant, Throat, Transpose or Flex-Tune)" onClick={() => setTune(effectId, { classic: !at.classic })} />
+      <Toggle label="Classic" on={at.classic} title="Classic mode: sharper pitch correction between notes (no Formant, Throat, Transpose or Flex-Tune)" onClick={() => setTune(effectId, { classic: !at.classic })} />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button type="button" aria-label="Options" title="Options" className="grid size-7 shrink-0 place-items-center rounded-sm raised text-muted-foreground hover:raised-hover hover:text-foreground">
