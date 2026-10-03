@@ -25,6 +25,8 @@ export interface FloatingWindowProps {
   /** Where it opens (and, if it's resizable, how big, and whether it fills the desktop), until it's moved. */
   initial: WindowPlace;
   onClose: () => void;
+  /** Called when a pointer activates this window, so native surfaces can follow its stacking order. */
+  onActivate?: () => void;
   /** At the start of the title bar (the window's menu arrow). */
   menu?: ReactNode;
   /** Shown instead of the title's text (which still names the window): a selector, as the Piano roll's channel. */
@@ -100,7 +102,7 @@ const CONTROLS = "button, [role=slider], [role=spinbutton], [role=tab], input";
  * top) or half of it (drag it to a side). Everything in the music editor is one of these, and so is
  * Settings, on the app's own desktop.
  */
-export function FloatingWindow({ id, title, initial, onClose, menu, heading, tools, controls, resizable, keepsKeys, escapeCloses = true, className, children }: FloatingWindowProps) {
+export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, heading, tools, controls, resizable, keepsKeys, escapeCloses = true, className, children }: FloatingWindowProps) {
   const windows = useWindowsStore();
   const ref = useRef<HTMLElement>(null);
   // What had the focus before it opened (read while rendering, before a field in it takes it with `autoFocus`).
@@ -212,7 +214,7 @@ export function FloatingWindow({ id, title, initial, onClose, menu, heading, too
     <section
       ref={ref}
       aria-label={title}
-      tabIndex={keepsKeys ? -1 : undefined}
+      tabIndex={-1}
       onKeyDown={onKeyDown}
       data-window={id}
       data-snap={snap ?? undefined}
@@ -224,7 +226,15 @@ export function FloatingWindow({ id, title, initial, onClose, menu, heading, too
         className,
       )}
       style={{ ...style, zIndex: 10 + (z < 0 ? 0 : z) }}
-      onPointerDownCapture={() => windows.getState().focus(id)}
+      onPointerDownCapture={(e) => {
+        // Portalled menus belong to this React tree, but aren't clicks on the window.
+        if (!e.currentTarget.contains(e.target as Node)) return;
+        windows.getState().focus(id);
+        // Controls keep their own focus; a canvas or title gives keys to the window.
+        const control = (e.target as Element).closest('input, textarea, select, button, a[href], [tabindex], [contenteditable="true"]');
+        if (!control || control === e.currentTarget) e.currentTarget.focus({ preventScroll: true });
+        onActivate?.();
+      }}
     >
       <header
         className="flex h-7 shrink-0 cursor-grab items-center gap-1.5 border-b border-line bg-surface-1 pr-1 pl-1 select-none active:cursor-grabbing"
