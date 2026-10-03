@@ -68,6 +68,8 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      edits and what the engine plays; panman-presets.ts: its constants, validation and presets),
                      Pitch Wheel (pitch-wheel.ts: its edits, the wheels' physics
                      `stepWheel`, what the engine plays; defaults, presets and ranges in pitch-wheel-presets.ts),
+                     the Reverb (reverb.ts: its edits, T60s, what the engine plays (`engineReverb`), its lanes;
+                     reverb-modes.ts: the modes and eras as data; reverb-presets.ts: ranges, validation, presets),
                      stretching audio clips (stretch.ts: modes, speeds, the tempo a file was made at),
                      and drawing anything over time as lines for the engine (sampling.ts).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
@@ -190,7 +192,11 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      Convolver.cpp: FIR filters by FFT; Spectrum.cpp: the analyzer's measurements. PanMan.cpp: PanMan, another (its pattern, chance,
                      triggers, dynamics, pan law, Analog Styles). PitchWheel.cpp: Pitch Wheel, native too
                      (phase-locked spectral shifting, a true envelope for the formants, the wheels' physics, notes
-                     as voices). Resampling.h: reading between samples (linear, Hermite, sinc),
+                     as voices). Reverb.cpp: the Reverb, native too (its two networks, early energy, ducker,
+                     de-esser, eras, Freeze; its settings in ReverbSettings.cpp); ReverbNetwork.cpp: its late
+                     network (a ring or a 16-line FDN, lossy all-passes, Thiran reads); ReverbEarly.h: its velvet
+                     taps and small blocks; GraphicEq.h: Jot's absorption (a shelf, then a 10-band proportional
+                     graphic EQ fitted by least squares). Resampling.h: reading between samples (linear, Hermite, sinc),
                      centred so nothing is delayed. Protocol.cpp: the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
                      can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
@@ -217,7 +223,8 @@ src/
                      ott/ (OTT's window: its knobs, its display of a row a band, tools),
                      panman/ (PanMan's window, its editors, meters and tools),
                      pitch-wheel/ (Pitch Wheel's window: its dials and keyboard on canvases, what the engine
-                     says in live.ts, its tools),
+                     says in live.ts, its tools), reverb/ (the Reverb's window: its Decay and Shape displays,
+                     knobs, the advanced and vocal panels, what the engine says in live.ts, its tools),
                      toolbar.tsx (FL's toolbar: transport, PAT / SONG (mode-switch.tsx),
                      tempo and position LCDs, the hint bar; its maths in position.ts), recording.ts (armed
                      tracks, Record, takes into the song) and inputs.ts (the input device's channels), midi.ts
@@ -337,7 +344,7 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan, Pitch Wheel, OTT, Pro-C. Where it is and every step still to come, in order:
+the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan, Pitch Wheel, OTT, Pro-C, Reverb. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume, scale? }, channels,
@@ -653,6 +660,25 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   quarter-second, renewed, ahead of the song). It reports `EngineTransport.pitchWheels`, kept outside React
   by `pitch-wheel/live.ts`. Eight controls automate (`AutomationTarget` `pitchWheel`, lanes `kind:
   "wheel"`). Keep its sound tested offline (`pitch-wheel.integration.test.ts`).
+- **Reverb** (`docs/reverb/reverb.md`, its research `reverb-vocals.md`; `shared/music/reverb*.ts`,
+  `engine/src/Reverb*.cpp`, `src/suites/music/reverb/`): ours, for vocals first, as Gross Beat is
+  (`REVERB_PLUGIN`, `MixerEffect.reverb`, in the song): six modes (`REVERB_MODE_SPECS`: Dattorro's plate,
+  Smooth Plate's sixteen lines, the rooms' and hall's FDNs, as data) and three eras. **What each band's decay
+  is is decided in TypeScript** (`reverbT60`: Decay, the mode's natural curve, the Decay EQ, the era) and so
+  are the network, its taps, the early energy's velvet taps and each line's feed (`engineReverb`); the engine
+  designs each line's absorption from the T60s (`Settings::design`: Jot's two stages, every element losing
+  the same dB a second) and runs it. Nothing it does may click: a new absorption glides in (30 ms), a new
+  tone corrector crossfades, Size jumps and new modes go to the second network, which takes the input over
+  in 20 ms while the old one rings out at its own level, early layouts and the pre-delay crossfade; keep it so
+  (`reverb.integration.test.ts` test 16 listens above 5 kHz under a held tone while Decay, Pre-delay and Size
+  are automated). Freeze and ∞ hold the loop's energy with a proportional keeper (an integrating one swings).
+  Its state is kept by effect id (`verb::Registry`), so edits don't cut the tail. A Duck key is another track
+  sending here at 0 % (`setReverbKey`, as Pro-C's). Its modes are level-matched by `calibration` and its
+  presets by `PRESET_LEVELS`, both measured (test 23 says by how much they're off); measure them again
+  after a change to a network. Every knob automates (`AutomationTarget` `reverb`, `REVERB_CONTROL_SPECS`, lanes `kind:
+  "verb"` per `REVERB_LANES`). Its displays' measurements come in each transport event (`EngineTransport.reverbs`,
+  for the windows `verbWatch` names); Freeze held, Kill and the audition click are live (`verb`). Its look is
+  `--verb-*`.
 - **Resampling** (`engine/src/Resampling.h`; Settings' Quality): how samplers and audio clips read between
   samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).
