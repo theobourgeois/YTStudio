@@ -570,6 +570,7 @@ export class AudioEngine {
   /** A command's parameters for the engine, checked. Throws `HttpError(400)`. */
   private async params(name: EngineCommand, body: Record<string, unknown>): Promise<Record<string, unknown>> {
     switch (name) {
+      case "lowerEditors":
       case "status":
         return {};
       case "stop":

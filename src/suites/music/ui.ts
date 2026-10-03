@@ -1,3 +1,4 @@
+import { musicApi } from "./api";
 import { create } from "zustand";
 import type { TrackState } from "@shared/music/mixer";
 import type { Channel, MusicProject, Note } from "@shared/music/types";
@@ -176,7 +177,15 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   },
 
   setPianoOpen(pianoOpen) {
-    if (pianoOpen) windows().focus("piano");
+    if (pianoOpen) {
+      windows().focus("piano");
+      // The native editors float above Electron until explicitly lowered.
+      void musicApi.engine("lowerEditors", {}).catch(() => {}).then(() => window.editorDesktopInfo?.focusEditor?.());
+      requestAnimationFrame(() => {
+        const piano = document.querySelector<HTMLElement>('[data-window="piano"]');
+        if (piano) { piano.tabIndex = -1; piano.focus({ preventScroll: true }); }
+      });
+    }
     else windows().remove("piano");
     set({ pianoOpen });
   },

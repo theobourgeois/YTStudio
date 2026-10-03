@@ -9,6 +9,7 @@ declare global {
   interface Window {
     editorDesktopInfo?: {
       platform: string;
+      focusEditor?: () => Promise<void>;
       appIcon?: { get(): Promise<AppIconId>; set(id: AppIconId): Promise<void> };
       pathForFile?: (file: File) => string;
       saveFile?: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;

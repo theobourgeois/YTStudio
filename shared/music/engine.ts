@@ -659,6 +659,8 @@ export interface EngineCommands {
   /** The channel MIDI keyboards play (the rack's selected one), or none. */
   midiTarget: { channel: string | null };
   typingKeyboard: { on: boolean };
+  /** Keep native plugin editors open behind the main editor. */
+  lowerEditors: Record<string, never>;
   /**
    * MIDI messages as a keyboard would send them (a status byte, then its data: `[0x90, 60, 100]` is a
    * middle C): played on the MIDI target and told back in `midi` events. The typing keyboard's notes.

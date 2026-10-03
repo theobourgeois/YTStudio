@@ -389,6 +389,12 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         sequencer.setMeteredTracks (ids);
         return ok();
     }
+    if (command == "lowerEditors")
+    {
+        plugins.lowerEditors();
+        effects.lowerEditors();
+        return ok();
+    }
     if (command == "host")
     {
         plugins.setHost (params);

@@ -8,6 +8,7 @@ import type { AppIconId } from "../shared/app-icons.ts";
 
 contextBridge.exposeInMainWorld("editorDesktopInfo", {
   platform: process.platform,
+  focusEditor: () => ipcRenderer.invoke("focus-editor") as Promise<void>,
   appIcon: {
     get: () => ipcRenderer.invoke("app-icon-get") as Promise<AppIconId>,
     set: (id: AppIconId) => ipcRenderer.invoke("app-icon-set", id) as Promise<void>,

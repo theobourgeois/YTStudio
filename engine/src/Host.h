@@ -116,6 +116,7 @@ public:
      * minimised or hidden), and move when it moves. Without it (a browser tab) they're ordinary windows.
      */
     void setHost (const juce::var& host);
+    void lowerEditors();
     /** A fingerprint of the loaded plugins' reported delays, to notice one changing (a linear-phase EQ switched on). */
     juce::int64 latencySignature() const;
     /** Try again the plugins that couldn't be loaded (a scan may have found them since). */
@@ -194,6 +195,7 @@ private:
     /** When the app or the engine was last in front (ms): switching between them, neither is for a moment. */
     juce::uint32 lastInUse = 0;
     bool windowsShown = true;
+    bool editorsInFront = true;
     bool exporting = false;
     double sampleRate = 48000.0;
     int blockSize = 512;
