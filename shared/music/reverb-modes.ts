@@ -22,7 +22,7 @@ export interface ReverbModeSpec {
   topology: ReverbTopology;
   /** The scale of every length at Size 0 and 100% (`lo · (hi / lo)^Size`). */
   scale: [number, number];
-  /** Each line's all-pass then delay, ms at scale 1; whether its delay (or its all-pass) is modulated. */
+  /** Each line's all-pass then delay, ms at scale 1; whether its delay (or its all-pass) is modulated. (Smooth Plate's are mixed by a Hadamard, the FDN's by A4 ⊗ A4, Plate's go round Dattorro's ring.) */
   lines: { allpass: number; delay: number; apGain: number; modDelay: boolean; modAllpass: boolean }[];
   /** The Late Diffusion knob's value as the mode is made (its in-line gains are `apGain` there). */
   lateDiffusion: number;
@@ -52,8 +52,10 @@ export interface ReverbModeSpec {
 const D = (samples: number) => (samples / 29761) * 1000;
 
 /** Geometric FDN line sets (ms at scale 1), jittered so no two share a ratio (6.4's table). */
-const ROOM_LINES = [7.1, 7.9, 8.6, 9.4, 10.7, 11.2, 13.0, 13.8, 15.1, 16.7, 18.7, 21.2, 22.6, 25.5, 28.3, 30.8];
-const CHAMBER_LINES = [17.0, 18.0, 19.5, 21.4, 23.9, 25.6, 27.7, 30.5, 32.9, 35.4, 39.7, 42.8, 45.3, 50.2, 54.4, 60.3];
+/** Room's (and Ambience's) lines: 0.39 s of memory, half again the first design's 0.26 s, so a short tail's modes overlap (its closeness is the early energy's). */
+const ROOM_LINES = [10.6, 11.9, 12.9, 14.1, 16.0, 16.8, 19.5, 20.7, 22.6, 25.0, 28.0, 31.8, 33.9, 38.2, 42.5, 46.2];
+/** Chamber's: 0.68 s, a quarter longer than the first design's 0.55 s (a held note's tail beat through its fewer modes). */
+const CHAMBER_LINES = [17.0, 18.0, 19.5, 21.4, 23.9, 25.6, 27.7, 30.5, 32.9, 35.4, 39.7, 42.8, 45.3, 50.2, 54.4, 60.3].map((ms) => Math.round(ms * 12.5) / 10);
 const HALL_LINES = [36.6, 39.0, 43.3, 45.1, 49.9, 53.2, 56.3, 62.3, 65.2, 72.0, 75.9, 81.8, 90.0, 99.3, 102.5, 111.1];
 
 /**
@@ -75,26 +77,36 @@ export const REVERB_MODE_SPECS: Record<ReverbMode, ReverbModeSpec> = {
     detail: "The plate without the metal: silky, even, the vocal default",
     topology: "smoothPlate",
     scale: [0.5, 1.6],
-    // Sections 0, 1, 4, 5 are Dattorro's; 2, 3, 6, 7 between his (6.5.2). The modulated ones' gains negated, as his.
+    // Dattorro's sections' memory (about 1.4 s, twice his tank's: the smoothness), as sixteen lines of 75 to
+    // 105 ms, each all-pass short (3–9 ms): mixed by A4 ⊗ A4, every pass multiplies the echoes by sixteen, so
+    // the onset is dense at once and no line's echo is heard as a flutter. Half of them modulated.
     lines: [
-      { allpass: 22.6, delay: 149.6, apGain: -0.5, modDelay: false, modAllpass: true },
-      { allpass: 60.5, delay: 125.0, apGain: 0.62, modDelay: false, modAllpass: false },
-      { allpass: 25.9, delay: 137.3, apGain: -0.54, modDelay: false, modAllpass: true },
-      { allpass: 71.7, delay: 115.9, apGain: 0.58, modDelay: false, modAllpass: false },
-      { allpass: 30.5, delay: 141.7, apGain: -0.5, modDelay: false, modAllpass: true },
-      { allpass: 89.2, delay: 106.3, apGain: 0.62, modDelay: false, modAllpass: false },
-      { allpass: 35.3, delay: 131.1, apGain: -0.56, modDelay: false, modAllpass: true },
-      { allpass: 80.1, delay: 97.7, apGain: 0.6, modDelay: false, modAllpass: false },
+      { allpass: 3.1, delay: 76.1, apGain: -0.5, modDelay: true, modAllpass: true },
+      { allpass: 4.7, delay: 88.3, apGain: 0.55, modDelay: false, modAllpass: false },
+      { allpass: 3.9, delay: 94.4, apGain: -0.52, modDelay: true, modAllpass: true },
+      { allpass: 6.3, delay: 80.9, apGain: 0.58, modDelay: false, modAllpass: false },
+      { allpass: 3.4, delay: 71.7, apGain: -0.5, modDelay: true, modAllpass: true },
+      { allpass: 5.6, delay: 82.5, apGain: 0.55, modDelay: false, modAllpass: false },
+      { allpass: 4.4, delay: 95.0, apGain: -0.52, modDelay: true, modAllpass: true },
+      { allpass: 7.7, delay: 80.5, apGain: 0.58, modDelay: false, modAllpass: false },
+      { allpass: 3.6, delay: 75.6, apGain: -0.5, modDelay: true, modAllpass: true },
+      { allpass: 6.9, delay: 86.1, apGain: 0.55, modDelay: false, modAllpass: false },
+      { allpass: 4.1, delay: 99.5, apGain: -0.52, modDelay: true, modAllpass: true },
+      { allpass: 8.6, delay: 83.3, apGain: 0.58, modDelay: false, modAllpass: false },
+      { allpass: 3.3, delay: 73.2, apGain: -0.5, modDelay: true, modAllpass: true },
+      { allpass: 5.2, delay: 84.7, apGain: 0.55, modDelay: false, modAllpass: false },
+      { allpass: 4.9, delay: 89.3, apGain: -0.52, modDelay: true, modAllpass: true },
+      { allpass: 7.1, delay: 76.5, apGain: 0.58, modDelay: false, modAllpass: false },
     ],
     lateDiffusion: 0.7,
     stereo: false,
-    early: { start: 0, end: 12, density: 3000, level: -Infinity },
+    early: { start: 0, end: 30, density: 3500, level: -Infinity },
     lateLevel: 0,
     natural: [0.85, 1, 0.9, 0.5],
     topCap: 1.5,
     decayCap: null,
     mod: { shape: "chorus", rate: 0.8, depth: 0.4 },
-    calibration: 0,
+    calibration: 0.74,
   },
   plate: {
     name: "Plate",
@@ -115,14 +127,14 @@ export const REVERB_MODE_SPECS: Record<ReverbMode, ReverbModeSpec> = {
     topCap: 1.3,
     decayCap: null,
     mod: { shape: "chorus", rate: 0.9, depth: 0 },
-    calibration: 0,
+    calibration: -2.47,
   },
   room: {
     name: "Room",
     detail: "A real close room: walls you can hear, a short tail",
     topology: "fdn",
     scale: [0.5, 2],
-    lines: fdnLines(ROOM_LINES, allpasses(2, 5), 0.4),
+    lines: fdnLines(ROOM_LINES, allpasses(3, 7.5), 0.4),
     lateDiffusion: 0.4 / 0.7,
     stereo: true,
     early: { start: 0, end: 40, density: 2500, level: -2 },
@@ -131,7 +143,7 @@ export const REVERB_MODE_SPECS: Record<ReverbMode, ReverbModeSpec> = {
     topCap: null,
     decayCap: null,
     mod: { shape: "random", rate: 0.6, depth: 0.3 },
-    calibration: 0,
+    calibration: -4.66,
   },
   chamber: {
     name: "Chamber",
@@ -147,7 +159,7 @@ export const REVERB_MODE_SPECS: Record<ReverbMode, ReverbModeSpec> = {
     topCap: null,
     decayCap: null,
     mod: { shape: "random", rate: 0.5, depth: 0.4 },
-    calibration: 0,
+    calibration: -2.62,
   },
   hall: {
     name: "Hall",
@@ -163,15 +175,15 @@ export const REVERB_MODE_SPECS: Record<ReverbMode, ReverbModeSpec> = {
     topCap: 1.5,
     decayCap: null,
     mod: { shape: "chorus", rate: 0.7, depth: 0.55 },
-    calibration: 0,
+    calibration: -1.0,
   },
   ambience: {
     name: "Ambience",
     detail: "Early energy and air, almost no tail: felt, not heard",
     topology: "fdn",
     scale: [0.5, 2],
-    lines: fdnLines(ROOM_LINES, allpasses(2, 5), 0.3),
-    lateDiffusion: 0.3 / 0.7,
+    lines: fdnLines(ROOM_LINES, allpasses(3, 7.5), 0.45),
+    lateDiffusion: 0.45 / 0.7,
     stereo: true,
     early: { start: 0, end: 80, density: 3000, level: 0 },
     lateLevel: -10,
@@ -179,7 +191,7 @@ export const REVERB_MODE_SPECS: Record<ReverbMode, ReverbModeSpec> = {
     topCap: null,
     decayCap: 0.8,
     mod: { shape: "random", rate: 0.4, depth: 0.28 },
-    calibration: 0,
+    calibration: -4.82,
   },
 };
 

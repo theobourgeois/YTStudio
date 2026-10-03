@@ -441,6 +441,43 @@ export function earlyTaps(r: ReverbState, seed: number): { taps: EarlyTap[]; mos
   return { taps, most };
 }
 
+/** The most taps a line's own feed has. */
+export const MAX_FEED_TAPS = 64;
+
+/**
+ * What feeds the late network (6.7, after Fagerström et al.'s velvet-noise FDN): each line its own short
+ * velvet sequence over the early span, not one shared pattern. One random pattern feeding every line
+ * imprints its spectral ripple on the whole tail (a fixed filter a linear network can't smooth); a
+ * different one a line averages out over the lines. Shaped as the early sound (Distance), ranked for the
+ * density; each line's side its own (stereo) and its sign its injection's.
+ */
+export function lineFeeds(r: ReverbState, seed: number, lines: readonly EngineReverbLine[]): number[][] {
+  const spec = REVERB_MODE_SPECS[r.mode].early;
+  if (!spec || !lines.length) return [];
+  const start = spec.start / 1000;
+  const length = Math.max(0.001, (spec.end - spec.start) / 1000);
+  const perSide = Math.max(1, Math.floor(length * Math.min(4000, MAX_EARLY_TAPS / length)));
+  const count = Math.max(8, Math.min(MAX_FEED_TAPS, Math.round(perSide / Math.max(1, lines.length / 2))));
+  const cell = length / count;
+  const d = clamp(r.distance, 0, 1);
+  return lines.map((line, i) => {
+    const next = random((seed ^ Math.imul(i + 1, 0x632be5ab) ^ Math.imul(r.late.variation, 0x27d4eb2d)) >>> 0);
+    const sign = Math.sign(line.inLeft + line.inRight) || 1;
+    const out: number[] = [];
+    for (let k = 0; k < count; k++) {
+      const position = (k + next()) * cell;
+      const u = position / length;
+      const pulse = next() < 0.5 ? -1 : 1;
+      let rank = next();
+      if (spec.startDensity) rank /= (spec.startDensity + (spec.density - spec.startDensity) * u) / spec.density;
+      if (u < 0.2) rank /= 1 - 0.75 * d * (1 - u / 0.2);
+      const env = Math.exp(-3 * u) * (1 - d) + (u / 0.6) * Math.exp(1 - u / 0.6) * d;
+      out.push(Math.round((start + position) * 1e6) / 1e6, Math.round(sign * pulse * env * 1e4) / 1e4, Math.round(rank * 1e4) / 1e4);
+    }
+    return out;
+  });
+}
+
 /** The most density a mode's pattern is laid at (pulses a second). */
 export function earlyMost(r: ReverbState): number {
   const spec = REVERB_MODE_SPECS[r.mode].early;
@@ -505,6 +542,20 @@ const hadamard = (row: number, column: number) => {
 /** Each tap's gain shaped so the early output follows the 1 kHz exponential (Costello's "shaping the reverb output taps"). */
 const shaped = (gain: number, at: number, t60: number) => gain * 10 ** ((-3 * at) / Math.max(0.1, t60));
 
+/**
+ * The output of a mixed network: one tap a line, somewhere inside its delay (so the first sound comes
+ * early), the same place for both sides, with two orthogonal Hadamard rows' signs: each side and their
+ * sum read every line once, so no line is heard twice at two delays (a comb, the metal).
+ */
+function lineTaps(lines: EngineReverbLine[], t60: number, seed: number): EngineReverbTap[] {
+  const next = random(seed);
+  const g = 1 / Math.sqrt(lines.length);
+  return lines.flatMap((l, i) => {
+    const at = Math.round(l.delay * (0.05 + 0.9 * next()) * 1e6) / 1e6;
+    return ([0, 1] as const).map((side) => ({ line: i, where: 0 as const, at, gain: Math.round(shaped(g * hadamard(side ? 6 : 3, i), at, t60) * 1e4) / 1e4, side }));
+  });
+}
+
 function network(r: ReverbState, t60: number): EngineReverbNetwork {
   const spec = REVERB_MODE_SPECS[r.mode];
   const era = REVERB_ERA_SPECS[r.era];
@@ -521,23 +572,14 @@ function network(r: ReverbState, t60: number): EngineReverbNetwork {
     return { matrix: "ring", lines, taps, diffusers: PLATE_DIFFUSERS.map((d) => ({ length: ms(d.length), gain: d.gain })), ...common };
   }
   if (spec.topology === "smoothPlate") {
-    // The figure-eight doubled: eight sections in a ring, the input at four points, signs alternating.
-    const lines = spec.lines.map((l, i) => ({ allpass: ms(l.allpass), delay: ms(l.delay), apGain: l.apGain, modDelay: false, modAllpass: l.modAllpass, inLeft: i % 2 === 0 ? (i % 4 === 0 ? 0.5 : -0.5) : 0, inRight: i % 2 === 0 ? (i % 4 === 0 ? 0.5 : -0.5) : 0 }));
-    const next = random(0x51a7e);
-    const taps: EngineReverbTap[] = [];
-    lines.forEach((l, i) => {
-      for (const side of [0, 1] as const) {
-        // Three in the delay (spread over it), one in the all-pass; signs from two Hadamard rows.
-        const fractions = [0.08 + 0.2 * next(), 0.38 + 0.2 * next(), 0.7 + 0.25 * next()];
-        fractions.forEach((f, k) => {
-          const at = l.delay * f;
-          taps.push({ line: i, where: 0, at: Math.round(at * 1e6) / 1e6, gain: Math.round(shaped(0.3 * hadamard(side ? 6 + k : 3 + k, i), at, t60) * 1e4) / 1e4, side });
-        });
-        const at = l.allpass * (0.3 + 0.4 * next());
-        taps.push({ line: i, where: 1, at: Math.round(at * 1e6) / 1e6, gain: Math.round(-0.22 * hadamard(side ? 12 : 9, i) * 1e4) / 1e4, side });
-      }
+    // The figure-eight's memory doubled, mixed by A4 ⊗ A4 rather than passed round a ring: every pass
+    // multiplies the echoes, so it's dense at once and no section's modes are left ringing on their own.
+    // The input (mono, as a plate is driven) reaches every line, with a Hadamard row's signs.
+    const lines = spec.lines.map((l, i) => {
+      const sign = hadamard(5, i) / Math.sqrt(spec.lines.length);
+      return { allpass: ms(l.allpass), delay: ms(l.delay), apGain: l.apGain, modDelay: false, modAllpass: l.modAllpass, inLeft: sign, inRight: sign };
     });
-    return { matrix: "ring", lines, taps, diffusers: [], ...common };
+    return { matrix: "hadamard", lines, taps: lineTaps(lines, t60, 0x51a7e), diffusers: [], ...common };
   }
   // A 16-line FDN: L into lines 0..7 and R into 8..15, with a Hadamard row's signs (Input Cross mixes them in the engine).
   const n = spec.lines.length;
@@ -546,21 +588,10 @@ function network(r: ReverbState, t60: number): EngineReverbNetwork {
     const sign = hadamard(5, i) * norm;
     return { allpass: ms(l.allpass), delay: ms(l.delay), apGain: l.apGain, modDelay: l.modDelay, modAllpass: false, inLeft: i < n / 2 ? sign : 0, inRight: i < n / 2 ? 0 : sign };
   });
-  const next = random(0xfd0 + n);
-  const taps: EngineReverbTap[] = [];
-  const g = 1 / Math.sqrt(2 * n);
-  lines.forEach((l, i) => {
-    for (const side of [0, 1] as const) {
-      const at = l.delay * (0.15 + 0.8 * next());
-      taps.push({ line: i, where: 0, at: Math.round(at * 1e6) / 1e6, gain: Math.round(shaped(g * hadamard(side ? 6 : 3, i), at, t60) * 1e4) / 1e4, side });
-      const ap = l.allpass * (0.3 + 0.5 * next());
-      taps.push({ line: i, where: 1, at: Math.round(ap * 1e6) / 1e6, gain: Math.round(0.7 * g * hadamard(side ? 10 : 9, i) * 1e4) / 1e4, side });
-    }
-  });
-  return { matrix: "hadamard", lines, taps, diffusers: [], ...common };
+  return { matrix: "hadamard", lines, taps: lineTaps(lines, t60, 0xfd0 + n), diffusers: [], ...common };
 }
 
-/** The most a line may lose a pass (dB) at its shortest band, 500 Hz .. 8 kHz: past it the decay is a staircase of passes, not an exponential. */
+/** The most a line may lose a pass (dB) at its shortest band, 125 Hz .. 8 kHz: past it the decay is a staircase of passes, not an exponential. */
 const MOST_LOSS = 24;
 
 /**
@@ -572,7 +603,7 @@ export const sizeScale = (r: ReverbState) => {
   const [lo, hi] = spec.scale;
   const scale = lo * (hi / lo) ** clamp(r.size, 0, 1);
   if (isInfinite(r.decay)) return scale;
-  const t60 = reverbT60(r).slice(4, 9);
+  const t60 = reverbT60(r).slice(2, 9);
   const longest = Math.max(...spec.lines.map((l) => l.allpass + l.delay)) / 1000;
   return Math.min(scale, (MOST_LOSS * Math.min(...t60)) / 60 / longest);
 };
@@ -596,6 +627,8 @@ export interface EngineReverb {
     /** Flat: at, gain, rank per tap; `left` taps then `right`. */
     left: number[];
     right: number[];
+    /** Each line's own feed (flat: at, gain, rank), `lineFeeds`: what Early Send sends into it. */
+    lines: number[][];
     /** Linear: as heard (0: only into the loop), and what's sent into the late network (rather than the input). */
     level: number;
     send: number;
@@ -665,6 +698,7 @@ export function engineReverb(r: ReverbState, bpm: number, seed: number, key = -1
     early: {
       left: flat(0),
       right: flat(1),
+      lines: lanesOnly ? [] : lineFeeds(r, seed, net.lines),
       level: round(earlyHeard),
       send: r.early.send,
       cross: r.early.cross,
@@ -673,7 +707,7 @@ export function engineReverb(r: ReverbState, bpm: number, seed: number, key = -1
       diffuse: r.diffusion,
       vlf: r.input.vlfCut,
     },
-    late: { level: round(dbGain(spec.lateLevel - 3 * (1 - d) + spec.calibration)), apScale: round(lateDiffusion / spec.lateDiffusion, 1e4) },
+    late: { level: round(dbGain(spec.lateLevel - 3 * (1 - d))), apScale: round(lateDiffusion / spec.lateDiffusion, 1e4) },
     mod: { rate: r.modRate, depth: round(0.001 * r.modDepth * r.modDepth, 1e7), shape: r.late.modShape === "random" ? 1 : 0 },
     input: {
       mono: r.input.mode === "mono" || (r.input.mode === "auto" && !spec.stereo),
@@ -707,7 +741,7 @@ export function engineReverb(r: ReverbState, bpm: number, seed: number, key = -1
       studio: r.output.studio,
       monoBelow: r.output.monoBelow,
       width: r.width,
-      level: round(dbGain(r.output.level)),
+      level: round(dbGain(r.output.level + spec.calibration)),
     },
     mix: (({ dry, wet }) => ({ dry: round(dry), wet: round(wet) }))(reverbMixGains(r.mix)),
     era: { bandLimit: era.bandLimit, aperture: era.aperture, emphasis: era.emphasis, bits: era.bits, gainRanging: era.gainRanging, noise: Number.isFinite(era.noise) ? era.noise : -200 },

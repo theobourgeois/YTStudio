@@ -216,8 +216,9 @@ describe("what the engine plays", () => {
     expect(counts.plate.lines).toHaveLength(4);
     expect(counts.plate.diffusers).toHaveLength(4);
     expect(counts.plate.taps).toHaveLength(14);
-    expect(counts.smoothPlate.lines).toHaveLength(8);
-    expect(counts.smoothPlate.matrix).toBe("ring");
+    expect(counts.smoothPlate.lines).toHaveLength(16);
+    expect(counts.smoothPlate.matrix).toBe("hadamard");
+    expect(counts.plate.matrix).toBe("ring");
     for (const mode of ["room", "chamber", "hall", "ambience"] as const) {
       expect(counts[mode].lines).toHaveLength(16);
       expect(counts[mode].matrix).toBe("hadamard");

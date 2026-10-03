@@ -204,10 +204,10 @@ public:
     void shelf (const EqDesign& d, double scale, double* c) const
     {
         const auto hd = std::pow (10.0, d.dcDb * scale / 20), hn = std::pow (10.0, d.nyqDb * scale / 20);
-        const auto p = std::tan (pi * d.corner / rate) * std::sqrt (hn / juce::jmax (hd, 1e-300));
-        c[0] = (hn + hd * p) / (1 + p);
-        c[1] = (hd * p - hn) / (1 + p);
-        c[2] = (p - 1) / (1 + p);
+        const auto pole = std::tan (pi * d.corner / rate) * std::sqrt (hn / juce::jmax (hd, 1e-300));
+        c[0] = (hn + hd * pole) / (1 + pole);
+        c[1] = (hd * pole - hn) / (1 + pole);
+        c[2] = (pole - 1) / (1 + pole);
     }
 
 private:
@@ -258,23 +258,24 @@ struct EqFilter
         double c[5];
         eq.shelf (d, scale, c);
         sb0 = c[0], sb1 = c[1], sa1 = c[2];
+        // Each band keeps its own section (its memory stays its own as others turn on and off).
         active = 0;
         for (int m = 0; m < numBands; ++m)
         {
+            auto& s = sections[(size_t) m];
             // Eco by itself: a band with next to nothing to do isn't run.
-            if (std::abs (d.command[(size_t) m] * scale) < 0.002)
-                continue;
-            eq.section (m, d.command[(size_t) m] * scale, c);
-            auto& s = sections[(size_t) active];
-            // A band switched on starts from silence; one kept keeps its memory.
-            if (band[(size_t) active] != m)
+            const auto db = d.command[(size_t) m] * scale;
+            if (std::abs (db) < 0.002)
+            {
+                band[(size_t) m] = -1;
                 s.z1 = s.z2 = 0;
-            band[(size_t) active] = m;
+                continue;
+            }
+            eq.section (m, db, c);
+            band[(size_t) m] = m;
             s.b0 = c[0], s.b1 = c[1], s.b2 = c[2], s.a1 = c[3], s.a2 = c[4];
             ++active;
         }
-        for (int k = active; k < numBands; ++k)
-            band[(size_t) k] = -1;
         gain = std::pow (10.0, d.broadband * scale / 20);
     }
     /** Flat: a gain of 1 (a frozen loop). */
@@ -288,8 +289,10 @@ struct EqFilter
     {
         double y = sb0 * x + sz;
         sz = sb1 * x - sa1 * y;
-        for (int k = 0; k < active; ++k)
+        for (int k = 0; k < numBands && active > 0; ++k)
         {
+            if (band[(size_t) k] < 0)
+                continue;
             auto& s = sections[(size_t) k];
             const auto in = y;
             y = s.b0 * in + s.z1;

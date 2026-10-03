@@ -10,6 +10,8 @@ namespace
 constexpr double sizeGlidePerSecond = 0.002;
 /** How often (samples) the absorption is realised again while its scale moves, and the taps re-placed. */
 constexpr int refreshEvery = 32;
+/** How long a new absorption design takes to glide in (s). */
+constexpr double designGlideSeconds = 0.03;
 
 bool isPrime (int n)
 {
@@ -81,9 +83,12 @@ void Network::configure (const Topology& t, double scale, const std::array<EqDes
 {
     allpassDesigns = newAllpass;
     topology = t;
+    for (int k = 0; k < maxTaps; ++k)
+        tapGain[(size_t) k] = t.tap[(size_t) k].gain;
     lineCount = juce::jlimit (0, maxLines, t.lines);
     scaleNow = configuredScale = designScale = scale;
     designs = newDesigns;
+    morph = 1, absorbNow = -1;
     std::array<int, 2 * maxLines + maxDiffusers> used {};
     int count = 0;
     const auto samples = [&] (double seconds, double most) {
@@ -108,7 +113,11 @@ void Network::configure (const Topology& t, double scale, const std::array<EqDes
         line.rateFactor = 0.7 + 0.6 * (i * 0.6180339887 - std::floor (i * 0.6180339887));
         line.phase = 0.25 * i - std::floor (0.25 * i);
         line.seed = 0x9e3779b9u * (juce::uint32) (i + 1) ^ (juce::uint32) t.signature;
-        line.from = line.to = 0;
+        // A random walk starts on its way (from one random place to another), not still at zero for a cycle.
+        line.seed = line.seed * 1664525u + 1013904223u;
+        line.from = (float) (line.seed >> 8) / 8388608.0f - 1.0f;
+        line.seed = line.seed * 1664525u + 1013904223u;
+        line.to = (float) (line.seed >> 8) / 8388608.0f - 1.0f;
         line.out = 0;
     }
     for (int k = 0; k < juce::jmin (maxDiffusers, t.diffusers); ++k)
@@ -127,10 +136,32 @@ void Network::configure (const Topology& t, double scale, const std::array<EqDes
 
 void Network::redesign (const std::array<EqDesign, maxLines>& newDesigns, const std::array<EqDesign, maxLines>& newAllpass, double scale)
 {
+    // From what's playing now (partway through the last glide, perhaps), at a scale of 1.
+    for (int j = 0; j < lineCount; ++j)
+    {
+        const auto t = juce::jlimit (0.0, 1.0, morph);
+        designsFrom[(size_t) j] = blend (designsFrom[(size_t) j], 1 / fromScale, designs[(size_t) j], 1 / designScale, t);
+        allpassFrom[(size_t) j] = blend (allpassFrom[(size_t) j], 1 / fromScale, allpassDesigns[(size_t) j], 1 / designScale, t);
+    }
+    fromScale = 1, morph = 0;
     designs = newDesigns;
     allpassDesigns = newAllpass;
     designScale = scale;
     realisedAbsorb = realisedRatio = -1;
+}
+
+EqDesign Network::blend (const EqDesign& a, double sa, const EqDesign& b, double sb, double t)
+{
+    if (t >= 1 && sb == 1)
+        return b;
+    EqDesign d;
+    d.dcDb = (1 - t) * a.dcDb * sa + t * b.dcDb * sb;
+    d.nyqDb = (1 - t) * a.nyqDb * sa + t * b.nyqDb * sb;
+    d.corner = std::exp ((1 - t) * std::log (juce::jmax (1.0, a.corner)) + t * std::log (juce::jmax (1.0, b.corner)));
+    for (int m = 0; m < numBands; ++m)
+        d.command[(size_t) m] = (1 - t) * a.command[(size_t) m] * sa + t * b.command[(size_t) m] * sb;
+    d.broadband = (1 - t) * a.broadband * sa + t * b.broadband * sb;
+    return d;
 }
 
 void Network::update (const Topology& t)
@@ -182,7 +213,7 @@ float Network::lfo (Line& line, int shape, double base)
     return (float) std::sin (2 * pi * line.phase);
 }
 
-void Network::process (const NetworkParams& p, const float* inL, const float* inR, float* outL, float* outR, int numSamples, float level)
+void Network::process (const NetworkParams& p, const float* inL, const float* inR, float* outL, float* outR, int numSamples, float level, const float* const* feeds)
 {
     if (! configured())
         return;
@@ -202,31 +233,55 @@ void Network::process (const NetworkParams& p, const float* inL, const float* in
     {
         if (counter-- <= 0)
         {
-            counter = refreshEvery;
+            // More often while the loss moves (smaller steps, smaller ticks).
+            const auto wanted = p.absorb < 1e-4 ? 0.0 : p.absorb;
+            const auto step = morph < 1 || (absorbNow >= 0 && absorbNow != wanted) ? refreshEvery / 4 : refreshEvery;
+            counter = step - 1;
             // Size glides slowly towards its target (a jump is the State's: a spillover).
             if (std::abs (scaleNow - p.scale) > 1e-9)
-                scaleNow = p.scale > scaleNow ? juce::jmin (p.scale, scaleNow * std::pow (glide, refreshEvery)) : juce::jmax (p.scale, scaleNow / std::pow (glide, refreshEvery));
+                scaleNow = p.scale > scaleNow ? juce::jmin (p.scale, scaleNow * std::pow (glide, step)) : juce::jmax (p.scale, scaleNow / std::pow (glide, step));
             // The absorption follows the lengths (a line's loss is in proportion to it) and the hold or Auto-Decay's factor.
             const auto ratio = scaleNow / designScale;
-            if (std::abs (ratio - realisedRatio) > 1e-3 * realisedRatio || std::abs (p.absorb - realisedAbsorb) > 1e-4 || realisedAbsorb < 0)
+            const auto gliding = morph < 1;
+            if (gliding)
+                morph = juce::jmin (1.0, morph + step / (designGlideSeconds * rate));
+            // The loss glides too (Decay's factor, Auto-Decay, Freeze): a loop filter's coefficients stepping
+            // mid-sound put a click into the lines, which their taps then play.
+            if (absorbNow < 0)
+                absorbNow = wanted;
+            else if (absorbNow != wanted)
+            {
+                absorbNow += (wanted - absorbNow) * (1.0 - std::exp (-step / (0.01 * rate)));
+                if (std::abs (absorbNow - wanted) < 1e-5)
+                    absorbNow = wanted;
+            }
+            if (gliding || std::abs (ratio - realisedRatio) > 1e-3 * realisedRatio || std::abs (absorbNow - realisedAbsorb) > 1e-5 || realisedAbsorb < 0)
             {
                 realisedRatio = ratio;
-                realisedAbsorb = p.absorb;
+                realisedAbsorb = absorbNow;
                 for (int j = 0; j < n; ++j)
-                    if (p.absorb <= 1e-6)
+                    if (absorbNow <= 1e-6)
                     {
                         lines[(size_t) j].absorb.flat();
                         lines[(size_t) j].allpassAbsorb.flat();
                     }
+                    else if (morph < 1)
+                    {
+                        const auto from = scaleNow / fromScale;
+                        lines[(size_t) j].absorb.realise (blend (designsFrom[(size_t) j], from, designs[(size_t) j], ratio, morph), *eq, absorbNow);
+                        lines[(size_t) j].allpassAbsorb.realise (blend (allpassFrom[(size_t) j], from, allpassDesigns[(size_t) j], ratio, morph), *eq, absorbNow);
+                    }
                     else
                     {
-                        lines[(size_t) j].absorb.realise (designs[(size_t) j], *eq, p.absorb * ratio);
-                        lines[(size_t) j].allpassAbsorb.realise (allpassDesigns[(size_t) j], *eq, p.absorb * ratio);
+                        lines[(size_t) j].absorb.realise (designs[(size_t) j], *eq, absorbNow * ratio);
+                        lines[(size_t) j].allpassAbsorb.realise (allpassDesigns[(size_t) j], *eq, absorbNow * ratio);
                     }
             }
-            const auto at = scaleNow * rate;
+            // Whole samples at the size it was wired for (a fractional read is a gentle low-pass), moving
+            // in proportion while Size glides.
+            const auto moved = scaleNow / configuredScale;
             for (int k = 0; k < topology.taps; ++k)
-                tapAt[(size_t) k] = (int) std::lround (topology.tap[(size_t) k].at * at);
+                tapAt[(size_t) k] = std::round (topology.tap[(size_t) k].at * configuredScale * rate) * moved;
         }
         const auto ratio = scaleNow / configuredScale;
 
@@ -283,6 +338,23 @@ void Network::process (const NetworkParams& p, const float* inL, const float* in
             if (topology.ring)
                 for (int j = 0; j < n; ++j)
                     m[(size_t) j] = q[(size_t) ((j + n - 1) % n)];
+            else if (n == 8 || n == 4 || n == 2)
+            {
+                // A Hadamard (Sylvester's), done as a fast Walsh–Hadamard transform, scaled to stay lossless.
+                for (int j = 0; j < n; ++j)
+                    m[(size_t) j] = q[(size_t) j];
+                for (int h = 1; h < n; h <<= 1)
+                    for (int i0 = 0; i0 < n; i0 += h << 1)
+                        for (int j = i0; j < i0 + h; ++j)
+                        {
+                            const auto a = m[(size_t) j], b = m[(size_t) (j + h)];
+                            m[(size_t) j] = a + b;
+                            m[(size_t) (j + h)] = a - b;
+                        }
+                const auto norm = 1.0f / std::sqrt ((float) n);
+                for (int j = 0; j < n; ++j)
+                    m[(size_t) j] *= norm;
+            }
             else
             {
                 // Householder: x − (2/N)·Σx.
@@ -318,7 +390,7 @@ void Network::process (const NetworkParams& p, const float* inL, const float* in
             const auto& spec = topology.line[(size_t) j];
             line.gain += (line.gainTarget - line.gain) * gainGlide;
             const auto g = juce::jlimit (-0.85, 0.85, line.gain * p.apScale);
-            const auto x = (double) m[(size_t) j] + spec.inLeft * xl + spec.inRight * xr;
+            const auto x = (double) m[(size_t) j] + (feeds != nullptr ? (double) feeds[j][i] : spec.inLeft * xl + spec.inRight * xr);
             auto apd = line.allpassLength * ratio + (spec.modAllpass ? (double) line.out : 0.0);
             if (quantise > 0)
                 apd = std::round (apd * quantise) / quantise;
@@ -334,7 +406,12 @@ void Network::process (const NetworkParams& p, const float* inL, const float* in
         {
             const auto& tap = topology.tap[(size_t) k];
             const auto& line = lines[(size_t) tap.line];
-            const auto v = (tap.where == 0 ? line.delay : line.allpass).whole (tapAt[(size_t) k]) * tap.gain;
+            auto& gain = tapGain[(size_t) k];
+            gain += (tap.gain - gain) * gainGlide;
+            const auto& ring = tap.where == 0 ? line.delay : line.allpass;
+            const auto whole = (juce::int64) tapAt[(size_t) k];
+            const auto part = tapAt[(size_t) k] - (double) whole;
+            const auto v = ((1 - part) * ring.whole (whole) + part * ring.whole (whole + 1)) * gain;
             (tap.side == 0 ? yl : yr) += v;
         }
         const auto ol = (float) (yl * level), orr = (float) (yr * level);
@@ -344,10 +421,10 @@ void Network::process (const NetworkParams& p, const float* inL, const float* in
     }
 
     lastPeak = peak;
-    // The energy keeper (6.13): while held, the loop's level is kept where it was 200 ms in (Freeze), or under
+    // The energy keeper (6.13): while held, the loop's level is kept where it was half a second in (Freeze), or under
     // the ceiling (∞ with its input open), nudged a little each block; otherwise it's left alone.
     const auto blockEnergy = energy / juce::jmax (1, numSamples);
-    const auto smooth = 1.0 - std::exp (-numSamples / rate);
+    const auto smooth = 1.0 - std::exp (-numSamples / (0.25 * rate));
     loopEnergy += (blockEnergy - loopEnergy) * smooth;
     if (! std::isfinite (loopEnergy) || ! std::isfinite ((double) peak))
     {
@@ -357,18 +434,25 @@ void Network::process (const NetworkParams& p, const float* inL, const float* in
     if (p.hold)
     {
         heldSamples += numSamples;
-        if (heldSamples > (juce::int64) (0.2 * rate) && keepTarget <= 0)
+        if (heldSamples > (juce::int64) (0.5 * rate) && keepTarget <= 0)
             keepTarget = juce::jmax (loopEnergy, 1e-12);
         auto target = keepTarget;
         if (p.ceiling > 0)
             target = loopEnergy > p.ceiling ? p.ceiling : loopEnergy;
-        if (target > 0 && loopEnergy > 1e-20)
+        if (target > 0 && loopEnergy > 1e-20 && lineCount > 0)
         {
-            // ±0.02 dB a second at most.
-            const auto most = std::pow (10.0, 0.02 * numSamples / rate / 20);
-            const auto want = std::sqrt (target / loopEnergy);
-            keep = juce::jlimit (1.0 / most, most, want) * keep;
-            keep = juce::jlimit (0.5, 1.05, keep);
+            // In proportion to how far off it is: `keep` is a gain a pass, so the level already integrates
+            // it (a keeper that integrated too would swing for ever). A pass of `length` samples at
+            // ln(keep) moves the energy 2·ln(keep) a pass: back to the target in about 4 s, at most 1 dB a
+            // second either way.
+            double length = 0;
+            for (int j = 0; j < lineCount; ++j)
+                length += lines[(size_t) j].delayLength + lines[(size_t) j].allpassLength;
+            length *= scaleNow / configuredScale / lineCount;
+            const auto passesPerSecond = rate / juce::jmax (1.0, length);
+            const auto error = juce::jlimit (-2.0, 2.0, std::log (target / loopEnergy));
+            const auto most = std::log (10.0) / 10 / (2 * passesPerSecond);
+            keep = std::exp (juce::jlimit (-most, most, error / (2 * 4.0 * passesPerSecond)));
         }
     }
     else

@@ -2,18 +2,13 @@
 
 #include <cmath>
 
+// A Reverb's state: its networks, early energy and blocks, run per block (its settings: ReverbSettings.cpp).
+
 namespace verb
 {
+
 namespace
 {
-double number (const juce::var& v, double fallback, double low, double high)
-{
-    if (! (v.isDouble() || v.isInt() || v.isInt64()))
-        return fallback;
-    const auto value = (double) v;
-    return std::isfinite (value) ? juce::jlimit (low, high, value) : fallback;
-}
-
 /** The input's ring: the longest pre-delay (1 s) and the furthest early tap (120 ms at Size 100%, ×2.5), with room. */
 constexpr double ringSeconds = 1.4;
 /** What values glide over when the song (or a lane) changes them. */
@@ -22,276 +17,7 @@ constexpr double glideSeconds = 0.005;
 constexpr float quietPeak = 3e-5f;
 /** The networks run in slices this long (Auto-Decay's factor, a spillover's fade). */
 constexpr int slice = 32;
-
-juce::uint64 mixHash (juce::uint64 h, double v)
-{
-    const auto q = (juce::int64) std::llround (v * 1e7);
-    h ^= (juce::uint64) q + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
-    return h;
-}
 } // namespace
-
-// ---------------------------------------------------------------------------------------------------------
-// Settings
-// ---------------------------------------------------------------------------------------------------------
-
-std::shared_ptr<Settings> Settings::parse (const juce::var& json, int capacity, State& state)
-{
-    static std::atomic<juce::uint64> serials { 0 };
-    auto s = std::make_shared<Settings>();
-    s->serial = ++serials;
-    s->dryBuffer.setSize (2, juce::jmax (1, capacity));
-    const auto& net = json["network"];
-    auto& t = s->topology;
-    t.ring = net["matrix"].toString() != "hadamard";
-    juce::uint64 h = t.ring ? 1 : 2;
-    if (const auto* list = net["lines"].getArray())
-        for (int i = 0; i < juce::jmin (maxLines, list->size()); ++i)
-        {
-            const auto& item = (*list)[i];
-            auto& l = t.line[(size_t) i];
-            l.allpass = number (item["allpass"], 0.01, 0.0005, 0.1);
-            l.delay = number (item["delay"], 0.05, 0.001, 0.2);
-            l.apGain = number (item["apGain"], 0.5, -0.85, 0.85);
-            l.modDelay = (bool) item["modDelay"];
-            l.modAllpass = (bool) item["modAllpass"];
-            l.inLeft = (float) number (item["inLeft"], 0, -2, 2);
-            l.inRight = (float) number (item["inRight"], 0, -2, 2);
-            h = mixHash (mixHash (mixHash (h, l.allpass), l.delay), (l.modDelay ? 1 : 0) + (l.modAllpass ? 2 : 0));
-            t.lines = i + 1;
-        }
-    if (const auto* list = net["taps"].getArray())
-        for (int k = 0; k < juce::jmin (maxTaps, list->size()); ++k)
-        {
-            const auto& item = (*list)[k];
-            auto& tap = t.tap[(size_t) k];
-            tap.line = juce::jlimit (0, juce::jmax (0, t.lines - 1), (int) number (item["line"], 0, 0, maxLines - 1));
-            tap.where = (int) number (item["where"], 0, 0, 1);
-            tap.at = number (item["at"], 0, 0, 0.2);
-            tap.gain = (float) number (item["gain"], 0, -2, 2);
-            tap.side = (int) number (item["side"], 0, 0, 1);
-            h = mixHash (mixHash (mixHash (h, tap.line * 4 + tap.where * 2 + tap.side), tap.at), 3);
-            t.taps = k + 1;
-        }
-    if (const auto* list = net["diffusers"].getArray())
-        for (int k = 0; k < juce::jmin (maxDiffusers, list->size()); ++k)
-        {
-            t.diffuserLength[(size_t) k] = number ((*list)[k]["length"], 0.005, 0.0005, 0.025);
-            t.diffuserGain[(size_t) k] = number ((*list)[k]["gain"], 0.7, 0, 0.9);
-            h = mixHash (h, t.diffuserLength[(size_t) k]);
-            t.diffusers = k + 1;
-        }
-    t.quantise = (int) number (net["quantise"], 0, 0, 1024);
-    t.bits = (int) number (net["bits"], 0, 0, 24);
-    t.clip = number (net["clip"], 0, 0, 16);
-    h = mixHash (mixHash (mixHash (h, t.quantise), t.bits), t.clip);
-    t.signature = h | 1;
-
-    s->scale = number (json["scale"], 1, 0.1, 4);
-    if (const auto* list = json["t60"].getArray())
-        for (int b = 0; b < juce::jmin (numBands, list->size()); ++b)
-            s->t60[(size_t) b] = number ((*list)[b], 1.8, 0.01, 1e5);
-    s->freeze = (bool) json["freeze"];
-    s->toneLock = (bool) json["toneLock"];
-    s->predelay = number (json["predelay"], 0.02, 0, 1);
-
-    const auto& early = json["early"];
-    for (const auto* side : { "left", "right" })
-        if (const auto* list = early[side].getArray())
-        {
-            auto& taps = juce::String (side) == "left" ? s->earlyLeft : s->earlyRight;
-            taps.reserve ((size_t) juce::jmin (Early::maxTaps, list->size() / 3));
-            for (int k = 0; k + 2 < list->size() && (int) taps.size() < Early::maxTaps; k += 3)
-                taps.push_back ({ (float) number ((*list)[k], 0, 0, 0.3), (float) number ((*list)[k + 1], 0, -4, 4), (float) number ((*list)[k + 2], 1, 0, 1e3) });
-        }
-    s->earlyLevel = number (early["level"], 0, 0, 8);
-    s->earlySend = number (early["send"], 1, 0, 1);
-    s->earlyCross = number (early["cross"], 0.5, 0, 1);
-    s->air = number (early["air"], 18000, 100, 40000);
-    s->density = number (early["density"], 0.5, 0, 1);
-    s->diffuse = number (early["diffuse"], 0.6, 0, 1);
-    s->vlf = number (early["vlf"], 0, -30, 0);
-    s->lateLevel = number (json["late"]["level"], 1, 0, 8);
-    s->apScale = number (json["late"]["apScale"], 1, 0, 2);
-    s->modRate = number (json["mod"]["rate"], 0.8, 0.01, 20);
-    s->modDepth = number (json["mod"]["depth"], 0, 0, 0.005);
-    s->modShape = (int) number (json["mod"]["shape"], 0, 0, 1);
-    const auto& input = json["input"];
-    s->mono = (bool) input["mono"];
-    s->inputCross = number (input["cross"], 0.3, 0, 1);
-    s->inputLowCut = number (input["lowCut"], 20, 10, 30000);
-    s->inputHighCut = number (input["highCut"], 20000, 10, 30000);
-    s->bandwidth = number (input["bandwidth"], 20000, 100, 40000);
-    s->deEss = number (json["deEss"]["amount"], 0, 0, 30);
-    s->deEssFrequency = number (json["deEss"]["frequency"], 6500, 1000, 20000);
-    const auto& duck = json["duck"];
-    s->duck = number (duck["depth"], 0, -48, 0);
-    s->autoThreshold = duck["threshold"].isVoid() || ! (duck["threshold"].isDouble() || duck["threshold"].isInt());
-    s->threshold = number (duck["threshold"], -30, -100, 0);
-    s->attack = number (duck["attack"], 0.01, 1e-4, 1);
-    s->release = number (duck["release"], 0.25, 1e-3, 10);
-    s->hold = number (duck["hold"], 0.05, 0, 2);
-    s->tailOnly = duck["tailOnly"].isVoid() || (bool) duck["tailOnly"];
-    s->key = (int) number (duck["key"], -1, -1, 1e6);
-    s->autoDecay = number (duck["autoDecay"], 0, 0, 0.95);
-    s->recovery = number (duck["recovery"], 0.1, 1e-3, 5);
-    const auto& post = json["post"];
-    s->lowCut = number (post["lowCut"], 20, 10, 30000);
-    s->lowSlope = (int) number (post["lowSlope"], 12, 12, 24);
-    s->highCut = number (post["highCut"], 20000, 10, 30000);
-    s->highSlope = (int) number (post["highSlope"], 12, 12, 24);
-    s->lowShelf = number (post["lowShelf"], 200, 10, 30000);
-    s->lowShelfGain = number (post["lowShelfGain"], 0, -24, 24);
-    s->highShelf = number (post["highShelf"], 8000, 10, 30000);
-    s->highShelfGain = number (post["highShelfGain"], 0, -24, 24);
-    s->studio = (bool) post["studio"];
-    s->monoBelow = number (post["monoBelow"], 0, 0, 2000);
-    s->width = number (post["width"], 1, 0, 2);
-    s->level = number (post["level"], 1, 0, 8);
-    s->dry = number (json["mix"]["dry"], 1, 0, 1);
-    s->wet = number (json["mix"]["wet"], 0, 0, 1);
-    const auto& era = json["era"];
-    s->bandLimit = number (era["bandLimit"], 0, 0, 40000);
-    s->aperture = (bool) era["aperture"];
-    s->emphasis = (bool) era["emphasis"];
-    s->bits = (int) number (era["bits"], 0, 0, 24);
-    s->gainRanging = (bool) era["gainRanging"];
-    s->noise = number (era["noise"], -200, -200, 0);
-    s->seed = (juce::uint32) (juce::int64) number (json["seed"], 1, 0, 4294967295.0);
-    s->design (state.graphicEq());
-    return s;
-}
-
-void Settings::design (const GraphicEq& graphicEq)
-{
-    const auto held = infinite();
-    for (int i = 0; i < topology.lines; ++i)
-    {
-        const auto& l = topology.line[(size_t) i];
-        // Every element loses the same dB a second (Jot): the all-pass its share through its own loop, the
-        // delay's filter the rest. A long all-pass (a plate's) holds much of the sound in its loop, so it gets
-        // the whole design; a short one (the FDN's) a shelf, exact at the ends, the delay's filter making up the
-        // rest at each band.
-        std::array<double, numBands> allpass {}, target {};
-        for (int b = 0; b < numBands; ++b)
-            allpass[(size_t) b] = held ? 0.0 : -60.0 * l.allpass * scale / t60[(size_t) b];
-        const auto whole = true;
-        allpassDesigns[(size_t) i] = held ? EqDesign {} : whole ? graphicEq.design (allpass, true) : graphicEq.shelfOnly (allpass);
-        for (int b = 0; b < numBands; ++b)
-            target[(size_t) b] = held ? 0.0 : -60.0 * l.delay * scale / t60[(size_t) b] + (whole ? 0.0 : allpass[(size_t) b] - graphicEq.shelfAt (allpassDesigns[(size_t) i], b));
-        designs[(size_t) i] = held ? EqDesign {} : graphicEq.design (target, true);
-    }
-    std::array<double, numBands> target {};
-    for (int b = 0; b < numBands; ++b)
-        target[(size_t) b] = held ? 0.0 : juce::jlimit (-15.0, 15.0, -10.0 * std::log10 (t60[(size_t) b] / t60[5]));
-    tone = graphicEq.design (target, false);
-    ++designed;
-}
-
-void Settings::set (Lane lane, const float* v, int size)
-{
-    const auto at = [&] (int k, double fallback) { return k < size ? (double) v[k] : fallback; };
-    switch (lane)
-    {
-        case Lane::mix: dry = juce::jlimit (0.0, 1.0, at (0, dry)), wet = juce::jlimit (0.0, 1.0, at (1, wet)); break;
-        case Lane::t60:
-        {
-            bool changed = false;
-            for (int b = 0; b < juce::jmin (size, numBands); ++b)
-            {
-                const auto value = juce::jlimit (0.01, 1e5, (double) v[b]);
-                changed = changed || std::abs (value - t60[(size_t) b]) > 1e-6 * t60[(size_t) b];
-                t60[(size_t) b] = value;
-            }
-            if (changed)
-                ++designed;
-            break;
-        }
-        case Lane::freeze: freeze = at (0, 0) >= 0.5; break;
-        case Lane::predelay: predelay = juce::jlimit (0.0, 1.0, at (0, predelay)); break;
-        case Lane::scale: scale = juce::jlimit (0.1, 4.0, at (0, scale)); break;
-        case Lane::distance:
-            earlyLevel = juce::jlimit (0.0, 8.0, at (0, earlyLevel));
-            lateLevel = juce::jlimit (0.0, 8.0, at (1, lateLevel));
-            air = juce::jlimit (100.0, 40000.0, at (2, air));
-            bandwidth = juce::jlimit (100.0, 40000.0, at (3, bandwidth));
-            break;
-        case Lane::density: density = juce::jlimit (0.0, 1.0, at (0, density)), diffuse = juce::jlimit (0.0, 1.0, at (1, diffuse)); break;
-        case Lane::modRate: modRate = juce::jlimit (0.01, 20.0, at (0, modRate)); break;
-        case Lane::modDepth: modDepth = juce::jlimit (0.0, 0.005, at (0, modDepth)); break;
-        case Lane::width: width = juce::jlimit (0.0, 2.0, at (0, width)); break;
-        case Lane::postCuts: lowCut = juce::jlimit (10.0, 30000.0, at (0, lowCut)), highCut = juce::jlimit (10.0, 30000.0, at (1, highCut)); break;
-        case Lane::deEss: deEss = juce::jlimit (0.0, 30.0, at (0, deEss)), deEssFrequency = juce::jlimit (1000.0, 20000.0, at (1, deEssFrequency)); break;
-        case Lane::duck: duck = juce::jlimit (-48.0, 0.0, at (0, duck)); break;
-        case Lane::inputCross: inputCross = juce::jlimit (0.0, 1.0, at (0, inputCross)); break;
-        case Lane::inputCuts: inputLowCut = juce::jlimit (10.0, 30000.0, at (0, inputLowCut)), inputHighCut = juce::jlimit (10.0, 30000.0, at (1, inputHighCut)); break;
-        case Lane::vlf: vlf = juce::jlimit (-30.0, 0.0, at (0, vlf)); break;
-        case Lane::earlySend: earlySend = juce::jlimit (0.0, 1.0, at (0, earlySend)); break;
-        case Lane::earlyCross: earlyCross = juce::jlimit (0.0, 1.0, at (0, earlyCross)); break;
-        case Lane::lateDiffusion: apScale = juce::jlimit (0.0, 2.0, at (0, apScale)); break;
-        case Lane::duckTimes:
-        {
-            const auto th = at (0, autoThreshold ? 1.0 : threshold);
-            autoThreshold = th > 0.5;
-            if (! autoThreshold)
-                threshold = juce::jlimit (-100.0, 0.0, th);
-            attack = juce::jlimit (1e-4, 1.0, at (1, attack));
-            release = juce::jlimit (1e-3, 10.0, at (2, release));
-            hold = juce::jlimit (0.0, 2.0, at (3, hold));
-            break;
-        }
-        case Lane::autoDecay: autoDecay = juce::jlimit (0.0, 0.95, at (0, autoDecay)), recovery = juce::jlimit (1e-3, 5.0, at (1, recovery)); break;
-        case Lane::shelves:
-            lowShelf = juce::jlimit (10.0, 30000.0, at (0, lowShelf));
-            lowShelfGain = juce::jlimit (-24.0, 24.0, at (1, lowShelfGain));
-            highShelf = juce::jlimit (10.0, 30000.0, at (2, highShelf));
-            highShelfGain = juce::jlimit (-24.0, 24.0, at (3, highShelfGain));
-            break;
-        case Lane::monoBelow: monoBelow = juce::jlimit (0.0, 2000.0, at (0, monoBelow)); break;
-        case Lane::level: level = juce::jlimit (0.0, 8.0, at (0, level)); break;
-    }
-}
-
-void Settings::get (Lane lane, float* v, int& size) const
-{
-    size = 1;
-    const auto put = [&] (std::initializer_list<double> values) {
-        size = 0;
-        for (const auto x : values)
-            v[size++] = (float) x;
-    };
-    switch (lane)
-    {
-        case Lane::mix: put ({ dry, wet }); break;
-        case Lane::t60:
-            size = numBands;
-            for (int b = 0; b < numBands; ++b)
-                v[b] = (float) t60[(size_t) b];
-            break;
-        case Lane::freeze: put ({ freeze ? 1.0 : 0.0 }); break;
-        case Lane::predelay: put ({ predelay }); break;
-        case Lane::scale: put ({ scale }); break;
-        case Lane::distance: put ({ earlyLevel, lateLevel, air, bandwidth }); break;
-        case Lane::density: put ({ density, diffuse }); break;
-        case Lane::modRate: put ({ modRate }); break;
-        case Lane::modDepth: put ({ modDepth }); break;
-        case Lane::width: put ({ width }); break;
-        case Lane::postCuts: put ({ lowCut, highCut }); break;
-        case Lane::deEss: put ({ deEss, deEssFrequency }); break;
-        case Lane::duck: put ({ duck }); break;
-        case Lane::inputCross: put ({ inputCross }); break;
-        case Lane::inputCuts: put ({ inputLowCut, inputHighCut }); break;
-        case Lane::vlf: put ({ vlf }); break;
-        case Lane::earlySend: put ({ earlySend }); break;
-        case Lane::earlyCross: put ({ earlyCross }); break;
-        case Lane::lateDiffusion: put ({ apScale }); break;
-        case Lane::duckTimes: put ({ autoThreshold ? 1.0 : threshold, attack, release, hold }); break;
-        case Lane::autoDecay: put ({ autoDecay, recovery }); break;
-        case Lane::shelves: put ({ lowShelf, lowShelfGain, highShelf, highShelfGain }); break;
-        case Lane::monoBelow: put ({ monoBelow }); break;
-        case Lane::level: put ({ level }); break;
-    }
-}
 
 // ---------------------------------------------------------------------------------------------------------
 // State
@@ -309,13 +35,18 @@ State::State (double sampleRate, int capacity) : rate (sampleRate), blockCapacit
     ringRight.assign ((size_t) size, 0.0f);
     ringMask = size - 1;
     early.prepare (rate);
+    feed.prepare (rate);
     deEsser.prepare (rate);
     ducker.prepare (rate);
     glide = 1.0 - std::exp (-1.0 / (glideSeconds * rate));
     spillFadeLength = juce::jmax (1, (int) (0.03 * rate));
+    toneFadeLength = juce::jmax (1, (int) (0.02 * rate));
+    handoverLength = juce::jmax (1, (int) (0.02 * rate));
     predelayFadeLength = juce::jmax (1, (int) (0.03 * rate));
     // Scratch: dry ×2, early heard ×2, late in ×2, late out ×2, duck gain.
-    scratch.setSize (9, blockCapacity);
+    scratch.setSize (11, blockCapacity);
+    lineScratch.setSize (maxLines, blockCapacity);
+    spillScratch.setSize (maxLines, blockCapacity);
     levels.reserve (eq::SpectrumGrid::points);
 }
 
@@ -326,7 +57,7 @@ void State::reset (const Settings& s)
     networks[0].configure (s.topology, s.scale, s.designs, s.allpassDesigns);
     networks[1].clear();
     active = 0;
-    spillFade = 0;
+    spillFade = 0, handover = 0;
     designed = s.designed;
     designedT60 = s.t60;
     t60Factor = 1;
@@ -337,6 +68,7 @@ void State::reset (const Settings& s)
     predelayNow = -1;
     predelayFade = 0;
     early.reset();
+    feed.reset();
     for (auto* group : { &inLow, &inHigh, &postLow, &postHigh, &studioLow, &studioHigh })
         for (auto& c : *group)
             c.reset();
@@ -350,7 +82,8 @@ void State::reset (const Settings& s)
             b.reset();
     for (auto& f : tone)
         f.reset();
-    for (auto* group : { &vlfHeard, &vlfLate, &lowShelf, &highShelf })
+    toneFade = 0, toneDesigned = -1;
+    for (auto* group : { &vlfHeard, &lowShelf, &highShelf })
         for (auto& f : *group)
             f.reset();
     airY = {};
@@ -382,6 +115,8 @@ void State::adopt (Settings& s)
         active = 1 - active;
         networks[(size_t) active].configure (s.topology, s.scale, s.designs, s.allpassDesigns);
         designed = s.designed, designedT60 = s.t60, t60Factor = 1, serial = s.serial;
+        handover = net.configured() ? handoverLength : 0;
+        spillLevel = lateLevel * level;
         return;
     }
     net.update (s.topology);
@@ -398,6 +133,8 @@ void State::adopt (Settings& s)
         active = 1 - active;
         networks[(size_t) active].configure (s.topology, s.scale, s.designs, s.allpassDesigns);
         designed = s.designed, designedT60 = s.t60, t60Factor = 1, serial = s.serial;
+        handover = handoverLength;
+        spillLevel = lateLevel * level;
         return;
     }
     if (s.designed != designed)
@@ -477,21 +214,47 @@ void State::process (Settings& s, const float* keyLeft, const float* keyRight, f
         lowShelf[(size_t) c].set (false, s.lowShelf, s.lowShelfGain, rate);
         highShelf[(size_t) c].set (true, s.highShelf, s.highShelfGain, rate);
         vlfHeard[(size_t) c].set (false, 200, s.vlf, rate);
-        vlfLate[(size_t) c].set (false, 200, 0.5 * s.vlf, rate);
-        limitIn[(size_t) c].set (s.bandLimit, rate);
-        limitOut[(size_t) c].set (s.bandLimit, rate);
+        // In and out together −3 dB at the band limit: each 8th-order Butterworth −1.5 dB there, its
+        // corner a little above it, worked out where the filter is designed (warped: near Nyquist,
+        // a ratio in hertz isn't one in the bilinear's frequencies).
+        const auto limit = s.bandLimit > 0 && s.bandLimit < 0.45 * rate
+                          ? rate / juce::MathConstants<double>::pi * std::atan (std::tan (juce::MathConstants<double>::pi * s.bandLimit / rate) * 1.0570)
+                          : 0.0;
+        limitIn[(size_t) c].set (limit, rate);
+        limitOut[(size_t) c].set (limit, rate);
         aperture[(size_t) c].shelf (true, rate, 5000, s.aperture ? 2.0 : 0.0);
         preEmphasis[(size_t) c].shelf (true, rate, 3000, s.emphasis ? 6.0 : 0.0);
         deEmphasis[(size_t) c].shelf (true, rate, 3000, s.emphasis ? -6.0 : 0.0);
     }
-    if (s.toneLock)
-        for (auto& f : tone)
-            f.realise (s.tone, eq, 1);
+    if (s.toneLock && (toneDesigned != s.designed || toneSerial != s.serial) && toneFade == 0)
+    {
+        // A new design starts from the old one's memory and fades in over 20 ms (not the first). One
+        // waits for the last fade to finish: an old one dropped halfway would click.
+        const auto same = toneDesigned >= 0 && std::memcmp (&toneDesign, &s.tone, sizeof (EqDesign)) == 0;
+        if (! same)
+        {
+            if (toneDesigned >= 0)
+                toneOld = tone, toneFade = toneFadeLength;
+            toneDesign = s.tone;
+            for (auto& f : tone)
+                f.realise (s.tone, eq, 1);
+        }
+        toneDesigned = s.designed, toneSerial = s.serial;
+    }
     sideLow.set (150, 0.70710678, rate);
     if (s.monoBelow >= 20)
         sideMono.set (s.monoBelow, 0.70710678, rate);
     if (early.needsLayout (net.scale(), s.density))
         early.layout (s.earlyLeft, s.earlyRight, net.scale(), s.density, rate);
+    const auto lineCount = juce::jmin (maxLines, s.topology.lines);
+    const auto feeding = ! s.earlyLines.empty() && (int) s.earlyLines.size() == lineCount;
+    if (feeding && feed.needsLayout (net.scale(), s.density, lineCount))
+    {
+        std::array<float, LineFeed::maxLines> gains {};
+        for (int j = 0; j < lineCount; ++j)
+            gains[(size_t) j] = std::abs (s.topology.line[(size_t) j].inLeft) + std::abs (s.topology.line[(size_t) j].inRight);
+        feed.layout (s.earlyLines, gains, net.scale(), s.density, rate);
+    }
 
     auto* dryL = scratch.getWritePointer (0);
     auto* dryR = scratch.getWritePointer (1);
@@ -502,6 +265,8 @@ void State::process (Settings& s, const float* keyLeft, const float* keyRight, f
     auto* lateL = scratch.getWritePointer (6);
     auto* lateR = scratch.getWritePointer (7);
     auto* duckGain = scratch.getWritePointer (8);
+    auto* spillInL = scratch.getWritePointer (9);
+    auto* spillInR = scratch.getWritePointer (10);
 
     const auto hasEarly = ! s.earlyLeft.empty();
     const auto airCoefficient = 1.0 - std::exp (-2 * pi * juce::jmin (s.air, 0.45 * rate) / rate);
@@ -596,15 +361,39 @@ void State::process (Settings& s, const float* keyLeft, const float* keyRight, f
         earlyLevel += (s.earlyLevel - earlyLevel) * glide;
         earlyL[i] = (float) (vlfHeard[0].process (el) * earlyLevel);
         earlyR[i] = (float) (vlfHeard[1].process (er) * earlyLevel);
-        // Into the late network: the early energy (Early Send), or the input itself.
-        auto xl = hasEarly ? (1 - s.earlySend) * preL + s.earlySend * el : preL;
-        auto xr = hasEarly ? (1 - s.earlySend) * preR + s.earlySend * er : preR;
-        xl = vlfLate[0].process (xl);
-        xr = vlfLate[1].process (xr);
-        if (s.toneLock)
-            xl = tone[0].process ((float) xl), xr = tone[1].process ((float) xr);
-        lateInL[i] = (float) xl;
-        lateInR[i] = (float) xr;
+        // Into the late network: each line its own velvet feed (Early Send), or the input itself.
+        lateInL[i] = (float) preL;
+        lateInR[i] = (float) preR;
+        if (feeding)
+        {
+            const auto crossIn = 0.5 * s.inputCross;
+            auto xl = preL, xr = preR;
+            if (s.mono)
+                xl = xr = 0.5 * (preL + preR);
+            else
+                xl = (1 - crossIn) * preL + crossIn * preR, xr = (1 - crossIn) * preR + crossIn * preL;
+            for (int j = 0; j < lineCount; ++j)
+            {
+                const auto& line = s.topology.line[(size_t) j];
+                // Its side: the lines the left feeds read the left (mixed by Input Cross), the others the right.
+                const auto leftSide = std::abs (line.inLeft) >= std::abs (line.inRight);
+                const auto feedAt = [&] (juce::int64 base) {
+                    if (s.mono)
+                        return feed.tap (j, base, readMono);
+                    const auto fromLeft = feed.tap (j, base, readLeft);
+                    const auto fromRight = crossIn > 0 || ! leftSide ? feed.tap (j, base, readRight) : 0.0;
+                    const auto own = leftSide ? fromLeft : fromRight, opposite = leftSide ? fromRight : fromLeft;
+                    return (1 - crossIn) * own + crossIn * opposite;
+                };
+                // The pre-delay's crossfade, as the early taps have it.
+                auto v = feedAt (now);
+                if (fade > 0)
+                    v = v * (1 - fade) + feedAt (from) * fade;
+                const auto direct = line.inLeft * xl + line.inRight * xr;
+                lineScratch.getWritePointer (j)[i] = (float) ((1 - s.earlySend) * direct + s.earlySend * v);
+            }
+            feed.step();
+        }
 
         // The ducker hears the key: another track's sound, or what comes in.
         const auto key = keyLeft != nullptr ? 0.5 * ((double) keyLeft[i] + (double) (keyRight != nullptr ? keyRight[i] : keyLeft[i])) : 0.5 * ((double) dryL[i] + (double) dryR[i]);
@@ -624,6 +413,26 @@ void State::process (Settings& s, const float* keyLeft, const float* keyRight, f
     p.bandwidth = s.bandwidth;
     p.cross = s.inputCross;
     p.mono = s.mono;
+    // A new network (Size jumped, another mode) takes the input over in 20 ms, the old one letting go of
+    // it as long: a sustained note cut off or started mid-wave would click in both.
+    // The old one keeps the feeds it had (the same lines: Size), so what it hears doesn't change its kind.
+    const auto handing = handover > 0;
+    const auto spillFeeds = handing && feeding && networks[(size_t) (1 - active)].lineTotal() == lineCount;
+    if (handing)
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto t = handover > 0 ? (float) handover-- / (float) handoverLength : 0.0f;
+            spillInL[i] = lateInL[i] * t, spillInR[i] = lateInR[i] * t;
+            lateInL[i] *= 1 - t, lateInR[i] *= 1 - t;
+            if (feeding)
+                for (int j = 0; j < lineCount; ++j)
+                {
+                    auto& x = lineScratch.getWritePointer (j)[i];
+                    if (spillFeeds)
+                        spillScratch.getWritePointer (j)[i] = x * t;
+                    x *= 1 - t;
+                }
+        }
     const auto freezeUp = 1.0 - std::exp (-1.0 / (0.02 * rate)), freezeDown = 1.0 - std::exp (-1.0 / (0.05 * rate));
     bool sounded = false;
     for (int start = 0; start < numSamples; start += slice)
@@ -642,13 +451,18 @@ void State::process (Settings& s, const float* keyLeft, const float* keyRight, f
         p.ceiling = infinite ? 0.05 : 0.0;
         lateLevel += (s.lateLevel - lateLevel) * (1 - std::pow (1 - glide, length));
         auto& a = networks[(size_t) active];
-        bool feeding = false;
-        for (int i = start; i < start + length && ! feeding; ++i)
-            feeding = lateInL[i] != 0.0f || lateInR[i] != 0.0f;
-        if (feeding)
+        bool sounding = false;
+        for (int i = start; i < start + length && ! sounding; ++i)
+            sounding = lateInL[i] != 0.0f || lateInR[i] != 0.0f;
+        if (sounding)
             a.idle = false;
         if (! a.idle)
-            a.process (p, lateInL + start, lateInR + start, lateL + start, lateR + start, length, (float) lateLevel);
+        {
+            std::array<const float*, maxLines> lines {};
+            for (int j = 0; j < lineCount; ++j)
+                lines[(size_t) j] = lineScratch.getReadPointer (j) + start;
+            a.process (p, lateInL + start, lateInR + start, lateL + start, lateR + start, length, (float) lateLevel, feeding ? lines.data() : nullptr);
+        }
         auto& b = networks[(size_t) (1 - active)];
         if (b.configured() && ! b.idle)
         {
@@ -656,7 +470,8 @@ void State::process (Settings& s, const float* keyLeft, const float* keyRight, f
             auto q = p;
             q.scale = b.scale();
             q.absorb = infinite ? 0.0 : (1 - freezeAmount);
-            auto gain = (float) lateLevel;
+            // At the level it was playing at (the new settings' output level taken back off).
+            auto gain = (float) (spillLevel / juce::jmax (1e-6, level));
             if (spillFade > 0)
             {
                 gain *= (float) spillFade / (float) spillFadeLength;
@@ -666,7 +481,10 @@ void State::process (Settings& s, const float* keyLeft, const float* keyRight, f
             }
             if (! b.idle)
             {
-                b.process (q, nullptr, nullptr, lateL + start, lateR + start, length, gain);
+                std::array<const float*, maxLines> spilled {};
+                for (int j = 0; j < lineCount && spillFeeds; ++j)
+                    spilled[(size_t) j] = spillScratch.getReadPointer (j) + start;
+                b.process (q, handing ? spillInL + start : nullptr, handing ? spillInR + start : nullptr, lateL + start, lateR + start, length, gain, spillFeeds ? spilled.data() : nullptr);
                 if (b.peak() < quietPeak && ! q.hold)
                     b.clear();
             }
@@ -675,6 +493,21 @@ void State::process (Settings& s, const float* keyLeft, const float* keyRight, f
     }
     if (! net.idle && ! sounded && silent && ! frozen && ! infinite && quietSamples > (juce::int64) (ringSeconds * rate))
         net.clear();
+
+    // The tone corrector on what the late network made (a linear network: the same as on what went in),
+    // so the Decay EQ changes how long each band rings, not how loud.
+    if (s.toneLock)
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto l = lateL[i], r = lateR[i];
+            lateL[i] = tone[0].process (l), lateR[i] = tone[1].process (r);
+            if (toneFade > 0)
+            {
+                const auto t = (float) toneFade-- / (float) toneFadeLength;
+                lateL[i] = lateL[i] * (1 - t) + toneOld[0].process (l) * t;
+                lateR[i] = lateR[i] * (1 - t) + toneOld[1].process (r) * t;
+            }
+        }
 
     // The wet sound: early and late, the era's converter out, the Post EQ, width, ducking; then the mix.
     float outMax[2] {}, duckMost = 0;

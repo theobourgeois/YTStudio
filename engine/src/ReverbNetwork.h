@@ -22,7 +22,7 @@ constexpr int maxLines = 16;
 constexpr int maxTaps = 64;
 constexpr int maxDiffusers = 4;
 /** The longest delay and all-pass a line holds (s): Hall's at Size 100%, Plate's at 1.6, and the modulation's reach. */
-constexpr double maxDelaySeconds = 0.32, maxAllpassSeconds = 0.16;
+constexpr double maxDelaySeconds = 0.36, maxAllpassSeconds = 0.16;
 
 /** A line as a mode makes it (`EngineReverbLine`): seconds at scale 1. */
 struct LineSpec
@@ -89,11 +89,13 @@ public:
     void update (const Topology& topology);
 
     /** Run a block: `inL`/`inR` in (null: nothing), the late sound added into `outL`/`outR` × `level`. */
-    void process (const NetworkParams& params, const float* inL, const float* inR, float* outL, float* outR, int numSamples, float level);
+    /** `lines`: each line's own input (its velvet feed), in place of `inL`/`inR` through the lines' injection (null: those). */
+    void process (const NetworkParams& params, const float* inL, const float* inR, float* outL, float* outR, int numSamples, float level, const float* const* lines = nullptr);
 
     /** Empty it (O(1): its rings forget). */
     void clear();
     bool configured() const { return topology.signature != 0 && lineCount > 0; }
+    int lineTotal() const { return lineCount; }
     juce::uint64 signature() const { return topology.signature; }
     double scale() const { return scaleNow; }
     /** The loudest it was last block (its output), and its loop's energy. */
@@ -177,6 +179,14 @@ private:
     std::array<Line, maxLines> lines;
     std::array<EqDesign, maxLines> designs {}, allpassDesigns {};
     double designScale = 1, realisedAbsorb = -1, realisedRatio = -1;
+    /** The designs a redesign glides from (at `fromScale`) and how far it's gone (1: there). A loop filter's
+     *  coefficients jumping mid-sound would put a click into the lines, which their taps then play. */
+    std::array<EqDesign, maxLines> designsFrom {}, allpassFrom {};
+    double fromScale = 1, morph = 1;
+    /** The loss now (NetworkParams::absorb, glided to). */
+    double absorbNow = -1;
+    /** `a` at `sa` and `b` at `sb` mixed (`t` of `b`), as one design at a scale of 1. */
+    static EqDesign blend (const EqDesign& a, double sa, const EqDesign& b, double sb, double t);
     std::array<Ring, maxDiffusers> diffuserRing;
     std::array<double, maxDiffusers> diffuserLength {};
     double scaleNow = 1, configuredScale = 1;
@@ -188,6 +198,9 @@ private:
     bool clippedFlag = false;
     int counter = 0;
     /** Each tap's place (samples back), placed again as Size moves. */
-    std::array<int, maxTaps> tapAt {};
+    /** Where each tap reads (samples, fractional: Size glides, and a tap stepping a whole sample would click). */
+    std::array<double, maxTaps> tapAt {};
+    /** Each tap's gain now, gliding to its own (Decay reshapes a Plate's taps: a step would click). */
+    std::array<double, maxTaps> tapGain {};
 };
 } // namespace verb

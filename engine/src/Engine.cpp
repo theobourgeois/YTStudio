@@ -6,7 +6,11 @@ namespace
 {
 constexpr double toneHz = 440.0;
 constexpr float toneGain = 0.15f;
-constexpr double offlineSampleRate = 48000.0;
+/** Offline (tests, `--offline`), the rate it renders at: 48 kHz, or what VAUDIO_OFFLINE_RATE says (the tests of sounds at other rates). */
+const double offlineSampleRate = [] {
+    const auto wanted = juce::SystemStats::getEnvironmentVariable ("VAUDIO_OFFLINE_RATE", "48000").getDoubleValue();
+    return wanted >= 8000 && wanted <= 192000 ? wanted : 48000.0;
+}();
 constexpr int offlineBlockSize = 512;
 /** A buffer small enough to play along to, where the device allows it. */
 constexpr int preferredBlockSize = 256;

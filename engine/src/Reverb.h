@@ -68,6 +68,8 @@ struct Settings
     bool freeze = false, toneLock = true;
     double predelay = 0.02;
     std::vector<EarlyTap> earlyLeft, earlyRight;
+    /** Each line's own feed (`lineFeeds`). */
+    std::vector<std::vector<EarlyTap>> earlyLines;
     double earlyLevel = 0, earlySend = 1, earlyCross = 0.5, air = 18000, density = 0.5, diffuse = 0.6, vlf = 0;
     double lateLevel = 1, apScale = 1;
     double modRate = 0.8, modDepth = 0;
@@ -146,6 +148,10 @@ private:
     int active = 0;
     /** The other network fading out to make room (a third change while it still rang), samples left. */
     int spillFade = 0, spillFadeLength = 1;
+    /** Samples left of a new network taking the input over from the old (and how long that takes). */
+    int handover = 0, handoverLength = 1;
+    /** The old network's late level × output level when it was let go of (it rings out at it). */
+    double spillLevel = 1;
     int designed = -1;
     juce::uint64 serial = 0;
     /** T60 now as a factor of the design's (a uniform change of Decay, by a lane, needs no new design). */
@@ -158,14 +164,19 @@ private:
     double predelayNow = -1, predelayFrom = 0;
     int predelayFade = 0, predelayFadeLength = 1;
     Early early;
+    LineFeed feed;
 
     // The blocks' memories.
     std::array<Cut, 2> inLow, inHigh, postLow, postHigh, studioLow, studioHigh;
     DeEsser deEsser;
     std::array<BandLimit, 2> limitIn, limitOut;
     std::array<Biquad, 2> aperture, preEmphasis, deEmphasis;
-    std::array<EqFilter, 2> tone;
-    std::array<Shelf, 2> vlfHeard, vlfLate, lowShelf, highShelf;
+    /** The tone corrector, and the one it replaced fading out (a new design's coefficients mid-sound would click). */
+    std::array<EqFilter, 2> tone, toneOld;
+    EqDesign toneDesign;
+    int toneFade = 0, toneFadeLength = 1, toneDesigned = -1;
+    juce::uint64 toneSerial = 0;
+    std::array<Shelf, 2> vlfHeard, lowShelf, highShelf;
     std::array<double, 2> airY {};
     Svf sideLow, sideMono;
     Ducker ducker;
@@ -179,8 +190,8 @@ private:
     bool stale = true;
     juce::int64 quietSamples = 0;
 
-    // Scratch, a block long.
-    juce::AudioBuffer<float> scratch;
+    // Scratch, a block long; and each line's input (its feed and the input itself, by Early Send).
+    juce::AudioBuffer<float> scratch, lineScratch, spillScratch;
 
     // For its window.
     std::atomic<float> inPeak[2] {}, outPeak[2] {};

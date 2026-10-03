@@ -47,7 +47,7 @@ export const BAND_FREQ_RANGE = [20, 20000] as const;
  * matched to it (`output.level`, measured in `reverb.integration.test.ts`), so a send can be set for a
  * loudness under the voice whatever the preset (add_vocal_reverb).
  */
-export const PRESET_LOUDNESS = -6;
+export const PRESET_LOUDNESS = -12;
 /** The slot's Mix on an insert, as a new Reverb comes (engineers' insert mixes are 12–25 %). */
 export const INSERT_MIX = 0.18;
 
@@ -458,6 +458,45 @@ export const REVERB_PRESETS: readonly ReverbPreset[] = [
   { name: "Init", folder: null, detail: "Smooth Plate, 1.8 s, nothing else", settings: {} },
 ];
 
+/**
+ * Each preset's output trim (dB), so their wet sounds are as loud as each other (`PRESET_LOUDNESS` against
+ * what goes in, fully wet, pink noise, ducking off): measured by `reverb.integration.test.ts`'s "presets at
+ * one loudness", which fails when one drifts.
+ */
+export const PRESET_LEVELS: Record<string, number> = {
+  "Vocal Plate": 0.1,
+  "Vox Plate": 1.2,
+  "Classic Plate": -1.2,
+  "Bright Pop Plate": 1.2,
+  "Dark Plate": -0.5,
+  "Rap Room": 2.0,
+  "Vocal Chamber": 1.8,
+  "Air": 0.8,
+  "Ballad Hall": -0.5,
+  "80s Hall": -0.9,
+  "Intimate": 1.2,
+  "80s Rap Plate": 2.5,
+  "Pair A: Front Chamber": 1.9,
+  "Pair B: Back Plate": -1.3,
+  "Pair A: Rap Room": 2.5,
+  "Pair B: Rap Plate": 0.2,
+  "Stack Wash": -1.1,
+  "Harmony Plate": -1.5,
+  "Choir Chamber": -0.7,
+  "Throw Wash": -3.0,
+  "Infinite": -11.7,
+  "Chorus Verb": -0.7,
+  "EMT 250 Chorus": -0.6,
+  "Back Of The Hall": 0.1,
+  "Lo-Fi Verb": 0.1,
+  "Snare Plate": -0.1,
+  "Drum Room": -5.5,
+  "Keys Hall": -2.1,
+  "Synth Space": -4.1,
+  "Acoustic Chamber": -1.3,
+  "Init": -4.0,
+};
+
 /** The preset a new Reverb loads (7): the vocal default. */
 export const DEFAULT_PRESET = "Vocal Plate";
 
@@ -472,7 +511,9 @@ function merged<T>(base: T, over: unknown): T {
 /** A preset's sound, whole (Init's values where it says nothing). */
 export function reverbPresetState(name: string): ReverbState | null {
   const preset = REVERB_PRESETS.find((p) => p.name === name);
-  return preset ? normalizeReverbState(merged(INIT_REVERB, preset.settings)) : null;
+  if (!preset) return null;
+  const state = normalizeReverbState(merged(INIT_REVERB, preset.settings));
+  return { ...state, output: { ...state.output, level: Math.round((state.output.level + (PRESET_LEVELS[name] ?? 0)) * 10) / 10 } };
 }
 
 /** Whether a preset sets the Mix (the one insert preset, Rap Room); the others leave it. */
@@ -480,7 +521,7 @@ export const presetSetsMix = (name: string) => REVERB_PRESETS.find((p) => p.name
 
 /** A new Reverb: the vocal default, at an insert's Mix. */
 export const DEFAULT_REVERB: Reverb = {
-  ...normalizeReverbState(merged(INIT_REVERB, REVERB_PRESETS[0].settings)),
+  ...reverbPresetState(DEFAULT_PRESET)!,
   mix: INSERT_MIX,
   preset: DEFAULT_PRESET,
   mixLock: false,

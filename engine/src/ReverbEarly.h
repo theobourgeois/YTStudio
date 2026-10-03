@@ -99,7 +99,7 @@ struct BandLimit
     double designed = -1;
     void set (double hz, double rate)
     {
-        on = hz > 0 && hz < 0.45 * rate;
+        on = hz > 0 && hz < 0.499 * rate;
         if (! on || std::abs (hz - designed) < 1e-6)
             return;
         designed = hz;
@@ -334,7 +334,11 @@ public:
         build (now, left, right, scale, fraction, rate);
         layoutScale = scale, layoutFraction = fraction;
     }
-    bool needsLayout (double scale, double fraction) const { return layoutScale < 0 || std::abs (scale / layoutScale - 1) > 0.01 || std::abs (fraction - layoutFraction) > 0.002; }
+    /** A new layout waits for the last crossfade to finish (one dropped halfway would click). */
+    bool needsLayout (double scale, double fraction) const
+    {
+        return layoutScale < 0 || (fade == 0 && (std::abs (scale / layoutScale - 1) > 0.01 || std::abs (fraction - layoutFraction) > 0.002));
+    }
 
     /** The early sound of side `side` at offset `base` (samples back of the newest input) through `read`. */
     template <typename Read>
@@ -416,6 +420,99 @@ private:
 
     Layout now, old;
     int fade = 0, fadeLength = 2400;
+    double layoutScale = -1, layoutFraction = -1;
+};
+/**
+ * What feeds each line of the late network (`lineFeeds`): its own short velvet sequence read from the
+ * pre-delayed input, normalised to a power gain of 1 and scaled by the line's injection; laid out at a
+ * scale, a new layout crossfading in over 50 ms (as `Early`'s).
+ */
+class LineFeed
+{
+public:
+    static constexpr int maxLines = 16, maxTaps = 64;
+
+    void prepare (double rate) { fadeLength = (int) (0.05 * rate); }
+    void layout (const std::vector<std::vector<EarlyTap>>& lines, const std::array<float, maxLines>& gains, double scale, double fraction, double rate)
+    {
+        old = now;
+        fade = old.lines > 0 ? fadeLength : 0;
+        now.lines = juce::jmin (maxLines, (int) lines.size());
+        for (int j = 0; j < now.lines; ++j)
+        {
+            const auto& taps = lines[(size_t) j];
+            double power = 0;
+            int count = 0;
+            for (size_t k = 0; k < taps.size() && count < maxTaps; ++k)
+            {
+                const auto w = juce::jlimit (0.0, 1.0, (fraction - taps[k].rank) / 0.05 + 0.5);
+                if (w <= 0)
+                    continue;
+                const auto g = taps[k].gain * w;
+                power += g * g;
+                now.at[(size_t) j][(size_t) count] = (int) std::lround (taps[k].at * scale * rate);
+                now.coefficient[(size_t) j][(size_t) count] = (float) g;
+                ++count;
+            }
+            const auto norm = power > 0 ? gains[(size_t) j] / std::sqrt (power) : 0.0;
+            for (int k = 0; k < count; ++k)
+                now.coefficient[(size_t) j][(size_t) k] *= (float) norm;
+            now.count[(size_t) j] = count;
+        }
+        layoutScale = scale, layoutFraction = fraction, laidLines = (int) lines.size();
+    }
+    bool needsLayout (double scale, double fraction, int lines) const
+    {
+        return layoutScale < 0 || lines != laidLines || (fade == 0 && (std::abs (scale / layoutScale - 1) > 0.01 || std::abs (fraction - layoutFraction) > 0.002));
+    }
+    int lines() const { return now.lines; }
+
+    /** Line `j`'s feed at offset `base` through `read`. */
+    template <typename Read>
+    double tap (int j, juce::int64 base, Read read) const
+    {
+        double y = sum (now, j, base, read);
+        if (fade > 0 && j < old.lines)
+        {
+            const auto t = (double) fade / fadeLength;
+            y = y * (1 - t) + sum (old, j, base, read) * t;
+        }
+        return y;
+    }
+    void step()
+    {
+        if (fade > 0)
+            --fade;
+    }
+    void reset()
+    {
+        fade = 0;
+        layoutScale = -1;
+        laidLines = -1;
+        now.lines = old.lines = 0;
+    }
+
+private:
+    struct Layout
+    {
+        std::array<std::array<int, maxTaps>, maxLines> at {};
+        std::array<std::array<float, maxTaps>, maxLines> coefficient {};
+        std::array<int, maxLines> count {};
+        int lines = 0;
+    };
+    template <typename Read>
+    static double sum (const Layout& l, int j, juce::int64 base, Read read)
+    {
+        double y = 0;
+        const auto& at = l.at[(size_t) j];
+        const auto& c = l.coefficient[(size_t) j];
+        for (int k = 0; k < l.count[(size_t) j]; ++k)
+            y += c[(size_t) k] * read (base + at[(size_t) k]);
+        return y;
+    }
+
+    Layout now, old;
+    int fade = 0, fadeLength = 2400, laidLines = -1;
     double layoutScale = -1, layoutFraction = -1;
 };
 } // namespace verb
