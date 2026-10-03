@@ -462,7 +462,7 @@ test("the Plugin manager stars the plugins the pickers list, as FL Studio's favo
   await manager.getByRole("listitem", { name: "Fake Delay" }).click();
   await expect(manager).toContainText("None starred yet");
   await page.getByTestId("mixer-inspector").getByRole("button", { name: "Slot 1 menu" }).click();
-  await expect(effects.getByRole("option", { name: /Gross Beat/ })).toHaveCount(1);
+  await expect(effects.getByRole("option", { name: /YT-Time/ })).toHaveCount(1);
   await expect(effects.getByRole("option", { name: /Fake Delay/ })).toHaveCount(0);
   await effects.getByRole("button", { name: "More plugins…" }).click();
 
@@ -2741,7 +2741,7 @@ test("the assistant automates: a filter sweep on a plugin's parameter, a volume 
   ]);
 });
 
-/** The song's Gross Beat (the effect `effectId`) as saved; until it's saved, an empty one (a poll waits for it). */
+/** The song's YT-Time (the effect `effectId`) as saved; until it's saved, an empty one (a poll waits for it). */
 type SavedGross = { timeSlot: number; volumeSlot: number; hold: string; trigSync: number; time: ({ name: string; points: { tick: number; value: number }[] } | null)[]; volume: unknown[] };
 async function savedGross(page: Page, id: string, effectId: string): Promise<SavedGross> {
   const song = await savedSong(page, id);
@@ -2754,21 +2754,21 @@ async function panelPoint(panel: Locator, tick: number, value: number) {
   return { x: box.x + 5 + (tick * (box.width - 10)) / 384, y: box.y + 3 + (1 - value) * (box.height - 6) };
 }
 
-test("Gross Beat: chosen for a slot, its slots picked, its envelopes edited FL's way, its sync and HOLD", async ({ page }) => {
+test("YT-Time: chosen for a slot, its slots picked, its envelopes edited FL's way, its sync and HOLD", async ({ page }) => {
   const id = await openNewSong(page, "Chops");
   await page.keyboard.press("F9");
   const inspector = page.getByTestId("mixer-inspector");
   // Ours, first in the effect picker (Built in); its window opens at once.
   await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
-  await page.getByTestId("effect-picker").getByRole("option", { name: /Gross Beat/ }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /YT-Time/ }).click();
   const window = page.getByTestId("gross-beat");
   await expect(window).toBeVisible();
   const effectId = (await window.getAttribute("data-effect"))!;
   await expect.poll(async () => (await savedGross(page, id, effectId)).timeSlot).toBe(0);
   // Its name in the slot closes and opens its window.
-  await inspector.getByRole("button", { name: "Gross Beat: close its window" }).click();
+  await inspector.getByRole("button", { name: "YT-Time: close its window" }).click();
   await expect(window).toHaveCount(0);
-  await inspector.getByRole("button", { name: "Gross Beat: open its window" }).click();
+  await inspector.getByRole("button", { name: "YT-Time: open its window" }).click();
   await expect(window).toBeVisible();
 
   // A slot is picked by a click: it plays, and the panel shows it.
@@ -2861,14 +2861,14 @@ test("Gross Beat: chosen for a slot, its slots picked, its envelopes edited FL's
   await expect.poll(async () => (await savedAutomations(page, id)).map((a) => a.target)).toEqual([{ kind: "grossBeat", effect: effectId, control: "timeSlot" }]);
 });
 
-test("the assistant chops with Gross Beat: puts one on a track, draws a slot, arranges slots by automation", async ({ page }) => {
+test("the assistant chops with YT-Time: puts one on a track, draws a slot, arranges slots by automation", async ({ page }) => {
   const id = await openNewSong(page, "Assisted chops");
   await page.getByRole("button", { name: "Assistant" }).click();
   const panel = page.locator('[data-slot="assistant-panel"]');
   const composer = panel.getByRole("textbox", { name: "Message the assistant" });
   await composer.fill(
     [
-      'call add_mixer_effect {"track": 1, "plugin": "Gross Beat"}',
+      'call add_mixer_effect {"track": 1, "plugin": "YT-Time"}',
       'call set_gross_beat_slot {"track": 1, "kind": "time", "slot": 36, "name": "Stutter", "points": [{"beat": 0, "back": 0}, {"beat": 3, "back": 0}, {"beat": 3, "back": 0.25, "curve": "hold"}, {"beat": 3.5, "back": 0.75, "curve": "hold"}, {"beat": 4, "back": 0.75, "curve": "hold"}]}',
       'call update_gross_beat {"track": 1, "volumeSlot": "Sidechain", "trigSync": 3}',
       'call add_automation {"control": "time slot", "track": 1, "slot": 1, "bar": 1, "length": 2, "points": [{"at": 0, "value": 1}, {"at": 1, "value": 36, "curve": "hold"}]}',
@@ -2882,7 +2882,7 @@ test("the assistant chops with Gross Beat: puts one on a track, draws a slot, ar
   await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
   const song = await savedSong(page, id);
   const effect = song.mixer.tracks[1].effects[0];
-  expect(effect.plugin.name).toBe("Gross Beat");
+  expect(effect.plugin.name).toBe("YT-Time");
   expect(effect.grossBeat.timeSlot).toBe(35);
   expect(effect.grossBeat.time[35]).toMatchObject({ name: "Stutter" });
   const [automation] = await savedAutomations(page, id);
@@ -2890,28 +2890,28 @@ test("the assistant chops with Gross Beat: puts one on a track, draws a slot, ar
   expect(automation.points.map((p) => Math.round(p.value * 35) + 1)).toEqual([1, 36]);
 });
 
-/** The song's EchoBoy (the effect `effectId`) as saved; until it's saved, null (a poll waits for it). */
+/** The song's YT-Delay (the effect `effectId`) as saved; until it's saved, null (a poll waits for it). */
 async function savedEcho(page: Page, id: string, effectId: string) {
   const song = await savedSong(page, id);
   for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.echoBoy;
   return null;
 }
 
-test("EchoBoy: chosen for a slot, its knobs, times, modes and styles set as Soundtoys' are, Tweak and the Style Editor, Rhythm Echo's taps", async ({ page }) => {
+test("YT-Delay: chosen for a slot, its knobs, times, modes and styles set as Soundtoys' are, Tweak and the Style Editor, Rhythm Echo's taps", async ({ page }) => {
   const id = await openNewSong(page, "Echoes");
   await page.keyboard.press("F9");
   const inspector = page.getByTestId("mixer-inspector");
   // Ours, in the effect picker's Built in; its window opens at once.
   await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
-  await page.getByTestId("effect-picker").getByRole("option", { name: /EchoBoy/ }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /YT-Delay/ }).click();
   const window = page.getByTestId("echo-boy");
   await expect(window).toBeVisible();
   const effectId = (await window.getAttribute("data-effect"))!;
   await expect.poll(async () => (await savedEcho(page, id, effectId))?.style).toBe("Studio Tape");
   // Its name in the slot closes and opens its window.
-  await inspector.getByRole("button", { name: "EchoBoy: close its window" }).click();
+  await inspector.getByRole("button", { name: "YT-Delay: close its window" }).click();
   await expect(window).toHaveCount(0);
-  await inspector.getByRole("button", { name: "EchoBoy: open its window" }).click();
+  await inspector.getByRole("button", { name: "YT-Delay: open its window" }).click();
   await expect(window).toBeVisible();
 
   // Single Echo: an eighth note; Dot makes it dotted; Time goes to ms and the LCD takes a typed time.
@@ -2963,7 +2963,7 @@ test("EchoBoy: chosen for a slot, its knobs, times, modes and styles set as Soun
   await expect(window.getByTestId("echo-style")).toContainText("DM-2");
   await expect.poll(async () => (await savedEcho(page, id, effectId))?.primeNumbers).toBe(true);
 
-  // Tap Tempo: two taps half a second apart, EchoBoy on 120 BPM of its own (MIDI off).
+  // Tap Tempo: two taps half a second apart, YT-Delay on 120 BPM of its own (MIDI off).
   await window.getByTestId("echo-tap").click();
   await page.waitForTimeout(500);
   await window.getByTestId("echo-tap").click();
@@ -2994,7 +2994,7 @@ test("EchoBoy: chosen for a slot, its knobs, times, modes and styles set as Soun
   await page.keyboard.press("ControlOrMeta+z");
   await expect(window.getByTestId("echo-pattern-name")).toContainText("Custom");
   // (Its window moved down by its title, off the mixer's slots.)
-  const title = page.getByText("EchoBoy (Master)", { exact: true });
+  const title = page.getByText("YT-Delay (Master)", { exact: true });
   const slotButton = inspector.getByRole("button", { name: "Slot 1 menu" });
   const lift = (await slotButton.boundingBox())!.y + 40 - (await title.boundingBox())!.y;
   await drag(page, title, title, { dy: lift });
@@ -3003,14 +3003,14 @@ test("EchoBoy: chosen for a slot, its knobs, times, modes and styles set as Soun
   await expect(window).toHaveCount(0);
 });
 
-test("the assistant sets up EchoBoy: puts one on a track, loads a preset, sets its rhythm and style, automates it", async ({ page }) => {
+test("the assistant sets up YT-Delay: puts one on a track, loads a preset, sets its rhythm and style, automates it", async ({ page }) => {
   const id = await openNewSong(page, "Assisted echoes");
   await page.getByRole("button", { name: "Assistant" }).click();
   const panel = page.locator('[data-slot="assistant-panel"]');
   const composer = panel.getByRole("textbox", { name: "Message the assistant" });
   await composer.fill(
     [
-      'call add_mixer_effect {"track": 1, "plugin": "EchoBoy"}',
+      'call add_mixer_effect {"track": 1, "plugin": "YT-Delay"}',
       'call update_echo_boy {"track": 1, "preset": "Space Echo Dub", "echo1": "1/4 dot", "styleEdit": {"wobble": {"depth": 9}}}',
       'call update_echo_boy {"track": 1, "mode": "rhythm", "rhythm": {"pattern": "Clave"}}',
       'call update_echo_boy {"track": 1, "style": "Nope"}',
@@ -3025,14 +3025,14 @@ test("the assistant sets up EchoBoy: puts one on a track, loads a preset, sets i
   await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
   const song = await savedSong(page, id);
   const effect = song.mixer.tracks[1].effects[0];
-  expect(effect.plugin.name).toBe("EchoBoy");
+  expect(effect.plugin.name).toBe("YT-Delay");
   expect(effect.echoBoy).toMatchObject({ mode: "rhythm", echo1: { sync: "dot", note: 4 }, custom: { wobble: { depth: 9 } }, rhythm: { pattern: "Clave" } });
   const [automation] = await savedAutomations(page, id);
   expect(automation.target).toEqual({ kind: "echoBoy", effect: effect.id, control: "feedback" });
   expect(automation.points.map((p) => Math.round(p.value * 10) / 10)).toEqual([0.2, 0.9]);
 });
 
-/** The song's Auto-Tune (the effect `effectId`) as saved; until it's saved, nothing (a poll waits for it). */
+/** The song's YT-Tune (the effect `effectId`) as saved; until it's saved, nothing (a poll waits for it). */
 type SavedTune = { key: number; scale: string; notes: string[]; retuneSpeed: number; humanize: number; formant: boolean; vibrato: { shape: string } };
 async function savedTune(page: Page, id: string, effectId: string): Promise<SavedTune | null> {
   const song = await savedSong(page, id);
@@ -3040,13 +3040,13 @@ async function savedTune(page: Page, id: string, effectId: string): Promise<Save
   return null;
 }
 
-test("Auto-Tune: chosen for a slot, hard-tuned, its key and scale set, notes edited, presets, its graph and meter while it plays", async ({ page }) => {
+test("YT-Tune: chosen for a slot, hard-tuned, its key and scale set, notes edited, presets, its graph and meter while it plays", async ({ page }) => {
   const id = await openNewSong(page, "Vocals");
   await page.keyboard.press("F9");
   const inspector = page.getByTestId("mixer-inspector");
   // Ours, in the effect picker's Built in; its window opens at once, hard-tuned.
   await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
-  await page.getByTestId("effect-picker").getByRole("option", { name: /Auto-Tune/ }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /YT-Tune/ }).click();
   const window = page.getByTestId("auto-tune");
   await expect(window).toBeVisible();
   const effectId = (await window.getAttribute("data-effect"))!;
@@ -3054,9 +3054,9 @@ test("Auto-Tune: chosen for a slot, hard-tuned, its key and scale set, notes edi
   await expect(window.getByTestId("tune-retune")).toContainText("0");
   await expect(window.getByTestId("tune-key-text")).toHaveText("C Chromatic");
   // Closed (it covers the mixer here), its name in the slot opens it again.
-  await page.getByRole("button", { name: /^Close Auto-Tune/ }).click();
+  await page.getByRole("button", { name: /^Close YT-Tune/ }).click();
   await expect(window).toHaveCount(0);
-  await inspector.getByRole("button", { name: "Auto-Tune: open its window" }).click();
+  await inspector.getByRole("button", { name: "YT-Tune: open its window" }).click();
   await expect(window).toBeVisible();
 
   // The key and scale: A minor; its notes are the scale's.
@@ -3099,14 +3099,14 @@ test("Auto-Tune: chosen for a slot, hard-tuned, its key and scale set, notes edi
   await page.keyboard.press("Space");
 });
 
-test("the assistant tunes a vocal: puts Auto-Tune on its track, sets the key and sound, automates its retune speed", async ({ page }) => {
+test("the assistant tunes a vocal: puts YT-Tune on its track, sets the key and sound, automates its retune speed", async ({ page }) => {
   const id = await openNewSong(page, "Assisted vocals");
   await page.getByRole("button", { name: "Assistant" }).click();
   const panel = page.locator('[data-slot="assistant-panel"]');
   const composer = panel.getByRole("textbox", { name: "Message the assistant" });
   await composer.fill(
     [
-      'call add_mixer_effect {"track": 1, "plugin": "Auto-Tune"}',
+      'call add_mixer_effect {"track": 1, "plugin": "YT-Tune"}',
       'call update_auto_tune {"track": 1, "preset": "Modern Pop", "key": "F#", "scale": "minor", "notes": {"E": "bypass"}, "input": "soprano"}',
       'call update_auto_tune {"track": 1, "retuneSpeed": 900}',
       'call add_automation {"control": "retune speed", "track": 1, "slot": 1, "bar": 1, "length": 2, "points": [{"at": 0, "value": 0}, {"at": 1, "value": 50, "curve": "hold"}]}',
@@ -3120,7 +3120,7 @@ test("the assistant tunes a vocal: puts Auto-Tune on its track, sets the key and
   await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
   const song = await savedSong(page, id);
   const effect = song.mixer.tracks[1].effects[0];
-  expect(effect.plugin.name).toBe("Auto-Tune");
+  expect(effect.plugin.name).toBe("YT-Tune");
   expect(effect.autoTune).toMatchObject({ key: 6, scale: "minor", input: "soprano", retuneSpeed: 12, humanize: 0.25 });
   expect(effect.autoTune.notes[4]).toBe("bypass");
   const [automation] = await savedAutomations(page, id);
@@ -3128,7 +3128,7 @@ test("the assistant tunes a vocal: puts Auto-Tune on its track, sets the key and
   expect(automation.points.map((p) => Math.round(p.value * 400))).toEqual([0, 50]);
 });
 
-/** The song's Pro-Q (the effect `effectId`) as saved; until it's saved, none (a poll waits for it). */
+/** The song's YT-EQ (the effect `effectId`) as saved; until it's saved, none (a poll waits for it). */
 type SavedBand = { id: number; shape: string; frequency: number; gain: number; q: number; range: number; slope: number | string; enabled: boolean };
 type SavedProQ = { bands: SavedBand[]; mode: string; output: number };
 async function savedProQ(page: Page, id: string, effectId: string): Promise<SavedProQ | null> {
@@ -3138,21 +3138,21 @@ async function savedProQ(page: Page, id: string, effectId: string): Promise<Save
 }
 const bandsOf = async (page: Page, id: string, effectId: string) => (await savedProQ(page, id, effectId))?.bands ?? [];
 
-test("Pro-Q: chosen for a slot, bands made where they're double-clicked, dragged, made dynamic, reshaped, inverted, deleted; its mode; undone", async ({ page }) => {
+test("YT-EQ: chosen for a slot, bands made where they're double-clicked, dragged, made dynamic, reshaped, inverted, deleted; its mode; undone", async ({ page }) => {
   const id = await openNewSong(page, "EQ");
   await page.keyboard.press("F9");
   const inspector = page.getByTestId("mixer-inspector");
   // Ours, first in the effect picker (Built in); its window opens at once.
   await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
-  await page.getByTestId("effect-picker").getByRole("option", { name: /Pro-Q/ }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /YT-EQ/ }).click();
   const window = page.getByTestId("pro-q");
   await expect(window).toBeVisible();
   const effectId = (await window.getAttribute("data-effect"))!;
   await expect.poll(async () => (await savedProQ(page, id, effectId))?.mode).toBe("zeroLatency");
   // Closed, its name in the slot opens it again.
-  await page.getByRole("button", { name: "Close Pro-Q (Master)" }).click();
+  await page.getByRole("button", { name: "Close YT-EQ (Master)" }).click();
   await expect(window).toHaveCount(0);
-  await inspector.getByRole("button", { name: "Pro-Q: open its window" }).click();
+  await inspector.getByRole("button", { name: "YT-EQ: open its window" }).click();
   await expect(window).toBeVisible();
 
   const display = page.getByTestId("pro-q-display");
@@ -3227,14 +3227,14 @@ test("Pro-Q: chosen for a slot, bands made where they're double-clicked, dragged
   await expect(page.getByTestId("pro-q-analyzer")).toBeVisible();
 });
 
-test("the assistant shapes a Pro-Q: puts one on a track, adds bands, sets its mode, sweeps a band by automation", async ({ page }) => {
+test("the assistant shapes a YT-EQ: puts one on a track, adds bands, sets its mode, sweeps a band by automation", async ({ page }) => {
   const id = await openNewSong(page, "Assisted EQ");
   await page.getByRole("button", { name: "Assistant" }).click();
   const panel = page.locator('[data-slot="assistant-panel"]');
   const composer = panel.getByRole("textbox", { name: "Message the assistant" });
   await composer.fill(
     [
-      'call add_mixer_effect {"track": 1, "plugin": "Pro-Q"}',
+      'call add_mixer_effect {"track": 1, "plugin": "YT-EQ"}',
       'call set_pro_q_bands {"track": 1, "bands": [{"shape": "lowCut", "frequency": 40, "slope": 24}, {"frequency": 300, "gain": -3, "q": 1.5, "range": -4}, {"shape": "highShelf", "frequency": 9000, "gain": 2}]}',
       'call update_pro_q {"track": 1, "mode": "naturalPhase", "autoGain": true}',
       'call set_pro_q_bands {"track": 1, "bands": [{"shape": "notch", "frequency": 100, "range": -6}]}',
@@ -3249,7 +3249,7 @@ test("the assistant shapes a Pro-Q: puts one on a track, adds bands, sets its mo
   await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
   const song = await savedSong(page, id);
   const effect = song.mixer.tracks[1].effects[0];
-  expect(effect.plugin.name).toBe("Pro-Q");
+  expect(effect.plugin.name).toBe("YT-EQ");
   expect(effect.proQ.mode).toBe("naturalPhase");
   expect(effect.proQ.autoGain).toBe(true);
   expect(effect.proQ.bands.map((b: SavedBand) => [b.id, b.shape, b.frequency])).toEqual([
@@ -3261,7 +3261,7 @@ test("the assistant shapes a Pro-Q: puts one on a track, adds bands, sets its mo
   expect(automation.target).toEqual({ kind: "proQ", effect: effect.id, band: 2, control: "frequency" });
 });
 
-/** The song's PanMan (the effect `effectId`) as saved; until it's saved, null (a poll waits for it). */
+/** The song's YT-Pan (the effect `effectId`) as saved; until it's saved, null (a poll waits for it). */
 type SavedPan = { preset: string; mode: string; style: string; custom: boolean; rhythm: string; stepPattern: { points: { tick: number; value: number }[] } };
 async function savedPan(page: Page, id: string, effectId: string): Promise<SavedPan | null> {
   const song = await savedSong(page, id);
@@ -3269,20 +3269,20 @@ async function savedPan(page: Page, id: string, effectId: string): Promise<Saved
   return null;
 }
 
-test("PanMan: chosen for a slot, its presets, modes and style, its step editor, the Manual Trigger and automation", async ({ page }) => {
+test("YT-Pan: chosen for a slot, its presets, modes and style, its step editor, the Manual Trigger and automation", async ({ page }) => {
   const id = await openNewSong(page, "Pans");
   await page.keyboard.press("F9");
   const inspector = page.getByTestId("mixer-inspector");
   // Ours, under Built in; its window opens at once, panning slowly.
   await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
-  await page.getByTestId("effect-picker").getByRole("option", { name: /PanMan/ }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /YT-Pan/ }).click();
   const window = page.getByTestId("panman");
   await expect(window).toBeVisible();
   const effectId = (await window.getAttribute("data-effect"))!;
   await expect.poll(async () => (await savedPan(page, id, effectId))?.preset).toBe("Slow Pan");
-  await inspector.getByRole("button", { name: "PanMan: close its window" }).click();
+  await inspector.getByRole("button", { name: "YT-Pan: close its window" }).click();
   await expect(window).toHaveCount(0);
-  await inspector.getByRole("button", { name: "PanMan: open its window" }).click();
+  await inspector.getByRole("button", { name: "YT-Pan: open its window" }).click();
   await expect(window).toBeVisible();
 
   // A preset from the preset bar; a change lights Revert, which goes back to it.
@@ -3335,14 +3335,14 @@ test("PanMan: chosen for a slot, its presets, modes and style, its step editor, 
   await expect.poll(async () => (await savedAutomations(page, id)).map((a) => a.target)).toEqual([{ kind: "panMan", effect: effectId, control: "offset" }]);
 });
 
-test("the assistant pans with PanMan: puts one on a track, loads a preset, draws a rhythm, automates its offset", async ({ page }) => {
+test("the assistant pans with YT-Pan: puts one on a track, loads a preset, draws a rhythm, automates its offset", async ({ page }) => {
   const id = await openNewSong(page, "Assisted pans");
   await page.getByRole("button", { name: "Assistant" }).click();
   const panel = page.locator('[data-slot="assistant-panel"]');
   const composer = panel.getByRole("textbox", { name: "Message the assistant" });
   await composer.fill(
     [
-      'call add_mixer_effect {"track": 1, "plugin": "PanMan"}',
+      'call add_mixer_effect {"track": 1, "plugin": "YT-Pan"}',
       'call update_panman {"track": 1, "preset": "Wiper Panner", "width": 150}',
       'call set_panman_pattern {"track": 1, "editor": "shape", "events": [{"beat": 0, "length": 1.5}, {"beat": 2, "length": 2}]}',
       'call update_panman {"track": 1, "width": 400}',
@@ -3357,14 +3357,14 @@ test("the assistant pans with PanMan: puts one on a track, loads a preset, draws
   await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
   const song = await savedSong(page, id);
   const effect = song.mixer.tracks[1].effects[0];
-  expect(effect.plugin.name).toBe("PanMan");
+  expect(effect.plugin.name).toBe("YT-Pan");
   expect(effect.panMan).toMatchObject({ preset: "Wiper Panner", mode: "rhythmShape", width: 150, custom: true, shapePattern: { events: [{ tick: 0, length: 144 }, { tick: 192, length: 192 }] } });
   const [automation] = await savedAutomations(page, id);
   expect(automation.target).toEqual({ kind: "panMan", effect: effect.id, control: "offset" });
   expect(automation.points.map((p) => Math.round(p.value * 210 - 105))).toEqual([-90, 90]);
 });
 
-/** The song's Pitch Wheel (the effect `effectId`) as saved; until it's saved, nothing (a poll waits for it). */
+/** The song's YT-Pitch (the effect `effectId`) as saved; until it's saved, nothing (a poll waits for it). */
 type SavedWheel = { value: number; range: number; snap: string; gravity: number };
 type SavedPitchWheel = { pitch: SavedWheel; timbre: SavedWheel; timbreOn: boolean; midiMode: string; notesFrom: string | null; origin: number; resolution: string };
 async function savedWheel(page: Page, id: string, effectId: string): Promise<SavedPitchWheel | null> {
@@ -3373,22 +3373,22 @@ async function savedWheel(page: Page, id: string, effectId: string): Promise<Sav
   return null;
 }
 
-test("Pitch Wheel: chosen for a slot, its wheels turned, ranged and snapped, the Timbre tab, presets, notes from a channel, its keyboard heard while it plays", async ({ page }) => {
+test("YT-Pitch: chosen for a slot, its wheels turned, ranged and snapped, the Timbre tab, presets, notes from a channel, its keyboard heard while it plays", async ({ page }) => {
   const id = await openNewSong(page, "Wheels");
   await page.keyboard.press("F9");
   const inspector = page.getByTestId("mixer-inspector");
   // Ours, in the effect picker's Built in; its window opens at once, nothing shifted.
   await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
-  await page.getByTestId("effect-picker").getByRole("option", { name: /Pitch Wheel/ }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /YT-Pitch/ }).click();
   const window = page.getByTestId("pitch-wheel");
   await expect(window).toBeVisible();
   const effectId = (await window.getAttribute("data-effect"))!;
   await expect.poll(async () => (await savedWheel(page, id, effectId))?.resolution).toBe("wide");
   expect(await savedWheel(page, id, effectId)).toMatchObject({ pitch: { value: 0, range: 24, snap: "semitone" }, timbreOn: true, midiMode: "single", origin: 60 });
   // Closed, its name in the slot opens it again.
-  await page.getByRole("button", { name: /^Close Pitch Wheel/ }).click();
+  await page.getByRole("button", { name: /^Close YT-Pitch/ }).click();
   await expect(window).toHaveCount(0);
-  await inspector.getByRole("button", { name: "Pitch Wheel: open its window" }).click();
+  await inspector.getByRole("button", { name: "YT-Pitch: open its window" }).click();
   await expect(window).toBeVisible();
 
   // The wheel by its keys: a semitone a press (snapped).
@@ -3458,14 +3458,14 @@ test("Pitch Wheel: chosen for a slot, its wheels turned, ranged and snapped, the
   await page.keyboard.press("Space");
 });
 
-test("the assistant pitches a vocal: puts a Pitch Wheel on its track, sets it for harmonies, automates its pitch", async ({ page }) => {
+test("the assistant pitches a vocal: puts a YT-Pitch on its track, sets it for harmonies, automates its pitch", async ({ page }) => {
   const id = await openNewSong(page, "Assisted wheel");
   await page.getByRole("button", { name: "Assistant" }).click();
   const panel = page.locator('[data-slot="assistant-panel"]');
   const composer = panel.getByRole("textbox", { name: "Message the assistant" });
   await composer.fill(
     [
-      'call add_mixer_effect {"track": 1, "plugin": "Pitch Wheel"}',
+      'call add_mixer_effect {"track": 1, "plugin": "YT-Pitch"}',
       'call update_pitch_wheel {"track": 1, "preset": "Fifth Up", "midiMode": "multi", "notesFrom": "Sampler", "origin": "A4", "timbre": {"value": -2}}',
       'call update_pitch_wheel {"track": 1, "midiMode": "chords"}',
       'call add_automation {"control": "wheel pitch", "track": 1, "slot": 1, "bar": 1, "length": 2, "points": [{"at": 0, "value": 0}, {"at": 1, "value": 12}]}',
@@ -3479,14 +3479,14 @@ test("the assistant pitches a vocal: puts a Pitch Wheel on its track, sets it fo
   await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
   const song = await savedSong(page, id);
   const effect = song.mixer.tracks[1].effects[0];
-  expect(effect.plugin.name).toBe("Pitch Wheel");
+  expect(effect.plugin.name).toBe("YT-Pitch");
   expect(effect.pitchWheel).toMatchObject({ pitch: { value: 7 }, timbre: { value: -2 }, midiMode: "multi", notesFrom: song.channels[0].id, origin: 57 });
   const [automation] = await savedAutomations(page, id);
   expect(automation.target).toEqual({ kind: "pitchWheel", effect: effect.id, control: "pitch" });
   expect(automation.points.map((p) => Math.round(p.value * 48 - 24))).toEqual([0, 12]);
 });
 
-/** The song's OTT (the effect `effectId`) as saved; until it's saved, none (a poll waits for it). */
+/** The song's YT-Multiband (the effect `effectId`) as saved; until it's saved, none (a poll waits for it). */
 type SavedOtt = { preset: string | null; depth: number; time: number; input: number; output: number; upward: number; downward: number; bands: { threshold: number; gain: number; upward: boolean; downward: boolean }[] };
 async function savedOtt(page: Page, id: string, effectId: string): Promise<SavedOtt | null> {
   const song = await savedSong(page, id);
@@ -3494,20 +3494,20 @@ async function savedOtt(page: Page, id: string, effectId: string): Promise<Saved
   return null;
 }
 
-test("OTT: chosen for a slot, its knobs turned, a band's gap dragged and a compressor switched off, a preset; its controls automated from a knob and from the title bar", async ({ page }) => {
+test("YT-Multiband: chosen for a slot, its knobs turned, a band's gap dragged and a compressor switched off, a preset; its controls automated from a knob and from the title bar", async ({ page }) => {
   const id = await openNewSong(page, "Squash");
   await page.keyboard.press("F9");
   const inspector = page.getByTestId("mixer-inspector");
   await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
-  await page.getByTestId("effect-picker").getByRole("option", { name: /OTT/ }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /YT-Multiband/ }).click();
   const window = page.getByTestId("ott");
   await expect(window).toBeVisible();
   const effectId = (await window.getAttribute("data-effect"))!;
   await expect.poll(async () => (await savedOtt(page, id, effectId))?.preset).toBe("Default");
   // Closed, its name in the slot opens it again.
-  await page.getByRole("button", { name: "Close OTT (Master)" }).click();
+  await page.getByRole("button", { name: "Close YT-Multiband (Master)" }).click();
   await expect(window).toHaveCount(0);
-  await inspector.getByRole("button", { name: "OTT: open its window" }).click();
+  await inspector.getByRole("button", { name: "YT-Multiband: open its window" }).click();
   await expect(window).toBeVisible();
 
   // Depth dragged down: less of it, and the preset's name goes.
@@ -3555,7 +3555,7 @@ test("OTT: chosen for a slot, its knobs turned, a band's gap dragged and a compr
   ]);
 });
 
-/** The song's Pro-C (the effect `effectId`) as saved; until it's saved, none (a poll waits for it). */
+/** The song's YT-C (the effect `effectId`) as saved; until it's saved, none (a poll waits for it). */
 type SavedProC = { preset: string | null; style: string; threshold: number; slope: number; view: { sidechain: boolean; compact: boolean; knee: boolean }; sidechain: { trigger: string; track: string | null; bands: unknown[] } };
 async function savedProC(page: Page, id: string, effectId: string): Promise<SavedProC | null> {
   const song = await savedSong(page, id);
@@ -3563,14 +3563,14 @@ async function savedProC(page: Page, id: string, effectId: string): Promise<Save
   return null;
 }
 
-test("Pro-C: chosen for a slot, Threshold turned and undone, a Vintage style's face, a preset, the side chain keyed from another track", async ({ page }) => {
+test("YT-C: chosen for a slot, Threshold turned and undone, a Vintage style's face, a preset, the side chain keyed from another track", async ({ page }) => {
   const id = await openNewSong(page, "Compress");
   await page.keyboard.press("F9");
   const mixer = page.getByTestId("mixer");
   await mixer.locator('[data-track-name="Insert 1"]').locator("span").first().click();
   const inspector = page.getByTestId("mixer-inspector");
   await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
-  await page.getByTestId("effect-picker").getByRole("option", { name: /Pro-C/ }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /YT-C/ }).click();
   const window = page.getByTestId("pro-c");
   await expect(window).toBeVisible();
   const effectId = (await window.getAttribute("data-effect"))!;
@@ -3578,9 +3578,9 @@ test("Pro-C: chosen for a slot, Threshold turned and undone, a Vintage style's f
   await expect.poll(async () => (await savedProC(page, id, effectId))?.preset).toBe("Vocal – Upfront");
   await expect(window).toHaveAttribute("data-style", "vocal");
   // Closed, its name in the slot opens it again.
-  await page.getByRole("button", { name: "Close Pro-C (Insert 1)" }).click();
+  await page.getByRole("button", { name: "Close YT-C (Insert 1)" }).click();
   await expect(window).toHaveCount(0);
-  await inspector.getByRole("button", { name: "Pro-C: open its window" }).click();
+  await inspector.getByRole("button", { name: "YT-C: open its window" }).click();
   await expect(window).toBeVisible();
   await page.getByRole("button", { name: "Close Mixer" }).click();
 
@@ -3647,11 +3647,11 @@ test("Pro-C: chosen for a slot, Threshold turned and undone, a Vintage style's f
   await page.getByRole("button", { name: "Stop", exact: true }).click();
 });
 
-test("sidechain: the kick's strip ducks a track with a new Pro-C, the slot shows its key and changes its tap, a dotted cable", async ({ page }) => {
+test("sidechain: the kick's strip ducks a track with a new YT-C, the slot shows its key and changes its tap, a dotted cable", async ({ page }) => {
   const id = await openNewSong(page, "Ducked");
   await page.keyboard.press("F9");
   const mixer = page.getByTestId("mixer");
-  // Insert 1 (the kick) → Sidechain to → Insert 2 → Duck with a new Pro-C.
+  // Insert 1 (the kick) → Sidechain to → Insert 2 → Duck with a new YT-C.
   await mixer.locator('[data-track-name="Insert 1"]').locator("span").first().click({ button: "right" });
   await page.getByTestId("sidechain-to").click();
   await page.getByTestId("sidechain-to-2").click();
@@ -3662,7 +3662,7 @@ test("sidechain: the kick's strip ducks a track with a new Pro-C, the slot shows
   expect(effect.proC.sidechain.trigger).toBe("external");
   // Its window opens, its source shown.
   await expect(page.getByTestId("pro-c")).toBeVisible();
-  await page.getByRole("button", { name: /^Close Pro-C/ }).click();
+  await page.getByRole("button", { name: /^Close YT-C/ }).click();
 
   // Insert 2's inspector: the slot's key badge, and its menu's Sidechain input taking the key after the fader.
   await mixer.locator('[data-track-name="Insert 2"]').locator("span").first().click();
@@ -3727,14 +3727,14 @@ test("modulation: a fader follows another track's level from its menu, the Modul
   await expect(window).toHaveCount(0);
 });
 
-test("the assistant squashes a track with OTT: puts one on, sets it, automates its depth", async ({ page }) => {
-  const id = await openNewSong(page, "Assisted OTT");
+test("the assistant squashes a track with YT-Multiband: puts one on, sets it, automates its depth", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted YT-Multiband");
   await page.getByRole("button", { name: "Assistant" }).click();
   const panel = page.locator('[data-slot="assistant-panel"]');
   const composer = panel.getByRole("textbox", { name: "Message the assistant" });
   await composer.fill(
     [
-      'call add_mixer_effect {"track": 1, "plugin": "OTT"}',
+      'call add_mixer_effect {"track": 1, "plugin": "YT-Multiband"}',
       'call update_ott {"track": 1, "depth": 0.35, "time": 2, "bands": [{"band": "high", "gain": 2}, {"band": "low", "downward": false}]}',
       'call add_automation {"control": "ott depth", "track": 1, "slot": 1, "bar": 1, "length": 4, "points": [{"at": 0, "value": 0}, {"at": 4, "value": 0.6}]}',
       'call get_ott {"track": 1}',
@@ -3745,7 +3745,7 @@ test("the assistant squashes a track with OTT: puts one on, sets it, automates i
   await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
   const song = await savedSong(page, id);
   const effect = song.mixer.tracks[1].effects[0];
-  expect(effect.plugin.name).toBe("OTT");
+  expect(effect.plugin.name).toBe("YT-Multiband");
   expect(effect.ott).toMatchObject({ depth: 0.35, time: 2, preset: null });
   expect(effect.ott.bands[2].gain).toBe(2);
   expect(effect.ott.bands[0].downward).toBe(false);
@@ -3754,8 +3754,8 @@ test("the assistant squashes a track with OTT: puts one on, sets it, automates i
   expect(automation.points.map((p: { value: number }) => p.value)).toEqual([0, 0.6]);
 });
 
-test("the assistant compresses a vocal with Pro-C: the two-stage chain in one step, a style changed, a key from another track, a threshold automated", async ({ page }) => {
-  const id = await openNewSong(page, "Assisted Pro-C");
+test("the assistant compresses a vocal with YT-C: the two-stage chain in one step, a style changed, a key from another track, a threshold automated", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted YT-C");
   await page.getByRole("button", { name: "Assistant" }).click();
   const panel = page.locator('[data-slot="assistant-panel"]');
   const composer = panel.getByRole("textbox", { name: "Message the assistant" });
@@ -3773,7 +3773,7 @@ test("the assistant compresses a vocal with Pro-C: the two-stage chain in one st
   await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
   const song = await savedSong(page, id);
   const [fet, opto] = song.mixer.tracks[1].effects;
-  expect(fet.plugin.name).toBe("Pro-C");
+  expect(fet.plugin.name).toBe("YT-C");
   expect(fet.proC).toMatchObject({ style: "fet", threshold: -28, sidechain: { trigger: "external" } });
   expect(opto.proC).toMatchObject({ style: "opto2a", options: { limit: true, emphasis: 6 } });
   // The key is the slot's (no 0% send needed).
@@ -3788,19 +3788,19 @@ test("the assistant compresses a vocal with Pro-C: the two-stage chain in one st
  * Every knob and slider in `window` offers Create automation clip on its menu: the names of any that
  * don't. (Each is right-clicked, its menu read, and closed.)
  */
-/** The song's Reverb (the effect `effectId`) as saved. */
+/** The song's YT-R (the effect `effectId`) as saved. */
 async function savedReverb(page: Page, id: string, effectId: string) {
   const song = await savedSong(page, id);
   for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.reverb;
   return null;
 }
 
-test("Reverb: chosen for a slot, Decay turned and reverted, a decay band made and dragged, undone, a preset and a mode, Freeze, the Shape display and the advanced panel, automated from a knob", async ({ page }) => {
+test("YT-R: chosen for a slot, Decay turned and reverted, a decay band made and dragged, undone, a preset and a mode, Freeze, the Shape display and the advanced panel, automated from a knob", async ({ page }) => {
   const id = await openNewSong(page, "Verb");
   await page.keyboard.press("F9");
   const inspector = page.getByTestId("mixer-inspector");
   await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
-  await page.getByTestId("effect-picker").getByRole("option", { name: /Reverb/ }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /YT-R/ }).click();
   const window = page.getByTestId("reverb");
   await expect(window).toBeVisible();
   const effectId = (await window.getAttribute("data-effect"))!;
@@ -3808,10 +3808,10 @@ test("Reverb: chosen for a slot, Decay turned and reverted, a decay band made an
   await expect.poll(async () => (await savedReverb(page, id, effectId))?.preset).toBe("Vocal Plate");
   expect((await savedReverb(page, id, effectId))?.mix).toBe(0.18);
   await page.getByRole("button", { name: "Close Mixer" }).click();
-  await page.getByRole("button", { name: "Close Reverb (Master)" }).click();
+  await page.getByRole("button", { name: "Close YT-R (Master)" }).click();
   await expect(window).toHaveCount(0);
   await page.keyboard.press("F9");
-  await inspector.getByRole("button", { name: "Reverb: open its window" }).click();
+  await inspector.getByRole("button", { name: "YT-R: open its window" }).click();
   await expect(window).toBeVisible();
   await page.getByRole("button", { name: "Close Mixer" }).click();
 
@@ -3865,7 +3865,7 @@ test("Reverb: chosen for a slot, Decay turned and reverted, a decay band made an
 });
 
 test("the assistant puts a reverb on a vocal: a send in one step, its decay shaped, its mix automated", async ({ page }) => {
-  const id = await openNewSong(page, "Assisted Reverb");
+  const id = await openNewSong(page, "Assisted YT-R");
   await page.getByRole("button", { name: "Assistant" }).click();
   const panel = page.locator('[data-slot="assistant-panel"]');
   const composer = panel.getByRole("textbox", { name: "Message the assistant" });
@@ -3885,7 +3885,7 @@ test("the assistant puts a reverb on a vocal: a send in one step, its decay shap
   const ret = song.mixer.tracks[2];
   expect(ret.name).toBe("Insert 1 Verb");
   const effect = ret.effects[0];
-  expect(effect.plugin.name).toBe("Reverb");
+  expect(effect.plugin.name).toBe("YT-R");
   expect(effect.reverb).toMatchObject({ mix: 1, mixLock: true, decay: 2.2, sync: true, predelayNote: { note: 32, feel: "straight" }, duck: -6 });
   expect(effect.sidechain).toEqual({ track: song.mixer.tracks[1].id, tap: "postFader" });
   expect(effect.reverb.bands).toHaveLength(1);
@@ -3917,7 +3917,7 @@ async function notAutomatable(page: Page, window: Locator): Promise<string[]> {
   return missing;
 }
 
-test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (each mode, Tweak, the Style Editor), Auto-Tune, Pro-Q, OTT, Pro-C, Reverb (with its advanced panel), PanMan (each mode, Tweak), Pitch Wheel", async ({ page }) => {
+test("every knob of our built-in effects can be automated: YT-Time, YT-Delay (each mode, Tweak, the Style Editor), YT-Tune, YT-EQ, YT-Multiband, YT-C, YT-R (with its advanced panel), YT-Pan (each mode, Tweak), YT-Pitch", async ({ page }) => {
   test.setTimeout(300_000);
   await openNewSong(page, "Automate everything");
   await page.keyboard.press("F9");
@@ -3934,14 +3934,14 @@ test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (
   // (The mixer's window over them is closed: each effect's window is checked alone.)
   const close = async (title: RegExp) => page.getByRole("button", { name: title }).click();
 
-  let window = await choose(/Gross Beat/, "gross-beat");
+  let window = await choose(/YT-Time/, "gross-beat");
   await page.getByRole("button", { name: "Close Mixer" }).click();
   // (The scratching clock is played live, as HOLD is: a performance, not the song's.)
   expect(await notAutomatable(page, window)).toEqual(["Scratching clock: drag up and down to scratch"]);
-  await close(/^Close Gross Beat/);
+  await close(/^Close YT-Time/);
 
   await page.keyboard.press("F9");
-  window = await choose(/EchoBoy/, "echo-boy");
+  window = await choose(/YT-Delay/, "echo-boy");
   await page.getByRole("button", { name: "Close Mixer" }).click();
   for (const mode of ["Single Echo", "Dual Echo", "Ping-Pong", "Rhythm Echo"]) {
     await window.getByRole("radio", { name: mode }).click();
@@ -3951,62 +3951,62 @@ test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (
   }
   await window.getByRole("button", { name: "Style Edit" }).click();
   expect(await notAutomatable(page, window.getByTestId("echo-style-editor")), "the Style Editor").toEqual([]);
-  await close(/^Close EchoBoy/);
+  await close(/^Close YT-Delay/);
 
   await page.keyboard.press("F9");
-  window = await choose(/Auto-Tune/, "auto-tune");
+  window = await choose(/YT-Tune/, "auto-tune");
   await page.getByRole("button", { name: "Close Mixer" }).click();
   expect(await notAutomatable(page, window)).toEqual([]);
-  await close(/^Close Auto-Tune/);
+  await close(/^Close YT-Tune/);
 
   await page.keyboard.press("F9");
-  window = await choose(/Pro-Q/, "pro-q");
+  window = await choose(/YT-EQ/, "pro-q");
   await page.getByRole("button", { name: "Close Mixer" }).click();
   // A band, so its controls show; and the output options.
   const display = (await page.getByTestId("pro-q-display").boundingBox())!;
   await page.mouse.dblclick(display.x + display.width * 0.5, display.y + display.height * 0.3);
   await expect(page.getByTestId("pro-q-band-controls")).toBeVisible();
   expect(await notAutomatable(page, window)).toEqual([]);
-  await close(/^Close Pro-Q/);
+  await close(/^Close YT-EQ/);
 
   await page.keyboard.press("F9");
-  window = await choose(/OTT/, "ott");
+  window = await choose(/YT-Multiband/, "ott");
   await page.getByRole("button", { name: "Close Mixer" }).click();
   expect(await notAutomatable(page, window)).toEqual([]);
-  await close(/^Close OTT/);
+  await close(/^Close YT-Multiband/);
 
   await page.keyboard.press("F9");
-  window = await choose(/Pro-C/, "pro-c");
+  window = await choose(/YT-C/, "pro-c");
   await page.getByRole("button", { name: "Close Mixer" }).click();
-  // (Lookahead isn't automatable, as Pro-C's design has it: moving it moves where the gain lands.)
+  // (Lookahead isn't automatable, as YT-C's design has it: moving it moves where the gain lands.)
   expect(await notAutomatable(page, window)).toEqual(["Lookahead"]);
   await window.getByTestId("pro-c-output").click();
   expect(await notAutomatable(page, page.getByTestId("pro-c-output-panel"))).toEqual([]);
   await page.keyboard.press("Escape");
-  await close(/^Close Pro-C/);
+  await close(/^Close YT-C/);
 
   await page.keyboard.press("F9");
-  window = await choose(/Reverb/, "reverb");
+  window = await choose(/YT-R/, "reverb");
   await page.getByRole("button", { name: "Close Mixer" }).click();
   if (!(await window.getByTestId("reverb-advanced").count())) await window.getByTestId("reverb-advanced-toggle").click();
   await expect(window.getByTestId("reverb-advanced")).toBeVisible();
   expect(await notAutomatable(page, window)).toEqual([]);
-  await close(/^Close Reverb/);
+  await close(/^Close YT-R/);
 
   await page.keyboard.press("F9");
-  window = await choose(/PanMan/, "panman");
+  window = await choose(/YT-Pan/, "panman");
   await page.getByRole("button", { name: "Close Mixer" }).click();
   await window.getByRole("button", { name: /Tweak/ }).click();
   for (const mode of ["LFO", "Rhythm Step", "Rhythm Shape", "PingPong", "Random", "Step"]) {
     await window.getByTestId("panman-mode").click();
     await page.getByRole("menuitemradio", { name: mode, exact: true }).click();
     await expect(page.locator('[role="menu"]')).toHaveCount(0);
-    expect(await notAutomatable(page, window), `PanMan's ${mode}, with Tweak`).toEqual([]);
+    expect(await notAutomatable(page, window), `YT-Pan's ${mode}, with Tweak`).toEqual([]);
   }
-  await close(/^Close PanMan/);
+  await close(/^Close YT-Pan/);
 
   await page.keyboard.press("F9");
-  window = await choose(/Pitch Wheel/, "pitch-wheel");
+  window = await choose(/YT-Pitch/, "pitch-wheel");
   await page.getByRole("button", { name: "Close Mixer" }).click();
   expect(await notAutomatable(page, window)).toEqual([]);
 });
