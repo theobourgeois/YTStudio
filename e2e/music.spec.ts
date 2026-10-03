@@ -3659,9 +3659,17 @@ test("modulation: a fader follows another track's level from its menu, the Modul
   await page.getByTestId("modulate").click();
   await page.getByTestId("remove-modulation").click();
   await expect.poll(async () => (await savedSong(page, id)).modulators[0].links.map((l: { target: { control: string } }) => l.target.control)).toEqual(["pan"]);
-  // The Mixer's menu brings it forward; closed.
+  // A control touched (Insert 4's pan turned), then linked from the window (FL's way for a plugin's parameter).
+  const pan = (await mixer.getByRole("slider", { name: "Insert 4 pan" }).boundingBox())!;
+  await page.mouse.move(pan.x + pan.width / 2, pan.y + pan.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(pan.x + pan.width / 2, pan.y + pan.height / 2 - 20, { steps: 4 });
+  await page.mouse.up();
+  // The Mixer's menu brings it forward.
   await page.getByRole("button", { name: "Mixer menu" }).click();
   await page.getByTestId("open-modulators").click();
+  await window.getByTestId("link-touched").filter({ hasText: "Insert 4" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).modulators[0].links.map((l: { target: { track: string } }) => l.target.track)).toEqual(["insert_3", "insert_4"]);
   await page.getByRole("button", { name: "Close Modulators" }).click();
   await expect(window).toHaveCount(0);
 });
@@ -3713,10 +3721,11 @@ test("the assistant compresses a vocal with Pro-C: the two-stage chain in one st
   const song = await savedSong(page, id);
   const [fet, opto] = song.mixer.tracks[1].effects;
   expect(fet.plugin.name).toBe("Pro-C");
-  expect(fet.proC).toMatchObject({ style: "fet", threshold: -28, sidechain: { trigger: "external", track: song.mixer.tracks[2].id } });
+  expect(fet.proC).toMatchObject({ style: "fet", threshold: -28, sidechain: { trigger: "external" } });
   expect(opto.proC).toMatchObject({ style: "opto2a", options: { limit: true, emphasis: 6 } });
-  // The key's 0% send ("sidechain only") was made.
-  expect(song.mixer.tracks[2].sends).toContainEqual({ to: song.mixer.tracks[1].id, level: 0 });
+  // The key is the slot's (no 0% send needed).
+  expect(fet.sidechain).toEqual({ track: song.mixer.tracks[2].id, tap: "postFx" });
+  expect(song.mixer.tracks[2].sends).not.toContainEqual({ to: song.mixer.tracks[1].id, level: 0 });
   const [automation] = await savedAutomations(page, id);
   expect(automation.target).toEqual({ kind: "proC", effect: fet.id, control: "threshold" });
   expect(automation.points.map((p: { value: number }) => p.value)).toEqual([0.5, 2 / 3]);

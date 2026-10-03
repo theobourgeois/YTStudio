@@ -9,8 +9,8 @@ import { PiPlus, PiTrash, PiWaveform, PiX } from "react-icons/pi";
 import { cn } from "cn";
 import { controlOf } from "@shared/music/automation";
 import { DEFAULT_TAP, SIDECHAIN_TAP_NAMES } from "@shared/music/sidechain";
-import { MODULATOR_RANGES, amountText, linkControl, linkRangeText, modulatorName, removeModulator, sourceText, updateModulator } from "@shared/music/modulation";
-import { type Modulator, type ModulatorSource, type MusicProject, SIDECHAIN_TAPS, type SidechainTap } from "@shared/music/types";
+import { MODULATOR_RANGES, amountText, canModulate, linkControl, linkRangeText, modulatorName, removeModulator, sourceText, updateModulator } from "@shared/music/modulation";
+import { type AutomationTarget, type Modulator, type ModulatorSource, type MusicProject, SIDECHAIN_TAPS, type SidechainTap } from "@shared/music/types";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,9 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Knob, SongKnob, type ValueUnit } from "../knob";
 import { songGesture, useMusic, useSong } from "../store";
 import { centredOnDesktop, MusicWindow } from "../window";
-import { newModulator } from "./actions";
+import { linkTo, newModulator } from "./actions";
+import { parameterTarget } from "../automation/actions";
+import { useAutomationUi } from "../automation/store";
 import { useModulationUi } from "./store";
 
 const MS: ValueUnit = { scale: 1000, unit: "ms" };
@@ -231,8 +233,33 @@ function ModulatorPanel({ modulator }: { modulator: Modulator }) {
             <LinkRow key={i} modulator={modulator} index={i} />
           ))}
         </ol>
+        <LinkTouched modulatorId={id} />
       </div>
     </section>
+  );
+}
+
+/**
+ * FL's way to link a plugin's parameter (whose window is the plugin's own): touch it, then link it here. Also
+ * the last of our controls touched (a knob, a fader).
+ */
+function LinkTouched({ modulatorId }: { modulatorId: string }) {
+  const touched = useAutomationUi((s) => s.touched);
+  const control = useAutomationUi((s) => s.touchedControl);
+  const song = useSong((s) => s);
+  const targets = [touched ? parameterTarget(touched) : null, control].filter((t): t is AutomationTarget => !!t && canModulate(t) && controlOf(song, t).exists);
+  if (!targets.length) return <p className="text-[10px] text-muted-foreground">A plugin's parameter: move it in its window, then link it here.</p>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {targets.map((target) => {
+        const info = controlOf(song, target);
+        return (
+          <Button key={target.kind} variant="outline" size="sm" className="h-6 gap-1 text-[11px]" onClick={() => linkTo(modulatorId, target)} data-testid="link-touched">
+            <PiPlus className="size-3" /> Link {info.name} <span className="text-muted-foreground">of {info.owner}</span>
+          </Button>
+        );
+      })}
+    </div>
   );
 }
 
