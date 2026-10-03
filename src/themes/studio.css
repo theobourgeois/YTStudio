@@ -176,6 +176,41 @@
   --comp-button-hover: #57565d;
   --comp-handle-top: #6d6c73;
   --comp-handle-bottom: #3a3940;
+  /*
+   * The Reverb's look (`src/suites/music/reverb/`): a night-blue display in every theme, as a plugin's
+   * window keeps its own: the decay curve and the knobs' arcs cyan, the mode's natural curve a dim teal
+   * under it, the Post EQ amber, the tail's spectrum a soft teal behind, the early taps lilac, the duck red.
+   * Its canvases read these: plain colours. (Its knobs are Pro-C's, their `--comp-*` set to these.)
+   */
+  --verb-bg-top: #10131b;
+  --verb-bg-bottom: #1b202d;
+  --verb-bar: #0b0d13;
+  --verb-panel: #1a1e29;
+  --verb-panel-edge: #2e3443;
+  --verb-section: #141822;
+  --verb-grid: #212737;
+  --verb-grid-strong: #2f3648;
+  --verb-label: #8590a6;
+  --verb-text: #d6dbe6;
+  --verb-decay: #5fd4e8;
+  --verb-natural: #3f7682;
+  --verb-post: #f0b44a;
+  --verb-spectrum: #1f4a56;
+  --verb-spectrum-line: #3f8fa1;
+  --verb-band: #e8f6fa;
+  --verb-band-off: #6b7486;
+  --verb-early: #b9a7ff;
+  --verb-late: #1d4450;
+  --verb-duck: #ff6b78;
+  --verb-freeze: #8fd8ff;
+  --verb-meter: #4fc3a1;
+  --verb-meter-hot: #f3d02f;
+  --verb-knob: #262b38;
+  --verb-knob-light: #3b4254;
+  --verb-knob-dark: #171a23;
+  --verb-knob-edge: #4b5468;
+  --verb-handle-top: #5f687c;
+  --verb-handle-bottom: #343b4c;
   --clip-video: #5a86d6;
   --clip-audio: #3b9c7c;
   --clip-graphic: #9a6fd0;
