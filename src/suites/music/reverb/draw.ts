@@ -356,7 +356,7 @@ export function drawShape(ctx: CanvasRenderingContext2D, s: ShapeScene) {
   // The early taps: thin lines at their places and gains.
   ctx.strokeStyle = s.hover === "early" ? palette.text : palette.early;
   ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.8;
+  ctx.globalAlpha = 0.45;
   for (const tap of shape.early) {
     const x = Math.round(timeX(p, tap.at, s.span, s.log)) + (tap.side ? 0.5 : -0.5);
     ctx.beginPath();

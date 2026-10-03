@@ -743,7 +743,7 @@ export function shapeEnvelope(r: ReverbState, bpm: number, seed = 1): ShapeEnvel
   const active = taps.filter((t) => t.rank < fraction);
   const power = active.reduce((sum, t) => sum + t.gain * t.gain, 0) || 1;
   const early = Number.isFinite(heard)
-    ? active.map((t) => ({ at: pre + t.at * scale, db: 20 * Math.log10(Math.max(1e-6, Math.abs(t.gain) / Math.sqrt(power))) + heard + 10, side: t.side }))
+    ? active.map((t) => ({ at: pre + t.at * scale, db: 20 * Math.log10(Math.max(1e-6, Math.abs(t.gain) / Math.sqrt(power))) + heard + 4, side: t.side }))
     : [];
   const shortest = Math.min(...spec.lines.map((l) => l.allpass + l.delay)) / 1000;
   const earlyEnd = spec.early ? spec.early.end / 1000 : 0;
