@@ -1,4 +1,5 @@
 import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { addWindowListener } from "@/lib/window-events";
 import { PiArrowLineRight, PiArrowsOutLineHorizontal, PiCaretDownBold, PiMagnet, PiMagnifyingGlass, PiSidebarSimple, PiStairs } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
@@ -484,14 +485,12 @@ function PlaylistBody() {
     };
     canvas.addEventListener("pointermove", track);
     canvas.addEventListener("pointerleave", leave);
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("keyup", onKey);
+    const stopKeys = [addWindowListener("keydown", onKey), addWindowListener("keyup", onKey)];
     const stop = usePlaylist.subscribe((s, p) => s.tool !== p.tool && refresh());
     return () => {
       canvas.removeEventListener("pointermove", track);
       canvas.removeEventListener("pointerleave", leave);
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("keyup", onKey);
+      for (const stopKey of stopKeys) stopKey();
       stop();
     };
   }, []);

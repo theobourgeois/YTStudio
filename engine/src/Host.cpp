@@ -4,10 +4,6 @@
 
 namespace
 {
-/** How long neither the app nor the engine may be in front before plugin windows hide (a click from one to the other). */
-constexpr juce::uint32 switchGraceMs = 400;
-constexpr int hostCheckMs = 100;
-
 /** The most samples a plugin is asked for at once (the engine's blocks are far smaller). */
 constexpr int maxBlock = 8192;
 
@@ -62,7 +58,6 @@ PluginHost::PluginHost (juce::AudioPluginFormatManager& f, juce::KnownPluginList
 
 PluginHost::~PluginHost()
 {
-    stopTimer();
     *alive = false;
     saveStates();
 }
@@ -203,6 +198,8 @@ bool PluginHost::showEditor (const juce::String& ownerId, bool open)
         hosted.window->onStep = [this, ownerId] (int direction) { stepPreset (ownerId, direction); };
         hosted.window->onSettings = [this, ownerId] { protocol::send (protocol::object ({ { "event", "wrapper" }, { "owner", ownerKey }, { "id", ownerId } })); };
         hosted.window->setPreset (presetLabel (hosted), hosted.instance->getNumPrograms() > 1 || ! presetNames (hosted).isEmpty());
+        // The app keeps the order its floating windows (and ours) are in, so it knows which one was used last.
+        hosted.window->onActivated = [this, ownerId] { protocol::send (protocol::object ({ { "event", "editorFocus" }, { "owner", ownerKey }, { "id", ownerId } })); };
         // Its Automate button: the tab makes an automation clip of the parameter last touched in it.
         hosted.window->onAutomate = [this, ownerId] (int index) {
             if (const auto described = describeParameter (ownerId, index); described.isObject())
@@ -214,11 +211,32 @@ bool PluginHost::showEditor (const juce::String& ownerId, bool open)
         if (const auto touched = hosted.watcher.touched.load(); touched >= 0)
             hosted.window->setTouched (touched, hosted.instance->getParameters()[touched]->getName (64));
     }
-    editorsInFront = true;
     placeWindows();
     hosted.window->show();
     placeWindows();
     return true;
+}
+
+bool PluginHost::raiseEditor (const juce::String& ownerId)
+{
+    const auto found = loaded.find (ownerId);
+    if (found == loaded.end() || found->second->window == nullptr)
+        return false;
+    // In front of the other windows, without taking the focus: the app puts its windows back in order after another app was in use.
+    found->second->window->toFront (false);
+    return true;
+}
+
+juce::String PluginHost::focusedEditor() const
+{
+    auto* focused = juce::Component::getCurrentlyFocusedComponent();
+    auto* top = focused != nullptr ? focused->getTopLevelComponent() : juce::TopLevelWindow::getActiveTopLevelWindow();
+    if (top == nullptr)
+        return {};
+    for (const auto& [id, hosted] : loaded)
+        if (hosted->window.get() == top)
+            return id;
+    return {};
 }
 
 juce::String PluginHost::titleOf (const HostedPlugin& hosted)
@@ -227,28 +245,10 @@ juce::String PluginHost::titleOf (const HostedPlugin& hosted)
     return hosted.ownerName.isEmpty() || hosted.ownerName == name ? name : name + " (" + hosted.ownerName + ")";
 }
 
-void PluginHost::lowerEditors()
-{
-    editorsInFront = false;
-    for (auto& [id, hosted] : loaded)
-        if (auto* window = hosted->window.get())
-        {
-            window->setAlwaysOnTop (false);
-            window->toBack();
-        }
-}
-
 void PluginHost::setHost (const juce::var& host)
 {
-    const auto regainedFocus = hostKnown && ! hostActive && (bool) host["active"];
-    hostActive = (bool) host["active"];
-    hostVisible = (bool) host["visible"];
-    // macOS may activate Electron before delivering a click to its web contents. The native
-    // focus transition must lower plugins too, including clicks on the host's title bar.
-    if (regainedFocus)
-        lowerEditors();
-    if (hostActive)
-        lastInUse = juce::Time::getMillisecondCounter();
+    hostFloating = host.hasProperty ("floating") ? (bool) host["floating"] : true;
+    hostVisible = host.hasProperty ("visible") ? (bool) host["visible"] : true;
 
     const auto bounds = host["bounds"];
     const juce::Rectangle<int> now ((int) bounds["x"], (int) bounds["y"], (int) bounds["width"], (int) bounds["height"]);
@@ -264,15 +264,9 @@ void PluginHost::setHost (const juce::var& host)
     if (bounds.isObject())
         hostBounds = now;
 
-    if (! hostKnown)
-    {
-        hostKnown = true;
-        startTimer (hostCheckMs);
-    }
+    hostKnown = true;
     placeWindows();
 }
-
-void PluginHost::timerCallback() { placeWindows(); }
 
 void PluginHost::setExporting (bool on)
 {
@@ -307,20 +301,15 @@ void PluginHost::placeWindows()
     }
     if (! hostKnown)
         return;
-    const auto now = juce::Time::getMillisecondCounter();
-    if (hostActive || juce::Process::isForegroundProcess())
-        lastInUse = now;
-    const auto shown = hostVisible && now - lastInUse < switchGraceMs;
-    const auto changedState = shown != windowsShown;
-    windowsShown = shown;
     for (auto& [id, hosted] : loaded)
         if (auto* window = hosted->window.get())
         {
-            // Above the app's window, but only while it's in use: then they're gone with it.
-            if (window->isAlwaysOnTop() != (shown && editorsInFront))
-                window->setAlwaysOnTop (shown && editorsInFront);
-            if (changedState || window->isVisible() != shown)
-                window->setVisible (shown);
+            // At the level of the app's own floating windows (so they stack among each other by use, a click
+            // raising the one it lands on), or at the ordinary level once the app is no longer the one in use.
+            if (window->isAlwaysOnTop() != hostFloating)
+                window->setAlwaysOnTop (hostFloating);
+            if (window->isVisible() != hostVisible)
+                window->setVisible (hostVisible);
         }
 }
 

@@ -3,6 +3,7 @@
  * sent a song that's only that clip, unmuted, in song mode, looping over the clip's time, and plays it
  * from its start; let go, it stops and the song comes back.
  */
+import { addWindowListener } from "@/lib/window-events";
 import { clipContext, clipEnd } from "@shared/music/playlist";
 import type { MusicProject } from "@shared/music/types";
 import { cancelPlayWhenSent, playWhenSent, useTransport } from "../transport";
@@ -24,13 +25,12 @@ export function clipPreview(song: MusicProject) {
 export function holdClipPreview(clipId: number) {
   usePlaylist.setState({ previewing: clipId });
   playWhenSent();
+  const stops: Array<() => void> = [];
   const stop = () => {
-    window.removeEventListener("pointerup", stop, true);
-    window.removeEventListener("blur", stop);
+    for (const remove of stops) remove();
     stopClipPreview();
   };
-  window.addEventListener("pointerup", stop, true);
-  window.addEventListener("blur", stop);
+  stops.push(addWindowListener("pointerup", stop, true), addWindowListener("blur", stop));
 }
 
 export function stopClipPreview() {

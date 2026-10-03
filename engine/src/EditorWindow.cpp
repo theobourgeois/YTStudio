@@ -307,6 +307,13 @@ void EditorWindow::resized()
     }
 }
 
+void EditorWindow::activeWindowStatusChanged()
+{
+    DocumentWindow::activeWindowStatusChanged();
+    if (isActiveWindow() && onActivated != nullptr)
+        onActivated();
+}
+
 void EditorWindow::show()
 {
     juce::Process::makeForegroundProcess();

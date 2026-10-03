@@ -5,11 +5,41 @@
 import { useProjects } from "@/stores/projects";
 import type { AppIconId } from "@shared/app-icons";
 
+/** A rectangle on the screen, in points. */
+export interface ScreenRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * What only the desktop app's main process can do for the editor's native windows (panels): the page opens
+ * each one with `window.open` and draws into it and moves it itself (`components/windows/native/`).
+ */
+export interface DesktopPanels {
+  show(name: string, focus: boolean): void;
+  raise(name: string): void;
+  hide(name: string): void;
+  /** Move and resize a panel's window at once, to a place on the screen (points). */
+  place(name: string, rect: ScreenRect): void;
+  configure(name: string, options: { minWidth?: number; minHeight?: number; resizable?: boolean; backgroundColor?: string; title?: string }): void;
+  close(name: string): void;
+  /** Where the main window's content is on the screen. */
+  contentBounds(): ScreenRect | null;
+  /** The displays' usable areas. */
+  workAreas(): ScreenRect[];
+  /** The main window moved or changed size. Returns how to stop listening. */
+  onContentBounds(listener: (bounds: ScreenRect) => void): () => void;
+  /** A panel's window was closed by something other than the page. Returns how to stop listening. */
+  onClosed(listener: (name: string) => void): () => void;
+}
+
 declare global {
   interface Window {
     editorDesktopInfo?: {
       platform: string;
-      focusEditor?: () => Promise<void>;
+      panels?: DesktopPanels;
       appIcon?: { get(): Promise<AppIconId>; set(id: AppIconId): Promise<void> };
       pathForFile?: (file: File) => string;
       saveFile?: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
@@ -36,6 +66,9 @@ export type DesktopCommand = "home" | "open" | "newProject" | "reveal" | `new:${
 
 /** Whether the editor runs in the desktop app rather than a browser tab. */
 export const isDesktop = typeof window !== "undefined" && window.editorDesktopInfo !== undefined;
+
+/** The native windows' side of the desktop app, if this is it (a browser tab keeps its windows in the page). */
+export const desktopPanels = (): DesktopPanels | undefined => (typeof window === "undefined" ? undefined : window.editorDesktopInfo?.panels);
 
 /** Where a file dropped from Finder is on disk: only the desktop app can say (empty when it can't). */
 export function droppedPath(file: File): string {

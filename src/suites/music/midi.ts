@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { addWindowListener } from "@/lib/window-events";
 import type { MidiPlayed } from "@shared/music/engine";
 import type { MusicProject } from "@shared/music/types";
 import { musicApi } from "./api";
@@ -127,7 +128,7 @@ export function startMidiSync(): { stop: () => void; resend: () => void } {
     useMusic.subscribe((s, p) => (s.history?.doc.channels !== p.history?.doc.channels || s.projectId !== p.projectId) && sync()),
   ];
   const blur = () => releaseTyping();
-  window.addEventListener("blur", blur);
+  const stopBlur = addWindowListener("blur", blur);
   const syncTyping = () => {
     void musicApi.engine("typingKeyboard", { on: useMidi.getState().typing }).catch(() => {});
   };
@@ -137,7 +138,7 @@ export function startMidiSync(): { stop: () => void; resend: () => void } {
   return {
     stop() {
       for (const stop of stops) stop();
-      window.removeEventListener("blur", blur);
+      stopBlur();
       releaseTyping();
       void musicApi.engine("typingKeyboard", { on: false }).catch(() => {});
       useMidi.setState({ held: NONE });

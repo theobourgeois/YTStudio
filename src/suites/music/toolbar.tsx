@@ -1,4 +1,5 @@
 import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
+import { addWindowListener, isElement, ownerDocument } from "@/lib/window-events";
 import { PiArrowUUpLeft, PiArrowUUpRight, PiExport, PiFolders, PiKeyboard, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
@@ -143,15 +144,17 @@ function HintBar() {
   useEffect(() => {
     const root = document.querySelector('[data-suite="music"]');
     if (!root) return;
+    // What's under the pointer, in the page or in one of the editor's windows (native ones are windows of their own).
     const over = (e: Event) => {
-      const target = (e.target as Element).closest?.("[title], [aria-label]");
-      setHint(target && root.contains(target) ? (target.getAttribute("title") ?? target.getAttribute("aria-label") ?? "") : "");
+      const target = isElement(e.target) ? e.target.closest("[title], [aria-label]") : null;
+      const ours = target && (root.contains(target) || target.closest("[data-window]"));
+      setHint(ours ? (target.getAttribute("title") ?? target.getAttribute("aria-label") ?? "") : "");
     };
     const leave = () => setHint("");
-    root.addEventListener("pointerover", over);
+    const stops = [addWindowListener("pointerover", over), addWindowListener("blur", leave)];
     root.addEventListener("pointerleave", leave);
     return () => {
-      root.removeEventListener("pointerover", over);
+      for (const stop of stops) stop();
       root.removeEventListener("pointerleave", leave);
     };
   }, []);
@@ -434,7 +437,7 @@ function TempoLcd() {
         onPointerDown={(e) => {
           const input = e.currentTarget;
           // While typing, the pointer places the caret.
-          if (document.activeElement === input || e.button !== 0) return;
+          if (ownerDocument(input).activeElement === input || e.button !== 0) return;
           e.preventDefault();
           const start = Math.round(tempo);
           startPointerDrag(e, {

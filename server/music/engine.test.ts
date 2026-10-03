@@ -129,7 +129,7 @@ describe("AudioEngine", () => {
 
   it("passes on the keys pressed in plugin windows, and tells the engine (a restarted one too) where the app's window is", async () => {
     const request = (engine as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(engine);
-    const host = { active: true, visible: true, bounds: { x: 10, y: 20, width: 1400, height: 900 } };
+    const host = { floating: true, visible: true, bounds: { x: 10, y: 20, width: 1400, height: 900 } };
     // Not a reason to start the engine; it's told once it's started.
     engine.setHost(host);
     const events: EngineEvent[] = [];
@@ -143,6 +143,16 @@ describe("AudioEngine", () => {
     await engine.command("status", {});
     await expect.poll(() => request("whatHost", {})).toEqual(host);
     await expect(engine.command("host", host)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("raises a plugin's window on request, which only one that's open can be", async () => {
+    const song = addPluginChannel(createMusicProject("Raised"), { id: "VST3-Fake Synth-1", name: "Fake Synth", format: "VST3" }, "chan_synth");
+    await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });
+    await expect(engine.command("raiseEditor", { owner: "channel", target: "chan_synth" })).rejects.toMatchObject({ status: 409 });
+    await engine.command("channelEditor", { channel: "chan_synth", open: true });
+    await expect(engine.command("raiseEditor", { owner: "channel", target: "chan_synth" })).resolves.toBeDefined();
+    await expect(engine.command("raiseEditor", { owner: "bench", target: "chan_synth" })).rejects.toMatchObject({ status: 400 });
+    await expect(engine.command("raiseEditor", { owner: "channel" })).rejects.toMatchObject({ status: 400 });
   });
 
   it("lists a plugin's parameters, passes on those touched in its window, and leaves out automation the hand holds", async () => {

@@ -250,6 +250,13 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             return reply (fail ("That effect's plugin isn't loaded."), {});
         return ok();
     }
+    if (command == "raiseEditor")
+    {
+        const auto owner = params["owner"].toString();
+        if (! (owner == "channel" ? plugins : effects).raiseEditor (params["target"].toString()))
+            return reply (fail ("That plugin has no window open."), {});
+        return ok();
+    }
     if (command == "grossBeat")
     {
         // A Gross Beat's live controls: HOLD, and the scratching clock.
@@ -387,12 +394,6 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             for (const auto& id : *list)
                 ids.add (id.toString());
         sequencer.setMeteredTracks (ids);
-        return ok();
-    }
-    if (command == "lowerEditors")
-    {
-        plugins.lowerEditors();
-        effects.lowerEditors();
         return ok();
     }
     if (command == "host")
@@ -690,6 +691,17 @@ void Engine::timerCallback()
     // A parameter touched in a plugin's window: the tab can offer to automate it.
     plugins.reportTouches();
     effects.reportTouches();
+    // The engine's windows taking the focus from the app's (or giving it back): the app stacks its own accordingly.
+    if (const auto foreground = juce::Process::isForegroundProcess(); foreground != saidForeground)
+    {
+        saidForeground = foreground;
+        // Coming to the front by a click on a window: which one, so the app knows what is in front of what.
+        if (foreground)
+            for (const auto& [host, owner] : { std::pair<PluginHost*, const char*> { &plugins, "channel" }, { &effects, "effect" } })
+                if (const auto id = host->focusedEditor(); id.isNotEmpty())
+                    protocol::send (protocol::object ({ { "event", "editorFocus" }, { "owner", owner }, { "id", id } }));
+        protocol::send (protocol::object ({ { "event", "foreground" }, { "on", foreground } }));
+    }
     // Where the song is, while it plays, previews or anything sounds, and once more when that ends.
     const auto playing = sequencer.isPlaying();
     const auto previewing = preview.isPlaying();

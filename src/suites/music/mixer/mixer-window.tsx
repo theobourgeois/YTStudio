@@ -1,4 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { addWindowListener, ownerDocument } from "@/lib/window-events";
 import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretDownFill, PiCaretRightFill, PiCaretUpBold, PiClock, PiLinkSimpleBold, PiLockSimpleFill, PiMicrophoneFill, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
@@ -1145,10 +1146,11 @@ const COLOR_NAMES = ["Red", "Orange", "Yellow", "Lime", "Green", "Teal", "Blue",
 function dragSelection(e: React.PointerEvent<HTMLElement>) {
   if ((e.target as HTMLElement).closest("input")) return;
   const adding = e.metaKey || e.ctrlKey;
+  const doc = ownerDocument(e.currentTarget);
   startPointerDrag(e, {
     threshold: 4,
     onMove(ev) {
-      const strip = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-track]");
+      const strip = doc.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-track]");
       const id = strip?.dataset.track;
       if (!id || !strip.closest('[data-testid="mixer"]')) return;
       const ui = useMusicUi.getState();
@@ -1200,28 +1202,28 @@ function SelectionMeter({ meterRef }: { meterRef: (canvas: HTMLCanvasElement | n
 function carryTrackState(e: React.PointerEvent, from: string) {
   if (e.button !== 0) return;
   const origin = { x: e.clientX, y: e.clientY };
+  const doc = ownerDocument(e.currentTarget);
   let carrying = false;
   const view = useMixerView.getState();
+  const stops: Array<() => void> = [];
   const stop = () => {
-    window.removeEventListener("pointermove", move, true);
-    window.removeEventListener("pointerup", up, true);
-    window.removeEventListener("keydown", key, true);
+    for (const remove of stops) remove();
     view.carry(null);
   };
   const move = (ev: PointerEvent) => {
     if (!carrying && Math.hypot(ev.clientX - origin.x, ev.clientY - origin.y) < 6) return;
     if (!carrying) {
       // The menu goes, as FL's does once the item is dragged (before the drag's own Escape listens).
-      document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      doc.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       carrying = true;
     }
-    view.carry({ from, x: ev.clientX, y: ev.clientY, over: trackAt(ev.clientX, ev.clientY) });
+    view.carry({ from, x: ev.clientX, y: ev.clientY, over: trackAt(ev.clientX, ev.clientY, doc) });
   };
   const up = (ev: PointerEvent) => {
     if (carrying) {
       ev.preventDefault();
       ev.stopPropagation();
-      const to = trackAt(ev.clientX, ev.clientY);
+      const to = trackAt(ev.clientX, ev.clientY, doc);
       if (to && to !== from) {
         copyTrackState(from);
         void pasteTrackStateOnto(to);
@@ -1230,9 +1232,7 @@ function carryTrackState(e: React.PointerEvent, from: string) {
     stop();
   };
   const key = (ev: KeyboardEvent) => ev.key === "Escape" && carrying && stop();
-  window.addEventListener("pointermove", move, true);
-  window.addEventListener("pointerup", up, true);
-  window.addEventListener("keydown", key, true);
+  stops.push(addWindowListener("pointermove", move, true), addWindowListener("pointerup", up, true), addWindowListener("keydown", key, true));
 }
 
 /** Where tracks dragged by their numbers will go: a line between the strips. */

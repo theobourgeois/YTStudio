@@ -2,6 +2,7 @@ import * as React from "react"
 import { cn } from "cn"
 import { PiCaretDown, PiCaretUp, PiCheck } from "react-icons/pi"
 import { Select as SelectPrimitive } from "radix-ui"
+import { useInPopupWindow, usePopupContainer } from "@/components/ui/portal-container"
 
 function Select({
   ...props
@@ -50,12 +51,14 @@ function SelectTrigger({
 function SelectContent({
   className,
   children,
-  position = "item-aligned",
+  position: positionProp,
   align = "center",
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
+  // Aligned with the chosen item, unless it's in a popup window of the desktop app: that positions itself against the page's window.
+  const position = positionProp ?? (useInPopupWindow() ? "popper" : "item-aligned")
   return (
-    <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal container={usePopupContainer()}>
       <SelectPrimitive.Content
         data-slot="select-content"
         className={cn(

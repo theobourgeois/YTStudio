@@ -62,7 +62,7 @@ export default function App() {
       )}
       {/* The app's own windows float over everything (but menus and dialogs, which are drawn after it). */}
       {settingsOpen && (
-        <Desktop windows={useAppWindows} name="app" label="Windows" overlay className="fixed inset-0 z-50">
+        <Desktop windows={useAppWindows} name="app" label="Windows" overlay native className="fixed inset-0 z-50">
           <SettingsWindow />
         </Desktop>
       )}

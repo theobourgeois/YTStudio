@@ -87,7 +87,7 @@ struct HostedPlugin
     juce::uint32 touchesSaid = 0;
 };
 
-class PluginHost final : private juce::Timer
+class PluginHost final
 {
 public:
     /**
@@ -95,7 +95,7 @@ public:
      * `ownerKey` names an owner in `describe` ("channel", "effect").
      */
     PluginHost (juce::AudioPluginFormatManager& formats, juce::KnownPluginList& known, juce::String ownerKey, std::function<void()> changed);
-    ~PluginHost() override;
+    ~PluginHost();
 
     /**
      * The owner's plugin, if it's loaded. If it isn't, it starts loading (and `changed` says when it
@@ -108,15 +108,20 @@ public:
     void saveStates();
     /** False if the owner has no loaded plugin. */
     bool showEditor (const juce::String& ownerId, bool open);
+    /** The owner's window in front of the others (not given the focus); false if it has none open. */
+    bool raiseEditor (const juce::String& ownerId);
+    /** The owner whose window has the keyboard focus, or empty if none does. */
+    juce::String focusedEditor() const;
     void prepare (double sampleRate, int blockSize);
     /**
-     * The app's window (`{ active, visible, bounds: { x, y, width, height } }`), which the desktop app
-     * says whenever it changes. From then on, plugin windows act as if they were part of it: they float
-     * above it while it or they are in use, hide while another app is (or the app's window is
-     * minimised or hidden), and move when it moves. Without it (a browser tab) they're ordinary windows.
+     * What the desktop app says of itself (`{ floating, visible, bounds: { x, y, width, height } }`)
+     * whenever it changes. From then on, plugin windows act as windows of its own: they're at the level
+     * of its floating windows (the channel rack, the Piano roll...: whichever was clicked last is in front
+     * of the others) while `floating` (the app, or one of them, is the one in use), at the ordinary level
+     * otherwise, hidden while its window is minimised or hidden (`visible`), and moved when it moves
+     * (`bounds`). Without it (a browser tab) they're ordinary windows.
      */
     void setHost (const juce::var& host);
-    void lowerEditors();
     /** A fingerprint of the loaded plugins' reported delays, to notice one changing (a linear-phase EQ switched on). */
     juce::int64 latencySignature() const;
     /** Try again the plugins that couldn't be loaded (a scan may have found them since). */
@@ -175,8 +180,7 @@ private:
     static juce::String presetLabel (const HostedPlugin&);
     /** `{ owner, id, index, param, name, value, text }` for one of the owner's plugin's parameters, or void. */
     juce::var describeParameter (const juce::String& ownerId, int index) const;
-    /** Shows, hides and floats the windows as the app's window is (`setHost`). */
-    void timerCallback() override;
+    /** Floats and shows the windows as the app says (`setHost`). */
     void placeWindows();
     static juce::String titleOf (const HostedPlugin&);
 
@@ -189,13 +193,9 @@ private:
     /** Owner id -> the plugin id being loaded for it. */
     std::map<juce::String, juce::String> loading;
     std::map<juce::String, juce::String> failed;
-    /** The app's window, once the desktop app has said. */
-    bool hostKnown = false, hostActive = false, hostVisible = true;
+    /** The app's state, once the desktop app has said. */
+    bool hostKnown = false, hostFloating = true, hostVisible = true;
     juce::Rectangle<int> hostBounds;
-    /** When the app or the engine was last in front (ms): switching between them, neither is for a moment. */
-    juce::uint32 lastInUse = 0;
-    bool windowsShown = true;
-    bool editorsInFront = true;
     bool exporting = false;
     double sampleRate = 48000.0;
     int blockSize = 512;

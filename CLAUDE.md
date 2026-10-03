@@ -32,7 +32,7 @@ pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a lo
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
 pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
 pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/Vaudio.app, then launch it, export, check
-pnpm test:desktop:music # macOS: real clicks from Serum (or the test synth) back to each music window; needs Accessibility access
+pnpm test:desktop:music # macOS: real clicks between the music windows and Serum's (or the test synth's): stacking, focus, app switching; needs Accessibility access and an unlocked screen
 pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build; needs cmake + ninja (brew)
 pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
 pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit into public/kit/
@@ -211,6 +211,10 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
 electron/          The desktop app (Vaudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
                      main process and shows the page in a window; packaged, data is in userData, in development ./data.
+                     panels.ts: the editor's windows as windows of the system (the page opens them with `window.open`;
+                     this makes them frameless and floating, shows, hides and places them). floating.ts: which windows
+                     float (the app is in use while one of its windows, or a plugin's, has the focus). stacking.ts: the
+                     order of the floating windows, ours and the engine's, put back after the app was away.
                      gl-window.ts: the export's compositor page in a hidden window (`setGlPageOpener`), so no Playwright.
                      shell-path.ts: the login shell's PATH (Finder-launched apps get a bare one). preload.ts only marks
                      the page (`html.desktop`: drag regions, room for the window buttons in src/index.css).
@@ -282,7 +286,11 @@ src/
   components/windows/  Floating windows, FL Studio's way, for every suite (docs/windows.md): `FloatingWindow` on a
                      `Desktop`, a store per desktop (`createWindows`: places, stacking, snaps), the maths in
                      geometry.ts. The music editor's desktop is one; the app's (`stores/app-windows.ts`, drawn by
-                     App.tsx over everything) holds Settings.
+                     App.tsx over everything) holds Settings. In the desktop app a `native` Desktop's windows are
+                     windows of the system (native/: panel-window.ts opens one and dresses it in the page's theme,
+                     styles.ts mirrors them, popups.ts is the one window menus are drawn in, geometry.ts the screen
+                     maths, use-panel.ts the hooks). lib/window-events.ts is how code says which window it means
+                     (see "Windows" below); shared/panels.ts names them.
   components/settings/  Settings (⌘,, `stores/settings.ts`): a window on the app's desktop, as FL's, with a tab for
                      General (the theme and fonts: `stores/theme.ts`) then one per suite (`ClientSuite.settings`;
                      video's is `src/suites/video-settings.tsx`, music's `src/suites/music/settings.tsx`), each
@@ -761,9 +769,15 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
 - A plugin's window is the engine's (`EditorWindow`), so it can't be inside the app's; it acts as if it were
   (`docs/fl-studio/plugin-window.md`): our own title bar; keys the plugin doesn't use come back as an `EngineEvent`
   "key" and the tab runs its editor-wide shortcuts (`resolvePluginWindowKey`: Space plays); and the desktop app
-  tells the engine about its window (`HostWindow`, `followByPluginWindows` in `electron/main.ts` →
-  `PluginHost::setHost`), which floats plugin windows above it while it or they are in use, hides them otherwise,
-  and moves them with it.
+  tells the engine about itself (`HostWindow`, `followByPluginWindows` in `electron/main.ts` →
+  `PluginHost::setHost`): plugin windows are at the **floating level**, the same as the app's own windows in the
+  desktop app (the music editor's windows are windows of the system there, "Windows" below and `docs/windows.md`),
+  so they stack among each other by use: a click raises whichever it lands on, and the rack can be in front of a
+  plugin that is in front of the Playlist. While another program is in use they all drop to the ordinary level;
+  they hide with the main window and move with it. The engine says when one of its windows is used (`EngineEvent`
+  "editorFocus", and "foreground": the engine became the app in front) and raises one on request (`raiseEditor`;
+  a request's parameters are flattened into the message with `id` and `cmd`, so a parameter can't be called `id`);
+  `electron/stacking.ts` keeps the order of all of them and puts it back after the app was away.
 - Keep it portable (Windows is planned): only JUCE's APIs, no macOS calls of our own, paths from the server.
 - It's an app bundle (plugin windows need one) with no Dock icon, shipped in the desktop app's resources.
   The desktop app isn't signed, so loading other people's plugins needs nothing; once it's signed with the
@@ -1037,6 +1051,18 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   `server/integration.test.ts`, sound in `server/music/engine.integration.test.ts`); then one e2e spec per suite.
 - Server: validate every request body inside the service (bodies are `unknown`). Paths come from `DataPaths` and
   ids are checked with `isValidId`. Start external programs only through `process.ts`.
+
+## Windows (the page can be in several)
+
+In the desktop app the music editor's windows and Settings are windows of the operating system, drawn by the same
+React tree (`docs/windows.md`). `window` and `document` are always the main page's, so code that runs inside a
+window must say which one it means: `addWindowListener` for what the editor wants in every window (shortcuts, a
+drag's end), `ownerWindow` / `ownerDocument(event.target)` (`elementFromPoint`, `devicePixelRatio`, `activeElement`,
+`getSelection`), `isElement` / `isHtmlElement` instead of `instanceof Element` (another window's elements aren't
+instances of this one's), `queryAnywhere` to look in all of them; `startPointerDrag` already uses the window the
+press was in. A Radix portal in `components/ui` takes a container from `usePopupContainer()` (menus, selects,
+popovers: the shared popup window) or `usePortalContainer()` (tooltips, dialogs). Native windows only exist in the
+desktop app; e2e (a browser) tests the boxes in the page, and `pnpm test:desktop:music` the native ones.
 
 ## Product decisions (don't undo)
 
