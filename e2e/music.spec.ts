@@ -3653,6 +3653,112 @@ test("the assistant compresses a vocal with Pro-C: the two-stage chain in one st
  * Every knob and slider in `window` offers Create automation clip on its menu: the names of any that
  * don't. (Each is right-clicked, its menu read, and closed.)
  */
+/** The song's Reverb (the effect `effectId`) as saved. */
+async function savedReverb(page: Page, id: string, effectId: string) {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.reverb;
+  return null;
+}
+
+test("Reverb: chosen for a slot, Decay turned and reverted, a decay band made and dragged, undone, a preset and a mode, Freeze, the Shape display and the advanced panel, automated from a knob", async ({ page }) => {
+  const id = await openNewSong(page, "Verb");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /Reverb/ }).click();
+  const window = page.getByTestId("reverb");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  // On the master: the vocal default at an insert's mix.
+  await expect.poll(async () => (await savedReverb(page, id, effectId))?.preset).toBe("Vocal Plate");
+  expect((await savedReverb(page, id, effectId))?.mix).toBe(0.18);
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  await page.getByRole("button", { name: "Close Reverb (Master)" }).click();
+  await expect(window).toHaveCount(0);
+  await page.keyboard.press("F9");
+  await inspector.getByRole("button", { name: "Reverb: open its window" }).click();
+  await expect(window).toBeVisible();
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+
+  // Decay dragged up: a longer tail, the preset's name in italics, Revert lit; Revert brings it back.
+  const decay = window.getByRole("slider", { name: "Decay", exact: true });
+  await drag(page, decay, decay, { dy: -40 });
+  await expect.poll(async () => (await savedReverb(page, id, effectId))?.decay).toBeGreaterThan(2.5);
+  expect((await savedReverb(page, id, effectId))?.preset).toBeNull();
+  await expect(window.getByTestId("reverb-revert")).toBeEnabled();
+  await window.getByTestId("reverb-revert").click();
+  await expect.poll(async () => (await savedReverb(page, id, effectId))?.decay).toBe(1.8);
+  expect((await savedReverb(page, id, effectId))?.preset).toBe("Vocal Plate");
+
+  // A double-click on the Decay display makes a band; dragged down, it rings shorter there; undo puts it back.
+  const display = window.getByTestId("reverb-display");
+  const box = (await display.boundingBox())!;
+  await page.mouse.dblclick(box.x + box.width * 0.62, box.y + box.height * 0.35);
+  await expect.poll(async () => (await savedReverb(page, id, effectId))?.bands.length).toBe(1);
+  const band = window.getByTestId("reverb-band-1");
+  const before = Number(await band.getAttribute("data-multiplier"));
+  await drag(page, band, band, { dy: 50 });
+  await expect.poll(async () => (await savedReverb(page, id, effectId))?.bands[0].multiplier).toBeLessThan(before * 0.8);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedReverb(page, id, effectId))?.bands[0].multiplier).toBeCloseTo(before, 3);
+
+  // A preset sets it all, the mode's arrows step through the modes, Freeze holds the tail.
+  await window.getByTestId("reverb-preset").click();
+  await page.getByRole("menuitem", { name: "Lead Vocal" }).click();
+  await page.getByRole("menuitem", { name: /^Ballad Hall/ }).click();
+  await expect.poll(async () => (await savedReverb(page, id, effectId))?.mode).toBe("hall");
+  await expect(window).toHaveAttribute("data-mode", "hall");
+  await window.getByRole("button", { name: "Next mode" }).click();
+  await expect.poll(async () => (await savedReverb(page, id, effectId))?.mode).toBe("ambience");
+  await window.getByTestId("reverb-freeze").click();
+  await expect.poll(async () => (await savedReverb(page, id, effectId))?.freeze).toBe(true);
+  await window.getByTestId("reverb-freeze").click();
+
+  // The Shape display, and the advanced panel (its window grows for it).
+  await window.getByTestId("reverb-tab-shape").click();
+  await expect(display).toHaveAttribute("data-view", "shape");
+  await window.getByTestId("reverb-advanced-toggle").click();
+  await expect(window.getByTestId("reverb-advanced")).toBeVisible();
+  await window.getByTestId("reverb-tone-lock").click();
+  await expect.poll(async () => (await savedReverb(page, id, effectId))?.late.toneLock).toBe(false);
+
+  // Automated: Decay from its knob's menu.
+  await decay.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Create automation clip" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  expect((await savedSong(page, id)).automations[0].target).toEqual({ kind: "reverb", effect: effectId, control: "decay" });
+});
+
+test("the assistant puts a reverb on a vocal: a send in one step, its decay shaped, its mix automated", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted Reverb");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_vocal_reverb {"track": 1, "kind": "lead"}',
+      'call update_reverb {"track": 2, "decay": "2.2 s", "predelay": "1/32", "duck": "-6 dB"}',
+      'call set_reverb_decay {"track": 2, "bands": [{"shape": "highShelf", "frequency": 6000, "multiplier": 0.6}]}',
+      'call add_automation {"control": "reverb mix", "track": 2, "slot": 1, "bar": 1, "length": 4, "points": [{"at": 0, "value": 0.5}, {"at": 4, "value": 1}]}',
+      'call get_reverb {"track": 2}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_reverb: ok", { timeout: 30_000 });
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const ret = song.mixer.tracks[2];
+  expect(ret.name).toBe("Insert 1 Verb");
+  const effect = ret.effects[0];
+  expect(effect.plugin.name).toBe("Reverb");
+  expect(effect.reverb).toMatchObject({ mix: 1, mixLock: true, decay: 2.2, sync: true, predelayNote: { note: 32, feel: "straight" }, duck: -6 });
+  expect(effect.reverb.ducking.key).toBe(song.mixer.tracks[1].id);
+  expect(effect.reverb.bands).toHaveLength(1);
+  expect(song.mixer.tracks[1].sends.some((s: { to: string; level: number }) => s.to === ret.id && s.level > 0)).toBe(true);
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "reverb", effect: effect.id, control: "mix" });
+});
+
 async function notAutomatable(page: Page, window: Locator): Promise<string[]> {
   // (By their role attribute: while a menu closes, the page is hidden from role queries for a moment.)
   const sliders = window.locator('[role="slider"]');
@@ -3676,7 +3782,7 @@ async function notAutomatable(page: Page, window: Locator): Promise<string[]> {
   return missing;
 }
 
-test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (each mode, Tweak, the Style Editor), Auto-Tune, Pro-Q, OTT, Pro-C, PanMan (each mode, Tweak), Pitch Wheel", async ({ page }) => {
+test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (each mode, Tweak, the Style Editor), Auto-Tune, Pro-Q, OTT, Pro-C, Reverb (with its advanced panel), PanMan (each mode, Tweak), Pitch Wheel", async ({ page }) => {
   test.setTimeout(300_000);
   await openNewSong(page, "Automate everything");
   await page.keyboard.press("F9");
@@ -3743,6 +3849,14 @@ test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (
   expect(await notAutomatable(page, page.getByTestId("pro-c-output-panel"))).toEqual([]);
   await page.keyboard.press("Escape");
   await close(/^Close Pro-C/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/Reverb/, "reverb");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  if (!(await window.getByTestId("reverb-advanced").count())) await window.getByTestId("reverb-advanced-toggle").click();
+  await expect(window.getByTestId("reverb-advanced")).toBeVisible();
+  expect(await notAutomatable(page, window)).toEqual([]);
+  await close(/^Close Reverb/);
 
   await page.keyboard.press("F9");
   window = await choose(/PanMan/, "panman");
