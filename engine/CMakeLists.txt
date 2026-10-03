@@ -45,7 +45,7 @@ juce_add_gui_app(
   MICROPHONE_PERMISSION_TEXT "Vaudio records your microphone or audio interface when you arm a mixer track."
   PLIST_TO_MERGE "<plist><dict><key>LSUIElement</key><true/></dict></plist>")
 
-target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/AutoTune.cpp src/ClipPlayer.cpp src/Convolver.cpp src/EchoBoy.cpp src/EditorWindow.cpp src/Engine.cpp src/EqDesign.cpp src/Export.cpp src/FilePreview.cpp src/GrossBeat.cpp src/Host.cpp src/MidiInputs.cpp src/Ott.cpp src/PanMan.cpp src/PitchWheel.cpp src/Plugins.cpp src/ProC.cpp src/ProQ.cpp src/Protocol.cpp src/Recorder.cpp src/Sequencer.cpp src/Song.cpp src/Spectrum.cpp)
+target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/AutoTune.cpp src/ClipPlayer.cpp src/Convolver.cpp src/EchoBoy.cpp src/EditorWindow.cpp src/Engine.cpp src/EqDesign.cpp src/Export.cpp src/FilePreview.cpp src/GrossBeat.cpp src/Host.cpp src/MidiInputs.cpp src/Ott.cpp src/PanMan.cpp src/PitchWheel.cpp src/Plugins.cpp src/ProC.cpp src/ProQ.cpp src/Protocol.cpp src/Reverb.cpp src/ReverbNetwork.cpp src/Recorder.cpp src/Sequencer.cpp src/Song.cpp src/Spectrum.cpp)
 
 target_compile_definitions(
   VaudioEngine

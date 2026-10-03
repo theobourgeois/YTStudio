@@ -812,6 +812,10 @@ void Sequencer::applyLanes (int numSamples)
                 // A Pro-C's, likewise (its knobs glide there over 20 ms).
                 song->tracks[(size_t) lane.track].effects[(size_t) lane.index].compSettings->set ((comp::Lane) lane.control, start.data(), lane.size);
                 break;
+            case Song::Lane::Kind::verb:
+                // A Reverb's, likewise (its gains glide, its absorption is realised again, Size glides).
+                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].verbSettings->set ((verb::Lane) lane.control, start.data(), lane.size);
+                break;
             case Song::Lane::Kind::panman:
                 // A PanMan's control, likewise (its position and gains glide, so a step doesn't click).
                 if (lane.control == panman::shapeControl)
@@ -898,6 +902,9 @@ void Sequencer::restoreLanes (Song& from)
                 break;
             case Song::Lane::Kind::comp:
                 from.tracks[(size_t) lane.track].effects[(size_t) lane.index].compSettings->set ((comp::Lane) lane.control, lane.base.data(), lane.size);
+                break;
+            case Song::Lane::Kind::verb:
+                from.tracks[(size_t) lane.track].effects[(size_t) lane.index].verbSettings->set ((verb::Lane) lane.control, lane.base.data(), lane.size);
                 break;
             case Song::Lane::Kind::panman:
                 if (lane.control == panman::shapeControl)
@@ -1269,6 +1276,13 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
             else
                 effect.pan->skipped();
         }
+        else if (effect.verb != nullptr)
+        {
+            if (effect.enabled)
+                runReverb (effect, l, r, numSamples);
+            else
+                effect.verb->skipped();
+        }
 
     // What its pre-fader sends take: the sound before its gains.
     if (track.preBuffer >= 0)
@@ -1355,6 +1369,32 @@ void Sequencer::runOtt (const Song::Track::Effect& effect, float* left, float* r
         dry.copyFrom (1, 0, right, numSamples);
     }
     effect.ott->process (*effect.ottSettings, left, right, numSamples);
+    if (! blend)
+        return;
+    juce::FloatVectorOperations::multiply (left, mix, numSamples);
+    juce::FloatVectorOperations::multiply (right, mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (left, dry.getReadPointer (0), 1.0f - mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (right, dry.getReadPointer (1), 1.0f - mix, numSamples);
+}
+
+void Sequencer::runReverb (const Song::Track::Effect& effect, float* left, float* right, int numSamples)
+{
+    // Its own Mix is in it (dry and wet); the slot's mix is heard against the sound coming in, as a plugin's.
+    // Its ducking key may be another track's sound (one that runs first and sends here).
+    const auto mix = effect.mix;
+    auto& settings = *effect.verbSettings;
+    auto& dry = settings.dryBuffer;
+    const auto blend = mix < 1.0f && numSamples <= dry.getNumSamples();
+    if (blend)
+    {
+        dry.copyFrom (0, 0, left, numSamples);
+        dry.copyFrom (1, 0, right, numSamples);
+    }
+    const auto key = settings.key;
+    const auto* source = key >= 0 && key < (int) song->tracks.size() ? &song->tracks[(size_t) key] : nullptr;
+    const auto* keyLeft = source != nullptr && source->buffer >= 0 ? song->audio.getReadPointer (source->buffer * 2) : nullptr;
+    const auto* keyRight = source != nullptr && source->buffer >= 0 ? song->audio.getReadPointer (source->buffer * 2 + 1) : nullptr;
+    effect.verb->process (settings, keyLeft, keyRight, left, right, numSamples);
     if (! blend)
         return;
     juce::FloatVectorOperations::multiply (left, mix, numSamples);
