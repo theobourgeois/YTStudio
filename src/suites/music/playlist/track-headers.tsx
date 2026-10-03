@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { NameColorEditor } from "../name-color-editor";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
@@ -68,6 +69,7 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
   const track = useMusic((s) => trackAt(s.history!.doc, index));
   const name = useMusic((s) => trackName(s.history!.doc, index));
   const renaming = usePlaylist((s) => s.renaming === index);
+  const renameNext = useRef(false);
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -133,8 +135,13 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
           <SizeDivider index={index} size={track.size} height={height} />
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent data-testid="track-menu">
-        <ContextMenuItem onSelect={() => usePlaylist.setState({ renaming: index })}>Rename and color…</ContextMenuItem>
+      <ContextMenuContent data-testid="track-menu" onCloseAutoFocus={(e) => {
+        if (!renameNext.current) return;
+        e.preventDefault();
+        renameNext.current = false;
+        usePlaylist.setState({ renaming: index });
+      }}>
+        <ContextMenuItem onSelect={() => { renameNext.current = true; }}>Rename and color…</ContextMenuItem>
         <ContextMenuSub>
           <ContextMenuSubTrigger>Change color</ContextMenuSubTrigger>
           <ContextMenuSubContent className="grid grid-cols-6 gap-1 p-1.5">

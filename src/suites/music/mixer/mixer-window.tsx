@@ -671,14 +671,20 @@ function RenameField({ track, name }: { track: MixerTrack; name: string }) {
 
 /** A track's right-click menu (on its number and name), FL Studio's. */
 function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: string; isMaster: boolean; color: string | null; separator: boolean; grouped: boolean; soloSafe: boolean }) {
+  const renameNext = useRef(false);
   const groupId = useSong((song) => song.mixer.tracks.find((t) => t.id === id)?.group ?? null);
   const group = useSong((song) => song.mixer.groups.find((g) => g.id === groupId) ?? null);
   const channelsSelected = useMusicUi((s) => s.selectedChannelIds.length > 0);
   const others = useMusicUi((s) => s.selectedTrackIds.some((t) => t !== id));
   const canPaste = useMusicUi((s) => s.copiedTrack !== null);
   return (
-    <ContextMenuContent>
-      <ContextMenuItem onSelect={() => setTimeout(() => useMixerView.getState().rename(id), 0)}>
+    <ContextMenuContent onCloseAutoFocus={(e) => {
+      if (!renameNext.current) return;
+      e.preventDefault();
+      renameNext.current = false;
+      useMixerView.getState().rename(id);
+    }}>
+      <ContextMenuItem onSelect={() => { renameNext.current = true; }}>
         Rename and color… <ContextMenuShortcut>⇧⌘N</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSub>
