@@ -18,6 +18,7 @@
     "samples": "tsx scripts/make-samples.ts",
     "test:e2e": "playwright test",
     "test:desktop": "tsx scripts/desktop-smoke.ts",
+    "test:desktop:music": "tsx scripts/music-window-smoke.ts",
     "engine:build": "cmake -S engine -B engine/build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build engine/build"
   },
   "dependencies": {
