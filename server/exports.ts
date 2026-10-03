@@ -21,6 +21,7 @@ interface JobState {
   /** The text clips' layouts, measured by the browser (in time order), by clip id. */
   texts: Map<string, TextLayoutAt[]>;
   controller: AbortController;
+  preview?: boolean;
 }
 
 /** Most layouts of one animated text. */
@@ -61,7 +62,11 @@ export class ExportManager {
     private library: MediaLibrary,
   ) {}
 
-  async create(body: unknown): Promise<ExportJob> {
+  create(body: unknown): Promise<ExportJob> {
+    return this.start(body, false);
+  }
+
+  private async start(body: unknown, preview: boolean): Promise<ExportJob> {
     const req = body as Partial<ExportRequest> | null;
     if (!req || typeof req !== "object" || !req.project || typeof req.project !== "object") {
       throw new HttpError(400, "Expected { project, resolution }.");
@@ -98,7 +103,11 @@ export class ExportManager {
       texts.set(clip.id, layouts);
     }
 
-    const { width, height } = outputSize(project.settings.aspectRatio, req.resolution as ExportResolution);
+    let { width, height } = outputSize(project.settings.aspectRatio, req.resolution as ExportResolution);
+    if (preview) {
+      width /= 2;
+      height /= 2;
+    }
     const job: ExportJob = {
       id: createId("export"),
       status: "queued",
@@ -106,15 +115,36 @@ export class ExportManager {
       createdAt: Date.now(),
       width,
       height,
-      duration: projectDuration(project),
+      duration: preview ? Math.min(30, projectDuration(project)) : projectDuration(project),
       downloadUrl: null,
       url: null,
       fileName: cleanFileName(req.fileName, cleanFileName(project.name, "export")),
     };
-    const state: JobState = { job, project, texts, controller: new AbortController() };
+    const state: JobState = { job, project, texts, preview, controller: new AbortController() };
     this.jobs.set(job.id, state);
     this.limit(() => this.render(state)).catch((err) => console.error("[export]", err));
     return { ...job };
+  }
+
+  /** Small cached home-screen preview, using the same compositor as an export. */
+  async preview(project: Project, texts: Record<string, TextLayoutAt[]>, signal: AbortSignal): Promise<string> {
+    signal.throwIfAborted();
+    const job = await this.start({ project, texts, resolution: "720p" }, true);
+    const cancel = () => this.cancel(job.id);
+    signal.addEventListener("abort", cancel, { once: true });
+    try {
+      for (;;) {
+        signal.throwIfAborted();
+        const current = this.get(job.id);
+        if (current.status === "done") return this.output(job.id).file;
+        if (current.status === "error") throw new Error(current.error);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    } finally {
+      signal.removeEventListener("abort", cancel);
+      if (signal.aborted) this.cancel(job.id);
+      this.jobs.delete(job.id);
+    }
   }
 
   get(id: string): ExportJob {
@@ -146,7 +176,7 @@ export class ExportManager {
     return state;
   }
 
-  private async render({ job, project, texts, controller }: JobState): Promise<void> {
+  private async render({ job, project, texts, controller, preview }: JobState): Promise<void> {
     if (job.status !== "queued") return;
     job.status = "rendering";
     const tmp = this.paths.tmpFile(".mp4");
@@ -172,7 +202,7 @@ export class ExportManager {
         if (clip.reversed && asset && !asset.reversedPath) asset.reversedPath = await this.library.reversedPath(clip.assetId);
         if (signal.aborted) return;
       }
-      const opts = { width: job.width, height: job.height, fps: project.settings.fps, ffmpegPath: FFMPEG };
+      const opts = { width: job.width, height: job.height, fps: preview ? Math.min(15, project.settings.fps) : project.settings.fps, ffmpegPath: FFMPEG };
       let plan = planRender(project, assets, opts, drawn);
       // Media shown backwards elsewhere (a remapped clip running back, a reversed nest) needs its reversed copy too.
       if (plan.needsReversed.length) {
@@ -183,10 +213,14 @@ export class ExportManager {
         plan = planRender(project, assets, opts, drawn);
       }
 
+      if (preview) plan.frames = Math.min(plan.frames, Math.ceil(job.duration * opts.fps));
+
       // The sound first (quick), then every frame, drawn and encoded with it.
       const audioShare = 0.03;
+      const soundArgs = audioArgs(project, assets, { ...opts, outputPath: audio });
+      if (preview) soundArgs.splice(soundArgs.length - 1, 0, "-t", String(job.duration));
       await runWithProgress(
-        audioArgs(project, assets, { ...opts, outputPath: audio }),
+        soundArgs,
         job.duration,
         (p) => (job.progress = audioShare * p),
         signal,

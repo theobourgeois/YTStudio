@@ -20,6 +20,8 @@ import type {
   Project,
   ProjectLocation,
   ProjectSummary,
+  ProjectPreview,
+  TextLayoutAt,
   ProjectTemplates,
   SaveClipsToLibraryRequest,
   SaveMediaToLibraryRequest,
@@ -85,6 +87,9 @@ function serverMessage(body: unknown, fallback: string): string {
 export const api = {
   health: () => request<HealthResponse>("/api/health"),
 
+  projectPreview: (id: string) => request<ProjectPreview>(`/api/projects/${id}/preview`),
+  prepareProjectPreview: (id: string, revision: number, inputs: { texts?: Record<string, TextLayoutAt[]> } = {}) =>
+    request<ProjectPreview>(`/api/projects/${id}/preview`, { method: "POST", body: JSON.stringify({ ...inputs, revision }) }),
   listProjects: () => request<ProjectSummary[]>("/api/projects"),
   createProject: (body: CreateProjectRequest = {}) =>
     request<ProjectSummary>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
