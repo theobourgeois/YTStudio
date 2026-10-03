@@ -15,7 +15,10 @@ import {
   unlinkControl,
   updateModulator,
 } from "./modulation.ts";
-import { MASTER_TRACK_ID, createMusicProject, normalizeMusicProject } from "./project.ts";
+import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject, normalizeMusicProject } from "./project.ts";
+import { compileSong } from "./compile.ts";
+import { createAutomation } from "./automation.ts";
+import { setEffect } from "./mixer.ts";
 import type { AutomationTarget, MusicProject } from "./types.ts";
 
 const FADER: AutomationTarget = { kind: "mixer", track: "insert_2", control: "volume" };
@@ -87,3 +90,49 @@ describe("modulators", () => {
     expect(linkRangeText(s, s.modulators[0].links[0])).toBe("Centre → 100% left");
   });
 });
+
+describe("modulation, compiled", () => {
+  /** Insert 2's fader (at 0.8) ducked by Insert 1's level, −60%. */
+  const ducked = () => linkControl(song(), "mod_a", FADER, -0.6);
+  const laneOf = (c: ReturnType<typeof compileSong>, kind: string) => c.lanes.find((l) => l.target.kind === kind && ("track" in l.target ? c.tracks[l.target.track].id === "insert_2" : true));
+
+  it("is a grid over the modulator's level, in pattern mode too: its own gains at 0, the ducked fader's at 1", () => {
+    const c = compileSong(ducked(), FIRST_PATTERN_ID);
+    expect(c.modulators).toEqual([{ id: "mod_a", track: c.tracks.findIndex((t) => t.id === "insert_1"), tap: "postFx", attack: 0.002, release: 0.15, gain: 1, tension: 0 }]);
+    const lane = laneOf(c, "track")!;
+    expect(lane).toMatchObject({ modulator: 0, steps: 17 });
+    // Each point: 17 sets of the track's four gains.
+    expect(lane.values.length).toBe(lane.ticks.length * 17 * 4);
+    expect(lane.base!.slice(0, 4)).toEqual([1, 0, 0, 1]);
+    // At full level, the fader at 0.8 − 0.6 = 0.2: (0.2 / 0.8)³.
+    expect(lane.base![16 * 4]).toBeCloseTo((0.2 / 0.8) ** 3, 6);
+    expect(lane.base![8 * 4]).toBeCloseTo((0.5 / 0.8) ** 3, 6);
+  });
+
+  it("follows the control's automation in song mode, its own value where it's stopped", () => {
+    let s = ducked();
+    s = createAutomation(s, FADER, { start: 0, length: 384 }, { id: "auto_f", value: 0.5 }).song;
+    const c = compileSong(s, FIRST_PATTERN_ID, null, "song");
+    const lane = laneOf(c, "track")!;
+    // The automation's 0.5 at level 0, 0.5 − 0.6 (kept at 0) at 1; the base: its own 0.8.
+    expect(lane.values[0]).toBeCloseTo((0.5 / 0.8) ** 3, 6);
+    expect(lane.values[16 * 4]).toBe(0);
+    expect(lane.base![0]).toBe(1);
+  });
+
+  it("adds its amount to a plugin's parameter in the engine (only the plugin knows its value)", () => {
+    let s = setEffect(song(), "insert_2", 0, { id: "VST3-Comp", name: "Comp", format: "VST3" }, "fx_comp");
+    s = linkControl(s, "mod_a", { kind: "plugin", owner: "effect", id: "fx_comp", param: "7", index: 7, name: "Cutoff" }, 0.4);
+    const lane = compileSong(s, FIRST_PATTERN_ID).lanes.find((l) => l.target.kind === "param")!;
+    expect(lane).toMatchObject({ ticks: [0], values: [-1], modulator: 0, amount: 0.4 });
+  });
+
+  it("leaves out a modulator with no links or whose source isn't there, and the lanes it would move", () => {
+    expect(compileSong(song(), FIRST_PATTERN_ID).modulators).toBeUndefined();
+    const gone = { ...ducked(), modulators: ducked().modulators.map((m) => ({ ...m, source: { kind: "track" as const, track: "insert_99", tap: "postFx" as const } })) };
+    const c = compileSong(gone, FIRST_PATTERN_ID);
+    expect(c.modulators).toBeUndefined();
+    expect(c.lanes).toEqual([]);
+  });
+});
+
