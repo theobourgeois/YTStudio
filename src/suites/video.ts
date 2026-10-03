@@ -1,3 +1,5 @@
+import { api } from "@/lib/api";
+import { layoutTexts } from "@/components/export/layout-texts";
 import { PiFilmSlate } from "react-icons/pi";
 import { formatDuration } from "@shared/format";
 import { messageContext } from "@/assistant/context";
@@ -15,6 +17,9 @@ import { VideoSettings } from "./video-settings";
  */
 export const videoSuite: ClientSuite<"video"> = {
   id: "video",
+  async previewInputs(id) {
+    return { texts: await layoutTexts(await api.getProject(id), "720p", 0.5) };
+  },
   icon: PiFilmSlate,
   tint: "bg-sky-500/12 text-sky-600 dark:text-sky-400",
   open: (projectId) => useEditor.getState().openProject(projectId),

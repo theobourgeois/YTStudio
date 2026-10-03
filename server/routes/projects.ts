@@ -1,8 +1,10 @@
+import type { ProjectPreviews, PreviewInputs } from "../project-previews.ts";
+import { HttpError, isObject } from "../storage.ts";
 import { Router, json } from "express";
 import type { ProjectStore } from "../projects.ts";
 
 /** `/api/projects`: the recents, each project's document and its package. `onRemove` cleans up after a deleted one. */
-export function projectRoutes(projects: ProjectStore, onRemove?: (id: string) => Promise<void>): Router {
+export function projectRoutes(projects: ProjectStore, previews: ProjectPreviews, onRemove?: (id: string) => Promise<void>): Router {
   const router = Router();
   router.use(json({ limit: "10mb" }));
 
@@ -33,6 +35,23 @@ export function projectRoutes(projects: ProjectStore, onRemove?: (id: string) =>
   router.post("/:id/template", async (req, res) => {
     res.json(await projects.saveTemplate(req.params.id));
   });
+  router.get("/:id/preview", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await previews.get(req.params.id));
+  });
+  router.post("/:id/preview", async (req, res) => {
+    if (!isObject(req.body) || typeof req.body.revision !== "number") throw new HttpError(400, "Expected a preview revision.");
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await previews.ensure(req.params.id, req.body.revision, req.body as PreviewInputs));
+  });
+  router.get("/:id/preview/media", async (req, res) => {
+    res.setHeader("Cache-Control", "no-cache");
+    res.sendFile(await previews.file(req.params.id, false), { dotfiles: "allow" });
+  });
+  router.get("/:id/preview/poster", async (req, res) => {
+    res.setHeader("Cache-Control", "no-cache");
+    res.sendFile(await previews.file(req.params.id, true), { dotfiles: "allow" });
+  });
   router.get("/:id", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.json(await projects.get(req.params.id));
@@ -61,6 +80,7 @@ export function projectRoutes(projects: ProjectStore, onRemove?: (id: string) =>
     res.sendStatus(204);
   });
   router.delete("/:id", async (req, res) => {
+    previews.forget(req.params.id);
     await projects.remove(req.params.id);
     await onRemove?.(req.params.id).catch((err) => console.error(err));
     res.sendStatus(204);

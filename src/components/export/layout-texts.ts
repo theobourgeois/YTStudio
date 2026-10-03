@@ -16,7 +16,7 @@ const MAX_LAYOUTS = 3000;
  * text whose layout changes over time (its words, size or font are keyframed) gets one for
  * each change, each saying from when it holds.
  */
-export async function layoutTexts(project: Project, resolution: ExportResolution): Promise<Record<string, TextLayoutAt[]>> {
+export async function layoutTexts(project: Project, resolution: ExportResolution, scale = 1): Promise<Record<string, TextLayoutAt[]>> {
   // The main sequence's texts and every nested sequence's (at the size the export draws that sequence).
   const views = [project, ...(project.sequences ?? []).map((s) => sequenceView(project, s.id))];
   const clips = views.flatMap((view) => view.clips.filter((c) => isTextClip(c) && isOnVideoTrack(view, c)).map((clip) => ({ clip, view })));
@@ -25,7 +25,8 @@ export async function layoutTexts(project: Project, resolution: ExportResolution
   const out: Record<string, TextLayoutAt[]> = {};
   for (const { clip, view } of clips) {
     const aspect = view.settings.aspectRatio;
-    const unit = textUnit(outputSize(aspect, resolution), aspect);
+    const size = outputSize(aspect, resolution);
+    const unit = textUnit({ width: size.width * scale }, aspect);
     const layouts: TextLayoutAt[] = [];
     let last = "";
     for (const time of lookTimes(clip, view.settings.fps)) {
