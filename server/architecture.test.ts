@@ -61,6 +61,9 @@ const PLATFORM = [
   "src/stores/projects.ts",
   "src/stores/assistant.ts",
   "src/stores/theme.ts",
+  // The app's icon (its colourways), app-wide as the theme is.
+  "shared/app-icons.ts",
+  "src/stores/app-icon.ts",
   "src/themes/",
   "src/stores/settings.ts",
   "src/stores/app-windows.ts",
