@@ -21,6 +21,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { NameColorEditor } from "./name-color-editor";
 import { ColorSwatches } from "./color-swatches";
 import {
   DropdownMenu,
@@ -614,26 +615,10 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
 
       {trackSelectorShown && <TrackSelector channel={channel} className="ml-0.5 h-[22px] min-w-8 px-1 text-[11px]" />}
       {renaming && (
-        <input
-          aria-label="Channel name"
-          defaultValue={channel.name}
-          // Its keys are its own (the rack's shortcuts aren't run while typing).
-          autoFocus
-          onFocus={(e) => e.currentTarget.select()}
-          className="sunken ml-0.5 h-[22px] min-w-0 flex-1 rounded-sm px-2 text-center text-[11px] outline-none"
-          onBlur={(e) => {
-            const name = e.currentTarget.value;
-            setRenaming(false);
-            commit((song) => updateChannel(song, id, { name }));
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-            if (e.key === "Escape") {
-              e.currentTarget.value = channel.name;
-              e.currentTarget.blur();
-            }
-          }}
-        />
+        <NameColorEditor name={channel.name} color={channel.color} label="Channel name"
+          onSave={(name, color) => commit((song) => updateChannel(song, id, { name, color }))} onClose={() => setRenaming(false)}>
+          <span className="ml-0.5 min-w-0 flex-1 truncate text-center text-[11px]">{channel.name}</span>
+        </NameColorEditor>
       )}
       <Popover open={replacing} onOpenChange={setReplacing}>
       <ContextMenu>
@@ -744,7 +729,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
               </ContextMenuItem>
               {/* Once the menu has gone, so its closing doesn't take the focus from the box. */}
               <ContextMenuItem inset onSelect={() => (renamingNext.current = true)}>
-                Rename…
+                Rename and color…
               </ContextMenuItem>
               <ContextMenuSub>
                 <ContextMenuSubTrigger inset>Color</ContextMenuSubTrigger>

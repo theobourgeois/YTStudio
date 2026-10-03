@@ -325,6 +325,8 @@ export interface PreviewFileRequest {
  * runs its shortcut (Space plays, as in FL Studio). Only the keys shortcuts use are sent.
  */
 export interface EngineKey {
+  /** Native typing keys also send releases. Omitted by older engines: a press. */
+  down?: boolean;
   key: string;
   code: string;
   metaKey: boolean;
@@ -569,6 +571,8 @@ export interface SetDeviceRequest {
  * of the loop until it's stopped. `names`: what to call each track's takes (the track's name).
  */
 export interface RecordRequest {
+  /** Punch in at the audio thread's current position without restarting playback. */
+  continuePlayback?: boolean;
   projectId: string;
   from: number;
   countIn: number;
@@ -656,6 +660,9 @@ export interface EngineCommands {
   preview: { channel: string; key: number; on: boolean; velocity?: number };
   /** The channel MIDI keyboards play (the rack's selected one), or none. */
   midiTarget: { channel: string | null };
+  typingKeyboard: { on: boolean };
+  /** Keep native plugin editors open behind the main editor. */
+  lowerEditors: Record<string, never>;
   /**
    * MIDI messages as a keyboard would send them (a status byte, then its data: `[0x90, 60, 100]` is a
    * middle C): played on the MIDI target and told back in `midi` events. The typing keyboard's notes.

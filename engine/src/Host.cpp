@@ -214,6 +214,8 @@ bool PluginHost::showEditor (const juce::String& ownerId, bool open)
         if (const auto touched = hosted.watcher.touched.load(); touched >= 0)
             hosted.window->setTouched (touched, hosted.instance->getParameters()[touched]->getName (64));
     }
+    editorsInFront = true;
+    placeWindows();
     hosted.window->show();
     placeWindows();
     return true;
@@ -223,6 +225,17 @@ juce::String PluginHost::titleOf (const HostedPlugin& hosted)
 {
     const auto name = hosted.instance->getName();
     return hosted.ownerName.isEmpty() || hosted.ownerName == name ? name : name + " (" + hosted.ownerName + ")";
+}
+
+void PluginHost::lowerEditors()
+{
+    editorsInFront = false;
+    for (auto& [id, hosted] : loaded)
+        if (auto* window = hosted->window.get())
+        {
+            window->setAlwaysOnTop (false);
+            window->toBack();
+        }
 }
 
 void PluginHost::setHost (const juce::var& host)
@@ -299,8 +312,8 @@ void PluginHost::placeWindows()
         if (auto* window = hosted->window.get())
         {
             // Above the app's window, but only while it's in use: then they're gone with it.
-            if (window->isAlwaysOnTop() != shown)
-                window->setAlwaysOnTop (shown);
+            if (window->isAlwaysOnTop() != (shown && editorsInFront))
+                window->setAlwaysOnTop (shown && editorsInFront);
             if (changedState || window->isVisible() != shown)
                 window->setVisible (shown);
         }

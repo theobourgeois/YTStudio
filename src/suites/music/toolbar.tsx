@@ -316,7 +316,6 @@ const QUANTIZE_LABELS: Record<NoteQuantize, string> = {
  */
 function TypingKeyboardToggle() {
   const typing = useMidi((s) => s.typing);
-  const octave = useMidi((s) => s.octave);
   const lastNoteAt = useMidi((s) => s.lastNoteAt);
   const [lit, setLit] = useState(false);
   useEffect(() => {
@@ -328,11 +327,7 @@ function TypingKeyboardToggle() {
   return (
     <TransportButton
       label="Typing keyboard"
-      title={
-        typing
-          ? `Typing keyboard to piano is on (Ctrl+T): Z and Q play C${octave} and C${octave + 1} on the selected channel, [ and ] change the octave`
-          : "Typing keyboard to piano (Ctrl+T): play the selected channel from the computer's keyboard"
-      }
+      title={`Typing piano ${typing ? "on" : "off"} (⌘T)`}
       on={typing}
       className="relative"
       onClick={() => useMidi.getState().setTyping(!typing)}
@@ -827,19 +822,19 @@ function MetronomeToggle() {
 function WindowToggles() {
   return (
     <>
-      <WindowButton onOpen={() => openPlaylist()} label="Playlist" title="Playlist: the song's arrangement (F5, ⌥1)">
+      <WindowButton onOpen={() => openPlaylist()} label="Playlist" title="Playlist: the song's arrangement (⌥1)">
         <PiListDashes />
       </WindowButton>
-      <WindowButton onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title="Channel rack (F6, ⌥2)">
+      <WindowButton onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title="Channel rack (⌥2)">
         <PiRows />
       </WindowButton>
-      <WindowButton onOpen={() => openPianoRoll()} label="Piano roll" title="Piano roll: the selected channel's notes (F7, ⌥3)">
+      <WindowButton onOpen={() => openPianoRoll()} label="Piano roll" title="Piano roll: the selected channel's notes (⌥3)">
         <PiPianoKeys />
       </WindowButton>
-      <WindowButton onOpen={() => useMusicUi.getState().setMixerOpen(true)} label="Mixer" title="Mixer (F9, ⌥4)">
+      <WindowButton onOpen={() => useMusicUi.getState().setMixerOpen(true)} label="Mixer" title="Mixer (⌥4)">
         <PiSlidersHorizontal className="rotate-90" />
       </WindowButton>
-      <WindowButton onOpen={() => useBrowser.getState().setOpen(!useBrowser.getState().open)} label="Browser" title="Browser: your sample folders (Alt+F8, ⌥5)">
+      <WindowButton onOpen={() => useBrowser.getState().setOpen(!useBrowser.getState().open)} label="Browser" title="Browser: your sample folders (⌥5)">
         <PiFolders />
       </WindowButton>
     </>

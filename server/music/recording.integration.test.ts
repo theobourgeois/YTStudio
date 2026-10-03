@@ -154,6 +154,22 @@ describe.skipIf(!existsSync(ENGINE))("recording, offline", () => {
     await expect(record()).rejects.toThrow(/armed/);
   });
 
+  it("punches in at the audio thread's current position without restarting or counting in", async () => {
+    await play(withInput(createMusicProject("Punch in", 120)));
+    await engine.command("play", { from: 0 });
+    await hear(2 * BEAT);
+    await engine.record({ projectId: PROJECT, from: 0, countIn: BAR_TICKS, loop: false,
+      continuePlayback: true, names: { insert_1: "Vox" } });
+    await hear(BEAT, true);
+    const status = await engine.command("status", {});
+    expect(status.transport.tick).toBeCloseTo(3 * 96, 4);
+    expect(status.transport.countIn).toBe(0);
+    const [take] = await stopFor(1);
+    expect(take.startTick).toBeCloseTo(2 * 96, 6);
+    expect(take).toMatchObject({ frames: BEAT, pass: 0, final: true });
+    expect(slice((await fileOf(take)).channels[0], 0, BEAT)).toEqual(slice(input.channels[0], 0, BEAT));
+  });
+
   it("counts in a bar of clicks with the transport held, then plays and records from the bar's end", async () => {
     let song = withInput(createMusicProject("Test", 120), false, "off");
     song = setSteps(addChannels(song, [{ id: "chan_kick", name: "Kick", sampleId: "hit" }]), P, "chan_kick", [0], true);
@@ -203,6 +219,25 @@ describe.skipIf(!existsSync(ENGINE))("recording, offline", () => {
     expect(take).toMatchObject({ frames: BAR + 2 * BEAT, final: true, pass: 0 });
     expect(slice((await fileOf(take)).channels[0], BAR - 100, 200)).toEqual(slice(input.channels[0], BAR - 100, 200));
     expect((await engine.command("status", {})).recording).toBeNull();
+  });
+
+  it("keeps playing voices and automation on the same clock when punching in", async () => {
+    let song = addChannels(withInput(createMusicProject("Punch clock", 120), false, "off"), [{ id: "chan_pad", name: "Pad", sampleId: "pad" }]);
+    song = routeChannels(setSteps(song, P, "chan_pad", [0], true), ["chan_pad"], "insert_2");
+    song = editClips(song, (clips) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: BAR_TICKS * 4 }]).clips);
+    const made = createAutomation(song, { kind: "channel", channel: "chan_pad", control: "volume" }, { start: 0, length: BAR_TICKS * 4 });
+    song = editPoints(made.song, made.automationId, () => [
+      { tick: 0, value: 0, tension: 0, curve: "single" },
+      { tick: BAR_TICKS * 4, value: 1, tension: 0, curve: "single" },
+    ]);
+    await engine.setSong({ projectId: PROJECT, song, patternId: P, mode: "song", armed: ["insert_1"] });
+    await engine.command("play", { from: 0 });
+    await hear(BAR);
+    await engine.record({ projectId: PROJECT, from: 0, countIn: 0, loop: false, continuePlayback: true, names: { insert_1: "Vox" } });
+    const heard = await hear(BAR);
+    expect(peakOf(heard.channels[0], BAR / 2 - 50, BAR / 2 + 50))
+      .toBeCloseTo(0.5 * levelGain(1.5 / 4, DEFAULT_VOLUME), 2);
+    await stopFor(1);
   });
 
   it("keeps automation on the song's time through a count-in: it starts when the transport moves", async () => {

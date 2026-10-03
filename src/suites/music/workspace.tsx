@@ -457,6 +457,8 @@ const dialogOpen = () => document.querySelector(":is([role=dialog], [role=alertd
  * tab that's showing runs it, so two tabs don't both toggle play.
  */
 function runPluginWindowKey(key: EngineKey) {
+  if (document.visibilityState !== "visible" || dialogOpen()) return;
+  if (typingKey(key, key.down !== false) || key.down === false) return;
   const action = resolvePluginWindowKey(key);
   if (action && document.visibilityState === "visible" && !dialogOpen()) runKey(action);
 }
@@ -466,13 +468,14 @@ function useMusicKeys(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.isComposing || isTyping(e.target) || keptByWindow(e.target) || dialogOpen()) return;
+      if (e.isComposing || isTyping(e.target) || dialogOpen()) return;
       // The typing keyboard, while it's on: its keys play notes, before any window's shortcut.
       if (typingKey(e, true)) {
         e.preventDefault();
         e.stopPropagation();
         return;
       }
+      if (keptByWindow(e.target)) return;
       // The Browser's list has keys of its own (`browser/keys.ts`): only the editor-wide ones pass it.
       const inBrowser = e.target instanceof HTMLElement && e.target.closest("[data-browser]") !== null;
       // The Piano roll's own keys, while it's the window in front.

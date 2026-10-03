@@ -21,6 +21,10 @@ describe("the typing keyboard", () => {
     expect(resolveTypingKey(key("KeyZ", { ctrlKey: true }), 5)).toBeNull();
     expect(resolveTypingKey(key("BracketRight"), 5)).toEqual({ type: "octave", direction: 1 });
     expect(resolveTypingKey(key("BracketLeft"), 5)).toEqual({ type: "octave", direction: -1 });
+    expect(resolveTypingKey(key("KeyR"), 5)).toEqual({ type: "note", pitch: 77 });
+    expect(resolveTypingKey(key("KeyP"), 5)).toEqual({ type: "note", pitch: 88 });
+    expect(resolveTypingKey(key("KeyA"), 5)).toEqual({ type: "consume" });
+    expect(resolveTypingKey(key("Digit1"), 5)).toEqual({ type: "consume" });
     expect(resolveTypingKey(key("Space"), 5)).toBeNull();
   });
 });

@@ -1,3 +1,5 @@
+import { useRef } from "react";
+import { NameColorEditor } from "../name-color-editor";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import { trackAt, trackName, updateTrack } from "@shared/music/playlist";
@@ -28,7 +30,6 @@ import {
   movePlaylistTrack,
   muteTrackClips,
   playlistContext,
-  renameTrack,
   selectTrackClips,
   setTrackColor,
   setTrackSize,
@@ -68,6 +69,7 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
   const track = useMusic((s) => trackAt(s.history!.doc, index));
   const name = useMusic((s) => trackName(s.history!.doc, index));
   const renaming = usePlaylist((s) => s.renaming === index);
+  const renameNext = useRef(false);
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -90,23 +92,11 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
           }}
         >
           {renaming ? (
-            <input
-              autoFocus
-              aria-label="Track name"
-              defaultValue={track.name ?? ""}
-              placeholder={`Track ${index + 1}`}
-              className="sunken h-5 min-w-0 flex-1 rounded-sm px-1 text-[11px] outline-none"
-              onFocus={(e) => e.currentTarget.select()}
-              onBlur={(e) => {
-                renameTrack(index, e.currentTarget.value);
-                usePlaylist.setState({ renaming: null });
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-                if (e.key === "Escape") usePlaylist.setState({ renaming: null });
-                e.stopPropagation();
-              }}
-            />
+            <NameColorEditor name={track.name ?? ""} color={track.color} label="Track name"
+              onSave={(name, color) => useMusic.getState().commit((song) => updateTrack(song, index, { name, color }))}
+              onClose={() => usePlaylist.setState({ renaming: null })}>
+              <span className="mr-auto truncate text-[11px]">{name}</span>
+            </NameColorEditor>
           ) : (
             <button
               type="button"
@@ -145,8 +135,13 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
           <SizeDivider index={index} size={track.size} height={height} />
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent data-testid="track-menu">
-        <ContextMenuItem onSelect={() => usePlaylist.setState({ renaming: index })}>Rename…</ContextMenuItem>
+      <ContextMenuContent data-testid="track-menu" onCloseAutoFocus={(e) => {
+        if (!renameNext.current) return;
+        e.preventDefault();
+        renameNext.current = false;
+        usePlaylist.setState({ renaming: index });
+      }}>
+        <ContextMenuItem onSelect={() => { renameNext.current = true; }}>Rename and color…</ContextMenuItem>
         <ContextMenuSub>
           <ContextMenuSubTrigger>Change color</ContextMenuSubTrigger>
           <ContextMenuSubContent className="grid grid-cols-6 gap-1 p-1.5">

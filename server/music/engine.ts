@@ -473,6 +473,7 @@ export class AudioEngine {
         recordingId,
         folder,
         from,
+        continuePlayback: body.continuePlayback === true,
         countIn: isFiniteNumber(body.countIn) ? clamp(body.countIn, 0, 96 * 4 * 16) : 0,
         loop: body.loop === true,
         notes: body.notes === true,
@@ -570,6 +571,7 @@ export class AudioEngine {
   /** A command's parameters for the engine, checked. Throws `HttpError(400)`. */
   private async params(name: EngineCommand, body: Record<string, unknown>): Promise<Record<string, unknown>> {
     switch (name) {
+      case "lowerEditors":
       case "status":
         return {};
       case "stop":
@@ -586,6 +588,8 @@ export class AudioEngine {
           velocity: isFiniteNumber(body.velocity) ? clamp(body.velocity, 0, 1) : DEFAULT_VELOCITY,
         };
       }
+      case "typingKeyboard":
+        return { on: body.on === true };
       case "midiTarget":
         if (body.channel !== null && (typeof body.channel !== "string" || !/^[\w-]{1,64}$/.test(body.channel)))
           throw new HttpError(400, '"channel" must be a channel\'s id, or null for none.');

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <functional>
+#include <map>
 #include <juce_audio_utils/juce_audio_utils.h>
 
 class EditorWindow final : public juce::DocumentWindow,
@@ -19,6 +20,8 @@ public:
 
     /** Bring it in front of the other apps' windows: the engine has no Dock icon to do it from. */
     void show();
+    /** The typing piano takes note keys before a plugin can consume them. */
+    static bool typingKeyboard;
 
     /**
      * The parameter last touched in it (by index, and its name): its title bar then offers to automate it
@@ -40,6 +43,11 @@ private:
     using DocumentWindow::keyPressed;
     /** Keys the plugin didn't use (Space, F6, ⌘Z…) go to the app, which runs its shortcut (`EngineEvent` "key"). */
     bool keyPressed (const juce::KeyPress&, juce::Component*) override;
+
+    bool keyStateChanged (bool, juce::Component*) override;
+    void focusOfChildComponentChanged (FocusChangeType) override;
+    void releaseKeys();
+    std::map<int, juce::var> heldKeys;
 
     std::function<void()> onClose;
     /** The title bar's Automate button, shown once a parameter has been touched. */

@@ -389,6 +389,12 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         sequencer.setMeteredTracks (ids);
         return ok();
     }
+    if (command == "lowerEditors")
+    {
+        plugins.lowerEditors();
+        effects.lowerEditors();
+        return ok();
+    }
     if (command == "host")
     {
         plugins.setHost (params);
@@ -420,6 +426,11 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
     {
         const auto result = record (params);
         return result.wasOk() ? ok() : reply (result, {});
+    }
+    if (command == "typingKeyboard")
+    {
+        EditorWindow::typingKeyboard = (bool) params["on"];
+        return ok();
     }
     if (command == "midiTarget")
     {
@@ -597,7 +608,7 @@ juce::Result Engine::record (const juce::var& params)
     if (! armed.empty())
         if (const auto result = sequencer.recorder().start (id, juce::File (folder), armed, rate(), latency, loop); result.failed())
             return result;
-    sequencer.record ((double) params["from"], juce::jmax (0.0, (double) params["countIn"]), loop);
+    sequencer.record ((double) params["from"], juce::jmax (0.0, (double) params["countIn"]), loop, (bool) params["continuePlayback"]);
     return juce::Result::ok();
 }
 

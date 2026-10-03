@@ -117,6 +117,13 @@ async function start() {
     return;
   }
   Menu.setApplicationMenu(buildMenu());
+  ipcMain.handle("focus-editor", () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.focus();
+  });
   answerSaveDialogs();
   answerProjectDialogs();
   answerMicrophone();

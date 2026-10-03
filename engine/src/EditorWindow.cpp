@@ -196,6 +196,8 @@ public:
 };
 }
 
+bool EditorWindow::typingKeyboard = false;
+
 EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::String& title, std::function<void()> onCloseButton)
     : DocumentWindow (title, juce::Colours::black, DocumentWindow::closeButton),
       onClose (std::move (onCloseButton))
@@ -221,6 +223,7 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
 
 EditorWindow::~EditorWindow()
 {
+    releaseKeys();
     automate.reset();
     presetBar.reset();
     settings.reset();
@@ -316,9 +319,55 @@ bool EditorWindow::keyPressed (const juce::KeyPress& key, juce::Component*)
     auto described = describeKey (key);
     if (described.isVoid())
         return false;
+    const auto mods = key.getModifiers();
+    const auto code = described["code"].toString();
+    const auto pianoKey = code.startsWith ("Key") || code.startsWith ("Digit")
+        || code == "Comma" || code == "Period" || code == "Semicolon" || code == "Slash"
+        || code == "BracketLeft" || code == "BracketRight";
+    // Text boxes still own typing; modified keys remain available to shortcuts.
+    auto* focused = juce::Component::getCurrentlyFocusedComponent();
+    if (typingKeyboard && pianoKey && ! mods.isCommandDown() && ! mods.isCtrlDown() && ! mods.isAltDown())
+    {
+        if (dynamic_cast<juce::TextEditor*> (focused) != nullptr)
+            return false;
+        if (heldKeys.count (key.getKeyCode()) != 0)
+            return true;
+        heldKeys[key.getKeyCode()] = described;
+    }
     described.getDynamicObject()->setProperty ("event", "key");
+    described.getDynamicObject()->setProperty ("down", true);
     protocol::send (described);
     return true;
+}
+
+bool EditorWindow::keyStateChanged (bool, juce::Component*)
+{
+    for (auto it = heldKeys.begin(); it != heldKeys.end();)
+    {
+        if (juce::KeyPress::isKeyCurrentlyDown (it->first)) { ++it; continue; }
+        auto event = it->second;
+        event.getDynamicObject()->setProperty ("event", "key");
+        event.getDynamicObject()->setProperty ("down", false);
+        protocol::send (event);
+        it = heldKeys.erase (it);
+    }
+    return false;
+}
+
+void EditorWindow::releaseKeys()
+{
+    for (auto& [code, event] : heldKeys)
+    {
+        event.getDynamicObject()->setProperty ("event", "key");
+        event.getDynamicObject()->setProperty ("down", false);
+        protocol::send (event);
+    }
+    heldKeys.clear();
+}
+
+void EditorWindow::focusOfChildComponentChanged (FocusChangeType)
+{
+    if (! hasKeyboardFocus (true)) releaseKeys();
 }
 
 juce::var describeKey (const juce::KeyPress& press)
@@ -354,6 +403,11 @@ juce::var describeKey (const juce::KeyPress& press)
     }
     else if (code >= '0' && code <= '9')
         key = juce::String::charToString ((juce::juce_wchar) code), name = "Digit" + key;
+    else if (code == ',' || code == '.' || code == ';' || code == '/' || code == '[' || code == ']')
+    {
+        key = juce::String::charToString ((juce::juce_wchar) code);
+        name = code == ',' ? "Comma" : code == '.' ? "Period" : code == ';' ? "Semicolon" : code == '/' ? "Slash" : code == '[' ? "BracketLeft" : "BracketRight";
+    }
     else
         return {};
 

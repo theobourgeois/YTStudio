@@ -33,6 +33,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { NameColorEditor } from "../name-color-editor";
 import { Input } from "@/components/ui/input";
 import { PERCENT, SongKnob, panText, percent } from "../knob";
 import { songGesture, useMusic, useSong } from "../store";
@@ -52,7 +53,7 @@ import {
   deleteTracks,
   moveSelectedTracks,
   pasteTrackStateOnto,
-  renameTrack,
+  renameAndColorTrack,
   routeSelectedChannels,
   routeSelectedTracksTo,
   selectChannelsOn,
@@ -660,43 +661,31 @@ function TrackFader({ track, name, selected }: { track: MixerTrack; name: string
  * clicking away does too if it was changed; Escape doesn't. An empty name goes back to the track's number.
  */
 function RenameField({ track, name }: { track: MixerTrack; name: string }) {
-  const initial = track.name ?? name;
-  const finished = useRef(false);
-  const done = (value: string | null) => {
-    // Once: the field's blur as it goes away comes after Enter or Escape.
-    if (finished.current) return;
-    finished.current = true;
-    if (value !== null) renameTrack(track.id, value);
-    useMixerView.getState().rename(null);
-  };
   return (
-    <Input
-      autoFocus
-      aria-label="Track name"
-      defaultValue={initial}
-      className="absolute z-30 h-6 w-36 text-xs"
-      onFocus={(e) => e.currentTarget.select()}
-      onBlur={(e) => done(e.currentTarget.value !== initial ? e.currentTarget.value : null)}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Enter") done(e.currentTarget.value);
-        if (e.key === "Escape") done(null);
-      }}
-    />
+    <NameColorEditor name={track.name ?? name} color={track.color} label="Track name"
+      onSave={(name, color) => renameAndColorTrack(track.id, name, color)} onClose={() => useMixerView.getState().rename(null)}>
+      <span className="text-[11px] leading-none [writing-mode:vertical-rl] rotate-180" style={{ color: "var(--mixer-name)" }}>{name}</span>
+    </NameColorEditor>
   );
 }
 
 /** A track's right-click menu (on its number and name), FL Studio's. */
 function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: string; isMaster: boolean; color: string | null; separator: boolean; grouped: boolean; soloSafe: boolean }) {
+  const renameNext = useRef(false);
   const groupId = useSong((song) => song.mixer.tracks.find((t) => t.id === id)?.group ?? null);
   const group = useSong((song) => song.mixer.groups.find((g) => g.id === groupId) ?? null);
   const channelsSelected = useMusicUi((s) => s.selectedChannelIds.length > 0);
   const others = useMusicUi((s) => s.selectedTrackIds.some((t) => t !== id));
   const canPaste = useMusicUi((s) => s.copiedTrack !== null);
   return (
-    <ContextMenuContent>
-      <ContextMenuItem onSelect={() => setTimeout(() => useMixerView.getState().rename(id), 0)}>
-        Rename… <ContextMenuShortcut>F2</ContextMenuShortcut>
+    <ContextMenuContent onCloseAutoFocus={(e) => {
+      if (!renameNext.current) return;
+      e.preventDefault();
+      renameNext.current = false;
+      useMixerView.getState().rename(id);
+    }}>
+      <ContextMenuItem onSelect={() => { renameNext.current = true; }}>
+        Rename and color… <ContextMenuShortcut>⇧⌘N</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSub>
         <ContextMenuSubTrigger>Colour</ContextMenuSubTrigger>

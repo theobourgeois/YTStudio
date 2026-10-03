@@ -49,7 +49,7 @@ public:
      * metronome's clicks, the transport held meanwhile, and record from the moment it moves. Without
      * `loop`, play doesn't go round the loop: it goes on past its end until it's stopped.
      */
-    void record (double fromTick, double countInTicks, bool loop);
+    void record (double fromTick, double countInTicks, bool loop, bool continuePlayback = false);
     /** What records the armed tracks' inputs. */
     Recorder& recorder() { return recording; }
     const Recorder& recorder() const { return recording; }
@@ -366,7 +366,7 @@ private:
     std::atomic<double> playFrom { 0.0 };
     /** What the last play request asks for besides: a count-in first (ticks), to record, and not to go round the loop. */
     std::atomic<double> playCountIn { 0.0 };
-    std::atomic<bool> playRecords { false }, playThrough { false };
+    std::atomic<bool> playRecords { false }, playThrough { false }, playContinues { false };
     int playsSeen = 0, stopsSeen = 0;
     std::atomic<bool> metronome { false };
     enum class ClickSound { beep, tick, tap, hihat, cowbell };
@@ -394,6 +394,8 @@ private:
     Recorder recording;
     /** The audio thread's play generation, and how many times round the loop it's been since play started. */
     juce::uint32 generation = 0, pass = 0;
+    /** MIDI passes start at punch-in; clip decoding keeps its existing pass. */
+    juce::uint32 midiPassBase = 0;
     std::atomic<bool> playingNow { false };
     std::atomic<double> positionNow { 0.0 };
     std::atomic<juce::int64> countInNow { 0 };
