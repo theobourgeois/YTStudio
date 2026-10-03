@@ -21,7 +21,7 @@ import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
 import { type EnginePanMan, enginePanMan, isPatternMode, panShape } from "./panman.ts";
 import { PAN_ENGINE_CONTROLS, PAN_LANE_SCALE, PAN_SHAPING_CONTROLS } from "./panman-presets.ts";
-import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
+import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched, routeOf } from "./project.ts";
 import { type Lfo, MOD_TARGETS, type ModEnvelope, type SampleLoop, type SamplerFilter, samplerOf } from "./sampler.ts";
 import { autoGain } from "./pro-q-filters.ts";
 import { heardMixer } from "./solo.ts";
@@ -47,6 +47,7 @@ import {
   PPQ,
   type Pattern,
   type Precomputed,
+  type SidechainTap,
   ROOT_PITCH,
   STEP_TICKS,
 } from "./types.ts";
@@ -113,6 +114,11 @@ export interface EngineEffect {
   enabled: boolean;
   /** 0..1 of the effect's sound against what comes in. */
   mix: number;
+  /**
+   * Its key (`docs/sidechain.md`): an earlier track's sound (its index in `EngineSong.tracks`), taken before
+   * its effects, after them, or after its fader. Pro-C's External and a plugin's sidechain input hear it.
+   */
+  key?: { track: number; tap: SidechainTap };
   /** A Gross Beat (ours, run by the engine itself: its `plugin.id` is `GROSS_BEAT_PLUGIN`'s): its settings and envelopes. */
   grossBeat?: EngineGrossBeat;
   /** An Auto-Tune (ours too, `AUTO_TUNE_PLUGIN`): its settings in the engine's units. */
@@ -151,6 +157,11 @@ export interface EngineTrack {
   sends: { track: number; gain: number; preFader?: boolean }[];
   /** Milliseconds added to its plugins' reported delay (`MixerTrack.latencyOffset`); the engine compensates for both. */
   latencyOffset: number;
+  /**
+   * A track another's solo silences that keys an effect after its fader: its gains as if it weren't soloed
+   * out, for that key (a solo never stops a duck). Absent: its keys take `gains`.
+   */
+  keyGains?: [number, number, number, number];
   /**
    * Its input on the audio device, or null: the device's input channels (one is heard on both sides),
    * whether it's heard (`monitor`: added in before its effects, so it's heard through them) and
@@ -350,17 +361,19 @@ export function stereoGains(track: Pick<MixerTrack, "invert" | "swap" | "stereo"
  * the master last.
  */
 export function trackOrder(tracks: readonly MixerTrack[]): MixerTrack[] {
+  // Where each track's sound goes on to: its sends, and the tracks it keys (a key is heard before its track runs).
+  const next = routeOf(tracks);
   const waiting = new Map<string, number>(tracks.map((t) => [t.id, 0]));
-  for (const track of tracks) for (const send of track.sends) waiting.set(send.to, (waiting.get(send.to) ?? 0) + 1);
+  for (const track of tracks) for (const to of next(track.id)) waiting.set(to, (waiting.get(to) ?? 0) + 1);
   const order: MixerTrack[] = [];
   const done = new Set<string>();
   // Repeatedly take the first track nothing is still waiting to send to (a few hundred tracks at most).
   while (order.length < tracks.length) {
-    const next = tracks.find((t) => !done.has(t.id) && t.id !== MASTER_TRACK_ID && waiting.get(t.id) === 0);
-    if (!next) break;
-    done.add(next.id);
-    order.push(next);
-    for (const send of next.sends) waiting.set(send.to, waiting.get(send.to)! - 1);
+    const ready = tracks.find((t) => !done.has(t.id) && t.id !== MASTER_TRACK_ID && waiting.get(t.id) === 0);
+    if (!ready) break;
+    done.add(ready.id);
+    order.push(ready);
+    for (const to of next(ready.id)) waiting.set(to, waiting.get(to)! - 1);
   }
   const master = tracks.find((t) => t.id === MASTER_TRACK_ID);
   if (master) order.push(master);
@@ -458,12 +471,20 @@ function vcaGains(song: MusicProject): Map<string, number> {
   return gains;
 }
 
-function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: PlayMode = "pattern", listening: Listening = {}): { tracks: EngineTrack[]; index: Map<string, number> } {
+function engineTracks(
+  song: MusicProject,
+  armed: ReadonlySet<string>,
+  mode: PlayMode = "pattern",
+  listening: Listening = {},
+  soloedOut: ReadonlySet<string> = new Set(),
+): { tracks: EngineTrack[]; index: Map<string, number> } {
   const gross = grossSlots(song, mode);
   const ordered = trackOrder(song.mixer.tracks);
   const index = new Map(ordered.map((t, i) => [t.id, i]));
   const numbers = new Map(song.mixer.tracks.map((t, i) => [t.id, i]));
   const vca = vcaGains(song);
+  // Tracks keying an effect after their fader: one the solo silences keeps its gains for that key.
+  const fadedKeys = new Set(song.mixer.tracks.flatMap((t) => t.effects.flatMap((e) => (e?.sidechain?.tap === "postFader" ? [e.sidechain.track] : []))));
   const tracks = ordered.map((track): EngineTrack => {
     // The main volume is the master's, after its fader; a group's VCA fader its tracks'.
     const main = track.id === MASTER_TRACK_ID ? levelGain(song.settings.volume, DEFAULT_VOLUME) : (vca.get(track.id) ?? 1);
@@ -474,19 +495,15 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
       effects: track.effects.flatMap((e): EngineEffect[] => {
         if (!e) return [];
         const effect: EngineEffect = { id: e.id, plugin: { id: e.plugin.id, state: "" }, enabled: e.enabled, mix: e.mix };
+        // Its key: an earlier track (the order puts every source first; a key that isn't, from a song that slipped past the edits, is dropped).
+        const source = e.sidechain ? index.get(e.sidechain.track) : undefined;
+        if (e.sidechain && source !== undefined && source < index.get(track.id)!) effect.key = { track: source, tap: e.sidechain.tap };
         const slots = gross.get(e.id);
         if (e.autoTune) return [{ ...effect, autoTune: engineAutoTune(e.autoTune) }];
         if (e.echoBoy) return [{ ...effect, echoBoy: engineEchoBoy(e.echoBoy, song.settings.tempo) }];
         if (e.proQ) return [{ ...effect, eq: engineProQ(e.proQ) }];
         if (e.ott) return [{ ...effect, ott: engineOtt(e.ott) }];
-        if (e.proC) {
-          const proC = engineProC(e.proC);
-          // Keyed from another track: only one that sends here (so it runs first); otherwise it hears nothing.
-          const source = e.proC.sidechain.trigger === "external" ? e.proC.sidechain.track : null;
-          const from = source ? song.mixer.tracks.find((t) => t.id === source) : undefined;
-          const key = from && from.sends.some((s) => s.to === track.id) ? (index.get(from.id) ?? -1) : -1;
-          return [{ ...effect, proC: { ...proC, sidechain: { ...proC.sidechain, key: key < index.get(track.id)! ? key : -1 } } }];
-        }
+        if (e.proC) return [{ ...effect, proC: engineProC(e.proC) }];
         if (e.panMan) return [{ ...effect, panMan: enginePanMan(e.panMan, e.id) }];
         if (e.pitchWheel) {
           // Notes from a channel the song no longer has: none.
@@ -496,6 +513,7 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
       }),
       gains: trackGains(track, main, track.id === MASTER_TRACK_ID ? listening : {}),
+      ...(soloedOut.has(track.id) && fadedKeys.has(track.id) && { keyGains: trackGains({ ...track, muted: false }, main) }),
       latencyOffset: track.latencyOffset,
       input: engineInput(track, armed.has(track.id)),
       sends: track.sends.flatMap((send) => {
@@ -586,7 +604,9 @@ export function compileSong(
   const notes = transposePlugins(song, mode === "song" ? songNotes(song, from, to) : patternNotes(song, pattern, from, to), mode === "song" ? from : null, held);
   notes.sort((a, b) => a.tick - b.tick || a.channel - b.channel);
   const played = new Set(notes.map((n) => n.channel));
-  const { tracks, index } = engineTracks(song, armed, mode, listening);
+  const muted = new Set(song.mixer.tracks.filter((t) => t.muted).map((t) => t.id));
+  const soloedOut = new Set(written.mixer.tracks.filter((t) => !t.muted && muted.has(t.id)).map((t) => t.id));
+  const { tracks, index } = engineTracks(song, armed, mode, listening, soloedOut);
   const master = index.get(MASTER_TRACK_ID)!;
   const compiled: EngineSong = {
     tempo: song.settings.tempo,

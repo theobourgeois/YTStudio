@@ -189,6 +189,11 @@ export interface MixerEffect {
   enabled: boolean;
   /** 0..1: how much of the effect's sound is heard against the sound coming in (FL's slot mix knob). */
   mix: number;
+  /**
+   * Its key (`docs/sidechain.md`): another track's sound it hears, as a compressor ducking to a kick. Pro-C's
+   * External trigger and a plugin's sidechain input read it. Absent: none.
+   */
+  sidechain?: Sidechain;
   /** Gross Beat's settings, on a Gross Beat (absent on a plugin). */
   grossBeat?: GrossBeat;
   /** EchoBoy's settings, on an EchoBoy (absent on a plugin). */
@@ -299,9 +304,8 @@ export type ProCRecovery = (typeof PRO_C_RECOVERIES)[number];
 
 /** Pro-C's side chain: what triggers it, how loud, linked how, and its EQ (Pro-Q's bands: stereo, mid or side). */
 export interface ProCSidechain {
+  /** Internal (its own input), External (its slot's key: `MixerEffect.sidechain`) or Host Sync (pulses on the beat). */
   trigger: ProCTrigger;
-  /** External: the mixer track whose sound (after its fader) is the key. It must send to this track (at 0%, FL's "sidechain only"). */
-  track: string | null;
   /** dB, -36..36: the key's level (in Vari-Mu, the drive into the tubes). */
   level: number;
   /** 0..2: 0..1 the stereo link (unlinked to fully linked), 1..2 on towards `linkMode`. */
@@ -744,6 +748,19 @@ export interface GrossBeat {
 }
 
 export type MixerDock = "left" | "middle" | "right";
+
+/**
+ * Where a key is taken from its track (Ableton's three): before its effects, after them (before its fader:
+ * the default, so the fader and mute don't change it), or what leaves the track (after its fader: FL's).
+ */
+export const SIDECHAIN_TAPS = ["preFx", "postFx", "postFader"] as const;
+export type SidechainTap = (typeof SIDECHAIN_TAPS)[number];
+
+/** An effect's key: a mixer track's sound (never the master's or its own track's; never round a loop). */
+export interface Sidechain {
+  track: string;
+  tap: SidechainTap;
+}
 
 /** A mixer track sending its sound (after its fader) to another. */
 export interface MixerSend {

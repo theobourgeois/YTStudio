@@ -13,8 +13,9 @@ import { DEFAULT_PANMAN, PANMAN_PLUGIN, isPanMan } from "./panman-presets.ts";
 import { PRO_Q_PLUGIN, isProQ } from "./pro-q-presets.ts";
 import { DEFAULT_OTT, OTT_PLUGIN, isOtt } from "./ott-presets.ts";
 import { DEFAULT_PRO_C, PRO_C_PLUGIN, isProC } from "./pro-c-presets.ts";
-import { DEFAULT_GROSS_BEAT, DEFAULT_PRO_Q, EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_OFFSET, MAX_INSERTS, MAX_LATENCY_OFFSET, MAX_NAME, createMixerTrack, normalizeInput, reaches, trimTracks } from "./project.ts";
-import type { Channel, MixerDock, MixerEffect, MixerGroup, MixerSend, MixerTrack, MusicProject, PluginRef } from "./types.ts";
+import { DEFAULT_GROSS_BEAT, DEFAULT_PRO_Q, EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_OFFSET, MAX_INSERTS, MAX_LATENCY_OFFSET, MAX_NAME, createMixerTrack, normalizeInput, reaches, routeOf, trimTracks } from "./project.ts";
+import { withValidKeys } from "./sidechain.ts";
+import type { Channel, MixerDock, MixerEffect, MixerGroup, MixerTrack, MusicProject, PluginRef } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -39,18 +40,14 @@ export const channelsOn = (song: MusicProject, trackId: string): Channel[] => so
 /** The tracks sending to a track. */
 export const sendersTo = (song: MusicProject, trackId: string): MixerTrack[] => song.mixer.tracks.filter((t) => t.sends.some((s) => s.to === trackId));
 
-const sendsOf = (song: MusicProject) => {
-  const byId = new Map(song.mixer.tracks.map((t) => [t.id, t.sends]));
-  return (id: string): readonly MixerSend[] => byId.get(id) ?? [];
-};
-
 /**
  * Whether `from` can send to `to`: both exist, they're different, the master sends nowhere, and `to`'s
- * sound doesn't already reach `from` (that would be a loop). FL greys out such tracks' send switches.
+ * sound doesn't already reach `from`, through sends or keys (that would be a loop). FL greys out such
+ * tracks' send switches.
  */
 export function canSend(song: MusicProject, from: string, to: string): boolean {
   if (from === to || from === MASTER_TRACK_ID || !getMixerTrack(song, from) || !getMixerTrack(song, to)) return false;
-  return !reaches(sendsOf(song), to, from);
+  return !reaches(routeOf(song.mixer.tracks), to, from);
 }
 
 /** A track nothing uses yet: an insert, unnamed, no effects, no channel playing into it and no track sending to it. */
@@ -120,7 +117,8 @@ export function removeMixerTracks(song: MusicProject, ids: readonly string[]): M
     ? { ...song.playlist, tracks: trimTracks(song.playlist.tracks.map((t) => (t.mixerTrack && gone.has(t.mixerTrack) ? { ...t, mixerTrack: null } : t))) }
     : song.playlist;
   const removed = { ...withTracks(song, tracks), channels, playlist };
-  return withGroups(removed, keptGroups(removed));
+  // Keys from the tracks that went go too.
+  return withValidKeys(withGroups(removed, keptGroups(removed)));
 }
 
 /**
@@ -499,7 +497,8 @@ export function effectToTrack(song: MusicProject, fromTrack: string, slot: numbe
     next[to] = options.copy ? { ...effect, id: options.copy } : effect;
     return next;
   });
-  return options.copy ? placed : updateSlots(placed, fromTrack, (effects) => effects.map((e, i) => (i === slot ? null : e)));
+  // Its key goes with it, unless it would now be its own track's or close a loop.
+  return withValidKeys(options.copy ? placed : updateSlots(placed, fromTrack, (effects) => effects.map((e, i) => (i === slot ? null : e))));
 }
 
 /** Move an effect one slot up (-1) or down (1), swapping with what's there (FL's mouse wheel over a slot). */
@@ -542,7 +541,7 @@ export function pasteTrackState(song: MusicProject, id: string, state: TrackStat
     return effect ? { ...effect, id: newIds.get(effect.id) ?? createId("fx") } : null;
   });
   const pasted = updateMixerTrack(song, id, { volume: state.volume, pan: state.pan, invert: state.invert, swap: state.swap, stereo: state.stereo, latencyOffset: state.latencyOffset });
-  return updateTracks(pasted, [id], (track) => ({ ...track, effects }));
+  return withValidKeys(updateTracks(pasted, [id], (track) => ({ ...track, effects })));
 }
 
 // ---------------------------------------------------------------------------

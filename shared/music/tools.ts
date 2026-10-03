@@ -8,7 +8,7 @@ import { EXPORT_FORMATS } from "./export.ts";
 import { ECHO_TOOL_CONTROL_NAMES } from "./echo-boy-presets.ts";
 import { OTT_TOOL_CONTROL_NAMES } from "./ott-presets.ts";
 import { PRO_C_PRESETS, PRO_C_TOOL_CONTROL_NAMES } from "./pro-c-presets.ts";
-import { PRO_C_AUDIO_MODES, PRO_C_CHARACTERS, PRO_C_DETECTORS, PRO_C_LINK_MODES, PRO_C_RECOVERIES, PRO_C_STYLES, PRO_C_TIME_MODES } from "./types.ts";
+import { PRO_C_AUDIO_MODES, PRO_C_CHARACTERS, PRO_C_DETECTORS, PRO_C_LINK_MODES, PRO_C_RECOVERIES, PRO_C_STYLES, PRO_C_TIME_MODES, SIDECHAIN_TAPS } from "./types.ts";
 import { PANMAN_PRESETS, PAN_CURVES, PAN_MODES, PAN_RHYTHMS, PAN_STYLES } from "./panman-presets.ts";
 import { CURVE_TYPES, STRETCH_MODES } from "./types.ts";
 
@@ -1046,15 +1046,16 @@ export const MUSIC_TOOLS = [
     title: "Set a Pro-C's side chain",
     kind: "edit",
     description:
-      "What a Pro-C listens to and how. trigger: internal (its own input), external (another mixer track's sound after its fader: " +
-      "ducking the bass under the kick, a vocal ducking the beat; give `source`, and if that track doesn't send here a 0% send is made, " +
-      "\"sidechain only\", as FL does), or sync (pulses on the song's beat: pumping with no kick; `note` 1 to 32 as 1/n, `offset` 0.5 to 2 " +
+      "What a Pro-C listens to and how. trigger: internal (its own input), external (its key: another mixer track's sound, " +
+      "ducking the bass under the kick, a vocal ducking the beat; give `source` (no send is needed) and optionally `tap`; set_sidechain " +
+      "does the same for any effect), or sync (pulses on the song's beat: pumping with no kick; `note` 1 to 32 as 1/n, `offset` 0.5 to 2 " +
       "for dotted / triplet feels, `length` 0 to 1 of the period). level: dB into the detector. link: 0 to 2 (0 unlinked, 1 linked, past 1 " +
       "towards linkMode: mid, side, midToSide, sideToMid).",
     inputSchema: obj({
       ...proCRef,
       trigger: oneOf(["internal", "external", "sync"], "What triggers it."),
       source: mixerTrack("External: the track whose sound is the key"),
+      tap: oneOf(SIDECHAIN_TAPS, "Where the key is taken from its track: preFx (before its effects), postFx (after them, before its fader: the default) or postFader."),
       level: num("dB, -36 to 36."),
       link: num("0 to 2."),
       linkMode: oneOf(PRO_C_LINK_MODES, "Past 100% link."),

@@ -68,7 +68,9 @@ import {
   type InputMonitor,
   type MixerGroup,
   type MixerInput,
-  type MixerSend,
+  SIDECHAIN_TAPS,
+  type Sidechain,
+  type SidechainTap,
   type MixerTrack,
   type MusicProject,
   type MusicSettings,
@@ -331,10 +333,10 @@ export function withSongOptions(song: MusicProject, options: unknown): MusicProj
 export const emptyPlaylist = (): Playlist => ({ tracks: [], clips: [] });
 
 /**
- * Whether `from`'s sound reaches `to` through sends (or is `to`): a send from `to` to `from` would
- * then make a loop. `sends` gives each track's destinations.
+ * Whether `from`'s sound reaches `to` through sends and keys (or is `to`): a send or key from `to` to
+ * `from` would then make a loop. `next` gives where each track's sound goes on to (`routeOf`).
  */
-export function reaches(sends: (id: string) => readonly MixerSend[], from: string, to: string): boolean {
+export function reaches(next: (id: string) => readonly string[], from: string, to: string): boolean {
   const seen = new Set<string>();
   const stack = [from];
   while (stack.length) {
@@ -342,9 +344,27 @@ export function reaches(sends: (id: string) => readonly MixerSend[], from: strin
     if (id === to) return true;
     if (seen.has(id)) continue;
     seen.add(id);
-    for (const send of sends(id)) stack.push(send.to);
+    for (const on of next(id)) stack.push(on);
   }
   return false;
+}
+
+/**
+ * Where each track's sound goes on to, as far as the order of tracks goes: the tracks it sends to, and
+ * the tracks whose effects it keys (`docs/sidechain.md`: a key is heard before its track runs, as a send is).
+ */
+export function routeOf(tracks: readonly MixerTrack[]): (id: string) => readonly string[] {
+  const next = new Map<string, string[]>();
+  const add = (from: string, to: string) => {
+    const list = next.get(from);
+    if (list) list.push(to);
+    else next.set(from, [to]);
+  };
+  for (const track of tracks) {
+    for (const send of track.sends) add(track.id, send.to);
+    for (const effect of track.effects) if (effect?.sidechain) add(effect.sidechain.track, track.id);
+  }
+  return (id) => next.get(id) ?? [];
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -486,12 +506,23 @@ function normalizePatterns(input: unknown, channels: Channel[]): Pattern[] {
   return patterns.length ? patterns : [createPattern("Pattern 1", FIRST_PATTERN_ID)];
 }
 
+/** An effect's key as written (whether its track exists, isn't its own and makes no loop is `normalizeMixer`'s). */
+function normalizeSidechain(input: unknown): Sidechain | null {
+  if (!isObject(input) || !isId(input.track) || input.track === MASTER_TRACK_ID) return null;
+  return { track: input.track, tap: SIDECHAIN_TAPS.includes(input.tap as SidechainTap) ? (input.tap as SidechainTap) : "postFx" };
+}
+
 function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null {
   if (!isObject(input) || !isId(input.id) || seen.has(input.id)) return null;
   const plugin = normalizePlugin(input.plugin);
   if (!plugin) return null;
   seen.add(input.id);
   const effect: MixerEffect = { id: input.id, plugin, enabled: input.enabled !== false, mix: number(input.mix, 0, 1, 1) };
+  // Its key (checked against the tracks once they're all known: `normalizeMixer`). A Pro-C from before keys
+  // were every effect's kept its source in its own settings, taken after the fader.
+  const legacy = isObject(input.proC) && isObject(input.proC.sidechain) ? input.proC.sidechain.track : undefined;
+  const sidechain = normalizeSidechain(input.sidechain) ?? (isId(legacy) ? { track: legacy, tap: "postFader" as const } : null);
+  if (sidechain) effect.sidechain = sidechain;
   // Ours: its settings are the song's (a plugin's are its own, in a file beside it).
   if (isGrossBeat(plugin)) return { ...effect, plugin: GROSS_BEAT_PLUGIN, grossBeat: normalizeGrossBeat(input.grossBeat) };
   if (isAutoTune(plugin)) return { ...effect, plugin: AUTO_TUNE_PLUGIN, autoTune: normalizeAutoTune(input.autoTune) };
@@ -667,7 +698,7 @@ function normalizeMixer(input: unknown): Mixer {
     };
   });
   const byId = new Map(tracks.map((t) => [t.id, t]));
-  const sendsOf = (id: string) => byId.get(id)?.sends ?? [];
+  const sendsOf = (id: string) => (byId.get(id)?.sends ?? []).map((s) => s.to);
   for (const track of tracks) {
     // A track that never had a list of sends (a hand-made song) goes to the master.
     const raw = raws.get(track.id);
@@ -679,6 +710,16 @@ function normalizeMixer(input: unknown): Mixer {
       track.sends.push({ to: send.to, level: number(send.level, 0, 1, 1), ...(send.preFader === true && { preFader: true as const }) });
     }
   }
+  // Keys, in order: one from a track that isn't there, from its own track, or round a loop goes.
+  for (const track of tracks)
+    track.effects = track.effects.map((effect) => {
+      const key = effect?.sidechain;
+      if (!effect || !key) return effect;
+      const ok = key.track !== track.id && byId.has(key.track) && !reaches(routeOf(tracks.map((t) => (t === track ? { ...t, effects: t.effects.map((e) => (e === effect ? null : e)) } : t))), track.id, key.track);
+      if (ok) return effect;
+      const { sidechain: _, ...rest } = effect;
+      return rest;
+    });
   // A group no track is in any more goes.
   return { tracks, groups: groups.filter((g) => tracks.some((t) => t.group === g.id)) };
 }
