@@ -36,9 +36,9 @@ test("home cards render saved projects, play one at a time, seek, and reuse cach
   const songCard = page.locator(`[data-project-id="${song.id}"]`);
   const videoCard = page.locator(`[data-project-id="${video.id}"]`);
   await expect(songCard.getByRole("img", { name: "Song preview waveform" })).toBeVisible({ timeout: 60_000 });
-  const videoSeek = videoCard.getByRole("slider", { name: "Seek preview of Preview video" });
-  await expect(videoSeek).toBeVisible({ timeout: 60_000 });
-  expect(Number(await videoSeek.getAttribute("max"))).toBeCloseTo(3, 0);
+  await expect(videoCard.locator("video")).toHaveCount(1, { timeout: 60_000 });
+  await expect(videoCard.getByRole("slider")).toHaveCount(0);
+  await expect(videoCard.getByRole("button", { name: "Unmute preview of Preview video" })).toHaveCount(0);
   await expect(songCard.locator("audio")).not.toHaveAttribute("src");
   await expect(videoCard.locator("video")).not.toHaveAttribute("src");
 
@@ -50,11 +50,23 @@ test("home cards render saved projects, play one at a time, seek, and reuse cach
   await songCard.getByRole("button", { name: "Play preview of Preview song", exact: true }).click();
   await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => e.currentTime)).toBeGreaterThan(pausedAt);
 
-  await videoCard.getByRole("button", { name: "Play preview of Preview video", exact: true }).click();
+  await videoCard.locator("video").hover({ force: true });
   await expect.poll(() => videoCard.locator("video").evaluate((e: HTMLVideoElement) => !e.paused && e.currentTime > 0)).toBe(true);
   await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => e.paused)).toBe(true);
-  await videoSeek.fill("1.5");
-  await expect.poll(() => videoCard.locator("video").evaluate((e: HTMLVideoElement) => e.currentTime)).toBeGreaterThanOrEqual(1.5);
+  expect(await videoCard.locator("video").evaluate((e: HTMLVideoElement) => e.muted)).toBe(true);
+  expect(await videoCard.locator("video").evaluate((e: HTMLVideoElement) => e.duration)).toBeCloseTo(3, 0);
+  await videoCard.getByRole("button", { name: "Unmute preview of Preview video" }).click();
+  await expect.poll(() => videoCard.locator("video").evaluate((e: HTMLVideoElement) => e.muted)).toBe(false);
+  await expect(page).toHaveURL(/\/$/);
+  await page.getByRole("heading", { name: "Recent", exact: true }).hover();
+  await expect.poll(() => videoCard.locator("video").evaluate((e: HTMLVideoElement) => e.paused && e.muted && e.currentTime === 0)).toBe(true);
+  await expect(videoCard.getByRole("button", { name: "Unmute preview of Preview video" })).toHaveCount(0);
+  await videoCard.locator("video").hover({ force: true });
+  await expect.poll(() => videoCard.locator("video").evaluate((e: HTMLVideoElement) => !e.paused && e.muted)).toBe(true);
+  await page.getByRole("heading", { name: "Recent", exact: true }).hover();
+  const songSeek = songCard.getByRole("slider", { name: "Seek preview of Preview song" });
+  await songSeek.fill("0.5");
+  await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => e.currentTime)).toBeGreaterThanOrEqual(0.5);
 
   const cached = await (await page.request.get(`/api/projects/${song.id}/preview`)).json();
   await page.reload();
@@ -64,4 +76,9 @@ test("home cards render saved projects, play one at a time, seek, and reuse cach
   await songCard.getByText("Preview song", { exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/p/${song.id}$`));
   await expect(page.locator("audio")).toHaveCount(0);
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await videoCard.locator("video").hover({ force: true });
+  await expect(videoCard.locator("video")).toBeVisible();
+  await videoCard.locator("video").click();
+  await expect(page).toHaveURL(new RegExp(`/p/${video.id}$`));
 });
