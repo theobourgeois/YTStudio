@@ -11,7 +11,7 @@ import { ffmpegVersion } from "./ffmpeg.ts";
 import { listFonts } from "./fonts.ts";
 import { LibraryStore } from "./library.ts";
 import { MediaLibrary } from "./media.ts";
-import { migrateLegacyData } from "./migrate.ts";
+import { migrateData } from "./migrate.ts";
 import { AudioEngine, type EngineOptions } from "./music/engine.ts";
 import { SampleBrowser } from "./music/browser.ts";
 import { type MusicExportOptions, MusicExports } from "./music/exports.ts";
@@ -45,6 +45,15 @@ export interface AppOptions {
   engine?: EngineOptions;
   /** Song exports: how a file is shown in Finder (tests). */
   musicExports?: Partial<MusicExportOptions>;
+  /**
+   * Where new projects are saved until the user picks another folder (default: `config.projectsDir` for the
+   * configured data folder, else the given data folder's `Documents/Vaudio`, so tests stay inside it).
+   */
+  projectsDir?: string;
+  /** Put a project's package in the Trash (the desktop app's own; default: `moveToTrash`). */
+  trash?: (dir: string) => Promise<void>;
+  /** Show a project's package in Finder (default: `open -R`). */
+  reveal?: (dir: string) => Promise<void>;
 }
 
 export interface EditorApp {
@@ -78,15 +87,20 @@ export async function createApp({
   codexCommand,
   engine: engineOptions,
   musicExports: musicExportOptions,
+  projectsDir,
+  trash,
+  reveal,
 }: AppOptions): Promise<EditorApp> {
   const paths = new DataPaths(dataDir);
   await paths.init();
-  const library = new MediaLibrary(paths);
-  await library.load();
-  const projects = new ProjectStore(paths, library);
+  const location = projectsDir ?? (path.resolve(dataDir) === config.dataDir ? config.projectsDir : path.join(dataDir, "Documents", "Vaudio"));
+  await migrateData(paths, location);
+  // Each project's media is in its package (loaded with it), served by id whatever its package is called.
+  const library = new MediaLibrary(paths, undefined, (id) => projects.mediaDir(id));
+  // The engine writes what's changed in a song's plugins before its package moves.
+  let saveStates: () => Promise<void> = async () => {};
+  const projects = new ProjectStore(paths, library, { location, trash, reveal, beforeMove: () => saveStates() });
   await projects.load();
-  await migrateLegacyData(paths, library, projects);
-  library.resume();
   const exports = new ExportManager(paths, library);
   const web = new WebMediaLibrary(paths, library, ytdlpPath);
   await web.load();
@@ -109,7 +123,8 @@ export async function createApp({
   };
   // A take recorded is moved into the project's media (the music suite doesn't reach into the media library itself).
   const adoptTake = (projectId: string, file: string, name: string, origin: string) => library.add(file, `${name}.wav`, projectId, () => projects.has(projectId), origin);
-  const engine = new AudioEngine(paths, { samplePath, adoptTake, ...engineOptions });
+  const engine = new AudioEngine(paths, { samplePath, adoptTake, projectDir: (id) => projects.dir(id), ...engineOptions });
+  saveStates = () => engine.saveStates().catch(() => {});
   const musicExports = new MusicExports(paths, engine, { samplePath: engineOptions?.samplePath ?? samplePath, adopt: adoptTake, ...musicExportOptions });
 
   const browser = new SampleBrowser(paths);
@@ -163,7 +178,18 @@ export async function createApp({
   });
 
   const staticOptions = { index: false, dotfiles: "ignore", setHeaders: setFileHeaders } as const;
-  app.use("/files/media", express.static(paths.media, staticOptions));
+  // A project's media, wherever its package is: by the asset's id.
+  const servers = new Map<string, ReturnType<typeof express.static>>();
+  app.use("/files/media/:id", (req, res, next) => {
+    const dir = library.filesDir(req.params.id as string);
+    if (!dir) return next();
+    let serve = servers.get(dir);
+    if (!serve) {
+      serve = express.static(dir, staticOptions);
+      servers.set(dir, serve);
+    }
+    serve(req, res, next);
+  });
   app.use("/files/library", express.static(paths.libraryMedia, staticOptions));
   app.use("/files/exports", express.static(paths.exports, staticOptions));
   app.use("/files", () => {
@@ -190,6 +216,7 @@ export async function createApp({
     app,
     setHostWindow: (host) => engine.setHost(host),
     shutdown() {
+      projects.shutdown();
       library.shutdown();
       libraryMedia.shutdown();
       exports.shutdown();

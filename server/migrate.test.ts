@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
@@ -46,6 +46,8 @@ const upgradedProject: Project = {
 describe("legacy data migration", () => {
   let dataDir: string;
   let running: { editor: EditorApp; server: http.Server } | undefined;
+  let base = "";
+  const fetchText = (p: string) => fetch(base + p).then((r) => r.text());
   const assetDir = () => path.join(dataDir, "media", ASSET_ID);
   const readMeta = () => JSON.parse(readFileSync(path.join(assetDir(), "meta.json"), "utf8")) as MediaAsset;
 
@@ -54,7 +56,7 @@ describe("legacy data migration", () => {
     const server = http.createServer(editor.app);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     running = { editor, server };
-    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     return <T>(p: string) => fetch(base + p).then((r) => r.json() as Promise<T>);
   }
 
@@ -82,7 +84,9 @@ describe("legacy data migration", () => {
     rmSync(path.dirname(dataDir), { recursive: true, force: true });
   });
 
-  it("turns the legacy project.json into a project that owns the existing media", async () => {
+  const projectsDir = () => path.join(dataDir, "Documents", "Vaudio");
+
+  it("turns the legacy project.json into a project package that owns the existing media", async () => {
     seedAsset();
     const legacyFile = path.join(dataDir, "project.json");
     writeFileSync(legacyFile, JSON.stringify(legacyProject));
@@ -91,23 +95,25 @@ describe("legacy data migration", () => {
     const get = await start();
     const [summary, ...rest] = await get<ProjectSummary[]>("/api/projects");
     expect(rest).toEqual([]);
+    const pkg = path.join(projectsDir(), "My short.vaudio");
     expect(summary).toMatchObject({
-      suite: "video", name: "My short", status: "active", settledAt: null, createdAt: MTIME.getTime(),
-      updatedAt: MTIME.getTime(), aspectRatio: "1:1", duration: 2, clipCount: 1,
-      thumbnail: legacyAsset.poster,
+      suite: "video", name: "My short", createdAt: MTIME.getTime(), updatedAt: MTIME.getTime(), openedAt: MTIME.getTime(),
+      aspectRatio: "1:1", duration: 2, clipCount: 1, thumbnail: legacyAsset.poster, path: pkg,
     });
     expect(await get<Project>(`/api/projects/${summary.id}`)).toEqual(upgradedProject);
     expect((await get<MediaAsset[]>(`/api/media?projectId=${summary.id}`)).map((a) => a.id)).toEqual([ASSET_ID]);
 
-    // Files are moved/tagged, never deleted.
-    expect(readMeta()).toEqual({ ...legacyAsset, projectId: summary.id });
-    expect(readFileSync(path.join(assetDir(), "source.mp4"), "utf8")).toBe("data");
+    // Files are moved into the package, never deleted, and served where they were.
+    const moved = path.join(pkg, "media", ASSET_ID);
+    expect(JSON.parse(readFileSync(path.join(moved, "meta.json"), "utf8"))).toEqual({ ...legacyAsset, projectId: summary.id });
+    expect(readFileSync(path.join(moved, "source.mp4"), "utf8")).toBe("data");
+    expect(existsSync(assetDir())).toBe(false);
+    expect(await fetchText(`/files/media/${ASSET_ID}/source.mp4`)).toBe("data");
     expect(existsSync(legacyFile)).toBe(false);
     expect(JSON.parse(readFileSync(`${legacyFile}.migrated`, "utf8"))).toEqual(legacyProject);
-    const projectDir = path.join(dataDir, "projects", summary.id);
-    expect(JSON.parse(readFileSync(path.join(projectDir, "project.json"), "utf8"))).toEqual(upgradedProject);
-    expect(JSON.parse(readFileSync(path.join(projectDir, "meta.json"), "utf8"))).toEqual({
-      id: summary.id, suite: "video", status: "active", createdAt: MTIME.getTime(), updatedAt: MTIME.getTime(), settledAt: null,
+    expect(JSON.parse(readFileSync(path.join(pkg, "project.json"), "utf8"))).toEqual(upgradedProject);
+    expect(JSON.parse(readFileSync(path.join(pkg, "meta.json"), "utf8"))).toEqual({
+      id: summary.id, suite: "video", createdAt: MTIME.getTime(), updatedAt: MTIME.getTime(),
     });
 
     // Idempotent: a restart changes nothing.
@@ -121,12 +127,70 @@ describe("legacy data migration", () => {
     const get = await start();
     const [summary, ...rest] = await get<ProjectSummary[]>("/api/projects");
     expect(rest).toEqual([]);
-    expect(summary).toMatchObject({ name: "Imported media", status: "active", clipCount: 0, thumbnail: null });
-    expect(readMeta().projectId).toBe(summary.id);
+    expect(summary).toMatchObject({ name: "Imported media", clipCount: 0, thumbnail: null, path: path.join(projectsDir(), "Imported media.vaudio") });
+    expect(JSON.parse(readFileSync(path.join(summary.path, "media", ASSET_ID, "meta.json"), "utf8")).projectId).toBe(summary.id);
   });
 
   it("doesn't create a project when there's nothing to migrate", async () => {
     const get = await start();
     expect(await get<ProjectSummary[]>("/api/projects")).toEqual([]);
+    expect(existsSync(path.join(dataDir, "projects"))).toBe(false);
+  });
+
+  /** A project of the layout before packages: `projects/<id>/` and its media in `media/<id>/`. */
+  function seedOldProject(id: string, name: string, meta: Record<string, unknown>) {
+    const dir = path.join(dataDir, "projects", id);
+    mkdirSync(path.join(dir, "plugins"), { recursive: true });
+    writeFileSync(path.join(dir, "project.json"), JSON.stringify({ ...legacyProject, name }));
+    writeFileSync(path.join(dir, "meta.json"), JSON.stringify({ id, suite: "video", createdAt: 1, updatedAt: 2, ...meta }));
+    writeFileSync(path.join(dir, "plugins", "chan_x.bin"), "state");
+    return dir;
+  }
+
+  it("makes each project of the old layout a package (settled ones too), and starting points hidden ones", async () => {
+    const [mine, done, start2] = ["project_00000000000a", "project_00000000000b", "project_00000000000c"];
+    seedOldProject(mine, "Launch / teaser", { status: "active", settledAt: null, updatedAt: 30 });
+    seedOldProject(done, "Old one", { status: "settled", settledAt: 5, updatedAt: 20 });
+    seedOldProject(start2, "My setup", { status: "active", settledAt: null, template: true });
+    mkdirSync(assetDir(), { recursive: true });
+    writeFileSync(path.join(assetDir(), "meta.json"), JSON.stringify({ ...legacyAsset, projectId: mine }));
+    writeFileSync(path.join(assetDir(), "source.mp4"), "data");
+
+    const get = await start();
+    const list = await get<ProjectSummary[]>("/api/projects");
+    // "/" can't be in a file's name.
+    expect(list.map((p) => [p.id, p.name, path.relative(projectsDir(), p.path)])).toEqual([
+      [mine, "Launch / teaser", "Launch - teaser.vaudio"],
+      [done, "Old one", "Old one.vaudio"],
+    ]);
+    expect(list[0]).toMatchObject({ clipCount: 1, thumbnail: legacyAsset.poster });
+    expect(readFileSync(path.join(list[0].path, "plugins", "chan_x.bin"), "utf8")).toBe("state");
+    expect(JSON.parse(readFileSync(path.join(list[1].path, "meta.json"), "utf8"))).toEqual({ id: done, suite: "video", createdAt: 1, updatedAt: 20 });
+    expect(await get("/api/projects/templates")).toMatchObject({ video: { name: "My setup" } });
+    expect(existsSync(path.join(dataDir, "templates", `${start2}.vaudio`, "plugins", "chan_x.bin"))).toBe(true);
+    expect(existsSync(path.join(dataDir, "projects"))).toBe(false);
+    expect(existsSync(path.join(dataDir, "media"))).toBe(false);
+
+    await stop();
+    const again = await start();
+    expect(await again<ProjectSummary[]>("/api/projects")).toEqual(list);
+  });
+
+  it("carries on a move into a package that stopped halfway", async () => {
+    const id = "project_00000000000d";
+    const old = seedOldProject(id, "Halfway", { status: "active", settledAt: null });
+    // Its media and document were moved; its meta.json wasn't yet.
+    const partial = path.join(projectsDir(), `.migrating-${id}`);
+    mkdirSync(path.join(partial, "media"), { recursive: true });
+    seedAsset();
+    writeFileSync(path.join(assetDir(), "meta.json"), JSON.stringify({ ...legacyAsset, projectId: id }));
+    renameSync(assetDir(), path.join(partial, "media", ASSET_ID));
+    renameSync(path.join(old, "project.json"), path.join(partial, "project.json"));
+
+    const get = await start();
+    const [summary, ...rest] = await get<ProjectSummary[]>("/api/projects");
+    expect(rest).toEqual([]);
+    expect(summary).toMatchObject({ id, name: "Halfway", clipCount: 1, path: path.join(projectsDir(), "Halfway.vaudio") });
+    expect(existsSync(partial)).toBe(false);
   });
 });

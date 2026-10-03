@@ -33,6 +33,7 @@ export class HttpError extends Error {
 export class DataPaths {
   constructor(readonly root: string) {}
 
+  /** Where project media lived before projects were files (`<id>/`): migrated into their packages on startup. */
   get media() {
     return path.join(this.root, "media");
   }
@@ -42,8 +43,17 @@ export class DataPaths {
   get tmp() {
     return path.join(this.root, "tmp");
   }
+  /** Where projects lived before they were files of their own (`<id>/`): migrated on startup (`migrate.ts`). */
   get projects() {
     return path.join(this.root, "projects");
+  }
+  /** The projects this computer has opened (`ProjectStore`): their paths, newest first, and where new ones go. */
+  get recentsFile() {
+    return path.join(this.root, "projects.json");
+  }
+  /** Each suite's starting point, a hidden project package (`<id>.vaudio/`). */
+  get templates() {
+    return path.join(this.root, "templates");
   }
   /** Audio downloaded from the web, shared by every project (`<cache key>.<ext>`, see web-media.ts). */
   get music() {
@@ -76,6 +86,7 @@ export class DataPaths {
     return path.join(this.root, "project.json");
   }
 
+  /** A project's folder in the old layout (migration, and the audio engine on its own in tests). */
   projectDir(id: string) {
     if (!isValidId(id)) throw new HttpError(400, "Invalid project id");
     return path.join(this.projects, id);
@@ -89,7 +100,7 @@ export class DataPaths {
   }
 
   async init() {
-    await Promise.all([this.media, this.projects, this.exports, this.music, this.libraryMedia].map((d) => fs.mkdir(d, { recursive: true })));
+    await Promise.all([this.exports, this.music, this.libraryMedia, this.templates].map((d) => fs.mkdir(d, { recursive: true })));
     // Anything left in tmp belongs to an upload or render that died with the server.
     await fs.rm(this.tmp, { recursive: true, force: true });
     await fs.mkdir(this.tmp, { recursive: true });

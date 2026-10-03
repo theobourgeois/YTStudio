@@ -3,8 +3,19 @@ import path from "node:path";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 
+const dataDir = path.resolve(process.env.EDITOR_DATA_DIR || path.join(REPO_ROOT, "data"));
+
 export const config = {
-  dataDir: path.resolve(process.env.EDITOR_DATA_DIR || path.join(REPO_ROOT, "data")),
+  dataDir,
+  /**
+   * Where new projects are saved (each a package, `Name.vaudio`) until the user picks another folder:
+   * `~/Documents/Vaudio`, or, when a data folder is given (tests, throwaway setups), its `Documents/Vaudio` (as the real one, `~/Documents/Vaudio`), so
+   * they never reach the user's Documents. The desktop app sets it for its own data folder.
+   */
+  projectsDir: path.resolve(
+    process.env.EDITOR_PROJECTS_DIR ||
+      (process.env.EDITOR_DATA_DIR ? path.join(dataDir, "Documents", "Vaudio") : path.join(os.homedir(), "Documents", "Vaudio")),
+  ),
   port: Number(process.env.EDITOR_SERVER_PORT) || 5311,
   host: "127.0.0.1",
   production: process.env.NODE_ENV === "production",
