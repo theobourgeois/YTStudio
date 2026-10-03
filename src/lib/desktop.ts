@@ -3,11 +3,13 @@
  * gives the app `editorDesktop`, which it calls before closing the window.
  */
 import { useProjects } from "@/stores/projects";
+import type { AppIconId } from "@shared/app-icons";
 
 declare global {
   interface Window {
     editorDesktopInfo?: {
       platform: string;
+      appIcon?: { get(): Promise<AppIconId>; set(id: AppIconId): Promise<void> };
       pathForFile?: (file: File) => string;
       saveFile?: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
       microphone?: { status(): Promise<string>; ask(): Promise<string> };

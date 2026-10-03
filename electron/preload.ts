@@ -4,9 +4,14 @@
  * to the server over HTTP as usual.
  */
 import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
+import type { AppIconId } from "../shared/app-icons.ts";
 
 contextBridge.exposeInMainWorld("editorDesktopInfo", {
   platform: process.platform,
+  appIcon: {
+    get: () => ipcRenderer.invoke("app-icon-get") as Promise<AppIconId>,
+    set: (id: AppIconId) => ipcRenderer.invoke("app-icon-set", id) as Promise<void>,
+  },
   // Where a file or folder dropped from Finder is (the music Browser adds folders that way); a page can't know.
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   // Where to save a file (a song's export), from the Mac's save dialog; null if it's cancelled.
