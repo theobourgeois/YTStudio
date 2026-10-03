@@ -154,6 +154,22 @@ describe.skipIf(!existsSync(ENGINE))("recording, offline", () => {
     await expect(record()).rejects.toThrow(/armed/);
   });
 
+  it("punches in at the audio thread's current position without restarting or counting in", async () => {
+    await play(withInput(createMusicProject("Punch in", 120)));
+    await engine.command("play", { from: 0 });
+    await hear(2 * BEAT);
+    await engine.record({ projectId: PROJECT, from: 0, countIn: BAR_TICKS, loop: false,
+      continuePlayback: true, names: { insert_1: "Vox" } });
+    await hear(BEAT, true);
+    const status = await engine.command("status", {});
+    expect(status.transport.tick).toBeCloseTo(3 * 96, 4);
+    expect(status.transport.countIn).toBe(0);
+    const [take] = await stopFor(1);
+    expect(take.startTick).toBeCloseTo(2 * 96, 6);
+    expect(take).toMatchObject({ frames: BEAT, pass: 0, final: true });
+    expect(slice((await fileOf(take)).channels[0], 0, BEAT)).toEqual(slice(input.channels[0], 0, BEAT));
+  });
+
   it("counts in a bar of clicks with the transport held, then plays and records from the bar's end", async () => {
     let song = withInput(createMusicProject("Test", 120), false, "off");
     song = setSteps(addChannels(song, [{ id: "chan_kick", name: "Kick", sampleId: "hit" }]), P, "chan_kick", [0], true);
