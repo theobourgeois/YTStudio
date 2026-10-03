@@ -125,6 +125,8 @@ export interface EngineTransport {
   echoBoys?: Record<string, EngineEchoLevels>;
   /** Each OTT in the song (by effect id): its bands' levels and gains, for its display (absent from engines that don't say). */
   otts?: Record<string, EngineOttState>;
+  /** Each Pro-C in the song (by effect id): its levels and gain reduction since the last event, for its display (absent from engines that don't say). */
+  proCs?: Record<string, EngineProCState>;
   /** Each Pro-Q being watched (`eqWatch`), by effect id: its spectra and its dynamic bands (absent from engines that don't say). */
   eq?: Record<string, EngineEqState>;
   /** Each PanMan in the song (by effect id): where it's put the sound (absent from engines that don't say). */
@@ -173,6 +175,27 @@ export interface EngineOttState {
   bands: { level: number; gain: number }[];
   input: [number, number];
   output: [number, number];
+}
+
+/**
+ * What a Pro-C did since the last event: `points` of its level display (each `[input, output, reduction]`
+ * in dB: a slice's peaks in and out, and its most reduction, a negative one a boost), every `step`
+ * seconds, oldest first; and now: the reduction (dB), the key's level (dB, the Threshold's ring), the
+ * level the gain computer hears (dB, the knee display's dot), the threshold it's at (Auto Threshold moves
+ * it), the peaks in and out (each side, 1 full scale, falling), and its latency (samples). `match`: a
+ * measured make-up (`compMatch`) as it goes, the loudness in and out (dB) and whether it's done.
+ */
+export interface EngineProCState {
+  step: number;
+  points: [number, number, number][];
+  reduction: number;
+  key: number;
+  level: number;
+  threshold: number;
+  input: [number, number];
+  output: [number, number];
+  latency: number;
+  match?: { input: number; output: number; done: boolean };
 }
 
 /**
@@ -630,6 +653,13 @@ export interface EngineCommands {
    * on is heard, `gain` dB louder or softer (the solo's listening level).
    */
   eqSolo: { effect: string; band: number | null; gain?: number };
+  /**
+   * A Pro-C's listening (live, never in a song or an export): `key` plays its side chain as the detector
+   * hears it (after its EQ and link), `triggering` what the compression takes away; `off` lets go.
+   */
+  compAudition: { effect: string; mode: "off" | "key" | "triggering" };
+  /** Measure a Pro-C's loudness in and out while it plays, for `seconds` (Match: the tab sets Wet Gain from it). */
+  compMatch: { effect: string; seconds: number };
   /**
    * A Pitch Wheel's live controls, held by the hand (the song has the wheels where they're let go):
    * `pitch` and `timbre` hold a wheel's pointer (semitones, snapped) for a quarter of a second (renewed

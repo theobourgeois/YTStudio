@@ -11,6 +11,14 @@ Signalsmith; JUCE); and the
 manuals of the hardware the classic styles would copy (UREI 1176LN, Teletronix LA-2A, SSL G-series, Empirical
 Labs Distressor). [Sources](#10-sources) are at the end.
 
+**Vocals first.** Théo's main use is vocals (rap, trap, R&B, pop, hyperpop), so a second round of research went
+into that, in its own document, **`pro-c-vocals.md`**: how 50-odd mix engineers compress lead vocals (their own
+chains and settings), the eleven classic compressors they name (manuals, schematics, measurements), the ideas in
+thirty-odd other compressors, and the modelling papers. What it changed here: the vocal section
+([3.3](#33-on-vocals)), the classic models as a **Vintage** group of styles ([4](#4-classic-models-as-extra-styles)),
+the vocal presets ([6](#6-the-factory-presets)), and the proposal and questions ([7](#7-proposed-for-vaudio),
+[9](#9-open-questions-for-théo)).
+
 Anything the sources don't give is marked **not stated**; anything worked out rather than read is marked
 **(inferred)**; a value read off a screenshot is **(observed)**. FabFilter publishes no DSP details beyond the
 manual's one-line descriptions, so [section 5](#5-how-it-works-the-dsp) is a reconstruction from the literature,
@@ -391,41 +399,65 @@ them into numbers.
 
 ### 3.3 On vocals
 
-Théo's main use. How engineers compress vocals, from the hardware manuals' interviews and FabFilter's
-material:
+Théo's main use. From the engineers' own session walk-throughs (`pro-c-vocals.md` section 1, 50-odd chains,
+mostly Sound On Sound's *Inside Track*), what a vocal compressor is asked to do:
 
-- **Two stages are normal.** "I'm using both an 1176 and an LA2 on his voice, which is not unusual for me"
-  (Mike Shipley, on Enrique Iglesias, in UA's LA-2A manual). Ken Kessie: "for that hard-to-tame lead vocalist
-  … try an 1176 followed by a DBX 165. Use the 1176 as a compressor, and the DBX as a peak limiter … smooth as
-  silk." Trevor Curwen: compress lightly when tracking, then strap "the compressor across the vocal when
-  mixing, and adding just a little more squeeze". The usual split **(inferred**, no primary source gives
-  numbers**)**: a fast stage catching the peaks (3–5 dB, attack under 1 ms, 4:1), then a slow leveller (3–5
-  dB, opto, 3:1) evening the phrases.
-- **The 1176 on vocals**: "For vocals there really isn't a better compressor" (Andy Johns); "All of the
-  Michael Jackson and James Ingram vocals … were done with at least one of those 1176s" (Bruce Swedien); "I'm
-  always on the 4:1 [ratio], and the Dr. Pepper [attack/release settings], you know, 10 o'clock, 2 o'clock …
-  they have an equalizer kind of effect, adding a coloration that's bright and clear" (Jim Scott).
-- **The LA-2A on vocals**: "on certain voices you can crank it heavily … It makes things warmer, especially
-  when you crank it, and for thinner voices that can be just the ticket" (Mike Shipley). "LA-2As warm things
-  up. They're the opposite of the 1176" (Jim Scott).
-- **Pro-C's Vocal style** is the one-knob version: "compressing your lead vocal is as easy as choosing the
-  right threshold."
-- **Starting points** for Pro-C on a lead vocal **(inferred**, consistent with the sources above**)**:
+- **Stages, not one big squeeze.** Almost every documented chain has two to four compressors in series, each
+  doing little: "Instead of completely smashing things with one compressor, I will compress lightly in stages"
+  (Teezio, Chris Brown). The usual roles: **control, then colour, then a ceiling** (a limiter last for "in
+  your face": CLA's L1 for "spit and attitude", Brathwaite's L2).
+- **Fast first, slow second.** A FET or fast VCA catching peaks, then an opto or tube levelling the phrase:
+  Tom Elmhirst (Adele) runs an 1176 "fast attack, fast release" into a CL 1B "slow attack, slow release, more
+  evening out the level"; Manny Marroquin puts a Neve at 3:1 before his CL 1B because its attack "is not as fast
+  or pronounced". Mike Shipley: "I'm using both an 1176 and an LA2 on his voice, which is not unusual for me."
+- **The 1176's vocal setting is 4:1, a slow-ish attack and the fastest release**: CLA ("attack 3, release 7 …
+  a relatively slow attack and the fastest possible release"), Dan Grech-Marguerat ("attack on 1 and the
+  release on 7 with a 4:1 ratio makes anything sound very full"), Ben Baptie ("allows the vocal to breathe").
+  An 1176's slowest attack is 0.8 ms: "slow" lets the consonant's first edge through.
+- **Rap and R&B: tracked through a CL 1B, mixed with a clean, program-dependent compressor.** "Neve 1073 →
+  Tube-Tech CL 1B" is the tracking chain of Derek Ali (Kendrick Lamar), Seth Firkins (Future), Teezio, Rob
+  Bisel (SZA), Mike Dean and others, with Auto-Tune before anything. At the mix, Waves' Renaissance Compressor
+  is in fifteen of the chains ("it doesn't sound like compression to me", Stuart White; Maserati: "nearly 7:1 …
+  where she's not hitting the threshold her voice is gaining by 5 dB"), RVox in nine.
+- **Parallel crush blended under the dry vocal**, 10–20 dB of reduction: Koen Heldens (Trippie Redd, ~10 dB),
+  Clint Gibbs (Doja Cat, ~20 dB), Illangelo (The Weeknd, "slamming it"). Pro-C's Dry knob is this, in one
+  instance.
+- **The lows don't drive it**: cut before it or in its side chain (CLA ~70 Hz, Evan LaRay ~100 Hz, George
+  Seara's side chain ~70 Hz; Heldens: "to prevent compressor triggering").
+- **Tone from compression, level from riding**: "you try to get the overall tone for the whole record with the
+  compressors, and then you're chasing the faders" (CLA). "If you're constantly moving the fader … you need to
+  look at your compression" (Elmhirst).
 
-  | Job | Style | Threshold for | Ratio | Attack | Release | Other |
-  | --- | --- | --- | --- | --- | --- | --- |
-  | Even out a pop / R&B lead | Vocal | 4–6 dB on loud words | auto | 5–10 ms | auto | SC high-pass 100–150 Hz, Auto Gain |
-  | Catch peaks (first stage) | Clean or Punch | 3–5 dB on peaks | 4–6:1 | 0.5–2 ms | 50–80 ms | Lookahead 1–2 ms |
-  | Level phrases (second stage) | Opto / Op-El | 3–5 dB | (2–3:1) | slow | auto | Character Tube, Post |
-  | Rap vocal, in your face | Punch or Classic | 6–10 dB | 4–8:1 | 1–3 ms | 40–80 ms | Dry 30–50% for density |
-  | Backing vocals, sit behind | Bus or Smooth | 4–8 dB | 2–3:1 | 10–30 ms | 100–300 ms | Mid only on a stereo stack |
-  | Bring up breaths and detail (careful) | Upward, in parallel | | 1.5–2:1 | | | Range 6 dB |
+**How much** (as documented): a colour stage 1–2 dB; general vocal compression ≤ 5 dB on the peaks at 2–4:1
+(Paul White); a heavy serial chain ~6 dB a stage (Mike Senior); a tracking CL 1B 4–5 dB (Tube-Tech's own vocal
+setting); a parallel crush 10–20 dB.
 
-- **What goes wrong on vocals**: sibilance pushed up by the make-up gain (the compressor holds the vowels
-  down, not the "s"; a de-esser after, or a side chain EQ that dips the presence region so consonants don't
-  trigger it); breaths and mouth noise raised between phrases (slower release, less gain reduction, or
-  upward-free styles); plosives triggering big dips (side chain high-pass); "lisping" and dull consonants from
-  too fast an attack.
+**Starting points**, each from a source (the presets of section 6 are these; the Vintage styles are section 4's):
+
+| Job | Style | Gain reduction | Ratio | Attack | Release | Other | From |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| First stage: catch the peaks, add attitude | FET 76 | 3–6 dB on peaks | 4:1 | slow-ish (dial 1–3: ~0.8–0.25 ms) | fastest (dial 7: 50 ms) | SC high-pass 80 Hz | CLA, Grech, Baptie, Heldens |
+| Second stage: level the phrase | Opto 2A | 3–6 dB, steady | (~3–4:1, the cell's) | (~10 ms, the cell's) | (60 ms to half, then seconds) | Peak Reduction only | Elmhirst, Shipley, the LA-2A manual's "4 to 8 DB of compression continuously" |
+| One smooth stage (the tracking sound) | Opto Tube | 4–5 dB | 3–4:1 | ~30 ms | ~0.6 s (Manual) | — | Tube-Tech's vocal setting; Marroquin's CL 1B at 4:1, medium attack |
+| Clean control, rap and R&B (the RComp role) | Vocal, or Clean + Auto Release | 4–7 dB | (auto) or 4–7:1 | 3–10 ms | auto | SC high-pass 100 Hz | Maserati, Ali, Firkins, Tillie |
+| Grit and presence | Distress | 6–12 dB on loud lines | 6:1 | dial 5 | dial 4 | Det HP, Dist 2 | Empirical Labs' vocal setting; Ali ("grit and presence at the top") |
+| In-your-face rap (parallel) | FET 76, All, Dry 0 dB | 10–20 dB | All | dial 7 | dial 7 | Wet −12 dB, blend by Wet | Heldens, Gibbs, Illangelo |
+| Backing vocals, sit behind | Bus | 3–6 dB | 2–4:1 | 10–30 ms | auto | mid only on a stereo stack | Seara's SSL 2:1, Schaeffer's SSL 4:1 slow / fast |
+| Detail and breaths up (careful) | Upward, in parallel | — | 1.5–2:1 | | | Range 6 dB, the floor on | Pro-C's own; no engineer source (1.5) |
+
+- **What goes wrong on vocals**, and where it's handled: sibilance pushed up by the make-up gain (the
+  compressor holds the vowels, not the "s": a side chain dip at 5–8 kHz, or a de-esser after; Mike Senior's
+  fast Fairchild-into-1176 needed one); breaths and mouth noise raised between phrases (slower release, less
+  reduction, less make-up; upward styles raise them by design); plosives and proximity boom triggering big dips
+  (side chain high-pass); distortion on low notes with fast times (the compressor "responds to individual cycles
+  of the input waveform", Paul White: hold, program-dependent release); "the life's been squeezed out" (Spike
+  Stent: stages, Range, Mix).
+- **Théo's quick chain, Auto-Tune into a heavy OTT**: no engineer in the survey puts OTT on a lead vocal (the
+  one documented use is on a reverb return). It sounds finished at once because it raises everything quiet in
+  three bands, and costs later for the same reason: breaths, room and hiss come up with the voice. The
+  presets' quick version of "finished" is instead **Vocal – Rough Mix** (section 6): the Vocal style pushed
+  to 6–8 dB with Tube character and a little Dry under it, dense and upfront at once without lifting the
+  gaps, and zero latency, so it can be sung through.
 
 ### 3.4 What bad compressors sound like, and why
 
@@ -451,73 +483,129 @@ So we avoid each one; the remedy is where it's built (section 5).
 
 ## 4. Classic models as extra styles
 
-Should our Pro-C also offer the 1176, the LA-2A, the SSL bus compressor and the Distressor as styles?
-FabFilter went that way itself in Pro-C 3 (Op-El is "opto-like tube compression", which SOS hears as LA-2A-
-like; Vari-Mu is SOS's "Fairchild goodness"), but **FabFilter never names a hardware unit** in its
-documentation. The proposal (section 7) is **yes, later, as a fourth group, "Vintage"**: each is the same
-engine with a fixed topology, curve and time behaviour (its knobs the unit's or Pro-C's: 4.5), and a vocal
-chain of two of them is two slots. What defines each:
+Should our Pro-C also offer the compressors vocal engineers name, the 1176, the LA-2A, the CL 1B, the
+Distressor, the dbx 160 and the 33609, as styles? FabFilter went that way itself in Pro-C 3 (Op-El is
+"opto-like tube compression", which SOS hears as LA-2A-like; Vari-Mu is SOS's "Fairchild goodness"), but
+**FabFilter never names a hardware unit** in its documentation. The proposal (section 7) is **yes, as a fourth
+group, "Vintage"**, and, because the survey says vocal chains are built on exactly these units (`pro-c-vocals.md`
+1.2), **the two of the classic vocal chain (FET → Opto 2A) in the first build**. Each is the same engine with a
+table, as every style is: a topology, a detector, a curve, a time law and a colour. The research behind every
+number is `pro-c-vocals.md` section 2; what isn't measured anywhere is marked **(inferred)** and tuned by ear.
 
-### 4.1 UREI / Universal Audio 1176LN (FET)
+### 4.1 How a Vintage style differs: the unit's knobs
 
-| What | The hardware |
+The units have no threshold: their **Input drives into a fixed threshold**, and the ratio button or the time
+dial *is* their character. Every model of them (UA, Arturia, Slate, Softube, Kiive) keeps that, and Arturia and
+Kiive link the Output to the Input so driving harder compresses harder without getting louder. So, in a
+Vintage style:
+
+| Control | Becomes |
 | --- | --- |
-| Lineage | Bill Putnam, Rev A 1967; Rev C (1970) black face, "LN"; **Rev D and E "are considered to have superior sound"** (UA manual); UA's reissue copies D/E |
-| Topology | **Feedback** (Wikipedia; SOS); a FET as the bottom leg of a voltage divider before a preamp |
-| Controls | **Input** ("controls both the threshold and the amount of input signal being routed to the gain reduction circuitry"); **Output**; **Attack 20 µs … 800 µs**, **Release 50 ms … 1.1 s**, both *faster clockwise* (1 … 7); Attack fully anticlockwise is **Off**: no gain reduction, still the circuit's colour; **Ratio** buttons **4, 8, 12, 20**, and **all buttons in** |
-| Curve | "Selecting higher ratios also raises the threshold level"; "the 1176LN utilizes soft knee compression and limiting"; "to some degree, program-dependent" |
-| All buttons | "Distortion increases radically due to a lag time on the attack of initial transients (… a 'reverse look-ahead'). The ratio goes to somewhere between 12:1 and 20:1, and the bias points change all over the circuit, thus changing the attack and release times as well" |
-| Colour | < 0.5% THD limiting (50 Hz … 15 kHz, at 1.1 s release); at its fastest settings "minute level fluctuations over the audio"; Robjohns (SOS): "warm, tube-like quality", "a slightly bright character, actually more of a subtle spectral tilt" |
-| On vocals | Fast catch, 4:1, a few dB; "bright and clear" |
-| Our model | Feedback (k = R_eff − 1) with a per-ratio threshold offset (higher ratio, higher threshold); fixed internal threshold, Input drives into it; soft knee ~6–10 dB; attack 20–800 µs and release 50–1100 ms on the 1–7 dials (log); release slowing with depth (mild dual release); all-buttons: ratio ~16:1, a delayed attack (the "reverse look-ahead": a 1–2 ms ramp before the gain moves), more release, asymmetric saturation rising with gain reduction; a +0.5 dB tilt over 5 kHz; mild odd and even harmonics (0.1–0.5% THD) **(inferred)** |
+| **Threshold** | Labelled **Input** (−48 … +24 dB of drive into the unit's fixed threshold; turning it up compresses more). Stored as the threshold (`threshold = −Input`) so automation, presets and the assistant's tools keep one shape |
+| **Wet Gain** | Follows Input inversely while **Link** is on (the default, Arturia's): the level stays put as the compression changes. Auto Gain is off in Vintage styles (the link does its job) |
+| **Ratio** | Snaps to the unit's positions and shows its labels ("4", "8", "12", "20", "All"; "1:1" … "Nuke") |
+| **Attack, Release** | Show the unit's dial (the 1176's 1–7, fastest at 7; the Distressor's 0–10) mapped to its range on a log scale; the milliseconds on hover and in the tooltip. The 1176's Attack has its **Off** position (no compression, the circuit's colour only) |
+| **Knee** | Greyed: the unit's curve (drawn on the knee display) |
+| **Range, Lookahead, Hold, Mix, Dry, side chain, link** | As in every style (none of the units had them; they're why a plug-in is better), but off in the Vintage presets |
+| **Style's own switches** | In a small row under the Style button: FET's **All**; Opto 2A's **Compress / Limit** and **Emphasis**; Opto Tube's **Fixed / Manual / Fix-Man**; Distress's **Detector**, **Audio** and **British**; VCA 160's **Over Easy** and **Auto**; Diode 609's **Limiter** |
 
-### 4.2 Teletronix / UA LA-2A (opto, T4)
+The other way, keeping Pro-C's Threshold, Ratio and Knee with the units' ranges, is simpler but loses what
+makes the units quick to use. A decision for Théo (section 9).
 
-| What | The hardware |
+### 4.2 FET (after the UREI / UA 1176)
+
+| | |
 | --- | --- |
-| Lineage | Jim Lawrence, Teletronix, from 1962; Putnam bought the rights in 1967; UA reissue |
-| Topology | **Feedback** ("the signal that is used to drive the side-chain circuit is affected by the gain reduced signal"); the **T4** cell: an electroluminescent panel lighting a cadmium-sulphide photocell, "the bottom leg in a voltage divider"; the T4 is detector and gain element at once |
-| Controls | **Peak Reduction** (side chain gain: threshold and amount together, the threshold fixed), **Gain** (output), **Compress / Limit** switch; on the back, **R37**, a high-frequency emphasis in the side chain (fully clockwise is flat; anticlockwise makes it "increasingly more sensitive to the higher frequencies") |
-| Curve | Compress: "more gentle", "a low compression ratio" (UA: "roughly 3:1" on average); Limit: higher; up to 40 dB of reduction |
-| Time | Attack "very fast", "average attack time … 10 milliseconds" (UA); release "approximately 0.06 seconds for 50% release, 0.5 to 5 seconds for complete release depending upon the amount of previous reduction"; "the release time is slower if the unit has either been in compression for a while, or the amount of compression is large". Measured on six units (Moore, Huddersfield; 1 kHz bursts −18/−6/−18 dBFS): **attack 33–81 ms (mean 52.8)**, **release 449–1670 ms (mean 916.5)** |
-| Colour | Tubes (12AX7, 12BH7, 6AQ5); < 0.35% THD at +10 dBm; "warms things up … they EQ all the warmth and low mids and bass" (Jim Scott) |
-| On vocals | The slow leveller after a fast stage; "crank it heavily" on thin voices |
-| Our model | Our Opto cell (section 5.13) in feedback, with the light's attack ~10 ms (the panel) and the cell's 5 ms on; two-stage release (50% in 60 ms, the rest in 0.5–5 s by its memory); ratio ~3:1 (Compress) or ~10:1 (Limit) with a wide knee; Peak Reduction as side chain gain into a fixed threshold; R37 as a side chain high shelf (0 … +17 dB at 15 kHz); tube colour: second harmonic, 0.1–0.35% **(inferred)** |
+| Loop, detector | Feedback (UA: "the sidechain circuit samples the signal level after the gain reduction"), full-wave **peak**, a branching (not smoothed) detector, so at the fastest times the gain follows the waveform's ripple as the hardware's does. That ripple is also why its ratio on a steady sine measures "much higher than what is selected on the front panel" while "on transients the ratios are very close to those indicated" (Berners & Abel, UA): it should fall out of the model, not be added |
+| Threshold | Fixed per ratio, **higher with the ratio**: 0, +4.7, +7.9, +9.1 dB at 4, 8, 12, 20:1 (from one measured 1176LN: compression starting at −17.5, −12.8, −9.6, −8.4 dBm) |
+| Curve | Soft knee hardening with the ratio: 10, 8, 6, 4 dB at 4, 8, 12, 20:1 **(inferred**, from "the soft-knee response hardens as ratios increase"**)**. After a transient the ratio creeps up ("the ratio will always increase a bit after the transient", UA): the slope `s` rises by up to 0.05 over 300 ms of sustained reduction **(inferred)** |
+| Attack | 20 µs … 800 µs (dial 7 … 1, log); Off below 1 |
+| Release | 50 ms … 1.1 s (dial 7 … 1, log); program-dependent, as UA describes its model: "three features … A fast release-time, a slow release-time, and a transition-time. The fast release time is the effective release time after transients; the slow release time is the release time after sustained high-RMS signals. The transition time expresses how long the signal must be 'in compression' before the slow release time comes into effect". Our `K` (2.5) with the program-dependency's `τd` as that transition (~0.5 s, **(inferred)**) |
+| All buttons | A plateau rather than a slope ("Where 4:1 is a gentle slope, All-Button is more like severe plateau!"): ratio ~16:1 with the curve flattening past 6 dB over; the attack's first 1–2 ms delayed (the "reverse look-ahead"); release ×1.5 with an overshoot on recovery; the bias change as a much larger distortion (Moore measured 18–32% IM against 2–3% at 20:1) |
+| Colour | Distortion growing with reduction and **with the release's speed** (Moore: it "drops sharply" from release 6 down; fastest attack with slowest release is ~20 dB cleaner than the reverse), worse on lows: most of it comes for free from the branching detector following the cycles; on top, a soft asymmetric stage (2nd > 3rd) at 0.05% idle; a +0.5 dB tilt above 5 kHz while compressing ("a slightly bright character … a subtle spectral tilt") |
+| Its presets | **Vocal – FET Catch**: Input for 3–6 dB, 4:1, attack 3, release 7, SC HP 80 Hz (CLA, Grech, Baptie). **Vocal – All Buttons Parallel**: All, attack 7, release 7, Dry 0 dB, Wet −12 dB (Gibbs, Illangelo) |
 
-### 4.3 SSL G-series bus compressor (VCA)
+### 4.3 Opto 2A (after the Teletronix LA-2A)
 
-| What | The hardware |
+| | |
 | --- | --- |
-| Topology | VCA. **Feedback or feedforward: sources disagree** (SOS lists it as feedback; mixanalog and others call it feedforward). Giannoulis et al. describe its "slave VCA" trick: the side chain fed from the input with the previous gain applied, a digital "alternate feedback" |
-| Controls | **Threshold** −15 … +15 dBu; **Ratio 2, 4, 10**; **Attack 0.1, 0.3, 1, 3, 10, 30 ms**; **Release 0.1, 0.3, 0.6, 1.2 s, Auto**; **Make-up** −5 … +15 dB; a meter to 20 dB (SOS's XLogic review; Waves' manual). SSL's own plug-in adds 20 ms attack, ratios 1.5, 3, 20 and "X", a side chain high-pass and Mix |
-| Auto release | "Dependent upon the duration of the program peak" (Waves); "program dependent and multi-stage" (SonicScoop); Giannoulis et al.: it stacks two release networks, which "automatically increases the release time once the compression continues for a longer time period" |
-| Sound | "Does a great job of making any mix sound louder, but without becoming aggressive" (SOS); 2:1 subtle, 4:1 harder, 10:1 peak limiting; mix bus: 4:1, 30 ms attack, Auto, 1–2 dB |
-| Our model | Bus style with stepped controls: a VCA (clean), RMS-weighted peak detector, the alternate-feedback path, soft knee ~6 dB, the dual-network auto release (fast 100 ms network, slow 1.2 s network, the slower winning after sustained compression) **(inferred)** |
+| Loop, detector | Feedback; **no rectifier**: the panel's light is the audio itself (a one-pole on `|x|`), and it lights more for highs (the panel "depends upon the applied voltage and frequency": +3 dB at 10 kHz built in **(inferred)**) |
+| Peak Reduction | The Input knob, labelled so: the side chain's gain into a fixed threshold (UA: "the greater the gain of this circuit, the lower the threshold"). Output (Gain) after it, with the link. What it does across its range has been fitted to the hardware (Yu & Fazekas 2025, a feedforward compressor fitted to the SignalTrain LA-2A recordings, Compress): at 40, 70 and 100, threshold −13, −20, −35 dB; ratio 5.4, 4.3, 3.7 (*lower* as it's pushed); attack τ 14, 1.8, 0.45 ms; release τ 214, 116, 111 ms. Our cell, run over that data, should land near those numbers (a test, 8.8) |
+| Curve | **Compress**: ~10 dB soft region, the ratio rising from ~3:1 to near-limiting ("the input increases an additional 20 DB, but the output increases less than 1 DB", 1966). **Limit**: the same, the knee halved. "In practice … subtle" |
+| Emphasis | R37 as a switch-and-amount: 0 … 10 dB more reduction at 15 kHz than below 1 kHz (a side chain high shelf, 1966 figures). Andrew Scheps' "air" trick is Emphasis at full on a parallel copy |
+| The cell | Section 5.13's opto cell, with two changes from the measurements: **a two-stage attack** (Stroe's built T4 cells; Moore's six LA-2As: 63% within ~125 ms, all by ~1.1 s): half the light's effect in τ ≈ 10 ms, the other half in τ ≈ 0.5 s **(inferred**, the split to tune**)**; and its release checked against three points: 63% back within ~0.15 s after a 300 ms burst, ~0.6–1.6 s after 5 s (Stroe 1.6 s, Moore's mean 0.9 s) |
+| Colour | Tubes and transformers, not the cell ("causes no wave form or harmonic distortion"): idle 0.2% at 0 dBFS rising to ~0.9% at +6, **odd harmonics growing while compressing** (Moore: 2–2.6% under reduction, 3rd at −32 dB) |
+| Its presets | **Vocal – Opto Level** (second stage): Peak Reduction for 3–6 dB, Compress, no Emphasis ("4 to 8 DB of compression continuously"). **Vocal – Air** (parallel): Limit, Emphasis 10 dB, Dry 0 dB, an SC high-pass |
 
-### 4.4 Empirical Labs Distressor (EL8)
+### 4.4 Opto Tube (after the Tube-Tech CL 1B)
 
-| What | The hardware |
+| | |
 | --- | --- |
-| Topology | VCA with its own detector; "based on the oldest compressor topology" (not said which); Link sums the two inputs into the detector |
-| Controls | Input, Output, **Attack 50 µs … 30 ms**, **Release 0.05 … 3.5 s** (up to 20 s in 10:1 Opto); **Ratio 1:1, 2, 3, 4, 6, 10 (Opto), 20, Nuke** ("each 'ratio mode' … sets both the threshold and the ratio"); audio modes **Norm, HP, Dist 2, Dist 2 + HP, Dist 3, Dist 3 + HP** (the audio HP an 18 dB/oct Bessel, −3 dB at 65 Hz); detector **HP** (80 Hz, "to stop L.F. modulation"), **Band Emphasis** ("emphasized 6 kHz band makes unit overreact to harsh mids"), Link; **British Mode** (EL8-X: the 1176's all buttons, "with any ratio") |
-| Curves | 2:1 and 3:1 "parabolic" knees, "as long as 30 dB"; 4:1 and 6:1 "steeper knees … gradually move towards hard limiting" (6:1 "very useful for vocals, bass, and acoustic instruments"); Nuke "brick wall limiting, keeping any normal signal within 1 dB or so", its release "logarithmic, meaning it lets off quickly at first and then slows" |
-| Distortion | Clean 0.025–0.3% THD; **Dist 2** 0.05–3%, "emphasized 2nd harmonic", "especially while compressing"; **Dist 3** 0.1–20%, third and second, "very similar to tape … flattens out the top and bottom" |
-| Its own emulations | LA-2A: "10:1 'Opto', attack on 10, release on 0, Det HP on … 10–20 dB of compression on peaks"; 1176: "6:1, att 2, rel 4" |
-| On vocals | British Mode as "a great final compression during mixdown. When not working it is very transparent, but when a vocal pops out … will get in and out of there quickly and smoothly" |
-| Our model | A curve per ratio (the knee lengths above), Nuke as a fast limiter with logarithmic release, Opto as our cell with 20 s release, the detector HP and 6 kHz emphasis as fixed side chain filters, Dist 2 as an asymmetric shaper whose drive follows the gain reduction, Dist 3 as a symmetric tape-like soft clipper, British Mode as the 1176's all-buttons behaviour **(inferred)** |
+| Loop, detector | Feedforward **(inferred**: the make-up "has no influence on the threshold", and the ratio is a real control**)**; the opto cell, its times scaled by the knobs |
+| Threshold | A real one, "defined as the point where the gain is reduced by 1 dB": a ~10 dB soft knee placed so 1 dB of reduction lands on the knob's value |
+| Ratio | **2:1 … 10:1, continuous** |
+| Times | Attack 0.5 … 300 ms, Release 0.05 … 10 s (the cell's speeds scaled to them). **Time mode**: **Fixed** (1 ms, 50 ms), **Manual** (the knobs), **Fix / Man**: two detectors, the larger reduction winning: a fast one (1 ms / 50 ms) and a slow one that only starts once the level has stayed over the threshold for longer than the **Attack** (which becomes that delay, as Softube's model says), then releases at the Release. A short peak decays in 50 ms; a held phrase holds |
+| Colour | Clean push-pull tubes: odd harmonics, 0.1% at 0 dBFS, rising gently with level |
+| Its presets | **Vocal – Tracking Opto**: 4–5 dB, ~3.5:1, Manual, attack ~30 ms, release ~0.6 s (Tube-Tech's vocal setting: "attack 2 o'clock, release 10 o'clock"). **Mix – Fix/Man Glue**: 3–4 dB in Fix / Man |
 
-### 4.5 Whether to
+This is the smoothest of the vocal styles and the one the survey says rap and R&B vocals are tracked through,
+so it's the default of the zero-latency tracking preset.
 
-- **For**: the units are what vocal engineers name; an 1176-then-LA-2A chain is a known recipe a producer can
-  ask the assistant for by name; each is a table in the same engine (detector, curve, release model,
-  colour), so the cost is tuning, not new DSP; Pro-C 3 already has two of them in disguise (Op-El, Vari-Mu).
+### 4.5 Distress (after the Empirical Labs Distressor)
+
+| | |
+| --- | --- |
+| Loop, detector | Feedback ("this is a feedback compressor, and does not use a Threshold control", Empirical Labs); peak; a gentle bass "sponge": the detector's lows slowed so fast attacks don't crackle on bass |
+| Input and ratio | Input into a fixed threshold **per ratio** ("each 'ratio mode' … sets both the threshold and the ratio"). Curves **(inferred** from the manual's descriptions**)**: **1:1** none (colour only); **2:1** a 30 dB parabolic knee; **3:1** a 20 dB one; **4:1** and **6:1** knees of 12 and 8 dB whose ratio keeps rising past ~8 dB ("starts to really grab and hold a vocal in place"); **10:1 Opto** the opto cell, release up to 20 s; **20:1** near-hard; **Nuke** ∞:1 with its own **logarithmic release** ("lets off quickly at first and then slows … a big part of the Distressor's sound"): two exponentials, 60% at the knob's τ and 40% at 8 × it |
+| Times | Attack 0 … 10: 50 µs … 30 ms; Release 0 … 10: 50 ms … 3.5 s; both log; faster at 2–4:1 ("time constants are dependent on ratio") |
+| Detector | Norm, **HP** (6 dB/oct at ~90 Hz: stops "p's and b's"), **Band** (+6 dB around 6 kHz: "makes unit overreact to harsh mids"), HP + Band |
+| Audio | Norm, **HP** (80 Hz Bessel, 18 dB/oct, after the distortion), **Dist 2** (an asymmetric stage, mostly 2nd harmonic, its drive rising with the reduction: 0.05 … 3% THD), **Dist 3** (a symmetric tape-like clip, 3rd and 2nd, 0.1 … 20%), each with or without HP |
+| British | The FET's all-buttons behaviour on any ratio |
+| Colour | Clean mode 2nd-dominant, 0.025 … 0.3% |
+| Its presets | **Vocal – Distress Grit**: 6:1, attack 5, release 4, Detector HP, Audio HP + Dist 2, 3–12 dB (Empirical Labs' vocal setting; Derek Ali's "grit and presence at the top"). **Vocal – Distress Aggressive**: 6:1, attack 3, release 1, Dist 2, 12–20 dB on loud lines. **Vocal – Nuke Parallel**: Nuke, Dry 0 dB (Brauer's parallel Distressor) |
+
+### 4.6 VCA 160 (after the dbx 160 family)
+
+| | |
+| --- | --- |
+| Loop, detector | Feedforward ("free of the instability of excessive loop gain … infinite compression"); **true RMS**, whose own averaging is the timing |
+| Times | **Auto** (the 160): attack faster the bigger the jump, 15 / 5 / 3 ms for 10 / 20 / 30 dB (`τA = 15 ms × (10 dB / Δ)^1.6`, fitted to dbx's three figures **(inferred)**), release a **constant rate**, 120 dB/s; the Attack and Release knobs greyed. **Manual** (the 165): attack 1 … 400 dB/ms, release 10 … 4000 dB/s, as rates |
+| Curve | **Hard** (the 160) or **Over Easy** (~10 dB, the threshold "half-way into compression"); ratio to ∞ (Mix 200% for the 160X's over-compression) |
+| Colour | Almost none: 2nd 0.05%, the 3rd only from RMS ripple on fast lows (it falls "with slower time constants, higher frequencies and lower compression ratios", which a real RMS detector gives by itself) |
+| Its presets | **Vocal – VCA Crush**: Auto, hard, 6:1, 6–10 dB (Ari Morris: "The 160 really crushes the vocals"; UA: "in-your-face 'thwack'") |
+
+### 4.7 Diode 609 (after the Neve 33609)
+
+| | |
+| --- | --- |
+| Loop, detector | Feedback, **two stages on one gain element**: a compressor, its make-up, then a limiter reading the made-up output |
+| Compressor | Threshold (Input); ratio 1.5, 2, 3, 4, 6; a soft knee reaching the ratio 5–10 dB over ("the true ratio is only attained > 5 dB above the threshold"); attack **Fast 3 ms** or **Slow 6 ms with a 100 Hz first-order side chain high-pass** ("preferred for percussive and plosive sounds"); recovery 100, 400, 800, 1500 ms, **a1** (100 ms → 2 s) and **a2** (50 ms → 5 s), program-dependent (AMS Neve's figures) |
+| Limiter | Its own threshold (the style's **Limiter** control, off by default), attack 2 / 4 ms, recovery 50 … 800 ms, a1, a2 |
+| Colour | The diode bridge's: Pines' model of a balanced bridge (odd harmonics), whose distortion **peaks at 3–7 dB of reduction and falls on either side** (Berners: "THD levels approaching 10%" there at extreme levels; ours tuned far milder, ~1–2% at −6 dBFS **(inferred)**), with antiderivative antialiasing; transformers' colour even when not compressing |
+| Its presets | **Vocal – Diode Catch** (Marroquin's first stage): 3:1, Fast, a1, 3–5 dB |
+
+### 4.8 What Pro-C 3's own vintage styles get from the measurements
+
+- **Bus** (the SSL G): the threshold moves with the ratio ("decreasing the RATIO setting lowers the effective
+  threshold", SSL: −3 dB at 2:1, 0 at 4:1, +2 at 10:1 **(inferred)**); the knee near-hard at 10:1 and ~6 dB at
+  2:1 (Thompson & Heilemann's measured G384); Auto release as SSL's two stacked networks, **100 ms short, 12 s
+  long** (the table in 5.13 had a 1.2 s network: changed).
+- **Op-El** and **Opto** keep 5.13's cell; Opto 2A gets the two-stage attack (4.3).
+- **Vari-Mu**: the gain law can come from Raffensperger's measured 6386 curve (`pro-c-vocals.md` section 4)
+  instead of 5.13's power law, and its time constants from the Fairchild's six positions (0.2 / 0.4 ms attack;
+  0.3, 0.8, 2, 5 s release; two automatic positions), offered as its Release knob's detents.
+
+### 4.9 Whether to
+
+- **For**: these units are what vocal engineers name (the survey's 50 chains, `pro-c-vocals.md` 1.1); an
+  "1176 into LA-2A" chain is a known recipe that Théo or the assistant can ask for by name; each is a table in
+  the same engine, so the cost is tuning, not new DSP (except Distress's two distortions, Fix / Man's second
+  detector and the Diode colour, each a small block); Pro-C 3 already has two of them in disguise.
 - **Against**: "modelled on" claims invite comparison with UA's and Waves' emulations, which are measured on
-  real units; we can't measure (no hardware), so ours are *in the spirit of* the units (named "FET", "Opto
-  Tube", "VCA Bus", "Distress" in the menu, say). Trademarks: the names belong to UA, SSL and Empirical Labs.
-- **How they'd be offered**: a "Vintage" group in the Style menu, each style changing which knobs show
-  (Input instead of Threshold, ratio buttons instead of the Ratio knob, the 1–7 dials) **or** the same knobs
-  with the unit's ranges and steps. The second is simpler and keeps the assistant's tools one shape; the
-  first is the units' feel. A decision for Théo (section 9).
+  real units; we can't measure hardware, so ours are *in the spirit of* the units, built from their manuals and
+  published measurements, and named for what they are ("FET 76", "Opto 2A", "Opto Tube", "Distress", "VCA 160",
+  "Diode 609", as Arturia names its own: "Comp FET-76", "Comp DIODE-609"). The units' names are trademarks
+  (UA, Teletronix, Tube-Tech, Empirical Labs, dbx, AMS Neve) and appear only in the docs.
 
 ---
 
@@ -900,10 +988,13 @@ inherently slower).
 | Opto | FF, smoothing in the **linear** domain ("more linear") | 0.5 / 10 ms | knee ≥ 18 dB | the opto cell, light attack ×3 ("relatively slow") | the opto cell | — | ×1 | none |
 | Vocal | FF | 0.6 / 8 ms | `R = ∞`, automatic knee 12–30 dB (5.4) | one-pole | smooth decoupled | 3 | ×1 | none |
 | Mastering | FF, plus an inner 10 ms hold on the peak stage (no cycle-following on bass) | 0 | as set | second-order | second-order | 2 | ×1 | none |
-| Bus | FF (the SSL's own topology is disputed, section 4.3; FF keeps the ratio exact) | 0.5 / 10 ms | knee ≥ 6 dB | one-pole | smooth decoupled; with Auto Release, the SSL's two networks as `K` 4 with a fast `τd` (0.2 s) | 4 | ×1 | none |
+| Bus | FF (SSL: "the side-chain per se has a 'feed-back' topology" fed from a feedforward point, a mirrored VCA; FF keeps the ratio exact) | 0 (the SSL's "true peak full wave detector") | the threshold moving with the ratio, the knee near-hard at 10:1 and ~6 dB at 2:1 (section 4.8) | one-pole | smooth decoupled; with Auto Release, the SSL's two stacked networks, 100 ms and 12 s (section 4.8) | 4 | ×1 | none |
 | Pumping | FF | 0 | as set | one-pole, ×0.5 | smoothstep (5.5), no program dependency | 1 | ×1 | none |
 
-**The opto cell** (Op-El, Opto, and the LA-2A-style model) **(ours**, from UA's description, Moore's
+The **Vintage** styles (FET 76, Opto 2A, Opto Tube, Distress, VCA 160, Diode 609) are tables of the same kind,
+with their units' own controls: section 4.
+
+**The opto cell** (Op-El, Opto, and Opto 2A, which adds a two-stage attack: section 4.3) **(ours**, from UA's description, Moore's
 measurements and Eichas & Zölzer's optocoupler measurements: a cell that turns on in ~5 ms and off ~100 times
 slower**)**: the gain computer's target (dB) lights a panel `Λ` (a one-pole, τ = the attack, ~10 ms in Op-El),
 and the cell follows the light in two parts, the slow one with a memory of how long and how hard it has been
@@ -985,37 +1076,66 @@ FabFilter publishes no list. What's known:
 - Old presets load from the **V1** and **V2 Preset Folder** submenus.
 
 **Ours** (proposed; by what they're for, vocals first, each one setting the sound and never the side chain
-source):
+source). The vocal ones are the survey's settings (`pro-c-vocals.md` 1.1, 2), named by their job; every vocal
+preset keeps **Maximum Lookahead and Oversampling off**, so it adds no latency and can be recorded through
+(Auto-Tune goes before it, as in every rap chain of the survey).
 
-| Preset | Style | What for |
-| --- | --- | --- |
-| Default Setting | Clean | A starting point: −18 dB, 4:1, knee 6, 10 ms / 100 ms, Auto Gain |
-| Vocal – Upfront | Vocal | The one-knob lead vocal: SC high-pass 120 Hz, auto release |
-| Vocal – Gentle Level | Opto | 2–4 dB of slow levelling, no colour |
-| Vocal – Fast Catch | Punch | First stage: 4:1, 1 ms, 60 ms, Lookahead 1 ms |
-| Vocal – Warm Leveller | Op-El | Second stage, Tube character Post |
-| Vocal – Rap Aggressive | Classic | 6:1, 2 ms, 50 ms, Dry −6 dB |
-| Vocal – Parallel Thick | Clean | 10:1, heavy, Dry 0 dB |
-| Vocals – Backing Glue | Bus | Mid only, 2:1, slow |
-| Vocal – Breath Lift | Upward | Range 6 dB, in parallel (Mix 50%) |
-| Kick – Punch | Punch | Attack 20 ms: the click through |
-| Snare – Smack | Classic | Fast release, a little Diode |
-| Drums – Bus Glue | Bus | 4:1, 30 ms, auto release, 2–3 dB |
-| Drums – Parallel Smash | Clean | ∞:1, 0.1 ms, Dry 0 dB |
-| Bass – Even | Opto | Steady low end |
-| 808 – Control | Mastering | Hold 20 ms (no cycle-following), SC high-pass off |
-| Mix Bus – Glue | Bus | 2:1, slow, 1–2 dB |
-| Master – Transparent | Mastering | 1.5:1, knee 24, Lookahead 5 ms, 4× |
-| EDM – Pump 1/4 | Pumping | Host Sync 1/4, Length 50% |
-| Sidechain – Duck to Kick | Clean | External, ∞:1, 1 ms / 150 ms (pick the kick's track) |
-| Upward – Detail | Upward | Room and tails up |
-| TTM – To The Max | TTM | OTT-style mayhem |
+| Preset | Style | Settings | From |
+| --- | --- | --- | --- |
+| Default Setting | Clean | −18 dB, 4:1, knee 6, 10 ms / 100 ms, Auto Gain | |
+| **Vocal – Rough Mix** | Vocal | 6–8 dB, attack 1 ms, Auto Release, SC high-pass 100 Hz, Dry −12 dB; Tube Post 30% once Character comes (phase 2) | The quick "finished" vocal to write over, in place of a heavy OTT (3.3) |
+| **Vocal – FET Catch** | FET 76 | 4:1, attack 3, release 7, Input for 3–6 dB, SC high-pass 80 Hz | CLA, Grech-Marguerat, Baptie: the first stage |
+| **Vocal – Opto Level** | Opto 2A | Compress, Peak Reduction for 3–6 dB | The LA-2A's "4 to 8 DB of compression continuously": the second stage after FET Catch |
+| **Vocal – Tracking Opto** | Opto Tube | ~3.5:1, Manual, 30 ms / 0.6 s, 4–5 dB | Tube-Tech's vocal setting; the rap and R&B tracking compressor |
+| **Vocal – Clean Control** | Clean | 5:1, knee 12 dB, 16 ms, 160 ms, Auto Release, SC high-pass 100 Hz | The RComp role in the rap chains (Ali, Firkins, Maserati, Tillie); RComp's defaults and its 6 dB-below knee |
+| **Vocal – Upfront** | Vocal | SC high-pass 120 Hz, Auto Release | Pro-C's one-knob lead vocal |
+| **Vocal – Distress Grit** | Distress | 6:1, attack 5, release 4, Detector HP, Audio HP + Dist 2 | Empirical Labs' vocal setting; Ali's "grit and presence at the top" |
+| **Vocal – VCA Crush** | VCA 160 | Auto, hard knee, 6:1, 6–10 dB | Ari Morris's dbx 160 |
+| **Vocal – Diode Catch** | Diode 609 | 3:1, Fast, a1, 3–5 dB | Marroquin's Neve before his CL 1B |
+| **Vocal – Parallel Crush** | FET 76 | All, attack 7, release 7, Dry 0 dB, Wet −12 dB | Heldens (~10 dB), Gibbs (~20 dB), Illangelo: blend by Wet |
+| **Vocal – Air** | Opto 2A | Limit, Emphasis 10 dB, SC high-pass 300 Hz, Dry 0 dB, Wet −15 dB | Andrew Scheps' parallel "air" vocal |
+| Vocal – Gentle Level | Opto | 2–4 dB of slow levelling, no colour | |
+| Vocals – Backing Glue | Bus | Mid only, 2:1, 30 ms, Auto release | Seara's SSL 2:1 |
+| Vocal – Breath Lift | Upward | Range 6 dB, the floor on, Mix 50% | (no engineer source: careful, it raises breaths) |
+| Kick – Punch | Punch | Attack 20 ms: the click through | |
+| Snare – Smack | Classic | Fast release, a little Diode | |
+| Drums – Bus Glue | Bus | 4:1, 30 ms, auto release, 2–3 dB | |
+| Drums – Parallel Smash | Clean | ∞:1, 0.1 ms, Dry 0 dB | |
+| Bass – Even | Opto | Steady low end | |
+| 808 – Control | Mastering | Hold 20 ms (no cycle-following), SC high-pass off | |
+| Mix Bus – Glue | Bus | 2:1, slow, 1–2 dB | |
+| Master – Transparent | Mastering | 1.5:1, knee 24, Lookahead 5 ms, 4× | |
+| EDM – Pump 1/4 | Pumping | Host Sync 1/4, Length 50% | |
+| Sidechain – Duck to Kick | Clean | External, ∞:1, 1 ms / 150 ms (pick the kick's track) | |
+| Upward – Detail | Upward | Room and tails up | |
+| TTM – To The Max | TTM | OTT-style mayhem | |
 
-Presets on phase 2's styles or Character (Op-El, Upward, TTM, Diode) come with phase 2.
+The classic two-stage vocal is two presets in two slots: **FET Catch, then Opto Level** (Elmhirst, Shipley:
+"not unusual"). The assistant's `add_vocal_compression` makes the pair in one step (8.7). Presets on styles
+that come in a later phase (section 7) come with them.
 
 ---
 
 ## 7. Proposed for Vaudio
+
+> **Built (2026-10-02)**, everything in one pass at Théo's request ("a very versatile, all-in-one
+> compressor"): all 21 styles (Pro-C 3's 14, Vox, the six Vintage ones), Character, the side chain EQ, the
+> external key and Host Sync, lookahead, oversampling, Auto Threshold / Release / Gain, Match, the
+> assistant's tools with `add_vocal_compression`. Where the build differs from this plan, found by
+> measuring it (`scripts/pro-c-sheet.ts` draws every style's curve, gain over a phrase and colour):
+>
+> - **A feedback style's detector branches** (one state, the attack rising and the release falling: the
+>   detector's capacitor), solved each sample. The decoupled follower of 5.5, holding the loop's target,
+>   held an onset's first, loud moment and overshot.
+> - **Opto styles run feedforward** at the loop's ratio: a cell (light, fast part, slow part) inside a
+>   loop with a gain up to 30 would ring.
+> - **Upward and Vox's gate hear RMS**: sample by sample, a waveform's zero crossings dip under Upward's
+>   floor and collapsed its boost.
+> - **VCA 160's attack time is set by the step it starts on**, not by what's left of it (which made its last
+>   dB take seconds).
+> - The internal key is the input before Character Pre; drift isn't built; Match measures RMS, not LUFS.
+>   MIDI triggering and 32× are still out (as planned).
+> - Cost, measured: 0.3–0.5% of a core a stereo instance at 48 kHz, 1.6% at 4×, 5.5% at 16×.
 
 ### Decided (to check with Théo)
 
@@ -1050,14 +1170,26 @@ we'd choose, to check:
 - **Vocal** greys out Ratio and Knee (its automatic curve is drawn on the knee display).
 - **Audition** and **Audition Triggering** are live (the `compAudition` command), not saved, never exported,
   as Pro-Q's band solo is.
+- **Vocals first** (from `pro-c-vocals.md`):
+  - **The Vintage group** (section 4), with the units' own knobs (Input into a fixed threshold, Output linked,
+    the ratio buttons, the time dials), the classic vocal chain's two styles (**FET 76**, **Opto 2A**) and the
+    tracking one (**Opto Tube**) in the first build.
+  - **Zero latency on every vocal preset** (Maximum Lookahead and Oversampling off), so a vocal can be
+    recorded through it, after Auto-Tune.
+  - **Match**, a measured make-up learnt once: pressed while playing, it listens to the input's and the
+    output's momentary loudness for up to 10 s (or until stopped) and sets Wet Gain so they're equal, then
+    stops (Bitwig's Learn Make-up Gain, TDR's Equal Loudness Trim). Auto Gain stays Pro-C's static guess,
+    which never pumps; Match is for when the guess is wrong ("auto gain occasionally off", MusicTech on
+    smart:comp 2). A live measurement, so an engine command (`compMatch`), its result one song edit.
+  - **`add_vocal_compression`**, the assistant's set-up of the two-stage vocal in one undo step (8.7).
 
 ### What we'd build first, and what later
 
 | Phase | What |
 | --- | --- |
-| **1. The compressor** | The window (level display, knee display, meters with momentary loudness, Compact), every main control, Auto Threshold / Release / Gain, Lookahead with Maximum Lookahead, Hold, Wet / Dry / Mix, Input / Output; **Pro-C 2's eight styles** (Clean, Classic, Opto, Vocal, Mastering, Bus, Punch, Pumping); the six-band side chain EQ (Pro-Q's code), Level, Audition, Link and the four M/S modes; **Internal, External (the new side chain routing) and Host Sync** triggers; oversampling Off / 2× / 4× / 8×; presets, A/B, Copy / Paste; automation; the assistant's tools; the TypeScript model and the offline tests |
-| **2. Pro-C 3's additions** | Versatile, Smooth, Op-El, Vari-Mu, Upward, TTM; Character (Tube, Diode, Bright, Drive, Pre / Post, drift); 16×; Audition Triggering |
-| **3. If wanted** | The Vintage group (section 4); MIDI triggering once effects can take MIDI (or a rack channel's notes as the key, section 9); a "compress to N dB" helper for the assistant |
+| **1. The compressor** | The window (level display, knee display, meters with momentary loudness, Compact), every main control, Auto Threshold / Release / Gain, Lookahead with Maximum Lookahead, Hold, Wet / Dry / Mix, Input / Output; **Pro-C 2's eight styles** (Clean, Classic, Opto, Vocal, Mastering, Bus, Punch, Pumping) and **the three vocal Vintage styles** (FET 76, Opto 2A, Opto Tube: section 4, with the units' knobs); Match; the six-band side chain EQ (Pro-Q's code), Level, Audition, Link and the four M/S modes; **Internal, External (the new side chain routing) and Host Sync** triggers; oversampling Off / 2× / 4× / 8×; presets (the vocal ones first), A/B, Copy / Paste; automation; the assistant's tools with `add_vocal_compression`; the TypeScript model and the offline tests |
+| **2. Pro-C 3's additions** | Versatile, Smooth, Op-El, Vari-Mu, Upward, TTM; Character (Tube, Diode, Bright, Drive, Pre / Post, drift); 16×; Audition Triggering; **Distress** (its Detector, Audio and British switches; the two distortions) |
+| **3. If wanted** | **VCA 160** and **Diode 609**; MIDI triggering once effects can take MIDI (or a rack channel's notes as the key, section 9); a "compress to N dB" helper for the assistant |
 
 ### Where Vaudio differs
 
@@ -1075,6 +1207,8 @@ we'd choose, to check:
 | Sizes | Compact, Small, Medium, Large, scaling, full screen | The window resizes freely and fills the desktop (double-click its title); Compact is a toggle |
 | Instance List | Pro-Q 4 shows Pro-C 3 | The mixer and the assistant are ours |
 | Internals | Not published | Ours from the literature (section 5); tuned by ear, not measured against Pro-C |
+| Classic units | Two in disguise (Op-El, Vari-Mu), no unit named | A Vintage group of six, after the units vocal engineers name, with their own knobs (section 4) |
+| Make-up | Auto Gain (a static guess) | The same, plus Match (measured once) |
 
 ---
 
@@ -1130,6 +1264,16 @@ interface ProCState {
     sync: { note: string; offset: number; length: number }; // "1/4"…; 0.5 … 2; 0 … 1
   };
   input: number; inputPan: number; output: number; outputPan: number; mix: number; // dB, −1 … 1, 0 … 2
+  vintage: {                            // the Vintage styles' own switches (section 4); ignored by the others
+    link: boolean;                      // Output follows Input
+    allButtons: boolean;                // FET 76
+    limit: boolean; emphasis: number;   // Opto 2A: Compress / Limit; R37, 0 … 10 dB
+    timeMode: "fixed" | "manual" | "fixMan"; // Opto Tube
+    detector: "norm" | "hp" | "band" | "hpBand"; audio: "norm" | "hp" | "dist2" | "dist3" | "dist2hp" | "dist3hp";
+    british: boolean;                   // Distress
+    overEasy: boolean; auto: boolean;   // VCA 160
+    limiter: number | null;             // Diode 609's limiter threshold, dB, or off
+  };
   oversampling: 1 | 2 | 4 | 8 | 16;
   maxLookahead: number;                 // seconds: 0 (Off) or 0.001 … 0.02
 }
@@ -1236,12 +1380,15 @@ use it.
   current level (the knee display's dot), peak meters and momentary loudness (K-weighting per ITU-R BS.1770,
   400 ms). The message thread drains the rings into each transport event (`EngineTransport.proCs[effect]`,
   ~8 points each at 25 events a second). Unwatched Pro-Cs measure nothing.
-- **Commands**: `compWatch { effects }`, `compAudition { effect, mode: "off" | "key" | "triggering" }`.
+- **Commands**: `compWatch { effects }`, `compAudition { effect, mode: "off" | "key" | "triggering" }`,
+  `compMatch { effect }` (Match: measure the input's and output's momentary loudness while playing, up to
+  10 s; the result comes back as an event and the tab commits it as Wet Gain, one undo step).
 
 ### 8.5 Automation
 
 `AutomationTarget { kind: "proC"; effect; control }`, `ProCControl`: `threshold`, `ratio`, `knee`, `range`,
-`attack`, `release`, `hold`, `wet`, `dry`, `mix`, `sidechainLevel`, `drive`, `input`, `output`. Lanes `kind:
+`attack`, `release`, `hold`, `wet`, `dry`, `mix`, `sidechainLevel`, `drive`, `input`, `output`, and Opto 2A's
+`emphasis`. Lanes `kind:
 "comp"` in the engine's units, inside ±64 as every lane must be: dB as dB (Threshold −60 … 0), the ratio as
 `s` (0 … 1), times as `log2` of seconds, Dry as a linear gain, Mix as 0 … 2. With Auto Gain on, a moving
 Threshold, Ratio, Knee, Range or Attack also moves the make-up: `compileSong` derives a `makeup` lane from the
@@ -1277,6 +1424,7 @@ At parity with the window:
 | `update_pro_c` | Any settings by name (`style: "vocal"`, `threshold: -24`, `ratio: 4`…), a preset by name, A/B |
 | `set_pro_c_sidechain` | Trigger (internal / external / sync), the source track (by id, number, "master" or name: `findTrack`), Host Sync's note, offset and length, link and mode; makes the 0% send |
 | `set_pro_c_bands` | The side chain EQ's bands (as `set_pro_q_bands`) |
+| `add_vocal_compression` | The engineers' two-stage vocal in one step, on a track (by `findTrack`): a **FET 76** with Vocal – FET Catch then an **Opto 2A** with Vocal – Opto Level in the first free slots after any Auto-Tune and Pro-Q already there (or the one-stage **Tracking Opto**, or **Rough Mix**, by `kind`), each with its Input set for a target reduction if the track has played (the engine's level, as `compMatch` measures); returns the effect ids. Built from the mixer's own edits, so it's one undo step |
 | `add_mixer_effect` | Takes "Pro-C" |
 | `add_automation` | Its controls ("proc threshold", "proc ratio"…) |
 
@@ -1330,6 +1478,15 @@ sines for the RMS styles. Oversampling off unless said (a square through the hal
 | 22 | **Audition** | Key audition; a +12 dB bell at 1 kHz on the key; pink noise | The output's response | The Pro-Q curve within 0.1 dB at 10 frequencies |
 | 23 | **Style switch** | Clean → Classic while compressing 10 dB | The gain per sample | No step over 0.5 dB between samples during the 30 ms crossfade |
 | 24 | **TTM's bands** (phase 2) | Range 0 (no gain change) | The response | Flat within 0.01 dB (the crossovers sum to an all-pass) |
+| 25 | **FET's threshold moves with the ratio** | FET 76, a fixed Input; sines stepped −40 → 0 dBFS at 4, 8, 12, 20:1 | Where 1 dB of reduction begins | 4.7, 7.9 and 9.1 dB (± 1 dB) above 4:1's (the measured 1176LN) |
+| 26 | **FET's program dependency** | UA's test signal (Berners & Abel): a 10 ms transient, 500 ms low, 2 s at +8 dB, 2 s low | The release after the transient and after the long part | Faster after the transient (≤ 0.6×), as Moore measured on three units |
+| 27 | **FET's distortion follows the release** | 50 Hz and 1 kHz sines, ~7 dB of reduction, 20:1; release 7 and 1 | THD | 50 Hz far above 1 kHz at release 7; at release 1, the 3rd harmonic ≥ 15 dB lower than at 7 |
+| 28 | **Opto 2A against the hardware** | Peak Reduction 40, 70, 100; the fitted compressor of Yu & Fazekas run over the same noise bursts | The two outputs' gain curves | Within 1.5 dB over the bursts (an average fit can't do better: theirs has one release) |
+| 29 | **Opto 2A's memory** | 10 dB of reduction for 300 ms, 1 s, 5 s | The release to 63% | 0.1–0.3 s, 0.3–1.2 s, 0.6–1.6 s (Stroe's cells, Moore's six LA-2As); and the attack: 63% within 40–130 ms, 95% within 0.6–1.2 s |
+| 30 | **Opto Tube's Fix / Man** | A 20 ms burst and a 2 s phrase, Attack (the delay) 100 ms, Release 2 s | The release | After the burst: 50 ms (± 10%); after the phrase: 2 s (± 10%) |
+| 31 | **Distress's Nuke** | A burst into Nuke, Release 5 | The release's shape | Two slopes: 60% gone at τ, then the rest at 8τ (± 10%) |
+| 32 | **VCA 160's timing** | Steps of 10, 20 and 30 dB over the threshold, Auto | Attack to 63%; the release's slope | 15, 5 and 3 ms (± 20%); release a straight line in dB at 120 dB/s (± 5%) |
+| 33 | **Match** | Clean, 6 dB of reduction on pink noise, Auto Gain off, Match pressed for 5 s | Momentary loudness in and out after | Within 0.5 LU |
 
 **End to end** (`e2e/music.spec.ts`): add Pro-C from Built in, its window opens; turning Threshold changes the
 song and undoes; picking a side chain source that doesn't send makes the 0% send (one undo step); a fake
@@ -1355,32 +1512,53 @@ assistant's `update_pro_c` is seen in the window.
 
 ## 9. Open questions for Théo
 
-1. **Scope of the first build**: Pro-C 2's eight styles first (all the vocal ones are among them), Pro-C 3's
-   six and Character after; or all fourteen at once?
-2. **The Vintage group** (section 4): offer 1176-, LA-2A-, SSL- and Distressor-style models at all? If so, with
-   the units' own knobs (Input instead of Threshold, ratio buttons, the 1–7 dials), or Pro-C's knobs with the
-   units' ranges? And under neutral names ("FET", "Opto Tube", "VCA Bus", "Distress") or the units' names?
-3. **The default style**: Clean (Pro-C's "allround" default), or Vocal, since vocals are the main use?
-4. **The side chain key**: the source's sound after its fader at full level whatever its send knob (FL's,
-   proposed), so muting the source silences the key? Or before its fader?
-5. **Picking a source that doesn't send yet** makes the 0% send for you (proposed): fine, or should it only
-   list tracks that already send, as FL's selector does?
-6. **MIDI triggering**: wait for MIDI to reach effects, or let a rack channel's notes be the key now (a "ghost
-   kick" pattern with no audio)?
-7. **Oversampling**: up to 8× first and 16× later is enough? (Pro-C 3 has 32×.)
-8. **Character**: Tube, Diode and Bright are our own designs (Pro-C's aren't published or measured here). Good
-   enough, or wait to tune against Pro-C 3 by ear first?
-9. **The look**: FabFilter's dark look in every theme, as Pro-Q's (proposed), or the app's theme?
-10. **The name** in the picker: "Pro-C", as "Pro-Q"?
-11. **An assistant helper**: should the assistant be able to "compress this vocal by about 4 dB" (it would need
-    the track's level, which the engine could measure on request), beyond setting knobs?
-12. **Audition Triggering**: play what the compression takes away (proposed), or something else?
-13. **Lookahead as an automation target**: leave it out (proposed: moving it moves where the gain lands), as
+The ones that change what's built first are at the top.
+
+1. **What compressors do you reach for on vocals now** (CLA-76, LA-2A, RComp, RVox, Pro-C 2, a Distressor
+   model, FL's Fruity Limiter…), and what do you like or miss in them? The survey says rap and R&B mixes are
+   built on RComp, an 1176 and a CL 1B or LA-2A (`pro-c-vocals.md` 1.2); your answer decides which styles are
+   tuned first and against what.
+2. **The Vintage group** (section 4): build it, and the first three (FET 76, Opto 2A, Opto Tube) in the first
+   build (proposed)? Or Pro-C's own styles first and the units later?
+3. **The units' knobs or Pro-C's** in a Vintage style: Input into a fixed threshold with Output linked, the
+   ratio buttons and the 1–7 dials (proposed: quick, and how every model of them works), or Pro-C's Threshold,
+   Ratio and Knee with the units' ranges?
+4. **Names**: "FET 76", "Opto 2A", "Opto Tube", "Distress", "VCA 160", "Diode 609" (Arturia's way), or the
+   units' own names (trademarks), or names of our own? And the plug-in itself: "Pro-C" in the picker, as
+   "Pro-Q"?
+5. **The default style** when you add it: Clean (Pro-C's "allround" default), Vocal, or a vocal Vintage style?
+6. **Rough Mix in place of OTT**: a quick "finished" vocal preset to write over (Vocal style, 6–8 dB, Tube
+   colour, a little Dry: section 3.3). Worth trying against your Auto-Tune → OTT before we go further?
+7. **`add_vocal_compression`**: the assistant setting up FET → Opto (or one Tracking Opto) on a vocal track in
+   one step. Wanted, and should it set the Input for a target amount (it can measure the track's level)?
+8. **Match** (a measured make-up, learnt once): wanted, or is Auto Gain enough?
+9. **Scope of the first build** otherwise: Pro-C 2's eight styles first, Pro-C 3's six and Character after
+   (proposed); or all at once?
+10. **The side chain key**: the source's sound after its fader at full level whatever its send knob (FL's,
+    proposed), so muting the source silences the key? Or before its fader?
+11. **Picking a source that doesn't send yet** makes the 0% send for you (proposed): fine, or should it only
+    list tracks that already send, as FL's selector does?
+12. **MIDI triggering**: wait for MIDI to reach effects, or let a rack channel's notes be the key now (a "ghost
+    kick" pattern with no audio)?
+13. **Oversampling**: up to 8× first and 16× later is enough? (Pro-C 3 has 32×.)
+14. **Character**: Tube, Diode and Bright are our own designs (Pro-C's aren't published or measured here). Good
+    enough, or wait to tune against Pro-C 3 by ear first?
+15. **The look**: FabFilter's dark look in every theme, as Pro-Q's (proposed), or the app's theme? The Vintage
+    styles in the same window (proposed), or each with a face of its own?
+16. **An assistant helper**: should the assistant be able to "compress this vocal by about 4 dB" (it would need
+    the track's level, which the engine could measure on request), beyond setting knobs? (Item 7 needs the same.)
+17. **Audition Triggering**: play what the compression takes away (proposed), or something else?
+18. **Lookahead as an automation target**: leave it out (proposed: moving it moves where the gain lands), as
     Pro-C allows it?
+19. **A vocal stem to tune against**: one of your dry vocals (and, if you have them, the same through the
+    compressors you like) would make the tuning concrete; never shipped.
 
 ---
 
 ## 10. Sources
+
+The vocal research (the engineers, the classic units, the other compressors, the modelling papers) has its own
+sources: `pro-c-vocals.md` section 5.
 
 **FabFilter**
 

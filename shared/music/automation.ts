@@ -15,6 +15,7 @@ import { PITCH_WHEEL_CONTROL_INFO, controlField } from "./pitch-wheel-presets.ts
 import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE } from "./gross-beat-presets.ts";
 import { EQ_CONTROL_SCALES } from "./pro-q-presets.ts";
 import { OTT_CONTROL_SPECS } from "./ott.ts";
+import { PRO_C_CONTROL_SPECS } from "./pro-c.ts";
 import { PAN_CONTROLS, panControlFraction, panControlValue } from "./panman-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
 import { DEFAULT_LFO, MAX_TEMPO, MIN_TEMPO, PITCH_KNOB_RANGE, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
@@ -201,6 +202,8 @@ export function targetKey(target: AutomationTarget): string {
       return `proq:${target.effect}:${target.band}:${target.control}`;
     case "ott":
       return `ott:${target.effect}:${target.control}`;
+    case "proC":
+      return `proc:${target.effect}:${target.control}`;
     case "panMan":
       return `panman:${target.effect}:${target.control}`;
     case "pitchWheel":
@@ -449,6 +452,20 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
         owner: found && ott ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted OTT",
         exists: !!ott,
         own: ott ? spec.fromControl(spec.get(ott)) : null,
+        toControl: spec.toControl,
+        fromControl: spec.fromControl,
+        format: (v) => spec.format(spec.toControl(v)),
+      };
+    }
+    case "proC": {
+      const found = findEffect(song, target.effect);
+      const proC = found?.effect?.proC ?? null;
+      const spec = PRO_C_CONTROL_SPECS[target.control];
+      return {
+        name: spec.name,
+        owner: found && proC ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Pro-C",
+        exists: !!proC,
+        own: proC ? spec.fromControl(spec.get(proC)) : null,
         toControl: spec.toControl,
         fromControl: spec.fromControl,
         format: (v) => spec.format(spec.toControl(v)),

@@ -15,6 +15,12 @@ import { ModeLights } from "./mode-switch";
 import { EqKnob } from "./pro-q/knob";
 import { ShapeIcon } from "./pro-q/shape-icon";
 import { type OttRow, drawRow, ottColours } from "./ott/draw";
+import { DEFAULT_PRO_C } from "@shared/music/pro-c-presets";
+import { transferCurve } from "./pro-c/display";
+import { drawLevel, readCompPalette } from "./pro-c/draw";
+import { RATIO_DOT_FRACTIONS } from "./pro-c/geometry";
+import { mergePoints } from "./pro-c/history";
+import { ArcSlider, BarSlider, Caption, CompKnob } from "./pro-c/knob";
 import { type DialScene, drawDial, wheelColours } from "./pitch-wheel/draw";
 
 /** A knob with a value of its own (nothing in the song). */
@@ -217,6 +223,74 @@ function OttRows() {
   );
 }
 
+/** A Pro-C control that turns (not on a song): its fraction kept here. */
+function LooseComp({ kind, initial, label, ...rest }: { kind: "knob" | "arc" | "bar"; initial: number; label: string } & Partial<React.ComponentProps<typeof CompKnob>>) {
+  const [value, setValue] = useState(initial);
+  const [pan, setPan] = useState(0.3);
+  const noop = () => {};
+  const control = { value, defaultValue: initial, label, format: (v: number) => `${Math.round(v * 100)}%`, onBegin: noop, onDrag: setValue, onEnd: noop, onCancel: noop, onSet: setValue, disabled: rest.disabled };
+  if (kind === "arc") return <ArcSlider {...control} />;
+  if (kind === "bar") return <div className="flex flex-col items-center gap-1"><BarSlider {...control} length={120} /><Caption>{label}</Caption></div>;
+  return <CompKnob {...control} {...rest} pan={rest.pan ? { ...rest.pan, value: pan, onDrag: setPan, onSet: setPan } : undefined} />;
+}
+
+/** Pro-C's level display and knee display, drawn from a made-up vocal (`pro-c/draw.ts`). */
+function ProCDisplaySample() {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const element = canvas.current;
+    const ctx = element && prepare(element, 560, 240);
+    if (!element || !ctx) return;
+    const points: [number, number, number][] = [];
+    let gr = 0;
+    for (let n = 0; n < 1000; n++) {
+      const t = n * 0.005;
+      const level = Math.max(-60, -36 + 30 * (0.5 + 0.5 * Math.sin(2 * Math.PI * 0.37 * t)) * Math.abs(Math.sin(2 * Math.PI * 2.3 * t)) ** 0.6);
+      const target = Math.max(0, (level + 18) * 0.75);
+      gr += (target - gr) * (target > gr ? 0.5 : 0.04);
+      points.push([level, level - gr + 4, gr]);
+    }
+    const now = performance.now();
+    const history = mergePoints(undefined, { step: 0.005, points, reduction: gr, key: -12, level: -12, threshold: -18, input: [0.3, 0.3], output: [0.25, 0.25], latency: 0 }, now);
+    drawLevel(ctx, {
+      width: 560,
+      height: 240,
+      top: 10,
+      plot: 222,
+      gutter: 30,
+      scale: 36,
+      palette: readCompPalette(element),
+      history,
+      head: now,
+      threshold: -18,
+      bypassed: false,
+      knee: { width: 222, curve: transferCurve(DEFAULT_PRO_C, 36), threshold: -18, live: { level: -12, output: -12 - 4.5 + 4 } },
+    });
+  }, []);
+  return <canvas ref={canvas} className="rounded-sm" style={{ width: 560, height: 240 }} />;
+}
+
+/** Pro-C's controls on its panel's colours, and its display. */
+function CompControls() {
+  const noop = () => {};
+  const pan = { value: 0, label: "Pan", format: (p: number) => String(p), onBegin: noop, onDrag: noop, onEnd: noop, onCancel: noop, onSet: noop };
+  return (
+    <div className="flex flex-col gap-4 rounded-xl bg-[var(--comp-bg-top)] p-4 text-[var(--comp-text)]">
+      <div className="flex flex-wrap items-end gap-6">
+        <LooseComp kind="knob" initial={0.62} label="Threshold" size={60} ring={{ fraction: 0.7, hot: true }} />
+        <LooseComp kind="knob" initial={0.75} label="Ratio" size={60} dots={RATIO_DOT_FRACTIONS.map((d) => ({ fraction: d.fraction, label: String(d.ratio) }))} />
+        <LooseComp kind="knob" initial={0.4} label="Attack" size={60} />
+        <LooseComp kind="knob" initial={0.5} label="Ratio (Vocal)" size={60} disabled />
+        <LooseComp kind="knob" initial={0.5} label="Wet" size={34} bipolar pan={pan} />
+        <LooseComp kind="arc" initial={0.3} label="Knee" />
+        <LooseComp kind="arc" initial={0} label="Lookahead" disabled />
+        <LooseComp kind="bar" initial={0.6} label="Mix" />
+      </div>
+      <ProCDisplaySample />
+    </div>
+  );
+}
+
 /** A Pitch Wheel dial in one state, drawn as its window draws it (`pitch-wheel/draw.ts`). */
 function WheelCard({ label, scene }: { label: string; scene: Omit<DialScene, "size" | "colours" | "now" | "trail"> & { trail?: number[] } }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -256,5 +330,6 @@ export const MUSIC_SECTIONS: GallerySection[] = [
   { id: "music-wheels", title: "Music: Pitch Wheel's dials (at rest, swinging, Multi's voices, closed)", source: "suites/music/pitch-wheel/draw.ts", render: () => <Wheels /> },
   { id: "music-curves", title: "Music: automation curve types (FL's), with points and tension handles", source: "suites/music/automation/draw-curve.ts", render: () => <Curves /> },
   { id: "music-pro-q", title: "Music: Pro-Q's knobs (the dynamic ring on GAIN) and its shapes", source: "suites/music/pro-q/knob.tsx, shape-icon.tsx", render: () => <EqControls /> },
+  { id: "music-pro-c", title: "Music: Pro-C's knobs (the key's ring on Threshold, the ratio's dots, a greyed one, Wet's pan ring), arcs, a bar, and its level and knee display", source: "suites/music/pro-c/knob.tsx, draw.ts", render: () => <CompControls /> },
   { id: "music-ott", title: "Music: OTT's display rows (upward brown, downward green; a band at rest, sounding and hot, its upward off)", source: "suites/music/ott/draw.ts", render: () => <OttRows /> },
 ];

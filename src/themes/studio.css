@@ -135,6 +135,47 @@
   --eq-right: #ff5a5a;
   --eq-mid: #4fd64f;
   --eq-side: #59b8ff;
+  /*
+   * Pro-C's look (`src/suites/music/pro-c/`): FabFilter's dark display in every theme, as Pro-Q's: the input
+   * a dark grey fill, the output a light one with a line, the gain reduction red from the top, the knee
+   * curve white turning green up to the level heard, the knobs' arcs yellow. Canvases read these: plain colours.
+   */
+  --comp-bg-top: #1b1a1f;
+  --comp-bg-bottom: #2b2a30;
+  --comp-bar: #121115;
+  --comp-bottom-bar: #1e1d22;
+  --comp-panel: #29282e;
+  --comp-panel-edge: #3d3c43;
+  --comp-section: #18171b;
+  --comp-grid: #2c2b31;
+  --comp-grid-strong: #3a3940;
+  --comp-label: #8a8890;
+  --comp-text: #d4d2d8;
+  --comp-input: #48474e;
+  --comp-output: #77767d;
+  --comp-output-line: #c9c8ce;
+  --comp-reduction: #f0545a;
+  --comp-threshold: #9a98a0;
+  --comp-knee-bg: #222126;
+  --comp-knee: #e9e8ec;
+  --comp-knee-live: #8cc63f;
+  --comp-arc: #ffcf33;
+  --comp-ring: #7fb23a;
+  --comp-ring-hot: #f3d02f;
+  --comp-meter: #54b53a;
+  --comp-meter-loud: #9ad04a;
+  --comp-meter-hot: #f3d02f;
+  --comp-knob: #2f2e34;
+  --comp-knob-light: #47464d;
+  --comp-knob-dark: #1c1b20;
+  --comp-knob-edge: #5a5960;
+  --comp-character: #ff5a3c;
+  --comp-drive: #c27a3a;
+  --comp-button-top: #46454c;
+  --comp-button-bottom: #2a292f;
+  --comp-button-hover: #57565d;
+  --comp-handle-top: #6d6c73;
+  --comp-handle-bottom: #3a3940;
   --clip-video: #5a86d6;
   --clip-audio: #3b9c7c;
   --clip-graphic: #9a6fd0;

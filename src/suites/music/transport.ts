@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { PlayMode } from "@shared/music/compile";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import type { EngineChannels, EngineCommands, EngineEchoLevels, EngineEffects, EngineEqState, EngineGrossState, EngineMeters, EngineOttState, EnginePanState, EnginePreview, MetronomeSound } from "@shared/music/engine";
+import type { EngineChannels, EngineCommands, EngineEchoLevels, EngineEffects, EngineEqState, EngineGrossState, EngineMeters, EngineOttState, EnginePanState, EnginePreview, EngineProCState, MetronomeSound } from "@shared/music/engine";
 import { musicApi } from "./api";
 import { useMusicPreferences } from "./preferences";
 
@@ -65,6 +65,8 @@ interface TransportState {
   echoBoys: Record<string, EngineEchoLevels>;
   /** Each OTT's bands' levels and gains, as the engine last said (by effect id). */
   otts: Record<string, EngineOttState>;
+  /** Each Pro-C's gain reduction, levels and Match, as the engine last said (by effect id; its display's points are `pro-c/history.ts`'s). */
+  proCs: Record<string, EngineProCState>;
   /** Each watched Pro-Q's spectra and dynamic bands, as the engine last said (by effect id). */
   eq: Record<string, EngineEqState>;
   /** Each PanMan's position and levels, as the engine last said (by effect id). */
@@ -121,6 +123,7 @@ export const NO_EFFECTS: EngineEffects = { loaded: [], loading: [], failed: [] }
 export const NO_GROSS_BEATS: Record<string, EngineGrossState> = {};
 export const NO_ECHO_BOYS: Record<string, EngineEchoLevels> = {};
 export const NO_OTTS: Record<string, EngineOttState> = {};
+export const NO_PRO_CS: Record<string, EngineProCState> = {};
 export const NO_EQ: Record<string, EngineEqState> = {};
 export const NO_PANMEN: Record<string, EnginePanState> = {};
 
@@ -140,6 +143,7 @@ export const useTransport = create<TransportState>((set, get) => {
         grossBeats: status.transport.grossBeats ?? NO_GROSS_BEATS,
         echoBoys: status.transport.echoBoys ?? NO_ECHO_BOYS,
         otts: status.transport.otts ?? NO_OTTS,
+        proCs: status.transport.proCs ?? NO_PRO_CS,
         panMen: status.transport.panMen ?? NO_PANMEN,
         error: null,
       });
@@ -173,6 +177,7 @@ export const useTransport = create<TransportState>((set, get) => {
     grossBeats: NO_GROSS_BEATS,
     echoBoys: NO_ECHO_BOYS,
     otts: NO_OTTS,
+    proCs: NO_PRO_CS,
     eq: NO_EQ,
     panMen: NO_PANMEN,
     filePreview: null,

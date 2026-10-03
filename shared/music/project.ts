@@ -12,24 +12,18 @@ import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import { AUTO_TUNE_PLUGIN, isAutoTune, normalizeAutoTune } from "./auto-tune-presets.ts";
 import { ECHO_BOY_PLUGIN, isEchoBoy, normalizeEchoBoy } from "./echo-boy-presets.ts";
 import { OTT_PLUGIN, isOtt, normalizeOtt } from "./ott-presets.ts";
+import { PRO_C_PLUGIN, isProC, normalizeProC } from "./pro-c-presets.ts";
 import {
   DEFAULT_ANALYZER,
-  DEFAULT_BAND,
   DEFAULT_PRO_Q_STATE,
   EQ_BANDS,
   EQ_DISPLAY_RANGES,
-  EQ_MAX_FREQUENCY,
-  EQ_MAX_GAIN,
   EQ_MAX_GAIN_SCALE,
   EQ_MAX_OUTPUT,
-  EQ_MAX_Q,
-  EQ_MIN_FREQUENCY,
   EQ_MIN_OUTPUT,
-  EQ_MIN_Q,
-  EQ_MIN_THRESHOLD,
   PRO_Q_PLUGIN,
   isProQ,
-  shapeSlopes,
+  normalizeEqBand,
 } from "./pro-q-presets.ts";
 import { PITCH_WHEEL_PLUGIN, isPitchWheel, normalizePitchWheel } from "./pitch-wheel-presets.ts";
 import { GROSS_BEAT_PLUGIN, GROSS_SLOTS, GROSS_SYNCS, GROSS_TICKS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE, isGrossBeat } from "./gross-beat-presets.ts";
@@ -49,20 +43,16 @@ import {
   type CurveType,
   ECHO_CONTROLS,
   OTT_CONTROLS,
+  PRO_C_CONTROLS,
   type OttControl,
+  type ProCControl,
   type EchoControl,
   type Envelope,
   EQ_MODES,
-  EQ_PLACEMENTS,
   EQ_RESOLUTIONS,
-  EQ_SHAPES,
-  type EqBand,
   type EqControl,
   type EqMode,
-  type EqPlacement,
   type EqResolution,
-  type EqShape,
-  type EqSlope,
   type ProQ,
   type ProQAnalyzer,
   type ProQState,
@@ -506,6 +496,7 @@ function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null 
   if (isEchoBoy(plugin)) return { ...effect, plugin: ECHO_BOY_PLUGIN, echoBoy: normalizeEchoBoy(input.echoBoy) };
   if (isProQ(plugin)) return { ...effect, plugin: PRO_Q_PLUGIN, proQ: normalizeProQ(input.proQ) };
   if (isOtt(plugin)) return { ...effect, plugin: OTT_PLUGIN, ott: normalizeOtt(input.ott) };
+  if (isProC(plugin)) return { ...effect, plugin: PRO_C_PLUGIN, proC: normalizeProC(input.proC) };
   if (isPanMan(plugin)) return { ...effect, plugin: PANMAN_PLUGIN, panMan: normalizePanMan(input.panMan) };
   if (isPitchWheel(plugin)) return { ...effect, plugin: PITCH_WHEEL_PLUGIN, pitchWheel: normalizePitchWheel(input.pitchWheel) };
   return effect;
@@ -516,34 +507,11 @@ export const DEFAULT_PRO_Q: ProQ = { ...DEFAULT_PRO_Q_STATE, ab: "a", other: nul
 
 const oneOf = <T>(list: readonly T[], v: unknown, fallback: T): T => (list.includes(v as T) ? (v as T) : fallback);
 
-/** A Pro-Q band, or null if it isn't one. Its number must be free (`seen`). */
-function normalizeBand(raw: unknown, seen: Set<number>): EqBand | null {
-  if (!isObject(raw) || !Number.isInteger(raw.id) || (raw.id as number) < 1 || (raw.id as number) > EQ_BANDS || seen.has(raw.id as number)) return null;
-  const id = raw.id as number;
-  seen.add(id);
-  const d = DEFAULT_BAND;
-  const shape: EqShape = oneOf(EQ_SHAPES, raw.shape, d.shape);
-  const slopes = shapeSlopes(shape);
-  return {
-    id,
-    enabled: raw.enabled !== false,
-    shape,
-    frequency: number(raw.frequency, EQ_MIN_FREQUENCY, EQ_MAX_FREQUENCY, d.frequency),
-    gain: number(raw.gain, -EQ_MAX_GAIN, EQ_MAX_GAIN, d.gain),
-    q: number(raw.q, EQ_MIN_Q, EQ_MAX_Q, d.q),
-    slope: slopes.includes(raw.slope as EqSlope) ? (raw.slope as EqSlope) : slopes.includes(d.slope) ? d.slope : slopes[0],
-    placement: oneOf<EqPlacement>(EQ_PLACEMENTS, raw.placement, d.placement),
-    range: number(raw.range, -EQ_MAX_GAIN, EQ_MAX_GAIN, 0),
-    dynamics: raw.dynamics !== false,
-    threshold: isFiniteNumber(raw.threshold) ? clamp(raw.threshold, EQ_MIN_THRESHOLD, 0) : null,
-  };
-}
-
 /** What A/B swaps, from anything: missing or wrong parts are the defaults. */
 function normalizeProQState(input: Record<string, unknown>): ProQState {
   const d = DEFAULT_PRO_Q_STATE;
   const seen = new Set<number>();
-  const bands = (Array.isArray(input.bands) ? input.bands : []).flatMap((b) => normalizeBand(b, seen) ?? []).slice(0, EQ_BANDS);
+  const bands = (Array.isArray(input.bands) ? input.bands : []).flatMap((b) => normalizeEqBand(b, seen) ?? []).slice(0, EQ_BANDS);
   return {
     bands,
     mode: oneOf<EqMode>(EQ_MODES, input.mode, d.mode),
@@ -766,6 +734,8 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
       return isId(raw.effect) && ECHO_CONTROLS.includes(raw.control as EchoControl) ? { kind: "echoBoy", effect: raw.effect, control: raw.control as EchoControl } : null;
     case "ott":
       return isId(raw.effect) && OTT_CONTROLS.includes(raw.control as OttControl) ? { kind: "ott", effect: raw.effect, control: raw.control as OttControl } : null;
+    case "proC":
+      return isId(raw.effect) && PRO_C_CONTROLS.includes(raw.control as ProCControl) ? { kind: "proC", effect: raw.effect, control: raw.control as ProCControl } : null;
     case "panMan":
       return isId(raw.effect) && PAN_CONTROL_IDS.includes(raw.control as PanControl) ? { kind: "panMan", effect: raw.effect, control: raw.control as PanControl } : null;
     case "pitchWheel":

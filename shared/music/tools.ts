@@ -7,6 +7,8 @@ import { CHOP_PATTERNS } from "./chop.ts";
 import { EXPORT_FORMATS } from "./export.ts";
 import { ECHO_TOOL_CONTROL_NAMES } from "./echo-boy-presets.ts";
 import { OTT_TOOL_CONTROL_NAMES } from "./ott-presets.ts";
+import { PRO_C_PRESETS, PRO_C_TOOL_CONTROL_NAMES } from "./pro-c-presets.ts";
+import { PRO_C_AUDIO_MODES, PRO_C_CHARACTERS, PRO_C_DETECTORS, PRO_C_LINK_MODES, PRO_C_RECOVERIES, PRO_C_STYLES, PRO_C_TIME_MODES } from "./types.ts";
 import { PANMAN_PRESETS, PAN_CURVES, PAN_MODES, PAN_RHYTHMS, PAN_STYLES } from "./panman-presets.ts";
 import { CURVE_TYPES, STRETCH_MODES } from "./types.ts";
 
@@ -41,6 +43,28 @@ const ottRef = {
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
+/** Which Pro-C a tool acts on. */
+const proCRef = {
+  effect: str("The Pro-C: its effect id (from get_mixer or get_pro_c). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
+/** A side chain band, as set_pro_c_bands takes one (Pro-Q's fields, no dynamics). */
+const proCBand = obj(
+  {
+    band: int("The band's number (1 to 6) to change or remove; none to add one."),
+    remove: bool("Take the band out."),
+    shape: oneOf(["bell", "lowShelf", "lowCut", "highShelf", "highCut", "notch", "bandPass", "tiltShelf", "flatTilt"], "Its shape (Pro-Q's)."),
+    frequency: num("Hz, 10 to 30000."),
+    gain: num("dB, -30 to 30 (bells, shelves, tilts)."),
+    q: num("0.025 to 40; 1 is the default width."),
+    slope: { description: "dB per octave, 6 to 96, or \"brickwall\" (cuts only).", anyOf: [{ type: "integer" }, { type: "string" }] },
+    placement: oneOf(["stereo", "mid", "side"], "What it works on in the key."),
+    enabled: bool("On, or bypassed."),
+  },
+  [],
+  "A side chain band.",
+);
 /** Which EchoBoy a tool acts on. */
 const echoRef = {
   effect: str("The EchoBoy: its effect id (from get_mixer or get_echo_boy). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
@@ -109,6 +133,7 @@ const controlFields = {
       ...["eq frequency", "eq gain", "eq q", "eq range", "eq output", "eq pan", "eq gain scale"],
       ...ECHO_TOOL_CONTROL_NAMES,
       ...OTT_TOOL_CONTROL_NAMES,
+      ...PRO_C_TOOL_CONTROL_NAMES,
       ...["panman offset", "panman width", "panman rate", "panman input", "panman output"],
       ...["panman smoothing", "panman feel", "panman groove", "panman trigger", "panman divider", "panman cutoff", "panman filter gain", "panman threshold", "panman attack", "panman release", "panman offset mod", "panman width mod", "panman rate mod"],
       ...["wheel pitch", "wheel timbre", "wheel pitch gravity", "wheel pitch inertia", "wheel pitch smooth", "wheel timbre gravity", "wheel timbre inertia", "wheel timbre smooth"],
@@ -127,7 +152,8 @@ const controlFields = {
       "and decay, mid res, diffusion, diffusion size, wobble depth, rate and sync, decay sat, out sat, in their knobs' units); " +
       "or a Pro-Q's (the effect in `track`'s `slot`, \"eq ...\"): a band's (`band`) frequency (values in Hz: a filter sweep), gain or " +
       "dynamic range (dB) or Q, or its output (dB), pan (-1 to 1) or gain scale (0 to 2, 1 is 100%); or an OTT's (\"ott ...\"): depth 0 to 1, time 0 to 10 (1 is 100%), in and out gain dB, " +
-      "upward and downward 0 to 2 (1 is 100%), a band's threshold 0 to 2 or gain dB; or a PanMan's (\"panman ...\": " +
+      "upward and downward 0 to 2 (1 is 100%), a band's threshold 0 to 2 or gain dB; or a Pro-C's (\"pro-c ...\"): threshold dB -60 to 0, ratio 1 to 100 (100: ∞:1), knee and range dB, " +
+      "attack, release and hold in milliseconds, wet, dry, side chain level, input and output in dB, mix 0 to 2 (1 is 100%), drive 0 to 1, emphasis dB 0 to 10 (Opto 2A); or a PanMan's (\"panman ...\": " +
       "offset in degrees, -105 left to 105 right, width in degrees 0 to 210, LFO rate in Hz 0.01 to 10, input and output in dB -24 to 24, " +
       "smoothing 0 to 1, feel and groove -1 to 1, trigger and threshold dB -40 to 0, divider 1 to 12, cutoff Hz, filter gain dB, attack and " +
       "release seconds, offset mod and width mod degrees, rate mod octaves); or a Pitch Wheel's (\"wheel ...\": " +
@@ -743,8 +769,10 @@ export const MUSIC_TOOLS = [
       "update_pitch_wheel), or " +
       "an effect plugin installed on this computer (list_plugins with kind \"effect\"), whose settings are its own, in its window, which the " +
       "user opens from the mixer: you can't set them. OTT (plugin \"OTT\": Xfer's multiband upward/downward compressor, the squashed, " +
-      "bright, loud sound; set with update_ott) is ours as well.",
-    inputSchema: obj({ track: mixerTrack(), plugin: str('"Pro-Q", "OTT", "EchoBoy", "Gross Beat", "Auto-Tune", "PanMan", "Pitch Wheel", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
+      "bright, loud sound; set with update_ott) is ours as well, and so is Pro-C (plugin \"Pro-C\": FabFilter's Pro-C 3 compressor, ours, " +
+      "with 21 styles: Pro-C's own, Vox (one-knob vocal, after Waves' RVox) and a Vintage group after the 1176, LA-2A, CL 1B, Distressor, dbx 160 and " +
+      "Neve 33609; a side chain EQ, an external side chain, Host Sync pumping; set with update_pro_c; add_vocal_compression sets up a vocal's compressors in one step).",
+    inputSchema: obj({ track: mixerTrack(), plugin: str('"Pro-C", "Pro-Q", "OTT", "EchoBoy", "Gross Beat", "Auto-Tune", "PanMan", "Pitch Wheel", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
   }),
   tool({
     name: "update_mixer_effect",
@@ -907,6 +935,130 @@ export const MUSIC_TOOLS = [
         "Bands to change.",
       ),
     }),
+  }),
+  tool({
+    name: "get_pro_c",
+    title: "Read a Pro-C",
+    kind: "look",
+    description:
+      "A Pro-C (FabFilter's Pro-C 3 compressor, ours, in a mixer track's slot): its style and what it is, every knob in its units (a " +
+      "Vintage style's Input, ratio buttons and time dials too), its static curve (what comes out for a few levels in), its side chain " +
+      "(trigger, source track, EQ bands, link), its latency, and while the song plays the gain reduction now and the key's level; the styles and presets.",
+    inputSchema: obj({ ...proCRef }),
+  }),
+  tool({
+    name: "update_pro_c",
+    title: "Change a Pro-C",
+    kind: "edit",
+    description:
+      "Set a Pro-C's style, knobs or a preset. Styles: clean, versatile, smooth, punch, upward (turns quiet sound up), ttm (three-band " +
+      "OTT-style), opEl (opto tube), variMu, classic (feedback), opto, vocal (automatic knee and ratio: just set the threshold), vox (one " +
+      "fader after Waves' RVox: threshold is its Compression fader, with options.gate and options.ceiling), mastering, bus (the SSL bus), " +
+      "pumping, and the Vintage units: fet (the 1176: ratios 4, 8, 12, 20, options.allButtons; attack 0.02 to 0.8 ms, release 50 to 1100 ms), " +
+      "opto2a (the LA-2A: threshold is -0.4 × its Peak Reduction 0 to 100; options.limit, options.emphasis), optoTube (the CL 1B: ratio 2 to " +
+      "10, options.timeMode fixed / manual / fixMan), distress (the Distressor: ratios 1, 2, 3, 4, 6, 10 (opto), 20, Nuke (100); " +
+      "options.detector, options.audio for Dist 2 / Dist 3, options.british), vca160 (the dbx 160: options.overEasy, options.auto), " +
+      "diode609 (the Neve 33609: ratios 1.5 to 6, attack 3 or 6 ms, release 100, 400, 800, 1500 ms or options.recovery a1 / a2, " +
+      "options.limiter). A Vintage style's threshold is its Input's negative (Input 22 is threshold -22): more Input compresses harder, " +
+      "and with options.link (on) its output follows so it doesn't get louder. Typical vocal: 3 to 6 dB of reduction on the loud words; a " +
+      "two-stage vocal is fet (4:1, attack 0.23 ms, release 50 ms) then opto2a; parallel crush: dry 0 and wet -12 with a heavy setting. " +
+      "Times in milliseconds. Returns its curve and settings.",
+    inputSchema: obj({
+      ...proCRef,
+      preset: str(`A preset's name (it sets everything but the window): ${PRO_C_PRESETS.map((p) => p.name).join(", ")}.`),
+      style: oneOf(PRO_C_STYLES, "Its style."),
+      threshold: num("dB, -60 to 0 (a Vintage style: minus its Input)."),
+      ratio: num("1 to 100 (100 and above: ∞:1)."),
+      knee: num("dB, 0 (hard) to 72 (soft)."),
+      range: num("dB, 0 to 60: the most it turns down."),
+      attack: num("Milliseconds, 0.005 to 250."),
+      release: num("Milliseconds, 5 to 5000."),
+      hold: num("Milliseconds, 0 to 500."),
+      lookahead: num("Milliseconds, 0 to the maximum lookahead (it's set to at least this)."),
+      maxLookahead: num("Milliseconds, 0 (Off: no latency) or 1 to 20: its latency."),
+      autoRelease: bool("Auto Release."),
+      autoThreshold: bool("Auto Threshold: the threshold follows the take's level."),
+      autoGain: bool("Auto Gain: make-up worked out from the settings."),
+      wet: num("Wet Gain (make-up), dB, -36 to 36."),
+      dry: { description: "Dry Gain: dB of the uncompressed sound added back (parallel compression), -36 to 36, or \"off\".", anyOf: [{ type: "number" }, { type: "string" }] },
+      mix: num("0 to 2: how much of the gain change is heard (1 is 100%)."),
+      input: num("Input level, dB, -36 to 36 (before everything)."),
+      output: num("Output level, dB, -36 to 36 (after everything)."),
+      oversampling: { type: "integer", enum: [1, 2, 4, 8, 16], description: "Oversampling (1: off). Adds latency." },
+      character: obj({ mode: oneOf(PRO_C_CHARACTERS, "Saturation: off, tube, diode, bright."), drive: num("0 to 1."), post: bool("After the compression (true, the default) or before.") }, [], "Pro-C 3's Character."),
+      options: obj(
+        {
+          link: bool("Vintage: Output follows Input."),
+          allButtons: bool("FET 76: all buttons in."),
+          limit: bool("Opto 2A: Limit rather than Compress."),
+          emphasis: num("Opto 2A: HF emphasis, dB 0 to 10."),
+          timeMode: oneOf(PRO_C_TIME_MODES, "Opto Tube's time mode."),
+          detector: oneOf(PRO_C_DETECTORS, "Distress's detector: norm, hp (stops plosives), band (6 kHz: reacts to harshness), hpBand."),
+          audio: oneOf(PRO_C_AUDIO_MODES, "Distress's audio path: norm, hp, dist2 (2nd harmonic warmth), dist2hp, dist3 (tape-like), dist3hp."),
+          british: bool("Distress's British Mode (the 1176's all buttons)."),
+          overEasy: bool("VCA 160: Over Easy (soft knee)."),
+          auto: bool("VCA 160: Auto (its own program-dependent times; the knobs unused)."),
+          recovery: oneOf(PRO_C_RECOVERIES, "Diode 609: manual, a1 (100 ms to 2 s) or a2 (50 ms to 5 s)."),
+          limiter: { description: "Diode 609's limiter threshold, dB -24 to 0, or \"off\".", anyOf: [{ type: "number" }, { type: "string" }] },
+          gate: { description: "Vox's gate threshold, dB -90 to 0, or \"off\".", anyOf: [{ type: "number" }, { type: "string" }] },
+          ceiling: num("Vox's output ceiling, dB -24 to 0."),
+        },
+        [],
+        "The style's own switches.",
+      ),
+      ab: oneOf(["switch", "copy"], "A/B: switch to the other state, or copy this one there."),
+    }),
+  }),
+  tool({
+    name: "set_pro_c_sidechain",
+    title: "Set a Pro-C's side chain",
+    kind: "edit",
+    description:
+      "What a Pro-C listens to and how. trigger: internal (its own input), external (another mixer track's sound after its fader: " +
+      "ducking the bass under the kick, a vocal ducking the beat; give `source`, and if that track doesn't send here a 0% send is made, " +
+      "\"sidechain only\", as FL does), or sync (pulses on the song's beat: pumping with no kick; `note` 1 to 32 as 1/n, `offset` 0.5 to 2 " +
+      "for dotted / triplet feels, `length` 0 to 1 of the period). level: dB into the detector. link: 0 to 2 (0 unlinked, 1 linked, past 1 " +
+      "towards linkMode: mid, side, midToSide, sideToMid).",
+    inputSchema: obj({
+      ...proCRef,
+      trigger: oneOf(["internal", "external", "sync"], "What triggers it."),
+      source: mixerTrack("External: the track whose sound is the key"),
+      level: num("dB, -36 to 36."),
+      link: num("0 to 2."),
+      linkMode: oneOf(PRO_C_LINK_MODES, "Past 100% link."),
+      note: { type: "integer", enum: [1, 2, 4, 8, 16, 32], description: "Host Sync: the period as a note value (4 is a quarter note)." },
+      offset: num("Host Sync: 0.5 to 2 times the note."),
+      length: num("Host Sync: the pulse's length, 0.05 to 1 of the period."),
+    }),
+  }),
+  tool({
+    name: "set_pro_c_bands",
+    title: "Shape a Pro-C's side chain",
+    kind: "edit",
+    description:
+      "Add, change or remove a Pro-C's side chain EQ bands (6 at most): what the detector hears, not what's heard. A high-pass at 80 to " +
+      "150 Hz stops a vocal's plosives and the low end triggering it; a bell boost at 5 to 8 kHz makes it react to sibilance (a wide " +
+      "de-esser); a cut makes it ignore a range. A band without `band` is added; with it, only what's given changes, or `remove` takes it out.",
+    inputSchema: obj({ ...proCRef, clear: bool("Remove every band first."), bands: arr(proCBand, "Bands to add, change or remove.") }),
+  }),
+  tool({
+    name: "add_vocal_compression",
+    title: "Compress a vocal",
+    kind: "edit",
+    description:
+      "Set up a vocal track's compression the way mix engineers do, in one step, in its first free effect slots (after an Auto-Tune or Pro-Q " +
+      "already there). kind: twoStage (the default: FET 76 catching the peaks at 4:1, attack 3, release 7, then Opto 2A levelling the " +
+      "phrase: the 1176-into-LA-2A chain), tracking (one Opto Tube, the CL 1B rap and R&B vocals are recorded through), rough (one Vocal " +
+      "style: the quick dense vocal to write over, in place of a heavy OTT), vox (Waves RVox's one-fader way), or parallel (the two-stage " +
+      "chain plus FET all buttons crushing under it). `amount` is how hard: light, medium (the default) or heavy. Returns the effects' ids.",
+    inputSchema: obj(
+      {
+        track: mixerTrack("The vocal's mixer track"),
+        kind: oneOf(["twoStage", "tracking", "rough", "vox", "parallel"], "Which chain."),
+        amount: oneOf(["light", "medium", "heavy"], "How hard."),
+      },
+      ["track"],
+    ),
   }),
   tool({
     name: "get_echo_boy",

@@ -9,6 +9,7 @@ import { ECHO_BOY_PLUGIN } from "@shared/music/echo-boy-presets";
 import { GROSS_BEAT_PLUGIN } from "@shared/music/gross-beat-presets";
 import { PRO_Q_PLUGIN } from "@shared/music/pro-q-presets";
 import { OTT_PLUGIN } from "@shared/music/ott-presets";
+import { PRO_C_PLUGIN } from "@shared/music/pro-c-presets";
 import { PANMAN_PLUGIN } from "@shared/music/panman-presets";
 import { PITCH_WHEEL_PLUGIN } from "@shared/music/pitch-wheel-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
@@ -86,6 +87,7 @@ import { describeEchoBoy, updateEchoBoyTool } from "./echo-boy/tool-edits";
 import { describeGrossBeat, setGrossBeatSlotTool, updateGrossBeatTool } from "./gross-beat/tool-edits";
 import { describeProQ, setProQBandsTool, updateProQTool } from "./pro-q/tool-edits";
 import { describeOtt, updateOttTool } from "./ott/tool-edits";
+import { addVocalCompressionTool, describeProC, findProCRef, setProCBandsTool, setProCSidechainTool, updateProCTool } from "./pro-c/tool-edits";
 import { describePanMan, findPan, setPanPatternTool, updatePanManTool } from "./panman/tool-edits";
 import { useBrowser } from "./browser/store";
 import {
@@ -422,6 +424,15 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           "It has no bands yet (the sound as it is): set_pro_q_bands shapes it, update_pro_q sets its mode and output, get_pro_q reads it.",
       );
     }
+    if (wanted === PRO_C_PLUGIN.name.toLowerCase() || wanted === PRO_C_PLUGIN.id || wanted === "proc" || wanted === "pro c" || wanted === "pro-c 3" || wanted === "compressor") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, PRO_C_PLUGIN, id));
+      return textResult(
+        `Put Pro-C (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}, at its default: the Vocal style, -18 dB, a side chain high-pass at 120 Hz. ` +
+          "update_pro_c sets its style and knobs (or a preset), set_pro_c_sidechain and set_pro_c_bands its side chain, get_pro_c reads it.",
+      );
+    }
     if (wanted === OTT_PLUGIN.name.toLowerCase() || wanted === OTT_PLUGIN.id || wanted === "xfer ott") {
       const replaced = track.effects[slot];
       const id = createId("fx");
@@ -496,6 +507,16 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(describeOtt((await targetOf(ctx)).song, input));
   },
   update_ott: edit((song, input) => updateOttTool(song, input)),
+  async get_pro_c(input, ctx) {
+    const song = (await targetOf(ctx)).song;
+    // What it's doing now, if the engine says (it says it to the open song's tab while it plays).
+    const live = useTransport.getState().playing ? useTransport.getState().proCs[findProCRef(song, input).effect.id] : null;
+    return textResult(describeProC(song, input, live));
+  },
+  update_pro_c: edit((song, input) => updateProCTool(song, input)),
+  set_pro_c_sidechain: edit((song, input) => setProCSidechainTool(song, input)),
+  set_pro_c_bands: edit((song, input) => setProCBandsTool(song, input)),
+  add_vocal_compression: edit((song, input) => addVocalCompressionTool(song, input)),
   async get_echo_boy(input, ctx) {
     return textResult(describeEchoBoy((await targetOf(ctx)).song, input));
   },

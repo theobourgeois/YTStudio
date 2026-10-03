@@ -209,7 +209,7 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, ott::Registry& otts,
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, ott::Registry& otts, comp::Registry& procs,
                                   panman::Registry& panMen, wheel::Registry& pitchWheels, juce::StringArray& unreadable, int capacity, double sampleRate, bool keepOnly)
 {
     auto song = std::make_unique<Song>();
@@ -368,7 +368,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     std::stable_sort (song->audioClips.begin(), song->audioClips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.tick < b.tick; });
 
     // The mixer's tracks. A song without them (or with none) has a master alone, as it was before.
-    juce::StringArray effectIds, grossIds, tuneIds, echoIds, eqIds, ottIds, panIds, wheelIds;
+    juce::StringArray effectIds, grossIds, tuneIds, echoIds, eqIds, ottIds, procIds, panIds, wheelIds;
     if (const auto* list = json["tracks"].getArray())
         for (const auto& item : *list)
         {
@@ -452,6 +452,16 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.ottSettings = ott::Settings::parse (slot["ott"], capacity);
                         effect.ott = otts.get (id, sampleRate);
                         ottIds.add (id);
+                        track.effects.push_back (std::move (effect));
+                        continue;
+                    }
+                    // And Pro-C: its delays, detectors and gain are kept across songs, its filters and oversamplers made here.
+                    if (plugin["id"].toString() == "vaudio:pro-c")
+                    {
+                        Track::Effect effect { id, nullptr, (bool) slot["enabled"], (float) number (slot["mix"], 1, 0, 1) };
+                        effect.comp = procs.get (id, sampleRate, capacity);
+                        effect.compSettings = comp::Settings::parse (slot["proC"], capacity, *effect.comp);
+                        procIds.add (id);
                         track.effects.push_back (std::move (effect));
                         continue;
                     }
@@ -554,6 +564,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
         echoBoys.keepOnly (echoIds);
         eqs.keepOnly (eqIds);
         otts.keepOnly (ottIds);
+        procs.keepOnly (procIds);
         panMen.keepOnly (panIds);
     }
 
@@ -734,6 +745,23 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.control = control;
             track.effects[(size_t) lane.index].ottSettings->get ((ott::Lane) control, lane.base.data(), lane.size);
         }
+        else if (kind == "comp")
+        {
+            // A Pro-C's lane (`ProCLane`): one value, or two (a slope and its loop gain; a gain each side).
+            lane.kind = Lane::Kind::comp;
+            lane.track = (int) number (target["track"], -1, -1, 1e6);
+            if (lane.track < 0 || lane.track >= (int) song.tracks.size())
+                continue;
+            const auto& track = song.tracks[(size_t) lane.track];
+            lane.index = (int) number (target["effect"], -1, -1, 1e6);
+            if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].compSettings == nullptr)
+                continue;
+            const auto control = juce::StringArray { "threshold", "slope", "knee", "range", "attack", "release", "hold", "makeup", "dry", "mix", "level", "drive", "input", "output", "emphasis" }.indexOf (target["control"].toString());
+            if (control < 0)
+                continue;
+            lane.control = control;
+            track.effects[(size_t) lane.index].compSettings->get ((comp::Lane) control, lane.base.data(), lane.size);
+        }
         else if (kind == "panman")
         {
             // A PanMan's offset, width, rate, input or output, in its own units.
@@ -798,7 +826,7 @@ void Song::parseLanes (Song& song, const juce::var& json)
         for (const auto& tick : *ticks)
             lane.ticks.push_back (last = juce::jmax (last, number (tick, last, 0, 1e9)));
         // (An EchoBoy's cuts are in Hz, an Auto-Tune's A4 too, an OTT's knees down to -200 dB.)
-        const auto most = lane.kind == Lane::Kind::echo ? 1e5 : lane.kind == Lane::Kind::ott || lane.kind == Lane::Kind::tune ? 1e3 : 64.0;
+        const auto most = lane.kind == Lane::Kind::echo ? 1e5 : lane.kind == Lane::Kind::ott || lane.kind == Lane::Kind::tune || lane.kind == Lane::Kind::comp ? 1e3 : 64.0;
         for (const auto& value : *values)
             lane.values.push_back ((float) number (value, 0, -most, most));
         song.lanes.push_back (std::move (lane));
@@ -824,6 +852,19 @@ void Song::compensate (double sampleRate)
             arrival[t] = 0;
         auto delay = (int) std::lround (track.latencyOffsetMs * sampleRate / 1000.0);
         for (const auto& effect : track.effects)
+        {
+            // A Pro-C keyed from another track: only one that runs first and sends here; its sound waits to
+            // line up with this one's where the Pro-C is (what's reached it, and the effects before it).
+            if (effect.compSettings != nullptr && effect.compSettings->source == comp::Source::external)
+            {
+                auto& settings = *effect.compSettings;
+                const auto key = settings.key;
+                const auto sends = key >= 0 && key < (int) t && tracks[(size_t) key].buffer >= 0
+                                   && std::any_of (tracks[(size_t) key].sends.begin(), tracks[(size_t) key].sends.end(), [t] (const Track::Send& s) { return s.track == (int) t; });
+                if (! sends)
+                    settings.key = -1;
+                settings.keyDelay = sends ? juce::jmax (0, arrival[t] + delay - out[(size_t) key]) : 0;
+            }
             if (effect.enabled && effect.plugin != nullptr)
                 delay += effect.plugin->instance->getLatencySamples();
             else if (effect.enabled && effect.tune != nullptr)
@@ -832,6 +873,9 @@ void Song::compensate (double sampleRate)
                 delay += effect.eqSettings->latency;
             else if (effect.enabled && effect.wheel != nullptr)
                 delay += effect.wheel->latency();
+            else if (effect.enabled && effect.compSettings != nullptr)
+                delay += effect.compSettings->latency;
+        }
         out[t] = arrival[t] + delay;
         tracks[t].latency = out[t];
         for (const auto& send : track.sends)

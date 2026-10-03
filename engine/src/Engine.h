@@ -108,6 +108,7 @@ private:
     eq::Registry eqs;
     /** Its OTTs' sounds, likewise. */
     ott::Registry otts;
+    comp::Registry procs;
     /** Its PanMen's sounds, likewise. */
     panman::Registry panMen;
     /** Its Pitch Wheels' sounds, by effect id. */

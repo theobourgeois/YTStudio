@@ -11,6 +11,7 @@
 #include "PanMan.h"
 #include "ProQ.h"
 #include "Ott.h"
+#include "ProC.h"
 #include "PitchWheel.h"
 #include "Host.h"
 #include "Resampling.h"
@@ -206,6 +207,9 @@ struct Song
             /** An OTT (ours too): its sound, kept across songs, and this song's settings for it. */
             std::shared_ptr<ott::State> ott;
             std::shared_ptr<ott::Settings> ottSettings;
+            /** A Pro-C (ours too): its sound, kept across songs, and this song's settings for it (its key's track and delay in them). */
+            std::shared_ptr<comp::State> comp;
+            std::shared_ptr<comp::Settings> compSettings;
             /** A PanMan (ours too): its sound's state, kept across songs, and this song's settings for it. */
             std::shared_ptr<panman::State> pan;
             std::shared_ptr<panman::Settings> panSettings;
@@ -242,7 +246,7 @@ struct Song
      */
     struct Lane
     {
-        enum class Kind { channel, pitch, track, send, mix, gross, tune, echo, eq, ott, panman, wheel, param };
+        enum class Kind { channel, pitch, track, send, mix, gross, tune, echo, eq, ott, comp, panman, wheel, param };
         Kind kind = Kind::channel;
         /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix, attack, release, tension), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`), an OTT's (`ott::Lane`), a Pitch Wheel's (`PitchWheelControl`, by index), or a PanMan's (`PanControl`: offset, width, rate, input, output). */
         int channel = -1, track = -1, index = -1, control = 0;
@@ -368,7 +372,7 @@ struct Song
      * sample couldn't be read. Unless `keepOnly` is false (a copy for the export), the hosts let go of the
      * plugins the song doesn't have.
      */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, ott::Registry& otts,
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, ott::Registry& otts, comp::Registry& procs,
                                         panman::Registry& panMen, wheel::Registry& pitchWheels, juce::StringArray& unreadable, int capacity, double sampleRate, bool keepOnly = true);
 
     /**
