@@ -916,6 +916,7 @@ export const MUSIC_TOOLS = [
             range: num("dB, -30 to 30: a dynamic band's movement when loud (0: static)."),
             threshold: { description: 'A dynamic band\'s threshold in dB (-60 to 0), or "auto" (the default: it follows the level in its range).', anyOf: [{ type: "number" }, { type: "string" }] },
             dynamics: bool("A dynamic band's dynamics on (default) or bypassed."),
+            external: bool("External side chain: a dynamic band with a threshold of its own triggers on the slot's key (set_sidechain: another track's sound, whole) rather than its own range. Ducking the bass's lows under the kick: a low shelf, range -6, threshold -30, external."),
             enabled: bool("On (default), or bypassed."),
           },
           [],

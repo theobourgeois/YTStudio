@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { PiCaretLeftFill, PiCaretRightFill, PiGearSix, PiPower, PiScissors, PiX } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
-import { PLACEMENT_NAMES, SHAPE_NAMES, dragBands, editProQ, frequencyText, gainText, parseTyped, qText, setShape, slopeText, updateBands } from "@shared/music/pro-q";
+import { PLACEMENT_NAMES, SHAPE_NAMES, dragBands, editBands, editProQ, frequencyText, gainText, parseTyped, qText, setShape, slopeText, updateBands } from "@shared/music/pro-q";
 import { EQ_CONTROL_SCALES, EQ_MAX_GAIN, EQ_MAX_Q, EQ_MIN_Q, EQ_MIN_THRESHOLD, canBeDynamic, hasGain, shapeSlopes, usesQ } from "@shared/music/pro-q-presets";
 import { EQ_PLACEMENTS, EQ_SHAPES, type EqBand, type EqSlope, type MusicProject, type ProQ } from "@shared/music/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -152,6 +152,20 @@ export function BandControls({ effectId, pq, view, bottom }: { effectId: string;
                 >
                   {band.threshold === null ? "Auto" : `${band.threshold.toFixed(1)}`}
                 </button>
+                {/* Pro-Q 3's External Side Chain: only with a threshold of its own. */}
+                {band.threshold !== null && (
+                  <button
+                    type="button"
+                    aria-label="External side chain"
+                    aria-pressed={!!band.external}
+                    title={band.external ? "External side chain: its dynamics hear the slot's key (the Mixer slot's Sidechain input). Click for its own range" : "Trigger on the slot's key (its Sidechain input in the Mixer) rather than its own range"}
+                    data-testid="pro-q-external"
+                    className={cn("rounded-sm px-1 font-semibold hover:text-[var(--eq-text)]", band.external && "text-[var(--eq-dynamic)]")}
+                    onClick={() => editEq(effectId, (p) => editBands(p, ids, ({ external: _, ...b }) => (band.external ? b : { ...b, external: true })))}
+                  >
+                    SC
+                  </button>
+                )}
               </>
             )}
           </div>

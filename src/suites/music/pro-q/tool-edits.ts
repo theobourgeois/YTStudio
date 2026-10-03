@@ -80,7 +80,7 @@ export function bandText(band: EqBand): string {
   if (band.shape !== "flatTilt" && band.slope !== 6 && band.slope !== "brickwall") parts.push(`Q ${qText(band.q)}`);
   if (band.shape !== "flatTilt") parts.push(slopeText(band.slope));
   if (band.placement !== "stereo") parts.push(`on the ${PLACEMENT_NAMES[band.placement].toLowerCase()}`);
-  if (band.range !== 0) parts.push(`dynamic: ${band.range > 0 ? "up" : "down"} to ${gainText(band.gain + band.range)} when loud, threshold ${band.threshold === null ? "auto" : `${band.threshold} dB`}${band.dynamics ? "" : " (dynamics bypassed)"}`);
+  if (band.range !== 0) parts.push(`dynamic: ${band.range > 0 ? "up" : "down"} to ${gainText(band.gain + band.range)} when loud, threshold ${band.threshold === null ? "auto" : `${band.threshold} dB`}${band.external && band.threshold !== null ? ", triggered by the slot's key (external side chain)" : ""}${band.dynamics ? "" : " (dynamics bypassed)"}`);
   if (!band.enabled) parts.push("bypassed");
   return `Band ${band.id}: ${parts.join(", ")}`;
 }
@@ -160,6 +160,7 @@ function bandPatch(raw: Input, at: string): Partial<Omit<EqBand, "id">> {
   }
   if (raw.enabled !== undefined) patch.enabled = raw.enabled === true;
   if (raw.dynamics !== undefined) patch.dynamics = raw.dynamics === true;
+  if (raw.external !== undefined) patch.external = raw.external === true ? true : undefined;
   return patch;
 }
 

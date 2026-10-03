@@ -271,7 +271,7 @@ function normalizeSidechain(input: unknown): ProCSidechain {
   const bands = (Array.isArray(input.bands) ? input.bands : [])
     .flatMap((b) => normalizeEqBand(b, seen, PRO_C_BANDS) ?? [])
     // Its bands are stereo, mid or side (not left or right), and never dynamic.
-    .map((b) => ({ ...b, placement: b.placement === "mid" || b.placement === "side" ? b.placement : "stereo", dynamics: false, range: 0, threshold: null }) satisfies EqBand)
+    .map(({ external: _, ...b }) => ({ ...b, placement: b.placement === "mid" || b.placement === "side" ? b.placement : "stereo", dynamics: false, range: 0, threshold: null }) satisfies EqBand)
     .slice(0, PRO_C_BANDS);
   const sync = isObject(input.sync) ? input.sync : {};
   return {

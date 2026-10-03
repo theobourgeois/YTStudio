@@ -569,6 +569,11 @@ export interface EqBand {
   dynamics: boolean;
   /** dB, -60..0, where its dynamics start; null is Auto (it follows the level in its range). */
   threshold: number | null;
+  /**
+   * Pro-Q 3's External Side Chain: with a threshold of its own, its dynamics hear its slot's key
+   * (`MixerEffect.sidechain`, whole: not band-limited nor mid/side) rather than its range. Absent: its range.
+   */
+  external?: true;
 }
 
 /** What Pro-Q's A/B swaps: everything that changes the sound. */

@@ -14,6 +14,8 @@ import { addChannels, setSteps, updateChannel } from "../../shared/music/edits.t
 import { routeChannels, setEffect, setMixerSolo, updateMixerTrack } from "../../shared/music/mixer.ts";
 import { updateProC } from "../../shared/music/pro-c.ts";
 import { PRO_C_PLUGIN } from "../../shared/music/pro-c-presets.ts";
+import { addBand, editProQ } from "../../shared/music/pro-q.ts";
+import { PRO_Q_PLUGIN } from "../../shared/music/pro-q-presets.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
 import { setSidechain, setSidechainTap } from "../../shared/music/sidechain.ts";
 import type { MusicProject, SidechainTap } from "../../shared/music/types.ts";
@@ -42,10 +44,13 @@ describe.skipIf(!built)("keys, offline", () => {
   beforeAll(async () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), "sidechain-"));
     await writeWav(path.join(dir, "hit.wav"), new Float32Array(HIT).fill(0.5), RATE);
+    // Two seconds of a 1 kHz sine at half scale (the bass), and a 100 ms burst (the kick) for Pro-Q's test.
+    await writeWav(path.join(dir, "sine.wav"), Float32Array.from({ length: 2 * RATE }, (_, i) => 0.5 * Math.sin((2 * Math.PI * 1000 * i) / RATE)), RATE);
+    await writeWav(path.join(dir, "burst.wav"), new Float32Array(RATE / 10).fill(0.5), RATE);
     engine = new AudioEngine(new DataPaths(dir), {
       offline: true,
       onlyPluginPaths: true,
-      samplePath: (_project, id) => (id === "hit" ? path.join(dir, "hit.wav") : null),
+      samplePath: (_project, id) => (["hit", "sine", "burst"].includes(id) ? path.join(dir, `${id}.wav`) : null),
       env: { VAUDIO_TEST_EFFECT_SIDECHAIN: "listen" },
     });
     await engine.command("scan", {});
@@ -75,7 +80,7 @@ describe.skipIf(!built)("keys, offline", () => {
   /** The song played from its start once its plugins have loaded: the kick's side and the key's (right). */
   async function hear(song: MusicProject): Promise<{ kick: number[]; key: number[]; wav: WavData }> {
     await engine.command("stop", {});
-    const effects = song.mixer.tracks.flatMap((t) => t.effects.filter((e) => e && !e.proC)).length;
+    const effects = song.mixer.tracks.flatMap((t) => t.effects.filter((e) => e && !e.plugin.id.startsWith("vaudio:"))).length;
     await expect.poll(async () => (await engine.setSong({ projectId: PROJECT, song, patternId: null })).effects.loaded.length).toBe(effects);
     await engine.render(BEAT);
     await engine.command("play", {});
@@ -132,5 +137,35 @@ describe.skipIf(!built)("keys, offline", () => {
     // Before its effects, the key isn't late: it waits in its delay line instead, and still lands with the kick.
     expect(await hear(setSidechainTap(song, "fx_listen", "preFx"))).toMatchObject({ kick: [LOOK], key: [LOOK] });
     expect((await engine.command("status", {})).songLatency).toBe(LOOK);
+  });
+
+  it("ducks a Pro-Q's dynamic band on the key (External Side Chain), and not without it", async () => {
+    // The sine on Insert 2 through a Pro-Q bell at 1 kHz (range -12 dB from a -40 dB threshold); the burst on Insert 1 (sending nowhere) keys it.
+    const make = (external: boolean) => {
+      let song = addChannels(createMusicProject("Dynamic", 120), [
+        { id: "chan_kick", name: "Kick", sampleId: "burst" },
+        { id: "chan_bass", name: "Bass", sampleId: "sine" },
+      ]);
+      // The kick on the third step (a quarter of a second in), the sine from the start.
+      song = setSteps(setSteps(song, P, "chan_kick", [2], true), P, "chan_bass", [0], true);
+      song = routeChannels(routeChannels(song, ["chan_kick"], "insert_1"), ["chan_bass"], "insert_2");
+      song = { ...song, mixer: { ...song.mixer, tracks: song.mixer.tracks.map((t) => (t.id === "insert_1" ? { ...t, sends: [] } : t)) } };
+      song = setEffect(song, "insert_2", 0, PRO_Q_PLUGIN, "fx_eq");
+      song = editProQ(song, "fx_eq", (pq) => addBand(pq, { shape: "bell", frequency: 1000, gain: 0, q: 1, range: -12, dynamics: true, threshold: -40, ...(external && { external: true }) })!.proQ);
+      return setSidechain(song, "fx_eq", "insert_1");
+    };
+    const rms = (wav: WavData, from: number, to: number) => {
+      let sum = 0;
+      for (let i = Math.round(from * RATE); i < Math.round(to * RATE); i++) sum += wav.channels[1][i] ** 2;
+      return 10 * Math.log10(sum / ((to - from) * RATE));
+    };
+    const keyed = (await hear(make(true))).wav;
+    const before = rms(keyed, 0.15, 0.24);
+    // The burst (from 0.25 s to 0.35 s) pulls the band down by most of its range, then it lets go.
+    expect(rms(keyed, 0.28, 0.34) - before).toBeLessThan(-8);
+    expect(before).toBeGreaterThan(-12);
+    // Not external: the sine itself (louder than the threshold) holds it down all along, whatever the key does.
+    const own = (await hear(make(false))).wav;
+    expect(Math.abs(rms(own, 0.28, 0.34) - rms(own, 0.15, 0.24))).toBeLessThan(1);
   });
 });

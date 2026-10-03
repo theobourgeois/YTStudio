@@ -1222,7 +1222,7 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
         else if (effect.eq != nullptr)
         {
             if (effect.enabled)
-                runProQ (effect, l, r, numSamples);
+                runProQ (effect, l, r, numSamples, keyLeft, keyRight);
             else
                 effect.eq->skipped();
         }
@@ -1387,7 +1387,7 @@ void Sequencer::runOtt (const Song::Track::Effect& effect, float* left, float* r
     juce::FloatVectorOperations::addWithMultiply (right, dry.getReadPointer (1), 1.0f - mix, numSamples);
 }
 
-void Sequencer::runProQ (const Song::Track::Effect& effect, float* left, float* right, int numSamples)
+void Sequencer::runProQ (const Song::Track::Effect& effect, float* left, float* right, int numSamples, const float* keyLeft, const float* keyRight)
 {
     auto& settings = *effect.eqSettings;
     auto& dry = settings.dry;
@@ -1399,7 +1399,7 @@ void Sequencer::runProQ (const Song::Track::Effect& effect, float* left, float* 
         dry.copyFrom (0, 0, left, numSamples);
         dry.copyFrom (1, 0, right, numSamples);
     }
-    effect.eq->process (settings, left, right, numSamples, true);
+    effect.eq->process (settings, left, right, numSamples, true, keyLeft, keyRight);
     if (mix < 1.0f)
         effect.eq->mixDry (settings, left, right, dry.getReadPointer (0), dry.getReadPointer (1), numSamples, mix);
 }

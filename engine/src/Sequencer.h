@@ -254,7 +254,7 @@ private:
     /** Put a track's sound through an EchoBoy (`mix` of it heard against the dry sound). */
     void runEchoBoy (const Song::Track::Effect&, float* left, float* right, int numSamples);
     /** Put a track's sound through a Pro-Q (`mix` of it heard against the dry sound, held back by its latency). */
-    void runProQ (const Song::Track::Effect&, float* left, float* right, int numSamples);
+    void runProQ (const Song::Track::Effect&, float* left, float* right, int numSamples, const float* keyLeft, const float* keyRight);
     /** Put a track's sound through an OTT (`mix` of it heard against the dry sound). */
     void runOtt (const Song::Track::Effect&, float* left, float* right, int numSamples);
     /** An automation lane's value for a Pro-Q's band control (`Song::Lane::band`, `control`). */

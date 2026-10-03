@@ -314,6 +314,8 @@ export interface EngineEqBand {
   range: number;
   /** dB, or null for Auto. */
   threshold: number | null;
+  /** Its dynamics hear the slot's key (`EngineEffect.key`): only with a threshold of its own. */
+  external?: boolean;
 }
 
 /** A Pro-Q's settings for the engine (`EngineEffect.eq`). */
@@ -345,6 +347,7 @@ export function engineProQ(pq: ProQ): EngineEq {
         placement: b.placement,
         range: canBeDynamic(b.shape) && b.dynamics ? b.range * scaled : 0,
         threshold: b.threshold,
+        ...(b.external && b.threshold !== null && { external: true }),
       };
     });
   return {
