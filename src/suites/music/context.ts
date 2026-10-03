@@ -43,6 +43,10 @@ export function describeSong(song: MusicProject, assets: MediaAsset[], patternId
     `${effects ? `${effects} effect${effects === 1 ? "" : "s"} in the mixer. ` : ""}get_mixer has every track's level, effects and sends.`,
     playlistSummary(song),
   );
+  if (song.modulators.length) {
+    const links = song.modulators.reduce((n, m) => n + m.links.length, 0);
+    lines.push(`${song.modulators.length} modulator${song.modulators.length === 1 ? "" : "s"} moving ${links} control${links === 1 ? "" : "s"} (get_modulators).`);
+  }
   const spare = assets.filter((a) => a.hasAudio && !used.has(a.id));
   if (spare.length) lines.push("", "Audio files in the project that no channel uses:", ...spare.map((a) => `- ${a.name} (mediaId ${a.id})`));
   return lines.join("\n");

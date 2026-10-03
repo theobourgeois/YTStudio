@@ -1783,6 +1783,82 @@ export const MUSIC_TOOLS = [
     }),
   }),
   tool({
+    name: "get_modulators",
+    title: "Read the modulators",
+    kind: "look",
+    description:
+      "The song's modulators (FL's Peak Controller, generalised): each follows a mixer track's level or a channel's notes and moves the controls " +
+      "linked to it from their own values (or their automation's) by an amount of their range as it rises: a bass's fader ducking under the kick, " +
+      "a filter pumping. What each follows, its attack, release, gain and tension, and what it moves.",
+    inputSchema: obj({}),
+  }),
+  tool({
+    name: "add_modulator",
+    title: "Add a modulator",
+    kind: "edit",
+    description:
+      "Make a modulator: a level follower on a mixer `track` (its sound, taken at `tap`: postFx, after its effects and before its fader, the default, " +
+      "so a muted ghost kick still drives it; preFx; postFader) or on a `channel`'s notes (a gate at their velocity while they sound, even muted). " +
+      "Its follower: attack and release in ms (default 2 and 150: FL's Peak Controller's duck), gain in dB (louder reaches full level sooner; a " +
+      "half-scale kick needs +6), tension -1 to 1. Then link_modulator links what it moves. It plays in pattern and song mode, playing or not. " +
+      "For a compressor-style duck (attack, knee, a real ratio), duck_with_sidechain is better; a modulator pumps anything (a filter, a reverb's mix, a bus).",
+    inputSchema: obj({
+      track: mixerTrack("A track whose level it follows"),
+      tap: oneOf(SIDECHAIN_TAPS, "Where the track's sound is taken (default postFx)."),
+      channel: str("Or a channel whose notes it follows: id or name."),
+      attack: num("Milliseconds, 0 to 1000 (default 2)."),
+      release: num("Milliseconds, 5 to 4000 (default 150)."),
+      gain: num("dB, -24 to 24 (default 0)."),
+      tension: num("-1 to 1 (default 0, straight)."),
+      name: str("Its name (default: its source's, as \"Kick level\")."),
+    }),
+  }),
+  tool({
+    name: "update_modulator",
+    title: "Change a modulator",
+    kind: "edit",
+    description: "Change a modulator's source (`track` and `tap`, or `channel`), its follower (attack, release in ms, gain dB, tension) or its name.",
+    inputSchema: obj(
+      {
+        modulator: str("The modulator: its id or name (get_modulators)."),
+        track: mixerTrack("A track whose level it follows now"),
+        tap: oneOf(SIDECHAIN_TAPS, "Where the track's sound is taken."),
+        channel: str("Or a channel whose notes it follows now."),
+        attack: num("Milliseconds, 0 to 1000."),
+        release: num("Milliseconds, 5 to 4000."),
+        gain: num("dB, -24 to 24."),
+        tension: num("-1 to 1."),
+        name: str("Its name."),
+      },
+      ["modulator"],
+    ),
+  }),
+  tool({
+    name: "link_modulator",
+    title: "Link a control to a modulator",
+    kind: "action",
+    description:
+      "Make a modulator move a control (named as add_automation names one: `control` and what it belongs to; any but the tempo) by `amount`, " +
+      "-1 to 1 of the control's range at the modulator's full level: -0.6 ducks a fader from 80% to 20% on each hit, 0.5 opens a filter. It " +
+      "moves from where the control is (its own value, or its automation's in song mode). A control has one modulator: linking it again moves " +
+      'it here. `amount` "none" unlinks it.',
+    inputSchema: obj(
+      {
+        modulator: str("The modulator: its id or name (get_modulators)."),
+        ...controlFields,
+        amount: { description: '-1 to 1 (negative dips it), or "none" to unlink.', anyOf: [{ type: "number" }, { type: "string" }] },
+      },
+      ["modulator", "control", "amount"],
+    ),
+  }),
+  tool({
+    name: "remove_modulator",
+    title: "Remove a modulator",
+    kind: "edit",
+    description: "Remove a modulator: the controls it moved are their own values again.",
+    inputSchema: obj({ modulator: str("The modulator: its id or name.") }, ["modulator"]),
+  }),
+  tool({
     name: "add_automation",
     title: "Automate a control",
     kind: "action",

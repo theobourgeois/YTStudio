@@ -4,6 +4,7 @@
  * applied to the open song as one undo step, or to a song that isn't open by loading and saving it.
  */
 import { createId } from "@shared/ids";
+import { addModulatorTool, describeModulators, linkModulatorEdit, removeModulatorTool, updateModulatorTool } from "./modulation/tool-edits";
 import { AUTO_TUNE_PLUGIN } from "@shared/music/auto-tune-presets";
 import { ECHO_BOY_PLUGIN } from "@shared/music/echo-boy-presets";
 import { GROSS_BEAT_PLUGIN } from "@shared/music/gross-beat-presets";
@@ -721,6 +722,33 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(text);
   },
   update_automation: edit(updateAutomationTool),
+  async get_modulators(_input, ctx) {
+    return textResult(describeModulators((await targetOf(ctx)).song));
+  },
+  add_modulator: edit((song, input) => addModulatorTool(song, input, createId("mod"))),
+  update_modulator: edit(updateModulatorTool),
+  remove_modulator: edit(removeModulatorTool),
+  async link_modulator(input, ctx) {
+    const target = await targetOf(ctx);
+    let control = resolveControl(target.song, input);
+    if (!("kind" in control)) {
+      // A plugin's parameter: its id is the engine's.
+      const { owner, id, parameter, ownerName } = control;
+      const parameters = await musicApi.pluginParameters(owner, id);
+      const wanted = parameter.toLowerCase();
+      const found = parameters.find((p) => p.id === parameter) ?? parameters.find((p) => p.name.toLowerCase() === wanted) ?? parameters.find((p) => p.name.toLowerCase().includes(wanted));
+      if (!found) throw new Error(`${ownerName} has no parameter "${parameter}". list_controls lists them.`);
+      control = { kind: "plugin", owner, id, param: found.id, index: found.index, name: found.name };
+    }
+    const resolved = control;
+    let text = "";
+    await apply(target, (song) => {
+      const result = linkModulatorEdit(song, input, resolved);
+      text = result.text;
+      return result.song;
+    });
+    return textResult(text);
+  },
   async play_song(input, ctx) {
     const target = await targetOf(ctx);
     requireOpen(target, "Playing");
