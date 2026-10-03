@@ -671,7 +671,7 @@ function RenameField({ track, name }: { track: MixerTrack; name: string }) {
 
 /** A track's right-click menu (on its number and name), FL Studio's. */
 function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: string; isMaster: boolean; color: string | null; separator: boolean; grouped: boolean; soloSafe: boolean }) {
-  const renameNext = useRef(false);
+  const afterClose = useRef<(() => void) | null>(null);
   const groupId = useSong((song) => song.mixer.tracks.find((t) => t.id === id)?.group ?? null);
   const group = useSong((song) => song.mixer.groups.find((g) => g.id === groupId) ?? null);
   const channelsSelected = useMusicUi((s) => s.selectedChannelIds.length > 0);
@@ -679,12 +679,13 @@ function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: 
   const canPaste = useMusicUi((s) => s.copiedTrack !== null);
   return (
     <ContextMenuContent onCloseAutoFocus={(e) => {
-      if (!renameNext.current) return;
+      const action = afterClose.current;
+      if (!action) return;
       e.preventDefault();
-      renameNext.current = false;
-      useMixerView.getState().rename(id);
+      afterClose.current = null;
+      action();
     }}>
-      <ContextMenuItem onSelect={() => { renameNext.current = true; }}>
+      <ContextMenuItem onSelect={() => { afterClose.current = () => useMixerView.getState().rename(id); }}>
         Rename and color… <ContextMenuShortcut>⇧⌘N</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSub>
@@ -793,7 +794,7 @@ function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: 
           <ContextMenuCheckboxItem checked={separator} onSelect={() => toggleSeparator(id)}>
             Separator before
           </ContextMenuCheckboxItem>
-          <ContextMenuItem onSelect={() => setTimeout(() => groupTracks(id), 0)}>Create group…</ContextMenuItem>
+          <ContextMenuItem onSelect={() => { afterClose.current = () => groupTracks(id); }}>Create group…</ContextMenuItem>
           {grouped && <ContextMenuItem onSelect={() => ungroupTracks(id)}>Ungroup</ContextMenuItem>}
           {group && (
             <ContextMenuCheckboxItem checked={!!group.linked} onSelect={() => linkGroup(group.id, !group.linked)}>

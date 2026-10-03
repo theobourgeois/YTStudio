@@ -2,6 +2,7 @@ import type { DragEvent, ReactNode } from "react";
 import { Desktop, FloatingWindow, type FloatingWindowProps, cascadedOnDesktop as cascadedOn, centredOnDesktop as centredOn } from "@/components/windows/floating-window";
 import type { WindowPlace } from "@/components/windows/store";
 import { type WindowId, useMusicWindows } from "./ui";
+import { lowerPluginEditors } from "./window-focus";
 
 /** Where a small window of this size opens on the music editor's desktop: its middle, a little above. */
 export const centredOnDesktop = (width: number, height: number): WindowPlace => centredOn(width, height, "music");
@@ -15,7 +16,7 @@ export const cascadedOnDesktop = (index: number, origin: { x: number; y: number 
  * rack, a channel's settings, the Piano roll, the mixer, and the small ones commands open.
  */
 export function MusicWindow(props: FloatingWindowProps & { id: WindowId }) {
-  return <FloatingWindow {...props} />;
+  return <FloatingWindow {...props} onActivate={() => { lowerPluginEditors(); props.onActivate?.(); }} />;
 }
 
 /** Where the music editor's windows float. */
