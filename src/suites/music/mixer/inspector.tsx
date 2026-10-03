@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PiCaretRightFill, PiClock, PiSlidersHorizontal, PiSpinnerGap, PiWarning } from "react-icons/pi";
+import { PiCaretRightFill, PiClock, PiKey, PiSlidersHorizontal, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import { createId } from "@shared/ids";
 import { AUTO_TUNE_PLUGIN, isAutoTune } from "@shared/music/auto-tune-presets";
@@ -19,8 +19,8 @@ import { askMicrophone } from "@/lib/desktop";
 import { inputChoices, inputKey, inputLabel, useInputs } from "../inputs";
 import { setTrackInput } from "../recording";
 import { ArmButton } from "./arm-button";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
@@ -52,6 +52,11 @@ import { Input } from "@/components/ui/input";
 import { delayText, pluginDelay } from "./latency";
 import { effectOnto } from "./actions";
 import { trackAt, useMixerView } from "./view";
+import { CONTEXT_PARTS, DROPDOWN_PARTS, type MenuParts, SidechainMenuItems, keyText } from "./sidechain-menu";
+import { takesKey } from "@shared/music/sidechain";
+
+/** Ours with no key to hear (their menus don't offer one). */
+const KEYLESS_OURS = new Set([GROSS_BEAT_PLUGIN.id, ECHO_BOY_PLUGIN.id, AUTO_TUNE_PLUGIN.id, OTT_PLUGIN.id, PANMAN_PLUGIN.id, PITCH_WHEEL_PLUGIN.id]);
 
 
 /**
@@ -187,6 +192,7 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
                 </DropdownMenuContent>
               </DropdownMenu>
               {effect ? <EffectName effect={effect} /> : <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70 italic">{`Slot ${slot + 1}`}</span>}
+              {effect?.sidechain && <KeyBadge effect={effect} />}
               {effect && (
                 <>
                   <SongKnob
@@ -234,19 +240,36 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
 }
 
 /** The menu components a slot's menu is made of: the arrow's (a dropdown) or the right-click's. */
-const DROPDOWN = { Item: DropdownMenuItem, Separator: DropdownMenuSeparator };
-const CONTEXT = { Item: ContextMenuItem, Separator: ContextMenuSeparator };
+const DROPDOWN = DROPDOWN_PARTS;
+const CONTEXT = CONTEXT_PARTS;
 
 /** A slot's menu, the same from its arrow and from a right-click (FL Studio's effect slot menu). */
-function SlotMenuItems({ menu, trackId, slot, effect, openPicker }: { menu: typeof DROPDOWN | typeof CONTEXT; trackId: string; slot: number; effect: MixerEffect | null; openPicker: () => void }) {
-  const { Item, Separator } = menu;
+function SlotMenuItems({ menu, trackId, slot, effect, openPicker }: { menu: MenuParts; trackId: string; slot: number; effect: MixerEffect | null; openPicker: () => void }) {
+  const { Item, Separator, Sub, SubTrigger, SubContent } = menu;
   const commit = useMusic.getState().commit;
+  const hasInput = useTransport((s) => (effect ? s.effects.loaded.find((e) => e.effect === effect.id)?.sidechain : undefined));
+  const keyNumber = useSong((s) => (effect?.sidechain ? s.mixer.tracks.findIndex((t) => t.id === effect.sidechain!.track) : -1));
   if (!effect) return <Item onSelect={openPicker}>Choose a plugin…</Item>;
+  const takes = takesKey(effect, hasInput);
   return (
     <>
       <Item onSelect={() => (effect.grossBeat ? openGrossBeat(effect.id) : effect.echoBoy ? openEchoBoy(effect.id) : effect.autoTune ? openAutoTune(effect.id) : effect.proQ ? openProQ(effect.id) : effect.panMan ? openPanMan(effect.id) : effect.pitchWheel ? openPitchWheel(effect.id) : effect.ott ? openOtt(effect.id) : effect.proC ? openProC(effect.id) : useTransport.getState().showEffect(effect.id, true))}>Open its window</Item>
       <Item onSelect={openPicker}>Replace…</Item>
       <Item onSelect={() => commit((song) => updateEffect(song, trackId, slot, { enabled: !effect.enabled }))}>{effect.enabled ? "Bypass" : "Enable"}</Item>
+      {takes ? (
+        <Sub>
+          <SubTrigger data-testid="slot-sidechain">Sidechain input{keyNumber > 0 ? ` (${keyNumber})` : ""}</SubTrigger>
+          <SubContent className="max-h-[70vh] min-w-56 overflow-y-auto">
+            <SidechainMenuItems menu={menu} effectId={effect.id} />
+          </SubContent>
+        </Sub>
+      ) : (
+        !KEYLESS_OURS.has(effect.plugin.id) && (
+          <Item disabled title="This plugin has no sidechain input">
+            Sidechain input (none)
+          </Item>
+        )
+      )}
       <Separator />
       <Item disabled={slot === 0} onSelect={() => commit((song) => moveEffect(song, trackId, slot, -1))}>
         Move up
@@ -259,6 +282,23 @@ function SlotMenuItems({ menu, trackId, slot, effect, openPicker }: { menu: type
         Delete
       </Item>
     </>
+  );
+}
+
+/** A keyed effect's mark: a key and its source's number (`docs/sidechain.md`); its title says from where. */
+function KeyBadge({ effect }: { effect: MixerEffect }) {
+  const number = useSong((s) => s.mixer.tracks.findIndex((t) => t.id === effect.sidechain?.track));
+  const text = useSong((s) => keyText(s, effect.sidechain));
+  const silent = useTransport((s) => !effect.proC && !effect.proQ && s.effects.loaded.find((e) => e.effect === effect.id)?.sidechain === false);
+  return (
+    <span
+      className={cn("flex shrink-0 items-center gap-px font-mono text-[9px] tabular-nums", silent ? "text-muted-foreground" : "text-brand")}
+      title={silent ? `Keyed by ${text}, but this plugin has no sidechain input` : `Keyed by ${text}`}
+      data-testid="key-badge"
+    >
+      <PiKey className="size-2.5" aria-hidden />
+      {number}
+    </span>
   );
 }
 

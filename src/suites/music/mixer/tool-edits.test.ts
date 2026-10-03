@@ -20,6 +20,8 @@ import {
   routeToNewBusTool,
   updateMixerEffectTool,
   updateMixerTrackTool,
+  setSidechainTool,
+  duckWithSidechainTool,
 } from "./tool-edits";
 
 const env = { patternId: FIRST_PATTERN_ID };
@@ -186,5 +188,26 @@ describe("the assistant's inputs", () => {
     expect(() => updateMixerTrackTool(rack(), { track: 1, monitor: "sometimes" }, env)).toThrow(/off, armed, on/);
     expect(describeMixer(song, null, [track(song, 2).id])).toMatch(/insert 2 .*\(id insert_2\): .*records input 1-2.*ARMED to record/);
   });
-});
 
+  it("key an effect from a track, at a tap, refuse a loop, and take it off", () => {
+    let song = setEffect(rack(), "insert_2", 0, EQ, "fx_eq");
+    song = setSidechainTool(song, { track: 2, slot: 1, source: 1, tap: "postFader" }, env).song;
+    expect(song.mixer.tracks[2].effects[0]!.sidechain).toEqual({ track: "insert_1", tap: "postFader" });
+    expect(describeMixer(song, { loaded: [{ effect: "fx_eq", name: "Pro-Q 4", editorOpen: false, latency: 0, sidechain: true }], loading: [], failed: [] })).toMatch(/slot 1: Pro-Q 4 .*keyed by insert 1 \("Insert 1"\) \(after its fader\)/);
+    expect(() => setSidechainTool(song, { track: 2, slot: 1, source: 2 }, env)).toThrow(/own track/);
+    expect(() => setSidechainTool(song, { track: 2, slot: 1, source: 1, tap: "sideways" }, env)).toThrow(/preFx, postFx, postFader/);
+    const looped = setSend(song, "insert_2", "insert_3", 1);
+    expect(() => setSidechainTool(looped, { track: 2, slot: 1, source: 3 }, env)).toThrow(/a loop/);
+    song = setSidechainTool(song, { track: 2, slot: 1, source: "none" }, env).song;
+    expect(song.mixer.tracks[2].effects[0]!.sidechain).toBeUndefined();
+  });
+
+  it("duck a track to another with a new Pro-C, in one step", () => {
+    const { song, text } = duckWithSidechainTool(rack(), { source: "Insert 1", track: 2 }, "fx_duck");
+    const effect = song.mixer.tracks[2].effects[0]!;
+    expect(effect).toMatchObject({ id: "fx_duck", sidechain: { track: "insert_1", tap: "postFx" } });
+    expect(effect.proC!.sidechain.trigger).toBe("external");
+    expect(text).toMatch(/ducks it to insert 1/);
+    expect(() => duckWithSidechainTool(rack(), { source: 2, track: 2 }, "fx_x")).toThrow(/itself/);
+  });
+});

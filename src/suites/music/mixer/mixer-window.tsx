@@ -94,6 +94,7 @@ import { useMeters } from "./meters";
 import { Inspector } from "./inspector";
 import { delayText, offsetText, pluginDelay } from "./latency";
 import { MIXER_VIEWS, type MixerViewKind, STRIP_WIDTHS, VIEW_NAMES, trackAt, useMixerView } from "./view";
+import { CONTEXT_PARTS, SidechainToItems } from "./sidechain-menu";
 
 
 /** Strips drawn past each edge of the view, so a scroll doesn't show an empty one before they're drawn. */
@@ -745,6 +746,14 @@ function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: 
           </ContextMenuItem>
         </ContextMenuSubContent>
       </ContextMenuSub>
+      {!isMaster && (
+        <ContextMenuSub>
+          <ContextMenuSubTrigger data-testid="sidechain-to">Sidechain to</ContextMenuSubTrigger>
+          <ContextMenuSubContent className="max-h-[70vh] min-w-56 overflow-y-auto">
+            <SidechainToItems menu={CONTEXT_PARTS} source={id} />
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      )}
       <ContextMenuItem onSelect={() => copyTrackState(id)} onPointerDown={(e) => carryTrackState(e, id)} title="Click to copy, or drag onto another track to copy it there">
         Copy track state
       </ContextMenuItem>

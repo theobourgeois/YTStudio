@@ -843,6 +843,32 @@ export const MUSIC_TOOLS = [
     inputSchema: obj({ track: mixerTrack(), slot }, ["track", "slot"]),
   }),
   tool({
+    name: "set_sidechain",
+    title: "Key an effect from another track",
+    kind: "edit",
+    description:
+      "Give an effect in a mixer track's slot a key (a sidechain: another track's sound it hears, as a compressor ducking the bass under the kick), " +
+      "or take it off with source \"none\". No send is needed: the key orders the tracks itself, and a source whose sound already reaches the " +
+      "effect's track is refused (a loop). Pro-C hears it with its External trigger (turned on here), a Pro-Q's dynamic bands set to external " +
+      "with it, and a plugin with a sidechain input (get_mixer says whether it has one) on that input. `tap`: where the source's sound is taken: " +
+      "preFx (before its effects), postFx (after them, before its fader: the default; its fader and mute don't change the ducking, so a muted " +
+      "\"ghost\" kick still keys) or postFader (what leaves the track, FL's way). duck_with_sidechain sets up a whole duck in one step.",
+    inputSchema: obj(
+      { track: mixerTrack("The track the effect is on"), slot, source: mixerTrack('The track whose sound is the key, or "none"'), tap: oneOf(SIDECHAIN_TAPS, "Where the key is taken (default postFx, or the key's own).") },
+      ["track", "slot", "source"],
+    ),
+  }),
+  tool({
+    name: "duck_with_sidechain",
+    title: "Duck a track to another",
+    kind: "edit",
+    description:
+      "The quickest sidechain duck (a bass or a bus pumping under the kick): a Pro-C in `track`'s first empty slot with the " +
+      "\"Sidechain – Duck to Kick\" preset (Clean, ∞:1, 1 ms attack, 150 ms release), keyed by `source`, in one step. Tune it after with " +
+      "update_pro_c (threshold: how deep; release: how long it pumps).",
+    inputSchema: obj({ source: mixerTrack("The track that ducks the other (the kick)"), track: mixerTrack("The track that's ducked"), tap: oneOf(SIDECHAIN_TAPS, "Where the key is taken (default postFx).") }, ["source", "track"]),
+  }),
+  tool({
     name: "copy_track_state",
     title: "Copy a track's effects",
     kind: "action",

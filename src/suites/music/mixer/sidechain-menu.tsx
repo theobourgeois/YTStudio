@@ -5,7 +5,9 @@
  */
 import { useMemo } from "react";
 import { PiCheck } from "react-icons/pi";
-import { DEFAULT_TAP, SIDECHAIN_TAP_NAMES, keyChoices, setSidechain, setSidechainTap } from "@shared/music/sidechain";
+import { createId } from "@shared/ids";
+import { duckWithProC } from "@shared/music/pro-c";
+import { DEFAULT_TAP, SIDECHAIN_TAP_NAMES, canKey, keyChoices, setSidechain, setSidechainTap, takesKey } from "@shared/music/sidechain";
 import { SIDECHAIN_TAPS, type Sidechain } from "@shared/music/types";
 import {
   ContextMenuItem,
@@ -27,7 +29,9 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
+import { openProC } from "../pro-c/actions";
 import { useMusic, useSong } from "../store";
+import { useTransport } from "../transport";
 
 /** The parts a menu is made of: a dropdown's or a context menu's. */
 export const DROPDOWN_PARTS = {
@@ -101,4 +105,78 @@ export function SidechainMenuItems({ menu, effectId, onPick }: { menu: MenuParts
       )}
     </>
   );
+}
+
+/**
+ * A track's *Sidechain to ▸* (its strip's menu, `docs/sidechain.md` "From the kick"): every other track,
+ * each with the effects there that can hear a key (a check on those this track keys already) and *Duck with
+ * a new Pro-C*, the quickest duck. A track whose sound already reaches this one is greyed (a loop).
+ */
+export function SidechainToItems({ menu, source }: { menu: MenuParts; source: string }) {
+  const { Item, Separator, Sub, SubTrigger, SubContent, Label } = menu;
+  const tracks = useSong((s) => s.mixer.tracks);
+  const loaded = useTransport((s) => s.effects.loaded);
+  const targets = useMemo(() => {
+    const song = { mixer: { tracks, groups: [] } };
+    return tracks.flatMap((track, number) =>
+      track.id === source
+        ? []
+        : [
+            {
+              track,
+              number,
+              name: track.name ?? (number === 0 ? "Master" : `Insert ${number}`),
+              possible: canKey(song, source, track.id),
+              effects: track.effects.flatMap((effect) => {
+                if (!effect || !takesKey(effect, loaded.find((l) => l.effect === effect.id)?.sidechain)) return [];
+                return [{ effect, keyed: effect.sidechain?.track === source, possible: canKey(song, source, track.id, effect.id) }];
+              }),
+            },
+          ],
+    );
+  }, [tracks, loaded, source]);
+  return (
+    <>
+      <Label className="text-[11px]">This track's sound is the key of…</Label>
+      {targets.map(({ track, number, name, possible, effects }) => (
+        <Sub key={track.id}>
+          <SubTrigger disabled={!possible && !effects.some((e) => e.keyed)} data-testid={`sidechain-to-${number}`}>
+            <span className="w-6 shrink-0 text-muted-foreground tabular-nums">{number || "M"}</span>
+            {track.color && <span className="mr-1 size-2 shrink-0 rounded-full" style={{ background: track.color }} aria-hidden />}
+            <span className="truncate">{name}</span>
+          </SubTrigger>
+          <SubContent className="min-w-52">
+            {effects.length > 0 && <Label className="text-[11px]">Its effects that hear a key</Label>}
+            {effects.map(({ effect, keyed, possible: can }) => (
+              <Item key={effect.id} disabled={!can && !keyed} onSelect={() => keyEffectFrom(source, effect.id, keyed)}>
+                <span className="w-4 shrink-0">{keyed && <PiCheck className="size-3" />}</span>
+                {effect.plugin.name}
+              </Item>
+            ))}
+            {effects.length > 0 && <Separator />}
+            <Item disabled={!possible || track.effects.every(Boolean)} onSelect={() => duckFrom(source, track.id)} data-testid="duck-with-pro-c">
+              Duck with a new Pro-C
+            </Item>
+          </SubContent>
+        </Sub>
+      ))}
+    </>
+  );
+}
+
+/** Key an effect from a track (or, keyed already, take the key off). */
+function keyEffectFrom(source: string, effectId: string, keyed: boolean) {
+  useMusic.getState().commit((s) => setSidechain(s, effectId, keyed ? null : source));
+}
+
+/** A Pro-C ducking `trackId` to `source`, in one undo step, its window opened. */
+export function duckFrom(source: string, trackId: string) {
+  const id = createId("fx");
+  let made = false;
+  useMusic.getState().commit((s) => {
+    const next = duckWithProC(s, source, trackId, id);
+    made = next !== null;
+    return next ?? s;
+  });
+  if (made) openProC(id);
 }

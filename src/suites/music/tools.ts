@@ -98,6 +98,8 @@ import {
   groupMixerTracksTool,
   moveMixerTrackTool,
   removeMixerEffectTool,
+  setSidechainTool,
+  duckWithSidechainTool,
   removeMixerTrackTool,
   routeChannelsTool,
   setSendTool,
@@ -551,6 +553,8 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   update_panman: edit((song, input) => updatePanManTool(song, input)),
   set_panman_pattern: edit((song, input) => setPanPatternTool(song, input)),
   remove_mixer_effect: edit(removeMixerEffectTool),
+  set_sidechain: edit(setSidechainTool),
+  duck_with_sidechain: edit((song, input) => duckWithSidechainTool(song, input, createId("fx"))),
   async move_mixer_effect(input, ctx) {
     const target = await targetOf(ctx);
     // Checked before anything is copied (the same edit runs again on the song as it is then).
