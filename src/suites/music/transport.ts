@@ -336,7 +336,10 @@ export function tickNow(
   if (!state.playing || loopTicks <= 0) return null;
   // A count-in holds the position where play starts until it's over (then it moves on from there).
   const moving = now - state.at - state.latencyMs - (state.countIn ?? 0) * 1000;
-  const tick = state.tick + (Math.max(0, moving) / 60_000) * tempo * ppq;
+  // During ordinary play, subtract latency from the position, not from time allowed to
+  // advance after each report. Clamping that time freezes the playhead at every report.
+  const elapsed = (state.countIn ?? 0) > 0 ? Math.max(0, moving) : moving;
+  const tick = state.tick + (elapsed / 60_000) * tempo * ppq;
   if (tick < 0) return null;
   // Recording past the loop's end, it doesn't go round.
   return state.through ? tick : tick % loopTicks;
