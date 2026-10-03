@@ -608,7 +608,7 @@ juce::Result Engine::record (const juce::var& params)
     if (! armed.empty())
         if (const auto result = sequencer.recorder().start (id, juce::File (folder), armed, rate(), latency, loop); result.failed())
             return result;
-    sequencer.record ((double) params["from"], juce::jmax (0.0, (double) params["countIn"]), loop);
+    sequencer.record ((double) params["from"], juce::jmax (0.0, (double) params["countIn"]), loop, (bool) params["continuePlayback"]);
     return juce::Result::ok();
 }
 

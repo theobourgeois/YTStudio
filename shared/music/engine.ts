@@ -571,6 +571,8 @@ export interface SetDeviceRequest {
  * of the loop until it's stopped. `names`: what to call each track's takes (the track's name).
  */
 export interface RecordRequest {
+  /** Punch in at the audio thread's current position without restarting playback. */
+  continuePlayback?: boolean;
   projectId: string;
   from: number;
   countIn: number;

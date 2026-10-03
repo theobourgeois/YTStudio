@@ -49,7 +49,7 @@ public:
      * metronome's clicks, the transport held meanwhile, and record from the moment it moves. Without
      * `loop`, play doesn't go round the loop: it goes on past its end until it's stopped.
      */
-    void record (double fromTick, double countInTicks, bool loop);
+    void record (double fromTick, double countInTicks, bool loop, bool continuePlayback = false);
     /** What records the armed tracks' inputs. */
     Recorder& recorder() { return recording; }
     const Recorder& recorder() const { return recording; }
@@ -366,7 +366,7 @@ private:
     std::atomic<double> playFrom { 0.0 };
     /** What the last play request asks for besides: a count-in first (ticks), to record, and not to go round the loop. */
     std::atomic<double> playCountIn { 0.0 };
-    std::atomic<bool> playRecords { false }, playThrough { false };
+    std::atomic<bool> playRecords { false }, playThrough { false }, playContinues { false };
     int playsSeen = 0, stopsSeen = 0;
     std::atomic<bool> metronome { false };
     enum class ClickSound { beep, tick, tap, hihat, cowbell };

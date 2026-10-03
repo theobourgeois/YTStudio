@@ -14,7 +14,7 @@ import { snapTicks } from "./piano/geometry";
 import { usePiano } from "./piano/store";
 import { countInBars, useMusicPreferences } from "./preferences";
 import { useMusic } from "./store";
-import { setRecorder, switchMode, useTransport } from "./transport";
+import { patternTickNow, setRecorder, switchMode, useTransport } from "./transport";
 
 /** A recording in progress, as the tab knows it. */
 export interface ActiveRecording {
@@ -141,7 +141,12 @@ export const useRecording = create<RecordingState>((set, get) => ({
     for (const note of notes) if (note.channel && note.tick !== null) played.push({ channel: note.channel, key: note.key, velocity: note.velocity, on: note.on, tick: note.tick, counting: note.counting, pass: note.pass });
   },
 
-  setOn: (on) => set({ on }),
+  setOn(on) {
+    const wasOn = get().on;
+    set({ on });
+    if (on && !wasOn && useTransport.getState().playing && !get().active) void get().record();
+    if (!on && get().active) useTransport.getState().stop();
+  },
 
   arm(trackId, armed) {
     const song = useMusic.getState().history?.doc;
@@ -174,14 +179,17 @@ export const useRecording = create<RecordingState>((set, get) => ({
     // Recording is the song's: in pattern mode it switches, and records once the engine has the song.
     if (transport.mode !== "song") return switchMode("song", true);
     const { loop, pausedAt } = transport;
-    const at = (pausedAt ?? transport.startOf()) - loop.start;
-    const from = at > 0 && at < loop.ticks ? at : 0;
+    const continues = transport.playing;
+    const now = patternTickNow({ ...transport, latencyMs: 0 }, performance.now(), song.settings.tempo, PPQ);
+    const at = (continues ? now ?? transport.startOf() : pausedAt ?? transport.startOf()) - loop.start;
+    let from = at > 0 && at < loop.ticks ? at : 0;
     const options = useMusicPreferences.getState().recording;
-    const countIn = countInBars(options) * barTicks(song);
+    const countIn = continues ? 0 : countInBars(options) * barTicks(song);
     const names = Object.fromEntries(tracks.map((id) => [id, trackName(song, id)]));
     useTransport.setState({ pausedAt: null });
     try {
-      const { recordingId, status } = await musicApi.record({ projectId, from, countIn, loop: options.loop, names, notes: true });
+      const { recordingId, status } = await musicApi.record({ projectId, from, countIn, loop: options.loop, names, notes: true, continuePlayback: continues });
+      if (continues && status.transport.playing) from = status.transport.tick;
       recordings.set(recordingId, { loopStart: loop.start, projectId, punch: punchRange(song, loop.start + from) });
       const msPerTick = 60_000 / (song.settings.tempo * PPQ);
       live.clear();

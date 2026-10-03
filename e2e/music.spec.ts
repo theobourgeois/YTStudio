@@ -1540,6 +1540,23 @@ test("records as FL Studio does: an input device, a track's input arms it, Recor
   await page.keyboard.press("r");
 });
 
+test("Record during playback punches in at the current position without a count-in", async ({ page }) => {
+  const id = await openNewSong(page, "Punch in");
+  await addStarterKit(page);
+  await channelButton(page, "Kick").click();
+  await page.getByRole("radio", { name: "Song mode", exact: true }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await page.waitForTimeout(500);
+  const request = page.waitForRequest((r) => r.url().endsWith("/api/engine/record"));
+  await page.getByRole("button", { name: "Record", exact: true }).click();
+  const body = (await request).postDataJSON();
+  expect(body).toMatchObject({ projectId: id, continuePlayback: true, countIn: 0 });
+  expect(body.from).toBeGreaterThan(0);
+  await expect(page.getByRole("button", { name: "Record", exact: true })).toHaveAttribute("data-recording", "true");
+  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+});
+
 test("the assistant records: an input given and armed, a take recorded and placed", async ({ page }) => {
   const id = await openNewSong(page, "Assisted recording");
   await page.getByRole("button", { name: "Assistant" }).click();

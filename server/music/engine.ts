@@ -473,6 +473,7 @@ export class AudioEngine {
         recordingId,
         folder,
         from,
+        continuePlayback: body.continuePlayback === true,
         countIn: isFiniteNumber(body.countIn) ? clamp(body.countIn, 0, 96 * 4 * 16) : 0,
         loop: body.loop === true,
         notes: body.notes === true,

@@ -600,10 +600,12 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (recording) return fail("It's recording already: stop it first.");
     const tracks = (song?.tracks ?? []).filter((t) => t.input?.armed).map((t) => ({ id: t.id, channels: t.input.channels }));
     if (!tracks.length && !params.notes) return fail("No mixer track is armed with an input: choose a track's input in the Mixer, which arms it.");
-    recording = { id: params.recordingId, folder: params.folder, from: params.from ?? 0, loop: params.loop === true, tracks };
+    const continues = params.continuePlayback === true && playingSince !== null;
+    const from = continues ? tick() : params.from ?? 0;
+    recording = { id: params.recordingId, folder: params.folder, from, loop: params.loop === true, tracks };
     // After the count-in, as if it had begun `from` ticks earlier.
     const msPerTick = song ? 60000 / (song.tempo * song.ppq) : 0;
-    playingSince = Date.now() + (params.countIn ?? 0) * msPerTick - (params.from ?? 0) * msPerTick;
+    if (!continues) playingSince = Date.now() + (params.countIn ?? 0) * msPerTick - from * msPerTick;
     return send({ id, ok: true, result: status() });
   }
   // Started `from` ticks in: as if it had begun that much earlier. A recording ends there.

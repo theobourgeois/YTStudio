@@ -130,15 +130,20 @@ void Sequencer::play (double fromTick)
     playFrom = from;
     playCountIn = 0.0;
     playRecords = false;
+    playContinues = false;
     playThrough = false;
     ++playRequests;
 }
 
-void Sequencer::record (double fromTick, double countInTicks, bool loop)
+void Sequencer::record (double fromTick, double countInTicks, bool loop, bool continuePlayback)
 {
     const auto from = juce::jmax (0.0, fromTick);
-    const auto next = nextGeneration();
-    clips.prepare (std::fmod (from, loopTicks), next, 0, 0.0);
+    if (! continuePlayback)
+    {
+        const auto next = nextGeneration();
+        clips.prepare (std::fmod (from, loopTicks), next, 0, 0.0);
+    }
+    playContinues = continuePlayback;
     playFrom = from;
     playCountIn = juce::jmax (0.0, countInTicks);
     playRecords = true;
@@ -386,6 +391,15 @@ void Sequencer::takeRequests()
     if (const auto plays = playRequests.load(); plays != playsSeen)
     {
         playsSeen = plays;
+        if (playContinues.load() && playing)
+        {
+            // Punch in on the next block: keep the voices, clips and transport where they are.
+            through = playThrough.load();
+            recordWaiting = true;
+            playStart = position_;
+            pass = 0;
+            return;
+        }
         // Played while playing (the ruler clicked): it goes there, the notes sounding cut short; a
         // recording in progress ends there.
         recording.end();
