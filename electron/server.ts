@@ -4,7 +4,7 @@
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { type EditorApp, createApp } from "../server/app.ts";
+import { type AppOptions, type EditorApp, createApp } from "../server/app.ts";
 import { FFMPEG } from "../server/config.ts";
 import { ffmpegVersion } from "../server/ffmpeg.ts";
 import { setGlPageOpener } from "../server/gl-browser.ts";
@@ -16,6 +16,9 @@ export interface ServerOptions {
   clientDir?: string;
   /** Ports to try in order; 0 means any free one. */
   ports: number[];
+  /** Put a project's package in the Trash, show one in Finder (the system's own). */
+  trash?: AppOptions["trash"];
+  reveal?: AppOptions["reveal"];
 }
 
 export interface RunningServer {
@@ -43,13 +46,13 @@ function listen(server: http.Server, port: number): Promise<number | null> {
   });
 }
 
-export async function startServer({ dataDir, clientDir, ports }: ServerOptions): Promise<RunningServer> {
+export async function startServer({ dataDir, clientDir, ports, trash, reveal }: ServerOptions): Promise<RunningServer> {
   setGlPageOpener(openWindowPage);
   const version = await ffmpegVersion();
   if (version) console.log(`[desktop] using ffmpeg ${version}`);
   else console.warn(`[desktop] ffmpeg not found (tried "${FFMPEG}"): importing and exporting won't work.`);
 
-  const { app, shutdown, setHostWindow } = await createApp({ dataDir, clientDir });
+  const { app, shutdown, setHostWindow } = await createApp({ dataDir, clientDir, trash, reveal });
   const server = http.createServer(app);
   for (const candidate of ports) {
     const port = await listen(server, candidate);

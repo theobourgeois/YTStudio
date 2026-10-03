@@ -25,9 +25,11 @@ const isMac = process.platform === "darwin";
 app.setName(APP_NAME);
 // A separate profile (window state, page storage, the single-instance lock), for tests.
 if (process.env.EDITOR_USER_DATA_DIR) app.setPath("userData", path.resolve(process.env.EDITOR_USER_DATA_DIR));
-// The packaged app keeps its videos with the user's other app data; development uses the repo's ./data.
+// The packaged app keeps its own data (recents, the Library, settings) with the user's other app data, and
+// projects, files of their own, in ~/Documents/Vaudio; development uses the repo's ./data (and the same folder).
 if (app.isPackaged && !process.env.EDITOR_DATA_DIR) {
   process.env.EDITOR_DATA_DIR = path.join(app.getPath("userData"), "data");
+  process.env.EDITOR_PROJECTS_DIR ??= path.join(app.getPath("documents"), "Vaudio");
 }
 
 // The audio engine ships in the app's resources (scripts/desktop.ts); development uses engine/build.
@@ -36,6 +38,9 @@ if (app.isPackaged && !process.env.EDITOR_ENGINE_PATH) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+/** Projects asked to open (double-clicked in Finder, Open Recent) before the page could: it opens them once it's loaded. */
+let pendingFiles: string[] = [];
+let pageReady = false;
 let appUrl = "";
 let dataDir = "";
 let closeServer: (() => void) | null = null;
@@ -47,12 +52,42 @@ if (!app.requestSingleInstanceLock()) {
   // Two servers on one data dir would overwrite each other's saves.
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
+    // Windows and Linux pass a project opened from the file manager as an argument.
+    for (const arg of argv.slice(1)) if (isProjectPath(arg)) openProject(arg);
     if (!mainWindow) return void createWindow();
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   });
+  // A project double-clicked in Finder, dropped on the Dock icon or picked from Open Recent (macOS), even before launch ends.
+  app.on("open-file", (event, file) => {
+    event.preventDefault();
+    openProject(file);
+  });
+  for (const arg of process.argv.slice(1)) if (isProjectPath(arg)) pendingFiles.push(arg);
   void start();
+}
+
+function isProjectPath(file: string) {
+  return /\.vaudio[/\\]?$/i.test(file);
+}
+
+/** Open a project's package in the window (once the page can: until then it waits). */
+function openProject(file: string) {
+  if (!mainWindow || !pageReady) {
+    pendingFiles.push(file);
+    if (!mainWindow && appUrl) createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+  void mainWindow.webContents.executeJavaScript(`window.editorDesktop?.openFile(${JSON.stringify(file)})`).catch(() => {});
+}
+
+/** A menu command of the page's (`DesktopCommand` in src/lib/desktop.ts). */
+function pageCommand(name: string) {
+  if (!mainWindow) createWindow();
+  void mainWindow?.webContents.executeJavaScript(`window.editorDesktop?.command(${JSON.stringify(name)})`).catch(() => {});
 }
 
 async function start() {
@@ -69,6 +104,9 @@ async function start() {
       dataDir,
       clientDir: DEV_URL ? undefined : existsSync(clientDir) ? clientDir : undefined,
       ports: DEV_URL ? [devPort] : PACKAGED_PORTS,
+      // A project's package goes to the Trash Finder knows (Put Back works), and Show in Finder is Finder's own.
+      trash: (dir) => shell.trashItem(dir),
+      reveal: async (dir) => shell.showItemInFolder(dir),
     });
     closeServer = server.close;
     setHostWindow = server.setHostWindow;
@@ -80,6 +118,7 @@ async function start() {
   }
   Menu.setApplicationMenu(buildMenu());
   answerSaveDialogs();
+  answerProjectDialogs();
   answerMicrophone();
   initializeAppIcon();
   createWindow();
@@ -109,8 +148,26 @@ function createWindow() {
   trackWindowState(win);
   mainWindow = win;
   win.once("ready-to-show", () => win.show());
+  // The page is up (its hooks set): projects waiting to open can now.
+  win.webContents.on("did-finish-load", () => {
+    void win.webContents
+      .executeJavaScript("new Promise((resolve) => { const wait = () => (window.editorDesktop ? resolve(true) : setTimeout(wait, 50)); wait(); })")
+      .then(() => {
+        pageReady = true;
+        const files = pendingFiles;
+        pendingFiles = [];
+        for (const file of files) openProject(file);
+      })
+      .catch(() => {});
+  });
+  win.webContents.on("did-start-loading", () => {
+    pageReady = false;
+  });
   win.on("closed", () => {
-    if (mainWindow === win) mainWindow = null;
+    if (mainWindow === win) {
+      mainWindow = null;
+      pageReady = false;
+    }
     // Hidden export windows don't count: without the editor's window the app is done (except on a Mac).
     if (!isMac) app.quit();
   });
@@ -138,6 +195,45 @@ function answerSaveDialogs() {
     const settings = { defaultPath: typeof options?.defaultPath === "string" ? options.defaultPath : undefined, filters };
     const result = win ? await dialog.showSaveDialog(win, settings) : await dialog.showSaveDialog(settings);
     return result.canceled || !result.filePath ? null : result.filePath;
+  });
+}
+
+/**
+ * Projects are files (`.vaudio` packages, which Finder shows as one file once the app is installed): the
+ * Mac's Open dialog picks one (or a file inside one, where macOS doesn't know the type yet), its folder
+ * dialog picks where new ones go, and an opened one joins the system's recent documents (File › Open Recent).
+ */
+function answerProjectDialogs() {
+  const defaultPath = (options: unknown) => {
+    const value = (options as { defaultPath?: unknown } | null)?.defaultPath;
+    return typeof value === "string" ? value : undefined;
+  };
+  ipcMain.handle("choose-project", async (event, options: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const settings: Electron.OpenDialogOptions = {
+      title: "Open a project",
+      buttonLabel: "Open",
+      defaultPath: defaultPath(options),
+      // A package is a file to the dialog when the type is registered (the packaged app); otherwise its folder is picked.
+      properties: ["openFile", "openDirectory"],
+      filters: [{ name: "Vaudio projects", extensions: ["vaudio"] }],
+    };
+    const result = win ? await dialog.showOpenDialog(win, settings) : await dialog.showOpenDialog(settings);
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+  ipcMain.handle("choose-folder", async (event, options: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const settings: Electron.OpenDialogOptions = {
+      title: "Save new projects in",
+      buttonLabel: "Choose",
+      defaultPath: defaultPath(options),
+      properties: ["openDirectory", "createDirectory"],
+    };
+    const result = win ? await dialog.showOpenDialog(win, settings) : await dialog.showOpenDialog(settings);
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+  ipcMain.on("project-opened", (_event, file: unknown) => {
+    if (typeof file === "string" && isProjectPath(file)) app.addRecentDocument(file);
   });
 }
 
@@ -208,7 +304,25 @@ function keepLinksOutside(win: BrowserWindow) {
 function buildMenu(): Menu {
   const template: MenuItemConstructorOptions[] = [
     ...(isMac ? [{ role: "appMenu" as const }] : []),
-    { role: "fileMenu" },
+    {
+      label: "File",
+      // The page catches these keys itself (wherever focus is), so the menu only shows them.
+      submenu: [
+        { label: "New Video", accelerator: "CmdOrCtrl+1", registerAccelerator: false, click: () => pageCommand("new:video") },
+        { label: "New Song", accelerator: "CmdOrCtrl+2", registerAccelerator: false, click: () => pageCommand("new:music") },
+        { label: "New Project…", accelerator: "CmdOrCtrl+Shift+O", registerAccelerator: false, click: () => pageCommand("newProject") },
+        { type: "separator" },
+        { label: "Open…", accelerator: "CmdOrCtrl+O", registerAccelerator: false, click: () => pageCommand("open") },
+        ...(isMac
+          ? [{ label: "Open Recent", role: "recentDocuments" as const, submenu: [{ label: "Clear Menu", role: "clearRecentDocuments" as const }] }]
+          : []),
+        { type: "separator" },
+        { label: "Home", accelerator: "CmdOrCtrl+Shift+H", registerAccelerator: false, click: () => pageCommand("home") },
+        { label: "Show in Finder", click: () => pageCommand("reveal") },
+        { type: "separator" },
+        isMac ? { role: "close" } : { role: "quit" },
+      ],
+    },
     // Text fields need the Edit menu for ⌘C/⌘V/⌘Z on a Mac. The editor's own shortcuts get the keys first
     // and only unhandled ones reach these.
     { role: "editMenu" },

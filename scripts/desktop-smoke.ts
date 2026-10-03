@@ -1,7 +1,8 @@
 /**
  * Try the packaged desktop app end to end (after `pnpm build:desktop`): launch it on a throwaway data dir, check
  * the editor loads in its window, then export a cross dissolve, which draws in the app's own hidden Chromium
- * window, and check its colours. Leaves a screenshot of the window.
+ * window, and check its colours; check projects are files it declares, and that launching it with one (what
+ * Finder's double-click does) opens it. Leaves a screenshot of the window.
  *
  *   pnpm test:desktop [--out window.png]
  */
@@ -121,6 +122,22 @@ try {
     const mid = pixelAt(output, 2, 360, 640);
     check("the transition is drawn by the app's Chromium", near(pixelAt(output, 1.2, 360, 640), [255, 0, 0]) && near(mid, [128, 0, 128]) && near(pixelAt(output, 2.7, 360, 640), [0, 0, 255]), `mid ${mid}`);
   }
+  // Projects are files: a package in the data folder's Documents/Vaudio (the user's own Documents/Vaudio when no
+  // data folder is given), a type the app declares, opened by launching the app with it.
+  const summary = (await api<ProjectSummary[]>("/api/projects")).find((p) => p.id === project.id);
+  const expected = path.join(tmp, "data", "Documents", "Vaudio", "Desktop smoke.vaudio");
+  check("the project is a package", summary?.path === expected && existsSync(path.join(expected, "project.json")), summary?.path);
+  if (process.platform === "darwin") {
+    const plist = path.join(path.dirname(path.dirname(executablePath)), "Info.plist");
+    const types = execFileSync("plutil", ["-extract", "CFBundleDocumentTypes", "json", "-o", "-", plist], { encoding: "utf8" });
+    check("declares .vaudio packages", /"vaudio"/.test(types) && /"LSTypeIsPackage":true/.test(types));
+  }
+  await window.goto(`${base}/`);
+  await window.getByRole("heading", { name: "Recent" }).waitFor({ timeout: 20_000 });
+  const second = spawn(executablePath, [expected], { env, stdio: "ignore" });
+  const opened = await window.waitForURL(`**/p/${project.id}`, { timeout: 20_000 }).then(() => true, () => false);
+  check("opens a project it's launched with", opened);
+  second.kill();
   await window.screenshot({ path: SCREENSHOT });
   console.log(`screenshot: ${path.relative(process.cwd(), SCREENSHOT)}`);
 } finally {
