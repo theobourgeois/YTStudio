@@ -29,11 +29,13 @@ export function typingKeyPitch(code: string, octave: number): number | null {
 type KeyLike = Pick<KeyboardEvent, "code" | "metaKey" | "ctrlKey" | "altKey">;
 
 /** What a key does while the typing keyboard is on: a note, an octave down or up (`[`, `]`, ours), or nothing (it's a shortcut's). */
-export function resolveTypingKey(e: KeyLike, octave: number): { type: "note"; pitch: number } | { type: "octave"; direction: -1 | 1 } | null {
+export function resolveTypingKey(e: KeyLike, octave: number): { type: "note"; pitch: number } | { type: "octave"; direction: -1 | 1 } | { type: "consume" } | null {
   // Ctrl, ⌘ and Alt keep their shortcuts, as in FL Studio.
   if (e.metaKey || e.ctrlKey || e.altKey) return null;
   if (e.code === "BracketLeft") return { type: "octave", direction: -1 };
   if (e.code === "BracketRight") return { type: "octave", direction: 1 };
   const pitch = typingKeyPitch(e.code, octave);
-  return pitch === null ? null : { type: "note", pitch };
+  if (pitch !== null) return { type: "note", pitch };
+  // Unmapped letters/digits must not change tools or mute channels while playing the piano.
+  return /^(Key[A-Z]|Digit[0-9])$/.test(e.code) ? { type: "consume" } : null;
 }

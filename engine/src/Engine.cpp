@@ -421,6 +421,11 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         const auto result = record (params);
         return result.wasOk() ? ok() : reply (result, {});
     }
+    if (command == "typingKeyboard")
+    {
+        EditorWindow::typingKeyboard = (bool) params["on"];
+        return ok();
+    }
     if (command == "midiTarget")
     {
         sequencer.setMidiTarget (params["channel"].isString() ? params["channel"].toString() : juce::String());

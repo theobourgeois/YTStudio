@@ -325,6 +325,8 @@ export interface PreviewFileRequest {
  * runs its shortcut (Space plays, as in FL Studio). Only the keys shortcuts use are sent.
  */
 export interface EngineKey {
+  /** Native typing keys also send releases. Omitted by older engines: a press. */
+  down?: boolean;
   key: string;
   code: string;
   metaKey: boolean;
@@ -656,6 +658,7 @@ export interface EngineCommands {
   preview: { channel: string; key: number; on: boolean; velocity?: number };
   /** The channel MIDI keyboards play (the rack's selected one), or none. */
   midiTarget: { channel: string | null };
+  typingKeyboard: { on: boolean };
   /**
    * MIDI messages as a keyboard would send them (a status byte, then its data: `[0x90, 60, 100]` is a
    * middle C): played on the MIDI target and told back in `midi` events. The typing keyboard's notes.

@@ -586,6 +586,8 @@ export class AudioEngine {
           velocity: isFiniteNumber(body.velocity) ? clamp(body.velocity, 0, 1) : DEFAULT_VELOCITY,
         };
       }
+      case "typingKeyboard":
+        return { on: body.on === true };
       case "midiTarget":
         if (body.channel !== null && (typeof body.channel !== "string" || !/^[\w-]{1,64}$/.test(body.channel)))
           throw new HttpError(400, '"channel" must be a channel\'s id, or null for none.');

@@ -37,7 +37,7 @@ function send(messages: number[][]) {
 }
 
 /** Let go of every typing keyboard key held (it's turned off, or the page lost the keyboard). */
-function releaseTyping() {
+export function releaseTyping() {
   if (!typingDown.size) return;
   send([...typingDown.values()].map((pitch) => [0x80, pitch, 0]));
   typingDown.clear();
@@ -74,7 +74,7 @@ const EMPTY: readonly number[] = [];
  * A key pressed or let go while the typing keyboard is on: true if it was the typing keyboard's (a note,
  * or an octave), so the page's own shortcut doesn't run.
  */
-export function typingKey(e: KeyboardEvent, down: boolean): boolean {
+export function typingKey(e: Pick<KeyboardEvent, "code" | "metaKey" | "ctrlKey" | "altKey"> & { repeat?: boolean }, down: boolean): boolean {
   const { typing, octave } = useMidi.getState();
   if (!typing) return false;
   if (!down) {
@@ -86,6 +86,7 @@ export function typingKey(e: KeyboardEvent, down: boolean): boolean {
   }
   const action = resolveTypingKey(e, octave);
   if (!action) return false;
+  if (action.type === "consume") return true;
   if (action.type === "octave") {
     useMidi.setState({ octave: Math.min(MAX_TYPING_OCTAVE, Math.max(MIN_TYPING_OCTAVE, octave + action.direction)) });
     return true;
@@ -127,14 +128,20 @@ export function startMidiSync(): { stop: () => void; resend: () => void } {
   ];
   const blur = () => releaseTyping();
   window.addEventListener("blur", blur);
+  const syncTyping = () => {
+    void musicApi.engine("typingKeyboard", { on: useMidi.getState().typing }).catch(() => {});
+  };
+  stops.push(useMidi.subscribe((s, p) => s.typing !== p.typing && syncTyping()));
   sync(true);
+  syncTyping();
   return {
     stop() {
       for (const stop of stops) stop();
       window.removeEventListener("blur", blur);
       releaseTyping();
+      void musicApi.engine("typingKeyboard", { on: false }).catch(() => {});
       useMidi.setState({ held: NONE });
     },
-    resend: () => sync(true),
+    resend: () => { sync(true); syncTyping(); },
   };
 }
