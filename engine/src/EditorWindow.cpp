@@ -1,4 +1,5 @@
 #include "EditorWindow.h"
+#include "MacWindow.h"
 
 #include "Protocol.h"
 
@@ -318,6 +319,7 @@ void EditorWindow::show()
 {
     juce::Process::makeForegroundProcess();
     setVisible (true);
+    keepOutOfWindowSwitchers (*this);
     toFront (true);
 }
 

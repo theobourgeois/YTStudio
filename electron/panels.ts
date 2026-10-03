@@ -34,6 +34,8 @@ export function panelOptions(): BrowserWindowConstructorOptions {
     minimizable: false,
     maximizable: false,
     skipTaskbar: true,
+    // They're the app's panels, not windows of the computer: no tile of their own in Mission Control.
+    hiddenInMissionControl: true,
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
