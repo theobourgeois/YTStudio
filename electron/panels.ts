@@ -26,6 +26,8 @@ export function panelOptions(): BrowserWindowConstructorOptions {
     height: 320,
     backgroundColor: "#16191d",
     hasShadow: true,
+    // The page draws square windows (a plugin's are too); macOS would round a frameless one's corners and clip the page's own.
+    roundedCorners: false,
     // A click that raises it must also act, as in the main window.
     acceptFirstMouse: true,
     fullscreenable: false,
