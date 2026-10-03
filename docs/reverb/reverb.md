@@ -9,6 +9,12 @@ the presets ([7](#7-the-presets-wed-ship)), and how it's built here and tested (
 [9](#9-how-itd-be-built-here)). [Open questions](#10-open-questions-for-théo) and [sources](#11-sources) at
 the end.
 
+**The research behind it is in [`reverb-vocals.md`](reverb-vocals.md)**: about sixty engineers' vocal reverb
+set-ups with their settings, the classic units from their manuals and measurements, VintageVerb and Pro-R 2
+read control by control from the plug-ins, eighty other reverbs' manuals, and the literature on how much
+reverb listeners want. What it changed here is listed in [section 12](#12-what-the-research-changed); the
+sections below are already updated.
+
 Sources, in short: the engineers' own words (Sound On Sound's *Inside Track* and interviews), the makers'
 manuals and pages (FabFilter's Pro-R 2 help, Valhalla's blog and pages, Lexicon's 480L manual, Bricasti's,
 LiquidSonics', UAD's, Soundtoys', Arturia's, Eventide's, Waves', 2C's), Sean Costello's Valhalla DSP blog, and
@@ -79,12 +85,17 @@ setting is given, it's here; where only a forum says so, it's left out.
 | Tom Elmhirst | Soul / pop: Amy Winehouse, "Rehab" (2007) | Spring printed at tracking + EMT plate | "I'm not a big fan of digital reverbs anyway" |
 | Humberto Gatica | Pop ballads | AMS RMX16 | "The classic long reverb that you can't change and that nothing else can duplicate" |
 
-**Nobody in the survey names FabFilter Pro-R or Pro-R 2 as their vocal reverb.** The names that come back
+**Almost nobody names FabFilter Pro-R or Pro-R 2**: one engineer of about sixty (Todd Hurtt, a Pro-R chamber
+among three sends for Polo G: `reverb-vocals.md` 1.1). The names that come back
 are Valhalla VintageVerb (five of them), plates (EMT 140 / 250 hardware or UAD's: five), Lexicon 224 / 480L and
 their copies (Relab LX480, Softube TSAR-1, UAD 480: five), Bricasti M7 / Seventh Heaven (four), the AMS
 RMX16 (five), chambers (three), and Altiverb's convolution (four). Hyperpop producers (A. G. Cook, Dylan Brady,
 SOPHIE) and the trap engineers asked about (Ethan Stevens, Jimmy Cash, Wheezy, Pi'erre Bourne) have published
 no reverb choices: **not stated**.
+
+This table is the first survey. `reverb-vocals.md` 1.1 has about sixty set-ups, rap and trap first, with what's
+before and after the reverb and every setting the sources give; 1.2 there sums them up, 1.3 gives the numbers
+(decays, pre-delays, insert mixes, return filters) and 1.5 what's true about timing reverb to the tempo.
 
 ### 1.2 The reverbs, compared
 
@@ -108,7 +119,7 @@ What each is, from its maker's manual or page, and what it's known for on vocals
 | **Soundtoys SuperPlate** | Plate models | Five plates (EMT 140, 240, Audicon, EcoPlate III, Stocktronics), three preamps | Decay (RT60 at 500 Hz, to a minute, infinite), cuts before the plate, Auto-Decay (the decay shortened while the input is loud) | SOS: "In a vocal context, Auto-Decay can achieve much the same thing as ducking" |
 | **AMS RMX16** | Algorithmic hardware | Ambience, Nonlin 2, Reverse | HI decay filter (18 kHz → 1 kHz), LO ×¼–4 at 350 Hz | Gatica; Ali; Maserati ("darker"); its Hall C1 "very useful for vocals" |
 | **Eventide SP2016** / **Blackhole** | Algorithmic | SP2016: Stereo Room, Room, Hi-Density Plate, EQ inside the feedback; Blackhole: huge, inverse ("Gravity"), Freeze | SP2016: Position (early/late), Diffusion; Blackhole: Size, Gravity, Feedback, Mod, Freeze | Guzauski on SP2016's Stereo Room for vocals; Blackhole: "If you're after a subtle plate to add to vocals… this is most definitely not the reverb to choose!" (SOS) |
-| **FabFilter Pro-R 2** (November 2023) | Algorithmic | One model; Space morphs "over a dozen" room models with the decay; Modern, Vintage and Plate styles | Space (200 ms–10 s), Decay Rate (25–400 %), Pre-delay (0–500 ms, synced 1/4–1/32 with an Offset 50–200 %), Character, Thickness, Distance, Brightness, Width, Ducking, Auto Gate, Freeze, Decay Rate EQ (six bands), Post EQ (six bands) | No engineer in the survey names it. MusicTech: "not the most characterful reverb"; SOS on Pro-R 1: "smooth, rich, sophisticated and classy" but no choice "for grotty springs, clangy plates or gritty lo-fi vintage digital" |
+| **FabFilter Pro-R 2** (November 2023) | Algorithmic | One model; Space morphs "over a dozen" room models with the decay; Modern, Vintage and Plate styles | Space (200 ms–10 s), Decay Rate (25–400 %), Pre-delay (0–500 ms, synced 1/4–1/32 with an Offset 50–200 %), Character, Thickness, Distance, Brightness, Width, Ducking, Auto Gate, Freeze, Decay Rate EQ (six bands, each 12.5–200 %), Post EQ (six bands) | No engineer in the survey names it. MusicTech: "not the most characterful reverb"; SOS on Pro-R 1: "smooth, rich, sophisticated and classy" but no choice "for grotty springs, clangy plates or gritty lo-fi vintage digital" |
 | **Arturia Rev PLATE-140**, **Rev INTENSITY**, **Rev LX-24** | Plate model; algorithmic; a 224 model | LX-24's Vintage 12: "sample rate of 20480Hz… 12-bit… elliptical filter set at 8k, pre-emphasis, de-emphasis" | PLATE-140: three plates, tube drive, Decay 0.4–5 s; INTENSITY: Freeze, envelope follower; LX-24: Decay 0.6–70 s, Distance, Drive | SOS on PLATE-140: "the right amount of metallic overtones and a very dense tail" |
 | **2C Aether / B2** | Algorithmic | Early reflections from 33 space types, a late reverb with Low/Mid/High ratios | Aether's Diffuse: "Low values… useful on vocals"; B2's negative Density for "slow transients such as… vocals" | — |
 | **Exponential Audio R4 / PhoenixVerb** (now iZotope) | Algorithmic | Envelope Attack/Time/Slope | Tail Suppress: "a reverb 'ducker'" | SOS on R4: "on a lead vocal… make the reverb swell at the end of each line" |
@@ -136,7 +147,7 @@ The recurring techniques, with who does them.
 | **Pre-delay** | A gap before the reverb, often in time with the song (a quarter note is 60 000 / BPM ms; halve it for each smaller value) | Illangelo (an H-Delay before Altiverb "for some pre-delay"); Waves' plate manual: "40 ms for vocals"; Pro-R 2 and Crystalline sync it. Griesinger: speech stays clear if "≥ 20 ms pass before significant reflected energy" |
 | **Ducking** | The reverb turned down while the voice sings, so it blooms in the gaps | Built into Pro-R 2, Seventh Heaven, H-Reverb, R4 ("Tail Suppress"), Crystalline, SuperPlate (Auto-Decay); by hand with a compressor on the return (Castelli's Fairchild "because of the way it controls the reverb tail") |
 | **EQ on the return** | Lows off (150–600 Hz), tops rolled off (6–10 kHz), harsh mids tamed | Schaeffer, Brathwaite (lows out); Illangelo ("rolls off quite a bit of top end"); Castelli (Pro-MB on "the dense and harsh mid-range"). Abbey Road's chamber sends were band-passed, "virtually all energy above 10 kHz and below 600 Hz" cut (Costello); FutureVerb's Studio colour is that |
-| **De-essing what's sent** | Sibilants kept out of the reverb | H-Reverb's DeEss; Pro-R 2's Decay Rate EQ can "notch out sibilant frequencies in a vocal reverb" (SOS). From engineers in their own words: **not stated** in the sources read |
+| **De-essing what's sent** | Sibilants kept out of the reverb | H-Reverb's DeEss; Pro-R 2's Decay Rate EQ can "notch out sibilant frequencies in a vocal reverb" (SOS). Engineers: Colmenero's EQ before the reverb ("You don't want to have esses all over your reverb"), Curtis Douglas's de-esser "set fairly aggressively" before his 480L, Gibbs' Pro-DS after his (`reverb-vocals.md` 1.2) |
 | **Plates** | Instant density, no early reflections, a short top end: bright but not hissy | Costello: "The high frequencies always have a fairly short decay, so consonants and sibilance won't ring out for too long… zingy brightness, but without the sibilance turning into annoying hiss, which can easily happen with digital reverbs" |
 | **Vintage digital** | The 224, 480L, AMS, EMT 250: a darker, modulated, slightly grainy tail | CLA, Ali, Lee, Maserati, Gatica; VintageVerb's eras |
 | **Modulation for lushness** | A slow chorus in the tail ("Chorus Verb" aux, Spin and Wander) | McCarthy; SOS on PCM Native; Pro-R 2's Character "chorus-like effect at 100% which works well on vocals" |
@@ -145,23 +156,26 @@ The recurring techniques, with who does them.
 
 ### 1.4 Why Pro-R 2 falls short for Théo's vocals
 
-Théo uses it and finds it "isn't the best". Nobody has published a vocal shoot-out against it, so most of
-this is **(inferred)** from its manual, its reviews and what the engineers reach for instead:
+Théo uses it and finds it "isn't the best"; nobody has published a vocal shoot-out against it. The first
+version of this section guessed; `reverb-vocals.md` 3.2 reads Pro-R 2 control by control from the plug-in and
+3.3 sets the complaints against what the sources say. In short:
 
-- **One model, steered by one knob.** Space "combines the room model and decay time": size and length are
-  one gesture, with three styles on top. VintageVerb gives 22 distinct algorithms and three eras; the
-  engineers in the survey pick their reverb *for its character* (a plate's gloss, a 480's shimmer, a
-  chamber's density), and stack two.
-- **Clean before characterful.** "Not the most characterful reverb" (MusicTech); Pro-R 1 was no choice "for
-  grotty springs, clangy plates or gritty lo-fi vintage digital" (SOS). Its Modern style is "natural,
-  realistic": a good room, not the hyped plate or Lexicon sound pop vocals are made with.
-- **Opaque character controls.** Character mixes modulation, early reflections and "late echoes" in one knob;
-  Thickness mixes density with saturation; modulation has no rate or depth of its own.
-- **Ducking with one control.** "The range of the integrated, intelligent ducking": its threshold, attack and
-  release aren't the user's (not stated). Vocal ducking is all about the release (the bloom between words).
-- **Nothing for sibilance on the way in**, beyond notching the Decay Rate EQ.
-- **What it does best**, and we keep: the Decay Rate EQ (six bands, 25–400 %, drawn over the decaying
-  spectrum), Distance, the synced pre-delay with an Offset, Freeze, a clean display.
+- **Not much character.** "It may not be the most characterful reverb in our toolkit" (MusicTech); no choice
+  "for grotty springs, clangy plates or gritty lo-fi vintage digital" (SOS, Pro-R 1). The engineers in the
+  survey pick reverbs *for* their character and stack two.
+- **Macros hide the controls.** Character mixes modulation, early reflections and "late echoes" in one knob
+  ("Missed opportunity not to add some extended FabFilter modulation options": MusicTech); Thickness mixes
+  density and saturation, and turning it up lowers the reverb's level. MusicRadar: things "distilled down to
+  single multipurpose knobs".
+- **Ducking is a range only** (0–48 dB), with no threshold, attack, release or hold among its 141
+  parameters, and it can't be keyed from another track (FabFilter: "Pro-R 2 is not set up to be used with
+  external side-chain"). Its Auto Gate "feels more like a cut than a drop" (FabFilter's forum).
+- **Nothing for sibilance on the way in**: FabFilter's own advice is a post low-pass "as low as 2 kHz".
+- **Its Decay Rate EQ can't be bypassed or saved on its own** (MusicRadar, SOS).
+- **Corrected**: Space doesn't tie size and length together as first said; Decay Rate (25–400 %) changes "the
+  decay time without altering the room sound". The Decay Rate EQ's bands go 12.5–200 %.
+- **What it does best**, and we keep: the Decay Rate EQ drawn over the decaying spectrum, Distance, the synced
+  pre-delay with an Offset, Freeze, Lock Mix, the Post EQ's automatic gain compensation, a calm display.
 
 ### 1.5 New since 2024
 
@@ -266,7 +280,7 @@ the effect slot's name, chosen from the slot's picker under Built in → Reverb.
 │           50    100    200    500     1k     2k     5k    10k    20k                                  │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │  PRE-DELAY    DECAY     SIZE    DISTANCE   DIFFUSION │ MOD RATE  DEPTH │ WIDTH │ LOW CUT  HIGH CUT  │
-│   (◯) 1/32    (◯) 1.8 s  (◯)      (◯)        (◯)      │  (◯)      (◯)   │  (◯)  │  (◯)      (◯)      │ knobs
+│   (◯) 1/64    (◯) 1.8 s  (◯)      (◯)        (◯)      │  (◯)      (◯)   │  (◯)  │  (◯)      (◯)      │ knobs
 │   SYNC ▾                                             │                 │       │                    │
 │  ── VOCAL ──  DE-ESS (◯) 6 dB    DUCK (◯) −4 dB   ▸ Advanced                                          │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -289,18 +303,21 @@ the effect slot's name, chosen from the slot's picker under Built in → Reverb.
 
 | Control | Range | Default | Scale | What it does |
 | --- | --- | --- | --- | --- |
-| **Pre-delay** | 0 .. 500 ms; or Sync: 1/64, 1/32, 1/16, 1/8, 1/4, 1/2, each straight, dotted or triplet | 1/32 synced (62.5 ms at 120 BPM) on vocal presets; 20 ms in Init | Log-ish (more travel under 100 ms); Sync menu under the knob | The gap before the reverb starts: room for the consonants. In Sync, Offset (advanced) scales it 50 .. 200 % |
+| **Pre-delay** | 0 .. 500 ms; or Sync: 1/64, 1/32, 1/16, 1/8, 1/4, 1/2, each straight, dotted or triplet | 1/64 synced (31 ms at 120 BPM) on the lead-vocal plates; 20 ms in Init | Log-ish (more travel under 100 ms); Sync menu under the knob | The gap before the reverb starts: room for the consonants. In Sync, Offset (advanced) scales it 50 .. 200 %. The document keeps both a time and a note value; Sync picks which (Sonsig Rev-A's), so switching loses neither. Engineers use 12–85 ms, the makers' vocal presets 0–31 ms (VintageVerb, Pro-R 2, the M7's VOX Plate at 24 ms): `reverb-vocals.md` 1.3, 2.11, 3.1.5 |
 | **Decay** | 0.1 .. 60 s, then ∞ | 1.8 s | Log | The RT60 at 1 kHz (the time to fall 60 dB). The Decay EQ shapes it across frequency, relative to this. At ∞ the loop holds (6.13) |
 | **Size** | 0 .. 100 % | 50 % | Linear | The network's scale: bigger is smoother and slower to start; smaller is tighter and more coloured. Doesn't change Decay (the absorption follows) |
 | **Distance** | 0 .. 100 % | 25 % | Linear | Where the listener is: close (strong, early first reflections, bright early sound: for drums and rooms) to far (no close reflections, a slow, darker build, more tail than early: what keeps a lead vocal clear, 6.7). Pro-R 2's Distance |
-| **Diffusion** | 0 .. 100 % | 80 % | Linear | The early density: smooth at the top, discrete echoes at the bottom. In Plate, the input diffusers' gains |
-| **Mod Rate** | 0.05 .. 5 Hz | Per mode (0.5 Hz) | Log | How fast the network's delays wander |
-| **Mod Depth** | 0 .. 100 % | Per mode (about 45 %) | Linear; the excursion goes as its square, 1 ms × (Depth)² | How far the delays move: at 45 % (0.2 ms) and 0.5 Hz about 1 cent (the metal gone, nothing heard as pitch); at 100 % and 2 Hz about 22 cents, a chorus (table in 6.8) |
+| **Diffusion** | 0 .. 100 % | 60 % | Linear | The early density: smooth at the top, discrete echoes at the bottom. In Plate, the input diffusers' gains. Every manual that advises on vocals says low to moderate (the 224's Vocal Plate at 4 of 63, the 480L, D-Verb, LX-24: `reverb-vocals.md` 2.4, 2.14, 4.1); Costello's rule is up until sibilance is smooth, then "down just a touch" |
+| **Mod Rate** | 0.05 .. 10 Hz | Per mode (0.8 Hz) | Log | How fast the network's delays wander. VintageVerb runs 0.1–10 Hz, its vocal presets 0.5–3 Hz; Lexicon's Spin "values between 1–2 Hz" (`reverb-vocals.md` 2.6, 3.1.3) |
+| **Mod Depth** | 0 .. 100 % | Per mode (0 % on Plate, about 40 % elsewhere) | Linear; the excursion goes as its square, 1 ms × (Depth)² | How far the delays move: at 40 % (0.16 ms) and 0.8 Hz about 1.4 cents (the metal gone, nothing heard as pitch); at 100 % and 2 Hz about 22 cents, a chorus (table in 6.8). A real plate is static (EMT 140; the 480L's plates and halls run unmodulated): Plate starts at 0 |
 | **Width** | 0 .. 150 % | 100 % | Linear | Mono reverb to wider than the speakers (mid/side; the bass under 150 Hz never widened) |
-| **Low Cut** | 20 Hz .. 2 kHz (20: off) | 200 Hz on vocal presets; off in Init | Log | 12 dB/oct on the reverb's output. Shown on the display |
-| **High Cut** | 1 .. 20 kHz (20: off) | 11 kHz on vocal presets; off in Init | Log | 12 dB/oct on the output |
-| **De-ess** | 0 .. 18 dB | 6 dB on vocal presets; 0 in Init | Linear | How far sibilance is turned down *on the way into* the reverb (6.3). The dry voice isn't touched |
-| **Duck** | 0 .. −24 dB | −4 dB on vocal presets; 0 in Init | Linear in dB | How far the reverb is turned down while the dry sound plays (6.11) |
+| **Low Cut** | 20 Hz .. 2 kHz (20: off) | 200 Hz on vocal presets; off in Init | Log | 12 dB/oct on the reverb's output (24 from the knob's menu: FL users find Reeverb 2's 600 Hz cut lets 50 Hz through). Shown on the display. Engineers cut 100–300 Hz (`reverb-vocals.md` 1.3) |
+| **High Cut** | 1 .. 20 kHz (20: off) | 8 kHz on vocal presets; off in Init | Log | 12 dB/oct on the output (24 from the knob's menu). Every documented vocal reverb low-pass is at or under 9.4 kHz, most 5–7 kHz (engineers, the M7's 6.4 kHz, VintageVerb's 4–7 kHz: `reverb-vocals.md` 1.3, 2.14, 3.1.5) |
+| **De-ess** | 0 .. 24 dB | 6 dB on vocal presets; 0 in Init | Linear | How far sibilance is turned down *on the way into* the reverb (6.3). The dry voice isn't touched. Engineers de-ess what feeds their reverb ("You don't want to have esses all over your reverb": Colmenero); H-Reverb, the only reverb that de-esses inside, goes to 24 dB |
+| **Duck** | 0 .. −24 dB | −4 dB on vocal presets; 0 in Init | Linear in dB | How far the reverb is turned down while the dry sound plays, or while another track does (its Key, 4.3, 6.11) |
+
+**Mix** (in the top bar) has a taper that puts 10–40 % across the middle of the knob, where an insert lives
+(engineers' insert mixes are 12–25 %: `reverb-vocals.md` 1.3; UAD's Pure Plate has 15 % at 12 o'clock).
 
 Every knob: drag up/down (Shift: fine), double-click: default, right-click: its menu (Create automation clip,
 Reset, Type a value). The value shows on the knob while it's touched, in its units. Knobs are the app's
@@ -321,37 +338,42 @@ Slides out under the knobs (▸ Advanced), as EchoBoy's Tweak. Four groups:
 | **Early & late** | Early Send | 0 .. 100 % | 100 % | How much of the early energy feeds the late network |
 | | Early Cross | 0 .. 100 % | 50 % | The early sound's spread between sides |
 | | Late Diffusion | 0 .. 100 % | Per mode | The in-line all-passes' gain (the tail's density growth) |
-| | Mod Shape | Chorus / Random | Per mode | Sine LFOs (chorus; can be heard) or random walks (Lexicon's "wander"; hides the metal without pitch) |
+| | Mod Shape | Chorus / Random (Wander later) | Per mode | Sine LFOs (chorus; can be heard) or random walks (hides the metal without pitch). Later, **Wander**: the 480L's way, each line's tap jumping to a new place and crossfaded, so it moves without bending pitch (6.8) |
+| | Variation | 1 .. 1000 | 1 | The seed of the velvet taps and the random modulation, so a pattern that rings on one voice can be re-rolled (RoomWorks' Variation) |
 | | Tone Lock | On / Off | On | Decay EQ changes length only (Jot's tone corrector), or length and level (6.6) |
-| **Ducking** | Threshold | Auto, or −60 .. 0 dB | Auto | Above it the ducking begins; Auto follows the input's level |
+| **Ducking** | Key | This track / another track | This track | What the ducker listens to. Another track is a 0 % send into this one, as Pro-C's external key (`setProCSidechain`): a backing vocal's reverb ducked by the lead, a reverb on a send ducked by the vocal that feeds it. LuxeVerb, Seventh Heaven, Arturia have it; Pro-R 2 can't (`reverb-vocals.md` 4.1) |
+| | Threshold | Auto, or −60 .. 0 dB | Auto | Above it the ducking begins; Auto follows the key's level. The detector has a fixed 150 Hz high-pass, so a bass-heavy key doesn't hold the tail down **(inferred)** |
 | | Attack | 1 .. 100 ms | 10 ms | How fast it ducks |
-| | Release | 20 ms .. 2 s, or a note value | 250 ms | How fast it comes back |
+| | Release | 20 ms .. 3 s, or a note value | 250 ms | How fast it comes back (H-Reverb's recovery goes to 3 s: a ballad's bloom wants it) |
 | | Hold | 0 .. 500 ms | 50 ms | How long it stays down after the voice stops |
-| | Duck What | Tail / All | Tail | Only the late reverb, or the early sound too (Seventh Heaven ducks "only the reverb (not the reflections)", which keeps the sense of space) |
+| | Duck What | Tail / All | Tail | Only the late reverb, or the early sound too (Seventh Heaven ducks "only the reverb (not the reflections)", which keeps the sense of space; four LiquidSonics manuals say so) |
+| | Auto-Decay | 0 .. 90 %, Recovery 1 .. 500 ms | 0 % | Instead of turning the tail down, shorten it while the key is loud (SuperPlate's: "Conceptually, it's very similar to the common 'Ducking' control… instead of reducing the volume of the reverb, it dynamically reduces the decay time"). The amount is how much shorter at full key level (6.11) |
 | **Output** | Low shelf | 50 .. 500 Hz, ±12 dB | 200 Hz, 0 dB | First-order, on the wet sound (Valhalla Plate's EQ) |
 | | High shelf | 1 .. 16 kHz, ±12 dB | 8 kHz, 0 dB | First-order, on the wet sound |
 | | Studio | On / Off | Off | Low Cut 600 Hz and High Cut 10 kHz, steep (24 dB/oct): the Abbey Road send filter, FutureVerb's Studio colour |
+| | Mono Below | Off, 20 .. 500 Hz | 150 Hz on vocal presets; off in Init | The wet sound's side signal removed below it, at every Width (Crystalline, ChromaVerb, Hybrid Reverb, smart:reverb have it) |
 | | Output | −24 .. +12 dB | 0 dB | The wet sound's level |
 
 ### 4.4 The modes
 
 | Mode | In one line | Its default sound |
 | --- | --- | --- |
-| **Plate** | Dattorro's (Lexicon-style) plate: instant, dense, a little sheen | 2.0 s, EMT 140-like curve (long bass, short top), chorus mod |
-| **Smooth Plate** | The plate without the metal: the vocal default | 1.8 s, even and silky |
+| **Plate** | Dattorro's (Lexicon-style) plate: instant, dense, a little sheen | 2.0 s, the EMT 140's curve, which follows Decay as its damper did (6.4); static (no modulation) |
+| **Smooth Plate** | The plate without the metal: the vocal default | 1.8 s, even and silky; the bass a little shorter than the mids, as the M7's VOX Plate |
 | **Room** | A real close room, walls you can hear, a short tail | 0.7 s, strong early sound |
 | **Chamber** | A dense echo chamber: quick, warm, no distinct echoes | 1.2 s, bass a bit longer |
 | **Hall** | A big hall: a slow bloom, lush chorus in the tail | 2.6 s, sparse-to-dense early, bass longer |
 | **Ambience** | Early energy and air, almost no tail | 0.5 s |
 | *Space* (later) | Huge, slow, evolving washes to a minute | 8 s |
 | *Nonlin* (later) | Gated and reverse | 0.4 s gate |
+| *Spring* (later) | A studio spring (AKG BX20) | 2 s; six engineers in `reverb-vocals.md` 1.1 use one on vocals |
 
 ### 4.5 The eras
 
 | Era | What it does | Heard as |
 | --- | --- | --- |
 | **Now** (default) | Nothing: full bandwidth, clean float, smooth modulation | Modern, transparent |
-| **1980s** | 15 kHz band limit, 16-bit in the loop, modulation quantised (fine), a little noise | The Lexicon 480L / 224XL / AMS era: smooth but with a hardware sheen |
+| **1980s** | 18 kHz band limit, 16-bit in the loop, modulation quantised (fine), a little noise | The Lexicon 480L / 224XL / AMS era: smooth but with a hardware sheen. (VintageVerb's 1980s is full bandwidth; its 15 kHz is Palace's, and the 224XL's: question 9) |
 | **1970s** | 9 kHz band limit with the "aperture" lift, a 12-bit gain-ranging converter, coarse modulation, more noise | The 224 / EMT 250: dark, grainy, warbly on long notes |
 
 ### 4.6 The displays
@@ -365,7 +387,7 @@ up (0.1 .. 30 s, log; the axis on the left in seconds).
   (`decayCurve`). Its height at 1 kHz is Decay; dragging the curve (not a dot) up or down changes Decay.
 - **The mode's natural curve** (thin, dimmed) under it: where it would be with no bands.
 - **Decay bands** (up to six dots, Pro-R 2's number): each a low shelf, bell, high shelf or notch of a
-  multiplier (×0.25 .. ×4, Pro-R 2's 25–400 %) at a frequency, with a Q. Drag: frequency and multiplier (Shift fine, Alt one axis); wheel: Q; double-click on
+  multiplier (×0.25 .. ×4; Pro-R 2's bands go 12.5–200 % of a Decay Rate that itself goes 25–400 %) at a frequency, with a Q. Drag: frequency and multiplier (Shift fine, Alt one axis); wheel: Q; double-click on
   empty display: a new band (a shelf near either end, a bell between); Alt-click: bypass; right-click: its
   menu (shape, delete); near the bottom, a double-click makes a notch (Pro-R 2's: "notch out sibilant
   frequencies in a vocal reverb"). A label over the dot while it's touched: "×0.6 → 1.1 s at 6.2 kHz".
@@ -377,7 +399,12 @@ up (0.1 .. 30 s, log; the axis on the left in seconds).
   open): where the reverb's energy actually is. Each frequency's trace falls at that frequency's T60
   (Pro-R 2's "soft yellow curves… that fall off and fade in relation to the current reverb time"), so a
   band that rings too long is seen hanging.
-- **The ducker's reduction** as a thin bar at the right edge, and the input / output meters beside it.
+- **The ducker's reduction** as a thin bar at the right edge, and the input / output meters beside it. While
+  the Ducking group is open, the display shows the key's level, the threshold and the reduction over time
+  (LuxeVerb's), so the threshold is set by eye.
+- **Bypass the Decay EQ** (a button by the DECAY tab): every band off at once, to hear what they do (asked of
+  Pro-R by MusicRadar). Copy curve / Paste curve (4.8) carry a curve between reverbs, the nearest to saving it
+  alone (SOS's wish).
 
 ![FabFilter's picture of what the Decay Rate EQ does: a bell, a shelf and a notch shaping how long each frequency rings](img/pro-r-2-decay-rate-eq-waterfall.jpg)
 
@@ -390,12 +417,15 @@ up (0.1 .. 30 s, log; the axis on the left in seconds).
   behind it, so the Decay EQ is seen in time), the −60 dB line, and the duck's effect as a dotted line
   during a phrase.
 - Drag the pre-delay edge sideways: Pre-delay. Drag the slope: Decay. Drag the early cluster sideways:
-  Distance. Later: a double-click plays a click through the reverb to hear its shape (an engine command,
-  `verbAudition`, the one new command this would need; the fake engine would answer it).
+  Distance. A double-click plays a click through the reverb to hear its shape (an engine command,
+  `verbAudition`, the one new command this would need; the fake engine would answer it), with the Shape display
+  in step 4 (three stock reverbs have a test click: `reverb-vocals.md` 4.1). A log-time toggle spreads the early
+  taps (Open AIR's).
 
 ### 4.7 Meters
 
-- **In / Out**: peak meters (the engine's atomics, falling as the mixer's do).
+- **In / Out**: peak meters (the engine's atomics, falling as the mixer's do). The In meter lights when the
+  loop's guard (6.13) clips.
 - **Duck**: gain reduction in dB, at the display's edge.
 - **De-ess**: a small lamp that glows with the reduction.
 - **Freeze**: the button lit, and the display's curve drawn flat (∞) while on.
@@ -405,8 +435,10 @@ up (0.1 .. 30 s, log; the axis on the left in seconds).
 - Right-click on the display: Reset decay bands, Reset Post EQ, Show natural curve, Show analyzer, Copy curve,
   Paste curve.
 - The preset menu: folders, then Init; at the bottom, Copy settings, Paste settings, Revert.
-- While the window is in front: **F** Freeze, **← →** previous / next preset, **Tab** Decay / Shape display,
-  **A** switch A / B. Other keys go to the editor (Space plays), as the other windows do.
+- While the window is in front: **F** Freeze (held: momentary, released on let-go), **← →** previous / next
+  preset, **Tab** Decay / Shape display, **A** switch A / B. Alt-click on ❄ makes it momentary too.
+- **Kill**: holding the mouse on a small ⏻ in the top bar mutes the input while the tail is heard (not saved,
+  not automated), for hearing a tail against the Decay display. Other keys go to the editor (Space plays), as the other windows do.
 - Every change is one undo step (a drag is one gesture), and the assistant can make every one of them.
 
 ### 4.9 Presets and A/B
@@ -432,8 +464,8 @@ In the words a producer would use, with what makes it so.
 
 ### 5.2 On vocals: what it should do
 
-- **Stay behind the voice.** A vocal reverb is heard in the gaps. Pre-delay (20–120 ms, or a 1/16 or 1/32 at
-  the song's tempo) leaves the consonants clear, and Duck (−4 to −10 dB) keeps the tail down while the
+- **Stay behind the voice.** A vocal reverb is heard in the gaps. Pre-delay (20–85 ms as engineers set it, or a
+  1/64 or 1/32 at the song's tempo) leaves the consonants clear, and Duck (−4 to −10 dB) keeps the tail down while the
   singer sings. Most engineers in the survey either keep vocals nearly dry or automate the reverb by section
   (Rodrigo's verses drier, Kesha's sends muted in verses, CLA shutting the long reverbs off in the loud parts):
   the reverb should make that easy (Mix, Decay and Duck are automatable; Freeze for throws).
@@ -447,10 +479,17 @@ In the words a producer would use, with what makes it so.
   Diffusion turns its diffusers down.
 - **Stack two**: a short dense space (Room or Chamber, 0.5–1.2 s) for where the voice is, and a longer tail
   (Plate or Hall, 1.5–3 s, more pre-delay) for depth: the pattern most engineers in the survey describe
-  (Low's chamber + plate; Marasciullo's room + plate; Maserati's dark AMS + bright LX480). The presets come in
+  (Low's chamber + plate; Marasciullo's room + plate; Maserati's dark AMS + bright LX480; Mike Senior's "short
+  (usually well under a second in length) and with perhaps only 5-10ms of pre-delay" under a longer, brighter
+  one with "maybe 30-70ms"). The presets come in
   such pairs, and `add_vocal_reverb` can make both sends.
-- **Lush, not seasick.** Modulation at 0.3–0.8 Hz and depths giving 1–3 cents removes the metal without being
-  heard as pitch; more is a chorus effect, there on purpose (Hall's "chorus verb" for ballads).
+- **Lush, not seasick.** Modulation at depths giving 1–3 cents removes the metal without being heard as pitch
+  (VintageVerb's vocal presets run 0.5–3 Hz; a real plate isn't modulated at all); more is a chorus effect,
+  there on purpose (Hall's "chorus verb" for ballads).
+- **Err dry.** In listening tests of whole mixes, too much reverb cost more than too little, and every mix with
+  the reverb 9 LU or less under the dry sound was judged too wet; about 14 LU under was preferred (De Man,
+  McNally and Reiss, `reverb-vocals.md` 5). The presets are matched in loudness and `add_vocal_reverb` sets its
+  send for that (9.6).
 - **Mono-safe.** The vocal is in the centre; its reverb is wide but must still be there on a phone speaker.
 
 ### 5.3 Each control, heard
@@ -565,7 +604,7 @@ The decay maths below uses L.
   y    = HighShelf(x, f_ds, −red_dB)               // dynamic shelf, redesigned every 16 samples, smoothed
   ```
 
-  Amount 0 .. 18 dB (0: off). The threshold (−14 dB) and slope (1.5) are **(inferred: tune on real vocals)**;
+  Amount 0 .. 24 dB (0: off). The threshold (−14 dB) and slope (1.5) are **(inferred: tune on real vocals)**;
   test 15 checks the result.
 - **Pre-delay**: 0 .. 500 ms, or a note value (1/64 .. 1/2, straight, dotted, triplet) at the song's tempo,
   times Offset (50 .. 200 %, Pro-R 2's idea). A change is two reads of the line crossfaded over 30 ms (EchoBoy's
@@ -575,14 +614,35 @@ The decay maths below uses L.
 
 | Mode | Topology | Lines (N) | Line lengths (scale ×1) | In-line all-passes | Matrix | Early | Natural decay (×Decay) at 125 Hz / 1 kHz / 4 kHz / 10 kHz | Modulation default |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Plate** | Dattorro's figure-eight (Griesinger) | 4 | Dattorro's (section 6.5.1): 106 .. 150 ms delays, 23 .. 89 ms all-passes | One per line: −0.70 (modulated), 0.50 | Ring | Dattorro's four input diffusers (4.8, 3.6, 12.7, 9.3 ms; 0.75, 0.75, 0.625, 0.625 × Diffusion) | ×1.5 / ×1 / ×0.7 / ×0.35, capped at 1.2 s at 10 kHz (an EMT 140: section 5.1) | Chorus, 0.9 Hz, 0.27 ms |
-| **Smooth Plate** (vocal default) | The figure-eight doubled | 8 | 97 .. 150 ms delays, 23 .. 90 ms all-passes (6.5.2) | One per line, 0.50 .. 0.62, half modulated | Ring | Velvet, 0 .. 12 ms, 3000 /s, into the loop only | ×1.3 / ×1 / ×0.75 / ×0.45, 10 kHz capped at 1.5 s | Random, 0.5 Hz, 0.2 ms |
-| **Room** | FDN | 16 | 7 .. 31 ms | 2 .. 5 ms, 0.4 | Hadamard | Velvet, 0 .. 40 ms, 2500 /s, strong first taps | ×1.1 / ×1 / ×0.7 / ×0.4 | Random, 0.6 Hz, 0.1 ms |
-| **Chamber** | FDN | 16 | 17 .. 60 ms | 3 .. 9 ms, 0.5 | Hadamard | Velvet, 5 .. 60 ms, 3500 /s | ×1.6 / ×1 / ×0.7 / ×0.4 | Random, 0.5 Hz, 0.15 ms |
-| **Hall** | FDN | 16 | 37 .. 111 ms | 5 .. 15 ms, 0.5 | Hadamard | Velvet, 10 .. 120 ms, sparse to dense (800 → 3000 /s), the "slow build" | ×1.4 / ×1 / ×0.7 / ×0.4, 10 kHz capped at 1.5 s | Chorus, 0.7 Hz, 0.3 ms |
-| **Ambience** | FDN (Room's) | 16 | 7 .. 31 ms | 2 .. 5 ms, 0.3 | Hadamard | Velvet 0 .. 80 ms is most of the sound; late at −10 dB, decay ≤ 0.8 s | ×1 / ×1 / ×0.8 / ×0.5 | Random, 0.4 Hz, 0.08 ms |
+| **Plate** | Dattorro's figure-eight (Griesinger) | 4 | Dattorro's (section 6.5.1): 106 .. 150 ms delays, 23 .. 89 ms all-passes | One per line: −0.70 (modulated), 0.50 | Ring | Dattorro's four input diffusers (4.8, 3.6, 12.7, 9.3 ms; 0.75, 0.75, 0.625, 0.625 × Diffusion) | **Follows Decay** (the EMT 140's damper, below): ×0.7 / ×1 / ×1.1 / ×0.8 at Decay 1 s, ×0.8 / ×1 / ×0.95 / ×0.55 at 2 s, ×2.5 / ×1 / ×0.6 / ×0.33 at 4 s; 10 kHz never above 1.3 s | None (depth 0; Chorus, 0.9 Hz when turned up) |
+| **Smooth Plate** (vocal default) | The figure-eight doubled | 8 | 97 .. 150 ms delays, 23 .. 90 ms all-passes (6.5.2) | One per line, 0.50 .. 0.62, half modulated | Ring | Velvet, 0 .. 12 ms, 3000 /s, into the loop only | ×0.85 / ×1 / ×0.9 / ×0.5 (below 1.2 kHz ×0.85, as the M7's VOX Plate), 10 kHz capped at 1.5 s | Chorus, 0.8 Hz, 0.16 ms (VintageVerb's Smooth Plate is chorused) |
+| **Room** | FDN | 16 | 7 .. 31 ms | 2 .. 5 ms, 0.4 | Hadamard | Velvet, 0 .. 40 ms, 2500 /s, strong first taps | ×1.0 / ×1 / ×0.65 / ×0.4 (the M7's rooms: HF ×0.55–0.65 from ~2 kHz) | Random, 0.6 Hz, 0.1 ms |
+| **Chamber** | FDN | 16 | 17 .. 60 ms | 3 .. 9 ms, 0.5 | Hadamard | Velvet, 5 .. 60 ms, 3500 /s | ×0.9 / ×1 / ×0.8 / ×0.45 (the M7's chambers: LF ×0.75–0.95, HF ×0.8–0.85) | Random, 0.5 Hz, 0.15 ms |
+| **Hall** | FDN | 16 | 37 .. 111 ms | 5 .. 15 ms, 0.5 | Hadamard | Velvet, 10 .. 120 ms, sparse to dense (800 → 3000 /s), the "slow build"; later drawn by Shape and Spread (6.7) | ×1.2 / ×1 / ×0.75 / ×0.4, 10 kHz capped at 1.5 s (the M7's and 480L's halls: bass ×1.2 at 500–800 Hz) | Chorus, 0.7 Hz, 0.3 ms |
+| **Ambience** | FDN (Room's) | 16 | 7 .. 31 ms | 2 .. 5 ms, 0.3 | Hadamard | Velvet 0 .. 80 ms is most of the sound; late at −10 dB, decay ≤ 0.8 s | ×0.9 / ×1 / ×0.85 / ×0.5 | Random, 0.4 Hz, 0.08 ms |
 | **Space** (later) | FDN, long | 16 | 62 .. 240 ms | Two per line, 10 .. 40 ms, 0.6 | Hadamard | A long velvet fade-in (Attack) | ×1.2 / ×1 / ×0.8 / ×0.6 | Chorus, 0.4 Hz, 0.8 ms |
 | **Nonlin** (later) | Velvet taps only, shaped envelope | — | — | — | — | 50 .. 1000 ms, gated, flat or reverse | — | — |
+
+**Why the natural curves changed** (`reverb-vocals.md` 2.14): every vocal plate and chamber in the units'
+own presets has its bass *shorter* than its mids (the Bricasti M7's VOX Plate ×0.85 below 1.2 kHz and Bright
+VOX ×0.75; the 480L's plates ×0.6 at 752 Hz); only halls go over 1 (×1.2). The first version's ×1.3–×1.6 were
+hall curves on every mode.
+
+**The Plate's curve follows Decay**, as an EMT 140's did when its damper moved. EMT's own 1971 brochure
+graphs the reverberation time against frequency at three damper settings (read off the scan, ±0.2 s:
+`reverb-vocals.md` 2.1):
+
+| Setting | 100 Hz | 200 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 10 kHz |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Closed ("1 s") | 0.75 s | 0.8 s | 0.85 s | 1.05 s | 1.1 s | 1.2 s | 0.85 s |
+| Middle ("2 s") | 1.7 s | 1.55 s | 1.8 s | 2.15 s | 2.15 s | 2.0 s | 1.2 s |
+| Open ("4.5 s") | 10.2 s | 6.8 s | 4.7 s | 4.0 s | 3.2 s | 2.5 s | 1.3 s |
+
+So the top barely moves ("At 10 kHz, the decay time on an EMT140 is <1 second, at any setting of the decay
+damper": Costello) and the bass goes from shorter than the mids to far longer. The Plate's natural curve is
+these three, as ratios to the 1 kHz time, interpolated in log time by Decay (below 1 s the closed curve, above
+4 s the open one with 10 kHz held at 1.3 s) **(inferred)**. A plate's physics alone would give about 2 s at
+10 kHz (part 5's calculation from Arcas's constants); the 1.3 s cap is the measured unit's colour.
 
 The lengths are **(inferred: starting points to tune by ear and by tests 3 to 6)**: Plate's are Dattorro's,
 the FDN sets are geometric spreads (jittered by ±3 %, so no two share a ratio) chosen so the total delay is
@@ -721,8 +781,9 @@ as being enclosed by a picket fence"; modulation "is a godsend" on drums but "ma
    (Dattorro's `decay` is applied twice in each half, after the damping and on the way to the other half,
    so with a half L samples long, T60 = −3·L / (fs · 2·log10 decay): 0.50 at his lengths, L = 10 645 samples,
    is about 1.8 s. We set T60 and work the gains out.)
-3. All four tank all-passes modulated, at different rates (Dattorro: "ideally, all the delay lines in the
-   tank diffusers should be modulated using different modulation rates and depths").
+3. All four tank all-passes modulatable, at different rates (Dattorro: "ideally, all the delay lines in the
+   tank diffusers should be modulated using different modulation rates and depths"), but at depth 0 by
+   default: an EMT 140 is static, and the 480L's plates run unmodulated (`reverb-vocals.md` 2.1, 2.5).
 4. The input diffusers' gains follow Diffusion (0 .. 100 % → 0 .. 1 × Dattorro's), so a vocal can have less
    "buzz" on its glottal pulses (section 5.4).
 5. True stereo out as Table 2, with Width after it.
@@ -741,7 +802,11 @@ ringing), and gentler in-line gains (0.50 .. 0.62). Section lengths (ms at scale
 
 Sections 0, 1, 4, 5 are Dattorro's; 2, 3, 6, 7 are new, between his **(inferred)**. Taps: four per section
 side, positions chosen like Table 2's (spread over each line, signs alternating), each output reading every
-section once with a different sign pattern.
+section once with a different sign pattern. **The taps' gains are shaped**: Costello credits VintageVerb's
+Smooth modes partly to "shaping the reverb output taps for a natural exponential decay" (`reverb-vocals.md`
+3.1.4). Each tap's gain is set so that, read at its delay from the input, it lands on the exponential the
+1 kHz T60 predicts, so the early output has no bumps where several taps sit at once **(inferred: the method
+isn't published; test 2 checks the result)**.
 
 #### 6.5.3 The rooms and halls: a 16-line FDN
 
@@ -786,8 +851,16 @@ T60(band) = Decay × mode.natural(band) × decayEq(band),   clamped to 0.05 .. 1
 where `decayEq` is the product of the user's Decay EQ bands (each a bell or a shelf of multipliers, drawn
 on the display), and the mode's natural curve and the era's high-band cap are folded in.
 
-**The filter**: a graphic EQ per line whose response *at the band centres* is A_i: Prawda, Välimäki and
-Schlecht's design (DAFx 2019), after Välimäki and Liski's accurate cascade graphic EQ:
+**The filter, in two stages** (Välimäki, Prawda and Schlecht, "Two-stage attenuation filter for artificial
+reverberation", IEEE SPL 2024: `reverb-vocals.md` 5). A graphic EQ alone "does not adjust the gain at the
+ends of the frequency range, around dc and the Nyquist limit": with only a broadband gain around it, a hall
+came out "0.4 s below 20 Hz, although 7 s is expected", and "using GEQ only results in instability" (the loop
+reaches unity at DC or Nyquist: a tail that never dies). So each line's filter is first **Jot's first-order
+shelving filter** (the Eco filter below), designed from the 31.5 Hz and 16 kHz targets so it sets the decay
+at both ends, **then the graphic EQ** fitted to what's left. Over 1000 measured rooms and lines of 10–300 ms
+their largest T60 error was 14 %, against over 100 % for the median-gain design. Eco is then simply the full
+filter with its EQ flat. The graphic EQ, Prawda, Välimäki and Schlecht's design (DAFx 2019), after Välimäki
+and Liski's accurate cascade graphic EQ:
 
 - Ten second-order **peak / notch** sections at 31.5 Hz .. 16 kHz (no shelves at the band edges: "more
   symmetric and more accurate", within ±1 dB for command gains inside ±12 dB), plus a first-order **high
@@ -808,7 +881,14 @@ Schlecht's design (DAFx 2019), after Välimäki and Liski's accurate cascade gra
   kept within a factor of 2.5 of each other **(inferred)**: a narrow notch on the display then becomes as
   deep a dip as an octave-band EQ can make, which the display shows (it draws the curve the engine will
   play, not the one the bands ask for).
-- **Cost**: 42 adds and 52 multiplies a sample per line (their count): 1504 operations a sample for 16 lines.
+- **Its limit**: the sections are accurate for command gains inside ±12 dB, and misses came where more was
+  needed (Prawda, Välimäki and Serafin, SMC 2020). A Hall at Size 100 % and Decay 0.4 s asks its longest line for
+  about 60 dB of spread between bands (`reverb-vocals.md` 5); the shelf stage now carries the bulk of that, and
+  test 1 runs at Size 100 % with short decays to prove it. If it still fails, Size's top is lowered as Decay
+  shortens **(inferred)**.
+- **Cost**: 42 adds and 52 multiplies a sample per line (their count): 1504 operations a sample for 16 lines,
+  plus the shelf's few. (Ibnyahya and Reiss's shared 12-band parametric EQ matches it with 38 % of the
+  operations, DAFx 2025: a later saving.)
 - **The solve**: one weighted least-squares solve per T60 curve (a precomputed pseudo-inverse: a 11 × 10
   matrix-vector product), scaled for each line by L_i / L_ref, then ten section designs per line: no
   allocation, a few thousand operations, so it can run on the audio thread every 32 samples while Decay is
@@ -870,6 +950,15 @@ early_side[n] = Σ_k s_k · a_k · pre[n − m_k]
   Early Cross blends each side's input into the other's taps.
 - **A first-order low-pass on the early sound**, from 18 kHz (near) to 6 kHz (far): air absorption, the cue
   that makes "far" sound far.
+- **A low shelf on the onset**: the Bricasti M7's vocal presets cut the "very low frequency content of the
+  initial part of both the early and late" fields by 10–19 dB (VLF Cut). Ours is a shelf below 200 Hz on the
+  early energy and on what feeds the late network for its first 100 ms, −10 dB in the vocal presets, 0 in
+  Init: a vocal's chest stays out of the reverb without thinning its tail (`reverb-vocals.md` 2.11)
+  **(inferred)**.
+- **Later, Shape and Spread** (the 480L's): the early envelope drawn by two numbers instead of a fixed pattern
+  per mode. Shape 0 builds explosively; 32–64 builds softly then holds for about Spread ms; around 128 a second,
+  lower plateau comes later (the "back wall"); 255 ends louder than it starts. Spread 0–255 is about 0–250 ms
+  of build and hold (`reverb-vocals.md` 2.5). The velvet taps can draw any of these exactly.
 - **Norm**: the taps' gains are scaled so the early energy's power gain is 1 (−3 dB per side for a mono
   input) at every density and length, so Diffusion and Size don't change its level.
 - **Cost**: density × length taps per side. Capped at 400 per side (4000 /s over 100 ms); a sparse 1000 /s
@@ -923,11 +1012,22 @@ Values in cents. Under about 3 cents it isn't heard as pitch on a sustained voca
 pitch of a held note is about 5 cents)**; 5–15 cents is a chorus; more is seasick. The defaults are 1–3 cents.
 Several lines moving independently average out: the tail's pitch spreads rather than wobbles.
 
-**Rate**: 0.05 .. 5 Hz (Valhalla Plate's range). Valhalla's advice: "0.2 Hz and 0.5 Hz" to remove metal
+**Rate**: 0.05 .. 10 Hz (VintageVerb's top; Valhalla Plate's range stops at 5). Valhalla's advice: "0.2 Hz and 0.5 Hz" to remove metal
 without chorus; "around 0.5 Hz… smoothing out any artifacts in the decay, while rates above 1 Hz are useful
 for adding lush chorusing" (Valhalla Room). Size changes how obvious a given depth is: bigger networks hide
 it (Costello: "If modulation is used in the reverb, it may sound less obvious… when the Size parameter is
 increased").
+
+**A third shape, later: Wander** (the 480L's). Lexicon's PCM manual: "Spin controls the rate of
+randomization. In most cases, values between 1–2 Hz are appropriate", and "Wander controls the amount by which
+various delay values may be modulated, or the maximum size of randomizer steps, and is expressed in a time value
+(typically milliseconds)". A 10 ms excursion swept smoothly at 1–2 Hz would bend the pitch by about a semitone,
+so the 480L's moves must be steps made without the pitch moving. Ours: each line's tap jumps by up to Wander
+(≈1–10 ms) at a random moment about Spin times a second, crossfaded between the old and new places over a few
+milliseconds, every line on its own clock; a second read head per line, as EchoBoy's crossfaded note changes
+have (`reverb-vocals.md` 2.5) **(inferred)**. Costello's warning applies to all of these: a random walk isn't
+automatically gentler than a chorus (VintageVerb's Chaotic modes moved to "less random pitch shifts"), so test
+10's pitch spread covers every shape.
 
 **Its cost to the decay**: none in magnitude (all-pass reads); a little energy moves between frequencies
 as the delays move, which test 10 bounds over minutes.
@@ -949,9 +1049,12 @@ as the delays move, which test 10 bounds over minutes.
   left and right differs by about 10 ms at low frequencies and 0.5 ms at high ones, from the plate's
   dispersion; his theory is that this gives the plate its depth, "behind the speakers". LiquidSonics'
   Lustrous Plates has the same as a control, Frequency Dispersion: "Low frequencies… delayed by around 10ms
-  more than high… well suited to guitars and vocals"): an option in the plate modes, a chain of 64 first-order all-passes
-  (coefficient ≈ 0.75) on one side's late output, whose group delay falls from about 7 samples each at DC to
-  under one at the top **(inferred; later)**.
+  more than high… well suited to guitars and vocals"): an option in the plate modes, a chain of first-order
+  all-passes on each output, longer on one side, whose group delay falls with frequency **(inferred; later)**.
+  The EMT 140's geometry gives the numbers (driver to pickups 0.60 and 0.90 m, a plate's group velocity
+  2√(κω)): L–R onset differences of 9.7 ms at 50 Hz, 3.1 ms at 500 Hz, 2.2 ms at 1 kHz, 0.7 ms at 10 kHz
+  (`reverb-vocals.md` 2.1). Stretched all-passes (each in z^−K, as the parametric spring reverb's "spectral delay
+  filter") give that curve with about 8 sections instead of 64 (`reverb-vocals.md` 5).
 
 ### 6.10 The eras
 
@@ -968,7 +1071,7 @@ of the 1970s mode "has the 8 kHz bandwidth, as well as the weird fixed point art
 | Era | Hardware it stands for | Band limit (input and output) | Converter | Modulation | Noise floor |
 | --- | --- | --- | --- | --- | --- |
 | **Now** | — | None (to the host's Nyquist) | None | Smooth, as set | None |
-| **1980s** | Lexicon 224XL (34.125 kHz sampling, so about 15 kHz of bandwidth: Costello), 480L, AMS RMX16 | 7th-order elliptic low-pass at 15 kHz (0.1 dB ripple, 60 dB stop) | 16-bit, saturating at +12 dB in the loop (soft clip) | Read positions quantised to 1/64 sample (the 224's "quirky multiplier" Costello describes); random walk a little noisy | −96 dBFS, shaped like the signal (in the loop) |
+| **1980s** | Lexicon 224XL (34.125 kHz sampling, so about 15 kHz of bandwidth: Costello), 480L (18-bit converters), AMS RMX16 (18 kHz −3 dB, a 12-bit gain-ranged converter) | 7th-order elliptic low-pass at 18 kHz (0.1 dB ripple, 60 dB stop) (VintageVerb's 1980s: "Full bandwidth"; 15 kHz is its Palace's: question 9) | 16-bit, saturating at +12 dB in the loop (soft clip) | Read positions quantised to 1/64 sample (the 224's "quirky multiplier" Costello describes); random walk a little noisy | −96 dBFS, shaped like the signal (in the loop) |
 | **1970s** | Lexicon 224 (20 kHz sampling: Dattorro), EMT 250 (32 kHz) | 7th-order elliptic at 9 kHz (between Arturia's 8 kHz and VintageVerb's 10 kHz), the "aperture" correction (a gentle +2 dB shelf at 5 kHz before it: Costello's "aperture filter", which "ends up adding some unexpected brightness"), and pre-emphasis before the converter with de-emphasis after it (+6 dB above 3 kHz, then the inverse), so the converter's noise is darker | Gain-ranging 12-bit (a floating-point converter, VintageVerb's Sanctuary "floating-point gain control": the level steps in 6 dB ranges, the noise follows the signal), saturating at +6 dB | Quantised to 1/32 sample, noisier (the "modem" halo) | −80 dBFS, gain-ranged |
 
 - The band limit is on the way in and out, and inside the loop as a gentle low-pass (one pole at the band
@@ -992,7 +1095,13 @@ gr     = attack/release smoothing of target (Attack 1 .. 100 ms, Release 20 ms .
 wet   *= 10^(gr/20)
 ```
 
-- **Threshold Auto** (default): the threshold follows the input's long-term level (a 3 s RMS) minus 12 dB, so
+- **The key** is this track's input, or another track through a 0 % send (Pro-C's external key,
+  `setProCSidechain`, read after the sender's fader), so a reverb on its own send can duck under the vocal that
+  feeds it, and backing vocals' reverb under the lead. Engineers do exactly this by hand: Ethan Stevens keys an
+  RComp after the Weeknd's Blackhole from the lead ("while he's singing it's ducking some of the reverb, and when
+  he's not singing, the decay rings out longer"); Kirkpatrick copies the vocal's ducking onto its reverb
+  (`reverb-vocals.md` 1.2). The detector high-passes the key at 150 Hz.
+- **Threshold Auto** (default): the threshold follows the key's long-term level (a 3 s RMS) minus 12 dB, so
   a send turned up or down still ducks the same **(inferred)**.
 - **Release in note values** (optional): the reverb comes back on the beat.
 - Only the wet sound is ducked; the dry passes untouched (test 14).
@@ -1002,9 +1111,12 @@ wet   *= 10^(gr/20)
 - **Why a release control**: the bloom between phrases *is* the effect; Exponential Audio's R4 is praised for
   making "the reverb swell at the end of each line" (SOS). Pro-R 2 exposes only the range ("the range of the
   integrated, intelligent ducking"); its times are **not stated**.
-- **A second option, later: Auto-Decay** (Soundtoys SuperPlate's): instead of turning the tail down, shorten
-  it while the voice is loud (T60 × a factor, glided): "In a vocal context, Auto-Decay can achieve much the
-  same thing as ducking" (SOS). Cheap here: it's a lane on the T60 curve.
+- **Auto-Decay** (Soundtoys SuperPlate's), in the same step as Duck: instead of turning the tail down, shorten
+  it while the key is loud (T60 × (1 − amount × over), glided in the log domain; "a very short 'attack time' on
+  the detection circuit", Recovery 1–500 ms): "In a vocal context, Auto-Decay can achieve much the same thing
+  as ducking" (SOS). Cheap here: it's a factor on the T60 curve the absorption already follows. SuperPlate's
+  rings round its Threshold and Decay knobs, showing the key's level and the decay as it moves, are the
+  display to copy.
 
 ### 6.12 Changing things without clicks or bends
 
@@ -1039,7 +1151,9 @@ all-passes and modulation inside the loop, so it takes more care:
 5. **A guard**: a soft clip at ±4 (12 dB over full scale) in the loop, and a check every block: if any line
    holds a NaN or Inf, the network is cleared (EchoBoy's guard).
 
-Unfreezing restores the absorption (gliding over 50 ms), the input and the modulation. A Decay of ∞ (the top
+Unfreezing restores the absorption (gliding over 50 ms), the input and the modulation. Freeze can be
+momentary (held). Quantec's Freeze has an **Add** that layers more captures in ("allowing musicians to layer
+voices"): ours is Decay ∞, below, which keeps the input open. A Decay of ∞ (the top
 of the knob) is Freeze with the input left open, the loop at unity and the energy keeper holding it: a
 drone that keeps adding what comes in, with a limiter on the wet output at −1 dBFS.
 
@@ -1083,35 +1197,46 @@ worth being clear what's actually published about them:
 ![Relab's LX480: the 480L's LARC faders (RTM, SHP, SPR, SIZ, HFC, PDL) and the envelope screen](img/relab-lx480-interface.jpg)
 
 So we copy what's known (sample rates, bandwidths, word lengths, quantised modulation, random delay
-modulation, damping in the loop, the figure-eight) and design the rest ourselves.
+modulation, damping in the loop, the figure-eight) and design the rest ourselves. `reverb-vocals.md` part 2
+documents each of these units (and the EMT 140 and 240, the PCMs, the Bricasti M7, the Quantec, chambers and
+springs) from manuals, brochures and preset sheets, with what a mode after each would need; no paper read
+publishes the topology or a measurement of any of the digital ones (its part 5).
 
 ## 7. The presets we'd ship
 
 Vocal first, named by what they're for, in the menu's folders. Each sets the sound and leaves Mix alone
 while Mix Lock is on (it's on by default on a send made by `add_vocal_reverb`). Pre-delays in note values
-follow the song's tempo; the ms in brackets are at 120 BPM. Values are starting points **(inferred, from the
-survey's settings and the modes' design)**, to tune by ear on real vocals before shipping. Every lead-vocal
-preset leaves at least 20 ms after the voice before the reverb starts (Griesinger's threshold, 6.7); for
-reference, Bricasti's own VOX Plate is pre-delay 24 ms, 1.5 s, HF ×0.9 at 5.6 kHz, LF ×0.85 at 1.2 kHz, rolled
-off at 6.4 kHz.
+follow the song's tempo; the ms in brackets are at 120 BPM. The values now come from what engineers set and
+what the units' and makers' own vocal presets do (`reverb-vocals.md` 1.3, 2.11, 2.14, 3.1.5, 3.2.5; the
+"From" column), still to tune by ear on real vocals before shipping. What changed from the first version, and
+why: High Cut down from 11 kHz to 7–9 kHz (every documented vocal low-pass is at or under 9.4 kHz); Diffusion
+down from 75–90 % to 50–70 % (every manual advises low to moderate on vocals); the lead plates' pre-delay
+from 1/32 to 1/64 (engineers 12–85 ms, the makers' vocal presets 0–31 ms); Plate static; Mono Below and the
+onset's low shelf on. Every lead-vocal preset still leaves at least 20 ms after the voice before the reverb
+starts below 187 BPM (Griesinger's threshold, 6.7). Every preset's wet sound is matched in loudness within
+1 dB (test 23), so browsing compares sounds, not levels.
 
 **Lead vocal**
 
-| Preset | Mode | Era | Decay | Pre-delay | Size | Dist. | Diff. | Mod (rate, depth) | Width | Low / High Cut | Duck | De-ess | What it's for |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Vocal Plate** (default) | Smooth Plate | Now | 1.8 s | 1/32 (62 ms) | 50 % | 20 % | 75 % | 0.5 Hz, 45 % | 100 % | 200 Hz / 11 kHz | −4 dB | 6 dB | The all-round pop and R&B lead: glossy, behind the voice |
-| **Classic Plate** | Plate | 1980s | 2.2 s | 40 ms | 50 % | 0 % | 65 % | 0.9 Hz, 52 % | 100 % | 250 Hz / 10 kHz | 0 | 4 dB | The 140/250-style plate with its sheen |
-| **Bright Pop Plate** | Smooth Plate | Now | 1.4 s | 1/64 (31 ms) | 40 % | 10 % | 80 % | 0.6 Hz, 40 % | 110 % | 300 Hz / 16 kHz, high shelf +2 dB at 8 kHz | −6 dB | 8 dB | Modern glossy pop, air on top, the "s" kept out |
-| **Dark Plate** | Plate | 1970s | 2.0 s | 30 ms | 55 % | 10 % | 70 % | 0.7 Hz, 50 % | 90 % | 200 Hz / 7 kHz | −3 dB | 4 dB | Soul and R&B warmth, a "vintage" tail |
-| **Rap Room** | Room | Now | 0.6 s | 20 ms | 35 % | 30 % | 85 % | 0.5 Hz, 32 % | 90 % | 250 Hz / 9 kHz | −6 dB | 6 dB | The "dark short reverb to add warmth" under a rap vocal: felt, not heard |
-| **Vocal Chamber** | Chamber | Now | 1.2 s | 20 ms | 45 % | 25 % | 90 % | 0.5 Hz, 40 % | 100 % | 600 Hz / 10 kHz (Studio) | −3 dB | 5 dB | Capitol / Abbey Road chamber: density and size without a long tail |
-| **Air** | Ambience | Now | 0.5 s | 20 ms | 40 % | 35 % | 90 % | 0.4 Hz, 28 % | 120 % | 400 Hz / 14 kHz | 0 | 6 dB | Space and width for a dry-sounding modern vocal |
-| **Ballad Hall** | Hall | Now | 3.2 s | 1/16 (125 ms) | 65 % | 50 % | 85 % | 0.7 Hz, 60 % | 110 % | 250 Hz / 8 kHz | −8 dB | 6 dB | Long, lush, swelling in the gaps |
-| **80s Hall** | Hall | 1980s | 2.8 s | 60 ms | 60 % | 45 % | 75 % | 0.9 Hz, 70 % | 110 % | 200 Hz / 9 kHz | −4 dB | 4 dB | The 224 / 480L hall with its chorus |
-| **Intimate** | Room | Now | 0.35 s | 20 ms | 25 % | 15 % | 80 % | 0.4 Hz, 30 % | 80 % | 300 Hz / 10 kHz | 0 | 6 dB | Bedroom-pop closeness: a small room around a whisper |
+| Preset | Mode | Era | Decay | Pre-delay | Size | Dist. | Diff. | Mod (rate, depth) | Width | Low / High Cut | Duck | De-ess | From | What it's for |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **Vocal Plate** (default) | Smooth Plate | Now | 1.8 s | 1/64 (31 ms) | 50 % | 20 % | 60 % | 0.8 Hz, 40 % | 100 % | 200 Hz / 8 kHz | −4 dB | 6 dB | VintageVerb's SP-Pop Vocal (1.80 s, 23 ms, 4 kHz cut); the M7's VOX Plate (1.5 s, 24 ms, 6.4 kHz); Owsinski's 1.8 s plate | The all-round pop and R&B lead: glossy, behind the voice |
+| **Vox Plate** | Smooth Plate | Now | 1.5 s | 24 ms | 45 % | 15 % | 55 % | 0.8 Hz, 30 % | 100 % | 150 Hz / 6.4 kHz; Decay EQ ×0.85 below 1.2 kHz, ×0.9 above 5.6 kHz | −3 dB | 6 dB | The Bricasti M7's VOX Plate, as its preset sheet gives it (2.11) | "Expensive" and dark-topped: the M7's numbers |
+| **Classic Plate** | Plate | 1980s | 2.2 s | 40 ms | 50 % | 0 % | 50 % | off | 100 % | 250 Hz / 8 kHz | 0 | 4 dB | EMT 140 practice: Waves' "40 ms for vocals", Killen's "B" plate at 2.5 s with a 250 Hz input filter (2.1) | The 140-style plate, static, its curve following Decay |
+| **Bright Pop Plate** | Smooth Plate | Now | 1.4 s | 1/64 (31 ms) | 40 % | 10 % | 65 % | 0.8 Hz, 35 % | 110 % | 300 Hz / 14 kHz, high shelf +2 dB at 8 kHz | −6 dB | 10 dB | The one bright one, on purpose; the "s" kept out by De-ess | Modern glossy pop, air on top |
+| **Dark Plate** | Plate | 1970s | 2.0 s | 30 ms | 55 % | 10 % | 50 % | off | 90 % | 200 Hz / 6 kHz | −3 dB | 4 dB | The M7's Dark Plate (4.8 kHz roll-off); Tucker Martine's "C" plate for its "darkness" (2.1) | Soul and R&B warmth, a "vintage" tail |
+| **Rap Room** | Room | Now | 0.75 s | 15 ms | 35 % | 30 % | 60 % | 0.6 Hz, 30 % | 90 % | 250 Hz / 9 kHz | −6 dB | 6 dB | Seth Firkins' D-Verb on Future: "Medium Room with a pre-delay of 15ms, a decay of 751ms, a high-frequency cut at 9.36kHz, and just 15 percent wet" (1.1) | The "dark short reverb to add warmth" under a rap vocal: felt, not heard. On an insert at 15 % |
+| **Vocal Chamber** | Chamber | Now | 1.2 s | 20 ms | 45 % | 25 % | 70 % | 0.5 Hz, 40 % | 100 % | 600 Hz / 10 kHz (Studio) | −3 dB | 5 dB | Low's Capitol Chambers, "density and size, without it being a long reverb"; the M7's Bright VOX (1.6 s) and Medium Chamber (1.25 s) (1.1, 2.11, 2.12) | Capitol / Abbey Road chamber: the upfront space |
+| **Air** | Ambience | Now | 0.5 s | 20 ms | 40 % | 35 % | 70 % | 0.4 Hz, 28 % | 120 % | 400 Hz / 12 kHz | 0 | 6 dB | The M7's Small Amb (0.45 s); VintageVerb's Ambience, "felt but not heard" | Space and width for a dry-sounding modern vocal |
+| **Ballad Hall** | Hall | Now | 3.2 s | 1/16 (125 ms) | 65 % | 50 % | 70 % | 0.7 Hz, 60 % | 110 % | 250 Hz / 7 kHz | −8 dB | 6 dB | Moon's 6.82 s with 85 ms; Senior's long reverb at 30–70 ms; the M7's halls (5.2–6.4 kHz) (1.3, 2.11) | Long, lush, swelling in the gaps |
+| **80s Hall** | Hall | 1980s | 2.8 s | 60 ms | 60 % | 45 % | 60 % | 0.9 Hz, 70 % | 110 % | 200 Hz / 7 kHz | −4 dB | 4 dB | The 224 Concert Hall (24 ms pre-delay, bass ×1.5 below 540 Hz) and 480L halls (HF cutoff 3–4.5 kHz) (2.4, 2.5) | The 224 / 480L hall with its chorus |
+| **Intimate** | Room | Now | 0.35 s | 20 ms | 25 % | 15 % | 60 % | 0.4 Hz, 30 % | 80 % | 300 Hz / 9 kHz | 0 | 6 dB | The M7's Studio A (0.70 s) at half length | Bedroom-pop closeness: a small room around a whisper |
+| **80s Rap Plate** | Plate | 1980s | 0.9 s | 20 ms | 20 % | 10 % | 30 % | off | 90 % | 300 Hz / 9 kHz | −4 dB | 4 dB | Jess Jackson on Pop Smoke: the REV7's "shorter, metallic-sounding reverb that you can't really get from modern plug-ins" (1.1, 2.10) | The early-2000s rap vocal's short metallic plate, ringing on purpose |
 
 **Pairs** (two sends: the short space where the voice sits, and the depth behind it; `add_vocal_reverb` can make
-both)
+both). Mike Senior's recipe is exactly this: one "short (usually well under a second in length) and with perhaps
+only 5-10ms of pre-delay", one "longer and perhaps slightly brighter… with a fairly long pre-delay (maybe
+30-70ms)" (`reverb-vocals.md` 1.2)
 
 | Preset | Mode | Decay | Pre-delay | Notes |
 | --- | --- | --- | --- | --- |
@@ -1135,11 +1260,19 @@ both)
 | **Throw Wash** | Hall (Space later) | 8 s | Pre-delay 1/8, Duck −12 dB, Mod 80 %: automate the send on the last word |
 | **Infinite** | Smooth Plate | ∞ | Freeze on a word, a pad underneath |
 | **Chorus Verb** | Hall | 2.4 s | Mod 1.6 Hz, 90 % (about 14 cents): the "Chorus Verb" aux (Olivia Rodrigo's mix) |
+| **EMT 250 Chorus** | Hall, 1970s | 2.0 s | HF ×0.33 at 6 kHz, LF ×1.5 at 300 Hz, pre-delay 40 ms, Random at full depth: the EMT 250, which "sounded like a chorus unit" (`reverb-vocals.md` 2.3) |
+| **Back Of The Hall** | Hall | 2.0 s | Distance 100 %, Diffusion 50 %, no modulation, 1980s: the Quantec QRS's "reverb from the back of the hall" sound, which "pushes the reverb back behind the sound source" (2.9) |
 | **Lo-Fi Verb** | Plate, 1970s | 1.6 s | High Cut 5 kHz, Low Cut 500 Hz: radio-ish |
 | **Gated** (later, Nonlin) | Nonlin | 0.4 s | 80s gated |
 
 **Other sources**: Snare Plate (Plate, 1.2 s, 1980s), Drum Room (Room, 0.7 s), Keys Hall (Hall, 2.6 s), Synth Space
 (Hall, 6 s, Mod 85 %), Acoustic Chamber (Chamber, 1.4 s), and **Init** (Smooth Plate, Now, 1.8 s, nothing else).
+
+**Whose sounds these are.** The Vox Plate, Classic Plate, 80s Hall, EMT 250 Chorus, Back Of The Hall and 80s
+Rap Plate aim at named units with our modes and their published numbers, in preset form rather than as a
+"Vintage group" of modes as Pro-C has: the units' differences are mostly curves, filters and modulation, which
+presets carry; the two that need the engine (the EMT 140's damper-following curve and the 480L's Wander) are
+built into Plate and the modulation (6.4, 6.8). Question 2 asks Théo whether he'd rather have them as modes.
 
 ## 8. Proposed for Vaudio
 
@@ -1147,11 +1280,11 @@ both)
 
 | Step | What | Why then |
 | --- | --- | --- |
-| **1** | The engine (one network, ring and Hadamard matrices, Jot's absorption with the 10-band design, velvet early energy, the input stage, pre-delay with sync, Width, Mix, idle detection); the modes **Smooth Plate**, **Plate**, **Room**, **Hall**; era **Now**; tests 1–7, 11–13, 18, 20 | The vocal sounds first, measured. Everything after is data or a small block |
-| **2** | The window: the knob row, the top bar, the **Decay display** with the Decay EQ and the Post EQ, meters, presets, A/B, Copy / Paste; the document, edits, `engineReverb`, automation, the tools (`get_reverb`, `update_reverb`, `set_reverb_decay`) | Théo can use it on vocals |
-| **3** | The vocal tools: **Duck**, **De-ess**, `add_vocal_reverb`; tests 14–15 | What makes a vocal reverb sit without extra plugins |
-| **4** | **Chamber**, **Ambience**, the **eras** (1980s, 1970s), **Freeze** and ∞; the **Shape** display; tests 8–10, 16–17, 19 | Colour and the hyperpop toolkit |
-| **Later** | **Space** (long, slow, evolving), **Nonlin** (gated, reverse), the plate's dispersion lean, a shimmer (pitch in the loop), a tempo-synced decay, saving your own presets, a sidechain key for Duck from another track (when effects get sidechains) | Each is a mode or an option on the same engine |
+| **1** | The engine (one network, ring and Hadamard matrices, Jot's absorption in two stages (shelf, then the 10-band design), velvet early energy with the onset's low shelf, the input stage, pre-delay with sync, Width with Mono Below, Mix, idle detection); the modes **Smooth Plate** (shaped taps), **Plate** (its curve following Decay), **Room**, **Hall**; era **Now**; tests 1–7, 11–13, 18, 20, 22, 24 | The vocal sounds first, measured. Everything after is data or a small block |
+| **2** | The window: the knob row, the top bar, the **Decay display** with the Decay EQ (and its bypass) and the Post EQ, meters, presets (level-matched, test 23), A/B, Copy / Paste; the document, edits, `engineReverb`, automation, the tools (`get_reverb`, `update_reverb`, `set_reverb_decay`) | Théo can use it on vocals |
+| **3** | The vocal tools: **Duck** with its **Key from another track** (Pro-C's 0 % send) and **Auto-Decay**, **De-ess**, `add_vocal_reverb`; tests 14–15 | What makes a vocal reverb sit without extra plugins. The key moved up from "later": Pro-C built the routing, and Pro-R 2's lack of it is a complaint |
+| **4** | **Chamber**, **Ambience**, the **eras** (1980s, 1970s), **Freeze** (momentary too) and ∞, **Kill**; the **Shape** display with `verbAudition`; the cuts' 24 dB slope; Variation; tests 8–10, 16–17, 19 | Colour and the hyperpop toolkit |
+| **Later** | **Space** (long, slow, evolving), **Nonlin** (gated, reverse, with a gate that closes rather than cuts), **Spring** (six engineers use one on vocals), the **Wander** modulation shape, **Shape and Spread** for the early build, the plate's dispersion lean, a shimmer (pitch in the loop), a Drive on the era's converter, locks for Pre-delay and the EQs while browsing presets, saving your own presets. **Dropped**: a tempo-synced decay (a T60 in beats doesn't end on the beat; no engineer read sets one: `reverb-vocals.md` 1.5) | Each is a mode or an option on the same engine |
 
 ### 8.2 Where ours differs from what it's built on
 
@@ -1160,11 +1293,13 @@ both)
 | Algorithms | VintageVerb: 22 modes; Pro-R 2: one model with Space, three styles | Six vocal-first modes on one engine (two more later) |
 | Decay across frequency | VintageVerb: Bass Mult / High Shelf damping; Pro-R 2: Decay Rate EQ | A Decay EQ (six bands, Pro-R 2's idea) drawn as the real T60 in seconds, with the mode's natural curve under it, and measured to ±10 % (test 1) |
 | Colour | VintageVerb's 1970s / 1980s / NOW | The same idea, our numbers (9 kHz and 15 kHz band limits, between VintageVerb's and Arturia's figures; converters; modulation quantisation) |
-| Vocal tools | Ducking in Pro-R 2 and SuperPlate; de-essing by hand on the send | Duck and De-ess built in, and a tool that sets up the send |
+| Vocal tools | Ducking in Pro-R 2 (a range only, no key) and SuperPlate (Auto-Decay); de-essing by hand on the send, or H-Reverb's | Duck with its times and a key from another track, Auto-Decay, De-ess built in, and a tool that sets up the send |
 | Early reflections | Tapped delays and short all-passes (Lexicon), Valhalla Room's "early energy" | Velvet-noise early energy: dense from the start, no all-pass ring |
 | Size changes | Pro-R 2's Space morphs "without hearing clicks"; the others: **not stated** | A slow glide (under 3.5 cents) when automated, a second network for jumps, spillover on mode changes |
 | Look | Each maker's | The app's look, its own dark tokens (`--verb-*`) |
-| Automation | Every parameter (the host's) | Mix, Decay, Freeze, Pre-delay, Size, Distance, Width, Low and High Cut, Duck, Mod Depth |
+| Automation | Every parameter (the host's) | Mix, Decay, Freeze, Pre-delay, Size, Distance, Width, Low and High Cut, Duck, Auto-Decay, Mod Depth |
+| Classic units | Emulations (UAD, Relab, LiquidSonics, Arturia) model one unit each | Preset families aimed at them with our modes (7); the EMT 140's curve and the 480L's Wander in the engine |
+| Pre-delay and early sound | The M7 and Seventh Heaven delay the late part only, never the early reflections | Ours delays both (the whole reverb moves away from the voice, as engineers use it) |
 | Presets | Hundreds, savable | ~30 factory presets, vocal first; Copy / Paste; A/B |
 | Convolution | Pro-R 2 imports impulses; Seventh Heaven is impulses | None: algorithmic only (ours to ship, and tunable) |
 | Surround / Atmos | Pro-R 2 | Stereo only |
@@ -1273,6 +1408,7 @@ turning a knob or editing a note never cuts a tail off. What a new song changes:
 | `width` | side gain 0 .. 2 | Glides |
 | `lowCut`, `highCut` | kHz (so 20 kHz fits) | Filters |
 | `duck` | depth in dB / 64 | The ducker |
+| `autoDecay` | 0 .. 0.9 | The T60 factor's depth |
 | `modDepth` | 0 .. 1 | The LFOs' depth |
 
 Lanes are set at each 256-sample slice, as every lane is, so playback and the export sound the same.
@@ -1288,9 +1424,9 @@ Parity: whatever the window does, the assistant can.
 | `get_reverb` | look | Every setting in words and units ("Smooth Plate, 1980s, Decay 1.8 s, pre-delay 1/16 (125 ms at 120 BPM), ducking −6 dB..."), the T60 at each octave band, the mode list with one line each, the presets |
 | `update_reverb` | edit | Any control: mode, era, mix, pre-delay (ms or a note value), decay, size, distance, diffusion, width, modulation, the filters, de-ess, ducking, freeze, a preset; values in units ("2.4 s", "-6 dB", "1/8 dot") or 0..1 as the knob's ends say |
 | `set_reverb_decay` | edit | The Decay EQ's bands: frequency, multiplier (×0.25 .. ×4) or T60 in seconds, shape; or "clear" |
-| `add_vocal_reverb` | edit | The engineer's set-up in one step: an insert track named after the vocal ("Vocal Verb"), a Reverb on it at 100 % wet with a vocal preset and the pre-delay synced, a post-fader send from the vocal's track at −10 dB; returns the track and effect ids. Built from the mixer's own edits (`addMixerTracks`, `setEffect`, `updateEffect`, `setSend`), so it's one undo step |
+| `add_vocal_reverb` | edit | The engineer's set-up in one step: an insert track named after the vocal ("Vocal Verb"), a Reverb on it at 100 % wet with a vocal preset and the pre-delay synced, a post-fader send from the vocal's track, its Duck keyed from that track; returns the track and effect ids. The send's level is chosen so the reverb sits about 14 LU under the dry vocal (from the presets' measured loudness: De Man's preferred amount, never within 9 LU), not a fixed −10 dB. Options: `pair` (the short space and the long tail as two sends, the Pairs of 7) and `throw` (a 100 % wet long send for words copied onto it, as engineers throw: `reverb-vocals.md` 1.2). Built from the mixer's own edits (`addMixerTracks`, `setEffect`, `updateEffect`, `setSend`, `setProCSidechain`'s routing), so it's one undo step |
 | `add_mixer_effect` | edit | Takes "Reverb" |
-| `add_automation` | edit | Takes "reverb decay", "reverb mix", "reverb freeze", "reverb predelay", "reverb size", "reverb distance", "reverb width", "reverb low cut", "reverb high cut", "reverb duck", "reverb mod" |
+| `add_automation` | edit | Takes "reverb decay", "reverb mix", "reverb freeze", "reverb predelay", "reverb size", "reverb distance", "reverb width", "reverb low cut", "reverb high cut", "reverb duck", "reverb auto decay", "reverb mod" |
 
 `describeMixer` names a Reverb's mode and decay in the track's line ("Reverb: Smooth Plate 1.8 s"). Each
 step gets a label in `describeToolCall` and an icon in the steps.
@@ -1305,7 +1441,7 @@ exponentially decaying Gaussian noise of known T60 must measure within 2 %).
 
 | # | Test | How it's measured | Passes when |
 | --- | --- | --- | --- |
-| 1 | **RT60 per octave band** | The IR filtered into octave bands (125 Hz .. 8 kHz; 4th-order Butterworth band-passes, run forward and backward so they don't smear the decay); Schroeder's backward integral of each; T30 by least squares over −5 .. −35 dB (T20 where the band's range is short) | Each band within ±10 % of the T60 `engineReverb` asked for (twice the 5 % just-noticeable difference; the graphic-EQ design alone is within 1.6 % to 8 kHz, so the slack is for modulation and interpolation) (63 Hz and 16 kHz within ±20 %), for every mode at Decay 0.4 s, 1.5 s, 4 s and 12 s, with a flat Decay EQ and with a two-band one (×0.5 above 4 kHz, ×1.6 below 200 Hz) |
+| 1 | **RT60 per octave band** | The IR filtered into octave bands (125 Hz .. 8 kHz; 4th-order Butterworth band-passes, run forward and backward so they don't smear the decay); Schroeder's backward integral of each; T30 by least squares over −5 .. −35 dB (T20 where the band's range is short) | Each band within ±10 % of the T60 `engineReverb` asked for (twice the 5 % just-noticeable difference; Prawda, Välimäki and Serafin found misses past the JND weren't heard on voices by three listeners in four) (63 Hz and 16 kHz within ±20 %), for every mode at Decay 0.4 s, 1.5 s, 4 s and 12 s, at Size 50 % and 100 %, with a flat Decay EQ and with a two-band one (×0.5 above 4 kHz, ×1.6 below 200 Hz). And the ends: the decay at 20 Hz and at 20 kHz finite and within ×2 of the end bands' targets, and no band still above −60 dB at 3 × its T60 (the two-stage filter's point, 6.6) |
 | 2 | **The decay is exponential** | The broadband EDC between −5 and −45 dB | Its deviation from the fitted line under 1.5 dB (no double slope, no bump), except in Nonlin |
 | 3 | **Echo density** | Abel & Huang's normalised echo density profile of the IR from the first non-zero sample: `η(t) = (1/erfc(1/√2)) · Σ w(τ)·1{|h(t+τ)| > σ(t)}`, `σ(t)` the windowed RMS, w a Hann window of 1024 samples at 48 kHz (the FDN Toolbox's `echoDensity.m`) summing to 1; η is 1 for Gaussian noise | Reaches 0.9 by the mode's mixing time (Plate 8 ms, Smooth Plate 12 ms, Room 25 ms, Chamber 30 ms, Hall 80 ms at Size 50 %, Ambience 15 ms) and stays above 0.9 until the tail is −60 dB |
 | 4 | **No metallic modes** | The tail from 100 ms to −40 dB, whitened by its own envelope (divided by a 10 ms RMS); its spectrum by Welch (8192-point Hann, 75 % overlap); each bin against the median of its third-octave neighbourhood | The 99.9th percentile of bin / median, from 200 Hz to 10 kHz, within 1 dB of the same statistic measured on a reference: Gaussian noise shaped by the same T60 curve and the same envelope (what a perfectly smooth tail gives; about +10 dB for a single periodogram, less for Welch's average). Never more than 12 dB |
@@ -1326,6 +1462,13 @@ exponentially decaying Gaussian noise of known T60 must measure within 2 %).
 | 19 | **Eras** | The IR's long-term spectrum in Now, 1980s and 1970s | Now within ±1 dB of the Decay EQ's prediction to 16 kHz; 1980s and 1970s 3 dB down at their band limits ±10 %; 1970s' noise floor at its set level ±3 dB |
 | 20 | **Sample rates** | Tests 1, 3 and 13 at 44.1, 48 and 96 kHz | The same results within the same tolerances (lengths and times in seconds, never samples) |
 | 21 | **Vocal clarity** (Griesinger's LOC) | Each Lead Vocal preset's impulse response at an insert's Mix (25 %: a click in, the dry click and the reverb out); Griesinger's LOC measure (his MATLAB: band-pass 700–4000 Hz, the direct sound the first 5 ms, a 100 ms window) | LOC ≥ +3 dB ("adequate"; 0 dB is the threshold of the voice's direct sound being heard as separate) |
+
+| 22 | **No grain or flutter on a held note** | A 1 kHz tone held 2 s, then stopped; the tail's partial (a narrow band-pass round 1 kHz), its envelope over 50 .. 500 ms, divided by its fitted exponential; the spectrum of that residue (Furlong and O'Donovan's measure of graininess and flutter: `reverb-vocals.md` 5) | No peak in the residue's spectrum from 2 to 50 Hz more than 6 dB above the same measure on a decaying Gaussian noise IR of the same T60 curve |
+| 23 | **Presets at one loudness** | Every factory preset's wet output for pink noise at 100 % wet, EBU R128 integrated loudness | All within ±1 dB of each other |
+| 24 | **The Plate follows the EMT 140** | Plate's RT60 per octave (as test 1) at Decay 1.05, 2.15 and 4.0 s | Within ±15 % of EMT's three curves (6.4) at 125 Hz .. 8 kHz, read as ratios to 1 kHz |
+
+Test 14 also runs with the key on another track (a lead keying its backing vocals' reverb), and test 10's pitch
+spread covers every modulation shape (Costello: a random walk isn't automatically the gentlest).
 
 Plus the usual vitest unit tests: `engineReverb` and the edits (`shared/music/reverb.test.ts`); the display's
 maths (`geometry.test.ts`); the tools (`tool-edits.test.ts`); and an e2e step.
@@ -1353,14 +1496,19 @@ Decisions only he can make; each has a proposal so building can start without wa
    "Reverb" until he picks one; the id `vaudio:reverb` either way.*
 2. **The basis.** VintageVerb-style modes and eras, Lexicon / Dattorro networks inside, Pro-R 2's Decay EQ,
    Distance and ducking on top, vocal tools built in: is that what he wants, or would he rather have a close
-   clone of one he likes (VintageVerb itself, a 480L, Seventh Heaven's Bricasti sound)? *Proposal: the hybrid;
-   a "480L" and a "VintageVerb" preset family can still aim at those sounds.*
-3. **Which reverbs does he reach for?** "Pro-R 2 isn't the best": what in it disappoints him on vocals (too
-   clean, the metal, the ducking, the tail's shape, the CPU)? A few of his own vocal stems with the reverb he
-   likes most (as a reference to tune against, never shipped) would make the tuning concrete.
-4. **Default Mix.** 100 % wet (it's meant for a send; FL's mixer makes sends easy) or about 25 % (it's
-   dropped on the vocal's insert)? *Proposal: 25 % on an insert, 100 % with Mix Lock when made by
-   `add_vocal_reverb` or put on a track that has no channel of its own.*
+   clone of one he likes (VintageVerb itself, a 480L, Seventh Heaven's Bricasti sound)? And should the classic
+   units be a **Vintage group of modes** with each unit's own controls, as Pro-C's Vintage styles are, or preset
+   families on our modes (7, "Whose sounds these are")? *Proposal: the hybrid, with the units as presets; the
+   EMT 140's curve and the 480L's Wander built into Plate and the modulation, the two things presets can't
+   carry.*
+3. **Which reverbs does he reach for?** "Pro-R 2 isn't the best": the reviews and forums say not much
+   character, modulation and density hidden in macros, ducking with no times and no key, the gate cutting
+   (`reverb-vocals.md` 3.3). Which of these does he hear? A few of his own vocal stems with the reverb he likes
+   most (as a reference to tune against, never shipped) would make the tuning concrete.
+4. **Default Mix.** 100 % wet (it's meant for a send; FL's mixer makes sends easy) or a low insert mix (it's
+   dropped on the vocal's insert)? Engineers' insert mixes are 12–25 % (Firkins 15 %, Gibbs 18 %), Pro-R 2's
+   default 22.5 %. *Proposal: 18 % on an insert, 100 % with Mix Lock when made by `add_vocal_reverb` or put on a
+   track that has no channel of its own.*
 5. **The first modes.** Smooth Plate, Plate, Room, Hall first, then Chamber and Ambience: right order? Is
    Space (the hyperpop wash) wanted early?
 6. **Decay EQ units.** Multipliers of Decay (×0.5 at 8 kHz), as Pro-R 2's are relative, or seconds (0.9 s at
@@ -1370,17 +1518,25 @@ Decisions only he can make; each has a proposal so building can start without wa
    (Jot's tone corrector); without it, it does (what most reverbs do).
 8. **De-ess and Duck in every preset?** On by default in the vocal presets, off in Init: is that right, or
    should Init be the vocal default too?
-9. **The eras' grit.** How faithful to the old units' noise and warble (VintageVerb's 1970s is quite noisy on
-   long notes)? *Proposal: subtle by default, a Noise amount in the advanced panel later if wanted.*
+9. **The eras' grit and bandwidth.** How faithful to the old units' noise and warble (VintageVerb's 1970s is
+   quite noisy on long notes)? And the 1980s band limit: VintageVerb's 1980s is "Full bandwidth" with only its
+   modulation dirty, the 224XL's is about 15 kHz, the RMX16's 18 kHz (`reverb-vocals.md` 2.7, 3.1.2).
+   *Proposal: subtle by default, a Noise amount later if wanted; 1980s at 18 kHz.*
 10. **`add_vocal_reverb`.** Should the assistant make the two-send pair (short space + long tail) by default,
-    or one send?
+    or one send? *Proposal: one send at about 14 LU under the vocal, `pair` and `throw` on request (9.6).*
 11. **CPU.** A 16-line network with a ten-band absorption EQ per line is aimed at under 3 % of a core per
     instance (6.14). Is that fine, or should a lighter "Eco" setting (first-order absorption, 8 lines for
     Room) be a switch from the start rather than automatic when the Decay EQ is flat?
+12. **Smooth Plate's modulation.** VintageVerb's Smooth Plate is chorused; ours was a random walk, now a gentle
+    chorus (6.4). Decided by listening on held vocal notes (tests 6 and 10 bound it either way). *Proposal:
+    chorus, about 1.4 cents.*
+13. **A Spring mode earlier?** Six engineers in `reverb-vocals.md` 1.1 put a spring on vocals (Castelli's BX20 on
+    Kesha, Bisel's on SZA's backing vocals, Lana Del Rey's). *Proposal: after Space, before Nonlin.*
 
 ## 11. Sources
 
-Read for this document (2026-10-02). Pages behind Cloudflare (valhalladsp.com) were read through the
+The second research pass has its own, about four hundred more, in [`reverb-vocals.md`](reverb-vocals.md)
+section 6. Read for this document (2026-10-02). Pages behind Cloudflare (valhalladsp.com) were read through the
 Internet Archive's copies of the same URLs. Where a source was a search excerpt or a second-hand report, it's
 said.
 
@@ -1486,3 +1642,29 @@ said.
 - Pro-Q (the display, the gestures, the analyzer): [../fabfilter/pro-q.md](../fabfilter/pro-q.md); `src/suites/music/pro-q/`, `shared/music/pro-q*.ts`
 - PanMan and Auto-Tune, for the house conventions: [../soundtoys/panman.md](../soundtoys/panman.md), [../antares/auto-tune.md](../antares/auto-tune.md)
 - `engine/src/Delay.h` (delay compensation's lines), `engine/src/Resampling.h` (reading between samples, centred)
+
+## 12. What the research changed
+
+What `reverb-vocals.md` (2–3 October 2026) changed here, and where it came from. Its section numbers are given
+as "rv".
+
+| Here | Change | From |
+| --- | --- | --- |
+| 1.1, 1.4 | One engineer of sixty names Pro-R, not none; 1.4's guesses replaced by the reviews' and forums' complaints; the Decay Rate EQ's bands go 12.5–200 %, not 25–400 % (that's the Decay Rate knob); Space doesn't tie size and length | rv 1.1, 3.2, 3.3 |
+| 4.2 | Pre-delay default 1/64 on the lead plates (was 1/32), time and note value both kept; Diffusion default 60 % (was 80 %); Mod Rate to 10 Hz (was 5), default 0.8 Hz; Plate's Mod Depth 0; High Cut 8 kHz on vocal presets (was 11 kHz), 24 dB slope option on both cuts; De-ess to 24 dB (was 18); Mix's taper | rv 1.3, 2.4, 2.14, 3.1.3, 3.1.5, 4.1, 4.2 |
+| 4.3 | Ducking: a Key from another track, a 150 Hz detector high-pass, Release to 3 s, Auto-Decay; Output: Mono Below; Early & late: Variation, Wander (later) | rv 1.2, 2.5, 4.1 |
+| 4.4, 4.5 | Plate static, its curve following Decay; Smooth Plate's bass shorter; Spring (later); 1980s at 18 kHz | rv 2.1, 2.7, 2.11, 2.14, 3.1.2 |
+| 4.6–4.8 | The ducker's key, threshold and reduction on the display; a Decay EQ bypass; `verbAudition` with the Shape display (was later); log time; a clip light; momentary Freeze; Kill | rv 3.2.6, 4.1, 4.2 |
+| 5.2 | Err dry: about 14 LU under the dry sound preferred, 9 LU or less too wet; Senior's two-reverb recipe | rv 1.2, 5 |
+| 6.4 | Natural curves: bass shorter than the mids on the vocal modes (×0.85–0.9), Hall ×1.2; the Plate's curve interpolated between EMT's three measured damper curves, 10 kHz held at 1.3 s | rv 2.1, 2.5, 2.11, 2.14 |
+| 6.5.1, 6.5.2 | Plate's modulation off by default; Smooth Plate's output taps shaped for an exponential decay; its modulation chorus | rv 2.1, 3.1.1, 3.1.4 |
+| 6.6 | The absorption filter in two stages: Jot's shelf first, then the graphic EQ (it was unstable at DC and Nyquist); its ±12 dB limit at short decays and large sizes | rv 5 (Välimäki, Prawda and Schlecht 2024; Prawda, Välimäki and Serafin 2020) |
+| 6.7 | A low shelf on the onset (the M7's VLF Cut); Shape and Spread for the build (later) | rv 2.5, 2.11 |
+| 6.8 | Rate to 10 Hz; the Wander shape (later); every shape in test 10 | rv 2.5, 2.6, 3.1.4 |
+| 6.9 | The plate's lean in numbers from the EMT 140's geometry; stretched all-passes for it | rv 2.1, 5 |
+| 6.10, 6.11, 6.13, 6.16 | 1980s at 18 kHz; the duck key and Auto-Decay in the same step; momentary Freeze; the units documented | rv 2, 3.1.2, 4.1 |
+| 7 | Every preset re-sourced; High Cut, Diffusion and the plates' pre-delay changed; new: Vox Plate (the M7's), 80s Rap Plate, EMT 250 Chorus, Back Of The Hall; presets level-matched | rv 1.3, 2, 3.1.5, 3.2.5 |
+| 8.1, 8.2 | Duck key and Auto-Decay into step 3; `verbAudition`, momentary Freeze, Kill into step 4; Spring, Wander, Shape / Spread later; tempo-synced decay dropped | rv 1.5, 2, 4.1 |
+| 9.6 | `add_vocal_reverb` sets the send for about −14 LU, keys the Duck, offers `pair` and `throw` | rv 1.2, 5 |
+| 9.7 | Test 1 at Size 100 % and at 20 Hz / 20 kHz; new tests 22 (grain on a held note), 23 (preset loudness), 24 (the Plate against the EMT 140); test 14 with an external key | rv 2.1, 5 |
+| 10 | Questions 2, 3, 4, 9, 10 updated; 12 (Smooth Plate's modulation) and 13 (a Spring mode) added | rv 2, 3 |
