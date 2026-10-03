@@ -64,6 +64,8 @@ struct HostedPlugin
     // The audio thread's ------------------------------------------------------
     juce::MidiBuffer midi;
     juce::AudioBuffer<float> buffer;
+    /** Its sidechain input's first channel in `buffer`, and how many (-1, 0: it has none). Set when it's prepared. */
+    int keyChannel = -1, keyChannels = 0;
     /** Notes sounding, and how many samples until each ends. */
     struct Pending
     {
@@ -162,6 +164,8 @@ public:
 
 private:
     void save (HostedPlugin&);
+    /** Its buses (a mixer effect's sidechain input on) and rate, and where its sidechain input is. */
+    void configure (HostedPlugin&) const;
     juce::File presetFolder (const HostedPlugin&) const;
     juce::StringArray presetNames (const HostedPlugin&) const;
     /** Its window shows what it's on now, and the tab is told (`EngineEvent` "preset"). */

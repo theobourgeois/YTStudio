@@ -183,6 +183,9 @@ struct Song
             bool preFader = false;
         };
 
+        /** Where a key is taken from its track: before its effects, after them, or after its fader. */
+        enum class Tap { preFx, postFx, postFader };
+
         /** An effect in one of its slots. */
         struct Effect
         {
@@ -218,6 +221,16 @@ struct Song
             /** A Pitch Wheel (ours too): its sound, kept across songs, and this song's settings for it. */
             std::shared_ptr<wheel::State> wheel;
             std::shared_ptr<wheel::Settings> wheelSettings;
+
+            /**
+             * Its key (`docs/sidechain.md`): an earlier track's sound (-1: none) at a tap, which Pro-C's External
+             * and a plugin's sidechain input hear. It waits `keyDelay` samples in `keyLine` (delay compensation:
+             * `compensate`) into its own pair of `audio`, `keyBuffer`.
+             */
+            int keyTrack = -1;
+            Tap keyTap = Tap::postFx;
+            int keyDelay = 0, keyBuffer = -1;
+            std::shared_ptr<DelayLine> keyLine;
         };
 
         juce::String id;
@@ -228,8 +241,17 @@ struct Song
         std::vector<Send> sends;
         /** Its channel pair in `audio`, or -1: nothing can reach it, so it's skipped. */
         int buffer = -1;
-        /** A pair holding its sound before its gains, for its pre-fader sends (-1: it has none). */
+        /** A pair holding its sound before its gains, for its pre-fader sends and keys taken after its effects (-1: it has none). */
         int preBuffer = -1;
+        /** A pair holding its sound before its effects, for keys taken there (-1: none are). */
+        int preFxBuffer = -1;
+        /**
+         * Soloed out but keying an effect after its fader: a pair holding its sound through `keyGains` (its
+         * gains as if it weren't), which that key hears (-1: its keys hear `buffer`).
+         */
+        int keyFaderBuffer = -1;
+        bool hasKeyGains = false;
+        std::array<float, 4> keyGains { 1, 0, 0, 1 };
         /** Index into the previous song's tracks (-1: a new track). */
         int previous = -1;
         /** Its manual delay compensation (`MixerTrack.latencyOffset`), in ms. */

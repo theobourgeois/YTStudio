@@ -245,7 +245,10 @@ private:
     /** A voice of a channel with a loop, a filter, or envelopes and LFOs beyond its volume's (`Song::Channel::shaped`). */
     void renderShaped (Voice& voice, int numSamples);
     /** Put a track's sound through an effect, `mix` of it heard against the dry sound. */
-    void runEffect (HostedPlugin&, float mix, float* left, float* right, int numSamples);
+    /** A plugin effect on a block, its sidechain input given the key (null: none). */
+    void runEffect (HostedPlugin&, float mix, float* left, float* right, int numSamples, const float* keyLeft = nullptr, const float* keyRight = nullptr);
+    /** An effect's key for this block, lined up with its sound (its delay line run), or nulls without one. */
+    std::pair<const float*, const float*> keyOf (const Song::Track::Effect&, int numSamples);
     /** Put a track's sound through a Gross Beat (`mix` of it heard against the dry sound), following `grossClock`. */
     void runGrossBeat (const Song::Track::Effect&, float* left, float* right, int numSamples);
     /** Put a track's sound through an EchoBoy (`mix` of it heard against the dry sound). */

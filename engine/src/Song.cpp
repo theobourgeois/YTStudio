@@ -384,6 +384,20 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                 track.monitor = (bool) input["monitor"];
                 track.armed = (bool) input["armed"];
             }
+            // An effect with its key: an earlier track (this one's index is the tracks parsed so far), at a tap.
+            const auto addEffect = [&] (const juce::var& slot, Track::Effect&& effect) {
+                if (const auto key = slot["key"]; key.isObject())
+                {
+                    const auto source = (int) number (key["track"], -1, -1, 1e6);
+                    if (source >= 0 && source < (int) song->tracks.size())
+                    {
+                        effect.keyTrack = source;
+                        const auto tap = key["tap"].toString();
+                        effect.keyTap = tap == "preFx" ? Track::Tap::preFx : tap == "postFader" ? Track::Tap::postFader : Track::Tap::postFx;
+                    }
+                }
+                track.effects.push_back (std::move (effect));
+            };
             if (const auto* slots = item["effects"].getArray())
                 for (const auto& slot : *slots)
                 {
@@ -399,7 +413,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.grossSettings = gross::Settings::parse (slot["grossBeat"], capacity);
                         effect.gross = grossBeats.get (id, sampleRate, effect.grossSettings->depth * 60.0 / song->tempo + 0.6);
                         grossIds.add (id);
-                        track.effects.push_back (std::move (effect));
+                        addEffect (slot, std::move (effect));
                         continue;
                     }
                     // Auto-Tune is ours too. Its sound is made for the voice's lowest pitch (its latency follows).
@@ -409,7 +423,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.tuneSettings = tune::Settings::parse (slot["autoTune"]);
                         effect.tune = autoTunes.get (id, sampleRate, effect.tuneSettings->minHz, capacity);
                         tuneIds.add (id);
-                        track.effects.push_back (std::move (effect));
+                        addEffect (slot, std::move (effect));
                         continue;
                     }
                     // Pitch Wheel is ours too: its wheels and voices carry on through edits (its window, its latency, follow the resolution).
@@ -422,7 +436,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         if (const auto channel = song->channelIndex (effect.wheelSettings->notesFrom); channel >= 0 && effect.wheelSettings->notesFrom.isNotEmpty())
                             song->wheelListeners.push_back ({ channel, effect.wheel.get() });
                         wheelIds.add (id);
-                        track.effects.push_back (std::move (effect));
+                        addEffect (slot, std::move (effect));
                         continue;
                     }
                     // EchoBoy is ours too: its lines are kept across songs, so a knob turned doesn't cut its echoes off.
@@ -432,7 +446,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.echoSettings = echo::Settings::parse (slot["echoBoy"], capacity);
                         effect.echo = echoBoys.get (id, sampleRate);
                         echoIds.add (id);
-                        track.effects.push_back (std::move (effect));
+                        addEffect (slot, std::move (effect));
                         continue;
                     }
                     // Pro-Q is ours as well: its filters' memories are kept across songs, its kernels made here.
@@ -442,7 +456,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.eq = eqs.get (id, sampleRate);
                         effect.eqSettings = eq::Settings::parse (slot["eq"], capacity, *effect.eq);
                         eqIds.add (id);
-                        track.effects.push_back (std::move (effect));
+                        addEffect (slot, std::move (effect));
                         continue;
                     }
                     // And OTT: its crossovers and envelopes are kept across songs, so a knob turned glides.
@@ -452,7 +466,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.ottSettings = ott::Settings::parse (slot["ott"], capacity);
                         effect.ott = otts.get (id, sampleRate);
                         ottIds.add (id);
-                        track.effects.push_back (std::move (effect));
+                        addEffect (slot, std::move (effect));
                         continue;
                     }
                     // And Pro-C: its delays, detectors and gain are kept across songs, its filters and oversamplers made here.
@@ -462,7 +476,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.comp = procs.get (id, sampleRate, capacity);
                         effect.compSettings = comp::Settings::parse (slot["proC"], capacity, *effect.comp);
                         procIds.add (id);
-                        track.effects.push_back (std::move (effect));
+                        addEffect (slot, std::move (effect));
                         continue;
                     }
                     if (plugin["id"].toString() == "vaudio:panman")
@@ -471,12 +485,12 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.panSettings = panman::Settings::parse (slot["panMan"], capacity);
                         effect.pan = panMen.get (id, sampleRate);
                         panIds.add (id);
-                        track.effects.push_back (std::move (effect));
+                        addEffect (slot, std::move (effect));
                         continue;
                     }
                     const auto state = plugin["state"].toString();
                     effectIds.add (id);
-                    track.effects.push_back ({ id,
+                    addEffect (slot, { id,
                                               effects.get (id, plugin["id"].toString(), state.isEmpty() ? juce::File() : juce::File (state), item["name"].toString()),
                                               (bool) slot["enabled"],
                                               (float) number (slot["mix"], 1, 0, 1) });
@@ -484,6 +498,13 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             if (const auto* gains = item["gains"].getArray(); gains != nullptr && gains->size() == 4)
                 for (size_t g = 0; g < 4; ++g)
                     track.gains[g] = (float) number ((*gains)[(int) g], 0, -64, 64);
+            // Soloed out, but keying an effect after its fader: its gains for that key.
+            if (const auto* gains = item["keyGains"].getArray(); gains != nullptr && gains->size() == 4)
+            {
+                track.hasKeyGains = true;
+                for (size_t g = 0; g < 4; ++g)
+                    track.keyGains[g] = (float) number ((*gains)[(int) g], 0, -64, 64);
+            }
             if (const auto* sends = item["sends"].getArray())
                 for (const auto& send : *sends)
                 {
@@ -529,12 +550,35 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             for (const auto& send : song->tracks[t].sends)
                 reached[(size_t) send.track] = true;
         }
-    // Each reached track a stage after the latest of those sending to it.
+    // Keys: from a source that's reached, into a track that is (otherwise it hears silence, or isn't run).
+    std::vector<bool> keyedPre (song->tracks.size(), false), keyedPreFx (song->tracks.size(), false), keyedFader (song->tracks.size(), false);
+    for (auto& track : song->tracks)
+        for (auto& effect : track.effects)
+        {
+            if (effect.keyTrack < 0)
+                continue;
+            const auto source = (size_t) effect.keyTrack;
+            if (track.buffer < 0 || song->tracks[source].buffer < 0)
+            {
+                effect.keyTrack = -1;
+                continue;
+            }
+            if (effect.keyTap == Track::Tap::preFx)
+                keyedPreFx[source] = true;
+            else if (effect.keyTap == Track::Tap::postFx)
+                keyedPre[source] = true;
+            else if (song->tracks[source].hasKeyGains)
+                keyedPre[source] = keyedFader[source] = true;
+        }
+    // Each reached track a stage after the latest of those sending to it, and of those keying it.
     {
         std::vector<int> stage (song->tracks.size(), 0);
         for (size_t t = 0; t < song->tracks.size(); ++t)
             if (song->tracks[t].buffer >= 0)
             {
+                for (const auto& effect : song->tracks[t].effects)
+                    if (effect.keyTrack >= 0)
+                        stage[t] = juce::jmax (stage[t], stage[(size_t) effect.keyTrack] + 1);
                 for (const auto& send : song->tracks[t].sends)
                     stage[(size_t) send.track] = juce::jmax (stage[(size_t) send.track], stage[t] + 1);
                 if ((int) song->stages.size() <= stage[t])
@@ -544,10 +588,24 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     }
     song->capacity = juce::jmax (0, capacity);
     song->playingPlugins.reserve (song->channels.size());
-    // A pair for each reached track with a pre-fader send: its sound before its gains.
-    for (auto& track : song->tracks)
-        if (track.buffer >= 0 && std::any_of (track.sends.begin(), track.sends.end(), [] (const Track::Send& s) { return s.preFader; }))
+    // A pair for each reached track with a pre-fader send or a key after its effects: its sound before its gains.
+    for (size_t t = 0; t < song->tracks.size(); ++t)
+    {
+        auto& track = song->tracks[t];
+        if (track.buffer < 0)
+            continue;
+        if (keyedPre[t] || std::any_of (track.sends.begin(), track.sends.end(), [] (const Track::Send& s) { return s.preFader; }))
             track.preBuffer = buffers++;
+        // Keys before its effects, and after its fader while it's soloed out.
+        if (keyedPreFx[t])
+            track.preFxBuffer = buffers++;
+        if (keyedFader[t])
+            track.keyFaderBuffer = buffers++;
+        // Each keyed effect's own pair: its key, lined up.
+        for (auto& effect : track.effects)
+            if (effect.keyTrack >= 0)
+                effect.keyBuffer = buffers++;
+    }
     // And one more pair: the selected tracks' sound added up, for the mixer's selection meter.
     song->selectionBuffer = buffers;
     song->audio.setSize (buffers * 2 + 2, song->capacity);
@@ -850,36 +908,44 @@ void Song::compensate (double sampleRate)
 
     for (size_t t = 0; t < tracks.size(); ++t)
     {
-        const auto& track = tracks[t];
+        auto& track = tracks[t];
         if (track.buffer < 0)
             continue;
         if (arrival[t] == nothing)
             arrival[t] = 0;
-        auto delay = (int) std::lround (track.latencyOffsetMs * sampleRate / 1000.0);
+        const auto offset = (int) std::lround (track.latencyOffsetMs * sampleRate / 1000.0);
+        const auto latencyOf = [] (const Track::Effect& effect) {
+            if (! effect.enabled)
+                return 0;
+            if (effect.plugin != nullptr)
+                return effect.plugin->instance->getLatencySamples();
+            if (effect.tune != nullptr)
+                return effect.tune->latency();
+            if (effect.eqSettings != nullptr)
+                return effect.eqSettings->latency;
+            if (effect.wheel != nullptr)
+                return effect.wheel->latency();
+            if (effect.compSettings != nullptr)
+                return effect.compSettings->latency;
+            return 0;
+        };
+        // How late a key's sound is: its source's input (before its effects) or output.
+        const auto keyLate = [&] (const Track::Effect& effect) { return effect.keyTap == Track::Tap::preFx ? arrival[(size_t) effect.keyTrack] : out[(size_t) effect.keyTrack]; };
+        // A key is a path into the track (FL's PDC: "sends and sidechains included"): one later than the
+        // track's sound where its effect is makes the track's inputs wait for it.
+        auto delay = offset;
         for (const auto& effect : track.effects)
         {
-            // A Pro-C keyed from another track: only one that runs first and sends here; its sound waits to
-            // line up with this one's where the Pro-C is (what's reached it, and the effects before it).
-            if (effect.compSettings != nullptr && effect.compSettings->source == comp::Source::external)
-            {
-                auto& settings = *effect.compSettings;
-                const auto key = settings.key;
-                const auto sends = key >= 0 && key < (int) t && tracks[(size_t) key].buffer >= 0
-                                   && std::any_of (tracks[(size_t) key].sends.begin(), tracks[(size_t) key].sends.end(), [t] (const Track::Send& s) { return s.track == (int) t; });
-                if (! sends)
-                    settings.key = -1;
-                settings.keyDelay = sends ? juce::jmax (0, arrival[t] + delay - out[(size_t) key]) : 0;
-            }
-            if (effect.enabled && effect.plugin != nullptr)
-                delay += effect.plugin->instance->getLatencySamples();
-            else if (effect.enabled && effect.tune != nullptr)
-                delay += effect.tune->latency();
-            else if (effect.enabled && effect.eqSettings != nullptr)
-                delay += effect.eqSettings->latency;
-            else if (effect.enabled && effect.wheel != nullptr)
-                delay += effect.wheel->latency();
-            else if (effect.enabled && effect.compSettings != nullptr)
-                delay += effect.compSettings->latency;
+            if (effect.keyTrack >= 0)
+                arrival[t] = juce::jmax (arrival[t], keyLate (effect) - delay);
+            delay += latencyOf (effect);
+        }
+        // Then each key waits to line up with the sound where its effect is (the effects before it, and what's reached it).
+        delay = offset;
+        for (auto& effect : track.effects)
+        {
+            effect.keyDelay = effect.keyTrack >= 0 ? juce::jmax (0, arrival[t] + delay - keyLate (effect)) : 0;
+            delay += latencyOf (effect);
         }
         out[t] = arrival[t] + delay;
         tracks[t].latency = out[t];

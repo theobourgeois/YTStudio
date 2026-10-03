@@ -87,8 +87,13 @@ void Sequencer::setSong (std::unique_ptr<Song> next)
     for (auto& channel : next->channels)
         channel.delayLine = lineFor ("c" + channel.id, channel.delay);
     for (auto& track : next->tracks)
+    {
         for (auto& send : track.sends)
             send.delayLine = lineFor ("s" + track.id + ">" + next->tracks[(size_t) send.track].id, send.delay);
+        for (auto& effect : track.effects)
+            if (effect.keyTrack >= 0)
+                effect.keyLine = lineFor ("k" + effect.id, effect.keyDelay);
+    }
     delayLines = std::move (lines);
 
     // Its audio clips, to look ahead for while it plays.
@@ -1201,9 +1206,19 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
     auto* l = song->audio.getWritePointer (track.buffer * 2);
     auto* r = song->audio.getWritePointer (track.buffer * 2 + 1);
 
+    // What keys taken before its effects hear.
+    if (track.preFxBuffer >= 0)
+    {
+        song->audio.copyFrom (track.preFxBuffer * 2, 0, l, numSamples);
+        song->audio.copyFrom (track.preFxBuffer * 2 + 1, 0, r, numSamples);
+    }
+
     for (const auto& effect : track.effects)
+    {
+        // Its key, lined up with its sound (its source ran in an earlier stage, and nothing writes its taps after that).
+        const auto [keyLeft, keyRight] = keyOf (effect, numSamples);
         if (effect.enabled && effect.plugin != nullptr)
-            runEffect (*effect.plugin, effect.mix, l, r, numSamples);
+            runEffect (*effect.plugin, effect.mix, l, r, numSamples, keyLeft, keyRight);
         else if (effect.eq != nullptr)
         {
             if (effect.enabled)
@@ -1252,13 +1267,7 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
         {
             // Its mix is its own (the dry sound waits as long as its latency); its key may be another track's sound.
             if (effect.enabled)
-            {
-                const auto key = effect.compSettings->key;
-                const auto* source = key >= 0 && key < (int) song->tracks.size() ? &song->tracks[(size_t) key] : nullptr;
-                const auto* keyLeft = source != nullptr && source->buffer >= 0 ? song->audio.getReadPointer (source->buffer * 2) : nullptr;
-                const auto* keyRight = source != nullptr && source->buffer >= 0 ? song->audio.getReadPointer (source->buffer * 2 + 1) : nullptr;
                 effect.comp->process (*effect.compSettings, grossClock, keyLeft, keyRight, l, r, numSamples, effect.mix);
-            }
             else
                 effect.comp->skipped();
         }
@@ -1269,6 +1278,7 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
             else
                 effect.pan->skipped();
         }
+    }
 
     // What its pre-fader sends take: the sound before its gains.
     if (track.preBuffer >= 0)
@@ -1290,6 +1300,20 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
         const auto inLeft = l[i], inRight = r[i];
         l[i] = ll * inLeft + rl * inRight;
         r[i] = lr * inLeft + rr * inRight;
+    }
+    // Soloed out, its keys after its fader hear it through the gains it would have.
+    if (track.keyFaderBuffer >= 0 && track.preBuffer >= 0)
+    {
+        const auto* inL = song->audio.getReadPointer (track.preBuffer * 2);
+        const auto* inR = song->audio.getReadPointer (track.preBuffer * 2 + 1);
+        auto* outL = song->audio.getWritePointer (track.keyFaderBuffer * 2);
+        auto* outR = song->audio.getWritePointer (track.keyFaderBuffer * 2 + 1);
+        const auto& g = track.keyGains;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            outL[i] = g[0] * inL[i] + g[1] * inR[i];
+            outR[i] = g[2] * inL[i] + g[3] * inR[i];
+        }
     }
     if (t < (size_t) maxMeters)
     {
@@ -1466,7 +1490,35 @@ void Sequencer::setPanControl (panman::Settings& settings, int control, float va
     }
 }
 
-void Sequencer::runEffect (HostedPlugin& plugin, float mix, float* left, float* right, int numSamples)
+std::pair<const float*, const float*> Sequencer::keyOf (const Song::Track::Effect& effect, int numSamples)
+{
+    if (effect.keyTrack < 0 || effect.keyBuffer < 0)
+        return { nullptr, nullptr };
+    const auto& source = song->tracks[(size_t) effect.keyTrack];
+    const auto pair = effect.keyTap == Song::Track::Tap::preFx       ? source.preFxBuffer
+                      : effect.keyTap == Song::Track::Tap::postFx    ? source.preBuffer
+                      : source.keyFaderBuffer >= 0                   ? source.keyFaderBuffer
+                                                                     : source.buffer;
+    if (pair < 0)
+        return { nullptr, nullptr };
+    const auto* tapLeft = song->audio.getReadPointer (pair * 2);
+    const auto* tapRight = song->audio.getReadPointer (pair * 2 + 1);
+    auto* line = effect.keyLine.get();
+    if (line == nullptr)
+        return { tapLeft, tapRight };
+    // Earlier than the sound where the effect is: it waits in its delay line, into its own pair.
+    line->clearInput (numSamples);
+    juce::FloatVectorOperations::copy (line->inputLeft(), tapLeft, numSamples);
+    juce::FloatVectorOperations::copy (line->inputRight(), tapRight, numSamples);
+    auto* keyLeft = song->audio.getWritePointer (effect.keyBuffer * 2);
+    auto* keyRight = song->audio.getWritePointer (effect.keyBuffer * 2 + 1);
+    juce::FloatVectorOperations::clear (keyLeft, numSamples);
+    juce::FloatVectorOperations::clear (keyRight, numSamples);
+    line->flushInto (keyLeft, keyRight, numSamples);
+    return { keyLeft, keyRight };
+}
+
+void Sequencer::runEffect (HostedPlugin& plugin, float mix, float* left, float* right, int numSamples, const float* keyLeft, const float* keyRight)
 {
     if (numSamples > plugin.buffer.getNumSamples())
         return;
@@ -1474,6 +1526,10 @@ void Sequencer::runEffect (HostedPlugin& plugin, float mix, float* left, float* 
     view.clear();
     view.copyFrom (0, 0, left, numSamples);
     view.copyFrom (1, 0, right, numSamples);
+    // Its sidechain input (`configurePlugin` turned it on): the key, or silence without one.
+    if (plugin.keyChannel >= 0 && keyLeft != nullptr)
+        for (int c = 0; c < plugin.keyChannels && plugin.keyChannel + c < view.getNumChannels(); ++c)
+            view.copyFrom (plugin.keyChannel + c, 0, c == 0 ? keyLeft : keyRight, numSamples);
     plugin.midi.clear();
     plugin.instance->processBlock (view, plugin.midi);
     // A plugin with one output gives it to both sides.
