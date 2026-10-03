@@ -95,6 +95,7 @@ import { Inspector } from "./inspector";
 import { delayText, offsetText, pluginDelay } from "./latency";
 import { MIXER_VIEWS, type MixerViewKind, STRIP_WIDTHS, VIEW_NAMES, trackAt, useMixerView } from "./view";
 import { CONTEXT_PARTS, SidechainToItems } from "./sidechain-menu";
+import { useModulationUi } from "../modulation/store";
 
 
 /** Strips drawn past each edge of the view, so a scroll doesn't show an empty one before they're drawn. */
@@ -319,6 +320,9 @@ function MixerMenu() {
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => deleteTracks(selectedTracks())}>
           Delete selected tracks <DropdownMenuShortcut>⌥⌫</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => useModulationUi.getState().show()} data-testid="open-modulators">
+          Modulators…
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => routeSelectedChannels()}>

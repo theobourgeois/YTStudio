@@ -3629,6 +3629,43 @@ test("sidechain: the kick's strip ducks a track with a new Pro-C, the slot shows
   await expect(inspector.getByTestId("key-badge")).toHaveCount(0);
 });
 
+test("modulation: a fader follows another track's level from its menu, the Modulators window shows it, and it's taken off", async ({ page }) => {
+  const id = await openNewSong(page, "Pumped");
+  await page.keyboard.press("F9");
+  const mixer = page.getByTestId("mixer");
+  // Insert 2's fader → Modulate → Follow track → Insert 1.
+  await mixer.getByRole("slider", { name: "Insert 2 volume" }).click({ button: "right" });
+  await page.getByTestId("modulate").click();
+  await page.getByTestId("follow-track").click();
+  await page.getByTestId("follow-track-1").click();
+  await expect.poll(async () => (await savedSong(page, id)).modulators).toEqual([
+    expect.objectContaining({ source: { kind: "track", track: "insert_1", tap: "postFx" }, links: [{ target: { kind: "mixer", track: "insert_2", control: "volume" }, amount: -0.6 }] }),
+  ]);
+  // Its window: the modulator, what it moves, by how much.
+  const window = page.getByTestId("modulators-window");
+  await expect(window).toBeVisible();
+  await expect(window.getByTestId("modulator-row")).toHaveText(/Insert 1 level/);
+  await expect(window.getByTestId("modulation-link")).toContainText("Volume");
+  await expect(window.getByTestId("modulation-link")).toContainText("−60%");
+  // A second control linked to it from its menu (Link to).
+  await mixer.getByRole("slider", { name: "Insert 3 pan" }).click({ button: "right" });
+  await page.getByTestId("modulate").click();
+  await page.getByRole("menuitem", { name: "Link to" }).click();
+  await page.getByRole("menuitem", { name: /Insert 1 level/ }).click();
+  await expect(window.getByTestId("modulation-link")).toHaveCount(2);
+  // Taken off the fader again: its menu says what moves it.
+  await mixer.getByRole("slider", { name: "Insert 2 volume" }).click({ button: "right" });
+  await expect(page.getByTestId("modulate")).toHaveText(/Modulated by Insert 1 level/);
+  await page.getByTestId("modulate").click();
+  await page.getByTestId("remove-modulation").click();
+  await expect.poll(async () => (await savedSong(page, id)).modulators[0].links.map((l: { target: { control: string } }) => l.target.control)).toEqual(["pan"]);
+  // The Mixer's menu brings it forward; closed.
+  await page.getByRole("button", { name: "Mixer menu" }).click();
+  await page.getByTestId("open-modulators").click();
+  await page.getByRole("button", { name: "Close Modulators" }).click();
+  await expect(window).toHaveCount(0);
+});
+
 test("the assistant squashes a track with OTT: puts one on, sets it, automates its depth", async ({ page }) => {
   const id = await openNewSong(page, "Assisted OTT");
   await page.getByRole("button", { name: "Assistant" }).click();

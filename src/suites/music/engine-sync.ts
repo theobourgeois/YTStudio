@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { takeModulatorLevels } from "./modulation/store";
 import { errorMessage } from "@shared/errors";
 import type { EngineKey, EngineStatus } from "@shared/music/engine";
 import { musicApi } from "./api";
@@ -154,6 +155,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       takePitchWheels(event.pitchWheels);
       // What each Pro-C did: its level display's points, kept outside React.
       takeProCs(event.proCs);
+      // Each modulator's level: the controls it moves show it.
+      takeModulatorLevels(event.modulators);
     } else if (event.event === "midi") {
       // Played on a MIDI keyboard (or the typing keyboard): lit, and kept while recording.
       useMidi.getState().played(event.notes);

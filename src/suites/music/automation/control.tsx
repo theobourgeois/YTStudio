@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { controlAt, controlOf, isAutomated, automationsOf, targetKey } from "@shared/music/automation";
+import { modulatedFraction, modulationIndex } from "@shared/music/modulation";
+import { useModulationUi } from "../modulation/store";
 import type { AutomationTarget } from "@shared/music/types";
 import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { positionNow } from "../playhead";
@@ -7,6 +9,7 @@ import { useMusic } from "../store";
 import { useTransport } from "../transport";
 import { createAutomationClip, openAutomationWindow } from "./actions";
 import { useAutomationUi } from "./store";
+import { ModulationMenuItems } from "../modulation/menu";
 
 /**
  * A control that can be automated (a knob, a fader), as it shows (`docs/fl-studio/automation.md`): in song
@@ -44,8 +47,26 @@ export function useAutomatedControl(target: AutomationTarget | undefined, own: n
     return () => cancelAnimationFrame(frame);
   }, [following, key, scale]);
 
+  // Modulated (`docs/sidechain.md`): it shows where its modulator has it now, and how far it can take it.
+  const entry = useMusic((s) => (key && s.history ? (modulationIndex(s.history.doc).get(key) ?? null) : null));
+  const level = useModulationUi((s) => (entry ? (s.levels[entry.modulator.id] ?? 0) : 0));
+  const base = following && shown !== null ? shown : own;
+  let value = base;
+  let modulatedTo: number | null = null;
+  const song = useMusic.getState().history?.doc;
+  if (entry && target && song && target.kind !== "plugin") {
+    const info = controlOf(song, target);
+    const toFraction = scale === "fraction" ? (v: number) => v : info.fromControl;
+    const fromFraction = scale === "fraction" ? (v: number) => v : info.toControl;
+    const fraction = toFraction(base);
+    value = fromFraction(modulatedFraction(fraction, entry.link.amount, level));
+    modulatedTo = fromFraction(modulatedFraction(fraction, entry.link.amount, 1));
+  }
+
   return {
-    value: following && shown !== null ? shown : own,
+    value,
+    /** Where its modulation takes it at full level (its ring), or null when it isn't modulated. */
+    modulatedTo,
     automated,
     hold: () => {
       if (!key || !targetRef.current) return;
@@ -65,6 +86,7 @@ export function AutomationMenuItems({ target }: { target: AutomationTarget }) {
     <>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => createAutomationClip(target)}>Create automation clip</ContextMenuItem>
+      <ModulationMenuItems target={target} />
       {existing.slice(0, 4).map((a) => (
         <ContextMenuItem key={a.id} onSelect={() => openAutomationWindow(a.id)}>
           Edit {a.name}…
