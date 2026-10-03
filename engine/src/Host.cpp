@@ -240,8 +240,13 @@ void PluginHost::lowerEditors()
 
 void PluginHost::setHost (const juce::var& host)
 {
+    const auto regainedFocus = hostKnown && ! hostActive && (bool) host["active"];
     hostActive = (bool) host["active"];
     hostVisible = (bool) host["visible"];
+    // macOS may activate Electron before delivering a click to its web contents. The native
+    // focus transition must lower plugins too, including clicks on the host's title bar.
+    if (regainedFocus)
+        lowerEditors();
     if (hostActive)
         lastInUse = juce::Time::getMillisecondCounter();
 

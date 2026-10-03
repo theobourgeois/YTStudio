@@ -28,6 +28,7 @@ pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a lo
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
 pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
 pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/Vaudio.app, then launch it, export, check
+pnpm test:desktop:music # macOS: real clicks from Serum (or the test synth) back to each music window; needs Accessibility access
 pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build; needs cmake + ninja (brew)
 pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
 pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit into public/kit/

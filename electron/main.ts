@@ -140,6 +140,8 @@ function createWindow() {
     title: APP_NAME,
     icon: desktopIcon(),
     show: false,
+    // A click coming back from a native plugin must also reach the clicked editor window.
+    acceptFirstMouse: true,
     backgroundColor: "#16191d",
     ...(isMac && { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 20 } }),
     webPreferences: {

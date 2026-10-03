@@ -12,5 +12,6 @@ dist-electron
 build/desktop
 release
 desktop-smoke.png
+music-window-smoke.png
 engine/build
 ui-sheet
