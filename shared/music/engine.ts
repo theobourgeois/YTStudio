@@ -136,6 +136,8 @@ export interface EngineTransport {
   panMen?: Record<string, EnginePanState>;
   /** Each Pitch Wheel in the song (by effect id): where its wheels actually are, and its notes (absent from engines that don't say). */
   pitchWheels?: Record<string, EnginePitchWheelState>;
+  /** Each modulator's level now (0..1, by id: `docs/sidechain.md`), which linked controls show (absent from engines that don't say). */
+  modulators?: Record<string, number>;
 }
 
 /**

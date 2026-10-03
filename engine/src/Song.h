@@ -295,9 +295,54 @@ struct Song
         float own = 0;
         float lastSet = -2;
 
-        /** Its values at `tick` into `out` (`size` of them): the later of two points on one tick, the ends held. `cursor` speeds the next lookup. */
+        /**
+         * Moved by a modulator (`docs/sidechain.md`; index into `modulators`, -1: none): each point is `steps`
+         * sets of `size` values, at its level 0 … 1 (`atLevel` reads between them), and `rest` is that grid at
+         * the controls' own values (the song stopped, or nothing automated). A plugin parameter's has one step:
+         * `amount` is added to its value at the level.
+         */
+        int modulator = -1, steps = 1;
+        float amount = 0;
+        std::array<float, maxSize> rest {};
+        /** The audio thread's: a modulated lane's values at its slice's start and end, which gains glide between. */
+        std::array<float, maxSize> modFrom {}, modTo {};
+        bool modStarted = false;
+        /** The values a point holds. */
+        int stride() const { return size * steps; }
+        /** A modulated grid's values at a level (0..1) into `out` (`size` of them). */
+        void atLevel (const float* grid, float level, float* out) const;
+
+        /** Its values at `tick` into `out` (`stride` of them): the later of two points on one tick, the ends held. `cursor` speeds the next lookup. */
         void valueAt (double tick, float* out);
         size_t cursor = 0;
+    };
+
+    /** A modulator's follower, kept across songs by id (the audio thread's, but `said`). */
+    struct ModulatorState
+    {
+        /** The follower (before it's shaped), and its level (0..1, shaped) at the end of the last block. */
+        float env = 0, level = 0;
+        /** A notes source's notes sounding: from and to (the sequencer's sample clock), their velocity. */
+        struct Gate
+        {
+            juce::int64 from = 0, to = 0;
+            float velocity = 0;
+        };
+        std::array<Gate, 32> gates {};
+        int gateCount = 0;
+        /** Its level, for the tab (`EngineTransport.modulators`). */
+        std::atomic<float> said { 0 };
+    };
+
+    /** A modulator (`EngineModulator`): a track's sound at a tap, or a channel's notes, followed. */
+    struct Modulator
+    {
+        juce::String id;
+        int track = -1, channel = -1;
+        Track::Tap tap = Track::Tap::postFx;
+        double attack = 0.002, release = 0.15;
+        float gain = 1, tension = 0;
+        std::shared_ptr<ModulatorState> state;
     };
 
     struct Note
@@ -354,8 +399,11 @@ struct Song
     std::vector<AudioClip> audioClips;
     /** In the order they're run: each after every track sending to it. The master is the last. */
     std::vector<Track> tracks;
-    /** The automated controls (song mode). */
+    /** The automated controls (song mode), and the modulated ones. */
     std::vector<Lane> lanes;
+    /** The modulators the lanes name, and whether any lane is modulated (then it's played in `modSlice`s, stopped too). */
+    std::vector<Modulator> modulators;
+    bool modulated = false;
     /** The Pitch Wheels that a channel's notes play (`notesFrom`): the channel's index and the wheel's sound (its effect holds it). */
     struct WheelListener
     {

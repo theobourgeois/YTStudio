@@ -91,10 +91,11 @@ std::shared_ptr<const Sample> SampleCache::get (const juce::String& path)
 void Song::Lane::valueAt (double tick, float* out)
 {
     const auto count = ticks.size();
+    const auto n = stride();
     if (count == 0)
     {
-        for (int c = 0; c < size; ++c)
-            out[c] = base[(size_t) c];
+        for (int c = 0; c < n; ++c)
+            out[c] = steps > 1 ? rest[(size_t) c] : base[(size_t) c];
         return;
     }
     // The last point at or before `tick`: from where the last lookup was (they mostly go forwards), else searched.
@@ -102,17 +103,28 @@ void Song::Lane::valueAt (double tick, float* out)
         cursor = (size_t) juce::jmax (0, (int) (std::upper_bound (ticks.begin(), ticks.end(), tick) - ticks.begin()) - 1);
     while (cursor + 1 < count && ticks[cursor + 1] <= tick)
         ++cursor;
-    const auto* from = values.data() + cursor * (size_t) size;
+    const auto* from = values.data() + cursor * (size_t) n;
     if (cursor + 1 >= count || tick <= ticks[cursor])
     {
-        for (int c = 0; c < size; ++c)
+        for (int c = 0; c < n; ++c)
             out[c] = from[c];
         return;
     }
-    const auto* to = from + size;
+    const auto* to = from + n;
     const auto f = (float) ((tick - ticks[cursor]) / (ticks[cursor + 1] - ticks[cursor]));
-    for (int c = 0; c < size; ++c)
+    for (int c = 0; c < n; ++c)
         out[c] = from[c] + (to[c] - from[c]) * f;
+}
+
+void Song::Lane::atLevel (const float* grid, float level, float* out) const
+{
+    const auto k = juce::jlimit (0.0f, 1.0f, level) * (float) (steps - 1);
+    const auto i = juce::jmin (steps - 2, (int) k);
+    const auto f = k - (float) i;
+    const auto* a = grid + i * size;
+    const auto* b = a + size;
+    for (int c = 0; c < size; ++c)
+        out[c] = a[c] + (b[c] - a[c]) * f;
 }
 
 Song::Envelope Song::parseEnvelope (const juce::var& json)
@@ -532,6 +544,27 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             song->channels[c].track = track;
         }
 
+    // The modulators: any track at a tap (modulation is a slice behind its source, so it needs no order), or a channel.
+    if (const auto* list = json["modulators"].getArray())
+        for (const auto& item : *list)
+        {
+            Modulator modulator;
+            modulator.id = item["id"].toString();
+            modulator.track = (int) number (item["track"], -1, -1, 1e6);
+            modulator.channel = (int) number (item["channel"], -1, -1, 1e6);
+            if (modulator.track >= (int) song->tracks.size())
+                modulator.track = -1;
+            if (modulator.channel >= (int) song->channels.size())
+                modulator.channel = -1;
+            const auto tap = item["tap"].toString();
+            modulator.tap = tap == "preFx" ? Track::Tap::preFx : tap == "postFader" ? Track::Tap::postFader : Track::Tap::postFx;
+            modulator.attack = number (item["attack"], 0.002, 0, 1);
+            modulator.release = number (item["release"], 0.15, 0.001, 4);
+            modulator.gain = (float) number (item["gain"], 1, 0, 64);
+            modulator.tension = (float) number (item["tension"], 0, -1, 1);
+            song->modulators.push_back (std::move (modulator));
+        }
+
     // A buffer for each track something can reach: a channel plays into it, or a track that's reached
     // sends to it. (Senders come first, so one pass finds them all.)
     std::vector<bool> reached (song->tracks.size(), false);
@@ -570,6 +603,19 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             else if (song->tracks[source].hasKeyGains)
                 keyedPre[source] = keyedFader[source] = true;
         }
+    // Modulators' taps too.
+    for (auto& modulator : song->modulators)
+    {
+        if (modulator.track < 0 || song->tracks[(size_t) modulator.track].buffer < 0)
+            continue;
+        const auto source = (size_t) modulator.track;
+        if (modulator.tap == Track::Tap::preFx)
+            keyedPreFx[source] = true;
+        else if (modulator.tap == Track::Tap::postFx)
+            keyedPre[source] = true;
+        else if (song->tracks[source].hasKeyGains)
+            keyedPre[source] = keyedFader[source] = true;
+    }
     // Each reached track a stage after the latest of those sending to it, and of those keying it.
     {
         std::vector<int> stage (song->tracks.size(), 0);
@@ -879,9 +925,30 @@ void Song::parseLanes (Song& song, const juce::var& json)
         else
             continue;
 
+        // Moved by a modulator: a grid of `steps` levels a point (a plugin parameter's: an amount), and the grid at its own values.
+        if (const auto modulator = (int) number (item["modulator"], -1, -1, 1e6); modulator >= 0 && modulator < (int) song.modulators.size())
+        {
+            lane.modulator = modulator;
+            lane.steps = (int) number (item["steps"], 1, 1, 17);
+            lane.amount = (float) number (item["amount"], 0, -1, 1);
+            if (lane.kind == Lane::Kind::param)
+                lane.steps = 1;
+            else if (lane.steps < 2)
+                continue;
+        }
+        if (lane.stride() > Lane::maxSize)
+            continue;
+        if (lane.steps > 1)
+        {
+            const auto* rest = item["base"].getArray();
+            if (rest == nullptr || rest->size() != lane.stride())
+                continue;
+            for (int c = 0; c < lane.stride(); ++c)
+                lane.rest[(size_t) c] = (float) number ((*rest)[c], 0, -1e5, 1e5);
+        }
         const auto* ticks = item["ticks"].getArray();
         const auto* values = item["values"].getArray();
-        if (ticks == nullptr || values == nullptr || ticks->isEmpty() || lane.size > Lane::maxSize || values->size() != ticks->size() * lane.size)
+        if (ticks == nullptr || values == nullptr || ticks->isEmpty() || values->size() != ticks->size() * lane.stride())
             continue;
         lane.ticks.reserve ((size_t) ticks->size());
         lane.values.reserve ((size_t) values->size());
@@ -892,6 +959,7 @@ void Song::parseLanes (Song& song, const juce::var& json)
         const auto most = lane.kind == Lane::Kind::echo ? 1e5 : lane.kind == Lane::Kind::ott || lane.kind == Lane::Kind::tune || lane.kind == Lane::Kind::comp ? 1e3 : 64.0;
         for (const auto& value : *values)
             lane.values.push_back ((float) number (value, 0, -most, most));
+        song.modulated = song.modulated || lane.modulator >= 0;
         song.lanes.push_back (std::move (lane));
     }
 }
