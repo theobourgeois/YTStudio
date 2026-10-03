@@ -72,6 +72,9 @@ import {
   type Sidechain,
   type SidechainTap,
   type MixerTrack,
+  type ModulationLink,
+  type Modulator,
+  type ModulatorSource,
   type MusicProject,
   type MusicSettings,
   type Note,
@@ -312,6 +315,7 @@ export function createMusicProject(name = DEFAULT_PROJECT_NAME, tempo = DEFAULT_
     playlist: emptyPlaylist(),
     mixer: createMixer(),
     automations: [],
+    modulators: [],
   };
 }
 
@@ -860,6 +864,56 @@ function normalizeAutomations(input: unknown): Automation[] {
   return automations;
 }
 
+/** The most modulators a song has, and controls one moves; their knobs' ranges (`shared/music/modulation.ts`). */
+export const MAX_MODULATORS = 256;
+export const MAX_LINKS = 256;
+export const MODULATOR_RANGES = { attack: [0, 1], release: [0.005, 4], gain: [-24, 24], tension: [-1, 1] } as const;
+
+/**
+ * The modulators: unique ids, a source of the song's (a track that exists, or a channel), their knobs in
+ * range, and their links' targets valid (never the tempo), each control linked once in all (the first wins).
+ */
+function normalizeModulators(input: unknown, tracks: ReadonlySet<string>, channels: ReadonlySet<string>): Modulator[] {
+  const seen = new Set<string>();
+  const linked = new Set<string>();
+  const modulators: Modulator[] = [];
+  for (const raw of Array.isArray(input) ? input : []) {
+    if (modulators.length >= MAX_MODULATORS) break;
+    if (!isObject(raw) || !isId(raw.id) || seen.has(raw.id) || !isObject(raw.source)) continue;
+    const src = raw.source;
+    const source: ModulatorSource | null =
+      src.kind === "notes" && isId(src.channel) && channels.has(src.channel)
+        ? { kind: "notes", channel: src.channel }
+        : src.kind === "track" && isId(src.track) && tracks.has(src.track)
+          ? { kind: "track", track: src.track, tap: SIDECHAIN_TAPS.includes(src.tap as SidechainTap) ? (src.tap as SidechainTap) : "postFx" }
+          : null;
+    if (!source) continue;
+    seen.add(raw.id);
+    const links: ModulationLink[] = [];
+    for (const link of Array.isArray(raw.links) ? raw.links : []) {
+      if (links.length >= MAX_LINKS || !isObject(link)) continue;
+      const target = normalizeTarget(link.target);
+      if (!target || target.kind === "tempo") continue;
+      const key = JSON.stringify(target);
+      if (linked.has(key)) continue;
+      linked.add(key);
+      links.push({ target, amount: number(link.amount, -1, 1, 0) });
+    }
+    const r = MODULATOR_RANGES;
+    modulators.push({
+      id: raw.id,
+      name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, MAX_NAME) : null,
+      source,
+      attack: number(raw.attack, r.attack[0], r.attack[1], 0.002),
+      release: number(raw.release, r.release[0], r.release[1], 0.15),
+      gain: number(raw.gain, r.gain[0], r.gain[1], 0),
+      tension: number(raw.tension, r.tension[0], r.tension[1], 0),
+      links,
+    });
+  }
+  return modulators;
+}
+
 /**
  * The playlist: tracks by number, and clips of patterns, audio clip channels and automation clips that are still there,
  * on tracks that exist, inside the song's reach. Clips get ids of their own if they lack one. Songs
@@ -952,5 +1006,6 @@ export function normalizeMusicProject(input: unknown, isSample: (id: string) => 
     playlist: normalizePlaylist(input.playlist, patterns, channels, automations, mixer),
     mixer,
     automations,
+    modulators: normalizeModulators(input.modulators, trackIds, new Set(channels.map((c) => c.id))),
   };
 }

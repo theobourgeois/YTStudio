@@ -1319,4 +1319,40 @@ export interface MusicProject {
   mixer: Mixer;
   /** The automation clips, in the Picker's order. */
   automations: Automation[];
+  /** The modulators (`docs/sidechain.md`): a track's level or a channel's notes moving any controls. */
+  modulators: Modulator[];
+}
+
+/**
+ * What a modulator follows: a mixer track's sound (taken at a tap, as a key is) or a channel's notes (a gate,
+ * their velocity while any sounds: a muted kick channel still drives it).
+ */
+export type ModulatorSource = { kind: "track"; track: string; tap: SidechainTap } | { kind: "notes"; channel: string };
+
+/** A control a modulator moves, by `amount` (-1..1) of its range at full level: negative dips it (a duck). */
+export interface ModulationLink {
+  target: AutomationTarget;
+  amount: number;
+}
+
+/**
+ * A modulator (`docs/sidechain.md`; FL's Peak Controller, Bitwig's Audio Sidechain): a level follower on a
+ * source, which moves the controls it's linked to from where they are (their own value, or their
+ * automation's): `clamp(own + amount × level)`. The follower: the source's peak times `gain`, followed with
+ * `attack` and `release`, clipped to 1 and bent by `tension`.
+ */
+export interface Modulator {
+  id: string;
+  /** Null until it's renamed: then it's called by its source ("Kick level"). */
+  name: string | null;
+  source: ModulatorSource;
+  /** Seconds the follower takes to rise and to fall (one-pole). */
+  attack: number;
+  release: number;
+  /** dB into the follower (FL's VOL): louder reaches full level sooner. */
+  gain: number;
+  /** -1..1: the level's curve (0 straight, positive slower to rise, negative quicker). */
+  tension: number;
+  /** The controls it moves (each control is moved by one modulator at most). */
+  links: ModulationLink[];
 }
