@@ -3,15 +3,17 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useProjects } from "@/stores/projects";
 import { HOME_KEYS } from "./project-search-dialog";
+import { useTabsShown } from "./project-tabs";
 
 /**
  * Back to the Home screen, from any suite. One button for the whole window, pinned to its top-left corner
  * (beside a Mac's window buttons in the desktop app, `.home-button` in index.css), over whichever suite's
- * header is below it; headers leave it room.
+ * header is below it; headers leave it room. The tab strip, when it shows, has a Home button of its own.
  */
 export function HomeButton() {
   const open = useProjects((s) => s.openId !== null);
-  if (!open) return null;
+  const tabs = useTabsShown();
+  if (!open || tabs) return null;
   return (
     <Tooltip>
       <TooltipTrigger asChild>

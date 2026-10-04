@@ -23,7 +23,8 @@ export const HOME_KEYS = MOD === "⌘" ? "⇧⌘H" : "Ctrl+Shift+H";
 /**
  * The app's project keys, wherever the keyboard is (any suite, or the Home screen), caught before the
  * editors' keys: ⇧⌘O the New project picker and ⌘P the project search (pressed again, each closes), ⌘O
- * Open…, and ⇧⌘H the Home screen (and back to the project).
+ * Open…, ⇧⌘H the Home screen (and back to the project), ⌘W closes the open project's tab and ⇧⌘[ / ⇧⌘]
+ * and ⌃Tab go through the tabs.
  */
 export function useProjectShortcuts() {
   useEffect(() => {
@@ -44,6 +45,21 @@ export function useProjectShortcuts() {
         e.preventDefault();
         e.stopPropagation();
         if (!e.repeat) showOpenDialog();
+      } else if (e.code === "KeyW" && !e.shiftKey) {
+        // The open project's tab. (A browser keeps ⌘W for its own tab; the desktop app's menu runs it too.)
+        e.preventDefault();
+        e.stopPropagation();
+        const { openId, closeTab } = useProjects.getState();
+        if (!e.repeat && openId) void closeTab(openId);
+      } else if ((e.code === "BracketRight" || e.code === "BracketLeft") && e.shiftKey && e.metaKey) {
+        // Chrome's and Safari's keys for the next and previous tab.
+        e.preventDefault();
+        e.stopPropagation();
+        void useProjects.getState().cycleTab(e.code === "BracketRight" ? 1 : -1);
+      } else if (e.code === "Tab" && e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        void useProjects.getState().cycleTab(e.shiftKey ? -1 : 1);
       } else if (e.code === "KeyH" && e.shiftKey) {
         e.preventDefault();
         e.stopPropagation();

@@ -48,6 +48,8 @@ declare global {
       chooseProject?: (defaultPath?: string) => Promise<string | null>;
       /** The system's dialog for a folder; null if cancelled. */
       chooseFolder?: (defaultPath?: string) => Promise<string | null>;
+      /** The tab strip shows (or not): a Mac's window buttons move to its middle. */
+      tabStrip?: (shown: boolean) => void;
       /** A project was opened: the system's recent documents (the Dock, File › Open Recent) list it. */
       projectOpened?: (path: string) => void;
     };
@@ -62,7 +64,7 @@ declare global {
 }
 
 /** What the desktop app's menu asks the page to do (electron/main.ts's File menu). */
-export type DesktopCommand = "home" | "open" | "newProject" | "reveal" | `new:${string}`;
+export type DesktopCommand = "home" | "open" | "newProject" | "reveal" | "closeTab" | `new:${string}`;
 
 /** Whether the editor runs in the desktop app rather than a browser tab. */
 export const isDesktop = typeof window !== "undefined" && window.editorDesktopInfo !== undefined;
@@ -128,4 +130,9 @@ export function exposeDesktopHooks() {
     openFile: (path) => useProjects.getState().openFile(path),
     command: (name) => commands(name),
   };
+}
+
+/** Tell the desktop app whether the tab strip is showing (it keeps a Mac's window buttons level with the bar). */
+export function noteTabStrip(shown: boolean) {
+  window.editorDesktopInfo?.tabStrip?.(shown);
 }
