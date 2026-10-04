@@ -313,7 +313,7 @@ html.desktop [data-titlebar] {
   -webkit-app-region: drag;
 }
 /* Controls take their own presses (a slider or a scrolled value would otherwise move the window). */
-html.desktop [data-titlebar] :is(button, a, input, label, select, textarea, [role="button"], [role="slider"], [role="spinbutton"], [contenteditable], [data-no-drag]) {
+html.desktop [data-titlebar] :is(button, a, input, label, select, textarea, [role="button"], [role="tab"], [role="slider"], [role="spinbutton"], [contenteditable], [data-no-drag]) {
   -webkit-app-region: no-drag;
 }
 /*
