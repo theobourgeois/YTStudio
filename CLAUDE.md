@@ -36,6 +36,9 @@ pnpm test:desktop:music # macOS: real clicks between the music windows and Serum
 pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build; needs cmake + ninja (brew)
 pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
 pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit into public/kit/
+pnpm tsx scripts/make-audio-fixtures.ts [--out dir]   # the audio-intelligence fixtures as WAVs + a manifest (tests render them in memory)
+pnpm tsx scripts/select-mixparams.ts   # MixParams' reviewed reference subset into the gitignored data/ (docs/audio-intelligence/)
+python3 scripts/audit-cl1b.py <Dataset.zip> --out <report.json>   # CL 1B's layout, read statically: never unpickles
 ```
 
 **Verify every change** with `pnpm typecheck && pnpm test`, and also `pnpm test:e2e` for anything the UI touches.
@@ -78,6 +81,9 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      reverb-modes.ts: the modes and eras as data; reverb-presets.ts: ranges, validation, presets),
                      stretching audio clips (stretch.ts: modes, speeds, the tempo a file was made at),
                      and drawing anything over time as lines for the engine (sampling.ts).
+                     audio-intelligence/ is the assistant's hearing foundations (see "Audio intelligence" below);
+                     hash.ts is the pure SHA-256 and canonical JSON everything there is identified by;
+                     mix-reference.ts is MixParams' reviewed subset (a research reference, never executable settings).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
@@ -727,6 +733,24 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
 - **Resampling** (`engine/src/Resampling.h`; Settings' Quality): how samplers and audio clips read between
   samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).
+- **Audio intelligence** (`docs/audio-intelligence/`: the plan is `audio-engineering-harness.md`, its slices
+  `implementation-backlog.md`): giving the assistant truthful ears and hands. **Slice A is built, the rest is
+  planned.** `shared/music/audio-intelligence/` holds the contracts, all plain JSON, immutable, identified by a
+  hash of what's in them (`shared/music/hash.ts`; their ids are fixed values in `identity.test.ts`: changing what
+  is hashed orphans every stored record, so it's a schema change): `MixSnapshot` (`snapshot.ts`: the song's parts
+  by hash, its media and plugins' state files by hash, and a `coverage` that says what couldn't be captured, so a
+  capture never looks complete when it isn't; `diffSnapshots` is the stale check), `AudioArtifact` (`artifact.ts`:
+  audio by content hash, its passage on the song's clock, what was done to it, and per-use permissions that start
+  private), `EvidenceReport` (`evidence.ts`: measurements, observations and hypotheses kept apart, each naming its
+  method or source, and what was inspected), `AudioJob` (`job.ts`: the state machine, cancel, retry, restart
+  recovery) and `MixRun` (`run.ts`: phases and the budgets the service enforces whatever the agent asks).
+  Validators refuse a record, never repair it, and check the id against the content. `families.ts` splits by
+  recording family (a mix joins its sources' families) and `fixtures.ts` is the cleared collection, synthetic
+  audio whose levels and correlations are known by construction. `server/music/audio-intelligence/` reads the
+  files the pure builder can't (`captureSnapshot`, `FileHasher`). **Unknown stays unknown**: a null, a coverage
+  gap or `unverified` is never filled with a guess (a plugin's version isn't recorded by the engine today, so
+  a snapshot with outside plugins is `partial`; `docs/audio-intelligence/engine-render-limits.md` lists what a
+  render can and can't promise: it starts cold, takes the device, and uses the live plugin instances).
 - The assistant's tools: specs in `shared/music/tools.ts`, handlers in `src/suites/music/tools.ts`, and their
   edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested); the mixer's in
   `mixer/tool-edits.ts` (`findTrack`: by id, number, "master" or name; `describeMixer` is `get_mixer`). Channels
