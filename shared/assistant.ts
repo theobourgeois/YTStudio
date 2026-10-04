@@ -403,6 +403,14 @@ export function describeToolCall(rawName: string, input: unknown): string {
   const f = (key: string) => field(input, key);
   const ids = (key = "clipIds") => list(f(key)).length;
   switch (name) {
+    case "capture_audio_snapshot": return "Capture the song for analysis";
+    case "render_audio_passage": return "Render an analysis passage";
+    case "register_audio_artifact": return "Register audio for analysis";
+    case "analyse_audio_artifact": return "Measure an audio artifact";
+    case "get_audio_job": return "Read audio job progress";
+    case "cancel_audio_job": return "Cancel an audio job";
+    case "retry_audio_job": return "Retry an audio job";
+    case "get_audio_report": return "Read audio measurements";
     case "get_timeline":
       return "Read the timeline";
     case "get_clips":

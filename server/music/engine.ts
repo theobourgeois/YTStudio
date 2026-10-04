@@ -5,6 +5,7 @@
  */
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
+import { createLimiter } from "../queue.ts";
 import path from "node:path";
 import readline from "node:readline";
 import { clamp, isFiniteNumber } from "../../shared/math.ts";
@@ -62,6 +63,8 @@ export interface RenderExportRequest {
   maxTail?: number;
   /** How many threads run the plugins (default: every core). */
   threads?: number;
+  /** Trusted internal resolver for immutable analysis media copies. */
+  samplePath?: SamplePath;
 }
 
 /** Where a project's sample is on disk, or null if it has no such audio file. */
@@ -244,8 +247,25 @@ export class AudioEngine {
    * while it renders; songs sent meanwhile are played once it's over. Resolves when it's written (or
    * aborted: `abortExport`); `onProgress` hears how far it is about ten times a second.
    */
-  renderExport(request: RenderExportRequest, onProgress?: (done: number, frames: number) => void): Promise<EngineExportDone | { state: "aborted"; missing: string[] }> {
-    const { song } = this.engineSong(request);
+  private readonly renderLimit = createLimiter(1);
+  private readonly queuedExports = new Set<string>();
+  private readonly cancelledExports = new Set<string>();
+
+  renderExport(request: RenderExportRequest, onProgress?: (done: number, frames: number) => void, signal?: AbortSignal): Promise<EngineExportDone | { state: "aborted"; missing: string[] }> {
+    this.queuedExports.add(request.id);
+    return this.renderLimit(async () => {
+      this.queuedExports.delete(request.id);
+      if (this.cancelledExports.delete(request.id)) return { state: "aborted" as const, missing: [] };
+      signal?.throwIfAborted();
+      const abort = () => { void this.abortExport(request.id).catch(() => {}); };
+      signal?.addEventListener("abort", abort, { once: true });
+      try { return await this.renderExportNow(request, onProgress, signal); }
+      finally { signal?.removeEventListener("abort", abort); }
+    });
+  }
+
+  private renderExportNow(request: RenderExportRequest, onProgress?: (done: number, frames: number) => void, signal?: AbortSignal): Promise<EngineExportDone | { state: "aborted"; missing: string[] }> {
+    const { song } = this.engineSong(request, request.samplePath);
     return new Promise((resolve, reject) => {
       const stop = this.onEvent((event) => {
         if (event.event === "stopped") {
@@ -259,7 +279,7 @@ export class AudioEngine {
         else resolve(event);
       });
       const params = { exportId: request.id, song: { ...song, loops: false }, folder: request.folder, mix: request.mix, stems: request.stems, tail: request.tail, maxTail: request.maxTail, threads: request.threads };
-      this.request("export", params).catch((err: Error) => {
+      this.request("export", params).then(() => { if (signal?.aborted) return this.abortExport(request.id); }).catch((err: Error) => {
         stop();
         reject(err);
       });
@@ -268,14 +288,15 @@ export class AudioEngine {
 
   /** Stop an export rendering (what it wrote is deleted). */
   async abortExport(id: string): Promise<void> {
+    if (this.queuedExports.has(id)) { this.cancelledExports.add(id); return; }
     if (this.child) await this.request("abortExport", { exportId: id });
   }
 
   /** A song request's song, as the engine takes it (`SetSongRequest`; checked, compiled, its files' paths). */
-  private engineSong(body: unknown) {
+  private engineSong(body: unknown, resolver: SamplePath = this.samplePath) {
     if (!isObject(body) || !isValidId(body.projectId)) throw new HttpError(400, '"projectId" must be the song\'s project id.');
     const projectId = body.projectId;
-    const doc = normalizeMusicProject(body.song, (id) => this.samplePath(projectId, id) !== null);
+    const doc = normalizeMusicProject(body.song, (id) => resolver(projectId, id) !== null);
     const loop = isObject(body.loop) && isFiniteNumber(body.loop.start) && isFiniteNumber(body.loop.end) ? { start: body.loop.start, end: body.loop.end } : null;
     const held = new Set(Array.isArray(body.held) ? body.held.filter((k): k is string => typeof k === "string").slice(0, 64) : []);
     const armed = new Set(Array.isArray(body.armed) ? body.armed.filter((id): id is string => typeof id === "string") : []);
@@ -290,7 +311,7 @@ export class AudioEngine {
       resampling: isResampling(body.resampling) ? body.resampling : "hermite",
       channels: compiled.channels.map((c) => ({
         ...c,
-        sample: c.sample && this.samplePath(projectId, c.sample),
+        sample: c.sample && resolver(projectId, c.sample),
         plugin: c.plugin && { ...c.plugin, state: path.join(states, `${c.id}.bin`) },
       })),
       // An effect's the same, by the effect's id.
@@ -575,7 +596,10 @@ export class AudioEngine {
   }
 
   shutdown() {
+    for (const id of this.queuedExports) this.cancelledExports.add(id);
     this.stopping = true;
+    // Release render waiters even on an intentional shutdown (the exit handler suppresses this event).
+    if (this.child) this.emit({ event: "stopped" });
     this.keepStates(false);
     this.child?.stdin?.end();
     this.child?.kill();

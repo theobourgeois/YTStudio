@@ -53,6 +53,29 @@ describe("AudioEngine", () => {
     await expect(third).rejects.toMatchObject({ status: 503 });
   });
 
+  it("serializes exports and cancels a queued render without starting it", async () => {
+    const request = { id: "exp_serial1", projectId: PROJECT, song: createMusicProject(), patternId: null, mode: "song" as const, loop: { start: 0, end: 192 }, resampling: "sinc" as const, folder: path.join(dir, "first"), mix: true, stems: false, tail: "cut" as const };
+    const first = engine.renderExport(request);
+    const queued = engine.renderExport({ ...request, id: "exp_serial2", folder: path.join(dir, "second") });
+    await engine.abortExport("exp_serial2");
+    expect((await first).state).toBe("done");
+    expect((await queued).state).toBe("aborted");
+    await expect(fs.stat(path.join(dir, "second", "mix.wav"))).rejects.toThrow();
+    const next = await engine.renderExport({ ...request, id: "exp_serial3" });
+    expect(next.state).toBe("done");
+  });
+
+  it("releases an in-flight render on intentional engine shutdown", async () => {
+    const request = { id: "exp_shutdown", projectId: PROJECT, song: createMusicProject(), patternId: null, mode: "song" as const, loop: { start: 0, end: 192 }, resampling: "sinc" as const, folder: path.join(dir, "shutdown"), mix: true, stems: false, tail: "cut" as const };
+    let started!: () => void;
+    const progress = new Promise<void>(resolve => { started = resolve; });
+    const render = engine.renderExport(request, () => started());
+    const failed = expect(render).rejects.toMatchObject({ status: 503 });
+    await progress;
+    engine.shutdown();
+    await failed;
+  });
+
   it("starts the engine on the first command and answers with its status", async () => {
     const status = await engine.command("tone", { on: true });
     expect(status).toMatchObject({ device: "Fake Output", tone: true, instrument: null });

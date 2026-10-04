@@ -1,3 +1,6 @@
+import { AudioIntelligence, AUDIO_SERVER_TOOLS } from "./music/audio-intelligence/service.ts";
+import { audioIntelligenceRoutes } from "./music/audio-intelligence/routes.ts";
+import { textResult } from "../shared/tool-spec.ts";
 import { inspectPreview } from "./preview-media.ts";
 import fs from "node:fs/promises";
 import { ProjectPreviews } from "./project-previews.ts";
@@ -126,10 +129,15 @@ export async function createApp({
   // The port the assistant's agents reach the MCP server on: the one requests arrive on.
   let port = config.port;
   const bridge = new Bridge();
+  let audioIntelligence: AudioIntelligence;
   const assistant = new AssistantService(paths, bridge, {
     commands: { claude: claudeCommand, codex: codexCommand },
     port: () => port,
     suiteOf: (id) => projects.suiteOf(id),
+    serverTool: async (suite, projectId, name, input) => {
+      if (suite !== "music" || !(AUDIO_SERVER_TOOLS as readonly string[]).includes(name)) return null;
+      return textResult(JSON.stringify(await audioIntelligence.tool(projectId, name, input)));
+    },
   });
   await assistant.init();
   const samplePath = (projectId: string, mediaId: string) => {
@@ -141,6 +149,11 @@ export async function createApp({
   const engine = new AudioEngine(paths, { samplePath, adoptTake, projectDir: (id) => projects.dir(id), ...engineOptions });
   saveStates = () => engine.saveStates().catch(() => {});
   const musicExports = new MusicExports(paths, engine, { samplePath: engineOptions?.samplePath ?? samplePath, adopt: adoptTake, ...musicExportOptions });
+
+  audioIntelligence = new AudioIntelligence({ root: path.join(paths.root, "audio-intelligence"), engine,
+    projectDir: id => projects.dir(id), samplePath: engineOptions?.samplePath ?? samplePath,
+    isMusicProject: id => projects.suiteOf(id) === "music" });
+  await audioIntelligence.init();
 
   const previews = new ProjectPreviews(paths, projects, {
     video: async (_id, doc, folder, signal, inputs) => {
@@ -181,6 +194,7 @@ export async function createApp({
   app.use("/api/transcription", transcriptionRoutes(transcription));
   app.use("/api/assistant", assistantRoutes(assistant, bridge));
   app.use("/api/engine", engineRoutes(engine));
+  app.use("/api/music/audio", audioIntelligenceRoutes(audioIntelligence));
   app.use("/api/music/exports", musicExportRoutes(musicExports));
   app.use("/api/browser", browserRoutes(browser, engine, {
       hasProject: (id) => projects.has(id),
@@ -265,6 +279,7 @@ export async function createApp({
       transcription.shutdown();
       assistant.shutdown();
       bridge.shutdown();
+      audioIntelligence.shutdown();
       musicExports.shutdown();
       engine.shutdown();
       browser.close();

@@ -59,6 +59,16 @@ snare), then set_steps to draw each channel's steps as text ("x---x---x---x---")
 and swing; edit_step changes one step's velocity or pitch; add_pattern makes another pattern. You can't hear \
 the song: play_song starts it for the user, so ask them how it sounds rather than claiming it sounds good.
 
+For audio evidence: capture_audio_snapshot preserves this chat's current song and source bytes; render_audio_passage \
+starts a durable background render of a selected passage (96 ticks per quarter note), with lead-in and tail. \
+Poll get_audio_job for the artifact id, then analyse_audio_artifact and get_audio_report for local measurements. \
+register_audio_artifact also accepts a WAV from this project's media. Jobs persist after the tab closes; \
+cancel_audio_job stops work and retry_audio_job resumes interrupted/failed attempts. Capture needs the tab. \
+Rendering stops playback and currently supports built-in processors only. Reports name an immutable snapshot; \
+if the song changes, capture and analyse again. These tools provide sample levels, dynamics, broad filter \
+energy estimates, activity timing and stereo measurements, not listening opinions, LUFS or true peak. \
+Never claim to have heard music from these measurements or from playback. Hosted hearing is unavailable.
+
 export_song renders the song to files (WAV, MP3, FLAC, OGG, M4A, MIDI; stems: a file per mixer track) in \
 seconds; the export window lists them for the user to download or show in Finder.`,
   },

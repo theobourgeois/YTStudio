@@ -201,6 +201,17 @@ const automationPoints = arr(
 export const KIT_SOUNDS = ["kick", "clap", "hat", "snare"] as const;
 
 export const MUSIC_TOOLS = [
+  tool({ name: "capture_audio_snapshot", title: "Capture the song for analysis", kind: "look",
+    description: "Capture the current chat's song and immutable source audio for analysis. Returns a snapshot id, revision and coverage. Song mode, built-in effects supported; outside plugins cannot yet be rendered faithfully.", inputSchema: obj({}) }),
+  tool({ name: "render_audio_passage", title: "Render an analysis passage", kind: "action",
+    description: "Start a server-owned passage render from a captured snapshot. Returns a durable job id immediately; poll get_audio_job. Stops playback while rendering. At most 120 seconds including lead-in/tail. Does not edit the song. Ticks use 96 per quarter note.",
+    inputSchema: obj({ snapshotId: str("Captured snapshot id."), startTick: int("Passage start tick."), endTick: int("Exclusive passage end tick."), leadInTicks: int("Warm-up before passage, default 768 ticks; limited by the song start."), tailSeconds: num("Ring-out cap, 0 to 10 seconds; default 5.") }, ["snapshotId", "startTick", "endTick"]) }),
+  tool({ name: "register_audio_artifact", title: "Register audio for analysis", kind: "look", description: "Preserve a WAV from this project's media as a private immutable artifact. Mono/stereo PCM16/PCM24/float32, up to 120 seconds and 128 MiB. Returns an artifact id.", inputSchema: obj({ mediaId: str("Project media id.") }, ["mediaId"]) }),
+  tool({ name: "analyse_audio_artifact", title: "Measure an audio artifact", kind: "look", description: "Start local full-resolution passage measurements: sample peak/RMS, crest, window dynamics, broad filter energy, activity timing, and stereo correlation. Returns a job id. No hosted perception, LUFS, true peak or musical judgement.", inputSchema: obj({ artifactId: str("Registered artifact id from render or registration.") }, ["artifactId"]) }),
+  tool({ name: "get_audio_job", title: "Read audio job progress", kind: "look", description: "Read a project-scoped durable job, progress, error, and artifact/report ids. Works after the tab closes. An interrupted job can be explicitly retried.", inputSchema: obj({ jobId: str("Audio job id.") }, ["jobId"]) }),
+  tool({ name: "cancel_audio_job", title: "Cancel an audio job", kind: "action", description: "Request cancellation of an analysis/render job. Poll until cancelled; running work releases the engine before finishing cancellation.", inputSchema: obj({ jobId: str("Audio job id.") }, ["jobId"]) }),
+  tool({ name: "retry_audio_job", title: "Retry an audio job", kind: "action", description: "Retry a failed or interrupted job with the same immutable inputs, within its attempt limit.", inputSchema: obj({ jobId: str("Audio job id.") }, ["jobId"]) }),
+  tool({ name: "get_audio_report", title: "Read audio measurements", kind: "look", description: "Get a validated evidence report for this project, with inspected spans, methods/versions and limitations. It describes the artifact/snapshot, not later song edits.", inputSchema: obj({ reportId: str("Evidence id from a completed analysis job.") }, ["reportId"]) }),
   tool({
     name: "get_song",
     title: "Read the song",

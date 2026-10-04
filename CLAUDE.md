@@ -740,7 +740,7 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).
 - **Audio intelligence** (`docs/audio-intelligence/`: the plan is `audio-engineering-harness.md`, its slices
-  `implementation-backlog.md`): giving the assistant truthful ears and hands. **Slice A is built, the rest is
+  `implementation-backlog.md`): giving the assistant truthful ears and hands. **Slices A and B are built; C onwards are
   planned.** `shared/music/audio-intelligence/` holds the contracts, all plain JSON, immutable, identified by a
   hash of what's in them (`shared/music/hash.ts`; their ids are fixed values in `identity.test.ts`: changing what
   is hashed orphans every stored record, so it's a schema change): `MixSnapshot` (`snapshot.ts`: the song's parts
@@ -757,6 +757,13 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   gap or `unverified` is never filled with a guess (a plugin's version isn't recorded by the engine today, so
   a snapshot with outside plugins is `partial`; `docs/audio-intelligence/engine-render-limits.md` lists what a
   render can and can't promise: it starts cold, takes the device, and uses the live plugin instances).
+  Slice B (`render-and-measure.md`) adds `AudioIntelligence` (`server/music/audio-intelligence/service.ts`):
+  project-scoped source copies, artifacts, reports and durable jobs under `data/audio-intelligence/`. Capture uses
+  the chat's live tab; render/analyse/status/cancel/retry/report/registration dispatch on the server via the
+  platform's optional `AssistantOptions.serverTool` callback (wired in `app.ts`), so closed tabs don't lose jobs.
+  Running jobs recover as interrupted; retry is explicit and bounded. Built-in-only song-mode renders share the
+  engine's export queue and use a trusted resolver for immutable source copies. Measurements (`measure.ts`)
+  inspect only passage frames, keeping lead-in/tails intact; no LUFS/true peak/hosted hearing or musical opinions.
 - The assistant's tools: specs in `shared/music/tools.ts`, handlers in `src/suites/music/tools.ts`, and their
   edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested); the mixer's in
   `mixer/tool-edits.ts` (`findTrack`: by id, number, "master" or name; `describeMixer` is `get_mixer`). Channels

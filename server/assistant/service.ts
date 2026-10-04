@@ -108,6 +108,8 @@ interface SavedChat {
 }
 
 export interface AssistantOptions {
+  /** Project-bound tools whose work is owned by the server, independent of a tab. */
+  serverTool?: (suite: SuiteId, projectId: string, name: string, input: Record<string, unknown>) => Promise<ToolResult | null>;
   /** The commands that run each provider's CLI (default: found on this computer). */
   commands?: Partial<Record<AssistantProvider, string>>;
   /** Where the server is reached, for the MCP URL given to the agents. */
@@ -587,7 +589,8 @@ export class AssistantService {
     const chatId = query.chat && isValidId(query.chat) ? query.chat : null;
     const chat = chatId ? await this.chat(chatId) : null;
     const tab = this.bridge.tabFor(chatId, chat?.tabId);
-    if (!tab) {
+    const serverResult = chat && this.opts.serverTool ? await this.opts.serverTool(suite, chat.projectId, bareToolName(call.name), call.input).catch(err => errorResult(errorMessage(err))) : null;
+    if (!tab && !serverResult) {
       return errorResult(
         chatId
           ? "The editor isn't open in the browser any more, so its tools can't run. Ask the user to open it again."
@@ -598,7 +601,7 @@ export class AssistantService {
     const onProgress = chat && partId ? (fraction: number | null, label?: string) => this.emit(chat, { type: "tool_progress", id: partId, fraction, ...(label && { label }) }) : undefined;
     let result: ToolResult;
     try {
-      result = await this.bridge.call(tab, bareToolName(call.name), call.input, {
+      result = serverResult ?? await this.bridge.call(tab!, bareToolName(call.name), call.input, {
         timeoutMs: (spec.timeout ?? DEFAULT_TIMEOUT_S) * 1000,
         chat: chatId,
         ...(chat?.turn && { turn: chat.turn.messageId }),

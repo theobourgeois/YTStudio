@@ -1,3 +1,4 @@
+import { request } from "@/lib/api";
 /**
  * The music suite's tools (`shared/music/tools.ts`), run in the tab. `MusicToolName` makes
  * TypeScript insist every tool has a handler here. Edits are the pure functions of `tool-edits.ts`,
@@ -171,7 +172,25 @@ async function findInstrument(ref: unknown) {
   return plugin;
 }
 
+const audioTool = (name: string) => async (input: Input, ctx: ToolRunContext): Promise<ToolResult> => {
+  const target = await targetOf(ctx);
+  const result = await request(`/api/music/audio/${encodeURIComponent(target.projectId)}/tools/${name}`, { method: "POST", body: JSON.stringify(input) });
+  return textResult(JSON.stringify(result));
+};
+
 const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promise<ToolResult>> = {
+  async capture_audio_snapshot(_input, ctx) {
+    const target = await targetOf(ctx);
+    const bundle = await request<{ snapshot: unknown }>(`/api/music/audio/${encodeURIComponent(target.projectId)}/capture`, { method: "POST", body: JSON.stringify({ song: target.song, live: target.open }) });
+    return textResult(JSON.stringify(bundle.snapshot));
+  },
+  render_audio_passage: audioTool("render_audio_passage"),
+  register_audio_artifact: audioTool("register_audio_artifact"),
+  analyse_audio_artifact: audioTool("analyse_audio_artifact"),
+  get_audio_job: audioTool("get_audio_job"),
+  cancel_audio_job: audioTool("cancel_audio_job"),
+  retry_audio_job: audioTool("retry_audio_job"),
+  get_audio_report: audioTool("get_audio_report"),
   async get_song(_input, ctx) {
     const target = await targetOf(ctx);
     return textResult(describeSong(target.song, target.assets, target.patternId));

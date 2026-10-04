@@ -45,6 +45,12 @@ Depends on A. Deliverables:
 
 Acceptance: the assistant can capture an existing song, render a passage, obtain a report, and cancel safely. Known-signal fixtures validate measurements. Closing a tab does not silently discard an already running server-owned job.
 
+### Slice B status: built (2026-10-04)
+
+See [render-and-measure.md](render-and-measure.md) for tools, storage, recovery, measurements and verified limits. Implementation: `server/music/audio-intelligence/service.ts`, `measure.ts`, `routes.ts`; MCP server dispatch in `AssistantService`, with live capture through the music tab. Engine exports share a serialized queue.
+
+The capture → render → analysis → report path is implemented and tested, including closed-tab operation, native-engine source preservation, cancellation, restart recovery and project isolation. Initial render support is built-in processors only. Local methods cover level, dynamics, broad filter energy, activity timing and stereo; LUFS, true peak, musical judgement and hosted perception are explicitly unavailable. Audio stays private/local by default.
+
 ## Slice C: add hosted perception
 
 Depends on artifact contracts from A/B. Deliverables:
