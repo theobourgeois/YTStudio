@@ -142,6 +142,9 @@ describe("user routing conventions", () => {
     expect(explicitMixRole(evidence("HH_7 Minute.wav"))).toBe("drums");
     expect(explicitMixRole(evidence(null, "ARP - Acid101"))).toBe("instr");
     expect(explicitMixRole(evidence("FX 199X.wav"))).toBe(null);
+    expect(explicitMixRole(evidence("FX - 199X [Ginseng].wav"))).toBe("drums");
+    expect(explicitMixRole(evidence("FX_199X_[Ginseng].wav"))).toBe("drums");
+    expect(explicitMixRole(evidence("FX - Risers [Ginseng].wav"))).toBe(null);
   });
   it("treats Serum choir and vocal synthesis presets as instruments", () => {
     expect(explicitMixRole(evidence(null, "VOX - String Vocal Follower", "Choir"))).toBe("instr");

@@ -17,6 +17,8 @@ export const isMixRole = (role: unknown): role is MixRole => MIX_ROLES.includes(
 export function explicitMixRole(evidence: ChannelEvidence): MixRole | null {
   const name = (evidence.filename ?? evidence.preset ?? "").replace(/_/g, " ");
   if (/\b808\b/i.test(name) || /^808$/i.test(evidence.category ?? "")) return "bass";
+  // User-confirmed percussion sample; its FX prefix alone is ambiguous.
+  if (evidence.filename && /^FX[\s-]+199X\s*\[Ginseng\]\.[^.]+$/i.test(name.trim())) return "drums";
   const category = evidence.category?.trim().toLowerCase();
   if (category === "bass" || category === "sub") return "bass";
   if (["lead", "pad", "synth", "arpeggio", "arp", "keys", "chord", "pluck", "choir", "instrument", "keyboard", "piano", "e piano", "organ", "bell", "brass", "guitar", "strings", "string", "orchestral", "mallet", "woodwind", "hoover"].includes(category ?? "")) return "instr";

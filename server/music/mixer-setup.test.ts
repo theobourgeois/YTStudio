@@ -19,6 +19,10 @@ const reply = (choice: string, confidence: number, probabilities: Record<string,
 const mockedFetch = (data: unknown) => vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(data)));
 
 describe("Jev mixer classifier", () => {
+  it("uses the confirmed Ginseng percussion role despite an ambiguous FX prefix", async () => {
+    const result = await classifyMixerChannels([evidence("FX - 199X [Ginseng].wav")], "test", mockedFetch(reply("unknown", 0.9, { unknown: 0.9, instr: 0.1, bass: 0, drums: 0 })));
+    expect(result.channels[0]).toMatchObject({ role: "drums", source: "rule" });
+  });
   it("routes Serum choir to instr even when Jev leaves its vocal name unresolved", async () => {
     const choir: ChannelEvidence = { ...evidence(""), kind: "plugin", filename: null, preset: "VOX - String Vocal Follower", category: "Choir" };
     const result = await classifyMixerChannels([choir], "test", mockedFetch(reply("unknown", 0.9, { unknown: 0.9, instr: 0.1, bass: 0, drums: 0 })));
