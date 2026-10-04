@@ -10,6 +10,21 @@ const rack = () => addChannels(createMusicProject("Setup"), [{ id: "chan_synth",
 const assignments = () => new Map([ ["chan_synth", "instr"], ["chan_808", "bass"], ["chan_kick", "drums"] ] as const);
 
 describe("Fill inserts routing", () => {
+  it("fills disconnected template inserts instead of adding a second rack, and removes the leftovers", () => {
+    let song = addMixerTracks(createMusicProject("Disconnected template"), null, 9, Array.from({ length: 9 }, (_, i) => `insert_${17 + i}`));
+    song = { ...song, mixer: { ...song.mixer, tracks: song.mixer.tracks.map((t, i) => i > 0 && i < 16 ? { ...t, sends: [] } : t) } };
+    song = updateMixerTrack(song, "insert_16", { name: "rec", dock: "left" });
+    for (let i = 17; i <= 20; i++) song = updateMixerTrack(song, `insert_${i}`, { color: "#4e9d61" });
+    const channels = Array.from({ length: 14 }, (_, i) => ({ id: `chan_sound_${i}`, name: `Sound ${i}`, sampleId: null }));
+    song = addChannels(song, channels);
+    const roles = new Map(channels.map((c) => [c.id, "drums" as const]));
+    const next = fillMixerInserts(song, roles);
+    expect(next.channels.map((c) => c.mixerTrack)).toEqual(Array.from({ length: 14 }, (_, i) => `insert_${i + 1}`));
+    expect(next.mixer.tracks).toHaveLength(25);
+    expect(next.mixer.tracks.some((t) => t.id === "insert_15")).toBe(false);
+    expect(next.mixer.tracks.filter((t) => setupTrackFree(next, t))).toEqual([]);
+    expect(fillMixerInserts(next, roles)).toBe(next);
+  });
   it("creates the screenshot layout, one insert per channel, and one output path to Master", () => {
     const song = fillMixerInserts(rack(), assignments());
     expect(song.mixer.tracks.slice(-5).map((t) => [t.name, t.dock])).toEqual([ ["instr", "right"], ["bass", "right"], ["drums", "right"], ["vocals", "right"], ["mixbus", "right"] ]);

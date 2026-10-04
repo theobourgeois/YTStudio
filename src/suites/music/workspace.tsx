@@ -36,6 +36,7 @@ import { useSongExport } from "./export/store";
 import * as mixer from "./mixer/actions";
 import { type MixerKeyAction, resolveMixerKey } from "./mixer/keys";
 import { MixerWindow } from "./mixer/mixer-window";
+import { FillInsertsWindow } from "./mixer/fill-inserts";
 import { useMixerView } from "./mixer/view";
 import { type WindowId, useMusicUi, useMusicWindows } from "./ui";
 import { MusicDesktop } from "./window";
@@ -98,6 +99,7 @@ function Windows() {
   const pianoOpen = useMusicUi((s) => s.pianoOpen);
   const playlistOpen = useMusicUi((s) => s.playlistOpen);
   const mixerOpen = useMusicUi((s) => s.mixerOpen);
+  const fillInsertsOpen = useMusicUi((s) => s.fillInsertsOpen);
   const transposeOpen = useMusicUi((s) => s.transposeOpen);
   const exportOpen = useMusicUi((s) => s.exportOpen);
   const pluginManagerOpen = useMusicUi((s) => s.pluginManager !== null);
@@ -135,6 +137,7 @@ function Windows() {
       {rackOpen && <ChannelRack />}
       {pianoOpen && <PianoRoll />}
       {mixerOpen && <MixerWindow />}
+      {fillInsertsOpen && <FillInsertsWindow />}
       {transposeOpen && <TransposeWindow />}
       {exportOpen && <ExportWindow />}
       {pluginManagerOpen && <PluginManager />}

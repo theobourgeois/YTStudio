@@ -25,7 +25,7 @@ const NOT_EMPTY_SPACE = "[data-grid-item], button, [role=button], input, a, [dat
  * content. With cards selected, Delete/Backspace (or ⌘⌫) calls `onDelete`,
  * Escape clears and ⌘A selects every card shown.
  */
-export function useGridSelection(order: readonly string[], { onDelete }: { onDelete: (ids: string[]) => void }) {
+export function useGridSelection(order: readonly string[], { onDelete, dragItems = false }: { onDelete: (ids: string[]) => void; dragItems?: boolean }) {
   const [raw, setRaw] = useState(NO_SELECTION);
   const [box, setBox] = useState<Box | null>(null);
   const sel = useMemo(() => pruneSelection(raw, order), [raw, order]);
@@ -57,6 +57,7 @@ export function useGridSelection(order: readonly string[], { onDelete }: { onDel
       return actionTargets(sel, order, id);
     },
     clear: () => setRaw(NO_SELECTION),
+    select: (ids: string[]) => setRaw({ ids, anchor: ids[0] ?? null }),
 
     containerProps: {
       ref: containerRef,
@@ -67,7 +68,7 @@ export function useGridSelection(order: readonly string[], { onDelete }: { onDel
         const additive = e.metaKey || e.ctrlKey || e.shiftKey;
         const blocker = target.closest<HTMLElement>(NOT_EMPTY_SPACE);
         // The card's own buttons are nearer than the card, so they still block.
-        const card = additive && blocker?.dataset.gridItem;
+        const card = (additive || dragItems) && blocker?.dataset.gridItem;
         if (blocker && !card) return;
         const content = contentRef.current;
         const container = containerRef.current;

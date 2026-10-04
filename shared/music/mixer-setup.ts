@@ -33,7 +33,9 @@ export function explicitMixRole(evidence: ChannelEvidence): MixRole | null {
 /** Only genuinely untouched tracks may be claimed for the template. */
 export function setupTrackFree(song: MusicProject, track: MixerTrack): boolean {
   const defaults = createMixerTrack(track.id);
-  return track.id !== MASTER_TRACK_ID && JSON.stringify(track) === JSON.stringify(defaults)
+  // Templates may leave spare inserts disconnected instead of sending to Master.
+  const comparable = track.sends.length ? track : { ...track, sends: defaults.sends };
+  return track.id !== MASTER_TRACK_ID && JSON.stringify(comparable) === JSON.stringify(defaults)
     && !song.channels.some((c) => c.mixerTrack === track.id)
     && !song.mixer.tracks.some((t) => t.sends.some((s) => s.to === track.id) || t.effects.some((e) => e?.sidechain?.track === track.id))
     && !song.playlist.tracks.some((t) => t.mixerTrack === track.id)
