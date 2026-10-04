@@ -11,10 +11,10 @@ import type { MediaAsset } from "../../shared/types.ts";
 
 const MODEL = "jev-1.13.0";
 const criteria = {
-  instr: "Melodic synth, lead, chord, pad, keys, pluck, arpeggio or other instrument, excluding bass. SY/ARP/LD/PD are instrument prefixes.",
+  instr: "Melodic synth, lead, chord, pad, keys, pluck, arpeggio, choir, strings, brass, bell, guitar or other instrument, excluding bass. Serum choir and vocal/VOX synthesis presets are instruments, even when their names say vocal. SY/ARP/LD/PD/VOX are instrument prefixes.",
   bass: "Bass, sub bass, or ANY 808-labeled sound. The user's routing convention is ALL 808 sounds to bass, including 808 kicks and BD presets. BA/BS are bass prefixes.",
   drums: "Kick, snare, HH/hi-hat, OH/open hat, clap, PERC/percussion and drums, excluding any 808-labeled sound.",
-  unknown: "Generic name, insufficient/conflicting evidence, vocal, or FX sound whose role cannot be established. Do not guess from plugin identity alone.",
+  unknown: "Generic name, insufficient/conflicting evidence, recorded vocal sample, or FX sound whose role cannot be established. Serum choir/vocal presets belong to instr. Do not guess from plugin identity alone.",
 };
 
 /** Read Serum's own local catalog. Duplicate names with conflicting categories are unresolved. */

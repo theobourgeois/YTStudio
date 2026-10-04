@@ -19,10 +19,11 @@ export function explicitMixRole(evidence: ChannelEvidence): MixRole | null {
   if (/\b808\b/i.test(name) || /^808$/i.test(evidence.category ?? "")) return "bass";
   const category = evidence.category?.trim().toLowerCase();
   if (category === "bass" || category === "sub") return "bass";
-  if (["lead", "pad", "synth", "arpeggio", "arp", "keys", "chord", "pluck"].includes(category ?? "")) return "instr";
+  if (["lead", "pad", "synth", "arpeggio", "arp", "keys", "chord", "pluck", "choir", "instrument", "keyboard", "piano", "e piano", "organ", "bell", "brass", "guitar", "strings", "string", "orchestral", "mallet", "woodwind", "hoover"].includes(category ?? "")) return "instr";
+  if (!evidence.filename && ["vocal", "vocals", "voice"].includes(category ?? "")) return "instr";
   if (["drums", "drum", "percussion"].includes(category ?? "")) return "drums";
   if (!evidence.filename && /^(BA|BS)\b/i.test(name)) return "bass";
-  if (!evidence.filename && /^(SY|ARP|LD|PD|PL|KEY)\b/i.test(name)) return "instr";
+  if (!evidence.filename && /^(SY|ARP|LD|PD|PL|KEY|VOX)\b/i.test(name)) return "instr";
   if (evidence.filename && /^(KICK|SNARE|HH|OH|CLAP|PERC)\b/i.test(name.replace(/_/g, " "))) return "drums";
   return null;
 }
