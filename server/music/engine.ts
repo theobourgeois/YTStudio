@@ -287,6 +287,7 @@ export class AudioEngine {
     const states = path.join(this.projectDir(projectId), "plugins");
     const song = {
       ...compiled,
+      states,
       resampling: isResampling(body.resampling) ? body.resampling : "hermite",
       channels: compiled.channels.map((c) => ({
         ...c,
