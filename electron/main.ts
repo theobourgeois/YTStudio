@@ -7,13 +7,14 @@
  */
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, shell, systemPreferences } from "electron";
+import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, screen, shell, systemPreferences } from "electron";
 import type { RunningServer } from "./server.ts";
 import { loadShellPath } from "./shell-path.ts";
 import { loadWindowState, trackWindowState } from "./window-state.ts";
 import { desktopIcon, initializeAppIcon } from "./app-icon.ts";
 import { FloatingGroup, type FloatingState } from "./floating.ts";
 import { POPUP_WINDOW } from "../shared/panels.ts";
+import { HoverRelay } from "./hover.ts";
 import { Panels, answerPanelRequests, isPanelName, panelOptions, popupOptions } from "./panels.ts";
 import { Restacker, WindowStack } from "./stacking.ts";
 
@@ -27,6 +28,8 @@ const FLUSH_TIMEOUT_MS = 4000;
 const isMac = process.platform === "darwin";
 /** How long after the app comes to the front its windows are put back in order (the system reorders them as it activates). */
 const RESTACK_DELAY_MS = 150;
+/** How often the pointer's place is read to tell it to the windows without the focus (about a frame). */
+const HOVER_INTERVAL_MS = 16;
 
 app.setName(APP_NAME);
 // A separate profile (window state, page storage, the single-instance lock), for tests.
@@ -155,6 +158,7 @@ async function start() {
   });
   app.on("browser-window-focus", () => group?.setAppFocused(BrowserWindow.getFocusedWindow() !== null));
   app.on("browser-window-blur", () => group?.setAppFocused(BrowserWindow.getFocusedWindow() !== null));
+  relayHover();
   answerPanelRequests(() => (mainWindow && panels ? { main: mainWindow, panels } : null));
   answerSaveDialogs();
   answerProjectDialogs();
@@ -226,6 +230,23 @@ function createWindow() {
   openPanels(win, winPanels);
   followByPluginWindows(win);
   void win.loadURL(appUrl);
+}
+
+/**
+ * macOS gives a window without the keyboard focus no mouse-moved events, so the toolbar of the main window
+ * shows no hover while a panel is in use (and the other way round): the pointer is told to the window under it
+ * (hover.ts).
+ */
+function relayHover() {
+  const relay = new HoverRelay<BrowserWindow>(
+    () => {
+      const win = mainWindow;
+      if (!win || win.isDestroyed() || !win.isVisible() || win.isMinimized()) return [];
+      return [win, ...(panels?.shownWindows() ?? [])];
+    },
+    () => floatingState.floating,
+  );
+  setInterval(() => relay.update(screen.getCursorScreenPoint()), HOVER_INTERVAL_MS);
 }
 
 /**
