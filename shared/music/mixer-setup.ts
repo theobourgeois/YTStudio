@@ -46,9 +46,10 @@ export function fillMixerInserts(song: MusicProject, assignments: ReadonlyMap<st
     if (count > MAX_INSERTS + 1) throw new Error("The mixer has no room for more inserts.");
     if (next.mixer.tracks.length < count) next = { ...next, mixer: { ...next.mixer, tracks: [...next.mixer.tracks, ...Array.from({ length: count - next.mixer.tracks.length }, () => createMixerTrack())] } };
   };
-  ensureCount(26);
+  const busRoles: SetupBus[] = ["instr", "bass", "drums", "vocals", "mixbus"];
+  if (busRoles.some((role) => !next.mixer.tracks.some((t) => !t.setupChannel && (t.setupRole === role || t.name?.toLowerCase() === role && t.dock === "right")))) ensureCount(26);
   const busIds = new Map<SetupBus, string>();
-  (["instr", "bass", "drums", "vocals", "mixbus"] as SetupBus[]).forEach((role, i) => {
+  busRoles.forEach((role, i) => {
     const existing = next.mixer.tracks.filter((t) => t.setupRole === role && !t.setupChannel);
     if (existing.length > 1) throw new Error(`More than one managed ${role} bus exists.`);
     const template = next.mixer.tracks.filter((t) => t.name?.toLowerCase() === role && t.dock === "right" && !t.setupChannel && !t.setupRole && !t.input && !next.channels.some((c) => c.mixerTrack === t.id));
@@ -103,7 +104,9 @@ export function fillMixerInserts(song: MusicProject, assignments: ReadonlyMap<st
   const owned = next.mixer.tracks.filter((t) => t.setupChannel && rackOrder.has(t.setupChannel) && isMixRole(t.setupRole));
   owned.sort((a, b) => MIX_ROLES.indexOf(a.setupRole as MixRole) - MIX_ROLES.indexOf(b.setupRole as MixRole) || rackOrder.get(a.setupChannel!)! - rackOrder.get(b.setupChannel!)!);
   const ownedIds = new Set(owned.map((t) => t.id));
-  const remaining = next.mixer.tracks.filter((t) => !ownedIds.has(t.id));
+  // Discard untouched spare inserts instead of padding the filled rack. Keep the
+  // recording boundary and every track with settings, routing, or references.
+  const remaining = next.mixer.tracks.filter((t) => !ownedIds.has(t.id) && (t.id === boundaryId || !setupTrackFree(next, t)));
   next = { ...next, mixer: { ...next.mixer, tracks: [remaining[0], ...owned, ...remaining.slice(1)] } };
   // Repeated runs produce no history entry if nothing changed.
   return JSON.stringify(next) === JSON.stringify(song) ? song : next;

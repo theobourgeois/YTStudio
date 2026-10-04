@@ -12,28 +12,30 @@ const assignments = () => new Map([ ["chan_synth", "instr"], ["chan_808", "bass"
 describe("Fill inserts routing", () => {
   it("creates the screenshot layout, one insert per channel, and one output path to Master", () => {
     const song = fillMixerInserts(rack(), assignments());
-    expect(song.mixer.tracks.slice(21, 26).map((t) => [t.name, t.dock])).toEqual([ ["instr", "right"], ["bass", "right"], ["drums", "right"], ["vocals", "right"], ["mixbus", "right"] ]);
+    expect(song.mixer.tracks.slice(-5).map((t) => [t.name, t.dock])).toEqual([ ["instr", "right"], ["bass", "right"], ["drums", "right"], ["vocals", "right"], ["mixbus", "right"] ]);
     for (const channel of song.channels) {
       const role = assignments().get(channel.id as "chan_synth")!;
       const source = song.mixer.tracks.find((t) => t.id === channel.mixerTrack)!;
       const bus = song.mixer.tracks.find((t) => t.setupRole === role && !t.setupChannel)!;
       expect(source.color).toBe(ROLE_COLORS[role]);
       expect(source.sends).toEqual([{ to: bus.id, level: 1 }]);
-      expect(bus.sends).toEqual([{ to: song.mixer.tracks[25].id, level: 1 }]);
+      expect(bus.sends).toEqual([{ to: song.mixer.tracks.at(-1)!.id, level: 1 }]);
     }
-    expect(song.mixer.tracks[25].sends).toEqual([{ to: MASTER_TRACK_ID, level: 1 }]);
-    expect(setupTrackFree(song, song.mixer.tracks[16])).toBe(true);
+    expect(song.mixer.tracks.at(-1)!.sends).toEqual([{ to: MASTER_TRACK_ID, level: 1 }]);
+    expect(song.mixer.tracks).toHaveLength(10);
+    expect(song.mixer.tracks[4].id).toBe("insert_16");
+    expect(song.mixer.tracks.filter((t) => t.id !== "insert_16" && setupTrackFree(song, t))).toEqual([]);
     expect(() => compileSong(song, null)).not.toThrow();
   });
   it("survives serialization and reruns without duplicates or new history entries", () => {
     const first = fillMixerInserts(rack(), assignments());
     const normalized = normalizeMusicProject(JSON.parse(JSON.stringify(first)));
-    expect(normalized.mixer.tracks[21].setupRole).toBe("instr");
+    expect(normalized.mixer.tracks.at(-5)!.setupRole).toBe("instr");
     expect(fillMixerInserts(first, assignments())).toBe(first);
     expect(fillMixerInserts(normalized, assignments())).toBe(normalized);
     const changed = fillMixerInserts(first, new Map([["chan_synth", "bass"]]));
     expect(changed.channels[0].mixerTrack).toBe(first.channels[0].mixerTrack);
-    expect(changed.mixer.tracks.find((t) => t.setupChannel === "chan_synth")?.sends[0].to).toBe(first.mixer.tracks[22].id);
+    expect(changed.mixer.tracks.find((t) => t.setupChannel === "chan_synth")?.sends[0].to).toBe(first.mixer.tracks.at(-4)!.id);
   });
   it("grows past the free inserts, then adds new channels in role/rack order without duplicates", () => {
     const channels = Array.from({ length: 30 }, (_, i) => ({ id: `chan_${i}`, name: `Sound ${i}`, sampleId: null }));
@@ -53,8 +55,7 @@ describe("Fill inserts routing", () => {
     expect(fillMixerInserts(next, new Map([["chan_new_lead", "instr"]]))).toBe(next);
     const recordingIndex = next.mixer.tracks.findIndex((t) => t.id === "insert_16");
     expect(next.mixer.tracks.slice(1, recordingIndex).filter((t) => t.setupChannel)).toHaveLength(31);
-    const firstVocal = first.mixer.tracks[first.mixer.tracks.findIndex((t) => t.id === "insert_16") + 1];
-    expect(next.mixer.tracks.findIndex((t) => t.id === firstVocal.id)).toBeGreaterThan(recordingIndex);
+    expect(next.mixer.tracks.slice(1, recordingIndex)).toHaveLength(31);
   });
   it("names Serum inserts after presets without renaming the channel rack", () => {
     const names = new Map([["chan_synth", "ARP - Bell Aperium"]]);
@@ -62,6 +63,22 @@ describe("Fill inserts routing", () => {
     expect(next.mixer.tracks.find((t) => t.setupChannel === "chan_synth")?.name).toBe("ARP - Bell Aperium");
     expect(next.channels[0].name).toBe("Lead");
     expect(fillMixerInserts(next, assignments(), names)).toBe(next);
+  });
+  it("removes spare inserts on reruns and adds only one insert for a new channel", () => {
+    let song = rack();
+    song = updateMixerTrack(song, "insert_14", { pan: 0.2 });
+    song = updateMixerTrack(song, "insert_16", { name: "rec", dock: "left" });
+    const first = fillMixerInserts(song, assignments());
+    expect(first.mixer.tracks.map((t) => t.id)).toContain("insert_14");
+    expect(first.mixer.tracks.filter((t) => setupTrackFree(first, t))).toEqual([]);
+    const padded = addMixerTracks(first, null, 4);
+    expect(fillMixerInserts(padded, assignments())).toEqual(first);
+    const added = addChannels(first, [{ id: "chan_new", name: "New lead", sampleId: null }]);
+    const next = fillMixerInserts(added, new Map([["chan_new", "instr"]]));
+    expect(next.mixer.tracks).toHaveLength(first.mixer.tracks.length + 1);
+    expect(next.mixer.tracks.slice(1, 5).map((t) => t.setupChannel)).toEqual(["chan_synth", "chan_new", "chan_808", "chan_kick"]);
+    expect(next.mixer.tracks.filter((t) => setupTrackFree(next, t))).toEqual([]);
+    expect(fillMixerInserts(next, assignments())).toBe(next);
   });
   it("reuses the existing template and grows before recording/vocals while preserving their controls and connections", () => {
     let song = addMixerTracks(createMusicProject("Existing template"), null, 9, Array.from({ length: 9 }, (_, i) => `insert_${17 + i}`));
