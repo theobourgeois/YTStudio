@@ -25,6 +25,8 @@ export default defineConfig({
       command: `rm -rf ${DATA_DIR} && tsx scripts/make-samples.ts && tsx server/index.ts`,
       // Stand-ins for the transcription engine, Claude Code and Codex: the tests don't need whisper.cpp, an API key or a login.
       env: {
+        // Never spend a real provider key loaded from local .env in browser tests.
+        GEMINI_API_KEY: "e2e-not-a-real-key",
         EDITOR_DATA_DIR: DATA_DIR,
         EDITOR_SERVER_PORT: String(SERVER_PORT),
         EDITOR_TRANSCRIPTION_ENGINE: "fake",

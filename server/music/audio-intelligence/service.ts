@@ -1,9 +1,14 @@
+import { hashJson } from "../../../shared/music/hash.ts";
+import { parseHearingRequest, type HearingCapabilities, type HearingReceipt, type HearingRequest, type HearingSettings } from "../../../shared/music/audio-intelligence/hearing.ts";
+import { GeminiPerception, PerceptionError, type PerceptionAdapter } from "./perception.ts";
+import { FFMPEG } from "../../config.ts";
+import { run } from "../../process.ts";
 /** Server-owned, project-scoped audio jobs. Manifests survive tabs and process restarts. */
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createId } from "../../../shared/ids.ts";
-import { createArtifact, validateArtifact } from "../../../shared/music/audio-intelligence/artifact.ts";
-import { validateEvidence } from "../../../shared/music/audio-intelligence/evidence.ts";
+import { createArtifact, passageFrames, validateArtifact } from "../../../shared/music/audio-intelligence/artifact.ts";
+import { createEvidence, refOf, validateEvidence } from "../../../shared/music/audio-intelligence/evidence.ts";
 import { applyJobAction, createJob, idempotencyKey, recoverJobs, validateJob, type JobAction } from "../../../shared/music/audio-intelligence/job.ts";
 import { documentHashes, validateSnapshot, type SnapshotBundle } from "../../../shared/music/audio-intelligence/snapshot.ts";
 import { PRIVATE_USE, type AudioArtifact, type AudioJob, type EvidenceReport } from "../../../shared/music/audio-intelligence/types.ts";
@@ -20,7 +25,7 @@ import { hashStream } from "./files.ts";
 import { measureAudio } from "./measure.ts";
 import { captureSnapshot } from "./snapshot.ts";
 
-export const AUDIO_SERVER_TOOLS = ["render_audio_passage", "analyse_audio_artifact", "get_audio_job", "cancel_audio_job", "retry_audio_job", "get_audio_report", "register_audio_artifact"] as const;
+export const AUDIO_SERVER_TOOLS = ["render_audio_passage", "analyse_audio_artifact", "get_audio_job", "cancel_audio_job", "retry_audio_job", "get_audio_report", "register_audio_artifact", "hear_audio_artifact", "get_hearing_capabilities", "get_hearing_receipt"] as const;
 const checked = <T>(result: Validation<T>): T => { if (!result.ok) throw new HttpError(409, result.errors.join("; ")); return result.value; };
 const read = async (file: string): Promise<unknown> => {
   try { return JSON.parse(await fs.readFile(file, "utf8")); }
@@ -31,10 +36,13 @@ const read = async (file: string): Promise<unknown> => {
 };
 const safeId = (value: unknown): string => { if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(value)) throw new HttpError(400, "Invalid record id."); return value; };
 interface RenderPlan { snapshotId: string; startTick: number; endTick: number; leadInTicks: number; tailSeconds: number }
-type Plan = { kind: "render"; params: RenderPlan } | { kind: "analyse"; artifactId: string };
+interface HearingPlan { kind: "hear"; request: HearingRequest; providerIdentity: string; consentRevision: string; cacheEpoch: number }
+type Plan = HearingPlan | { kind: "render"; params: RenderPlan } | { kind: "analyse"; artifactId: string };
 interface StoredJob { job: AudioJob; plan: Plan }
 export interface AudioIntelligenceOptions {
   root: string;
+  perception?: PerceptionAdapter;
+  ffmpeg?: string;
   engine: Pick<AudioEngine, "devices" | "renderExport">;
   projectDir: (id: string) => string;
   samplePath: SamplePath;
@@ -47,7 +55,35 @@ export class AudioIntelligence {
   private readonly work = createLimiter(1);
   private readonly mutations = createLimiter(1);
   private stopped = false;
-  constructor(private readonly options: AudioIntelligenceOptions) {}
+  private readonly perception: PerceptionAdapter;
+  constructor(private readonly options: AudioIntelligenceOptions) {
+    this.perception = options.perception ?? new GeminiPerception({ apiKey: process.env.GEMINI_API_KEY, model: process.env.EDITOR_HEARING_MODEL });
+  }
+  capabilities(): HearingCapabilities { return this.perception.capabilities(); }
+  private providerIdentity() { const c = this.capabilities(); return hashJson({ provider: c.provider, model: c.model, adapterVersion: c.adapterVersion, destination: c.destination, configured: c.configured, verifiedTasks: [...c.verifiedTasks].sort() }); }
+  async hearingSettings(projectId: string): Promise<HearingSettings> {
+    const file = path.join(this.folder(projectId), "hearing-settings.json");
+    const value = await read(file).catch(error => { if (error instanceof HttpError && error.status === 404) return { enabled: false, revision: "disabled" }; throw error; });
+    if (!isObject(value) || typeof value.enabled !== "boolean" || typeof value.revision !== "string") throw new HttpError(409, "Invalid hearing settings.");
+    return { enabled: value.enabled, revision: value.revision };
+  }
+  /** User settings route only; deliberately absent from the assistant tool catalogue. */
+  async setHearingSettings(projectId: string, enabled: unknown) {
+    if (typeof enabled !== "boolean") throw new HttpError(400, "Hosted hearing permission must be a boolean.");
+    const value = { enabled, revision: createId("consent") };
+    const file = path.join(this.folder(projectId), "hearing-settings.json");
+    const cancellations = await this.mutations(async () => {
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await writeJson(file, value);
+      return !enabled ? [...this.jobs.values()].filter(s => s.job.projectId === projectId && s.plan.kind === "hear" && ["queued", "running"].includes(s.job.status)).map(s => s.job.id) : [];
+    });
+    for (const id of cancellations) await this.cancel(projectId, id).catch(() => {});
+    return value;
+  }
+  async hearingReceipt(projectId: string, id: unknown): Promise<HearingReceipt> {
+    this.get(projectId, id);
+    return await read(this.file(projectId, "hearing-receipts", id)) as HearingReceipt;
+  }
 
   private folder(projectId: string) {
     if (!isValidId(projectId) || !this.options.isMusicProject(projectId)) throw new HttpError(404, "No such music project.");
@@ -72,7 +108,7 @@ export class AudioIntelligence {
         if (job.projectId !== projectId || `${job.id}.json` !== file) throw new Error("Audio job scope mismatch.");
         const plan = this.parsePlan(stored.plan);
         const kind = plan.kind === "render" ? "render" : "analyse";
-        const inputs = plan.kind === "render" ? [plan.params.snapshotId] : [plan.artifactId];
+        const inputs = plan.kind === "render" ? [plan.params.snapshotId] : [plan.kind === "hear" ? plan.request.artifactId : plan.artifactId];
         if (job.kind !== kind || job.idempotencyKey !== idempotencyKey(kind, projectId, inputs, plan) || JSON.stringify(job.inputs) !== JSON.stringify(inputs)) throw new Error("Audio job request does not match its identity.");
         const recovered = recoverJobs([job], Date.now())[0] ?? job;
         this.jobs.set(job.id, { job: recovered, plan });
@@ -167,6 +203,10 @@ export class AudioIntelligence {
   private parsePlan(input: unknown): Plan {
     if (!isObject(input)) throw new HttpError(400, "Invalid audio job plan.");
     if (input.kind === "render") return { kind: "render", params: this.parseRender(input.params) };
+    if (input.kind === "hear") {
+      if (typeof input.providerIdentity !== "string" || !/^[a-f0-9]{64}$/.test(input.providerIdentity) || typeof input.consentRevision !== "string" || typeof input.cacheEpoch !== "number" || !Number.isSafeInteger(input.cacheEpoch) || input.cacheEpoch < 0) throw new HttpError(400, "Invalid hearing job identity.");
+      return { kind: "hear", request: parseHearingRequest(input.request), providerIdentity: input.providerIdentity, consentRevision: input.consentRevision, cacheEpoch: input.cacheEpoch };
+    }
     if (input.kind === "analyse") return { kind: "analyse", artifactId: safeId(input.artifactId) };
     throw new HttpError(400, "Unknown audio operation.");
   }
@@ -176,7 +216,7 @@ export class AudioIntelligence {
       if (this.stopped) throw new HttpError(503, "Audio jobs are shutting down.");
       this.folder(projectId);
       plan = this.parsePlan(plan);
-      const inputs = plan.kind === "render" ? [plan.params.snapshotId] : [plan.artifactId];
+      const inputs = plan.kind === "render" ? [plan.params.snapshotId] : [plan.kind === "hear" ? plan.request.artifactId : plan.artifactId];
       if (plan.kind === "render") {
         const bundle = await this.snapshot(projectId, plan.params.snapshotId);
         if (bundle.snapshot.plugins.some(p => p.storage !== "document")) throw new HttpError(409, "Analysis renders currently support built-in processors only. Outside plugin state restoration isn't verified.");
@@ -184,10 +224,19 @@ export class AudioIntelligence {
         const song = { ...createMusicProject(), ...bundle.content };
         const from = Math.max(0, plan.params.startTick - plan.params.leadInTicks);
         if (songSeconds(song, plan.params.endTick) - songSeconds(song, from) + plan.params.tailSeconds > 120) throw new HttpError(400, "Analysis renders are limited to 120 seconds including lead-in and tail.");
-      } else await this.artifact(projectId, plan.artifactId);
-      const job = createJob({ id: createId("audjob"), kind: plan.kind === "render" ? "render" : "analyse", projectId, inputs, params: plan, stages: plan.kind === "render" ? ["render", "register"] : ["measure"], now: Date.now() });
-      const prior = [...this.jobs.values()].find(s => s.job.projectId === projectId && s.job.idempotencyKey === job.idempotencyKey && s.job.status !== "cancelled");
-      if (prior) return structuredClone(prior.job);
+      } else {
+        await this.artifact(projectId, plan.kind === "hear" ? plan.request.artifactId : plan.artifactId);
+        if (plan.kind === "hear") {
+          const permission = await this.hearingSettings(projectId);
+          if (!permission.enabled || permission.revision !== plan.consentRevision) throw new HttpError(403, "Enable hosted audio analysis for this song in Music settings before sending audio.");
+        }
+      }
+      const job = createJob({ id: createId("audjob"), kind: plan.kind === "render" ? "render" : "analyse", projectId, inputs, params: plan, stages: plan.kind === "render" ? ["render", "register"] : plan.kind === "hear" ? ["measure", "prepare", "hear"] : ["measure"], now: Date.now() });
+      const prior = [...this.jobs.values()].reverse().find(s => s.job.projectId === projectId && s.job.idempotencyKey === job.idempotencyKey && s.job.status !== "cancelled");
+      if (prior) {
+        const receipt = plan.kind === "hear" && prior.job.status === "succeeded" ? await this.hearingReceipt(projectId, prior.job.id) : null;
+        if (!receipt?.unavailableReason) return structuredClone(prior.job);
+      }
       this.jobs.set(job.id, { job, plan });
       await this.persist(job.id);
       this.schedule(job.id);
@@ -279,6 +328,8 @@ export class AudioIntelligence {
         await this.storeArtifact(projectId, artifact, mix.file);
         signal.throwIfAborted();
         await this.change(id, { type: "succeed", result: { artifactIds: [artifact.id], snapshotIds: [bundle.snapshot.id], evidenceIds: [] } });
+      } else if (stored.plan.kind === "hear") {
+        await this.executeHearing(stored.job, stored.plan, temp, signal);
       } else {
         const artifact = await this.artifact(projectId, stored.plan.artifactId);
         const file = this.audioFile(projectId, artifact.id);
@@ -293,8 +344,110 @@ export class AudioIntelligence {
       }
     } catch (error) {
       const job = this.jobs.get(id)!.job;
-      if (job.status === "running") await this.change(id, job.cancelRequested ? { type: "cancelled" } : this.stopped ? { type: "interrupt" } : { type: "fail", error: { message: error instanceof Error ? error.message : String(error), retryable: error instanceof HttpError && error.status >= 500 } });
+      if (job.status === "running") await this.change(id, job.cancelRequested ? { type: "cancelled" } : this.stopped ? { type: "interrupt" } : { type: "fail", error: { message: error instanceof Error ? error.message : String(error), retryable: error instanceof PerceptionError ? error.retryable : error instanceof HttpError && error.status >= 500 } });
     } finally { this.controllers.delete(id); await fs.rm(temp, { recursive: true, force: true }); }
+  }
+
+  private async executeHearing(job: AudioJob, plan: HearingPlan, temp: string, signal: AbortSignal) {
+    const projectId = job.projectId;
+    const original = await this.artifact(projectId, plan.request.artifactId);
+    const file = this.audioFile(projectId, original.id);
+    if ((await hashStream(file)).sha256 !== original.contentSha256) throw new Error("Registered audio changed on disk.");
+    await this.change(job.id, { type: "progress", stage: "measure", progress: 0 });
+    const local = await measureAudio(original, await this.decode(file), signal);
+    const capabilities = this.capabilities();
+    const receipt: HearingReceipt = { jobId: job.id, sourceArtifactId: original.id, permittedArtifactId: original.id, preparedArtifactId: original.id,
+      provider: capabilities.provider, requestedModel: capabilities.model, resolvedModel: null, adapterVersion: capabilities.adapterVersion, destination: capabilities.destination,
+      consentRevision: plan.consentRevision, task: plan.request.task, question: plan.request.question, timeMap: { sourceStartSeconds: 0, secondsPerProviderSecond: 1 }, attempts: [], cachedFrom: null, evidenceId: null, unavailableReason: null, createdAt: Date.now() };
+    const saveReceipt = async () => {
+      const file = this.file(projectId, "hearing-receipts", job.id);
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await writeJson(file, receipt);
+    };
+    const beforeSend = async () => {
+      signal.throwIfAborted();
+      const permission = await this.hearingSettings(projectId);
+      if (!permission.enabled || permission.revision !== plan.consentRevision) throw new PerceptionError("Hosted audio permission changed; no further audio will be sent.", false);
+      if (this.providerIdentity() !== plan.providerIdentity) throw new PerceptionError("Hearing provider changed; start a new hearing job.", false);
+    };
+    await saveReceipt();
+    let report = local;
+    try {
+      await beforeSend();
+      if (!capabilities.configured) throw new PerceptionError("Gemini API key is not configured. Local measurements remain available.", false);
+      // Explicit song-level consent creates a new permission record; private originals stay immutable.
+      const permitted = createArtifact({ ...original, permissions: { ...original.permissions, hostedAnalysis: true }, createdAt: Date.now(), jobId: job.id });
+      await this.storeArtifact(projectId, permitted, file);
+      receipt.permittedArtifactId = permitted.id;
+      await this.change(job.id, { type: "progress", stage: "prepare", progress: 0 });
+      const range = passageFrames(original) ?? { first: 0, end: original.format.frames };
+      const preparedFile = path.join(temp, "provider.wav");
+      const downmix = original.format.channels === 2 ? ",pan=mono|c0=0.5*c0+0.5*c1" : "";
+      await run(this.options.ffmpeg ?? FFMPEG, ["-v", "error", "-y", "-i", file, "-af", `atrim=start_sample=${range.first}:end_sample=${range.end},asetpts=PTS-STARTPTS${downmix}`, "-ar", "48000", "-c:a", "pcm_s16le", preparedFile], { signal });
+      const audio = await this.decode(preparedFile);
+      const hashes = await hashStream(preparedFile);
+      const prepared = createArtifact({ ...permitted, contentSha256: hashes.sha256, bytes: hashes.bytes,
+        format: { sampleRate: 48000, channels: 1, sampleFormat: "pcm16", frames: audio.channels[0].length },
+        passage: permitted.passage ? { ...permitted.passage, leadInFrames: 0, tailFrames: 0 } : null,
+        derivedFrom: permitted.id, transforms: [{ kind: "trim", fromFrame: range.first, toFrame: range.end },
+          ...(original.format.channels === 2 ? [{ kind: "downmix" as const, toChannels: 1 }] : []),
+          ...(original.format.sampleRate !== 48000 ? [{ kind: "resample" as const, fromRate: original.format.sampleRate, toRate: 48000 }] : []), { kind: "encode", codec: "pcm_s16le" }], jobId: job.id, createdAt: Date.now() });
+      await this.storeArtifact(projectId, prepared, preparedFile);
+      receipt.preparedArtifactId = prepared.id;
+      receipt.timeMap.sourceStartSeconds = range.first / original.format.sampleRate;
+      await saveReceipt();
+      await this.change(job.id, { type: "progress", stage: "hear", progress: 0 });
+      const cacheKey = hashJson({ prepared: prepared.id, provider: plan.providerIdentity, request: plan.request, epoch: plan.cacheEpoch, promptVersion: "hearing-v1" });
+      const cacheFile = this.file(projectId, "hearing-cache", cacheKey);
+      const cached = await read(cacheFile).catch(error => { if (error instanceof HttpError && error.status === 404) return null; throw error; });
+      let result;
+      await beforeSend();
+      if (isObject(cached) && typeof cached.jobId === "string") {
+        const { validatePerceptionOutput } = await import("../../../shared/music/audio-intelligence/hearing.ts");
+        result = { output: validatePerceptionOutput(cached.output, audio.channels[0].length / 48000, plan.request.task), raw: cached.raw, resolvedModel: typeof cached.resolvedModel === "string" ? cached.resolvedModel : null };
+        receipt.cachedFrom = cached.jobId;
+      } else {
+        result = await this.perception.perceive({ audio: await fs.readFile(preparedFile), durationSeconds: audio.channels[0].length / 48000, task: plan.request.task, question: plan.request.question, signal, beforeSend,
+          onRaw: raw => this.immutableJson(this.file(projectId, "hearing-raw", job.id), raw),
+          onAttempt: async attempt => {
+            const at = receipt.attempts.findIndex(a => a.number === attempt.number);
+            if (at < 0) receipt.attempts.push(attempt); else receipt.attempts[at] = attempt;
+            await saveReceipt();
+          } });
+        signal.throwIfAborted();
+        const { validatePerceptionOutput } = await import("../../../shared/music/audio-intelligence/hearing.ts");
+        result.output = validatePerceptionOutput(result.output, audio.channels[0].length / 48000, plan.request.task);
+        await beforeSend();
+        await this.immutableJson(cacheFile, { ...result, jobId: job.id });
+      }
+      receipt.resolvedModel = result.resolvedModel;
+      await this.immutableJson(this.file(projectId, "hearing-raw", job.id), result.raw);
+      await beforeSend();
+      const verified = capabilities.verifiedTasks.includes(plan.request.task);
+      const { validatePerceptionOutput } = await import("../../../shared/music/audio-intelligence/hearing.ts");
+      const output = validatePerceptionOutput(result.output, audio.channels[0].length / 48000, plan.request.task);
+      const observations = verified ? output.findings.map((finding, i) => ({ id: `heard${i}`, claim: finding.claim,
+        source: { kind: "hosted-perception" as const, provider: capabilities.provider, model: result.resolvedModel ?? capabilities.model, version: capabilities.adapterVersion },
+        spans: [{ artifactId: prepared.id, startSeconds: finding.startSeconds, endSeconds: finding.endSeconds }], strength: "weak" as const, question: plan.request.question })) : [];
+      report = createEvidence({ ...local, task: `local measurements and ${plan.request.task} hearing`, artifactRefs: [...local.artifactRefs, refOf(prepared)], observations,
+        limitations: [...local.limitations.filter(l => l.code !== "supported-local-methods"),
+          { code: "provider-processing", text: "Provider audio is passage-only, mono 48 kHz PCM16, without gain normalization. Full-resolution measurements use the original. Provider-side preprocessing, effective bandwidth and model build remain unverified. Stereo, numerical measurements and plugin-setting claims are suppressed.", affects: [] },
+          ...(!verified ? [{ code: "unverified-hearing-task", text: "Provider findings are withheld until this model/adapter passes a reviewed held-out benchmark for this task. Raw output is kept locally for evaluation.", affects: [] }] : []),
+          ...output.limitations.map(text => ({ code: "provider-limitation", text, affects: [] }))],
+        coverage: { inspected: [...local.coverage.inspected, { artifactId: prepared.id, startSeconds: 0, endSeconds: audio.channels[0].length / 48000 }], unavailable: [...local.coverage.unavailable.filter(x => x !== "hosted perception"), ...(!verified ? ["validated hosted perception"] : [])] }, createdAt: Date.now() });
+      const artifacts = new Map([[original.id, original], [prepared.id, prepared]]);
+      checked(validateEvidence(report, { artifacts }));
+    } catch (error) {
+      if (signal.aborted) { receipt.unavailableReason = "Cancelled or interrupted. An already-sent provider request may still be processed/billed."; await saveReceipt(); throw error; }
+      receipt.unavailableReason = error instanceof Error ? error.message : "Hosted hearing unavailable.";
+      report = createEvidence({ ...local, task: `local measurements; ${plan.request.task} hearing unavailable`, limitations: [...local.limitations, { code: "provider-unavailable", text: receipt.unavailableReason, affects: [] }], createdAt: Date.now() });
+    }
+    signal.throwIfAborted();
+    await this.immutableJson(this.file(projectId, "reports", report.id), report);
+    receipt.evidenceId = report.id;
+    await saveReceipt();
+    signal.throwIfAborted();
+    await this.change(job.id, { type: "succeed", result: { artifactIds: [...new Set([original.id, receipt.preparedArtifactId])], evidenceIds: [report.id], snapshotIds: original.snapshotId ? [original.snapshotId] : [] } });
   }
 
   private async immutableJson(file: string, value: unknown) {
@@ -366,6 +519,12 @@ export class AudioIntelligence {
 
   async tool(projectId: string, name: string, input: Record<string, unknown>) {
     switch (name) {
+      case "get_hearing_capabilities": this.folder(projectId); return this.capabilities();
+      case "get_hearing_receipt": return this.hearingReceipt(projectId, input.jobId);
+      case "hear_audio_artifact": {
+        const permission = await this.hearingSettings(projectId);
+        return this.start(projectId, { kind: "hear", request: (() => { try { return parseHearingRequest(input); } catch (error) { throw new HttpError(400, error instanceof Error ? error.message : "Invalid hearing request."); } })(), providerIdentity: this.providerIdentity(), consentRevision: permission.revision, cacheEpoch: Math.floor(Date.now() / 86_400_000) });
+      }
       case "render_audio_passage": return this.start(projectId, { kind: "render", params: this.parseRender(input) });
       case "analyse_audio_artifact": return this.start(projectId, { kind: "analyse", artifactId: safeId(input.artifactId) });
       case "get_audio_job": return this.get(projectId, input.jobId);

@@ -1,6 +1,6 @@
 # Engineer datasets and audio hearing
 
-Status: **Slice A of the [implementation checklist](implementation-backlog.md) is built** (the contracts, snapshot capture, the fixture collection and the three dataset/engine audits, below). [Slice B](render-and-measure.md) is also built: project-scoped immutable audio, durable cancellable passage renders, local measurements and MCP tools. Slices C onwards remain planned; no hosted perception is available.
+Status: **Slice A of the [implementation checklist](implementation-backlog.md) is built** (the contracts, snapshot capture, the fixture collection and the three dataset/engine audits, below). [Slice B](render-and-measure.md) is also built: project-scoped immutable audio, durable cancellable passage renders, local measurements and MCP tools. [Slice C infrastructure and its hosted perception pilot](hosted-perception.md) are implemented; listening quality acceptance remains pending, and provider findings are withheld by default. Slices D onwards remain planned.
 Research date: 2026-10-03. Provider capabilities and DAW compatibility must be verified again at implementation.
 
 Start with the [end-to-end audio engineering harness plan](audio-engineering-harness.md): it connects the existing Claude Code runtime, hosted hearing, ordinary-package ingestion, dataset retrieval, workflows, reversible candidate renders, evaluation, and optional training/self-hosting. This is the current delivery roadmap; the individual proposals below provide supporting detail.

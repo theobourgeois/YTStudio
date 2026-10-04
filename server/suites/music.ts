@@ -67,7 +67,12 @@ cancel_audio_job stops work and retry_audio_job resumes interrupted/failed attem
 Rendering stops playback and currently supports built-in processors only. Reports name an immutable snapshot; \
 if the song changes, capture and analyse again. These tools provide sample levels, dynamics, broad filter \
 energy estimates, activity timing and stereo measurements, not listening opinions, LUFS or true peak. \
-Never claim to have heard music from these measurements or from playback. Hosted hearing is unavailable.
+Never claim to have heard music from these measurements or from playback. For hosted listening, first use \
+get_hearing_capabilities. hear_audio_artifact requires the user to enable Gemini audio analysis for this song \
+in Music settings; you cannot grant that permission. Read get_audio_job, get_audio_report and get_hearing_receipt. \
+Separate hosted observations from measured facts; unverified tasks withhold observations. A succeeded job may \
+contain local-only fallback: check report coverage and receipt unavailableReason. Do not turn raw evaluation \
+output into mixing advice, claim stereo listening, or infer exact processor settings.
 
 export_song renders the song to files (WAV, MP3, FLAC, OGG, M4A, MIDI; stems: a file per mixer track) in \
 seconds; the export window lists them for the user to download or show in Finder.`,

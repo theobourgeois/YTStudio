@@ -43,3 +43,29 @@ test("audio jobs and reports remain available after the editor tab closes", asyn
   const scoped = await context.request.post(mcpUrl.replace(id, otherId), { data: { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "get_audio_job", arguments: { jobId: render.id } } } });
   expect((await scoped.json()).result.isError).toBe(true);
 });
+
+
+test("hosted listening permission is explicit, persists, and belongs to one song", async ({ page }) => {
+  const create = async (name: string) => (await (await page.request.post("/api/projects", { data: { suite: "music", name } })).json()).id as string;
+  const id = await create("Listening permission");
+  await page.goto(`/p/${id}`);
+  await expect(page.locator('[data-suite="music"]')).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+Comma");
+  const settings = page.getByRole("region", { name: "Settings" });
+  const toggle = settings.getByRole("switch", { name: "Allow Gemini audio analysis for this song" });
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).not.toBeChecked();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect.poll(async () => (await (await page.request.get(`/api/music/audio/${id}/hearing`)).json()).settings.enabled).toBe(true);
+  await page.reload();
+  await expect(page.locator('[data-suite="music"]')).toBeVisible();
+  if (!(await settings.isVisible())) await page.keyboard.press("ControlOrMeta+Comma");
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  const other = await create("Private song");
+  expect((await (await page.request.get(`/api/music/audio/${other}/hearing`)).json()).settings.enabled).toBe(false);
+  const invalid = await page.request.patch(`/api/music/audio/${id}/hearing`, { data: { enabled: "yes" } });
+  expect(invalid.status()).toBe(400);
+});

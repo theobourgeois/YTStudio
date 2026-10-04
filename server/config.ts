@@ -1,7 +1,13 @@
+import { loadEnvFile } from "node:process";
 import os from "node:os";
 import path from "node:path";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
+
+// Local credentials stay on the server; existing environment variables take precedence.
+try { loadEnvFile(path.join(REPO_ROOT, ".env")); } catch (error) {
+  if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+}
 
 const dataDir = path.resolve(process.env.EDITOR_DATA_DIR || path.join(REPO_ROOT, "data"));
 

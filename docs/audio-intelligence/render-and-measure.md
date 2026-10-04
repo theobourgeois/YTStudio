@@ -46,7 +46,7 @@ Per channel: sample peak and unweighted RMS in dBFS, sample peak/RMS crest facto
 
 Each finding names its method and version, channel and exact inspected artifact span. Undefined logarithmic/silence values are null with a reason. Full-scale samples are not asserted to be audible clipping; filter energies are not tonal judgements; activity is not beat detection. Reports contain no listening observations or musical hypotheses.
 
-LUFS, oversampled true peak, standardized loudness range, beat/phrase timing and hosted listening are explicitly unavailable. Permissions default to local analysis only: no upload, retrieval display or training authorization is implied.
+LUFS, oversampled true peak, standardized loudness range and beat/phrase timing are explicitly unavailable. Local measurement tools do not perform hosted listening; the separate [hosted perception pilot](hosted-perception.md) adds consent-gated uploads and currently withholds unverified findings. Permissions default to local analysis only: no upload, retrieval display or training authorization is implied.
 
 ## Verification
 

@@ -15,3 +15,8 @@ desktop-smoke.png
 music-window-smoke.png
 engine/build
 ui-sheet
+
+# Local provider credentials
+.env
+.env.*
+!.env.example

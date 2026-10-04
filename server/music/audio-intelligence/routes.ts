@@ -5,6 +5,14 @@ import { AUDIO_SERVER_TOOLS, type AudioIntelligence } from "./service.ts";
 export function audioIntelligenceRoutes(service: AudioIntelligence): Router {
   const router = Router();
   router.use((_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
+  router.get("/:projectId/hearing", async (req, res) => {
+    res.json({ settings: await service.hearingSettings(req.params.projectId), capabilities: service.capabilities() });
+  });
+  // User consent is intentionally not available as an assistant tool.
+  router.patch("/:projectId/hearing", json(), async (req, res) => {
+    if (!isObject(req.body)) throw new HttpError(400, "Invalid hearing settings.");
+    res.json(await service.setHearingSettings(req.params.projectId, req.body.enabled));
+  });
   router.post("/:projectId/capture", json({ limit: "10mb" }), async (req, res) => {
     res.json(await service.capture(req.params.projectId, req.body));
   });

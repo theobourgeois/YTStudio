@@ -53,6 +53,8 @@ The capture → render → analysis → report path is implemented and tested, i
 
 ## Slice C: add hosted perception
 
+Status: [infrastructure and generated-audio pilot implemented](hosted-perception.md). The updated key works and one 3.7 Flash audio response completed; 3.8 returned HTTP 503. The completed generated case contained unsupported source claims. Held-out usefulness acceptance remains pending and Gemini tasks remain unverified.
+
 Depends on artifact contracts from A/B. Deliverables:
 
 - Build a replaceable perception adapter that receives audio bytes and task-specific questions.

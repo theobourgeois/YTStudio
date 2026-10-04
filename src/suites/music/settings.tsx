@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "@shared/errors";
 import type { EngineDevices, SetDeviceRequest } from "@shared/music/engine";
 import { STRETCH_MODE_NAMES, isStretchMode } from "@shared/music/stretch";
@@ -6,6 +6,9 @@ import { STRETCH_MODES } from "@shared/music/types";
 import { SettingsGroup, SettingsRow } from "@/components/settings/settings-ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import type { HearingSettings, HearingCapabilities } from "@shared/music/audio-intelligence/hearing";
+import { request } from "@/lib/api";
+import { useMusic } from "./store";
 import { musicApi } from "./api";
 import { EnginePanel } from "./engine-panel";
 import { useMusicPreferences } from "./preferences";
@@ -24,6 +27,7 @@ export default function MusicSettings() {
       <DeviceSettings />
       <QualitySettings />
       <TransportSettings />
+      <HearingSettingsPanel />
       <SettingsGroup title="Engine and plugins" description="The audio engine's state, a test tone, and your plugins on a test bench." bare>
         <EnginePanel />
       </SettingsGroup>
@@ -244,4 +248,36 @@ function MidiSettings({ devices, change }: { devices: EngineDevices; change: (bo
       )}
     </SettingsGroup>
   );
+}
+
+function HearingSettingsPanel() {
+  const projectId = useMusic(s => s.projectId);
+  const [value, setValue] = useState<{ settings: HearingSettings; capabilities: HearingCapabilities } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const generation = useRef(0);
+  useEffect(() => {
+    let active = true;
+    generation.current++; setPending(false);
+    setValue(null); setError(null);
+    if (projectId) void request<{ settings: HearingSettings; capabilities: HearingCapabilities }>(`/api/music/audio/${projectId}/hearing`).then(
+      next => { if (active) setValue(next); }, err => { if (active) setError(errorMessage(err)); });
+    return () => { active = false; };
+  }, [projectId]);
+  const change = async (enabled: boolean) => {
+    if (!projectId || !value) return;
+    const currentGeneration = generation.current;
+    setPending(true);
+    try {
+      const settings = await request<HearingSettings>(`/api/music/audio/${projectId}/hearing`, { method: "PATCH", body: JSON.stringify({ enabled }) });
+      if (currentGeneration !== generation.current) return;
+      setValue(current => current ? { ...current, settings } : null); setError(null);
+    } catch (err) { if (currentGeneration === generation.current) setError(errorMessage(err)); }
+    finally { if (currentGeneration === generation.current) setPending(false); }
+  };
+  return <SettingsGroup title="Assistant listening" description="Let the assistant send selected audio from this song to Google Gemini. Requests may incur API charges. Turning this off cancels pending listening; audio already sent may still be processed.">
+    <SettingsRow title="Allow Gemini audio analysis for this song" description={error ? <span className="text-destructive">{error}</span> : !projectId ? "Open a song to choose." : !value ? "Loading…" : !value.capabilities.configured ? "Set GEMINI_API_KEY on the server to enable listening." : `${value.capabilities.model}. ${value.capabilities.verifiedTasks.length ? "Listening tasks have been reviewed." : "Listening is experimental; findings are withheld until quality testing is complete."}`}>
+      <Switch aria-label="Allow Gemini audio analysis for this song" checked={value?.settings.enabled ?? false} disabled={!value || pending || (!value.capabilities.configured && !value.settings.enabled)} onCheckedChange={enabled => void change(enabled)} />
+    </SettingsRow>
+  </SettingsGroup>;
 }

@@ -406,6 +406,9 @@ export function describeToolCall(rawName: string, input: unknown): string {
     case "capture_audio_snapshot": return "Capture the song for analysis";
     case "render_audio_passage": return "Render an analysis passage";
     case "register_audio_artifact": return "Register audio for analysis";
+    case "get_hearing_capabilities": return "Check audio listening availability";
+    case "hear_audio_artifact": return "Analyze audio with Gemini";
+    case "get_hearing_receipt": return "Read audio listening usage";
     case "analyse_audio_artifact": return "Measure an audio artifact";
     case "get_audio_job": return "Read audio job progress";
     case "cancel_audio_job": return "Cancel an audio job";
