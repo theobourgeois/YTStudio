@@ -84,6 +84,11 @@ page, exactly as above (`Desktop`'s `native` only takes effect where there is a 
   (`instanceof Element` is false for another window's), and look across windows with `queryAnywhere`. A new Radix
   portal takes `container={usePopupContainer()}` (menus) or `usePortalContainer()` (tooltips, dialogs).
   `ResizeObserver`, `IntersectionObserver` and `requestAnimationFrame` of the page work on a panel's elements.
+- **Hover in a window without the focus.** macOS sends mouse-moved events only to the window with the keyboard,
+  so with a panel in use the main window's toolbar (or another panel) wouldn't light up under the pointer, though a
+  click works (`acceptFirstMouse`). `electron/hover.ts` reads the pointer about every frame and, if the topmost of
+  our windows under it isn't the focused one, sends it a `mouseMove` (and a `mouseLeave` when the pointer goes
+  out). It can't see the engine's plugin windows, so one over ours still hovers what's under it.
 - **Known limits.** A panel's menu can't reach above or left of its corner (the popup window starts there). A window
   isn't shown on a full-screen Space of the main window (the engine's can't be told to: it would take macOS calls
   of our own). The snap preview (dragging a window to the desktop's edge) is drawn in the main window, under the

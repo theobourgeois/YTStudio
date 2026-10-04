@@ -133,6 +133,17 @@ export class Panels {
     }
   }
 
+  /** The windows on screen, from the back to the front (the popup window, when something's in it, over them all): where the pointer might be. */
+  shownWindows(): BrowserWindow[] {
+    if (!this.state.visible) return [];
+    const order = this.stack.order();
+    const rank = (name: string) => (name === POPUP_WINDOW ? Infinity : order.indexOf(panelKey(name)));
+    return [...this.shown]
+      .sort((a, b) => rank(a) - rank(b))
+      .map((name) => this.windows.get(name))
+      .filter((win): win is BrowserWindow => !!win && !win.isDestroyed() && win.isVisible());
+  }
+
   /** In front of the other floating windows, without the keyboard; false if it's not shown. */
   moveTop(name: string): boolean {
     const win = this.windows.get(name);

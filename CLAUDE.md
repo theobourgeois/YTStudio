@@ -215,6 +215,8 @@ electron/          The desktop app (Vaudio). main.ts: runs the server (electron/
                      this makes them frameless and floating, shows, hides and places them). floating.ts: which windows
                      float (the app is in use while one of its windows, or a plugin's, has the focus). stacking.ts: the
                      order of the floating windows, ours and the engine's, put back after the app was away.
+                     hover.ts: macOS gives a window without the focus no mouse-moved events, so the pointer is told to the
+                     window of ours under it (the main window's toolbar shows hover while a panel is in use).
                      gl-window.ts: the export's compositor page in a hidden window (`setGlPageOpener`), so no Playwright.
                      shell-path.ts: the login shell's PATH (Finder-launched apps get a bare one). preload.ts only marks
                      the page (`html.desktop`: drag regions, room for the window buttons in src/index.css).
