@@ -17,6 +17,7 @@ import type { MusicProject } from "../../shared/music/types.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine } from "./engine.ts";
 import { peakOf, readWav } from "./wav.ts";
+import { fillMixerInserts } from "../../shared/music/mixer-setup.ts";
 
 /** A new song at 120 BPM, which these tests' timings are worked out at (new songs start at 140). */
 const createMusicProject = (name: string) => newSong(name, 120);
@@ -142,6 +143,27 @@ describe.skipIf(!built)("the audio engine, offline", () => {
     expect((await engine.setSong({ projectId: project, song: missing, patternId: null })).channels.failed).toMatchObject([{ channel: "chan_none" }]);
   });
 
+  it("plays through Fill inserts' two buses at the same level, without doubling the Master signal", async () => {
+    const projectId = "proj_0123456789ab";
+    let song = addPluginChannel(createMusicProject("Bus setup"), { id: synthId, name: "Vaudio Test Synth", format: "VST3" }, "chan_bus_test");
+    song = setSteps(song, FIRST_PATTERN_ID, "chan_bus_test", [0, 8], true);
+    await engine.setSong({ projectId, song, patternId: null });
+    await expect.poll(async () => (await engine.command("status", {})).channels.loaded.map((c) => c.channel)).toEqual(["chan_bus_test"]);
+    await engine.command("play", {});
+    const before = await engine.render(SECOND * 2);
+    await engine.command("stop", {});
+    const filled = fillMixerInserts(song, new Map([["chan_bus_test", "instr"]]));
+    await engine.setSong({ projectId, song: filled, patternId: null });
+    await engine.command("play", {});
+    const after = await engine.render(SECOND * 2);
+    await engine.command("stop", {});
+    expect(before.peak).toBeGreaterThan(0.05);
+    expect(after.peak).toBeCloseTo(before.peak, 3);
+    // Short-note tails/oscillator phase can vary slightly between passes; a doubled path is 2×.
+    expect(after.rms / before.rms).toBeGreaterThan(0.97);
+    expect(after.rms / before.rms).toBeLessThan(1.03);
+  });
+
   it("runs a mixer track's effects on its sound: in order, bypassed, mixed, their state kept beside the project", async () => {
     const project = "proj_0123456789ab";
     const gain = { id: effectId, name: "Vaudio Test Effect", format: "VST3" };
@@ -190,14 +212,14 @@ describe.skipIf(!built)("the audio engine, offline", () => {
     await engine.setSong({ projectId: project, song, patternId: null });
     await expect.poll(async () => (await engine.command("status", {})).channels.loaded.map((c) => c.channel)).toEqual(["chan_keys"]);
     // The test synth has one program: none to choose, as most VST3s.
-    expect(await engine.presets("channel", "chan_keys")).toEqual({ programs: [], program: -1, presets: [], preset: "" });
+    expect(await engine.presets("channel", "chan_keys")).toEqual({ programs: [], program: -1, presets: [], preset: "", currentName: "", category: "" });
     expect(await engine.preset({ owner: "channel", id: "chan_keys", action: "savePreset", name: "Warm/Pad" })).toMatchObject({ presets: ["WarmPad"], preset: "WarmPad" });
     const file = path.join(dir, "engine", "presets", "VST3", "Vaudio Test Synth", "WarmPad.preset");
     expect((await fs.stat(file)).size).toBeGreaterThan(0);
     expect(await engine.preset({ owner: "channel", id: "chan_keys", action: "loadPreset", name: "WarmPad" })).toMatchObject({ preset: "WarmPad" });
     await expect(engine.preset({ owner: "channel", id: "chan_keys", action: "loadPreset", name: "Nothing" })).rejects.toMatchObject({ status: 409 });
     await expect(engine.preset({ owner: "channel", id: "chan_keys", action: "setProgram", index: 3 })).rejects.toMatchObject({ status: 409 });
-    expect(await engine.preset({ owner: "channel", id: "chan_keys", action: "deletePreset", name: "WarmPad" })).toEqual({ programs: [], program: -1, presets: [], preset: "" });
+    expect(await engine.preset({ owner: "channel", id: "chan_keys", action: "deletePreset", name: "WarmPad" })).toEqual({ programs: [], program: -1, presets: [], preset: "", currentName: "", category: "" });
     await expect(engine.presets("channel", "chan_none")).rejects.toMatchObject({ status: 409 });
   });
 

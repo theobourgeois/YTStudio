@@ -942,6 +942,9 @@ export interface MixerSend {
  */
 export interface MixerTrack {
   id: string;
+  /** Fill inserts' persistent ownership; never inferred from a track's name/color. */
+  setupRole?: import("./mixer-setup.ts").SetupBus;
+  setupChannel?: string;
   /** Null until it's renamed: then it's called by its number ("Insert 3"), as in FL Studio. */
   name: string | null;
   /** Its colour ("#rrggbb", one of `TRACK_COLORS` from the menu), or null for none. */

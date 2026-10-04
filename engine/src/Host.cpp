@@ -465,7 +465,41 @@ juce::var PluginHost::presets (const juce::String& ownerId) const
             programs.add (instance.getProgramName (i));
     for (const auto& name : presetNames (hosted))
         presets.add (name);
-    return protocol::object ({ { "programs", programs }, { "program", programs.isEmpty() ? -1 : instance.getCurrentProgram() }, { "presets", presets }, { "preset", hosted.preset } });
+    auto currentName = instance.getProgramName (instance.getCurrentProgram());
+    juce::String category;
+    if (instance.getName().containsIgnoreCase ("Serum"))
+    {
+        // Serum 2 embeds bounded JSON metadata in XferJson containers in its VST3 state.
+        // Read only the headers, never decode or modify the synthesis payload.
+        juce::MemoryBlock state;
+        instance.getStateInformation (state);
+        const auto readMetadata = [&] (const juce::MemoryBlock& block)
+        {
+            const auto* bytes = static_cast<const unsigned char*> (block.getData());
+            const auto size = block.getSize();
+            for (size_t at = 0; at + 17 <= size; ++at)
+            {
+                if (std::memcmp (bytes + at, "XferJson\0", 9) != 0) continue;
+                juce::uint64 length = 0;
+                for (int n = 0; n < 8; ++n) length |= (juce::uint64) bytes[at + 9 + (size_t) n] << (n * 8);
+                if (length == 0 || length > 65536 || length > size - at - 17) continue;
+                const auto metadata = juce::JSON::parse (juce::String::fromUTF8 (reinterpret_cast<const char*> (bytes + at + 17), (int) length));
+                if (metadata["presetName"].isString() && metadata["presetName"].toString().isNotEmpty()) currentName = metadata["presetName"].toString();
+                if (metadata["presetCategory"].isString()) category = metadata["presetCategory"].toString();
+                at += 16 + (size_t) length;
+            }
+        };
+        readMetadata (state); // AU's property-list state contains the containers directly.
+        if (const auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize()))
+            for (const auto* tag : { "IComponent", "IEditController" })
+                if (const auto* child = xml->getChildByName (tag))
+                {
+                    juce::MemoryBlock decoded;
+                    if (decoded.fromBase64Encoding (child->getAllSubText())) readMetadata (decoded);
+                }
+    }
+    if (currentName.isEmpty()) currentName = hosted.preset;
+    return protocol::object ({ { "programs", programs }, { "program", programs.isEmpty() ? -1 : instance.getCurrentProgram() }, { "presets", presets }, { "preset", hosted.preset }, { "currentName", currentName }, { "category", category } });
 }
 
 juce::Result PluginHost::setProgram (const juce::String& ownerId, int index)

@@ -30,11 +30,16 @@ import type {
 } from "@shared/music/browser";
 import type { ExportSongRequest, MusicExportJob } from "@shared/music/export";
 import type { MediaAsset } from "@shared/types";
+import type { ChannelEvidence, MixerSetupRequest, MixerSetupResult } from "@shared/music/mixer-setup";
 import { request } from "@/lib/api";
 
 const pathQuery = (path: string) => `path=${encodeURIComponent(path)}`;
 
 export const musicApi = {
+  mixerSetupSettings: () => request<{ configured: boolean }>("/api/music/mixer-setup/settings"),
+  setMixerSetupKey: (key: string | null) => request<{ configured: boolean }>("/api/music/mixer-setup/settings", { method: "PUT", body: JSON.stringify({ key }) }),
+  classifyMixer: (body: MixerSetupRequest) => request<MixerSetupResult>("/api/music/mixer-setup", { method: "POST", body: JSON.stringify(body) }),
+  mixerSetupEvidence: (body: MixerSetupRequest) => request<ChannelEvidence[]>("/api/music/mixer-setup/evidence", { method: "POST", body: JSON.stringify(body) }),
   /** A command to the audio engine (starting it if needed); every one answers with its status. */
   engine: <C extends EngineCommand>(command: C, body: EngineCommands[C]) =>
     request<EngineStatus>(`/api/engine/${command}`, { method: "POST", body: JSON.stringify(body) }),

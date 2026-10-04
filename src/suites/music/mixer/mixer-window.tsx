@@ -98,6 +98,7 @@ import { delayText, offsetText, pluginDelay } from "./latency";
 import { MIXER_VIEWS, type MixerViewKind, STRIP_WIDTHS, VIEW_NAMES, trackAt, useMixerView } from "./view";
 import { CONTEXT_PARTS, SidechainToItems } from "./sidechain-menu";
 import { useModulationUi } from "../modulation/store";
+import { FillInsertsButton } from "./fill-inserts";
 
 
 /** Strips drawn past each edge of the view, so a scroll doesn't show an empty one before they're drawn. */
@@ -251,6 +252,7 @@ export function MixerWindow() {
       menu={<MixerMenu />}
       controls={
         <>
+          <FillInsertsButton />
           <SoloIndicator />
           <ListenSwitch kind="mono" />
           <ListenSwitch kind="dim" />
