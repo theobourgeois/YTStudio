@@ -30,6 +30,8 @@ export interface RunningServer {
   /** The engine's plugin windows took the focus from the app's, or gave it back, or one was used. */
   onEngineWindow: EditorApp["onEngineWindow"];
   raiseEngineWindow: EditorApp["raiseEngineWindow"];
+  /** Close every plugin window. */
+  closeEngineWindows: EditorApp["closeEngineWindows"];
 }
 
 function listen(server: http.Server, port: number): Promise<number | null> {
@@ -55,7 +57,7 @@ export async function startServer({ dataDir, clientDir, ports, trash, reveal }: 
   if (version) console.log(`[desktop] using ffmpeg ${version}`);
   else console.warn(`[desktop] ffmpeg not found (tried "${FFMPEG}"): importing and exporting won't work.`);
 
-  const { app, shutdown, setHostWindow, onEngineWindow, raiseEngineWindow } = await createApp({ dataDir, clientDir, trash, reveal });
+  const { app, shutdown, setHostWindow, onEngineWindow, raiseEngineWindow, closeEngineWindows } = await createApp({ dataDir, clientDir, trash, reveal });
   const server = http.createServer(app);
   for (const candidate of ports) {
     const port = await listen(server, candidate);
@@ -66,6 +68,7 @@ export async function startServer({ dataDir, clientDir, ports, trash, reveal }: 
       setHostWindow,
       onEngineWindow,
       raiseEngineWindow,
+      closeEngineWindows,
       close() {
         shutdown();
         server.close();

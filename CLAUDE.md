@@ -1062,7 +1062,7 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 
 ## Windows (the page can be in several)
 
-In the desktop app the music editor's windows and Settings are windows of the operating system, drawn by the same
+In the desktop app the music editor's windows and Settings can be windows of the operating system (off for now: `NATIVE_WINDOWS` in `floating-window.tsx`, `docs/windows.md`), drawn by the same
 React tree (`docs/windows.md`). `window` and `document` are always the main page's, so code that runs inside a
 window must say which one it means: `addWindowListener` for what the editor wants in every window (shortcuts, a
 drag's end), `ownerWindow` / `ownerDocument(event.target)` (`elementFromPoint`, `devicePixelRatio`, `activeElement`,

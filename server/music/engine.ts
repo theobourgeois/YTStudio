@@ -315,6 +315,16 @@ export class AudioEngine {
     );
   }
 
+  /** Close every plugin window that's open. Nothing if the engine isn't running (it isn't started for this). */
+  async closeEditors(): Promise<void> {
+    if (!this.child) return;
+    const status = (await this.request("status", {})) as RawStatus;
+    await Promise.all([
+      ...status.channels.loaded.filter((c) => c.editorOpen).map((c) => this.request("channelEditor", { channel: c.channel, open: false })),
+      ...status.effects.loaded.filter((e) => e.editorOpen).map((e) => this.request("effectEditor", { effect: e.effect, open: false })),
+    ]).catch(() => {});
+  }
+
   /**
    * Preview an audio file (the Browser's), outside the song, cutting off the last one. Not one of the
    * tab's commands: the Browser's route checks the file is in its folders first.
