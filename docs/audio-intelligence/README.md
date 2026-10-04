@@ -1,6 +1,6 @@
 # Engineer datasets and audio hearing
 
-Status: proposal only. No application, engine, dependency, or provider changes have been implemented.
+Status: **Slice A of the [implementation checklist](implementation-backlog.md) is built** (the contracts, snapshot capture, the fixture collection and the three dataset/engine audits, below). Slices B onwards are planned: no tool, render job, hosted provider or engine change exists yet.
 Research date: 2026-10-03. Provider capabilities and DAW compatibility must be verified again at implementation.
 
 Start with the [end-to-end audio engineering harness plan](audio-engineering-harness.md): it connects the existing Claude Code runtime, hosted hearing, ordinary-package ingestion, dataset retrieval, workflows, reversible candidate renders, evaluation, and optional training/self-hosting. This is the current delivery roadmap; the individual proposals below provide supporting detail.

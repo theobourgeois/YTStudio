@@ -15,6 +15,24 @@ Deliverables:
 
 Acceptance: every example and render can be traced to an exact source/state; unknown controls remain unknown; dataset eligibility is recorded. No automatic neural training or full pickle execution is required.
 
+### Slice A status: built (2026-10-04)
+
+| Deliverable | Where | State |
+| --- | --- | --- |
+| Snapshot, artifact, evidence, job and mix-run contracts | `shared/music/audio-intelligence/` (`types.ts`, `snapshot.ts`, `artifact.ts`, `evidence.ts`, `job.ts`, `run.ts`, `validation.ts`) and `shared/music/hash.ts` | Built, pure, tested (ids pinned in `identity.test.ts`) |
+| Document revision, media hashes, routing/automation, plugin identity/state, render settings, capture completeness | `MixSnapshot` and `coverage` (`snapshot.ts`); `server/music/audio-intelligence/` reads the files (`captureSnapshot`, `FileHasher`) | Built. Plugin version is recorded when known, and is not known today, so a song with outside plugins is `partial` by design |
+| Small cleared fixture collection, vocal/beat roles, recording-family ids | `fixtures.ts` (ten synthetic fixtures with known levels, phrases, hits and correlations), `families.ts` (splits by family), `scripts/make-audio-fixtures.ts` | Built. Synthetic only: real, cleared recordings (the plan's pilot of 20 to 30) are still to be gathered |
+| Engine rendering and plugin-state limits | [engine-render-limits.md](engine-render-limits.md) | Written from the code. Nothing was measured on the real engine (`engine/build` was absent): its statements say *read*, *tested* or *unverified* |
+| CL 1B layout, labels, fixed controls, alignment, encoding | [cl1b-audit.md](cl1b-audit.md), `scripts/audit-cl1b.py` (static, never unpickles; its safety is tested by `scripts/audit-cl1b.test.py`) | Test member read in full, train member's first array and a prefix of the second. Ratio and threshold units, train pairing and train alignment are **unresolved**; closing them means reading the whole 6.7 GB train member, a decision for whoever owns the budget |
+| Reviewed MixParams reference subset | [mixparams-reference-subset.md](mixparams-reference-subset.md), `shared/music/mix-reference.ts`, `scripts/select-mixparams.ts` | 143 lead-vocal compressor records, all `unitStatus: unverified`, none executable or trainable. MixParams has no licence: rows live only in the gitignored `data/` |
+
+Decisions Slice A made that later slices depend on:
+
+- A record is **refused, never repaired**, and its id must be the hash of its content: a manifest edited by hand fails.
+- Permissions start **private**: hosted analysis and training are off until someone says otherwise, and a hosted observation about audio that may not leave the computer fails validation.
+- A snapshot's identity leaves out the song's name, when it was captured and where from; renaming a song or capturing it twice gives the same snapshot.
+- A mix's recording families are its sources' families, so a mix can never land in a different split from the vocal and beat in it.
+
 ## Slice B: render and measure through tools
 
 Depends on A. Deliverables:
