@@ -62,6 +62,7 @@ let floatingState: FloatingState = { floating: false, visible: true };
 /** The order the floating windows are stacked in, ours and the engine's (stacking.ts): put back after the app is switched away from. */
 const stack = new WindowStack();
 let raiseEngineWindow: RunningServer["raiseEngineWindow"] | null = null;
+let closeEngineWindows: RunningServer["closeEngineWindows"] | null = null;
 const restacker = new Restacker(stack, async (key) => {
   if (key.startsWith("panel:")) return panels?.moveTop(key.slice("panel:".length)) ?? false;
   const [, owner, id] = key.split(":");
@@ -137,6 +138,7 @@ async function start() {
     closeServer = server.close;
     setHostWindow = server.setHostWindow;
     raiseEngineWindow = server.raiseEngineWindow;
+    closeEngineWindows = server.closeEngineWindows;
     // A plugin's window taking the focus (or giving it back) is the app being in use, as one of its own is.
     server.onEngineWindow((event) => {
       if (event.type === "foreground") group?.setEngineForeground(event.on);
@@ -160,7 +162,11 @@ async function start() {
       if (floatingState.floating && floatingState.visible) await restacker.run();
     });
   });
-  app.on("browser-window-focus", () => group?.setAppFocused(BrowserWindow.getFocusedWindow() !== null));
+  app.on("browser-window-focus", (_event, focused) => {
+    group?.setAppFocused(BrowserWindow.getFocusedWindow() !== null);
+    // A plugin's window is the engine's, not one of the editor's: it closes when the app's own window is used.
+    if (focused === mainWindow) void closeEngineWindows?.().catch(() => {});
+  });
   app.on("browser-window-blur", () => group?.setAppFocused(BrowserWindow.getFocusedWindow() !== null));
   relayHover();
   answerPanelRequests(() => (mainWindow && panels ? { main: mainWindow, panels } : null));
@@ -246,7 +252,9 @@ function relayHover() {
     () => {
       const win = mainWindow;
       if (!win || win.isDestroyed() || !win.isVisible() || win.isMinimized()) return [];
-      return [win, ...(panels?.shownWindows() ?? [])];
+      // Only while there are panels: with the editor's windows in the page, the main window hears the pointer itself.
+      const shown = panels?.shownWindows() ?? [];
+      return shown.length > 0 ? [win, ...shown] : [];
     },
     () => floatingState.floating,
   );

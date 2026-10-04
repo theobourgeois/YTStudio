@@ -127,6 +127,21 @@ describe("AudioEngine", () => {
     await expect(engine.command("effectEditor", { open: true })).rejects.toMatchObject({ status: 400 });
   });
 
+  it("closes every plugin window that's open, instrument and effect, and doesn't start the engine to do it", async () => {
+    await engine.closeEditors();
+    expect((engine as unknown as { child: unknown }).child).toBeNull();
+    const [synth, delay] = [(await engine.plugins())[0], (await engine.plugins()).find((p) => !p.isInstrument)!];
+    let song = addPluginChannel(createMusicProject("Windows"), synth, "chan_synth");
+    song = setEffect(song, "insert_1", 0, delay, "fx_delay");
+    await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });
+    await engine.command("channelEditor", { channel: "chan_synth", open: true });
+    await engine.command("effectEditor", { effect: "fx_delay", open: true });
+    await engine.closeEditors();
+    const status = await engine.command("status", {});
+    expect(status.channels.loaded[0].editorOpen).toBe(false);
+    expect(status.effects.loaded[0].editorOpen).toBe(false);
+  });
+
   it("passes on the keys pressed in plugin windows, and tells the engine (a restarted one too) where the app's window is", async () => {
     const request = (engine as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(engine);
     const host = { floating: true, visible: true, bounds: { x: 10, y: 20, width: 1400, height: 900 } };

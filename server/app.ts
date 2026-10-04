@@ -75,6 +75,8 @@ export interface EditorApp {
   onEngineWindow(listener: (event: EngineWindowEvent) => void): () => void;
   /** Put a plugin's window in front of the others (not given the focus). False if it has no window open. */
   raiseEngineWindow(owner: "channel" | "effect", id: string): Promise<boolean>;
+  /** Close every plugin window (the desktop app does when one of its own windows is used). */
+  closeEngineWindows(): Promise<void>;
 }
 
 /** Content types `mime-types` gets wrong (or too exotic) for browsers. */
@@ -252,6 +254,7 @@ export async function createApp({
         () => true,
         () => false,
       ),
+    closeEngineWindows: () => engine.closeEditors(),
     shutdown() {
       previews.shutdown();
       projects.shutdown();

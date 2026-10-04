@@ -622,13 +622,21 @@ interface DesktopProps<Id extends string> {
 }
 
 /**
+ * Whether a `native` desktop's windows are windows of the operating system in the desktop app. Off: they're
+ * drawn in the page, as in a browser, and a plugin's window (the audio engine's) floats over the main window
+ * and closes when the app is clicked (`closeEngineWindows`). The native machinery (native/, electron/panels.ts)
+ * is kept, and turning this on brings it back whole (docs/windows.md).
+ */
+const NATIVE_WINDOWS = false;
+
+/**
  * Where windows float: they're placed in it, stick to its edges and snap to fill it. It's a stacking
  * context of its own, so its windows' order never reaches past it (the app's windows float above an
  * editor's).
  */
 export function Desktop<Id extends string>({ windows, name, label, overlay, native, className, children, onDragOver, onDrop }: DesktopProps<Id>) {
   const ref = useRef<HTMLDivElement>(null);
-  const isNative = !!native && desktopPanels() !== undefined;
+  const isNative = NATIVE_WINDOWS && !!native && desktopPanels() !== undefined;
   const tracker = useMemo(() => createDeskTracker(ref), []);
   return (
     // Its windows are given ids of its own kind (the owner's typed wrapper, as `MusicWindow`, sees to that).

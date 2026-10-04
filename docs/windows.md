@@ -43,6 +43,13 @@ same title bars, snapping, stacking and keys.
 
 ## Native windows (the desktop app)
 
+> **Currently off** (`NATIVE_WINDOWS` in `components/windows/floating-window.tsx`): the editor's windows are boxes
+> in the page in the desktop app too, as in a browser. Native ones gave no hover or keyboard to the windows
+> beside the one in use, and a window system per panel was more than the editor wanted. A plugin's window floats
+> over the main window instead and **closes when one of the app's own windows is used** (`closeEngineWindows`,
+> on the main window's focus). Everything below describes the native mode, which setting the flag brings back
+> whole (its smoke test is `pnpm test:desktop:music`, which needs it).
+
 In the desktop app the music editor's windows (and Settings) are not boxes in the page but **windows of the
 operating system**, so a plugin's window, which is the audio engine's (another program), can sit *between* them:
 the channel rack in front, the plugin behind it, the Playlist behind that. In a browser tab they stay boxes in the
