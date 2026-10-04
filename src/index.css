@@ -348,6 +348,21 @@ html.desktop-darwin:not(.fullscreen) [data-titlebar="header"] {
 html.desktop-darwin:not(.fullscreen) [data-titlebar="home"] {
   padding-left: calc(var(--traffic-lights-end) + 4px);
 }
+/*
+ * With the tab strip (home/project-tabs.tsx) above, it starts the window: after a Mac's window buttons, with
+ * the Home button in it, so the bars below start at their own padding.
+ */
+[data-tabs] [data-titlebar="header"],
+html.desktop-darwin:not(.fullscreen) [data-tabs] [data-titlebar="header"] {
+  padding-left: 12px;
+}
+[data-tabs] [data-titlebar="home"],
+html.desktop-darwin:not(.fullscreen) [data-tabs] [data-titlebar="home"] {
+  padding-left: 16px;
+}
+html.desktop-darwin:not(.fullscreen) [data-titlebar="tabs"] {
+  padding-left: var(--traffic-lights-end);
+}
 
 /* The clip under the pick-whip while parenting (properties/parent-row.tsx). */
 [data-pick-target] {

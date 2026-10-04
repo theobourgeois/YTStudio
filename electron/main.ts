@@ -84,6 +84,10 @@ function openProject(file: string) {
   void mainWindow.webContents.executeJavaScript(`window.editorDesktop?.openFile(${JSON.stringify(file)})`).catch(() => {});
 }
 
+/** Where the Mac's window buttons sit: level with the middle of the page's headers (52px tall), or of its tab strip (40px: src/index.css). */
+const HEADER_BUTTONS = { x: 18, y: 20 };
+const TAB_STRIP_BUTTONS = { x: 18, y: 14 };
+
 /** A menu command of the page's (`DesktopCommand` in src/lib/desktop.ts). */
 function pageCommand(name: string) {
   if (!mainWindow) createWindow();
@@ -143,7 +147,7 @@ function createWindow() {
     // A click coming back from a native plugin must also reach the clicked editor window.
     acceptFirstMouse: true,
     backgroundColor: "#16191d",
-    ...(isMac && { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 20 } }),
+    ...(isMac && { titleBarStyle: "hiddenInset", trafficLightPosition: HEADER_BUTTONS }),
     webPreferences: {
       preload: path.join(import.meta.dirname, "preload.cjs"),
       sandbox: true,
@@ -241,6 +245,11 @@ function answerProjectDialogs() {
     const result = win ? await dialog.showOpenDialog(win, settings) : await dialog.showOpenDialog(settings);
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  // The page's tab strip is a shorter bar than its headers: the window buttons sit in the middle of whichever shows.
+  ipcMain.on("tab-strip", (event, shown: unknown) => {
+    if (!isMac) return;
+    BrowserWindow.fromWebContents(event.sender)?.setWindowButtonPosition(shown === true ? TAB_STRIP_BUTTONS : HEADER_BUTTONS);
+  });
   ipcMain.on("project-opened", (_event, file: unknown) => {
     if (typeof file === "string" && isProjectPath(file)) app.addRecentDocument(file);
   });
@@ -329,7 +338,9 @@ function buildMenu(): Menu {
         { label: "Home", accelerator: "CmdOrCtrl+Shift+H", registerAccelerator: false, click: () => pageCommand("home") },
         { label: "Show in Finder", click: () => pageCommand("reveal") },
         { type: "separator" },
-        isMac ? { role: "close" } : { role: "quit" },
+        // ⌘W closes the project's tab (a window without tabs has nothing else to close); the window itself ⇧⌘W.
+        { label: "Close Tab", accelerator: "CmdOrCtrl+W", registerAccelerator: false, click: () => pageCommand("closeTab") },
+        isMac ? { role: "close", accelerator: "CmdOrCtrl+Shift+W" } : { role: "quit" },
       ],
     },
     // Text fields need the Edit menu for ⌘C/⌘V/⌘Z on a Mac. The editor's own shortcuts get the keys first

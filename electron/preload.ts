@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
   // Projects are files (`.vaudio` packages): the Mac's Open dialog for one, and its folder picker (where new ones go).
   chooseProject: (defaultPath?: string) => ipcRenderer.invoke("choose-project", { defaultPath }) as Promise<string | null>,
   chooseFolder: (defaultPath?: string) => ipcRenderer.invoke("choose-folder", { defaultPath }) as Promise<string | null>,
+  // The tab strip is showing (or not): the window buttons move to its middle, or back to the header's.
+  tabStrip: (shown: boolean) => ipcRenderer.send("tab-strip", shown),
   // A project was opened: the Dock's and File › Open Recent's recent documents list it.
   projectOpened: (path: string) => ipcRenderer.send("project-opened", path),
   // Whether the engine may read inputs (recording): macOS asks Vaudio, which started it.

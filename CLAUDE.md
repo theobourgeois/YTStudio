@@ -243,6 +243,12 @@ src/
                      them, the video editor still has its own in stores/editor.ts and stores/autosave.ts.
   stores/projects.ts The recents (every suite) and which one is open (`openId`, in the URL; null is Home); hands it to
                      its suite. Opening and closing one tell the server (`opened`, `closed`).
+                     `tabs` are the open projects as a strip along the window's top (`components/home/project-tabs.tsx`,
+                     the order and edits in pure `stores/project-tabs.ts`, kept in localStorage): switching is just
+                     `open` (the one left is flushed and its store closed, so it reloads: no per-tab state yet). The
+                     strip shows with two tabs, or on Home with one; then it starts the window (the Home button and a
+                     Mac's window buttons move into it: `[data-tabs]` in index.css, `tab-strip` in electron/main.ts).
+                     ⌘W closes a tab (the File menu's Close Tab; ⇧⌘W the window), ⇧⌘[ / ⇧⌘] and ⌃Tab go through them.
   components/home/   The Home screen (home.tsx: New tiles, Open…, the recents as cards in project-card.tsx, search
                      and suite filter), the corner's Home button, Open… / Locate… (open-project-dialog.tsx: the
                      desktop app's dialog, else a path), the New project picker (⇧⌘O) and ⌘P's search, and the

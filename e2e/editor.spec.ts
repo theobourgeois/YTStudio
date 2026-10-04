@@ -2101,3 +2101,52 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await page.keyboard.press("ControlOrMeta+Shift+o");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
+
+test("keeps the open projects as tabs: switch, reorder, close", async ({ page }) => {
+  await openLatest(page);
+  const firstUrl = page.url();
+  const tabs = page.getByRole("tablist", { name: "Open projects" });
+  // One project open: no strip.
+  await expect(tabs).toHaveCount(0);
+
+  // A second one makes it appear, the new one selected.
+  await newVideo(page);
+  await expect.poll(() => page.url()).not.toBe(firstUrl);
+  const secondUrl = page.url();
+  await expect(tabs.getByRole("tab")).toHaveCount(2);
+  await expect(tabs.getByRole("tab").nth(1)).toHaveAttribute("aria-selected", "true");
+  // (Its Home button is the strip's: only one in the page.)
+  await expect(page.getByRole("button", { name: "Home", exact: true })).toHaveCount(1);
+
+  // Click the first tab: that project is back.
+  await tabs.getByRole("tab").first().click();
+  await expect(page).toHaveURL(firstUrl);
+  await expect(tabs.getByRole("tab").first()).toHaveAttribute("aria-selected", "true");
+
+  // ⇧⌘] goes to the next, wrapping round.
+  await page.keyboard.press("ControlOrMeta+Shift+BracketRight");
+  await expect(page).toHaveURL(secondUrl);
+  await page.keyboard.press("ControlOrMeta+Shift+BracketRight");
+  await expect(page).toHaveURL(firstUrl);
+
+  // Drag the first tab past the second: they swap places.
+  const first = tabs.getByRole("tab").first();
+  const [a, b] = [await first.boundingBox(), await tabs.getByRole("tab").nth(1).boundingBox()];
+  await page.mouse.move(a!.x + a!.width / 2, a!.y + a!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b!.x + b!.width / 2, b!.y + b!.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect(tabs.getByRole("tab").nth(1)).toHaveAttribute("data-tab-id", /./);
+  await expect(tabs.getByRole("tab").nth(1)).toHaveAttribute("aria-selected", "true");
+
+  // ⌘W closes the open one's tab: the other shows, alone, so the strip goes.
+  await page.keyboard.press("ControlOrMeta+w");
+  await expect(page).toHaveURL(secondUrl);
+  await expect(tabs).toHaveCount(0);
+
+  // Home with one tab still open shows the strip, so it can be gone back to.
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await expect(tabs.getByRole("tab")).toHaveCount(1);
+  await tabs.getByRole("tab").click();
+  await expect(page).toHaveURL(secondUrl);
+});

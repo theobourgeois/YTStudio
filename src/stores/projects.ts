@@ -8,6 +8,10 @@ import { chooseProjectFile, noteOpenedProject } from "@/lib/desktop";
 import { projectIdFromUrl, setUrlProject } from "@/lib/route";
 import { clientSuite } from "@/suites";
 import { onProjectSaved } from "./autosave";
+import { cycleTab, moveTab, restoreTabs, tabAfterClose, withTab, withoutTab } from "./project-tabs";
+
+/** Where this computer keeps which projects are open as tabs. */
+const TABS_KEY = "editor-open-tabs";
 
 /**
  * The projects this computer has opened (its recents: each a package on disk, a video, a song... see
@@ -20,6 +24,8 @@ interface ProjectsState {
   loadError: string | null;
   /** The open project, of any suite (its suite may still be loading it); null on the Home screen. */
   openId: string | null;
+  /** The projects open as tabs, in the strip's order (`project-tabs.ts`); the open one is always among them. */
+  tabs: readonly string[];
   /** The project open before the Home screen was shown (⇧⌘H goes back to it). */
   lastOpenId: string | null;
   /** Each suite's starting point, if it has one: new projects start as a copy of it. */
@@ -32,6 +38,12 @@ interface ProjectsState {
   /** Read the list again (the Home screen, shown or back in front: packages may have moved in Finder meanwhile). */
   refresh: () => Promise<void>;
   open: (projectId: string) => Promise<void>;
+  /** Close a tab: the project stays on disk and in the recents; its neighbour (or Home) shows if it was open. */
+  closeTab: (projectId: string) => Promise<void>;
+  /** Show the next or previous tab (wrapping round). */
+  cycleTab: (step: 1 | -1) => Promise<void>;
+  /** Drag a tab to another place in the strip. */
+  moveTab: (projectId: string, to: number) => void;
   /** Close the open project and show the Home screen. */
   goHome: () => Promise<void>;
   /** The Home screen and back to the project that was open. */
@@ -101,7 +113,11 @@ export const useProjects = create<ProjectsState>((set, get) => {
     const token = ++openToken;
     const suite = projectId ? projectSuite(projectId) : undefined;
     const previous = get().openId;
-    set({ openId: projectId, ...(previous && previous !== projectId && { lastOpenId: previous }) });
+    set({
+      openId: projectId,
+      ...(projectId && suite && { tabs: withTab(get().tabs, projectId) }),
+      ...(previous && previous !== projectId && { lastOpenId: previous }),
+    });
     const closing = loadedId !== projectId ? loadedId : null;
     if (loadedSuite && (loadedSuite !== suite || !projectId)) {
       const closingSuite = loadedSuite;
@@ -131,6 +147,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
     loaded: false,
     loadError: null,
     openId: null,
+    tabs: [],
     lastOpenId: null,
     templates: {},
     location: null,
@@ -147,6 +164,16 @@ export const useProjects = create<ProjectsState>((set, get) => {
         return;
       }
       onProjectSaved(upsert);
+      // The tabs open when the app was last closed, those that still exist; kept from here on.
+      try {
+        const known = new Set(get().projects.filter((p) => !p.missing).map((p) => p.id));
+        set({ tabs: restoreTabs(JSON.parse(localStorage.getItem(TABS_KEY) ?? "null"), (id) => known.has(id)) });
+      } catch {
+        // No tabs restored.
+      }
+      useProjects.subscribe((state, before) => {
+        if (state.tabs !== before.tabs) localStorage.setItem(TABS_KEY, JSON.stringify(state.tabs));
+      });
       api.getTemplates().then(
         (templates) => set({ templates }),
         () => {}, // Without them, new projects start blank.
@@ -178,6 +205,25 @@ export const useProjects = create<ProjectsState>((set, get) => {
       if (get().projects.find((p) => p.id === projectId)?.missing) return;
       setUrlProject(projectId);
       await show(projectId);
+    },
+
+    async closeTab(projectId) {
+      const { tabs, openId } = get();
+      if (!tabs.includes(projectId)) return;
+      const next = tabAfterClose(tabs, projectId);
+      set({ tabs: withoutTab(tabs, projectId) });
+      if (openId !== projectId) return;
+      if (next) await get().open(next);
+      else await get().goHome();
+    },
+
+    async cycleTab(step) {
+      const next = cycleTab(get().tabs, get().openId, step);
+      if (next && next !== get().openId) await get().open(next);
+    },
+
+    moveTab(projectId, to) {
+      set({ tabs: moveTab(get().tabs, projectId, to) });
     },
 
     async goHome() {
@@ -295,7 +341,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
         failed(`Couldn't remove ${noun(projectId)} from the recents`, err);
         return;
       }
-      set({ projects: get().projects.filter((p) => p.id !== projectId) });
+      set({ projects: get().projects.filter((p) => p.id !== projectId), tabs: withoutTab(get().tabs, projectId) });
       if (!project.missing) {
         toast.success(`Removed “${project.name}” from the recents`, {
           description: "Its file stays where it is.",
@@ -314,7 +360,11 @@ export const useProjects = create<ProjectsState>((set, get) => {
         return;
       }
       if (suite) clientSuite(suite).discard(projectId);
-      set({ projects: get().projects.filter((p) => p.id !== projectId), lastOpenId: get().lastOpenId === projectId ? null : get().lastOpenId });
+      set({
+        projects: get().projects.filter((p) => p.id !== projectId),
+        tabs: withoutTab(get().tabs, projectId),
+        lastOpenId: get().lastOpenId === projectId ? null : get().lastOpenId,
+      });
     },
 
     async setLocation(path) {

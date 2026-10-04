@@ -64,6 +64,8 @@ const PLATFORM = [
   "src/App.tsx",
   "src/suites/types.ts",
   "src/stores/projects.ts",
+  // The open projects as tabs (pure).
+  "src/stores/project-tabs.ts",
   "src/stores/assistant.ts",
   "src/stores/theme.ts",
   // The app's icon (its colourways), app-wide as the theme is.
