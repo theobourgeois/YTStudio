@@ -89,7 +89,8 @@ it("serves real filenames/Serum metadata and keeps configured keys out of respon
     expect(await settings.json()).toEqual({ configured: true });
     const reloaded = new ApiKeyStore(path.join(dir, "settings.json")); await reloaded.load();
     expect(reloaded.get("jev")).toBe("test-private-key");
-    expect((await fs.stat(path.join(dir, "settings.json"))).mode & 0o777).toBe(0o600);
+    // Windows file modes do not represent Unix permissions.
+    if (process.platform !== "win32") expect((await fs.stat(path.join(dir, "settings.json"))).mode & 0o777).toBe(0o600);
     let song = addPluginChannel(createMusicProject("Evidence"), { id: "Serum2", name: "Serum 2", format: "VST3" }, "chan_serum");
     song = addChannels(song, [{ id: "chan_sample", name: "Renamed as lead", sampleId: "media_kick" }]);
     const response = await post("/evidence", { projectId: "project_0123456789ab", song });

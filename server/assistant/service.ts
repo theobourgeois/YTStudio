@@ -165,10 +165,14 @@ export class AssistantService {
       provider === "claude"
         ? CLAUDE
           ? [CLAUDE]
-          : ["claude", path.join(home, ".local/bin/claude"), path.join(home, ".claude/local/claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+          : process.platform === "win32"
+            ? ["claude.exe", path.join(home, ".local", "bin", "claude.exe"), path.join(process.env.APPDATA || path.join(home, "AppData", "Roaming"), "npm", "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe")]
+            : ["claude", path.join(home, ".local/bin/claude"), path.join(home, ".claude/local/claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
         : CODEX
           ? [CODEX]
-          : ["codex", path.join(home, ".local/bin/codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex"];
+          : process.platform === "win32"
+            ? ["codex.exe", path.join(home, ".local", "bin", "codex.exe"), path.join(process.env.APPDATA || path.join(home, "AppData", "Roaming"), "npm", "node_modules", "@openai", "codex", "bin", "codex.js")]
+            : ["codex", path.join(home, ".local/bin/codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex"];
     let found = this.commands.get(provider);
     if (!found) {
       found = firstThatRuns(candidates, ["--version"]).then((command) => {

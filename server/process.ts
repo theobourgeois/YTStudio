@@ -8,6 +8,16 @@ import type { Readable, Writable } from "node:stream";
 
 const STDERR_TAIL_BYTES = 8 * 1024;
 
+/** JavaScript stand-ins and CLIs must run through Node on Windows (no shebang execution). */
+function processCommand(command: string, args: string[], env?: Record<string, string>) {
+  const script = /\.(mjs|cjs|js)$/i.test(command);
+  return {
+    command: script ? process.execPath : command,
+    args: script ? [command, ...args] : args,
+    env: { ...process.env, ...env, ...(script && process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
+  };
+}
+
 export interface RunOptions {
   signal?: AbortSignal;
   /** Receives stdout as it arrives; when set, stdout is not buffered. */
@@ -27,7 +37,8 @@ export function run(command: string, args: string[], opts: RunOptions = {}): Pro
   const { signal, onStdout, onStderr, env } = opts;
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason);
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env: env && { ...process.env, ...env } });
+    const launch = processCommand(command, args, env);
+    const child = spawn(launch.command, launch.args, { stdio: ["ignore", "pipe", "pipe"], env: launch.env, windowsHide: true });
     const out: Buffer[] = [];
     const stderr = keepStderrTail(child.stderr);
     if (onStderr) child.stderr.on("data", onStderr);
@@ -62,10 +73,12 @@ export function spawnStreaming(
   stdout: "pipe" | "ignore",
   opts: { cwd?: string; env?: Record<string, string> } = {},
 ) {
-  const child = spawn(argv[0], argv.slice(1), {
+  const launch = processCommand(argv[0], argv.slice(1), opts.env);
+  const child = spawn(launch.command, launch.args, {
     stdio: [stdin, stdout, "pipe"],
     cwd: opts.cwd,
-    env: opts.env && { ...process.env, ...opts.env },
+    env: launch.env,
+    windowsHide: true,
   }) as StreamingChild;
   const stderr = keepStderrTail(child.stderr);
   const done = new Promise<void>((resolve, reject) => {

@@ -1,4 +1,5 @@
 import os from "node:os";
+import fs from "node:fs/promises";
 import path from "node:path";
 import { Router, json } from "express";
 import { explicitMixRole, isMixRole, type ChannelClassification, type ChannelEvidence, type MixerSetupResult } from "../../shared/music/mixer-setup.ts";
@@ -19,9 +20,19 @@ const criteria = {
 
 /** Read Serum's own local catalog. Duplicate names with conflicting categories are unresolved. */
 export async function serumCategory(name: string): Promise<string | null> {
+  let windowsPresets: string | null = null;
+  if (process.platform === "win32" && !process.env.SERUM_PRESET_DATABASE) {
+    try {
+      const prefs = JSON.parse(await fs.readFile(path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "Xfer", "Serum 2", "Serum2Prefs.json"), "utf8"));
+      if (typeof prefs["Serum Presets Path"] === "string") windowsPresets = prefs["Serum Presets Path"];
+    } catch { /* A fresh install may not have preferences yet. */ }
+  }
   const files = process.env.SERUM_PRESET_DATABASE ? [process.env.SERUM_PRESET_DATABASE] : process.platform === "darwin" ? [
     "/Library/Audio/Presets/Xfer Records/Serum 2 Presets/System/presets.db",
     path.join(os.homedir(), "Library/Audio/Presets/Xfer Records/Serum 2 Presets/System/presets.db"),
+  ] : process.platform === "win32" ? [
+    ...(windowsPresets ? [path.join(windowsPresets, "System", "presets.db")] : []),
+    path.join(os.homedir(), "Documents", "Xfer", "Serum 2 Presets", "System", "presets.db"),
   ] : [];
   const categories = new Set<string>();
   for (const file of files) {

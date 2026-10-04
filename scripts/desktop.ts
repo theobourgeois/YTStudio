@@ -14,14 +14,16 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { type BuildOptions, build, context } from "esbuild";
 import { BASE_WEB_PORT, pickPorts } from "./ports.ts";
+import { pnpmCommand, stopProcess } from "./process.ts";
+import { engineArtifactName } from "../server/engine-path.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const STAGE = path.join(ROOT, "build", "desktop");
 const pkg = (await import("../package.json", { with: { type: "json" } })).default as { version: string };
 const electronPkg = (await import("electron/package.json", { with: { type: "json" } })).default as { version: string };
 /** The music suite's audio engine (`pnpm engine:build`), shipped beside the app when it's been built. */
-const ENGINE_APP = path.join(ROOT, "engine", "build", "VaudioEngine_artefacts", "Release", "Vaudio Engine.app");
-const ELECTRON = path.join(ROOT, "node_modules", ".bin", "electron");
+const ENGINE_APP = path.join(ROOT, "engine", "build", "VaudioEngine_artefacts", "Release", engineArtifactName());
+const ELECTRON = createRequire(import.meta.url)("electron") as string;
 
 /**
  * The environment for Electron: without ELECTRON_RUN_AS_NODE, which terminals inside Electron apps (VS Code,
@@ -94,7 +96,8 @@ function bundles(outdir: string): BuildOptions[] {
 
 function run(command: string, args: string[], env: NodeJS.ProcessEnv = {}): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: ROOT, stdio: "inherit", env: { ...process.env, ...env } });
+    const [binary, argv] = command === "pnpm" ? pnpmCommand(args) : [command, args];
+    const child = spawn(binary, argv, { cwd: ROOT, stdio: "inherit", env: { ...process.env, ...env } });
     child.on("error", reject);
     child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${command} ${args.join(" ")} exited with ${code}`))));
   });
@@ -119,14 +122,14 @@ async function dev() {
   if (web !== BASE_WEB_PORT) console.log(`[desktop] ${BASE_WEB_PORT} is taken, using ports ${web} (app) / ${server} (server)`);
   const outdir = path.join(ROOT, "dist-electron");
   const env = { EDITOR_WEB_PORT: String(web), EDITOR_SERVER_PORT: String(server) };
-  const vite = spawn("pnpm", ["exec", "vite"], { cwd: ROOT, stdio: "inherit", env: { ...process.env, ...env } });
+  const vite = spawn(...pnpmCommand(["exec", "vite"]), { cwd: ROOT, stdio: "inherit", env: { ...process.env, ...env } });
 
   let electron: ChildProcess | null = null;
   let stopping = false;
   const stop = (code = 0) => {
     stopping = true;
-    electron?.kill();
-    vite.kill();
+    if (electron) stopProcess(electron);
+    stopProcess(vite);
     process.exit(code);
   };
   const launch = () => {
@@ -148,7 +151,7 @@ async function dev() {
     electron = null;
     if (!old || old.exitCode !== null) return launch();
     old.once("exit", launch);
-    old.kill();
+    stopProcess(old);
   };
 
   let first = true;
@@ -183,6 +186,7 @@ async function dev() {
 }
 
 async function pack(targets: "dir" | "installers") {
+  if (!existsSync(ENGINE_APP)) throw new Error("Build the music engine first: pnpm engine:build");
   await run("pnpm", ["build"]);
   rmSync(STAGE, { recursive: true, force: true });
   mkdirSync(STAGE, { recursive: true });
@@ -202,12 +206,14 @@ async function pack(targets: "dir" | "installers") {
       // scripts/make-icon.ts draws it; electron-builder makes the .icns / .ico from the 1024 px PNG.
       icon: path.join(ROOT, "resources", "icon.png"),
       electronVersion: electronPkg.version,
+      // Reuse the installed Electron distribution; avoids a second download/extract and Windows rename locks.
+      electronDist: path.dirname(ELECTRON),
       directories: { app: STAGE, output: path.join(ROOT, "release") },
       // Everything is bundled: electron-builder would otherwise copy in the repo's dependencies.
       files: ["**/*", "!**/*.map", "!node_modules/**"],
       npmRebuild: false,
       // electron/main.ts points the server at it (EDITOR_ENGINE_PATH).
-      extraResources: existsSync(ENGINE_APP) ? [{ from: ENGINE_APP, to: "Vaudio Engine.app" }] : [],
+      extraResources: existsSync(ENGINE_APP) ? [{ from: ENGINE_APP, to: engineArtifactName() }] : [],
       // Not signed with an identity yet (that needs an Apple Developer ID): signed ad hoc once it's packed,
       // before the .dmg and .zip are made of it (unsigned, macOS kills it). macOS asks to confirm the first launch.
       afterPack: async (packed) => {

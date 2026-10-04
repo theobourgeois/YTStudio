@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { engineExecutable } from "./engine-path.ts";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -47,7 +48,7 @@ export const CODEX = process.env.CODEX_PATH || null;
 const ENGINE_BUILD = path.join(REPO_ROOT, "engine", "build");
 export const ENGINE =
   process.env.EDITOR_ENGINE_PATH ||
-  path.join(ENGINE_BUILD, "VaudioEngine_artefacts", "Release", "Vaudio Engine.app", "Contents", "MacOS", "Vaudio Engine");
+  engineExecutable(path.join(ENGINE_BUILD, "VaudioEngine_artefacts", "Release"));
 /** The engine's own source (a checkout's, not a packaged app's): an engine built before it last changed is out of date. */
 export const ENGINE_SOURCE = path.join(REPO_ROOT, "engine");
 export const ENGINE_PLUGIN_PATHS = process.env.EDITOR_PLUGIN_PATHS

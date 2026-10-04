@@ -94,6 +94,7 @@ import { addVocalCompressionTool, describeProC, findProCRef, setProCBandsTool, s
 import { addVocalReverbTool, describeReverb, setReverbDecayTool, updateReverbTool } from "./reverb/tool-edits";
 import { describePanMan, findPan, setPanPatternTool, updatePanManTool } from "./panman/tool-edits";
 import { useBrowser } from "./browser/store";
+import { nameOf } from "./browser/tree";
 import {
   addMixerTrackTool,
   effectToTrackTool,
@@ -615,7 +616,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   },
   async list_samples(input) {
     if (typeof input.folder === "string" && input.folder.trim()) {
-      const folder = input.folder.trim().replace(/\/+$/, "");
+      const folder = input.folder.trim().replace(/[\\/]+$/, "");
       return textResult(describeFolder(folder, await musicApi.listBrowserFolder(folder)));
     }
     const state = await musicApi.browser();
@@ -641,7 +642,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     await musicApi.previewFile({ path: input.path, start, id });
     // The Browser shows it playing, as if the user had clicked it.
     useBrowser.setState({ previewing: { path: input.path, id } });
-    return textResult(`Playing ${input.path.slice(input.path.lastIndexOf("/") + 1)} to the user${start ? ` from ${start}s` : ""}. You can't hear it: ask them what they think.`);
+    return textResult(`Playing ${nameOf(input.path)} to the user${start ? ` from ${start}s` : ""}. You can't hear it: ask them what they think.`);
   },
   async load_sample(input, ctx) {
     const target = await targetOf(ctx);

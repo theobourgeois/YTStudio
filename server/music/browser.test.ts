@@ -136,7 +136,7 @@ describe("SampleBrowser", () => {
     const elsewhere = path.join(dir, "Elsewhere");
     mkdirSync(elsewhere);
     writeFileSync(path.join(elsewhere, "Clap.wav"), "");
-    symlinkSync(elsewhere, path.join(samples, "Linked"));
+    symlinkSync(elsewhere, path.join(samples, "Linked"), process.platform === "win32" ? "junction" : "dir");
     const browser = make();
     await browser.addRoot(samples);
     expect((await browser.list(samples)).map((i) => i.name)).toEqual(["Drums", "Linked", "Loops"]);

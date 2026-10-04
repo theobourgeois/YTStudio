@@ -35,7 +35,7 @@ describe("desktop app icons", () => {
     vi.resetModules();
     (await import("./app-icon")).initializeAppIcon();
     expect(mock.handlers.get("app-icon-get")!()).toBe("evergreen");
-    expect(mock.paths.at(-1)).toContain("app-icons/evergreen.png");
+    expect(mock.paths.at(-1)).toContain(path.join("app-icons", "evergreen.png"));
   });
 
   it("rejects arbitrary paths without changing the selected icon", async () => {
@@ -48,6 +48,6 @@ describe("desktop app icons", () => {
     mock.packaged = true;
     writeFileSync(path.join(mock.directory, "app-icon.json"), '"removed-icon"');
     (await import("./app-icon")).initializeAppIcon();
-    expect(mock.paths.at(-1)).toBe("/packaged/app/dist/app-icons/original.png");
+    expect(mock.paths.at(-1)).toBe(path.join("/packaged/app", "dist", "app-icons", "original.png"));
   });
 });

@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import type { BrowserSearchResult, BrowserState } from "@shared/music/browser";
 import { musicApi } from "../api";
-import { type FolderContents, foldersToReveal } from "./tree";
+import { type FolderContents, foldersToReveal, nameOf } from "./tree";
 
 /**
  * The Browser (`docs/fl-studio/browser.md`): the same in every project, so none of it is the song's.
@@ -198,7 +198,7 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
           set({ state: await musicApi.addBrowserRoot({ path }) });
           get().expand(path);
         } catch (err) {
-          failed(`Couldn't add "${path.slice(path.lastIndexOf("/") + 1) || path}"`, err);
+          failed(`Couldn't add "${nameOf(path)}"`, err);
         }
       }
     },

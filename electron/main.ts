@@ -7,6 +7,7 @@
  */
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { engineExecutable } from "../server/engine-path.ts";
 import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, screen, shell, systemPreferences } from "electron";
 import type { RunningServer } from "./server.ts";
 import { loadShellPath } from "./shell-path.ts";
@@ -43,7 +44,7 @@ if (app.isPackaged && !process.env.EDITOR_DATA_DIR) {
 
 // The audio engine ships in the app's resources (scripts/desktop.ts); development uses engine/build.
 if (app.isPackaged && !process.env.EDITOR_ENGINE_PATH) {
-  process.env.EDITOR_ENGINE_PATH = path.join(process.resourcesPath, "Vaudio Engine.app", "Contents", "MacOS", "Vaudio Engine");
+  process.env.EDITOR_ENGINE_PATH = engineExecutable(process.resourcesPath);
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -294,7 +295,7 @@ function answerProjectDialogs() {
       buttonLabel: "Open",
       defaultPath: defaultPath(options),
       // A package is a file to the dialog when the type is registered (the packaged app); otherwise its folder is picked.
-      properties: ["openFile", "openDirectory"],
+      properties: isMac ? ["openFile", "openDirectory"] : ["openDirectory"],
       filters: [{ name: "Vaudio projects", extensions: ["vaudio"] }],
     };
     const result = win ? await dialog.showOpenDialog(win, settings) : await dialog.showOpenDialog(settings);
@@ -487,7 +488,7 @@ app.on("activate", () => {
 });
 
 // Closing the window leaves the app (and any export) running on a Mac, like other Mac apps.
-app.on("window-all-closed", () => {});
+app.on("window-all-closed", () => { if (!isMac) app.quit(); });
 
 app.on("before-quit", () => {
   quitting = true;

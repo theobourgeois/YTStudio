@@ -16,6 +16,8 @@ export default defineConfig({
   server: {
     port: Number(process.env.EDITOR_WEB_PORT) || 5310,
     strictPort: true,
+    // Generated binaries can be locked while packaged on Windows; they are never frontend inputs.
+    watch: { ignored: ["**/release/**", "**/engine/build/**", "**/build/**", "**/dist-electron/**", "**/data/**", "**/e2e/.data/**", "**/*.log"] },
     proxy: {
       "/api": `http://127.0.0.1:${SERVER_PORT}`,
       "/files": `http://127.0.0.1:${SERVER_PORT}`,
