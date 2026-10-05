@@ -43,11 +43,12 @@ down as a whole (never up), so changes inside it are exactly as stated.
 
 ```sh
 pnpm tsx scripts/hearing-benchmark.ts fetch      # download, verify hashes and licences (~1.3 GB)
-pnpm tsx scripts/hearing-benchmark.ts prepare    # cases.json, cases/*.wav, recordings.html (check these)
+pnpm tsx scripts/hearing-benchmark.ts prepare    # cases.json, cases/*.wav, recordings.html
+pnpm tsx scripts/hearing-benchmark.ts sheets     # http://127.0.0.1:5345: recordings.html (check these) and compare.html
 pnpm tsx scripts/hearing-benchmark.ts run --provider=qwen --split=development
 pnpm tsx scripts/hearing-benchmark.ts compare    # compare.html: development runs side by side
 pnpm tsx scripts/hearing-benchmark.ts run --provider=qwen --split=heldout     # two trials a case
-pnpm tsx scripts/hearing-benchmark.ts review --run=heldout-qwen               # http://127.0.0.1:5330
+pnpm tsx scripts/hearing-benchmark.ts review --run=heldout-qwen               # http://127.0.0.1:5346
 pnpm tsx scripts/hearing-benchmark.ts score --run=heldout-qwen [--certify=data/hearing-certification.json]
 ```
 

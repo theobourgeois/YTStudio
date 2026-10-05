@@ -3,9 +3,10 @@
  *
  *   pnpm tsx scripts/hearing-benchmark.ts fetch                 download the pinned recordings, check hashes and licences
  *   pnpm tsx scripts/hearing-benchmark.ts prepare               make every case's clip (cases.json + cases/*.wav)
+ *   pnpm tsx scripts/hearing-benchmark.ts sheets [--port=5345]  serve recordings.html and compare.html with their clips
  *   pnpm tsx scripts/hearing-benchmark.ts run --provider=qwen --split=development [--repeats=1] [--task=tone] [--parallel=4]
  *   pnpm tsx scripts/hearing-benchmark.ts compare               development runs side by side, to pick a provider (compare.html)
- *   pnpm tsx scripts/hearing-benchmark.ts review --run=heldout-qwen [--port=5330]   the blind review page
+ *   pnpm tsx scripts/hearing-benchmark.ts review --run=heldout-qwen [--port=5346]   the blind review page
  *   pnpm tsx scripts/hearing-benchmark.ts score --run=heldout-qwen [--certify=file.json]
  *
  * Everything lives in the gitignored data/hearing-benchmark/. Reviews are people's: nothing here writes one.
@@ -155,7 +156,7 @@ async function writeListeningSheet(cases: PreparedCase[], manifest: SourcesManif
   const sources = manifest.sources.map(s => `<li>${esc(s.song)} — ${esc(s.artist)} (${s.licence}, ${esc(s.origin)}; ${s.split}, family ${s.family})</li>`);
   await fs.writeFile(path.join(ROOT, "recordings.html"), `<!doctype html><meta charset="utf-8"><title>Hearing benchmark recordings</title><style>body{font:14px system-ui;margin:24px}td{border-top:1px solid #ccc;padding:8px;vertical-align:top}</style>
 <h1>Hearing benchmark: recordings</h1><p>Mix Evaluation Dataset 2.0 (${MIX_EVALUATION.repo} @ ${MIX_EVALUATION.revision.slice(0, 10)}), licences from songs.xml. Check each clip is what its line says.</p><ul>${sources.join("")}</ul><table>${rows.join("\n")}</table>`);
-  console.log(`Listening sheet: ${path.join(ROOT, "recordings.html")}`);
+  console.log(`Listening sheet: ${path.join(ROOT, "recordings.html")} (open it with the sheets command)`);
 }
 
 // run: each case through the app's own hearing pipeline, twice for held-out cases (each repeat its own project, so no cache).
@@ -250,10 +251,35 @@ async function compare() {
   console.log(`${path.join(ROOT, "compare.html")}`);
 }
 
+/** A WAV with byte ranges, so the browser knows its length and can seek. */
+function sendAudio(req: http.IncomingMessage, res: http.ServerResponse, body: Buffer) {
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
+  if (!range) { res.writeHead(200, { "Content-Type": "audio/wav", "Content-Length": body.length, "Accept-Ranges": "bytes" }); res.end(body); return; }
+  const start = range[1] ? Number(range[1]) : Math.max(0, body.length - Number(range[2])), end = range[1] && range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
+  if (start > end || start >= body.length) { res.writeHead(416, { "Content-Range": `bytes */${body.length}` }); res.end(); return; }
+  res.writeHead(206, { "Content-Type": "audio/wav", "Content-Length": end - start + 1, "Content-Range": `bytes ${start}-${end}/${body.length}`, "Accept-Ranges": "bytes" });
+  res.end(body.subarray(start, end + 1));
+}
+
+// sheets: the listening sheet and the comparison over HTTP (browsers won't play a file:// page's clips).
+
+async function sheets() {
+  const port = Number(flag("port") ?? 5345), pages = new Set(["recordings.html", "compare.html"]);
+  http.createServer(async (req, res) => {
+    const name = decodeURIComponent(new URL(req.url ?? "/", "http://localhost").pathname.slice(1)) || "recordings.html";
+    const allowed = pages.has(name) || /^cases\/[\w.-]+\.wav$/.test(name);
+    const body = allowed ? await fs.readFile(path.join(ROOT, name)).catch(() => null) : null;
+    if (!body) { res.writeHead(404); res.end("Not found"); return; }
+    if (name.endsWith(".wav")) return sendAudio(req, res, body);
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(body);
+  }).listen(port, "127.0.0.1", () => console.log(`Recordings at http://127.0.0.1:${port}/ and the comparison at http://127.0.0.1:${port}/compare.html (Ctrl+C to stop)`));
+}
+
 // review: a local page; each reviewer scores each completed trial's three arms, unlabelled and in their own order.
 
 async function review() {
-  const runName = flag("run") ?? "", dir = path.join(RUNS, runName), port = Number(flag("port") ?? 5330);
+  const runName = flag("run") ?? "", dir = path.join(RUNS, runName), port = Number(flag("port") ?? 5346);
   const manifest = await readJson<RunManifest>(path.join(dir, "run.json"));
   const cases = new Map((await readJson<PreparedCase[]>(path.join(ROOT, "cases.json"))).map(c => [c.spec.id, c]));
   const reviewsFile = (reviewer: string) => path.join(dir, "reviews", `${reviewer.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}.json`);
@@ -264,7 +290,7 @@ async function review() {
       if (url.pathname === "/") return send(res, 200, REVIEW_PAGE, "text/html; charset=utf-8");
       if (url.pathname.startsWith("/audio/")) {
         const c = cases.get(decodeURIComponent(url.pathname.slice(7)));
-        return c ? send(res, 200, await fs.readFile(path.join(ROOT, c.file)), "audio/wav") : send(res, 404, "{}");
+        return c ? sendAudio(req, res, await fs.readFile(path.join(ROOT, c.file))) : send(res, 404, "{}");
       }
       const reviewer = (url.searchParams.get("reviewer") ?? "").trim();
       if (!/^[\p{L}\p{N} .'-]{2,60}$/u.test(reviewer)) return send(res, 400, JSON.stringify({ error: "Enter your name (2 to 60 letters)." }));
@@ -340,6 +366,6 @@ async function save(){const i=items[at];const scores=[0,1,2].map(k=>{const u=doc
 if(scores.some(s=>s.usefulness===null))return alert("Give each answer a usefulness score.");const r=await fetch("/api/review?reviewer="+encodeURIComponent(reviewer),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({trialId:i.trialId,scores})});const j=await r.json();if(j.error)return alert(j.error);i.scores=scores;at=Math.min(items.length-1,at+1);show()}
 </script>`;
 
-const commands: Record<string, () => Promise<void>> = { fetch: fetchSources, prepare: prepareCases, run: runProvider, compare, review, score };
-if (!commands[command]) { console.error("Usage: pnpm tsx scripts/hearing-benchmark.ts fetch | prepare | run --provider=gemini|qwen [--split=development|heldout] | compare | review --run=<name> | score --run=<name> [--certify=file]"); process.exit(1); }
+const commands: Record<string, () => Promise<void>> = { fetch: fetchSources, prepare: prepareCases, sheets, run: runProvider, compare, review, score };
+if (!commands[command]) { console.error("Usage: pnpm tsx scripts/hearing-benchmark.ts fetch | prepare | sheets | run --provider=gemini|qwen [--split=development|heldout] | compare | review --run=<name> | score --run=<name> [--certify=file]"); process.exit(1); }
 await commands[command]();
