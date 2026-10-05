@@ -37,7 +37,7 @@ describe("cached project previews", () => {
       await fs.writeFile(file, "rendered mix");
       return file;
     });
-    previews = new ProjectPreviews(paths, projects, { music: render, video: render }, inspect);
+    previews = new ProjectPreviews(paths, projects, { music: render, video: render, photo: render }, inspect);
   });
   afterEach(async () => { previews.shutdown(); await fs.rm(root, { recursive: true, force: true }); });
   const ready = () => expect.poll(async () => (await previews.get(id)).state).toBe("ready");
@@ -52,7 +52,7 @@ describe("cached project previews", () => {
     expect(view).toMatchObject({ state: "ready", duration: 2, peaks: [0.2, 1, 0.4] });
     expect(await fs.readFile(await previews.file(id, false), "utf8")).toBe("rendered mix");
     previews.shutdown();
-    previews = new ProjectPreviews(paths, projects, { music: render, video: render }, inspect);
+    previews = new ProjectPreviews(paths, projects, { music: render, video: render, photo: render }, inspect);
     await previews.ensure(id, revision);
     expect(await previews.get(id)).toEqual(view);
     expect(render).toHaveBeenCalledTimes(1);

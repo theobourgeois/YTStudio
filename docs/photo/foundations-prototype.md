@@ -1,7 +1,7 @@
 # Foundations: implementation order and gates
 
-Status: revised 2026-10-05 (first proposal 2026-10-03). **F0 is done** (2026-10-05): its gate passed in Electron
-and Chrome; results and what F0 changed in the plan are under "F0 results". F1 is next.
+Status: revised 2026-10-05 (first proposal 2026-10-03). **F0 and F1 are done** (2026-10-05): their gates passed;
+results and what each changed in the plan are under "F0 results" and "F1 results". F2 is next.
 
 The foundations are the application's first real version with deliberately few features, not a throwaway prototype.
 Each milestone ends with something Théo can use and a gate that's checked, not argued. Lasting contracts (the
@@ -101,7 +101,7 @@ project routes; `scripts/photo-bench.ts` stays, pointed at the suite.
 
 ## F1: the photo suite exists
 
-**Platform first**:
+**Platform first** (all done in F1):
 - photo's folders in `server/architecture.test.ts` (F0 added them; F1 adds `server/suites/photo.ts`);
 - never replace a corrupt `project.json` (all suites);
 - media import that accepts photo formats with the helper's probe (TIFF later, 16-bit PNG now, ICC, bit depth);
@@ -125,10 +125,48 @@ project routes; `scripts/photo-bench.ts` stays, pointed at the suite.
 restores everything. Duplicating and moving the package keep it working. The e2e spec passes alone (`pnpm test:e2e
 photo`).
 
+### F1 results (2026-10-05)
+
+**Passed.** `e2e/photo.spec.ts` (8 tests, about 25 s alone) checks each gate item in the real app, with WebGPU on:
+
+| Gate | How it's checked |
+| --- | --- |
+| An unedited 8-bit sRGB photo exports bit-exact | The sample JPEG opened as the canvas, exported as PNG through the export window (in bands), compared by the helper with the file: 0 samples differ |
+| Down to 10% and back up is lossless | W typed 10 then 100 in Properties: the saved transform equals the original exactly, and the source is what's resampled |
+| Reopen restores everything | Reload after transforms, hiding, renaming, reordering: the saved document and the panels agree |
+| Duplicate and move keep it working | A duplicated project's layer loads (`data-source="ready"`); a renamed one's package moves to `Moved.vaudio` and reopens with its images |
+| The spec passes alone | `pnpm test:e2e photo` |
+
+Also checked there: a new photo from the New tile, its size presets (undoable), images dropped on Home starting a
+photo the size of the first, a corner handle scaling about the opposite corner as one undo step, nudges coalescing
+into one undo step, and the assistant (`get_photo`, `set_canvas`, `transform_layer` with `fit`, a refused
+`update_layer`, `view_photo`). The canvas's own pixels are compared with the file's.
+
+**Platform work F1 needed** (all suites benefit): a damaged `project.json` is kept aside (`project.corrupt-<time>.json`)
+and refused, never replaced by an empty document (Home marks the project damaged); duplicating clones files and
+skips rebuildable `cache` folders and previews; the media store is platform code with an image probe the photo
+helper supplies (`MediaAsset.image`: bit depth, alpha, orientation, ICC); a project can have a cover the tab renders
+(`PUT /api/projects/:id/cover`); "New Photo" (⌘3) in the desktop File menu; Playwright launches with the GPU on.
+
+**What F1 changed in the plan:**
+- A layer's place is five numbers (`LayerTransform`: centre, scale, rotation), not a matrix, so that typing 100%
+  gives exactly 100%; skew and perspective would bring a matrix, by migration. F1's document has only what it
+  renders: no `blend`, `mask` or `effects` fields yet (architecture.md).
+- One compositor (`render/compositor.ts`) draws every layer into a float accumulator through its inverse transform;
+  the screen, exports, Home's cover and the assistant's pictures all use it. A layer whose pixels land exactly on
+  the target's (scale ±1, right angles, whole-pixel offsets) is read texel for texel: Mitchell softens even at 100%,
+  which would have broken the bit-exact export.
+- The canvas is drawn in the view's own resolution: the settled view samples layers at the view's level rather than
+  reducing a full-resolution composite. Identical for aligned layers; for transformed ones the difference is
+  resampling order. The full rule (rendering.md, "The render plan") arrives with F2's render plan.
+- The lab (`photo-lab.html`) and its bench stay for now: they measure the renderer's parts, which the suite uses
+  as they are. They move onto the suite when F2 adds what they'd measure there.
+
 ## F2: layers and adjustments
 
-- Layers panel: visibility, opacity, order, rename, duplicate, delete.
-- Properties panel following the selected layer; exposure and curves adjustment layers.
+- Layers panel (F1 has visibility, order, rename, duplicate, delete; opacity is in Properties): thumbnails of the
+  layer as composited, drag to reorder, groups' groundwork.
+- Exposure and curves adjustment layers in Properties.
 - `compileRender` with the region and reduction rules, and the view's refinement.
 - Assistant: `add_adjustment`, `set_effect_params`, `set_layer` (visibility, opacity, order, name).
 

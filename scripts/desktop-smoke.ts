@@ -124,6 +124,23 @@ try {
   await api(`/api/photo/lab/exports/${exportId}/finish`, { method: "POST" });
   const compared = await api<CompareResult>(`/api/photo/lab/exports/smoke.png/compare?source=${source.key}`);
   check("the photo helper decodes and encodes exactly", layout.width === 320 && compared.differing === 0, `${layout.decoder}, ${compared.differing} samples differ`);
+  // A photo project with that image as a layer opens in the window and its image reaches the GPU.
+  const photo = await post<ProjectSummary>("/api/projects", { suite: "photo", name: "Desktop photo" });
+  const image = await api<MediaAsset>(`/api/media?projectId=${photo.id}&name=photo.png`, { method: "POST", body: readFileSync(still) });
+  const doc = await api<Record<string, unknown> & { canvas: { width: number; height: number } }>(`/api/projects/${photo.id}`);
+  const layer = { id: "layer_smoke", kind: "image", name: "Smoke", visible: true, opacity: 1, mediaId: image.id, transform: { x: doc.canvas.width / 2, y: doc.canvas.height / 2, scaleX: 1, scaleY: 1, rotation: 0 } };
+  await api(`/api/projects/${photo.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...doc, layers: [layer] }) });
+  await window.goto(`${base}/p/${photo.id}`);
+  const drawn = await window.locator('[data-layer][data-source="ready"]').waitFor({ timeout: 20_000 }).then(() => true, () => false);
+  const state = drawn
+    ? ""
+    : await window.evaluate(() => {
+        const row = document.querySelector("[data-layer]");
+        const canvas = document.querySelector("[data-photo-canvas]");
+        return `layer: ${row?.getAttribute("data-source") ?? "none"}; ${row?.querySelector("[aria-label^=Image]")?.getAttribute("aria-label") ?? ""} ${canvas?.textContent?.slice(0, 300) ?? `no canvas: ${location.pathname} ${document.body.innerText.slice(0, 300)}`}`;
+      });
+  check("a photo opens and its image is drawn by the GPU in the window", drawn, state);
+  await window.goto(`${base}/`);
 
   const project = await post<ProjectSummary>("/api/projects", { name: "Desktop smoke" });
   const colour = async (name: string) => {

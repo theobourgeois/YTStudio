@@ -1,7 +1,8 @@
 # Photo suite
 
-Status: plan revised and hardened 2026-10-05 (first written 2026-10-03). **F0 is built and measured** (the renderer,
-the helper, the blob store and the lab; no suite yet): results in [foundations-prototype.md](foundations-prototype.md#f0-results-2026-10-05).
+Status: plan revised and hardened 2026-10-05 (first written 2026-10-03). **F0 and F1 are built**: the renderer, the
+helper and the blob store (F0), and the photo suite itself (F1: new photos, image layers, transforms, export, the
+assistant). Results in [foundations-prototype.md](foundations-prototype.md#f1-results-2026-10-05).
 
 A Photoshop-style image editor with dependable layers, masks, painting and retouching, and a particularly strong set
 of editable light effects. The foundations are the application's first version, so the document, resource, colour
@@ -59,5 +60,7 @@ and **Unverified** (an open question). Théo's corrections override the referenc
 | A08 | Formats: `rgba16f` for 8-bit sources and paint, `rgba32f` for 16-bit sources, `r16f` coverage; an unedited 8-bit sRGB round trip is bit-exact | Precision worked out in rendering.md | Precision fixtures |
 | A09 | One output transform (`film` or `clip` highlights, 8-bit dither ±0.375 step), no tone curves inside effects | Effects compose; exact levels survive (0.092-step worst f16 error, measured) | Théo's comparison in F4 |
 | A10 | Kernels round to the nearest half themselves before storing f16 (2026-10-05, F0) | Metal truncates on f16 storage writes and the compiler drops `quantizeToF16`: both measured | A backend that rounds on store |
+| A11 | A layer's place is centre, scale and rotation (`LayerTransform`), not a matrix (2026-10-05, F1) | Typed values stay exact (100% is 1, not 0.9999…); the UI and the assistant speak in these | Skew or perspective: a matrix, by migration |
+| A12 | Layers whose pixels land on the target's are read texel for texel (2026-10-05, F1) | Mitchell softens even at 100%: an unedited export wouldn't be bit-exact | — |
 
 Progress, measurements and gates live in [foundations-prototype.md](foundations-prototype.md).

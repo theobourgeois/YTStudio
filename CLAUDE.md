@@ -14,12 +14,15 @@ FL Studio** (see "The music suite"). See "Suites" below: most of this file is ab
 The planned **photo suite** is a Photoshop-style image editor with creative lighting/render effects.
 Read [`docs/photo/README.md`](docs/photo/README.md) for its product, research and architecture (WebGPU in the
 page renders and paints; content-addressed tiles in the package; a helper process decodes files) and the
-foundations' milestones and gates. **F0 is built** (no suite yet): `shared/photo/` (colour and ICC, geometry, half
-floats, surfaces, brush, the output transform), `server/photo/` (the helper process, the only code that parses image
-files, with sharp; the blob store; the lab's routes), `src/suites/photo/render/` (the WebGPU renderer: atlas, page
-tables, kernels in WGSL, the session) and a development page, `/photo-lab.html` in `pnpm dev`. F1 (the suite) is next.
-Kernels storing `rgba16float` must round first (`round_for_store`): Metal truncates on store
-(docs/photo/rendering.md).
+foundations' milestones and gates. **F0 and F1 are built**: the suite is registered (`SuiteId` `photo`), with
+`shared/photo/` (the document: types.ts, project.ts, edits.ts, layers.ts; colour and ICC, geometry, half floats,
+surfaces, brush, the output transform; tools.ts), `server/photo/` (the helper process, the only code that parses
+image files, with sharp; decoded sources in each package's `photo/cache/`; banded exports; the blob store; the lab),
+`server/suites/photo.ts`, and `src/suites/photo/` (store.ts, ui.ts, keys.ts, workspace.tsx, panels/, canvas/,
+tools.ts + tool-edits.ts, live.ts: the open photo's renderer; render/: the WebGPU renderer, its atlas, page tables,
+WGSL kernels and compositor.ts, which draws the screen, exports, covers and the assistant's pictures alike).
+`/photo-lab.html` in `pnpm dev` is F0's lab. Kernels storing `rgba16float` must round first (`round_for_store`):
+Metal truncates on store (docs/photo/rendering.md). F2 is next.
 
 ## Commands
 
@@ -28,7 +31,7 @@ pnpm dev          # server :5311 + app http://localhost:5310 (moves to 5410/5411
 pnpm typecheck    # tsc -b (app + node projects)
 pnpm test         # vitest: shared/, src/, server/ (the server integration tests need ffmpeg)
 pnpm test:e2e     # Playwright on :5320/5321 with a throwaway e2e/.data (serial, ~2 min)
-pnpm test:e2e music   # only e2e/music.spec.ts (seconds): each suite's spec stands on its own
+pnpm test:e2e music   # only e2e/music.spec.ts (seconds): each suite's spec stands on its own (photo too)
 pnpm samples      # test media into ./samples
 pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + check transitions
 pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + check video effects

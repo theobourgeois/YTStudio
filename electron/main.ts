@@ -444,6 +444,7 @@ function buildMenu(): Menu {
       submenu: [
         { label: "New Video", accelerator: "CmdOrCtrl+1", registerAccelerator: false, click: () => pageCommand("new:video") },
         { label: "New Song", accelerator: "CmdOrCtrl+2", registerAccelerator: false, click: () => pageCommand("new:music") },
+        { label: "New Photo", accelerator: "CmdOrCtrl+3", registerAccelerator: false, click: () => pageCommand("new:photo") },
         { label: "New Project…", accelerator: "CmdOrCtrl+Shift+O", registerAccelerator: false, click: () => pageCommand("newProject") },
         { type: "separator" },
         { label: "Open…", accelerator: "CmdOrCtrl+O", registerAccelerator: false, click: () => pageCommand("open") },

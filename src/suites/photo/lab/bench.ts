@@ -10,6 +10,7 @@ import type { SourceInfo, TileSize } from "@shared/photo/lab.ts";
 import { DITHER_8BIT, encodePixel } from "@shared/photo/output.ts";
 import { labApi } from "../api.ts";
 import { compareBlur, quantize, readLevel0, roundTripError } from "../render/checks.ts";
+import { Compositor } from "../render/compositor.ts";
 import { Kernels } from "../render/kernels.ts";
 import type { PhotoSession } from "../render/session.ts";
 
@@ -40,6 +41,7 @@ export async function compileCheck(session: PhotoSession) {
   return {
     rgba16float: await Kernels.compileErrors(session.gpu.device, "rgba16float"),
     rgba32float: await Kernels.compileErrors(session.gpu.device, "rgba32float"),
+    compositor: await Compositor.compileErrors(session.gpu.device),
   };
 }
 

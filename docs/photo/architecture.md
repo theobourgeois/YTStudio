@@ -119,29 +119,27 @@ Times are not involved: an image has no clock. Coordinates are document pixels, 
 pixel edge. Layer order is bottom to top (the Layers panel reverses it).
 
 ```ts
+// As built in F1 (shared/photo/types.ts). Fields arrive with what renders them, by versioned migration.
 interface PhotoProject extends DocumentBase {        // { version, name }
-  canvas: { width: number; height: number };          // whole pixels; the crop is a later field
+  canvas: { width: number; height: number; background: string | null };  // "#rrggbb" sRGB, or transparent
   output: { highlights: "film" | "clip" };            // the SDR output transform, versioned with the document
   layers: PhotoLayer[];                               // bottom to top
 }
 
-type PhotoLayer = ImageLayer | PixelLayer | AdjustmentLayer | GeneratorLayer;
+type PhotoLayer = ImageLayer;                          // F2 adds adjustments, F3 pixel layers and masks, F4 generators
 
-interface LayerBase {
+interface ImageLayer {
   id: string; name: string; visible: boolean; opacity: number;   // opacity 0..1
-  blend: "normal";                                    // more modes after their domain rules are written
-  mask: LayerMask | null;
-  effects: EffectInstance[];                          // layer effects (glow), in order; not on adjustments
+  kind: "image";
+  mediaId: string;                                     // project media: the source, kept whole
+  transform: LayerTransform;
 }
-interface ImageLayer extends LayerBase { kind: "image"; mediaId: string; transform: Affine }   // a placed source
-interface PixelLayer extends LayerBase { kind: "pixel"; surface: SurfaceId; transform: Affine } // painted pixels
-interface AdjustmentLayer extends LayerBase { kind: "adjustment"; adjustment: EffectInstance } // exposure, curves
-interface GeneratorLayer extends LayerBase { kind: "generator"; generator: EffectInstance }    // flare
 
-interface LayerMask { surface: SurfaceId; enabled: boolean }  // layer-local, follows its layer; white shows
-interface EffectInstance { id: string; type: string; version: number; enabled: boolean; params: Record<string, unknown> }
-type Affine = [a: number, b: number, c: number, d: number, e: number, f: number]  // layer -> document
-type SurfaceId = string                               // a manifest's hash
+/** Centre in document pixels, scale (negative mirrors), rotation in degrees clockwise: typing 100% gives 100%. */
+interface LayerTransform { x: number; y: number; scaleX: number; scaleY: number; rotation: number }
+
+// Planned (F2–F4), as proposed: blend, mask (a SurfaceId, layer-local), effects (EffectInstance[]),
+// PixelLayer { kind: "pixel"; surface: SurfaceId }, AdjustmentLayer, GeneratorLayer.
 ```
 
 Rules, each enforced by `normalizePhotoProject` and tested:
@@ -215,8 +213,8 @@ duplication, Library and id remapping for free. Never fork a second media store.
 
 - **Import** goes through the platform's media upload, with the photo helper's probe for images: dimensions after
   orientation, bit depth, alpha, the ICC profile (kept as bytes) and its kind (matrix/TRC or LUT). Today's import
-  probes with ffprobe and accepts PNG/JPEG/WebP/GIF/BMP at 8 bits, and `server/media.ts` sits in the video zone, so
-  this is platform work first (see "Integration" below).
+  probes with ffprobe, then with the helper (`MediaAsset.image`), and accepts PNG/JPEG/WebP/GIF/BMP (16-bit PNG
+  too); more formats are still to come (see "Integration" below).
 - **Decoding** is the helper's: once per source and decoder version, into a raw tile file in `photo/cache/sources/`
   (8 or 16 bits, oriented, *not* colour-converted, tile-major so a tile is one read at an offset). A 48 MP JPEG
   decodes in about 0.23 s here (measured). The tab fetches tiles by `(mediaId, x, y)`. sharp's defaults are wrong
@@ -344,7 +342,7 @@ Registries (TypeScript lists what's missing): `SuiteId`, `SUITES`, `SuiteDocumen
 | `server/architecture.test.ts` `SUITE_FOLDERS` | **Done in F0** (`shared/photo/`, `server/photo/`, `src/suites/photo/`); add `server/suites/photo.ts` in F1 |
 | `server/projects.ts` `readDocAt` | Never replace a corrupt document (all suites) |
 | `server/projects.ts` `copy` | FICLONE clones; skip rebuildable `cache` folders |
-| Media import (`server/media.ts`, `probe.ts`) | Photo's probe and formats (TIFF, AVIF, 16-bit, ICC); `server/media.ts` is video zone, so move the media store into the platform or let a suite register its probe |
+| Media import (`server/media.ts`, `probe.ts`) | **Done**: the media store is the platform's, and `app.ts` gives it the helper's probe (`MediaLibraryOptions.probeImage`: `MediaAsset.image` says bits, alpha, orientation, ICC; its upright size wins). Still to do: photo's formats (TIFF, AVIF, HEIC), which ffprobe's checks refuse today |
 | `DocStats`, `ProjectPreviews` (`server/project-previews.ts`) | A still cover for Home: the tab renders one after saves; previews are audio/video only today |
 | Home drop (`home.tsx`: first suite whose `startsWith` accepts) | Images alone start a photo project; video currently takes them |
 | `electron/main.ts` File menu, `server/projects.ts` error text | Hard-coded to video and music |

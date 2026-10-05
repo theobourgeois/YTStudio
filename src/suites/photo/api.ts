@@ -20,3 +20,27 @@ export const labApi = {
   finishExport: (id: string) => request<ExportResult>(`${LAB_BASE}/exports/${id}/finish`, { method: "POST" }),
   compare: (exportName: string, sourceKey: string) => request<CompareResult>(`${LAB_BASE}/exports/${encodeURIComponent(exportName)}/compare?source=${sourceKey}`),
 };
+
+/** What a finished export says: its file, and where a browser downloads it from. */
+export interface PhotoExportResult extends ExportResult {
+  path: string;
+  download: string;
+}
+
+/** The photo suite's own routes: a project's images as tiles, and exports. */
+export const photoApi = {
+  layout: (projectId: string, mediaId: string, tile: TileSize) =>
+    request<SourceLayout>(`/api/photo/projects/${projectId}/media/${mediaId}/layout?tile=${tile}`),
+  urls: (projectId: string, mediaId: string, tile: TileSize) => ({
+    raw: `/api/photo/projects/${projectId}/media/${mediaId}/raw?tile=${tile}`,
+    preview: `/api/photo/projects/${projectId}/media/${mediaId}/preview?tile=${tile}`,
+  }),
+  beginExport: (body: ExportRequest & { projectId: string; destination?: string | null }) =>
+    request<{ id: string }>("/api/photo/exports", { method: "POST", body: JSON.stringify(body) }),
+  exportRows: (id: string, from: number, rows: Uint8Array) =>
+    request<void>(`/api/photo/exports/${id}/rows?from=${from}`, { method: "PUT", body: rows as Uint8Array<ArrayBuffer>, headers: { "Content-Type": "application/octet-stream" } }),
+  finishExport: (id: string) => request<PhotoExportResult>(`/api/photo/exports/${id}/finish`, { method: "POST" }),
+  cancelExport: (id: string) => request<void>(`/api/photo/exports/${id}`, { method: "DELETE" }),
+  compare: (id: string, projectId: string, mediaId: string) =>
+    request<CompareResult>(`/api/photo/exports/${id}/compare?projectId=${projectId}&mediaId=${mediaId}`),
+};

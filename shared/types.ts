@@ -71,10 +71,28 @@ export interface MediaAsset {
    */
   origin?: string;
   /**
+   * What an image's pixels are, beyond what ffprobe says (the photo suite's probe, when there is one):
+   * absent for other kinds, and for images imported without it.
+   */
+  image?: ImageInfo;
+  /**
    * Not a file: a nested sequence of the project, standing in for media so its clips can be
    * trimmed, retimed and placed like a video's (see `sequenceAsset`). Never sent to the server.
    */
   sequence?: true;
+}
+
+/** An image file's samples as stored (validated by `normalizeImageInfo`, `shared/media.ts`). */
+export interface ImageInfo {
+  /** Bits a sample. */
+  bits: 8 | 16;
+  hasAlpha: boolean;
+  /** EXIF orientation (1-8; 1 is upright). `MediaAsset.width`/`height` are already after it. */
+  orientation: number;
+  /** The embedded ICC profile, base64; null when there's none (sRGB is assumed). */
+  icc: string | null;
+  /** The file's format as its decoder names it ("png", "jpeg", "webp"...). */
+  format: string;
 }
 
 /**
@@ -390,6 +408,11 @@ interface ProjectSummaryBase {
    * what was known of it then. Locate it (open it where it is now) or remove it from the recents.
    */
   missing?: true;
+  /**
+   * Its document (`project.json`) is there but damaged, so it can't be opened: what to tell the user (a copy
+   * was kept in its package, and nothing will write over it). The rest is what its folder says.
+   */
+  damaged?: string;
   /** Length in seconds (0 when empty). */
   duration: number;
   /** A picture for its card, if it has one. */
@@ -416,6 +439,11 @@ export interface SuiteSummaries {
   };
   music: {
     tempo: number;
+  };
+  photo: {
+    width: number;
+    height: number;
+    layerCount: number;
   };
 }
 
@@ -852,19 +880,25 @@ export interface ToolCallProgressRequest {
 //   GET    /api/health                  -> HealthResponse
 //
 //   GET    /api/projects                -> ProjectSummary[] (this computer's recents, every suite, the
-//                                        latest opened or saved first; missing ones too, flagged `missing`)
+//                                        latest opened or saved first; missing ones too, flagged `missing`,
+//                                        and ones whose document is damaged, flagged `damaged`)
 //   POST   /api/projects  body: CreateProjectRequest -> ProjectSummary (201): a new package in the location
 //   POST   /api/projects/open  body: OpenProjectRequest -> ProjectSummary: a package from anywhere, added to
 //                                        the recents (a copy of one already open gets ids of its own)
 //   GET    /api/projects/location       -> ProjectLocation;  PUT body: { path } -> ProjectLocation
 //   GET    /api/projects/:id            -> SuiteDocument (its suite's; a video's normalized against its media)
-//   PUT    /api/projects/:id  body: SuiteDocument -> ProjectSummary (bumps updatedAt)
+//                                        422 if its project.json is damaged (kept aside, never replaced)
+//   PUT    /api/projects/:id  body: SuiteDocument -> ProjectSummary (bumps updatedAt; 422 while it's damaged)
+//   PUT    /api/projects/:id/cover  body: JPEG or PNG bytes (≤ 4 MB) -> 204: the picture a tab drew of it for
+//                                        its card (`thumbnail`, when it has no media poster); 413 too big,
+//                                        415 not a JPEG or PNG
+//   GET    /api/projects/:id/cover      -> image/jpeg | image/png (404 if none was saved)
 //   PATCH  /api/projects/:id  body: UpdateProjectRequest -> ProjectSummary (renames it and its package)
 //   POST   /api/projects/:id/opened     -> ProjectSummary (bumps openedAt)
 //   POST   /api/projects/:id/closed     -> ProjectSummary: its package takes its name, if it was renamed open
 //   POST   /api/projects/:id/reveal     -> 204: shows its package in Finder
 //   POST   /api/projects/:id/duplicate  -> ProjectSummary (201): a copy beside it with its own copy of the
-//                                        media, named "<name> copy"
+//                                        media, named "<name> copy" (cloned files; caches left out)
 //   DELETE /api/projects/:id            -> 204: its package goes to the Trash
 //   DELETE /api/projects/:id/recent     -> 204: forgotten by the recents; its package stays where it is
 //   GET    /api/projects/templates      -> ProjectTemplates (each suite's starting point, if it has one)

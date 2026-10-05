@@ -4,6 +4,7 @@ import type { ExportRequest, TileSize } from "../../shared/photo/lab.ts";
 import { HttpError } from "../storage.ts";
 import { MAX_TILE_BYTES } from "./blobs.ts";
 import type { PhotoLab } from "./lab.ts";
+import type { ExportStart, PhotoService } from "./service.ts";
 
 const tileOf = (value: unknown): TileSize => {
   const n = Number(value ?? 256);
@@ -15,7 +16,8 @@ const text = (value: unknown) => (typeof value === "string" ? value : "");
 
 export function photoLabRoutes(lab: PhotoLab): Router {
   const router = Router();
-  const immutable = { headers: { "Cache-Control": "public, max-age=31536000, immutable" } };
+  // Paths are the server's own (a data folder can be a dot-folder: e2e's is e2e/.data).
+  const immutable = { headers: { "Cache-Control": "public, max-age=31536000, immutable" }, dotfiles: "allow" as const };
 
   router.get("/helper", async (_req, res) => {
     res.json(await lab.helperStatus());
@@ -94,6 +96,64 @@ export function photoLabRoutes(lab: PhotoLab): Router {
   });
   router.get("/exports/:name/compare", async (req, res) => {
     res.json(await lab.compare(req.params.name, text(req.query.source)));
+  });
+
+  return router;
+}
+
+/** `/api/photo`: the photo suite's own routes (a project's decoded images, exports). */
+export function photoRoutes(photo: PhotoService): Router {
+  const router = Router();
+  // Paths are the server's own (a data folder can be a dot-folder: e2e's is e2e/.data).
+  const immutable = { headers: { "Cache-Control": "no-cache" }, dotfiles: "allow" as const };
+  const params = (req: { params: Record<string, string> }) => [req.params.projectId, req.params.mediaId] as const;
+
+  router.get("/projects/:projectId/media/:mediaId/layout", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await photo.layout(...params(req), tileOf(req.query.tile)));
+  });
+  // Byte ranges of the tile-major file: a band of tile rows is one contiguous range.
+  router.get("/projects/:projectId/media/:mediaId/raw", async (req, res, next) => {
+    res.sendFile(await photo.rawFile(...params(req), tileOf(req.query.tile)), immutable, (error) => error && next(error));
+  });
+  router.get("/projects/:projectId/media/:mediaId/preview", async (req, res, next) => {
+    res.sendFile(await photo.previewFile(...params(req), tileOf(req.query.tile)), immutable, (error) => error && next(error));
+  });
+
+  router.post("/exports", json(), async (req, res) => {
+    const body = (req.body ?? {}) as Partial<ExportStart>;
+    res.status(201).json({
+      id: await photo.beginExport({
+        projectId: text(body.projectId),
+        name: text(body.name),
+        width: Number(body.width),
+        height: Number(body.height),
+        bits: body.bits === 16 ? 16 : 8,
+        format: body.format === "jpeg" ? "jpeg" : "png",
+        quality: typeof body.quality === "number" ? Math.max(1, Math.min(100, Math.round(body.quality))) : undefined,
+        destination: typeof body.destination === "string" && body.destination ? body.destination : null,
+      }),
+    });
+  });
+  router.put("/exports/:id/rows", raw({ type: () => true, limit: "128mb" }), async (req, res) => {
+    await photo.exports.rows(req.params.id, Number(req.query.from), req.body as Buffer);
+    res.status(204).end();
+  });
+  router.post("/exports/:id/finish", async (req, res) => {
+    const result = await photo.exports.finish(req.params.id);
+    res.json({ ...result, download: `/api/photo/exports/${req.params.id}/file` });
+  });
+  router.delete("/exports/:id", async (req, res) => {
+    await photo.exports.cancel(req.params.id);
+    res.status(204).end();
+  });
+  router.get("/exports/:id/file", (req, res, next) => {
+    const { name } = photo.exports.file(req.params.id);
+    res.attachment(name);
+    photo.exports.stream(req.params.id).on("error", next).pipe(res);
+  });
+  router.get("/exports/:id/compare", async (req, res) => {
+    res.json(await photo.compare(req.params.id, text(req.query.projectId), text(req.query.mediaId)));
   });
 
   return router;

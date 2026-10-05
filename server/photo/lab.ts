@@ -11,27 +11,30 @@ import { Transform, type Readable } from "node:stream";
 import { createHash, randomBytes } from "node:crypto";
 import type { CompareResult, ExportRequest, ExportResult, HelperStatus, SourceInfo, SourceLayout, TileSize } from "../../shared/photo/lab.ts";
 import { HttpError, readJson, writeJson } from "../storage.ts";
-import { BlobStore, sha256 } from "./blobs.ts";
+import { BlobStore } from "./blobs.ts";
+import { PhotoExports } from "./exports.ts";
 import type { PhotoHelper } from "./helper.ts";
+import { SourceDecoder } from "./sources.ts";
 
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".avif"]);
 const MAX_UPLOAD_BYTES = 2 * 1024 ** 3;
 const EXPORT_NAME = /^[\w.-]{1,80}\.(png|jpe?g)$/;
 
 type ProbeResult = Omit<SourceInfo, "key" | "name" | "bytes">;
-type DecodeResult = Omit<SourceLayout, "key">;
 
 export class PhotoLab {
   readonly blobs: BlobStore;
   private sources: SourceInfo[] = [];
-  private readonly decoding = new Map<string, Promise<SourceLayout>>();
-  private readonly exporting = new Map<string, { request: ExportRequest; file: string; rows: Set<number> }>();
+  private readonly decoder: SourceDecoder;
+  private readonly exports: PhotoExports;
 
   constructor(
     readonly root: string,
     readonly helper: PhotoHelper,
   ) {
     this.blobs = new BlobStore(path.join(root, "blobs"));
+    this.decoder = new SourceDecoder(helper);
+    this.exports = new PhotoExports(helper, path.join(root, "exports"));
   }
 
   private get uploads() {
@@ -104,33 +107,14 @@ export class PhotoLab {
     }
   }
 
-  private async cacheBase(key: string, tile: TileSize) {
-    const decoder = sha256(await this.helper.decoder()).slice(0, 8);
-    return path.join(this.cache, `${key}-${tile}-${decoder}`);
+  private cacheBase(key: string, tile: TileSize) {
+    return this.decoder.base(this.cache, key, tile);
   }
 
   /** The source decoded into tiles of `tile` (once per source, tile size and decoder version). */
   async layout(key: string, tile: TileSize): Promise<SourceLayout> {
     const source = this.find(key);
-    const base = await this.cacheBase(key, tile);
-    const cached = await readJson<SourceLayout>(`${base}.json`);
-    if (cached) return { ...cached, decodeMs: 0 };
-    let decoding = this.decoding.get(base);
-    if (!decoding) {
-      decoding = (async () => {
-        const result = await this.helper.request<DecodeResult>("decode", {
-          file: this.sourceFile(source),
-          out: `${base}.raw`,
-          preview: `${base}.preview`,
-          tile,
-        });
-        const layout: SourceLayout = { ...result, key };
-        await writeJson(`${base}.json`, layout);
-        return layout;
-      })().finally(() => this.decoding.delete(base));
-      this.decoding.set(base, decoding);
-    }
-    return decoding;
+    return this.decoder.layout(this.sourceFile(source), await this.cacheBase(key, tile), key, tile);
   }
 
   async rawFile(key: string, tile: TileSize): Promise<string> {
@@ -149,69 +133,23 @@ export class PhotoLab {
     await fs.mkdir(this.cache, { recursive: true });
   }
 
-  /**
-   * Starts an export: the tab then sends its rows in bands (`exportRows`), as it renders them, so neither side
-   * holds the whole image, and `finishExport` encodes. Returns the export's id.
-   */
+  /** Starts an export into `exports/<name>`: rows follow in bands (`exportRows`), then `finishExport` encodes. */
   async beginExport(request: ExportRequest): Promise<string> {
     if (!EXPORT_NAME.test(request.name)) throw new HttpError(400, "Name the export like name.png or name.jpg (letters, digits, - _ .).");
-    if (request.width * request.height > 400_000_000) throw new HttpError(400, "An export is at most 400 megapixels.");
-    const id = randomBytes(8).toString("hex");
-    const file = path.join(this.exportsDir, `samples-${id}.raw`);
-    await fs.writeFile(file, "");
-    this.exporting.set(id, { request, file, rows: new Set() });
-    return id;
+    return this.exports.begin(request, { destination: path.join(this.exportsDir, request.name) });
   }
 
-  /** Writes rows `from`.. of an export (sRGB-encoded RGBA at its depth, top to bottom) where they belong. */
-  async exportRows(id: string, from: number, samples: Buffer) {
-    const job = this.exporting.get(id);
-    if (!job) throw new HttpError(404, "No such export: begin one first.");
-    const rowBytes = job.request.width * 4 * (job.request.bits / 8);
-    const count = samples.length / rowBytes;
-    if (!Number.isInteger(from) || !Number.isInteger(count) || from < 0 || count < 1 || from + count > job.request.height) {
-      throw new HttpError(400, `Send whole rows (${rowBytes} bytes each) within 0..${job.request.height}.`);
-    }
-    const handle = await fs.open(job.file, "r+");
-    try {
-      await handle.write(samples, 0, samples.length, from * rowBytes);
-    } finally {
-      await handle.close();
-    }
-    for (let y = from; y < from + count; y++) job.rows.add(y);
+  exportRows(id: string, from: number, samples: Buffer) {
+    return this.exports.rows(id, from, samples);
   }
 
-  /** Encodes a finished export into `exports/<name>`: the previous file there is replaced only once it's done. */
   async finishExport(id: string): Promise<ExportResult> {
-    const job = this.exporting.get(id);
-    if (!job) throw new HttpError(404, "No such export.");
-    this.exporting.delete(id);
-    const { request } = job;
-    try {
-      if (job.rows.size !== request.height) throw new HttpError(400, `Only ${job.rows.size} of ${request.height} rows were sent.`);
-      const result = await this.helper.request<Omit<ExportResult, "name">>("encode", {
-        raw: job.file,
-        out: path.join(this.exportsDir, request.name),
-        width: request.width,
-        height: request.height,
-        channels: 4,
-        bits: request.bits,
-        format: request.format,
-        quality: request.quality,
-      });
-      return { name: request.name, ...result };
-    } catch (error) {
-      throw error instanceof HttpError ? error : new HttpError(400, (error as Error).message);
-    } finally {
-      await fs.rm(job.file, { force: true });
-    }
+    const { path: _path, ...result } = await this.exports.finish(id);
+    return result;
   }
 
-  /** Drops an export that won't be finished (cancelled). */
-  async cancelExport(id: string) {
-    const job = this.exporting.get(id);
-    this.exporting.delete(id);
-    if (job) await fs.rm(job.file, { force: true });
+  cancelExport(id: string) {
+    return this.exports.cancel(id);
   }
 
   /** An export's samples against a source's, both decoded by the helper the same way. */
