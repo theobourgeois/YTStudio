@@ -403,6 +403,13 @@ export function describeToolCall(rawName: string, input: unknown): string {
   const f = (key: string) => field(input, key);
   const ids = (key = "clipIds") => list(f(key)).length;
   switch (name) {
+    case "get_vocal_mixing_workflow": return "Read the vocal mixing workflow";
+    case "create_vocal_mix_run": return "Render vocal mix alternatives";
+    case "get_vocal_mix_run": return "Read vocal comparison progress";
+    case "cancel_vocal_mix_run": return "Cancel vocal comparison";
+    case "retry_vocal_mix_run": return "Retry vocal comparison jobs";
+    case "review_vocal_mix_run": return "Open vocal comparison playback";
+    case "apply_vocal_mix_candidate": return "Apply the selected vocal alternative";
     case "capture_audio_snapshot": return "Capture the song for analysis";
     case "render_audio_passage": return "Render an analysis passage";
     case "register_audio_artifact": return "Register audio for analysis";

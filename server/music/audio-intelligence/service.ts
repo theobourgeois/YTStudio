@@ -10,7 +10,8 @@ import { createId } from "../../../shared/ids.ts";
 import { createArtifact, passageFrames, validateArtifact } from "../../../shared/music/audio-intelligence/artifact.ts";
 import { createEvidence, refOf, validateEvidence } from "../../../shared/music/audio-intelligence/evidence.ts";
 import { applyJobAction, createJob, idempotencyKey, recoverJobs, validateJob, type JobAction } from "../../../shared/music/audio-intelligence/job.ts";
-import { documentHashes, validateSnapshot, type SnapshotBundle } from "../../../shared/music/audio-intelligence/snapshot.ts";
+import { buildSnapshot, documentHashes, validateSnapshot, type SnapshotBundle } from "../../../shared/music/audio-intelligence/snapshot.ts";
+import { VocalMixService, VOCAL_SERVER_TOOLS } from "./vocal-mix.ts";
 import { PRIVATE_USE, type AudioArtifact, type AudioJob, type EvidenceReport } from "../../../shared/music/audio-intelligence/types.ts";
 import type { Validation } from "../../../shared/music/audio-intelligence/validation.ts";
 import { createMusicProject, normalizeMusicProject } from "../../../shared/music/project.ts";
@@ -25,7 +26,7 @@ import { hashStream } from "./files.ts";
 import { measureAudio } from "./measure.ts";
 import { captureSnapshot } from "./snapshot.ts";
 
-export const AUDIO_SERVER_TOOLS = ["render_audio_passage", "analyse_audio_artifact", "get_audio_job", "cancel_audio_job", "retry_audio_job", "get_audio_report", "register_audio_artifact", "hear_audio_artifact", "get_hearing_capabilities", "get_hearing_receipt"] as const;
+export const AUDIO_SERVER_TOOLS = ["render_audio_passage", "analyse_audio_artifact", "get_audio_job", "cancel_audio_job", "retry_audio_job", "get_audio_report", "register_audio_artifact", "hear_audio_artifact", "get_hearing_capabilities", "get_hearing_receipt", ...VOCAL_SERVER_TOOLS] as const;
 const checked = <T>(result: Validation<T>): T => { if (!result.ok) throw new HttpError(409, result.errors.join("; ")); return result.value; };
 const read = async (file: string): Promise<unknown> => {
   try { return JSON.parse(await fs.readFile(file, "utf8")); }
@@ -50,6 +51,7 @@ export interface AudioIntelligenceOptions {
 }
 
 export class AudioIntelligence {
+  readonly vocalMix: VocalMixService;
   private readonly jobs = new Map<string, StoredJob>();
   private readonly controllers = new Map<string, AbortController>();
   private readonly work = createLimiter(1);
@@ -57,6 +59,7 @@ export class AudioIntelligence {
   private stopped = false;
   private readonly perception: PerceptionAdapter;
   constructor(private readonly options: AudioIntelligenceOptions) {
+    this.vocalMix = new VocalMixService(this, options.root, options.isMusicProject);
     this.perception = options.perception ?? new GeminiPerception({ apiKey: process.env.GEMINI_API_KEY, model: process.env.EDITOR_HEARING_MODEL });
   }
   capabilities(): HearingCapabilities { return this.perception.capabilities(); }
@@ -116,6 +119,7 @@ export class AudioIntelligence {
       }
     }
     for (const stored of this.jobs.values()) if (stored.job.status === "queued") this.schedule(stored.job.id);
+    await this.vocalMix.init();
   }
 
   async capture(projectId: string, body: unknown): Promise<SnapshotBundle> {
@@ -155,6 +159,27 @@ export class AudioIntelligence {
     const content = input.content as unknown as SnapshotBundle["content"];
     if (documentHashes(content).sha256 !== snapshot.document.sha256) throw new HttpError(409, "Snapshot document changed on disk.");
     return { snapshot, content };
+  }
+
+  /** Candidate renders reuse preserved source bytes, never newly edited project media. */
+  async forkSnapshot(projectId: string, baseId: string, song: MusicProject): Promise<SnapshotBundle> {
+    const base = await this.snapshot(projectId, baseId);
+    if (base.snapshot.plugins.some(p => p.storage !== "document")) throw new HttpError(409, "Vocal comparisons support built-in plugins only.");
+    const bundle = buildSnapshot({ projectId, document: normalizeMusicProject(song),
+      media: Object.fromEntries(base.snapshot.media.map(m => [m.id, { status: m.sha256 ? "hashed" : "missing", sha256: m.sha256, bytes: m.bytes }])),
+      pluginStates: {}, render: base.snapshot.render, capture: base.snapshot.capture, now: Date.now() });
+    checked(validateSnapshot(bundle.snapshot));
+    const from = path.join(this.folder(projectId), "snapshots", baseId);
+    const to = path.join(this.folder(projectId), "snapshots", bundle.snapshot.id);
+    const files = await fs.readdir(from);
+    await fs.mkdir(to, { recursive: true });
+    for (const media of base.snapshot.media) {
+      const file = files.find(f => f.startsWith(`${media.sha256}.`) && !f.includes("copy_"));
+      if (!file || (await hashStream(path.join(from, file))).sha256 !== media.sha256) throw new HttpError(409, "Preserved source audio changed.");
+      if (from !== to) await fs.copyFile(path.join(from, file), path.join(to, file));
+    }
+    await this.immutableJson(this.file(projectId, "snapshots", bundle.snapshot.id), bundle);
+    return bundle;
   }
 
   async artifact(projectId: string, id: unknown) {
@@ -261,7 +286,7 @@ export class AudioIntelligence {
     this.schedule(job.id);
     return this.get(projectId, id);
   }
-  shutdown() { this.stopped = true; for (const controller of this.controllers.values()) controller.abort(new Error("Server stopped.")); }
+  shutdown() { this.stopped = true; this.vocalMix.shutdown(); for (const controller of this.controllers.values()) controller.abort(new Error("Server stopped.")); }
 
   private async persist(id: string) {
     const stored = this.jobs.get(id)!;
@@ -518,6 +543,7 @@ export class AudioIntelligence {
   }
 
   async tool(projectId: string, name: string, input: Record<string, unknown>) {
+    if ((VOCAL_SERVER_TOOLS as readonly string[]).includes(name)) return this.vocalMix.tool(projectId, name, input);
     switch (name) {
       case "get_hearing_capabilities": this.folder(projectId); return this.capabilities();
       case "get_hearing_receipt": return this.hearingReceipt(projectId, input.jobId);

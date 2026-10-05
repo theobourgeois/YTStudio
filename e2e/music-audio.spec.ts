@@ -1,4 +1,9 @@
 import { expect, test } from "@playwright/test";
+import path from "node:path";
+import { writeWav } from "../server/music/wav.ts";
+import { createMusicProject } from "../shared/music/project.ts";
+import { addAudioClips } from "../shared/music/playlist.ts";
+import { addMixerTracks, updateMixerTrack } from "../shared/music/mixer.ts";
 
 /** Captures the live document through the bridge; subsequent tools are server-owned. */
 test("audio jobs and reports remain available after the editor tab closes", async ({ page, context }) => {
@@ -68,4 +73,40 @@ test("hosted listening permission is explicit, persists, and belongs to one song
   expect((await (await page.request.get(`/api/music/audio/${other}/hearing`)).json()).settings.enabled).toBe(false);
   const invalid = await page.request.patch(`/api/music/audio/${id}/hearing`, { data: { enabled: "yes" } });
   expect(invalid.status()).toBe(400);
+});
+
+test("vocal alternatives render without edits, apply as one undo step, and refuse stale comparisons", async ({ page, context }) => {
+  const source = path.resolve("e2e/.data/vocal-comparison.wav");
+  await writeWav(source, Float32Array.from({ length: 48000 * 40 }, (_, i) => .2 * Math.sin(i * 2 * Math.PI * 1000 / 48000)), 48000);
+  const project = await (await page.request.post("/api/projects", { data: { suite: "music", name: "Vocal comparison" } })).json();
+  const media = await (await page.request.post("/api/media/import-file", { data: { projectId: project.id, path: source } })).json();
+  let song = addAudioClips(addMixerTracks(createMusicProject("Vocal comparison", 120), null, 1, ["insert_vocal"]),
+    [{ channelId: "chan_vocal", name: "Vocal", sampleId: media.id, seconds: 40 }], { start: 0, track: 0 }).song;
+  song = { ...song, channels: song.channels.map(c => c.id === "chan_vocal" ? { ...c, mixerTrack: "insert_vocal" } : c) };
+  song = updateMixerTrack(song, "insert_vocal", { name: "Vocal" });
+  expect((await page.request.put(`/api/projects/${project.id}`, { data: song })).ok()).toBe(true);
+  await page.goto(`/p/${project.id}`);
+  await page.getByRole("button", { name: "Vocal mix comparison", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Vocal mix comparison" });
+  await expect(dialog.getByLabel("Vocal mixer insert")).toHaveValue("insert_vocal");
+  await dialog.getByRole("button", { name: "Render alternatives", exact: true }).click();
+  await expect(dialog.getByText("Both passages are ready to compare.")).toBeVisible({ timeout: 35000 });
+  const saved = async () => (await (await page.request.get(`/api/projects/${project.id}`)).json());
+  expect((await saved()).mixer.tracks.find((t: { id: string }) => t.id === "insert_vocal").effects.filter(Boolean)).toHaveLength(0);
+  await dialog.getByRole("button", { name: "Gentle compression + presence EQ", exact: true }).click();
+  await expect(dialog.locator("audio")).toHaveAttribute("src", /\/artifacts\/art_.*\/audio$/);
+  await dialog.getByRole("button", { name: "Passage 2", exact: true }).click();
+  await dialog.getByRole("button", { name: "Apply selected alternative", exact: true }).click();
+  await expect(dialog.getByText("Applied as one undo step. Use Undo to restore the previous mix.")).toBeVisible();
+  await expect.poll(async () => (await saved()).mixer.tracks.find((t: { id: string }) => t.id === "insert_vocal").effects.filter(Boolean).length).toBe(2);
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect.poll(async () => (await saved()).mixer.tracks.find((t: { id: string }) => t.id === "insert_vocal").effects.filter(Boolean).length).toBe(0);
+  await page.getByRole("button", { name: "Vocal mix comparison", exact: true }).click();
+  await dialog.getByRole("button", { name: "Vocal +2 dB", exact: true }).click();
+  const mcpUrl = `http://127.0.0.1:${process.env.E2E_SERVER_PORT || 5321}/mcp?chat=${project.id}`;
+  const changed = await context.request.post(mcpUrl, { data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "update_song", arguments: { tempo: 130 } } } });
+  expect((await changed.json()).result.isError).not.toBe(true);
+  await expect(dialog.getByText("The song changed. Start a fresh comparison before applying.")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Apply selected alternative", exact: true })).toBeDisabled();
 });

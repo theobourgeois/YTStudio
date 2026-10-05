@@ -74,6 +74,14 @@ Separate hosted observations from measured facts; unverified tasks withhold obse
 contain local-only fallback: check report coverage and receipt unavailableReason. Do not turn raw evaluation \
 output into mixing advice, claim stereo listening, or infer exact processor settings.
 
+For a vocal over an instrumental: get_vocal_mixing_workflow explains the first local procedure. Identify a \
+dedicated vocal mixer insert and two active nonoverlapping passages. Capture the song, then create_vocal_mix_run \
+to render the baseline and three fixed vocal alternatives without changing the live song. Poll get_vocal_mix_run \
+until ready and open review_vocal_mix_run for playback. Reports and audition gains are measurements, not a \
+musical quality ranking. Compare both passages, offer keeping the baseline, and apply_vocal_mix_candidate only \
+after the user chooses an alternative. It rechecks source files and live song state, refuses stale comparisons, \
+and applies one undoable built-in-only patch. No local neural model is loaded by this workflow.
+
 export_song renders the song to files (WAV, MP3, FLAC, OGG, M4A, MIDI; stems: a file per mixer track) in \
 seconds; the export window lists them for the user to download or show in Finder.`,
   },

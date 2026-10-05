@@ -33,6 +33,8 @@ import { describeSong } from "./context";
 import { useSongExport } from "./export/store";
 import { useMusicUi } from "./ui";
 import { useMusic } from "./store";
+import { applyVocalMix, useVocalMix } from "./vocal-mix/store";
+import type { VocalVariant } from "@shared/music/audio-intelligence/vocal-mix";
 import {
   type EditResult,
   type SongEdit,
@@ -179,6 +181,22 @@ const audioTool = (name: string) => async (input: Input, ctx: ToolRunContext): P
 };
 
 const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promise<ToolResult>> = {
+  get_vocal_mixing_workflow: audioTool("get_vocal_mixing_workflow"),
+  create_vocal_mix_run: audioTool("create_vocal_mix_run"),
+  get_vocal_mix_run: audioTool("get_vocal_mix_run"),
+  cancel_vocal_mix_run: audioTool("cancel_vocal_mix_run"),
+  retry_vocal_mix_run: audioTool("retry_vocal_mix_run"),
+  async review_vocal_mix_run(input, ctx) {
+    const target = await targetOf(ctx); requireOpen(target, "Vocal comparison playback");
+    await audioTool("get_vocal_mix_run")(input, ctx);
+    useVocalMix.getState().show(target.projectId, String(input.runId));
+    return textResult("Opened vocal comparison playback. Compare both passages before selecting an alternative.");
+  },
+  async apply_vocal_mix_candidate(input, ctx) {
+    const target = await targetOf(ctx); requireOpen(target, "Applying a vocal alternative");
+    await applyVocalMix(target.projectId, String(input.runId), input.variant as VocalVariant);
+    return textResult(input.variant === "baseline" ? "Kept the current mix." : "Applied the selected vocal alternative as one undo step.");
+  },
   async capture_audio_snapshot(_input, ctx) {
     const target = await targetOf(ctx);
     const bundle = await request<{ snapshot: unknown }>(`/api/music/audio/${encodeURIComponent(target.projectId)}/capture`, { method: "POST", body: JSON.stringify({ song: target.song, live: target.open }) });

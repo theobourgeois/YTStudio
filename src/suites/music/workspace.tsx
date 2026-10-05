@@ -64,6 +64,7 @@ import { PanManWindow } from "./panman/panman-window";
 import { usePanUi } from "./panman/store";
 import { AutomationChooser } from "./automation/chooser";
 import { useAutomationUi } from "./automation/store";
+import { VocalMixDialog } from "./vocal-mix/dialog";
 
 /** The music suite's main column (`clientSuite("music").Workspace`): its toolbar, its windows, its assistant. */
 export default function MusicWorkspace() {
@@ -81,6 +82,7 @@ export default function MusicWorkspace() {
   return (
     <div key={projectId} className="flex min-h-0 flex-1 flex-col" data-suite="music">
       <MusicToolbar />
+      <VocalMixDialog />
       <div className="flex min-h-0 flex-1">
         <BrowserPanel />
         <div className="flex min-w-0 flex-1 flex-col">

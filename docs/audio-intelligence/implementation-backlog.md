@@ -51,6 +51,10 @@ See [render-and-measure.md](render-and-measure.md) for tools, storage, recovery,
 
 The capture → render → analysis → report path is implemented and tested, including closed-tab operation, native-engine source preservation, cancellation, restart recovery and project isolation. Initial render support is built-in processors only. Local methods cover level, dynamics, broad filter energy, activity timing and stereo; LUFS, true peak, musical judgement and hosted perception are explicitly unavailable. Audio stays private/local by default.
 
+Real-audio verification (2026-10-05): [the vocal-mix workflow](vocal-mix-workflow.md)
+exercises live capture/render/measure/report through the actual project-bound MCP
+tools using aligned recorded vocal/accompaniment audio and the native engine.
+
 ## Slice C: add hosted perception
 
 Status: [infrastructure and generated-audio pilot implemented](hosted-perception.md). The updated key works and one 3.7 Flash audio response completed; 3.8 returned HTTP 503. The completed generated case contained unsupported source claims. Held-out usefulness acceptance remains pending and Gemini tasks remain unverified.
@@ -68,6 +72,10 @@ Acceptance: the provider adds demonstrated useful evidence on held-out tasks; un
 
 ## Slice D: expose workflows and examples
 
+Status: the first [bounded vocal workflow](vocal-mix-workflow.md) is implemented
+and available through assistant tools. General reviewed example/profile retrieval
+and dataset eligibility indexing remain planned.
+
 Depends on reviewed dataset records from A. Deliverables:
 
 - Define EffectExample, DecisionExample, and PreferenceExample separately.
@@ -80,6 +88,12 @@ Depends on reviewed dataset records from A. Deliverables:
 Acceptance: Claude retrieves a relevant procedure/example, recognises missing context, and does not convert annotated or unknown units directly into plugin edits.
 
 ## Slice E: complete the first mixing task
+
+Status: a first [local candidate comparison](vocal-mix-workflow.md) is implemented:
+baseline plus three native vocal alternatives, two passages, matched playback,
+stale/source checks and one-step apply/undo. These are fixed audition proposals.
+General MixRun orchestration, learned proposals and held-out genre/listener quality
+acceptance remain pending; this does not mark the full slice complete.
 
 Depends on B/C/D. Deliverables:
 

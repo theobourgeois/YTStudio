@@ -1,7 +1,13 @@
 # Engineer datasets and audio hearing
 
-Status: **Slice A of the [implementation checklist](implementation-backlog.md) is built** (the contracts, snapshot capture, the fixture collection and the three dataset/engine audits, below). [Slice B](render-and-measure.md) is also built: project-scoped immutable audio, durable cancellable passage renders, local measurements and MCP tools. [Slice C infrastructure and its hosted perception pilot](hosted-perception.md) are implemented; listening quality acceptance remains pending, and provider findings are withheld by default. Slices D onwards remain planned.
+Status: **Slice A of the [implementation checklist](implementation-backlog.md) is built** (the contracts, snapshot capture, the fixture collection and the three dataset/engine audits, below). [Slice B](render-and-measure.md) is also built: project-scoped immutable audio, durable cancellable passage renders, local measurements and MCP tools. [Slice C infrastructure and its hosted perception pilot](hosted-perception.md) are implemented; listening quality acceptance remains pending, and provider findings are withheld by default. [A first vocal comparison workflow](vocal-mix-workflow.md) implements part of D/E; their general delivery and later slices remain planned.
 Research date: 2026-10-03. Provider capabilities and DAW compatibility must be verified again at implementation.
+
+Update 2026-10-05: [the first local vocal comparison workflow](vocal-mix-workflow.md)
+adds a D procedure and part of E, including two-passage native candidates,
+audition playback and guarded apply/undo. B has also passed the real-audio MCP
+verification described there. General D/E delivery and musical quality acceptance
+remain pending.
 
 Start with the [end-to-end audio engineering harness plan](audio-engineering-harness.md): it connects the existing Claude Code runtime, hosted hearing, ordinary-package ingestion, dataset retrieval, workflows, reversible candidate renders, evaluation, and optional training/self-hosting. This is the current delivery roadmap; the individual proposals below provide supporting detail.
 

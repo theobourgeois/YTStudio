@@ -50,6 +50,7 @@ import { addTap, tappedTempo } from "./tap-tempo";
 import { AutomationMenuItems, useAutomatedControl } from "./automation/control";
 import { TEMPO_TARGET, engineTick, tempoMap } from "@shared/music/tempo";
 import { useWheelValue } from "./wheel";
+import { useVocalMix } from "./vocal-mix/store";
 
 /** The main volume as an automation target (a constant, so the knob's menu and hook see one target). */
 const MAIN_VOLUME: AutomationTarget = { kind: "main" };
@@ -121,6 +122,10 @@ export function MusicToolbar() {
         <Groove className="mr-1.5 h-6 self-center" />
         <HistoryButtons />
         <Groove className="mx-1.5 h-6 self-center" />
+        <Button variant="ghost" size="sm" aria-label="Vocal mix comparison" onClick={() => {
+          const id = useMusic.getState().projectId;
+          if (id) useVocalMix.getState().show(id);
+        }}>Vocal mix</Button>
         <ExportButton />
         <SettingsButton />
         <Groove className="mx-1.5 h-6 self-center" />
