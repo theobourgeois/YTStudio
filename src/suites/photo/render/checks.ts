@@ -170,13 +170,21 @@ export async function compareBlur(ctx: RenderContext, source: SourceImage, sigma
 export interface Quantized {
   width: number;
   height: number;
-  /** RGBA8, rows top to bottom. */
-  pixels: Uint8Array;
   ms: number;
 }
 
-/** Level 0 of the source with paint over it, through the output transform, as 8-bit RGBA. */
-export async function quantize(ctx: RenderContext, source: SourceImage, paint: PaintSurface | null, amplitude = DITHER_8BIT): Promise<Quantized> {
+/**
+ * Level 0 of the source with paint over it, through the output transform, as 8-bit RGBA, one band of tile rows
+ * at a time (`onBand` gets its first row and its rows): what an export sends the server as it goes, so the whole
+ * image is never in memory. Bands are rendered in order; the next starts once `onBand`'s promise resolves.
+ */
+export async function quantize(
+  ctx: RenderContext,
+  source: SourceImage,
+  paint: PaintSurface | null,
+  onBand: (from: number, rows: Uint8Array) => Promise<void> | void,
+  amplitude = DITHER_8BIT,
+): Promise<Quantized> {
   const started = performance.now();
   const { device } = ctx;
   const { width, height, tilesX, tilesY } = source.image.levels[0];
@@ -196,42 +204,44 @@ export async function quantize(ctx: RenderContext, source: SourceImage, paint: P
       { binding: 2, resource: { buffer: params } },
     ],
   });
-  const pixels = new Uint8Array(width * height * 4);
-  const tiles: { tx: number; ty: number }[] = [];
-  for (let ty = 0; ty < tilesY; ty++) for (let tx = 0; tx < tilesX; tx++) tiles.push({ tx, ty });
-  for (let i = 0; i < tiles.length; i += BATCH) {
-    const batch = tiles.slice(i, i + BATCH);
+  for (let ty = 0; ty < tilesY; ty++) {
+    const rowsHere = Math.min(tile, height - ty * tile);
+    const band = new Uint8Array(width * rowsHere * 4);
     // Evicted tiles come back first (an export needs every one).
-    if (batch.some((t) => source.image.entry(0, t.tx, t.ty) === PENDING)) {
-      await source.ensureVisible({ zoom: 1, x: batch[0].tx * tile, y: batch[0].ty * tile, width: 1, height: 1 });
+    if (Array.from({ length: tilesX }, (_, tx) => source.image.entry(0, tx, ty)).some((e) => e === PENDING)) {
+      await source.ensureVisible({ zoom: 1, x: 0, y: ty * tile, width: width, height: 1 });
     }
-    device.queue.writeBuffer(jobs, 0, new Uint32Array(batch.flatMap((t) => [t.tx, t.ty])));
-    const readback = device.createBuffer({ size: batch.length * tile * tile * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-    const encoder = device.createCommandEncoder({ label: "quantize" });
-    const pass = encoder.beginComputePass();
-    pass.setPipeline(ctx.kernels.quantize);
-    pass.setBindGroup(0, ctx.atlasBindGroup());
-    pass.setBindGroup(1, ctx.imageBindGroup(source.image));
-    pass.setBindGroup(2, ctx.imageBindGroup(paint?.image ?? ctx.emptyImage));
-    pass.setBindGroup(3, group);
-    pass.dispatchWorkgroups(tile / 16, tile / 16, batch.length);
-    pass.end();
-    encoder.copyBufferToBuffer(out, 0, readback, 0, batch.length * tile * tile * 4);
-    device.queue.submit([encoder.finish()]);
-    await readback.mapAsync(GPUMapMode.READ);
-    const data = new Uint8Array(readback.getMappedRange());
-    batch.forEach(({ tx, ty }, j) => {
-      for (let y = 0; y < tile && ty * tile + y < height; y++) {
+    for (let tx0 = 0; tx0 < tilesX; tx0 += BATCH) {
+      const batch = Array.from({ length: Math.min(BATCH, tilesX - tx0) }, (_, i) => tx0 + i);
+      device.queue.writeBuffer(jobs, 0, new Uint32Array(batch.flatMap((tx) => [tx, ty])));
+      const readback = device.createBuffer({ size: batch.length * tile * tile * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const encoder = device.createCommandEncoder({ label: "quantize" });
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(ctx.kernels.quantize);
+      pass.setBindGroup(0, ctx.atlasBindGroup());
+      pass.setBindGroup(1, ctx.imageBindGroup(source.image));
+      pass.setBindGroup(2, ctx.imageBindGroup(paint?.image ?? ctx.emptyImage));
+      pass.setBindGroup(3, group);
+      pass.dispatchWorkgroups(tile / 16, tile / 16, batch.length);
+      pass.end();
+      encoder.copyBufferToBuffer(out, 0, readback, 0, batch.length * tile * tile * 4);
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(GPUMapMode.READ);
+      const data = new Uint8Array(readback.getMappedRange());
+      batch.forEach((tx, j) => {
         const w = Math.min(tile, width - tx * tile);
-        const from = (j * tile * tile + y * tile) * 4;
-        pixels.set(data.subarray(from, from + w * 4), ((ty * tile + y) * width + tx * tile) * 4);
-      }
-    });
-    readback.unmap();
-    readback.destroy();
+        for (let y = 0; y < rowsHere; y++) {
+          const from = (j * tile * tile + y * tile) * 4;
+          band.set(data.subarray(from, from + w * 4), (y * width + tx * tile) * 4);
+        }
+      });
+      readback.unmap();
+      readback.destroy();
+    }
+    await onBand(ty * tile, band);
   }
   for (const resource of [params, jobs, out]) resource.destroy();
-  return { width, height, pixels, ms: performance.now() - started };
+  return { width, height, ms: performance.now() - started };
 }
 
 /**

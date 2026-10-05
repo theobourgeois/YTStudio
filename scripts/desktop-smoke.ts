@@ -119,7 +119,9 @@ try {
       rows.set(tiles.subarray(from, from + width * 4), (y * layout.width + tx * 256) * 4);
     }
   }
-  await api(`/api/photo/lab/exports?name=smoke.png&width=${layout.width}&height=${layout.height}&bits=8&format=png`, { method: "POST", body: rows });
+  const { id: exportId } = await post<{ id: string }>("/api/photo/lab/exports", { name: "smoke.png", width: layout.width, height: layout.height, bits: 8, format: "png" });
+  await fetch(`${base}/api/photo/lab/exports/${exportId}/rows?from=0`, { method: "PUT", body: rows });
+  await api(`/api/photo/lab/exports/${exportId}/finish`, { method: "POST" });
   const compared = await api<CompareResult>(`/api/photo/lab/exports/smoke.png/compare?source=${source.key}`);
   check("the photo helper decodes and encodes exactly", layout.width === 320 && compared.differing === 0, `${layout.decoder}, ${compared.differing} samples differ`);
 

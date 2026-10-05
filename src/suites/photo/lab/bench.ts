@@ -157,9 +157,11 @@ export async function p3(session: PhotoSession) {
  */
 export async function roundTrip(session: PhotoSession) {
   const info = session.info!;
-  const q = await quantize(session.ctx, session.source!, null);
+  const layout = session.layout!;
   const name = `roundtrip-${info.key.slice(0, 12)}-${session.options.tile}.png`;
-  const exported = await labApi.export(q.pixels, { name, width: q.width, height: q.height, bits: 8, format: "png" });
+  const { id } = await labApi.beginExport({ name, width: layout.width, height: layout.height, bits: 8, format: "png" });
+  const q = await quantize(session.ctx, session.source!, null, (from, rows) => labApi.exportRows(id, from, rows));
+  const exported = await labApi.finishExport(id);
   const compared = await labApi.compare(name, info.key);
   let margin: number | null = null;
   let worst: number | null = null;

@@ -57,7 +57,9 @@ compresses new tiles in a Worker. **The server** stores blobs, serves decoded so
 saves documents, and has the helper process encode exports. **The helper process** is the only code that parses image
 files: it decodes sources into raw tiles (at their own bit depth, oriented, not colour-converted) and encodes exports.
 It is a Node script run through `server/process.ts` (in the desktop app as Electron in Node mode, which `process.ts`
-already does for `.mjs` scripts), restarted when it dies, as the music engine is.
+already does for `.mjs` scripts), restarted when it dies, as the music engine is. Requests in flight when it dies
+are retried one at a time, so a file that crashes it again can only be the one in flight: that one fails, the others
+go through (`server/photo/helper.ts`, tested with a deliberate crash).
 
 The renderer creates its device with `requiredLimits` taken from the adapter (a plain `requestDevice()` gets the
 spec's defaults: 8192-pixel textures, 256 MiB buffers) and the optional features it uses (`shader-f16`,
@@ -169,7 +171,7 @@ A **surface** is pixels in a tile grid: a pixel layer's colour, a mask's coverag
 interface SurfaceManifest {
   v: 1;
   format: "rgba16f" | "r16f" | "rgba32f";      // see rendering.md for which is used where
-  tile: 256 | 512;                              // decided by the F0 measurements, then fixed per manifest
+  tile: 256 | 512;                              // 256 (F0 measured both); recorded so a change needs no migration
   fill: number[];                               // the value of every tile not listed (transparent; masks: 1)
   tiles: [x: number, y: number, ref: string][]; // ref: a tile hash, or "c:" + a constant value
 }
@@ -294,13 +296,17 @@ Name.vaudio/
 ## Exporting
 
 The open tab renders full-resolution composite tiles in strips with the same kernels, applies the output transform
-and quantises (8-bit with deterministic dithering, see rendering.md), and streams the strips to `POST /api/photo/
-exports`. The helper encodes (PNG, JPEG over a matte; TIFF 16-bit later) into a temporary file that is renamed into
+and quantises (8-bit with deterministic dithering, see rendering.md), and sends each band of tile rows as it's made
+(F0's lab: `POST /exports` to begin, `PUT /exports/:id/rows?from=` per band, `POST /exports/:id/finish`), so neither
+side ever holds the whole image (a single 192 MB body from a 48 MP page broke F0's first run). The helper encodes (PNG, JPEG over a matte; TIFF 16-bit later) into a temporary file that is renamed into
 place only when complete; cancelling deletes it; an existing file is never overwritten by a failed export. The export
 pins one document state, so editing continues meanwhile. The export loop is driven by GPU completion
 (`onSubmittedWorkDone`), never `requestAnimationFrame`: a window that's fully covered on macOS becomes hidden and is
 throttled even with `backgroundThrottling: false` (verified), and exports must not slow down because of that. 16-bit
-TIFF must name a lossless compression (sharp's TIFF default is JPEG, which forces 8 bits).
+TIFF must name a lossless compression (sharp's TIFF default is JPEG, which forces 8 bits). 8-bit output is tagged
+sRGB (sharp's sRGB-to-sRGB tagging leaves 8-bit samples exact, measured); 16-bit output stays untagged for now,
+because the same call changes 16-bit samples by up to 25 000 of 65 535 (measured on sharp 0.35.5): writing the
+profile chunk ourselves is F4's.
 
 Exporting a project no tab has open (the assistant, in the background) uses a hidden page: in the desktop app a hidden
 window (as `electron/gl-window.ts` does for video), otherwise headless Chromium. Both have WebGPU on Metal with the
@@ -335,7 +341,7 @@ Registries (TypeScript lists what's missing): `SuiteId`, `SUITES`, `SuiteDocumen
 
 | Where | What photo needs |
 | --- | --- |
-| `server/architecture.test.ts` `SUITE_FOLDERS` | Photo's folders, first commit |
+| `server/architecture.test.ts` `SUITE_FOLDERS` | **Done in F0** (`shared/photo/`, `server/photo/`, `src/suites/photo/`); add `server/suites/photo.ts` in F1 |
 | `server/projects.ts` `readDocAt` | Never replace a corrupt document (all suites) |
 | `server/projects.ts` `copy` | FICLONE clones; skip rebuildable `cache` folders |
 | Media import (`server/media.ts`, `probe.ts`) | Photo's probe and formats (TIFF, AVIF, 16-bit, ICC); `server/media.ts` is video zone, so move the media store into the platform or let a suite register its probe |
@@ -343,9 +349,9 @@ Registries (TypeScript lists what's missing): `SuiteId`, `SUITES`, `SuiteDocumen
 | Home drop (`home.tsx`: first suite whose `startsWith` accepts) | Images alone start a photo project; video currently takes them |
 | `electron/main.ts` File menu, `server/projects.ts` error text | Hard-coded to video and music |
 | `server/storage.ts` `writeJson` | A flushed variant (file and folder) for documents that promise durability |
-| `playwright.config.ts` | WebGPU needs the GPU launch flags: the default headless launch has `navigator.gpu` but no adapter (measured) |
-| Desktop packaging (`scripts/desktop.ts`) | sharp and its libvips (~17 MB; Node-API, so not tied to Electron's ABI) shipped in `extraResources` beside the helper script, outside the asar; the app ships no `node_modules` today, so this is the first. libvips is LGPL-3.0-or-later, dynamically linked: ship its notices and keep it replaceable |
-| `electron/main.ts` switches | Chrome stops giving a page an adapter after a second GPU-process crash within two minutes; the desktop app turns that off (`--disable-gpu-process-crash-limit`, `--disable-domain-blocking-for-3d-apis`) so recovery always works. The browser keeps Chrome's behaviour: after repeated crashes the workspace asks for a reload |
+| `playwright.config.ts` | WebGPU needs the GPU launch flags (`--use-angle=metal --enable-gpu`, what `server/gl-browser.ts` passes): the default headless launch has `navigator.gpu` but no adapter (measured; `scripts/photo-bench.ts` launches that way) |
+| Desktop packaging (`scripts/desktop.ts`) | **Built in F0.** `Resources/photo-helper/helper.mjs` (the helper and sharp's JavaScript, bundled) and `native/@img/` (the addon and libvips, 19 MB; Node-API, so not tied to Electron's ABI). electron-builder drops any folder called `node_modules` from resources, so the bundle's one require of the addon is pointed at `native/` (asserted at build). libvips is LGPL-3.0-or-later, dynamically linked: its package keeps its licence and notices. `pnpm test:desktop` checks the packaged helper decodes and encodes exactly |
+| `electron/main.ts` switches | **Built in F0.** Chrome stops giving a page an adapter after a second GPU-process crash within two minutes; the desktop app turns that off (`--disable-gpu-process-crash-limit`, `--disable-domain-blocking-for-3d-apis`) so recovery always works. The browser keeps Chrome's behaviour: after repeated crashes the workspace asks for a reload |
 
 Workspace pieces reused as they are: the dock (`components/dock`, suite-agnostic), Settings sections, the assistant
 panel, themes and `components/ui`. Shortcuts are photo's own (`keys.ts`), as music's are: there's no platform registry.

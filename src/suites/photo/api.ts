@@ -13,10 +13,10 @@ export const labApi = {
   /** Decodes the source into tiles of `tile` on the server (once), and says how. */
   layout: (key: string, tile: TileSize) => request<SourceLayout>(`${LAB_BASE}/sources/${key}/layout?tile=${tile}`),
   urls: (key: string, tile: TileSize) => ({ raw: `${LAB_BASE}/sources/${key}/raw?tile=${tile}`, preview: `${LAB_BASE}/sources/${key}/preview?tile=${tile}` }),
-  export: (pixels: Uint8Array, req: ExportRequest) => {
-    const q = new URLSearchParams({ name: req.name, width: String(req.width), height: String(req.height), bits: String(req.bits), format: req.format });
-    if (req.quality) q.set("quality", String(req.quality));
-    return request<ExportResult>(`${LAB_BASE}/exports?${q}`, { method: "POST", body: pixels as Uint8Array<ArrayBuffer>, headers: { "Content-Type": "application/octet-stream" } });
-  },
+  beginExport: (req: ExportRequest) =>
+    request<{ id: string }>(`${LAB_BASE}/exports`, { method: "POST", body: JSON.stringify(req) }),
+  exportRows: (id: string, from: number, rows: Uint8Array) =>
+    request<void>(`${LAB_BASE}/exports/${id}/rows?from=${from}`, { method: "PUT", body: rows as Uint8Array<ArrayBuffer>, headers: { "Content-Type": "application/octet-stream" } }),
+  finishExport: (id: string) => request<ExportResult>(`${LAB_BASE}/exports/${id}/finish`, { method: "POST" }),
   compare: (exportName: string, sourceKey: string) => request<CompareResult>(`${LAB_BASE}/exports/${encodeURIComponent(exportName)}/compare?source=${sourceKey}`),
 };

@@ -1,7 +1,7 @@
 # Foundations: implementation order and gates
 
-Status: revised 2026-10-05 (first proposal 2026-10-03). Nothing is implemented. The capability probes in the
-evidence log below were run on 2026-10-05.
+Status: revised 2026-10-05 (first proposal 2026-10-03). **F0 is done** (2026-10-05): its gate passed in Electron
+and Chrome; results and what F0 changed in the plan are under "F0 results". F1 is next.
 
 The foundations are the application's first real version with deliberately few features, not a throwaway prototype.
 Each milestone ends with something Théo can use and a gate that's checked, not argued. Lasting contracts (the
@@ -50,10 +50,59 @@ measure. Code that survives the gate stays; the page is deleted once F1's worksp
    the original plan, with its kernels already written; presentation is then the problem
    ([engine options](research/engine-options.md)).
 
+### F0 results (2026-10-05)
+
+**Passed.** Measured with `pnpm tsx scripts/photo-bench.ts` (both runners, both tile sizes, cold decodes) on the
+baseline machine, in Electron 44.5.0 (Chrome 152, a hidden window with the app's web preferences) and headless
+Chrome 154 (the export's launch flags). Each cell is Electron / Chrome, 256-pixel tiles unless it says otherwise.
+
+| Check | Pass | Measured |
+| --- | --- | --- |
+| 48 MP JPEG, cold: first coarse picture / settled fit view | ≤ 1 s / ≤ 3 s | 0.53 / 0.75 s · 0.45 / 0.67 s (the helper's decode is 0.43–0.52 s of it) |
+| 100 MP JPEG, cold | (dataset) | 0.88 / 1.21 s · 0.86 / 1.22 s |
+| Pan and zoom, warm, 1920 × 1080 device pixels, 240 frames | p95 ≤ 16.7 ms | GPU p95 4.0 ms (max 4.5) · 5.1 ms (max 5.8); CPU p95 ≤ 0.3 ms; a Mitchell frame at fit ≈ 10 ms |
+| Stroke end (20 tiles) → committed | ≤ 30 ms | 12.1 ms · 14.9 ms (readback 3.5–4, hashing 7–10); uploaded 0.1–0.25 s later |
+| Blur, tiled vs monolithic | within tolerance, no seam | identical: maximum difference 0, at the seams too (both tile sizes) |
+| Display P3 green | ≈ (−0.2249, 1.0421, −0.0786) to 10⁻³ | (−0.22498, 1.04199, −0.07874); every patch within 2 × 10⁻⁴ of the CPU reference |
+| 8-bit sRGB round trip through f16 tiles | bit-exact | 0 samples differ: 48 MP JPEG, an 8-bit ramp, an EXIF-rotated JPEG, a PNG with an alpha gradient (fully transparent pixels' colour isn't kept: rendering.md) |
+| Device loss | ≤ 2 s, nothing committed lost | 0.20 s · 0.21 s; the committed stroke restored from the server |
+| 1 GB budget | no out-of-memory error, refetching works | 100 MP at 1 GB and 48 MP at 256 MB: no GPU errors; 105–768 tiles evicted and fetched again; settle p95 17–28 ms |
+| Packaged app | the helper decodes and encodes | `pnpm test:desktop`: WebGPU (Metal) in the app's window, the helper from its resources, an exact round trip |
+| 16-bit precision | — | `rgba32f` tiles within 0.001 of a 16-bit step; `rgba16f` would be 7 steps off (so A08 holds) |
+| 48 MP PNG export | correct, throughput recorded | 3.2 s in Electron (quantise 0.3 s, encode 2.2 s); headless Chrome's 7.4 s is Playwright inspecting each band's upload |
+
+**Tile size: 256.** Pan and zoom are the same at both (4.0 vs 4.0 ms p95 in Electron). With a tight budget 256 is
+clearly better (100 MP at 1 GB: settle p95 17 ms vs 39 ms; 512 evicts and refetches four times the pixels per miss),
+and a small stroke writes less (20 tiles of 0.5 MB against 9 of 2 MB, uploaded in 0.1 s against 0.06–0.5 s). F1
+fixes 256; manifests still record it.
+
+**What F0 changed in the plan** (each written into the docs it concerns):
+
+- Metal *truncates* f32 → f16 on storage writes, and the compiler folds `quantizeToF16` away: kernels round the
+  mantissa themselves (ledger A10). The f16 round-trip error is 0.037 of a step opaque and 0.092 premultiplied, not
+  the 0.03 first worked out, so the 8-bit dither is ±0.375, not ±0.45 (A09; `shared/photo/output.test.ts` checks
+  every code at every alpha).
+- Shaders compile when a session starts (async pipelines): compiled on first use they added 0.5 s to the first open.
+- sharp tags 16-bit output sRGB by *changing* its samples (by up to 25 000): 16-bit output is untagged until the
+  profile chunk is written by hand. sharp's 16-bit raw input must be a `Uint16Array` (a Buffer is read as 8-bit).
+- Exports go to the server in bands (begin, rows, finish): one 192 MB body was too much for the test harness, and
+  bands mean neither side holds the whole image.
+- The packaged helper: electron-builder drops folders called `node_modules` from resources, so sharp's native
+  packages ship in `photo-helper/native/`. Mac packaging was broken on main since the Windows port (`electronDist`
+  pointed inside Electron.app); fixed.
+- A helper crash retries its requests one at a time, so only the request that crashes it fails.
+
+**Built in F0, and kept** (F1 builds on these): `shared/photo/` (colour and ICC, geometry, half floats, surfaces,
+brush spacing, the output transform; tested), `server/photo/` (the helper and its supervisor, the blob store, the
+lab's service and routes; tested with the real sharp), `src/suites/photo/render/` (the device, atlas, virtual
+images, kernels, source loading, paint surfaces, the view, checks, the session with device-loss recovery). **Goes in
+F1:** the lab (`photo-lab.html`, `src/suites/photo/lab/`, `/api/photo/lab`), replaced by the suite's workspace and
+project routes; `scripts/photo-bench.ts` stays, pointed at the suite.
+
 ## F1: the photo suite exists
 
 **Platform first**:
-- photo's folders in `server/architecture.test.ts`;
+- photo's folders in `server/architecture.test.ts` (F0 added them; F1 adds `server/suites/photo.ts`);
 - never replace a corrupt `project.json` (all suites);
 - media import that accepts photo formats with the helper's probe (TIFF later, 16-bit PNG now, ICC, bit depth);
 - Home: images dropped alone start a photo project;
@@ -225,6 +274,9 @@ ends with a complete workflow.
 | 2026-10-05 | sharp colour | Converts embedded profiles to sRGB but clips: Display P3 green → `[0, 1, 0]` even as float scRGB. Hence GPU conversion |
 | 2026-10-05 | Profiles | macOS's Display P3 (v4, `para`), sRGB and Adobe RGB (v2, `curv`) are matrix/TRC |
 | 2026-10-05 | ffmpeg 8.1 (local) | No ICC filters (built without lcms): not a colour-managed decoder |
+| 2026-10-05 | f16 stores (F0) | Every differing sample truncated by a plain `textureStore` to `rgba16float`; `quantizeToF16` rounds in isolation but is dropped when its result is stored; integer rounding works (`rounding` check: all nearest) |
+| 2026-10-05 | sharp 16-bit tagging | `withIccProfile("srgb")` on 16-bit output changes samples by up to 25 032; on 8-bit output it changes none |
+| 2026-10-05 | F0 gate | See "F0 results": every check passed in Electron 44.5.0 and Chrome 154 |
 | 2026-10-05 | Device limits | A plain `requestDevice()` gets spec defaults (8192 textures, 256 MiB buffers); `requiredLimits` from the adapter gets 16 384 and 4 GB. A lost device needs a new adapter |
 | 2026-10-05 | Large readback | 4096² `rgba16float` (128 MiB) copy + map: 25–45 ms (3–5 GB/s); `writeTexture` of raw half-float bits is exact (subnormals, 65 504, −1) |
 | 2026-10-05 | sharp gotchas | 16-bit needs `toColourspace("rgb16")`; its 16-bit path drops the profile without converting; TIFF defaults to JPEG compression (8-bit); float raw input is read as 0–65 535; prebuilt HEIC decoding fails (no HEVC) |

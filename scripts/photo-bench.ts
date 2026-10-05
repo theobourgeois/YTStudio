@@ -200,6 +200,23 @@ async function takeShots(dir: string) {
     s.requestDraw("final");
   });
   await shot("48mp-stroke-50pct");
+  // The page's own pointer handling: a brush drag (as a person paints), a pan, the wheel.
+  await page.getByRole("button", { name: "Fit" }).click();
+  await page.getByRole("button", { name: "Brush" }).click();
+  const box = (await page.locator("canvas").boundingBox())!;
+  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.6);
+  await page.mouse.down();
+  for (let i = 1; i <= 20; i++) await page.mouse.move(box.x + box.width * (0.3 + i * 0.02), box.y + box.height * (0.6 - i * 0.01));
+  await page.mouse.up();
+  await page.getByText("uploaded").first().waitFor({ timeout: 10_000 });
+  await page.getByRole("button", { name: "Brush" }).click();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, -400);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 - 150, box.y + box.height / 2 - 80, { steps: 10 });
+  await page.mouse.up();
+  await shot("48mp-painted-by-pointer");
+  console.log(await page.locator("ol").first().innerText().then((t) => t.split("\n").slice(0, 8).join(" ")));
   console.log(JSON.stringify(await step([{ open: "photo-like-p3.jpg" }])));
   await shot("p3-photo-fit");
   console.log(JSON.stringify(await step([{ open: "alpha-gradient.png" }])));

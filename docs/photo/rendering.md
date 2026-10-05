@@ -41,7 +41,7 @@ f16 has an 11-bit significand: between 0.5 and 1 its step is 2⁻¹¹ ≈ 4.9 ×
 
 | Content | Format | Why |
 | --- | --- | --- |
-| Sources from 8-bit files | `rgba16f` | An 8-bit step near white is ≈ 8.9 × 10⁻³ linear; f16 is ~18× finer. Round trip error ≤ 0.03 of an 8-bit step (worked out below) |
+| Sources from 8-bit files | `rgba16f` | An 8-bit step near white is ≈ 8.9 × 10⁻³ linear; f16 is ~18× finer. Round trip error ≤ 0.037 of an 8-bit step, 0.092 premultiplied (below) |
 | Sources from 16-bit files | `rgba32f` | A 16-bit step near white is ≈ 3.5 × 10⁻⁵ linear; f16 would be ~14× coarser and lose the file's precision |
 | Painted pixels | `rgba16f` | Painting adds no precision a 16-bit file needs; half the memory and disk of f32 |
 | Masks, selections | `r16f` | ~2 000 levels near white, ~8× an 8-bit mask; feathered edges don't band |
@@ -52,9 +52,16 @@ f16 tops out at 65 504: enough for any light we make. NaN and infinity can't be 
 guarded, divisions protected); a fixture feeds each kernel extreme values to check.
 
 **The lossless round-trip rule.** Importing an 8-bit sRGB JPEG or PNG and exporting it unedited at 8 bits gives the
-same samples, bit for bit, including through 8-bit dithering (below). Worked out: f16's error at linear 1.0 is at most
-2.4 × 10⁻⁴, and sRGB's slope there is 1/2.275, so the encoded error is ≤ 1.1 × 10⁻⁴, about 0.027 of an 8-bit step.
-Mid-grey is about 0.017 of a step. This is a test, not an assumption.
+same samples, bit for bit, including through 8-bit dithering (below), for every pixel with any alpha. A fully
+transparent pixel's colour isn't kept: premultiplied light has none there, so it exports as 0 (as Photoshop's does).
+Worked out exhaustively over every 8-bit code and alpha (`shared/photo/output.test.ts`) and measured on the GPU in F0:
+f16 storage moves an 8-bit sample at most 0.037 of a step when opaque (worst near code 192, where linear light
+crosses 0.5 and f16's step doubles) and 0.092 premultiplied by a low alpha (dividing by alpha magnifies the error).
+
+**Stores round explicitly.** Metal's conversion when a kernel writes an `rgba16float` storage texture *truncates*,
+which doubles those errors (0.080 measured), and `quantizeToF16` before the store is folded away by the shader
+compiler (measured too). So every kernel that stores f16 rounds the mantissa itself first, to nearest, ties to even,
+by integer arithmetic (`round_half` in `kernels.ts`); F0's `rounding` check confirms every stored half is the nearest.
 
 ## Coordinates, units and bounds
 
@@ -114,9 +121,10 @@ the export, and nothing else maps light to display:
    either way, so ordinary photos are unaffected.
 3. Out-of-gamut (negative) components: clipped per channel for SDR sRGB output. Wide-gamut output is a later milestone.
 4. Encode with the sRGB transfer curve, unpremultiplied for formats that store straight alpha.
-5. **Quantise.** For 8 bits: rectangular dither of ±0.45 of a step, deterministic per document pixel (a hash of its
-   coordinates). That breaks up gradient banding in glows and skies, yet leaves exact 8-bit levels exact (the margin
-   is above the 0.03-step f16 error). For 16 bits: no dither.
+5. **Quantise.** For 8 bits: rectangular dither of ±0.375 of a step, deterministic per document pixel (a hash of
+   its coordinates, the same u32 arithmetic in WGSL and `shared/photo/output.ts`). That breaks up gradient banding
+   in glows and skies, yet leaves exact 8-bit levels exact: ½ − 0.375 leaves 0.125, above the 0.092 worst f16 error.
+   For 16 bits: no dither.
 
 The view uses the same transform into an `srgb` canvas (`bgra8unorm`, the adapter's preferred format), with the
 checkerboard drawn under transparent pixels by the presenter: it's UI, never image content. Chromium then
@@ -126,8 +134,8 @@ without touching the working space.
 
 ## Tiles, levels and memory
 
-- Tiles are 256 or 512 pixels square; F0 measures both and the choice is recorded per manifest. A manifest's tile
-  size can't change, but a new manifest can use another.
+- Tiles are 256 pixels square (F0 compared 256 and 512: the same speed panning, and 256 wastes far less when the
+  budget is tight or a stroke is small). The size is recorded per manifest, so a later change needs no migration.
 - Empty colour tiles are implicit (the manifest's `fill`); constant tiles are a value, not a blob.
 - **GPU memory**: an LRU cache of tile textures by hash, plus scratch. It has a budget (Settings › Photo, default
   2 GB) because Chrome reports neither VRAM nor true RAM. What's rebuildable goes first: levels, composite tiles,

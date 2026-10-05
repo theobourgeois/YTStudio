@@ -62,21 +62,32 @@ export function photoLabRoutes(lab: PhotoLab): Router {
     res.json(await lab.blobs.getManifest(req.params.hash));
   });
 
-  // The body is the samples; what they are is in the query.
-  router.post("/exports", async (req, res) => {
-    const q = req.query;
+  router.post("/exports", json(), async (req, res) => {
+    const body = (req.body ?? {}) as Partial<ExportRequest>;
     const request: ExportRequest = {
-      name: text(q.name),
-      width: Number(q.width),
-      height: Number(q.height),
-      bits: Number(q.bits) === 16 ? 16 : 8,
-      format: q.format === "jpeg" ? "jpeg" : "png",
-      quality: q.quality ? Number(q.quality) : undefined,
+      name: text(body.name),
+      width: Number(body.width),
+      height: Number(body.height),
+      bits: body.bits === 16 ? 16 : 8,
+      format: body.format === "jpeg" ? "jpeg" : "png",
+      quality: typeof body.quality === "number" ? body.quality : undefined,
     };
     if (!Number.isInteger(request.width) || !Number.isInteger(request.height) || request.width < 1 || request.height < 1) {
       throw new HttpError(400, "width and height must be positive integers.");
     }
-    res.status(201).json(await lab.export(req, request));
+    res.status(201).json({ id: await lab.beginExport(request) });
+  });
+  // The body is whole rows of samples, starting at row `from`.
+  router.put("/exports/:id/rows", raw({ type: () => true, limit: "128mb" }), async (req, res) => {
+    await lab.exportRows(req.params.id, Number(req.query.from), req.body as Buffer);
+    res.status(204).end();
+  });
+  router.post("/exports/:id/finish", async (req, res) => {
+    res.json(await lab.finishExport(req.params.id));
+  });
+  router.delete("/exports/:id", async (req, res) => {
+    await lab.cancelExport(req.params.id);
+    res.status(204).end();
   });
   router.get("/exports/:name", (req, res, next) => {
     lab.exportStream(req.params.name).on("error", next).pipe(res.type(req.params.name.endsWith(".png") ? "png" : "jpeg"));

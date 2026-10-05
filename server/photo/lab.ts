@@ -25,6 +25,7 @@ export class PhotoLab {
   readonly blobs: BlobStore;
   private sources: SourceInfo[] = [];
   private readonly decoding = new Map<string, Promise<SourceLayout>>();
+  private readonly exporting = new Map<string, { request: ExportRequest; file: string; rows: Set<number> }>();
 
   constructor(
     readonly root: string,
@@ -148,14 +149,48 @@ export class PhotoLab {
     await fs.mkdir(this.cache, { recursive: true });
   }
 
-  /** Encodes `samples` (sRGB-encoded RGBA at `bits`, rows top to bottom) into `exports/<name>`. */
-  async export(body: Readable, request: ExportRequest): Promise<ExportResult> {
+  /**
+   * Starts an export: the tab then sends its rows in bands (`exportRows`), as it renders them, so neither side
+   * holds the whole image, and `finishExport` encodes. Returns the export's id.
+   */
+  async beginExport(request: ExportRequest): Promise<string> {
     if (!EXPORT_NAME.test(request.name)) throw new HttpError(400, "Name the export like name.png or name.jpg (letters, digits, - _ .).");
-    const tmp = path.join(this.exportsDir, `samples-${randomBytes(6).toString("hex")}.raw`);
+    if (request.width * request.height > 400_000_000) throw new HttpError(400, "An export is at most 400 megapixels.");
+    const id = randomBytes(8).toString("hex");
+    const file = path.join(this.exportsDir, `samples-${id}.raw`);
+    await fs.writeFile(file, "");
+    this.exporting.set(id, { request, file, rows: new Set() });
+    return id;
+  }
+
+  /** Writes rows `from`.. of an export (sRGB-encoded RGBA at its depth, top to bottom) where they belong. */
+  async exportRows(id: string, from: number, samples: Buffer) {
+    const job = this.exporting.get(id);
+    if (!job) throw new HttpError(404, "No such export: begin one first.");
+    const rowBytes = job.request.width * 4 * (job.request.bits / 8);
+    const count = samples.length / rowBytes;
+    if (!Number.isInteger(from) || !Number.isInteger(count) || from < 0 || count < 1 || from + count > job.request.height) {
+      throw new HttpError(400, `Send whole rows (${rowBytes} bytes each) within 0..${job.request.height}.`);
+    }
+    const handle = await fs.open(job.file, "r+");
     try {
-      await pipeline(body, createWriteStream(tmp));
+      await handle.write(samples, 0, samples.length, from * rowBytes);
+    } finally {
+      await handle.close();
+    }
+    for (let y = from; y < from + count; y++) job.rows.add(y);
+  }
+
+  /** Encodes a finished export into `exports/<name>`: the previous file there is replaced only once it's done. */
+  async finishExport(id: string): Promise<ExportResult> {
+    const job = this.exporting.get(id);
+    if (!job) throw new HttpError(404, "No such export.");
+    this.exporting.delete(id);
+    const { request } = job;
+    try {
+      if (job.rows.size !== request.height) throw new HttpError(400, `Only ${job.rows.size} of ${request.height} rows were sent.`);
       const result = await this.helper.request<Omit<ExportResult, "name">>("encode", {
-        raw: tmp,
+        raw: job.file,
         out: path.join(this.exportsDir, request.name),
         width: request.width,
         height: request.height,
@@ -168,8 +203,15 @@ export class PhotoLab {
     } catch (error) {
       throw error instanceof HttpError ? error : new HttpError(400, (error as Error).message);
     } finally {
-      await fs.rm(tmp, { force: true });
+      await fs.rm(job.file, { force: true });
     }
+  }
+
+  /** Drops an export that won't be finished (cancelled). */
+  async cancelExport(id: string) {
+    const job = this.exporting.get(id);
+    this.exporting.delete(id);
+    if (job) await fs.rm(job.file, { force: true });
   }
 
   /** An export's samples against a source's, both decoded by the helper the same way. */

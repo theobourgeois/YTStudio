@@ -14,7 +14,12 @@ FL Studio** (see "The music suite"). See "Suites" below: most of this file is ab
 The planned **photo suite** is a Photoshop-style image editor with creative lighting/render effects.
 Read [`docs/photo/README.md`](docs/photo/README.md) for its product, research and architecture (WebGPU in the
 page renders and paints; content-addressed tiles in the package; a helper process decodes files) and the
-foundations' milestones and gates. Photo implementation has not started yet.
+foundations' milestones and gates. **F0 is built** (no suite yet): `shared/photo/` (colour and ICC, geometry, half
+floats, surfaces, brush, the output transform), `server/photo/` (the helper process, the only code that parses image
+files, with sharp; the blob store; the lab's routes), `src/suites/photo/render/` (the WebGPU renderer: atlas, page
+tables, kernels in WGSL, the session) and a development page, `/photo-lab.html` in `pnpm dev`. F1 (the suite) is next.
+Kernels storing `rgba16float` must round first (`round_for_store`): Metal truncates on store
+(docs/photo/rendering.md).
 
 ## Commands
 
@@ -38,6 +43,8 @@ pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build;
 pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
 pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit into public/kit/
 pnpm tsx scripts/make-audio-fixtures.ts [--out dir]   # the audio-intelligence fixtures as WAVs + a manifest (tests render them in memory)
+pnpm tsx scripts/photo-fixtures.ts [--skip-large]   # the photo suite's test images (48/100 MP, P3, 16-bit, alpha, EXIF) into data/photo-fixtures
+pnpm tsx scripts/photo-bench.ts [--runner chrome|electron] [--tiles 256,512] [--quick] [--shots dir]   # the photo renderer's F0 gate, measured
 pnpm tsx scripts/select-mixparams.ts   # MixParams' reviewed reference subset into the gitignored data/ (docs/audio-intelligence/)
 python3 scripts/audit-cl1b.py <Dataset.zip> --out <report.json>   # CL 1B's layout, read statically: never unpickles
 ```
