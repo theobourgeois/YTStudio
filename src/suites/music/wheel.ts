@@ -18,9 +18,34 @@ export interface WheelValue {
   onEnd: () => void;
 }
 
+/** How far a line (`deltaMode` 1, Firefox's) and a page (2) of a wheel scroll, in pixels. */
+const LINE_PX = WHEEL_STEP;
+const PAGE_PX = 800;
+
+type WheelLike = Pick<WheelEvent, "deltaX" | "deltaY" | "deltaMode" | "shiftKey">;
+
+/**
+ * A wheel event's travel in pixels, sideways (`x`) and down (`y`), whatever its unit. Shift turns a
+ * vertical wheel sideways: Chromium on Windows (and macOS) already gives it as `deltaX` with `deltaY` 0,
+ * other browsers don't, so it's taken either way. A Windows mouse's notch is about 100 px; a Mac
+ * trackpad's deltas are a few px each.
+ */
+export function wheelScroll(e: WheelLike): { x: number; y: number } {
+  const unit = e.deltaMode === 1 ? LINE_PX : e.deltaMode === 2 ? PAGE_PX : 1;
+  const x = e.deltaX * unit;
+  const y = e.deltaY * unit;
+  return e.shiftKey ? { x: x || y, y: 0 } : { x, y };
+}
+
+/** A wheel's turn up and down (+ is down), or sideways while Shift is held (Windows sends it so). */
+export function wheelTurn(e: Pick<WheelEvent, "deltaX" | "deltaY" | "shiftKey">): number {
+  return e.deltaY || (e.shiftKey ? e.deltaX : 0);
+}
+
 /** Steps up (+) or down (-) in a wheel event, carrying what's left of a trackpad's deltas in `rest`. */
 export function wheelSteps(deltaY: number, deltaMode: number, rest: { current: number }): number {
-  const delta = deltaMode === 1 ? deltaY * WHEEL_STEP : deltaY;
+  // Lines and pages are a notch at least.
+  const delta = deltaMode === 0 ? deltaY : deltaY * WHEEL_STEP;
   if (Math.abs(delta) >= WHEEL_STEP) {
     rest.current = 0;
     return delta < 0 ? 1 : -1;
@@ -52,9 +77,10 @@ export function useWheelValue(ref: RefObject<HTMLElement | null>, handlers: Whee
       latest.current.onEnd();
     };
     const onWheel = (e: WheelEvent) => {
-      if (e.deltaY === 0) return;
+      const turn = wheelTurn(e);
+      if (turn === 0) return;
       e.preventDefault();
-      const steps = wheelSteps(e.deltaY, e.deltaMode, rest);
+      const steps = wheelSteps(turn, e.deltaMode, rest);
       if (!steps) return;
       const h = latest.current;
       if (current === null) {

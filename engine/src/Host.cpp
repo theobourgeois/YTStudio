@@ -1,5 +1,6 @@
 #include "Host.h"
 
+#include "MacWindow.h"
 #include "Protocol.h"
 
 namespace
@@ -210,6 +211,11 @@ bool PluginHost::showEditor (const juce::String& ownerId, bool open)
         };
         if (const auto touched = hosted.watcher.touched.load(); touched >= 0)
             hosted.window->setTouched (touched, hosted.instance->getParameters()[touched]->getName (64));
+       #if JUCE_WINDOWS
+        // Over the app's window, as FL opens its plugins, rather than in the middle of the main screen.
+        if (hostKnown && ! hostBounds.isEmpty())
+            hosted.window->centreOver (hostBounds);
+       #endif
     }
     placeWindows();
     hosted.window->show();
@@ -249,6 +255,8 @@ void PluginHost::setHost (const juce::var& host)
 {
     hostFloating = host.hasProperty ("floating") ? (bool) host["floating"] : true;
     hostVisible = host.hasProperty ("visible") ? (bool) host["visible"] : true;
+    // Windows: its main window's handle, which plugin windows then belong to (null: the window is gone, or a browser).
+    EditorWindow::setAppWindow (appWindowFromHandle (host["handle"].toString()));
 
     const auto bounds = host["bounds"];
     const juce::Rectangle<int> now ((int) bounds["x"], (int) bounds["y"], (int) bounds["width"], (int) bounds["height"]);
@@ -304,9 +312,18 @@ void PluginHost::placeWindows()
     for (auto& [id, hosted] : loaded)
         if (auto* window = hosted->window.get())
         {
+            // Windows: a window of the app's (owned by its main window, or by none once that's gone).
+            window->followAppWindow();
+            if (EditorWindow::appWindow() != nullptr)
+            {
+                // That keeps it above the app's window and only that one, so no level is needed (always on top
+                // would put it over every other program's windows).
+                if (window->isAlwaysOnTop())
+                    window->setAlwaysOnTop (false);
+            }
             // At the level of the app's own floating windows (so they stack among each other by use, a click
             // raising the one it lands on), or at the ordinary level once the app is no longer the one in use.
-            if (window->isAlwaysOnTop() != hostFloating)
+            else if (window->isAlwaysOnTop() != hostFloating)
                 window->setAlwaysOnTop (hostFloating);
             if (window->isVisible() != hostVisible)
                 window->setVisible (hostVisible);

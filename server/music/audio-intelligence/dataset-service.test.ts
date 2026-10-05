@@ -97,9 +97,12 @@ describe("ordinary engineer packages", () => {
     expect(() => createDatasetReview(body, pack)).toThrow(/training approval/);
   });
   it("rejects symlinks and safely cancels, recovers and explicitly retries imports", async () => {
-    await fs.symlink(path.join(source, "raw vocal.wav"), path.join(source, "linked.wav"));
+    // Windows lets anyone make a directory junction, but a file link only with Developer Mode: both are links.
+    const linked = path.join(source, process.platform === "win32" ? "linked" : "linked.wav");
+    if (process.platform === "win32") await fs.symlink(root, linked, "junction");
+    else await fs.symlink(path.join(source, "raw vocal.wav"), linked);
     const failed = await settled((await service.importPath(project, source)).id); expect(failed.status).toBe("failed"); expect(failed.error).toMatch(/link/);
-    await fs.unlink(path.join(source, "linked.wav"));
+    await fs.rm(linked, { force: true, recursive: false });
     const retried = await service.retry(project, failed.id); expect((await settled(retried.id)).status).toBe("succeeded");
     expect(() => service.getImport(other, failed.id)).toThrow(/No such/);
     const job = await service.importPath(project, source); await service.cancel(project, job.id); expect((await settled(job.id)).status).toBe("cancelled");

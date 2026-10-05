@@ -1,6 +1,7 @@
 import { STILL_DURATION } from "../shared/timeline.ts";
 import type { AssetKind } from "../shared/types.ts";
 import { FFPROBE } from "./config.ts";
+import { type PcmHeader, readPcmHeader } from "./pcm.ts";
 import { run } from "./process.ts";
 import { HttpError } from "./storage.ts";
 
@@ -56,6 +57,13 @@ const previewableAudio = (codec: string) => PREVIEWABLE_AUDIO.has(codec) || code
 
 /** Probe a media file. Throws `HttpError(415)` for anything that isn't playable audio/video. */
 export async function probeMedia(file: string): Promise<ProbeResult> {
+  // WAV and AIFF are read here: ffprobe takes half a second to start on Windows, whatever the file.
+  const pcm = await readPcmHeader(file);
+  return pcm ? probePcm(pcm) : ffprobeMedia(file);
+}
+
+/** `probeMedia` by ffprobe, whatever the file. */
+export async function ffprobeMedia(file: string): Promise<ProbeResult> {
   let data: FfprobeOutput;
   try {
     const out = await run(FFPROBE, [
@@ -91,6 +99,22 @@ export async function probeMedia(file: string): Promise<ProbeResult> {
     fps: video ? frameRate(video) : null,
     hasVideo: !!video,
     hasAudio,
+    formatName,
+  };
+}
+
+/** What ffprobe says of an uncompressed audio file, from its header (`server/pcm.ts`). */
+export function probePcm(pcm: PcmHeader): ProbeResult {
+  const formatName = pcm.container;
+  assertPreviewable(formatName, undefined, [{ codec_type: "audio", codec_name: pcm.codec }]);
+  return {
+    kind: "audio",
+    duration: pcm.duration,
+    width: null,
+    height: null,
+    fps: null,
+    hasVideo: false,
+    hasAudio: true,
     formatName,
   };
 }

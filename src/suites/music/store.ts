@@ -82,6 +82,9 @@ let openToken = 0;
 /** The song as the last sample swap left it (`replaceSampleFromBrowser`), to replace that undo step with the next swap's. */
 let lastSwap: { channelId: string; doc: MusicProject } | null = null;
 
+/** The Browser's files brought into a song at once. */
+const BROWSER_IMPORTS = 4;
+
 const channelName = (fileName: string) => fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "Sample";
 
 export const useMusic = create<MusicState>((set, get) => {
@@ -110,16 +113,24 @@ export const useMusic = create<MusicState>((set, get) => {
   async function fromBrowser(paths: string[]): Promise<MediaAsset[]> {
     const { projectId } = get();
     if (!projectId) return [];
-    const got: MediaAsset[] = [];
-    for (const path of paths) {
-      try {
-        const asset = await musicApi.useBrowserFile({ projectId, path });
-        if (!asset.hasAudio) throw new Error("it has no sound");
-        got.push(asset);
-      } catch (err) {
-        toast.error(`Couldn't add ${path.slice(path.lastIndexOf("/") + 1)}`, { description: errorMessage(err) });
+    // A few at once (each is a file copy and a header read on the server), each file once, in the order given.
+    const unique = [...new Set(paths)];
+    const byPath = new Map<string, MediaAsset>();
+    let next = 0;
+    const worker = async () => {
+      while (next < unique.length) {
+        const path = unique[next++];
+        try {
+          const asset = await musicApi.useBrowserFile({ projectId, path });
+          if (!asset.hasAudio) throw new Error("it has no sound");
+          byPath.set(path, asset);
+        } catch (err) {
+          toast.error(`Couldn't add ${path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1)}`, { description: errorMessage(err) });
+        }
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(BROWSER_IMPORTS, unique.length) }, worker));
+    const got = paths.flatMap((p) => byPath.get(p) ?? []);
     if (get().projectId !== projectId) return [];
     const known = new Set(get().assets.map((a) => a.id));
     const added = got.filter((a, i) => !known.has(a.id) && got.findIndex((b) => b.id === a.id) === i);

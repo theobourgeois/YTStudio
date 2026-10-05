@@ -27,12 +27,16 @@ const DEV_URL = process.env.EDITOR_DESKTOP_DEV_URL;
 /** How long closing waits for the page to save its last edit. */
 const FLUSH_TIMEOUT_MS = 4000;
 const isMac = process.platform === "darwin";
+const isWindows = process.platform === "win32";
 /** How long after the app comes to the front its windows are put back in order (the system reorders them as it activates). */
 const RESTACK_DELAY_MS = 150;
 /** How often the pointer's place is read to tell it to the windows without the focus (about a frame). */
 const HOVER_INTERVAL_MS = 16;
 
 app.setName(APP_NAME);
+// Windows groups the taskbar button, its pins and notifications by this: the installer's shortcut carries
+// the same id (electron-builder's appId), so the running app is that shortcut's, not a second "Electron".
+if (isWindows) app.setAppUserModelId(app.isPackaged ? "gg.jestr.vaudio" : process.execPath);
 // A separate profile (window state, page storage, the single-instance lock), for tests.
 if (process.env.EDITOR_USER_DATA_DIR) app.setPath("userData", path.resolve(process.env.EDITOR_USER_DATA_DIR));
 // The packaged app keeps its own data (recents, the Library, settings) with the user's other app data, and
@@ -111,6 +115,13 @@ function openProject(file: string) {
 /** Where the Mac's window buttons sit: level with the middle of the page's headers (52px tall), or of its tab strip (40px: src/index.css). */
 const HEADER_BUTTONS = { x: 18, y: 20 };
 const TAB_STRIP_BUTTONS = { x: 18, y: 14 };
+/**
+ * Windows: the window's own buttons (minimise, maximise, close, with Snap Layouts) sit over the page's top-right
+ * corner, as tall as the bar that starts the window (`titleBarOverlay`): a header, or the tab strip. The page
+ * leaves them room (`titlebar-area-*` in src/index.css) and says the bar's colours (electron/preload.ts).
+ */
+const HEADER_HEIGHT = 52;
+const TAB_STRIP_HEIGHT = 40;
 
 /** A menu command of the page's (`DesktopCommand` in src/lib/desktop.ts). */
 function pageCommand(name: string) {
@@ -169,7 +180,8 @@ async function start() {
     if (focused === mainWindow) void closeEngineWindows?.().catch(() => {});
   });
   app.on("browser-window-blur", () => group?.setAppFocused(BrowserWindow.getFocusedWindow() !== null));
-  relayHover();
+  // (Only macOS withholds mouse moves from windows without the focus: elsewhere the 60 Hz poll would be for nothing.)
+  if (isMac) relayHover();
   answerPanelRequests(() => (mainWindow && panels ? { main: mainWindow, panels } : null));
   answerSaveDialogs();
   answerProjectDialogs();
@@ -191,6 +203,9 @@ function createWindow() {
     acceptFirstMouse: true,
     backgroundColor: "#16191d",
     ...(isMac && { titleBarStyle: "hiddenInset", trafficLightPosition: HEADER_BUTTONS }),
+    // No system title bar or menu bar (FL Studio has neither): the page's top bar drags the window, under the
+    // system's own buttons. The colours are the dark theme's until the page says its own.
+    ...(isWindows && { titleBarStyle: "hidden", titleBarOverlay: { color: "#16191d", symbolColor: "#e2e5e9", height: HEADER_HEIGHT } }),
     webPreferences: {
       preload: path.join(import.meta.dirname, "preload.cjs"),
       sandbox: true,
@@ -201,6 +216,10 @@ function createWindow() {
     },
   });
   if (state.maximized) win.maximize();
+  // Windows and Linux: no menu bar across the window (FL Studio's is in its toolbar, as ours is the page's).
+  // Its accelerators still work, and with autoHideMenuBar off a released Alt doesn't bring it back and take
+  // the keyboard, which an Alt-drag (off the grid) would do every time.
+  if (!isMac) win.setMenuBarVisibility(false);
   trackWindowState(win);
   mainWindow = win;
   const winPanels = new Panels(win, stack, () => void restacker.run());
@@ -314,8 +333,17 @@ function answerProjectDialogs() {
   });
   // The page's tab strip is a shorter bar than its headers: the window buttons sit in the middle of whichever shows.
   ipcMain.on("tab-strip", (event, shown: unknown) => {
-    if (!isMac) return;
-    BrowserWindow.fromWebContents(event.sender)?.setWindowButtonPosition(shown === true ? TAB_STRIP_BUTTONS : HEADER_BUTTONS);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (isMac) win?.setWindowButtonPosition(shown === true ? TAB_STRIP_BUTTONS : HEADER_BUTTONS);
+    if (isWindows && win === mainWindow) win?.setTitleBarOverlay({ height: shown === true ? TAB_STRIP_HEIGHT : HEADER_HEIGHT });
+  });
+  // Windows: the colours of the bar under the window's buttons, and of its text (the theme's), as the page has them.
+  ipcMain.on("title-bar-colours", (event, colours: unknown) => {
+    const { color, symbolColor } = (colours ?? {}) as { color?: unknown; symbolColor?: unknown };
+    const hex = (value: unknown) => (typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : undefined);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!isWindows || !win || win !== mainWindow || !hex(color) || !hex(symbolColor)) return;
+    win.setTitleBarOverlay({ color: hex(color), symbolColor: hex(symbolColor) });
   });
   ipcMain.on("project-opened", (_event, file: unknown) => {
     if (typeof file === "string" && isProjectPath(file)) app.addRecentDocument(file);
@@ -394,7 +422,16 @@ function openPanels(win: BrowserWindow, owned: Panels) {
 async function tellEngineWhereWeAre(): Promise<void> {
   const win = mainWindow;
   if (!win || win.isDestroyed()) return setHostWindow?.({ ...floatingState, visible: false, bounds: { x: 0, y: 0, width: 0, height: 0 } });
-  return setHostWindow?.({ ...floatingState, bounds: win.getBounds() });
+  // Windows: plugin windows become the main window's own (above it, not above other programs, no taskbar
+  // buttons, minimised with it), which needs its handle. The engine reads it from the message as it comes.
+  return setHostWindow?.({ ...floatingState, bounds: win.getBounds(), handle: nativeHandle(win) });
+}
+
+/** Windows: a window's HWND as a decimal number (a pointer: 8 bytes on 64-bit Windows). */
+function nativeHandle(win: BrowserWindow): string | undefined {
+  if (!isWindows) return undefined;
+  const handle = win.getNativeWindowHandle();
+  return handle.length >= 8 ? handle.readBigUInt64LE().toString() : handle.readUInt32LE().toString();
 }
 
 function followByPluginWindows(win: BrowserWindow) {

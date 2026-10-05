@@ -69,5 +69,41 @@ const markZoom = () => document.documentElement.style.setProperty("--desktop-zoo
 window.addEventListener("DOMContentLoaded", () => {
   document.documentElement.classList.add("desktop", `desktop-${process.platform}`);
   markZoom();
+  if (process.platform === "win32") followTitleBarColours();
 });
 window.addEventListener("resize", markZoom);
+
+/** How often the bar under the window's buttons is looked at (a theme, a project or the tab strip changes it). */
+const TITLE_BAR_CHECK_MS = 500;
+
+/**
+ * Windows: the system draws the window's buttons over the page's top-right corner (`titleBarOverlay`,
+ * electron/main.ts) in colours it's given, so they're given the bar's under them and its text's, whatever
+ * the theme. Looked at twice a second (one element, its style): cheaper than watching the page change.
+ */
+function followTitleBarColours() {
+  const context = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+  // Any CSS colour (the themes use oklch and color-mix) as #rrggbb, or null if it's transparent.
+  const hex = (css: string): string | null => {
+    if (!context) return null;
+    context.clearRect(0, 0, 1, 1);
+    context.fillStyle = css;
+    context.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+    return a === 0 ? null : `#${[r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+  };
+  let said = "";
+  const check = () => {
+    let element: Element | null = document.elementFromPoint(window.innerWidth - 2, 2);
+    let color: string | null = null;
+    const text = element ? hex(getComputedStyle(element).color) : null;
+    for (; element && !color; element = element.parentElement) color = hex(getComputedStyle(element).backgroundColor);
+    if (!color || !text) return;
+    const key = `${color} ${text}`;
+    if (key === said) return;
+    said = key;
+    ipcRenderer.send("title-bar-colours", { color, symbolColor: text });
+  };
+  check();
+  setInterval(check, TITLE_BAR_CHECK_MS);
+}

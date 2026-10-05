@@ -1,5 +1,6 @@
 #include "Engine.h"
 
+#include "MacWindow.h"
 #include "Protocol.h"
 
 namespace
@@ -24,8 +25,38 @@ constexpr float meterFloor = 0.0005f;
 constexpr int exportBlockSize = 2048;
 /** How long an export waits for the song's plugins to load, in tenths of a second. */
 constexpr int exportWaits = 600;
+/** How far Settings' recording offset goes either way, in ms. */
+constexpr double maxRecordOffsetMs = 500.0;
+/** JUCE's name for ASIO drivers' device type. */
+const juce::String asioType = "ASIO";
+
+/**
+ * Drivers that aren't an interface's own: they wrap Windows' audio (FL Studio ASIO, ASIO4ALL, the
+ * generic ones) or a virtual mixer. They stay choosable, but the engine never picks one by itself.
+ */
+bool isGenericAsio (const juce::String& name)
+{
+    static const juce::StringArray generic { "FL Studio ASIO", "ASIO4ALL", "Generic Low Latency", "Realtek", "Voicemeeter", "ASIO for", "Magix", "ASIO2WASAPI", "FlexASIO" };
+    for (const auto& word : generic)
+        if (name.containsIgnoreCase (word))
+            return true;
+    return false;
+}
 
 juce::Result fail (const juce::String& message) { return juce::Result::fail (message); }
+
+/**
+ * From a block being computed to its sound leaving the device, in samples. Windows' drivers (ASIO's
+ * reported latency, JUCE's WASAPI) count the buffer in already; Core Audio's leaves it out.
+ */
+int outputLatency (juce::AudioIODevice& device)
+{
+   #if JUCE_WINDOWS
+    return device.getOutputLatencyInSamples();
+   #else
+    return device.getOutputLatencyInSamples() + device.getCurrentBufferSizeSamples();
+   #endif
+}
 }
 
 Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths, bool isOffline, bool onlyPluginPaths)
@@ -58,15 +89,21 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
     // Outputs only, unless an input was chosen (recording): opening one asks for the microphone, so
     // it's only opened once someone has chosen it (`setDevice`), and again at start from what's saved.
     const auto saved = juce::parseXML (deviceFile);
-    const auto error = devices.initialise (0, 2, saved.get(), true);
+    if (saved != nullptr)
+        recordOffsetMs = juce::jlimit (-maxRecordOffsetMs, maxRecordOffsetMs, saved->getDoubleAttribute ("vaudioRecordOffsetMs"));
+    // What Settings chose is kept. On Windows a saved device that wasn't chosen there (an older engine's
+    // default: Windows' shared audio) gives way to the interface's ASIO driver; elsewhere any saved one is
+    // a choice.
+   #if JUCE_WINDOWS
+    deviceChosen = saved != nullptr && saved->getBoolAttribute ("vaudioChosen");
+   #else
+    deviceChosen = saved != nullptr;
+   #endif
+    const auto error = devices.initialise (0, 2, deviceChosen ? saved.get() : nullptr, true);
     if (error.isNotEmpty())
         juce::Logger::writeToLog ("audio device: " + error);
-    if (saved == nullptr)
-    {
-        auto setup = devices.getAudioDeviceSetup();
-        setup.bufferSize = preferredBlockSize;
-        devices.setAudioDeviceSetup (setup, true);
-    }
+    if (! deviceChosen)
+        openDefaultDevice();
     devices.addAudioCallback (this);
     midiInputs = std::make_unique<MidiInputs> (dataDir.getChildFile ("midi.json"), [this] (const juce::MidiMessage& message) { sequencer.midiIn (message); });
     startTimer (transportIntervalMs);
@@ -114,12 +151,13 @@ juce::var Engine::status() const
     const auto rate = device != nullptr ? device->getCurrentSampleRate() : sampleRate;
     return protocol::object ({
         { "device", device != nullptr ? juce::var (device->getName()) : juce::var() },
+        { "deviceType", offline ? juce::var() : juce::var (devices.getCurrentAudioDeviceType()) },
         { "offline", offline },
         { "sampleRate", rate },
         { "bufferSize", device != nullptr ? device->getCurrentBufferSizeSamples() : blockSize },
         { "cpu", devices.getCpuUsage() },
         { "dropouts", juce::jmax (0, devices.getXRunCount()) },
-        { "outputLatencyMs", rate > 0 ? 1000.0 * ((device != nullptr ? device->getOutputLatencyInSamples() + device->getCurrentBufferSizeSamples() : 0) + songLatency) / rate : 0.0 },
+        { "outputLatencyMs", rate > 0 ? 1000.0 * ((device != nullptr ? outputLatency (*device) : 0) + songLatency) / rate : 0.0 },
         { "input", device != nullptr && devices.getAudioDeviceSetup().inputDeviceName.isNotEmpty() ? juce::var (devices.getAudioDeviceSetup().inputDeviceName) : juce::var() },
         { "inputChannels", device != nullptr ? device->getActiveInputChannels().countNumberOfSetBits() : (offline ? testInput.getNumChannels() : 0) },
         { "inputLatencyMs", device != nullptr && rate > 0 ? 1000.0 * device->getInputLatencyInSamples() / rate : 0.0 },
@@ -142,12 +180,18 @@ void Engine::sendStatus() const { protocol::send (protocol::object ({ { "event",
 
 juce::var Engine::deviceOptions() const
 {
-    juce::Array<juce::var> outputs, inputs, inputChannels, bufferSizes, sampleRates;
+    juce::Array<juce::var> types, outputs, inputs, inputChannels, bufferSizes, sampleRates;
+    // JUCE lists them through a non-const call (it scans once, the first time).
+    for (auto* type : const_cast<juce::AudioDeviceManager&> (devices).getAvailableDeviceTypes())
+        types.add (type->getTypeName());
+    auto separate = true;
     if (auto* type = devices.getCurrentDeviceTypeObject())
     {
+        separate = type->hasSeparateInputsAndOutputs();
         for (const auto& name : type->getDeviceNames (false))
             outputs.add (name);
-        for (const auto& name : type->getDeviceNames (true))
+        // ASIO is one device both ways: its inputs are its outputs' drivers.
+        for (const auto& name : type->getDeviceNames (separate))
             inputs.add (name);
     }
     auto* device = devices.getCurrentAudioDevice();
@@ -162,7 +206,12 @@ juce::var Engine::deviceOptions() const
             for (const auto& name : device->getInputChannelNames())
                 inputChannels.add (name);
     }
-    return protocol::object ({ { "outputs", outputs },
+    return protocol::object ({ { "types", types },
+                               { "type", devices.getCurrentAudioDeviceType() },
+                               { "separateInputs", separate },
+                               { "controlPanel", device != nullptr && device->hasControlPanel() },
+                               { "recordOffsetMs", recordOffsetMs },
+                               { "outputs", outputs },
                                { "output", device != nullptr ? juce::var (devices.getAudioDeviceSetup().outputDeviceName) : juce::var() },
                                { "inputs", inputs },
                                { "input", input.isNotEmpty() ? juce::var (input) : juce::var() },
@@ -173,40 +222,177 @@ juce::var Engine::deviceOptions() const
                                { "status", status() } });
 }
 
+void Engine::openDefaultDevice()
+{
+   #if JUCE_WINDOWS
+    for (auto* type : devices.getAvailableDeviceTypes())
+    {
+        if (type->getTypeName() != asioType)
+            continue;
+        type->scanForDevices();
+        const auto previousType = devices.getCurrentAudioDeviceType();
+        const auto previous = devices.getAudioDeviceSetup();
+        for (const auto& driver : type->getDeviceNames())
+        {
+            if (isGenericAsio (driver))
+                continue;
+            const auto error = openAsio (driver);
+            if (auto* device = devices.getCurrentAudioDevice(); error.isEmpty() && device != nullptr)
+            {
+                // A buffer to play along and sing to (drivers often start at 512, ~40 ms there and back);
+                // Settings or the driver's panel change it.
+                if (device->getCurrentBufferSizeSamples() > preferredBlockSize && device->getAvailableBufferSizes().contains (preferredBlockSize))
+                {
+                    auto setup = devices.getAudioDeviceSetup();
+                    setup.bufferSize = preferredBlockSize;
+                    devices.setAudioDeviceSetup (setup, true);
+                }
+                juce::Logger::writeToLog ("audio device: ASIO, " + driver);
+                return;
+            }
+            juce::Logger::writeToLog ("audio device: ASIO " + driver + ": " + error);
+        }
+        // No interface's driver opens (none is plugged in): Windows' own audio, as before.
+        if (devices.getCurrentAudioDeviceType() != previousType)
+        {
+            devices.setCurrentAudioDeviceType (previousType, true);
+            devices.setAudioDeviceSetup (previous, true);
+        }
+    }
+   #endif
+    auto setup = devices.getAudioDeviceSetup();
+    setup.bufferSize = preferredBlockSize;
+    devices.setAudioDeviceSetup (setup, true);
+}
+
+juce::String Engine::openAsio (const juce::String& driver)
+{
+    if (devices.getCurrentAudioDeviceType() != asioType)
+        devices.setCurrentAudioDeviceType (asioType, true);
+    auto setup = devices.getAudioDeviceSetup();
+    setup.outputDeviceName = driver;
+    setup.inputDeviceName = driver;
+    // Every input: an ASIO driver opens them all at no cost, and a track picks which it takes.
+    setup.useDefaultInputChannels = false;
+    setup.inputChannels.clear();
+    setup.inputChannels.setRange (0, maxInputs, true);
+    setup.useDefaultOutputChannels = true;
+    // The driver's own buffer and rate (its control panel's), as FL Studio does.
+    setup.bufferSize = 0;
+    setup.sampleRate = 0;
+    return devices.setAudioDeviceSetup (setup, true);
+}
+
+void Engine::saveDevice()
+{
+    std::unique_ptr<juce::XmlElement> xml = devices.createStateXml();
+    // JUCE writes nothing while the device is its default: the choice and the offset are kept anyway.
+    if (xml == nullptr)
+    {
+        xml = std::make_unique<juce::XmlElement> ("DEVICESETUP");
+        xml->setAttribute ("deviceType", devices.getCurrentAudioDeviceType());
+        xml->setAttribute ("audioOutputDeviceName", devices.getAudioDeviceSetup().outputDeviceName);
+    }
+    xml->setAttribute ("vaudioChosen", deviceChosen);
+    xml->setAttribute ("vaudioRecordOffsetMs", recordOffsetMs);
+    xml->writeTo (deviceFile);
+}
+
 juce::Result Engine::setDevice (const juce::var& params)
 {
     if (offline)
         return fail ("An offline engine has no device.");
+    const auto changesDevice = params.hasProperty ("output") || params.hasProperty ("input") || params.hasProperty ("bufferSize")
+                               || params.hasProperty ("sampleRate") || params.hasProperty ("type");
     // A MIDI input turned on or off.
     if (const auto& midi = params["midiInput"]; midi.isObject())
-    {
         if (const auto result = midiInputs->setEnabled (midi["name"].toString(), (bool) midi["enabled"]); result.failed())
             return result;
-        if (! params.hasProperty ("output") && ! params.hasProperty ("input") && ! params.hasProperty ("bufferSize") && ! params.hasProperty ("sampleRate"))
-            return juce::Result::ok();
-    }
-    auto setup = devices.getAudioDeviceSetup();
-    if (params["output"].isString())
-        setup.outputDeviceName = params["output"].toString();
-    if (params["input"].isString())
+    if (params.hasProperty ("recordOffsetMs"))
     {
-        // All its channels (the device opens those it has): a track picks which it takes.
-        setup.inputDeviceName = params["input"].toString();
-        setup.useDefaultInputChannels = false;
-        setup.inputChannels.clear();
-        if (setup.inputDeviceName.isNotEmpty())
-            setup.inputChannels.setRange (0, maxInputs, true);
+        recordOffsetMs = juce::jlimit (-maxRecordOffsetMs, maxRecordOffsetMs, (double) params["recordOffsetMs"]);
+        saveDevice();
     }
-    if (const auto size = (int) params["bufferSize"]; size > 0)
-        setup.bufferSize = size;
-    if (const auto rate = (double) params["sampleRate"]; rate > 0)
-        setup.sampleRate = rate;
-    const auto error = devices.setAudioDeviceSetup (setup, true);
-    if (error.isNotEmpty())
-        return fail (error);
-    if (auto xml = devices.createStateXml())
-        xml->writeTo (deviceFile);
+    if (! changesDevice)
+        return juce::Result::ok();
+
+    // Another kind of driver (ASIO, Windows Audio...): its best device, as at a first start.
+    if (const auto type = params["type"].toString(); type.isNotEmpty() && type != devices.getCurrentAudioDeviceType())
+    {
+        juce::AudioIODeviceType* wanted = nullptr;
+        for (auto* t : devices.getAvailableDeviceTypes())
+            if (t->getTypeName() == type)
+                wanted = t;
+        if (wanted == nullptr)
+            return fail ("This computer has no \"" + type + "\" audio driver.");
+        wanted->scanForDevices();
+        if (type == asioType)
+        {
+            const auto names = wanted->getDeviceNames();
+            if (names.isEmpty())
+                return fail ("No ASIO driver is installed: install your audio interface's driver (or FL Studio ASIO, or ASIO4ALL).");
+            auto driver = names[0];
+            for (const auto& name : names)
+                if (! isGenericAsio (name))
+                {
+                    driver = name;
+                    break;
+                }
+            if (! params["output"].isString())
+                if (const auto error = openAsio (driver); error.isNotEmpty())
+                    return fail (error);
+        }
+        else
+        {
+            devices.setCurrentAudioDeviceType (type, true);
+            auto setup = devices.getAudioDeviceSetup();
+            setup.bufferSize = preferredBlockSize;
+            devices.setAudioDeviceSetup (setup, true);
+        }
+    }
+    auto* type = devices.getCurrentDeviceTypeObject();
+    const auto oneDevice = type != nullptr && ! type->hasSeparateInputsAndOutputs();
+    if (oneDevice && params["output"].isString() && params["output"].toString() != devices.getAudioDeviceSetup().outputDeviceName)
+    {
+        // An ASIO driver is chosen whole: its outputs and its inputs.
+        if (const auto error = openAsio (params["output"].toString()); error.isNotEmpty())
+            return fail (error);
+    }
+    else
+    {
+        auto setup = devices.getAudioDeviceSetup();
+        if (params["output"].isString())
+            setup.outputDeviceName = params["output"].toString();
+        if (params["input"].isString())
+        {
+            // All its channels (the device opens those it has): a track picks which it takes. ASIO's
+            // input is its output's driver.
+            const auto input = params["input"].toString();
+            setup.inputDeviceName = oneDevice && input.isNotEmpty() ? setup.outputDeviceName : input;
+            setup.useDefaultInputChannels = false;
+            setup.inputChannels.clear();
+            if (setup.inputDeviceName.isNotEmpty())
+                setup.inputChannels.setRange (0, maxInputs, true);
+        }
+        if (const auto size = (int) params["bufferSize"]; size > 0)
+            setup.bufferSize = size;
+        if (const auto rate = (double) params["sampleRate"]; rate > 0)
+            setup.sampleRate = rate;
+        const auto error = devices.setAudioDeviceSetup (setup, true);
+        if (error.isNotEmpty())
+            return fail (error);
+    }
+    deviceChosen = true;
+    saveDevice();
     return juce::Result::ok();
+}
+
+juce::int64 Engine::recordingLatency() const
+{
+    auto* device = devices.getCurrentAudioDevice();
+    const auto reported = device != nullptr ? device->getInputLatencyInSamples() + device->getOutputLatencyInSamples() : 0;
+    const auto offset = juce::roundToInt (recordOffsetMs * rate() / 1000.0);
+    return juce::jmax ((juce::int64) 0, (juce::int64) songLatency + reported + offset);
 }
 
 void Engine::handle (const juce::String& command, const juce::var& params, Reply reply)
@@ -503,6 +689,31 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         const auto result = setDevice (params);
         return reply (result, result.wasOk() ? deviceOptions() : juce::var());
     }
+    if (command == "deviceControlPanel")
+    {
+        // The driver's own settings (an ASIO driver's buffer, clock...), as FL's "Show ASIO panel". Some
+        // drivers hold the thread while their panel is open: the reply goes first.
+        auto* device = devices.getCurrentAudioDevice();
+        if (offline || device == nullptr || ! device->hasControlPanel())
+            return reply (fail ("This audio device has no settings panel of its own."), {});
+        ok();
+        juce::MessageManager::callAsync ([this, alive = alive] {
+            if (! *alive)
+                return;
+            if (auto* open = devices.getCurrentAudioDevice(); open != nullptr && open->showControlPanel())
+            {
+                // Its buffer or rate changed: open it again with the driver's (asking for none).
+                auto setup = devices.getAudioDeviceSetup();
+                setup.bufferSize = 0;
+                setup.sampleRate = 0;
+                devices.closeAudioDevice();
+                if (const auto error = devices.setAudioDeviceSetup (setup, true); error.isNotEmpty())
+                    juce::Logger::writeToLog ("audio device: " + error);
+            }
+            sendStatus();
+        });
+        return;
+    }
     if (command == "render")
     {
         if (! offline)
@@ -603,8 +814,7 @@ juce::Result Engine::record (const juce::var& params)
         return fail ("No mixer track is armed with an input: choose a track's input in the Mixer, which arms it.");
     // What's heard comes out late by the output's latency and the song's plugin delay, and what's
     // played along to it reaches the engine late by the input's: the recording leaves that out.
-    auto* device = devices.getCurrentAudioDevice();
-    const auto latency = (juce::int64) songLatency + (device != nullptr ? device->getInputLatencyInSamples() + device->getOutputLatencyInSamples() : 0);
+    const auto latency = recordingLatency();
     const auto loop = (bool) params["loop"];
     if (! armed.empty())
         if (const auto result = sequencer.recorder().start (id, juce::File (folder), armed, rate(), latency, loop); result.failed())
@@ -733,6 +943,8 @@ void Engine::timerCallback()
                                             { "peak", level },
                                             { "meters", meters },
                                             { "cpu", devices.getCpuUsage() } }));
+    if (playing != saidPlaying)
+        keepAwake (playing);
     saidPlaying = playing;
     saidQuiet = quiet;
     saidPreviewing = previewing;

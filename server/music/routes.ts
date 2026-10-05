@@ -30,6 +30,10 @@ export function engineRoutes(engine: AudioEngine): Router {
   router.post("/devices", json(), async (req, res) => {
     res.json(await engine.setDevice(req.body));
   });
+  router.post("/devices/panel", async (_req, res) => {
+    await engine.deviceControlPanel();
+    res.json({ ok: true });
+  });
   // The whole document, on every edit while it's open.
   router.post("/song", json({ limit: "10mb" }), async (req, res) => {
     res.json(await engine.setSong(req.body));

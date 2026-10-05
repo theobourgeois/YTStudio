@@ -1,7 +1,10 @@
 /**
  * The Browser's keys while its list has the focus (`docs/fl-studio/browser.md`), FL's where it has them.
- * Pure, so they're tested; the panel runs them. "Ctrl" is Ctrl or ⌘, but for Ctrl+R (⌘R reloads the page).
+ * Pure, so they're tested; the panel runs them. "Ctrl" is Ctrl or ⌘, but for a Mac's ⌃R (⌘R reloads the
+ * page): elsewhere Ctrl+R is FL's export, which wins.
  */
+import { IS_MAC } from "@/lib/key-labels";
+
 export type BrowserKeyAction =
   /** The row above or below: selected, and played if it's a file; `send`: also sent to the selected channel (Shift, FL's). */
   | { type: "move"; direction: -1 | 1; send: boolean }
@@ -21,7 +24,7 @@ export type BrowserKeyAction =
 
 type KeyLike = Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">;
 
-export function resolveBrowserKey(e: KeyLike): BrowserKeyAction | null {
+export function resolveBrowserKey(e: KeyLike, mac = IS_MAC): BrowserKeyAction | null {
   const command = e.metaKey || e.ctrlKey;
   const plain = !command && !e.altKey && !e.shiftKey;
   const vertical = e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 1 : null;
@@ -42,7 +45,7 @@ export function resolveBrowserKey(e: KeyLike): BrowserKeyAction | null {
   if (plain && e.key === "Escape") return { type: "escape" };
   if (command && !e.altKey && !e.shiftKey && letter === "F") return { type: "search" };
   if (command && !e.altKey && !e.shiftKey && letter === "A") return { type: "selectAll" };
-  if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && letter === "R") return { type: "rescan" };
+  if (mac && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && letter === "R") return { type: "rescan" };
   if (plain && e.key === "/") return { type: "search" };
   // Typing a name searches for it. Space is play, as everywhere.
   if (!command && !e.altKey && e.key.length === 1 && e.key !== " ") return { type: "type", text: e.key };

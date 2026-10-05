@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { cn } from "cn"
+import { IS_MAC, keyLabel } from "@/lib/key-labels"
 import { PiCaretRight, PiCheck, PiCircleFill } from "react-icons/pi"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 import { usePopupContainer } from "@/components/ui/portal-container"
@@ -176,19 +177,24 @@ function DropdownMenuSeparator({
   )
 }
 
+/** A Mac's glyphs ("⇧⌘L") read "Ctrl+Shift+L" elsewhere (`keyLabel`), at normal spacing. */
 function DropdownMenuShortcut({
   className,
+  children,
   ...props
 }: React.ComponentProps<"span">) {
   return (
     <span
       data-slot="dropdown-menu-shortcut"
       className={cn(
-        "ml-auto text-xs tracking-widest text-muted-foreground",
+        "ml-auto text-xs text-muted-foreground",
+        IS_MAC ? "tracking-widest" : "pl-4",
         className
       )}
       {...props}
-    />
+    >
+      {typeof children === "string" ? keyLabel(children) : children}
+    </span>
   )
 }
 

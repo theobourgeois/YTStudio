@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import { fillMixerInserts, isMixRole, MIX_ROLES, ROLE_COLORS, ROLE_LABELS, type ChannelEvidence, type MixRole, type MixerSetupRequest, type MixerSetupResult } from "@shared/music/mixer-setup";
 import { Button } from "@/components/ui/button";
+import { keyLabel } from "@/lib/key-labels";
 import { useGridSelection } from "@/components/media/use-grid-selection";
 import { cn } from "cn";
 import { PiCheckBold, PiGearSix, PiMagnifyingGlass, PiSpinnerGap, PiWaveform, PiPianoKeys } from "react-icons/pi";
@@ -161,7 +162,7 @@ export function FillInsertsWindow() {
             </div>
             {selection.marquee}
           </div>
-          <p className="border-t px-3 py-1.5 text-[10px] text-muted-foreground">Drag to select · ⌘/Ctrl adds · Shift selects a range · 1 Instruments / 2 Bass / 3 Drums</p>
+          <p className="border-t px-3 py-1.5 text-[10px] text-muted-foreground">{keyLabel("Drag to select · ⌘ adds · Shift selects a range · 1 Instruments / 2 Bass / 3 Drums")}</p>
         </>}
         {!result && <div className="flex min-h-20 flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">{busy ? <><PiSpinnerGap className="size-6 animate-spin" /><p role="status" className="text-xs">Reading your sounds…</p></> : <><PiWaveform className="size-8" /><p className="text-sm font-medium text-foreground">Your mixer, organized in one pass</p><p className="max-w-72 text-xs">Add your Jev key, then let it group your Serum presets and samples.</p></>}</div>}
         <div className="flex items-center justify-between gap-3 border-t bg-muted/20 px-3 py-2.5">

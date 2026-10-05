@@ -26,6 +26,7 @@ import type { MusicProject } from "@shared/music/types";
 import { type ToolResult, textResult } from "@shared/tool-spec";
 import type { MediaAsset } from "@shared/types";
 import { api } from "@/lib/api";
+import { FILE_MANAGER, keyLabel } from "@/lib/key-labels";
 import type { ToolRunContext } from "../types";
 import { musicApi } from "./api";
 import { usePluginFavourites } from "./plugin-favourites";
@@ -327,7 +328,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const { device, channels } = useInputs.getState();
     const lines = device
       ? [`The input device is "${device}". Its inputs, as update_mixer_track's "input" takes them:`, ...inputChoices(channels).map((c) => `- "${inputText(c.input)}": ${c.label}${c.input.stereo ? " (stereo pair)" : ""}`)]
-      : ["No input device is open: the user chooses one in Settings (⌘,, Music → Input device). Until then nothing can be recorded."];
+      : [keyLabel("No input device is open: the user chooses one in Settings (⌘,, Music → Input device). Until then nothing can be recorded.")];
     const armed = target.open ? armedIn(target.song, useRecording.getState().armed) : [];
     const taking = target.song.mixer.tracks.filter((t) => t.input);
     lines.push(
@@ -882,7 +883,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const lines = [
       `Exported ${job.files.length} file${job.files.length === 1 ? "" : "s"}${job.length !== null ? ` of ${job.length.toFixed(1)} s of song` : ""} in ${(job.seconds ?? 0).toFixed(1)} s:`,
       ...job.files.map((f) => `- ${f.name} (${size(f.bytes)})`),
-      "They're listed in the export window for the user to download or show in Finder.",
+      `They're listed in the export window for the user to download or show in ${FILE_MANAGER}.`,
     ];
     if (job.peakDb !== null && job.peakDb > 0)
       lines.push(

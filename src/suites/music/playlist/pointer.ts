@@ -92,7 +92,7 @@ let lastPress = { at: 0, x: 0, y: 0, target: null as EventTarget | null };
 
 function isDouble(e: Press): boolean {
   const now = performance.now();
-  const double = lastPress.target === e.currentTarget && now - lastPress.at < 400 && Math.hypot(e.clientX - lastPress.x, e.clientY - lastPress.y) < 6;
+  const double = lastPress.target === e.currentTarget && now - lastPress.at < 500 && Math.hypot(e.clientX - lastPress.x, e.clientY - lastPress.y) < 6;
   lastPress = double ? { at: 0, x: 0, y: 0, target: null } : { at: now, x: e.clientX, y: e.clientY, target: e.currentTarget };
   return double;
 }

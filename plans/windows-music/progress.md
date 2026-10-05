@@ -57,3 +57,16 @@ Append dated entries with changes, checks, failures and next steps. Use Pending 
 - `pnpm test:e2e music`: 63 passed (10.7 min). Two Windows bugs found and fixed first: the Browser (and the assistant's `preview_sample`/`list_samples`) assumed `/` in paths, so starred files showed full paths (`nameOf`, `foldersToReveal` in `src/suites/music/browser/tree.ts`, with tests); and the assistant sample e2e built mixed-separator paths and raced the stand-in engine's 2 s preview.
 - Seen during the run, retried successfully by autosave: an atomic-write rename of `project.json` failing with a server 500 (Windows file locking). Worth a look at `server/storage.ts` if it appears in real use.
 - Still pending: ASIO, physical recording, real external plugin focus/state.
+
+### 2026-10-05 — Windows feel pass (branch `windows-port`)
+
+Théo's report: recording laggy and off the beat, glitchy takes, sound unlike FL, Browser drops taking 1–2 s.
+
+- **ASIO.** The engine is built with ASIO (Steinberg's SDK 2.3.4, GPLv3-or-proprietary, fetched by CMake) and on Windows opens an interface's own ASIO driver until a device is chosen in Settings (never FL Studio ASIO/ASIO4ALL by itself), at 256 samples. Verified live: SSL ASIO Driver 1, 48 kHz, in 2/out 2, 0 dropouts. Root causes it removes: WASAPI shared under-reports latency (takes late), runs the SSL's input and output endpoints on separate clocks (crackles), and applies Windows' mixing/resampling/enhancements.
+- Settings: Driver (ASIO, Windows Audio shared/exclusive/low latency, DirectSound), ASIO panel (`deviceControlPanel`), Recording offset (ms, device.xml). An ASIO driver is one device both ways.
+- Output latency was counted twice on Windows (JUCE's WASAPI and ASIO include the buffer): the playhead and recorded MIDI notes sat a buffer early.
+- Browser drops: WAV/AIFF headers and waveforms read in-process (`server/pcm.ts`), no ffprobe/ffmpeg launch (each ~450 ms with this 227 MB static ffmpeg build + Defender). Import 880 ms → 5–15 ms.
+- Plugin windows owned by the app's window (no taskbar buttons, not above other programs, minimised with it, opened over it). Engine: power throttling off, ABOVE_NORMAL priority, keeps the PC awake while playing.
+- Electron: system caption buttons over the page (titleBarOverlay, Snap Layouts), menu bar hidden, app user model id.
+- UI: shortcut labels read Ctrl/Alt/Shift on Windows (`src/lib/key-labels.ts`), bare Alt/F10 no longer steal the keyboard, Shift+wheel (deltaX on Windows) scrolls/zooms, mixer scrolls on the wheel, Ctrl+wheel never zooms the page, Ctrl+R is export (the Browser's rescan key is a Mac's ⌃R only), "File Explorer" not "Finder".
+- Still pending: a loopback check of take placement with ASIO (needs a cable), real Serum focus/DPI check, `.vaudio` "Open in Vaudio" folder verb in the installer, AIFF still refused by the media check.

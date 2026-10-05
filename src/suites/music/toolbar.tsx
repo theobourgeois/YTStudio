@@ -28,6 +28,7 @@ import { Popover, PopoverContent } from "@/components/ui/popover";
 import { toggleVariants } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { canRedo, canUndo } from "@/lib/document-history";
+import { IS_MAC, keyLabel } from "@/lib/key-labels";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import type { AutomationTarget } from "@shared/music/types";
 import { PERCENT, SongKnob, percent } from "./knob";
@@ -335,7 +336,7 @@ function TypingKeyboardToggle() {
   return (
     <TransportButton
       label="Typing keyboard"
-      title={`Typing piano ${typing ? "on" : "off"} (⌘T)`}
+      title={keyLabel(`Typing piano ${typing ? "on" : "off"} (⌘T)`)}
       on={typing}
       className="relative"
       onClick={() => useMidi.getState().setTyping(!typing)}
@@ -828,21 +829,23 @@ function MetronomeToggle() {
  * window, or brings it to the front if it's open. F6, F7 and F9 are the toggles.
  */
 function WindowToggles() {
+  // A Mac's F keys need Fn, so it's told Alt+1…5; elsewhere FL's own F keys.
+  const key = (mac: string, other: string) => (IS_MAC ? mac : other);
   return (
     <>
-      <WindowButton onOpen={() => openPlaylist()} label="Playlist" title="Playlist: the song's arrangement (⌥1)">
+      <WindowButton onOpen={() => openPlaylist()} label="Playlist" title={`Playlist: the song's arrangement (${key("⌥1", "F5")})`}>
         <PiListDashes />
       </WindowButton>
-      <WindowButton onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title="Channel rack (⌥2)">
+      <WindowButton onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title={`Channel rack (${key("⌥2", "F6")})`}>
         <PiRows />
       </WindowButton>
-      <WindowButton onOpen={() => openPianoRoll()} label="Piano roll" title="Piano roll: the selected channel's notes (⌥3)">
+      <WindowButton onOpen={() => openPianoRoll()} label="Piano roll" title={`Piano roll: the selected channel's notes (${key("⌥3", "F7")})`}>
         <PiPianoKeys />
       </WindowButton>
-      <WindowButton onOpen={() => useMusicUi.getState().setMixerOpen(true)} label="Mixer" title="Mixer (⌥4)">
+      <WindowButton onOpen={() => useMusicUi.getState().setMixerOpen(true)} label="Mixer" title={`Mixer (${key("⌥4", "F9")})`}>
         <PiSlidersHorizontal className="rotate-90" />
       </WindowButton>
-      <WindowButton onOpen={() => useBrowser.getState().setOpen(!useBrowser.getState().open)} label="Browser" title="Browser: your sample folders (⌥5)">
+      <WindowButton onOpen={() => useBrowser.getState().setOpen(!useBrowser.getState().open)} label="Browser" title={`Browser: your sample folders (${key("⌥5", "Alt+F8")})`}>
         <PiFolders />
       </WindowButton>
     </>
@@ -869,12 +872,12 @@ function HistoryButtons() {
   const redoable = useMusic((s) => !!s.history && canRedo(s.history));
   return (
     <>
-      <Tip text="Undo (⌘Z)">
+      <Tip text={keyLabel("Undo (⌘Z)")}>
         <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-foreground" aria-label="Undo" disabled={!undoable} onClick={() => useMusic.getState().undo()}>
           <PiArrowUUpLeft />
         </Button>
       </Tip>
-      <Tip text="Redo (⇧⌘Z)">
+      <Tip text={IS_MAC ? "Redo (⇧⌘Z)" : "Redo (Ctrl+Y)"}>
         <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-foreground" aria-label="Redo" disabled={!redoable} onClick={() => useMusic.getState().redo()}>
           <PiArrowUUpRight />
         </Button>
@@ -901,7 +904,7 @@ function ExportButton() {
       size="icon-sm"
       className={cn("text-muted-foreground hover:text-foreground", exporting && "text-brand")}
       aria-label="Export"
-      title="Export (⌘R, ⌘⇧R for an MP3)"
+      title={keyLabel("Export (⌘R, ⌘⇧R for an MP3)")}
       onClick={() => void useSongExport.getState().begin()}
     >
       <PiExport />

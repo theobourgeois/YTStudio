@@ -65,6 +65,7 @@ import {
 import { currentPattern, songGesture, useCurrentPattern, useMusic, useSong } from "./store";
 import { patternPositionNow } from "./playhead";
 import { useTransport } from "./transport";
+import { wheelTurn } from "./wheel";
 import { MIN_RACK_STEPS, type RackGroup, inRackGroup, selectInRack, selectedIn, useMusicUi, useMusicWindows } from "./ui";
 import { usePlaylist } from "./playlist/store";
 import { TrackSelector } from "./mixer/track-selector";
@@ -656,7 +657,8 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
               if (isPlugin) useTransport.getState().showPlugin(id, !pluginOpen);
               else useMusicUi.getState().toggleChannelWindow(id, e.altKey);
             }}
-            onWheel={(e) => e.shiftKey && e.deltaY !== 0 && moveChannel(id, e.deltaY < 0 ? -1 : 1)}
+            // (Shift+wheel comes sideways on Windows: `wheelTurn` reads it either way.)
+            onWheel={(e) => e.shiftKey && wheelTurn(e) !== 0 && moveChannel(id, wheelTurn(e) < 0 ? -1 : 1)}
             // A file dropped on the button replaces this channel's sample.
             onDragOver={(e) => {
               if (isPlugin || !carriesSamples(e.dataTransfer)) return;
