@@ -12,8 +12,9 @@ FL Studio** (see "The music suite"). See "Suites" below: most of this file is ab
 `shared/`, `server/` and `src/`; every other suite has folders of its own.
 
 The planned **photo suite** is a Photoshop-style image editor with creative lighting/render effects.
-Read [`docs/photo/README.md`](docs/photo/README.md) for its product, research and architecture proposals
-and the foundations prototype's implementation gates. Photo implementation has not started yet.
+Read [`docs/photo/README.md`](docs/photo/README.md) for its product, research and architecture (WebGPU in the
+page renders and paints; content-addressed tiles in the package; a helper process decodes files) and the
+foundations' milestones and gates. Photo implementation has not started yet.
 
 ## Commands
 
