@@ -292,6 +292,12 @@ void Engine::saveDevice()
         xml = std::make_unique<juce::XmlElement> ("DEVICESETUP");
         xml->setAttribute ("deviceType", devices.getCurrentAudioDeviceType());
         xml->setAttribute ("audioOutputDeviceName", devices.getAudioDeviceSetup().outputDeviceName);
+        // As it runs now, so the next start opens it the same (JUCE's names, as it writes them).
+        if (auto* device = devices.getCurrentAudioDevice())
+        {
+            xml->setAttribute ("audioDeviceRate", device->getCurrentSampleRate());
+            xml->setAttribute ("audioDeviceBufferSize", device->getCurrentBufferSizeSamples());
+        }
     }
     xml->setAttribute ("vaudioChosen", deviceChosen);
     xml->setAttribute ("vaudioRecordOffsetMs", recordOffsetMs);
