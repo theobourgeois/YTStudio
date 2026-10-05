@@ -741,8 +741,9 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).
 - **Audio intelligence** (`docs/audio-intelligence/`: the plan is `audio-engineering-harness.md`, its slices
   `implementation-backlog.md`): giving the assistant truthful ears and hands. **A/B, D retrieval/workflows and bounded
-  F package intake are built. C infrastructure is built but quality certification is paused; E is partial; G/H are
-  planned.** `shared/music/audio-intelligence/` holds the contracts, all plain JSON, immutable, identified by a
+  F package intake are built. C infrastructure and its held-out benchmark (`scripts/hearing-benchmark.ts`,
+  `hearing-pack.ts`, `docs/audio-intelligence/hearing-benchmark.md`) are built and run; no listening task is promoted; E is
+  partial; G/H are planned.** `shared/music/audio-intelligence/` holds the contracts, all plain JSON, immutable, identified by a
   hash of what's in them (`shared/music/hash.ts`; their ids are fixed values in `identity.test.ts`: changing what
   is hashed orphans every stored record, so it's a schema change): `MixSnapshot` (`snapshot.ts`: the song's parts
   by hash, its media and plugins' state files by hash, and a `coverage` that says what couldn't be captured, so a
