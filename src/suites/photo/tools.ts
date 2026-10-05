@@ -14,13 +14,15 @@ import { withRenderer } from "./live";
 import { usePhoto } from "./store";
 import {
   type PhotoEdit,
+  addAdjustmentTool,
   addImageLayerTool,
   describeMedia,
   describePhoto,
   removeLayerTool,
   setCanvasTool,
+  setEffectParamsTool,
+  setLayerTool,
   transformLayerTool,
-  updateLayerTool,
 } from "./tool-edits";
 import { usePhotoUi } from "./ui";
 
@@ -84,17 +86,20 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
   },
   add_image_layer: edit(addImageLayerTool),
   transform_layer: edit(transformLayerTool),
-  update_layer: edit(updateLayerTool),
+  set_layer: edit(setLayerTool),
+  add_adjustment: edit(addAdjustmentTool),
+  set_effect_params: edit(setEffectParamsTool),
   remove_layer: edit(removeLayerTool),
   set_canvas: edit(setCanvasTool),
   async export_photo(input, ctx) {
     const target = await targetOf(ctx);
     const format = input.format === "jpeg" ? "jpeg" : "png";
     const quality = typeof input.quality === "number" ? Math.max(1, Math.min(100, Math.round(input.quality))) : 92;
+    const bits = format === "png" && String(input.bits) === "16" ? 16 : 8;
     const name = `${target.doc.name.replace(/[^\w .,()'&+-]+/g, " ").trim() || "Photo"}.${format === "jpeg" ? "jpg" : "png"}`;
     ctx.progress(0, "Exporting");
-    const result = await withRenderer(target.projectId, target.doc, target.assets, (r) => r.export(target.projectId, target.doc, { name, format, quality }, (f) => ctx.progress(f, "Exporting")));
-    return textResult(`Exported ${name} (${target.doc.canvas.width}×${target.doc.canvas.height}, ${Math.round(result.bytes / 1024)} KB) to ${result.path}.`);
+    const result = await withRenderer(target.projectId, target.doc, target.assets, (r) => r.export(target.projectId, target.doc, { name, format, bits, quality }, (f) => ctx.progress(f, "Exporting")));
+    return textResult(`Exported ${name} (${target.doc.canvas.width}×${target.doc.canvas.height}, ${bits}-bit, ${Math.round(result.bytes / 1024)} KB) to ${result.path}.`);
   },
 };
 

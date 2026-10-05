@@ -2,9 +2,20 @@
  * Pure edits of a photo document, the only way it changes (the UI, keys and the assistant all use these). Each
  * returns the same document when nothing changes, so a no-op makes no undo step and no save.
  */
+import { type EffectDefinition, effectDefinition, newEffect, unavailableReason } from "./effects/index.ts";
+import { sameValue, sanitizeParam } from "./effects/params.ts";
 import type { Size } from "./geometry.ts";
 import { MIN_SCALE, isColour, wrapDegrees } from "./project.ts";
-import { type ImageLayer, type LayerTransform, MAX_CANVAS_SIDE, type PhotoCanvas, type PhotoLayer, type PhotoProject } from "./types.ts";
+import {
+  type AdjustmentLayer,
+  type EffectParamValue,
+  type ImageLayer,
+  type LayerTransform,
+  MAX_CANVAS_SIDE,
+  type PhotoCanvas,
+  type PhotoLayer,
+  type PhotoProject,
+} from "./types.ts";
 
 export const findLayer = (doc: PhotoProject, id: string): PhotoLayer | undefined => doc.layers.find((l) => l.id === id);
 
@@ -65,9 +76,13 @@ export function fromImage(doc: PhotoProject, layer: NewImageLayer): PhotoProject
 const sameTransform = (a: LayerTransform, b: LayerTransform) =>
   a.x === b.x && a.y === b.y && a.scaleX === b.scaleX && a.scaleY === b.scaleY && a.rotation === b.rotation;
 
-/** Sets part of a layer's transform; a scale too close to 0 is held at the smallest (it has to stay invertible). */
+/**
+ * Sets part of an image layer's transform; a scale too close to 0 is held at the smallest (it has to stay
+ * invertible). Other layers have no place of their own: nothing changes.
+ */
 export function setTransform(doc: PhotoProject, id: string, patch: Partial<LayerTransform>): PhotoProject {
   return mapLayer(doc, id, (l) => {
+    if (l.kind !== "image") return l;
     const t = { ...l.transform, ...patch };
     const clampScale = (s: number) => (Math.abs(s) < MIN_SCALE ? (s < 0 ? -MIN_SCALE : MIN_SCALE) : s);
     const next: LayerTransform = { x: t.x, y: t.y, scaleX: clampScale(t.scaleX), scaleY: clampScale(t.scaleY), rotation: wrapDegrees(t.rotation) };
@@ -107,13 +122,80 @@ export function moveLayer(doc: PhotoProject, id: string, index: number): PhotoPr
   return { ...doc, layers };
 }
 
-/** A copy of a layer right above it, named "… copy". */
+/** A copy of a layer right above it, named "… copy" (an adjustment's effect gets an id of its own: `${newId}_fx`). */
 export function duplicateLayer(doc: PhotoProject, id: string, newId: string): PhotoProject {
   const index = doc.layers.findIndex((l) => l.id === id);
   if (index < 0 || findLayer(doc, newId)) return doc;
   const layers = [...doc.layers];
-  layers.splice(index + 1, 0, { ...doc.layers[index], id: newId, name: `${doc.layers[index].name} copy` });
+  const from = doc.layers[index];
+  const copy: PhotoLayer =
+    from.kind === "adjustment" ? { ...from, id: newId, name: `${from.name} copy`, effect: { ...structuredClone(from.effect), id: `${newId}_fx` } } : { ...from, id: newId, name: `${from.name} copy` };
+  layers.splice(index + 1, 0, copy);
   return { ...doc, layers };
+}
+
+export interface NewAdjustmentLayer {
+  id: string;
+  /** A definition's type ("exposure", "curves"). */
+  type: string;
+  name?: string;
+  /** Parameters other than the defaults (checked by the definition). */
+  params?: Record<string, unknown>;
+}
+
+/**
+ * A new adjustment layer right above `above` (an id: Photoshop adds one over the selected layer), or at the top.
+ * Its effect's id is `${id}_fx`. An unknown type changes nothing.
+ */
+export function addAdjustmentLayer(doc: PhotoProject, layer: NewAdjustmentLayer, above?: string | null): PhotoProject {
+  const def = effectDefinition(layer.type);
+  if (!def || findLayer(doc, layer.id)) return doc;
+  let effect = newEffect(def, `${layer.id}_fx`);
+  if (layer.params) effect = { ...effect, params: patchParams(def, effect.params, layer.params) };
+  const added: AdjustmentLayer = { id: layer.id, kind: "adjustment", name: layer.name?.trim() || def.label, visible: true, opacity: 1, effect };
+  const layers = [...doc.layers];
+  const at = above ? layers.findIndex((l) => l.id === above) : -1;
+  layers.splice(at >= 0 ? at + 1 : layers.length, 0, added);
+  return { ...doc, layers };
+}
+
+/** Parameters with `patch` applied, each value checked by its spec; unknown keys are ignored. */
+function patchParams(def: EffectDefinition, params: Record<string, EffectParamValue>, patch: Record<string, unknown>): Record<string, EffectParamValue> {
+  let next = params;
+  for (const spec of def.params) {
+    if (!(spec.key in patch)) continue;
+    const { value } = sanitizeParam(spec, patch[spec.key]);
+    if (sameValue(value, next[spec.key])) continue;
+    if (next === params) next = { ...params };
+    next[spec.key] = value;
+  }
+  return next;
+}
+
+/**
+ * Sets some of an adjustment layer's parameters (each checked: held to its range, a bad one ignored). An effect
+ * this app can't use is never changed.
+ */
+export function setEffectParams(doc: PhotoProject, layerId: string, patch: Record<string, unknown>): PhotoProject {
+  return mapLayer(doc, layerId, (l) => {
+    if (l.kind !== "adjustment" || unavailableReason(l.effect)) return l;
+    const def = effectDefinition(l.effect.type)!;
+    const valid = Object.fromEntries(Object.entries(patch).filter(([key, value]) => {
+      const spec = def.params.find((s) => s.key === key);
+      return spec && (spec.kind !== "number" || (typeof value === "number" && Number.isFinite(value)));
+    }));
+    const params = patchParams(def, l.effect.params, valid);
+    return params === l.effect.params ? l : { ...l, effect: { ...l.effect, params } };
+  });
+}
+
+/** Puts an adjustment back to its defaults. */
+export function resetEffect(doc: PhotoProject, layerId: string): PhotoProject {
+  const layer = findLayer(doc, layerId);
+  if (layer?.kind !== "adjustment") return doc;
+  const def = effectDefinition(layer.effect.type);
+  if (!def || unavailableReason(layer.effect)) return doc;
+  return setEffectParams(doc, layerId, newEffect(def, layer.effect.id).params);
 }
 
 /**
@@ -127,6 +209,6 @@ export function setCanvas(doc: PhotoProject, patch: Partial<PhotoCanvas>, anchor
   if (width === doc.canvas.width && height === doc.canvas.height && background === doc.canvas.background) return doc;
   const dx = anchor === "centre" ? (width - doc.canvas.width) / 2 : 0;
   const dy = anchor === "centre" ? (height - doc.canvas.height) / 2 : 0;
-  const layers = dx || dy ? doc.layers.map((l) => ({ ...l, transform: { ...l.transform, x: l.transform.x + dx, y: l.transform.y + dy } })) : doc.layers;
+  const layers = dx || dy ? doc.layers.map((l) => (l.kind === "image" ? { ...l, transform: { ...l.transform, x: l.transform.x + dx, y: l.transform.y + dy } } : l)) : doc.layers;
   return { ...doc, canvas: { width, height, background }, layers };
 }
