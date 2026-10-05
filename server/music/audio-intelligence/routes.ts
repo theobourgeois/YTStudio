@@ -13,6 +13,31 @@ export function audioIntelligenceRoutes(service: AudioIntelligence): Router {
     if (!isObject(req.body)) throw new HttpError(400, "Invalid hearing settings.");
     res.json(await service.setHearingSettings(req.params.projectId, req.body.enabled));
   });
+  // Curated references/profiles are user/operator supplied, never model self-reviewed.
+  router.post("/:projectId/examples", json({ limit: "10mb" }), async (req, res) => {
+    res.status(201).json(await service.examples.add(req.params.projectId, req.body));
+  });
+  // Local selection/upload and review are user operations; the assistant receives registered IDs only.
+  router.post("/:projectId/datasets/import-path", json(), async (req, res) => {
+    if (!isObject(req.body)) throw new HttpError(400, "Invalid dataset selection.");
+    res.status(202).json(await service.datasets.importPath(req.params.projectId, req.body.path));
+  });
+  router.post("/:projectId/datasets/upload", async (req, res) => {
+    res.status(202).json(await service.datasets.upload(req.params.projectId, req, req.query.name));
+  });
+  router.get("/:projectId/datasets/:packageId", async (req, res) => {
+    res.json(await service.datasets.readiness(req.params.projectId, req.params.packageId));
+  });
+  router.patch("/:projectId/datasets/:packageId/review", json({ limit: "2mb" }), async (req, res) => {
+    res.json(await service.datasets.saveReview(req.params.projectId, req.params.packageId, req.body));
+  });
+  router.post("/:projectId/datasets/:packageId/profile", json({ limit: "2mb" }), async (req, res) => {
+    res.status(201).json(await service.datasets.buildProfile(req.params.projectId, req.params.packageId, req.body));
+  });
+  router.get("/:projectId/datasets/:packageId/assets/:assetId", async (req, res) => {
+    const { asset, file } = await service.datasets.assetFile(req.params.projectId, req.params.packageId, req.params.assetId);
+    res.download(file, asset.relativePath.split("/").at(-1)!, { dotfiles: "allow" });
+  });
   router.post("/:projectId/capture", json({ limit: "10mb" }), async (req, res) => {
     res.json(await service.capture(req.params.projectId, req.body));
   });

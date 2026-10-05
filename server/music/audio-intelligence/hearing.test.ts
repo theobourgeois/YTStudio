@@ -100,6 +100,29 @@ describe("durable consent-checked hearing", () => {
     await complete(next.id);
     expect((await hear(artifact.id)).id).toBe(next.id);
   });
+  it("withholds findings when the resolved build is outside the certified benchmark", async () => {
+    verified = ["tone"];
+    const guarded = { ...provider, isCertifiedResult: () => false };
+    service.shutdown(); service = new AudioIntelligence({ ...options(), perception: guarded }); await service.init();
+    const artifact = await register(); await service.setHearingSettings(projectId, true);
+    const job = await complete((await hear(artifact.id)).id);
+    const report = await service.report(projectId, job.result!.evidenceIds[0]);
+    expect(report.observations).toEqual([]);
+    expect(report.limitations.some(l => l.code === "unverified-hearing-task")).toBe(true);
+  });
+  it("an invalid operator certification keeps local analysis working and findings withheld", async () => {
+    verified = ["tone"];
+    const certificate = path.join(root, "certificate.json");
+    await fs.writeFile(certificate, JSON.stringify({ verifiedTasks: ["tone"] }));
+    service.shutdown(); service = new AudioIntelligence({ ...options(), hearingCertificationFile: certificate }); await service.init();
+    expect(service.capabilities().verifiedTasks).toEqual([]);
+    expect(service.capabilities().unavailable.join(" ")).toMatch(/certification.*invalid/);
+    const artifact = await register(); await service.setHearingSettings(projectId, true);
+    const job = await complete((await hear(artifact.id)).id);
+    const report = await service.report(projectId, job.result!.evidenceIds[0]);
+    expect(report.measurements.length).toBeGreaterThan(0);
+    expect(report.observations).toEqual([]);
+  });
   it("does not upload without a configured key", async () => {
     configured = false;
     const artifact = await register(); await service.setHearingSettings(projectId, true);

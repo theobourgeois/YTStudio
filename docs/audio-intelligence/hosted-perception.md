@@ -2,6 +2,38 @@
 
 Implemented: a replaceable byte adapter, durable hearing jobs, per-song upload permission, provider-specific audio derivatives, timestamp validation, attempt/usage receipts, cancellation, bounded retries, scoped caching and local-only fallback. **Quality acceptance remains pending.** No Gemini task is certified or exposed as listening evidence by default.
 
+## C handoff — 2026-10-05
+
+Work paused at the user's request before preparing or uploading a real-audio
+benchmark. No listening task has been promoted and Slice C remains incomplete.
+
+The review/evaluation contracts and conservative release gate are now in
+`shared/music/audio-intelligence/hearing-benchmark.ts`. The proposed v1 gate
+requires, per task, ten held-out real-recording cases from five independent
+recording families, no-change controls from two families, two provider trials
+per case, and two human reviewers scoring all three blinded evidence arms.
+Combined evidence must improve usefulness over DSP on at least 60% of
+non-control case reviews; inaccurate, unsupported, incorrectly timed or false
+no-change listening results prevent promotion. Repeats do not increase the
+independent-case count. Family leakage and conflicting audio identities are
+rejected. These thresholds are an operational gate, not a statistical claim of
+general superiority.
+
+`createHearingCertification` generates a content-hashed certificate only for
+passing reviewed evaluations. To load an operator-reviewed certificate, set
+`EDITOR_HEARING_CERTIFICATION` to its JSON file and restart the server. Loading
+recomputes the verdicts and checks provider, requested model, adapter, prompt
+version and resolved model build. Missing/invalid certificates withhold findings
+while local measurements remain available. The hash checks integrity, not human
+authenticity; the file is trusted local operator configuration, outside MCP.
+
+Still required: a real-recording preparation/runner script, blinded listening
+pack and review collection, independent human labels/reviews, task-specific
+evaluation, and actual passing results. The existing generated pilot cannot
+satisfy these requirements. Do not populate reviews with model judgments or
+invented reviewer identities. The first useful next step is to prepare the pack
+for review when the user is available.
+
 ## Configuration and use
 
 The server loads the repository's `.env` without replacing existing environment variables. Set `GEMINI_API_KEY`; optionally set `EDITOR_HEARING_MODEL` (default `gemini-3.8-flash`). Credentials stay server-side; `.env` is ignored by Git. Restart the server after replacing a key. A configured key means a value exists, not that Google has accepted it.
