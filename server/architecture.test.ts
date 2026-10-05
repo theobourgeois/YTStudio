@@ -51,6 +51,8 @@ const PLATFORM = [
   "server/storage.ts",
   "server/process.ts",
   "server/queue.ts",
+  // The API-key store is shared by transcription and music classification.
+  "server/transcription/settings.ts",
   // Music analysis (tempo, beats): the video editor's beat sync and the music suite's Detect tempo.
   "server/beats.ts",
   "server/projects.ts",
@@ -81,6 +83,9 @@ const PLATFORM = [
   "src/lib/desktop.ts",
   "src/lib/focus-rings.ts",
   "src/lib/pointer-drag.ts",
+  // Generic card selection is shared by media/library grids and music's insert setup.
+  "src/components/media/grid-selection.ts",
+  "src/components/media/use-grid-selection.tsx",
   // Which window an element is in: the editor's windows can be windows of the system (docs/windows.md).
   "src/lib/window-events.ts",
   "shared/panels.ts",
