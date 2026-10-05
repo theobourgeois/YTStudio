@@ -1065,7 +1065,7 @@ test("settings: a window; ⌘, opens it on the video editor's tab; themes and fo
   await page.keyboard.press("ControlOrMeta+Comma");
   const settings = page.getByRole("region", { name: "Settings" });
   await expect(settings.getByRole("tab", { selected: true })).toHaveText("Video editor");
-  await expect(settings.getByRole("tab")).toHaveText(["General", "Video editor", "Music"]);
+  await expect(settings.getByRole("tab")).toHaveText(["General", "Video editor", "Music", "Photo"]);
   // Keys pressed in it are its own: Space doesn't play the video under it.
   await page.keyboard.press("Space");
   await expect(page.locator("[data-settings]")).toHaveCount(1);
@@ -2029,7 +2029,7 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   // The New project picker (⇧⌘O) lists every suite; typing narrows it, Enter makes one.
   await page.keyboard.press("ControlOrMeta+Shift+KeyO");
   const picker = page.getByRole("dialog");
-  await expect(picker.getByRole("option")).toHaveCount(2);
+  await expect(picker.getByRole("option")).toHaveCount(3);
   await picker.getByRole("textbox").fill("song");
   await expect(picker.getByRole("option")).toHaveCount(1);
   await page.keyboard.press("Enter");

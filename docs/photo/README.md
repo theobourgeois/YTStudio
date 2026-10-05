@@ -1,63 +1,66 @@
-# Photo suite foundations
+# Photo suite
 
-Status: initial product and architecture proposal, researched 2026-10-03. No photo implementation exists yet.
+Status: plan revised and hardened 2026-10-05 (first written 2026-10-03). **F0 and F1 are built**: the renderer, the
+helper and the blob store (F0), and the photo suite itself (F1: new photos, image layers, transforms, export, the
+assistant). Results in [foundations-prototype.md](foundations-prototype.md#f1-results-2026-10-05).
 
-Build a Photoshop-style image editor with dependable layers, masks, painting and retouching, plus a
-particularly strong library of editable lighting and render effects. The foundations prototype is
-intended to become the application, so its document, resource and rendering contracts must be real.
+A Photoshop-style image editor with dependable layers, masks, painting and retouching, and a particularly strong set
+of editable light effects. The foundations are the application's first version, so the document, resource, colour
+and rendering contracts are real from the start.
+
+## In one paragraph
+
+The tab owns the document and its undo history, as in every suite. It renders and paints with **WebGPU** in the page,
+and the same renderer draws the view, thumbnails, the assistant's pictures and exports. Pixels are **immutable,
+content-addressed tiles** in the project's package, referenced by hash from small manifests, so undo is switching a
+hash and a stroke writes only the tiles it touched. The server stores and verifies blobs; a **helper process** (sharp,
+libvips) is the only code that parses image files. Colour is linear extended sRGB, premultiplied, converted from each
+source's profile on the GPU without clipping, and leaves through one output transform.
 
 ## Read in this order
 
-1. [Product](product.md): intended work, scope, priorities and completion criteria.
-2. [Photoshop research](research/photoshop-foundations.md): confirmed reference behavior and our differences.
-3. [Architecture](architecture.md): module ownership, document/resource model, transactions and integration.
-4. [Rendering](rendering.md): pixels, color, tiles, compositing and effects.
-5. [UX](ux.md): workspace and interaction contracts for the first workflow.
-6. [Effects](effects/system.md): extensibility and the first flare/glow implementation.
-7. [Foundations prototype](foundations-prototype.md): implementation order, experiments and acceptance gates.
-8. [Engine research](research/engine-options.md): alternatives and the evidence behind the recommendation.
-9. [Sources](research/sources.md): primary references, repository evidence and remaining verification.
+1. [Product](product.md): what it's for, the scope by milestone, boundaries, questions for Théo.
+2. [Photoshop research](research/photoshop-foundations.md): reference behaviour and our differences.
+3. [Architecture](architecture.md): where work happens, the document, resources, persistence, platform integration.
+4. [Rendering](rendering.md): colour, formats and precision, resampling, the output transform, tiles, the evaluator.
+5. [UX](ux.md): workspace, keys and interaction contracts for the first workflow.
+6. [Effects](effects/system.md): definitions, glow, the flare, porting from the video editor.
+7. [Foundations](foundations-prototype.md): milestones F0–F5, gates, targets, the evidence log.
+8. [Engine options](research/engine-options.md): why WebGPU in the page, measured; the fallbacks.
+9. [Sources](research/sources.md): references and what's still unverified.
 
-## What is decided, and what is proposed
+## Labels
 
-**User requirements:** Photoshop-style workflow; substantial feature depth; creative effects including
-excellent lens flares; modular foundations that can become the lasting application. The current task
-authorizes research and documentation. Prototype implementation is the next task.
+Use these in research: **Verified reference** (primary documentation or direct observation), **Measured** (we ran
+it; the evidence log says where), **Product decision** (our chosen behaviour), **Proposed** (a default to validate)
+and **Unverified** (an open question). Théo's corrections override the reference; record the resulting behaviour.
 
-**Recommended defaults:** React/TypeScript interface; independent C++20 photo engine; tile-based resources;
-one canonical document and undo history; floating-point rendering; native GPU execution; local project
-packages; preview and export using the same evaluator. These are architectural proposals, not measured
-results or claims of Photoshop file compatibility.
+## Keeping these useful
 
-**Experiment before commitment:** GPU backend, native-to-Electron presentation, decoder dependency,
-tile size, memory budgets and performance targets. The prototype has an explicit gate for each.
-
-Use these labels in future research: **Verified reference** (primary documentation or direct observation),
-**Product decision** (our chosen behavior), **Proposed** (a default to validate), **Unverified** (a question).
-The owner's corrections override the reference; record the resulting behavior and its implications.
-
-## How these docs stay useful
-
-Research a feature family just before implementing it. Record reference behavior, our differences,
-gestures/shortcuts, data and processing requirements, failure cases and end-to-end acceptance examples.
-Update the document when the implementation or decision changes. Add a short dated decision entry when
-changing a foundational contract; include the reason, rejected alternative and migration consequences.
-
-Do not turn an unresolved question into an implicit implementation choice. Resolve routine choices in
-the milestone and record evidence. Product tradeoffs can be reviewed through concrete working examples.
-Do not require approval for every internal module or reversible experiment.
+- **Research before building**: research a feature family just before implementing it. Record the reference
+  behaviour, our differences, gestures and keys, data and processing needs, failure cases and acceptance examples.
+- **Keep them current**: update a document when the implementation or a decision changes. Add a dated entry to the
+  ledger below when a foundational contract changes, with the reason, the rejected alternative and what has to
+  migrate.
+- **Decide openly**: don't turn an open question into an implicit implementation choice. Routine choices are made in
+  the milestone, with evidence recorded.
 
 ## Decision ledger
 
-| ID | Proposal | Reason | Validation/change trigger |
+| ID | Decision | Reason | Revisit if |
 | --- | --- | --- | --- |
-| P01 | Photoshop-style composition first, photography development later | Matches requested product | First complete editing workflow |
-| A01 | C++20 engine; TypeScript document semantics and UI | Fits existing native integration; separates pixel work | Protocol and transaction tests |
-| A02 | Separate photo target/process from audio | Independent lifecycle and dependencies | Build/package/restart smoke test |
-| A03 | Immutable tiled pixel resources referenced by document | Large images and efficient undo | Mask stroke and memory measurements |
-| A04 | Native GPU pipeline; Dawn/WGSL first candidate | Compute and a portable native API | Backend/presentation experiment |
-| A05 | Extended linear sRGB first working space; explicit operation domains | Defined light math and unclipped intermediate values | Color and transparency fixtures |
-| A06 | Same renderer for viewport, thumbnails and export | Avoid divergent effects | Full-resolution comparison fixtures |
-| A07 | Existing `.vaudio` package with photo-owned resources | Portable projects and existing shell | Duplicate, move, reopen, interrupted-save tests |
+| P01 | Photoshop-style composition first, photography development later | What Théo asked for | The first complete workflow says otherwise |
+| A01 | **Render and paint in the page with WebGPU (WGSL); no native photo engine** (2026-10-05, replaces the C++20 engine) | Photo has no native-only need (music's engine exists for plugins and the audio device); measured: Electron 44 and headless Chromium both expose Metal WebGPU with every feature needed; one renderer for view and export; removes the native-to-page presentation problem | F0 misses its gate → WebGL2, then native Dawn with the same WGSL |
+| A02 | **Image files are parsed only by a helper process** (sharp/libvips), started by the server (2026-10-05, replaces the separate engine process) | A malformed file can't crash the app (the desktop server runs in Electron's main process); sharp decodes 48 MP in ~0.23 s; 16-bit in and out | Packaging sharp fails, or a format needs a platform decoder (HEIC: macOS) |
+| A03 | Immutable tiles and manifests, **content-addressed** (SHA-256 of raw samples), constant tiles stored as values | Undo = switch a hash; small strokes share tiles; idempotent uploads; ids known in the tab at once | Stroke or memory measurements |
+| A04 | **The publication gate**: a saved document only references blobs the server has; the server refuses otherwise | Ordering without a transaction protocol | — |
+| A05 | Extended linear sRGB, premultiplied; **profiles converted on the GPU, unclipped** (matrix/TRC); LUT profiles via Little CMS to sRGB, reported | Measured: sharp's conversion clips P3 even into float | A profile family we must support isn't matrix/TRC |
+| A06 | Same evaluator for view, thumbnails, assistant and export; **the settled view is the full-resolution render, reduced** | No divergence between what's seen and what's exported | — |
+| A07 | `.vaudio` package; `photo/resources` authored, `photo/cache` rebuildable and never copied; media ids only in `project.json` | Portable projects; the platform remaps only the document | Duplicate/move/reopen tests |
+| A08 | Formats: `rgba16f` for 8-bit sources and paint, `rgba32f` for 16-bit sources, `r16f` coverage; an unedited 8-bit sRGB round trip is bit-exact | Precision worked out in rendering.md | Precision fixtures |
+| A09 | One output transform (`film` or `clip` highlights, 8-bit dither ±0.375 step), no tone curves inside effects | Effects compose; exact levels survive (0.092-step worst f16 error, measured) | Théo's comparison in F4 |
+| A10 | Kernels round to the nearest half themselves before storing f16 (2026-10-05, F0) | Metal truncates on f16 storage writes and the compiler drops `quantizeToF16`: both measured | A backend that rounds on store |
+| A11 | A layer's place is centre, scale and rotation (`LayerTransform`), not a matrix (2026-10-05, F1) | Typed values stay exact (100% is 1, not 0.9999…); the UI and the assistant speak in these | Skew or perspective: a matrix, by migration |
+| A12 | Layers whose pixels land on the target's are read texel for texel (2026-10-05, F1) | Mitchell softens even at 100%: an unedited export wouldn't be bit-exact | — |
 
-Implementation progress and benchmark evidence belong in [foundations-prototype.md](foundations-prototype.md).
+Progress, measurements and gates live in [foundations-prototype.md](foundations-prototype.md).

@@ -5,6 +5,7 @@
 import type { SuiteId } from "@shared/suites";
 import type { ProjectSummary } from "@shared/types";
 import { musicSuite } from "./music";
+import { photoSuite } from "./photo";
 import type { ClientSuite } from "./types";
 import { videoSuite } from "./video";
 
@@ -13,6 +14,7 @@ export type { ClientSuite, ToolRunContext } from "./types";
 const CLIENT_SUITES: { [S in SuiteId]: ClientSuite<S> } = {
   video: videoSuite,
   music: musicSuite,
+  photo: photoSuite,
 };
 
 export const clientSuite = <S extends SuiteId>(suite: S): ClientSuite<S> => CLIENT_SUITES[suite];

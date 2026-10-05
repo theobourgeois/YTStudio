@@ -6,10 +6,12 @@
  *   pnpm package:desktop   the same as a .dmg and a .zip in release/
  *
  * The main process (electron/main.ts, which runs the server) is bundled with esbuild into one file, so the
- * packaged app ships no node_modules: just that bundle, the preload script and the built web app.
+ * packaged app ships no node_modules: just that bundle, the preload script and the built web app. The photo
+ * helper (server/photo/helper-process.mjs) is the exception: a bundle of its own beside sharp's native packages,
+ * in the app's resources (`photoHelper`).
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { type BuildOptions, build, context } from "esbuild";
@@ -24,6 +26,8 @@ const electronPkg = (await import("electron/package.json", { with: { type: "json
 /** The music suite's audio engine (`pnpm engine:build`), shipped beside the app when it's been built. */
 const ENGINE_APP = path.join(ROOT, "engine", "build", "VaudioEngine_artefacts", "Release", engineArtifactName());
 const ELECTRON = createRequire(import.meta.url)("electron") as string;
+/** Where the photo helper is staged: shipped in the app's resources as `photo-helper/` (electron/main.ts). */
+const PHOTO_HELPER_STAGE = path.join(ROOT, "build", "photo-helper");
 
 /**
  * The environment for Electron: without ELECTRON_RUN_AS_NODE, which terminals inside Electron apps (VS Code,
@@ -185,12 +189,53 @@ async function dev() {
   });
 }
 
+/**
+ * The photo helper, bundled with sharp's JavaScript into `helper.mjs`, and sharp's native packages for this
+ * platform beside it in `native/@img/` (electron-builder leaves out any folder called node_modules, so the bundle's
+ * require of the addon is pointed there; the addon finds libvips beside it by its rpath). They're Node-API, so
+ * Electron runs them in Node mode as they are. libvips is LGPL-3.0-or-later, dynamically linked: its package keeps
+ * its licence and notices.
+ */
+async function photoHelper() {
+  rmSync(PHOTO_HELPER_STAGE, { recursive: true, force: true });
+  // sharp's packages don't export their package.json: they're found beside sharp itself (pnpm links them there).
+  let sharpDir = path.dirname(createRequire(import.meta.url).resolve("sharp"));
+  while (!existsSync(path.join(sharpDir, "package.json"))) sharpDir = path.dirname(sharpDir);
+  const platform = `${process.platform}-${process.arch}`;
+  const addon = `@img/sharp-${platform}`;
+  const dirs: Record<string, string> = {};
+  for (const name of [addon, `@img/sharp-libvips-${platform}`]) {
+    const dir = [path.join(path.dirname(sharpDir), name), path.join(ROOT, "node_modules", name)].find((d) => existsSync(path.join(d, "package.json")));
+    if (!dir) throw new Error(`Couldn't find ${name}: run pnpm install.`);
+    dirs[name] = realpathSync(dir);
+    cpSync(dirs[name], path.join(PHOTO_HELPER_STAGE, "native", name), { recursive: true, dereference: true });
+  }
+  const outfile = path.join(PHOTO_HELPER_STAGE, "helper.mjs");
+  await build({
+    entryPoints: [path.join(ROOT, "server", "photo", "helper-process.mjs")],
+    outfile,
+    bundle: true,
+    platform: "node",
+    target: "node24",
+    format: "esm",
+    external: ["@img/sharp-*"],
+    banner: { js: 'import { createRequire as __createRequire } from "node:module";\nconst require = __createRequire(import.meta.url);' },
+    logLevel: "warning",
+  });
+  // sharp loads its addon through a require of its own (esbuild can't see it): point that one at native/.
+  const bundle = readFileSync(outfile, "utf8");
+  const from = `"${addon}/sharp.node"`;
+  if (bundle.split(from).length !== 2) throw new Error(`Expected sharp to require ${from} once; its loader changed.`);
+  writeFileSync(outfile, bundle.replace(from, JSON.stringify(`./${path.posix.join("native", addon, "index.cjs")}`)));
+}
+
 async function pack(targets: "dir" | "installers") {
   if (!existsSync(ENGINE_APP)) throw new Error("Build the music engine first: pnpm engine:build");
   await run("pnpm", ["build"]);
   rmSync(STAGE, { recursive: true, force: true });
   mkdirSync(STAGE, { recursive: true });
   await Promise.all(bundles(STAGE).map((options) => build(options)));
+  await photoHelper();
   cpSync(path.join(ROOT, "dist"), path.join(STAGE, "dist"), { recursive: true });
   // The app's own package.json: no dependencies, everything is in the bundle.
   writeFileSync(
@@ -207,13 +252,15 @@ async function pack(targets: "dir" | "installers") {
       icon: path.join(ROOT, "resources", "icon.png"),
       electronVersion: electronPkg.version,
       // Reuse the installed Electron distribution; avoids a second download/extract and Windows rename locks.
-      electronDist: path.dirname(ELECTRON),
+      // The folder holding Electron's app: the binary's own folder on Windows, the one around Electron.app on a Mac.
+      electronDist: process.platform === "darwin" ? path.dirname(electronApp()) : path.dirname(ELECTRON),
       directories: { app: STAGE, output: path.join(ROOT, "release") },
       // Everything is bundled: electron-builder would otherwise copy in the repo's dependencies.
       files: ["**/*", "!**/*.map", "!node_modules/**"],
       npmRebuild: false,
       // electron/main.ts points the server at it (EDITOR_ENGINE_PATH).
-      extraResources: existsSync(ENGINE_APP) ? [{ from: ENGINE_APP, to: engineArtifactName() }] : [],
+      // And the photo helper (EDITOR_PHOTO_HELPER_PATH): outside the asar, since Node loads its native addon.
+      extraResources: [...(existsSync(ENGINE_APP) ? [{ from: ENGINE_APP, to: engineArtifactName() }] : []), { from: PHOTO_HELPER_STAGE, to: "photo-helper" }],
       // Not signed with an identity yet (that needs an Apple Developer ID): signed ad hoc once it's packed,
       // before the .dmg and .zip are made of it (unsigned, macOS kills it). macOS asks to confirm the first launch.
       afterPack: async (packed) => {
