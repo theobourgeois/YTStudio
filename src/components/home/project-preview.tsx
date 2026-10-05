@@ -204,7 +204,8 @@ export function ProjectPreviewPicture({ project }: { project: ProjectSummary }) 
           <span className="tabular-nums">{formatDuration(preview.duration ?? 0)}</span>
         </div>
       )}
-      {(empty || busy || failed || playError) && (
+      {/* A still (a photo's cover) has nothing to play: its picture is all there is, not an empty project. */}
+      {((empty && !poster) || busy || failed || playError) && (
         <span className="pointer-events-none absolute right-2 bottom-2 left-2 truncate text-center text-[10px] text-current opacity-80"
           title={playError ?? preview?.error}>
           {playError ?? (empty ? `Empty ${project.suite === "music" ? "song" : "timeline"}` : failed ? "Preview unavailable · retry" : "Preparing preview…")}

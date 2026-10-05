@@ -4,12 +4,14 @@
  */
 import { VIDEO_TOOLS } from "./assistant-tools.ts";
 import { MUSIC_TOOLS } from "./music/tools.ts";
+import { PHOTO_TOOLS } from "./photo/tools.ts";
 import type { SuiteId } from "./suites.ts";
 import type { ToolSpec } from "./tool-spec.ts";
 
 export const SUITE_TOOLS: Record<SuiteId, readonly ToolSpec[]> = {
   video: VIDEO_TOOLS,
   music: MUSIC_TOOLS,
+  photo: PHOTO_TOOLS,
 };
 
 const bySuite = Object.fromEntries(

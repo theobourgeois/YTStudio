@@ -1,9 +1,11 @@
-import { existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { constants as fsConstants, existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { errorMessage } from "../shared/errors.ts";
 import { createId } from "../shared/ids.ts";
-import { DEFAULT_PROJECT_NAME, DEFAULT_SUITE, type SuiteDocument, type SuiteId, isSuiteId, suiteNoun } from "../shared/suites.ts";
+import { DEFAULT_PROJECT_NAME, DEFAULT_SUITE, type SuiteDocument, type SuiteId, isSuiteId, SUITE_IDS, suiteNoun } from "../shared/suites.ts";
 import type { MediaAsset, ProjectLocation, ProjectSummary, ProjectTemplates } from "../shared/types.ts";
 import type { MediaLibrary } from "./media.ts";
 import { PROJECT_EXTENSION, fileName, isInside, moveToTrash, movePath, namedAfter, packageName, samePath, uniquePackage } from "./packages.ts";
@@ -28,7 +30,26 @@ interface Entry {
   openedAt: number;
   /** A suite's starting point, a hidden copy in the data folder that's never listed. */
   template: boolean;
+  /** Its `project.json` is there but damaged: what to tell the user. It's never written over while this is set. */
+  damaged?: string;
+  /** The picture a tab drew of it for Home, if one has been saved. */
+  cover?: Cover;
 }
+
+type CoverExtension = (typeof COVER_EXTENSIONS)[number];
+
+/** `.preview/cover.<ext>`: remembered so summaries, built often, never look for it on disk. */
+interface Cover {
+  ext: CoverExtension;
+  /** Changes when it's replaced (its URL's `v`, so a card never shows an old one from the cache). */
+  version: number;
+}
+
+/** What a package's `project.json` turned out to be: a document (and what was saved), none at all, or a damaged one. */
+type DocRead =
+  | { doc: SuiteDocument; saved: Record<string, unknown> }
+  | { absent: true }
+  | { damaged: string; bytes: Buffer | null };
 
 /** A project this computer has opened, as `data/projects.json` keeps it (with what was known of it, for when it's missing). */
 interface Recent {
@@ -49,6 +70,57 @@ const DOC_FILE = "project.json";
 const META_FILE = "meta.json";
 /** How long a package that's busy (media being added or made) waits before it's renamed again. */
 const RENAME_RETRY_MS = 3000;
+/** Renditions of the project (`ProjectPreviews`) and its cover: remade, or redrawn by a tab. */
+const PREVIEW_DIR = ".preview";
+const COVER_EXTENSIONS = ["jpg", "png"] as const;
+/** The largest cover a tab may save (`PUT /api/projects/:id/cover`). */
+export const MAX_COVER_BYTES = 4 * 1024 * 1024;
+/** A damaged document's copy, kept beside it (`keepDamaged`). */
+const DAMAGED_COPY = /^project\.corrupt-.+\.json$/;
+/** Folders of rebuildable files inside a suite's own folders (`photo/cache/`): a copy of the package goes without them. */
+const CACHE_DIR = "cache";
+
+/** Which image a cover is, by its first bytes (JPEG's SOI marker, PNG's signature), or null for anything else. */
+function coverExtension(bytes: Buffer): CoverExtension | null {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpg";
+  const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length >= png.length && png.every((b, i) => bytes[i] === b)) return "png";
+  return null;
+}
+
+/** The cover a tab saved in the package, if any (looked for when a package is loaded or made, not per summary). */
+async function findCover(dir: string): Promise<Cover | undefined> {
+  for (const ext of COVER_EXTENSIONS) {
+    const stat = await fs.stat(path.join(dir, PREVIEW_DIR, `cover.${ext}`)).catch(() => null);
+    if (stat?.isFile()) return { ext, version: Math.round(stat.mtimeMs) };
+  }
+  return undefined;
+}
+
+/**
+ * Keep a damaged document's bytes beside it as `project.corrupt-<time>.json`, before anything could replace
+ * them: once for each content (reading it again finds the copy already made). Returns the copy's path.
+ */
+async function keepDamaged(dir: string, bytes: Buffer): Promise<string> {
+  for (const name of await fs.readdir(dir)) {
+    if (!DAMAGED_COPY.test(name)) continue;
+    const file = path.join(dir, name);
+    const stat = await fs.stat(file).catch(() => null);
+    if (stat?.isFile() && stat.size === bytes.length && (await fs.readFile(file)).equals(bytes)) return file;
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  let file = path.join(dir, `project.corrupt-${stamp}.json`);
+  for (let n = 2; existsSync(file); n++) file = path.join(dir, `project.corrupt-${stamp}-${n}.json`);
+  const tmp = `${file}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    await fs.writeFile(tmp, bytes, { flag: "wx" });
+    await fs.rename(tmp, file);
+  } catch (err) {
+    await fs.rm(tmp, { force: true });
+    throw err;
+  }
+  return file;
+}
 
 /** A package's meta.json (projects saved before suites have none: they're videos; `status` and `settledAt` are from before files). */
 function parseMeta(v: unknown): ProjectMeta | null {
@@ -125,6 +197,8 @@ export class ProjectStore {
   /** Serialise writes so an older save can never land after a newer one. */
   private writes = createLimiter(1);
   private recentsWrites = createLimiter(1);
+  /** One damaged document kept aside at a time, so two reads of it don't both make a copy. */
+  private keeping = createLimiter(1);
   private retries = new Set<NodeJS.Timeout>();
   private lastTimestamp = 0;
   private location: string;
@@ -225,9 +299,14 @@ export class ProjectStore {
     const input = body ?? {};
     if (!isObject(input)) throw new HttpError(400, "Expected { name?, suite? }.");
     const name = input.name === undefined ? DEFAULT_PROJECT_NAME : parseName(input.name);
-    if (input.suite !== undefined && !isSuiteId(input.suite)) throw new HttpError(400, "Unknown suite: use video or music.");
+    if (input.suite !== undefined && !isSuiteId(input.suite)) throw new HttpError(400, `Unknown suite: use ${SUITE_IDS.join(", ")}.`);
     const suite = (input.suite as SuiteId | undefined) ?? DEFAULT_SUITE;
-    const template = input.blank === true ? null : this.templateId(suite);
+    let template = input.blank === true ? null : this.templateId(suite);
+    if (template && this.entries.get(template)?.damaged) {
+      // Its copy can't be made: new projects start blank until the starting point is saved again.
+      console.warn(`[projects] the ${suite} starting point is damaged: starting blank`);
+      template = null;
+    }
     const backend = suiteBackend(suite);
     const adjust = (doc: SuiteDocument) => (backend.withOptions && input.options !== undefined ? backend.withOptions(doc as never, input.options) : doc);
     if (template) return this.copy(template, { name, parent: this.location, adjust });
@@ -285,6 +364,40 @@ export class ProjectStore {
     await reveal(dir);
   }
 
+  /**
+   * Keep the picture a tab drew of the project as its card's (`.preview/cover.<ext>`, replacing the last): a
+   * suite whose look only the tab can render (the photo suite's composite, by WebGPU) gives Home one this way.
+   */
+  async saveCover(id: string, body: unknown): Promise<void> {
+    this.entry(id);
+    if (!Buffer.isBuffer(body) || body.length === 0) throw new HttpError(415, "Send the cover as the bytes of a JPEG or PNG image.");
+    if (body.length > MAX_COVER_BYTES) throw new HttpError(413, `A cover can be at most ${MAX_COVER_BYTES / 1024 / 1024} MB.`);
+    const ext = coverExtension(body);
+    if (!ext) throw new HttpError(415, "That isn't a JPEG or PNG image.");
+    await this.writes(async () => {
+      const folder = path.join(this.entry(id).dir, PREVIEW_DIR);
+      await fs.mkdir(folder, { recursive: true });
+      const file = path.join(folder, `cover.${ext}`);
+      const tmp = `${file}.${randomBytes(6).toString("hex")}.tmp`;
+      try {
+        await fs.writeFile(tmp, body);
+        await fs.rename(tmp, file);
+      } catch (err) {
+        await fs.rm(tmp, { force: true });
+        throw err;
+      }
+      for (const other of COVER_EXTENSIONS) if (other !== ext) await fs.rm(path.join(folder, `cover.${other}`), { force: true });
+      this.entries.set(id, { ...this.entry(id), cover: { ext, version: this.now() } });
+    });
+  }
+
+  /** The file of the project's cover (404 if no tab has saved one). */
+  coverFile(id: string): string {
+    const { dir, cover } = this.entry(id);
+    if (!cover) throw new HttpError(404, "This project has no cover.");
+    return path.join(dir, PREVIEW_DIR, `cover.${cover.ext}`);
+  }
+
   /** Commit a new project with the given document and timestamps (`updatedAt` = `createdAt`), in the package `dir`. */
   async add<S extends SuiteId>(id: string, suite: S, doc: SuiteDocument<S>, createdAt: number, { dir, template = false }: { dir: string; template?: boolean }): Promise<ProjectSummary> {
     const meta: ProjectMeta = { id, suite, createdAt, updatedAt: createdAt };
@@ -292,8 +405,9 @@ export class ProjectStore {
       await fs.mkdir(path.join(dir, "media"), { recursive: true });
       await writeJson(path.join(dir, DOC_FILE), doc);
       await writeJson(path.join(dir, META_FILE), meta);
+      const cover = await findCover(dir);
       this.pending.delete(id);
-      this.entries.set(id, { meta, stats: this.statsOf(suite, this.normalize(id, suite, doc)), dir, openedAt: createdAt, template });
+      this.entries.set(id, { meta, stats: this.statsOf(suite, this.normalize(id, suite, doc)), dir, openedAt: createdAt, template, ...(cover && { cover }) });
       if (!template) await this.saveRecents();
     });
     return this.summary(id);
@@ -324,7 +438,7 @@ export class ProjectStore {
 
   /** New projects of the suite start blank again. */
   async clearTemplate(suite: unknown): Promise<ProjectTemplates> {
-    if (!isSuiteId(suite)) throw new HttpError(400, "Unknown suite: use video or music.");
+    if (!isSuiteId(suite)) throw new HttpError(400, `Unknown suite: use ${SUITE_IDS.join(", ")}.`);
     const old = this.templateId(suite);
     if (old) await this.remove(old);
     return this.templates();
@@ -339,6 +453,8 @@ export class ProjectStore {
    * A new project copied from another: its document (its media remapped to their copies), its media and
    * the files beside its document (a music project's plugin settings, by channel id, which the copy keeps).
    * It's made in `parent` (default: beside the original); a starting point is made in the data folder.
+   * Files are cloned where the disk can (APFS: no space taken until one changes); rebuildable caches (a
+   * suite folder's `cache/`, the renditions in `.preview/`) are left for the copy to make again.
    */
   private async copy(
     id: string,
@@ -355,7 +471,23 @@ export class ProjectStore {
       const copy = suiteBackend(original.meta.suite).remapMedia(source as never, assetIds);
       for (const file of await fs.readdir(original.dir)) {
         if (file === DOC_FILE || file === META_FILE || file === "media") continue;
-        await fs.cp(path.join(original.dir, file), path.join(dir, file), { recursive: true });
+        const from = path.join(original.dir, file);
+        if (file === PREVIEW_DIR) {
+          // Renditions are kept by revision, which the copy doesn't share, so they'd never be used; the cover
+          // is only drawn by a tab, so it comes along.
+          for (const ext of COVER_EXTENSIONS) {
+            const cover = path.join(from, `cover.${ext}`);
+            if (!existsSync(cover)) continue;
+            await fs.mkdir(path.join(dir, PREVIEW_DIR), { recursive: true });
+            await fs.copyFile(cover, path.join(dir, PREVIEW_DIR, `cover.${ext}`), fsConstants.COPYFILE_FICLONE);
+          }
+          continue;
+        }
+        await fs.cp(from, path.join(dir, file), {
+          recursive: true,
+          mode: fsConstants.COPYFILE_FICLONE,
+          filter: (src) => !(path.basename(src) === CACHE_DIR && path.dirname(src) === from),
+        });
       }
       return await this.add(copyId, original.meta.suite, adjust({ ...copy, name }), this.now(), { dir, template });
     } catch (err) {
@@ -380,6 +512,9 @@ export class ProjectStore {
       throw new HttpError(400, `The ${suiteNoun(meta.suite)} is malformed.`);
     }
     await this.writes(async () => {
+      const entry = this.entry(id);
+      // A damaged document is never written over: refused until it's mended (read again: maybe it is now).
+      if (entry.damaged) await this.readDoc(entry);
       await this.write(id, doc);
       // Renamed while no tab has it open (the assistant working on it in the background).
       if (!this.open.has(id)) await this.followName(id);
@@ -450,7 +585,8 @@ export class ProjectStore {
    * Load the package at `dir`. A copy of a project that's here already (its folder still there) gets ids of
    * its own; a project whose folder is gone is found here instead. Its name and its folder's are made the
    * same: the folder's wins when the user picked it (renamed in Finder), the document's when it's a recent
-   * (renamed in the app while open). Null if it isn't a project.
+   * (renamed in the app while open). Null if it isn't a project. One whose document is damaged is loaded
+   * (Home lists it, saying so) but left exactly as it is, a copy of it kept beside it.
    */
   private async mount(dir: string, { openedAt, follow, template = false }: { openedAt?: number; follow?: "folder" | "document"; template?: boolean }): Promise<Entry | null> {
     let meta = parseMeta(await readJson<unknown>(path.join(dir, META_FILE)));
@@ -465,19 +601,17 @@ export class ProjectStore {
     }
     this.missing.delete(meta.id);
 
-    if (!template && follow) {
+    // Moving the package leaves its document's bytes as they are, so a damaged one may move too.
+    if (!template && follow === "document") {
       const saved = await readJson<unknown>(path.join(dir, DOC_FILE));
       const name = isObject(saved) && typeof saved.name === "string" ? saved.name : null;
       if (name !== null && !namedAfter(dir, name)) {
-        if (follow === "folder") await writeJson(path.join(dir, DOC_FILE), { ...(saved as Record<string, unknown>), name: packageName(dir).slice(0, MAX_NAME_LENGTH) });
-        else {
-          const target = uniquePackage(path.dirname(dir), name, dir);
-          try {
-            await movePath(dir, target);
-            dir = target;
-          } catch (err) {
-            console.warn(`[projects] couldn't rename ${dir}: ${err instanceof Error ? err.message : err}`);
-          }
+        const target = uniquePackage(path.dirname(dir), name, dir);
+        try {
+          await movePath(dir, target);
+          dir = target;
+        } catch (err) {
+          console.warn(`[projects] couldn't rename ${dir}: ${err instanceof Error ? err.message : err}`);
         }
       }
     }
@@ -485,7 +619,19 @@ export class ProjectStore {
     this.pending.set(meta.id, dir);
     try {
       await this.library.loadProject(meta.id, path.join(dir, "media"));
-      const entry: Entry = { meta, stats: this.statsOf(meta.suite, await this.readDocAt(dir, meta)), dir, openedAt: openedAt ?? meta.createdAt, template };
+      const read = await this.inspectDoc(dir, meta.suite, this.library.byId(meta.id));
+      let doc = "doc" in read ? read.doc : null;
+      // The folder's name, as Finder shows it, is the document's (written only into a healthy one).
+      if (doc && "saved" in read && !template && follow === "folder" && typeof read.saved.name === "string" && !namedAfter(dir, read.saved.name)) {
+        const name = packageName(dir).slice(0, MAX_NAME_LENGTH);
+        await writeJson(path.join(dir, DOC_FILE), { ...read.saved, name });
+        doc = { ...doc, name };
+      }
+      const damaged = "damaged" in read ? await this.damage(dir, read) : undefined;
+      // A damaged one's summary is what its folder says (its document can't say more).
+      const stats = this.statsOf(meta.suite, doc ?? suiteBackend(meta.suite).create(fileName(packageName(dir))));
+      const cover = await findCover(dir);
+      const entry: Entry = { meta, stats, dir, openedAt: openedAt ?? meta.createdAt, template, ...(damaged && { damaged }), ...(cover && { cover }) };
       this.entries.set(meta.id, entry);
       return entry;
     } finally {
@@ -493,7 +639,10 @@ export class ProjectStore {
     }
   }
 
-  /** Give a package (a copy, made in Finder, of a project that's here) a project id and media ids of its own. */
+  /**
+   * Give a package (a copy, made in Finder, of a project that's here) a project id and media ids of its own.
+   * One whose document is damaged is refused before anything in it changes (its document would be rewritten).
+   */
   private async reId(dir: string, meta: ProjectMeta): Promise<ProjectMeta> {
     const id = createId("project");
     const mediaDir = path.join(dir, "media");
@@ -503,14 +652,10 @@ export class ProjectStore {
       if (asset?.id === entry.name) assets[asset.id] = asset;
     }
     const ids = new Map(Object.keys(assets).map((old) => [old, createId("media")]));
-    const saved = await readJson<unknown>(path.join(dir, DOC_FILE));
     const backend = suiteBackend(meta.suite);
-    let doc: SuiteDocument;
-    try {
-      doc = backend.normalize(saved, assets);
-    } catch {
-      doc = backend.create(packageName(dir));
-    }
+    const read = await this.inspectDoc(dir, meta.suite, assets);
+    if ("damaged" in read) throw new HttpError(422, await this.damage(dir, read));
+    const doc = "doc" in read ? read.doc : backend.create(packageName(dir));
     for (const [old, next] of ids) {
       await writeJson(path.join(mediaDir, old, META_FILE), this.library.renamed(assets[old], next, id));
       await fs.rename(path.join(mediaDir, old), path.join(mediaDir, next));
@@ -573,14 +718,17 @@ export class ProjectStore {
     });
   }
 
-  private toSummary({ meta, stats: { coverAssetId, ...stats }, dir, openedAt }: Entry): ProjectSummary {
-    const thumbnail = coverAssetId ? (this.library.find(coverAssetId)?.poster ?? null) : null;
+  private toSummary({ meta, stats: { coverAssetId, ...stats }, dir, openedAt, damaged, cover }: Entry): ProjectSummary {
+    const poster = coverAssetId ? (this.library.find(coverAssetId)?.poster ?? null) : null;
+    const thumbnail = poster ?? (cover ? `/api/projects/${meta.id}/cover?v=${cover.version}` : null);
     // Each suite's stats go with its own meta.
-    return { ...meta, ...stats, openedAt, path: dir, thumbnail } as ProjectSummary;
+    return { ...meta, ...stats, openedAt, path: dir, thumbnail, ...(damaged && { damaged }) } as ProjectSummary;
   }
 
   private missingSummary({ summary, path: dir, openedAt }: Recent): ProjectSummary {
-    return { ...summary, openedAt, path: dir, thumbnail: null, missing: true };
+    // Whether it's damaged is known again once it's found.
+    const { damaged: _damaged, ...known } = summary;
+    return { ...known, openedAt, path: dir, thumbnail: null, missing: true };
   }
 
   private statsOf(suite: SuiteId, doc: SuiteDocument): DocStats<SuiteId> {
@@ -591,19 +739,63 @@ export class ProjectStore {
     return suiteBackend(suite).normalize(doc, this.library.byId(id));
   }
 
-  private readDoc(entry: Entry): Promise<SuiteDocument> {
-    return this.readDocAt(entry.dir, entry.meta);
+  /**
+   * The saved document, normalised (a new one if there's no `project.json` at all: nothing is lost by
+   * making one). A damaged one is refused with a 422 and marked so (and unmarked once it reads again).
+   */
+  private async readDoc({ dir, meta }: Entry): Promise<SuiteDocument> {
+    const read = await this.inspectDoc(dir, meta.suite, this.library.byId(meta.id));
+    const damaged = "damaged" in read ? await this.damage(dir, read) : undefined;
+    const doc = "doc" in read ? read.doc : "absent" in read ? suiteBackend(meta.suite).create(fileName(packageName(dir))) : null;
+    const current = this.entries.get(meta.id);
+    if (current && samePath(current.dir, dir) && current.damaged !== damaged) {
+      const { damaged: _was, ...rest } = current;
+      this.entries.set(meta.id, damaged ? { ...rest, damaged } : { ...rest, stats: this.statsOf(meta.suite, doc!) });
+    }
+    if (damaged || !doc) throw new HttpError(422, damaged ?? "The project can't be read.");
+    return doc;
   }
 
-  /** The saved document, normalised (a new one if it's missing or corrupt). */
-  private async readDocAt(dir: string, meta: ProjectMeta): Promise<SuiteDocument> {
-    const saved = await readJson<unknown>(path.join(dir, DOC_FILE));
+  /**
+   * What the package's `project.json` is. Anything there that isn't a document its suite can repair is
+   * damaged (unreadable, not JSON, not an object, or refused by `normalize`), and must never be replaced.
+   */
+  private async inspectDoc(dir: string, suite: SuiteId, media: Record<string, MediaAsset>): Promise<DocRead> {
+    let bytes: Buffer;
     try {
-      if (isObject(saved)) return this.normalize(meta.id, meta.suite, saved);
-    } catch {
-      // Beyond repair: start again.
+      bytes = await fs.readFile(path.join(dir, DOC_FILE));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { absent: true };
+      return { damaged: `it can't be read (${errorMessage(err)})`, bytes: null };
     }
-    return suiteBackend(meta.suite).create(fileName(packageName(dir)));
+    let saved: unknown;
+    try {
+      saved = JSON.parse(bytes.toString("utf8"));
+    } catch {
+      return { damaged: "it isn't valid JSON", bytes };
+    }
+    if (!isObject(saved)) return { damaged: `it isn't a ${suiteNoun(suite)}`, bytes };
+    try {
+      return { doc: suiteBackend(suite).normalize(saved, media), saved };
+    } catch (err) {
+      return { damaged: `it can't be repaired (${errorMessage(err)})`, bytes };
+    }
+  }
+
+  /** Keep a damaged document aside (once for its content) and say what happened, for the user. */
+  private async damage(dir: string, { damaged, bytes }: { damaged: string; bytes: Buffer | null }): Promise<string> {
+    let kept: string | null = null;
+    if (bytes) {
+      kept = await this.keeping(() => keepDamaged(dir, bytes)).catch((err) => {
+        console.warn(`[projects] couldn't keep a copy of ${path.join(dir, DOC_FILE)}: ${errorMessage(err)}`);
+        return null;
+      });
+    }
+    return (
+      `"${packageName(dir)}" can't be opened: its document (${DOC_FILE}) is damaged: ${damaged}. Nothing in it was changed` +
+      (kept ? `, and a copy of it is kept at ${kept}.` : ".") +
+      ` Replace ${DOC_FILE} in the package with a good copy (a backup) to open it again.`
+    );
   }
 
   /** Strictly increasing epoch ms, so "most recently updated" never ties. */

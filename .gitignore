@@ -10,6 +10,7 @@ e2e/.data
 transition-sheet.png
 dist-electron
 build/desktop
+build/photo-helper
 release
 desktop-smoke.png
 music-window-smoke.png

@@ -19,7 +19,18 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } }],
+  // The photo suite renders with WebGPU: headless Chromium has an adapter only with the GPU switched on (the export's
+  // flags, server/gl-browser.ts).
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1440, height: 900 },
+        launchOptions: { args: ["--ignore-gpu-blocklist", "--enable-unsafe-swiftshader", ...(process.platform === "darwin" ? ["--use-angle=metal", "--enable-gpu"] : [])] },
+      },
+    },
+  ],
   webServer: [
     {
       command: "tsx scripts/e2e-server.ts",

@@ -4,8 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { createId } from "../shared/timeline.ts";
-import type { MediaAsset, ReversedMedia } from "../shared/types.ts";
+import { createId } from "../shared/ids.ts";
+import { normalizeImageInfo } from "../shared/media.ts";
+import type { ImageInfo, MediaAsset, ReversedMedia } from "../shared/types.ts";
 import { errorMessage } from "../shared/errors.ts";
 import { makeFilmstrip, makePoster, makeReversed, makeStillPoster, makeWaveform } from "./derivatives.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
@@ -53,6 +54,38 @@ export interface MediaRoot {
 /** Where a project keeps its media (`<project>.vaudio/media`), or null if there's no such project. */
 export type ProjectMediaDirs = (projectId: string) => string | null;
 
+/** What an image prober says of a file: its size upright (after its EXIF orientation) and its samples. */
+export interface ImageProbe extends ImageInfo {
+  width: number;
+  height: number;
+}
+
+export interface MediaLibraryOptions {
+  /**
+   * Reads what ffprobe can't of an image file (bit depth, alpha, ICC profile): the photo suite's helper,
+   * given by `app.ts`. Without it, or when it fails, images import with ffprobe's reading alone.
+   */
+  probeImage?: (file: string) => Promise<ImageProbe>;
+}
+
+/** Each image probe failure is logged once (by message), so a missing helper doesn't log every import; this many at most. */
+const MAX_PROBE_WARNINGS = 50;
+
+/**
+ * A saved asset (a meta.json, which anyone may have edited) with its optional fields checked: an invalid
+ * `image` is dropped, and the asset still loads with what ffprobe said of it.
+ */
+export function savedAsset(asset: MediaAsset): MediaAsset {
+  if (asset.image === undefined) return asset;
+  const image = normalizeImageInfo(asset.image);
+  if (image) return { ...asset, image };
+  const next = { ...asset };
+  delete next.image;
+  return next;
+}
+
+const isSize = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n > 0;
+
 /**
  * Media files on disk plus background processing: every project's media, each in its own package
  * (`<project>.vaudio/media/<id>/`, through `projectDirs`; loaded with `loadProject`), and separately the
@@ -69,11 +102,13 @@ export class MediaLibrary {
   /** Files being added to each project right now (by project id): its package mustn't move meanwhile. */
   private adding = new Map<string, number>();
   private root: MediaRoot;
+  private probeWarnings = new Set<string>();
 
   constructor(
     private paths: DataPaths,
     root?: MediaRoot,
     private projectDirs?: ProjectMediaDirs,
+    private options: MediaLibraryOptions = {},
   ) {
     this.root = root ?? { dir: paths.media, url: "/files/media" };
   }
@@ -111,7 +146,7 @@ export class MediaLibrary {
         await fs.rm(path.join(dir, entry.name), { recursive: true, force: true });
         continue;
       }
-      assets.push(asset);
+      assets.push(savedAsset(asset));
     }
     return assets;
   }
@@ -215,8 +250,34 @@ export class MediaLibrary {
     }
     const { size } = await fs.stat(file);
     if (size === 0) throw new HttpError(400, "The file is empty.");
-    const probe = await probeMedia(file);
-    return await this.adds(projectId, () => this.commit(file, { name: displayName(rawName), projectId, size, probe, origin }, projectExists));
+    const name = displayName(rawName);
+    let probe = await probeMedia(file);
+    let image: ImageInfo | undefined;
+    const read = probe.kind === "image" ? await this.probeImage(file, name) : null;
+    if (read) {
+      const { width, height, ...info } = read;
+      probe = { ...probe, width, height };
+      image = info;
+    }
+    return await this.adds(projectId, () => this.commit(file, { name, projectId, size, probe, image, origin }, projectExists));
+  }
+
+  /** The image prober's reading of `file`, or null when there's no prober or it failed (ffprobe's reading stands). */
+  private async probeImage(file: string, name: string): Promise<ImageProbe | null> {
+    if (!this.options.probeImage) return null;
+    try {
+      const raw = await this.options.probeImage(file);
+      const info = normalizeImageInfo(raw);
+      if (!info || !isSize(raw.width) || !isSize(raw.height)) throw new Error("its answer isn't an image's description");
+      return { ...info, width: raw.width, height: raw.height };
+    } catch (err) {
+      const message = errorMessage(err);
+      if (!this.probeWarnings.has(message) && this.probeWarnings.size < MAX_PROBE_WARNINGS) {
+        this.probeWarnings.add(message);
+        console.warn(`[media] couldn't probe ${name} as an image, imported with ffprobe's reading alone: ${message}`);
+      }
+      return null;
+    }
   }
 
   /** Run an addition to a project, counted while it lasts (`busy`). */
@@ -243,7 +304,14 @@ export class MediaLibrary {
 
   private async commit(
     tmp: string,
-    { name, projectId, size, probe, origin }: { name: string; projectId: string | null; size: number; probe: ProbeResult; origin?: string },
+    {
+      name,
+      projectId,
+      size,
+      probe,
+      image,
+      origin,
+    }: { name: string; projectId: string | null; size: number; probe: ProbeResult; image?: ImageInfo; origin?: string },
     projectExists: () => boolean,
   ): Promise<MediaAsset> {
     const id = createId("media");
@@ -290,6 +358,7 @@ export class MediaLibrary {
         filmstrip: null,
         waveform: null,
         ...(origin ? { origin } : {}),
+        ...(image ? { image } : {}),
       };
       await writeJson(path.join(dir, "meta.json"), asset);
       // No await between this check and `set`: a concurrent project deletion either

@@ -202,7 +202,10 @@ export const useProjects = create<ProjectsState>((set, get) => {
     },
 
     async open(projectId) {
-      if (get().projects.find((p) => p.id === projectId)?.missing) return;
+      const project = get().projects.find((p) => p.id === projectId);
+      if (project?.missing) return;
+      // Its document can't be read, and is left as it is: say why rather than open an empty one.
+      if (project?.damaged) return void failed(`Couldn't open ${noun(projectId)}`, new Error(project.damaged));
       setUrlProject(projectId);
       await show(projectId);
     },
