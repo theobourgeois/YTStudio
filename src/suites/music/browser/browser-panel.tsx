@@ -36,7 +36,7 @@ import { openInNewChannels, samplerToSendTo, sendToSelectedChannel, showInFinder
 import { BROWSER_DRAG_TYPE, type BrowserDrag, setCarriedPaths } from "./drops";
 import { resolveBrowserKey } from "./keys";
 import { useBrowser } from "./store";
-import { type ItemRow, type Row, arrowAction, isItem, resultRows, rowRange, step, treeRows } from "./tree";
+import { type ItemRow, type Row, arrowAction, isItem, nameOf, resultRows, rowRange, step, treeRows } from "./tree";
 import { type Peaks, PEAK_COLUMNS, loadPeaks, waveformStops } from "./waveform";
 
 
@@ -628,7 +628,7 @@ function PreviewBar() {
   }, [path]);
 
   const shown = peaks?.path === path ? peaks : null;
-  const name = path ? path.slice(path.lastIndexOf("/") + 1) : "";
+  const name = path ? nameOf(path) : "";
   return (
     <div className="shrink-0 border-t border-line bg-surface-1 px-2 pt-1.5 pb-2" data-testid="browser-preview">
       <div className="mb-1 flex h-4 items-center gap-1.5 text-[11px]">

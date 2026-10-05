@@ -16,6 +16,9 @@ import { defaultEffects } from "../shared/effects.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
 import type { Clip, ExportJob, MediaAsset, Project, ProjectSummary } from "../shared/types.ts";
 import { FFMPEG } from "../server/config.ts";
+import { addChannels, setSteps } from "../shared/music/edits.ts";
+import { createMusicProject, FIRST_PATTERN_ID } from "../shared/music/project.ts";
+import type { EngineStatus } from "../shared/music/engine.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const outIndex = process.argv.indexOf("--out");
@@ -26,7 +29,7 @@ const APP = {
   win32: "release/win-unpacked/Vaudio.exe",
 }[process.platform as "darwin" | "linux" | "win32"];
 
-const executablePath = APP && path.join(ROOT, APP);
+const executablePath = process.env.EDITOR_DESKTOP_APP_PATH || (APP && path.join(ROOT, APP));
 if (!executablePath || !existsSync(executablePath)) {
   console.error(`No packaged app at ${APP}: run \`pnpm build:desktop\` first.`);
   process.exit(1);
@@ -139,6 +142,33 @@ try {
   const opened = await window.waitForURL(`**/p/${project.id}`, { timeout: 20_000 }).then(() => true, () => false);
   check("opens a project it's launched with", opened);
   second.kill();
+  if (process.argv.includes("--music")) {
+    const music = await post<ProjectSummary>("/api/projects", { suite: "music", name: "Windows music smoke" });
+    const file = path.join(tmp, "Quiet sample.wav");
+    ffmpeg("-f", "lavfi", "-i", "sine=frequency=220:duration=0.4", "-af", "volume=0.08", file);
+    const sample = await post<MediaAsset>("/api/media/import-file", { projectId: music.id, path: file });
+    const song = setSteps(addChannels(createMusicProject("Windows music smoke", 120), [{ id: "chan_smoke", name: "Quiet sample", sampleId: sample.id }]), FIRST_PATTERN_ID, "chan_smoke", [0, 4, 8, 12], true);
+    await api(`/api/projects/${music.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(song) });
+    await window.goto(`${base}/p/${music.id}`);
+    await window.locator('[data-suite="music"]').waitFor({ timeout: 20_000 });
+    // Native panels are currently disabled app-wide; music panels live in the main desktop's page.
+    await window.getByTestId("channel-rack").waitFor({ timeout: 20_000 });
+    check("music opens the channel rack", await window.getByTestId("channel-rack").isVisible());
+    await window.getByText("Quiet sample", { exact: true }).first().waitFor({ timeout: 20_000 });
+    await post("/api/engine/song", { projectId: music.id, song, patternId: FIRST_PATTERN_ID });
+    const status = await post<EngineStatus>("/api/engine/status", {});
+    check("packaged music engine opens an output", !!status.device && !status.offline, status.device ?? "no device");
+    await post("/api/engine/play", {});
+    let playing: EngineStatus = status;
+    for (let i = 0; i < 12; i++) {
+      playing = await post<EngineStatus>("/api/engine/status", {});
+      if (playing.peak > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    await post("/api/engine/stop", {});
+    check("sampler playback reaches the real output", playing.peak > 0 && playing.transport.playing, `peak ${playing.peak}`);
+    check("Windows sample paths survive save/reopen", (await api<{ channels: { sampleId: string | null }[] }>(`/api/projects/${music.id}`)).channels[0].sampleId === sample.id);
+  }
   await window.screenshot({ path: SCREENSHOT });
   console.log(`screenshot: ${path.relative(process.cwd(), SCREENSHOT)}`);
 } finally {

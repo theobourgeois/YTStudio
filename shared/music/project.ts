@@ -685,6 +685,8 @@ function normalizeMixer(input: unknown): Mixer {
     return {
       id,
       name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, MAX_NAME) : null,
+      ...(["instr", "bass", "drums", "vocals", "mixbus"].includes(raw.setupRole as string) && { setupRole: raw.setupRole as MixerTrack["setupRole"] }),
+      ...(isId(raw.setupChannel) && { setupChannel: raw.setupChannel }),
       color: isColor(raw.color) ? raw.color.toLowerCase() : null,
       dock: id === MASTER_TRACK_ID ? "left" : raw.dock === "left" || raw.dock === "right" ? raw.dock : "middle",
       separator: raw.separator === true,

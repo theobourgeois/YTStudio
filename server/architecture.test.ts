@@ -47,6 +47,7 @@ const PLATFORM = [
   "src/stores/app-icon.ts",
   "server/index.ts",
   "server/config.ts",
+  "server/engine-path.ts",
   "server/storage.ts",
   "server/process.ts",
   "server/queue.ts",

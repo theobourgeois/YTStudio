@@ -25,6 +25,8 @@ import { AudioEngine, type EngineOptions } from "./music/engine.ts";
 import { SampleBrowser } from "./music/browser.ts";
 import { type MusicExportOptions, MusicExports } from "./music/exports.ts";
 import { browserRoutes, engineRoutes, musicExportRoutes } from "./music/routes.ts";
+import { mixerSetupRoutes } from "./music/mixer-setup.ts";
+import { ApiKeyStore } from "./transcription/settings.ts";
 import { ProjectStore } from "./projects.ts";
 import { assistantRoutes } from "./routes/assistant.ts";
 import { exportRoutes } from "./routes/exports.ts";
@@ -196,6 +198,9 @@ export async function createApp({
   app.use("/api/engine", engineRoutes(engine));
   app.use("/api/music/audio", audioIntelligenceRoutes(audioIntelligence));
   app.use("/api/music/exports", musicExportRoutes(musicExports));
+  const mixerKeys = new ApiKeyStore(path.join(paths.root, "music-jev-settings.json"));
+  await mixerKeys.load();
+  app.use("/api/music/mixer-setup", mixerSetupRoutes({ engine, keys: mixerKeys, hasProject: (id) => projects.has(id), assets: (id) => library.list(id) }));
   app.use("/api/browser", browserRoutes(browser, engine, {
       hasProject: (id) => projects.has(id),
       find: (projectId, origin) => library.list(projectId).find((a) => a.origin === origin),

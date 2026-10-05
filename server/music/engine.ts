@@ -308,6 +308,7 @@ export class AudioEngine {
     const states = path.join(this.projectDir(projectId), "plugins");
     const song = {
       ...compiled,
+      states,
       resampling: isResampling(body.resampling) ? body.resampling : "hermite",
       channels: compiled.channels.map((c) => ({
         ...c,
@@ -459,6 +460,15 @@ export class AudioEngine {
   async presets(owner: unknown, id: unknown): Promise<PluginPresets> {
     const { kind, ownerId } = presetOwner(owner, id);
     return (await this.request("presets", { owner: kind, ownerId })) as PluginPresets;
+  }
+
+  /** Metadata for this project's currently loaded instrument, never another tab's copy. */
+  async presetsForProject(projectId: string, id: string): Promise<PluginPresets> {
+    const states = path.join(this.projectDir(projectId), "plugins");
+    if (this.song?.states !== states) throw new HttpError(409, "This song is not loaded in the audio engine.");
+    const result = await this.presets("channel", id);
+    if (this.song?.states !== states) throw new HttpError(409, "The audio engine changed songs while reading the preset.");
+    return result;
   }
 
   /** Choose a program, or save, load or delete a preset of the user's (`PresetRequest`): answers with the presets after. */

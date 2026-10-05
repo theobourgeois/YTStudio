@@ -357,6 +357,9 @@ export interface PluginPresets {
   program: number;
   presets: string[];
   preset: string;
+  /** Actual current patch metadata, including single-program plugins. */
+  currentName?: string;
+  category?: string;
 }
 
 /** What to do with a song's plugin's presets (`POST /api/engine/presets`): choose a program, or save, load or delete a preset of the user's. */

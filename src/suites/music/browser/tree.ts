@@ -40,7 +40,8 @@ export interface TreeInput {
   contents: ReadonlyMap<string, FolderContents>;
 }
 
-const nameOf = (p: string) => p.slice(p.lastIndexOf("/") + 1) || p;
+/** The last part of a path, whichever separator the server's platform uses. */
+export const nameOf = (p: string) => p.slice(Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")) + 1) || p;
 
 /** A favourite: a file if it's audio (the Browser shows no other files), else a folder. */
 export const favouriteItem = (path: string): BrowserItem => ({ path, name: nameOf(path), kind: isAudioName(path) ? "file" : "folder" });
@@ -152,14 +153,15 @@ export function rowRange(rows: readonly Row[], from: string, to: string): string
  * (or to itself, for a folder: it's shown open). Null if it isn't in any of the roots.
  */
 export function foldersToReveal(roots: readonly BrowserRoot[], path: string, isFolder: boolean): string[] | null {
-  const root = roots.find((r) => path === r.path || path.startsWith(`${r.path}/`));
+  const root = roots.find((r) => path === r.path || path.startsWith(`${r.path}/`) || path.startsWith(`${r.path}\\`));
   if (!root) return null;
   const folders = [root.path];
-  const rest = path.slice(root.path.length + 1).split("/").filter(Boolean);
+  const sep = root.path.includes("\\") ? "\\" : "/";
+  const rest = path.slice(root.path.length + 1).split(/[\\/]/).filter(Boolean);
   let at = root.path;
   for (const [i, part] of rest.entries()) {
     if (i === rest.length - 1 && !isFolder) break;
-    at = `${at}/${part}`;
+    at = `${at}${sep}${part}`;
     folders.push(at);
   }
   return folders;

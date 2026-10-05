@@ -287,7 +287,7 @@ describe.skipIf(!ffmpegAvailable)("web media routes (fake yt-dlp)", () => {
     const video = path.join(tmp, "clip.mp4");
     ff("-f", "lavfi", "-i", "testsrc=size=180x320:rate=30:duration=2", "-f", "lavfi", "-i", "sine=duration=2",
       "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", video);
-    const fake = path.join(tmp, "yt-dlp");
+    const fake = path.join(tmp, "yt-dlp.cjs");
     writeFileSync(fake, FAKE_YTDLP);
     chmodSync(fake, 0o755);
     process.env.FAKE_LOG = log;

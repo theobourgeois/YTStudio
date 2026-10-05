@@ -13,6 +13,8 @@ Start with the [end-to-end audio engineering harness plan](audio-engineering-har
 
 The [implementation checklist](implementation-backlog.md) breaks that roadmap into dependent slices, each with concrete deliverables and acceptance criteria.
 
+[Mixer insert setup with Jev](jev-mixer-setup.md) is implemented independently: classify Serum preset metadata and sample filenames into red instruments, blue bass/808s, and yellow drums, then assign named inserts and bus routing. It grows the mixer before recording/vocals and reuses existing setup tracks on later runs. Jev is text-only; live Serum 2 name/category extraction has been checked locally.
+
 This proposal has two separately deliverable systems:
 
 1. [Dataset ingestion](dataset-ingestion.md): accept finished mixes, audio exports, and DAW archives; preserve their provenance; produce reviewed, evidence-backed engineer profiles.

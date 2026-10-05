@@ -1863,16 +1863,18 @@ test("the assistant finds the user's samples, plays one to them and puts them in
     [
       "call list_samples",
       'call search_samples {"query": "kik 808"}',
-      `call list_samples {"folder": ${JSON.stringify(`${folder}/808 Kit`)}}`,
-      `call preview_sample {"path": ${JSON.stringify(`${folder}/808 Kit/Kick 2.wav`)}}`,
-      `call load_sample {"paths": [${JSON.stringify(`${folder}/808 Kit/Kick 1.wav`)}, ${JSON.stringify(`${folder}/808 Kit/Snare.wav`)}]}`,
-      `call load_sample {"paths": [${JSON.stringify(`${folder}/808 Kit/Kick 2.wav`)}], "channel": "Kick 1"}`,
-      `call star_sample {"path": ${JSON.stringify(`${folder}/808 Kit/Kick 2.wav`)}}`,
+      `call list_samples {"folder": ${JSON.stringify(path.join(folder, "808 Kit"))}}`,
+      `call load_sample {"paths": [${JSON.stringify(path.join(folder, "808 Kit", "Kick 1.wav"))}, ${JSON.stringify(path.join(folder, "808 Kit", "Snare.wav"))}]}`,
+      `call load_sample {"paths": [${JSON.stringify(path.join(folder, "808 Kit", "Kick 2.wav"))}], "channel": "Kick 1"}`,
+      `call star_sample {"path": ${JSON.stringify(path.join(folder, "808 Kit", "Kick 2.wav"))}}`,
       `call load_sample {"paths": ["/etc/hosts"]}`,
+      `call preview_sample {"path": ${JSON.stringify(path.join(folder, "808 Kit", "Kick 2.wav"))}}`,
     ].join("\n"),
   );
   await composer.press("Enter");
-  await expect(panel).toContainText("star_sample: ok, load_sample: failed", { timeout: 30_000 });
+  await expect(panel).toContainText("preview_sample: ok", { timeout: 30_000 });
+  await expect(panel).toContainText("star_sample: ok");
+  await expect(panel).toContainText("load_sample: failed");
   await expect(panel).not.toContainText("list_samples: failed");
   await expect(panel).not.toContainText("search_samples: failed");
   await expect(panel).not.toContainText("preview_sample: failed");

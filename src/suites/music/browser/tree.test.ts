@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserItem } from "@shared/music/browser";
-import { type FolderContents, type Row, arrowAction, foldersToReveal, isItem, parentRow, resultRows, rowRange, step, treeRows } from "./tree";
+import { type FolderContents, type Row, arrowAction, foldersToReveal, isItem, nameOf, parentRow, resultRows, rowRange, step, treeRows } from "./tree";
 
 const folder = (path: string): BrowserItem => ({ path, name: path.slice(path.lastIndexOf("/") + 1), kind: "folder" });
 const file = (path: string): BrowserItem => ({ path, name: path.slice(path.lastIndexOf("/") + 1), kind: "file" });
@@ -82,5 +82,17 @@ describe("foldersToReveal", () => {
     expect(foldersToReveal(roots, "/s/Drums/808/Kick.wav", false)).toEqual(["/s/Drums", "/s/Drums/808"]);
     expect(foldersToReveal(roots, "/s/Drums/808", true)).toEqual(["/s/Drums", "/s/Drums/808"]);
     expect(foldersToReveal(roots, "/s/Drumsticks/a.wav", false)).toBeNull();
+  });
+});
+
+describe("Windows paths", () => {
+  it("names a path by its last part, with either separator", () => {
+    expect(nameOf("/s/Drums/Kick.wav")).toBe("Kick.wav");
+    expect(nameOf(String.raw`C:\s\Drums\Kick.wav`)).toBe("Kick.wav");
+  });
+
+  it("reveals folders with backslashes", () => {
+    const win = [{ path: String.raw`C:\s\Drums`, name: "Drums", missing: false }];
+    expect(foldersToReveal(win, String.raw`C:\s\Drums\808\Kick.wav`, false)).toEqual([String.raw`C:\s\Drums`, String.raw`C:\s\Drums\808`]);
   });
 });

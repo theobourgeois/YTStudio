@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addChannels, addPluginChannel, setSteps } from "../../shared/music/edits.ts";
 import { setEffect, updateMixerTrack } from "../../shared/music/mixer.ts";
 import type { EngineEvent } from "../../shared/music/engine.ts";
@@ -80,6 +80,21 @@ describe("AudioEngine", () => {
     const status = await engine.command("tone", { on: true });
     expect(status).toMatchObject({ device: "Fake Output", tone: true, instrument: null });
     expect(await engine.plugins()).toHaveLength(2);
+  });
+
+  it("reads preset metadata for the loaded project and rejects other tabs or a mid-read switch", async () => {
+    const song = createMusicProject("Preset metadata");
+    const metadata = { programs: [], program: -1, presets: [], preset: "", currentName: "BA - Growler", category: "Bass" };
+    const presets = vi.spyOn(engine, "presets").mockResolvedValue(metadata);
+    await engine.setSong({ projectId: PROJECT, song, patternId: null });
+    expect(await engine.presetsForProject(PROJECT, "chan_serum")).toEqual(metadata);
+    await expect(engine.presetsForProject("proj_abcdef012345", "chan_serum")).rejects.toThrow(/not loaded/);
+    expect(presets).toHaveBeenCalledTimes(1);
+    presets.mockImplementationOnce(async () => {
+      await engine.setSong({ projectId: "proj_abcdef012345", song, patternId: null });
+      return metadata;
+    });
+    await expect(engine.presetsForProject(PROJECT, "chan_serum")).rejects.toThrow(/changed songs/);
   });
 
   it("loads a plugin and remembers which plugin a saved state is for", async () => {
@@ -346,4 +361,3 @@ describe("engineOutdated", () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 });
-

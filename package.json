@@ -9,7 +9,7 @@
     "dev:server": "tsx watch --clear-screen=false server/index.ts",
     "dev:desktop": "tsx scripts/desktop.ts dev",
     "build": "tsc -b && vite build",
-    "start": "NODE_ENV=production tsx server/index.ts",
+    "start": "tsx scripts/start.ts",
     "build:desktop": "tsx scripts/desktop.ts build",
     "package:desktop": "tsx scripts/desktop.ts package",
     "typecheck": "tsc -b --noEmit",
@@ -19,7 +19,7 @@
     "test:e2e": "playwright test",
     "test:desktop": "tsx scripts/desktop-smoke.ts",
     "test:desktop:music": "tsx scripts/music-window-smoke.ts",
-    "engine:build": "cmake -S engine -B engine/build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build engine/build"
+    "engine:build": "tsx scripts/build-engine.ts"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.3.0",

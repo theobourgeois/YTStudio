@@ -22,7 +22,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } }],
   webServer: [
     {
-      command: `rm -rf ${DATA_DIR} && tsx scripts/make-samples.ts && tsx server/index.ts`,
+      command: "tsx scripts/e2e-server.ts",
       // Stand-ins for the transcription engine, Claude Code and Codex: the tests don't need whisper.cpp, an API key or a login.
       env: {
         // Never spend a real provider key loaded from local .env in browser tests.

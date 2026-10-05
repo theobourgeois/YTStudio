@@ -1,0 +1,1277 @@
+{
+  "model": "jev-1.13.0",
+  "usage": {
+    "input_tokens": 22112,
+    "output_tokens": 3464
+  },
+  "count": 77,
+  "matches": 77,
+  "rows": [
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Club - Candy"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.52,
+      "probabilities": {
+        "bass": 0.65,
+        "unknown": 0.18,
+        "instr": 0.17,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Club - Candy",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 1.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Club - Muted"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.96,
+      "probabilities": {
+        "unknown": 0.01,
+        "bass": 0.97,
+        "instr": 0.02,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Club - Muted",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Club - Snapper"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.96,
+      "probabilities": {
+        "bass": 0.97,
+        "unknown": 0.0,
+        "instr": 0.01,
+        "drums": 0.02
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Club - Snapper",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Deep House Pillow"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.94,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 0.96,
+        "instr": 0.04,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Deep House Pillow",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.98,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 0.99,
+        "instr": 0.01,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Deep Throat Bass"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.99,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Deep Throat Bass",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Deviled Egg Death Cult"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Deviled Egg Death Cult",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Disconnect"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.99,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 1.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Disconnect",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 1.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Disturbance"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.99,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Disturbance",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Donk"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.99,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Donk",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.99,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Dual MG Bass"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 1.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Dual MG Bass",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 1.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Eighty"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.99,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Eighty",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.99,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Electric Bass - Deep Groover"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 1.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Electric Bass - Deep Groover",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Electric Bass - Dry Amp"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 1.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Electric Bass - Dry Amp",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - FM Wobble"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.97,
+      "probabilities": {
+        "bass": 0.98,
+        "unknown": 0.0,
+        "instr": 0.02,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - FM Wobble",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.99,
+      "probabilities": {
+        "bass": 0.99,
+        "unknown": 0.0,
+        "instr": 0.01,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Fonk"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Fonk",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Forge Stabs"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.95,
+      "probabilities": {
+        "bass": 0.95,
+        "unknown": 0.01,
+        "instr": 0.02,
+        "drums": 0.02
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Forge Stabs",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.95,
+      "probabilities": {
+        "unknown": 0.01,
+        "bass": 0.96,
+        "instr": 0.02,
+        "drums": 0.01
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Fretless Bass"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.99,
+      "probabilities": {
+        "bass": 1.0,
+        "unknown": 0.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "BA - Fretless Bass",
+        "category": "Bass"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.99,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 1.0,
+        "instr": 0.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - Decomposed"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.83,
+      "probabilities": {
+        "bass": 0.86,
+        "unknown": 0.02,
+        "instr": 0.01,
+        "drums": 0.11
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - Decomposed",
+        "category": "808"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.85,
+      "probabilities": {
+        "unknown": 0.03,
+        "bass": 0.88,
+        "instr": 0.01,
+        "drums": 0.08
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - Diesel"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.87,
+      "probabilities": {
+        "unknown": 0.02,
+        "bass": 0.89,
+        "instr": 0.01,
+        "drums": 0.08
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - Diesel",
+        "category": "808"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.88,
+      "probabilities": {
+        "unknown": 0.01,
+        "bass": 0.91,
+        "instr": 0.01,
+        "drums": 0.07
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - Drill"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.82,
+      "probabilities": {
+        "unknown": 0.02,
+        "bass": 0.86,
+        "instr": 0.01,
+        "drums": 0.11
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - Drill",
+        "category": "808"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.8,
+      "probabilities": {
+        "bass": 0.85,
+        "unknown": 0.01,
+        "instr": 0.01,
+        "drums": 0.13
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - Simple Electro"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.8,
+      "probabilities": {
+        "bass": 0.85,
+        "unknown": 0.03,
+        "instr": 0.02,
+        "drums": 0.1
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - Simple Electro",
+        "category": "808"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.82,
+      "probabilities": {
+        "bass": 0.87,
+        "unknown": 0.02,
+        "instr": 0.01,
+        "drums": 0.1
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - Straight"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.7,
+      "probabilities": {
+        "unknown": 0.04,
+        "bass": 0.77,
+        "instr": 0.01,
+        "drums": 0.18
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - Straight",
+        "category": "808"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.68,
+      "probabilities": {
+        "unknown": 0.03,
+        "bass": 0.77,
+        "instr": 0.01,
+        "drums": 0.19
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - Texture"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.72,
+      "probabilities": {
+        "unknown": 0.06,
+        "bass": 0.79,
+        "instr": 0.04,
+        "drums": 0.11
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - Texture",
+        "category": "808"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.8,
+      "probabilities": {
+        "bass": 0.85,
+        "unknown": 0.03,
+        "instr": 0.03,
+        "drums": 0.09
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - To 909 BD Maker"
+      },
+      "expected": "bass",
+      "mode": "name_only",
+      "choice": "bass",
+      "confidence": 0.83,
+      "probabilities": {
+        "bass": 0.87,
+        "unknown": 0.01,
+        "instr": 0.01,
+        "drums": 0.11
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "808 - To 909 BD Maker",
+        "category": "808"
+      },
+      "expected": "bass",
+      "mode": "with_category",
+      "choice": "bass",
+      "confidence": 0.85,
+      "probabilities": {
+        "unknown": 0.01,
+        "bass": 0.89,
+        "instr": 0.01,
+        "drums": 0.09
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Aardvark"
+      },
+      "expected": "instr",
+      "mode": "name_only",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Aardvark",
+        "category": "Arpeggio"
+      },
+      "expected": "instr",
+      "mode": "with_category",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Acid101"
+      },
+      "expected": "instr",
+      "mode": "name_only",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Acid101",
+        "category": "Arpeggio"
+      },
+      "expected": "instr",
+      "mode": "with_category",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Altar"
+      },
+      "expected": "instr",
+      "mode": "name_only",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Altar",
+        "category": "Arpeggio"
+      },
+      "expected": "instr",
+      "mode": "with_category",
+      "choice": "instr",
+      "confidence": 0.99,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Bell Aperium"
+      },
+      "expected": "instr",
+      "mode": "name_only",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Bell Aperium",
+        "category": "Arpeggio"
+      },
+      "expected": "instr",
+      "mode": "with_category",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Blossom Tree Sprites"
+      },
+      "expected": "instr",
+      "mode": "name_only",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Blossom Tree Sprites",
+        "category": "Arpeggio"
+      },
+      "expected": "instr",
+      "mode": "with_category",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Cascading Etheric Paths"
+      },
+      "expected": "instr",
+      "mode": "name_only",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Cascading Etheric Paths",
+        "category": "Arpeggio"
+      },
+      "expected": "instr",
+      "mode": "with_category",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Cosmic Lives Forever"
+      },
+      "expected": "instr",
+      "mode": "name_only",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Cosmic Lives Forever",
+        "category": "Arpeggio"
+      },
+      "expected": "instr",
+      "mode": "with_category",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Dafrotronic"
+      },
+      "expected": "instr",
+      "mode": "name_only",
+      "choice": "instr",
+      "confidence": 0.99,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Dafrotronic",
+        "category": "Arpeggio"
+      },
+      "expected": "instr",
+      "mode": "with_category",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Etheric Aluminium"
+      },
+      "expected": "instr",
+      "mode": "name_only",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Etheric Aluminium",
+        "category": "Arpeggio"
+      },
+      "expected": "instr",
+      "mode": "with_category",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Fun ElectroAcoustic Jam"
+      },
+      "expected": "instr",
+      "mode": "name_only",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "plugin": "Serum 2",
+        "preset": "ARP - Fun ElectroAcoustic Jam",
+        "category": "Arpeggio"
+      },
+      "expected": "instr",
+      "mode": "with_category",
+      "choice": "instr",
+      "confidence": 1.0,
+      "probabilities": {
+        "unknown": 0.0,
+        "bass": 0.0,
+        "instr": 1.0,
+        "drums": 0.0
+      }
+    },
+    {
+      "input": {
+        "visible_name": "808 arcade ...",
+        "note": "Truncated channel rack label; full source filename/preset unavailable"
+      },
+      "expected": "bass",
+      "mode": "rack_label",
+      "choice": "bass",
+      "confidence": 0.32,
+      "probabilities": {
+        "unknown": 0.32,
+        "bass": 0.49,
+        "instr": 0.01,
+        "drums": 0.18
+      }
+    },
+    {
+      "input": {
+        "visible_name": "HH 7 Minute...",
+        "note": "Truncated channel rack label; full source filename/preset unavailable"
+      },
+      "expected": "drums",
+      "mode": "rack_label",
+      "choice": "drums",
+      "confidence": 0.99,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.01,
+        "instr": 0.0,
+        "drums": 0.99
+      }
+    },
+    {
+      "input": {
+        "visible_name": "FX 199X [Gin...",
+        "note": "Truncated channel rack label; full source filename/preset unavailable"
+      },
+      "expected": "unknown",
+      "mode": "rack_label",
+      "choice": "unknown",
+      "confidence": 0.99,
+      "probabilities": {
+        "bass": 0.0,
+        "unknown": 0.99,
+        "instr": 0.0,
+        "drums": 0.01
+      }
+    },
+    {
+      "input": {
+        "visible_name": "CLAP Ambe...",
+        "note": "Truncated channel rack label; full source filename/preset unavailable"
+      },
+      "expected": "drums",
+      "mode": "rack_label",
+      "choice": "drums",
+      "confidence": 0.98,
+      "probabilities": {
+        "unknown": 0.01,
+        "bass": 0.0,
+        "instr": 0.0,
+        "drums": 0.99
+      }
+    },
+    {
+      "input": {
+        "visible_name": "KICK Dance...",
+        "note": "Truncated channel rack label; full source filename/preset unavailable"
+      },
+      "expected": "drums",
+      "mode": "rack_label",
+      "choice": "drums",
+      "confidence": 0.99,
+      "probabilities": {
+        "unknown": 0.01,
+        "bass": 0.0,
+        "instr": 0.0,
+        "drums": 0.99
+      }
+    },
+    {
+      "input": {
+        "visible_name": "OH Cold [Gi...",
+        "note": "Truncated channel rack label; full source filename/preset unavailable"
+      },
+      "expected": "drums",
+      "mode": "rack_label",
+      "choice": "drums",
+      "confidence": 0.99,
+      "probabilities": {
+        "unknown": 0.01,
+        "bass": 0.0,
+        "instr": 0.0,
+        "drums": 0.99
+      }
+    },
+    {
+      "input": {
+        "visible_name": "PERC analo...",
+        "note": "Truncated channel rack label; full source filename/preset unavailable"
+      },
+      "expected": "drums",
+      "mode": "rack_label",
+      "choice": "drums",
+      "confidence": 0.99,
+      "probabilities": {
+        "unknown": 0.01,
+        "bass": 0.0,
+        "instr": 0.0,
+        "drums": 0.99
+      }
+    },
+    {
+      "input": {
+        "visible_name": "SNARE alwa...",
+        "note": "Truncated channel rack label; full source filename/preset unavailable"
+      },
+      "expected": "drums",
+      "mode": "rack_label",
+      "choice": "drums",
+      "confidence": 0.99,
+      "probabilities": {
+        "unknown": 0.01,
+        "bass": 0.0,
+        "instr": 0.0,
+        "drums": 0.99
+      }
+    },
+    {
+      "input": {
+        "visible_name": "Serum 2",
+        "note": "Truncated channel rack label; full source filename/preset unavailable"
+      },
+      "expected": "unknown",
+      "mode": "rack_label",
+      "choice": "unknown",
+      "confidence": 0.98,
+      "probabilities": {
+        "unknown": 0.99,
+        "bass": 0.0,
+        "instr": 0.01,
+        "drums": 0.0
+      }
+    }
+  ]
+}

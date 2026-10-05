@@ -16,6 +16,7 @@ export type WindowId =
   | "piano"
   | "playlist"
   | "mixer"
+  | "fill-inserts"
   | "transpose"
   | "note"
   | "chopper"
@@ -88,6 +89,7 @@ interface MusicUiState {
   pianoOpen: boolean;
   playlistOpen: boolean;
   mixerOpen: boolean;
+  fillInsertsOpen: boolean;
   /** Which channels the rack shows. */
   rackGroup: RackGroup;
   /** The mixer's selected tracks; the first is the one its inspector shows and sends are made from. */
@@ -147,6 +149,7 @@ const INITIAL = {
   // A song opens on the Playlist (maximised) with the rack over it, as FL Studio does.
   playlistOpen: true,
   mixerOpen: false,
+  fillInsertsOpen: false,
   rackGroup: "unsorted" as RackGroup,
   selectedTrackIds: [] as string[],
   trackSelectorsShown: true,
