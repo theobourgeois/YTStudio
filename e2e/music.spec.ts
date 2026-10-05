@@ -2384,6 +2384,9 @@ test("audio clips stretch as FL Studio's: with Stretch on (Shift+M) an edge stre
   await expect.poll(clip).toMatchObject({ length: BAR_TICKS, stretch: { mode: "stretch", tempo: 60 } });
 
   // Its channel's Time stretching (a double-click on the clip): Resample, which the clip, with its own, doesn't follow.
+  // Selecting the clip through its menu can reveal the source channel's rack over this spot.
+  const closeRack = page.getByRole("button", { name: "Close Channel rack" });
+  if (await closeRack.isVisible()) await closeRack.click();
   await page.getByTestId("playlist-grid").dblclick({ position: { x: 30, y: 30 } });
   const settings = page.locator('[data-testid="channel-settings"][data-channel-name="Loop"]');
   // Its waveform pressed plays the file as its clips sound: through its channel's mixer track.

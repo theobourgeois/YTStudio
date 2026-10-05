@@ -1,6 +1,13 @@
-# Engineer datasets and audio hearing
+# Public datasets and audio hearing
 
-Status: **Slice A of the [implementation checklist](implementation-backlog.md) is built** (the contracts, snapshot capture, the fixture collection and the three dataset/engine audits, below). [Slice B](render-and-measure.md) is also built: project-scoped immutable audio, durable cancellable passage renders, local measurements and MCP tools. [Slice C infrastructure and its hosted perception pilot](hosted-perception.md) are implemented; listening quality acceptance remains pending, and provider findings are withheld by default. [A first vocal comparison workflow](vocal-mix-workflow.md) implements part of D/E; their general delivery and later slices remain planned.
+Status: **Slice A of the [implementation checklist](implementation-backlog.md) is built** (the contracts, snapshot capture, the fixture collection and the three dataset/engine audits, below). [Slice B](render-and-measure.md) is also built: project-scoped immutable audio, durable cancellable passage renders, local measurements and MCP tools. [Slice C infrastructure and its hosted perception pilot](hosted-perception.md) are implemented; listening quality acceptance remains pending, and provider findings are withheld by default. [D's workflows and retrieval](workflows-and-examples.md) is built. F's generic import infrastructure exists, but its selected public-dataset integration is pending. [A first vocal comparison workflow](vocal-mix-workflow.md) implements part of E; its general orchestration and G/H remain planned.
+
+Scope correction 2026-10-05: **F uses public datasets**, not engineer-friend
+packages or native plugin-parameter extraction. D is implemented; the existing
+[folder/ZIP import infrastructure](ordinary-package-ingestion.md) is reusable,
+but F's dataset-specific adapters and acceptance are pending. C is paused pending
+real-audio human review; no hearing task has been promoted. General E/G/H remain
+pending.
 Research date: 2026-10-03. Provider capabilities and DAW compatibility must be verified again at implementation.
 
 Update 2026-10-05: [the first local vocal comparison workflow](vocal-mix-workflow.md)
@@ -9,7 +16,7 @@ audition playback and guarded apply/undo. B has also passed the real-audio MCP
 verification described there. General D/E delivery and musical quality acceptance
 remain pending.
 
-Start with the [end-to-end audio engineering harness plan](audio-engineering-harness.md): it connects the existing Claude Code runtime, hosted hearing, ordinary-package ingestion, dataset retrieval, workflows, reversible candidate renders, evaluation, and optional training/self-hosting. This is the current delivery roadmap; the individual proposals below provide supporting detail.
+Start with the [end-to-end audio engineering harness plan](audio-engineering-harness.md): it connects the existing Claude Code runtime, hosted hearing, public-dataset ingestion, dataset retrieval, workflows, reversible candidate renders, evaluation, and optional training/self-hosting. This is the current delivery roadmap; the individual proposals below provide supporting detail.
 
 The [implementation checklist](implementation-backlog.md) breaks that roadmap into dependent slices, each with concrete deliverables and acceptance criteria.
 
@@ -17,25 +24,29 @@ The [implementation checklist](implementation-backlog.md) breaks that roadmap in
 
 This proposal has two separately deliverable systems:
 
-1. [Dataset ingestion](dataset-ingestion.md): accept finished mixes, audio exports, and DAW archives; preserve their provenance; produce reviewed, evidence-backed engineer profiles.
+1. Public-dataset ingestion: import supplied audio and annotations with provenance, usage records, and reviewed relationships. The older [engineer-ingestion proposal](dataset-ingestion.md) is background, not the selected F scope.
 2. [Audio hearing API](audio-hearing-api.md): combine native audio perception with full-resolution measurements and expose the resulting evidence to the existing LLM through tools.
 
-The dataset system can organize material before hearing is available. The hearing API can analyze the user's own song without an engineer dataset. Their shared contract is an immutable audio artifact, its timeline, and analysis evidence.
+The dataset system can organize material before hearing is available. The hearing API can analyze the user's own song without a reference dataset. Their shared contract is an immutable audio artifact, its timeline, and analysis evidence.
 
 [Plugin settings research](plugin-settings-research.md) documents the preferred live-capture approach: export readable controls from the loaded source DAW/plugin, preserving native state and using targeted decoders only for gaps.
 
-**Current constraint and research direction:** the user rejected asking the engineer to run capture tools. Live capture remains a researched option, not the selected contributor workflow. [Dataset research and downloads](dataset-research.md) compares existing settings datasets, prices/access, and the audited small downloads that can support a starter without extra work from the friend.
+**Current direction:** use public datasets. Do not require an engineer to
+provide sessions, run capture tools, or recover plugin parameters. [Dataset research
+and downloads](dataset-research.md) records the audited public resources. Settings
+are available only where a dataset actually supplies documented annotations;
+unknown units and missing fields remain unknown.
 
 [Learning tasks](learning-tasks.md) separates hearing, effect behavior, human mixing decisions, and outcome evaluation. CL 1B has finished downloading and passed checksum/ZIP integrity checks; its inspected archive metadata labels ratio and threshold, not attack/release. It is stored separately from the small starter ZIP at `data/research-datasets/cl1b/Dataset.zip`.
 
 ```mermaid
 flowchart LR
-  A[Engineer mixes and DAW exports] --> B[Dataset ingestion]
+  A[Public dataset audio and annotations] --> B[Dataset ingestion]
   B --> C[Audio artifacts and provenance]
   D[Current song snapshot] --> C
   C --> E[Audio hearing API]
   E --> F[Measurements and listening observations]
-  F --> G[Reviewed engineer profile]
+  B --> G[Reviewed reference examples]
   F --> H[Existing assistant]
   G --> H
   H --> I[Existing mixing tools]
@@ -44,14 +55,14 @@ flowchart LR
 
 ## Proposed defaults
 
-- Ingestion targets full DAW session capture: plugin parameters/state, arrangement/layout, routing, automation, referenced media, stems, and a finished mix. Reduced stem/reference submissions remain supported with explicit coverage.
+- Ingestion targets public dataset audio and supplied metadata, with explicit provenance, usage records, and missing-field coverage.
 - Local storage and analysis orchestration fit the current desktop/local-server architecture.
 - Hosted audio perception comes first, with local measurements and a provider-independent API. Self-hosted inference is a later adapter, not a first-release prerequisite.
 - The first product is reference-guided analysis and mixing. Custom model training is a later decision supported by held-out evaluation.
-- FL Studio and Pro Tools get early full-session extraction feasibility checks, then adapters for a tested DAW/plugin matrix. Preserve native state and identify every gap rather than claiming universal plugin access.
+- Native DAW extraction and engineer-session capture are outside the current delivery scope.
 - The audio hearing API returns evidence, uncertainty, and unavailable capabilities. It does not edit songs.
 
-The user confirmed full session data capture, including plugin parameters and layout, and hosted-first hearing. Exact DAW/plugin versions, extractable fields, and the hosted provider remain to be established.
+The current user decision supersedes the earlier full-session capture proposal: use public datasets and hosted-first hearing.
 
 ## Fit with this repository
 

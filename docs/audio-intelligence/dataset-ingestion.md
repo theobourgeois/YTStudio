@@ -1,6 +1,10 @@
 # Plan 1: Engineer dataset ingestion
 
-Status: proposal; no implementation. See [the overview](README.md) and [audio hearing API](audio-hearing-api.md).
+Status: architecture proposal with [bounded ordinary-package intake implemented](ordinary-package-ingestion.md).
+Local folders/ZIPs, preserved sources, reviewed relationships and source-linked
+profiles are available through CLI/API. The broader workspace UI, full native
+session extraction and compressed-source analysis registration remain proposed.
+See [the overview](README.md) and [audio hearing API](audio-hearing-api.md).
 
 ## Product outcome
 
