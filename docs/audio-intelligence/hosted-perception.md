@@ -4,8 +4,8 @@ Implemented: a replaceable byte adapter, durable hearing jobs, per-song upload p
 
 ## C handoff — 2026-10-05
 
-Work paused at the user's request before preparing or uploading a real-audio
-benchmark. No listening task has been promoted and Slice C remains incomplete.
+Superseded: the real-audio benchmark is [built and run](hearing-benchmark.md) (2026-10-05). No listening task
+has been promoted. What remains is the two-person blind review of the held-out Qwen run.
 
 The review/evaluation contracts and conservative release gate are now in
 `shared/music/audio-intelligence/hearing-benchmark.ts`. The proposed v1 gate
@@ -60,7 +60,7 @@ Receipts persist pending attempts before the network request, then status, times
 
 ## Qwen comparison adapter
 
-A separate Qwen3.8-Omni-Flash adapter is available to the pilot with `--provider=qwen`; it does not change the application's default or certify tasks. Set `DASHSCOPE_API_KEY` and `DASHSCOPE_BASE_URL` (default official Singapore compatible endpoint). The adapter uses inline WAV and bounded text-only SSE output, medium reasoning and a 4,096-token limit. See the [live Qwen pilot results](qwen-pilot.md): all four requests completed, context/silence were correct, and known dynamics were missed. The original DSP measurements and quality gate remain in effect.
+A separate Qwen3.8-Omni-Flash adapter is available to the pilot with `--provider=qwen`; it does not change the application's default or certify tasks. Set `DASHSCOPE_API_KEY` and `DASHSCOPE_BASE_URL` (default official Singapore compatible endpoint). The adapter uses inline WAV and bounded text-only SSE output, medium reasoning, a 4,096-token limit and 240 seconds per attempt (its reasoning takes about 160 s for a 20-second clip). See the [live Qwen pilot results](qwen-pilot.md): all four requests completed, context/silence were correct, and known dynamics were missed. The original DSP measurements and quality gate remain in effect.
 
 ## Pilot and quality gate
 

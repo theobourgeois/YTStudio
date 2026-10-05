@@ -57,7 +57,7 @@ tools using aligned recorded vocal/accompaniment audio and the native engine.
 
 ## Slice C: add hosted perception
 
-Status: [infrastructure and generated-audio pilot implemented](hosted-perception.md). The updated key works and one 3.7 Flash audio response completed; 3.8 returned HTTP 503. The completed generated case contained unsupported source claims. Held-out usefulness acceptance remains pending and Gemini tasks remain unverified.
+Status: [infrastructure implemented](hosted-perception.md); the [held-out benchmark](hearing-benchmark.md) is built and run (2026-10-05). Real cleared recordings (Mix Evaluation Dataset, 7 held-out artists), constructed changes with known truth, two Qwen 3.8 Omni Flash trials per case (76/76 completed) and a blind review page are ready. Read against the constructed truth, Qwen heard a voice entering/leaving and named solo instruments, but missed every tonal change and most level changes; Gemini (free tier) invented changes in untouched clips. The human review is the remaining step; no task is expected to pass, and none is promoted.
 
 Depends on artifact contracts from A/B. Deliverables:
 
