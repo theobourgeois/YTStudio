@@ -1,6 +1,9 @@
 import { hashJson } from "../../../shared/music/hash.ts";
 import { parseHearingRequest, type HearingCapabilities, type HearingReceipt, type HearingRequest, type HearingSettings } from "../../../shared/music/audio-intelligence/hearing.ts";
-import { GeminiPerception, PerceptionError, type PerceptionAdapter } from "./perception.ts";
+import { GeminiPerception, HEARING_PROMPT_VERSION, PerceptionError, type PerceptionAdapter } from "./perception.ts";
+import { loadHearingCertification } from "./hearing-certification.ts";
+import { ExampleLibrary, EXAMPLE_SERVER_TOOLS } from "./example-library.ts";
+import { DatasetService, DATASET_SERVER_TOOLS } from "./dataset-service.ts";
 import { FFMPEG } from "../../config.ts";
 import { run } from "../../process.ts";
 /** Server-owned, project-scoped audio jobs. Manifests survive tabs and process restarts. */
@@ -26,7 +29,7 @@ import { hashStream } from "./files.ts";
 import { measureAudio } from "./measure.ts";
 import { captureSnapshot } from "./snapshot.ts";
 
-export const AUDIO_SERVER_TOOLS = ["render_audio_passage", "analyse_audio_artifact", "get_audio_job", "cancel_audio_job", "retry_audio_job", "get_audio_report", "register_audio_artifact", "hear_audio_artifact", "get_hearing_capabilities", "get_hearing_receipt", ...VOCAL_SERVER_TOOLS] as const;
+export const AUDIO_SERVER_TOOLS = ["render_audio_passage", "analyse_audio_artifact", "get_audio_job", "cancel_audio_job", "retry_audio_job", "get_audio_report", "register_audio_artifact", "hear_audio_artifact", "get_hearing_capabilities", "get_hearing_receipt", ...VOCAL_SERVER_TOOLS, ...EXAMPLE_SERVER_TOOLS, ...DATASET_SERVER_TOOLS] as const;
 const checked = <T>(result: Validation<T>): T => { if (!result.ok) throw new HttpError(409, result.errors.join("; ")); return result.value; };
 const read = async (file: string): Promise<unknown> => {
   try { return JSON.parse(await fs.readFile(file, "utf8")); }
@@ -43,6 +46,7 @@ interface StoredJob { job: AudioJob; plan: Plan }
 export interface AudioIntelligenceOptions {
   root: string;
   perception?: PerceptionAdapter;
+  hearingCertificationFile?: string;
   ffmpeg?: string;
   engine: Pick<AudioEngine, "devices" | "renderExport">;
   projectDir: (id: string) => string;
@@ -52,13 +56,17 @@ export interface AudioIntelligenceOptions {
 
 export class AudioIntelligence {
   readonly vocalMix: VocalMixService;
+  readonly examples: ExampleLibrary;
+  readonly datasets: DatasetService;
   private readonly jobs = new Map<string, StoredJob>();
   private readonly controllers = new Map<string, AbortController>();
   private readonly work = createLimiter(1);
   private readonly mutations = createLimiter(1);
   private stopped = false;
-  private readonly perception: PerceptionAdapter;
+  private perception: PerceptionAdapter;
   constructor(private readonly options: AudioIntelligenceOptions) {
+    this.examples = new ExampleLibrary(options.root, options.isMusicProject);
+    this.datasets = new DatasetService(options.root, options.isMusicProject, this.examples);
     this.vocalMix = new VocalMixService(this, options.root, options.isMusicProject);
     this.perception = options.perception ?? new GeminiPerception({ apiKey: process.env.GEMINI_API_KEY, model: process.env.EDITOR_HEARING_MODEL });
   }
@@ -96,6 +104,8 @@ export class AudioIntelligence {
   private jobFile(job: AudioJob) { return this.file(job.projectId, "jobs", job.id); }
 
   async init() {
+    const certification = this.options.hearingCertificationFile ?? (!this.options.perception ? process.env.EDITOR_HEARING_CERTIFICATION : undefined);
+    if (certification) this.perception = await loadHearingCertification(this.perception, certification);
     await fs.mkdir(this.options.root, { recursive: true });
     for (const projectId of await fs.readdir(this.options.root)) {
       if (!isValidId(projectId) || !this.options.isMusicProject(projectId)) continue;
@@ -120,6 +130,7 @@ export class AudioIntelligence {
     }
     for (const stored of this.jobs.values()) if (stored.job.status === "queued") this.schedule(stored.job.id);
     await this.vocalMix.init();
+    await this.datasets.init();
   }
 
   async capture(projectId: string, body: unknown): Promise<SnapshotBundle> {
@@ -212,6 +223,42 @@ export class AudioIntelligence {
     } finally { await fs.rm(temp, { force: true }); }
   }
 
+  /** Register a bounded PCM-WAV excerpt of preserved package audio, keeping its exact parent and crop. */
+  async registerDatasetAudio(projectId: string, input: Record<string, unknown>) {
+    const { asset, file, review, reviewRevision } = await this.datasets.assetFile(projectId, input.packageId, input.assetId);
+    if (!review?.permissions.localAnalysis) throw new HttpError(403, "Review this source and grant local analysis before registering it.");
+    if (!/\.wav$/i.test(asset.relativePath) || !asset.audio || asset.audio.channels > 2 || asset.bytes > 128 * 1024 * 1024) throw new HttpError(400, "Analysis registration supports mono/stereo PCM WAV sources up to 128 MiB. Other originals remain preserved.");
+    const start = input.startSeconds ?? 0, end = input.endSeconds ?? Math.min(asset.audio.durationSeconds, Number(start) + 20);
+    if (typeof start !== "number" || typeof end !== "number" || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end - start > 120 || end > asset.audio.durationSeconds + 0.000001) throw new HttpError(400, "Choose a source passage of 0–120 seconds within the recording.");
+    return this.work(async () => {
+      if ((await this.datasets.review(projectId, input.packageId))?.revision !== reviewRevision) throw new HttpError(409, "Dataset review changed; register a fresh passage.");
+      const format = await this.sampleFormat(file), source = await readWav(file);
+      const parent = createArtifact({ contentSha256: asset.sha256, bytes: asset.bytes, role: "reference", format: { sampleRate: source.sampleRate, channels: source.channels.length, frames: source.channels[0].length, sampleFormat: format },
+        snapshotId: null, tap: { kind: "media", id: `dataset:${input.packageId}:${asset.id}` }, passage: null, render: null, derivedFrom: null, transforms: [], jobId: null, recordingFamilyId: review.recordingFamily,
+        permissions: { ...review.permissions, hostedAnalysis: false, training: false }, createdAt: Date.now() });
+      await this.storeArtifact(projectId, parent, file);
+      const fromFrame = Math.round(start * source.sampleRate), toFrame = Math.min(source.channels[0].length, Math.round(end * source.sampleRate));
+      if (toFrame <= fromFrame) throw new HttpError(400, "The source passage contains no frames.");
+      const temp = path.join(this.folder(projectId), `${createId("excerpt")}.wav`);
+      try {
+        await run(this.options.ffmpeg ?? FFMPEG, ["-v", "error", "-y", "-protocol_whitelist", "file,pipe", "-f", "wav", "-i", file, "-af", `atrim=start_sample=${fromFrame}:end_sample=${toFrame},asetpts=PTS-STARTPTS`, "-c:a", "pcm_f32le", temp], { signal: AbortSignal.timeout(30000) });
+        const audio = await this.decode(temp), content = await hashStream(temp);
+        const artifact = createArtifact({ ...parent, contentSha256: content.sha256, bytes: content.bytes, format: { sampleRate: audio.sampleRate, channels: audio.channels.length, frames: audio.channels[0].length, sampleFormat: "float32" },
+          derivedFrom: parent.id, transforms: [{ kind: "trim", fromFrame, toFrame }, { kind: "encode", codec: "pcm_f32le" }], createdAt: Date.now() });
+        await this.storeArtifact(projectId, artifact, temp);
+        if ((await this.datasets.review(projectId, input.packageId))?.revision !== reviewRevision) throw new HttpError(409, "Dataset review changed during registration; register a fresh passage.");
+        return { artifact, sourcePackageId: input.packageId, sourceAssetId: asset.id, reviewRevision, sourceStartSeconds: fromFrame / source.sampleRate };
+      } finally { await fs.rm(temp, { force: true }); }
+    });
+  }
+  private async checkDatasetLocalUse(projectId: string, artifact: AudioArtifact) {
+    if (!artifact.tap.id?.startsWith("dataset:")) return;
+    const [, packageId, assetId] = artifact.tap.id.split(":");
+    const source = await this.datasets.assetFile(projectId, packageId, assetId);
+    if (!source.review?.permissions.localAnalysis) throw new HttpError(403, "This dataset source has no local-analysis permission.");
+    if (source.review.recordingFamily !== artifact.recordingFamilyId) throw new HttpError(409, "Source recording family changed; register a fresh dataset passage.");
+  }
+
   private parseRender(input: unknown): RenderPlan {
     if (!isObject(input)) throw new HttpError(400, "Invalid passage.");
     const tick = (value: unknown, fallback?: number) => {
@@ -250,7 +297,8 @@ export class AudioIntelligence {
         const from = Math.max(0, plan.params.startTick - plan.params.leadInTicks);
         if (songSeconds(song, plan.params.endTick) - songSeconds(song, from) + plan.params.tailSeconds > 120) throw new HttpError(400, "Analysis renders are limited to 120 seconds including lead-in and tail.");
       } else {
-        await this.artifact(projectId, plan.kind === "hear" ? plan.request.artifactId : plan.artifactId);
+        const artifact = await this.artifact(projectId, plan.kind === "hear" ? plan.request.artifactId : plan.artifactId);
+        await this.checkDatasetLocalUse(projectId, artifact);
         if (plan.kind === "hear") {
           const permission = await this.hearingSettings(projectId);
           if (!permission.enabled || permission.revision !== plan.consentRevision) throw new HttpError(403, "Enable hosted audio analysis for this song in Music settings before sending audio.");
@@ -286,7 +334,7 @@ export class AudioIntelligence {
     this.schedule(job.id);
     return this.get(projectId, id);
   }
-  shutdown() { this.stopped = true; this.vocalMix.shutdown(); for (const controller of this.controllers.values()) controller.abort(new Error("Server stopped.")); }
+  shutdown() { this.stopped = true; this.vocalMix.shutdown(); this.datasets.shutdown(); for (const controller of this.controllers.values()) controller.abort(new Error("Server stopped.")); }
 
   private async persist(id: string) {
     const stored = this.jobs.get(id)!;
@@ -357,6 +405,7 @@ export class AudioIntelligence {
         await this.executeHearing(stored.job, stored.plan, temp, signal);
       } else {
         const artifact = await this.artifact(projectId, stored.plan.artifactId);
+        await this.checkDatasetLocalUse(projectId, artifact);
         const file = this.audioFile(projectId, artifact.id);
         if ((await hashStream(file)).sha256 !== artifact.contentSha256) throw new Error("Registered audio changed on disk.");
         await this.change(id, { type: "progress", stage: "measure", progress: 0 });
@@ -376,6 +425,7 @@ export class AudioIntelligence {
   private async executeHearing(job: AudioJob, plan: HearingPlan, temp: string, signal: AbortSignal) {
     const projectId = job.projectId;
     const original = await this.artifact(projectId, plan.request.artifactId);
+    await this.checkDatasetLocalUse(projectId, original);
     const file = this.audioFile(projectId, original.id);
     if ((await hashStream(file)).sha256 !== original.contentSha256) throw new Error("Registered audio changed on disk.");
     await this.change(job.id, { type: "progress", stage: "measure", progress: 0 });
@@ -394,6 +444,11 @@ export class AudioIntelligence {
       const permission = await this.hearingSettings(projectId);
       if (!permission.enabled || permission.revision !== plan.consentRevision) throw new PerceptionError("Hosted audio permission changed; no further audio will be sent.", false);
       if (this.providerIdentity() !== plan.providerIdentity) throw new PerceptionError("Hearing provider changed; start a new hearing job.", false);
+      if (original.tap.id?.startsWith("dataset:")) {
+        const [, packageId, assetId] = original.tap.id.split(":");
+        const source = await this.datasets.assetFile(projectId, packageId, assetId);
+        if (!source.review?.permissions.hostedAnalysis) throw new PerceptionError("This dataset source has no hosted-analysis permission; no audio will be sent.", false);
+      }
     };
     await saveReceipt();
     let report = local;
@@ -422,7 +477,7 @@ export class AudioIntelligence {
       receipt.timeMap.sourceStartSeconds = range.first / original.format.sampleRate;
       await saveReceipt();
       await this.change(job.id, { type: "progress", stage: "hear", progress: 0 });
-      const cacheKey = hashJson({ prepared: prepared.id, provider: plan.providerIdentity, request: plan.request, epoch: plan.cacheEpoch, promptVersion: "hearing-v1" });
+      const cacheKey = hashJson({ prepared: prepared.id, provider: plan.providerIdentity, request: plan.request, epoch: plan.cacheEpoch, promptVersion: HEARING_PROMPT_VERSION });
       const cacheFile = this.file(projectId, "hearing-cache", cacheKey);
       const cached = await read(cacheFile).catch(error => { if (error instanceof HttpError && error.status === 404) return null; throw error; });
       let result;
@@ -448,7 +503,7 @@ export class AudioIntelligence {
       receipt.resolvedModel = result.resolvedModel;
       await this.immutableJson(this.file(projectId, "hearing-raw", job.id), result.raw);
       await beforeSend();
-      const verified = capabilities.verifiedTasks.includes(plan.request.task);
+      const verified = capabilities.verifiedTasks.includes(plan.request.task) && (this.perception.isCertifiedResult?.(plan.request.task, result.resolvedModel) ?? true);
       const { validatePerceptionOutput } = await import("../../../shared/music/audio-intelligence/hearing.ts");
       const output = validatePerceptionOutput(result.output, audio.channels[0].length / 48000, plan.request.task);
       const observations = verified ? output.findings.map((finding, i) => ({ id: `heard${i}`, claim: finding.claim,
@@ -543,6 +598,9 @@ export class AudioIntelligence {
   }
 
   async tool(projectId: string, name: string, input: Record<string, unknown>) {
+    if (name === "register_dataset_audio") return this.registerDatasetAudio(projectId, input);
+    if ((DATASET_SERVER_TOOLS as readonly string[]).includes(name)) return this.datasets.tool(projectId, name, input);
+    if ((EXAMPLE_SERVER_TOOLS as readonly string[]).includes(name)) return this.examples.tool(projectId, name, input);
     if ((VOCAL_SERVER_TOOLS as readonly string[]).includes(name)) return this.vocalMix.tool(projectId, name, input);
     switch (name) {
       case "get_hearing_capabilities": this.folder(projectId); return this.capabilities();

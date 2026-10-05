@@ -1,9 +1,47 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
+import fs from "node:fs/promises";
 import { writeWav } from "../server/music/wav.ts";
 import { createMusicProject } from "../shared/music/project.ts";
 import { addAudioClips } from "../shared/music/playlist.ts";
 import { addMixerTracks, updateMixerTrack } from "../shared/music/mixer.ts";
+import { PRIVATE_USE } from "../shared/music/audio-intelligence/types.ts";
+
+test("workflow and engineer package tools retrieve reviewed sources with the tab closed", async ({ page, context }) => {
+  const source = path.resolve("e2e/.data/engineer-package"); await fs.mkdir(source, { recursive: true });
+  await writeWav(path.join(source, "dry vocal.wav"), Float32Array.from({ length: 8000 }, (_, i) => .2 * Math.sin(i / 12)), 8000);
+  await fs.writeFile(path.join(source, "session.ptx"), "opaque session, no readable controls");
+  const { id } = await (await page.request.post("/api/projects", { data: { suite: "music", name: "Engineer reference tools" } })).json();
+  await page.goto(`/p/${id}`); await expect(page.locator('[data-suite="music"]')).toBeVisible();
+  const mcpUrl = `http://127.0.0.1:${process.env.E2E_SERVER_PORT || 5321}/mcp?chat=${id}`;
+  const call = async (name: string, args: object = {}) => {
+    const response = await context.request.post(mcpUrl, { data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } } });
+    const body = await response.json(); expect(body.error).toBeUndefined(); expect(body.result.isError, JSON.stringify(body.result)).not.toBe(true);
+    return JSON.parse(body.result.content.find((c: { type: string }) => c.type === "text").text);
+  };
+  const workflows = await call("list_mix_workflows"); expect(workflows.some((w: { id: string }) => w.id === "vocal-eq")).toBe(true);
+  expect((await call("get_mix_workflow", { workflowId: "vocal-eq" })).stoppingRules.length).toBeGreaterThan(0);
+  const response = await context.request.post(`/api/music/audio/${id}/datasets/import-path`, { data: { path: source } }); expect(response.status()).toBe(202);
+  const importing = await response.json(); await page.close();
+  let job: { status: string; packageId: string };
+  await expect.poll(async () => { job = await call("get_dataset_import", { importId: importing.id }); return job.status; }).toBe("succeeded");
+  const packId = job!.packageId, pack = (await call("get_dataset_package", { packageId: packId })).package;
+  expect(pack.coverage.some((c: { category: string; status: string }) => c.category === "native-session" && c.status === "preserved-opaque")).toBe(true);
+  expect((await call("search_mix_examples")).noMatch).toBe(true);
+  const audio = pack.assets.find((a: { audio: unknown }) => a.audio);
+  const reviewed = await context.request.patch(`/api/music/audio/${id}/datasets/${packId}/review`, { data: { expectedRevision: null, review: { reviewer: "e2e data-fidelity reviewer", assets: [{ assetId: audio.id, song: "Song", version: "Version", recordingFamily: "e2e-source-family", role: "raw-vocal", stage: "dry export", masteringStatus: "unknown", timeOriginSeconds: null, permissions: { ...PRIVATE_USE, retrievalDisplay: true } }], pairs: [], notes: ["Synthetic integration data, not musical quality evidence."] } } }); expect(reviewed.ok()).toBe(true);
+  const review = await reviewed.json();
+  const profile = await context.request.post(`/api/music/audio/${id}/datasets/${packId}/profile`, { data: { name: "Engineer", expectedRevision: review.revision } }); expect(profile.status()).toBe(201);
+  const examples = await call("search_mix_examples", { role: "raw-vocal", limit: 3 }); expect(examples.results).toHaveLength(1); expect(examples.results[0].eligibility.executableProposal).toBe(false);
+  const detail = await call("get_mix_example", { exampleId: examples.results[0].example.id }); expect(detail.sourceLinks).toHaveLength(1);
+  expect((await context.request.get(detail.sourceLinks[0].url)).ok()).toBe(true);
+  const profiles = await call("list_engineer_profiles"); expect(profiles).toHaveLength(1);
+  expect((await call("get_engineer_profile", { profileId: profiles[0].id })).tendencies[0].exampleIds).toContain(detail.example.id);
+  const excerpt = await call("register_dataset_audio", { packageId: packId, assetId: audio.id, startSeconds: .1, endSeconds: .8 }); expect(excerpt.artifact.derivedFrom).toMatch(/^art_/);
+  const other = await (await context.request.post("/api/projects", { data: { suite: "music", name: "Other dataset project" } })).json();
+  const denied = await context.request.post(mcpUrl.replace(id, other.id), { data: { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "get_mix_example", arguments: { exampleId: detail.example.id } } } });
+  expect((await denied.json()).result.isError).toBe(true);
+});
 
 /** Captures the live document through the bridge; subsequent tools are server-owned. */
 test("audio jobs and reports remain available after the editor tab closes", async ({ page, context }) => {

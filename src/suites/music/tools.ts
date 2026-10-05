@@ -182,6 +182,18 @@ const audioTool = (name: string) => async (input: Input, ctx: ToolRunContext): P
 };
 
 const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promise<ToolResult>> = {
+  list_dataset_packages: audioTool("list_dataset_packages"),
+  register_dataset_audio: audioTool("register_dataset_audio"),
+  get_dataset_package: audioTool("get_dataset_package"),
+  get_dataset_import: audioTool("get_dataset_import"),
+  cancel_dataset_import: audioTool("cancel_dataset_import"),
+  retry_dataset_import: audioTool("retry_dataset_import"),
+  list_mix_workflows: audioTool("list_mix_workflows"),
+  get_mix_workflow: audioTool("get_mix_workflow"),
+  search_mix_examples: audioTool("search_mix_examples"),
+  get_mix_example: audioTool("get_mix_example"),
+  list_engineer_profiles: audioTool("list_engineer_profiles"),
+  get_engineer_profile: audioTool("get_engineer_profile"),
   get_vocal_mixing_workflow: audioTool("get_vocal_mixing_workflow"),
   create_vocal_mix_run: audioTool("create_vocal_mix_run"),
   get_vocal_mix_run: audioTool("get_vocal_mix_run"),

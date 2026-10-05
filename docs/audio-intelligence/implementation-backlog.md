@@ -72,9 +72,11 @@ Acceptance: the provider adds demonstrated useful evidence on held-out tasks; un
 
 ## Slice D: expose workflows and examples
 
-Status: the first [bounded vocal workflow](vocal-mix-workflow.md) is implemented
-and available through assistant tools. General reviewed example/profile retrieval
-and dataset eligibility indexing remain planned.
+Status: [workflow discovery and reviewed example/profile retrieval](workflows-and-examples.md)
+are implemented (2026-10-05), alongside the [bounded vocal workflow](vocal-mix-workflow.md).
+The project-local eligibility index separates effects, decisions and preferences,
+preserves unknown units and intent, and exposes compact material through MCP.
+The EQ procedure is a bounded presence audition using existing native candidates.
 
 Depends on reviewed dataset records from A. Deliverables:
 
@@ -108,18 +110,27 @@ Depends on B/C/D. Deliverables:
 
 Acceptance: on a previously unseen vocal/beat example, the assistant completes capture -> analysis -> proposal -> render -> comparison -> acceptance. User edits during the run cause a stale-state result rather than overwriting their work. Reverting restores the original mix.
 
-## Slice F: ordinary engineer-package ingestion
+## Slice F: public-dataset ingestion
+
+Scope correction (2026-10-05): use public datasets rather than collecting an
+engineer friend's sessions or extracting undocumented plugin parameters.
+The existing [folder/ZIP importer](ordinary-package-ingestion.md) provides reusable
+source preservation, durable jobs, reviewed relationships, D retrieval and B WAV
+passages. That infrastructure does **not** complete public-dataset integration.
+Engineer-package profiles and native DAW extraction are outside the selected scope.
 
 Can start after A; integrate after D. Deliverables:
 
-- Import generic folders/archives containing native sessions, media, stems, and final mixes.
-- Preserve source hashes; classify song/version/role; surface unresolved relationships.
-- Review raw/processed pairings, tap points, gain differences, offset/latency, and mastering status.
-- Add FL Studio/Pro Tools adapters only for a declared tested format/version/plugin matrix.
-- Record extracted, opaque-preserved, unsupported, missing, and failed coverage independently.
-- Build reviewed engineer profiles from available evidence, retaining exceptions and source links.
+- Adapt the audited public resources in [dataset research](dataset-research.md), starting with the reviewed MixParams subset and investigating the downloaded CL 1B archive.
+- Preserve dataset identity, release/revision, source locator, original hashes, and available license/usage records separately from user permissions.
+- Import only supplied audio, stems, pairs, labels, ratings, and documented parameter annotations; keep missing settings and unknown units explicit.
+- Validate audio/metadata relationships, pair alignment and gain, and recording-family splits before comparison or evaluation.
+- Feed eligible reviewed examples into D and eligible audio passages into B/C; do not infer artistic intent or preference from effect settings alone.
+- Report adapter coverage and unsupported fields, with deterministic imports and representative automated checks.
 
-Acceptance: the friend can send an ordinary package without running capture tools. Partial extraction is useful and honestly reported. Opaque plugin blobs are never displayed as known compressor settings.
+Acceptance: a supported public dataset can be imported reproducibly with
+traceable examples/audio and honest field coverage. No contributor session or
+plugin-state extraction is required. Human listening acceptance for C remains separate.
 
 ## Slice G: prove usefulness and operate reliably
 

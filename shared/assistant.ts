@@ -403,6 +403,18 @@ export function describeToolCall(rawName: string, input: unknown): string {
   const f = (key: string) => field(input, key);
   const ids = (key = "clipIds") => list(f(key)).length;
   switch (name) {
+    case "list_mix_workflows": return "Find mixing workflows";
+    case "list_dataset_packages": return "Find engineer packages";
+    case "register_dataset_audio": return "Register engineer audio passage";
+    case "get_dataset_package": return "Read engineer package coverage";
+    case "get_dataset_import": return "Read engineer import progress";
+    case "cancel_dataset_import": return "Cancel engineer package import";
+    case "retry_dataset_import": return "Retry engineer package import";
+    case "get_mix_workflow": return "Read a mixing workflow";
+    case "search_mix_examples": return "Find reviewed mixing examples";
+    case "get_mix_example": return "Read a reviewed mixing example";
+    case "list_engineer_profiles": return "Find reviewed engineer profiles";
+    case "get_engineer_profile": return "Read an engineer profile";
     case "get_vocal_mixing_workflow": return "Read the vocal mixing workflow";
     case "create_vocal_mix_run": return "Render vocal mix alternatives";
     case "get_vocal_mix_run": return "Read vocal comparison progress";

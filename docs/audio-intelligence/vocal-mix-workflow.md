@@ -97,10 +97,12 @@ single-step Undo and stale comparison refusal.
 
 ## Scope remaining
 
-This implements a first D procedure and a bounded part of E. It does not finish
-general example/profile retrieval, persistent generic `MixRun` phase/budget
-orchestration, learned candidate generation, outside-plugin support, or subjective
-quality acceptance on previously unseen genre recordings. Hosted perception
+This implements a first D procedure and a bounded part of E. General D
+[workflow/example/profile retrieval](workflows-and-examples.md) and F
+[ordinary-package intake](ordinary-package-ingestion.md) have since been added.
+Persistent generic `MixRun` phase/budget orchestration, learned candidate
+generation, outside-plugin support and subjective quality acceptance on
+previously unseen genre recordings remain pending. Hosted perception
 quality remains unverified. AFx-Rep/ST-ITO are separate research pilots; their
 on-demand workers are not integrated into this workflow yet.
 

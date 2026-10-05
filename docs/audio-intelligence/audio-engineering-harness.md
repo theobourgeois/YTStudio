@@ -3,7 +3,7 @@
 Status: planning only. Application implementation and model training have not started.
 Research checked: 2026-10-03 local time. The authorised CL 1B download finished and passed checksum and ZIP CRC validation on 2026-10-04 UTC.
 
-This is the implementation roadmap connecting [ingestion](dataset-ingestion.md), [hearing](audio-hearing-api.md), [dataset research](dataset-research.md), and [learning tasks](learning-tasks.md). Where older documents propose contributor capture scripts, the current decision takes precedence: the engineer sends ordinary packages and is not required to run extra tools.
+This is the implementation roadmap connecting [ingestion](dataset-ingestion.md), [hearing](audio-hearing-api.md), [dataset research](dataset-research.md), and [learning tasks](learning-tasks.md). Where older documents propose contributor capture scripts, the current decision takes precedence: use public datasets, without requiring engineer packages, capture tools, or native plugin-parameter extraction. The corrected [Slice F checklist](implementation-backlog.md#slice-f-public-dataset-ingestion) takes precedence over older engineer-package sections below.
 
 ## 1. Product and first useful release
 

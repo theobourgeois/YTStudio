@@ -741,7 +741,8 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).
 - **Audio intelligence** (`docs/audio-intelligence/`: the plan is `audio-engineering-harness.md`, its slices
-  `implementation-backlog.md`): giving the assistant truthful ears and hands. **Slices A and B are built; C onwards are
+  `implementation-backlog.md`): giving the assistant truthful ears and hands. **A/B, D retrieval/workflows and bounded
+  F package intake are built. C infrastructure is built but quality certification is paused; E is partial; G/H are
   planned.** `shared/music/audio-intelligence/` holds the contracts, all plain JSON, immutable, identified by a
   hash of what's in them (`shared/music/hash.ts`; their ids are fixed values in `identity.test.ts`: changing what
   is hashed orphans every stored record, so it's a schema change): `MixSnapshot` (`snapshot.ts`: the song's parts
@@ -765,6 +766,15 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   Running jobs recover as interrupted; retry is explicit and bounded. Built-in-only song-mode renders share the
   engine's export queue and use a trusted resolver for immutable source copies. Measurements (`measure.ts`)
   inspect only passage frames, keeping lead-in/tails intact; no LUFS/true peak/hosted hearing or musical opinions.
+  D (`workflows-and-examples.md`) adds curated workflow discovery, separately typed effect/decision/preference
+  examples, reviewed use/context filters and source-backed profiles. `ExampleLibrary` stores project-local data
+  separately from songs; references retain unknown units/intent and never become executable settings. F
+  (`ordinary-package-ingestion.md`) adds `DatasetService`: bounded folder/ZIP imports, hash-preserved originals,
+  durable import/review records, honest native extraction coverage, reviewed pair/tap/gain/latency context and
+  profile/source links. `scripts/engineer-package.ts` is the local intake/review CLI. Only registered-ID inspection
+  and analysis tools reach MCP; review/permission/profile writes are user routes. Native FLP/PTX/presets stay
+  opaque until a tested adapter exists. Reviewed WAV excerpts retain parent/crop provenance and use B's local
+  measurements; hosted listening additionally rechecks the dataset source's grant.
 - The assistant's tools: specs in `shared/music/tools.ts`, handlers in `src/suites/music/tools.ts`, and their
   edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested); the mixer's in
   `mixer/tool-edits.ts` (`findTrack`: by id, number, "master" or name; `describeMixer` is `get_mixer`). Channels
