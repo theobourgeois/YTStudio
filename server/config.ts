@@ -55,6 +55,8 @@ const ENGINE_BUILD = path.join(REPO_ROOT, "engine", "build");
 export const ENGINE =
   process.env.EDITOR_ENGINE_PATH ||
   engineExecutable(path.join(ENGINE_BUILD, "VaudioEngine_artefacts", "Release"));
+/** The photo suite's helper process (decodes and encodes image files); the desktop app ships its own build. */
+export const PHOTO_HELPER = process.env.EDITOR_PHOTO_HELPER_PATH || path.join(REPO_ROOT, "server", "photo", "helper-process.mjs");
 /** The engine's own source (a checkout's, not a packaged app's): an engine built before it last changed is out of date. */
 export const ENGINE_SOURCE = path.join(REPO_ROOT, "engine");
 export const ENGINE_PLUGIN_PATHS = process.env.EDITOR_PLUGIN_PATHS

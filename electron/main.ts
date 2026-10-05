@@ -33,6 +33,10 @@ const RESTACK_DELAY_MS = 150;
 const HOVER_INTERVAL_MS = 16;
 
 app.setName(APP_NAME);
+// Chrome stops giving a page a GPU adapter after a second GPU-process crash within two minutes; the photo editor
+// renders with WebGPU and recovers from a lost device, so it must always get one (docs/photo/architecture.md).
+app.commandLine.appendSwitch("disable-gpu-process-crash-limit");
+app.commandLine.appendSwitch("disable-domain-blocking-for-3d-apis");
 // A separate profile (window state, page storage, the single-instance lock), for tests.
 if (process.env.EDITOR_USER_DATA_DIR) app.setPath("userData", path.resolve(process.env.EDITOR_USER_DATA_DIR));
 // The packaged app keeps its own data (recents, the Library, settings) with the user's other app data, and
@@ -45,6 +49,10 @@ if (app.isPackaged && !process.env.EDITOR_DATA_DIR) {
 // The audio engine ships in the app's resources (scripts/desktop.ts); development uses engine/build.
 if (app.isPackaged && !process.env.EDITOR_ENGINE_PATH) {
   process.env.EDITOR_ENGINE_PATH = engineExecutable(process.resourcesPath);
+}
+// So does the photo helper, with sharp beside it; development runs server/photo/helper-process.mjs.
+if (app.isPackaged && !process.env.EDITOR_PHOTO_HELPER_PATH) {
+  process.env.EDITOR_PHOTO_HELPER_PATH = path.join(process.resourcesPath, "photo-helper", "helper.mjs");
 }
 
 let mainWindow: BrowserWindow | null = null;

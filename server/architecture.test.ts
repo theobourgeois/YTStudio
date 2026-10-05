@@ -19,6 +19,7 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 /** Suites with folders of their own. Add a suite's here when it's made. */
 const SUITE_FOLDERS: Record<string, string[]> = {
   music: ["shared/music/", "server/music/", "server/suites/music.ts", "src/suites/music/"],
+  photo: ["shared/photo/", "server/photo/", "src/suites/photo/"],
 };
 
 /** Files that list every suite (or wire the app together), so they import all of them. */

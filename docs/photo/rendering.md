@@ -22,8 +22,8 @@ both). The GPU then converts each source tile once, into the working space:
 
 1. Samples to [0, 1] floats (8 or 16 bits).
 2. The profile's transfer curve to linear: parametric (`para`) or sampled (`curv`) curves, evaluated in f32.
-3. The profile's matrix to linear sRGB, including chromatic adaptation (`chad`, or Bradford from `wtpt`), **not
-   clipped**.
+3. The profile's colorants (already adapted to the D50 connection space, so `chad` is not applied again) to XYZ,
+   then sRGB's own D50 matrix inverted, to linear sRGB, **not clipped**. Both matrices fold into one 3×3.
 4. Premultiply.
 
 This handles matrix/TRC profiles, v2 and v4: Display P3, sRGB and Adobe RGB, which is what cameras and phones write

@@ -7,7 +7,7 @@
  *   pnpm test:desktop [--out window.png]
  */
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +19,7 @@ import { FFMPEG } from "../server/config.ts";
 import { addChannels, setSteps } from "../shared/music/edits.ts";
 import { createMusicProject, FIRST_PATTERN_ID } from "../shared/music/project.ts";
 import type { EngineStatus } from "../shared/music/engine.ts";
+import type { CompareResult, SourceInfo, SourceLayout } from "../shared/photo/lab.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const outIndex = process.argv.indexOf("--out");
@@ -95,6 +96,32 @@ try {
 
   const health = await api<{ ffmpeg: { available: boolean } }>("/api/health");
   check("finds ffmpeg (login shell PATH)", health.ffmpeg.available);
+
+  // The photo suite: WebGPU in the app's window, and its helper (sharp, shipped in the app's resources) decoding and
+  // encoding through the app's own server, an image's samples coming back exactly.
+  const gpu = await window.evaluate(async () => {
+    const adapter = await navigator.gpu?.requestAdapter();
+    return adapter ? `${adapter.info.vendor} ${adapter.info.architecture}${(adapter.info as { isFallbackAdapter?: boolean }).isFallbackAdapter ? " (fallback)" : ""}` : null;
+  });
+  check("WebGPU in the window", gpu !== null && !gpu.includes("fallback"), gpu ?? "no adapter");
+  const photoHelper = await api<{ decoder: string | null }>("/api/photo/lab/helper");
+  check("the photo helper runs from the app's resources", /^sharp /.test(photoHelper.decoder ?? ""), photoHelper.decoder ?? "");
+  const still = path.join(tmp, "photo.png");
+  ffmpeg("-f", "lavfi", "-i", "testsrc2=size=320x240", "-frames:v", "1", "-pix_fmt", "rgba", still);
+  const source = await api<SourceInfo>("/api/photo/lab/sources?name=photo.png", { method: "POST", body: readFileSync(still) });
+  const layout = await api<SourceLayout>(`/api/photo/lab/sources/${source.key}/layout?tile=256`);
+  const tiles = new Uint8Array(await (await fetch(`${base}/api/photo/lab/sources/${source.key}/raw?tile=256`)).arrayBuffer());
+  const rows = new Uint8Array(layout.width * layout.height * 4);
+  for (let y = 0; y < layout.height; y++) {
+    for (let tx = 0; tx < layout.tilesX; tx++) {
+      const width = Math.min(256, layout.width - tx * 256);
+      const from = (Math.floor(y / 256) * layout.tilesX + tx) * layout.tileBytes + (y % 256) * 256 * 4;
+      rows.set(tiles.subarray(from, from + width * 4), (y * layout.width + tx * 256) * 4);
+    }
+  }
+  await api(`/api/photo/lab/exports?name=smoke.png&width=${layout.width}&height=${layout.height}&bits=8&format=png`, { method: "POST", body: rows });
+  const compared = await api<CompareResult>(`/api/photo/lab/exports/smoke.png/compare?source=${source.key}`);
+  check("the photo helper decodes and encodes exactly", layout.width === 320 && compared.differing === 0, `${layout.decoder}, ${compared.differing} samples differ`);
 
   const project = await post<ProjectSummary>("/api/projects", { name: "Desktop smoke" });
   const colour = async (name: string) => {

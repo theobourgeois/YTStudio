@@ -14,7 +14,7 @@ import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
-import { config } from "./config.ts";
+import { PHOTO_HELPER, config } from "./config.ts";
 import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { listFonts } from "./fonts.ts";
@@ -26,6 +26,9 @@ import { SampleBrowser } from "./music/browser.ts";
 import { type MusicExportOptions, MusicExports } from "./music/exports.ts";
 import { browserRoutes, engineRoutes, musicExportRoutes } from "./music/routes.ts";
 import { mixerSetupRoutes } from "./music/mixer-setup.ts";
+import { PhotoHelper } from "./photo/helper.ts";
+import { PhotoLab } from "./photo/lab.ts";
+import { photoLabRoutes } from "./photo/routes.ts";
 import { ApiKeyStore } from "./transcription/settings.ts";
 import { ProjectStore } from "./projects.ts";
 import { assistantRoutes } from "./routes/assistant.ts";
@@ -174,6 +177,11 @@ export async function createApp({
   const browser = new SampleBrowser(paths);
   await browser.load();
 
+  // The photo suite's F0 lab: the helper process (the only code that parses image files) and the blob store.
+  const photoHelper = new PhotoHelper(PHOTO_HELPER);
+  const photoLab = new PhotoLab(path.join(paths.root, "photo-lab"), photoHelper);
+  await photoLab.init();
+
   const app = express();
   app.disable("x-powered-by");
 
@@ -198,6 +206,7 @@ export async function createApp({
   app.use("/api/engine", engineRoutes(engine));
   app.use("/api/music/audio", audioIntelligenceRoutes(audioIntelligence));
   app.use("/api/music/exports", musicExportRoutes(musicExports));
+  app.use("/api/photo/lab", photoLabRoutes(photoLab));
   const mixerKeys = new ApiKeyStore(path.join(paths.root, "music-jev-settings.json"));
   await mixerKeys.load();
   app.use("/api/music/mixer-setup", mixerSetupRoutes({ engine, keys: mixerKeys, hasProject: (id) => projects.has(id), assets: (id) => library.list(id) }));
@@ -275,6 +284,7 @@ export async function createApp({
       ),
     closeEngineWindows: () => engine.closeEditors(),
     shutdown() {
+      photoHelper.close();
       previews.shutdown();
       projects.shutdown();
       library.shutdown();
