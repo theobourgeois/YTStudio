@@ -45,7 +45,7 @@
 
 @theme {
   --font-sans: "DM Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, monospace;
 }
 
 @theme inline {
@@ -362,6 +362,24 @@ html.desktop-darwin:not(.fullscreen) [data-tabs] [data-titlebar="home"] {
 }
 html.desktop-darwin:not(.fullscreen) [data-titlebar="tabs"] {
   padding-left: var(--traffic-lights-end);
+}
+/*
+ * On Windows the window's buttons (minimise, maximise, close) are the system's, drawn over the top-right corner
+ * of whichever bar starts the window (electron/main.ts `titleBarOverlay`), so that bar ends before them.
+ * Chromium says where the free part of the title bar is (`titlebar-area-*`, in the page's px at any zoom).
+ */
+html.desktop-win32:not(.fullscreen) {
+  --window-controls-width: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+}
+html.desktop-win32:not(.fullscreen) :is([data-titlebar="header"], [data-titlebar="home"], [data-titlebar="tabs"]) {
+  padding-right: calc(var(--window-controls-width) + 8px);
+}
+/* Below the tab strip, the headers are clear of them again (their own padding: px-3, and px-4 for Home's). */
+html.desktop-win32:not(.fullscreen) [data-tabs] [data-titlebar="header"] {
+  padding-right: 12px;
+}
+html.desktop-win32:not(.fullscreen) [data-tabs] [data-titlebar="home"] {
+  padding-right: 16px;
 }
 
 /* The clip under the pick-whip while parenting (properties/parent-row.tsx). */

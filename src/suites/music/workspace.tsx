@@ -10,7 +10,8 @@ import { useBrowser } from "./browser/store";
 import { ChannelRack } from "./channel-rack";
 import { ChannelSettingsWindow } from "./channel-settings";
 import { startEngineSync } from "./engine-sync";
-import { type MusicKeyAction, isGlobalKey, isTyping, resolveMusicKey, resolvePluginWindowKey } from "./keys";
+import { type MusicKeyAction, isGlobalKey, isTyping, resolveMusicKey, resolvePluginWindowKey, takesMenuKey } from "./keys";
+import { IS_MAC } from "@/lib/key-labels";
 import { assignFreeTracks, cloneSelected, copySteps, cutSteps, deleteSelected, moveSelected, muteAt, pasteSteps, rotate, selectNeighbour } from "./rack-actions";
 import { useMusic, useSong } from "./store";
 import { MusicToolbar } from "./toolbar";
@@ -76,6 +77,7 @@ export default function MusicWorkspace() {
   // The engine plays the open song for as long as it's open.
   useEffect(() => (projectId && loaded ? startEngineSync({ onKey: runPluginWindowKey }) : undefined), [projectId, loaded]);
   useMusicKeys(loaded);
+  useNoPageZoom(loaded);
 
   if (!projectId || !loaded) {
     return <PlainWorkspace>{loadError ? <WorkspaceError noun="song" error={loadError} /> : <WorkspaceLoading />}</PlainWorkspace>;
@@ -469,12 +471,26 @@ function runPluginWindowKey(key: EngineKey) {
   if (action && document.visibilityState === "visible" && !dialogOpen()) runKey(action);
 }
 
+/**
+ * Ctrl+wheel is FL's zoom (the Piano roll, the Playlist) and fine steps (knobs): one that misses them
+ * (a header, a gap) mustn't zoom the whole page instead, as a browser on Windows does.
+ */
+function useNoPageZoom(enabled: boolean) {
+  useEffect(() => {
+    if (!enabled) return;
+    return addWindowListener("wheel", (e) => e.ctrlKey && e.preventDefault(), { passive: false });
+  }, [enabled]);
+}
+
 /** The music editor's keys (`keys.ts`). (The video editor's shortcuts are off without a video open.) */
 function useMusicKeys(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.isComposing || isTyping(e.target) || dialogOpen()) return;
+      if (e.isComposing || isTyping(e.target)) return;
+      // Windows' menu keys stay the editor's (Alt is FL's modifier for clicks and drags).
+      if (takesMenuKey(e, IS_MAC)) return e.preventDefault();
+      if (dialogOpen()) return;
       // The typing keyboard, while it's on: its keys play notes, before any window's shortcut.
       if (typingKey(e, true)) {
         e.preventDefault();

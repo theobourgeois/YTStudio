@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isGlobalKey, resolveMusicKey, resolvePluginWindowKey } from "./keys";
+import { isGlobalKey, resolveMusicKey, resolvePluginWindowKey, takesMenuKey } from "./keys";
 
 type Mods = Partial<Record<"metaKey" | "ctrlKey" | "shiftKey" | "altKey", boolean>>;
 const press = (key: string, code: string, mods: Mods = {}) => resolveMusicKey({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
@@ -97,5 +97,19 @@ describe("music keys", () => {
     expect(fromPlugin("1", "Digit1")).toBeNull();
     expect(fromPlugin("Delete", "Delete", { altKey: true })).toBeNull();
     expect(fromPlugin("ArrowDown", "ArrowDown")).toBeNull();
+  });
+});
+
+describe("the menu keys on Windows", () => {
+  const key = (k: string, mods: Mods = {}) => ({ key: k, ctrlKey: false, metaKey: false, shiftKey: false, ...mods });
+  it("keeps Alt alone and F10 from the menu bar, but not on a Mac", () => {
+    expect(takesMenuKey(key("Alt"), false)).toBe(true);
+    expect(takesMenuKey(key("F10"), false)).toBe(true);
+    expect(takesMenuKey(key("Alt"), true)).toBe(false);
+  });
+  it("leaves Ctrl+Alt (AltGr) and other keys alone", () => {
+    expect(takesMenuKey(key("Alt", { ctrlKey: true }), false)).toBe(false);
+    expect(takesMenuKey(key("AltGraph"), false)).toBe(false);
+    expect(takesMenuKey(key("F8"), false)).toBe(false);
   });
 });

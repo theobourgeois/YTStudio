@@ -6,6 +6,7 @@ import { editProQ, frequencyText, gainText, noteText, parseTyped, qText, updateB
 import { EQ_MAX_FREQUENCY, EQ_MAX_GAIN, EQ_MAX_Q, EQ_MIN_FREQUENCY, EQ_MIN_Q, hasGain, usesQ } from "@shared/music/pro-q-presets";
 import type { EqBand } from "@shared/music/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { keyLabel } from "@/lib/key-labels";
 import { songGesture } from "../store";
 import { deleteBands, editEq, solo } from "./actions";
 import { bandColour } from "./draw";
@@ -101,7 +102,7 @@ export function ParameterDisplay({ effectId, band, at, typing, onDoneTyping }: {
             <span key={f} className="cursor-text leading-4 whitespace-nowrap" onDoubleClick={() => setField(f)}>
               {text(f)}
               {f === "frequency" && piano && <span className="ml-1 text-[var(--eq-label)]">{noteText(band.frequency)}</span>}
-              {f === "q" && <span className="ml-1 text-[var(--eq-label)]">⌘</span>}
+              {f === "q" && <span className="ml-1 text-[var(--eq-label)]">{keyLabel("⌘")}</span>}
             </span>
           ),
         )}

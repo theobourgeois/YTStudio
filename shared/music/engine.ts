@@ -40,6 +40,8 @@ export interface LoadedPlugin extends EnginePlugin {
 export interface EngineStatus {
   /** The output device's name, or null when there's none. */
   device: string | null;
+  /** Its kind of driver ("ASIO", "Windows Audio", "CoreAudio"...), or null offline. Older engines say nothing. */
+  deviceType?: string | null;
   /** No device at all: sound is only computed on request (`EngineRender`), for tests and the export. */
   offline: boolean;
   /** How much of each block's time the audio thread spends computing it (0..1): near 1, sound breaks up. */
@@ -496,6 +498,8 @@ export interface HostWindow {
   visible: boolean;
   /** Where its window is on the screen, in points: plugin windows move when it does. */
   bounds: { x: number; y: number; width: number; height: number };
+  /** Windows: its HWND, as a decimal number: plugin windows belong to it (above it only, no taskbar button). */
+  handle?: string;
 }
 
 /** The song to play (`POST /api/engine/song`): the tab's copy of the document, saved or not. */
@@ -553,6 +557,15 @@ export interface CopyStatesRequest {
 
 /** The audio device and what it could be instead (`GET` and `POST /api/engine/devices`). */
 export interface EngineDevices {
+  /** The kinds of driver this computer has ("ASIO", "Windows Audio"...: FL's Device list groups them), and the one in use. */
+  types?: string[];
+  type?: string | null;
+  /** Inputs and outputs are separate devices (false for ASIO: a driver is chosen whole, its inputs with it). */
+  separateInputs?: boolean;
+  /** The device has a settings panel of its own (an ASIO driver's: buffer, clock), opened by `deviceControlPanel`. */
+  controlPanel?: boolean;
+  /** Added to the latency recordings leave out, in ms: what the driver doesn't report (`SetDeviceRequest.recordOffsetMs`). */
+  recordOffsetMs?: number;
   outputs: string[];
   output: string | null;
   /** The input devices (recording), and the one open, or null for none. */
@@ -568,6 +581,8 @@ export interface EngineDevices {
 }
 
 export interface SetDeviceRequest {
+  /** Another kind of driver (one of `EngineDevices.types`): its best device opens. */
+  type?: string;
   output?: string;
   /** The input device to open (all its channels), or "" to close it. Opening one asks for the microphone. */
   input?: string;
@@ -575,6 +590,11 @@ export interface SetDeviceRequest {
   sampleRate?: number;
   /** Listen to a MIDI input (by name) or not; remembered by the engine. */
   midiInput?: { name: string; enabled: boolean };
+  /**
+   * Recordings land this many ms earlier (negative: later) than the device's reported latency puts
+   * them, -500..500: what a driver doesn't report (Ableton's Driver Error Compensation).
+   */
+  recordOffsetMs?: number;
 }
 
 /**

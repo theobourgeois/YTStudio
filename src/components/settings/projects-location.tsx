@@ -3,6 +3,7 @@ import { PiFolderOpen } from "react-icons/pi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { chooseFolder } from "@/lib/desktop";
+import { FILE_MANAGER } from "@/lib/key-labels";
 import { useProjects } from "@/stores/projects";
 import { SettingsGroup, SettingsRow } from "./settings-ui";
 
@@ -25,7 +26,7 @@ export function ProjectsLocation() {
   };
 
   return (
-    <SettingsGroup title="Projects" description="Each project is a file of its own (a .vaudio package): move, copy or back it up in Finder like any other.">
+    <SettingsGroup title="Projects" description={`Each project is a file of its own (a .vaudio package): move, copy or back it up in ${FILE_MANAGER} like any other.`}>
       <SettingsRow title="Save new projects in" description={isDefault ? "Where they go unless you pick another folder." : `By default, ${location.default}.`}>
         {editing === null ? (
           <div className="flex min-w-0 items-center gap-2">

@@ -8,10 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { useCurrentPattern, useMusic, useSong } from "./store";
+import { wheelSteps, wheelTurn } from "./wheel";
 
-/** Pixels of drag, or of a trackpad's scrolling, for a step to the next pattern. */
+/** Pixels of drag for a step to the next pattern. */
 const DRAG_STEP = 16;
-const WHEEL_STEP = 40;
 
 /**
  * The pattern selector (FL Studio's): which pattern the rack shows and the engine loops. The arrow at
@@ -38,14 +38,8 @@ export function PatternPicker() {
         className="sunken flex h-7 min-w-0 flex-1 cursor-ns-resize touch-none items-center rounded-sm px-2 text-[13px] outline-none"
         onWheel={(e) => {
           // A mouse wheel's notch is a step; a trackpad's small deltas add up to one.
-          if (Math.abs(e.deltaY) >= WHEEL_STEP) {
-            wheel.current = 0;
-            return useMusic.getState().stepPattern(e.deltaY < 0 ? 1 : -1);
-          }
-          wheel.current += e.deltaY;
-          if (Math.abs(wheel.current) < WHEEL_STEP) return;
-          useMusic.getState().stepPattern(wheel.current < 0 ? 1 : -1);
-          wheel.current = 0;
+          const steps = wheelSteps(wheelTurn(e), e.deltaMode, wheel);
+          if (steps) useMusic.getState().stepPattern(steps > 0 ? 1 : -1);
         }}
         onPointerDown={(e) => {
           if (e.button !== 0) return;

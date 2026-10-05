@@ -467,6 +467,11 @@ const status = () => ({
   ...slots,
 });
 const devices = () => ({
+  types: ["Fake Audio", "Fake ASIO"],
+  type: device.type ?? "Fake Audio",
+  separateInputs: (device.type ?? "Fake Audio") !== "Fake ASIO",
+  controlPanel: device.type === "Fake ASIO",
+  recordOffsetMs: device.recordOffsetMs ?? 0,
   outputs: ["Fake Output", "Fake Headphones"],
   output: device.output,
   inputs: Object.keys(INPUTS),
@@ -586,6 +591,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   // A plugin window's wrapper button, as if pressed (tests).
   if (cmd === "pressWrapper") send({ event: "wrapper", owner: params.owner, id: params.ownerId });
   if (cmd === "devices") return send({ id, ok: true, result: devices() });
+  if (cmd === "deviceControlPanel") return device.type === "Fake ASIO" ? send({ id, ok: true, result: status() }) : fail("This audio device has no settings panel of its own.");
   if (cmd === "setDevice") {
     if (params.midiInput) {
       if (params.midiInput.enabled) midiOff.delete(params.midiInput.name);

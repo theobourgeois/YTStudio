@@ -73,6 +73,17 @@ private:
     juce::var transport() const;
     juce::var deviceOptions() const;
     juce::Result setDevice (const juce::var& params);
+    /**
+     * The device to play through when none was chosen in Settings: on Windows an audio interface's ASIO
+     * driver (what FL Studio plays through), else the system's default output.
+     */
+    void openDefaultDevice();
+    /** Open this ASIO driver for output and every input (ASIO is one device both ways). */
+    juce::String openAsio (const juce::String& driver);
+    /** Remember the device in device.xml (`chosen`: picked in Settings, so kept over any default). */
+    void saveDevice();
+    /** The samples a recording leaves out at its head: what's heard late plus what's played along late. */
+    juce::int64 recordingLatency() const;
     /** Hand the song to the sequencer, with whichever of its plugins are loaded by now. */
     juce::StringArray applySong();
     /**
@@ -90,6 +101,13 @@ private:
     const bool offline;
     juce::File deviceFile;
     juce::AudioDeviceManager devices;
+    /** The device was picked in Settings (else the engine picks the best one each start). */
+    bool deviceChosen = false;
+    /**
+     * Added to the latency recordings leave out, in ms (either way): what a driver doesn't report
+     * (Ableton's Driver Error Compensation). Kept in device.xml.
+     */
+    double recordOffsetMs = 0.0;
     PluginBench bench;
     SampleCache samples;
     /**

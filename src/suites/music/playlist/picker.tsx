@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { addWindowListener, ownerDocument } from "@/lib/window-events";
+import { FILE_MANAGER, keyLabel } from "@/lib/key-labels";
 import { PiChartLine, PiListDashes, PiPlus, PiWaveform } from "react-icons/pi";
 import { cn } from "cn";
 import { renamePattern } from "@shared/music/edits";
@@ -154,7 +155,7 @@ function PatternItems({ patterns }: { patterns: readonly Pattern[] }) {
             color={pattern.color}
             selected={picked.includes(ref)}
             chosen={source.kind === "pattern" && source.ref === ref}
-            title={`${pattern.name}: click to draw it, drag it onto a track, double-click to show it in the rack; ⌘-click or Shift+click to select several`}
+            title={keyLabel(`${pattern.name}: click to draw it, drag it onto a track, double-click to show it in the rack; ⌘-click or Shift+click to select several`)}
             onClick={(e) => clickPattern(ref, pickMode(e))}
             carries={(picked.includes(ref) ? picked : [ref]).map((id) => carried(patterns.find((p) => p.id === id)!))}
             draw={(c, w, h, colour) => drawPatternPreview(c, pattern, ctx.patternTicks(ref), w, h, colour)}
@@ -193,7 +194,7 @@ function AudioItems({ audio }: { audio: readonly Channel[] }) {
   const picked = audio.filter((c) => audioSelection.has(c.id)).map((c) => c.id);
   if (!picked.length && source.kind === "audio") picked.push(source.ref);
   const count = picked.length;
-  if (!audio.length) return <p className="px-1.5 py-2 text-[11px] text-muted-foreground">No audio clips yet: drop a file from the Browser or the Finder on a track.</p>;
+  if (!audio.length) return <p className="px-1.5 py-2 text-[11px] text-muted-foreground">No audio clips yet: drop a file from the Browser or {FILE_MANAGER} on a track.</p>;
 
   return audio.map((channel) => {
     const url = assets.find((a) => a.id === channel.sampleId)?.src ?? null;
@@ -207,7 +208,7 @@ function AudioItems({ audio }: { audio: readonly Channel[] }) {
             color={channel.color}
             selected={picked.includes(channel.id)}
             chosen={source.kind === "audio" && source.ref === channel.id}
-            title={`${channel.name}: click to draw it, drag it onto a track; ⌘-click or Shift+click to select several`}
+            title={keyLabel(`${channel.name}: click to draw it, drag it onto a track; ⌘-click or Shift+click to select several`)}
             onClick={(e) => clickAudio(channel.id, pickMode(e))}
             carries={(picked.includes(channel.id) ? picked : [channel.id]).map((id) => carried(audio.find((c) => c.id === id)!))}
             draw={(c, w, h, colour) => {

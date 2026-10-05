@@ -111,6 +111,8 @@ export async function createApp({
   trash,
   reveal,
 }: AppOptions): Promise<EditorApp> {
+  // Asked now (and cached) so the first import doesn't wait for ffmpeg to start (half a second on Windows).
+  void ffmpegVersion();
   const paths = new DataPaths(dataDir);
   await paths.init();
   const location = projectsDir ?? (path.resolve(dataDir) === config.dataDir ? config.projectsDir : path.join(dataDir, "Documents", "Vaudio"));

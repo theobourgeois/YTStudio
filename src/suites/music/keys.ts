@@ -131,6 +131,17 @@ export function resolvePluginWindowKey(e: KeyLike): MusicKeyAction | null {
   return action && isGlobalKey(action) ? action : null;
 }
 
+/**
+ * Alt pressed alone, or F10, is Windows' key for the menu bar: released, it takes the keyboard (a browser's
+ * menu button, the desktop app's menu), so the Space after an Alt-drag would open a menu instead of playing.
+ * FL Studio keeps them; so does the editor, by cancelling the press (not in a field: Alt+numpad types
+ * characters there). A Mac has no such menu.
+ */
+export function takesMenuKey(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey">, mac: boolean): boolean {
+  if (mac) return false;
+  return (e.key === "Alt" && !e.ctrlKey && !e.metaKey) || (e.key === "F10" && !e.ctrlKey && !e.metaKey && !e.shiftKey);
+}
+
 /** Typing into a field: the keyboard is the field's. */
 export function isTyping(target: EventTarget | null): boolean {
   return isHtmlElement(target) && (target.isContentEditable || target.closest("input, textarea, select") !== null);

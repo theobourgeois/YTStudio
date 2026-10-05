@@ -35,7 +35,9 @@ describe("resolveBrowserKey", () => {
   it("leaves Space (play) and ⌘R (reload) alone, and reads Ctrl+R as read again", () => {
     expect(resolveBrowserKey(key(" ", {}, "Space"))).toBeNull();
     expect(resolveBrowserKey(key("r", { meta: true }))).toBeNull();
-    expect(resolveBrowserKey(key("r", { ctrl: true }))).toEqual({ type: "rescan" });
+    expect(resolveBrowserKey(key("r", { ctrl: true }), true)).toEqual({ type: "rescan" });
+    // On Windows Ctrl+R is the export's (FL's), not the Browser's.
+    expect(resolveBrowserKey(key("r", { ctrl: true }), false)).toBeNull();
     expect(resolveBrowserKey(key("z", { meta: true }))).toBeNull();
   });
 

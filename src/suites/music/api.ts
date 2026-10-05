@@ -60,6 +60,8 @@ export const musicApi = {
   copyStates: (body: CopyStatesRequest) => request<{ copied: number }>("/api/engine/states/copy", { method: "POST", body: JSON.stringify(body) }),
   devices: () => request<EngineDevices>("/api/engine/devices"),
   setDevice: (body: SetDeviceRequest) => request<EngineDevices>("/api/engine/devices", { method: "POST", body: JSON.stringify(body) }),
+  /** The device's own settings panel (an ASIO driver's), shown by the engine. */
+  deviceControlPanel: () => request<{ ok: boolean }>("/api/engine/devices/panel", { method: "POST" }),
   /** The Browser's folders and favourites (the same in every project). */
   browser: () => request<BrowserState>("/api/browser"),
   addBrowserRoot: (body: AddBrowserRootRequest) => request<BrowserState>("/api/browser/roots", { method: "POST", body: JSON.stringify(body) }),
