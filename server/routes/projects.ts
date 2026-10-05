@@ -1,7 +1,7 @@
 import type { ProjectPreviews, PreviewInputs } from "../project-previews.ts";
 import { HttpError, isObject } from "../storage.ts";
-import { Router, json } from "express";
-import type { ProjectStore } from "../projects.ts";
+import { Router, json, raw } from "express";
+import { MAX_COVER_BYTES, type ProjectStore } from "../projects.ts";
 
 /** `/api/projects`: the recents, each project's document and its package. `onRemove` cleans up after a deleted one. */
 export function projectRoutes(projects: ProjectStore, previews: ProjectPreviews, onRemove?: (id: string) => Promise<void>): Router {
@@ -51,6 +51,16 @@ export function projectRoutes(projects: ProjectStore, previews: ProjectPreviews,
   router.get("/:id/preview/poster", async (req, res) => {
     res.setHeader("Cache-Control", "no-cache");
     res.sendFile(await previews.file(req.params.id, true), { dotfiles: "allow" });
+  });
+  // The body is the image itself (a JPEG or PNG the tab drew); its first bytes say which, whatever it's labelled.
+  router.put("/:id/cover", raw({ type: ["image/*", "application/octet-stream"], limit: MAX_COVER_BYTES }), async (req, res) => {
+    await projects.saveCover(req.params.id, req.body);
+    res.sendStatus(204);
+  });
+  router.get("/:id/cover", (req, res) => {
+    // Its URL changes with it (`?v=`), but the card asks again rather than trust a cached one.
+    res.setHeader("Cache-Control", "no-cache");
+    res.sendFile(projects.coverFile(req.params.id), { dotfiles: "allow" });
   });
   router.get("/:id", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
