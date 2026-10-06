@@ -194,7 +194,7 @@ function nudge(dx: number, dy: number) {
   const id = usePhotoUi.getState().selectedLayerId;
   const doc = usePhoto.getState().history?.doc;
   const layer = id ? doc?.layers.find((l) => l.id === id) : undefined;
-  if (!layer) return;
+  if (layer?.kind !== "image") return;
   if (!nudging || nudging.layerId !== layer.id) {
     if (nudging) {
       clearTimeout(nudging.timer);

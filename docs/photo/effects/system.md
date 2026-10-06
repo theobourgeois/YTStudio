@@ -44,6 +44,16 @@ Processing uses a few node kinds: pointwise colour, resample, local kernel, mult
 statistics) and procedural generator. A new node kind is added only for a concrete effect. Panels never contain
 effect-specific rendering code: they render a definition's parameters.
 
+**As built (F2):** the definitions are in `shared/photo/effects/index.ts` (`EFFECTS`: exposure and curves, each
+with `isIdentity`, `commutesWithReduction`, `reference`, `summary`), their parameter specs in `params.ts` (`number`:
+unit, range, step, decimals; `curves`: a `CurveSet`), the curve maths in `curve-math.ts`, the references in
+`shared/photo/reference/adjustments.ts`, and the GPU passes in `src/suites/photo/render/adjustments.ts`
+(`ADJUSTMENT_KERNELS`: a WGSL `adjust` and how its parameters are packed). Properties renders a `number` spec as a
+slider with its field (`panels/fields.tsx`) and a `curves` spec as the Curves graph (`panels/curves-editor.tsx`).
+Adding an adjustment: a definition, a kernel, a reference and a test of each against the other; the panel, the
+assistant's catalogue (`describeAdjustments`), validation and the render plan follow. Behaviour and what's
+unverified: [research/adjustments.md](../research/adjustments.md).
+
 ## Glow: the first layer effect
 
 Input is premultiplied linear RGBA. Steps:

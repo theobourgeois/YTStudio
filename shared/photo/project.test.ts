@@ -2,13 +2,17 @@ import { describe, expect, it } from "vitest";
 import { addImageLayer, duplicateLayer, fromImage, moveLayer, placement, removeLayer, setCanvas, setTransform, updateLayer } from "./edits.ts";
 import { apply, bounds, contains, corners, invert, layerMatrix } from "./layers.ts";
 import { MIN_SCALE, createPhotoProject, normalizePhotoProject, withPhotoOptions } from "./project.ts";
+import type { ImageLayer, PhotoProject } from "./types.ts";
+
+/** An image layer's transform (the layers these tests make are images). */
+const placeOf = (d: PhotoProject, i = 0) => (d.layers[i] as ImageLayer).transform;
 
 const image = (id: string, width = 400, height = 200) => ({ id, mediaId: `media_${id}`, name: `Image ${id}`, size: { width, height } });
 
 describe("photo documents", () => {
   it("starts as a white 9:16 canvas with no layers, or with the tab's choices", () => {
     const doc = createPhotoProject("Cover");
-    expect(doc).toMatchObject({ version: 1, name: "Cover", canvas: { width: 1080, height: 1920, background: "#ffffff" }, layers: [] });
+    expect(doc).toMatchObject({ version: 2, name: "Cover", canvas: { width: 1080, height: 1920, background: "#ffffff" }, layers: [] });
     expect(withPhotoOptions(doc, { width: 1280, height: 720, background: null }).canvas).toEqual({ width: 1280, height: 720, background: null });
     expect(withPhotoOptions(doc, { width: -3, height: "big", background: "red" })).toEqual(doc);
   });
@@ -37,7 +41,7 @@ describe("photo documents", () => {
 
   it("refuses what isn't a photo, or a newer one", () => {
     expect(() => normalizePhotoProject("nope")).toThrow(/Not a photo/);
-    expect(() => normalizePhotoProject({ version: 2 })).toThrow(/newer version/);
+    expect(() => normalizePhotoProject({ version: 3 })).toThrow(/newer version/);
   });
 });
 
@@ -56,7 +60,7 @@ describe("edits", () => {
   it("opens an image as the canvas", () => {
     const opened = fromImage(doc, image("p", 6000, 4000));
     expect(opened.canvas).toEqual({ width: 6000, height: 4000, background: null });
-    expect(opened.layers[0].transform).toEqual({ x: 3000, y: 2000, scaleX: 1, scaleY: 1, rotation: 0 });
+    expect(placeOf(opened, 0)).toEqual({ x: 3000, y: 2000, scaleX: 1, scaleY: 1, rotation: 0 });
   });
 
   it("transforms, and does nothing when nothing changes", () => {
@@ -64,11 +68,11 @@ describe("edits", () => {
     expect(setTransform(one, "a", { x: 500 })).toBe(one);
     expect(setTransform(one, "missing", { x: 1 })).toBe(one);
     const moved = setTransform(one, "a", { x: 10, scaleX: 0, rotation: 190 });
-    expect(moved.layers[0].transform).toMatchObject({ x: 10, scaleX: MIN_SCALE, rotation: -170 });
+    expect(placeOf(moved, 0)).toMatchObject({ x: 10, scaleX: MIN_SCALE, rotation: -170 });
     expect(setTransform(one, "a", { y: Number.NaN })).toBe(one);
     // Down to 10% and back: exactly where it was (the source is what's resampled).
     const back = setTransform(setTransform(one, "a", { scaleX: 0.1, scaleY: 0.1 }), "a", { scaleX: 1, scaleY: 1 });
-    expect(back.layers[0].transform).toEqual(one.layers[0].transform);
+    expect(placeOf(back, 0)).toEqual(placeOf(one, 0));
   });
 
   it("renames, hides, fades, orders, duplicates and removes layers", () => {
@@ -86,8 +90,8 @@ describe("edits", () => {
   it("resizes the canvas, keeping layers where they were from the top-left, or the centre", () => {
     const d = addImageLayer(doc, image("a"));
     expect(setCanvas(d, { width: 1000 })).toBe(d);
-    expect(setCanvas(d, { width: 2000 }).layers[0].transform.x).toBe(500);
-    expect(setCanvas(d, { width: 2000, height: 1000 }, "centre").layers[0].transform).toMatchObject({ x: 1000, y: 500 });
+    expect(placeOf(setCanvas(d, { width: 2000 }), 0).x).toBe(500);
+    expect(placeOf(setCanvas(d, { width: 2000, height: 1000 }, "centre"), 0)).toMatchObject({ x: 1000, y: 500 });
     expect(setCanvas(d, { background: "#FF0000" }).canvas.background).toBe("#ff0000");
     expect(setCanvas(d, { width: 0, background: "red" })).toBe(d);
   });

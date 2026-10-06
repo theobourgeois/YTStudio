@@ -97,10 +97,10 @@ rebuildable and never saved.
 
 | Operation | Domain | Contract |
 | --- | --- | --- |
-| Exposure | Linear RGB | Multiply by `2^stops`, alpha unchanged |
+| Exposure | Linear RGB | Unassociated: × `2^stops`, + offset, then the gamma correction's power (1 / gamma, mirrored below 0); alpha unchanged (research/adjustments.md) |
 | Glow, flare (adding light) | Linear RGB | Energy is kept through every pass; nothing clamped |
 | Blur, resampling | Premultiplied linear RGBA | No dark or coloured fringes at transparent edges |
-| Curves | sRGB-encoded unassociated RGB | Identity is exact. Outside [0, 1] values pass through unchanged (a documented kink at the ends); HDR curves are a later, separate definition |
+| Curves | sRGB-encoded unassociated RGB | Each channel's own curve, then the composite. Identity is exact (left out of the plan; an untouched channel is never re-encoded). Outside [0, 1] values pass through unchanged (a documented kink at the ends); HDR curves are a later, separate definition |
 | Normal compositing | Premultiplied linear RGBA | Source-over; a mask scales colour and alpha alike |
 | Other blend modes | Stated per mode | Not in the foundations. Each gets its domain and extended-range rule, with fixtures, before shipping |
 | Coverage (masks, selections) | Scalar | No colour conversion, no transfer curve |
@@ -169,6 +169,33 @@ renderer evaluates at the view's level directly when every node on the path comm
 same result), and otherwise renders level 0 for the visible region and reduces it. While a gesture is under way it
 may evaluate at the view's level anyway, showing a subtle "refining" state until the settled result replaces it. A
 stale result is never shown as current: every request carries the view and document revision it was made for.
+
+### As built (F2)
+
+- `compileRender(doc, sources)` (`shared/photo/render-plan.ts`) leaves out hidden and fully transparent layers,
+  identity adjustments (so identity is exact by construction) and what can't draw (missing media, unavailable
+  effects: listed as `skipped`). Each node has a key (type, version, parameters, opacity; an image's media, size and
+  transform); `prefixKeys[i]` keys the result after node i, so an edit above leaves every key below it alone. The
+  plan's `format` is `rgba32float` when any image is 16-bit and the device blends f32 (`float32-blendable`, asked
+  for when the device is made; without it composites stay f16).
+- The evaluator (`render/compositor.ts`) draws runs of images source-over into one buffer and runs each adjustment
+  as a pass reading that buffer and writing the other (two take turns). Fragment outputs to f16 round first
+  (`round_for_store`), as kernels' stores do.
+- The screen keeps the composite below each adjustment it drew (four at most), keyed by the prefix key, the view,
+  the quality and the sources' residency, and starts from the highest one still valid: dragging an adjustment's
+  slider re-runs that adjustment and what's above it, nothing below (counted in e2e). The canvas is drawn bilinear
+  only while the view or a layer's place moves; other edits stay final, so kept composites are reused.
+- **Refinement** (`needsRefinement`: below 100% and some node doesn't commute): the view is drawn at its own level
+  at once, the status bar says "Refining…", and 150 ms after the view and the document are still (every image
+  loaded) the renderer renders the plan at level 0 over regions (`refinePlan`: at most 2048 document pixels a side,
+  aligned to the view's level 2^k, clipped to the canvas plus Mitchell's halo), reduces each by the pyramid's own
+  2 × 2 box to level k, and samples it at the view's pixels with Mitchell stretched as a source's level would be
+  read. So for a plan that commutes, the view's level and the refinement agree (measured within 4 × 10⁻³). A
+  refinement renders into a buffer of its own and is swapped in only if it's still for the plan and view the
+  screen shows (`render/latest.ts`, `LatestOnly`: one at a time, told to stop as soon as it isn't wanted, never
+  kept late). The assistant's pictures, Home's cover and the Layers thumbnails refine the same way.
+- At 100% and above the view's level is level 0, evaluated directly (above 100% a curve then applies to the
+  resampled light, not before it: what Photoshop shows at 200% is the pixels enlarged; ours is smooth).
 
 Large glows use a pyramid with one global alignment (phase fixed in document pixels), so a tile and its neighbour
 agree and the view and the export agree. Procedural noise (grain, flare dust) uses document coordinates and a saved

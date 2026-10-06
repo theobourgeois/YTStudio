@@ -1,7 +1,8 @@
 # Foundations: implementation order and gates
 
-Status: revised 2026-10-05 (first proposal 2026-10-03). **F0 and F1 are done** (2026-10-05): their gates passed;
-results and what each changed in the plan are under "F0 results" and "F1 results". F2 is next.
+Status: revised 2026-10-05 (first proposal 2026-10-03). **F0, F1 and F2 are done** (2026-10-05): their gates
+passed; results and what each changed in the plan are under "F0 results", "F1 results" and "F2 results". F3 is
+next.
 
 The foundations are the application's first real version with deliberately few features, not a throwaway prototype.
 Each milestone ends with something Théo can use and a gate that's checked, not argued. Lasting contracts (the
@@ -160,7 +161,7 @@ helper supplies (`MediaAsset.image`: bit depth, alpha, orientation, ICC); a proj
   reducing a full-resolution composite. Identical for aligned layers; for transformed ones the difference is
   resampling order. The full rule (rendering.md, "The render plan") arrives with F2's render plan.
 - The lab (`photo-lab.html`) and its bench stay for now: they measure the renderer's parts, which the suite uses
-  as they are. They move onto the suite when F2 adds what they'd measure there.
+  as they are. They move onto the suite when F2 adds what they'd measure there. (Done in F2, below.)
 
 ## F2: layers and adjustments
 
@@ -176,6 +177,63 @@ helper supplies (`MediaAsset.image`: bit depth, alpha, orientation, ICC); a proj
 - Curves below 100% refine to the level-0 result.
 - A slider drag is one undo step and re-renders only what depends on it (counted).
 - A stale render never replaces a newer one (scripted rapid edits).
+
+### F2 results (2026-10-05)
+
+**Passed.** Every gate is checked in the real app with WebGPU on (`e2e/photo.spec.ts`, 15 tests, about a minute
+alone), reading the GPU's own numbers through `window.photoDebug` (development only):
+
+| Gate | How it's checked |
+| --- | --- |
+| Identity curves are exact | A Curves layer drawn, then reset: the 8-bit photo under it exports with 0 samples differing (identity adjustments are left out of the plan: exact by construction) |
+| Exposure at level k equals level 0 reduced | Exposure +n stops at 50%, 25% and 12.5%: the view's level against the refinement (level 0, box-reduced, Mitchell-sampled), worst 4 × 10⁻³ relative |
+| Curves below 100% refine to the level-0 result | A curve drawn on the graph; at fit and at half of it, screen pixels against the CPU's reduction (`shared/photo/reference/reduce.ts`) of the GPU's level-0 render around each, within 4 × 10⁻³ |
+| A slider drag is one undo step and re-renders only what depends on it | Exposure's slider dragged over a photo: the screen ran the adjustment ≥ 3 times, drew the image at most once (the first frame keeps the composite below), resumed from it every other frame; one ⌘Z undoes the drag |
+| A stale render never replaces a newer one | 15 scripted curve edits 10–400 ms apart below 100%: every frame showed the plan current when it was drawn; the last is the refinement of the last edit, identical (≤ 10⁻⁶) to a fresh one; the scheduler's ordering is unit-tested (`render/latest.test.ts`) |
+
+Also checked there: the GPU's Exposure and Curves against the CPU references; layers reordered by dragging (one
+undo step); thumbnails rendered; the assistant's `add_adjustment`, `set_effect_params` (a refused out-of-range
+value), `set_layer`.
+
+**Closing F1's gaps** (found reviewing F0 and F1): the research F2 needed first
+([research/adjustments.md](research/adjustments.md)); the settled view below 100% is now the full-resolution
+render reduced, through the render plan; the evaluator runs adjustments (two buffers, revisions, refining); a
+16-bit source's composite is f32 (it was always f16: a 16-bit PNG export of a 16-bit ramp is now within 1 step,
+with an f16 composite it was 21 steps off, both measured in e2e), with 16-bit PNG export in the window and for the
+assistant; adjustment layers in the document (version 2, `EffectInstance`, photo's own parameter specs); the bench
+moved onto the suite, and `set_layer` replaced `update_layer` (order included).
+
+**Measured** with `pnpm tsx scripts/photo-bench.ts` (the suite's scenarios in the workspace, `src/suites/photo/bench.ts`;
+fresh projects, so the server's decode is cold) on the baseline machine. Each cell is Electron 44.5.0 / headless
+Chrome 154; the canvas panel was 2305 × 1394 / 1725 × 1188 device pixels.
+
+| Scenario | Target | Measured |
+| --- | --- | --- |
+| Open 48 MP JPEG cold: first picture / settled | ≤ 1 s / ≤ 3 s | 0.49 / 0.66 s · 0.50 / 0.71 s (three more Electron runs: 0.50–0.57 / 0.68–0.79 s) |
+| Open 100 MP JPEG cold | (dataset) | 0.95 / 1.27 s · 0.99 / 1.36 s |
+| Reopen 48 MP (server's decode cached, a new device) | — | 0.03 / 0.18 s · 0.05 / 0.21 s |
+| Pan and zoom, warm 48 MP, 240 frames | p95 ≤ 16.7 ms | GPU p95 6.2 ms · 4.9 ms |
+| Exposure drag at fit on 48 MP, 60 frames | p95 ≤ 33 ms; settled ≤ 500 ms | p95 2.6 ms · 5.2 ms; settled with its last frame (it commutes) |
+| Curves drag at fit on 48 MP, 60 frames | p95 ≤ 33 ms; settled ≤ 500 ms | p95 2.7 ms · 4.5 ms; refined 194 ms after the last edit · 194 ms (150 ms of it is the wait for stillness) |
+| Work during a drag | only the adjustment | 0 or 2 image draws for 60 frames (the first frame), every other frame resumed |
+| Export 48 MP PNG (with an exposure and curves) | correct, throughput recorded | 2.6 s · 7.3 s (Playwright inspects each band's upload) |
+| Device loss: new device / first picture / every tile back | ≤ 2 s | 9 / 22 / 174 ms · 12 / 20 / 253 ms |
+| Budget walk, 16 stops at 100% | no out-of-memory error | 48 MP in 256 MB and 100 MP in 1 GB: settle p95 ≤ 141 ms (120 ms of it the settle wait), no GPU errors |
+
+**What F2 changed in the plan:**
+- Curves' order, spline and Exposure's gamma direction are product decisions over unverified references
+  (ledger A14, A15): Théo checks them in Photoshop; a difference becomes a new definition version.
+- Identity adjustments are left out of the plan rather than computed exactly (A16).
+- A refinement is the sources' own pyramid applied to the composite (A17), so "commutes" holds measurably, not
+  just in principle; it runs 150 ms after stillness, one at a time, latest only.
+- The screen keeps the composite below each adjustment (A18). Its key includes the sources' residency, so tiles
+  arriving re-render; a full-resolution refinement doesn't depend on residency (it waits for every image).
+- Only the first picture's pipelines are compiled before a photo opens; the rest (f32, adjustments, refinement,
+  16-bit output) compile meanwhile. With all of them up front, a cold open's first picture took up to 1.36 s in
+  Electron (measured), over the 1 s target.
+- The lab stays only for the renderer's parts the suite doesn't use yet (strokes, the blur's seams, P3 patches,
+  f16 rounding, 16-bit precision): `scripts/photo-bench.ts --lab`. It's deleted when F3 brings painting into the
+  suite and those scenarios move too.
 
 ## F3: resources, selections, masks and the brush
 
@@ -321,3 +379,6 @@ ends with a complete workflow.
 | 2026-10-05 | `sips` | HEIC → PNG/TIFF keeping depth (10-bit → 16-bit) and profile |
 | 2026-10-05 | Page decoding | `<img>` → `copyExternalImageToTexture` keeps more than 8 bits and doesn't clip; `createImageBitmap(blob)` and `ImageDecoder` are 8-bit |
 | 2026-10-05 | Electron windows | A hidden window has WebGPU and runs rAF; a fully covered window becomes `hidden` and throttles despite `backgroundThrottling: false` |
+| 2026-10-05 | F2 gate | See "F2 results": every check passed in the app (e2e) and every target in Electron 44.5.0 and Chrome 154 (bench) |
+| 2026-10-05 | f32 composites | `float32-blendable` and `float32-filterable` are on the Metal adapter in both; blending into `rgba32float` works. A 16-bit ramp through an f16 composite exports 21 steps off at worst, through f32 within 1 |
+| 2026-10-05 | Pipelines at open | Compiling all 13 of F2’s pipelines before the first picture: cold 48 MP opens' first picture 0.49–1.36 s in Electron; the first picture's 3 first, the rest meanwhile: 0.49–0.57 s |

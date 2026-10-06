@@ -2,9 +2,28 @@
  * The photo suite's tools for AI agents (see `shared/tool-spec.ts`; handlers in `src/suites/photo/tools.ts`, their
  * edits in `tool-edits.ts`). Whatever the user can do, the assistant can: add a tool with each feature.
  */
-import { bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
+import { type Schema, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
+import { ADJUSTMENTS } from "./effects/index.ts";
 
 const layer = str('A layer: its id (from get_photo) or its name ("Sky").');
+
+/** Every adjustment and its parameters, for the model: names, units, ranges, defaults. */
+export function describeAdjustments(): string {
+  return ADJUSTMENTS.map((def) => {
+    const params = def.params.map((p) =>
+      p.kind === "number" ? `${p.key} (${p.min} to ${p.max}${p.unit ? ` ${p.unit}` : ""}, default ${p.default}): ${p.description}` : `${p.key}: ${p.description}`,
+    );
+    return `${def.type}: ${def.description}\n  ${params.join("\n  ")}`;
+  }).join("\n");
+}
+
+/** An adjustment's parameters: any of its definition's (see describeAdjustments). */
+const adjustmentParams: Schema = {
+  type: "object",
+  description:
+    'Parameters to set; the rest keep their value (a new layer\'s start at their defaults). Exposure: { "exposure": 1, "offset": 0, "gamma": 1 }. Curves: points [input, output] on 0..255 per curve, e.g. { "rgb": [[0, 0], [64, 50], [192, 210], [255, 255]], "red": [[0, 10], [255, 255]] } (or the same under "curves").',
+  additionalProperties: true,
+};
 
 export const PHOTO_TOOLS = [
   tool({
@@ -12,7 +31,7 @@ export const PHOTO_TOOLS = [
     title: "Read the photo",
     kind: "look",
     description:
-      "The photo open in the editor as text: its canvas (size in pixels, background), and its layers from the top down, each with its id, name, the image it shows, visibility, opacity, and where it is (centre, scale, rotation, and its box on the canvas). Start here.",
+      "The photo open in the editor as text: its canvas (size in pixels, background), and its layers from the top down, each with its id, name, visibility and opacity; an image layer's image and where it is (centre, scale, rotation, and its box on the canvas); an adjustment layer's settings. Start here.",
     inputSchema: obj({}),
   }),
   tool({
@@ -61,10 +80,10 @@ export const PHOTO_TOOLS = [
     ),
   }),
   tool({
-    name: "update_layer",
+    name: "set_layer",
     title: "Change a layer",
     kind: "edit",
-    description: "Renames a layer, shows or hides it, sets its opacity, or moves it up or down the stack.",
+    description: "Renames a layer, shows or hides it, sets its opacity (an adjustment's opacity fades its effect), or moves it in the stack. Give only what changes.",
     inputSchema: obj(
       {
         layer,
@@ -75,6 +94,31 @@ export const PHOTO_TOOLS = [
       },
       ["layer"],
     ),
+  }),
+  tool({
+    name: "add_adjustment",
+    title: "Add an adjustment layer",
+    kind: "edit",
+    description: `Adds an adjustment layer (Photoshop's): it changes everything below it, and nothing is lost (hide it, fade it with set_layer's opacity, or change it with set_effect_params). It goes above \`above\` (a layer), or on top. The adjustments:\n${describeAdjustments()}`,
+    inputSchema: obj(
+      {
+        type: oneOf(
+          ADJUSTMENTS.map((d) => d.type),
+          "Which adjustment.",
+        ),
+        params: adjustmentParams,
+        above: str("The layer to put it right above (id or name); default: the top."),
+        name: str("Its name (default: the adjustment's)."),
+      },
+      ["type"],
+    ),
+  }),
+  tool({
+    name: "set_effect_params",
+    title: "Change an adjustment",
+    kind: "edit",
+    description: "Sets an adjustment layer's parameters (see add_adjustment for each one's), or puts them back to their defaults with reset. A curve given replaces that curve; the others stay.",
+    inputSchema: obj({ layer, params: adjustmentParams, reset: bool("Back to its defaults first.") }, ["layer"]),
   }),
   tool({
     name: "remove_layer",
@@ -100,8 +144,9 @@ export const PHOTO_TOOLS = [
     name: "export_photo",
     title: "Export the photo",
     kind: "action",
-    description: "Exports the photo as a PNG (keeps transparency) or a JPEG (over the background, or white), at its canvas size. The file goes to the app's exports; the result says where.",
-    inputSchema: obj({ format: oneOf(["png", "jpeg"], "png (default) or jpeg."), quality: int("JPEG quality, 1 to 100 (default 92).") }),
+    description:
+      "Exports the photo as a PNG (keeps transparency; 8 or 16 bits a channel) or a JPEG (over the background, or white), at its canvas size. 16 bits keeps a 16-bit source's precision. The file goes to the app's exports; the result says where.",
+    inputSchema: obj({ format: oneOf(["png", "jpeg"], "png (default) or jpeg."), bits: oneOf(["8", "16"], "PNG's bits a channel (default 8)."), quality: int("JPEG quality, 1 to 100 (default 92).") }),
   }),
 ] as const;
 

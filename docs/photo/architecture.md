@@ -83,10 +83,12 @@ shared/photo/
   geometry.ts         Affine maths, document/layer/view conversions, tile grids and levels
   surfaces.ts         Manifest type, validation, copy-on-write manifest edits, tile keys
   colour.ts           Transfer functions, ICC matrix/TRC parsing, output transform (CPU reference)
-  render-plan.ts      compileRender: document -> render plan; region and level rules per node
+  render-plan.ts      compileRender: document -> render plan; prefix keys, region and reduction rules, the
+                      composite's format; refinePlan (built in F2)
   brush.ts            Stroke samples -> dabs (spacing, interpolation; pure and tested)
-  effects/            Effect definitions: parameters, units, versions, region rules (exposure, curves, glow, flare)
-  reference/          CPU reference kernels for tests (compositing, exposure, curves, blur, colour)
+  effects/            Effect definitions (index.ts: exposure, curves so far), parameter specs (params.ts),
+                      the curve maths (curve-math.ts)
+  reference/          CPU references the GPU is tested against: adjustments.ts, reduce.ts (box, Mitchell)
   tools.ts            The assistant's tool specs
 server/photo/
   routes.ts           /api/photo/...
@@ -110,6 +112,13 @@ src/suites/photo/
   tools-handlers.ts   The assistant's tool handlers; tool-edits.ts their pure edits (tested)
 ```
 
+As built (F2), the names differ a little from the plan above: the evaluator is `render/compositor.ts` (the plan's
+passes: layers, adjustments, reduce, sample, present, quantise), the screen and regions are `render/renderer.ts`
+(kept composites, refinement through `render/latest.ts`), adjustment kernels are `render/adjustments.ts`, the
+tool handlers are `tools.ts`, the panels' pure helpers `panels/curve-points.ts` and `panels/stack.ts`, and
+`bench.ts` is `scripts/photo-bench.ts`'s scenarios in the workspace. There's no `state.ts` yet: the selection
+arrives with F3.
+
 Register the folders in `server/architecture.test.ts`'s `SUITE_FOLDERS` **in the first commit**: until then the test
 counts photo files as the video zone and lets them import video code silently.
 
@@ -126,7 +135,7 @@ interface PhotoProject extends DocumentBase {        // { version, name }
   layers: PhotoLayer[];                               // bottom to top
 }
 
-type PhotoLayer = ImageLayer;                          // F2 adds adjustments, F3 pixel layers and masks, F4 generators
+type PhotoLayer = ImageLayer | AdjustmentLayer;        // F3 adds pixel layers and masks, F4 generators
 
 interface ImageLayer {
   id: string; name: string; visible: boolean; opacity: number;   // opacity 0..1
@@ -138,8 +147,23 @@ interface ImageLayer {
 /** Centre in document pixels, scale (negative mirrors), rotation in degrees clockwise: typing 100% gives 100%. */
 interface LayerTransform { x: number; y: number; scaleX: number; scaleY: number; rotation: number }
 
-// Planned (F2–F4), as proposed: blend, mask (a SurfaceId, layer-local), effects (EffectInstance[]),
-// PixelLayer { kind: "pixel"; surface: SurfaceId }, AdjustmentLayer, GeneratorLayer.
+// Version 2 (F2): adjustment layers. A version-1 document is a valid version-2 one.
+interface AdjustmentLayer {
+  id: string; name: string; visible: boolean; opacity: number;   // its opacity fades its effect over what's below
+  kind: "adjustment";
+  effect: EffectInstance;                              // exposure or curves; it has no transform
+}
+
+interface EffectInstance {
+  id: string; type: string; version: number; enabled: boolean;
+  params: Record<string, number | boolean | string | CurveSet>;  // validated by the definition of `type`
+}
+
+/** Curves' parameter: points [input, output] on 0..255, 2 to 16 a curve, inputs increasing. */
+interface CurveSet { rgb: [number, number][]; red: [number, number][]; green: [number, number][]; blue: [number, number][] }
+
+// Planned (F3–F4), as proposed: blend, mask (a SurfaceId, layer-local), effects (EffectInstance[]),
+// PixelLayer { kind: "pixel"; surface: SurfaceId }, GeneratorLayer.
 ```
 
 Rules, each enforced by `normalizePhotoProject` and tested:
@@ -304,7 +328,8 @@ throttled even with `backgroundThrottling: false` (verified), and exports must n
 TIFF must name a lossless compression (sharp's TIFF default is JPEG, which forces 8 bits). 8-bit output is tagged
 sRGB (sharp's sRGB-to-sRGB tagging leaves 8-bit samples exact, measured); 16-bit output stays untagged for now,
 because the same call changes 16-bit samples by up to 25 000 of 65 535 (measured on sharp 0.35.5): writing the
-profile chunk ourselves is F4's.
+profile chunk ourselves is F4's. PNG exports at 8 or 16 bits (F2): 16 bits is undithered, from an f32 composite when
+any source is 16-bit, and a 16-bit file round-trips within one step (e2e).
 
 Exporting a project no tab has open (the assistant, in the background) uses a hidden page: in the desktop app a hidden
 window (as `electron/gl-window.ts` does for video), otherwise headless Chromium. Both have WebGPU on Metal with the
@@ -329,7 +354,9 @@ Same parity rule as every suite: each feature lands with its tool. Tools act thr
 text (`get_document`: layers, their kinds, transforms, effects with values) and sees it as pictures (`view_image`:
 the renderer draws a JPEG of the document or a region, as video's `view_frames` does, `src/assistant/frames.ts`).
 It can't paint strokes in v1; it can add and change layers, adjustments, effects, transforms, masks from selections
-and exports.
+and exports. As built (F2): `get_photo`, `list_photo_media`, `view_photo` (pictures are refined like the screen),
+`add_image_layer`, `transform_layer`, `set_layer` (name, visibility, opacity, order), `remove_layer`, `set_canvas`,
+`add_adjustment`, `set_effect_params` and `export_photo` (8 or 16 bits).
 
 ## Integration with the platform
 

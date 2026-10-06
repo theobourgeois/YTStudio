@@ -16,6 +16,8 @@ export interface Gpu {
   lost: Promise<GPUDeviceLostInfo>;
   /** Uncaptured validation and out-of-memory errors, newest last (shown in the lab, asserted on by checks). */
   errors: string[];
+  /** Blending into f32 targets: needed for f32 composites (16-bit sources); without it they're f16. */
+  float32Blendable: boolean;
 }
 
 const LIMITS = ["maxTextureDimension2D", "maxTextureArrayLayers", "maxBufferSize", "maxStorageBufferBindingSize", "maxComputeWorkgroupsPerDimension"] as const;
@@ -31,7 +33,7 @@ export async function createGpu(): Promise<Gpu> {
   const requiredLimits: Record<string, number> = {};
   for (const name of LIMITS) requiredLimits[name] = adapter.limits[name];
   const requiredFeatures: GPUFeatureName[] = [];
-  for (const feature of ["timestamp-query"] as GPUFeatureName[]) if (adapter.features.has(feature)) requiredFeatures.push(feature);
+  for (const feature of ["timestamp-query", "float32-blendable", "float32-filterable"] as GPUFeatureName[]) if (adapter.features.has(feature)) requiredFeatures.push(feature);
   const device = await adapter.requestDevice({ requiredLimits, requiredFeatures });
   const errors: string[] = [];
   device.addEventListener("uncapturederror", (event) => {
@@ -45,5 +47,6 @@ export async function createGpu(): Promise<Gpu> {
     canvasFormat: navigator.gpu.getPreferredCanvasFormat(),
     lost: device.lost,
     errors,
+    float32Blendable: device.features.has("float32-blendable"),
   };
 }

@@ -8,13 +8,17 @@ import type { MediaAsset } from "@shared/types";
 import { api } from "@/lib/api";
 import { budgetBytes } from "./preferences";
 import { create } from "zustand";
-import { PhotoRenderer, type SourceState } from "./render/renderer";
+import { PhotoRenderer, type RefineState, type SourceState } from "./render/renderer";
 import { usePhoto } from "./store";
+import { usePhotoUi } from "./ui";
 
 let open: { projectId: string; renderer: Promise<PhotoRenderer> } | null = null;
 
 /** The open photo's images: loading, ready, missing or failed (the Layers panel and the status bar show it). */
 export const useSourceStates = create<{ states: Record<string, SourceState> }>(() => ({ states: {} }));
+
+/** Whether the screen shows its final picture, or a preview while the full-resolution one is made (the status bar). */
+export const useRenderState = create<{ refine: RefineState }>(() => ({ refine: "none" }));
 
 /** The renderer of the open photo, made on first use; null when no photo is open. */
 export function liveRenderer(): Promise<PhotoRenderer> | null {
@@ -28,6 +32,9 @@ export function liveRenderer(): Promise<PhotoRenderer> | null {
       r.onSourceState = (mediaId, state) => {
         if (open?.renderer === renderer) useSourceStates.setState((s) => ({ states: { ...s.states, [mediaId]: state } }));
       };
+      r.onRefineState = (refine) => {
+        if (open?.renderer === renderer) useRenderState.setState({ refine });
+      };
       r.setDocument(projectId, history.doc, assets);
     }, () => {});
   }
@@ -38,6 +45,7 @@ export function closeRenderer() {
   const closing = open;
   open = null;
   useSourceStates.setState({ states: {} });
+  useRenderState.setState({ refine: "none" });
   void closing?.renderer.then((r) => r.destroy(), () => {});
 }
 
@@ -72,4 +80,14 @@ export async function withRenderer<T>(projectId: string, doc: PhotoProject, asse
   } finally {
     renderer.destroy();
   }
+}
+
+/**
+ * In development (and so in e2e), the renderer and stores on `window.photoDebug`: the tests read the GPU's own
+ * numbers (`readScreen`, `stats`, `presented`) for the gates no screenshot can check.
+ */
+if (import.meta.env.DEV && typeof window !== "undefined") {
+  (window as unknown as { photoDebug: unknown }).photoDebug = { renderer: () => liveRenderer(), photo: usePhoto, ui: usePhotoUi, renderState: useRenderState };
+  // `scripts/photo-bench.ts`'s scenarios, loaded only when asked for.
+  (window as unknown as { photoBench: unknown }).photoBench = { load: () => import("./bench") };
 }

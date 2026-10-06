@@ -1,27 +1,70 @@
 /**
- * Properties (ux.md, "Workspace"): the selected layer's place in numbers (position, size as a percentage, angle),
- * its opacity, and fitting it to the canvas; with nothing selected, the canvas's size and background. A typed
- * value is one undo step; an opacity drag is one too.
+ * Properties (ux.md, "Workspace"): the selected image layer's place in numbers (position, size as a percentage,
+ * angle) and fitting it to the canvas; an adjustment layer's parameters, rendered from its definition's specs
+ * (sliders, Curves' graph); either's opacity. With nothing selected, the canvas's size and background. A typed
+ * value is one undo step; a slider or graph drag is one too.
  */
-import { useRef, useState } from "react";
-import { PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak } from "react-icons/pi";
-import { setCanvas, setTransform, updateLayer } from "@shared/photo/edits";
-import { CANVAS_PRESETS, type PhotoLayer } from "@shared/photo/types";
+import { useState } from "react";
+import { PiArrowCounterClockwise, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiWarningCircle } from "react-icons/pi";
+import { resetEffect, setCanvas, setEffectParams, setTransform, updateLayer } from "@shared/photo/edits";
+import { effectDefinition, unavailableReason } from "@shared/photo/effects/index";
+import { type AdjustmentLayer, CANVAS_PRESETS, type ImageLayer, type PhotoLayer } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { fitted } from "../canvas/handles";
 import { photoGesture, useLayerSize, usePhoto, usePhotoDoc } from "../store";
 import { usePhotoUi } from "../ui";
+import { CurvesEditor } from "./curves-editor";
+import { NumberField, ParamSlider } from "./fields";
 
 export function PropertiesPanel() {
   const selected = usePhotoUi((s) => s.selectedLayerId);
   const layer = usePhotoDoc((d) => d.layers.find((l) => l.id === selected));
-  return <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 text-sm">{layer ? <LayerProperties layer={layer} /> : <CanvasProperties />}</div>;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 text-sm">
+      {layer?.kind === "image" ? <LayerProperties layer={layer} /> : layer?.kind === "adjustment" ? <AdjustmentProperties layer={layer} /> : <CanvasProperties />}
+    </div>
+  );
 }
 
 const round = (n: number, places = 2) => Math.round(n * 10 ** places) / 10 ** places;
 
-function LayerProperties({ layer }: { layer: PhotoLayer }) {
+/** An adjustment layer's parameters, from its definition, then its opacity. */
+function AdjustmentProperties({ layer }: { layer: AdjustmentLayer }) {
+  const commit = usePhoto((s) => s.commit);
+  const def = effectDefinition(layer.effect.type);
+  const reason = unavailableReason(layer.effect);
+  return (
+    <>
+      <Section title={layer.name}>
+        {!def || reason ? (
+          <p className="flex gap-2 text-xs text-muted-foreground">
+            <PiWarningCircle className="mt-0.5 shrink-0 text-destructive" />
+            {reason} It's kept as it is, and changes nothing here.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3" data-adjustment={def.type}>
+            {def.params.map((spec) =>
+              spec.kind === "number" ? (
+                <ParamSlider key={spec.key} spec={spec} value={layer.effect.params[spec.key] as number} edit={(v) => (d) => setEffectParams(d, layer.id, { [spec.key]: v })} />
+              ) : (
+                <CurvesEditor key={spec.key} layer={layer} />
+              ),
+            )}
+            <Button size="sm" variant="outline" className="self-start" onClick={() => commit((d) => resetEffect(d, layer.id))}>
+              <PiArrowCounterClockwise /> Reset
+            </Button>
+          </div>
+        )}
+      </Section>
+      <Section title="Opacity">
+        <OpacitySlider layer={layer} />
+      </Section>
+    </>
+  );
+}
+
+function LayerProperties({ layer }: { layer: ImageLayer }) {
   const size = useLayerSize(layer.mediaId);
   const canvas = usePhotoDoc((d) => d.canvas);
   const commit = usePhoto((s) => s.commit);
@@ -134,43 +177,5 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h3 className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h3>
       {children}
     </section>
-  );
-}
-
-/** A number typed in: Enter or leaving the field commits (one undo step), Escape puts it back. */
-function NumberField({ label, value, onCommit, suffix }: { label: string; value: number; onCommit: (v: number) => void; suffix?: string }) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const cancelled = useRef(false);
-  const finish = (text: string) => {
-    setDraft(null);
-    if (cancelled.current) {
-      cancelled.current = false;
-      return;
-    }
-    const v = Number(text);
-    if (text.trim() !== "" && Number.isFinite(v) && v !== value) onCommit(v);
-  };
-  return (
-    <label className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="flex items-center rounded border border-line bg-surface-0 pr-1.5 focus-within:border-brand">
-        <input
-          inputMode="decimal"
-          aria-label={label}
-          value={draft ?? String(value)}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={(e) => finish(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-            if (e.key === "Escape") {
-              cancelled.current = true;
-              e.currentTarget.blur();
-            }
-          }}
-          className="h-7 min-w-0 flex-1 bg-transparent px-1.5 tabular-nums outline-none"
-        />
-        {suffix && <span className="text-xs text-muted-foreground">{suffix}</span>}
-      </span>
-    </label>
   );
 }

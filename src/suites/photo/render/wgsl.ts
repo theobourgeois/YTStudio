@@ -70,6 +70,12 @@ fn linear_to_srgb(l: f32) -> f32 {
   return 1.055 * pow(l, 1.0 / 2.4) - 0.055;
 }
 
+// Its inverse, as shared/photo/colour.ts's srgbToLinear, for values in [0, 1].
+fn srgb_to_linear(v: f32) -> f32 {
+  if (v <= 0.04045) { return v / 12.92; }
+  return pow((v + 0.055) / 1.055, 2.4);
+}
+
 // shared/photo/output.ts's hash2: the same u32 arithmetic.
 fn hash2(x: u32, y: u32) -> u32 {
   var h = (x * 0x8da6b343u) ^ (y * 0xd8163841u);
@@ -88,6 +94,12 @@ fn encode_pixel(c: vec4f) -> vec4f {
   var rgb = vec3f(0.0);
   if (a > 0.0) { rgb = clamp(c.rgb / a, vec3f(0.0), vec3f(1.0)); }
   return vec4f(linear_to_srgb(rgb.r), linear_to_srgb(rgb.g), linear_to_srgb(rgb.b), a);
+}
+
+// The full-screen triangle every pass over a whole target draws.
+fn full_screen(i: u32) -> vec4f {
+  let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+  return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
 }
 
 // Mitchell–Netravali, B = C = 1/3 (shared/photo/geometry.ts's mitchell).

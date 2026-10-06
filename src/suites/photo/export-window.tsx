@@ -27,6 +27,7 @@ export function PhotoExportWindow() {
   const [name, setName] = useState(safeName(docName));
   const [format, setFormat] = useState<"png" | "jpeg">("png");
   const [quality, setQuality] = useState(92);
+  const [bits, setBits] = useState<8 | 16>(8);
   const [phase, setPhase] = useState<Phase>({ status: "idle" });
   const close = () => usePhotoUi.getState().setExportOpen(false);
   const extension = format === "jpeg" ? "jpg" : "png";
@@ -43,7 +44,7 @@ export function PhotoExportWindow() {
     try {
       const r = await renderer;
       await r.ready();
-      const result = await r.export(projectId, history.doc, { name: fileName, format, quality, destination }, (progress) => setPhase({ status: "running", progress }));
+      const result = await r.export(projectId, history.doc, { name: fileName, format, bits, quality, destination }, (progress) => setPhase({ status: "running", progress }));
       setPhase({ status: "done", path: result.path, bytes: result.bytes });
       // A browser downloads what the server kept.
       if (!destination) {
@@ -78,6 +79,16 @@ export function PhotoExportWindow() {
             </Button>
           ))}
         </div>
+        {format === "png" && (
+          <div className="flex items-center gap-1.5 text-sm" role="radiogroup" aria-label="Depth">
+            <span className="mr-1.5">Depth</span>
+            {([8, 16] as const).map((b) => (
+              <Button key={b} size="sm" variant={bits === b ? "secondary" : "outline"} role="radio" aria-checked={bits === b} disabled={busy} onClick={() => setBits(b)}>
+                {b}-bit
+              </Button>
+            ))}
+          </div>
+        )}
         {format === "jpeg" && (
           <label className="flex items-center gap-3 text-sm">
             Quality

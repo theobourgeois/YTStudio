@@ -5,7 +5,20 @@
  * missing), a bad number goes back to its default, never a silent deletion of the user's work.
  */
 import { createId } from "../ids.ts";
-import { CANVAS_PRESETS, type ImageLayer, type LayerTransform, MAX_CANVAS_SIDE, PHOTO_VERSION, type PhotoCanvas, type PhotoLayer, type PhotoProject } from "./types.ts";
+import { effectDefinition, validateParams } from "./effects/index.ts";
+import {
+  type AdjustmentLayer,
+  CANVAS_PRESETS,
+  type EffectInstance,
+  type EffectParamValue,
+  type ImageLayer,
+  type LayerTransform,
+  MAX_CANVAS_SIDE,
+  PHOTO_VERSION,
+  type PhotoCanvas,
+  type PhotoLayer,
+  type PhotoProject,
+} from "./types.ts";
 
 const DEFAULT_PRESET = CANVAS_PRESETS[0];
 
@@ -67,30 +80,79 @@ export function wrapDegrees(d: number): number {
   return r === -180 ? 180 : r;
 }
 
-function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>): PhotoLayer | null {
+const ID = /^[\w-]{1,64}$/;
+
+/** A unique id: the one given when it's well formed and not taken, else a new one. */
+function uniqueId(value: unknown, prefix: string, seen: Set<string>): string {
+  let id = typeof value === "string" && ID.test(value) ? value : createId(prefix);
+  if (seen.has(id)) id = createId(prefix);
+  seen.add(id);
+  return id;
+}
+
+/** What a problem found while normalising is reported to (the server logs them; tests read them). */
+export type Report = (problem: string) => void;
+
+/**
+ * An effect instance checked. A known type at a version this app knows has its parameters validated (repairs
+ * reported); an unknown type or a newer version is kept exactly as it was, to be shown as unavailable.
+ */
+export function normalizeEffect(value: unknown, seen: Set<string>, report: Report): EffectInstance | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const e = value as Record<string, unknown>;
+  if (typeof e.type !== "string" || !e.type) return null;
+  const id = uniqueId(e.id, "fx", seen);
+  const def = effectDefinition(e.type);
+  const version = Number.isInteger(e.version) && (e.version as number) >= 1 ? (e.version as number) : 1;
+  const enabled = e.enabled !== false;
+  if (!def || version > def.version) {
+    report(`Effect ${id}: ${def ? `version ${version} is newer than this app's ${def.version}` : `unknown type "${e.type}"`}; kept as it was.`);
+    const params = e.params && typeof e.params === "object" && !Array.isArray(e.params) ? (structuredClone(e.params) as Record<string, EffectParamValue>) : {};
+    return { id, type: e.type, version, enabled, params };
+  }
+  const { params, problems } = validateParams(def, e.params);
+  for (const p of problems) report(`Effect ${id}: ${p}`);
+  return { id, type: def.type, version, enabled, params };
+}
+
+function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, report: Report): PhotoLayer | null {
   if (!value || typeof value !== "object") return null;
   const l = value as Record<string, unknown>;
-  if (l.kind !== "image" || typeof l.mediaId !== "string" || !l.mediaId) return null;
-  let id = typeof l.id === "string" && /^[\w-]{1,64}$/.test(l.id) ? l.id : createId("layer");
-  if (seen.has(id)) id = createId("layer");
-  seen.add(id);
-  const layer: ImageLayer = {
-    id,
-    kind: "image",
-    name: typeof l.name === "string" && l.name.trim() ? l.name.trim().slice(0, 200) : "Image",
+  const common = () => ({
+    name: typeof l.name === "string" && l.name.trim() ? l.name.trim().slice(0, 200) : l.kind === "image" ? "Image" : "Adjustment",
     visible: l.visible !== false,
     opacity: Math.max(0, Math.min(1, finite(l.opacity, 1))),
-    mediaId: l.mediaId,
-    transform: normalizeTransform(l.transform, { x: canvas.width / 2, y: canvas.height / 2 }),
-  };
-  return layer;
+  });
+  if (l.kind === "image") {
+    if (typeof l.mediaId !== "string" || !l.mediaId) return null;
+    const layer: ImageLayer = {
+      id: uniqueId(l.id, "layer", seen),
+      kind: "image",
+      ...common(),
+      mediaId: l.mediaId,
+      transform: normalizeTransform(l.transform, { x: canvas.width / 2, y: canvas.height / 2 }),
+    };
+    return layer;
+  }
+  if (l.kind === "adjustment") {
+    const id = uniqueId(l.id, "layer", seen);
+    const effect = normalizeEffect(l.effect, seen, report);
+    if (!effect) {
+      report(`Layer ${id}: an adjustment layer without an effect was left out.`);
+      return null;
+    }
+    const layer: AdjustmentLayer = { id, kind: "adjustment", ...common(), effect };
+    return layer;
+  }
+  return null;
 }
 
 /**
- * Validates and repairs an untrusted document. Throws only when it isn't a photo at all, or a newer version
- * made it (opening it here would lose what this version doesn't know).
+ * Validates and repairs an untrusted document, and brings an older version up to this one (version 1 had image
+ * layers only: it's a valid version 2 as it is). Throws only when it isn't a photo at all, or a newer version made
+ * it (opening it here would lose what this version doesn't know). What it repairs is told to `report`.
  */
-export function normalizePhotoProject(value: unknown): PhotoProject {
+export function normalizePhotoProject(value: unknown, report: Report = () => {}): PhotoProject {
   if (!value || typeof value !== "object") throw new Error("Not a photo.");
   const d = value as Record<string, unknown>;
   if (typeof d.version === "number" && d.version > PHOTO_VERSION) throw new Error(`This photo was made by a newer version of the app (version ${d.version}).`);
@@ -102,7 +164,7 @@ export function normalizePhotoProject(value: unknown): PhotoProject {
   };
   const o = (d.output && typeof d.output === "object" ? d.output : {}) as Record<string, unknown>;
   const seen = new Set<string>();
-  const layers = (Array.isArray(d.layers) ? d.layers : []).map((l) => normalizeLayer(l, canvas, seen)).filter((l): l is PhotoLayer => l !== null);
+  const layers = (Array.isArray(d.layers) ? d.layers : []).map((l) => normalizeLayer(l, canvas, seen, report)).filter((l): l is PhotoLayer => l !== null);
   return {
     version: PHOTO_VERSION,
     name: typeof d.name === "string" && d.name.trim() ? d.name.trim() : "Untitled",
