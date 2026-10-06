@@ -236,6 +236,7 @@ export function LayersPanel() {
             <DropdownMenuItem onSelect={() => layerActions.addFlare()}>
               <PiSparkle /> Lens Flare
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => usePhotoUi.getState().setFilterGalleryOpen(true)}>Filter Gallery…</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <div className="flex-1" />
@@ -347,6 +348,7 @@ function LayersMenu({ count }: { count: number }) {
       {active && !active.mask && <ContextMenuItem onSelect={() => void layerActions.addMask()}>Add Layer Mask</ContextMenuItem>}
       {active?.mask && <ContextMenuItem onSelect={() => layerActions.deleteMask()}>Delete Layer Mask</ContextMenuItem>}
       {active && hasContent(active) && <ContextMenuItem onSelect={() => layerActions.addFilter("glow", active.id)}>Add Glow Filter</ContextMenuItem>}
+      <ContextMenuItem onSelect={() => usePhotoUi.getState().setFilterGalleryOpen(true)}>Filter Gallery…</ContextMenuItem>
       {(active?.kind === "image" || active?.kind === "generator") && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Convert to Pixels</ContextMenuItem>}
       <ContextMenuItem disabled={!selection || !active || active.kind === "adjustment"} onSelect={() => void editActions.layerVia(false)}>
         Layer via Copy

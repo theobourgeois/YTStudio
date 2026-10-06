@@ -7,10 +7,10 @@
  */
 import { curvesFor, exposurePixel, type Pixel } from "../reference/adjustments.ts";
 import type { CurveSet, EffectElement, EffectInstance, EffectParamValue } from "../types.ts";
-import { FLARE_PARAMS } from "./flare.ts";
-import { GLOW_PARAMS, glowReach } from "./glow.ts";
+import { FLARE_PARAMS, FLARE_PRESETS, flarePreset } from "./flare.ts";
+import { GLOW_PARAMS, GLOW_PRESETS, glowReach } from "./glow.ts";
 import { isIdentityCurve, isIdentityCurveSet } from "./curve-math.ts";
-import { CURVE_CHANNELS, type CurveChannel, type CurvesParam, type NumberParam, type ParamSpec, defaultParams, identityCurveSet, sanitizeParam } from "./params.ts";
+import { CURVE_CHANNELS, type CurveChannel, type CurvesParam, type EffectPreset, type NumberParam, type ParamSpec, defaultParams, identityCurveSet, sanitizeParam } from "./params.ts";
 
 /** How Photoshop names each curve. */
 export const CHANNEL_LABELS: Record<CurveChannel, string> = { rgb: "RGB", red: "Red", green: "Green", blue: "Blue" };
@@ -21,6 +21,13 @@ export const CHANNEL_LABELS: Record<CurveChannel, string> = { rgb: "RGB", red: "
  * layer's effect makes the layer's content.
  */
 export type EffectKind = "adjustment" | "filter" | "generator";
+
+/**
+ * Where the Filter menu and the Filter Gallery list a filter or a generator (Photoshop's Filter menu has Blur,
+ * Distort, Render…). A new category is a name here; its filters say they're in it.
+ */
+export const FILTER_CATEGORIES = ["Light"] as const;
+export type FilterCategory = (typeof FILTER_CATEGORIES)[number];
 
 export interface EffectDefinition {
   type: string;
@@ -43,6 +50,10 @@ export interface EffectDefinition {
   reference?: (params: Record<string, EffectParamValue>) => (pixel: Pixel) => Pixel;
   /** Its settings in a few words ("+1.5 stops"). */
   summary: (params: Record<string, EffectParamValue>) => string;
+  /** A filter's or generator's place in the Filter menu and the Filter Gallery. */
+  category?: FilterCategory;
+  /** A filter's or generator's named looks (the first is its plain one): the Filter menu's and the gallery's entries. */
+  presets?: readonly EffectPreset[];
 }
 
 const exposureParams: NumberParam[] = [
@@ -113,6 +124,8 @@ const GLOW: EffectDefinition = {
   description:
     "A light glow (After Effects' Deep Glow, not Photoshop's Outer Glow): the layer's light above a threshold, blurred at six scales up to its radius and added back in linear light, so bright parts bloom. It spreads past the layer's edges.",
   params: GLOW_PARAMS,
+  category: "Light",
+  presets: GLOW_PRESETS,
   region: "neighbourhood",
   reach: (p) => glowReach(p.radius as number),
   isIdentity: (p) => p.mix === 0,
@@ -129,6 +142,8 @@ const FLARE: EffectDefinition = {
   description:
     "A lens flare made of elements (a source glow, halos, ghosts, an anamorphic streak) placed on the line from its source through the optical centre. Light in linear light; new flares add to what's below (Linear Dodge in linear light).",
   params: FLARE_PARAMS,
+  category: "Light",
+  presets: FLARE_PRESETS.map((p) => ({ id: p.id, label: p.label, description: p.description, params: (canvas) => ({ elements: flarePreset(p.id, canvas.width, canvas.height) }) })),
   region: "pointwise",
   reach: () => 0,
   isIdentity: () => false,

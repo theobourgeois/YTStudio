@@ -90,6 +90,8 @@ type PresetElement = Omit<EffectElement, "id">;
 export interface FlarePreset {
   id: string;
   label: string;
+  /** What it looks like, in a few words. */
+  description: string;
   elements: PresetElement[];
 }
 
@@ -107,6 +109,7 @@ export const FLARE_PRESETS: readonly FlarePreset[] = [
   {
     id: "classic",
     label: "Classic",
+    description: "A warm source, a halo and a chain of coloured ghosts across the frame.",
     elements: [
       element("glow", { size: 0.0775 / 2.04, tint: "#ffd8a8", intensity: -0.15, core: 150 }),
       element("halo", { size: 0.38 / 2.04, thickness: 9, spread: 60, intensity: -3.3, tint: "#ffffff" }),
@@ -122,6 +125,7 @@ export const FLARE_PRESETS: readonly FlarePreset[] = [
   {
     id: "anamorphic",
     label: "Anamorphic",
+    description: "A cool source with a long horizontal streak: the cinema lens look.",
     elements: [
       element("glow", { size: 0.03, tint: "#cfe2ff", intensity: 0, core: 200 }),
       element("streak", { size: 0.7, thickness: 0.0012, tint: "#73a6ff", intensity: 0, haze: 30 }),
@@ -133,6 +137,7 @@ export const FLARE_PRESETS: readonly FlarePreset[] = [
   {
     id: "subtle",
     label: "Subtle",
+    description: "A soft source and two faint ghosts.",
     elements: [
       element("glow", { size: 0.05, tint: "#ffe2c0", intensity: -1, core: 60 }),
       ghost(-0.4, 0.06, "#ffd9a0", 0.06, false),
