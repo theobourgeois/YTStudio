@@ -72,6 +72,8 @@ const PLATFORM = [
   "server/media-analysis.ts",
   "server/routes/media.ts",
   "server/projects.ts",
+  // Work handed from one suite to another (a song made into a video: Make visualizer).
+  "shared/handoff.ts",
   "server/project-previews.ts",
   "server/packages.ts",
   "server/routes/projects.ts",

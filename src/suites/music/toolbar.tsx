@@ -1,6 +1,6 @@
 import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import { addWindowListener, isElement, ownerDocument } from "@/lib/window-events";
-import { PiArrowUUpLeft, PiArrowUUpRight, PiExport, PiFolders, PiKeyboard, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
+import { PiArrowUUpLeft, PiArrowUUpRight, PiExport, PiFilmSlate, PiFolders, PiKeyboard, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
 import { lengthOf, setMainVolume, setTempo } from "@shared/music/edits";
@@ -40,6 +40,7 @@ import { positionNow } from "./playhead";
 import { openPlaylist } from "./playlist/actions";
 import { positionAt, positionText, splitTail, tempoText, timeText } from "./position";
 import { useSongExport } from "./export/store";
+import { useVisualizer, visualizerBusy } from "./visualizer/store";
 import { COUNT_IN_BARS, useMusicPreferences } from "./preferences";
 import { useRecording } from "./recording";
 import { useMidi } from "./midi";
@@ -128,6 +129,7 @@ export function MusicToolbar() {
           if (id) useVocalMix.getState().show(id);
         }}>Vocal mix</Button>
         <ExportButton />
+        <VisualizerButton />
         <SettingsButton />
         <Groove className="mx-1.5 h-6 self-center" />
         <AssistantButton />
@@ -892,6 +894,23 @@ function Tip({ text, children }: { text: string; children: ReactNode }) {
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side="bottom">{text}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** Make visualizer: the song made into a video project (docs/visualizer/README.md). Lit while one is being made. */
+function VisualizerButton() {
+  const making = useVisualizer((s) => visualizerBusy(s.job));
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className={cn("text-muted-foreground hover:text-foreground", making && "text-brand")}
+      aria-label="Make visualizer"
+      title="Make visualizer: a video of the song, reacting to its stems, notes and beat"
+      onClick={() => useVisualizer.getState().open()}
+    >
+      <PiFilmSlate />
+    </Button>
   );
 }
 

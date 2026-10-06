@@ -35,6 +35,7 @@ import { usePiano } from "./piano/store";
 import { TransposeWindow } from "./transpose-window";
 import { PluginManager } from "./plugin-manager";
 import { ExportWindow } from "./export/export-window";
+import { VisualizerWindow } from "./visualizer/visualizer-window";
 import { useSongExport } from "./export/store";
 import * as mixer from "./mixer/actions";
 import { type MixerKeyAction, resolveMixerKey } from "./mixer/keys";
@@ -119,6 +120,7 @@ function Windows() {
   const fillInsertsOpen = useMusicUi((s) => s.fillInsertsOpen);
   const transposeOpen = useMusicUi((s) => s.transposeOpen);
   const exportOpen = useMusicUi((s) => s.exportOpen);
+  const visualizerOpen = useMusicUi((s) => s.visualizerOpen);
   const pluginManagerOpen = useMusicUi((s) => s.pluginManager !== null);
   const editingNote = usePiano((s) => s.editing);
   const chopping = usePiano((s) => s.chopping);
@@ -157,6 +159,7 @@ function Windows() {
       {fillInsertsOpen && <FillInsertsWindow />}
       {transposeOpen && <TransposeWindow />}
       {exportOpen && <ExportWindow />}
+      {visualizerOpen && <VisualizerWindow />}
       {pluginManagerOpen && <PluginManager />}
       {pianoOpen && editingNote !== null && <NoteProperties key={editingNote} />}
       {pianoOpen && chopping && <Chopper />}
@@ -206,6 +209,7 @@ function frontWindow(): WindowId | null {
     : id === "mixer" ? ui.mixerOpen
     : id === "transpose" ? ui.transposeOpen
     : id === "export" ? ui.exportOpen
+    : id === "visualizer" ? ui.visualizerOpen
     : id === "plugins" ? ui.pluginManager !== null
     : id === "note" ? usePiano.getState().editing !== null
     : id === "chopper" ? usePiano.getState().chopping

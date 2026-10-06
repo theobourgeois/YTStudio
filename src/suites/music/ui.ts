@@ -22,6 +22,7 @@ export type WindowId =
   | "chopper"
   | "quantizer"
   | "export"
+  | "visualizer"
   | "automate"
   | "plugins"
   | "modulators"
@@ -102,6 +103,8 @@ interface MusicUiState {
   transposeOpen: boolean;
   /** The export window (⌘R). */
   exportOpen: boolean;
+  /** Make visualizer: the song made into a video project. */
+  visualizerOpen: boolean;
   /** The Plugin manager (a picker's More plugins…): what it lists when it opens, or null while it's closed. */
   pluginManager: ManagerFilter | null;
   /** The channels whose settings windows are open. */
@@ -127,6 +130,7 @@ interface MusicUiState {
   copyTrack: (copied: { projectId: string; state: TrackState }) => void;
   setTransposeOpen: (open: boolean) => void;
   setExportOpen: (open: boolean) => void;
+  setVisualizerOpen: (open: boolean) => void;
   /** Open the Plugin manager listing `filter`'s plugins (null closes it). */
   setPluginManager: (filter: ManagerFilter | null) => void;
   /**
@@ -156,6 +160,7 @@ const INITIAL = {
   copiedTrack: null as { projectId: string; state: TrackState } | null,
   transposeOpen: false,
   exportOpen: false,
+  visualizerOpen: false,
   pluginManager: null as ManagerFilter | null,
   openChannelIds: [] as string[],
 };
@@ -222,6 +227,10 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   setExportOpen(exportOpen) {
     if (exportOpen) windows().focus("export");
     set({ exportOpen });
+  },
+  setVisualizerOpen(visualizerOpen) {
+    if (visualizerOpen) windows().focus("visualizer");
+    set({ visualizerOpen });
   },
   setPluginManager(pluginManager) {
     if (pluginManager) windows().focus("plugins");

@@ -71,6 +71,11 @@ video effects with `EffectShader.audio` (the Audio category, `shared/effect-libr
 it hears at its clip's moment (`EffectPass.audio`, read by `effectPasses` through `clipAudio`), bound by the compositor
 as `uSpectrum`/`uWave` textures and uniforms (`AUDIO_PRELUDE` in `effect-gl.ts`); a `source` parameter says what it
 listens to; New item › Visualizer is a solid drawing only its visualizer. Signals files (v2) keep a small waveform.
+**V5 is built**: Make visualizer (the music toolbar's film slate, `make_visualizer`) hands a song to the video suite
+through the platform (`shared/handoff.ts`, `ProjectStore.createFromHandoff`, `SuiteBackend.fromHandoff`): the music
+side renders the mix and stems and works out notes, beats and markers (`shared/music/visualizer.ts`,
+`server/music/visualizer.ts`), the video side builds the project with a starting look bound by role
+(`shared/song-video.ts`); `Project.tempo` is the song's exact beat, which `beat()` prefers to the analysis.
 
 ## Commands
 
