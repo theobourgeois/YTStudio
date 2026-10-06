@@ -9,18 +9,21 @@ import { PiImage, PiWarningCircle } from "react-icons/pi";
 import { setTransform } from "@shared/photo/edits";
 import { srgbToLinear } from "@shared/photo/colour";
 import { fitView, panBy, viewToDoc, zoomAbout } from "@shared/photo/geometry";
-import { contains } from "@shared/photo/layers";
-import { CANVAS_PRESETS, type PhotoLayer, type PhotoProject } from "@shared/photo/types";
+import { bounds, contains } from "@shared/photo/layers";
+import { CANVAS_PRESETS, type LayerTransform, type PhotoLayer, type PhotoProject } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { liveRenderer, useRenderState } from "../live";
+import { usePhotoPreferences } from "../preferences";
 import { GpuUnavailableError } from "../render/gpu";
 import type { PhotoRenderer } from "../render/renderer";
 import { photoGesture, useLayerSize, usePhoto, usePhotoDoc } from "../store";
 import { sizeOf } from "../tool-edits";
 import { useActiveTool, usePhotoUi } from "../ui";
 import { CanvasDriver } from "./driver";
-import { HANDLES, type Handle, handlePoint, moved, outline, rotated, scaled } from "./handles";
+import { ROTATE_CURSOR, resizeCursor } from "./cursors";
+import { HANDLES, type Handle, type SnapContext, handlePoint, movedWithSnap, outline, rotated, scaledWithSnap } from "./handles";
+import { type Guide, snapTargets } from "./snap";
 
 /** The driver of the canvas on screen (the bench and the keys reach it here). */
 let driver: CanvasDriver | null = null;
@@ -152,27 +155,48 @@ export function CanvasPanel() {
       usePhotoUi.getState().setView(zoomAbout(view, (e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio, e.altKey ? 0.5 : 2));
       return;
     }
-    // Move: with Auto-select, the layer under the pointer is picked first; the drag moves the selected one.
+    // Move: with Auto-select (⌘ for the opposite), the layer under the pointer is picked first, as Photoshop's
+    // (where there's none, the selection stays: ⌘D deselects); the drag moves the selected one.
     const at = docPoint(e.clientX, e.clientY);
-    if (usePhotoUi.getState().autoSelect) usePhotoUi.getState().select(layerAt(doc, at.x, at.y)?.id ?? null);
+    const hit = autoSelects(e) ? layerAt(doc, at.x, at.y) : undefined;
+    if (hit) usePhotoUi.getState().select(hit.id);
+    usePhotoUi.getState().hover(null);
     const id = usePhotoUi.getState().selectedLayerId;
     const layer = id ? doc.layers.find((l) => l.id === id) : undefined;
     // Only images have a place to move (an adjustment changes everything below it).
     if (layer?.kind !== "image") return;
+    const size = sizeOf(layer, usePhoto.getState().assets);
+    if (!size) return;
     const base = layer.transform;
     const gesture = photoGesture();
+    const done = () => usePhotoUi.getState().setGuides([]);
     startPointerDrag(e, {
       threshold: 2,
       cursor: "move",
       onStart: () => gesture.begin(),
       onMove: (ev, travel) => {
         const z = usePhotoUi.getState().view!.zoom;
-        const t = moved(base, (travel.x * devicePixelRatio) / z, (travel.y * devicePixelRatio) / z, ev.shiftKey);
-        gesture.apply((d) => setTransform(d, layer.id, t));
+        const r = movedWithSnap(base, size, (travel.x * devicePixelRatio) / z, (travel.y * devicePixelRatio) / z, ev.shiftKey, snapContext(doc, layer.id, ev));
+        usePhotoUi.getState().setGuides(r.guides);
+        gesture.apply((d) => setTransform(d, layer.id, r.t));
       },
-      onEnd: () => gesture.end(),
-      onCancel: () => gesture.cancel(),
+      onEnd: () => {
+        done();
+        gesture.end();
+      },
+      onCancel: () => {
+        done();
+        gesture.cancel();
+      },
     });
+  };
+
+  // The layer a click would pick, outlined while the pointer is over it (Move, no button down).
+  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const doc = usePhoto.getState().history?.doc;
+    if (tool !== "move" || e.buttons !== 0 || !doc || !usePhotoUi.getState().view) return;
+    const at = docPoint(e.clientX, e.clientY);
+    usePhotoUi.getState().hover(autoSelects(e) ? (layerAt(doc, at.x, at.y)?.id ?? null) : null);
   };
 
   const pan = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -191,9 +215,13 @@ export function CanvasPanel() {
         ref={holderRef}
         className={cn("relative min-h-0 flex-1 overflow-hidden touch-none", tool === "hand" ? "cursor-grab" : tool === "zoom" ? "cursor-zoom-in" : "cursor-default")}
         onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerLeave={() => usePhotoUi.getState().hover(null)}
       >
         <canvas ref={canvasRef} className="absolute inset-0 size-full" aria-label="Photo canvas" />
+        {renderer && tool === "move" && <HoverOutline />}
         {renderer && tool === "move" && <TransformOverlay docPoint={docPoint} />}
+        {renderer && <SnapGuides />}
         {failure && (
           <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-white/80">
             <div className="flex max-w-sm flex-col items-center gap-2">
@@ -207,6 +235,29 @@ export function CanvasPanel() {
       <StatusBar renderer={renderer} />
     </div>
   );
+}
+
+const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
+/** Whether a press picks the layer under it: Auto-Select (Settings › Photo), the opposite while ⌘ (Ctrl) is held. */
+const autoSelects = (e: { metaKey: boolean; ctrlKey: boolean }) => usePhotoPreferences.getState().autoSelect !== (MAC ? e.metaKey : e.ctrlKey);
+
+/** How near is near enough to snap: this many CSS pixels on screen, in document pixels. */
+const SNAP_CSS_PX = 6;
+
+/**
+ * What a drag of layer `layerId` snaps to: the canvas and the other visible images' boxes. Null when Snap is off
+ * (the header's magnet, ⇧⌘;) or Control is held (Photoshop's way to drag without snapping).
+ */
+function snapContext(doc: PhotoProject, layerId: string, e: { ctrlKey: boolean }): SnapContext | null {
+  const view = usePhotoUi.getState().view;
+  if (!usePhotoPreferences.getState().snap || e.ctrlKey || !view) return null;
+  const { assets } = usePhoto.getState();
+  const others = doc.layers.flatMap((l) => {
+    const size = l.kind === "image" && l.visible && l.id !== layerId ? sizeOf(l, assets) : null;
+    return size && l.kind === "image" ? [bounds(l.transform, size)] : [];
+  });
+  return { targets: snapTargets(doc.canvas, others), threshold: (SNAP_CSS_PX * devicePixelRatio) / view.zoom };
 }
 
 /** The topmost visible image layer whose pixels are under document point (x, y). */
@@ -237,34 +288,60 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
   const length = Math.hypot(up.x, up.y) || 1;
   const knob = { x: top.x + (up.x / length) * 24, y: top.y + (up.y / length) * 24 };
 
-  const drag = (e: ReactPointerEvent<SVGElement>, transform: (p: { x: number; y: number }, ev: PointerEvent) => ReturnType<typeof moved>, cursor: string) => {
+  const drag = (e: ReactPointerEvent<SVGElement>, transform: (p: { x: number; y: number }, ev: PointerEvent) => { t: LayerTransform; guides: Guide[] }, cursor: string) => {
     e.stopPropagation();
     const gesture = photoGesture();
+    const done = () => usePhotoUi.getState().setGuides([]);
     startPointerDrag(e, {
       threshold: 0,
       cursor,
       onStart: () => gesture.begin(),
       onMove: (ev) => {
-        const t = transform(docPoint(ev.clientX, ev.clientY), ev);
-        gesture.apply((d) => setTransform(d, layer.id, t));
+        const r = transform(docPoint(ev.clientX, ev.clientY), ev);
+        usePhotoUi.getState().setGuides(r.guides);
+        gesture.apply((d) => setTransform(d, layer.id, r.t));
       },
-      onEnd: () => gesture.end(),
-      onCancel: () => gesture.cancel(),
+      onEnd: () => {
+        done();
+        gesture.end();
+      },
+      onCancel: () => {
+        done();
+        gesture.cancel();
+      },
     });
   };
   const base = layer.transform;
+  /** The way a handle pulls on screen: from the layer's centre out to it (turned and mirrored with the layer). */
+  const cursorOf = (h: Handle) => {
+    const p = css(handlePoint(base, size, h));
+    return resizeCursor((Math.atan2(p.y - centre.y, p.x - centre.x) * 180) / Math.PI);
+  };
   const scaleFrom = (h: Handle) => (e: ReactPointerEvent<SVGElement>) =>
-    drag(e, (p, ev) => scaled(base, size, h, p, { free: ev.shiftKey, fromCentre: ev.altKey }), "nwse-resize");
+    drag(
+      e,
+      (p, ev) => {
+        const doc = usePhoto.getState().history!.doc;
+        return scaledWithSnap(base, size, h, p, { free: ev.shiftKey, fromCentre: ev.altKey }, snapContext(doc, layer.id, ev));
+      },
+      cursorOf(h),
+    );
   const rotate = (e: ReactPointerEvent<SVGElement>) => {
     const from = docPoint(e.clientX, e.clientY);
-    drag(e, (p, ev) => rotated(base, from, p, ev.shiftKey), "grabbing");
+    drag(e, (p, ev) => ({ t: rotated(base, from, p, ev.shiftKey), guides: [] }), ROTATE_CURSOR);
   };
+  const corners = HANDLES.filter((h) => h.u !== 0.5 && h.v !== 0.5);
 
   return (
     <svg className="pointer-events-none absolute inset-0 size-full overflow-visible" data-transform-overlay>
       <polygon points={box.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="var(--brand)" strokeWidth={1} />
+      {/* Just outside each corner a drag rotates, as Photoshop's (under the handles, so they win where they meet). */}
+      {corners.map((h) => {
+        const p = css(handlePoint(base, size, h));
+        return <circle key={`r${h.u},${h.v}`} cx={p.x} cy={p.y} r={18} fill="transparent" className="pointer-events-auto" style={{ cursor: ROTATE_CURSOR }} onPointerDown={rotate} data-rotate-zone={`${h.u},${h.v}`} />;
+      })}
       <line x1={top.x} y1={top.y} x2={knob.x} y2={knob.y} stroke="var(--brand)" strokeWidth={1} />
-      <circle cx={knob.x} cy={knob.y} r={5} fill="white" stroke="var(--brand)" className="pointer-events-auto cursor-grab" onPointerDown={rotate} data-handle="rotate" />
+      <circle cx={knob.x} cy={knob.y} r={5} fill="white" stroke="var(--brand)" className="pointer-events-auto" style={{ cursor: ROTATE_CURSOR }} onPointerDown={rotate} data-handle="rotate" />
       {HANDLES.map((h) => {
         const p = css(handlePoint(base, size, h));
         return (
@@ -276,12 +353,53 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
             height={8}
             fill="white"
             stroke="var(--brand)"
-            className="pointer-events-auto cursor-crosshair"
+            className="pointer-events-auto"
+            style={{ cursor: cursorOf(h) }}
             onPointerDown={scaleFrom(h)}
             data-handle={`${h.u},${h.v}`}
+            data-cursor={cursorOf(h)}
           />
         );
       })}
+    </svg>
+  );
+}
+
+/** The outline of the layer a click would pick (Photoshop's hover box), unless it's the selected one. */
+function HoverOutline() {
+  const view = usePhotoUi((s) => s.view);
+  const hovered = usePhotoUi((s) => s.hoveredLayerId);
+  const selected = usePhotoUi((s) => s.selectedLayerId);
+  const found = usePhotoDoc((d) => d.layers.find((l) => l.id === hovered));
+  const layer = found?.kind === "image" && found.id !== selected ? found : undefined;
+  const size = useLayerSize(layer?.mediaId);
+  if (!view || !layer || !size) return null;
+  const dpr = devicePixelRatio;
+  const points = outline(layer.transform, size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);
+  return (
+    <svg className="pointer-events-none absolute inset-0 size-full overflow-visible" data-hover-outline={layer.id}>
+      <polygon points={points.join(" ")} fill="none" stroke="var(--brand)" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
+/** Smart guides: a magenta line for each alignment the moved or resized layer snapped to. */
+function SnapGuides() {
+  const view = usePhotoUi((s) => s.view);
+  const guides = usePhotoUi((s) => s.guides);
+  if (!view || guides.length === 0) return null;
+  const dpr = devicePixelRatio;
+  const x = (v: number) => ((v - view.x) * view.zoom) / dpr;
+  const y = (v: number) => ((v - view.y) * view.zoom) / dpr;
+  return (
+    <svg className="pointer-events-none absolute inset-0 size-full overflow-visible" data-snap-guides={guides.length}>
+      {guides.map((g, i) =>
+        g.axis === "x" ? (
+          <line key={i} x1={x(g.at)} x2={x(g.at)} y1={y(g.from)} y2={y(g.to)} stroke="var(--snap-guide)" strokeWidth={1} data-guide={`x:${g.at}`} />
+        ) : (
+          <line key={i} x1={x(g.from)} x2={x(g.to)} y1={y(g.at)} y2={y(g.at)} stroke="var(--snap-guide)" strokeWidth={1} data-guide={`y:${g.at}`} />
+        ),
+      )}
     </svg>
   );
 }

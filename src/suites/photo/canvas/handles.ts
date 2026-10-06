@@ -4,8 +4,9 @@
  * is absolute (from the transform at the press), so a drag's preview never drifts.
  */
 import type { Size } from "@shared/photo/geometry";
-import { corners } from "@shared/photo/layers";
+import { bounds, corners } from "@shared/photo/layers";
 import type { LayerTransform, PhotoProject } from "@shared/photo/types";
+import { type Guide, type SnapTargets, guidesOf, snapMove, snapResize } from "./snap";
 
 /** A corner or edge, by its place on the source: x and y each 0 (left/top), 0.5 (middle) or 1 (right/bottom). */
 export interface Handle {
@@ -80,6 +81,70 @@ export function scaled(t: LayerTransform, size: Size, handle: Handle, p: { x: nu
   const cx = (0.5 - anchor.u) * size.width * sx;
   const cy = (0.5 - anchor.v) * size.height * sy;
   return { ...t, scaleX: sx, scaleY: sy, x: a.x + cx * Math.cos(r) - cy * Math.sin(r), y: a.y + cx * Math.sin(r) + cy * Math.cos(r) };
+}
+
+/** Snapping, when it's on: what to snap to, and how near (document pixels) is near enough. */
+export interface SnapContext {
+  targets: SnapTargets;
+  threshold: number;
+}
+
+/** Whether a rotation is a whole number of right angles (then the layer's box is its outline, and its edges snap). */
+const rightAngled = (rotation: number) => Math.abs(rotation / 90 - Math.round(rotation / 90)) < 1e-9;
+
+/**
+ * Moved by (dx, dy) as `moved` does, then snapped: the layer's box (its edges and centre) to the targets. A
+ * Shift-constrained move snaps only along the axis it moves.
+ */
+export function movedWithSnap(t: LayerTransform, size: Size, dx: number, dy: number, constrain: boolean, snap: SnapContext | null): { t: LayerTransform; guides: Guide[] } {
+  const next = moved(t, dx, dy, constrain);
+  if (!snap) return { t: next, guides: [] };
+  const alongX = !constrain || Math.abs(dx) > Math.abs(dy);
+  const s = snapMove(bounds(next, size), snap.targets, snap.threshold, { x: alongX, y: !constrain || !alongX });
+  // A snapped place is the guide's exactly (the sum leaves a last-digit error otherwise: 800.0000000000001).
+  const exact = (v: number) => Math.round(v * 1e6) / 1e6;
+  return { t: { ...next, x: s.dx ? exact(next.x + s.dx) : next.x, y: s.dy ? exact(next.y + s.dy) : next.y }, guides: s.guides };
+}
+
+/**
+ * Scaled by dragging a handle as `scaled` does, then snapped: the edges the handle moves to the targets (only for a
+ * layer at a right angle, whose box is its outline). A corner keeping its proportions snaps its nearer edge and
+ * scales both ways about its anchor so that edge lands exactly.
+ */
+export function scaledWithSnap(
+  t: LayerTransform,
+  size: Size,
+  handle: Handle,
+  p: { x: number; y: number },
+  options: { free?: boolean; fromCentre?: boolean },
+  snap: SnapContext | null,
+): { t: LayerTransform; guides: Guide[] } {
+  const raw = scaled(t, size, handle, p, options);
+  if (!snap || !rightAngled(raw.rotation)) return { t: raw, guides: [] };
+  const box = bounds(raw, size);
+  const hp = handlePoint(raw, size, handle);
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  const edges = {
+    x: near(hp.x, box.x0) ? ("x0" as const) : near(hp.x, box.x1) ? ("x1" as const) : null,
+    y: near(hp.y, box.y0) ? ("y0" as const) : near(hp.y, box.y1) ? ("y1" as const) : null,
+  };
+  const locked = handle.u !== 0.5 && handle.v !== 0.5 && !options.free;
+  const s = snapResize(box, edges, snap.targets, snap.threshold, locked);
+  if (!s.dx && !s.dy) return { t: raw, guides: [] };
+  let next: LayerTransform;
+  if (locked) {
+    // One factor both ways, about the anchor (the opposite corner, or the centre), so the snapped edge lands.
+    const alongX = s.dx !== 0;
+    const extent = alongX ? box.x1 - box.x0 : box.y1 - box.y0;
+    const edge = alongX ? edges.x : edges.y;
+    const d = (alongX ? s.dx : s.dy) * (edge === "x1" || edge === "y1" ? 1 : -1) * (options.fromCentre ? 2 : 1);
+    const k = (extent + d) / extent;
+    const anchor: Handle = options.fromCentre ? { u: 0.5, v: 0.5 } : { u: (1 - handle.u) as Handle["u"], v: (1 - handle.v) as Handle["v"] };
+    const a = handlePoint(raw, size, anchor);
+    next = { ...raw, scaleX: raw.scaleX * k, scaleY: raw.scaleY * k, x: a.x + (raw.x - a.x) * k, y: a.y + (raw.y - a.y) * k };
+  } else next = scaled(t, size, handle, { x: p.x + s.dx, y: p.y + s.dy }, options);
+  const after = bounds(next, size);
+  return { t: next, guides: guidesOf(after, snap.targets, { x: edges.x ? [after[edges.x]] : [], y: edges.y ? [after[edges.y]] : [] }) };
 }
 
 /** Rotated about its centre by the pointer's turn from `from` to `to`; `snap` (Shift) to 15°. */

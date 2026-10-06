@@ -272,6 +272,8 @@ test("images dropped on Home start a photo the size of the first", async ({ page
   await expect(page.locator('[data-suite="photo"]')).toBeVisible();
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
   await expect(page.locator("[data-photo-status]")).toContainText("800 × 800 px");
+  // Named after the image (Photoshop's document takes the file's name).
+  await expect(page.locator("[data-photo-header]")).toContainText("sticker-800");
 });
 
 test("a duplicated photo keeps its images", async ({ page }) => {
@@ -567,4 +569,173 @@ test("the assistant adds and changes adjustment layers", async ({ page }) => {
   await expect(panel).toContainText("set_effect_params: failed, set_layer: ok, get_photo: ok, view_photo: ok", { timeout: 30_000 });
   const doc = await expect.poll(async () => (await savedPhoto(page, adjustedId)).layers.length).toBe(3).then(() => savedPhoto(page, adjustedId));
   expect(doc.layers[0]).toMatchObject({ kind: "adjustment", name: "Brighter", opacity: 0.5, effect: { params: { exposure: 0.5, offset: 0, gamma: 1.2 } } });
+});
+
+// --- Picking, cursors, smart guides and the tabs ---
+
+let pickingId = "";
+
+/** Where document point (x, y) is on the page (CSS pixels), from the canvas's view. */
+async function screenOf(page: Page, x: number, y: number) {
+  const box = (await page.getByLabel("Photo canvas").boundingBox())!;
+  const { view, dpr } = await page.evaluate(() => ({ view: (window as unknown as DebugWindow).photoDebug.ui.getState().view, dpr: devicePixelRatio }));
+  return { x: box.x + ((x - view.x) * view.zoom) / dpr, y: box.y + ((y - view.y) * view.zoom) / dpr };
+}
+
+const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
+
+test("clicking the canvas picks the layer under the pointer, outlined while it's hovered (Auto-Select)", async ({ page }) => {
+  pickingId = await openNewPhoto(page, "Picking");
+  await page.locator("[data-start-input]").setInputFiles(PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await page.locator("[data-place-input]").setInputFiles(STICKER);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(2);
+  const doc = await expect.poll(async () => (await savedPhoto(page, pickingId)).layers.length).toBe(2).then(() => savedPhoto(page, pickingId));
+  const [photo, sticker] = doc.layers.map((l: { id: string }) => l.id);
+  const row = (id: string) => page.locator(`[data-layer="${id}"]`);
+
+  // The photo selected by its row; the sticker (in the middle) clicked on the canvas: picked.
+  await row(photo).click();
+  await expect(row(photo)).toHaveAttribute("aria-selected", "true");
+  const middle = await screenOf(page, 800, 600);
+  await page.mouse.move(middle.x, middle.y);
+  await expect(page.locator(`[data-hover-outline="${sticker}"]`)).toBeVisible();
+  await page.mouse.click(middle.x, middle.y);
+  await expect(row(sticker)).toHaveAttribute("aria-selected", "true");
+  // Over the photo alone (near a corner): it's outlined, and a click picks it.
+  const corner = await screenOf(page, 100, 100);
+  await page.mouse.move(corner.x, corner.y);
+  await expect(page.locator(`[data-hover-outline="${photo}"]`)).toBeVisible();
+  await page.mouse.click(corner.x, corner.y);
+  await expect(row(photo)).toHaveAttribute("aria-selected", "true");
+  // Where there's no layer (the pasteboard), the selection stays.
+  const outside = await screenOf(page, -60, -60);
+  await page.mouse.click(outside.x, outside.y);
+  await expect(row(photo)).toHaveAttribute("aria-selected", "true");
+  // ⌘ held does the opposite: the click doesn't pick.
+  await page.keyboard.down(MOD_KEY);
+  await page.mouse.click(middle.x, middle.y);
+  await page.keyboard.up(MOD_KEY);
+  await expect(row(photo)).toHaveAttribute("aria-selected", "true");
+
+  // Auto-Select is a setting (on unless turned off): off, a click doesn't pick.
+  await page.keyboard.press("ControlOrMeta+Comma");
+  const settings = page.getByRole("region", { name: "Settings" });
+  const toggle = settings.getByRole("switch", { name: "Auto-select" });
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await settings.getByRole("button", { name: "Close Settings" }).click();
+  await page.mouse.click(middle.x, middle.y);
+  await expect(row(photo)).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("ControlOrMeta+Comma");
+  await settings.getByRole("switch", { name: "Auto-select" }).click();
+  await settings.getByRole("button", { name: "Close Settings" }).click();
+});
+
+test("handles' pointers show the way they pull, turned with the layer, and a rotate pointer outside the corners", async ({ page }) => {
+  await page.goto(`/p/${pickingId}`);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(2);
+  await page.locator("[data-layer]").first().click();
+  const handle = (h: string) => page.locator(`[data-handle="${h}"]`);
+  await expect(handle("1,1")).toHaveAttribute("data-cursor", "nwse-resize");
+  await expect(handle("0,1")).toHaveAttribute("data-cursor", "nesw-resize");
+  await expect(handle("0.5,0")).toHaveAttribute("data-cursor", "ns-resize");
+  await expect(handle("1,0.5")).toHaveAttribute("data-cursor", "ew-resize");
+  expect(await page.locator('[data-rotate-zone="1,1"]').evaluate((e) => (e as SVGElement).style.cursor)).toMatch(/^url\(/);
+  // Turned a right angle: the bottom-right corner now pulls down-left, the top edge sideways.
+  const angle = page.getByRole("textbox", { name: "Angle" });
+  await angle.fill("90");
+  await angle.press("Enter");
+  await expect(handle("1,1")).toHaveAttribute("data-cursor", "nesw-resize");
+  await expect(handle("0.5,0")).toHaveAttribute("data-cursor", "ew-resize");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(handle("1,1")).toHaveAttribute("data-cursor", "nwse-resize");
+});
+
+test("moving and resizing snap to the canvas and other layers with guides; Control held or Snap off doesn't", async ({ page }) => {
+  await page.goto(`/p/${pickingId}`);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(2);
+  await page.locator("[data-layer]").first().click();
+  const sticker = async () => (await savedPhoto(page, pickingId)).layers[1].transform;
+  // The 800 × 800 sticker is centred on the 1600 × 1200 canvas. Away from everything first.
+  const drag = async (fromDoc: { x: number; y: number }, toDoc: { x: number; y: number }, during?: () => Promise<void>) => {
+    const a = await screenOf(page, fromDoc.x, fromDoc.y);
+    const b = await screenOf(page, toDoc.x, toDoc.y);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(b.x, b.y, { steps: 8 });
+    await during?.();
+    await page.mouse.up();
+  };
+  await drag({ x: 800, y: 600 }, { x: 910, y: 600 });
+  await expect.poll(async () => (await sticker()).x).toBeGreaterThan(890);
+  // Back to 4 px from the canvas's centre: it snaps there, with a guide on the centre line while it's held.
+  const from = (await sticker()).x;
+  await drag({ x: from, y: 600 }, { x: 804, y: 600 }, async () => {
+    await expect(page.locator('[data-guide="x:800"]')).toHaveCount(1);
+  });
+  await expect.poll(async () => (await sticker()).x).toBe(800);
+  await expect(page.locator("[data-snap-guides]")).toHaveCount(0);
+  // Control held: no snapping.
+  await drag({ x: 800, y: 600 }, { x: 905, y: 600 });
+  await expect.poll(async () => (await sticker()).x).toBeGreaterThan(890);
+  const away = (await sticker()).x;
+  const a = await screenOf(page, away, 600);
+  const b = await screenOf(page, 804, 600);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.keyboard.down("Control");
+  await page.mouse.move(b.x, b.y, { steps: 8 });
+  await page.mouse.up();
+  await page.keyboard.up("Control");
+  await expect.poll(async () => Math.abs((await sticker()).x - 804)).toBeLessThan(2);
+  // Snap off (the magnet over the canvas): no snapping either.
+  const snap = page.getByRole("button", { name: "Snap" });
+  await expect(snap).toHaveAttribute("aria-pressed", "true");
+  await snap.click();
+  await expect(snap).toHaveAttribute("aria-pressed", "false");
+  const now = (await sticker()).x;
+  await drag({ x: now, y: 600 }, { x: 798, y: 600 });
+  await expect.poll(async () => Math.abs((await sticker()).x - 798)).toBeLessThan(2);
+  await snap.click();
+  await expect(snap).toHaveAttribute("aria-pressed", "true");
+
+  // Resizing: the right edge dragged 3 px short of the canvas's right edge lands on it.
+  const t = await sticker();
+  const right = t.x + 400 * t.scaleX;
+  await drag({ x: right, y: 600 }, { x: 1597, y: 600 }, async () => {
+    await expect(page.locator('[data-guide="x:1600"]')).toHaveCount(1);
+  });
+  await expect.poll(async () => {
+    const r = await sticker();
+    return Math.round((r.x + 400 * r.scaleX) * 1e6) / 1e6;
+  }).toBe(1600);
+});
+
+test("files dropped on the tabs start a new project, named after the image", async ({ page }) => {
+  await page.goto(`/p/${pickingId}`);
+  await expect(page.locator("[data-layer]")).toHaveCount(2);
+  // A second tab, so the strip shows.
+  await openNewPhoto(page, "Another");
+  const tabs = page.getByRole("tablist", { name: "Open projects" });
+  await expect(tabs.getByRole("tab")).toHaveCount(2);
+  const bytes = [...(await fs.readFile(STICKER))];
+  const transfer = await page.evaluateHandle((data) => {
+    const t = new DataTransfer();
+    t.items.add(new File([new Uint8Array(data)], "sticker-800.png", { type: "image/png" }));
+    return t;
+  }, bytes);
+  await tabs.dispatchEvent("dragenter", { dataTransfer: transfer });
+  await tabs.dispatchEvent("dragover", { dataTransfer: transfer });
+  await expect(tabs.locator("[data-drop-tab]")).toBeVisible();
+  await tabs.dispatchEvent("drop", { dataTransfer: transfer });
+  await expect(tabs.getByRole("tab", { name: "sticker-800" })).toHaveAttribute("aria-selected", "true");
+  await expect(tabs.getByRole("tab")).toHaveCount(3);
+  await expect(page.locator("[data-photo-header]")).toContainText("sticker-800");
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await expect(page.locator("[data-photo-status]")).toContainText("800 × 800 px");
+  // Saved under that name.
+  const id = new URL(page.url()).pathname.split("/").pop()!;
+  await expect.poll(async () => (await savedPhoto(page, id)).name).toBe("sticker-800");
 });

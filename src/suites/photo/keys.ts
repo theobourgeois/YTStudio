@@ -15,6 +15,7 @@ export type PhotoKeyAction =
   | { type: "delete" }
   | { type: "duplicate" }
   | { type: "export" }
+  | { type: "snap" }
   | { type: "save" }
   | { type: "deselect" };
 
@@ -39,6 +40,8 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
     if (key === "-") return { type: "zoom", factor: 0.5 };
     if (key === "j" && !e.shiftKey) return { type: "duplicate" };
     if (key === "e" && e.shiftKey) return { type: "export" };
+    // Photoshop's View › Snap (⇧⌘;). Shift turns ";" into ":" on some layouts.
+    if ((key === ";" || key === ":") && e.shiftKey) return { type: "snap" };
     if (key === "s" && !e.shiftKey) return { type: "save" };
     if (key === "d" && !e.shiftKey) return { type: "deselect" };
     return null;
