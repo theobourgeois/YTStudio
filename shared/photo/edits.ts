@@ -282,6 +282,11 @@ export function setCanvas(doc: PhotoProject, patch: Partial<PhotoCanvas>, anchor
   return { ...doc, canvas: { width, height, background }, layers };
 }
 
+/** How light above white leaves the photo (rendering.md, "The output transform"). */
+export function setHighlights(doc: PhotoProject, highlights: PhotoProject["output"]["highlights"]): PhotoProject {
+  return doc.output.highlights === highlights ? doc : { ...doc, output: { ...doc.output, highlights } };
+}
+
 export interface NewPixelLayer {
   id: string;
   name?: string;

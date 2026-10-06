@@ -12,10 +12,11 @@
 import type { DocumentBase } from "../suites.ts";
 
 /**
- * 3: pixel layers and masks (2: adjustment layers). An older document is a valid version-3 one; an older app
- * refuses a newer one.
+ * 5: light (F4: the `film` highlights by default; 4 is Layer Style's blending), 3: pixel layers and masks, 2:
+ * adjustment layers. An older document is a valid newer one (its highlights clip, as they were drawn then); an
+ * older app refuses a newer one.
  */
-export const PHOTO_VERSION = 3;
+export const PHOTO_VERSION = 5;
 
 /**
  * A surface: the SHA-256 (lowercase hex) of its manifest's canonical JSON. The server has every manifest a saved
@@ -78,8 +79,22 @@ export interface CurveSet {
   blue: CurvePoints;
 }
 
+/** A point in document pixels: [x, y]. */
+export type DocPoint = [number, number];
+
+/**
+ * One element of an `elements` parameter (a flare's ghosts, halos...): a stable id (editing one never renumbers the
+ * others), its type, whether it's shown, and its own parameters by its type's specs.
+ */
+export interface EffectElement {
+  id: string;
+  type: string;
+  enabled: boolean;
+  [param: string]: number | boolean | string;
+}
+
 /** A parameter's value: what the definitions' specs allow (`shared/photo/effects/params.ts`). */
-export type EffectParamValue = number | boolean | string | CurveSet;
+export type EffectParamValue = number | boolean | string | null | CurveSet | DocPoint | EffectElement[];
 
 /**
  * An effect as a document holds it (docs/photo/effects/system.md, "Definition and instance"): its type and the
@@ -151,7 +166,10 @@ export interface PhotoCanvas {
 export interface PhotoProject extends DocumentBase {
   version: typeof PHOTO_VERSION;
   canvas: PhotoCanvas;
-  /** How light above white leaves (rendering.md, "The output transform"); film rolls it off, clip clips it. */
+  /**
+   * How light above white leaves (rendering.md, "The output transform"); film rolls it off, clip clips it. Photos
+   * from before version 5 clip: they were always drawn that way.
+   */
   output: { highlights: "film" | "clip" };
   /** Bottom to top. */
   layers: PhotoLayer[];

@@ -23,17 +23,41 @@ export function hash2(x: number, y: number): number {
 /** The dither offset at a document pixel, in steps: uniform in [-amplitude, amplitude). */
 export const ditherAt = (x: number, y: number, amplitude = DITHER_8BIT) => ((hash2(x, y) >>> 8) / 16777216) * 2 * amplitude - amplitude;
 
-/** Unpremultiplied, highlights and negatives clipped (SDR sRGB output), sRGB-encoded, in [0, 1]. */
-export function encodePixel(r: number, g: number, b: number, a: number): [number, number, number, number] {
+/** How light above white leaves (the document's `output.highlights`). */
+export type Highlights = "film" | "clip";
+
+/**
+ * `film`'s shoulder (docs/photo/f4-light.md, D3): how fast light above white turns white. One stop over white is
+ * halfway there at 1.
+ */
+export const FILM_STRENGTH = 1;
+
+/**
+ * `film` (rendering.md, "The output transform"): identity while every channel is within [0, 1]; above, the
+ * largest channel stays at 1 and the colour mixes towards white by `1 − m^(−s)`, so the hue is kept and brighter
+ * light is whiter. Continuous and monotonic in the light's intensity. Unpremultiplied colour in, out.
+ */
+export function filmHighlights(r: number, g: number, b: number, s = FILM_STRENGTH): [number, number, number] {
+  const m = Math.max(r, g, b);
+  if (!(m > 1)) return [r, g, b];
+  const w = 1 - m ** -s;
+  const k = (1 - w) / m;
+  return [r * k + w, g * k + w, b * k + w];
+}
+
+/** Unpremultiplied, highlights rolled off (`film`) or clipped, negatives clipped (SDR sRGB output), sRGB-encoded, in [0, 1]. */
+export function encodePixel(r: number, g: number, b: number, a: number, highlights: Highlights = "clip"): [number, number, number, number] {
   const alpha = Math.min(1, Math.max(0, a));
   const un = (c: number) => (alpha > 0 ? c / alpha : 0);
-  const enc = (c: number) => linearToSrgb(Math.min(1, Math.max(0, un(c))));
-  return [enc(r), enc(g), enc(b), alpha];
+  let rgb: [number, number, number] = [un(r), un(g), un(b)];
+  if (highlights === "film") rgb = filmHighlights(...rgb);
+  const enc = (c: number) => linearToSrgb(Math.min(1, Math.max(0, c)));
+  return [enc(rgb[0]), enc(rgb[1]), enc(rgb[2]), alpha];
 }
 
 /** One premultiplied linear pixel at document pixel (x, y) as 8-bit RGBA, dithered (alpha isn't). */
-export function quantize8(r: number, g: number, b: number, a: number, x: number, y: number, amplitude = DITHER_8BIT): [number, number, number, number] {
-  const [er, eg, eb, ea] = encodePixel(r, g, b, a);
+export function quantize8(r: number, g: number, b: number, a: number, x: number, y: number, amplitude = DITHER_8BIT, highlights: Highlights = "clip"): [number, number, number, number] {
+  const [er, eg, eb, ea] = encodePixel(r, g, b, a, highlights);
   const d = amplitude > 0 ? ditherAt(x, y, amplitude) : 0;
   const q = (v: number) => Math.min(255, Math.max(0, Math.floor(v * 255 + d + 0.5)));
   return [q(er), q(eg), q(eb), Math.floor(ea * 255 + 0.5)];

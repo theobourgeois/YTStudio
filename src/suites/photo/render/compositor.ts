@@ -169,7 +169,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 /** A composite onto the canvas element: the canvas's area over the checkerboard, the pasteboard around it. */
 const PRESENT = /* wgsl */ `
 ${MATHS}
-struct Present { canvas: vec4f, checker: f32, amplitude: f32, p0: f32, p1: f32, pasteboard: vec4f }
+struct Present { canvas: vec4f, checker: f32, amplitude: f32, film: f32, p1: f32, pasteboard: vec4f }
 @group(0) @binding(0) var accumulated: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> present: Present;
 
@@ -186,7 +186,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let cell = vec2u(floor((pos.xy - present.canvas.xy) / present.checker));
   let grey = select(0.8, 0.48, ((cell.x + cell.y) & 1u) == 1u);
   let shown = vec4f(c.rgb + vec3f(grey) * (1.0 - clamp(c.a, 0.0, 1.0)), 1.0);
-  let e = encode_pixel(shown);
+  let e = encode_pixel_with(shown, present.film > 0.5);
   let d = dither_at(u32(pos.x), u32(pos.y), present.amplitude) / 255.0;
   return vec4f(e.rgb + d, 1.0);
 }
@@ -199,7 +199,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
  */
 const QUANTIZE = (bits: 8 | 16) => /* wgsl */ `
 ${MATHS}
-struct Params { origin: vec2u, size: vec2u, amplitude: f32, under: u32, checker: f32, p0: u32, matte: vec4f }
+struct Params { origin: vec2u, size: vec2u, amplitude: f32, under: u32, checker: f32, film: u32, matte: vec4f }
 @group(0) @binding(0) var accumulated: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read_write> out: array<u32>;
 @group(0) @binding(2) var<uniform> params: Params;
@@ -216,7 +216,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
     let grey = select(0.8, 0.48, ((cell.x + cell.y) & 1u) == 1u);
     c = vec4f(c.rgb + vec3f(grey) * (1.0 - a), 1.0);
   }
-  let e = encode_pixel(c);
+  let e = encode_pixel_with(c, params.film == 1u);
   let i = g.y * params.size.x + g.x;
 ${
   bits === 8
@@ -750,7 +750,7 @@ export class Compositor {
     void device.queue.onSubmittedWorkDone().then(() => uniform.destroy());
   }
 
-  /** Draws a composite on a canvas texture through the output transform (`uniform`: `Present`'s 48 bytes). */
+  /** Draws a composite on a canvas texture through the output transform (`uniform`: `Present`'s 48 bytes, `film` at byte 24). */
   present(encoder: GPUCommandEncoder, composite: GPUTexture, uniform: GPUBuffer, canvas: GPUTexture) {
     const pass = encoder.beginRenderPass({ colorAttachments: [{ view: canvas.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }] });
     pass.setPipeline(this.pipelines.present);

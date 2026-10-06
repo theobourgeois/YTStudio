@@ -4,7 +4,7 @@
  * and what there is to choose from.
  */
 import { createId } from "@shared/ids";
-import { addAdjustmentLayer, addImageLayer, addPixelLayer, findLayer, moveLayer, removeLayer, removeMask, resetEffect, setCanvas, setEffectParams, setMask, setTransform, updateLayer } from "@shared/photo/edits";
+import { addAdjustmentLayer, addImageLayer, addPixelLayer, findLayer, moveLayer, removeLayer, removeMask, resetEffect, setCanvas, setEffectParams, setHighlights, setMask, setTransform, updateLayer } from "@shared/photo/edits";
 import { ADJUSTMENTS, type EffectDefinition, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import { CURVE_CHANNELS, MAX_CURVE_POINTS } from "@shared/photo/effects/params";
 import { bounds } from "@shared/photo/layers";
@@ -283,6 +283,8 @@ export const setCanvasTool: PhotoEdit = (doc, input) => {
   for (const [name, v] of [["width", width], ["height", height]] as const) {
     if (v !== undefined && (!Number.isInteger(v) || v < 1 || v > 30000)) throw new Error(`${name} must be a whole number of pixels from 1 to 30000.`);
   }
-  const next = setCanvas(doc, { width, height, background: background as string | null | undefined }, input.anchor === "centre" ? "centre" : "top-left");
-  return { doc: next, text: `Canvas: ${next.canvas.width}×${next.canvas.height} px, background ${next.canvas.background ?? "transparent"}.` };
+  if (input.highlights !== undefined && input.highlights !== "film" && input.highlights !== "clip") throw new Error('highlights must be "film" or "clip".');
+  let next = setCanvas(doc, { width, height, background: background as string | null | undefined }, input.anchor === "centre" ? "centre" : "top-left");
+  if (input.highlights !== undefined) next = setHighlights(next, input.highlights);
+  return { doc: next, text: `Canvas: ${next.canvas.width}×${next.canvas.height} px, background ${next.canvas.background ?? "transparent"}, highlights ${next.output.highlights}.` };
 };

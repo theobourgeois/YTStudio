@@ -17,7 +17,7 @@ import { fromHalf } from "@shared/photo/half.ts";
 import type { BrushSettings } from "@shared/photo/brush.ts";
 import { type Affine, IDENTITY, apply, invert, layerMatrix, layerScale } from "@shared/photo/layers.ts";
 import type { TileSize } from "@shared/photo/lab.ts";
-import { DITHER_8BIT } from "@shared/photo/output.ts";
+import { DITHER_8BIT, type Highlights } from "@shared/photo/output.ts";
 import {
   type AdjustmentNode,
   type DrawNode,
@@ -561,7 +561,7 @@ export class PhotoRenderer {
     const u = new Float32Array(12);
     const x0 = (0 - view.x) * view.zoom;
     const y0 = (0 - view.y) * view.zoom;
-    u.set([x0, y0, x0 + doc.canvas.width * view.zoom, y0 + doc.canvas.height * view.zoom, checker, DITHER_8BIT, 0, 0, ...this.pasteboard, 1]);
+    u.set([x0, y0, x0 + doc.canvas.width * view.zoom, y0 + doc.canvas.height * view.zoom, checker, DITHER_8BIT, doc.output.highlights === "film" ? 1 : 0, 0, ...this.pasteboard, 1]);
     device.queue.writeBuffer(screen.uniform, 0, u);
     this.compositor.present(encoder, composite, screen.uniform, screen.context.getCurrentTexture());
     device.queue.submit([encoder.finish()]);
@@ -708,6 +708,7 @@ export class PhotoRenderer {
           new Float32Array(p, 16, 1)[0] = options.dither === false ? 0 : DITHER_8BIT;
           new Uint32Array(p, 20, 1)[0] = options.under === "matte" ? 1 : options.under === "checker" ? 2 : 0;
           new Float32Array(p, 24, 1)[0] = 8;
+          new Uint32Array(p, 28, 1)[0] = doc.output.highlights === "film" ? 1 : 0;
           new Float32Array(p, 32, 4).set([...matte, 1]);
           device.queue.writeBuffer(params, 0, p);
           const readback = device.createBuffer({ size: cols * rows * bytesPerPixel, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -773,7 +774,7 @@ export class PhotoRenderer {
     const w = Math.max(1, Math.round(doc.canvas.width * zoom));
     const h = Math.max(1, Math.round(doc.canvas.height * zoom));
     const { texture } = await this.renderView(doc, { zoom, x: 0, y: 0, width: w, height: h });
-    return this.encodePicture(texture, w, h, type);
+    return this.encodePicture(texture, w, h, type, doc.output.highlights);
   }
 
   /**
@@ -818,7 +819,7 @@ export class PhotoRenderer {
   }
 
   /** A composite through the output transform into an image file (it destroys the texture). */
-  private async encodePicture(texture: GPUTexture, w: number, h: number, type: "image/jpeg" | "image/png"): Promise<Blob> {
+  private async encodePicture(texture: GPUTexture, w: number, h: number, type: "image/jpeg" | "image/png", highlights: Highlights = "clip"): Promise<Blob> {
     const { device } = this;
     const out = device.createBuffer({ size: w * h * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
     const params = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -829,6 +830,7 @@ export class PhotoRenderer {
       new Float32Array(p, 16, 1)[0] = DITHER_8BIT;
       new Uint32Array(p, 20, 1)[0] = 2;
       new Float32Array(p, 24, 1)[0] = 8;
+      new Uint32Array(p, 28, 1)[0] = highlights === "film" ? 1 : 0;
       device.queue.writeBuffer(params, 0, p);
       const encoder = device.createCommandEncoder({ label: "picture" });
       const pass = encoder.beginComputePass();

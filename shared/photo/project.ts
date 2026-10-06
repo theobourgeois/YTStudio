@@ -189,7 +189,8 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
 
 /**
  * Validates and repairs an untrusted document, and brings an older version up to this one (version 1 had image
- * layers only, version 2 added adjustments: either is a valid version 3 as it is). Throws only when it isn't a photo at all, or a newer version made
+ * layers only, version 2 added adjustments, version 3 pixel layers and masks: each is a valid version 5, its highlights
+ * clipped as they were drawn). Throws only when it isn't a photo at all, or a newer version made
  * it (opening it here would lose what this version doesn't know). What it repairs is told to `report`.
  */
 export function normalizePhotoProject(value: unknown, report: Report = () => {}): PhotoProject {
@@ -209,7 +210,8 @@ export function normalizePhotoProject(value: unknown, report: Report = () => {})
     version: PHOTO_VERSION,
     name: typeof d.name === "string" && d.name.trim() ? d.name.trim() : "Untitled",
     canvas,
-    output: { highlights: o.highlights === "clip" ? "clip" : "film" },
+    // Before version 5 every photo was drawn clipped, whatever it said: it keeps that look (f4-light.md, D2).
+    output: { highlights: o.highlights === "clip" || !(typeof d.version === "number" && d.version >= 5) ? "clip" : "film" },
     layers,
   };
 }

@@ -197,12 +197,13 @@ export const PHOTO_TOOLS = [
     title: "Resize the canvas",
     kind: "edit",
     description:
-      "Changes the canvas: its size in pixels (layers keep their place, measured from the top-left corner, or from the centre with anchor: centre) and its background (a colour like #ffffff, or none for transparent). Common sizes: 1080×1920 story/reel, 1080×1350 portrait post, 1080×1080 square, 1280×720 thumbnail.",
+      "Changes the canvas: its size in pixels (layers keep their place, measured from the top-left corner, or from the centre with anchor: centre), its background (a colour like #ffffff, or none for transparent) and its highlights (film or clip). Common sizes: 1080×1920 story/reel, 1080×1350 portrait post, 1080×1080 square, 1280×720 thumbnail.",
     inputSchema: obj({
       width: int("Width in pixels."),
       height: int("Height in pixels."),
       background: str('A colour "#rrggbb", or "none" for transparent.'),
       anchor: oneOf(["top-left", "centre"], "What stays put when the size changes (default top-left)."),
+      highlights: oneOf(["film", "clip"], "How light brighter than white leaves the photo: film rolls it towards white (glows and flares bloom), clip clips each channel."),
     }),
   }),
   tool({

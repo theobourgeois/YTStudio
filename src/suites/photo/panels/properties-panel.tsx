@@ -1,16 +1,18 @@
 /**
  * Properties (ux.md, "Workspace"): the selected image layer's place in numbers (position, size as a percentage,
  * angle) and fitting it to the canvas; an adjustment layer's parameters, rendered from its definition's specs
- * (sliders, Curves' graph); either's opacity. With nothing selected, the canvas's size and background. A typed
+ * (sliders, Curves' graph); either's opacity. With nothing selected, the canvas's size, background and highlights. A typed
  * value is one undo step; a slider or graph drag is one too.
  */
 import { useState } from "react";
 import { PiArrowCounterClockwise, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiPaintBrush, PiStack, PiTrash, PiWarningCircle } from "react-icons/pi";
-import { resetEffect, setCanvas, setEffectParams, setTransform, updateLayer } from "@shared/photo/edits";
+import { resetEffect, setCanvas, setEffectParams, setHighlights, setTransform, updateLayer } from "@shared/photo/edits";
 import { effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import { type AdjustmentLayer, CANVAS_PRESETS, type PhotoLayer, type PlacedLayer, isPlaced } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fitted } from "../canvas/handles";
 import { photoGesture, useLayerSize, usePhoto, usePhotoDoc, useSelection } from "../store";
 import { layerActions } from "../layer-actions";
@@ -196,6 +198,7 @@ function OpacitySlider({ layer }: { layer: PhotoLayer }) {
 
 function CanvasProperties() {
   const canvas = usePhotoDoc((d) => d.canvas);
+  const highlights = usePhotoDoc((d) => d.output.highlights);
   const commit = usePhoto((s) => s.commit);
   return (
     <Section title="Canvas">
@@ -227,6 +230,22 @@ function CanvasProperties() {
           </label>
         </span>
       </label>
+      <div className="flex items-center justify-between gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>Highlights</span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-64">How light brighter than white leaves the photo: Film rolls it towards white, so glows and flares bloom; Clip clips each colour on its own.</TooltipContent>
+        </Tooltip>
+        <ToggleGroup type="single" size="sm" variant="outline" value={highlights} onValueChange={(v) => v && commit((d) => setHighlights(d, v as typeof highlights))} aria-label="Highlights">
+          <ToggleGroupItem value="film" className="px-2.5 text-xs">
+            Film
+          </ToggleGroupItem>
+          <ToggleGroupItem value="clip" className="px-2.5 text-xs">
+            Clip
+          </ToggleGroupItem>
+        </ToggleGroup>
+      </div>
     </Section>
   );
 }
