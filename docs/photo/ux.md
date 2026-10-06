@@ -88,6 +88,8 @@ Pointer capture keeps a gesture alive outside the canvas.
   unfinished work.
 - **Switching**: switching tool, target or project resolves the gesture first.
 - **Nudges**: arrow keys move by 1 px (⇧: 10). Repeated nudges within a moment are one undo step.
+- **Reordering**: a row of the Layers panel dragged between two others moves there (a line shows where), one undo
+  step. Layers' thumbnails are the layer as it's placed on the canvas, alone, rendered by the same renderer.
 
 ## Transform and view
 
@@ -114,8 +116,10 @@ Pointer capture keeps a gesture alive outside the canvas.
 
 ## Effects
 
-- **Adding**: exposure and curves are adjustment layers. Glow goes on a layer's effects. A flare is a generator layer
-  with a source handle on the canvas.
+- **Adding**: exposure and curves are adjustment layers, made from the Layers panel's half-filled circle (above the
+  selected layer, as Photoshop's), shown in Layers with their icon and settings in a few words, edited in
+  Properties (sliders with fields; Curves' graph, research/adjustments.md). Glow goes on a layer's effects. A flare
+  is a generator layer with a source handle on the canvas.
 - **Undo**: a slider drag or a handle drag is one undo step.
 - **Bypass and remove**: bypass keeps the settings; remove is undoable.
 - **Presets**: preview without touching history, then apply in one step.

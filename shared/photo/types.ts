@@ -3,12 +3,14 @@
  * top. Coordinates are document pixels, x right, y down, from the top-left pixel edge. A document never holds
  * pixels: an image layer names project media, and later layers will name surfaces by hash.
  *
- * F1 has image layers only (a placed source, kept whole: transforming resamples the source, never the last result).
- * Other kinds arrive with their renderers, through versioned migrations.
+ * Image layers (a placed source, kept whole: transforming resamples the source, never the last result) and, from
+ * version 2, adjustment layers (exposure, curves: they change what's below them). Other kinds arrive with their
+ * renderers, through versioned migrations (`normalizePhotoProject`).
  */
 import type { DocumentBase } from "../suites.ts";
 
-export const PHOTO_VERSION = 1;
+/** 2: adjustment layers. A version-1 document is a valid version-2 one; an older app refuses a version-2 one. */
+export const PHOTO_VERSION = 2;
 
 /**
  * Where a layer is: its centre in document pixels, its scale (negative mirrors) and its rotation in degrees,
@@ -40,7 +42,43 @@ export interface ImageLayer extends LayerBase {
   transform: LayerTransform;
 }
 
-export type PhotoLayer = ImageLayer;
+/**
+ * A curve's points as Photoshop shows them: [input, output] on 0..255 (fractions allowed), strictly increasing
+ * input. 2 to 16 of them (`MAX_CURVE_POINTS`).
+ */
+export type CurvePoints = [number, number][];
+
+/** Curves' parameter: the composite curve and one per channel (each applied before the composite). */
+export interface CurveSet {
+  rgb: CurvePoints;
+  red: CurvePoints;
+  green: CurvePoints;
+  blue: CurvePoints;
+}
+
+/** A parameter's value: what the definitions' specs allow (`shared/photo/effects/params.ts`). */
+export type EffectParamValue = number | boolean | string | CurveSet;
+
+/**
+ * An effect as a document holds it (docs/photo/effects/system.md, "Definition and instance"): its type and the
+ * definition's version it was made with, and its parameters, validated by that definition. One whose type or
+ * version this app doesn't know is kept exactly as it was and shown as unavailable, never reinterpreted.
+ */
+export interface EffectInstance {
+  id: string;
+  type: string;
+  version: number;
+  enabled: boolean;
+  params: Record<string, EffectParamValue>;
+}
+
+/** An adjustment layer: its effect changes what's below it (Photoshop's adjustment layers), faded by its opacity. */
+export interface AdjustmentLayer extends LayerBase {
+  kind: "adjustment";
+  effect: EffectInstance;
+}
+
+export type PhotoLayer = ImageLayer | AdjustmentLayer;
 
 export interface PhotoCanvas {
   /** Whole document pixels. */

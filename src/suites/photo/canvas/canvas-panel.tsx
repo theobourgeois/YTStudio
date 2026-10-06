@@ -13,7 +13,7 @@ import { contains } from "@shared/photo/layers";
 import { CANVAS_PRESETS, type PhotoLayer, type PhotoProject } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { liveRenderer } from "../live";
+import { liveRenderer, useRenderState } from "../live";
 import { GpuUnavailableError } from "../render/gpu";
 import type { PhotoRenderer } from "../render/renderer";
 import { photoGesture, useLayerSize, usePhoto, usePhotoDoc } from "../store";
@@ -157,7 +157,8 @@ export function CanvasPanel() {
     if (usePhotoUi.getState().autoSelect) usePhotoUi.getState().select(layerAt(doc, at.x, at.y)?.id ?? null);
     const id = usePhotoUi.getState().selectedLayerId;
     const layer = id ? doc.layers.find((l) => l.id === id) : undefined;
-    if (!layer) return;
+    // Only images have a place to move (an adjustment changes everything below it).
+    if (layer?.kind !== "image") return;
     const base = layer.transform;
     const gesture = photoGesture();
     startPointerDrag(e, {
@@ -208,13 +209,13 @@ export function CanvasPanel() {
   );
 }
 
-/** The topmost visible layer whose pixels are under document point (x, y). */
+/** The topmost visible image layer whose pixels are under document point (x, y). */
 function layerAt(doc: PhotoProject, x: number, y: number): PhotoLayer | undefined {
   const { assets } = usePhoto.getState();
   for (let i = doc.layers.length - 1; i >= 0; i--) {
     const l = doc.layers[i];
     const size = sizeOf(l, assets);
-    if (l.visible && size && contains(l.transform, size, x, y)) return l;
+    if (l.kind === "image" && l.visible && size && contains(l.transform, size, x, y)) return l;
   }
   return undefined;
 }
@@ -223,7 +224,8 @@ function layerAt(doc: PhotoProject, x: number, y: number): PhotoLayer | undefine
 function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { x: number; y: number } }) {
   const view = usePhotoUi((s) => s.view);
   const selected = usePhotoUi((s) => s.selectedLayerId);
-  const layer = usePhotoDoc((d) => d.layers.find((l) => l.id === selected));
+  const found = usePhotoDoc((d) => d.layers.find((l) => l.id === selected));
+  const layer = found?.kind === "image" ? found : undefined;
   const size = useLayerSize(layer?.mediaId);
   if (!view || !layer || !size) return null;
   const dpr = devicePixelRatio;
@@ -344,7 +346,8 @@ function StatusBar({ renderer }: { renderer: PhotoRenderer | null }) {
     const id = setInterval(() => setTick((t) => t + 1), 250);
     return () => clearInterval(id);
   }, [renderer]);
-  const loading = renderer ? layers.map((l) => renderer.sourceState(l.mediaId)).filter((s) => s.state === "loading") : [];
+  const refining = useRenderState((s) => s.refine === "refining");
+  const loading = renderer ? layers.flatMap((l) => (l.kind === "image" ? [renderer.sourceState(l.mediaId)] : [])).filter((s) => s.state === "loading") : [];
   return (
     <div className="flex h-6 shrink-0 items-center gap-3 border-t border-line bg-surface-1 px-3 text-[11px] text-muted-foreground" data-photo-status>
       {/* 100% is one image pixel per screen pixel (ux.md, "Transform and view"). */}
@@ -353,6 +356,10 @@ function StatusBar({ renderer }: { renderer: PhotoRenderer | null }) {
         {canvas.width} × {canvas.height} px
       </span>
       {loading.length > 0 && <span>Loading {loading.length === 1 ? "an image" : `${loading.length} images`}…</span>}
+      {/* Below 100%, curves and the like show at the view's level first; the full-resolution result follows. */}
+      <span className={cn("transition-opacity", refining ? "opacity-100" : "opacity-0")} data-refine={refining ? "refining" : "settled"} aria-live="polite">
+        {refining ? "Refining…" : ""}
+      </span>
     </div>
   );
 }

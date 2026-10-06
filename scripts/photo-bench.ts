@@ -1,13 +1,16 @@
 /**
- * The photo suite's F0 bench (docs/photo/foundations-prototype.md, "F0"): starts its own server and Vite (ports
- * 5340/5341, a throwaway data dir), uploads the fixtures (`scripts/photo-fixtures.ts`), and runs the lab's
- * scenarios in headless Chrome and in an Electron hidden window, at 256- and 512-pixel tiles. Each runner starts
- * with the server's decode cache empty, so opens are cold. Prints a summary and writes everything as JSON.
+ * The photo suite's bench (docs/photo/foundations-prototype.md, "Performance targets"): starts its own server and
+ * Vite (ports 5340/5341, a throwaway data dir), makes photo projects of the fixtures (`scripts/photo-fixtures.ts`),
+ * and runs the suite's scenarios in the real workspace (`src/suites/photo/bench.ts`): cold opens, pan and zoom,
+ * adjustment drags and their refinement, export, device loss, a tight budget. In headless Chrome and in an
+ * Electron hidden window. Prints a summary and writes everything as JSON.
  *
- *   pnpm tsx scripts/photo-bench.ts [--runner chrome|electron] [--tiles 256,512] [--quick] [--out file.json]
+ *   pnpm tsx scripts/photo-bench.ts [--runner chrome|electron] [--quick] [--out file.json]
+ *   pnpm tsx scripts/photo-bench.ts --lab [--tiles 256,512] [--quick]
  *
- * `--quick` skips the 100 MP image and the 48 MP export. `--shots dir` instead saves screenshots of the canvas
- * (fit, 100% with a stroke, the P3 photo, a pan mid-load) for looking at.
+ * `--lab` runs F0's lab instead (`photo-lab.html`, `src/suites/photo/lab/`): the renderer's parts the suite doesn't
+ * use yet (strokes, the blur's seams, P3, f16 rounding, 16-bit precision), at both tile sizes. `--quick` skips the
+ * 100 MP image (and the lab's 48 MP export). `--shots dir` saves screenshots of the lab's canvas instead.
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -25,11 +28,19 @@ type PlanStep =
 /** What the lab page puts on `window` (src/suites/photo/lab/lab.tsx). */
 type LabWindow = { photoLab?: { ready: Promise<void>; bench: { runPlan(steps: PlanStep[]): Promise<unknown> } } };
 
+/** A step of the suite's `runPlan` (src/suites/photo/bench.ts `BenchStep`). */
+type SuiteStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk"; label?: string; budgetMB?: number };
+
+/** What the app puts on `window` in development (src/suites/photo/live.ts). */
+type SuiteWindow = { photoBench?: { load(): Promise<{ runPlan(steps: SuiteStep[]): Promise<unknown> }> } };
+
 const WEB_PORT = "5340";
 const SERVER_PORT = "5341";
 const ROOT = path.resolve(import.meta.dirname, "..");
 const FIXTURES = path.join(ROOT, "data", "photo-fixtures");
 const VIEW = { width: 1920, height: 1080 };
+/** The suite's window: its canvas panel is then about 1920 × 1080 device pixels (the bench reports what it got). */
+const WINDOW = { width: 2240, height: 1300 };
 
 const args = process.argv.slice(2);
 const option = (name: string) => {
@@ -37,8 +48,9 @@ const option = (name: string) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 const quick = args.includes("--quick");
+const lab = args.includes("--lab") || args.includes("--shots");
 const runners = (option("--runner") ?? "chrome,electron").split(",");
-const tiles = (option("--tiles") ?? "256,512").split(",").map(Number) as (256 | 512)[];
+const tiles = lab ? ((option("--tiles") ?? "256,512").split(",").map(Number) as (256 | 512)[]) : [256 as const];
 const outFile = option("--out") ?? path.join(ROOT, "data", "photo-bench", `${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "photo-bench-"));
@@ -72,6 +84,8 @@ async function waitFor(url: string) {
 
 const api = `http://127.0.0.1:${SERVER_PORT}/api/photo/lab`;
 const pageUrl = `http://localhost:${WEB_PORT}/photo-lab.html`;
+const appUrl = `http://localhost:${WEB_PORT}/`;
+const server = `http://127.0.0.1:${SERVER_PORT}`;
 
 function plan(tile: 256 | 512): PlanStep[] {
   const start = (budgetMB: number): PlanStep => ({ start: { tile, budgetMB, ...VIEW } });
@@ -103,7 +117,7 @@ function plan(tile: 256 | 512): PlanStep[] {
   ];
 }
 
-async function runChrome(steps: PlanStep[]) {
+async function runChrome(steps: PlanStep[] | SuiteStep[]) {
   // The flags server/gl-browser.ts launches the export's Chromium with: Metal WebGPU on a Mac.
   const launchArgs = ["--ignore-gpu-blocklist", "--enable-unsafe-swiftshader", ...(process.platform === "darwin" ? ["--use-angle=metal", "--enable-gpu"] : [])];
   let browser;
@@ -113,26 +127,37 @@ async function runChrome(steps: PlanStep[]) {
     browser = await chromium.launch({ args: launchArgs });
   }
   try {
-    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    const page = await browser.newPage({ viewport: lab ? { width: 1600, height: 1000 } : WINDOW });
     page.on("pageerror", (e) => console.error("[page]", e.message));
-    await page.goto(pageUrl);
-    await page.waitForFunction(() => (window as LabWindow).photoLab !== undefined);
-    const results = await page.evaluate(async (s) => {
-      const lab = (window as LabWindow).photoLab!;
-      await lab.ready;
-      return lab.bench.runPlan(s);
-    }, steps);
+    if (lab) {
+      await page.goto(pageUrl);
+      await page.waitForFunction(() => (window as LabWindow).photoLab !== undefined);
+      const results = await page.evaluate(async (s) => {
+        const lab = (window as LabWindow).photoLab!;
+        await lab.ready;
+        return lab.bench.runPlan(s);
+      }, steps);
+      return { browser: browser.version(), results };
+    }
+    await page.goto(appUrl);
+    await page.waitForFunction(() => (window as SuiteWindow).photoBench !== undefined);
+    const results = await page.evaluate(async (s) => (await (window as SuiteWindow).photoBench!.load()).runPlan(s), steps as SuiteStep[]);
     return { browser: browser.version(), results };
   } finally {
     await browser.close();
   }
 }
 
-async function runElectron(steps: PlanStep[]) {
+async function runElectron(steps: PlanStep[] | SuiteStep[]) {
   const electron = createRequire(import.meta.url)("electron") as unknown as string;
   return new Promise<unknown>((resolve, reject) => {
     const child = spawn(electron, [path.join(ROOT, "scripts", "photo-bench-electron.cjs")], {
-      env: { ...env, PHOTO_BENCH_URL: pageUrl, PHOTO_BENCH_PLAN: JSON.stringify(steps) },
+      env: {
+        ...env,
+        PHOTO_BENCH_URL: lab ? pageUrl : appUrl,
+        PHOTO_BENCH_PLAN: JSON.stringify(steps),
+        ...(lab ? { PHOTO_BENCH_LAB: "1" } : { PHOTO_BENCH_WIDTH: String(WINDOW.width), PHOTO_BENCH_HEIGHT: String(WINDOW.height) }),
+      },
       stdio: ["ignore", "pipe", "inherit"],
     });
     let out = "";
@@ -160,12 +185,52 @@ children.push(
   spawn("pnpm", ["exec", "vite", "--port", WEB_PORT, "--strictPort"], { cwd: ROOT, env, stdio: "ignore", detached: true }),
 );
 await waitFor(`${api}/helper`);
-await waitFor(pageUrl);
+await waitFor(lab ? pageUrl : appUrl);
 
-const names = ["noise-48mp.jpg", "blur-detail.png", "p3-patches.png", "alpha-gradient.png", "ramp-8bit.png", "orientation-6.jpg", "ramp-16bit.png", ...(quick ? [] : ["noise-100mp.jpg"])];
-for (const name of names) {
-  const res = await fetch(`${api}/sources?name=${name}`, { method: "POST", body: fs.readFileSync(path.join(FIXTURES, name)) });
-  if (!res.ok) throw new Error(`Uploading ${name}: ${res.status} ${await res.text()}`);
+if (lab) {
+  const names = ["noise-48mp.jpg", "blur-detail.png", "p3-patches.png", "alpha-gradient.png", "ramp-8bit.png", "orientation-6.jpg", "ramp-16bit.png", ...(quick ? [] : ["noise-100mp.jpg"])];
+  for (const name of names) {
+    const res = await fetch(`${api}/sources?name=${name}`, { method: "POST", body: fs.readFileSync(path.join(FIXTURES, name)) });
+    if (!res.ok) throw new Error(`Uploading ${name}: ${res.status} ${await res.text()}`);
+  }
+}
+
+/** A photo project of a fixture: the image as its canvas, at 100% (as opening a file makes one). */
+async function photoProject(name: string): Promise<string> {
+  const created = await fetch(`${server}/api/projects`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ suite: "photo", name }) });
+  if (!created.ok) throw new Error(`Creating ${name}: ${created.status} ${await created.text()}`);
+  const { id } = (await created.json()) as { id: string };
+  const uploaded = await fetch(`${server}/api/media?projectId=${id}&name=${encodeURIComponent(name)}`, { method: "POST", body: fs.readFileSync(path.join(FIXTURES, name)) });
+  if (!uploaded.ok) throw new Error(`Uploading ${name}: ${uploaded.status} ${await uploaded.text()}`);
+  const media = (await uploaded.json()) as { id: string; width: number; height: number };
+  const doc = {
+    version: 2,
+    name,
+    canvas: { width: media.width, height: media.height, background: null },
+    output: { highlights: "film" },
+    layers: [{ id: "layer_bench", kind: "image", name, visible: true, opacity: 1, mediaId: media.id, transform: { x: media.width / 2, y: media.height / 2, scaleX: 1, scaleY: 1, rotation: 0 } }],
+  };
+  const saved = await fetch(`${server}/api/projects/${id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(doc) });
+  if (!saved.ok) throw new Error(`Saving ${name}: ${saved.status} ${await saved.text()}`);
+  return id;
+}
+
+/** The suite's plan: each photo opened cold, then the scenarios on the 48 MP one (`src/suites/photo/bench.ts`). */
+async function suitePlan(): Promise<SuiteStep[]> {
+  const p48 = await photoProject("noise-48mp.jpg");
+  const p100 = quick ? null : await photoProject("noise-100mp.jpg");
+  return [
+    { open: p48 },
+    { run: "reopen", label: "reopen 48MP" },
+    { run: "panZoom" },
+    { run: "adjustExposure" },
+    { run: "adjustCurves" },
+    { run: "exportPng", label: "exportPng 48MP" },
+    { run: "deviceLoss" },
+    // F0's budgets: the 48 MP image in 256 MB, the 100 MP one in 1 GB (its levels above level 0 alone are ~270 MB).
+    { run: "budgetWalk", label: "budgetWalk 48MP @256MB", budgetMB: 256 },
+    ...(p100 ? [{ open: p100 } as SuiteStep, { run: "budgetWalk", label: "budgetWalk 100MP @1GB", budgetMB: 1024 } as SuiteStep] : []),
+  ];
 }
 
 const shotsDir = option("--shots");
@@ -230,10 +295,12 @@ const report: Record<string, unknown> = { date: new Date().toISOString(), machin
 for (const runner of runners) {
   for (const tile of tiles) {
     await fetch(`${api}/cache`, { method: "DELETE" });
-    const label = `${runner} ${tile}`;
+    const label = lab ? `lab ${runner} ${tile}` : `suite ${runner}`;
     console.log(`\n=== ${label} ===`);
     const started = Date.now();
-    const result = runner === "electron" ? await runElectron(plan(tile)) : await runChrome(plan(tile));
+    // The suite's projects are made afresh for each runner, so its opens are cold on the server too.
+    const steps = lab ? plan(tile) : await suitePlan();
+    const result = runner === "electron" ? await runElectron(steps) : await runChrome(steps);
     (report.runs as Record<string, unknown>)[label] = result;
     const r = result as { results?: { step: string; ms: number; result?: unknown; error?: string }[]; error?: string };
     if (r.error) console.log("  FAILED:", r.error);

@@ -5,7 +5,7 @@
  */
 import type { Size } from "@shared/photo/geometry";
 import { corners } from "@shared/photo/layers";
-import type { LayerTransform } from "@shared/photo/types";
+import type { LayerTransform, PhotoProject } from "@shared/photo/types";
 
 /** A corner or edge, by its place on the source: x and y each 0 (left/top), 0.5 (middle) or 1 (right/bottom). */
 export interface Handle {
@@ -99,4 +99,14 @@ export function fitted(t: LayerTransform, size: Size, canvas: Size, mode: "conta
   const h = Math.abs(size.width * Math.sin(r)) + Math.abs(size.height * Math.cos(r));
   const f = mode === "contain" ? Math.min(canvas.width / w, canvas.height / h) : Math.max(canvas.width / w, canvas.height / h);
   return { ...t, x: canvas.width / 2, y: canvas.height / 2, scaleX: Math.sign(t.scaleX || 1) * f, scaleY: Math.sign(t.scaleY || 1) * f };
+}
+
+/** Whether an image layer moved between two documents (its transform is a new object only when it changed). */
+export function layersMoved(prev: PhotoProject | undefined, next: PhotoProject | undefined): boolean {
+  if (!prev || !next) return false;
+  const before = new Map(prev.layers.map((l) => [l.id, l]));
+  return next.layers.some((l) => {
+    const was = before.get(l.id);
+    return l.kind === "image" && was?.kind === "image" && was.transform !== l.transform;
+  });
 }

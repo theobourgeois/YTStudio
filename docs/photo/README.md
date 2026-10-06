@@ -1,8 +1,10 @@
 # Photo suite
 
-Status: plan revised and hardened 2026-10-05 (first written 2026-10-03). **F0 and F1 are built**: the renderer, the
-helper and the blob store (F0), and the photo suite itself (F1: new photos, image layers, transforms, export, the
-assistant). Results in [foundations-prototype.md](foundations-prototype.md#f1-results-2026-10-05).
+Status: plan revised and hardened 2026-10-05 (first written 2026-10-03). **F0, F1 and F2 are built**: the renderer,
+the helper and the blob store (F0); the photo suite itself (F1: new photos, image layers, transforms, export, the
+assistant); layers and adjustments (F2: Exposure and Curves adjustment layers, the render plan, refined views, f32
+composites for 16-bit sources). Results in [foundations-prototype.md](foundations-prototype.md#f2-results-2026-10-05).
+F3 (resources, selections, masks and the brush) is next.
 
 A Photoshop-style image editor with dependable layers, masks, painting and retouching, and a particularly strong set
 of editable light effects. The foundations are the application's first version, so the document, resource, colour
@@ -20,7 +22,8 @@ source's profile on the GPU without clipping, and leaves through one output tran
 ## Read in this order
 
 1. [Product](product.md): what it's for, the scope by milestone, boundaries, questions for Théo.
-2. [Photoshop research](research/photoshop-foundations.md): reference behaviour and our differences.
+2. [Photoshop research](research/photoshop-foundations.md): reference behaviour and our differences; per feature
+   family: [adjustments](research/adjustments.md) (Exposure, Curves).
 3. [Architecture](architecture.md): where work happens, the document, resources, persistence, platform integration.
 4. [Rendering](rendering.md): colour, formats and precision, resampling, the output transform, tiles, the evaluator.
 5. [UX](ux.md): workspace, keys and interaction contracts for the first workflow.
@@ -62,5 +65,11 @@ and **Unverified** (an open question). Théo's corrections override the referenc
 | A10 | Kernels round to the nearest half themselves before storing f16 (2026-10-05, F0) | Metal truncates on f16 storage writes and the compiler drops `quantizeToF16`: both measured | A backend that rounds on store |
 | A11 | A layer's place is centre, scale and rotation (`LayerTransform`), not a matrix (2026-10-05, F1) | Typed values stay exact (100% is 1, not 0.9999…); the UI and the assistant speak in these | Skew or perspective: a matrix, by migration |
 | A12 | Layers whose pixels land on the target's are read texel for texel (2026-10-05, F1) | Mitchell softens even at 100%: an unedited export wouldn't be bit-exact | — |
+| A13 | An adjustment layer holds one `EffectInstance` (id, type, version, enabled, params); document version 2 (2026-10-05, F2) | Layer effects (F4) reuse the instance; an unknown or newer one is kept as it was | — |
+| A14 | Curves' points are stored as Photoshop shows them, `[input, output]` on 0..255; channel curve, then the composite; natural cubic spline (2026-10-05, F2) | Typed, written by the assistant and saved alike; the order and spline's ends are unverified (research/adjustments.md) | Théo's check in Photoshop says otherwise: a new definition version |
+| A15 | Exposure keeps Photoshop's three controls in linear light; gamma's power is 1 / gamma, mirrored below 0 (2026-10-05, F2) | Photoshop's control set; with gamma 1 it commutes with reduction | The direction is unverified: a new version if Photoshop's is the other way |
+| A16 | Identity adjustments are left out of the render plan (2026-10-05, F2) | Identity is then exact by construction, whatever the kernel's rounding | — |
+| A17 | A refined view is the plan at level 0 over regions, reduced by the sources' own 2 × 2 box to the view's level, then sampled with Mitchell as a source is; shown only while it's still what the screen should show (2026-10-05, F2) | Commuting plans then give the same result at the view's level (measured within 4 × 10⁻³); the newest edit always wins | Large glows (F4) need their pyramid's alignment |
+| A18 | The screen keeps the composite below each adjustment (by its prefix key) and resumes from it (2026-10-05, F2) | A slider drag re-runs only the adjustment and what's above (counted) | Memory: four screen-sized buffers |
 
 Progress, measurements and gates live in [foundations-prototype.md](foundations-prototype.md).

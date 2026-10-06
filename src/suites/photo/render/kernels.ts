@@ -25,7 +25,7 @@ export type StorageFormat = "rgba16float" | "rgba32float";
  * is rounded to its top 10 bits, ties to even, by integer arithmetic; the truncating store then keeps it exactly.
  * (Below f16's normal range it still truncates: an error under 6e-8.) f32 atlases store as they are.
  */
-const ROUND_FOR_STORE = (format: StorageFormat) =>
+export const ROUND_FOR_STORE = (format: StorageFormat) =>
   format === "rgba16float"
     ? /* wgsl */ `
 fn round_half(x: f32) -> f32 {
