@@ -38,7 +38,8 @@ import { photoApi } from "../api.ts";
 import type { SurfacePart } from "../paint-target.ts";
 import { type SurfaceUploads, uploadsFor } from "../uploads.ts";
 import type { AtlasFormat } from "./atlas.ts";
-import { COMPOSITE_FORMATS, Compositor, type Drawable, type EvaluatorStats, type LayerDraw, type PlanSources, type Quality, type WorkPair, compositeTexture } from "./compositor.ts";
+import { planFields } from "./style.ts";
+import { COMPOSITE_FORMATS, Compositor, type Drawable, type EvaluatorStats, type LayerDraw, type PlanSources, type Quality, type WorkPair, compositeTexture, needsPass } from "./compositor.ts";
 import { RenderContext } from "./context.ts";
 import { GlowCaches } from "./glow-cache.ts";
 import { type Gpu, createGpu } from "./gpu.ts";
@@ -238,7 +239,7 @@ export class PhotoRenderer {
   }
 
   /** The screen's counted work (image draws, adjustment passes, resumes from kept composites): pictures' isn't. */
-  readonly stats: EvaluatorStats = { imageDraws: 0, adjustmentPasses: 0, resumed: 0 };
+  readonly stats: EvaluatorStats = { imageDraws: 0, adjustmentPasses: 0, blendPasses: 0, stylePasses: 0, resumed: 0 };
 
   /** What each image is doing (the Layers panel shows missing and failed ones). */
   sourceState(mediaId: string): SourceState {
@@ -431,6 +432,8 @@ export class PhotoRenderer {
     },
     mask: (node: { layerId: string }): Drawable | null => this.surfaceOf(node.layerId, "mask"),
     glowCache: (node, index) => this.glows.lookup(node, index),
+    // A styled layer's fields follow its pixels and mask as they change (strokes, tiles arriving).
+    revision: (node: DrawNode) => `${this.residency}|${this.surfaceOf(node.layerId, "content")?.revision ?? ""}|${this.surfaceOf(node.layerId, "mask")?.revision ?? ""}`,
   };
 
   /** Whether every image the plan draws has loaded (or can't), and every surface shows its pixels: only then is a refinement final. */
@@ -459,6 +462,11 @@ export class PhotoRenderer {
       if (node.kind !== "image") continue;
       const image = this.sources.get(node.mediaId)?.image;
       if (!image) continue;
+      // A styled image's fields are made from all of it, at their level: level 0's tiles are fetched (the rest are
+      // always there).
+      if (node.style && planFields(node, image.image.levels.length).level === 0) {
+        fetched += await image.ensureVisible({ x: 0, y: 0, width: image.layout.width, height: image.layout.height, zoom: 1 });
+      }
       const matrix = layerMatrix(node.transform, image.layout);
       const scale = layerScale(node.transform);
       if (levelForScale(view.zoom * scale, image.image.levels.length) !== 0) continue;
@@ -546,7 +554,7 @@ export class PhotoRenderer {
       const keptKey = (index: number) => `${keyBelow(plan, index)}|${viewKey}|${quality}|${this.residency}`;
       let from: { index: number; texture: GPUTexture } | undefined;
       for (let i = plan.nodes.length - 1; i >= 0 && !from; i--) {
-        const texture = plan.nodes[i].kind === "adjustment" ? screen.kept.get(keptKey(i)) : undefined;
+        const texture = needsPass(plan.nodes[i]) ? screen.kept.get(keptKey(i)) : undefined;
         if (texture) {
           from = { index: i, texture };
           screen.kept.delete(keptKey(i));
@@ -813,8 +821,9 @@ export class PhotoRenderer {
     // The mask drawn as light over black (it holds its value in every channel): its grey.
     const plan: RenderPlan = {
       canvas: size,
+      compositing: "linear",
       background: [0, 0, 0, 1],
-      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, filters: [], contentKey: "mask", commutesFrom: 0, commutes: true, key: "mask" }],
+      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, blend: null, style: null, filters: [], contentKey: "mask", commutesFrom: 0, commutes: true, key: "mask" }],
       baseKey: "mask",
       prefixKeys: ["mask"],
       key: "mask",
@@ -1065,7 +1074,12 @@ export class PhotoRenderer {
     const width = Math.max(1, Math.min(30_000, Math.ceil(Math.min(Math.max(...corners.map((p) => p.x)) + reach, s ? s.x + s.width : Infinity) - 1e-6) - x0));
     const height = Math.max(1, Math.min(30_000, Math.ceil(Math.min(Math.max(...corners.map((p) => p.y)) + reach, s ? s.y + s.height : Infinity) - 1e-6) - y0));
     // The layer alone, opaque (its opacity stays the layer's), in an f16 composite: the surface's own format.
-    const alone: PhotoProject = { ...doc, canvas: { width, height, background: null }, layers: [{ ...layer, opacity: 1, visible: true }] };
+    // Plain and in linear light: its pixels as they are, whatever its blending (which stays the layer's).
+    const plain = { ...layer, opacity: 1, visible: true };
+    delete plain.blend;
+    delete plain.fill;
+    delete plain.blending;
+    const alone: PhotoProject = { ...doc, compositing: "linear", canvas: { width, height, background: null }, layers: [plain] };
     const plan = compileRender(alone, this.facts(), { float32: false });
     this.glows.glowsOf(plan);
     await this.glows.ensure(plan);

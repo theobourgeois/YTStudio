@@ -4,6 +4,11 @@
  * and what there is to choose from.
  */
 import { createId } from "@shared/ids";
+import { BLEND_IF_CHANNELS, BLEND_MODES, type BlendingPatch, compositingOf, describeBlending, isBlendMode, normalizeRange } from "@shared/photo/blending";
+import { contourPreset } from "@shared/photo/style/contours";
+import { STYLE_LIST, styleDefinition } from "@shared/photo/style/definitions";
+import { gradientPreset } from "@shared/photo/style/gradients";
+import { addStyleEffect, describeStyle, globalLightOf, newStyleEffect, removeStyleEffect, setGlobalLight, setLayerStyle, setStyleEffect, setStyleEnabled } from "@shared/photo/style/style";
 import {
   addAdjustmentLayer,
   addFilter,
@@ -18,12 +23,14 @@ import {
   removeMask,
   resetEffect,
   setCanvas,
+  setCompositing,
   setEffectParams,
   setFilter,
   setFiltersEnabled,
   setGeneratorBlend,
   setHandle,
   setHighlights,
+  setLayerBlending,
   setMask,
   setTransform,
   updateLayer,
@@ -157,6 +164,10 @@ export function describeFilters(layer: ContentLayer): string[] {
 /** One layer as the model reads it. */
 export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], index: number): string {
   const faded = !layer.visible || layer.opacity < 1 ? [`   ${layer.visible ? "" : "hidden, "}opacity ${round(layer.opacity)}`] : [];
+  const blending = describeBlending(layer);
+  if (blending) faded.push(`   blending: ${blending}`);
+  const style = describeStyle(layer);
+  if (style) faded.push(`   effects (top first): ${style}`);
   const mask = layer.mask ? [`   mask: ${layer.mask.surface ? "painted (hides parts of it)" : "reveals everything (nothing painted on it yet)"}`] : [];
   if (layer.kind === "adjustment") return [`${index}. ${layer.id} "${layer.name}": adjustment layer (changes everything below it)`, `   ${describeAdjustment(layer)}`, ...mask, ...faded].join("\n");
   const filters = describeFilters(layer);
@@ -182,7 +193,7 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
 /** `get_photo`: the canvas and the layers, top down. */
 export function describePhoto(doc: PhotoProject, assets: readonly MediaAsset[], selected: readonly string[], selection: PhotoSelection | null = null): string {
   const lines = [
-    `"${doc.name}": canvas ${doc.canvas.width}×${doc.canvas.height} px, background ${doc.canvas.background ?? "transparent"}, highlights ${doc.output.highlights} (light brighter than white ${doc.output.highlights === "film" ? "rolls towards white" : "is clipped"}).`,
+    `"${doc.name}": canvas ${doc.canvas.width}×${doc.canvas.height} px, background ${doc.canvas.background ?? "transparent"}, layers mix ${compositingOf(doc) === "photoshop" ? "as Photoshop's (encoded values)" : "in linear light"}, highlights ${doc.output.highlights} (light brighter than white ${doc.output.highlights === "film" ? "rolls towards white" : "is clipped"}).`,
     doc.layers.length ? `Layers, top first (${doc.layers.length}):` : "No layers yet.",
     ...[...doc.layers].reverse().map((l) => describeLayer(l, assets, doc.layers.indexOf(l))),
   ];
@@ -271,6 +282,128 @@ export const setLayerTool: PhotoEdit = (doc, input) => {
     layerId: layer.id,
     text: `Layer "${after.name}": ${after.visible ? "shown" : "hidden"}, opacity ${round(after.opacity)}, ${next.layers.indexOf(after)} of ${next.layers.length - 1} from the bottom.`,
   };
+};
+
+/** `set_layer_blending`: Blending Options on layers, checked strictly (an error says what's allowed). */
+export const setLayerBlendingTool: PhotoEdit = (doc, input) => {
+  const refs = Array.isArray(input.layers) ? input.layers : input.layer !== undefined ? [input.layer] : [];
+  if (!refs.length) throw new Error("Give layers: a list of layer ids or names.");
+  const ids = refs.map((r) => findLayerRef(doc, r).id);
+  const patch: BlendingPatch = {};
+  if (input.mode !== undefined) {
+    if (!isBlendMode(input.mode)) throw new Error(`mode must be one of: ${BLEND_MODES.map((m) => m.id).join(", ")}.`);
+    patch.blend = input.mode;
+  }
+  for (const key of ["opacity", "fill"] as const) {
+    const v = num(input[key]);
+    if (v === undefined) continue;
+    if (v < 0 || v > 1) throw new Error(`${key} must be from 0 to 1 (${key === "fill" ? "Fill" : "Opacity"} 50% is 0.5).`);
+    patch[key] = v;
+  }
+  if (input.channels !== undefined) {
+    if (!input.channels || typeof input.channels !== "object") throw new Error('channels is { "r": true, "g": false, "b": true }.');
+    const c = input.channels as Record<string, unknown>;
+    patch.channels = Object.fromEntries((["r", "g", "b"] as const).filter((k) => typeof c[k] === "boolean").map((k) => [k, c[k]]));
+  }
+  if (input.blendIf === null) patch.blendIf = null;
+  else if (input.blendIf !== undefined) {
+    if (typeof input.blendIf !== "object") throw new Error('blendIf is { "gray": { "layer": [0, 0, 255, 255], "underlying": [0, 0, 255, 255] } }, or null to clear it.');
+    const out: NonNullable<BlendingPatch["blendIf"]> = {};
+    for (const [entry, value] of Object.entries(input.blendIf as Record<string, unknown>)) {
+      if (!(BLEND_IF_CHANNELS as readonly string[]).includes(entry)) throw new Error(`blendIf's entries are ${BLEND_IF_CHANNELS.join(", ")}; "${entry}" isn't one.`);
+      if (value === null) {
+        out[entry as (typeof BLEND_IF_CHANNELS)[number]] = null;
+        continue;
+      }
+      const v = (value ?? {}) as Record<string, unknown>;
+      const side = (name: "layer" | "underlying") => {
+        if (v[name] === undefined) return undefined;
+        const r = normalizeRange(v[name]);
+        if (!r) throw new Error(`blendIf.${entry}.${name} must be four numbers on 0..255: [black low, black high, white low, white high].`);
+        return r;
+      };
+      out[entry as (typeof BLEND_IF_CHANNELS)[number]] = { layer: side("layer"), underlying: side("underlying") };
+    }
+    patch.blendIf = out;
+  }
+  const next = setLayerBlending(doc, ids, patch);
+  const lines = ids.map((id) => {
+    const l = findLayer(next, id)!;
+    return `"${l.name}": ${describeBlending(l) ?? "Normal"}, opacity ${round(l.opacity)}`;
+  });
+  return { doc: next, layerId: ids[0], text: next === doc ? `Nothing changed: ${lines.join("; ")}.` : `Blending: ${lines.join("; ")}.` };
+};
+
+/** A model's effect parameters, with contours and gradients by preset name allowed. */
+function effectParams(raw: unknown): Record<string, unknown> {
+  if (raw === undefined) return {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error('params is an object of parameters, e.g. { "size": 12, "opacity": 50 }.');
+  const out: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+  if (typeof out.contour === "string") {
+    const c = contourPreset(out.contour);
+    if (!c) throw new Error(`No contour "${out.contour}": Linear, Cone, Cone - Inverted, Cove - Deep, Cove - Shallow, Gaussian, Half Round, Ring, Ring - Double, Rolling Slope - Descending, Rounded Steps, Sawtooth 1.`);
+    out.contour = c;
+  }
+  if (typeof out.gradient === "string") {
+    const g = gradientPreset(out.gradient);
+    if (!g) throw new Error(`No gradient preset "${out.gradient}": give its stops instead.`);
+    out.gradient = g;
+  }
+  return out;
+}
+
+/** `set_layer_style`: a layer's effects added, changed, hidden or removed. */
+export const setLayerStyleTool: PhotoEdit = (doc, input) => {
+  const layer = findLayerRef(doc, input.layer);
+  if (layer.kind === "adjustment") throw new Error(`"${layer.name}" is an adjustment layer: it has Blending Options (set_layer_blending) but no effects. Give an image or pixel layer.`);
+  let next = doc;
+  const said: string[] = [];
+  if (input.clear === true) {
+    next = setLayerStyle(next, [layer.id], null, () => createId("fx"));
+    said.push("cleared its effects");
+  }
+  if (typeof input.add === "string") {
+    const def = styleDefinition(input.add);
+    if (!def) throw new Error(`No effect "${input.add}". The effects: ${STYLE_LIST.join(", ")}.`);
+    const have = (findLayer(next, layer.id)!.style?.effects ?? []).filter((e) => e.type === def.type).length;
+    if (have >= def.max) throw new Error(`"${layer.name}" has ${have} ${def.label} already, the most it can have: change it with effect "${def.type}" instead.`);
+    const e = newStyleEffect(def.type, createId("fx"), effectParams(input.params))!;
+    next = addStyleEffect(next, layer.id, e);
+    said.push(`added ${def.label} ${e.id}`);
+  } else if (input.effect !== undefined) {
+    const effects = findLayer(next, layer.id)!.style?.effects ?? [];
+    const e = effects.find((x) => x.id === input.effect) ?? [...effects].reverse().find((x) => x.type === input.effect);
+    if (!e) throw new Error(`"${layer.name}" has no effect "${String(input.effect)}". Its effects: ${effects.map((x) => `${x.id} (${x.type})`).join(", ") || "none: add one with add"}.`);
+    if (input.remove === true) {
+      next = removeStyleEffect(next, layer.id, e.id);
+      said.push(`removed ${e.id}`);
+    } else {
+      next = setStyleEffect(next, layer.id, e.id, { enabled: typeof input.enabled === "boolean" ? input.enabled : undefined, params: input.params !== undefined ? effectParams(input.params) : undefined });
+      said.push(`changed ${e.id}`);
+    }
+  }
+  if (typeof input.allEffects === "boolean") {
+    next = setStyleEnabled(next, [layer.id], input.allEffects);
+    said.push(input.allEffects ? "showed its effects" : "hid its effects");
+  }
+  const after = findLayer(next, layer.id)!;
+  return { doc: next, layerId: layer.id, text: `"${after.name}": ${said.join(", ") || "nothing to do"}. Effects (top first): ${describeStyle(after) ?? "none"}.` };
+};
+
+/** `set_global_light`. */
+export const setGlobalLightTool: PhotoEdit = (doc, input) => {
+  const next = setGlobalLight(doc, { angle: num(input.angle), altitude: num(input.altitude) });
+  const g = globalLightOf(next);
+  return { doc: next, text: `Global Light: ${g.angle}°, altitude ${g.altitude}°.` };
+};
+
+/** `copy_layer_style`: one layer's effects and Blending Options onto others. */
+export const copyLayerStyleTool: PhotoEdit = (doc, input) => {
+  const from = findLayerRef(doc, input.from);
+  const to = (Array.isArray(input.to) ? input.to : [input.to]).map((r) => findLayerRef(doc, r));
+  let next = setLayerStyle(doc, to.filter((l) => l.kind !== "adjustment").map((l) => l.id), from.style ?? null, () => createId("fx"));
+  next = setLayerBlending(next, to.map((l) => l.id), { blend: from.blend ?? "normal", fill: from.fill ?? 1, channels: from.blending?.channels ?? { r: true, g: true, b: true }, blendIf: from.blending?.blendIf ?? null, interiorAsGroup: from.blending?.interiorAsGroup ?? false, maskHidesEffects: from.blending?.maskHidesEffects ?? false });
+  return { doc: next, layerId: to[0]?.id, text: `Pasted "${from.name}"'s layer style onto ${to.map((l) => `"${l.name}"`).join(", ")}.` };
 };
 
 /**
@@ -516,8 +649,10 @@ export const setCanvasTool: PhotoEdit = (doc, input) => {
   for (const [name, v] of [["width", width], ["height", height]] as const) {
     if (v !== undefined && (!Number.isInteger(v) || v < 1 || v > 30000)) throw new Error(`${name} must be a whole number of pixels from 1 to 30000.`);
   }
+  if (input.compositing !== undefined && input.compositing !== "photoshop" && input.compositing !== "linear") throw new Error('compositing is "photoshop" or "linear".');
   if (input.highlights !== undefined && input.highlights !== "film" && input.highlights !== "clip") throw new Error('highlights must be "film" or "clip".');
   let next = setCanvas(doc, { width, height, background: background as string | null | undefined }, input.anchor === "centre" ? "centre" : "top-left");
+  if (input.compositing) next = setCompositing(next, input.compositing as "photoshop" | "linear");
   if (input.highlights !== undefined) next = setHighlights(next, input.highlights);
-  return { doc: next, text: `Canvas: ${next.canvas.width}×${next.canvas.height} px, background ${next.canvas.background ?? "transparent"}, highlights ${next.output.highlights}.` };
+  return { doc: next, text: `Canvas: ${next.canvas.width}×${next.canvas.height} px, background ${next.canvas.background ?? "transparent"}, layers mix ${compositingOf(next) === "photoshop" ? "as Photoshop's" : "in linear light"}, highlights ${next.output.highlights}.` };
 };

@@ -96,7 +96,8 @@ export function GeneratorProperties({ layer }: { layer: GeneratorLayer }) {
     );
   }
   const elements = def.params.find((p): p is ElementsParam => p.kind === "elements");
-  const blend = layer.blend === "linear-dodge" ? "add" : "normal";
+  // Add or Normal here; any other mode is the Layers panel's (then neither is pressed).
+  const blend = layer.blend === "linear-dodge" ? "add" : (layer.blend ?? "normal") === "normal" ? "normal" : "";
   return (
     <>
       <Section
