@@ -1600,6 +1600,60 @@ test("links a clip's scale to the song's bass, then to its kicks, and unlinks it
   await expect.poll(link).toBeUndefined();
 });
 
+test("makes signals in the Signals window: a band from the spectrum, hits dragged on their lane, spectrograms", async ({ page }) => {
+  await openLatest(page);
+  await newVideo(page);
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles([FILES[3]]);
+  await expect(page.locator("[draggable=true]").filter({ hasText: "music-20s" }).first()).toBeVisible();
+  await dragAsset(page, "music-20s", await timeX(page, 0.05), await laneY(page, "Audio 1"));
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+  type Signal = { id: string; name: string; kind: string; low?: number; high?: number; events?: { time: number }[] };
+  const signals = async () => ((await savedProject(page)).signals ?? []) as Signal[];
+
+  // The toolbar's Signals opens the window; New band makes a kick (40–120 Hz).
+  await page.getByRole("button", { name: /^Signals/ }).click();
+  const win = page.locator("[data-signals-window]");
+  await expect(win).toBeVisible();
+  await win.getByRole("button", { name: "New band" }).click();
+  await expect.poll(signals).toMatchObject([{ name: "Kick", kind: "band", low: 40, high: 120 }]);
+  // Dragged across the spectrum (log, 20 Hz to 20 kHz): about 200 Hz to 2 kHz.
+  const spectrum = (await win.locator("[data-spectrum]").boundingBox())!;
+  const at = (hz: number) => spectrum.x + (Math.log(hz / 20) / Math.log(1000)) * spectrum.width;
+  await drag(page, { x: at(200), y: spectrum.y + 40 }, { x: at(2000), y: spectrum.y + 40 });
+  await expect.poll(async () => {
+    const [kick] = await signals();
+    return Math.abs(Math.log((kick.low ?? 0) / 200)) < 0.1 && Math.abs(Math.log((kick.high ?? 0) / 2000)) < 0.1;
+  }).toBe(true);
+  // Its lane shows under the ruler, and the meter reads the song once it's analysed.
+  await expect(page.locator("[data-signal-lane]")).toHaveCount(1);
+  await expect(win.locator("[data-signal-meter]")).toContainText("Now");
+
+  // New hits, one at the playhead (1 s): dragged half a second along its lane, then right-clicked away.
+  await win.getByRole("button", { name: "New hits" }).click();
+  await expect.poll(async () => (await signals()).length).toBe(2);
+  const ruler = (await page.locator("[data-timeline-ruler]").boundingBox())!;
+  await page.mouse.click(ruler.x + 60, ruler.y + ruler.height / 2);
+  await win.getByRole("button", { name: "At the playhead" }).click();
+  const hits = async () => (await signals())[1]?.events?.map((e) => Math.round(e.time * 100) / 100);
+  await expect.poll(hits).toEqual([1]);
+  const tick = (await page.locator("[data-hit]").first().boundingBox())!;
+  // Without snapping (the magnet), so it lands where it's let go rather than on a beat.
+  await page.getByRole("button", { name: "Snapping" }).click();
+  await drag(page, { x: tick.x + 1, y: tick.y + tick.height / 2 }, { x: tick.x + 1 + 30, y: tick.y + tick.height / 2 });
+  await expect.poll(hits).toEqual([1.5]);
+  const moved = (await page.locator("[data-hit]").first().boundingBox())!;
+  await page.mouse.click(moved.x + 1, moved.y + moved.height / 2, { button: "right" });
+  await expect.poll(hits).toEqual([]);
+
+  // Spectrograms instead of waveforms on audio clips.
+  await expect(page.locator("[data-spectrogram]")).toHaveCount(0);
+  await win.getByRole("switch", { name: "Spectrograms on audio clips" }).click();
+  await expect(page.locator("[data-spectrogram]").first()).toBeVisible();
+  await win.getByRole("switch", { name: "Spectrograms on audio clips" }).click();
+  await page.getByRole("button", { name: "Snapping" }).click();
+});
+
 test("pinching over the monitor scales the selected clip, as one undo step", async ({ page }) => {
   await openLatest(page);
   await newVideo(page);

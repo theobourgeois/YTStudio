@@ -6,7 +6,7 @@ import { useEditor } from "./editor";
  * The video editor's windows, floating over it (`components/workspace/video-desktop.tsx`): what were its
  * dialogs, and any of its panels floated out of the dock (`panel:<id>`, `stores/video-dock.ts`).
  */
-export type VideoWindowId = "export" | "video-settings" | "captions" | "save-to-library" | `panel:${string}`;
+export type VideoWindowId = "export" | "video-settings" | "captions" | "save-to-library" | "signals" | `panel:${string}`;
 
 /** Where the video editor's windows are, and which is in front. */
 export const useVideoWindows = createWindows<VideoWindowId>();

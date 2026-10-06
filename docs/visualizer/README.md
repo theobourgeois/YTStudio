@@ -1,8 +1,8 @@
 # Visualizer: audio-reactive video
 
 Status: plan first written 2026-10-06. **V1 (signals) and V2 (signals in expressions) are built** (2026-10-07; see
-"What V1 and V2 built" below). **V3's first pass is built** (links, custom signals, nests hearing where they're placed,
-the link popover, the assistant's tools); its second (the Signals window, signal lanes on the timeline) is next.
+"What V1 and V2 built" below). **V3 is built** (2026-10-07: links, custom signals, nests hearing where they're placed,
+the link popover, the assistant's tools, the Signals window, signal lanes, spectrograms); V4 (visualizer effects) is next.
 [vaudio-port.md](vaudio-port.md) lists what comes over from Théo's earlier visualizer (`~/code/vaudio`) and where.
 
 A professional audio visualizer inside the video editor, not a suite of its own. Any clip, effect parameter or shader
@@ -440,9 +440,19 @@ assistant tools. Gates are what must be true (measured) before the next mileston
   matter; a nest placed twice hears two moments), `signal-edits.test.ts`, `link-model.test.ts`; an export of a linked
   look in a nest flashing on the outer song's thumps (`integration.test.ts`); e2e linking Scale from Properties.
 
-**Pass 2 (next)**: the Signals window (a live spectrum, ranges dragged on it, the response drawn over the timeline),
-the timeline's signal lanes (curves, editable events), the spectrogram on audio clips (from V1), the keyframe lanes'
-resulting curve.
+**Pass 2 (built, 2026-10-07)**:
+- The Signals window (`components/signals/`, the timeline toolbar's Signals, or Signals… in a link's popover; state in
+  `stores/signal-view.ts`): the video's signals listed; a band's spectrum at the playhead (`spectrumAt`, from the
+  files' signals), dragged across to choose its range, with its source, role, gain, threshold, attack, release,
+  curve, auto-gain and onsets; hits placed at the playhead, filled on beats, bars, kicks or hats, quantised,
+  cleared; a meter of what the signal reads now.
+- Signal lanes under the ruler (`timeline/signal-lanes.tsx`, main sequence only): a band's or a curve's value drawn,
+  hits as ticks dragged along (snapping to beats with the magnet), right-clicked away, double-click to add one.
+- Spectrograms on audio clips instead of waveforms (`timeline/spectrogram.tsx`, a switch in the Signals window).
+- A linked property's resulting value drawn faintly in its keyframe lane (`properties/linked-curve.tsx`).
+- `eventTimes` (beats, bars, drops, hits in a stretch) moved into `shared/audio-signals.ts` for the window and the tools.
+- Tests: `components/signals/geometry.test.ts` (the spectrum's axis, a dragged range, hits moved, added, quantised);
+  e2e: a band made from the spectrum, a hit dragged on its lane and right-clicked away, spectrograms.
 
 - **Gate**: a timeline with 300 linked clips plays at 60 fps (`scripts/perf.ts --links`). **Measured** (2026-10-07,
   an M-series Mac, dev build): 300 solids on ten tracks over a 20 s song, each with scale linked to the bass and
