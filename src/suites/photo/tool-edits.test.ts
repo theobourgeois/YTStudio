@@ -105,6 +105,11 @@ describe("the photo assistant's edits", () => {
     expect(() => addAdjustmentTool(doc, { type: "glow" }, env)).toThrow(/exposure, curves/);
     expect(() => transformLayerTool(doc, { layer: "Exposure", x: 1 }, env)).toThrow(/no place of its own/);
 
+    // A preset (Camera Raw's), with params on top of it; an unknown one lists them.
+    const graded = addAdjustmentTool(doc, { type: "camera-raw", preset: "teal-orange", params: { contrast: 10 } }, env).doc;
+    expect(effectOf(graded, graded.layers.length - 1).params).toMatchObject({ shadowsHue: 185, highlightsHue: 26, contrast: 10 });
+    expect(() => addAdjustmentTool(doc, { type: "camera-raw", preset: "teal" }, env)).toThrow(/teal-orange, pink-dream/);
+
     // Curves: given at the top or under "curves"; a curve given replaces that curve only.
     const curves = addAdjustmentTool(doc, { type: "curves", params: { rgb: [[0, 0], [128, 160], [255, 255]] } }, env).doc;
     const top = curves.layers.length - 1;

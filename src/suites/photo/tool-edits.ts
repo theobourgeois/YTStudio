@@ -549,9 +549,12 @@ function elementPatch(specs: readonly ElementParamSpec[], values: Record<string,
 export const addAdjustmentTool: PhotoEdit = (doc, input) => {
   const def = effectDefinition(String(input.type ?? ""));
   if (!def || !usableAs(def, "adjustment")) throw new Error(`No adjustment "${String(input.type)}". The adjustments: ${ADJUSTMENTS.map((d) => d.type).join(", ")}.${def ? ` (${def.label} is a ${def.kind}: ${def.kind === "filter" ? "add it with add_filter" : "add it with add_generator"}.)` : ""}`);
+  const preset = input.preset === undefined ? undefined : effectPreset(def, String(input.preset));
+  if (input.preset !== undefined && !preset) throw new Error(`${def.label} has no preset "${String(input.preset)}". Its presets: ${(def.presets ?? []).map((p) => p.id).join(", ") || "none"}.`);
   const above = input.above === undefined ? null : findLayerRef(doc, input.above).id;
   const id = createId("layer");
-  const fresh = addAdjustmentLayer(doc, { id, type: def.type, name: typeof input.name === "string" ? input.name : undefined }, above);
+  const added = addAdjustmentLayer(doc, { id, type: def.type, name: typeof input.name === "string" ? input.name : undefined }, above);
+  const fresh = preset ? setEffectParams(added, id, preset.params(doc.canvas)) : added;
   const layer = findLayer(fresh, id) as AdjustmentLayer;
   const next = setEffectParams(fresh, id, adjustmentPatch(def, input.params, layer.effect.params));
   const after = findLayer(next, id) as AdjustmentLayer;

@@ -103,7 +103,7 @@ type Bench = {
   showDoc(doc: PhotoProject): Promise<void>;
   renderDoc(doc: PhotoProject, view: View): Promise<number[]>;
   compileErrors(): Promise<string[]>;
-  cameraRawAnalysis(doc: PhotoProject, layerId: string, filterId: string | null): Promise<{ grid: number[] } | null>;
+  cameraRawAnalysis(doc: PhotoProject, layerId: string, filterId: string | null): Promise<{ grid: number[]; colour: number[] } | null>;
 };
 type SheetWindow = { photoBench?: { load(): Promise<Bench> } };
 
@@ -262,6 +262,13 @@ if (shows("camera-raw")) {
     ["soften", { clarity: -100, texture: -100 }],
     ["dehaze", { dehaze: 80, highlights: -40 }],
     ["haze", { dehaze: -70, shadows: -50 }],
+    // CR3: the Color Mixer, Color Grading and Glow.
+    ["mixer", { hueRed: 40, saturationOrange: 60, luminanceBlue: -60, hueGreen: -50, saturationAqua: -80, luminanceYellow: 40 }],
+    ["grading", { shadowsHue: 210, shadowsSaturation: 50, highlightsHue: 40, highlightsSaturation: 45, midtonesLuminance: -20, gradingBalance: 30 }],
+    ["grade global", { globalHue: 300, globalSaturation: 40, globalLuminance: 25, gradingBlending: 100 }],
+    ["bloom", { glow: 80, glowRange: 70, glowWarmth: 40 }],
+    ["halation", { glow: 100, glowStyle: "halation", glowSpread: 70 }],
+    ["diffusion", { glow: 100, glowStyle: "diffusion", glowWarmth: -50 }],
   ];
   const sc = SCENES[1];
   const cells = [];
@@ -275,8 +282,8 @@ if (shows("camera-raw")) {
     const plain = await call<number[]>("renderDoc", doc, { zoom: 1, x: x0, y: y0, width: W, height: H });
     const gpu = await call<number[]>("renderDoc", filtered, { zoom: 1, x: x0, y: y0, width: W, height: H });
     // The analysis the GPU drew with (the local sliders read it), handed to the reference as the plan hands it.
-    const analysis = await call<{ grid: number[] } | null>("cameraRawAnalysis", filtered, sc.layer, "sheet_cr");
-    const withAnalysis = analysis ? { ...params, __analysis: { ...analysis, grid: Float32Array.from(analysis.grid) } as never } : params;
+    const analysis = await call<{ grid: number[]; colour: number[] } | null>("cameraRawAnalysis", filtered, sc.layer, "sheet_cr");
+    const withAnalysis = analysis ? { ...params, __analysis: { ...analysis, grid: Float32Array.from(analysis.grid), colour: Float32Array.from(analysis.colour) } as never } : params;
     const expected = applyKernel(KERNEL_REFERENCES["camera-raw"], { width: W, height: H, data: Float64Array.from(plain) }, withAnalysis, doc.canvas, { x: x0, y: y0 });
     const diffs = gpu.map((v, i) => Math.abs(v - expected.data[i])).sort((a, b) => a - b);
     const p99 = diffs[Math.floor(diffs.length * 0.99)];

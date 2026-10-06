@@ -10,13 +10,14 @@
 import { useMemo, useState } from "react";
 import { PiCaretDown, PiCaretRight, PiEye, PiEyedropper } from "react-icons/pi";
 import { Slider as SliderPrimitive } from "radix-ui";
-import { CAMERA_RAW_SECTIONS, type CameraRawSection, sectionParams } from "@shared/photo/effects/camera-raw/index";
+import { CAMERA_RAW_PARAMS, CAMERA_RAW_SECTIONS, type CameraRawSection } from "@shared/photo/effects/camera-raw/index";
 import { toneFunction } from "@shared/photo/effects/camera-raw/develop";
 import type { ChoiceParam, NumberParam, ParamSpec } from "@shared/photo/effects/params";
 import type { CurveSet, EffectParamValue } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { type CurveSetEdit, CurveSetEditor } from "../panels/curves-editor";
+import { GradingPanel, MixerPanel } from "./colour-sections";
 
 /** Where the sections' changes go: a drag is `begin`, `apply`…, `end` (or `cancel`); a typed value or a reset the same, at once. */
 export interface CameraRawSink {
@@ -33,7 +34,9 @@ const once = (sink: CameraRawSink, patch: Record<string, EffectParamValue>) => {
   sink.end();
 };
 
-const specOf = (key: string) => sectionParams("light").concat(sectionParams("color"), sectionParams("effects"), sectionParams("curve")).find((p) => p.key === key)!;
+/** A Camera Raw parameter's spec by key. */
+export const cameraRawSpec = (key: string): ParamSpec => CAMERA_RAW_PARAMS.find((p) => p.key === key)!;
+const specOf = cameraRawSpec;
 const number = (key: string) => specOf(key) as NumberParam;
 
 /** The tracks Camera Raw draws in colour. */
@@ -42,6 +45,7 @@ const TRACKS: Record<string, string> = {
   tint: "linear-gradient(to right, #35b34a, #c9cdd6, #c94fc9)",
   vibrance: "linear-gradient(to right, #8a8a8a, #c46a6a, #c4b65a, #5ab46a, #5a8ac4, #a65ac4)",
   saturation: "linear-gradient(to right, #8a8a8a, #c46a6a, #c4b65a, #5ab46a, #5a8ac4, #a65ac4)",
+  glowWarmth: "linear-gradient(to right, #6f9fe8, #c9cdd6, #f0a050)",
 };
 
 const OPEN_KEY = "photo.cameraRaw.open";
@@ -127,6 +131,9 @@ export function CameraRawSections({
               {id === "effects" && (
                 <>
                   {["texture", "clarity", "dehaze"].map(slider)}
+                  <Disclosed label="Glow" more={["glowRange", "glowSpread", "glowWarmth", "glowStyle"]} params={params} sink={sink}>
+                    {slider("glow")}
+                  </Disclosed>
                   <Disclosed label="Vignette" more={["vignetteMidpoint", "vignetteRoundness", "vignetteFeather", "vignetteHighlights", "vignetteStyle"]} params={params} sink={sink}>
                     {slider("vignette")}
                   </Disclosed>
@@ -136,6 +143,8 @@ export function CameraRawSections({
                 </>
               )}
               {id === "curve" && <CurvePanel params={params} sink={sink} />}
+              {id === "mixer" && <MixerPanel params={params} sink={sink} />}
+              {id === "grading" && <GradingPanel params={params} sink={sink} />}
             </div>
           )}
         </section>
@@ -147,7 +156,7 @@ export function CameraRawSections({
 const shown = (v: number, spec: NumberParam) => (spec.decimals ? v.toFixed(spec.decimals) : String(Math.round(v)));
 
 /** One of Camera Raw's sliders: its label, its value typed, its track. */
-export function CameraRawSlider({ spec, value, sink }: { spec: NumberParam; value: number; sink: CameraRawSink }) {
+export function CameraRawSlider({ spec, value, sink, track }: { spec: NumberParam; value: number; sink: CameraRawSink; track?: string }) {
   const [typed, setTyped] = useState<string | null>(null);
   const reset = () => once(sink, { [spec.key]: spec.default });
   const set = (v: number) => once(sink, { [spec.key]: Math.max(spec.min, Math.min(spec.max, Number(v.toFixed(spec.decimals)))) });
@@ -155,6 +164,7 @@ export function CameraRawSlider({ spec, value, sink }: { spec: NumberParam; valu
   const at = (v: number) => ((v - spec.min) / (spec.max - spec.min)) * 100;
   const from = twoSided ? at(0) : 0;
   const to = at(value);
+  const colours = track ?? TRACKS[spec.key];
   return (
     <div className="flex flex-col gap-0.5" data-param={spec.key}>
       <div className="flex items-center gap-2">
@@ -211,8 +221,8 @@ export function CameraRawSlider({ spec, value, sink }: { spec: NumberParam; valu
         onValueChange={([v]) => sink.apply({ [spec.key]: v })}
         onValueCommit={() => sink.end()}
       >
-        <SliderPrimitive.Track className={`sunken relative grow overflow-hidden rounded-full ${TRACKS[spec.key] ? "h-1.5" : "h-1"}`} style={TRACKS[spec.key] ? { background: TRACKS[spec.key] } : undefined}>
-          {!TRACKS[spec.key] && <span className="absolute inset-y-0 bg-brand" style={{ left: `${Math.min(from, to)}%`, width: `${Math.abs(to - from)}%` }} />}
+        <SliderPrimitive.Track className={`sunken relative grow overflow-hidden rounded-full ${colours ? "h-1.5" : "h-1"}`} style={colours ? { background: colours } : undefined}>
+          {!colours && <span className="absolute inset-y-0 bg-brand" style={{ left: `${Math.min(from, to)}%`, width: `${Math.abs(to - from)}%` }} />}
         </SliderPrimitive.Track>
         <SliderPrimitive.Thumb aria-label={`${spec.label} slider`} className="raised block size-3 rounded-full outline-none hover:raised-hover" onDoubleClick={reset} />
       </SliderPrimitive.Root>

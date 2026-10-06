@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { effectDefinition } from "@shared/photo/effects/index";
 import type { NumberParam } from "@shared/photo/effects/params";
-import { identityCurveSet } from "@shared/photo/effects/params";
+import { defaultParams, identityCurveSet } from "@shared/photo/effects/params";
 import { flarePreset } from "@shared/photo/effects/flare";
 import { CONTOUR_PRESETS } from "@shared/photo/style/contours";
 import { GRADIENT_PRESETS } from "@shared/photo/style/gradients";
@@ -27,6 +27,10 @@ import { FilterCard } from "./filters";
 import { filterEntry } from "@shared/photo/effects/catalog";
 import { ParamField } from "./panels/params";
 import { usePhotoUi } from "./ui";
+import { CAMERA_RAW_PARAMS } from "@shared/photo/effects/camera-raw/index";
+import type { EffectParamValue } from "@shared/photo/types";
+import { GradingPanel, MixerPanel } from "./camera-raw/colour-sections";
+import type { CameraRawSink } from "./camera-raw/sections";
 
 const curves = (id: string, set: AdjustmentLayer["effect"]["params"]["curves"]): AdjustmentLayer => ({
   id,
@@ -187,4 +191,34 @@ export const PHOTO_SECTIONS: GallerySection[] = [
   },
   { id: "photo-filters", title: "Photo: the Filter Gallery's cards (a look, the one picked, unavailable on this layer)", source: "suites/photo/filters.tsx", render: () => <FilterCards /> },
   { id: "photo-light", title: "Photo: a glow's parameters (from its specs), and a Lens Flare's Properties: its handles, blend, elements, a ghost's own", source: "suites/photo/panels/params.tsx, light.tsx", render: () => <Light /> },
+  {
+    id: "photo-camera-raw-colour",
+    title: "Photo: Camera Raw's Color Mixer (sliders drawn in what they do) and Color Grading's wheels (drag the puck; double-click resets), 3-way and one wheel",
+    source: "suites/photo/camera-raw/colour-sections.tsx",
+    render: () => <CameraRawColour />,
+  },
 ];
+
+function CameraRawColour() {
+  const [params, setParams] = useState<Record<string, EffectParamValue>>(() => ({
+    ...defaultParams(CAMERA_RAW_PARAMS),
+    hueOrange: 25,
+    saturationBlue: -40,
+    shadowsHue: 200,
+    shadowsSaturation: 45,
+    highlightsHue: 35,
+    highlightsSaturation: 60,
+    midtonesLuminance: -15,
+  }));
+  const sink: CameraRawSink = { begin: () => {}, apply: (patch) => setParams((p) => ({ ...p, ...patch })), end: () => {}, cancel: () => {} };
+  return (
+    <div className="grid grid-cols-2 gap-6">
+      <div className="w-72">
+        <MixerPanel params={params} sink={sink} />
+      </div>
+      <div className="w-72">
+        <GradingPanel params={params} sink={sink} />
+      </div>
+    </div>
+  );
+}
