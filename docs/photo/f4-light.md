@@ -53,7 +53,8 @@ Théo's decision, recorded here because F4 depends on it:
 
 ## Decisions to confirm
 
-Each has a recommendation. They're contracts, so they go in the ledger (A24 onwards) once Théo agrees.
+Each had a recommendation; **Théo agreed to all five on 2026-10-06** (the film curve's `s` is 1 until he compares
+the candidates). They're contracts, so they go in the ledger (A24 onwards).
 
 **D1. What alpha light gets where its layer had none.** A filter's light can land where its layer was transparent (a
 glow spilling past a cut-out's edge). There, the light `G` gets the coverage `a = min(1, max(r, g, b))` in linear
