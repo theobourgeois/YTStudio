@@ -48,7 +48,7 @@ export interface GlowHost {
   ensureVisible: (plan: RenderPlan, view: View) => Promise<unknown>;
   /** Whether every image and surface the plan reads has loaded (only then is a cache final). */
   settled: (plan: RenderPlan) => boolean;
-  /** A cache was built: the screen draws again. */
+  /** A cache was built (by any caller): the screen draws again. */
   built: () => void;
 }
 
@@ -113,13 +113,17 @@ export class GlowCaches {
     this.timer = null;
     if (!plan || keys.size === 0) return;
     const generation = ++this.generation;
-    this.timer = setTimeout(() => {
+    const attempt = () => {
       this.timer = null;
-      if (generation !== this.generation || !this.host.settled(plan)) return;
-      void this.ensure(plan, false).then((built) => {
-        if (built) this.host.built();
-      });
-    }, DELAY_MS);
+      if (generation !== this.generation) return;
+      // Its images still loading: try again in a moment (nothing else may ask).
+      if (!this.host.settled(plan)) {
+        this.timer = setTimeout(attempt, DELAY_MS);
+        return;
+      }
+      void this.ensure(plan, false);
+    };
+    this.timer = setTimeout(attempt, DELAY_MS);
   }
 
   /**
@@ -210,6 +214,8 @@ export class GlowCaches {
     };
     this.caches.set(g.key, cache);
     this.trim();
+    // Whoever asked for it (an export, a thumbnail), the screen may show it: it draws again.
+    this.host.built();
     return cache;
   }
 
