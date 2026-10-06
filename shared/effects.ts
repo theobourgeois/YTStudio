@@ -48,7 +48,9 @@ import { applyLink, normalizeLink } from "./links.ts";
 import { type TextAnimation, animatorReach, textAnimationsAt } from "./text-animators.ts";
 import { tidy } from "./math.ts";
 import { PERCENT, PIXELS, type ParamSpec, defaultParams, sameValue, sanitizeParams, sanitizeValue } from "./params.ts";
-import type { Clip, Effect, FitMode, Keyframe, ParamLink, ParamValue, ParamValues, Project, Vec2 } from "./types.ts";
+import { DEFAULT_SHADER, type ParsedShader, type ShaderClock, normalizeShaderCode, parseShader } from "./shader-code.ts";
+import type { UniformValue } from "./transition-gl.ts";
+import type { Clip, Effect, FitMode, Keyframe, ParamLink, ParamValue, ParamValues, Project, ShaderCode, Vec2 } from "./types.ts";
 
 /**
  * What a clip shows: media (video, image or sound), text, a solid colour, or
@@ -149,6 +151,14 @@ export interface EffectShader {
    * `effect-gl.ts`). Cards and sheets get made-up sound (`demoAudio`).
    */
   audio?: { request: (values: ParamValues) => AudioRequest };
+  /** The compositor's key for it, when it isn't `fx:<type>` (the Shader effect's: a hash of its code). */
+  key?: string;
+  /** The whole fragment shader, built already (the Shader effect's dialects); `glsl` is then unused. */
+  source?: string;
+  /** Its values and the moment as uniforms, when they aren't its parameters by key plus `time`, `clipTime` and `fps`. */
+  uniforms?: (values: ParamValues, clock: ShaderClock) => UniformValue[];
+  /** The Shader effect's code as read: what's wrong with it before compiling, and its notes. */
+  parsed?: ParsedShader;
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +475,62 @@ export const TIME_REMAP: EffectDefinition = {
   ],
 };
 
+/** The Shader effect's definition for some code (its parameters are declared in it): built once per code. */
+function buildShaderDefinition(code: ShaderCode): EffectDefinition {
+  const parsed = parseShader(code);
+  return {
+    type: "shader",
+    label: parsed.label ?? "Shader",
+    builtIn: false,
+    appliesTo: (c) => c.visual,
+    params: parsed.params,
+    shader: {
+      glsl: "",
+      key: parsed.key,
+      source: parsed.source,
+      uniforms: parsed.uniforms,
+      passes: parsed.passes,
+      animated: parsed.animated,
+      tags: parsed.audio ? ["generate", "audio"] : ["generate"],
+      ...(parsed.grow > 0 && { grow: () => parsed.grow }),
+      ...(parsed.audio && { audio: { request: () => parsed.audio! } }),
+      parsed,
+    },
+  };
+}
+
+const shaderDefinitions = new Map<string, EffectDefinition>();
+const definitionsByCode = new WeakMap<ShaderCode, EffectDefinition>();
+/** Shader definitions kept (each edit of the code makes another). */
+const SHADER_DEFINITIONS = 64;
+
+/** The Shader effect's definition for `code` (the starting shader's without), cached by the code. */
+export function shaderDefinition(code: ShaderCode = DEFAULT_SHADER): EffectDefinition {
+  let def = definitionsByCode.get(code);
+  if (def) return def;
+  const id = `${code.dialect}\n${code.code}`;
+  def = shaderDefinitions.get(id);
+  if (def) {
+    shaderDefinitions.delete(id);
+  } else {
+    def = buildShaderDefinition(code);
+    for (const old of shaderDefinitions.keys()) {
+      if (shaderDefinitions.size < SHADER_DEFINITIONS) break;
+      shaderDefinitions.delete(old);
+    }
+  }
+  shaderDefinitions.set(id, def);
+  definitionsByCode.set(code, def);
+  return def;
+}
+
+/**
+ * The Shader effect (V6): the user's own GLSL, ours, ISF or Shadertoy's (`shader-code.ts`). Its
+ * parameters are declared in its code, so an instance's definition is `definitionOf(effect)`; this is
+ * the starting shader's.
+ */
+export const SHADER: EffectDefinition = shaderDefinition(DEFAULT_SHADER);
+
 export const VIDEO_EFFECTS: readonly EffectDefinition[] = [
   ...COLOR_EFFECTS,
   ...BLUR_EFFECTS,
@@ -479,6 +545,7 @@ export const VIDEO_EFFECTS: readonly EffectDefinition[] = [
   ...PARTICLE_EFFECTS,
   ...KEYING_EFFECTS,
   ...AUDIO_EFFECTS,
+  SHADER,
 ];
 
 /** Every effect definition; built-in ones in the order they're listed (and applied). */
@@ -488,8 +555,17 @@ export { MASK, SHAPE, TEXT_ANIMATOR };
 
 const byType = new Map(EFFECTS.map((d) => [d.type, d]));
 
+/** The definition of a type of effect (the Shader effect's is its starting shader's: see `definitionOf`). */
 export function effectDefinition(type: string): EffectDefinition | undefined {
   return byType.get(type);
+}
+
+/**
+ * One effect's definition: its type's, or for the Shader effect the one its own code declares. Use this
+ * wherever there's an effect at hand, so a shader's parameters are found.
+ */
+export function definitionOf(effect: Pick<Effect, "type" | "shader">): EffectDefinition | undefined {
+  return effect.type === SHADER.type ? shaderDefinition(effect.shader) : byType.get(effect.type);
 }
 
 export function paramSpec(def: EffectDefinition, key: string): ParamSpec | undefined {
@@ -501,8 +577,11 @@ export function paramSpec(def: EffectDefinition, key: string): ParamSpec | undef
 // Validation
 // ---------------------------------------------------------------------------
 
-/** An effect of `def` with id `id` from untrusted (or partial) values, keyframes, expressions and links: the defaults where they're missing or wrong. */
-export function sanitizeEffect(def: EffectDefinition, raw: Partial<Effect> | undefined, id: string): Effect {
+/** An effect of `type` with id `id` from untrusted (or partial) values, keyframes, expressions and links: the defaults where they're missing or wrong (a Shader effect's against its own code). */
+export function sanitizeEffect(type: EffectDefinition, raw: Partial<Effect> | undefined, id: string): Effect {
+  // A shader's parameters are its code's.
+  const code = type.type === SHADER.type ? (normalizeShaderCode(raw?.shader) ?? DEFAULT_SHADER) : undefined;
+  const def = code ? shaderDefinition(code) : type;
   const params = sanitizeParams(def.params, raw?.params);
   const keyframes: Record<string, Keyframe[]> = {};
   for (const spec of def.params) {
@@ -510,6 +589,7 @@ export function sanitizeEffect(def: EffectDefinition, raw: Partial<Effect> | und
     if (keys.length) keyframes[spec.key] = keys;
   }
   const effect: Effect = { id, type: def.type, enabled: def.alwaysOn || raw?.enabled !== false, params };
+  if (code) effect.shader = code;
   if (Object.keys(keyframes).length) effect.keyframes = keyframes;
   const expressions: Record<string, string> = {};
   for (const spec of def.params) {
@@ -748,7 +828,7 @@ function expressionScope(def: EffectDefinition, effect: Effect, key: string, tim
     prop(path: string, t = time): ExprValue | undefined {
       const dot = path.indexOf(".");
       const other = clip?.effects.find((e) => e.id === path.slice(0, dot)) ?? clip?.effects.find((e) => e.type === path.slice(0, dot));
-      const otherDef = other && byType.get(other.type);
+      const otherDef = other && definitionOf(other);
       const otherSpec = otherDef && paramSpec(otherDef, path.slice(dot + 1));
       if (!other || !otherDef || !otherSpec || dot < 0) return undefined;
       const id = `${clip!.id}/${other.id}/${otherSpec.key}`;
@@ -1063,6 +1143,20 @@ export function setExpression(project: Project, clipId: ClipIds, effectId: strin
   });
 }
 
+/**
+ * Give a Shader effect (or several clips' with this id) new code. Its parameters become the new code's:
+ * values, keyframes, expressions and links of parameters it still declares (as the same kind) are kept,
+ * the rest go. The same project when nothing changes (or `code` isn't valid).
+ */
+export function setShaderCode(project: Project, clipIds: ClipIds, effectId: string, code: ShaderCode): Project {
+  const clean = normalizeShaderCode(code);
+  if (!clean) return project;
+  return updateEffect(project, clipIds, effectId, (effect) => {
+    if (effect.type !== SHADER.type || (effect.shader?.code === clean.code && effect.shader.dialect === clean.dialect)) return effect;
+    return sanitizeEffect(SHADER, { ...effect, shader: clean }, effect.id);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Edits (all return a new Project, or the same one when nothing changed)
 // ---------------------------------------------------------------------------
@@ -1080,7 +1174,7 @@ export function updateEffect(
     if (!wanted(clip.id)) return clip;
     let clipChanged = false;
     const effects = clip.effects.map((e) => {
-      const def = e.id === effectId ? byType.get(e.type) : undefined;
+      const def = e.id === effectId ? definitionOf(e) : undefined;
       if (!def) return e;
       const next = update(e, def);
       if (next !== e) clipChanged = true;
@@ -1189,10 +1283,10 @@ export function isAddedEffect(effect: Pick<Effect, "type">): boolean {
  * What to call one of a clip's effects: its definition's label, numbered when the clip has
  * several of it ("Mask 2").
  */
-export function effectLabel(clip: Pick<Clip, "effects">, effect: Pick<Effect, "id" | "type">): string {
-  const def = byType.get(effect.type);
+export function effectLabel(clip: Pick<Clip, "effects">, effect: Pick<Effect, "id" | "type" | "shader">): string {
+  const def = definitionOf(effect);
   if (!def) return effect.type;
-  const same = clip.effects.filter((e) => e.type === effect.type);
+  const same = clip.effects.filter((e) => e.type === effect.type && definitionOf(e)?.label === def.label);
   return same.length > 1 ? `${def.label} ${same.findIndex((e) => e.id === effect.id) + 1}` : def.label;
 }
 
@@ -1208,11 +1302,18 @@ export function videoEffects(clip: Clip): Effect[] {
 
 /**
  * Add a video effect (or a mask, a shape, an animator...: anything the user adds), with its
- * default values (and `params` over them), after each clip's others of its kind, so it's
+ * default values (and `params` over them; a Shader effect with `shader`'s code, else the starting
+ * one), after each clip's others of its kind, so it's
  * drawn over what's there; clips it doesn't apply to (not on a video track, a shape
  * operator on a video...) are skipped. Returns the new effects' ids by clip.
  */
-export function addEffect(project: Project, clipIds: string[], type: string, params?: ParamValues): { project: Project; added: Map<string, string> } {
+export function addEffect(
+  project: Project,
+  clipIds: string[],
+  type: string,
+  params?: ParamValues,
+  shader?: ShaderCode,
+): { project: Project; added: Map<string, string> } {
   const def = byType.get(type);
   const added = new Map<string, string>();
   if (!def || !(def.shader || def.stackable)) return { project, added };
@@ -1224,7 +1325,8 @@ export function addEffect(project: Project, clipIds: string[], type: string, par
     let id = def.type;
     for (let n = 2; ids.has(id); n++) id = `${def.type}_${n}`;
     added.set(clip.id, id);
-    return { ...clip, effects: orderEffects([...clip.effects, sanitizeEffect(def, params ? { params } : undefined, id)]) };
+    const raw = params || shader ? { ...(params && { params }), ...(shader && { shader }) } : undefined;
+    return { ...clip, effects: orderEffects([...clip.effects, sanitizeEffect(def, raw, id)]) };
   });
   return added.size ? { project: { ...project, clips }, added } : { project, added };
 }
@@ -1304,6 +1406,8 @@ export function pasteEffects(project: Project, clipIds: readonly string[], copie
         }
         for (const key of kept) if (effect.keyframes?.[key]) keyframes[key] = effect.keyframes[key];
         const next: Effect = { ...effect, enabled: source.enabled || !!def.alwaysOn, params };
+        // A shader's parameters go with its code.
+        if (source.shader) next.shader = source.shader;
         if (Object.keys(keyframes).length) next.keyframes = keyframes;
         else delete next.keyframes;
         if (source.expressions) next.expressions = source.expressions;

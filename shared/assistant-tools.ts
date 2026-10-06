@@ -236,11 +236,14 @@ export const VIDEO_TOOLS = [
       "animation and its presets), `expressions` (what set_expression scripts can use), `transitions` (type, tags, parameters), " +
       "`presets` (ready-made After Effects-style transitions and moves/looks built from effects and keyframes), " +
       "`clip_properties` (the built-in effects every clip has: motion, opacity, volume, text, appearance, solid), " +
-      "`caption_styles` (presets, lengths, animations), or installed `fonts`. Parameters list key, kind, " +
+      "`caption_styles` (presets, lengths, animations), `shader_api` (what set_shader's GLSL can use, in each dialect, with examples), or installed `fonts`. Parameters list key, kind, " +
       "default and range: values are in these units (e.g. scale 1 = 100%, position in canvas fractions).",
     inputSchema: obj(
       {
-        kind: oneOf(["video_effects", "masks_and_shapes", "text_animators", "expressions", "presets", "transitions", "clip_properties", "caption_styles", "fonts"], "What to list."),
+        kind: oneOf(
+          ["video_effects", "masks_and_shapes", "text_animators", "expressions", "presets", "transitions", "clip_properties", "caption_styles", "shader_api", "fonts"],
+          "What to list.",
+        ),
         query: str("Filter by name or tag."),
       },
       ["kind"],
@@ -817,6 +820,33 @@ export const VIDEO_TOOLS = [
         },
       },
       ["clipIds", "effect", "param", "link"],
+    ),
+  }),
+  tool({
+    name: "set_shader",
+    title: "Write a shader",
+    kind: "edit",
+    description:
+      "Draw clips with your own GLSL: a Shader effect, drawn like any video effect (before Motion places the clip), in " +
+      'the preview and the export. Read get_catalog "shader_api" first: what each dialect can use, and examples. ' +
+      "`dialect`: native (ours, the default: `vec4 effect(vec2 uv)` over the clip's picture with getColor(uv), our helpers, " +
+      "and the sound: spectrum(x), wave(x), audioBass, beatPhase, hitAge[]...), isf (an ISF file: JSON header + main) or " +
+      "shadertoy (mainImage; iChannel0 is the sound, iChannel1 the clip's picture). Declare parameters in the code " +
+      "(`// @param amount number 0 1 0.5 \"Amount\"`, int, bool, choice A|B|C, point x y, color #rrggbb; an ISF's INPUTS): " +
+      "they then work like any other (set_properties, set_keyframes, link_param, set_expression) and `params` sets them here. " +
+      "It's compiled first: if it doesn't compile nothing changes and the errors come back on your code's lines. " +
+      "Without `effect` a new Shader effect is added to each clip (to draw a look on its own, put it on a solid: add_layer " +
+      "kind solid); with `effect` (a Shader effect's id, from get_clips, which shows its code) that one's code is replaced, " +
+      "keeping the values of parameters it still declares. Attribute shaders you adapt from elsewhere in a comment.",
+    inputSchema: obj(
+      {
+        clipIds: clipIds(),
+        code: str("The shader's code (up to 64 KB)."),
+        dialect: oneOf(["native", "isf", "shadertoy"], "Which GLSL it is (default native)."),
+        effect: str("A Shader effect's id to rewrite; leave out to add a new one."),
+        params: params("Values for its declared parameters, by key."),
+      },
+      ["clipIds", "code"],
     ),
   }),
   tool({

@@ -10,7 +10,7 @@
  * percentile of a level reads 1), so a quiet song reacts as much as a loud one; Volume still counts.
  */
 import { ExpressionError, type SignalScope } from "./expressions.ts";
-import { TIME_REMAP, VOLUME, effectDefinition, findEffect, hasLinks, hasMedia, isRemapped, provideLinks, provideSignalScopes, volumeAt } from "./effects.ts";
+import { TIME_REMAP, VOLUME, definitionOf, findEffect, hasLinks, hasMedia, isRemapped, provideLinks, provideSignalScopes, volumeAt } from "./effects.ts";
 import { BEAT_SIGNALS, DEFAULT_HIT, findSignal, follow, hitLevel, hitSpan, isHitSignal, shapeValue } from "./links.ts";
 import { BAND_COUNT, DB_SCALARS, type Hit, ONSET_SCALARS, type OnsetName, SIGNAL_RATE, type ScalarName, type SignalData, byteDb } from "./signals/format.ts";
 import { bandEnergyAt, bandReferenceEnergy, dbPower, powerDb, scalarAt, scalarMax } from "./signals/sample.ts";
@@ -1156,7 +1156,7 @@ export function usesSignals(document: Project): boolean {
   search: for (const clip of [...document.clips, ...(document.sequences ?? []).flatMap((s) => s.clips)]) {
     for (const effect of clip.effects) {
       // A link, or a visualizer.
-      if (hasLinks(effect) || (effect.enabled && effectDefinition(effect.type)?.shader?.audio)) {
+      if (hasLinks(effect) || (effect.enabled && definitionOf(effect)?.shader?.audio)) {
         known = true;
         break search;
       }

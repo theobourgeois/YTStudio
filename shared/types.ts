@@ -343,6 +343,20 @@ export interface Effect {
    * which sees the linked value. Only where an expression can be (numbers and points).
    */
   links?: Record<string, ParamLink>;
+  /**
+   * The Shader effect's own code (type "shader" only; absent: the starting shader). Its parameters
+   * are declared in it, so its definition is the instance's: `definitionOf` (`shared/shader-code.ts`).
+   */
+  shader?: ShaderCode;
+}
+
+/** Which GLSL a Shader effect's code is: ours (`effect(uv)`), the Interactive Shader Format, or Shadertoy's. */
+export type ShaderDialect = "native" | "isf" | "shadertoy";
+
+/** A Shader effect's code, up to 64 KB. */
+export interface ShaderCode {
+  code: string;
+  dialect: ShaderDialect;
 }
 
 // ---------------------------------------------------------------------------

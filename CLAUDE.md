@@ -75,7 +75,12 @@ listens to; New item › Visualizer is a solid drawing only its visualizer. Sign
 through the platform (`shared/handoff.ts`, `ProjectStore.createFromHandoff`, `SuiteBackend.fromHandoff`): the music
 side renders the mix and stems and works out notes, beats and markers (`shared/music/visualizer.ts`,
 `server/music/visualizer.ts`), the video side builds the project with a starting look bound by role
-(`shared/song-video.ts`); `Project.tempo` is the song's exact beat, which `beat()` prefers to the analysis.
+(`shared/song-video.ts`); `Project.tempo` is the song's exact beat, which `beat()` prefers to the analysis. **V6 is built**: the Shader effect (type `shader`, `Effect.shader`: the user's GLSL, ours, ISF or Shadertoy's, read by
+`shared/shader-code.ts`); its parameters are declared in its code, so **use `definitionOf(effect)` wherever an effect is
+at hand** (`effectDefinition(type)` gives the starting shader's). Keyed by a hash of the code (`fx:shader:<hash>`);
+the tab compiles each on a hidden context (`src/lib/shader-compiler.ts`, `provideShaderCheck`: one that doesn't compile
+isn't drawn), the export refuses one (`GlSession.compile`), and a lost GPU turns the likely one off
+(`preview/shader-recovery.ts`). The editor is `components/shader/` (CodeMirror 6); the assistant's `set_shader`.
 
 ## Commands
 

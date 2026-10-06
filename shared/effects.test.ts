@@ -320,7 +320,8 @@ describe("video effects", () => {
       }
       // A particle effect places particles (`particle(id)`); every other one shades pixels.
       if (def.shader!.particles) expect(def.shader!.particles.glsl).toContain("Particle particle(int id)");
-      expect(effectFragmentSource({ params: def.params, glsl: def.shader!.glsl })).toContain("vec4 effect(vec2 uv)");
+      // The Shader effect's source is built from its code (its starting shader's is ours).
+      expect(def.shader!.source ?? effectFragmentSource({ params: def.params, glsl: def.shader!.glsl })).toContain("vec4 effect(vec2 uv)");
     }
   });
 

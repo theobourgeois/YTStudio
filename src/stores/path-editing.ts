@@ -5,7 +5,7 @@
  */
 import { create } from "zustand";
 import { keyframeTime } from "@shared/animation";
-import { effectDefinition, paramSpec, setParams, storedValuesAt } from "@shared/effects";
+import { definitionOf, paramSpec, setParams, storedValuesAt } from "@shared/effects";
 import { isPath } from "@shared/params";
 import { type BezierPath, removeVertices } from "@shared/path";
 import { getClip, sourceTime } from "@shared/timeline";
@@ -56,7 +56,7 @@ export const usePathEditing = create<PathEditingState>((set, get) => ({
 export function pathOf(project: Project, target: PathTarget, playhead: number): BezierPath | undefined {
   const clip = getClip(project, target.clipId);
   const effect = clip?.effects.find((e) => e.id === target.effectId);
-  const def = effect && effectDefinition(effect.type);
+  const def = effect && definitionOf(effect);
   if (!clip || !effect || !def || paramSpec(def, target.key)?.kind !== "path") return undefined;
   const value = storedValuesAt(def, effect, sourceTime(clip, playhead))[target.key];
   return isPath(value) ? value : undefined;

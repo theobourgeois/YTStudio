@@ -845,13 +845,33 @@ void main() {
   const programs = new Map<string, ReturnType<typeof link>>();
   // Programs started by `prepareShader`, not yet checked.
   const compiling = new Map<string, Pending>();
+  // The user's own shaders (the Shader effect, keyed by their code's hash): a new one for every edit of
+  // the code, so only the most recently used are kept.
+  const USER_SHADERS = 24;
+  const userPrograms = new Set<string>();
   const shaderProgram = (shader: Shader) => {
     let entry = programs.get(shader.key);
-    if (entry) return entry;
+    const user = shader.key.startsWith("fx:shader:");
+    if (entry) {
+      if (user) {
+        userPrograms.delete(shader.key);
+        userPrograms.add(shader.key);
+      }
+      return entry;
+    }
     const pending = compiling.get(shader.key) ?? startLink(shader.vertex ?? QUAD_VS, shader.source);
     compiling.delete(shader.key);
     entry = finishLink(pending);
     programs.set(shader.key, entry);
+    if (user) {
+      userPrograms.add(shader.key);
+      for (const old of userPrograms) {
+        if (userPrograms.size <= USER_SHADERS) break;
+        gl.deleteProgram(programs.get(old)!.program);
+        programs.delete(old);
+        userPrograms.delete(old);
+      }
+    }
     return entry;
   };
 
@@ -1062,6 +1082,7 @@ void main() {
       if (u.type === "int") gl.uniform1i(l, u.value as number);
       else if (u.type === "vec2") gl.uniform2f(l, v[0], v[1]);
       else if (u.type === "vec3") gl.uniform3f(l, v[0], v[1], v[2]);
+      else if (u.type === "vec4") gl.uniform4f(l, v[0], v[1], v[2], v[3]);
       else gl.uniform1f(l, u.value as number);
     }
   };
@@ -1999,6 +2020,7 @@ void main() {
       gl.uniform1i(loc("uFlipY"), 0);
       gl.uniform1f(loc("ratio"), ratio);
       gl.uniform2f(loc("resolution"), w, h);
+      gl.uniform2f(loc("uResolution"), w, h);
       gl.uniform4f(loc("uFrame"), frameRect[0], frameRect[1], frameRect[2], frameRect[3]);
       setUniforms(loc, fx.uniforms);
       if (temporal) bindHistory(loc, temporal);
