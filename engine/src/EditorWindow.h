@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <map>
+#include <set>
 #include <juce_audio_utils/juce_audio_utils.h>
 
 class EditorWindow final : public juce::DocumentWindow,
@@ -63,6 +64,17 @@ private:
     using DocumentWindow::keyPressed;
     /** Keys the plugin didn't use (Space, F6, ⌘Z…) go to the app, which runs its shortcut (`EngineEvent` "key"). */
     bool keyPressed (const juce::KeyPress&, juce::Component*) override;
+
+    /**
+     * Windows: a key offered before the plugin sees it (`hookThreadKeys`), FL's default typing keyboard
+     * priority: the editor's keys (Space, the F keys, Alt+1…5, Ctrl+T and Ctrl+R) and, while the typing keyboard
+     * is on, its note keys are the app's even when the plugin has the focus. True: taken (sent to the app).
+     */
+    bool takeFirst (const juce::KeyPress& key, bool down, bool repeat);
+    /** The open windows, for the key hook to find the one a key was pressed in. */
+    static juce::Array<EditorWindow*> openWindows;
+    /** Keys `takeFirst` took down: their ups are swallowed too. */
+    std::set<int> takenDown;
 
     bool keyStateChanged (bool, juce::Component*) override;
     void focusOfChildComponentChanged (FocusChangeType) override;

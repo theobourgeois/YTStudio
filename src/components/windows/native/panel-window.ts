@@ -40,9 +40,14 @@ export function openPanelWindow(id: string, title: string, exactName?: string): 
 
   const root = mirrorRoot(document, doc);
   const styles = mirrorStyles(document, doc);
+  // What pops up in a window of the system appears at once, as the system's own menus do: no fade, zoom or
+  // slide on open or close (a menu, a popover, a select, a tooltip, a dialog: Radix's layers, by their state).
+  // (In the body: the head is the page's styles, mirrored.)
+  const instant = doc.createElement("style");
+  instant.textContent = '[data-state="open"], [data-state="closed"], [data-state="delayed-open"], [data-state="instant-open"] { animation: none !important; }';
   const container = doc.createElement("div");
   container.id = "panel-root";
-  doc.body.append(container);
+  doc.body.append(instant, container);
   const unregister = registerWindow(win);
 
   let closed = false;

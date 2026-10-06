@@ -50,9 +50,39 @@ export function addWindowListener(type: string, handler: EventListenerOrEventLis
   };
 }
 
+/**
+ * `x instanceof Node` (and `Element`, `HTMLElement`, `HTMLInputElement`...) is true for the panels' nodes too.
+ * Each window has its own DOM classes, so a node in a panel isn't an instance of the main page's; libraries that
+ * ask anyway get it wrong there. Radix decides a press is outside a menu only `if (target instanceof Node)`, so
+ * no menu, popover or dialog drawn in a panel or the popup window ever closed when clicked away from. Every DOM
+ * class inherits its static `Symbol.hasInstance` from `Node`, so one definition answers for all of them, asking
+ * each registered window's class of the same name.
+ */
+function acceptPanelNodes() {
+  if (typeof window === "undefined" || typeof Node === "undefined") return;
+  const ownCheck = Function.prototype[Symbol.hasInstance];
+  Object.defineProperty(Node, Symbol.hasInstance, {
+    configurable: true,
+    value(this: { name: string }, value: unknown): boolean {
+      if (ownCheck.call(this, value)) return true;
+      if (extra.size === 0 || value === null || typeof value !== "object") return false;
+      for (const win of extra) {
+        try {
+          const same = (win as unknown as Record<string, unknown>)[this.name];
+          if (typeof same === "function" && ownCheck.call(same, value)) return true;
+        } catch {
+          // closed
+        }
+      }
+      return false;
+    },
+  });
+}
+
 /** A window opened for a panel joins the ones `addWindowListener` reaches. Returns how to take it out again. */
 export function registerWindow(win: Window): () => void {
   if (extra.has(win)) return () => {};
+  if (extra.size === 0) acceptPanelNodes();
   extra.add(win);
   for (const { type, handler, options } of registered) win.addEventListener(type, handler, options);
   for (const listener of changed) listener();

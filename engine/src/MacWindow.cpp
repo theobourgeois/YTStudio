@@ -62,6 +62,66 @@ void setWindowOwner (juce::Component& window, void* owner)
 
 namespace
 {
+KeyHook keyHandler;
+HHOOK keyHook = nullptr;
+
+/** JUCE's name for a virtual key (as its own Windows peer makes them), or 0 for one it has no use for here. */
+int juceKeyCode (WPARAM vk)
+{
+    if (vk == VK_SPACE) return juce::KeyPress::spaceKey;
+    if (vk >= VK_F1 && vk <= VK_F12) return juce::KeyPress::F1Key + (int) (vk - VK_F1);
+    if (vk == VK_UP) return juce::KeyPress::upKey;
+    if (vk == VK_DOWN) return juce::KeyPress::downKey;
+    if (vk == VK_LEFT) return juce::KeyPress::leftKey;
+    if (vk == VK_RIGHT) return juce::KeyPress::rightKey;
+    if (vk == VK_DELETE) return juce::KeyPress::deleteKey;
+    if (vk == VK_BACK) return juce::KeyPress::backspaceKey;
+    if (vk == VK_RETURN) return juce::KeyPress::returnKey;
+    if (vk == VK_ESCAPE) return juce::KeyPress::escapeKey;
+    if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9')) return (int) vk;
+    // , . ; / [ ] as the layout types them (the page names them by character too: `describeKey`).
+    if (vk >= VK_OEM_1 && vk <= VK_OEM_8)
+        if (const auto c = (int) (MapVirtualKeyW ((UINT) vk, MAPVK_VK_TO_CHAR) & 0x7fff); c > 0 && c < 128)
+            return c;
+    return 0;
+}
+
+LRESULT CALLBACK onThreadKey (int code, WPARAM vk, LPARAM info)
+{
+    // HC_ACTION: a key message taken off the queue (not merely peeked at: HC_NOREMOVE).
+    if (code == HC_ACTION && keyHandler != nullptr)
+        if (const auto keyCode = juceKeyCode (vk); keyCode != 0)
+        {
+            const auto down = (info & (1u << 31)) == 0;
+            const auto repeat = down && (info & (1 << 30)) != 0;
+            int mods = 0;
+            if (GetKeyState (VK_SHIFT) < 0) mods |= juce::ModifierKeys::shiftModifier;
+            if (GetKeyState (VK_CONTROL) < 0) mods |= juce::ModifierKeys::ctrlModifier;
+            if (GetKeyState (VK_MENU) < 0) mods |= juce::ModifierKeys::altModifier;
+            auto* focus = GetFocus();
+            auto* root = focus != nullptr ? GetAncestor (focus, GA_ROOT) : nullptr;
+            if (root != nullptr && keyHandler (root, juce::KeyPress (keyCode, juce::ModifierKeys (mods), 0), down, repeat))
+                return 1;
+        }
+    return CallNextHookEx (keyHook, code, vk, info);
+}
+} // namespace
+
+void hookThreadKeys (KeyHook handler)
+{
+    keyHandler = std::move (handler);
+    if (keyHook == nullptr)
+        keyHook = SetWindowsHookExW (WH_KEYBOARD, onThreadKey, nullptr, GetCurrentThreadId());
+}
+
+void* nativeWindowOf (juce::Component& window)
+{
+    auto* peer = window.getPeer();
+    return peer != nullptr ? peer->getNativeHandle() : nullptr;
+}
+
+namespace
+{
 /**
  * Windows 11 treats a program without a visible window as background work: its threads may be slowed
  * down on efficiency cores (EcoQoS) and its timer resolution request ignored. The engine rarely has a
@@ -99,5 +159,11 @@ void keepAwake (bool playing)
 #else
 void* appWindowFromHandle (const juce::String&) { return nullptr; }
 void setWindowOwner (juce::Component&, void*) {}
+void hookThreadKeys (KeyHook) {}
+void* nativeWindowOf (juce::Component& window)
+{
+    auto* peer = window.getPeer();
+    return peer != nullptr ? peer->getNativeHandle() : nullptr;
+}
 void keepAwake (bool) {}
 #endif

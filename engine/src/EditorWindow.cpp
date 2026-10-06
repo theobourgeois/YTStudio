@@ -199,6 +199,7 @@ public:
 
 bool EditorWindow::typingKeyboard = false;
 void* EditorWindow::owner = nullptr;
+juce::Array<EditorWindow*> EditorWindow::openWindows;
 
 namespace
 {
@@ -237,10 +238,20 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
     if (! addToDesktopFirst)
         addToDesktop();
     setVisible (true);
+
+    openWindows.add (this);
+    // (Windows: the keys pressed in a plugin that holds the focus itself; nothing elsewhere.)
+    hookThreadKeys ([] (void* root, const juce::KeyPress& key, bool down, bool repeat) {
+        for (auto* window : openWindows)
+            if (nativeWindowOf (*window) == root)
+                return window->takeFirst (key, down, repeat);
+        return false;
+    });
 }
 
 EditorWindow::~EditorWindow()
 {
+    openWindows.removeFirstMatchingValue (this);
     releaseKeys();
     automate.reset();
     presetBar.reset();
@@ -401,6 +412,68 @@ bool EditorWindow::keyPressed (const juce::KeyPress& key, juce::Component*)
     described.getDynamicObject()->setProperty ("event", "key");
     described.getDynamicObject()->setProperty ("down", true);
     protocol::send (described);
+    return true;
+}
+
+namespace
+{
+/** The typing keyboard's note keys, by the page's names for them. */
+bool isPianoKey (const juce::String& code)
+{
+    return code.startsWith ("Key") || code.startsWith ("Digit")
+        || code == "Comma" || code == "Period" || code == "Semicolon" || code == "Slash"
+        || code == "BracketLeft" || code == "BracketRight";
+}
+
+void sendKey (juce::var described, bool down)
+{
+    described.getDynamicObject()->setProperty ("event", "key");
+    described.getDynamicObject()->setProperty ("down", down);
+    protocol::send (described);
+}
+} // namespace
+
+bool EditorWindow::takeFirst (const juce::KeyPress& key, bool down, bool repeat)
+{
+    const auto code = key.getKeyCode();
+    if (! down)
+    {
+        if (const auto held = heldKeys.find (code); held != heldKeys.end())
+        {
+            sendKey (held->second, false);
+            heldKeys.erase (held);
+        }
+        return takenDown.erase (code) > 0;
+    }
+    const auto described = describeKey (key);
+    if (described.isVoid())
+        return false;
+    const auto mods = key.getModifiers();
+    const auto ctrl = mods.isCtrlDown(), alt = mods.isAltDown();
+    const auto name = described["code"].toString();
+    // The typing keyboard plays notes whatever has the focus (FL's "typing keyboard to piano").
+    if (typingKeyboard && isPianoKey (name) && ! ctrl && ! alt)
+    {
+        takenDown.insert (code);
+        if (heldKeys.count (code) == 0)
+        {
+            heldKeys[code] = described;
+            sendKey (described, true);
+        }
+        return true;
+    }
+    const auto fKey = code >= juce::KeyPress::F1Key && code <= juce::KeyPress::F12Key;
+    const auto take = (code == juce::KeyPress::spaceKey && ! ctrl && ! alt)
+        // Alt+F4 stays the system's. (Ctrl+Z stays the plugin's own undo, as FL lets it: it reaches the app only if unused.)
+        || (fKey && ! (alt && code == juce::KeyPress::F4Key))
+        || (alt && ! ctrl && name.startsWith ("Digit"))
+        || (ctrl && ! alt && (name == "KeyT" || name == "KeyR"));
+    if (! take)
+        return false;
+    takenDown.insert (code);
+    // Held down, it's pressed once: Space toggles play, not on every repeat.
+    if (! repeat)
+        sendKey (described, true);
     return true;
 }
 

@@ -1,7 +1,9 @@
-import { useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 import type { EngineKey } from "@shared/music/engine";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
-import { keptByWindow } from "@/components/windows/floating-window";
+import { PopupContainerProvider } from "@/components/ui/portal-container";
+import { keptByWindow, nativeWindowsOn } from "@/components/windows/floating-window";
+import { useMainWindowPopups } from "@/components/windows/native/popups";
 import { addWindowListener, isHtmlElement, ownerWindow, queryAnywhere } from "@/lib/window-events";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
 import { BrowserPanel } from "./browser/browser-panel";
@@ -83,18 +85,29 @@ export default function MusicWorkspace() {
     return <PlainWorkspace>{loadError ? <WorkspaceError noun="song" error={loadError} /> : <WorkspaceLoading />}</PlainWorkspace>;
   }
   return (
-    <div key={projectId} className="flex min-h-0 flex-1 flex-col" data-suite="music">
-      <MusicToolbar />
-      <VocalMixDialog />
-      <div className="flex min-h-0 flex-1">
-        <BrowserPanel />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Windows />
+    <MainWindowPopups>
+      <div key={projectId} className="flex min-h-0 flex-1 flex-col" data-suite="music">
+        <MusicToolbar />
+        <VocalMixDialog />
+        <div className="flex min-h-0 flex-1">
+          <BrowserPanel />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <Windows />
+          </div>
+          <AssistantPanel suite="music" />
         </div>
-        <AssistantPanel suite="music" />
       </div>
-    </div>
+    </MainWindowPopups>
   );
+}
+
+/**
+ * The toolbar's and side panels' menus (the pattern picker...) in the window the panels' menus are drawn in, when
+ * the editor's windows are windows of the system: drawn in the page, they'd open under the rack and the Playlist.
+ */
+function MainWindowPopups({ children }: { children: ReactNode }) {
+  const container = useMainWindowPopups(nativeWindowsOn());
+  return <PopupContainerProvider value={container}>{children}</PopupContainerProvider>;
 }
 
 /** The editor's desktop and the windows open on it: the channel rack, and the settings of the channels clicked. */
