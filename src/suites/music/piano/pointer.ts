@@ -312,14 +312,14 @@ export function gridPointerDown(e: Press) {
 
   const selecting = e.ctrlKey || e.metaKey || (tool === "select" && !hit);
   if (selecting) {
-    if (hit) {
-      // Ctrl+click: this note; with Shift, in or out of the selection.
+    // Ctrl+click on a note: this note (with Shift, in or out of the selection); a drag, from anywhere, is a rectangle.
+    const click = () => {
+      if (!hit) return e.shiftKey ? undefined : deselect();
       const next = new Set(e.shiftKey ? ctx.selected : []);
       if (e.shiftKey && next.has(hit.note.id)) next.delete(hit.note.id);
       else next.add(hit.note.id);
-      piano.select(next);
-      return;
-    }
+      usePiano.getState().select(next);
+    };
     show(element, "crosshair");
     startGridDrag(e, element, {
       threshold: 3,
@@ -328,7 +328,7 @@ export function gridPointerDown(e: Press) {
         usePiano.getState().setDrag({ kind: "rect", from: tick0, to: q.tick, low: pitch0, high: q.pitch, add: e.shiftKey });
       },
       onEnd: commitDrag,
-      onClick: () => (e.shiftKey ? undefined : deselect()),
+      onClick: click,
       onCancel: cancelDrag,
     });
     return;

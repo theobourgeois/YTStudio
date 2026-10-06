@@ -1,10 +1,13 @@
 /**
  * Drives the canvas element outside React: a frame on the next animation frame whenever the document, the view or
- * the images change, bilinear while things move and Mitchell once they've been still a moment (after fetching any
- * evicted tiles the view needs). Several requests in a frame make one frame.
+ * the images change, bilinear while things move (the view, a layer's place) and Mitchell once they've been still a
+ * moment (after fetching any evicted tiles the view needs). Edits that move nothing (an adjustment's slider,
+ * opacity) stay final, so the composite kept below an adjustment is reused while it's dragged. Several requests in a
+ * frame make one frame.
  */
 import type { PhotoRenderer, FrameTiming } from "../render/renderer";
 import type { Quality } from "../render/compositor";
+import { layersMoved } from "./handles";
 import { usePhoto } from "../store";
 import { usePhotoUi } from "../ui";
 
@@ -22,7 +25,8 @@ export class CanvasDriver {
     renderer.onChange = () => this.request("final");
     this.unsubscribe.push(
       usePhoto.subscribe((s, prev) => {
-        if (s.history?.doc !== prev.history?.doc) this.request(s.history?.gestureBase ? "interactive" : "final");
+        const doc = s.history?.doc;
+        if (doc !== prev.history?.doc) this.request(s.history?.gestureBase && layersMoved(prev.history?.doc, doc) ? "interactive" : "final");
       }),
       usePhotoUi.subscribe((s, prev) => {
         if (s.view !== prev.view) this.request("interactive");

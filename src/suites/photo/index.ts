@@ -28,10 +28,10 @@ export const photoSuite: ClientSuite<"photo"> = {
   describe: (p) => `${p.width} × ${p.height} · ${p.layerCount} layer${p.layerCount === 1 ? "" : "s"}`,
   useLiveName: (projectId) => usePhoto((s) => (s.projectId === projectId ? (s.history?.doc.name ?? null) : null)),
   chat: {
-    pitch: "can see your photo and arrange it: place images, move, scale and rotate layers, size the canvas and export.",
+    pitch: "can see your photo and work on it: place images, move, scale and rotate layers, brighten it and shape its tones with adjustment layers, size the canvas and export.",
     useSuggestions() {
       const hasLayers = usePhoto((s) => (s.history?.doc.layers.length ?? 0) > 0);
-      return hasLayers ? ["Make this a 1280×720 thumbnail", "Fill the canvas with the bottom image", "What do you see?"] : ["What can you do?", "Make the canvas a YouTube thumbnail"];
+      return hasLayers ? ["Make this a 1280×720 thumbnail", "Add a bit of contrast with Curves", "What do you see?"] : ["What can you do?", "Make the canvas a YouTube thumbnail"];
     },
     ask: "help with your photo",
     useContextLabel: () =>
