@@ -8,7 +8,10 @@
  * from its autocorrelation (weighted towards ~120 BPM), then the beat times
  * that best line up with the onsets while keeping that tempo.
  */
+import { fft } from "../shared/signals/fft.ts";
 import type { MusicAnalysis, MusicSection } from "../shared/types.ts";
+
+export { fft };
 
 /** Analysis frame rate: hop of 256 samples at 22050 Hz (about 11.6 ms). */
 export const SAMPLE_RATE = 22050;
@@ -41,38 +44,6 @@ const COMB = 8;
 // ---------------------------------------------------------------------------
 // Spectrum
 // ---------------------------------------------------------------------------
-
-/** In-place radix-2 FFT of `re` + i·`im` (length a power of two). */
-export function fft(re: Float64Array, im: Float64Array): void {
-  const n = re.length;
-  for (let i = 1, j = 0; i < n; i++) {
-    let bit = n >> 1;
-    for (; j & bit; bit >>= 1) j ^= bit;
-    j ^= bit;
-    if (i < j) {
-      [re[i], re[j]] = [re[j], re[i]];
-      [im[i], im[j]] = [im[j], im[i]];
-    }
-  }
-  for (let size = 2; size <= n; size <<= 1) {
-    const step = (-2 * Math.PI) / size;
-    const half = size >> 1;
-    for (let start = 0; start < n; start += size) {
-      for (let k = 0; k < half; k++) {
-        const cos = Math.cos(step * k);
-        const sin = Math.sin(step * k);
-        const a = start + k;
-        const b = a + half;
-        const tr = re[b] * cos - im[b] * sin;
-        const ti = re[b] * sin + im[b] * cos;
-        re[b] = re[a] - tr;
-        im[b] = im[a] - ti;
-        re[a] += tr;
-        im[a] += ti;
-      }
-    }
-  }
-}
 
 interface Envelopes {
   /** Onset strength per frame (spectral flux, locally normalised). */

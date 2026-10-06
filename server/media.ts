@@ -6,19 +6,23 @@ import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createId } from "../shared/ids.ts";
 import { normalizeImageInfo } from "../shared/media.ts";
-import type { ImageInfo, MediaAsset, ReversedMedia } from "../shared/types.ts";
+import { SIGNALS_VERSION, signalsFileName } from "../shared/signals/format.ts";
+import type { ImageInfo, MediaAsset, MediaSignals, ReversedMedia } from "../shared/types.ts";
 import { errorMessage } from "../shared/errors.ts";
 import { makeFilmstrip, makePoster, makeReversed, makeStillPoster, makeWaveform } from "./derivatives.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { isAbortError } from "./process.ts";
 import { type ProbeResult, probeMedia } from "./probe.ts";
 import { createLimiter } from "./queue.ts";
+import { makeSignals } from "./signals.ts";
 import { type DataPaths, HttpError, isValidId, readJson, writeJson } from "./storage.ts";
 
 /** Background (filmstrip + waveform) jobs running at once. */
 const JOB_CONCURRENCY = 2;
 /** Reversed copies made at once (each is a full re-encode). */
 const REVERSE_CONCURRENCY = 1;
+/** Files' signals analysed at once (each keeps a core busy for a few seconds a song). */
+const SIGNAL_CONCURRENCY = 1;
 
 const MEDIA_EXTENSIONS = new Set([
   "mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpg", "mpeg", "ts", "mts", "m2ts", "3gp",
@@ -84,6 +88,9 @@ export function savedAsset(asset: MediaAsset): MediaAsset {
   return next;
 }
 
+/** Whether an asset's signals are made, by this version of the analysis. */
+const hasSignals = (asset: MediaAsset) => asset.signals?.status === "ready" && asset.signals.version === SIGNALS_VERSION;
+
 const isSize = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n > 0;
 
 /**
@@ -99,6 +106,9 @@ export class MediaLibrary {
   /** Reversed copies being made, by asset id. */
   private reversing = new Map<string, { done: Promise<void>; controller: AbortController }>();
   private reverseLimit = createLimiter(REVERSE_CONCURRENCY);
+  /** Signals being analysed, by asset id. */
+  private signalling = new Map<string, { done: Promise<void>; controller: AbortController }>();
+  private signalLimit = createLimiter(SIGNAL_CONCURRENCY);
   /** Files being added to each project right now (by project id): its package mustn't move meanwhile. */
   private adding = new Map<string, number>();
   private root: MediaRoot;
@@ -159,6 +169,7 @@ export class MediaLibrary {
   private resumeAsset(asset: MediaAsset): void {
     if (asset.status === "processing" && !this.jobs.has(asset.id)) this.enqueue(asset.id);
     if (asset.reversed?.status === "processing") void this.startReversing(asset.id);
+    if (asset.signals?.status === "processing") void this.startSignals(asset.id);
   }
 
   /** Every asset (or one project's), newest first. */
@@ -299,7 +310,7 @@ export class MediaLibrary {
    */
   busy(projectId: string): boolean {
     if (this.adding.has(projectId)) return true;
-    return this.list(projectId).some((a) => this.jobs.has(a.id) || this.reversing.has(a.id));
+    return this.list(projectId).some((a) => this.jobs.has(a.id) || this.reversing.has(a.id) || this.signalling.has(a.id));
   }
 
   private async commit(
@@ -424,6 +435,9 @@ export class MediaLibrary {
       // A reversed copy still being made (or that failed) is made again when it's needed.
       if (asset.reversed?.status === "ready") copy.reversed = { status: "ready", src: rebase(asset.reversed.src) };
       else delete copy.reversed;
+      // Signals too (analysed again when they're needed, or when the copy is processed).
+      if (asset.signals?.status === "ready") copy.signals = { ...asset.signals, src: rebase(asset.signals.src) };
+      else delete copy.signals;
       await writeJson(path.join(dir, "meta.json"), copy);
       if (!exists()) throw new HttpError(404, "Project not found");
       this.assets.set(id, copy);
@@ -459,6 +473,7 @@ export class MediaLibrary {
     this.assets.delete(id);
     this.jobs.get(id)?.abort();
     this.reversing.get(id)?.controller.abort();
+    this.signalling.get(id)?.controller.abort();
   }
 
   /**
@@ -478,6 +493,7 @@ export class MediaLibrary {
       filmstrip: asset.filmstrip && { ...asset.filmstrip, urlPattern: rebase(asset.filmstrip.urlPattern) },
       waveform: asset.waveform && rebase(asset.waveform),
       ...(asset.reversed?.status === "ready" && { reversed: { ...asset.reversed, src: rebase(asset.reversed.src) } }),
+      ...(asset.signals?.status === "ready" && { signals: { ...asset.signals, src: rebase(asset.signals.src) } }),
     };
   }
 
@@ -503,6 +519,7 @@ export class MediaLibrary {
   shutdown(): void {
     for (const controller of this.jobs.values()) controller.abort();
     for (const { controller } of this.reversing.values()) controller.abort();
+    for (const { controller } of this.signalling.values()) controller.abort();
   }
 
   /**
@@ -529,6 +546,32 @@ export class MediaLibrary {
       throw new Error(`Couldn't play ${this.get(id).name} backwards${reversed?.status === "error" ? `: ${reversed.error}` : ""}`);
     }
     return path.join(this.dir(id), path.basename(reversed.src));
+  }
+
+  /**
+   * Start analysing an asset's signals (what its sound does over time), unless they're made (by this
+   * version of the analysis) or being made. Failed ones are tried again.
+   */
+  async analyseSignals(id: string): Promise<MediaAsset> {
+    const asset = this.get(id);
+    if (!asset.hasAudio) throw new HttpError(400, "That file has no sound.");
+    if (hasSignals(asset) || this.signalling.has(id)) return asset;
+    await this.setSignals(id, { status: "processing" });
+    void this.startSignals(id);
+    return this.get(id);
+  }
+
+  /** The path of an asset's signals, analysed first if need be (the export waits for them). */
+  async signalsPath(id: string): Promise<string> {
+    if (!hasSignals(this.get(id))) {
+      await this.analyseSignals(id);
+      await this.signalling.get(id)?.done;
+    }
+    const signals = this.get(id).signals;
+    if (signals?.status !== "ready") {
+      throw new Error(`Couldn't analyse the sound of ${this.get(id).name}${signals?.status === "error" ? `: ${signals.error}` : ""}`);
+    }
+    return path.join(this.dir(id), path.basename(signals.src));
   }
 
   /** Cached transcripts of an asset (see `transcription/service.ts`), removed with it. */
@@ -561,6 +604,49 @@ export class MediaLibrary {
     const next: MediaAsset = { ...current, reversed };
     await writeJson(this.metaFile(id), next);
     if (this.assets.has(id)) this.assets.set(id, { ...this.assets.get(id)!, reversed });
+  }
+
+  /** Save an asset's signals' state (unless it's been deleted meanwhile). */
+  private async setSignals(id: string, signals: MediaSignals): Promise<void> {
+    const current = this.assets.get(id);
+    if (!current) return;
+    await writeJson(this.metaFile(id), { ...current, signals });
+    if (this.assets.has(id)) this.assets.set(id, { ...this.assets.get(id)!, signals });
+  }
+
+  /** Analyse an asset's signals in the background (one job per asset). */
+  private startSignals(id: string): Promise<void> {
+    const running = this.signalling.get(id);
+    if (running) return running.done;
+    const controller = new AbortController();
+    const { signal } = controller;
+    const done = this.signalLimit(async () => {
+      const asset = this.assets.get(id);
+      if (!asset || signal.aborted) return;
+      const before = asset.signals?.status === "ready" ? path.basename(asset.signals.src) : null;
+      const name = signalsFileName();
+      let signals: MediaSignals;
+      try {
+        await makeSignals(this.sourcePath(asset), path.join(this.dir(id), name), asset.duration, signal);
+        signals = { status: "ready", src: `${this.root.url}/${id}/${name}`, version: SIGNALS_VERSION };
+      } catch (err) {
+        if (signal.aborted) return;
+        console.warn(`[media] analysing the sound of ${asset.name} failed: ${errorMessage(err)}`);
+        signals = { status: "error", error: errorMessage(err) };
+      }
+      if (signal.aborted) return;
+      await this.setSignals(id, signals);
+      // An older analysis's file isn't needed any more.
+      if (before && before !== name) await fs.rm(path.join(this.dir(id), before), { force: true });
+    })
+      .catch((err) => {
+        if (!isAbortError(err)) console.error(`[media] analysing ${id} failed:`, err);
+      })
+      .finally(() => {
+        if (this.signalling.get(id)?.controller === controller) this.signalling.delete(id);
+      });
+    this.signalling.set(id, { done, controller });
+    return done;
   }
 
   /** Make an asset's reversed copy in the background (one job per asset). */
@@ -648,5 +734,7 @@ export class MediaLibrary {
     // The asset may have been deleted while the metadata was being written.
     if (signal.aborted || !this.assets.has(id)) return;
     this.assets.set(id, next);
+    // Then what its sound does over time, for pictures that react to it.
+    if (next.hasAudio && !hasSignals(next) && !this.signalling.has(id)) await this.analyseSignals(id).catch(() => {});
   }
 }
