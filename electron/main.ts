@@ -175,8 +175,9 @@ async function start() {
     floatingState = state;
     panels?.setState(state);
     // The levels change, which doesn't keep the windows in order across programs: they're put back in the stack's.
+    // (Windows has no levels: owned windows keep their order as the app comes and goes.)
     void tellEngineWhereWeAre().then(async () => {
-      if (!state.floating || !state.visible) return;
+      if (!state.floating || !state.visible || isWindows) return;
       // The system orders the app's windows itself as it comes to the front, a moment later than it says so.
       await new Promise((resolve) => setTimeout(resolve, RESTACK_DELAY_MS));
       if (floatingState.floating && floatingState.visible) await restacker.run();
@@ -184,8 +185,10 @@ async function start() {
   });
   app.on("browser-window-focus", (_event, focused) => {
     group?.setAppFocused(BrowserWindow.getFocusedWindow() !== null);
-    // A plugin's window is the engine's, not one of the editor's: it closes when the app's own window is used.
-    if (focused === mainWindow) void closeEngineWindows?.().catch(() => {});
+    // A plugin's window is the engine's, not one of the editor's: on a Mac, where the editor's windows are
+    // drawn in the page (which can't come in front of it), it closes when the app's own window is used. On
+    // Windows it stays: it and the editor's windows are all the main window's own, stacked by use.
+    if (focused === mainWindow && !isWindows) void closeEngineWindows?.().catch(() => {});
   });
   app.on("browser-window-blur", () => group?.setAppFocused(BrowserWindow.getFocusedWindow() !== null));
   // (Only macOS withholds mouse moves from windows without the focus: elsewhere the 60 Hz poll would be for nothing.)
@@ -427,12 +430,12 @@ function openPanels(win: BrowserWindow, owned: Panels) {
  * The audio engine's plugin windows follow this one (docs/fl-studio/plugin-window.md): at the floating
  * level while the app is in use, hidden with the main window, and carried along when it moves.
  */
-async function tellEngineWhereWeAre(): Promise<void> {
+async function tellEngineWhereWeAre(bounds?: Electron.Rectangle): Promise<void> {
   const win = mainWindow;
   if (!win || win.isDestroyed()) return setHostWindow?.({ ...floatingState, visible: false, bounds: { x: 0, y: 0, width: 0, height: 0 } });
   // Windows: plugin windows become the main window's own (above it, not above other programs, no taskbar
   // buttons, minimised with it), which needs its handle. The engine reads it from the message as it comes.
-  return setHostWindow?.({ ...floatingState, bounds: win.getBounds(), handle: nativeHandle(win) });
+  return setHostWindow?.({ ...floatingState, bounds: bounds ?? win.getBounds(), handle: nativeHandle(win) });
 }
 
 /** Windows: a window's HWND as a decimal number (a pointer: 8 bytes on 64-bit Windows). */
@@ -450,6 +453,11 @@ function followByPluginWindows(win: BrowserWindow) {
   };
   // (A window that isn't shown yet isn't visible: it's told again as it shows, and when the page has loaded in it.)
   for (const event of ["show", "hide", "minimize", "restore", "move", "resize", "focus", "ready-to-show"] as const) win.on(event as "move", tell);
+  // Windows: as a move starts, not once it's done, so the plugin windows keep up with it rather than trail behind.
+  if (isWindows)
+    win.on("will-move", (_event, next) => {
+      if (!win.isDestroyed()) void tellEngineWhereWeAre(next);
+    });
   win.webContents.on("did-finish-load", tell);
   win.on("closed", () => {
     group?.setMainVisible(false);

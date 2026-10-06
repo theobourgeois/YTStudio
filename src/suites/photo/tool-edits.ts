@@ -36,6 +36,7 @@ import {
   setTransform,
   updateLayer,
 } from "@shared/photo/edits";
+import { effectPreset } from "@shared/photo/effects/catalog";
 import { FLARE_PRESETS } from "@shared/photo/effects/flare";
 import { ADJUSTMENTS, type EffectDefinition, type EffectKind, FILTERS, GENERATORS, effectDefinition, newEffect, unavailableReason } from "@shared/photo/effects/index";
 import { CURVE_CHANNELS, type ElementParamSpec, MAX_CURVE_POINTS, type ParamSpec } from "@shared/photo/effects/params";
@@ -583,9 +584,12 @@ export const addFilterTool: PhotoEdit = (doc, input) => {
   const layer = contentLayerRef(doc, input.layer);
   const def = effectDefinition(String(input.type ?? ""));
   if (def?.kind !== "filter") throw new Error(`No filter "${String(input.type)}". The filters: ${FILTERS.map((d) => d.type).join(", ")}.`);
+  const preset = input.preset === undefined ? undefined : effectPreset(def, String(input.preset));
+  if (input.preset !== undefined && !preset) throw new Error(`${def.label} has no preset "${String(input.preset)}". Its presets: ${(def.presets ?? []).map((p) => p.id).join(", ") || "none"}.`);
   const id = createId("fx");
-  const fresh = addFilter(doc, layer.id, { id, type: def.type });
-  const next = setFilter(fresh, layer.id, id, { params: effectPatch(def, input.params, newEffect(def, id).params) });
+  const fresh = addFilter(doc, layer.id, { id, type: def.type, params: preset?.params(doc.canvas) });
+  const start = (findLayer(fresh, layer.id) as ContentLayer).filters!.find((f) => f.id === id)!.params;
+  const next = setFilter(fresh, layer.id, id, { params: effectPatch(def, input.params, start) });
   const after = findLayer(next, layer.id) as ContentLayer;
   return { doc: next, layerId: layer.id, text: `Added ${def.label} ${id} to "${layer.name}", applied after its other filters.\n${describeFilters(after).join("\n")}` };
 };

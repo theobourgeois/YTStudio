@@ -156,6 +156,18 @@ export interface ElementsParam extends Placement {
   description: string;
 }
 
+/**
+ * A named starting point for a filter or generator (the Filter menu's and the Filter Gallery's entries): its
+ * parameters for a canvas, with sizes in pixels scaled to it (a preset is the same look on any canvas).
+ */
+export interface EffectPreset {
+  id: string;
+  label: string;
+  /** What it looks like, in a few words (the gallery's card, the assistant's catalogue). */
+  description: string;
+  params: (canvas: { width: number; height: number }) => Record<string, EffectParamValue>;
+}
+
 export type ParamSpec = NumberParam | CurvesParam | ColourParam | PointParam | ChoiceParam | BooleanParam | ElementsParam | BlendParam | ContourParam | GradientParam | PatternParam;
 
 /** Photoshop's limit: 16 points on a curve, its ends included. */

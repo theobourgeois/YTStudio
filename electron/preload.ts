@@ -32,7 +32,7 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
     show: (name: string, focus: boolean) => ipcRenderer.send("panels:show", name, focus),
     raise: (name: string) => ipcRenderer.send("panels:raise", name),
     hide: (name: string) => ipcRenderer.send("panels:hide", name),
-    place: (name: string, rect: Rect) => ipcRenderer.send("panels:place", name, rect),
+    place: (name: string, rect: Rect, basis?: Rect) => ipcRenderer.send("panels:place", name, rect, basis),
     configure: (name: string, options: { minWidth?: number; minHeight?: number; resizable?: boolean; backgroundColor?: string; title?: string }) =>
       ipcRenderer.send("panels:configure", name, options),
     close: (name: string) => ipcRenderer.send("panels:close", name),

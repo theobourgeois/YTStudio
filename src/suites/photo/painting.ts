@@ -4,6 +4,7 @@
  * given one as Photoshop's always have), and a stroke from press to commit: samples in document pixels go to the
  * renderer, its surface's new id is committed at the end as one undo step, Escape or a lost pointer drops it.
  */
+import { toast } from "sonner";
 import type { PhotoSelection, SurfaceId } from "@shared/photo/types";
 import { brushSettings, strokeColour, useBrush } from "./brush-options";
 import { useColours } from "./colours";
@@ -13,13 +14,16 @@ import { usePhoto } from "./store";
 
 /**
  * One stroke. Samples that arrive before the surface is on the GPU (a layer or mask made a moment ago) wait and are
- * painted when it is; a surface that never comes cancels the stroke.
+ * painted when it is; a surface that never comes cancels the stroke. One the GPU loses midway (a device lost: its
+ * drafts were on it) isn't kept, and the user is told: everything committed before it is safe.
  */
 export class StrokeController {
   private pending: { x: number; y: number }[] = [];
   private begun = false;
   private ended = false;
   private readonly started = performance.now();
+  /** The renderer's lost strokes when this one began: more at its end means it was lost with the device. */
+  private readonly lostBefore: number;
 
   constructor(
     private readonly renderer: PhotoRenderer,
@@ -29,6 +33,7 @@ export class StrokeController {
     /** The Eraser: painted pixels go transparent; a mask is painted the background colour (Photoshop's). */
     private readonly erase = false,
   ) {
+    this.lostBefore = renderer.lostStrokes;
     this.tryBegin();
   }
 
@@ -63,6 +68,10 @@ export class StrokeController {
     this.ended = true;
     if (!this.begun) return null;
     const result = await this.renderer.endStroke();
+    if (this.renderer.lostStrokes > this.lostBefore) {
+      toast.error("The GPU stopped mid-stroke", { description: "That stroke couldn't be kept: paint it again. Everything before it is safe." });
+      return null;
+    }
     if (!result) return null;
     usePhoto.getState().commit(commitSurface(this.layerId, this.part, result.id));
     return result.id;

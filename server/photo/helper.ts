@@ -4,7 +4,22 @@
  * one at a time, so a file that crashes it again can only be the one in flight: that one fails with the helper's
  * last words, and the others go through.
  */
+import fs from "node:fs/promises";
+import path from "node:path";
 import { spawnStreaming } from "../process.ts";
+
+/**
+ * Deletes what a helper killed while writing `file` left beside it (`<file>.<pid>.<time>.tmp`, its atomic writes'
+ * temporary files): a decoded 48 MP source's is hundreds of megabytes, an export's is in the user's folder. Called
+ * once the request writing `file` has settled, so no helper is writing it.
+ */
+export async function removeLeftovers(file: string): Promise<void> {
+  const prefix = `${path.basename(file)}.`;
+  const names = await fs.readdir(path.dirname(file)).catch(() => [] as string[]);
+  for (const name of names) {
+    if (name.startsWith(prefix) && /^\d+\.\d+\.tmp$/.test(name.slice(prefix.length))) await fs.rm(path.join(path.dirname(file), name), { force: true });
+  }
+}
 
 type Running = ReturnType<typeof spawnStreaming>;
 

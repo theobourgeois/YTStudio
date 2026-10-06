@@ -138,6 +138,70 @@ export async function writeJson(file: string, data: unknown): Promise<void> {
   }
 }
 
+/** Errors that say the disk (or the user's quota on it) is full. */
+const FULL = new Set(["ENOSPC", "EDQUOT"]);
+
+/**
+ * A write that failed because the disk is full, as a 507 the tab can show (what was there before is intact);
+ * anything else as it was.
+ */
+export function diskError(err: unknown, file: string): unknown {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  if (!code || !FULL.has(code)) return err;
+  return new HttpError(507, `The disk is full: ${path.basename(file)} couldn't be written. Free some space and it will be saved; nothing saved before was changed.`);
+}
+
+/**
+ * Flushes a folder's entries (a file renamed into it) to the disk. POSIX only: Windows can't open a folder, and
+ * NTFS journals renames itself.
+ */
+export async function syncFolder(dir: string): Promise<void> {
+  if (process.platform === "win32") return;
+  const handle = await fs.open(dir, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Written to a temporary file, flushed, renamed into place and its folder flushed (and the folders made for it):
+ * whole or absent even after a crash or a power loss, and there once this resolves. A full disk is a 507.
+ */
+export async function writeFileDurably(file: string, data: Uint8Array | string): Promise<void> {
+  const dir = path.dirname(file);
+  const made = await fs.mkdir(dir, { recursive: true }).catch((err) => {
+    throw diskError(err, file);
+  });
+  const tmp = `${file}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    const handle = await fs.open(tmp, "w");
+    try {
+      await handle.writeFile(data);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await renameRetrying(tmp, file);
+    await syncFolder(dir);
+    // New folders are entries in their parents: flushed too, from the first one made.
+    if (made) {
+      const top = path.dirname(made);
+      for (let folder = path.dirname(dir); ; folder = path.dirname(folder)) {
+        await syncFolder(folder);
+        if (folder === top || folder === path.dirname(folder)) break;
+      }
+    }
+  } catch (err) {
+    await fs.rm(tmp, { force: true });
+    throw diskError(err, file);
+  }
+}
+
+/** `writeJson`, durably (`writeFileDurably`): for documents that promise they're on the disk once saved. */
+export const writeJsonDurably = (file: string, data: unknown) => writeFileDurably(file, JSON.stringify(data));
+
 /** Parsed JSON, or `null` if the file is missing or corrupt. */
 export async function readJson<T>(file: string): Promise<T | null> {
   try {

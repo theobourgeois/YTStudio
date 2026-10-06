@@ -3,6 +3,7 @@ import type { IconType } from "react-icons";
 import {
   PiFlagPennant,
   PiFunction,
+  PiLinkSimple,
   PiRuler,
   PiGauge,
   PiArrowsLeftRight,
@@ -100,6 +101,10 @@ const ICONS: Record<string, IconType> = {
   mark_beats: PiMetronome,
   cut_to_markers: PiMetronome,
   set_expression: PiFunction,
+  link_param: PiLinkSimple,
+  define_signal: PiWaveform,
+  delete_signal: PiWaveform,
+  set_events: PiMetronome,
   nest_clips: PiStack,
   break_apart: PiStack,
   edit_sequence: PiStack,

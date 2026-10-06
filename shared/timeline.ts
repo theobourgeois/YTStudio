@@ -6,7 +6,7 @@
 import { createId } from "./ids.ts";
 import { STILL_DURATION } from "./media.ts";
 import { DEFAULT_PROJECT_NAME } from "./suites.ts";
-import { cameraEffects, clipKind, defaultEffects, hasMedia, isRemapped, shapeEffects, solidEffects, textStyleAt } from "./effects.ts";
+import { cameraEffects, clipKind, defaultEffects, hasMedia, isRemapped, shapeEffects, solidEffects, textStyleAt, visualizerEffects } from "./effects.ts";
 import { EPS, clamp, even, roundTime, tidy } from "./math.ts";
 import { pruneParents } from "./parenting.ts";
 import type {
@@ -470,7 +470,7 @@ export function addTextClip(project: Project, clip: Omit<Clip, "trackId">): { pr
  * from its start.
  */
 /** Clips without media that are made from the Layer menu. */
-export type LayerKind = "adjustment" | "solid" | "shape" | "camera" | "null";
+export type LayerKind = "adjustment" | "solid" | "shape" | "camera" | "null" | "visualizer";
 
 export function newLayerClip(
   kind: LayerKind,
@@ -480,6 +480,8 @@ export function newLayerClip(
 ): Omit<Clip, "trackId"> {
   const base = { id: createId("clip"), assetId: "", start: roundTime(Math.max(0, start)), in: 0, out: roundTime(Math.max(MIN_CLIP_DURATION, duration)) };
   if (kind === "solid") return { ...base, effects: solidEffects(params) };
+  // A solid that shows only what its visualizer draws.
+  if (kind === "visualizer") return { ...base, effects: visualizerEffects(undefined, params) };
   if (kind === "shape") return { ...base, effects: shapeEffects(params) };
   if (kind === "camera") return { ...base, effects: cameraEffects(params) };
   if (kind === "null") return { ...base, effects: defaultEffects(), nullObject: true };

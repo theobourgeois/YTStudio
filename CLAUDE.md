@@ -42,7 +42,13 @@ the document's surfaces (`patterns`) or built in (`style/patterns.ts`), read by 
 of their mip levels; Styles (presets) are this computer's (`layer-style/styles.ts`). A filtered or
 generator layer (isolated.ts) composites by the GPU's own blending when it's Normal or light added in linear light,
 otherwise through the blend or style pass (`fixedComposite`); light blends in linear light in a "photoshop" document
-too (`blendsInLinear`: a layer with filters, a flare with `blendSpace`). F5 is next.
+too (`blendsInLinear`: a layer with filters, a flare with `blendSpace`). F5 (harden) is built but for its gate (Théo's
+walkthrough in the packaged app): the server side (`server/photo/recovery.ts`: the checkpoint and the check on open,
+`SuiteBackend.keepPrevious`/`check`; documents and blobs written with `writeFileDurably`; `faults.test.ts`), the
+Filter menu and Filter Gallery (`filters.tsx`, from the catalogue `shared/photo/effects/catalog.ts`: a filter's
+`category` and `presets` in its definition, so a new filter needs no UI of its own), export cancel, and tight GPU
+budgets: a full-resolution render draws a region only in the same task as the check that its tiles are all resident
+(`whenResident` in renderer.ts); keep it so, or an export can silently read evicted tiles.
 
 The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is
 planned in [`docs/visualizer/README.md`](docs/visualizer/README.md): signals, links, audio shaders, Perform, its
@@ -51,7 +57,20 @@ format, the pure analyser, reading at a time; `server/signals.ts` + `MediaLibrar
 read on the timeline by `shared/audio-signals.ts` (video: a clip's, a track's or the mix's energies summed, hits, the
 beat; a `SignalReader` per video: the tab's is `stores/signals.ts`, the export's built in `ExportService`, used through
 `withSignals`), so expressions react to sound (`audio("bass")`, `sinceHit("onsetLow")`, `envelope`, `beat()`...) alike
-in the preview and the export. The assistant's `get_signals` and `plot_signals` are its ears. V3 is next.
+in the preview and the export. The assistant's `get_signals` and `plot_signals` are its ears. **V3 is built**: links
+(`Effect.links`: a number or point follows a signal by an amount, through a response; worked out in `effectValuesAt`
+before expressions; `shared/links.ts` is their data, `linkLevel` in `audio-signals.ts` reads them,
+followers in warmed-up blocks so values never depend on what was read first), the video's own signals
+(`Project.signals`: bands of a source, hits, curves), and a nest hearing the mix of the sequence it's placed in
+(`Hearing`: whatever draws a nest wraps it in `withHearing(nestedHearing(clip, outer))`, as with `atFrameRate`). The
+link button sits by each stopwatch (`properties/link-button.tsx`); the tools are `link_param`, `define_signal`,
+`delete_signal`, `set_events` (`src/assistant/signal-edits.ts`). The Signals window (`components/signals/`) makes bands
+from a spectrum at the playhead and places hits; the timeline shows signal lanes under its ruler
+(`timeline/signal-lanes.tsx`) and, switched on there, spectrograms on audio clips. **V4 is built**: visualizers are
+video effects with `EffectShader.audio` (the Audio category, `shared/effect-library/audio.ts`); each pass carries what
+it hears at its clip's moment (`EffectPass.audio`, read by `effectPasses` through `clipAudio`), bound by the compositor
+as `uSpectrum`/`uWave` textures and uniforms (`AUDIO_PRELUDE` in `effect-gl.ts`); a `source` parameter says what it
+listens to; New item › Visualizer is a solid drawing only its visualizer. Signals files (v2) keep a small waveform.
 
 ## Commands
 
@@ -1163,7 +1182,7 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 
 ## Windows (the page can be in several)
 
-In the desktop app the music editor's windows and Settings can be windows of the operating system (off for now: `NATIVE_WINDOWS` in `floating-window.tsx`, `docs/windows.md`), drawn by the same
+In the desktop app the music editor's windows and Settings can be windows of the operating system (on on Windows, where they and the plugin windows are all owned by the main window; off on a Mac: `NATIVE_WINDOWS` in `floating-window.tsx`, `docs/windows.md`), drawn by the same
 React tree (`docs/windows.md`). `window` and `document` are always the main page's, so code that runs inside a
 window must say which one it means: `addWindowListener` for what the editor wants in every window (shortcuts, a
 drag's end), `ownerWindow` / `ownerDocument(event.target)` (`elementFromPoint`, `devicePixelRatio`, `activeElement`,

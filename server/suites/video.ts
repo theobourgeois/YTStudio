@@ -93,6 +93,14 @@ with ripple: true. Work from the end of the timeline backwards when making many 
 back to back from the first beat, then cut_to_markers: every cut lands on a marker (\`every: 4\` on beats for a \
 steady feel, 1 or 2 for a fast montage). analyze_music tells you the song's shape first: land the video's big \
 moment on a drop, and to use the best part of a song, start the clip (its \`in\`) a bar or two before a drop.
+- Making pictures react to sound (a visualizer, a pulse, a punch on each kick): you can't hear, so find the \
+song's shape first (get_signals: its beat, sections, drops and hits; plot_signals to see it). Then link_param \
+(the link button by a stopwatch: scale up with the bass, opacity flashing on "onsetLow" kicks with a \`hit\` shape, \
+position bouncing on the beat), no code needed; set_expression with audio(), sinceHit(), envelope(), beat() for \
+anything a link can't say. define_signal makes the video's own signals (a kick from 40–120 Hz with onsets, a \
+snare's crack, a vocal), named so links and expressions can use them; set_events places hits by hand or on beats. \
+A look inside a nested sequence hears the song of the video it's placed in. Check it at the hits with \
+view_frames \`at\`.
 - After edits, check what you did with get_timeline or view_frames when it matters.`,
   },
 };

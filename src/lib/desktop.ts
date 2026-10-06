@@ -21,8 +21,12 @@ export interface DesktopPanels {
   show(name: string, focus: boolean): void;
   raise(name: string): void;
   hide(name: string): void;
-  /** Move and resize a panel's window at once, to a place on the screen (points). */
-  place(name: string, rect: ScreenRect): void;
+  /**
+   * Move and resize a panel's window at once, to a place on the screen (points). `basis`: where the main
+   * window's content was when `rect` was worked out from it; if it has moved since (the main process moves
+   * the panels with it at once), `rect` goes along by as much.
+   */
+  place(name: string, rect: ScreenRect, basis?: ScreenRect): void;
   configure(name: string, options: { minWidth?: number; minHeight?: number; resizable?: boolean; backgroundColor?: string; title?: string }): void;
   close(name: string): void;
   /** Where the main window's content is on the screen. */

@@ -19,6 +19,7 @@ import {
   SIGNALS_VERSION,
   SIGNAL_RATE,
   type ScalarName,
+  WAVE_RATE,
   type SignalData,
   type SignalsHeader,
   bandByte,
@@ -148,6 +149,12 @@ export class SignalAnalyser {
   private frame = 0;
   private scalars = new Float32Array(0);
   private bandBytes = new Uint8Array(0);
+  // The small waveform: each sample the mean of `waveSpan` of the file's.
+  private readonly waveSpan: number;
+  private wave = new Int8Array(0);
+  private waveLength = 0;
+  private waveSum = [0, 0];
+  private waveCount = 0;
 
   constructor(readonly sampleRate: number, expectedSeconds = 0) {
     this.hop = sampleRate / SIGNAL_RATE;
@@ -164,6 +171,8 @@ export class SignalAnalyser {
     });
     this.levelHalf = Math.round((LEVEL_SECONDS * sampleRate) / 2);
     this.fluxRelease = FLUX_RELEASE_DB / SIGNAL_RATE;
+    this.waveSpan = Math.max(1, Math.round(sampleRate / WAVE_RATE));
+    this.wave = new Int8Array(Math.ceil(expectedSeconds * WAVE_RATE + 1) * 2);
     this.grow(Math.ceil(expectedSeconds * SIGNAL_RATE) + 1);
   }
 
@@ -173,8 +182,13 @@ export class SignalAnalyser {
     this.reserve(count);
     const at = this.length;
     for (let i = 0; i < count; i++) {
-      this.left[at + i] = samples[i * channels];
-      this.right[at + i] = samples[i * channels + channels - 1];
+      const l = samples[i * channels];
+      const r = samples[i * channels + channels - 1];
+      this.left[at + i] = l;
+      this.right[at + i] = r;
+      this.waveSum[0] += l;
+      this.waveSum[1] += r;
+      if (++this.waveCount === this.waveSpan) this.waveOut();
     }
     this.length += count;
     this.measureReady();
@@ -182,6 +196,7 @@ export class SignalAnalyser {
 
   /** The file has ended after `total` samples: measure to its end (padded with silence) and give the result. */
   finish(rhythm: SignalsHeader["rhythm"] = null): SignalData {
+    if (this.waveCount) this.waveOut();
     const total = this.start + this.length;
     const frames = Math.floor(Math.max(0, total) / this.hop) + 1;
     this.reserve(LONG);
@@ -192,7 +207,28 @@ export class SignalAnalyser {
     while (this.frame < frames) this.measure();
     const scalars = this.scalars.slice(0, frames * S);
     const bands = this.bandBytes.slice(0, frames * BAND_COUNT);
-    return { header: header(scalars, bands, frames, Math.max(0, total) / this.sampleRate, rhythm), scalars, bands };
+    const wave = this.wave.slice(0, this.waveLength * 2);
+    return {
+      header: { ...header(scalars, bands, frames, Math.max(0, total) / this.sampleRate, rhythm), waveRate: this.sampleRate / this.waveSpan, waveSamples: this.waveLength },
+      scalars,
+      bands,
+      wave,
+    };
+  }
+
+  /** One sample of the small waveform: the mean of the last `waveCount` (a full span but at the end). */
+  private waveOut(): void {
+    if ((this.waveLength + 1) * 2 > this.wave.length) {
+      const grown = new Int8Array(Math.max(1024, this.wave.length * 2));
+      grown.set(this.wave);
+      this.wave = grown;
+    }
+    const byte = (v: number) => Math.round(Math.max(-1, Math.min(1, v / this.waveCount)) * 127);
+    this.wave[this.waveLength * 2] = byte(this.waveSum[0]);
+    this.wave[this.waveLength * 2 + 1] = byte(this.waveSum[1]);
+    this.waveLength++;
+    this.waveSum = [0, 0];
+    this.waveCount = 0;
   }
 
   /** Measure every frame whose window is all here. */
@@ -345,7 +381,7 @@ function percentile(values: number[], share: number): number | null {
 }
 
 /** References, hits and the rest of the header, from the tables. */
-function header(scalars: Float32Array, bands: Uint8Array, frames: number, duration: number, rhythm: SignalsHeader["rhythm"]): SignalsHeader {
+function header(scalars: Float32Array, bands: Uint8Array, frames: number, duration: number, rhythm: SignalsHeader["rhythm"]): Omit<SignalsHeader, "waveRate" | "waveSamples"> {
   const column = (name: ScalarName) => {
     const out = new Float64Array(frames);
     const c = SCALAR_INDEX[name];

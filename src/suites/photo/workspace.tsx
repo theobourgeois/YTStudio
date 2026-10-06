@@ -29,6 +29,7 @@ import { useFileDrop } from "@/hooks/use-file-drop";
 import { api } from "@/lib/api";
 import { CanvasPanel, actualPixels, canvasPointAt, fitToCanvas, zoomBy } from "./canvas/canvas-panel";
 import { PhotoExportWindow } from "./export-window";
+import { FilterGalleryWindow, FilterMenu } from "./filters";
 import { LayerStyleWindow } from "./layer-style/layer-style-window";
 import { ScaleEffectsWindow } from "./layer-style/scale-effects-window";
 import { resolvePhotoKey } from "./keys";
@@ -43,7 +44,7 @@ import { currentDoc, currentSelection, flushPhotos, photoGesture, usePhoto } fro
 import { type PhotoTool, useActiveTool, usePhotoUi } from "./ui";
 
 type PhotoPanel = "canvas" | "layers" | "properties" | "styles";
-type PhotoWindowId = "export" | `panel:${string}`;
+type PhotoWindowId = "export" | "filters" | `panel:${string}`;
 
 const usePhotoWindows = createWindows<PhotoWindowId>();
 const panelWindow = (panel: PhotoPanel): PhotoWindowId => `panel:${panel}`;
@@ -146,12 +147,14 @@ function ImageDrop({ children }: { children: ReactNode }) {
 
 function PhotoDesktop() {
   const exportOpen = usePhotoUi((s) => s.exportOpen);
+  const filterGalleryOpen = usePhotoUi((s) => s.filterGalleryOpen);
   const layerStyle = usePhotoUi((s) => s.layerStyle);
   const scaleEffects = usePhotoUi((s) => s.scaleEffects);
   return (
     <Desktop windows={usePhotoWindows} name="photo" label="Photo windows" overlay className="absolute inset-0 z-50">
       <FloatingPanels dock={usePhotoDock} panels={PANELS} windowId={panelWindow} />
       {exportOpen && <PhotoExportWindow />}
+      {filterGalleryOpen && <FilterGalleryWindow />}
       {layerStyle && <LayerStyleWindow key={layerStyle.layerId} layerId={layerStyle.layerId} page={layerStyle.page} />}
       {scaleEffects && <ScaleEffectsWindow key={scaleEffects.join()} layerIds={scaleEffects} />}
     </Desktop>
@@ -176,6 +179,7 @@ function PhotoHeader() {
           <PiArrowClockwise />
         </Button>
       </div>
+      <FilterMenu />
       <ToolOptions />
       {tool === "move" && (
         <Tooltip>
@@ -387,6 +391,8 @@ function usePhotoKeys(active: boolean) {
           return layerActions.edge(action.to, action.add);
         case "export":
           return ui.setExportOpen(true);
+        case "lastFilter":
+          return void layerActions.repeatLastFilter();
         case "snap":
           return usePhotoPreferences.getState().setSnap(!usePhotoPreferences.getState().snap);
         case "save":

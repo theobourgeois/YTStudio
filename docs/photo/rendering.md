@@ -166,7 +166,13 @@ without touching the working space.
   2 GB) because Chrome reports neither VRAM nor true RAM. What's rebuildable goes first: levels, composite tiles,
   converted source tiles (refetched from the server's raw cache). Drafts are pinned for the stroke. A finished
   stroke's tiles also wait in the upload queue as bytes in memory until the server acknowledges them, so evicting
-  their GPU copies loses nothing.
+  their GPU copies loses nothing. **As built (F5)**: a full-resolution render (an export's region, a refinement's, a
+  glow cache's) needs every tile it reads resident at once. Surfaces fetch only a region's tiles, fetching marks
+  what's resident as just used first (so the atlas evicts something else), and the region is encoded in the same task
+  as the check that it's all there (`whenResident`), so no other render's fetch can evict a tile in between. A region
+  the budget can't hold is an error naming the budget, never wrong pixels (it was, silently, before F5: ledger A36).
+  A glow's cache reads only its own layer, in regions a quarter of the f32 atlas holds (2048 at every budget Settings
+  offers).
 - For scale: a 48 MP layer is 384 MB as `rgba16f`, 768 MB as `rgba32f`, 96 MB as an `r16f` mask. Tiling bounds what's
   resident; it doesn't make ten full layers cost one.
 - Measured on an M5 Pro (64 GB): uploading 48 MP of `rgba16f` tiles (732 × 256²) took 151 ms; allocating 48 MP of

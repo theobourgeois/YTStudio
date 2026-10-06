@@ -236,6 +236,7 @@ export function LayersPanel() {
             <DropdownMenuItem onSelect={() => layerActions.addFlare()}>
               <PiSparkle /> Lens Flare
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => usePhotoUi.getState().setFilterGalleryOpen(true)}>Filter Gallery…</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <div className="flex-1" />
@@ -350,6 +351,7 @@ function LayersMenu({ count }: { count: number }) {
       {active && !active.mask && <ContextMenuItem onSelect={() => void layerActions.addMask()}>Add Layer Mask</ContextMenuItem>}
       {active?.mask && <ContextMenuItem onSelect={() => layerActions.deleteMask()}>Delete Layer Mask</ContextMenuItem>}
       {active && hasContent(active) && <ContextMenuItem onSelect={() => layerActions.addFilter("glow", active.id)}>Add Glow Filter</ContextMenuItem>}
+      <ContextMenuItem onSelect={() => usePhotoUi.getState().setFilterGalleryOpen(true)}>Filter Gallery…</ContextMenuItem>
       {(active?.kind === "image" || active?.kind === "generator") && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Convert to Pixels</ContextMenuItem>}
       <ContextMenuItem disabled={!active || active.kind === "adjustment"} onSelect={() => void editActions.definePattern()}>
         Define Pattern
@@ -456,7 +458,9 @@ function EffectRows({ layer }: { layer: PhotoLayer }) {
         return (
           <li key={e.id} className="flex h-6 items-center gap-1 pr-2 pl-2 text-xs" data-effect={e.id} onDoubleClick={() => layerActions.blendingOptions(layer.id, e.id)}>
             {eye(e.enabled, def?.label ?? e.type, () => commit((d) => setStyleEffect(d, layer.id, e.id, { enabled: !e.enabled })))}
-            <span className={cn("truncate pl-12", (!e.enabled || !style.enabled) && "text-muted-foreground")}>{def?.label ?? `${e.type} (unavailable)`}</span>
+            <span className={cn("truncate pl-12", (!e.enabled || !style.enabled) && "text-muted-foreground")} data-unavailable={!def || e.version > def.version || undefined}>
+              {def && e.version <= def.version ? def.label : `${def?.label ?? e.type} (unavailable)`}
+            </span>
           </li>
         );
       })}

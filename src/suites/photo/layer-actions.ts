@@ -7,6 +7,7 @@ import { errorMessage } from "@shared/errors";
 import { createId } from "@shared/ids";
 import { stepBlendMode } from "@shared/photo/blending";
 import { addFilter, addGeneratorLayer, addPixelLayer, arrangeLayers, duplicateLayers, findLayer, removeFilter, removeLayers, removeMask, replaceLayer, setLayerBlending, setMask, shiftLayers } from "@shared/photo/edits";
+import { entryParams, filterEntry } from "@shared/photo/effects/catalog";
 import { effectDefinition } from "@shared/photo/effects/index";
 import { type BlendMode, type BlendingOptions, type LayerStyle, type PhotoPattern, hasContent } from "@shared/photo/types";
 import { remapStylePatterns, setLayerStyle, setStyleEnabled, stylePatterns, withPatterns } from "@shared/photo/style/style";
@@ -45,16 +46,46 @@ export const layerActions = {
    * A filter (Photoshop's Smart Filter: the glow) on the active layer, applied after its others, shown in Properties.
    * An adjustment has no pixels of its own: it says so.
    */
-  addFilter(type: string, layerId: string | null = usePhotoUi.getState().selectedLayerId) {
+  addFilter(type: string, layerId: string | null = usePhotoUi.getState().selectedLayerId, params?: Record<string, unknown>) {
     const doc = currentDoc();
     const layer = doc && layerId ? findLayer(doc, layerId) : undefined;
     const def = effectDefinition(type);
     if (!doc || !layer || !def) return void toast.error(`Select a layer to add ${def?.label ?? "a filter"} to.`);
     if (!hasContent(layer)) return void toast.error(`"${layer.name}" is an adjustment layer: ${def.label} works on a layer's own pixels.`);
     const id = createId("fx");
-    usePhoto.getState().commit((d) => addFilter(d, layer.id, { id, type }));
+    usePhoto.getState().commit((d) => addFilter(d, layer.id, { id, type, params }));
     usePhotoUi.getState().selectFilter(layer.id, id);
+    const made = findLayer(currentDoc()!, layer.id);
+    const added = made && hasContent(made) ? made.filters?.find((f) => f.id === id) : undefined;
+    if (added) usePhotoUi.getState().setLastFilter({ type, layerId: layer.id, filterId: id, params: added.params });
     return id;
+  },
+
+  /**
+   * A look from the Filter menu or the Filter Gallery (`FilterEntry.key`): a filter on the active layer, shown in
+   * Properties; or a generator, a new layer above it, selected.
+   */
+  applyFilter(key: string) {
+    const entry = filterEntry(key);
+    const doc = currentDoc();
+    if (!entry || !doc) return null;
+    const params = entryParams(entry, doc.canvas);
+    if (entry.def.kind === "filter") return layerActions.addFilter(entry.def.type, undefined, params) ?? null;
+    const id = createId("layer");
+    usePhoto.getState().commit((d) => addGeneratorLayer(d, { id, type: entry.def.type, params }, usePhotoUi.getState().selectedLayerId));
+    usePhotoUi.getState().select(id);
+    usePhotoUi.getState().setTool("move");
+    return id;
+  },
+
+  /** Filter › Last Filter (⌃⌘F): the filter added last, again, on the active layer, with that filter's settings now. */
+  repeatLastFilter() {
+    const last = usePhotoUi.getState().lastFilter;
+    const doc = currentDoc();
+    if (!last || !doc) return void toast.message("No filter has been added yet: pick one from the Filter menu.");
+    const made = findLayer(doc, last.layerId);
+    const now = made && hasContent(made) ? made.filters?.find((f) => f.id === last.filterId) : undefined;
+    return layerActions.addFilter(last.type, undefined, now?.params ?? last.params);
   },
 
   /** A new Lens Flare above the active layer (or on top), selected, its handles on the canvas. */

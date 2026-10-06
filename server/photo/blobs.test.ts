@@ -112,3 +112,78 @@ describe("collection", () => {
     expect(await store.hasManifest(recent.id)).toBe(true);
   });
 });
+
+describe("damage", () => {
+  const tileFile = (hash: string) => path.join(dir, "tiles", hash.slice(0, 2), hash);
+  const manifestFile = (hash: string) => path.join(dir, "manifests", hash.slice(0, 2), `${hash}.json`);
+
+  it("refuses to serve a tile that isn't what its name says, and an upload mends it", async () => {
+    const samples = tile(6);
+    const hash = sha256(samples);
+    await store.putTile(hash, samples);
+    await fs.writeFile(tileFile(hash), Buffer.from("not deflate"));
+    await expect(store.getTile(hash)).rejects.toMatchObject({ status: 500, message: expect.stringContaining("damaged") });
+    // A tile of other samples, deflated as the store does, under this name: still refused.
+    const other = new BlobStore(path.join(dir, "other"));
+    const otherSamples = tile(7);
+    await other.putTile(sha256(otherSamples), otherSamples);
+    await fs.copyFile(path.join(dir, "other", "tiles", sha256(otherSamples).slice(0, 2), sha256(otherSamples)), tileFile(hash));
+    await expect(store.getTile(hash)).rejects.toMatchObject({ status: 500 });
+    expect(await store.putTile(hash, samples)).toBe(true);
+    expect(new Uint8Array(await store.getTile(hash))).toEqual(samples);
+  });
+
+  it("refuses a damaged manifest, and an upload mends it", async () => {
+    const samples = tile(8);
+    await store.putTile(sha256(samples), samples);
+    const manifest = withTiles(emptySurface("rgba16f", 256, [0, 0, 0, 0]), [[0, 0, sha256(samples)]]);
+    const id = sha256(canonicalJson(manifest));
+    await store.putManifest(id, manifest);
+    await fs.writeFile(manifestFile(id), '{"v":1,');
+    await expect(store.getManifest(id)).rejects.toMatchObject({ status: 500, message: expect.stringContaining("damaged") });
+    expect(await store.putManifest(id, manifest)).toBe(true);
+    expect(await store.getManifest(id)).toEqual(manifest);
+    expect(await store.putManifest(id, manifest)).toBe(false);
+  });
+
+  it("says which surfaces can't be drawn, and why", async () => {
+    const make = async (seeds: number[]) => {
+      const hashes = [];
+      for (const seed of seeds) {
+        const samples = tile(seed);
+        hashes.push(sha256(samples));
+        await store.putTile(sha256(samples), samples);
+      }
+      const manifest = withTiles(emptySurface("rgba16f", 256, [0, 0, 0, 0]), hashes.map((h, i) => [i, 0, h] as [number, number, string]));
+      const id = sha256(canonicalJson(manifest));
+      await store.putManifest(id, manifest);
+      return { id, hashes };
+    };
+    const whole = await make([10, 11]);
+    const holed = await make([12, 13, 14]);
+    const broken = await make([15]);
+    const gone = "e".repeat(64);
+    await fs.rm(tileFile(holed.hashes[0]));
+    await fs.rm(tileFile(holed.hashes[2]));
+    await fs.writeFile(manifestFile(broken.id), "{}");
+    expect(await store.inspect([whole.id, holed.id, broken.id, gone, whole.id])).toEqual([
+      { id: holed.id, reason: "2 of its tiles are missing" },
+      { id: broken.id, reason: "its manifest is damaged" },
+      { id: gone, reason: "its manifest is missing" },
+    ]);
+  });
+
+  it("sweeps what interrupted writes left, once they're older than the collection", async () => {
+    const samples = tile(9);
+    const hash = sha256(samples);
+    await store.putTile(hash, samples);
+    const leftover = `${tileFile(hash)}.abcdef123456.tmp`;
+    await fs.writeFile(leftover, "half a tile");
+    expect(await store.collect([], Date.now() - 60_000)).toMatchObject({ tiles: 0 });
+    expect(await fs.stat(leftover).catch(() => null)).not.toBeNull();
+    const old = new Date(Date.now() - 120_000);
+    await fs.utimes(leftover, old, old);
+    await store.collect([], Date.now() - 60_000);
+    expect(await fs.stat(leftover).catch(() => null)).toBeNull();
+  });
+});

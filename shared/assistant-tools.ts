@@ -179,13 +179,14 @@ export const VIDEO_TOOLS = [
       "beat()...): which files sound where, the song's beat, bars, sections and drops, every hit (onsetLow: " +
       "kicks, onsetMid: snares and notes, onsetHigh: hats) with how hard, the level's shape, and if asked " +
       "signals' values every `step` seconds. Timeline seconds; values 0..1 against the file's own loud parts. " +
-      "Files are analysed first if they aren't yet. Look at the shape of a song with plot_signals.",
+      "Files are analysed first if they aren't yet. It also lists the video's own signals (define_signal). Look at " +
+      "the shape of a song with plot_signals.",
     inputSchema: obj({
       source: str('What to listen to: "master" (everything heard, default), a track\'s name or id, or a clip id.'),
       from: num("Start, timeline seconds (default 0).", { minimum: 0 }),
       to: num("End (default the end of the sequence)."),
       signals: arr(
-        oneOf(["level", "peak", "sub", "bass", "lowMid", "mid", "upperMid", "presence", "air", "onset", "onsetLow", "onsetMid", "onsetHigh", "width", "balance", "brightness"], "A signal."),
+        str('A signal: "level", "peak", "sub", "bass", "lowMid", "mid", "upperMid", "presence", "air", "onset", "onsetLow", "onsetMid", "onsetHigh", "width", "balance", "brightness", or one of the video\'s own by name.'),
         "Signals to list values of (default none: the summary alone).",
       ),
       step: num("Seconds between values (default: about 100 values over the stretch).", { minimum: 0.01 }),
@@ -202,7 +203,7 @@ export const VIDEO_TOOLS = [
     inputSchema: obj({
       source: str('What to listen to: "master" (default), a track\'s name or id, or a clip id.'),
       signals: arr(
-        oneOf(["level", "peak", "sub", "bass", "lowMid", "mid", "upperMid", "presence", "air", "onset", "onsetLow", "onsetMid", "onsetHigh", "width", "balance", "brightness"], "A signal."),
+        str('A signal: a built-in one ("level", "bass", "onsetLow"...: see get_signals) or one of the video\'s own by name.'),
         'Lanes, top to bottom (default "level", "bass", "onsetLow", "onsetHigh").',
         { maxItems: 6 },
       ),
@@ -350,10 +351,14 @@ export const VIDEO_TOOLS = [
       "spin several clips together, or to animate a group from one place. A shape layer draws vector shapes (boxes " +
       "behind text, circles, lines, badges, animated strokes): `shape` sets its first shape (kind rectangle | ellipse | " +
       "polygon | star | path, position, size in px at 1080p, fillColor, strokeWidth...: see get_catalog " +
-      "\"masks_and_shapes\"); `effects` can add more shapes (type vector-shape) and operators (trim-paths, repeater...).",
+      "\"masks_and_shapes\"); `effects` can add more shapes (type vector-shape) and operators (trim-paths, repeater...). " +
+      "A visualizer draws what the sound does (Spectrum Bars by default, listening to the mix) alone over what's below: " +
+      "give `effects` with Audio effects (audio-bars, audio-line, audio-circle, audio-oscilloscope, audio-vectorscope, " +
+      "audio-spectrogram, audio-burst, audio-ring, audio-meter: get_catalog \"video_effects\") to choose them; it lasts " +
+      "`duration` (give the song's length).",
     inputSchema: obj(
       {
-        kind: oneOf(["adjustment", "solid", "shape", "camera", "null"], "What to add."),
+        kind: oneOf(["adjustment", "solid", "shape", "camera", "null", "visualizer"], "What to add."),
         start: time("Where it starts."),
         duration: num("Seconds (default 5).", { minimum: 0.1 }),
         trackId: str("Put it on this video track."),
@@ -761,6 +766,125 @@ export const VIDEO_TOOLS = [
         expression: { type: ["string", "null"], description: "The expression, or null to remove it." },
       },
       ["clipIds", "effect", "param", "expression"],
+    ),
+  }),
+  tool({
+    name: "link_param",
+    title: "Link to a signal",
+    kind: "edit",
+    description:
+      "Make a number or point parameter move with the sound, no code (the link button by a stopwatch): it follows a " +
+      'signal by an amount. `signal` is a built-in one ("level", "bass", "sub", "mid", "air", "onset", "onsetLow" ' +
+      'kicks, "onsetMid", "onsetHigh" hats, "width", "brightness"..., or "beat" / "downbeat" for the song\'s beat) or ' +
+      "one of the video's own (define_signal) by name. `mode`: add (value + amount × signal, the default), multiply " +
+      "(value × (1 + amount × signal): 0.3 is up to 30% more) or map (from the value towards `to`). Amounts are in " +
+      "the parameter's own units (see get_catalog; a point's may be a point: [0, -0.05] lifts it). The response " +
+      "shapes the 0..1 signal first: below `threshold` nothing moves, `curve` above 1 keeps only the loud parts, " +
+      "`attack`/`release` (seconds) smooth its rise and fall, `invert` moves it when it's quiet. For hits (onsets, " +
+      "beats, events) give `hit` {attack, hold, decay} to make a punch on each. Inside a nested sequence the mix is " +
+      "the song of the video it's placed in. Wins over keyframes (it moves them), and an expression sees the linked " +
+      "value. It says how far the parameter moves over the clip. `link: null` unlinks. Not on volume.",
+    inputSchema: obj(
+      {
+        clipIds: clipIds(),
+        effect: str("Effect id (motion, opacity, a video effect, a mask, a shape, an animator...)."),
+        param: str("Parameter key (a number or a point), e.g. scale, position, opacity, rotation."),
+        link: {
+          type: ["object", "null"],
+          description: "The link, or null to remove it.",
+          properties: {
+            signal: str('A built-in signal\'s name, "beat", "downbeat", or one of the video\'s own signals by name or id.'),
+            source: str('For a built-in signal: "master" (the mix, default), "self" (the clip\'s own sound), a track\'s name or id, an audio track\'s number, or a clip id.'),
+            mode: oneOf(["add", "multiply", "map"], "How the signal moves the value (default add)."),
+            amount: { description: "add: how much at full signal; multiply: the fraction more (0.3); a number, or a point for points." },
+            to: { description: "map: the value at full signal (a number, or a point for points)." },
+            threshold: num("0..1: the signal under it moves nothing (default 0).", { minimum: 0, maximum: 0.99 }),
+            curve: num("A power on the signal: 2 keeps the loud parts, 0.5 lifts the quiet ones (default 1).", { minimum: 0.1, maximum: 10 }),
+            attack: num("Seconds to rise (default 0.01).", { minimum: 0, maximum: 10 }),
+            release: num("Seconds to fall (default 0.12).", { minimum: 0, maximum: 10 }),
+            invert: bool("Move when it's quiet instead."),
+            hit: obj(
+              {
+                attack: num("Seconds up to full.", { minimum: 0, maximum: 10 }),
+                hold: num("Seconds held.", { minimum: 0, maximum: 10 }),
+                decay: num("Seconds back to nothing (default 0.25).", { minimum: 0, maximum: 10 }),
+              },
+              [],
+              "For hits: the shape each one makes (scaled by how hard it is).",
+            ),
+          },
+          required: ["signal"],
+        },
+      },
+      ["clipIds", "effect", "param", "link"],
+    ),
+  }),
+  tool({
+    name: "define_signal",
+    title: "Define a signal",
+    kind: "edit",
+    description:
+      "Make (or change) one of the video's own signals, named for links (link_param) and expressions (signal(\"Kick\"), " +
+      'sinceHit("Kick")): Trapcode Sound Keys\' way. A `band` listens to frequencies of a source and shapes them ' +
+      "into 0..1 (a kick: 40–120 Hz, threshold 0.4, release 0.1, onsets on; a snare's crack: 2–5 kHz; hats: 8 kHz up; " +
+      "a voice: 300 Hz–3 kHz), 1 as loud as the sound's own loud parts unless `autoGain` is off; with `onsets` it also " +
+      "has a hit each time it rises out of silence. `events` is a list of hits (see set_events); `curve` a 0..1 " +
+      "line through points. Times are the main timeline's seconds. Give it a `role` so looks made for \"the kick\" find it. " +
+      "Check what it hears with get_signals (its name in `signals`) or plot_signals.",
+    inputSchema: obj(
+      {
+        signal: str("The signal to change (id or name); absent: a new one."),
+        name: str("Its name (unique in the video)."),
+        kind: oneOf(["band", "events", "curve"], "What it is (needed for a new one)."),
+        role: oneOf(["kick", "snare", "hats", "bass", "vocal", "lead", "mix"], "What it stands for."),
+        color: str("#rrggbb."),
+        source: str('band: what it listens to: "master" (the mix, default), a track\'s name or id, or a clip id.'),
+        low: num("band: lowest frequency, Hz.", { minimum: 20, maximum: 20000 }),
+        high: num("band: highest frequency, Hz.", { minimum: 20, maximum: 20000 }),
+        gain: num("band: dB added first (default 0).", { minimum: -24, maximum: 24 }),
+        threshold: num("band: 0..1, under it reads 0 (default 0).", { minimum: 0, maximum: 0.99 }),
+        attack: num("band: seconds to rise (default 0.005).", { minimum: 0, maximum: 10 }),
+        release: num("band: seconds to fall (default 0.1).", { minimum: 0, maximum: 10 }),
+        curve: num("band: a power on what's over the threshold (default 1).", { minimum: 0.1, maximum: 10 }),
+        autoGain: bool("band: against the sound's own loud parts (default true), or full scale."),
+        onsets: bool("band: also a hit each time it rises out of silence."),
+        events: arr(obj({ time: num("Timeline seconds.", { minimum: 0 }), velocity: num("0..1 (default 1).", { minimum: 0, maximum: 1 }), length: num("Seconds held."), key: int("A MIDI note.") }, ["time"]), "events: its hits."),
+        points: arr(obj({ time: num("Timeline seconds.", { minimum: 0 }), value: num("0..1.", { minimum: 0, maximum: 1 }) }, ["time", "value"]), "curve: its points."),
+      },
+      ["name"],
+    ),
+  }),
+  tool({
+    name: "delete_signal",
+    title: "Delete signals",
+    kind: "edit",
+    description: "Delete some of the video's own signals (by id or name), and every link to them.",
+    inputSchema: obj({ signals: arr(str("Id or name."), "The signals.", { minItems: 1 }) }, ["signals"]),
+  }),
+  tool({
+    name: "set_events",
+    title: "Set a signal's hits",
+    kind: "edit",
+    description:
+      "Edit an events signal's hits (made with this name if there's none): `clear` them, `remove` those in a stretch, " +
+      "`add` some at times, add one `at` each beat, bar, drop or kind of hit of the sound between `from` and `to` " +
+      "(`every` 2: every other one), then `quantize` them all to the beat (1: beats, 2: eighths, 4: sixteenths). " +
+      "Links and expressions then punch on them: a flash on chosen beats, a cut look on the snare.",
+    inputSchema: obj(
+      {
+        signal: str("An events signal (id or name)."),
+        clear: bool("Remove every hit first."),
+        remove: obj({ from: time("From."), to: time("To.") }, ["from", "to"], "Remove the hits in this stretch."),
+        add: arr(obj({ time: time("When."), velocity: num("0..1 (default 1).", { minimum: 0, maximum: 1 }), length: num("Seconds held."), key: int("A MIDI note.") }, ["time"]), "Hits to add."),
+        at: oneOf(["beats", "bars", "drops", "onset", "onsetLow", "onsetMid", "onsetHigh"], "Add a hit at each of these."),
+        source: str('For `at` hits: "master" (default), a track\'s name or id, or a clip id.'),
+        from: time("`at` from (default 0)."),
+        to: time("`at` to (default the end)."),
+        every: int("`at`: keep every nth (default 1).", { minimum: 1 }),
+        velocity: num("`at`: how hard (default: each hit's own, 1 for beats).", { minimum: 0, maximum: 1 }),
+        quantize: int("Snap every hit to this many divisions of a beat.", { minimum: 1, maximum: 16 }),
+      },
+      ["signal"],
     ),
   }),
   tool({

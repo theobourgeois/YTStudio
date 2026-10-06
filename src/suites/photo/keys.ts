@@ -9,6 +9,8 @@ import type { PhotoTool } from "./ui";
 export type PhotoKeyAction =
   | { type: "tool"; tool: PhotoTool }
   | { type: "undo" }
+  /** ⌃⌘F (Ctrl+Alt+F elsewhere): Filter › Last Filter, Photoshop's. */
+  | { type: "lastFilter" }
   | { type: "redo" }
   | { type: "fit" }
   | { type: "actual" }
@@ -68,6 +70,7 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
   const code = e.code ?? "";
   const is = (k: string, c: string) => code === c || (!code && key === k);
   if (mod && e.altKey && !e.shiftKey && is("a", "KeyA")) return { type: "selectAll" };
+  if (mod && (mac ? e.ctrlKey && !e.altKey : e.altKey) && !e.shiftKey && is("f", "KeyF")) return { type: "lastFilter" };
   const erasing = key === "Backspace" || key === "Delete";
   if (erasing && e.altKey && !mod && !e.shiftKey) return { type: "fill", colour: "foreground" };
   if (erasing && mod && !e.altKey && !e.shiftKey) return { type: "fill", colour: "background" };

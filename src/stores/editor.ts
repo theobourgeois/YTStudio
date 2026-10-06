@@ -861,7 +861,8 @@ export const useEditor = create<EditorState>((set, get) => ({
         ? { at: Math.min(...selected.map((c) => c.start)), end: Math.max(...selected.map(clipEnd)) }
         : null;
     const at = opts.at ?? span?.at ?? usePlayback.getState().time;
-    const duration = opts.duration ?? (span ? span.end - span.at : newLayerDuration());
+    // A visualizer lasts as long as the video (it's for the song), unless it's over the selection.
+    const duration = opts.duration ?? (span ? span.end - span.at : kind === "visualizer" ? Math.max(newLayerDuration(), projectDuration(project) - at) : newLayerDuration());
     const clip = newLayerClip(kind, at, duration, opts.color ? { color: opts.color } : {});
     let next = addLayerClip(project, clip, opts.trackId).project;
     for (const type of opts.effects ?? []) next = addEffect(next, [clip.id], type).project;

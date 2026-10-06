@@ -8,7 +8,9 @@ import path from "node:path";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { CompareResult, SourceLayout } from "../../shared/photo/lab.ts";
+import { PhotoExports } from "./exports.ts";
 import { PhotoHelper } from "./helper.ts";
+import { SourceDecoder } from "./sources.ts";
 
 const HELPER = path.join(import.meta.dirname, "helper-process.mjs");
 let dir: string;
@@ -149,5 +151,53 @@ describe("supervision", () => {
     expect((await other).decoder).toMatch(/^sharp /);
     expect(helper.restarts).toBeGreaterThan(restarts);
     expect((await helper.request<{ decoder: string }>("version")).decoder).toMatch(/^sharp /);
+  });
+});
+
+describe("killed mid-request", () => {
+  /** Kills the helper's process as the system would (out of memory, a force quit), once it has a request. */
+  const kill = async () => {
+    const inside = helper as unknown as { pending: Map<number, unknown>; running: { child: { kill(signal: string): void } } | null };
+    for (let i = 0; i < 500 && !(inside.pending.size && inside.running); i++) await new Promise((r) => setTimeout(r, 1));
+    expect(inside.pending.size).toBe(1);
+    inside.running!.child.kill("SIGKILL");
+  };
+
+  it("decodes on a new helper, and what the killed one half-wrote is deleted", async () => {
+    const file = path.join(dir, "big.jpg");
+    await sharp({ create: { width: 6000, height: 4000, channels: 3, background: { r: 200, g: 120, b: 40 } } }).jpeg().toFile(file);
+    const decoder = new SourceDecoder(helper);
+    const base = await decoder.base(dir, "big", 256);
+    // As a killed helper leaves it: a temporary file beside each output.
+    await fs.writeFile(`${base}.raw.4242.1700000000000.tmp`, "half a decode");
+    await fs.writeFile(`${base}.preview.4242.1700000000000.tmp`, "half a preview");
+    const restarts = helper.restarts;
+    const decoding = decoder.layout(file, base, "big", 256);
+    await kill();
+    const layout = await decoding;
+    expect(helper.restarts).toBeGreaterThan(restarts);
+    expect([layout.width, layout.height]).toEqual([6000, 4000]);
+    expect((await fs.stat(`${base}.raw`)).size).toBe(layout.tilesX * layout.tilesY * layout.tileBytes);
+    await new Promise((r) => setTimeout(r, 50));
+    expect((await fs.readdir(dir)).filter((n) => n.startsWith("big-") && n.endsWith(".tmp"))).toEqual([]);
+  });
+
+  it("encodes on a new helper, leaving nothing but the file beside the destination", async () => {
+    const folder = path.join(dir, "exports");
+    const exports = new PhotoExports(helper, path.join(dir, "export-work"));
+    await fs.mkdir(folder, { recursive: true });
+    const out = path.join(folder, "Cover.png");
+    await fs.writeFile(`${out}.4242.1700000000000.tmp`, "half a PNG");
+    const width = 2000;
+    const height = 1500;
+    const id = await exports.begin({ name: "Cover.png", width, height, bits: 8, format: "png" }, { destination: out });
+    await exports.rows(id, 0, Buffer.alloc(width * height * 4, 0x80));
+    const restarts = helper.restarts;
+    const finishing = exports.finish(id);
+    await kill();
+    expect((await finishing).bytes).toBeGreaterThan(0);
+    expect(helper.restarts).toBeGreaterThan(restarts);
+    expect(await fs.readdir(folder)).toEqual(["Cover.png"]);
+    expect((await sharp(out).metadata()).width).toBe(width);
   });
 });

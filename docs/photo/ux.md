@@ -225,7 +225,13 @@ Built in F3:
   it. A flare's Properties has its handles, intensity, colour, blend (Add in linear light, or Normal), a preset menu
   and its elements (an eye each, + to add, dragged to reorder, the selected one's parameters below). Its source and
   optical centre are handles on the canvas with the Move tool (snapping; Escape cancels), and a Move drag where no
-  layer is moves both. Folding a layer's filters away is still to come.
+  layer is moves both. Folding a layer's filters away is still to come. **Built (F5)**: the header's **Filter**
+  menu (Photoshop's): Last Filter (⌃⌘F, Ctrl+Alt+F elsewhere: the filter added last, again, on the active layer with
+  its settings now), Filter Gallery…, then each category's filters, each a submenu of its looks. The **Filter
+  Gallery** window lists every look as a card previewed on this photo (the active layer with it, or a generator
+  added), searchable, by category; a click applies it (one undo step) and Properties then shows it. On an adjustment
+  layer a filter's cards say they can't apply. Both are built from the catalogue, so a new filter appears in them
+  with no UI of its own.
 - **Undo**: a slider drag or a handle drag is one undo step.
 - **Bypass and remove**: bypass keeps the settings; remove is undoable.
 - **Presets**: preview without touching history, then apply in one step.
@@ -236,6 +242,9 @@ Built in F3:
 - **The header's state**: saved, saving, not saved (with the reason) or failed. A preview updating doesn't mean an
   edit was saved.
 - **Long work**: imports and exports show progress and can be cancelled, and editing stays responsive meanwhile.
+  **Built (F5)**: an export's Cancel (or Esc) stops it while it renders and nothing is written; once every band is
+  rendered the file is being written ("Writing the file…"), which can't be stopped. A stroke the GPU loses midway
+  says so ("The GPU stopped mid-stroke"); a photo whose pixels are missing on opening says what opened instead.
 - **Recovery**: after a GPU or helper restart the user sees their committed work and is told that an unfinished
   stroke was cancelled.
 - **Backend details** never appear in editing controls; diagnostics go in Settings.

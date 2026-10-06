@@ -69,8 +69,8 @@ export function sequenceView(project: Project, id: string | null): Project {
   const seq = getSequence(project, id);
   if (!seq) return project;
   const cached = views.get(seq);
-  if (cached && cached.sequences === project.sequences && cached.name === project.name && cached.subclips === project.subclips) return cached;
-  const { sequences, subclips } = project;
+  if (cached && cached.sequences === project.sequences && cached.name === project.name && cached.subclips === project.subclips && cached.signals === project.signals) return cached;
+  const { sequences, subclips, signals } = project;
   const view: Project = {
     version: 1,
     name: project.name,
@@ -80,6 +80,7 @@ export function sequenceView(project: Project, id: string | null): Project {
     // The view's markers are the sequence's own.
     ...(seq.markers && { markers: seq.markers }),
     ...(subclips && { subclips }),
+    ...(signals && { signals }),
     ...(sequences && { sequences }),
   };
   views.set(seq, view);
@@ -89,7 +90,7 @@ export function sequenceView(project: Project, id: string | null): Project {
 /**
  * Put an edited view of sequence `id` back into the project: its settings, tracks and clips
  * go into the sequence, and anything else it changed that belongs to the whole project (its
- * sequences, subclips) is kept. The main sequence's view is the project.
+ * sequences, subclips, signals) is kept. The main sequence's view is the project.
  */
 export function writeSequence(project: Project, id: string | null, view: Project): Project {
   if (id === null) return view;
@@ -102,6 +103,8 @@ export function writeSequence(project: Project, id: string | null, view: Project
   const next: Project = { ...project, sequences };
   if (view.subclips) next.subclips = view.subclips;
   else delete next.subclips;
+  if (view.signals) next.signals = view.signals;
+  else delete next.signals;
   return next;
 }
 

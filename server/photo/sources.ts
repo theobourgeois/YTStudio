@@ -6,7 +6,7 @@
  */
 import { readJson, writeJson } from "../storage.ts";
 import type { SourceLayout, TileSize } from "../../shared/photo/lab.ts";
-import type { PhotoHelper } from "./helper.ts";
+import { type PhotoHelper, removeLeftovers } from "./helper.ts";
 import { sha256 } from "./blobs.ts";
 
 type DecodeResult = Omit<SourceLayout, "key">;
@@ -33,7 +33,11 @@ export class SourceDecoder {
         const layout: SourceLayout = { ...result, key };
         await writeJson(`${base}.json`, layout);
         return layout;
-      })().finally(() => this.decoding.delete(base));
+      })().finally(() => {
+        this.decoding.delete(base);
+        // A helper killed mid-decode (and retried) leaves its half-written files.
+        void Promise.all([removeLeftovers(`${base}.raw`), removeLeftovers(`${base}.preview`)]).catch(() => {});
+      });
       this.decoding.set(base, decoding);
     }
     return decoding;

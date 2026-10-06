@@ -1,4 +1,4 @@
-import { type SignalReader, withSignals } from "@shared/audio-signals";
+import { type Hearing, type SignalReader, currentSignalReader, nestedHearing, usesSignals, withHearing, withSignals } from "@shared/audio-signals";
 import { useSignals } from "@/stores/signals";
 import type { Clip, MediaAsset, Project } from "@shared/types";
 import { atFrameRate, clipKind, effectDefinition, isRemapped, lookAt, motionAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
@@ -74,6 +74,8 @@ interface Level {
   gain: number;
   canvas: Size;
   depth: number;
+  /** What "the mix" is inside it (a nest hears the sequence it's placed in), null at the top. */
+  hearing: Hearing | null;
 }
 
 /** What planning found out: media missing, or anything not yet showing what its time says (see `Picture.nest`). */
@@ -387,7 +389,7 @@ export class PreviewEngine {
     const status = { offline: false, unsettled: false };
     // Expressions hear the source's sound (the open video's unless it says otherwise).
     withSignals(this.source.signals?.() ?? null, () => {
-      const layers = this.planLevel({ view: project, prefix: "", time, playing, rate: 1, muted: false, gain: 1, canvas: this.size, depth: 0 }, status);
+      const layers = this.planLevel({ view: project, prefix: "", time, playing, rate: 1, muted: false, gain: 1, canvas: this.size, depth: 0, hearing: null }, status);
       this.draw(project, layers);
     });
     if (status.offline !== this.offline) {
@@ -402,8 +404,8 @@ export class PreviewEngine {
    * nested clip's sequence is planned the same way, into a group picture of its own.
    */
   private planLevel(level: Level, status: PlanStatus): Layer[] {
-    // Expressions are told this sequence's frame rate.
-    return atFrameRate(level.view.settings.fps, () => this.planTracks(level, status));
+    // Expressions are told this sequence's frame rate, and a nest's links and expressions hear where it's placed.
+    return withHearing(level.hearing, () => atFrameRate(level.view.settings.fps, () => this.planTracks(level, status)));
   }
 
   private planTracks(level: Level, status: PlanStatus): Layer[] {
@@ -611,6 +613,7 @@ export class PreviewEngine {
       gain: outer.gain * volumeAt(clip, time),
       canvas,
       depth: outer.depth + 1,
+      hearing: nestedHearing(clip, outer.hearing),
     };
   }
 
@@ -663,9 +666,12 @@ export class PreviewEngine {
         const zoom = Math.min(4, Math.max(1, Math.abs(motionAt(clip, time).scaleY)));
         const groupDpr = Math.min(4096 / Math.max(level.canvas.width, level.canvas.height, 1), dpr * zoom);
         const [w, h] = [Math.round(level.canvas.width * groupDpr), Math.round(level.canvas.height * groupDpr)];
-        // A frame that depends only on the sequence and its time (everything in it loaded and in step) is kept.
+        // A frame that depends only on the sequence and its time (everything in it loaded and in step) is kept;
+        // one that reacts to sound also on where it's heard (the same nest placed twice hears two moments).
+        const reader = currentSignalReader();
+        const heard = level.hearing && reader && usesSignals(reader.document) ? `:${level.hearing.at(level.time).toFixed(4)}` : "";
         const cacheKey = settled
-          ? `nest-frame:${this.contentVersion}:${viewKey(level.view)}:${level.time.toFixed(4)}:${w}x${h}:${level.canvas.width.toFixed(1)}x${level.canvas.height.toFixed(1)}`
+          ? `nest-frame:${this.contentVersion}:${viewKey(level.view)}:${level.time.toFixed(4)}${heard}:${w}x${h}:${level.canvas.width.toFixed(1)}x${level.canvas.height.toFixed(1)}`
           : null;
         let key = picture.key;
         if (cacheKey && compositor.hasPicture(cacheKey) && this.nestFrames.has(cacheKey)) {
@@ -674,7 +680,7 @@ export class PreviewEngine {
           key = cacheKey;
         } else {
           compositor.beginGroup(w, h);
-          this.drawLayers(compositor, level.view, inner, level.canvas, groupDpr);
+          withHearing(level.hearing, () => this.drawLayers(compositor, level.view, inner, level.canvas, groupDpr));
           if (cacheKey) {
             compositor.endGroup(cacheKey);
             this.keepNestFrame(compositor, cacheKey, w * h * 4);

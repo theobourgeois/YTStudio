@@ -2,6 +2,7 @@
 // calls macOS's or Windows' own APIs (the file keeps its first name: it began with macOS alone).
 #pragma once
 
+#include <functional>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 /**
@@ -27,6 +28,20 @@ void* appWindowFromHandle (const juce::String& handle);
  * elsewhere: macOS has window levels instead (`setAlwaysOnTop`).
  */
 void setWindowOwner (juce::Component& window, void* owner);
+
+/**
+ * Windows: a plugin that takes the keyboard (Serum, most JUCE plugins, once clicked) gives it to a child
+ * window of its own, so the keys pressed in it never reach JUCE's key listeners. This hooks the keyboard of
+ * the calling thread (the message thread, where plugins make their windows) and offers every key to
+ * `handler` first: the window at the root of the one with the focus, the key as JUCE names it, whether it
+ * went down (else up) and whether it's a repeat. True swallows it (the plugin never sees it). Installed
+ * once; nothing elsewhere (macOS gives the keys to the window's key listeners as it is).
+ */
+using KeyHook = std::function<bool (void* root, const juce::KeyPress& key, bool down, bool repeat)>;
+void hookThreadKeys (KeyHook handler);
+
+/** The native window under a component (its peer's), or null. */
+void* nativeWindowOf (juce::Component& window);
 
 /** Windows: keep the computer from sleeping while the song plays (`playing`), or let it again. Nothing elsewhere. */
 void keepAwake (bool playing);

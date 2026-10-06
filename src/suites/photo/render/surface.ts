@@ -21,6 +21,14 @@ import type { SurfaceUploads } from "../uploads.ts";
 import { BATCH, type RenderContext } from "./context.ts";
 import { FILL, PENDING, VirtualImage } from "./image.ts";
 
+/** A box of a surface's own pixels. */
+export interface SurfaceRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export type SurfaceKind = "pixels" | "mask";
 
 /** What a surface's stored tiles are, and what an empty one is filled with. */
@@ -254,9 +262,16 @@ export class SurfaceImage {
     return this.manifest.tiles.every(([tx, ty]) => this.image.entry(0, tx, ty) !== PENDING) && this.dirty.size === 0;
   }
 
-  /** Fetches the shown tiles that aren't resident (after an undo to a state not seen here, or an eviction). */
-  async ensureResident(): Promise<number> {
-    const missing = this.manifest.tiles.filter(([tx, ty, ref]) => this.image.entry(0, tx, ty) === PENDING && !this.fetching.has(ref));
+  /**
+   * Fetches the shown tiles that aren't resident (after an undo to a state not seen here, or an eviction): every one,
+   * or those over `region` (the surface's pixels, a tile around it too). Those over it that are resident are marked
+   * as just used first, so fetching the others evicts something else (budgets under pressure: a region's tiles are
+   * all there at once whenever the budget can hold them).
+   */
+  async ensureResident(region: SurfaceRegion | null = null): Promise<number> {
+    const needed = this.tilesOver(region);
+    for (const [tx, ty, ref] of needed) if (this.image.entry(0, tx, ty) !== PENDING) this.ctx.atlas.get(this.tileKey(ref));
+    const missing = needed.filter(([tx, ty, ref]) => this.image.entry(0, tx, ty) === PENDING && !this.fetching.has(ref));
     if (!missing.length) {
       this.buildLevels();
       return 0;
@@ -266,11 +281,14 @@ export class SurfaceImage {
     try {
       await Promise.all(
         missing.map(async ([tx, ty, ref]) => {
-          const bytes = await this.uploads.tile(ref);
+          // A constant tile is filled, not fetched (evicted, it's made again).
+          const constant = constantValues(ref);
+          const bytes = constant ? null : await this.uploads.tile(ref);
           if (this.destroyed) return;
           const key = this.tileKey(ref);
           const slot = this.ctx.atlas.acquire(key);
-          this.write(slot, bytes);
+          if (constant) this.ctx.fillSlot(slot, this.gpuValue(constant));
+          else this.write(slot, bytes!);
           // Still what's shown there?
           if (this.manifest === manifest || this.manifest.tiles.some((e) => e[0] === tx && e[1] === ty && e[2] === ref)) {
             this.image.setSlot(0, tx, ty, slot);
@@ -286,6 +304,20 @@ export class SurfaceImage {
     this.buildLevels();
     this.changed();
     return missing.length;
+  }
+
+  /** The shown tiles over `region` of its pixels and a tile around it (all of them: null). */
+  private tilesOver(region: SurfaceRegion | null): TileEntry[] {
+    if (!region) return this.manifest.tiles;
+    const tile = this.ctx.tile;
+    const [x0, y0] = [Math.floor(region.x / tile) - 1, Math.floor(region.y / tile) - 1];
+    const [x1, y1] = [Math.ceil((region.x + region.width) / tile), Math.ceil((region.y + region.height) / tile)];
+    return this.manifest.tiles.filter(([tx, ty]) => tx >= x0 && tx <= x1 && ty >= y0 && ty <= y1);
+  }
+
+  /** Whether every tile `ensureResident(region)` would fetch is resident now. */
+  residentOver(region: SurfaceRegion | null): boolean {
+    return this.tilesOver(region).every(([tx, ty]) => this.image.entry(0, tx, ty) !== PENDING);
   }
 
   /** A stored tile's raw samples into a slot (a mask's one channel spread across RGBA). */

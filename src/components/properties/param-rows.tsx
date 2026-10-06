@@ -3,11 +3,14 @@
  * `ParamSpec`s (effects, transitions) gets a panel for free.
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { PiArrowCounterClockwise, PiBezierCurve, PiFunction } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiBezierCurve, PiFunction, PiLinkSimple, PiLinkSimpleBreak } from "react-icons/pi";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import type { BezierPath } from "@shared/path";
 import type { ParamValue, ParamValues, Project, Vec2 } from "@shared/types";
-import { type BooleanSpec, type ChoiceSpec, type NumberSpec, type ParamSpec, type PathSpec, type Vec2Spec, sameValue } from "@shared/params";
+import { type BooleanSpec, type ChoiceSpec, type NumberSpec, type ParamSpec, type PathSpec, type SourceSpec, type Vec2Spec, sameValue } from "@shared/params";
+import { getClip } from "@shared/timeline";
+import { useShallow } from "zustand/react/shallow";
+import { useEditor } from "@/stores/editor";
 import { sameTarget, usePathEditing } from "@/stores/path-editing";
 import { useLayout } from "@/stores/layout";
 import { ColorControl, FontControl, FontStyleControl, TextControl } from "./text-controls";
@@ -66,9 +69,11 @@ interface ParamRowProps {
   owner?: { clipId: string; effectId: string };
   /** The property can have an expression: whether it has one, and adding or removing it (its name's menu). */
   expression?: { on: boolean; toggle: () => void };
+  /** The property can follow a signal: its link button (beside the stopwatch), and its name's menu items. */
+  link?: { button: ReactNode; on: boolean; open: () => void; unlink: () => void };
 }
 
-export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator, owner, expression }: ParamRowProps) {
+export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator, owner, expression, link }: ParamRowProps) {
   const value = values[spec.key];
   const label = spec.labelFor?.(values) ?? spec.label;
   const disabled = spec.disabledFor?.(values) ?? false;
@@ -108,17 +113,25 @@ export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator,
     case "path":
       control = <PathControl spec={spec} value={value as BezierPath} label={label} disabled={disabled} edit={edit} owner={owner} />;
       break;
+    case "source":
+      control = <SourceControl spec={spec} value={value as string} label={label} disabled={disabled} edit={edit} owner={owner} />;
+      break;
   }
   const animatable = animation !== undefined;
   return (
     <div
       className={cn(
         "grid min-h-8 items-center gap-x-1 pr-1",
-        animatable ? "grid-cols-[1.25rem_5.5rem_minmax(0,1fr)_auto_1.25rem] pl-1.5" : "grid-cols-[6.5rem_minmax(0,1fr)_1.25rem] pl-3",
+        animatable ? `${ANIMATED_ROW} pl-1.5` : "grid-cols-[6.5rem_minmax(0,1fr)_1.25rem] pl-3",
       )}
       data-param={spec.key}
     >
-      {animatable && (animation ?? <span />)}
+      {animatable && (
+        <div className="flex items-center">
+          {animation ?? <span className="size-5" />}
+          {link?.button ?? <span className="size-5" />}
+        </div>
+      )}
       {expression ? (
         <ContextMenu>
           <ContextMenuTrigger asChild>
@@ -134,6 +147,16 @@ export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator,
             <ContextMenuItem onSelect={expression.toggle}>
               <PiFunction /> {expression.on ? "Remove expression" : "Add expression"}
             </ContextMenuItem>
+            {link && (
+              <ContextMenuItem onSelect={link.open}>
+                <PiLinkSimple /> {link.on ? "Edit link" : "Link to signal"}
+              </ContextMenuItem>
+            )}
+            {link?.on && (
+              <ContextMenuItem onSelect={link.unlink}>
+                <PiLinkSimpleBreak /> Unlink
+              </ContextMenuItem>
+            )}
             <ContextMenuItem disabled={!changed || disabled} onSelect={edit.reset}>
               <PiArrowCounterClockwise /> Reset {label}
             </ContextMenuItem>
@@ -150,6 +173,9 @@ export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator,
     </div>
   );
 }
+
+/** The columns of an animatable property's row: stopwatch and link, name, control, navigator, reset. */
+export const ANIMATED_ROW = "grid-cols-[2.5rem_5.5rem_minmax(0,1fr)_auto_1.25rem]";
 
 export function ResetButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
@@ -307,6 +333,39 @@ const LETTER_PX = 6.4;
 export function fitsAsButtons(options: readonly { label: string }[]): boolean {
   const each = BUTTONS_WIDTH / options.length;
   return options.length <= 4 && options.every((o) => o.label.length * LETTER_PX + 10 <= each);
+}
+
+/** What a visualizer listens to: the mix, its clip's own sound (when it has one), or an audio track. */
+function SourceControl({ value, label, disabled, edit, owner }: ControlProps<SourceSpec, string> & { owner?: { clipId: string; effectId: string } }) {
+  // As strings, so the shallow comparison sees the same list as the same.
+  const tracks = useEditor(useShallow((s) => s.project.tracks.filter((t) => t.kind === "audio").map((t) => `${t.id}\n${t.name}`)));
+  const hasSound = useEditor((s) => {
+    const clip = owner ? getClip(s.project, owner.clipId) : undefined;
+    return !!clip?.assetId && !!s.assets.find((a) => a.id === clip.assetId)?.hasAudio;
+  });
+  const options = [
+    { value: "master", label: "The mix" },
+    ...(hasSound || value === "self" ? [{ value: "self", label: "This clip's sound" }] : []),
+    ...tracks.map((track) => {
+      const [id, name] = track.split("\n");
+      return { value: `t:${id}`, label: name };
+    }),
+  ];
+  if (!options.some((o) => o.value === value)) options.push({ value, label: "A deleted track" });
+  return (
+    <Select value={value} onValueChange={(v) => edit.set(v)} disabled={disabled}>
+      <SelectTrigger size="sm" aria-label={label} className="ml-1 h-7! w-full max-w-40 min-w-0 rounded px-2 text-xs shadow-none">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent position="popper" align="start" className="max-h-80">
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value} className="text-xs">
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 function ChoiceControl({ spec, value, label, disabled, edit }: ControlProps<ChoiceSpec, string>) {
