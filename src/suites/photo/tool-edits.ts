@@ -60,6 +60,7 @@ import {
   hasContent,
   isPlaced,
 } from "@shared/photo/types";
+import { selectedArea } from "@shared/photo/selection";
 import type { MediaAsset } from "@shared/types";
 import { fitted } from "./canvas/handles";
 import { imageLayerOf } from "./media";
@@ -201,8 +202,16 @@ export function describePhoto(doc: PhotoProject, assets: readonly MediaAsset[], 
   ];
   if (doc.patterns?.length) lines.push(`The photo's patterns: ${doc.patterns.map((p) => `${p.id} "${p.name}" ${p.size.width}×${p.size.height}`).join(", ")}.`);
   if (selected.length) lines.push(`Selected layers: ${selected.join(", ")}.`);
-  if (selection) lines.push(`Selection (marching ants): x ${round(selection.x)}..${round(selection.x + selection.width)}, y ${round(selection.y)}..${round(selection.y + selection.height)}.`);
+  if (selection) lines.push(`Selection (marching ants): ${describeSelection(selection, doc.canvas)}.`);
   return lines.join("\n");
+}
+
+/** The selection for the model: a rectangle's corners, or a shape's box and how much it covers. */
+export function describeSelection(selection: PhotoSelection, canvas: { width: number; height: number }): string {
+  const box = `x ${round(selection.x)}..${round(selection.x + selection.width)}, y ${round(selection.y)}..${round(selection.y + selection.height)}`;
+  if (selection.kind === "rect") return `a rectangle, ${box}`;
+  const area = selectedArea(selection);
+  return `a shape within ${box}, covering ${Math.round(area)} px (${Math.round((area / (canvas.width * canvas.height)) * 1000) / 10}% of the canvas)`;
 }
 
 /** `list_photo_media`. */

@@ -4,10 +4,16 @@
  */
 import { blendModeForKey } from "@shared/photo/blending";
 import type { BlendMode } from "@shared/photo/types";
-import type { PhotoTool } from "./ui";
+import type { PhotoTool, ToolGroup } from "./tool-groups";
 
 export type PhotoKeyAction =
   | { type: "tool"; tool: PhotoTool }
+  /** M, L, W: a group's tool (the Marquees, the Lassos, Quick Selection and the Magic Wand); with Shift, the next of it. */
+  | { type: "toolGroup"; group: ToolGroup; cycle: boolean }
+  /** ⇧⌘I: Select › Inverse. */
+  | { type: "inverse" }
+  /** ⇧F6: Select › Modify › Feather. */
+  | { type: "feather" }
   | { type: "undo" }
   /** ⌃⌘F (Ctrl+Alt+F elsewhere): Filter › Last Filter, Photoshop's. */
   | { type: "lastFilter" }
@@ -53,6 +59,9 @@ export type PhotoKeyAction =
   | { type: "blendMode"; mode: BlendMode }
   /** ⇧+ / ⇧−: the next or previous blend mode in the menu. */
   | { type: "stepBlendMode"; direction: 1 | -1 };
+
+/** Photoshop's letters for the tool groups. */
+const GROUP_KEYS: Record<string, ToolGroup> = { m: "marquee", l: "lasso", w: "wand" };
 
 export interface KeyPress {
   key: string;
@@ -108,10 +117,14 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
     if (key === "s" && !e.shiftKey) return { type: "save" };
     if (key === "d" && !e.shiftKey) return { type: "deselect" };
     if (key === "a" && !e.shiftKey) return { type: "selectCanvas" };
+    if (key === "i" && e.shiftKey) return { type: "inverse" };
     if (key === "n" && e.shiftKey) return { type: "newLayer" };
     return null;
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
+  if (key === "F6" && e.shiftKey) return { type: "feather" };
+  const group = GROUP_KEYS[key];
+  if (group) return { type: "toolGroup", group, cycle: e.shiftKey };
   const step = e.shiftKey ? 10 : 1;
   // ⇧+ and ⇧− step through the blend modes (Shift turns = into + and - into _).
   if (e.shiftKey && (key === "+" || is("=", "Equal"))) return { type: "stepBlendMode", direction: 1 };
@@ -119,8 +132,6 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
   switch (key) {
     case "v":
       return { type: "tool", tool: "move" };
-    case "m":
-      return { type: "tool", tool: "marquee" };
     case "b":
       return { type: "tool", tool: "brush" };
     case "e":

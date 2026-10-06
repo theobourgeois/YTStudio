@@ -4,8 +4,19 @@ import type { Box, Guide } from "./canvas/snap";
 import type { PaintTarget } from "./paint-target";
 import { usePhoto } from "./store";
 
-/** The tools of the strip (ux.md, "Workspace"); more arrive with what they edit. */
-export type PhotoTool = "move" | "marquee" | "brush" | "eraser" | "hand" | "zoom";
+import { type PhotoTool, type ToolGroup, groupKey, groupOf } from "./tool-groups";
+
+export { TOOL_GROUPS, groupOf, isSelectionTool } from "./tool-groups";
+export type { PhotoTool, ToolGroup };
+
+/**
+ * A selection being made, drawn over the canvas until it's let go (document pixels): a lasso's outline (closed
+ * or not, and where the Polygonal Lasso's next side would go), a marquee's box, or Quick Selection's loops.
+ */
+export type SelectionDraft =
+  | { kind: "path"; points: { x: number; y: number }[]; next: { x: number; y: number } | null }
+  | { kind: "rect" | "ellipse"; box: Box }
+  | { kind: "loops"; loops: number[][] };
 
 export type { PaintTarget };
 
@@ -38,6 +49,10 @@ interface PhotoUi {
   guides: Guide[];
   /** The marquee being drawn on the canvas (document pixels), selecting the layers it touches. */
   marquee: Box | null;
+  /** A selection being made (drawn until it's let go), or null. */
+  selectionDraft: SelectionDraft | null;
+  /** Each group's tool, the one its button and key give. */
+  groupTools: Record<ToolGroup, PhotoTool>;
   /** Null until the canvas has a size (then it fits). */
   view: View | null;
   exportOpen: boolean;
@@ -66,6 +81,9 @@ interface PhotoUi {
   selectElement: (elementId: string | null) => void;
   setGuides: (guides: Guide[]) => void;
   setMarquee: (marquee: Box | null) => void;
+  setSelectionDraft: (draft: SelectionDraft | null) => void;
+  /** A group's key: its tool, or (`cycle`: with Shift) the next of the group once it's the tool in use. */
+  pickGroup: (group: ToolGroup, cycle: boolean) => void;
   setView: (view: View) => void;
   setExportOpen: (open: boolean) => void;
   setFilterGalleryOpen: (open: boolean) => void;
@@ -86,13 +104,24 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   selectedElementId: null,
   guides: [],
   marquee: null,
+  selectionDraft: null,
+  groupTools: { marquee: "marquee", lasso: "lasso", wand: "quickSelect" },
   view: null,
   exportOpen: false,
   filterGalleryOpen: false,
   lastFilter: null,
   layerStyle: null,
   scaleEffects: null,
-  setTool: (tool) => set({ tool }),
+  setTool: (tool) =>
+    set((s) => {
+      const group = groupOf(tool);
+      return { tool, selectionDraft: null, groupTools: group ? { ...s.groupTools, [group]: tool } : s.groupTools };
+    }),
+  pickGroup: (group, cycle) =>
+    set((s) => {
+      const tool = groupKey(group, s.groupTools[group], s.tool, cycle);
+      return { tool, selectionDraft: null, groupTools: { ...s.groupTools, [group]: tool } };
+    }),
   setTarget: (target) => set({ target }),
   setPaintChoice: (paintChoice) => set({ paintChoice }),
   setSpaceHand: (spaceHand) => set({ spaceHand }),
@@ -109,6 +138,7 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   hover: (hoveredLayerId) => set((s) => (s.hoveredLayerId === hoveredLayerId ? s : { hoveredLayerId })),
   setGuides: (guides) => set((s) => (s.guides.length === 0 && guides.length === 0 ? s : { guides })),
   setMarquee: (marquee) => set({ marquee }),
+  setSelectionDraft: (selectionDraft) => set({ selectionDraft }),
   setView: (view) => set({ view }),
   setExportOpen: (exportOpen) => set({ exportOpen }),
   setFilterGalleryOpen: (filterGalleryOpen) => set({ filterGalleryOpen }),
@@ -130,7 +160,7 @@ export const useActiveTool = () => usePhotoUi((s) => (s.spaceHand ? "hand" : s.t
 // Another photo: a fresh view, nothing selected, its windows closed.
 usePhoto.subscribe((state, prev) => {
   if (state.projectId !== prev.projectId)
-    usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, selectedFilterId: null, selectedElementId: null, guides: [], marquee: null, view: null, exportOpen: false, filterGalleryOpen: false, lastFilter: null, layerStyle: null, scaleEffects: null, spaceHand: false, target: "content", paintChoice: null });
+    usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, selectedFilterId: null, selectedElementId: null, guides: [], marquee: null, selectionDraft: null, view: null, exportOpen: false, filterGalleryOpen: false, lastFilter: null, layerStyle: null, scaleEffects: null, spaceHand: false, target: "content", paintChoice: null });
   // Selected layers that are gone (undone, deleted) are no longer selected.
   const { selectedLayerIds, selectedLayerId } = usePhotoUi.getState();
   if (!state.history || selectedLayerIds.length === 0 || state.history.doc.doc.layers === prev.history?.doc.doc.layers) return;

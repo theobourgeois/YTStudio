@@ -1,10 +1,18 @@
 /**
  * The tool options bar (ux.md, "Workspace": it follows the active tool), in the header: the Brush's and the
- * Eraser's size, hardness and strength (the colours are every tool's, at the foot of the tool strip), and what the
- * Rectangular Marquee has selected. And the question a brush asks over an image layer (ux.md: never rasterised
- * silently).
+ * Eraser's size, hardness and strength (the colours are every tool's, at the foot of the tool strip), and the
+ * selection tools' (docs/photo/selections.md: the mode, Feather, Anti-alias, the Magic Wand's Tolerance, Sample Size,
+ * Contiguous and Sample All Layers, Quick Selection's size and Auto-Enhance, Select Subject). And the question a
+ * brush asks over an image layer (ux.md: never rasterised silently).
  */
+import { cn } from "cn";
+import { PiIntersectSquare, PiSquare, PiSubtractSquare, PiUniteSquare, PiUserFocus } from "react-icons/pi";
 import { findLayer } from "@shared/photo/edits";
+import { SAMPLE_SIZES } from "@shared/photo/magic-wand";
+import type { SelectionMode } from "@shared/photo/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -18,13 +26,16 @@ import {
 import { type NumberDisplay, ScrubNumber } from "@/components/scrub-number";
 import { MAX_BRUSH, MIN_BRUSH, useBrush } from "./brush-options";
 import { layerActions } from "./layer-actions";
-import { usePhoto, usePhotoDoc, useSelection } from "./store";
-import { useActiveTool, usePhotoUi } from "./ui";
+import { usePhotoDoc, useSelection } from "./store";
+import { runSelectSubject } from "./select-commands";
+import { type SelectOptions, useSelectOptions } from "./selecting";
+import { useSubjectModel } from "./subject-model";
+import { type PhotoTool, isSelectionTool, useActiveTool, usePhotoUi } from "./ui";
 
 export function ToolOptions() {
   const tool = useActiveTool();
   if (tool === "brush" || tool === "eraser") return <BrushOptionsBar />;
-  if (tool === "marquee") return <MarqueeOptionsBar />;
+  if (isSelectionTool(tool)) return <SelectionOptionsBar tool={tool} />;
   return null;
 }
 
@@ -56,23 +67,86 @@ function Scrub({ label, value, display, onChange }: { label: string; value: numb
   );
 }
 
-function MarqueeOptionsBar() {
+const MODES: { mode: SelectionMode; label: string; Icon: typeof PiSquare }[] = [
+  { mode: "new", label: "New selection", Icon: PiSquare },
+  { mode: "add", label: "Add to selection (Shift)", Icon: PiUniteSquare },
+  { mode: "subtract", label: "Subtract from selection (Alt)", Icon: PiSubtractSquare },
+  { mode: "intersect", label: "Intersect with selection (Shift+Alt)", Icon: PiIntersectSquare },
+];
+
+const FEATHER = { min: 0, max: 250, step: 1, decimals: 0, unit: "px" };
+const TOLERANCE = { min: 0, max: 255, step: 1, decimals: 0, unit: "" };
+const QUICK_SIZE = { min: 1, max: 2500, step: 1, decimals: 0, unit: "px" };
+
+/** The selection tools' options, Photoshop's: what each tool has, and what's selected. */
+function SelectionOptionsBar({ tool }: { tool: PhotoTool }) {
+  const o = useSelectOptions();
+  const set = (patch: Partial<SelectOptions>) => useSelectOptions.getState().set(patch);
   const selection = useSelection();
+  const running = useSubjectModel((s) => s.running);
+  const wand = tool === "magicWand";
+  const quick = tool === "quickSelect";
+  // Quick Selection only adds and takes away.
+  const modes = quick ? MODES.slice(0, 3) : MODES;
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground" data-tool-options="marquee">
-      {selection ? (
-        <>
-          <span className="tabular-nums" data-selection-size>
-            {Math.round(selection.width)} × {Math.round(selection.height)} px
-          </span>
-          <Button size="sm" variant="outline" onClick={() => usePhoto.getState().select(null)}>
-            Deselect (⌘D)
-          </Button>
-        </>
-      ) : (
-        <span>Drag to select a rectangle (Shift: a square, Alt: from its centre).</span>
+    <div className="flex items-center gap-3 text-xs" data-tool-options="selection" data-tool-options-for={tool}>
+      <div className="flex items-center" role="group" aria-label="Selection mode">
+        {modes.map(({ mode, label, Icon }) => (
+          <Tooltip key={mode}>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-sm" aria-label={label} aria-pressed={o.mode === mode} className={cn(o.mode === mode && "bg-accent text-foreground")} onClick={() => set({ mode })} data-select-mode={mode}>
+                <Icon className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{label}</TooltipContent>
+          </Tooltip>
+        ))}
+      </div>
+      {quick && <Scrub label="Size" value={o.quickSize} display={QUICK_SIZE} onChange={(v) => set({ quickSize: v })} />}
+      {!wand && !quick && <Scrub label="Feather" value={o.feather} display={FEATHER} onChange={(v) => set({ feather: v })} />}
+      {wand && (
+        <span className="flex items-center gap-1" data-option="Sample Size">
+          <span className="text-muted-foreground">Sample</span>
+          <Select value={String(o.sampleSize)} onValueChange={(v) => set({ sampleSize: Number(v) })}>
+            <SelectTrigger size="sm" className="h-6 w-28 text-xs" aria-label="Sample size">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SAMPLE_SIZES.map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  {n === 1 ? "Point Sample" : `${n} by ${n} Average`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </span>
+      )}
+      {wand && <Scrub label="Tolerance" value={o.tolerance} display={TOLERANCE} onChange={(v) => set({ tolerance: v })} />}
+      {tool !== "marquee" && !quick && <Toggle label="Anti-alias" checked={o.antiAlias} onChange={(antiAlias) => set({ antiAlias })} />}
+      {wand && <Toggle label="Contiguous" checked={o.contiguous} onChange={(contiguous) => set({ contiguous })} />}
+      {(wand || quick) && <Toggle label="Sample All Layers" checked={o.sampleAll} onChange={(sampleAll) => set({ sampleAll })} />}
+      {quick && <Toggle label="Auto-Enhance" checked={o.autoEnhance} onChange={(autoEnhance) => set({ autoEnhance })} />}
+      {(wand || quick) && (
+        <Button size="sm" variant="outline" disabled={running} onClick={() => void runSelectSubject(o.mode)} data-select-subject-button>
+          <PiUserFocus /> Select Subject
+        </Button>
+      )}
+      {selection && (
+        <span className="tabular-nums text-muted-foreground" data-selection-size>
+          {Math.round(selection.width)} × {Math.round(selection.height)} px
+        </span>
       )}
     </div>
+  );
+}
+
+/** An on/off option of a tool. */
+function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-1.5" data-option={label}>
+      <span className="text-muted-foreground">{label}</span>
+      <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
+    </label>
   );
 }
 
