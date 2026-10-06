@@ -98,9 +98,10 @@ streamed through the analyser. **200 frames a second**, each centred on its mome
   32 log bands of a 1024-point spectrum, in dB, floored 30 dB under the recent loudest band) and `onsetLow`/`Mid`/
   `High` (each region's energy rising, below 150 Hz, between, above 4 kHz, floored against itself and 35 dB under the
   loudest region, so a hat's lows and a kick's highs don't count).
-- hits: each onset strength's peaks (above 1.4× the mean over ±0.15 s, 2 dB at least, 50 ms apart, the peak
-  interpolated between frames, 4 ms later as measured: within 3.5 ms of a kick's or hat's attack, tested), with
-  their velocity; and from `server/beats.ts`' `analyseRhythm` (files up to 12 minutes): tempo, beats, downbeats,
+- hits: each onset strength's peaks, with their velocity: rises are measured against the loudest of the last 30 ms
+  (noise flickers but never far above its own recent peaks), and a hit stands 1.4× above the mean over ±0.15 s,
+  rises 2 dB at least, reaches 30% of the strongest within a second, and is 50 ms from the next; its time is
+  interpolated between frames and put 4 ms later as measured (within 3.5 ms of a kick's or hat's attack, tested); and from `server/beats.ts`' `analyseRhythm` (files up to 12 minutes): tempo, beats, downbeats,
   sections, drops.
 - references (auto-gain): each dB scalar's and band's 95th percentile over the frames with sound, each flux's 99th.
 
@@ -390,8 +391,10 @@ assistant tools. Gates are what must be true (measured) before the next mileston
 - Moved to V3: the spectrogram on audio clips (with the signal lanes). Not done: moving the music suite's
   `loudness.ts`/`spectrum.ts` into the platform (signals didn't need BS.1770's loudness; their FFT stays as it is so
   their reports' numbers don't move).
-- **Gate**: the analyser takes about 0.7 s for 3 minutes of sound in the tests (plus ffmpeg's decode and the
-  rhythm); to be timed on Théo's songs.
+- **Gate, measured** (2026-10-07, an M-series Mac): a 3-minute MP3 (kicks every half second over pink noise) is
+  decoded, analysed and its rhythm found in 2.4 s (under 4 s), its file 5.8 MB; 120.1 BPM found; 359 of its 360
+  kicks are low hits at full velocity (the one at 0 s is missed: nothing rises before the file starts), with 165
+  weaker low hits from the noise (from 1,239 before the 30 ms rule and the 30% share). Real songs: Théo to judge.
 
 ### V2: Signals in expressions (built)
 
