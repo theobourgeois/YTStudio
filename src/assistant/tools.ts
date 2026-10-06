@@ -43,6 +43,7 @@ import {
   describeTranscript,
 } from "./describe";
 import { type ToolDoc, docFor } from "./doc";
+import { compileShader } from "@/lib/shader-compiler";
 import { EDITS, clipChanges } from "./edits";
 import { mediaFrames, offscreenFrames, programFrames } from "./frames";
 import { describeSignals, eventTimes } from "./describe-signals";
@@ -132,7 +133,13 @@ const edit =
     if (doc.isOpen) await gesturesSettled(ctx.signal);
     const before = doc.project;
     const signals = store && { store, document: (view: Project) => writeSequence(doc.document, doc.sequenceId, view) };
-    const out = EDITS[name](before, input, { assets: byId(doc.assets), playhead: doc.playhead, sequenceId: doc.sequenceId, ...(signals && { signals }) });
+    const out = EDITS[name](before, input, {
+      assets: byId(doc.assets),
+      playhead: doc.playhead,
+      sequenceId: doc.sequenceId,
+      compile: compileShader,
+      ...(signals && { signals }),
+    });
     doc.commit(out.project);
     if (out.rename) doc.rename(out.rename);
     return textResult(out.text, finishEdit(doc, before, ctx));
@@ -414,7 +421,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     );
   },
   async get_catalog(input) {
-    const kind = oneOf(input, "kind", ["video_effects", "masks_and_shapes", "text_animators", "expressions", "presets", "transitions", "clip_properties", "caption_styles", "fonts"] as const) as CatalogKind | undefined;
+    const kind = oneOf(input, "kind", ["video_effects", "masks_and_shapes", "text_animators", "expressions", "presets", "transitions", "clip_properties", "caption_styles", "shader_api", "fonts"] as const) as CatalogKind | undefined;
     if (!kind) throw new ToolError("`kind` is required.");
     const fonts = kind === "fonts" ? await api.listFonts() : [];
     return textResult(describeCatalog(kind, optString(input, "query"), fonts));
@@ -451,6 +458,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
   cut_to_markers: edit("cut_to_markers"),
   set_expression: edit("set_expression"),
   link_param: edit("link_param"),
+  set_shader: edit("set_shader"),
   define_signal: edit("define_signal"),
   delete_signal: edit("delete_signal"),
   set_events: edit("set_events"),

@@ -101,6 +101,10 @@ anything a link can't say. define_signal makes the video's own signals (a kick f
 snare's crack, a vocal), named so links and expressions can use them; set_events places hits by hand or on beats. \
 A look inside a nested sequence hears the song of the video it's placed in. Check it at the hits with \
 view_frames \`at\`.
+- A look no effect makes (a tunnel, a fractal, a custom visualizer): write it with set_shader (read get_catalog \
+"shader_api" first), on a solid for a look of its own or on a clip to change its picture. Declare its knobs as \
+parameters so the user can tweak, keyframe and link them; it can read the sound itself (spectrum(), audioBass, \
+beatPhase...). If it doesn't compile you get the errors on your lines: fix and call again. Look at it with view_frames.
 - After edits, check what you did with get_timeline or view_frames when it matters.`,
   },
 };
