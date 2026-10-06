@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ownerDocument, ownerWindow } from "@/lib/window-events";
 import { PiCaretDownBold, PiCaretRightFill, PiChartBar, PiPlugs, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
@@ -183,6 +183,10 @@ export function ChannelRack() {
   const scroller = useRef<HTMLDivElement>(null);
   // (The element as state too: in a window of the system it only exists once that window has opened.)
   const [scrollerElement, setScrollerElement] = useState<HTMLDivElement | null>(null);
+  const scrollerRef = useCallback((element: HTMLDivElement | null) => {
+    scroller.current = element;
+    setScrollerElement(element);
+  }, []);
   const room = useStepsRoom(scrollerElement);
 
   return (
@@ -260,10 +264,7 @@ export function ChannelRack() {
             ))}
           </div>
           <div
-            ref={(element) => {
-              scroller.current = element;
-              setScrollerElement(element);
-            }}
+            ref={scrollerRef}
             className="ml-1.5 overflow-x-auto pb-1" style={{ maxWidth: room.native ? `${room.width}px` : `min(62vw, ${room.width}px)` }} data-testid="rack-steps">
             <div className="flex flex-col" style={{ gap: ROW_GAP, width: stepsWidth(steps) }}>
               <StepLights steps={steps} />

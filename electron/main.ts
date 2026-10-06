@@ -453,10 +453,11 @@ function followByPluginWindows(win: BrowserWindow) {
   };
   // (A window that isn't shown yet isn't visible: it's told again as it shows, and when the page has loaded in it.)
   for (const event of ["show", "hide", "minimize", "restore", "move", "resize", "focus", "ready-to-show"] as const) win.on(event as "move", tell);
-  // As a move starts, not once it's done: the plugin windows keep up with it rather than trail behind.
-  win.on("will-move", (_event, next) => {
-    if (!win.isDestroyed()) void tellEngineWhereWeAre(next);
-  });
+  // Windows: as a move starts, not once it's done, so the plugin windows keep up with it rather than trail behind.
+  if (isWindows)
+    win.on("will-move", (_event, next) => {
+      if (!win.isDestroyed()) void tellEngineWhereWeAre(next);
+    });
   win.webContents.on("did-finish-load", tell);
   win.on("closed", () => {
     group?.setMainVisible(false);
