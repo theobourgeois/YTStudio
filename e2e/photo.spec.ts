@@ -2591,6 +2591,79 @@ test("Camera Raw: ⇧⌘A develops a layer in its window (one undo step, Cancel 
   await expect.poll(async () => (await savedPhoto(page, id)).layers[1].effect.params.exposure).toBe(0);
 });
 
+test("Camera Raw's local sliders (CR2): read from the picture's analysis, the same zoomed out as settled, following what's below", async ({ page }) => {
+  const id = await openNewPhoto(page, "Camera Raw local");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await page.locator("[data-layer]").first().click();
+  const window_ = page.locator("[data-camera-raw-window]");
+  // An adjustment layer recovering highlights, opening shadows, with clarity and some dehaze.
+  await page.getByRole("button", { name: "New adjustment layer" }).click();
+  await page.getByRole("menuitem", { name: /Camera Raw/ }).click();
+  for (const [label, value] of [["Highlights", "-80"], ["Shadows", "70"], ["Clarity", "60"], ["Texture", "40"], ["Dehaze", "30"]] as const) {
+    await window_.getByLabel(label, { exact: true }).fill(value);
+    await window_.getByLabel(label, { exact: true }).press("Enter");
+  }
+  await window_.getByRole("button", { name: "OK" }).click();
+  const saved = await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(2).then(() => savedPhoto(page, id));
+  expect(saved.layers[1].effect.params).toMatchObject({ highlights: -80, shadows: 70, clarity: 60, texture: 40, dehaze: 30 });
+
+  // The GPU's develop is the CPU reference's, given the analysis it drew with (of the photo below).
+  const region = { zoom: 1, x: 700, y: 500, width: 24, height: 24 };
+  const drawn = await page.evaluate(async (region) => {
+    const { photoDebug } = window as unknown as DebugWindow;
+    const r = (await photoDebug.renderer()) as unknown as { settledPlan(doc: unknown): Promise<{ nodes: { kind: string; params?: Record<string, unknown> }[] }> } & Awaited<ReturnType<DebugWindow["photoDebug"]["renderer"]>>;
+    const doc = photoDebug.photo.getState().history.doc.doc;
+    const plan = await r.settledPlan(doc);
+    const analysis = plan.nodes.find((n) => n.kind === "adjustment")!.params!.__analysis as { grid: Float32Array } & Record<string, unknown>;
+    const read = async (d: unknown) => {
+      const { texture } = await r.renderView(d, region);
+      const data = await r.readFloat(texture, region.width, region.height);
+      texture.destroy();
+      return Array.from(data);
+    };
+    return { analysis: { ...analysis, grid: Array.from(analysis.grid) }, below: await read({ ...doc, layers: doc.layers.slice(0, 1) }), above: await read(doc) };
+  }, region);
+  const params = { ...saved.layers[1].effect.params, __analysis: { ...drawn.analysis, grid: Float32Array.from(drawn.analysis.grid as number[]) } };
+  const develop = cameraRawReference(params as never, { width: 1600, height: 1200 });
+  for (let y = 0; y < 24; y += 5) {
+    for (let x = 0; x < 24; x += 5) {
+      const expected = develop([region.x + x + 0.5, region.y + y + 0.5], pixelAt(drawn.below, 24, x, y), { canvas: { width: 1600, height: 1200 }, src: () => [0, 0, 0, 0], px: 1 });
+      expect(close(pixelAt(drawn.above, 24, x, y), expected, 3e-3)).toBe(true);
+    }
+  }
+
+  // Zoomed out, before it's refined, it's near the settled view. Not within 2 levels: no curve is, on this fractal's
+  // detail (Contrast alone is 11 levels off at the 99th percentile; docs/photo/camera-raw.md, "CR2 as built"), so the
+  // screen refines it, as Curves'. A fault in the local path (the grid misread at a reduced level) is far past this.
+  const reduced = { zoom: 0.25, x: 0, y: 0, width: 400, height: 300 };
+  const levels = await page.evaluate(async (view) => {
+    const { photoDebug } = window as unknown as DebugWindow;
+    const r = await photoDebug.renderer();
+    const doc = photoDebug.photo.getState().history.doc.doc;
+    const read = async (refine: boolean) => {
+      const { texture } = await r.renderView(doc, view, { refine });
+      const data = await r.readFloat(texture, view.width, view.height);
+      texture.destroy();
+      return data;
+    };
+    const quick = await read(false);
+    const settled = await read(true);
+    const enc = (l: number) => 255 * (l <= 0.0031308 ? 12.92 * Math.max(0, l) : 1.055 * Math.min(1, l) ** (1 / 2.4) - 0.055);
+    const diffs: number[] = [];
+    for (let i = 0; i < quick.length; i += 4) for (let c = 0; c < 3; c++) diffs.push(Math.abs(enc(quick[i + c]) - enc(settled[i + c])));
+    diffs.sort((a, b) => a - b);
+    return { p99: diffs[Math.floor(diffs.length * 0.99)], worst: diffs[diffs.length - 1] };
+  }, reduced);
+  console.log(`Camera Raw local, reduced vs settled: p99 ${levels.p99.toFixed(2)} levels, worst ${levels.worst.toFixed(2)}`);
+  expect(levels.p99).toBeLessThanOrEqual(20);
+
+  // What's below changes (the photo hidden for a white canvas): the analysis follows, and so does the picture.
+  const before = pixelAt(await renderRegion(page, region), 24, 12, 12);
+  const after = pixelAt(await renderRegion(page, region, { hide: [saved.layers[0].id] }), 24, 12, 12);
+  expect(close(before, after, 0.05)).toBe(false);
+});
+
 test("an export cancelled while it renders writes nothing and lets go of what the server was sent", async ({ page }) => {
   await openNewPhoto(page, "Cancelled export");
   // 48 MP: long enough to render that Cancel lands mid-way.

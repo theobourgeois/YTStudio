@@ -103,6 +103,7 @@ type Bench = {
   showDoc(doc: PhotoProject): Promise<void>;
   renderDoc(doc: PhotoProject, view: View): Promise<number[]>;
   compileErrors(): Promise<string[]>;
+  cameraRawAnalysis(doc: PhotoProject, layerId: string, filterId: string | null): Promise<{ grid: number[] } | null>;
 };
 type SheetWindow = { photoBench?: { load(): Promise<Bench> } };
 
@@ -255,6 +256,12 @@ if (shows("camera-raw")) {
     ["curves", { pointCurve: { rgb: [[0, 30], [70, 60], [190, 205], [255, 240]], red: [[0, 0], [128, 150], [255, 255]], green: [[0, 0], [255, 255]], blue: [[0, 20], [255, 235]] } }],
     ["vignette grain", { vignette: -60, vignetteFeather: 70, grain: 60, grainRoughness: 80 }],
     ["darken", { exposure: -1.5, saturation: 60, vignette: 40, vignetteStyle: "color" }],
+    // CR2: the local sliders, read from the analysis.
+    ["recover", { highlights: -100, shadows: 100, contrast: 30 }],
+    ["clarity", { clarity: 100, texture: 60 }],
+    ["soften", { clarity: -100, texture: -100 }],
+    ["dehaze", { dehaze: 80, highlights: -40 }],
+    ["haze", { dehaze: -70, shadows: -50 }],
   ];
   const sc = SCENES[1];
   const cells = [];
@@ -267,7 +274,10 @@ if (shows("camera-raw")) {
     const [x0, y0, W, H] = [180, 140, 160, 120];
     const plain = await call<number[]>("renderDoc", doc, { zoom: 1, x: x0, y: y0, width: W, height: H });
     const gpu = await call<number[]>("renderDoc", filtered, { zoom: 1, x: x0, y: y0, width: W, height: H });
-    const expected = applyKernel(KERNEL_REFERENCES["camera-raw"], { width: W, height: H, data: Float64Array.from(plain) }, params, doc.canvas, { x: x0, y: y0 });
+    // The analysis the GPU drew with (the local sliders read it), handed to the reference as the plan hands it.
+    const analysis = await call<{ grid: number[] } | null>("cameraRawAnalysis", filtered, sc.layer, "sheet_cr");
+    const withAnalysis = analysis ? { ...params, __analysis: { ...analysis, grid: Float32Array.from(analysis.grid) } as never } : params;
+    const expected = applyKernel(KERNEL_REFERENCES["camera-raw"], { width: W, height: H, data: Float64Array.from(plain) }, withAnalysis, doc.canvas, { x: x0, y: y0 });
     const diffs = gpu.map((v, i) => Math.abs(v - expected.data[i])).sort((a, b) => a - b);
     const p99 = diffs[Math.floor(diffs.length * 0.99)];
     const line = `camera-raw ${name} (filter): p99 ${p99.toExponential(2)}, worst ${diffs[diffs.length - 1].toExponential(2)}`;

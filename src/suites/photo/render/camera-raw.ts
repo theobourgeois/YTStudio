@@ -12,11 +12,16 @@ import {
   PROPHOTO_TO_SRGB,
   SATURATION_PIVOT,
   SRGB_TO_PROPHOTO,
+  LOCAL_RANGE,
+  LOCAL_STRENGTH,
   VIGNETTE,
   VIGNETTE_GREY,
+  ANALYSIS_PARAM,
+  analysisOf,
   developSettings,
   developTable,
 } from "@shared/photo/effects/camera-raw/develop.ts";
+import { GRID_FLOATS } from "@shared/photo/effects/camera-raw/analysis.ts";
 import type { EffectParamValue } from "@shared/photo/types.ts";
 import type { AdjustmentKernel } from "./adjustments.ts";
 import type { FilterKernel } from "./kernel.ts";
@@ -47,6 +52,20 @@ const FIELDS = [
   "grain_roughness",
   "canvas_w",
   "canvas_h",
+  "local",
+  "highlights",
+  "shadows",
+  "clarity",
+  "texture",
+  "dehaze",
+  "grid_w",
+  "grid_h",
+  "grid_spacing",
+  "range_low",
+  "range_high",
+  "air_r",
+  "air_g",
+  "air_b",
 ] as const;
 
 function fieldValues(params: Record<string, EffectParamValue>, canvas: { width: number; height: number }): number[] {
@@ -72,17 +91,39 @@ function fieldValues(params: Record<string, EffectParamValue>, canvas: { width: 
     grain_roughness: s.grainRoughness,
     canvas_w: canvas.width,
     canvas_h: canvas.height,
+    local: s.analysis && (s.highlights || s.shadows || s.clarity || s.texture || s.dehaze) ? 1 : 0,
+    highlights: s.highlights,
+    shadows: s.shadows,
+    clarity: s.clarity,
+    texture: s.texture,
+    dehaze: s.dehaze,
+    grid_w: s.analysis?.width ?? 1,
+    grid_h: s.analysis?.height ?? 1,
+    grid_spacing: s.analysis?.spacing ?? 1,
+    range_low: s.analysis?.low ?? 0,
+    range_high: s.analysis?.high ?? 0,
+    air_r: s.analysis?.airlight[0] ?? 1,
+    air_g: s.analysis?.airlight[1] ?? 1,
+    air_b: s.analysis?.airlight[2] ?? 1,
   };
   return FIELDS.map((k) => values[k]);
 }
 
-/** The develop's table and the darkening tone coordinate after it. */
+/** The develop's table, the darkening tone coordinate after it, then the analysis's grid (if it reads one). */
 function gpuTable(params: Record<string, EffectParamValue>): Float32Array {
   const curves = developTable(params);
-  const table = new Float32Array(curves.length + 256);
+  const grid = analysisOf(params)?.grid;
+  const table = new Float32Array(curves.length + 256 + (grid?.length ?? 0));
   table.set(curves);
   table.set(V_DARKEN, curves.length);
+  if (grid) table.set(grid, curves.length + 256);
   return table;
+}
+
+/** What the table is made from: the parameters (but the analysis) and the analysis's id. */
+function tableKey(params: Record<string, EffectParamValue>): string {
+  const { [ANALYSIS_PARAM]: _, ...own } = params;
+  return `camera-raw|${analysisOf(params)?.id ?? ""}|${JSON.stringify(own)}`;
 }
 
 /** Packs `values` as f32s, padded to a multiple of 16 bytes. */
@@ -99,6 +140,8 @@ const V_OFFSET = DEVELOP_TABLE_CURVES * N;
 const DEVELOP = /* wgsl */ `
 const CR_N: u32 = ${N}u;
 const CR_V: u32 = ${V_OFFSET}u;
+const CR_GRID: u32 = ${V_OFFSET + 256}u;
+const CR_GRID_FLOATS: u32 = ${GRID_FLOATS}u;
 const CR_TO_PROPHOTO = ${mat(SRGB_TO_PROPHOTO)};
 const CR_TO_SRGB = ${mat(PROPHOTO_TO_SRGB)};
 
@@ -225,8 +268,75 @@ fn cr_grain_at(p: vec2f) -> f32 {
   return sm + (rough - sm * 0.5) * params.grain_roughness;
 }
 
+// The analysis's grid at a document point: bilinear between cell centres, held at the edges (analysis.ts's gridAt).
+fn cr_grid(p: vec2f, out: ptr<function, array<f32, ${GRID_FLOATS}>>) {
+  let w = u32(params.grid_w);
+  let h = u32(params.grid_h);
+  let gx = clamp(p.x / params.grid_spacing - 0.5, 0.0, f32(w - 1u));
+  let gy = clamp(p.y / params.grid_spacing - 0.5, 0.0, f32(h - 1u));
+  let x0 = u32(floor(gx));
+  let y0 = u32(floor(gy));
+  let x1 = min(x0 + 1u, w - 1u);
+  let y1 = min(y0 + 1u, h - 1u);
+  let fx = gx - f32(x0);
+  let fy = gy - f32(y0);
+  for (var k = 0u; k < CR_GRID_FLOATS; k++) {
+    let a = table[CR_GRID + (y0 * w + x0) * CR_GRID_FLOATS + k];
+    let b = table[CR_GRID + (y0 * w + x1) * CR_GRID_FLOATS + k];
+    let c = table[CR_GRID + (y1 * w + x0) * CR_GRID_FLOATS + k];
+    let d = table[CR_GRID + (y1 * w + x1) * CR_GRID_FLOATS + k];
+    let top = a + (b - a) * fx;
+    let bottom = c + (d - c) * fx;
+    (*out)[k] = top + (bottom - top) * fy;
+  }
+}
+
+fn cr_lum(c: vec3f) -> f32 { return dot(c, vec3f(0.2126, 0.7152, 0.0722)); }
+
+// The local sliders (develop.ts's local), on straight linear sRGB, first.
+fn cr_local(input: vec3f, p: vec2f) -> vec3f {
+  var g: array<f32, ${GRID_FLOATS}>;
+  cr_grid(p, &g);
+  var c = input;
+  if (params.dehaze != 0.0) {
+    let air = vec3f(params.air_r, params.air_g, params.air_b);
+    if (params.dehaze > 0.0) {
+      let d = clamp(g[6] * log2(max(cr_lum(c), ${f(2 ** -20)})) + g[7], 0.0, 1.0);
+      let t = max(0.1, 1.0 - 0.95 * params.dehaze * d);
+      c = max((c - air) / t + air, vec3f(0.0));
+    } else {
+      let k = -params.dehaze * ${f(LOCAL_STRENGTH.dehazeDown)};
+      c = c + (air - c) * k;
+    }
+  }
+  let L = log2(max(cr_lum(c), ${f(2 ** -20)}));
+  let base = g[0] * L + g[1];
+  let range = max(0.0, params.range_high - params.range_low);
+  var u = 0.5;
+  if (range > 0.001) { u = clamp((base - params.range_low) / range, 0.0, 1.0); }
+  let scale = min(range, ${f(LOCAL_RANGE)}) / ${f(LOCAL_RANGE)};
+  var gain = 0.0;
+  if (params.highlights != 0.0) {
+    gain += params.highlights * select(${f(LOCAL_STRENGTH.highlightsUp)}, ${f(LOCAL_STRENGTH.highlightsDown)}, params.highlights < 0.0) * cr_smoothstep(0.4, 1.0, u) * scale;
+  }
+  if (params.shadows != 0.0) {
+    gain += params.shadows * select(${f(LOCAL_STRENGTH.shadowsDown)}, ${f(LOCAL_STRENGTH.shadowsUp)}, params.shadows > 0.0) * (1.0 - cr_smoothstep(0.05, 0.8, u)) * scale;
+  }
+  if (params.texture != 0.0) { gain += params.texture * ${f(LOCAL_STRENGTH.texture)} * (L - (g[4] * L + g[5])); }
+  if (params.clarity > 0.0) {
+    let band = g[9] * L + g[10] - (g[2] * L + g[3]);
+    let midtones = 1.0 - 0.5 * (2.0 * u - 1.0) * (2.0 * u - 1.0);
+    gain += clamp(params.clarity * ${f(LOCAL_STRENGTH.clarityUp)} * band * midtones, -${f(LOCAL_STRENGTH.maxClarity)}, ${f(LOCAL_STRENGTH.maxClarity)});
+  } else if (params.clarity < 0.0) {
+    gain += -params.clarity * ${f(LOCAL_STRENGTH.clarityDown)} * (g[8] - L);
+  }
+  return c * exp2(gain);
+}
+
 // One pixel: straight linear sRGB in and out, at document point p.
-fn develop(rgb: vec3f, p: vec2f) -> vec3f {
+fn develop(input: vec3f, p: vec2f) -> vec3f {
+  var rgb = input;
+  if (params.local == 1.0) { rgb = cr_local(input, p); }
   let top = max(1.0, max(rgb.r, max(rgb.g, rgb.b)));
   var e = cr_encode3(CR_TO_PROPHOTO * rgb);
   if (params.white_balance == 1.0) { e = vec3f(cr_table(1u, e.r), cr_table(2u, e.g), cr_table(3u, e.b)); }
@@ -273,7 +383,7 @@ fn effect(p: vec2f, c: vec4f) -> vec4f {
   if (!(c.a > 0.0)) { return c; }
   return vec4f(develop(c.rgb / c.a, p) * c.a, c.a);
 }`,
-  pack: (params, canvas) => ({ uniform: packFloats(fieldValues(params, canvas)), table: gpuTable(params) }),
+  pack: (params, canvas) => ({ uniform: packFloats(fieldValues(params, canvas)), table: gpuTable(params), tableKey: tableKey(params) }),
 };
 
 /** Camera Raw as an adjustment layer: what's below, developed. */

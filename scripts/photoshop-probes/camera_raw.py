@@ -111,6 +111,40 @@ def mixed():
         img[240:272, x0:x0 + 256] = np.arange(256)[None, :, None]
     return img
 
+BACKGROUNDS = (20, 50, 90, 118, 160, 200, 235)
+FLATS = (8, 16, 24, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 250)
+
+def backgrounds():
+    """CR2: a ramp on plain greys from dark to light, and on a picture half dark, half light: what Contrast and
+    Whites adapt to (the same ramp moves with what the rest of the picture is)."""
+    out = {}
+    for g in BACKGROUNDS:
+        img = np.full((512, 768, 3), g, np.uint8)
+        img[240:272, 128:640] = np.repeat(np.arange(256), 2)[None, :, None]
+        out["bg-%d" % g] = img
+    img = np.full((512, 768, 3), 30, np.uint8); img[:, 384:] = 220
+    img[240:272, 128:640] = np.repeat(np.arange(256), 2)[None, :, None]
+    out["bg-split"] = img
+    return out
+
+def edge(width):
+    """CR2: a vertical step from code 50 to 190 in the middle: how far a local slider reaches across an edge and the
+    halo it leaves (at two sizes: its reach is a fraction of the picture's)."""
+    img = np.full((width // 2, width, 3), 50, np.uint8); img[:, width // 2:] = 190
+    return img
+
+GRATING_PERIODS = (2, 4, 8, 16, 32, 64)
+
+def grating(width=768):
+    """CR2: horizontal bands of a vertical sine grating (±20 levels about 128) of periods 2 to 64 px: which detail
+    sizes Texture and Clarity act on."""
+    band = width // len(GRATING_PERIODS)
+    img = np.full((width, width, 3), 128.0)
+    x = np.arange(width)
+    for i, period in enumerate(GRATING_PERIODS):
+        img[i * band:(i + 1) * band] = (128 + 20 * np.sin(2 * np.pi * x / period))[None, :, None]
+    return np.clip(np.round(img), 0, 255).astype(np.uint8)
+
 def images():
     paths = {}
     def put(name, arr):
@@ -123,6 +157,14 @@ def images():
     put("scene", portrait())
     small = np.asarray(Image.fromarray(portrait()).resize((384, 256), Image.LANCZOS))
     put("scene-small", small)
+    for k, v in backgrounds().items():
+        put(k, v)
+    for g in FLATS:
+        put("flat-%d" % g, np.full((96, 128, 3), g, np.uint8))
+    put("edge", edge(1024))
+    put("edge-big", edge(2048))
+    put("grating", grating(768))
+    put("grating-big", np.asarray(Image.fromarray(grating(768)).resize((1536, 1536), Image.NEAREST)))
     return paths
 
 
@@ -254,6 +296,27 @@ def jobs():
     add("order", "hue-red+100-curve-bump", "chart", {"HueAdjustmentRed": 100}, {}, curve_element("ToneCurvePV2012", [(0, 0), (128, 180), (255, 255)]))
     add("order", "temperature+50-saturation-100", "chart", {"Temperature": 50, "Saturation": -100})
     add("order", "exposure+1-pdarks+100", "chart", {"Exposure2012": 1, "ParametricDarks": 100})
+    # CR2: what the adaptive and local sliders depend on.
+    for img in ["bg-%d" % g for g in BACKGROUNDS] + ["bg-split"]:
+        for k, short in (("Contrast2012", "contrast"), ("Whites2012", "whites"), ("Highlights2012", "highlights"), ("Shadows2012", "shadows")):
+            for v in (-100, 100):
+                add("adaptive", "%s%+d-%s" % (short, v, img), img, {k: v})
+    # Highlights, Shadows and Dehaze on a flat picture: what they do to a tone with nothing around it.
+    for g in FLATS:
+        for k, short in (("Highlights2012", "highlights"), ("Shadows2012", "shadows"), ("Dehaze", "dehaze")):
+            for v in (-100, -50, 50, 100):
+                add("flats", "%s%+d-flat-%d" % (short, v, g), "flat-%d" % g, {k: v})
+    for img in ("edge", "edge-big"):
+        add("edges", "identity-" + img, img)
+        for k, short in (("Highlights2012", "highlights"), ("Shadows2012", "shadows"), ("Clarity2012", "clarity"), ("Texture", "texture"),
+                         ("Dehaze", "dehaze"), ("Contrast2012", "contrast"), ("Whites2012", "whites")):
+            for v in (-100, 100):
+                add("edges", "%s%+d-%s" % (short, v, img), img, {k: v})
+    for img in ("grating", "grating-big"):
+        add("gratings", "identity-" + img, img)
+        for k, short in (("Texture", "texture"), ("Clarity2012", "clarity")):
+            for v in (-100, -50, 50, 100):
+                add("gratings", "%s%+d-%s" % (short, v, img), img, {k: v})
     return j
 
 
@@ -414,4 +477,5 @@ elif __name__ == "__main__":
         run(J[g])
 else:
     IMAGES = {k: os.path.join(DIR, "in-" + k + ".png") for k in
-              ("chart", "loc-plain", "loc-dark", "loc-bright", "loc-mixed", "scene", "scene-small")}
+              ("chart", "loc-plain", "loc-dark", "loc-bright", "loc-mixed", "scene", "scene-small", "edge", "edge-big", "grating", "grating-big",
+               "bg-split", *["bg-%d" % g for g in BACKGROUNDS], *["flat-%d" % g for g in FLATS])}

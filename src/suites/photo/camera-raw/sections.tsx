@@ -116,7 +116,7 @@ export function CameraRawSections({
           </header>
           {open.has(id) && (
             <div className="flex flex-col gap-2 pb-3 pl-5">
-              {id === "light" && ["exposure", "contrast", "whites", "blacks"].map(slider)}
+              {id === "light" && ["exposure", "contrast", "highlights", "shadows", "whites", "blacks"].map(slider)}
               {id === "color" && (
                 <>
                   <WhiteBalanceRow params={params} sink={sink} picking={picking} onPick={onPick} />
@@ -126,6 +126,7 @@ export function CameraRawSections({
               )}
               {id === "effects" && (
                 <>
+                  {["texture", "clarity", "dehaze"].map(slider)}
                   <Disclosed label="Vignette" more={["vignetteMidpoint", "vignetteRoundness", "vignetteFeather", "vignetteHighlights", "vignetteStyle"]} params={params} sink={sink}>
                     {slider("vignette")}
                   </Disclosed>

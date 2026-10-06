@@ -22,13 +22,15 @@ const atDefault = (key: string, value: EffectParamValue | undefined) => {
 export function changedSections(params: Record<string, EffectParamValue>): CameraRawSection[] {
   const live = (key: string) => !atDefault(key, params[key]);
   const shows: Record<CameraRawSection, boolean> = {
-    light: ["exposure", "contrast", "whites", "blacks"].some(live),
+    light: ["exposure", "contrast", "highlights", "shadows", "whites", "blacks"].some(live),
     color: ["temperature", "tint", "vibrance", "saturation", "treatment"].some(live),
-    effects: live("vignette") || live("grain"),
+    effects: ["texture", "clarity", "dehaze", "vignette", "grain"].some(live),
     curve: ["curveHighlights", "curveLights", "curveDarks", "curveShadows", "pointCurve"].some(live),
   };
   return CAMERA_RAW_SECTIONS.map((s) => s.id).filter((id) => shows[id]);
 }
+
+export { ANALYSIS_PARAM, needsAnalysis } from "./develop.ts";
 
 export const CAMERA_RAW: EffectDefinition = {
   type: "camera-raw",
@@ -38,7 +40,7 @@ export const CAMERA_RAW: EffectDefinition = {
   kernel: true,
   label: "Camera Raw",
   description:
-    "Photoshop's Camera Raw Filter, one effect with sections, its sliders on Adobe's names and ranges (and measured to behave like Camera Raw 18.7's): Light (exposure in stops, contrast, whites, blacks), Color (temperature, tint, vibrance, saturation, treatment color or bw), Effects (vignette with midpoint, roundness, feather, highlights and style; grain with size and roughness), Curve (the parametric curve's highlights, lights, darks, shadows and its three splits; pointCurve, a set of point curves). A filter on a layer, or a Camera Raw adjustment layer over everything below.",
+    "Photoshop's Camera Raw Filter, one effect with sections, its sliders on Adobe's names and ranges (and measured to behave like Camera Raw 18.7's): Light (exposure in stops, contrast, highlights, shadows, whites, blacks), Color (temperature, tint, vibrance, saturation, treatment color or bw), Effects (texture, clarity, dehaze, vignette with midpoint, roundness, feather, highlights and style; grain with size and roughness), Curve (the parametric curve's highlights, lights, darks, shadows and its three splits; pointCurve, a set of point curves). A filter on a layer, or a Camera Raw adjustment layer over everything below.",
   params: CAMERA_RAW_PARAMS,
   region: "pointwise",
   reach: () => 0,

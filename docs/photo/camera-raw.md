@@ -1,6 +1,6 @@
 # Camera Raw
 
-Status: researched and planned 2026-10-06; CR0 (the measurements) and CR1 (the tool) built. What Théo asked for: Photoshop's
+Status: researched and planned 2026-10-06; CR0 (the measurements), CR1 (the tool) and CR2 (the light) built. What Théo asked for: Photoshop's
 Camera Raw Filter, which he uses to "control the light and colour coming from a picture" and layers a lot, as
 **one tool in one window**, not a set of separate effects. Labels as in the [README](README.md#labels).
 
@@ -230,6 +230,9 @@ and can't hold light above white (our pixels are extended linear: rendering.md).
 
 ### Local parts: on the document's pyramid
 
+**As built (CR2), differently:** not on the pyramid but on one coarse analysis of the whole picture, with the
+local sliders pointwise given it ("CR2 as built"). What's below is the plan as it was.
+
 Steps 1, 4, 5 (Highlights and Shadows), 6, 9 and the Glow look at neighbours. **The rule, from the glow (ledger
 A26):** every local operator is defined in document pixels on the document's 2^k grids, so the view at any zoom,
 a tile, an export and the CPU reference compute the same thing. Its radii are **fractions of the document's
@@ -257,6 +260,8 @@ dragging a colour slider re-runs only the fused pass, and dragging Clarity doesn
 pyramid rule keeps that refinement small.
 
 ### As an adjustment layer
+
+**As built (CR2):** no neighbourhood adjustments were needed: given its analysis, every slider is pointwise.
 
 The pointwise sections work as an adjustment today. **The local sections need adjustments that read
 neighbours**: `inputRegion` grows an adjustment node by its `reach`, as it does a filter's. The screen already
@@ -365,7 +370,7 @@ against reference) and a look at the sheet.
   statistics), **Color** (white balance with its eyedropper, Vibrance, Saturation, B&W), **Curve**, **vignette**
   and **grain**. The window (sections, eyes, Preview, before/after, OK as one step), the same sections in
   Properties, ⇧⌘A, the assistant. Fixture tests for every global slider.
-- **CR2, the light.** Neighbourhood adjustments in the render plan; the pyramid's tone base; **Highlights,
+- **CR2, the light (built 2026-10-06: "CR2 as built").** Neighbourhood adjustments in the render plan; the pyramid's tone base; **Highlights,
   Shadows, Texture, Clarity, Dehaze**; the reduction node, and Contrast and Whites adapting to its statistics. Gates: no visible halo on the test pictures (a
   step edge and a backlit portrait at ±100), a reduced view within 2 levels of the settled one, a slider drag
   over 60 fps at fit on a 24 MP photo for the pointwise sections and a settled local edit under a second on 48
@@ -427,11 +432,85 @@ Camera Raw Filter… (on a Camera Raw adjustment layer, or with a Camera Raw fil
 other sections are CR2 to CR4's, as planned. The assistant uses the filter and adjustment tools as they were
 (`add_filter`, `set_filter`, `add_adjustment`, `set_effect_params`): every setting by name, point curves as Curves'.
 
+## CR2 as built
+
+### What CR2 measured
+
+Probes (`camera_raw.py adaptive edges gratings flats`, scripted, no clicks): a ramp on seven plain greys and on a
+half-dark, half-light picture; a step from code 50 to 190 at 1024 and 2048 px; sine gratings of periods 2 to 64 px
+(and twice that size); eighteen flat greys; and the CR0 scene.
+
+1. **Contrast pivots around the picture's mean tone. Measured:** the code where Contrast ±100 crosses the
+   identity moves from 94 (on grey 20) through 147 (118) to 195 (235), 139 on the split picture: in the tone
+   coordinate, `pivot = 0.549 + 0.342 × mean`, within 0.06 stop on all eight.
+2. **Whites adapts too, strongly, to how near white the picture's brightest parts are. Measured:** +100 lifts code
+   64 to 189 on dark greys and to 79 on light ones (to 85 on the chart, which has bright patches); −100 doesn't
+   adapt. Not modelled yet (below).
+3. **Highlights, Shadows and Dehaze leave a flat picture alone. Measured:** all eighteen flat greys come back
+   unchanged at ±50 and ±100. They act within the picture's own range: a large flat region beside other content
+   moves, sometimes a lot (Highlights −100 takes the 220 half of the split picture to 37).
+4. **Across an edge. Measured:** Highlights and Shadows move each side evenly up to a 1-pixel seam (no halo);
+   Clarity +100 sharpens only at the edge itself (±10 levels, one pixel), −100 softens across it to ~2% of the
+   width; Texture reaches ~1%; Dehaze moves whole regions (the dark side 50 → 14 at +100, → 130 at −100; the
+   bright side, its airlight, stays). The 2048-px step's profiles match the 1024's at the same fractions.
+5. **By detail size. Measured:** Texture ±100 scales detail up to ~4% of the width by 1.6–1.75 / 0.37–0.55;
+   Clarity −100 by 0.4 up to ~4%, +100 by ~3 at 2–8% (on the 768-px grating; oddly little on the 1536-px one).
+6. **On the scene. Measured:** Shadows +100 lifts the dark figure ~2.5 stops (−100 sinks it ~2), Highlights ±100
+   moves the sky a quarter-stop, Dehaze +100 turns the sky deep blue (the dark-channel prior predicts it within
+   ~15 levels).
+
+### How it's built
+
+**The analysis** (`shared/photo/effects/camera-raw/analysis.ts`): a coarse render of what a Camera Raw develops,
+at most 256 cells on the canvas's long side (`analysisSpacing`), gives, per cell, the coefficients of four guided
+filters of the log luminance (tone base, radius 5% / ε 0.5; Clarity's, 2.5% / 0.2; Texture's, 0.8% / 0.3; a fine
+one, 0.4% / 0.01), the plain mean at Clarity's radius, and Dehaze's dark channel over the airlight refined by a
+guided filter (1.5% / 0.01; no minimum over a patch: it left a bright rim round dark objects); and the tone base's
+2nd and 98th percentiles, the mean tone, the airlight (the haziest 0.1%'s colour). About 30 ms on the CPU.
+
+**The sliders** (`develop.ts`'s `local`, first in the develop, on the picture the analysis saw): each pixel's
+bases are `a·L + b` with its own `L`, the grid read bilinearly at its document point (fast guided upsampling), so
+edges stay sharp at full resolution. Dehaze removes the haze it estimates (`(I − A)/t + A`) or mixes in the
+airlight; Highlights and Shadows move the tone base by stops weighted by where it sits in the picture's range,
+scaled by the range (nothing for a flat picture); Texture scales the detail over its base; Clarity +, the band
+between the fine base and its own, in the midtones (the picture's grain isn't Clarity's: it was, and the sky came
+out grainy); Clarity −, towards the plain mean, across edges (Camera Raw's dreamy softening). All as one gain on
+the pixel, so hues hold. Contrast's curve is moved along the tone coordinate to pivot at the picture's mean.
+
+**The renderer:** `compileRender` asks `CompileOptions.cameraRaw` for each Camera Raw's analysis by the key of what
+it develops (the plan's key below an adjustment layer; a layer's content key and its earlier filters' for a
+filter) and hands it in as a parameter (`ANALYSIS_PARAM`); its id, or "pending", goes into the node's key, so
+nothing drawn without it is reused once it's there. `render/camera-raw-analysis.ts` keeps them (24, by input):
+the screen's plan starts missing ones and draws again when they arrive; `settledPlan` (views, export bands,
+rasterising) waits for them, each after what's below it. The GPU's table carries the grid after the curves; kernel
+tables are now kept on the GPU by key (`FilterKernel.pack`'s `tableKey`).
+
+**Measured:** the GPU is the CPU reference given the same analysis (photo-sheet's five local looks: p99 below
+1e-6; e2e: within 3e-3); the adjustment layer is the filter (below 3e-6). The strengths (`LOCAL_STRENGTH`) were
+set against Camera Raw's scene renders side by side: its feel (decision 4), not its numbers.
+
+**The gates, as they came out:**
+- *No halo* (`analysis.test.ts`): Highlights and Shadows move a step's sides evenly to within 0.05 stop of the
+  edge, and leave the other side alone; Clarity leaves a large edge's neighbours alone.
+- *A reduced view near the settled one:* **not within 2 levels**, and no curve could be: on the sample fractal,
+  Contrast alone is 11 levels off at the 99th percentile (fine detail averaged then curved isn't curved then
+  averaged). On the natural scene at ¼: Highlights 0.03, Shadows 0.2, Texture 2.1, Contrast 2.5, Dehaze 5.4,
+  Clarity + 6.3 levels at the 99th percentile (90th: 2.8 and below). The screen refines, as for Curves; e2e holds
+  the fractal's combined look under 20 (it measures ~17).
+- *Speed:* dragging any slider changes only uniforms (the analysis doesn't depend on them); an analysis is built
+  once per input, ~30 ms plus a coarse render.
+
+**Not yet:** Whites' adaptation (it keeps the chart's response); Highlights' and Shadows' exact amounts (Camera
+Raw's depend on the picture in ways no probe slice explained). **Changed:** Contrast now pivots at each picture's
+mean, so a Camera Raw made in CR1 with Contrast set looks slightly different (kept at version 1: CR1 shipped the
+same day).
+
 ## Where we differ from Photoshop (so far)
 
 - Ours is also an adjustment layer, with a mask, opacity and a blend mode; Photoshop has only the filter.
 - Ours isn't modal: the editor's canvas is its preview, at any zoom, and the rest of the editor stays usable.
 - Its sliders are measured, not Adobe's code: within the bounds above, white balance on saturated colours furthest.
+- Highlights, Shadows, Clarity, Texture and Dehaze match Camera Raw's feel, not its numbers; Whites doesn't adapt yet.
 - No Smart Object step: a Camera Raw filter is always editable.
 - Out of scope: Profiles, Masking (a mask on the adjustment layer instead), Optics, Geometry, Remove, Red Eye,
   Crop, HDR, Calibration, snapshots.

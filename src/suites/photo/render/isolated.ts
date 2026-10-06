@@ -98,6 +98,9 @@ export class TexturePool {
  * A glow's contributions over its layer's extent, from level-0 renders (exact), from level `from` up, with their
  * blurred octaves, kept by the renderer for as long as the glow and its layer stay as they are.
  */
+/** Kernel tables kept on the GPU by their key. */
+const KEPT_TABLES = 8;
+
 export interface GlowCache {
   key: string;
   /** The document point at every level's texel (0, 0)'s top-left (aligned to the coarsest level's spacing). */
@@ -211,6 +214,8 @@ export class Isolation {
   private readonly layouts: { composite: GPUBindGroupLayout; flare: GPUBindGroupLayout; textureUniform: GPUBindGroupLayout; apply: GPUBindGroupLayout; kernel: GPUBindGroupLayout };
   /** A placeholder for kernels that read no table. */
   private readonly noTable: GPUBuffer;
+  /** Tables kept by their key (Camera Raw's, with its analysis's grid), most recently used last. */
+  private readonly tables = new Map<string, GPUBuffer>();
 
   private constructor(
     private readonly compositor: Compositor,
@@ -386,11 +391,24 @@ export class Isolation {
     const { device } = this.compositor.ctx;
     const packed = kernel.pack(f.params, f.canvas);
     let table = this.noTable;
-    if (packed.table) {
+    const kept = packed.tableKey ? this.tables.get(packed.tableKey) : undefined;
+    if (kept && packed.tableKey) {
+      // Most recently used last.
+      this.tables.delete(packed.tableKey);
+      this.tables.set(packed.tableKey, kept);
+      table = kept;
+    } else if (packed.table) {
       table = device.createBuffer({ label: "kernel table", size: Math.max(16, packed.table.byteLength), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
       device.queue.writeBuffer(table, 0, packed.table);
       const made = table;
-      void device.queue.onSubmittedWorkDone().then(() => setTimeout(() => made.destroy(), 0));
+      if (packed.tableKey) {
+        this.tables.set(packed.tableKey, made);
+        while (this.tables.size > KEPT_TABLES) {
+          const [oldest, old] = this.tables.entries().next().value!;
+          this.tables.delete(oldest);
+          void device.queue.onSubmittedWorkDone().then(() => setTimeout(() => old.destroy(), 0));
+        }
+      } else void device.queue.onSubmittedWorkDone().then(() => setTimeout(() => made.destroy(), 0));
     }
     const group = device.createBindGroup({
       layout: this.layouts.kernel,

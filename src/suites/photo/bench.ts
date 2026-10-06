@@ -6,6 +6,7 @@
 import { addAdjustmentLayer, addFilter, addGeneratorLayer, setEffectParams, setFilter, setHandle, setMask } from "@shared/photo/edits";
 import { type View, fitView, zoomAbout } from "@shared/photo/geometry";
 import { identityCurveSet } from "@shared/photo/effects/params";
+import { analysisOf } from "@shared/photo/effects/camera-raw/develop";
 import { useProjects } from "@/stores/projects";
 import { canvasDriver } from "./canvas/canvas-panel";
 import { liveRenderer } from "./live";
@@ -575,4 +576,20 @@ export async function runPlan(steps: BenchStep[]) {
     }
   }
   return results;
+}
+
+/**
+ * A Camera Raw's analysis in `doc` (photo-sheet.ts holds the GPU to the CPU reference with it): the one the renderer
+ * draws with, built if it isn't there; its grid as a plain array.
+ */
+export async function cameraRawAnalysis(doc: PhotoProject, layerId: string, filterId: string | null) {
+  const r = await renderer();
+  const plan = await r.settledPlan(doc);
+  for (const node of plan.nodes) {
+    const params =
+      node.kind === "adjustment" ? (node.layerId === layerId && filterId === null ? node.params : null) : node.layerId === layerId ? (node.filters.find((f) => f.id === filterId)?.params ?? null) : null;
+    const analysis = params ? analysisOf(params) : null;
+    if (analysis) return { ...analysis, grid: Array.from(analysis.grid) };
+  }
+  return null;
 }
