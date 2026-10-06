@@ -1,15 +1,16 @@
 /**
  * Properties (ux.md, "Workspace"): the selected image layer's place in numbers (position, size as a percentage,
- * angle) and fitting it to the canvas; an adjustment layer's parameters, rendered from its definition's specs
- * (sliders, Curves' graph); either's opacity; a filter clicked in Layers (the glow), or a generator layer (the Lens
+ * angle) and fitting it to the canvas, then its Develop (Camera Raw in place: `develop-section.tsx`) and Effects
+ * (its layer style in place: `effects-section.tsx`); an adjustment layer's parameters, rendered from its
+ * definition's specs (sliders, Curves' graph); either's blending (mode, Opacity, Fill); a filter clicked in Layers (the glow), or a generator layer (the Lens
  * Flare: its parameters and elements: `light.tsx`). With nothing selected, the canvas's size, background and
  * highlights. A typed
  * value is one undo step; a slider or graph drag is one too.
  */
 import { useState } from "react";
-import { PiArrowCounterClockwise, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiPaintBrush, PiStack, PiTrash, PiWarningCircle } from "react-icons/pi";
-import { compositingOf } from "@shared/photo/blending";
-import { resetEffect, setCanvas, setCompositing, setEffectParams, setHighlights, setTransform, updateLayer } from "@shared/photo/edits";
+import { PiArrowCounterClockwise, PiArrowSquareOut, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiPaintBrush, PiStack, PiTrash, PiWarningCircle } from "react-icons/pi";
+import { blendingOf, compositingOf } from "@shared/photo/blending";
+import { resetEffect, setCanvas, setCompositing, setEffectParams, setHighlights, setLayerBlending, setTransform, updateLayer } from "@shared/photo/edits";
 import { effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import { type AdjustmentLayer, CANVAS_PRESETS, type Compositing, type PhotoLayer, type PlacedLayer, hasContent, isPlaced } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,10 @@ import { fitted } from "../canvas/handles";
 import { photoGesture, useLayerSize, usePhoto, usePhotoDoc, useSelection } from "../store";
 import { layerActions } from "../layer-actions";
 import { usePhotoUi } from "../ui";
+import { BlendModeMenu, useBlendModePreview } from "./blend-mode-menu";
 import { CurvesEditor } from "./curves-editor";
+import { DevelopSection } from "./develop-section";
+import { EffectsSection } from "./effects-section";
 import { FilterProperties, GeneratorProperties } from "./light";
 import { CameraRawProperties } from "../camera-raw/properties";
 import { NumberField, ParamSlider } from "./fields";
@@ -90,9 +94,7 @@ function AdjustmentProperties({ layer }: { layer: AdjustmentLayer }) {
         <Section title={layer.name}>
           <CameraRawProperties layerId={layer.id} filterId={null} />
         </Section>
-        <Section title="Opacity">
-          <OpacitySlider layer={layer} />
-        </Section>
+        <BlendingSection layer={layer} />
       </>
     );
   return (
@@ -118,9 +120,7 @@ function AdjustmentProperties({ layer }: { layer: AdjustmentLayer }) {
           </div>
         )}
       </Section>
-      <Section title="Opacity">
-        <OpacitySlider layer={layer} />
-      </Section>
+      <BlendingSection layer={layer} />
     </>
   );
 }
@@ -203,10 +203,52 @@ function LayerProperties({ layer }: { layer: PlacedLayer }) {
           </p>
         )}
       </Section>
-      <Section title="Opacity">
-        <OpacitySlider layer={layer} />
-      </Section>
+      <BlendingSection layer={layer} />
+      <DevelopSection layer={layer} />
+      <EffectsSection layer={layer} />
     </>
+  );
+}
+
+/**
+ * A layer's blend mode (previewed while hovered, as in Layers), Opacity and Fill; Blend If and the rest are in
+ * the Layer Style window, a click away.
+ */
+function BlendingSection({ layer }: { layer: PhotoLayer }) {
+  const [gesture] = useState(() => photoGesture());
+  const preview = useBlendModePreview(() => [layer.id], (ids, blend) => (d) => setLayerBlending(d, ids, { blend }));
+  const b = blendingOf(layer);
+  const percent = (label: string, value: number, key: "opacity" | "fill") => (
+    <div className="flex items-center gap-2">
+      <span className="w-12 shrink-0 text-xs text-muted-foreground">{label}</span>
+      <Slider
+        aria-label={label}
+        min={0}
+        max={100}
+        step={1}
+        value={[Math.round(value * 100)]}
+        onPointerDown={() => gesture.begin()}
+        onValueChange={([v]) => gesture.apply((d) => setLayerBlending(d, [layer.id], { [key]: v / 100 }))}
+        onValueCommit={() => gesture.end()}
+      />
+      <span className="w-10 shrink-0 text-right tabular-nums">{Math.round(value * 100)}%</span>
+    </div>
+  );
+  return (
+    <Section
+      title="Blending"
+      actions={
+        <Button variant="ghost" size="icon-xs" aria-label="Blending Options" title="Blending Options…" onClick={() => usePhotoUi.getState().setLayerStyle({ layerId: layer.id, page: "blending" })}>
+          <PiArrowSquareOut />
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-2" data-blending-properties>
+        <BlendModeMenu className="w-full" value={b.mode} onOpenChange={(open, chosen) => preview.onOpenChange(open, chosen, b.mode)} onPreview={preview.onPreview} onChoose={preview.onChoose} />
+        {percent("Opacity", layer.opacity, "opacity")}
+        {percent("Fill", b.fill, "fill")}
+      </div>
+    </Section>
   );
 }
 
@@ -301,10 +343,13 @@ function CanvasProperties() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, actions, children }: { title: string; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h3>
+      <header className="flex h-6 items-center gap-1">
+        <h3 className="min-w-0 flex-1 truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h3>
+        {actions}
+      </header>
       {children}
     </section>
   );
