@@ -1,68 +1,6 @@
 /** Generators (After Effects' Generate category): noise, gradients, shapes and particles, drawn over (or instead of) the picture. Put them on a solid. */
 import type { EffectDefinition } from "../effects.ts";
-import type { ChoiceSpec, ParamSpec, Vec2Spec } from "../params.ts";
-import { degrees, percent, videoEffect } from "./common.ts";
-
-/** How a generator's picture meets the clip's (AE's Blending Mode), in the order of `blendGenerated`'s indices. */
-const BLEND_OPTIONS = [
-  { value: "replace", label: "Replace" },
-  { value: "over", label: "Over" },
-  { value: "screen", label: "Screen" },
-  { value: "add", label: "Add" },
-  { value: "multiply", label: "Multiply" },
-  { value: "overlay", label: "Overlay" },
-  { value: "stencil", label: "Stencil Alpha" },
-];
-
-const blendMode = (fallback: string): ChoiceSpec => ({
-  kind: "choice",
-  key: "blendMode",
-  label: "Blend Mode",
-  default: fallback,
-  options: BLEND_OPTIONS,
-});
-
-/** Blend Mode and Opacity, last in every generator. */
-const blending = (fallback: string): ParamSpec[] => [blendMode(fallback), percent("opacity", "Opacity", 1)];
-
-/** A point on the clip's frame. */
-const point = (key: string, label: string, value: [number, number]): Vec2Spec => ({
-  kind: "vec2",
-  key,
-  label,
-  default: value,
-  space: "media",
-  min: -10,
-  max: 10,
-  step: 1,
-  decimals: 1,
-});
-
-/**
- * Puts a generated picture `g` (premultiplied) on the clip's `base` by `blendMode`,
- * at `amount`: Replace is `g` alone (on a transparent solid, just the pattern),
- * Stencil Alpha is `g` cut to the clip's alpha (fills a text), and the others are
- * the W3C separable blend modes, so they also work over transparent parts.
- */
-const BLEND_GLSL = `
-vec3 blendChannels(int m, vec3 b, vec3 s) {
-  if (m == 2) return b + s - b * s;
-  if (m == 3) return min(b + s, 1.0);
-  if (m == 4) return b * s;
-  if (m == 5) return mix(2.0 * b * s, 1.0 - 2.0 * (1.0 - b) * (1.0 - s), step(0.5, b));
-  return s;
-}
-vec4 blendGenerated(vec4 g, vec4 base, float amount) {
-  g *= clamp(amount, 0.0, 1.0);
-  if (blendMode == 0) return g;
-  if (blendMode == 6) return g * base.a;
-  vec3 cs = g.a > 0.0 ? g.rgb / g.a : vec3(0.0);
-  vec3 mixed = blendChannels(blendMode, unpremultiply(base), cs);
-  return vec4(g.rgb * (1.0 - base.a) + base.rgb * (1.0 - g.a) + g.a * base.a * mixed, g.a + base.a * (1.0 - g.a));
-}
-/** A point parameter in square units around the frame's centre, like aspect(uv). */
-vec2 pointAt(vec2 p) { return (toUv(p) - 0.5) * vec2(ratio, 1.0); }
-`;
+import { BLEND_GLSL, blendMode, blending, degrees, percent, point, videoEffect } from "./common.ts";
 
 export const GENERATE_EFFECTS: EffectDefinition[] = [
   videoEffect({

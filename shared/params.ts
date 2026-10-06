@@ -78,12 +78,18 @@ export interface FontStyleSpec extends SpecBase<"fontStyle", string> {
 }
 
 /**
+ * What a visualizer listens to: "master" (the mix), "self" (its clip's own sound) or "t:<track id>" (an
+ * audio track). Not a uniform: the sound it names is read for the effect (`EffectShader.audio`).
+ */
+export type SourceSpec = SpecBase<"source", string>;
+
+/**
  * A Bézier path (a mask's or a shape's outline, drawn with the pen tool on the Program
  * monitor), in fractions of the clip's frame. Keyframed, it morphs (`lerpPath`).
  */
 export type PathSpec = SpecBase<"path", BezierPath>;
 
-export type ParamSpec = NumberSpec | Vec2Spec | BooleanSpec | ChoiceSpec | TextSpec | ColorSpec | FontSpec | FontStyleSpec | PathSpec;
+export type ParamSpec = NumberSpec | Vec2Spec | BooleanSpec | ChoiceSpec | TextSpec | ColorSpec | FontSpec | FontStyleSpec | PathSpec | SourceSpec;
 
 /** Numbers, points and paths can be animated; everything else only ever jumps. */
 export const isAnimatable = (spec: ParamSpec) => spec.kind === "number" || spec.kind === "vec2" || spec.kind === "path";
@@ -120,6 +126,8 @@ export function sanitizeValue(spec: ParamSpec, raw: unknown): ParamValue | undef
       return typeof raw === "string" ? raw.replace(/\r\n?/g, "\n").slice(0, MAX_TEXT_LENGTH) : undefined;
     case "color":
       return typeof raw === "string" && /^#[0-9a-f]{6}$/i.test(raw) ? raw.toLowerCase() : undefined;
+    case "source":
+      return raw === "master" || raw === "self" || (typeof raw === "string" && /^t:[\w-]{1,80}$/.test(raw)) ? raw : undefined;
     case "font":
     case "fontStyle": {
       const name = typeof raw === "string" ? raw.trim().slice(0, 200) : "";

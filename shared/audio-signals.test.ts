@@ -7,12 +7,16 @@ import {
   resolveSource,
   signalValue,
   sourceHits,
+  audioInputs,
+  demoAudio,
   nestedHearing,
   usesSignals,
+  visualizerSource,
   withHearing,
   withSignals,
 } from "./audio-signals.ts";
-import { VOLUME, expressionProblem, opacityAt, setExpression, setLink, setParams, solidEffects } from "./effects.ts";
+import { VOLUME, expressionProblem, opacityAt, setExpression, setLink, setParams, solidEffects, visualizerEffects } from "./effects.ts";
+import { effectPasses } from "./effect-gl.ts";
 import { allClips } from "./sequences.ts";
 import { defaultEffects } from "./effects.ts";
 import { SignalAnalyser } from "./signals/analyse.ts";
@@ -279,5 +283,64 @@ describe("links: parameters that follow a signal", () => {
     expect(inSecond(1.77)).toBeGreaterThan(0.8);
     expect(inSecond(0.2)).toBeLessThan(0.2);
     expect(withSignals(r, () => opacityAt(lookSolid, 0.2))).toBe(0);
+  });
+});
+
+describe("what a visualizer hears", () => {
+  const p = project([songClip(), solid]);
+  const ask = { rows: 4, span: 0.3, fall: 0, window: 0.02 };
+
+  it("reads the spectrum now and before, the sound around now, levels and the last hits", () => {
+    const a = audioInputs(reader(p), null, MASTER, 2.27, { ...ask, hits: "onsetLow" }, 30);
+    expect(a.rows).toBe(4);
+    expect(a.spectrum).toHaveLength(4 * 96);
+    // The kick's lows are loud now; the highs aren't.
+    const low = Math.max(...a.spectrum.slice(5, 20));
+    const high = Math.max(...a.spectrum.slice(80, 96));
+    expect(low).toBeGreaterThan(0.7);
+    expect(high).toBeLessThan(low - 0.3);
+    // 0.3 s before (row 3, at 1.97: before the song starts at 2) it was silent.
+    expect(Math.max(...a.spectrum.slice(3 * 96, 4 * 96))).toBe(0);
+    expect(a.wave).toHaveLength(512 * 2);
+    expect(Math.max(...a.wave.map(Math.abs))).toBeGreaterThan(0.2);
+    expect(a.scalars.bass).toBeGreaterThan(0.8);
+    expect(a.scalars.bpm).toBe(120);
+    // The kick at 2.25 is the last hit, 0.02 s ago.
+    expect(a.hits[0][0]).toBeCloseTo(0.02, 1);
+  });
+
+  it("falls away over `fall` seconds, and hears silence where there's no sound", () => {
+    const now = audioInputs(reader(p), null, MASTER, 2.6, { ...ask, rows: 1, window: 0 }, 30);
+    const falling = audioInputs(reader(p), null, MASTER, 2.6, { ...ask, rows: 1, fall: 0.5, window: 0 }, 30);
+    expect(Math.max(...falling.spectrum.slice(0, 20))).toBeGreaterThan(Math.max(...now.spectrum.slice(0, 20)) + 0.1);
+    const quiet = audioInputs(reader(p), null, MASTER, 1, ask, 30);
+    expect(Math.max(...quiet.spectrum)).toBe(0);
+    expect(quiet.wave.every((v) => v === 0)).toBe(true);
+    expect(quiet.hits).toEqual([]);
+  });
+
+  it("chooses its hits, and maps its source parameter", () => {
+    expect(audioInputs(reader(p), null, MASTER, 2.27, { ...ask, hits: "onsetHigh" }, 30).hits).toEqual([]);
+    expect(visualizerSource("self", "c1")).toEqual({ kind: "clip", clipId: "c1" });
+    expect(visualizerSource("t:a1", "c1")).toEqual({ kind: "track", trackId: "a1" });
+    expect(visualizerSource("master", "c1")).toEqual(MASTER);
+  });
+
+  it("gives cards made-up sound that's the same every time", () => {
+    expect(demoAudio(1.3, ask)).toEqual(demoAudio(1.3, ask));
+    expect(demoAudio(1.3, ask).spectrum.some((v) => v > 0.5)).toBe(true);
+  });
+
+  it("is what a visualizer's pass carries, from its clip's moment", () => {
+    const bars = visualizerEffects();
+    const clip: Clip = { ...solid, effects: bars };
+    const passes = withSignals(reader(project([songClip(), clip])), () => effectPasses(clip, 2.27, 30));
+    expect(passes).toHaveLength(1);
+    expect(Math.max(...passes[0].audio!.spectrum.slice(0, 30))).toBeGreaterThan(0.7);
+    expect(bars.find((e) => e.type === "audio-bars")?.params.blendMode).toBe("replace");
+    // The export reads the sound for it.
+    expect(usesSignals(project([clip]))).toBe(true);
+    // Without a reader, silence (cards get made-up sound instead).
+    expect(Math.max(...effectPasses(clip, 2.27, 30)[0].audio!.spectrum)).toBe(0);
   });
 });

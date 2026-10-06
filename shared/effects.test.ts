@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RESERVED_EFFECT_UNIFORMS, effectFragmentSource, effectPasses } from "./effect-gl.ts";
+import { RESERVED_AUDIO_UNIFORMS, RESERVED_EFFECT_UNIFORMS, effectFragmentSource, effectPasses } from "./effect-gl.ts";
 import {
   type ClipKind,
   EFFECTS,
@@ -309,8 +309,14 @@ describe("video effects", () => {
       expect(def.shader!.tags.every((t) => EFFECT_TAGS.includes(t)), def.type).toBe(true);
       expect(def.builtIn).toBe(false);
       for (const p of def.params) {
+        // A visualizer's source is read for it, not a uniform.
+        if (p.kind === "source") {
+          expect(def.shader!.audio, `${def.type}.${p.key}`).toBeDefined();
+          continue;
+        }
         expect(["number", "boolean", "choice", "vec2", "color"], `${def.type}.${p.key}`).toContain(p.kind);
         expect(RESERVED_EFFECT_UNIFORMS, `${def.type}.${p.key}`).not.toContain(p.key);
+        if (def.shader!.audio) expect(RESERVED_AUDIO_UNIFORMS, `${def.type}.${p.key}`).not.toContain(p.key);
       }
       // A particle effect places particles (`particle(id)`); every other one shades pixels.
       if (def.shader!.particles) expect(def.shader!.particles.glsl).toContain("Particle particle(int id)");

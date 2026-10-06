@@ -1654,6 +1654,41 @@ test("makes signals in the Signals window: a band from the spectrum, hits dragge
   await page.getByRole("button", { name: "Snapping" }).click();
 });
 
+test("adds a visualizer that moves with the song, and edits what it listens to", async ({ page }) => {
+  await openLatest(page);
+  await newVideo(page);
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles([FILES[3]]);
+  await expect(page.locator("[draggable=true]").filter({ hasText: "music-20s" }).first()).toBeVisible();
+  await dragAsset(page, "music-20s", await timeX(page, 0), await laneY(page, "Audio 1"));
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+  type Visual = { id: string; out: number; effects: { type: string; params: Record<string, unknown> }[] };
+  const visualizer = async () => ((await savedProject(page)).clips as Visual[]).find((c) => c.effects.some((e) => e.type === "audio-bars"));
+
+  // New item › Visualizer: Spectrum Bars drawn alone over what's below, as long as the song.
+  const ruler = (await page.locator("[data-timeline-ruler]").boundingBox())!;
+  await page.mouse.click(ruler.x + 1, ruler.y + ruler.height / 2);
+  await page.getByRole("button", { name: "New layer" }).click();
+  await page.getByRole("menuitem", { name: "Visualizer" }).click();
+  await expect.poll(async () => (await visualizer())?.effects.find((e) => e.type === "audio-bars")?.params).toMatchObject({ blendMode: "replace", source: "master" });
+  expect((await visualizer())!.out).toBeGreaterThan(19);
+
+  // Once the song is analysed, bars stand on the Program monitor while it plays (the canvas is black elsewhere).
+  await page.mouse.click(ruler.x + 2 * 60, ruler.y + ruler.height / 2);
+  const lit = async () => {
+    for (let u = 0.1; u < 0.9; u += 0.02) if ((await monitorPixel(page, u, 0.68)).some((c) => c > 60)) return true;
+    return false;
+  };
+  await expect.poll(lit, { timeout: 60_000 }).toBe(true);
+  await page.screenshot({ path: "/tmp/visualizer.png" });
+
+  // Its Listens To picks an audio track; Properties shows the Audio effect's controls.
+  const bars = page.getByRole("region", { name: "Spectrum Bars" });
+  await bars.getByRole("combobox", { name: "Listens To" }).click();
+  await page.getByRole("option", { name: "Audio 1" }).click();
+  await expect.poll(async () => (await visualizer())?.effects.find((e) => e.type === "audio-bars")?.params.source).toMatch(/^t:/);
+});
+
 test("pinching over the monitor scales the selected clip, as one undo step", async ({ page }) => {
   await openLatest(page);
   await newVideo(page);

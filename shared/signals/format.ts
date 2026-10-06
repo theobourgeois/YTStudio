@@ -5,12 +5,16 @@
  *
  * A file of signals is a header (JSON: rates, band edges, references, hits, the rhythm) and two
  * tables, one row per frame (`SIGNAL_RATE` a second, frame `i` centred on `i / SIGNAL_RATE`):
- * `scalars` (float32, `SCALARS` in order) and `bands` (a byte per band: dB from -90 to 0).
+ * `scalars` (float32, `SCALARS` in order) and `bands` (a byte per band: dB from -90 to 0); then the
+ * sound itself, small (`wave`: `WAVE_RATE` stereo samples a second, a signed byte each), for
+ * oscilloscopes and vectorscopes.
  */
 import type { MusicAnalysis } from "../types.ts";
 
 /** Bumped when the analysis changes: older files are made again (their name says their version). */
-export const SIGNALS_VERSION = 1;
+export const SIGNALS_VERSION = 2;
+/** Samples a second of the waveform kept for oscilloscopes (each the mean of the samples it stands for). */
+export const WAVE_RATE = 8000;
 /** Frames a second, whatever the sequence's rate (read between frames with `scalarAt`). */
 export const SIGNAL_RATE = 200;
 /** Spectrum bands, log-spaced from `BAND_LOW` to `BAND_HIGH` Hz. */
@@ -79,6 +83,9 @@ export interface SignalsHeader {
   hits: Record<OnsetName, Hit[]>;
   /** Tempo, beats, bars, sections and drops (null: not analysed, too long). */
   rhythm: MusicAnalysis | null;
+  /** The waveform's samples a second, and how many there are (per channel). */
+  waveRate: number;
+  waveSamples: number;
 }
 
 export interface SignalData {
@@ -87,6 +94,8 @@ export interface SignalData {
   scalars: Float32Array;
   /** `frames × BAND_COUNT` bytes (see `BAND_FLOOR_DB`). */
   bands: Uint8Array;
+  /** `waveSamples × 2`, left then right, -127..127 (full scale). */
+  wave: Int8Array;
 }
 
 /** Longest stretch of a file analysed (seconds): a 30 minute file's signals are about 50 MB. */
@@ -110,7 +119,8 @@ export function encodeSignals(data: SignalData): Uint8Array {
   const headEnd = 12 + head.length;
   const scalarsAt = Math.ceil(headEnd / 4) * 4;
   const bandsAt = scalarsAt + data.scalars.byteLength;
-  const out = new Uint8Array(bandsAt + data.bands.byteLength);
+  const waveAt = bandsAt + data.bands.byteLength;
+  const out = new Uint8Array(waveAt + data.wave.byteLength);
   const view = new DataView(out.buffer);
   view.setUint32(0, MAGIC, true);
   view.setUint32(4, data.header.version, true);
@@ -119,6 +129,7 @@ export function encodeSignals(data: SignalData): Uint8Array {
   // Float32s little-endian whatever the platform (every one this runs on is).
   out.set(new Uint8Array(data.scalars.buffer, data.scalars.byteOffset, data.scalars.byteLength), scalarsAt);
   out.set(data.bands, bandsAt);
+  out.set(new Uint8Array(data.wave.buffer, data.wave.byteOffset, data.wave.byteLength), waveAt);
   return out;
 }
 
@@ -133,11 +144,13 @@ export function decodeSignals(buffer: ArrayBuffer): SignalData {
   const scalarsAt = Math.ceil((12 + headLength) / 4) * 4;
   const scalarCount = header.frames * header.scalars.length;
   const bandsAt = scalarsAt + scalarCount * 4;
-  if (buffer.byteLength < bandsAt + header.frames * BAND_COUNT) throw new Error("The signals file is cut short");
+  const waveAt = bandsAt + header.frames * BAND_COUNT;
+  if (buffer.byteLength < waveAt + header.waveSamples * 2) throw new Error("The signals file is cut short");
   return {
     header,
     scalars: new Float32Array(buffer, scalarsAt, scalarCount),
     bands: new Uint8Array(buffer, bandsAt, header.frames * BAND_COUNT),
+    wave: new Int8Array(buffer, waveAt, header.waveSamples * 2),
   };
 }
 

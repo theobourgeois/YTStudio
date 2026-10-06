@@ -115,12 +115,45 @@ export interface EffectPass<S = Shader> {
    * (`uSrc`), to emit from the layer's shape and colours.
    */
   particles?: { count: number; blend: number };
+  /** A visualizer's sound at this moment (see `EffectShader.audio`): bound as `uSpectrum`, `uWave` and its scalars. */
+  audio?: AudioInputs;
   /**
    * Room this effect needs past the picture's frame (a fraction of its height on every side),
    * like After Effects' Grow Bounds: particles flying off a text, a glow spilling past it.
    * The layer is made that much bigger for every effect; `uFrame` says where the frame is in it.
    */
   grow?: number;
+}
+
+/** What a visualizer asks for: rows of spectrum over `span` seconds, each falling over `fall`; a waveform `window` seconds long (0: none). */
+export interface AudioRequest {
+  rows: number;
+  span: number;
+  fall: number;
+  window: number;
+  /** Which hits `hits` are: any (`onset`, the default), kicks (`onsetLow`), snares and notes (`onsetMid`), hats (`onsetHigh`). */
+  hits?: "onset" | "onsetLow" | "onsetMid" | "onsetHigh";
+}
+
+/**
+ * What a visualizer hears at a moment (`audioInputs` in `audio-signals.ts`), in plain numbers so it
+ * travels to the export's page with the rest of a frame's layers.
+ */
+/** Hits a visualizer hears at once (`AudioInputs.hits`; its shader's `hitAge` and `hitVelocity`). */
+export const MAX_AUDIO_HITS = 8;
+
+export interface AudioInputs {
+  /** `rows` rows of 96 bands (20 Hz–20 kHz, log), 0..1 against the sound's loud parts; row 0 is now. */
+  spectrum: number[];
+  rows: number;
+  /** Seconds from row 0 back to the last row. */
+  span: number;
+  /** The sound around now: `wave.length / 2` points, left then right, -1..1. */
+  wave: number[];
+  /** The last hits (up to `MAX_AUDIO_HITS`), newest first: seconds since each, and how hard it was. */
+  hits: [age: number, velocity: number][];
+  /** level, bass, mid, high, onset (0..1), the beat (count, phase 0..1, seconds since), seconds since the last hit, bpm. */
+  scalars: { level: number; bass: number; mid: number; high: number; onset: number; beat: number; beatPhase: number; sinceBeat: number; sinceOnset: number; bpm: number };
 }
 
 /**
@@ -1298,6 +1331,63 @@ void main() {
     gl.uniform1i(loc("hasFlow"), state.flow ? 1 : 0);
   };
 
+  /** A visualizer's sound (`EffectPass.audio`): its spectrum and waveform as float textures on units 6 and 7, and its scalars. */
+  let audioTextures: { spectrum: WebGLTexture; wave: WebGLTexture } | null = null;
+  const bindAudio = (loc: (name: string) => WebGLUniformLocation | null, audio: AudioInputs) => {
+    if (!audioTextures) {
+      const make = () => {
+        const tex = gl.createTexture()!;
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        return tex;
+      };
+      audioTextures = { spectrum: make(), wave: make() };
+    }
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    const rows = Math.max(1, audio.rows);
+    const spectrum = new Float32Array(96 * rows);
+    spectrum.set(audio.spectrum.slice(0, 96 * rows));
+    gl.activeTexture(gl.TEXTURE6);
+    gl.bindTexture(gl.TEXTURE_2D, audioTextures.spectrum);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 96, rows, 0, gl.RED, gl.FLOAT, spectrum);
+    const points = Math.max(1, Math.floor(audio.wave.length / 2));
+    const wave = new Float32Array(points * 2);
+    wave.set(audio.wave.slice(0, points * 2));
+    gl.activeTexture(gl.TEXTURE7);
+    gl.bindTexture(gl.TEXTURE_2D, audioTextures.wave);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, points, 1, 0, gl.RG, gl.FLOAT, wave);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(loc("uSpectrum"), 6);
+    gl.uniform1i(loc("uSpectrumRows"), rows);
+    gl.uniform1f(loc("uSpectrumSpan"), audio.span);
+    gl.uniform1i(loc("uWave"), 7);
+    gl.uniform1i(loc("uWavePoints"), audio.wave.length >= 4 ? points : 0);
+    const s = audio.scalars;
+    gl.uniform1f(loc("audioLevel"), s.level);
+    gl.uniform1f(loc("audioBass"), s.bass);
+    gl.uniform1f(loc("audioMid"), s.mid);
+    gl.uniform1f(loc("audioHigh"), s.high);
+    gl.uniform1f(loc("audioOnset"), s.onset);
+    gl.uniform1f(loc("sinceOnset"), s.sinceOnset);
+    gl.uniform1f(loc("beatCount"), s.beat);
+    gl.uniform1f(loc("beatPhase"), s.beatPhase);
+    gl.uniform1f(loc("sinceBeat"), s.sinceBeat);
+    gl.uniform1f(loc("bpm"), s.bpm);
+    const ages = new Float32Array(8).fill(1e4);
+    const velocities = new Float32Array(8);
+    audio.hits.slice(0, 8).forEach(([age, v], i) => {
+      ages[i] = age;
+      velocities[i] = v;
+    });
+    gl.uniform1fv(loc("hitAge"), ages);
+    gl.uniform1fv(loc("hitVelocity"), velocities);
+  };
+
   /** After a time effect drew: add this moment's input (and output) to its history. */
   const endHistory = (info: NonNullable<EffectPass["history"]>, state: ReturnType<typeof beginHistory>, input: WebGLTexture, output: WebGLTexture) => {
     for (const unit of [3, 4, 5]) {
@@ -1874,6 +1964,7 @@ void main() {
           gl.uniform1i(base.loc("pass"), 0);
           gl.uniform4f(base.loc("uFrame"), frameRect[0], frameRect[1], frameRect[2], frameRect[3]);
           setUniforms(base.loc, fx.uniforms);
+          if (fx.audio) bindAudio(base.loc, fx.audio);
           gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
           gl.activeTexture(gl.TEXTURE1);
           gl.bindTexture(gl.TEXTURE_2D, null);
@@ -1911,6 +2002,7 @@ void main() {
       gl.uniform4f(loc("uFrame"), frameRect[0], frameRect[1], frameRect[2], frameRect[3]);
       setUniforms(loc, fx.uniforms);
       if (temporal) bindHistory(loc, temporal);
+      if (fx.audio) bindAudio(loc, fx.audio);
       const effectInput = input;
       // Every pass can read the effect's input (`getInput`); passes go back and forth between the other two layers.
       let src = input;

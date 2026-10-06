@@ -355,8 +355,8 @@ const addText: EditHandler = (project, input, env) => {
 };
 
 const addLayer: EditHandler = (project, input, env) => {
-  const kind = oneOf(input, "kind", ["adjustment", "solid", "shape", "camera", "null"] as const);
-  if (!kind) throw new ToolError('`kind` must be "adjustment", "solid", "shape", "camera" or "null".');
+  const kind = oneOf(input, "kind", ["adjustment", "solid", "shape", "camera", "null", "visualizer"] as const);
+  if (!kind) throw new ToolError('`kind` must be "adjustment", "solid", "shape", "camera", "null" or "visualizer".');
   const start = number(input, "start", { min: 0 });
   const duration = optNumber(input, "duration", { min: MIN_CLIP_DURATION }) ?? STILL_DURATION;
   const trackId = optString(input, "trackId");
@@ -378,9 +378,11 @@ const addLayer: EditHandler = (project, input, env) => {
       : kind === "camera" && cameraValues
         ? checkParams(CAMERA.params, cameraValues, "Camera").values
         : (shape?.values ?? {});
-  const clip = newLayerClip(kind, start, duration, values);
-  let p = addLayerClip(project, clip, trackId).project;
   const raw = input.effects;
+  // A visualizer with effects given draws those (Audio effects alone over what's below), not the default bars.
+  const ownVisualizers = kind === "visualizer" && Array.isArray(raw) && raw.length > 0;
+  const clip = ownVisualizers ? newLayerClip("solid", start, duration, { color: "#000000" }) : newLayerClip(kind, start, duration, values);
+  let p = addLayerClip(project, clip, trackId).project;
   if (raw !== undefined && !Array.isArray(raw)) throw new ToolError("`effects` must be a list of { type, params }.");
   for (const [i, item] of (raw ?? []).entries()) {
     if (!item || typeof item !== "object") throw new ToolError(`effects[${i}] must be { type, params }.`);
@@ -389,7 +391,8 @@ const addLayer: EditHandler = (project, input, env) => {
     if (!def || !(def.shader || def.stackable)) {
       throw new ToolError(`effects[${i}]: "${type}" isn't a video effect, a mask or a shape layer's content. See get_catalog with kind "video_effects" or "masks_and_shapes".`);
     }
-    const { values, notes: clamped } = checkParams(def.params, optObject(item as Input, "params") ?? {}, def.label);
+    const given = optObject(item as Input, "params") ?? {};
+    const { values, notes: clamped } = checkParams(def.params, kind === "visualizer" && def.shader?.audio ? { blendMode: "replace", ...given } : given, def.label);
     notes.push(...clamped);
     const res = addEffect(p, [clip.id], type, values);
     if (!res.added.size) throw new ToolError(`effects[${i}]: ${def.label} doesn't go on ${kind === "shape" ? "a shape layer" : `a ${kind} layer`}.`);
@@ -404,7 +407,8 @@ const addLayer: EditHandler = (project, input, env) => {
       `Added ${kind === "adjustment" ? "adjustment layer" : kind === "null" ? "null object" : kind === "shape" ? "shape layer" : kind} ${place(p, placed, env)}${effects.length ? ` with ${effects.join(", ")}` : ""}.` +
         (kind === "camera" ? " Only 3D layers (motion threeD: true) are seen through it." : "") +
         (kind === "shape" ? " Add more shapes and operators to it with add_effect, in the order they apply." : "") +
-        (kind === "null" ? " Parent clips to it with set_parent, then animate its motion." : ""),
+        (kind === "null" ? " Parent clips to it with set_parent, then animate its motion." : "") +
+        (kind === "visualizer" ? " It draws only its Audio effects (blendMode replace), listening to the mix; change them with edit_effect." : ""),
       notes,
     ),
   };

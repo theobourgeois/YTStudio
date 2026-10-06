@@ -2,7 +2,8 @@
 
 Status: plan first written 2026-10-06. **V1 (signals) and V2 (signals in expressions) are built** (2026-10-07; see
 "What V1 and V2 built" below). **V3 is built** (2026-10-07: links, custom signals, nests hearing where they're placed,
-the link popover, the assistant's tools, the Signals window, signal lanes, spectrograms); V4 (visualizer effects) is next.
+the link popover, the assistant's tools, the Signals window, signal lanes, spectrograms). **V4 is built** (visualizer
+effects, New item › Visualizer); V5 (Make visualizer) or V6 (shaders) is next.
 [vaudio-port.md](vaudio-port.md) lists what comes over from Théo's earlier visualizer (`~/code/vaudio`) and where.
 
 A professional audio visualizer inside the video editor, not a suite of its own. Any clip, effect parameter or shader
@@ -460,12 +461,32 @@ assistant tools. Gates are what must be true (measured) before the next mileston
 
 ### V4: Visualizer effects
 
-- Shader audio inputs (textures, uniforms, the binary channel to the export page), the `signal` param kind.
-- The Audio category: at least spectrum bars, line spectrum, circle, oscilloscope, vectorscope, spectrogram,
-  onset particles, waveform ring, meters; Audio Displacement, Strobe on hits, Hue orbit. Then vaudio's 2D looks.
-- **New item › Visualizer** (a solid with a visualizer, the mix as source).
-- The effect sheet fed a fixture song; cards that move.
-- **Gate**: a 1080×1920 sequence with three visualizers plays at 60 fps in the preview.
+**Built (2026-10-07):**
+- Signals v2 keep each file's waveform small (8 kHz, a signed byte a sample, left and right: about a megabyte a
+  minute) for oscilloscopes; older files are analysed again when first used.
+- Shader audio inputs: `EffectShader.audio.request(values)` asks for rows of spectrum over a span, how fast it falls,
+  a waveform window and which hits; `effectPasses` reads them at the clip's moment (`audioInputs`, `clipAudio`: the
+  mix where the clip is heard, a nest's being the video it's placed in) into `EffectPass.audio` (`AudioInputs`,
+  plain numbers that travel in the export's frame layers; binary can come if they ever weigh too much); the
+  compositor binds the spectrum and waveform as float textures (units 6 and 7) and the scalars and last 8 hits as
+  uniforms; the prelude (`AUDIO_PRELUDE`) gives `spectrum(x)`, `spectrumAgo(x, s)`, `wave(x)`, `audioBass`...,
+  `hitAge[i]`. Cards and sheets hear made-up sound (`demoAudio`), so cards play.
+- The `source` param kind (Listens To: the mix, the clip's own sound, an audio track), not a uniform.
+- The Audio category (`shared/effect-library/audio.ts`): Spectrum Bars (peaks, mirror, rounded), Line Spectrum,
+  Circular Spectrum, Oscilloscope, Vectorscope, Spectrogram (a waterfall), Hit Burst (particles from each hit, seeded
+  by when it was), Waveform Ring, Level Meter; for any clip, Audio Displacement, Strobe on Hits, Hue Orbit. Drawing
+  ones take the generators' Blend Mode (Replace on a solid: the visualizer alone).
+- **New item › Visualizer** (and `add_layer` kind `visualizer`): a solid drawing only Spectrum Bars (or the Audio
+  effects given), as long as the video.
+- Tests: the waveform (analyse.test.ts), what a visualizer hears and carries (audio-signals.test.ts), every Audio
+  effect compiles and changes the picture (effect sheet), an export of Strobe on Hits flashing on each kick
+  (integration), e2e: a Visualizer layer's bars on the Program monitor, its Listens To.
+- Not yet: vaudio's 2D looks (see vaudio-port.md).
+
+- **Gate**: a 1080×1920 sequence with three visualizers plays at 60 fps in the preview (`scripts/perf.ts --visualizers`).
+  **Measured** (2026-10-07, an M-series Mac, headless Chromium, a 1920×1200 window at 2×): Spectrum Bars, Circular
+  Spectrum and a Spectrogram over a song, 60.2 frames a second paused and playing, slowest frame 17 ms, no long tasks
+  (the page's frame rate: the GPU's own time isn't measured).
 
 ### V5: Make visualizer
 

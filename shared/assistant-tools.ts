@@ -351,10 +351,14 @@ export const VIDEO_TOOLS = [
       "spin several clips together, or to animate a group from one place. A shape layer draws vector shapes (boxes " +
       "behind text, circles, lines, badges, animated strokes): `shape` sets its first shape (kind rectangle | ellipse | " +
       "polygon | star | path, position, size in px at 1080p, fillColor, strokeWidth...: see get_catalog " +
-      "\"masks_and_shapes\"); `effects` can add more shapes (type vector-shape) and operators (trim-paths, repeater...).",
+      "\"masks_and_shapes\"); `effects` can add more shapes (type vector-shape) and operators (trim-paths, repeater...). " +
+      "A visualizer draws what the sound does (Spectrum Bars by default, listening to the mix) alone over what's below: " +
+      "give `effects` with Audio effects (audio-bars, audio-line, audio-circle, audio-oscilloscope, audio-vectorscope, " +
+      "audio-spectrogram, audio-burst, audio-ring, audio-meter: get_catalog \"video_effects\") to choose them; it lasts " +
+      "`duration` (give the song's length).",
     inputSchema: obj(
       {
-        kind: oneOf(["adjustment", "solid", "shape", "camera", "null"], "What to add."),
+        kind: oneOf(["adjustment", "solid", "shape", "camera", "null", "visualizer"], "What to add."),
         start: time("Where it starts."),
         duration: num("Seconds (default 5).", { minimum: 0.1 }),
         trackId: str("Put it on this video track."),

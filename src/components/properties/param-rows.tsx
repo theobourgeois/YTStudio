@@ -7,7 +7,10 @@ import { PiArrowCounterClockwise, PiBezierCurve, PiFunction, PiLinkSimple, PiLin
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import type { BezierPath } from "@shared/path";
 import type { ParamValue, ParamValues, Project, Vec2 } from "@shared/types";
-import { type BooleanSpec, type ChoiceSpec, type NumberSpec, type ParamSpec, type PathSpec, type Vec2Spec, sameValue } from "@shared/params";
+import { type BooleanSpec, type ChoiceSpec, type NumberSpec, type ParamSpec, type PathSpec, type SourceSpec, type Vec2Spec, sameValue } from "@shared/params";
+import { getClip } from "@shared/timeline";
+import { useShallow } from "zustand/react/shallow";
+import { useEditor } from "@/stores/editor";
 import { sameTarget, usePathEditing } from "@/stores/path-editing";
 import { useLayout } from "@/stores/layout";
 import { ColorControl, FontControl, FontStyleControl, TextControl } from "./text-controls";
@@ -109,6 +112,9 @@ export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator,
       break;
     case "path":
       control = <PathControl spec={spec} value={value as BezierPath} label={label} disabled={disabled} edit={edit} owner={owner} />;
+      break;
+    case "source":
+      control = <SourceControl spec={spec} value={value as string} label={label} disabled={disabled} edit={edit} owner={owner} />;
       break;
   }
   const animatable = animation !== undefined;
@@ -327,6 +333,39 @@ const LETTER_PX = 6.4;
 export function fitsAsButtons(options: readonly { label: string }[]): boolean {
   const each = BUTTONS_WIDTH / options.length;
   return options.length <= 4 && options.every((o) => o.label.length * LETTER_PX + 10 <= each);
+}
+
+/** What a visualizer listens to: the mix, its clip's own sound (when it has one), or an audio track. */
+function SourceControl({ value, label, disabled, edit, owner }: ControlProps<SourceSpec, string> & { owner?: { clipId: string; effectId: string } }) {
+  // As strings, so the shallow comparison sees the same list as the same.
+  const tracks = useEditor(useShallow((s) => s.project.tracks.filter((t) => t.kind === "audio").map((t) => `${t.id}\n${t.name}`)));
+  const hasSound = useEditor((s) => {
+    const clip = owner ? getClip(s.project, owner.clipId) : undefined;
+    return !!clip?.assetId && !!s.assets.find((a) => a.id === clip.assetId)?.hasAudio;
+  });
+  const options = [
+    { value: "master", label: "The mix" },
+    ...(hasSound || value === "self" ? [{ value: "self", label: "This clip's sound" }] : []),
+    ...tracks.map((track) => {
+      const [id, name] = track.split("\n");
+      return { value: `t:${id}`, label: name };
+    }),
+  ];
+  if (!options.some((o) => o.value === value)) options.push({ value, label: "A deleted track" });
+  return (
+    <Select value={value} onValueChange={(v) => edit.set(v)} disabled={disabled}>
+      <SelectTrigger size="sm" aria-label={label} className="ml-1 h-7! w-full max-w-40 min-w-0 rounded px-2 text-xs shadow-none">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent position="popper" align="start" className="max-h-80">
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value} className="text-xs">
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 function ChoiceControl({ spec, value, label, disabled, edit }: ControlProps<ChoiceSpec, string>) {

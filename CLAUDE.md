@@ -58,7 +58,11 @@ followers in warmed-up blocks so values never depend on what was read first), th
 link button sits by each stopwatch (`properties/link-button.tsx`); the tools are `link_param`, `define_signal`,
 `delete_signal`, `set_events` (`src/assistant/signal-edits.ts`). The Signals window (`components/signals/`) makes bands
 from a spectrum at the playhead and places hits; the timeline shows signal lanes under its ruler
-(`timeline/signal-lanes.tsx`) and, switched on there, spectrograms on audio clips. V4 (visualizer effects) is next.
+(`timeline/signal-lanes.tsx`) and, switched on there, spectrograms on audio clips. **V4 is built**: visualizers are
+video effects with `EffectShader.audio` (the Audio category, `shared/effect-library/audio.ts`); each pass carries what
+it hears at its clip's moment (`EffectPass.audio`, read by `effectPasses` through `clipAudio`), bound by the compositor
+as `uSpectrum`/`uWave` textures and uniforms (`AUDIO_PRELUDE` in `effect-gl.ts`); a `source` parameter says what it
+listens to; New item › Visualizer is a solid drawing only its visualizer. Signals files (v2) keep a small waveform.
 
 ## Commands
 

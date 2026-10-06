@@ -6,7 +6,8 @@
  * effect over it in order, then places the result where Motion puts it, like
  * Premiere draws standard effects before Motion and Opacity.
  */
-import type { EffectPass, Shader } from "./compositor.ts";
+import type { AudioInputs, EffectPass, Shader } from "./compositor.ts";
+import { clipAudio, demoAudio } from "./audio-signals.ts";
 import { particleSources } from "./particles.ts";
 import { timelineTime } from "./timeline.ts";
 import { type EffectDefinition, effectDefinition, effectValuesAt, isComputed } from "./effects.ts";
@@ -126,6 +127,62 @@ vec4 getFeedback(vec2 uv) { return hasFeedback && inside(uv) ? texture(uFeedback
 vec2 getFlow(vec2 uv) { return hasFlow ? texture(uFlow, uv).xy : vec2(0.0); }
 `;
 
+/**
+ * What a visualizer (`EffectShader.audio`) can also use, all at the clip's moment:
+ *
+ * - `spectrum(x)`: the sound's level at `x` along a log frequency axis (0 is 20 Hz, 1 is 20 kHz), 0..1
+ *   against its own loud parts, falling away as the effect asks; `spectrumAgo(x, seconds)` the same
+ *   that long ago (as far back as it asked: waterfalls, trails); `spectrumBands` is 96.
+ * - `wave(x)`: the sound itself around now, left and right, -1..1 (`x` 0..1 across the window it asked
+ *   for, now in the middle).
+ * - `audioLevel`, `audioBass`, `audioMid`, `audioHigh` (0..1), `audioOnset` (an impulse at each hit),
+ *   `sinceOnset` (seconds since the last hit), `beatCount` (beats so far, counting up smoothly),
+ *   `beatPhase` (0..1 through this beat), `sinceBeat` (seconds), `bpm`.
+ * - `hitAge[i]`, `hitVelocity[i]`: the last 8 hits, newest first: seconds since each (very large where
+ *   there's none) and how hard it was, for bursts that each play out.
+ */
+const AUDIO_PRELUDE = `
+uniform highp sampler2D uSpectrum;
+uniform int uSpectrumRows;
+uniform float uSpectrumSpan;
+uniform highp sampler2D uWave;
+uniform int uWavePoints;
+uniform float audioLevel;
+uniform float audioBass;
+uniform float audioMid;
+uniform float audioHigh;
+uniform float audioOnset;
+uniform float sinceOnset;
+uniform float beatCount;
+uniform float beatPhase;
+uniform float sinceBeat;
+uniform float bpm;
+uniform float hitAge[8];
+uniform float hitVelocity[8];
+const float spectrumBands = 96.0;
+float spectrumRow(float x, int row) {
+  float fx = clamp(x, 0.0, 1.0) * (spectrumBands - 1.0);
+  int i = int(floor(fx));
+  int j = min(i + 1, int(spectrumBands) - 1);
+  int r = clamp(row, 0, max(uSpectrumRows - 1, 0));
+  return mix(texelFetch(uSpectrum, ivec2(i, r), 0).r, texelFetch(uSpectrum, ivec2(j, r), 0).r, fract(fx));
+}
+float spectrum(float x) { return spectrumRow(x, 0); }
+float spectrumAgo(float x, float seconds) {
+  if (uSpectrumRows <= 1 || uSpectrumSpan <= 0.0) return spectrumRow(x, 0);
+  float r = clamp(seconds / uSpectrumSpan, 0.0, 1.0) * float(uSpectrumRows - 1);
+  int r0 = int(floor(r));
+  return mix(spectrumRow(x, r0), spectrumRow(x, r0 + 1), fract(r));
+}
+vec2 wave(float x) {
+  if (uWavePoints < 2) return vec2(0.0);
+  float fx = clamp(x, 0.0, 1.0) * float(uWavePoints - 1);
+  int i = int(floor(fx));
+  int j = min(i + 1, uWavePoints - 1);
+  return mix(texelFetch(uWave, ivec2(i, 0), 0).rg, texelFetch(uWave, ivec2(j, 0), 0).rg, fract(fx));
+}
+`;
+
 /** Names the prelude uses, which parameters can't have. */
 export const RESERVED_EFFECT_UNIFORMS = [
   "uSrc",
@@ -148,12 +205,34 @@ export const RESERVED_EFFECT_UNIFORMS = [
   "hasFlow",
 ];
 
+/** Names a visualizer's prelude adds (`AUDIO_PRELUDE`), which its parameters can't have. */
+export const RESERVED_AUDIO_UNIFORMS = [
+  "uSpectrum",
+  "uSpectrumRows",
+  "uSpectrumSpan",
+  "uWave",
+  "uWavePoints",
+  "audioLevel",
+  "audioBass",
+  "audioMid",
+  "audioHigh",
+  "audioOnset",
+  "sinceOnset",
+  "beatCount",
+  "beatPhase",
+  "sinceBeat",
+  "bpm",
+  "spectrumBands",
+  "hitAge",
+  "hitVelocity",
+];
+
 const isUniformSpec = (spec: ParamSpec): spec is UniformSpec =>
   spec.kind === "number" || spec.kind === "boolean" || spec.kind === "choice" || spec.kind === "vec2" || spec.kind === "color";
 
-/** The complete fragment shader of a video effect (a time effect's with its history helpers). */
-export function effectFragmentSource(def: { params: readonly ParamSpec[]; glsl: string; history?: unknown }): string {
-  return `${PRELUDE}${def.history ? HISTORY_PRELUDE : ""}\n${uniformDeclarations(def.params.filter(isUniformSpec))}\n${def.glsl}\n${MAIN}`;
+/** The complete fragment shader of a video effect (a time effect's with its history helpers, a visualizer's with its sound). */
+export function effectFragmentSource(def: { params: readonly ParamSpec[]; glsl: string; history?: unknown; audio?: unknown }): string {
+  return `${PRELUDE}${def.history ? HISTORY_PRELUDE : ""}${def.audio ? AUDIO_PRELUDE : ""}\n${uniformDeclarations(def.params.filter(isUniformSpec))}\n${def.glsl}\n${MAIN}`;
 }
 
 const shaders = new Map<string, Shader>();
@@ -168,9 +247,9 @@ export function effectShader(def: EffectDefinition): Shader | null {
     if (def.shader.particles) {
       // The particles' shaders, and the layer under them (the effect's own `effect(uv)`).
       const { vertex, fragment } = particleSources(uniformDeclarations(def.params.filter(isUniformSpec)), def.shader.particles.glsl);
-      shader = { key, source: fragment, vertex, base: effectFragmentSource({ params: def.params, glsl: def.shader.glsl }) };
+      shader = { key, source: fragment, vertex, base: effectFragmentSource({ params: def.params, glsl: def.shader.glsl, audio: def.shader.audio }) };
     } else {
-      shader = { key, source: effectFragmentSource({ params: def.params, glsl: def.shader.glsl, history: def.shader.history }) };
+      shader = { key, source: effectFragmentSource({ params: def.params, glsl: def.shader.glsl, history: def.shader.history, audio: def.shader.audio }) };
     }
     shaders.set(def.type, shader);
   }
@@ -193,7 +272,8 @@ export function effectUniforms(def: EffectDefinition, values: ParamValues, time:
 /**
  * The pass of one effect with these values, at source time `time`. A time effect keeps its
  * earlier frames under `instance` (a clip's effect: see `EffectPass.history`), only
- * recording new ones when `record` (not for motion blur's in-between moments).
+ * recording new ones when `record` (not for motion blur's in-between moments). A visualizer
+ * hears `audio` (made-up sound when none is given: cards, sheets).
  */
 export function effectPass(
   def: EffectDefinition,
@@ -203,10 +283,12 @@ export function effectPass(
   instance?: string,
   record = true,
   clipTime = time,
+  audio?: AudioInputs,
 ): EffectPass | null {
   const shader = effectShader(def);
   if (!shader) return null;
   const pass: EffectPass = { shader, uniforms: effectUniforms(def, values, time, fps, clipTime), passes: def.shader?.passes ?? 1 };
+  if (def.shader?.audio) pass.audio = audio ?? demoAudio(time, def.shader.audio.request(values));
   const particles = def.shader?.particles;
   if (particles) pass.particles = { count: Math.max(0, Math.round(particles.count(values))), blend: particles.blend(values) };
   const grow = def.shader?.grow?.(values) ?? 0;
@@ -235,7 +317,7 @@ export function effectsChange(clip: Clip, a: number, b: number): boolean {
   for (const effect of clip.effects) {
     const def = effect.enabled ? effectDefinition(effect.type) : undefined;
     if (!def?.shader) continue;
-    if (def.shader.animated) return true;
+    if (def.shader.animated || def.shader.audio) return true;
     if (!effect.keyframes && !isComputed(effect)) continue;
     const va = effectValuesAt(def, effect, a, clip);
     const vb = effectValuesAt(def, effect, b, clip);
@@ -253,7 +335,11 @@ export function effectPasses(clip: Clip, time: number, fps = DEFAULT_FPS, record
   for (const effect of clip.effects) {
     const def = effect.enabled ? effectDefinition(effect.type) : undefined;
     const clipTime = timelineTime(clip, time) - clip.start;
-    const pass = def?.shader ? effectPass(def, effectValuesAt(def, effect, time, clip), time, fps, `${clip.id}/${effect.id}`, record, clipTime) : null;
+    if (!def?.shader) continue;
+    const values = effectValuesAt(def, effect, time, clip);
+    // A visualizer hears its source at this moment.
+    const audio = def.shader.audio ? clipAudio(clip.id, time, values.source, def.shader.audio.request(values), fps) : undefined;
+    const pass = effectPass(def, values, time, fps, `${clip.id}/${effect.id}`, record, clipTime, audio);
     if (pass) passes.push(pass);
   }
   return passes;

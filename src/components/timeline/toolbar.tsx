@@ -176,7 +176,8 @@ export function TimelineToolbar() {
           <TooltipContent side="top" className="max-w-64">
             Add an adjustment layer (its effects change everything below it), a solid (a colour for effects to draw on),
             a shape layer (vector shapes, drawn with the Pen, Rectangle and Ellipse tools too), a camera (3D layers are
-            seen through it) or a null object (clips parented to it follow its Motion).
+            seen through it), a null object (clips parented to it follow its Motion) or a visualizer (spectrum bars
+            that move with the song; the Effects tab's Audio category has more).
           </TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start" className="w-64">
@@ -197,6 +198,9 @@ export function TimelineToolbar() {
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => newLayer("null")}>
             <PiCrosshairSimple /> Null object
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => newLayer("visualizer")}>
+            <PiWaveform /> Visualizer
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

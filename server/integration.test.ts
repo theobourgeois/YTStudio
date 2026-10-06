@@ -981,6 +981,18 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     const linkedOut = path.join(dataDir, "exports", `${linkedJob.id}.mp4`);
     for (const t of [1.52, 2.52]) expect(pixelAt(linkedOut, t, 360, 640)[0], `linked at ${t}s`).toBeGreaterThan(200);
     for (const t of [0.52, 1.9, 2.8]) expect(pixelAt(linkedOut, t, 360, 640)[0], `linked at ${t}s`).toBeLessThan(30);
+
+    // A visualizer: a black solid that flashes white on each kick (Strobe on Hits), its sound sent with each frame.
+    let strobe = projectWith([
+      { id: "strobe", assetId: "", trackId: "main", start: 0, in: 0, out: 3, effects: solidEffects({ color: "#000000" }) },
+      { ...clip("tone", "audio_1", 0, 0, 3), assetId: thumps.id },
+    ]);
+    strobe = addEffect(strobe, ["strobe"], "audio-strobe", { hits: "kicks", mode: "flash", amount: 1, decay: 0.08, color: "#ffffff" }).project;
+    const strobeJob = await waitForExport(((await (await sendJson("POST", "/api/exports", { project: strobe, resolution: "720p" })).json()) as ExportJob).id);
+    expect(strobeJob.error).toBeUndefined();
+    const strobeOut = path.join(dataDir, "exports", `${strobeJob.id}.mp4`);
+    for (const t of [0.52, 1.52, 2.52]) expect(pixelAt(strobeOut, t, 360, 640)[0], `strobe at ${t}s`).toBeGreaterThan(150);
+    for (const t of [0.3, 0.95, 2]) expect(pixelAt(strobeOut, t, 360, 640)[0], `strobe at ${t}s`).toBeLessThan(30);
   });
 
   it("cancels queued and running exports", async () => {

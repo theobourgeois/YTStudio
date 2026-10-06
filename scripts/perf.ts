@@ -7,10 +7,12 @@
  *
  *   pnpm tsx scripts/perf.ts [clips=1500] [--profile <scenario>]
  *   pnpm tsx scripts/perf.ts --links [clips=300]
+ *   pnpm tsx scripts/perf.ts --visualizers
  *
  * `--links` is the visualizer's gate instead (V3, docs/visualizer/README.md): a song and `clips`
  * solids on ten tracks, each with its scale linked to the bass and its opacity to the kicks, played
- * for 4 s: how many frames a second the preview draws, and the long tasks.
+ * for 4 s: how many frames a second the preview draws, and the long tasks. `--visualizers` is V4's: three
+ * visualizers (Spectrum Bars, Circular Spectrum, Spectrogram) over a song in a 9:16 video, played.
  * `--profile drag` (any part of a scenario's name) samples that scenario with
  * the JS profiler and prints where the time went, by component and by function.
  * The app runs in dev mode (like `pnpm dev`), so React's development build counts.
@@ -20,7 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { type CDPSession, chromium } from "@playwright/test";
-import { defaultEffects, solidEffects, textEffects } from "../shared/effects.ts";
+import { defaultEffects, solidEffects, textEffects, visualizerEffects } from "../shared/effects.ts";
 import type { Clip, MediaAsset, Project, ProjectSummary } from "../shared/types.ts";
 
 const WEB_PORT = "5330";
@@ -30,6 +32,7 @@ const args = process.argv.slice(2);
 const profileIndex = args.indexOf("--profile");
 const profileName = profileIndex >= 0 ? args[profileIndex + 1] : null;
 const links = args.includes("--links");
+const visualizers = args.includes("--visualizers");
 const count = Number(args.find((a, i) => /^\d+$/.test(a) && i !== profileIndex + 1) ?? (links ? 300 : 1500));
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -69,7 +72,7 @@ await waitFor(`${api}/health`);
 await waitFor(`http://localhost:${WEB_PORT}`);
 
 const json = { "content-type": "application/json" };
-if (links) await linkedPlayback();
+if (links || visualizers) await linkedPlayback();
 
 // One caption a second: 0.8 s of text, then a gap.
 const summary: ProjectSummary = await (await fetch(`${api}/projects`, { method: "POST", headers: json, body: "{}" })).json();
@@ -232,12 +235,15 @@ async function linkedPlayback(): Promise<never> {
   const perTrack = Math.ceil(count / tracks.length);
   const length = 20 / perTrack;
   const response = { threshold: 0, curve: 1, attack: 0.01, release: 0.12, invert: false };
+  const looks = ["audio-bars", "audio-circle", "audio-spectrogram"];
   project = {
     ...project,
+    settings: { ...project.settings, aspectRatio: "9:16" },
     tracks: [...tracks, audio],
     clips: [
       { id: "song", assetId: song.id, trackId: "a1", start: 0, in: 0, out: 20, effects: defaultEffects() },
-      ...Array.from({ length: count }, (_, i): Clip => ({
+      ...(visualizers ? looks.map((type, i): Clip => ({ id: `look_${i}`, assetId: "", trackId: tracks[i].id, start: 0, in: 0, out: 20, effects: visualizerEffects(type) })) : []),
+      ...Array.from({ length: visualizers ? 0 : count }, (_, i): Clip => ({
         id: `solid_${i}`,
         assetId: "",
         trackId: tracks[i % tracks.length].id,
@@ -258,7 +264,8 @@ async function linkedPlayback(): Promise<never> {
   if (!saved.ok) throw new Error(`Saving the project failed: ${await saved.text()}`);
 
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  // Visualizers are GPU work by the pixel: a big window on a Retina screen.
+  const page = await browser.newPage(visualizers ? { viewport: { width: 1920, height: 1200 }, deviceScaleFactor: 2 } : { viewport: { width: 1440, height: 900 } });
   await page.addInitScript(() => {
     const w = window as unknown as { __longTasks: number };
     w.__longTasks = 0;
@@ -295,7 +302,11 @@ async function linkedPlayback(): Promise<never> {
   await page.keyboard.press("Space");
   const again = await measure();
   await page.keyboard.press("Space");
-  console.log(`\n${count} solids linked to the sound (scale to the bass, opacity to the kicks), ${tracks.length} tracks\n`);
+  console.log(
+    visualizers
+      ? `\nThree visualizers (${looks.join(", ")}) over a song, 9:16\n`
+      : `\n${count} solids linked to the sound (scale to the bass, opacity to the kicks), ${tracks.length} tracks\n`,
+  );
   const line = (name: string, m: { fps: number; worst: number; long: number }) =>
     console.log(`${name.padEnd(12)} ${m.fps.toFixed(1)} frames a second, slowest frame ${m.worst.toFixed(0)} ms, long tasks ${m.long.toFixed(0)} ms`);
   line("paused", idle);
