@@ -2170,3 +2170,55 @@ test("effects from a newer app (or of a type this one doesn't know) are kept as 
   await expect(page.getByLabel("Filter unavailable")).toHaveCount(2);
   expect(await docLayers(page)).toEqual(layers);
 });
+
+/** A SHA-256 of the photo rendered at full size through the export's own path (16 bits, undithered). */
+const exportDigest = (page: Page) =>
+  page.evaluate(async () => {
+    const { photoDebug } = window as unknown as LightWindow & { photoDebug: { renderer(): Promise<{ renderBands(doc: unknown, options: unknown, onBand: (from: number, rows: Uint8Array) => void): Promise<unknown> }> } };
+    const r = await photoDebug.renderer();
+    const bands: Uint8Array[] = [];
+    await r.renderBands(photoDebug.photo.getState().history.doc.doc, { bits: 16, under: "none", dither: false }, (_from, rows) => void bands.push(rows.slice()));
+    const all = new Uint8Array(bands.reduce((n, b) => n + b.length, 0));
+    bands.reduce((at, b) => (all.set(b, at), at + b.length), 0);
+    return [...new Uint8Array(await crypto.subtle.digest("SHA-256", all))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  });
+
+/** Opens the photo again with a GPU budget of `mb` (the bench's hook). */
+const reopenWithBudget = (page: Page, mb: number) =>
+  page.evaluate(async (mb) => {
+    const bench = (await (window as unknown as { photoBench: { load(): Promise<{ setBudget(mb: number): Promise<unknown> }> } }).photoBench.load());
+    await bench.setBudget(mb);
+  }, mb);
+
+test("a tight GPU budget draws and exports exactly what a generous one does, evicting tiles as it goes", async ({ page }) => {
+  await openNewPhoto(page, "Budget");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const [image] = await docLayers(page);
+  // An image with a mask and a wide glow, under a painted layer: every kind of tile the atlas holds.
+  await page.evaluate(
+    (layer) => (window as unknown as LightWindow).photoDebug.photo.getState().commit((d) => ({ ...(d as object), layers: [...(d as { layers: unknown[] }).layers, layer] })),
+    pixelLayer("paint", 1600, 1200),
+  );
+  await paint(page, "paint", "content", line(100, 100, 1500, 1100), { radius: 80, hardness: 0.7, colour: [1, 0.2, 0.1, 1] });
+  await patchLayer(page, image.id, { filters: [glowFilter("g1", { radius: 300 })], mask: { surface: null } });
+  await paint(page, image.id, "mask", line(1500, 100, 100, 1100), { radius: 120, colour: [0, 0, 0, 1] });
+  const view: ViewBox = { zoom: 1, x: 500, y: 300, width: 600, height: 500 };
+  const generous = { exported: await exportDigest(page), shown: await renderDigest(page, view) };
+
+  // 48 MB holds 96 tiles of half floats: a region's tiles, but far fewer than the photo's layers have, so tiles
+  // come and go (the image's, its mask's, the painted layer's). A smaller budget can't hold one region: that's an
+  // error saying so (below), never wrong pixels.
+  await reopenWithBudget(page, 48);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  expect(await exportDigest(page)).toBe(generous.exported);
+  expect(await renderDigest(page, view)).toBe(generous.shown);
+  const evictions = await page.evaluate(async () => ((await (window as unknown as DebugWindow).photoDebug.renderer()) as unknown as { evictions: number }).evictions);
+  expect(evictions).toBeGreaterThan(0);
+
+  // Too small for one region: the export says so.
+  await reopenWithBudget(page, 24);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await expect(exportDigest(page)).rejects.toThrow(/needs more GPU memory for one region than Settings › Photo allows \(24 MB\)/);
+  await reopenWithBudget(page, 2048);
+});

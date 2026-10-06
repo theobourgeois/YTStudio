@@ -80,6 +80,15 @@ export async function open(projectId: string) {
   };
 }
 
+/**
+ * Opens the photo again with a GPU budget of `mb` (Settings offers 1 to 4 GB; budgets under pressure go lower), for
+ * this session only.
+ */
+export async function setBudget(mb: number) {
+  usePhotoPreferences.setState({ budgetMB: mb });
+  return reopen();
+}
+
 /** Closes the open project and opens it again: a cold open of the same file (a new device; the server's cache warm). */
 export async function reopen() {
   const id = usePhoto.getState().projectId;

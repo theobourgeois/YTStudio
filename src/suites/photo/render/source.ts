@@ -247,13 +247,22 @@ export class SourceImage {
     return visibleTiles(view, this.layout, level, this.layout.tile).every(({ tx, ty }) => this.image.slotOf(level, tx, ty) !== null);
   }
 
+  /** Whether every level-0 tile `ensureVisible(view)` would fetch is resident now (levels above always are). */
+  residentFor(view: View): boolean {
+    if (levelForScale(view.zoom, this.image.levels.length) !== 0) return true;
+    return visibleTiles(view, this.layout, 0, this.layout.tile, 1).every(({ tx, ty }) => this.image.entry(0, tx, ty) !== PENDING);
+  }
+
   /**
    * Fetches the level-0 tiles the view needs that were evicted (levels above are always resident). Resolves
    * once they're converted; the view shows a coarser level meanwhile.
    */
   async ensureVisible(view: View): Promise<number> {
     if (levelForScale(view.zoom, this.image.levels.length) !== 0) return 0;
-    const missing = visibleTiles(view, this.layout, 0, this.layout.tile, 1).filter(
+    const visible = visibleTiles(view, this.layout, 0, this.layout.tile, 1);
+    // Those it has are marked as just used, so fetching the others evicts something else.
+    for (const { tx, ty } of visible) if (this.image.entry(0, tx, ty) !== PENDING) this.ctx.atlas.get(this.key(0, tx, ty));
+    const missing = visible.filter(
       ({ tx, ty }) => this.image.entry(0, tx, ty) === PENDING && !this.fetching.has(`${tx},${ty}`),
     );
     if (!missing.length) return 0;
