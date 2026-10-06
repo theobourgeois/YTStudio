@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { request } from "@/lib/api";
-import { acceptVocalAlternative, type VocalMixRun, type VocalVariant } from "@shared/music/audio-intelligence/vocal-mix";
+import { acceptVocalCandidate, type VocalMixRun } from "@shared/music/audio-intelligence/vocal-mix";
 import { useMusic } from "../store";
 
 export const vocalMixTool = <T>(projectId: string, name: string, input: object) =>
@@ -21,12 +21,14 @@ export const useVocalMix = create<{ projectId: string | null; open: boolean; run
   },
 }));
 
-/** Revalidate source files on the server, then commit synchronously against the live revision. */
-export async function applyVocalMix(projectId: string, runId: string, variant: VocalVariant) {
+/** Revalidate source files on the server, then commit synchronously against the live revision, then record the choice. */
+export async function applyVocalMix(projectId: string, runId: string, candidateId: string) {
   const initial = useMusic.getState();
   if (initial.projectId !== projectId || !initial.history) throw new Error("Open this comparison's song before applying it.");
   const { run } = await vocalMixTool<{ run: VocalMixRun }>(projectId, "validate_vocal_mix_apply", { runId, song: initial.history.doc });
   const current = useMusic.getState();
   if (current.projectId !== projectId || !current.history) throw new Error("The open song changed while validating.");
-  current.commit(song => acceptVocalAlternative(song, run, variant));
+  current.commit(song => acceptVocalCandidate(song, run, candidateId));
+  // The run's outcome; the song is already changed, so a failure here only leaves the record behind.
+  await vocalMixTool(projectId, "conclude_vocal_mix_run", { runId, candidateId }).catch(() => {});
 }

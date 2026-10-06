@@ -70,7 +70,7 @@ describe("project-scoped reviewed examples and workflow tools", () => {
     const list = await library.tool(project, "list_mix_workflows", {}) as { id: string; steps?: string[] }[];
     expect(list).toHaveLength(3); expect(list[0].steps).toBeUndefined();
     const workflow = await library.tool(project, "get_mix_workflow", { workflowId: "vocal-eq" });
-    expect(workflow).toMatchObject({ id: "vocal-eq", version: 1 });
+    expect(workflow).toMatchObject({ id: "vocal-eq", version: 2 });
     const toolNames = new Set(MUSIC_TOOLS.map(t => t.name));
     for (const w of MIX_WORKFLOWS) for (const name of w.tools) expect(toolNames.has(name as typeof MUSIC_TOOLS[number]["name"])).toBe(true);
     await expect(library.tool(project, "get_mix_workflow", { workflowId: "donor-shell-instructions" })).rejects.toThrow(/Unknown/);

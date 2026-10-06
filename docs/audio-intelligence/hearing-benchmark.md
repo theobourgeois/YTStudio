@@ -94,6 +94,12 @@ truth before any review (an operator's screen, not a review; nothing was certifi
 | Tone | None of 8 (duller, brighter, boomier, thinner, harsher ×2, boxier, telephone): every trial says the balance stays consistent | Described as consistent |
 | Dynamics | 2 of 8, late or in one trial (+9 dB ramp, +7 dB step); missed −9, +8, −10 and −8 dB steps and −18, −15 dB ramps | Mostly steady; some natural phrase swells described |
 
+**The local measurements on the same clips** (`ears`: `listen` from `spectrum.ts`, scored automatically against
+the constructed truth, ±1.5 s): level changes 8/8 (every step and ramp, the ramps' full size measured over four
+seconds) and no loudness change on any of the 4 untouched dynamics clips; tonal changes 4/8 at their time, two
+more in the right band and direction about 2 s late, and none on the 4 untouched tone clips; a stem leaving or
+entering 3/6 (it can't name the instrument). Development: level 2/2 and 2/2, tone 1/2 and 1/2.
+
 Under the gate, one flagged factual error fails a task, so a full review is expected to promote nothing. Hearing
 stays measurements-only. The one capability that held up is narrow: whether a voice is present, and when it
 enters or leaves. A future benchmark could test that as a task of its own.

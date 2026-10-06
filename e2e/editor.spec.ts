@@ -1403,7 +1403,7 @@ test("the assistant edits the video with the editor's tools, live and undoably; 
 
   // Any MCP client (e.g. Claude Code in a terminal) works in the open tab too.
   const mcp = async (method: string, params: object) => {
-    const res = await fetch("http://127.0.0.1:5321/mcp", {
+    const res = await fetch(`http://127.0.0.1:${process.env.E2E_SERVER_PORT || 5321}/mcp`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),

@@ -5,6 +5,7 @@
  *   pnpm tsx scripts/hearing-benchmark.ts prepare               make every case's clip (cases.json + cases/*.wav)
  *   pnpm tsx scripts/hearing-benchmark.ts sheets [--port=5345]  serve recordings.html and compare.html with their clips
  *   pnpm tsx scripts/hearing-benchmark.ts run --provider=qwen --split=development [--repeats=1] [--task=tone] [--parallel=4]
+ *   pnpm tsx scripts/hearing-benchmark.ts ears [--split=heldout]   the local measurements' own score against the known truth
  *   pnpm tsx scripts/hearing-benchmark.ts compare               development runs side by side, to pick a provider (compare.html)
  *   pnpm tsx scripts/hearing-benchmark.ts review --run=heldout-qwen [--port=5346]   the blind review page
  *   pnpm tsx scripts/hearing-benchmark.ts score --run=heldout-qwen [--certify=file.json]
@@ -31,6 +32,7 @@ import { createHearingCertification, evaluateHearing, HEARING_ARMS, type Hearing
 import { activeSpan, armTexts, assembleEvaluation, BENCHMARK_QUESTIONS, BENCHMARK_SOURCES, benchmarkCases, blindOrder, deriveAudio, evaluationCase, knownFacts, MIX_EVALUATION, PASSAGE_SECONDS, steadiestSpan, windowRmsDb,
   type ArmTexts, type BenchmarkSource, type CaseSpec, type ProviderFindings } from "../shared/music/audio-intelligence/hearing-pack.ts";
 import type { AudioArtifact, AudioJob } from "../shared/music/audio-intelligence/types.ts";
+import { describeTone, listen, type BandId, type Change } from "../shared/music/audio-intelligence/spectrum.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "data", "hearing-benchmark");
 const SOURCES = path.join(ROOT, "sources"), CASES = path.join(ROOT, "cases"), RUNS = path.join(ROOT, "runs");
@@ -235,6 +237,44 @@ async function validatedOutput(projectStore: string, jobId: string): Promise<Pro
   return null;
 }
 
+// ears: the local measurements (`listen`) scored automatically against each case's constructed truth.
+
+/** Which band moves each tone filter must show, and in which direction. */
+const TONE_SIGNS: Record<string, { bands: BandId[]; sign: 1 | -1 }[]> = {
+  dull: [{ bands: ["presence", "air"], sign: -1 }], bright: [{ bands: ["presence", "air"], sign: 1 }], boomy: [{ bands: ["sub", "bass"], sign: 1 }],
+  thin: [{ bands: ["sub", "bass"], sign: -1 }], harsh: [{ bands: ["upperMid"], sign: 1 }], boxy: [{ bands: ["lowMid", "mid"], sign: 1 }],
+  telephone: [{ bands: ["sub", "bass"], sign: -1 }, { bands: ["air"], sign: -1 }],
+};
+async function ears() {
+  const split = flag("split") ?? "heldout";
+  const cases = (await readJson<PreparedCase[]>(path.join(ROOT, "cases.json"))).filter(c => c.spec.split === split);
+  const rows: { id: string; task: string; kind: string; ok: boolean; detail: string }[] = [];
+  for (const c of cases) {
+    const audio = await readWav(path.join(ROOT, c.file)), heard = listen(audio.channels, audio.sampleRate), d = c.spec.derivation;
+    const fmt = (x: Change) => `${x.kind} ${x.deltaDb > 0 ? "+" : ""}${x.deltaDb.toFixed(1)} dB at ${x.at.toFixed(1)} s${x.gradual ? " (gradual)" : ""}${x.kind === "tone" ? ` [${describeTone(x)}]` : ""}`;
+    const all = heard.changes.map(fmt).join("; ") || "no change";
+    if (d.kind === "gain") {
+      const centre = d.at + d.over / 2, hit = heard.changes.find(x => x.kind === "loudness" && Math.abs(x.at - centre) <= d.over / 2 + 1.5 && Math.sign(x.deltaDb) === Math.sign(d.db));
+      rows.push({ id: c.spec.id, task: "dynamics", kind: "change", ok: !!hit && Math.abs(hit.deltaDb - d.db) <= Math.abs(d.db) * 0.5, detail: `truth ${d.db} dB at ${d.at.toFixed(1)} s over ${d.over} s; heard ${all}` });
+    } else if (d.kind === "tone") {
+      const hit = heard.changes.find(x => x.kind === "tone" && Math.abs(x.at - d.at) <= 1.5 && TONE_SIGNS[d.filter].every(rule => rule.bands.some(b => Math.sign(x.bands?.find(m => m.band === b)?.deltaDb ?? 0) === rule.sign && Math.abs(x.bands!.find(m => m.band === b)!.deltaDb) >= 3)));
+      rows.push({ id: c.spec.id, task: "tone", kind: "change", ok: !!hit, detail: `truth ${d.filter} at ${d.at.toFixed(1)} s; heard ${all}` });
+    } else if (d.kind === "stem-exit" || d.kind === "stem-entry") {
+      const hit = heard.changes.find(x => Math.abs(x.at - d.at) <= 1.5);
+      rows.push({ id: c.spec.id, task: "context", kind: "change", ok: !!hit, detail: `truth ${d.group} ${d.kind === "stem-exit" ? "leaves" : "enters"} at ${d.at.toFixed(1)} s; heard ${all}` });
+    } else if (c.spec.control && c.spec.task !== "context") {
+      const kind = c.spec.task === "tone" ? "tone" : "loudness", false_ = heard.changes.filter(x => x.kind === kind);
+      rows.push({ id: c.spec.id, task: c.spec.task, kind: "control", ok: false_.length === 0, detail: `untouched; heard ${all}` });
+    }
+  }
+  for (const r of rows) console.log(`${r.ok ? "✓" : "✗"} ${r.id.padEnd(44)} ${r.detail}`);
+  console.log("");
+  for (const task of ["dynamics", "tone", "context"]) for (const kind of ["change", "control"]) {
+    const set = rows.filter(r => r.task === task && r.kind === kind);
+    if (set.length) console.log(`${task} ${kind === "change" ? "changes found" : "controls without a false change"}: ${set.filter(r => r.ok).length}/${set.length}`);
+  }
+}
+
 // compare: the development runs side by side (not blind: it only picks which provider goes to the held-out review).
 
 async function compare() {
@@ -366,6 +406,6 @@ async function save(){const i=items[at];const scores=[0,1,2].map(k=>{const u=doc
 if(scores.some(s=>s.usefulness===null))return alert("Give each answer a usefulness score.");const r=await fetch("/api/review?reviewer="+encodeURIComponent(reviewer),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({trialId:i.trialId,scores})});const j=await r.json();if(j.error)return alert(j.error);i.scores=scores;at=Math.min(items.length-1,at+1);show()}
 </script>`;
 
-const commands: Record<string, () => Promise<void>> = { fetch: fetchSources, prepare: prepareCases, sheets, run: runProvider, compare, review, score };
+const commands: Record<string, () => Promise<void>> = { fetch: fetchSources, prepare: prepareCases, sheets, run: runProvider, ears, compare, review, score };
 if (!commands[command]) { console.error("Usage: pnpm tsx scripts/hearing-benchmark.ts fetch | prepare | sheets | run --provider=gemini|qwen [--split=development|heldout] | compare | review --run=<name> | score --run=<name> [--certify=file]"); process.exit(1); }
 await commands[command]();
