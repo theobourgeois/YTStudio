@@ -10,6 +10,7 @@ import { cn } from "cn";
 import { PiArrowCounterClockwise, PiCaretDown, PiCursorClick, PiMagnifyingGlass, PiSparkle, PiSunHorizon } from "react-icons/pi";
 import { type FilterEntry, FILTER_ENTRIES, filterCategories, filterEntry, searchFilters } from "@shared/photo/effects/catalog";
 import { type FilterCategory, effectDefinition } from "@shared/photo/effects/index";
+import { specShows } from "@shared/photo/effects/params";
 import { type EffectParamValue, hasContent } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -153,9 +154,11 @@ function LookSettings({ entry, preview }: { entry: FilterEntry; preview: FilterP
   };
   return (
     <div className="flex flex-col gap-3" data-filter-settings={entry.key}>
-      {entry.def.params.map((spec) => (
-        <ParamField key={spec.key} spec={spec} value={preview.params[spec.key]} change={(v) => set(spec.key, v)} />
-      ))}
+      {entry.def.params
+        .filter((spec) => specShows(spec, preview.params))
+        .map((spec) => (
+          <ParamField key={spec.key} spec={spec} value={preview.params[spec.key]} change={(v) => set(spec.key, v)} />
+        ))}
     </div>
   );
 }
