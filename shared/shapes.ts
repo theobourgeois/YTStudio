@@ -10,7 +10,7 @@
  */
 import type { Affine, VectorDrawing, VectorOp, VectorPaint } from "./compositor.ts";
 import { MERGE_PATHS, OFFSET_PATHS, REPEATER, ROUND_CORNERS, SHAPE, TRIM_PATHS, WIGGLE_PATHS, ZIG_ZAG } from "./effect-library/shape.ts";
-import { effectDefinition, effectValuesAt, isComputed } from "./effects.ts";
+import { definitionOf, effectValuesAt, isComputed } from "./effects.ts";
 import {
   type BezierPath,
   type LineJoin,
@@ -176,7 +176,7 @@ function itemsAt(clip: Pick<Clip, "id" | "effects" | "start" | "in" | "out" | "s
     for (const item of items) item.paths = item.paths.flatMap(change);
   };
   for (const effect of clip.effects) {
-    const def = effectDefinition(effect.type);
+    const def = definitionOf(effect);
     if (def?.stackable !== "shape" || !effect.enabled) continue;
     const v = effectValuesAt(def, effect, time, clip);
     if (def === SHAPE) {
@@ -311,7 +311,7 @@ function itemsBounds(items: readonly Item[]): Rect | undefined {
 export function shapesChange(clip: Clip, a: number, b: number): boolean {
   if (a === b) return false;
   return clip.effects.some((e) => {
-    const def = effectDefinition(e.type);
+    const def = definitionOf(e);
     if (def?.stackable !== "shape" || !e.enabled) return false;
     if (def === WIGGLE_PATHS && (e.params.speed as number) > 0 && (e.params.size as number) > 0) return true;
     return (!!e.keyframes || isComputed(e)) && JSON.stringify(effectValuesAt(def, e, a, clip)) !== JSON.stringify(effectValuesAt(def, e, b, clip));

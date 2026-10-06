@@ -122,7 +122,7 @@ export function transitionShader(def: TransitionDefinition): Shader {
 
 export interface UniformValue {
   name: string;
-  type: "float" | "int" | "vec2" | "vec3";
+  type: "float" | "int" | "vec2" | "vec3" | "vec4";
   value: number | number[];
 }
 

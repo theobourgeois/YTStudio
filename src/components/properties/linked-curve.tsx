@@ -3,7 +3,7 @@
  * what the sound does to it, beside its keyframes. A point's two parts are two lines.
  */
 import { memo, useMemo } from "react";
-import { atFrameRate, effectDefinition, effectValuesAt } from "@shared/effects";
+import { atFrameRate, definitionOf, effectValuesAt } from "@shared/effects";
 import { clipEnd, sourceTime } from "@shared/timeline";
 import type { Clip } from "@shared/types";
 import { useEditor } from "@/stores/editor";
@@ -18,7 +18,7 @@ export const LinkedCurve = memo(function LinkedCurve({ clip, effectId, paramKey 
   const document = useEditor((s) => s.document);
   const loaded = useSignals((s) => s.data);
   const lines = useMemo(() => {
-    const def = effect && effectDefinition(effect.type);
+    const def = effect && definitionOf(effect);
     if (!def || !effect?.links?.[paramKey]) return [];
     const [start, end] = [clip.start, clipEnd(clip)];
     const values = atFrameRate(fps, () =>
