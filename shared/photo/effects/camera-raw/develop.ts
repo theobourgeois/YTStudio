@@ -15,7 +15,7 @@ import { linearToSrgb, srgbToLinear } from "../../colour.ts";
 import type { CurveSet, EffectParamValue } from "../../types.ts";
 import { curveFunction, isIdentityCurve } from "../curve-math.ts";
 import { type CameraRawAnalysis, type GlowStyle, glowAt, glowGrid, gridAt, logLuminance } from "./analysis.ts";
-import { type Grading, grade, grading, mix, mixerBands } from "./colour.ts";
+import { type Grading, grade, grading, mix, mixerBands, oklabLightness } from "./colour.ts";
 import { TONE_RESPONSES, V_BRIGHTEN, V_DARKEN, WHITE_BALANCE_SHIFTS } from "./measured.ts";
 
 /**
@@ -450,7 +450,7 @@ export function developPixel(input: readonly number[], x: number, y: number, tab
   if (s.channels) e = [tableAt(table, TABLE_CHANNELS, e[0]), tableAt(table, TABLE_CHANNELS + 1, e[1]), tableAt(table, TABLE_CHANNELS + 2, e[2])];
   if (s.mixer) e = mix(e, s.mixer);
   let l = e.map(decode) as Rgb;
-  if (s.grading) l = mul(SRGB_TO_PROPHOTO, grade(mul(PROPHOTO_TO_SRGB, l), s.grading));
+  if (s.grading) l = grade(l, oklabLightness(mul(PROPHOTO_TO_SRGB, l)), s.grading);
   if (s.vibrance !== 1) {
     const hi = Math.max(l[0], l[1], l[2]);
     const lo = Math.min(l[0], l[1], l[2]);

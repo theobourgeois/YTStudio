@@ -123,4 +123,43 @@ describe("Camera Raw's analysis", () => {
     const between = gridAt(an, 2, 1);
     expect(between[1]).toBeCloseTo((an.grid[1] + an.grid[GRID_FLOATS + 1]) / 2, 5);
   });
+
+  // CR3's Glow: a white disc on black, as the probe measured Camera Raw's.
+  const disc = picture(160, 120, (x, y) => (Math.hypot(x - 80, y - 60) < 12 ? [255, 255, 255] : [10, 10, 10]));
+  const ring = (at: (x: number, y: number) => number[], r: number) => luminance(at(80 + r, 60));
+
+  it("Bloom spreads a bright part's light into the dark around it, further with Spread", () => {
+    const plain = develop(disc, {}).at;
+    const near = develop(disc, { glow: 100, glowStyle: "bloom", glowSpread: 0 }).at;
+    const far = develop(disc, { glow: 100, glowStyle: "bloom", glowSpread: 100 }).at;
+    expect(stops(near(80 + 14, 60), plain(80 + 14, 60))).toBeGreaterThan(0.5);
+    // Spread 0 stays close to the disc; Spread 100 reaches well past it.
+    expect(ring(near, 40) / ring(plain, 40)).toBeLessThan(1.05);
+    expect(ring(far, 40) / ring(plain, 40)).toBeGreaterThan(1.5);
+  });
+
+  it("Halation glows red; Warmth tints the glow", () => {
+    const halation = develop(disc, { glow: 100, glowStyle: "halation" }).at(80 + 14, 60);
+    expect(halation[0]).toBeGreaterThan(halation[1] * 1.5);
+    const warm = develop(disc, { glow: 100, glowStyle: "bloom", glowWarmth: 100 }).at(80 + 14, 60);
+    const cool = develop(disc, { glow: 100, glowStyle: "bloom", glowWarmth: -100 }).at(80 + 14, 60);
+    expect(warm[0] / warm[2]).toBeGreaterThan(1.3);
+    expect(cool[2] / cool[0]).toBeGreaterThan(1.3);
+  });
+
+  it("Diffusion softens bright parts without lighting the dark (Camera Raw's adds no light outwards)", () => {
+    const plain = develop(disc, {}).at;
+    const soft = develop(disc, { glow: 100, glowStyle: "diffusion" }).at;
+    expect(Math.abs(stops(soft(80 + 20, 60), plain(80 + 20, 60)))).toBeLessThan(0.1);
+    // The disc's edge softens towards its surroundings.
+    expect(luminance(soft(80 + 11, 60))).toBeLessThan(luminance(plain(80 + 11, 60)));
+  });
+
+  it("Glow at 0, or with no bright parts, changes nothing", () => {
+    const dark = picture(64, 48, () => [40, 40, 40]);
+    const plain = develop(dark, {}).at(10, 10);
+    develop(dark, { glow: 100, glowStyle: "bloom", glowRange: 0 })
+      .at(10, 10)
+      .forEach((v, i) => expect(v).toBeCloseTo(plain[i], 6));
+  });
 });

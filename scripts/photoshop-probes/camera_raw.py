@@ -472,20 +472,39 @@ def _oklab(P):
     return np.cbrt(_lin(P) @ _M1.T) @ _M2.T
 
 def grading_masks():
-    """Each wheel's tint (OKLab a/b distance at full saturation, along hue 0's direction) and Luminance (OKLab L at ±100), by tone."""
-    import colorsys
+    """Each wheel's strength by tone, in stops of linear ProPhoto (CR3): a tint at full saturation multiplies the hue's
+    channels (HSV of ProPhoto at the hue: red is 1, 0, 0) by 2^up and the others by 2^−down, the same for every hue
+    (measured on the ramp: red, green and blue tints keep the same ProPhoto max and mean; Shadows lift more than they
+    lower, Highlights the reverse); Luminance at ±100 multiplies all three by 2^l. Read from the full-saturation runs
+    (the legacy Split Toning's at 50 differ by hue) where a channel isn't clipped, filled in between, 0 at black."""
     fx = _fx()
     L = np.array(fx["rampLevels"], float); G = np.repeat(L[:, None], 3, 1)
     lab0 = _oklab(G)
-    red = _oklab((np.array(colorsys.hsv_to_rgb(0, 1, 1)) * 255)[None])[0][1:]
-    d = red / np.hypot(*red)
+    m_s = np.array([[0.4360747, 0.3850649, 0.1430804], [0.2225045, 0.7168786, 0.0606169], [0.0139322, 0.0971045, 0.7141733]])
+    m_p = np.array([[0.7976749, 0.1351917, 0.0313534], [0.2880402, 0.7118741, 0.0000857], [0, 0, 0.8252100]])
+    s2p = np.linalg.inv(m_p) @ m_s
+    lin = lambda v: np.where(v / 255 <= 0.04045, v / 255 / 12.92, ((v / 255 + 0.055) / 1.055) ** 2.4)
+    grey = lin(L)
+    def fill(v):
+        v = np.array(v, float); ok = np.isfinite(v); ok[0] = True; v[0] = 0
+        return list(np.interp(np.arange(len(v)), np.flatnonzero(ok), v[ok]))
     out = {"levels": list(lab0[:, 0])}
     for wheel in ("shadows", "midtones", "highlights", "global"):
-        R = np.array(fx["runs"]["grade-%s-h0-s100" % wheel]["ramp"], float)
-        out[wheel] = {"tint": list((_oklab(R) - lab0)[:, 1:] @ d)}
+        up = [[] for _ in L]; down = [[] for _ in L]
+        for hue, k in ((0, 0), (120, 1), (240, 2)):
+            R = np.array(fx["runs"]["grade-%s-h%d-s100" % (wheel, hue)]["ramp"], float)
+            P = lin(R) @ s2p.T
+            for i in range(1, len(L)):
+                if grey[i] < 0.002: continue
+                for c in range(3):
+                    if 2 < R[i, c] < 253 and P[i, c] > 0:
+                        g = np.log2(P[i, c] / grey[i])
+                        (up if c == k else down)[i].append(g if c == k else -g)
+        out[wheel] = {"up": fill([np.median(e) if e else np.nan for e in up]), "down": fill([np.median(e) if e else np.nan for e in down])}
         for l in (-100, 100):
             R = np.array(fx["runs"]["grade-%s-l%+d" % (wheel, l)]["ramp"], float)
-            out[wheel]["lum%+d" % l] = list((_oklab(R) - lab0)[:, 0])
+            g = [np.log2(lin(R[i]).mean() / grey[i]) if grey[i] > 0.002 and 1 < R[i].mean() < 254 else np.nan for i in range(len(L))]
+            out[wheel]["lum%+d" % l] = fill(g)
     return out
 
 
@@ -592,13 +611,14 @@ def tables():
     lines.append("")
     lines.append("/**")
     lines.append(" * Color Grading (CR3, from CR0's runs, at Camera Raw's legacy Blending 100): for each wheel, at OKLab lightness `GRADING_LEVELS`,")
-    lines.append(" * how far a full-saturation tint moves the colour (OKLab a/b distance), and the lightness its Luminance at −100 and +100 adds.")
+    lines.append(" * the stops a full-saturation tint raises its hue's channels of linear ProPhoto (`up`) and lowers the others (`down`),")
+    lines.append(" * and the stops its Luminance at −100 and +100 moves all three.")
     lines.append(" */")
     lines.append("export const GRADING_LEVELS = " + arr(grading["levels"], 4) + ";")
-    lines.append("export const GRADING_MASKS: Record<\"shadows\" | \"midtones\" | \"highlights\" | \"global\", { tint: number[]; darker: number[]; lighter: number[] }> = {")
+    lines.append("export const GRADING_MASKS: Record<\"shadows\" | \"midtones\" | \"highlights\" | \"global\", { up: number[]; down: number[]; darker: number[]; lighter: number[] }> = {")
     for wheel in ("shadows", "midtones", "highlights", "global"):
         g = grading[wheel]
-        lines.append("  %s: { tint: %s, darker: %s, lighter: %s }," % (wheel, arr(g["tint"], 4), arr(g["lum-100"], 4), arr(g["lum+100"], 4)))
+        lines.append("  %s: { up: %s, down: %s, darker: %s, lighter: %s }," % (wheel, arr(g["up"], 4), arr(g["down"], 4), arr(g["lum-100"], 4), arr(g["lum+100"], 4)))
     lines.append("};")
     path = os.path.join(ROOT, "shared", "photo", "effects", "camera-raw", "measured.ts")
     os.makedirs(os.path.dirname(path), exist_ok=True)

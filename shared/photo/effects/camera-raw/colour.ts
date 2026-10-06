@@ -2,8 +2,10 @@
  * Camera Raw's Color Mixer and Color Grading (docs/photo/camera-raw.md, "CR3"), as fitted to CR0's runs:
  * - the Mixer on HSV of encoded ProPhoto (Camera Raw's hue bands, centred at 0°, 30°, 60°, 120°, 180°, 240°, 270°,
  *   300°, a colour shared by its two nearest), hue turned and saturation scaled, then HSL lightness moved;
- * - Grading in OKLab: each wheel's tint a move of a and b along its hue, its Luminance one of L, by how much of the
- *   wheel's tones a pixel is (`GRADING_MASKS`, measured at Blending 100; Blending narrows them, Balance moves them).
+ * - Grading in stops of linear ProPhoto: a wheel's tint raises its hue's channels and lowers the others (HSV of its hue,
+ *   by the same stops for every hue, as Camera Raw's do), its Luminance all three, by how much of the wheel's
+ *   tones a pixel is (`GRADING_MASKS` over OKLab lightness, measured at Blending 100; Blending narrows them, Balance
+ *   moves them).
  * The GPU reads the same numbers from its table (`colourBlock`).
  */
 import type { EffectParamValue } from "../../types.ts";
@@ -97,57 +99,48 @@ const M1 = [
   [0.2119034982, 0.6806995451, 0.1073969566],
   [0.0883024619, 0.2817188376, 0.6299787005],
 ] as const;
-const M2 = [
-  [0.2104542553, 0.793617785, -0.0040720468],
-  [1.9779984951, -2.428592205, 0.4505937099],
-  [0.0259040371, 0.7827717662, -0.808675766],
-] as const;
-const M2_INV = [
-  [1, 0.3963377774, 0.2158037573],
-  [1, -0.1055613458, -0.0638541728],
-  [1, -0.0894841775, -1.291485548],
-] as const;
-const M1_INV = [
-  [4.0767416621, -3.3077115913, 0.2309699292],
-  [-1.2684380046, 2.6097574011, -0.3413193965],
-  [-0.0041960863, -0.7034186147, 1.707614701],
-] as const;
-const apply3 = (m: readonly (readonly number[])[], v: readonly number[]): Rgb => [0, 1, 2].map((r) => m[r][0] * v[0] + m[r][1] * v[1] + m[r][2] * v[2]) as Rgb;
+const M2_L = [0.2104542553, 0.793617785, -0.0040720468] as const;
 
-/** OKLab from linear sRGB, and back. */
-export const toOklab = (rgb: readonly number[]): Rgb => apply3(M2, apply3(M1, rgb).map(Math.cbrt));
-export const fromOklab = (lab: readonly number[]): Rgb => apply3(M1_INV, apply3(M2_INV, lab).map((v) => v * v * v));
-
-/** The OKLab a/b direction of a hue (Camera Raw's degrees: an HSV hue of sRGB). */
-export function hueDirection(degrees: number): [number, number] {
-  const [r, g, b] = hsvToRgb([degrees, 1, 1]);
-  const lin = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
-  const [, a, bb] = toOklab([lin(r), lin(g), lin(b)]);
-  const n = Math.hypot(a, bb) || 1;
-  return [a / n, bb / n];
+/** OKLab's lightness of linear sRGB (where the grading's masks are read). */
+export function oklabLightness(rgb: readonly number[]): number {
+  const lms = M1.map((row) => Math.cbrt(Math.max(0, row[0] * rgb[0] + row[1] * rgb[1] + row[2] * rgb[2])));
+  return M2_L[0] * lms[0] + M2_L[1] * lms[1] + M2_L[2] * lms[2];
 }
 
-/** Each wheel's tint (a, b move at full mask), its Luminance (−1..1), and how Blending and Balance shape the masks. */
+/**
+ * Each wheel's tint (how much each channel is raised, `up`, and lowered, `down`: its hue's colour and the rest, times
+ * the saturation), its Luminance (−1..1), and how Blending and Balance shape the masks.
+ */
 export interface Grading {
-  wheels: { a: number; b: number; luminance: number }[];
-  /** How much narrower than the measured masks (Blending 100) each region is. */
-  narrow: number;
-  /** How far Balance moves the shadows' and highlights' masks along L, and how it weights them. */
-  shift: number;
+  wheels: { up: Rgb; down: Rgb; luminance: number }[];
+  /** How much narrower than the measured masks (Blending 100) the shadows' and highlights' regions are (midtones' the mean). */
+  narrowShadows: number;
+  narrowHighlights: number;
+  /** Balance (−1..1). */
   balance: number;
 }
+
+/**
+ * How Blending and Balance shape the masks (fitted to Camera Raw's Blending 0 and Balance ±100 runs): Blending 0
+ * narrows the shadows' and highlights' regions, Balance hands the tones to one of them: towards +100 the highlights'
+ * region reaches down and strengthens while the shadows' fades (towards −100 the reverse).
+ */
+export const GRADING_SHAPE = { narrowShadows: 0.5, narrowHighlights: 1.75, shiftShadows: 0.15, shiftHighlights: 0.1, gainShadows: 0, gainHighlights: 0.75 } as const;
 
 export function grading(p: Record<string, EffectParamValue>): Grading | null {
   const num = (k: string, d = 0) => (p[k] as number | undefined) ?? d;
   const wheels = GRADING_WHEELS.map((w) => {
     const sat = num(`${w}Saturation`) / 100;
-    const [a, b] = sat > 0 ? hueDirection(num(`${w}Hue`)) : [0, 0];
-    return { a: a * sat, b: b * sat, luminance: num(`${w}Luminance`) / 100 };
+    const colour = hsvToRgb([num(`${w}Hue`), 1, 1]);
+    return { up: colour.map((c) => c * sat) as Rgb, down: colour.map((c) => (1 - c) * sat) as Rgb, luminance: num(`${w}Luminance`) / 100 };
   });
-  if (wheels.every((w) => w.a === 0 && w.b === 0 && w.luminance === 0)) return null;
+  if (wheels.every((w) => isNeutral(w))) return null;
   const balance = num("gradingBalance") / 100;
-  return { wheels, narrow: 0.5 * (1 - num("gradingBlending", 50) / 100), shift: -0.2 * balance, balance };
+  const blend = 1 - num("gradingBlending", 50) / 100;
+  return { wheels, narrowShadows: GRADING_SHAPE.narrowShadows * blend, narrowHighlights: GRADING_SHAPE.narrowHighlights * blend, balance };
 }
+
+const isNeutral = (w: Grading["wheels"][number]) => w.up.every((c) => c === 0) && w.down.every((c) => c === 0) && w.luminance === 0;
 
 /** A measured table (over `GRADING_LEVELS`) at lightness L. */
 function maskAt(table: readonly number[], L: number): number {
@@ -166,51 +159,54 @@ function maskAt(table: readonly number[], L: number): number {
 
 /** Where wheel `w`'s measured masks are read for lightness L (Blending narrows them towards their region, Balance moves them). */
 export function wheelLightness(w: number, L: number, g: Grading): number {
-  const k = 1 + g.narrow;
-  if (w === 0) return L * k - g.shift;
-  if (w === 1) return 0.6 + (L - 0.6) * k;
-  if (w === 2) return 1 - (1 - L) * k - g.shift;
+  if (w === 0) return L * (1 + g.narrowShadows) + GRADING_SHAPE.shiftShadows * g.balance;
+  if (w === 1) return 0.6 + (L - 0.6) * (1 + (g.narrowShadows + g.narrowHighlights) / 2);
+  if (w === 2) return 1 - (1 - L) * (1 + g.narrowHighlights) + GRADING_SHAPE.shiftHighlights * g.balance;
   return L;
 }
 
-/** How Balance weights a wheel. */
-export const wheelWeight = (w: number, g: Grading) => (w === 0 ? 1 - 0.5 * g.balance : w === 2 ? 1 + 0.5 * g.balance : 1);
+/** How Balance weights a wheel: the side it's turned to gains, the other fades. */
+export function wheelWeight(w: number, g: Grading): number {
+  const b = g.balance;
+  if (w === 0) return b > 0 ? 1 - b : 1 - GRADING_SHAPE.gainShadows * b;
+  if (w === 2) return b < 0 ? 1 + b : 1 + GRADING_SHAPE.gainHighlights * b;
+  return 1;
+}
 
-/** Color Grading on linear sRGB. */
-export function grade(rgb: Rgb, g: Grading): Rgb {
-  const [L, a, b] = toOklab(rgb.map((v) => Math.max(0, v)));
-  let [L2, a2, b2] = [L, a, b];
+/** Color Grading on linear ProPhoto, its masks read at OKLab lightness L. */
+export function grade(pp: Rgb, L: number, g: Grading): Rgb {
+  const gain = [0, 0, 0];
   GRADING_WHEELS.forEach((name, w) => {
     const wheel = g.wheels[w];
-    if (wheel.a === 0 && wheel.b === 0 && wheel.luminance === 0) return;
+    if (isNeutral(wheel)) return;
     const at = wheelLightness(w, L, g);
     const weight = wheelWeight(w, g);
     const masks = GRADING_MASKS[name];
-    const tint = maskAt(masks.tint, at) * weight;
-    a2 += wheel.a * tint;
-    b2 += wheel.b * tint;
-    if (wheel.luminance !== 0) L2 += Math.abs(wheel.luminance) * maskAt(wheel.luminance < 0 ? masks.darker : masks.lighter, at) * weight;
+    const up = maskAt(masks.up, at) * weight;
+    const down = maskAt(masks.down, at) * weight;
+    const lum = wheel.luminance === 0 ? 0 : Math.abs(wheel.luminance) * maskAt(wheel.luminance < 0 ? masks.darker : masks.lighter, at) * weight;
+    for (let c = 0; c < 3; c++) gain[c] += wheel.up[c] * up - wheel.down[c] * down + lum;
   });
-  return fromOklab([L2, a2, b2]);
+  return pp.map((v, c) => v * 2 ** gain[c]) as Rgb;
 }
 
 /**
- * The GPU's copy of these settings (and the measured masks), in the table: the Mixer's 24, then 4 per wheel (a, b,
- * luminance, unused), then the levels and each wheel's three masks.
+ * The GPU's copy of these settings (and the measured masks), in the table: the Mixer's 24, then 8 per wheel (its
+ * up's three channels, its down's, luminance, unused), then the levels and each wheel's four masks.
  */
-export const COLOUR_BLOCK_SIZE = 24 + 16 + GRADING_LEVELS.length * 13;
+export const COLOUR_BLOCK_SIZE = 24 + 32 + GRADING_LEVELS.length * 17;
 
 export function colourBlock(p: Record<string, EffectParamValue>): Float32Array {
   const block = new Float32Array(COLOUR_BLOCK_SIZE);
   const bands = mixerBands(p);
   if (bands) block.set([...bands.hue, ...bands.saturation, ...bands.luminance], 0);
   const g = grading(p);
-  if (g) g.wheels.forEach((w, i) => block.set([w.a, w.b, w.luminance, 0], 24 + i * 4));
-  let at = 40;
+  if (g) g.wheels.forEach((w, i) => block.set([...w.up, ...w.down, w.luminance, 0], 24 + i * 8));
+  let at = 56;
   block.set(GRADING_LEVELS, at);
   at += GRADING_LEVELS.length;
   for (const name of GRADING_WHEELS) {
-    for (const table of [GRADING_MASKS[name].tint, GRADING_MASKS[name].darker, GRADING_MASKS[name].lighter]) {
+    for (const table of [GRADING_MASKS[name].up, GRADING_MASKS[name].down, GRADING_MASKS[name].darker, GRADING_MASKS[name].lighter]) {
       block.set(table, at);
       at += table.length;
     }
