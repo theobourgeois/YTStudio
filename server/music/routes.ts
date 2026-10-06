@@ -98,9 +98,13 @@ export function browserRoutes(browser: SampleBrowser, engine: AudioEngine, media
   router.get("/search", (req, res) => {
     res.json(browser.search(req.query.q, req.query.limit));
   });
+  // The last preview asked for: an online clip's still downloading when another is asked for isn't played.
+  let latestPreview = 0;
   // Hear a file or an online clip, outside the song (`PreviewFileRequest`); `/api/engine/stopPreview` stops it.
   router.post("/preview", json(), async (req, res) => {
+    const ticket = ++latestPreview;
     const file = req.body?.url !== undefined ? await media.webAudio(req.body.url) : await browser.audioFile(req.body?.path);
+    if (ticket !== latestPreview) return void res.sendStatus(204);
     const start = Number(req.body?.start);
     const id = typeof req.body?.id === "string" ? req.body.id.slice(0, 200) : "";
     res.json(await engine.previewFile(file, Number.isFinite(start) && start > 0 ? start : 0, id));

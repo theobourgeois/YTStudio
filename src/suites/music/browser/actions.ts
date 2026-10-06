@@ -38,6 +38,24 @@ export async function openInNewChannels(paths: string[]) {
   if (added.length) useMusicUi.getState().setSelection(added);
 }
 
+/** How far the engine's preview of the Browser's sample has got, in seconds as heard; null if it isn't playing it (yet). */
+export function previewSeconds(): number | null {
+  const { filePreview, at, latencyMs } = useTransport.getState();
+  const previewing = useBrowser.getState().previewing;
+  if (!filePreview || !previewing || filePreview.id !== previewing.id) return null;
+  return Math.min(filePreview.duration, filePreview.seconds + Math.max(0, performance.now() - at - latencyMs) / 1000);
+}
+
+/**
+ * Pause a sample's preview where it is, or go on from where it was paused (else from its start): the preview
+ * bar's button, an online clip pressed while it plays, and Space while a preview plays.
+ */
+export function togglePreview(path: string) {
+  const store = useBrowser.getState();
+  if (store.previewing?.path === path) return store.pausePreview(previewSeconds());
+  store.preview(path, store.paused?.path === path ? store.paused.seconds : 0);
+}
+
 export function showInFinder(path: string) {
   musicApi.revealBrowserFile(path).catch((err) => toast.error("Couldn't show it", { description: errorMessage(err) }));
 }

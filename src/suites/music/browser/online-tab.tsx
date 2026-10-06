@@ -1,5 +1,5 @@
 import { type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { PiGlobe, PiLinkBreak, PiMagnifyingGlass, PiPlus, PiSealCheckFill, PiSpeakerHighFill, PiSpinnerGap, PiWarningCircle, PiX } from "react-icons/pi";
+import { PiGlobe, PiLinkBreak, PiMagnifyingGlass, PiPauseFill, PiPlayFill, PiPlus, PiSealCheckFill, PiSpeakerHighFill, PiSpinnerGap, PiWarningCircle, PiX } from "react-icons/pi";
 import { toast } from "sonner";
 import { formatDuration } from "@shared/format";
 import type { WebClip } from "@shared/types";
@@ -7,7 +7,7 @@ import { cn } from "cn";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { useWebSearch } from "@/components/media/use-web-search";
 import { useTransport } from "../transport";
-import { openInNewChannels, samplerToSendTo, sendToSelectedChannel } from "./actions";
+import { openInNewChannels, samplerToSendTo, sendToSelectedChannel, togglePreview } from "./actions";
 import { BROWSER_DRAG_TYPE, type BrowserDrag, setCarriedPaths } from "./drops";
 import { rememberClips } from "./online";
 import { useBrowser } from "./store";
@@ -15,7 +15,7 @@ import { useBrowser } from "./store";
 /**
  * The Browser's Online tab (`docs/fl-studio/browser.md`, where Vaudio differs): search YouTube or paste a link
  * from any site yt-dlp reads, and use a clip's sound as any of the Browser's files: pressed, it plays (the
- * engine's preview, once it's downloaded); dragged onto the rack, a channel or the Playlist, it comes into the
+ * engine's preview, once it's downloaded; pressed again, it pauses, and again it goes on); dragged onto the rack, a channel or the Playlist, it comes into the
  * song. Kept mounted while the Files tab shows, so its results stay.
  */
 export function OnlineTab({ shown }: { shown: boolean }) {
@@ -129,13 +129,15 @@ function OnlineRow({ clip, index }: { clip: WebClip; index: number }) {
   const previewId = useBrowser((s) => (s.previewing?.path === clip.url ? s.previewing.id : null));
   // Pressed, but the engine isn't playing it yet: its sound is still downloading.
   const waiting = useTransport((s) => previewId !== null && s.filePreview?.id !== previewId);
+  const paused = useBrowser((s) => s.paused?.path === clip.url);
   const [thumbBroken, setThumbBroken] = useState(false);
 
-  // A clip plays as it's pressed, as a file does (`RowView`).
+  // A clip plays as it's pressed, as a file does (`RowView`); pressed while it plays, it pauses (a whole song
+  // shouldn't play to its end to be stopped).
   const onPointerDown = (e: ReactPointerEvent) => {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || (e.target as HTMLElement).closest("button")) return;
     useBrowser.getState().selectOnline(clip.url);
-    useBrowser.getState().preview(clip.url);
+    togglePreview(clip.url);
   };
   const onDragStart = (e: DragEvent) => {
     useBrowser.getState().selectOnline(clip.url);
@@ -176,11 +178,24 @@ function OnlineRow({ clip, index }: { clip: WebClip; index: number }) {
               // Some sites refuse thumbnails hotlinked from other pages.
               <img src={clip.thumbnail} alt="" loading="lazy" draggable={false} referrerPolicy="no-referrer" className="size-full object-cover" onError={() => setThumbBroken(true)} />
             )}
-            {previewId !== null && (
-              <span className="absolute inset-0 grid place-items-center bg-black/50 text-white">
-                {waiting ? <PiSpinnerGap className="size-3.5 animate-spin" /> : <PiSpeakerHighFill className="size-3.5" />}
-              </span>
-            )}
+            {/* What a press does: play, pause (over the speaker of the one playing), or wait for its download. */}
+            <span
+              className={cn(
+                "absolute inset-0 grid place-items-center bg-black/50 text-white transition-opacity",
+                previewId !== null || paused ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+              )}
+            >
+              {waiting ? (
+                <PiSpinnerGap className="size-3.5 animate-spin" />
+              ) : previewId !== null ? (
+                <>
+                  <PiSpeakerHighFill className="size-3.5 group-hover:hidden" />
+                  <PiPauseFill className="hidden size-3.5 group-hover:block" />
+                </>
+              ) : (
+                <PiPlayFill className="size-3.5" />
+              )}
+            </span>
           </span>
           <span className="flex min-w-0 flex-1 flex-col">
             <span className={cn("truncate leading-4", previewId !== null && "text-brand")}>{clip.title}</span>
@@ -210,6 +225,16 @@ function OnlineRow({ clip, index }: { clip: WebClip; index: number }) {
   );
 }
 
+function OnlinePlayItem({ url }: { url: string }) {
+  const playing = useBrowser((s) => s.previewing?.path === url);
+  return (
+    <ContextMenuItem onSelect={() => togglePreview(url)}>
+      {playing ? "Pause" : "Play"}
+      {playing && <ContextMenuShortcut>Space</ContextMenuShortcut>}
+    </ContextMenuItem>
+  );
+}
+
 function OnlineRowMenu({ clip }: { clip: WebClip }) {
   const target = samplerToSendTo();
   return (
@@ -218,7 +243,7 @@ function OnlineRowMenu({ clip }: { clip: WebClip }) {
         {target ? `Send to ${target.name}` : "Send to selected channel"} <ContextMenuShortcut>↵</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuItem onSelect={() => void openInNewChannels([clip.url])}>Open in new channel</ContextMenuItem>
-      <ContextMenuItem onSelect={() => useBrowser.getState().preview(clip.url)}>Play</ContextMenuItem>
+      <OnlinePlayItem url={clip.url} />
       <ContextMenuSeparator />
       <ContextMenuItem
         onSelect={() =>

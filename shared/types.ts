@@ -1149,7 +1149,7 @@ export interface ToolCallProgressRequest {
 //   GET    /api/browser/file?path=      -> the audio file (only inside the Browser's folders)
 //   POST   /api/browser/use  body: UseBrowserFileRequest -> MediaAsset (the project's copy of the file or online clip, made once)
 //   POST   /api/browser/reveal  body: { path } -> 204 (shows it in Finder)
-//   POST   /api/browser/preview  body: PreviewFileRequest -> EngineStatus (hear a file or an online clip; POST /api/engine/stopPreview stops it)
+//   POST   /api/browser/preview  body: PreviewFileRequest -> EngineStatus (hear a file or an online clip; POST /api/engine/stopPreview stops it; 204: another was asked for while it downloaded)
 //   GET    /api/engine/devices          -> EngineDevices (the output and input devices and their options)
 //   POST   /api/engine/devices  body: SetDeviceRequest -> EngineDevices
 //   POST   /api/engine/:command  body: EngineCommands[command] -> EngineStatus (starts the engine if needed)

@@ -1888,6 +1888,19 @@ test("the Browser's Online tab: YouTube searched, a result heard and dragged int
   // Pressed, it plays (its sound downloaded first), and its waveform shows below.
   await result("Amen Break").click();
   await expect(result("Amen Break")).toHaveAttribute("data-playing", "true");
+  // Pressed again it pauses; the preview bar's button goes on; Space pauses it (rather than playing the song).
+  const toggle = browser.getByTestId("browser-preview-toggle");
+  await result("Amen Break").click();
+  await expect(result("Amen Break")).not.toHaveAttribute("data-playing", "true");
+  await expect(toggle).toHaveAccessibleName("Play the preview");
+  await toggle.click();
+  await expect(result("Amen Break")).toHaveAttribute("data-playing", "true");
+  await page.keyboard.press("Space");
+  await expect(toggle).toHaveAccessibleName("Play the preview");
+  await expect(result("Amen Break")).not.toHaveAttribute("data-playing", "true");
+  await expect(page.getByRole("toolbar", { name: "Transport" }).getByRole("button", { name: "Play" })).not.toHaveAttribute("aria-pressed", "true");
+  await toggle.click();
+  await expect(result("Amen Break")).toHaveAttribute("data-playing", "true");
   await expect(browser.getByTestId("browser-preview")).toContainText("Amen Break");
   await expect(browser.getByTestId("browser-waveform")).toHaveAttribute("data-loaded", "true");
 

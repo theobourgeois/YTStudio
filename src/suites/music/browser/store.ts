@@ -34,6 +34,8 @@ interface BrowserStoreState {
   cursor: string | null;
   /** The file being previewed (its path, or an online clip's URL), and the name the engine knows the preview by. */
   previewing: { path: string; id: string } | null;
+  /** Where a preview was paused (its sample and the seconds it had got to): play goes on from there. */
+  paused: { path: string; seconds: number } | null;
   /** The Online tab's search (or link), and the clip selected there (its URL). */
   onlineQuery: string;
   onlineSelected: string | null;
@@ -64,6 +66,8 @@ interface BrowserStoreState {
   /** Hear a file (from `start` seconds), cutting off the last; or nothing, if it's already playing from its start. */
   preview: (path: string, start?: number) => void;
   stopPreview: () => void;
+  /** Stop the preview, keeping where it had got to (`seconds`, null if the engine wasn't playing it yet) for play to go on from. */
+  pausePreview: (seconds: number | null) => void;
 }
 
 const STORAGE_KEY = "vaudio.music.browser";
@@ -148,6 +152,7 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
     selected: [],
     cursor: null,
     previewing: null,
+    paused: null,
     scrollTo: null,
     onlineQuery: "",
     onlineSelected: null,
@@ -267,16 +272,27 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
     clearScrollTo: () => set({ scrollTo: null }),
     preview(path, start = 0) {
       const id = `preview-${++previews}`;
-      set({ previewing: { path, id } });
-      musicApi.previewFile(previewRequest(path, start, id)).catch((err) => {
-        if (get().previewing?.id === id) set({ previewing: null });
-        failed("Couldn't play the file", err);
-      });
+      set({ previewing: { path, id }, paused: null });
+      musicApi.previewFile(previewRequest(path, start, id)).then(
+        // Stopped while its sound was still downloading (an online clip's): the engine started it since.
+        () => get().previewing === null && void musicApi.engine("stopPreview", {}).catch(() => {}),
+        (err) => {
+          if (get().previewing?.id === id) set({ previewing: null });
+          failed("Couldn't play the file", err);
+        },
+      );
     },
     stopPreview() {
+      set({ paused: null });
       if (!get().previewing) return;
       set({ previewing: null });
       void musicApi.engine("stopPreview", {}).catch(() => {});
+    },
+    pausePreview(seconds) {
+      const previewing = get().previewing;
+      if (!previewing) return;
+      get().stopPreview();
+      if (seconds !== null) set({ paused: { path: previewing.path, seconds } });
     },
   };
 });
