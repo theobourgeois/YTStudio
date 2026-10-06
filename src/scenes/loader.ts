@@ -30,3 +30,10 @@ export function lazySceneRenderer(ready: () => void): SceneRenderer {
     return null;
   };
 }
+
+/** Whether scenes can be drawn yet: starts loading them when they can't. */
+export function scenesReady(): boolean {
+  if (renderer) return true;
+  load();
+  return false;
+}
