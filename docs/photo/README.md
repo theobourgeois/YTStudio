@@ -30,6 +30,7 @@ source's profile on the GPU without clipping, and leaves through one output tran
 5. [UX](ux.md): workspace, keys and interaction contracts for the first workflow.
 6. [Effects](effects/system.md): definitions, glow, the flare, porting from the video editor.
 7. [Foundations](foundations-prototype.md): milestones F0–F5, gates, targets, the evidence log.
+   F4's detailed plan: [f4-light.md](f4-light.md).
 8. [Engine options](research/engine-options.md): why WebGPU in the page, measured; the fallbacks.
 9. [Sources](research/sources.md): references and what's still unverified.
 

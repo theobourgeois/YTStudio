@@ -303,6 +303,8 @@ segment of samples a frame), Electron 44.5.0 / headless Chrome 154:
 
 ## F4: light
 
+The detailed plan (decisions, the version-4 document, the glow's evaluation, order of work): [f4-light.md](f4-light.md).
+
 - Glow as a layer effect; the flare as a generator layer with a source handle and its elements (source glow, halo,
   ghosts, anamorphic streak).
 - The output transform's `film` curve fixed with fixtures.
