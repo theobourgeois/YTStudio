@@ -20,6 +20,7 @@ import {
   sourceRange,
 } from "./timeline.ts";
 import { normalizeMarkers } from "./markers.ts";
+import { normalizeSignalDefs } from "./links.ts";
 import { pruneParents, sanitizeParent } from "./parenting.ts";
 import { normalizeSubclips } from "./subclips.ts";
 import { sanitizeTransition } from "./transitions.ts";
@@ -67,6 +68,7 @@ export function normalizeProject(input: Project, assets?: Assets): Project {
   });
   const subclips = normalizeSubclips(input?.subclips, assets);
   const markers = normalizeMarkers(input?.markers, 0);
+  const signals = normalizeSignalDefs(input?.signals);
   const project: Project = {
     version: 1,
     name: typeof input?.name === "string" && input.name ? input.name : base.name,
@@ -75,6 +77,7 @@ export function normalizeProject(input: Project, assets?: Assets): Project {
     clips: main.clips,
     ...(markers.length > 0 && { markers }),
     ...(subclips.length > 0 && { subclips }),
+    ...(signals.length > 0 && { signals }),
     ...(sequences.length > 0 && { sequences }),
   };
   return withoutLoops(project);

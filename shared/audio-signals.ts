@@ -16,7 +16,9 @@ import { bandEnergyAt, bandReferenceEnergy, dbPower, powerDb, scalarAt, scalarMa
 import { isNestedClip, sequenceView } from "./sequences.ts";
 import { mediaTime } from "./time-remap.ts";
 import { clipDuration, clipEnd, clipSpeed, sourceTime, timelineTime, trackClips } from "./timeline.ts";
-import type { Clip, MusicSection, Project, Track } from "./types.ts";
+import type { Clip, MusicSection, Project, SignalSource, Track } from "./types.ts";
+
+export type { SignalSource };
 
 /** Loaded signals by media id. */
 export type SignalStore = ReadonlyMap<string, SignalData>;
@@ -26,9 +28,6 @@ export interface SignalReader {
   readonly document: Project;
   readonly store: SignalStore;
 }
-
-/** What a signal is read from, in a sequence. */
-export type SignalSource = { kind: "master" } | { kind: "track"; trackId: string } | { kind: "clip"; clipId: string };
 
 export const MASTER: SignalSource = { kind: "master" };
 

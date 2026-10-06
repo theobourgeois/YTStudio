@@ -237,7 +237,7 @@ export function PropertiesPanel() {
 }
 
 /** Whether an effect's values change with the playhead. */
-const moves = (effect: Effect) => !!effect.keyframes || !!effect.expressions;
+const moves = (effect: Effect) => !!effect.keyframes || !!effect.expressions || !!effect.links;
 
 /** Width of the properties' own column beside the keyframe lanes (the left panel's usual width). */
 const ROWS_WIDTH = "21.5rem";
