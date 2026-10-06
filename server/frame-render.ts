@@ -8,7 +8,7 @@
  */
 import { once } from "node:events";
 import type { Readable } from "node:stream";
-import { type FramePacket, GlSession } from "./gl-browser.ts";
+import { type CompositeJob, type FramePacket, GlSession } from "./gl-browser.ts";
 import { compileProblems, problemText } from "../shared/shader-code.ts";
 import { spawnStreaming } from "./process.ts";
 import { type FrameLayer, type RenderPlan, type RenderSource, frameBytes, sourceFrameBytes } from "./render.ts";
@@ -169,6 +169,7 @@ export async function renderVideo(
   encoderArgv: string[],
   signal: AbortSignal,
   onFrame: () => void,
+  output: Pick<CompositeJob, "readback" | "transparent"> = {},
 ): Promise<void> {
   signal.throwIfAborted();
   const session = await GlSession.open();
@@ -186,7 +187,7 @@ export async function renderVideo(
     processes.push(encoder);
     const stdin = encoder.child.stdin!;
     stdin.on("error", () => {}); // a failing encoder reports through `done`
-    const frameSize = frameBytes(plan);
+    const frameSize = frameBytes(plan, output.readback);
 
     // Finished frames can come back out of order; they're encoded in order.
     const finished = new Map<number, Buffer>();
@@ -276,7 +277,7 @@ export async function renderVideo(
 
     let assigned = 0;
     let prepared: Promise<unknown> = Promise.resolve();
-    await session.composite({ width: plan.width, height: plan.height }, async (done) => {
+    await session.composite({ width: plan.width, height: plan.height, ...output }, async (done) => {
       signal.throwIfAborted();
       if (done) await encode(done.frame, done.data);
       if (assigned >= plan.frames) return null;
@@ -284,7 +285,7 @@ export async function renderVideo(
       const packet = prepared.then(() => prepare(f));
       prepared = packet.catch(() => {});
       return packet;
-    }, plan.fonts, plan.scenes);
+    }, plan.fonts);
     if (written !== plan.frames) throw new Error("Some frames weren't drawn.");
     stdin.end();
     for (const decoder of running.values()) decoder.close();

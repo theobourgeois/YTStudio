@@ -754,6 +754,10 @@ export interface UseLibraryItemResponse {
 // ---------------------------------------------------------------------------
 
 export type ExportResolution = "720p" | "1080p" | "4k";
+/** What an export makes (described in `shared/export-formats.ts`). */
+export type ExportFormat = "h264" | "hevc" | "prores-hq" | "prores-4444" | "png";
+/** H.264's and HEVC's quality. */
+export type ExportQuality = "standard" | "high" | "best";
 
 export interface ExportRequest {
   project: Project;
@@ -762,6 +766,12 @@ export interface ExportRequest {
   fileName?: string;
   /** Render without the audio tracks (e.g. to add the song in-app when posting). */
   excludeAudioTracks?: boolean;
+  /** What to make (`shared/export-formats.ts`); absent: H.264. */
+  format?: ExportFormat;
+  /** H.264's and HEVC's quality; absent: standard. */
+  quality?: ExportQuality;
+  /** Transparent where no clip covers the frame (ProRes 4444 and PNG sequences only); the canvas's black otherwise. */
+  alpha?: boolean;
   /**
    * Every text clip laid out by the browser at the export's size (the server has
    * no way to measure text in the user's fonts), by clip id: one layout, or
@@ -792,9 +802,17 @@ export interface ExportJob {
   duration: number;
   /** Download URL (served with Content-Disposition: attachment) once done. */
   downloadUrl: string | null;
-  /** Inline URL, playable in a <video>, once done. */
+  /** Inline URL, playable in a <video>, once done (an MP4's; null for a MOV or a ZIP). */
   url: string | null;
+  /** Without its extension. */
   fileName: string;
+  format: ExportFormat;
+  quality: ExportQuality;
+  alpha: boolean;
+  /** The file's extension (mp4, mov, zip). */
+  extension: string;
+  /** The file's size once done. */
+  bytes?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1092,6 +1110,7 @@ export interface ToolCallProgressRequest {
 //   GET    /api/library/media/:id       -> MediaAsset (a Library file)
 //   GET    /api/fonts                   -> FontFamily[] installed on this computer (A to Z)
 //   POST   /api/exports   body: ExportRequest -> ExportJob (202)
+//   GET    /api/exports/formats         -> ExportFormat[] (what this computer's ffmpeg can make)
 //   GET    /api/exports/:id             -> ExportJob
 //   DELETE /api/exports/:id             -> 204 (cancels if running)
 //   GET    /api/exports/:id/download    -> file (attachment)

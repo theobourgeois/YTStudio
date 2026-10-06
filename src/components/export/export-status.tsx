@@ -50,6 +50,11 @@ export function ExportDone({ job, onAgain }: { job: ExportJob; onAgain: () => vo
   const ratio = job.width / job.height;
   return (
     <>
+      {!job.url && (
+        <p className="truncate rounded-md bg-muted/60 px-3 py-2.5 text-sm">
+          {job.fileName}.{job.extension}
+        </p>
+      )}
       {job.url && (
         <video
           key={job.url}
@@ -67,7 +72,7 @@ export function ExportDone({ job, onAgain }: { job: ExportJob; onAgain: () => vo
         </Button>
         {job.downloadUrl && (
           <Button asChild className={brandButton}>
-            <a href={job.downloadUrl} download={job.fileName}>
+            <a href={job.downloadUrl} download={`${job.fileName}.${job.extension}`}>
               <PiDownloadSimple />
               Download
             </a>

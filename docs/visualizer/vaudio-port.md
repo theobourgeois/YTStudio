@@ -50,7 +50,10 @@ GLSL ES 1.0: update to `#version 300 es` when porting.
 - **Already in the editor**: the 24 blend modes, warp, kaleido, mirror, ripple, chroma split, posterize, solarize,
   grain, scanlines, vignette, pixelate. Compare looks; keep the editor's.
 
-## The 3D scenes (`scene3d/`) → V8
+## The 3D scenes (`scene3d/`) → V8 (ported, then replaced)
+
+They were ported (V8's first take), then replaced by five raymarched scenes of our own ([scenes.md](scenes.md)). What
+follows is what the port found.
 
 `runtime.ts` (a renderer per layer, ACES, afterimage then bloom), `environment.ts` (a procedural environment map, no
 state: comes over as is), `palette.ts`, `kit.ts` (`smoothTo`, `fibonacciDirections`, ribbons, dust, light shafts) are

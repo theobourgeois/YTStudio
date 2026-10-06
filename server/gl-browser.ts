@@ -14,13 +14,13 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Browser } from "playwright-core";
-import { type Adjustment, type EffectPass, IDENTITY, type Placed, type SceneRenderer, type Shader, createCompositor } from "../shared/compositor.ts";
+import { type Adjustment, type EffectPass, IDENTITY, type Placed, type Shader, createCompositor } from "../shared/compositor.ts";
 import { errorMessage } from "../shared/errors.ts";
+import type { FrameReadback } from "../shared/export-formats.ts";
 import type { UniformValue } from "../shared/transition-gl.ts";
 import { drawSampleScene } from "../shared/transition-samples.ts";
 import { CHROMIUM } from "./config.ts";
 import type { FrameLayer, PlacedRef } from "./render.ts";
-import { sceneRuntime } from "./scene-runtime.ts";
 
 // On a Mac, headless Chromium can draw with the GPU (Metal); elsewhere it falls back to SwiftShader.
 const ARGS = [
@@ -88,17 +88,25 @@ export function setGlPageOpener(opener: GlPageOpener) {
 /** What the page script exposes (see `pageScript`). */
 interface PageApi {
   /** Draw frames until told to stop, exchanging them with `/exchange` (see `GlSession.composite`). */
-  composite(job: { width: number; height: number; lanes: number; fonts: string[] }): Promise<void>;
+  composite(job: CompositeJob & { lanes: number; fonts: string[] }): Promise<void>;
   sheet(job: SheetJob): string;
   check(job: CheckJob): CheckResult[];
   effects(job: EffectJob): { sheet: string; results: EffectResult[] };
   layers(job: LayersJob): { sheet: string; results: LayersResult[] };
   /** Compile fragment shaders by key: the logs of those that don't. */
   compile(sources: Record<string, string>): Record<string, string>;
-  /** Load the 3D scenes' runtime (`/scene-runtime.js`) and render scenes with it from now on. */
-  loadScenes(): Promise<void>;
   /** Draw planned frames (`FramesJob`) on a compositor of its own, in `order`: each one's RGBA, top row first. */
   frames(job: FramesJob): number[][];
+}
+
+/** What an export's frames are: their size, how they're read back, and whether what nothing covers is transparent. */
+export interface CompositeJob {
+  width: number;
+  height: number;
+  /** YUV 4:2:0 (the default), or straight RGBA. */
+  readback?: FrameReadback;
+  /** Begin each frame transparent instead of the canvas's black (an export with alpha). */
+  transparent?: boolean;
 }
 
 /** What the page needs for its next frame. */
@@ -201,8 +209,6 @@ export interface EffectResult {
 /** The page's globals: its API, and the functions inlined into it. */
 interface PageGlobals {
   compositor: PageApi;
-  /** The 3D scenes' runtime, once loaded (`src/scenes/page.ts`). */
-  vaudioScenes?: { createSceneRenderer(): SceneRenderer };
   createCompositor: typeof createCompositor;
   drawSampleScene: typeof drawSampleScene;
   IDENTITY: typeof IDENTITY;
@@ -220,7 +226,6 @@ function pageScript(): string {
     const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false });
     if (!gl) throw new Error("WebGL 2 isn't available in the headless browser.");
     const compositor = createCompositor(gl);
-    let sceneRenderer: SceneRenderer | null = null;
     const whole = (key: string): Placed => ({ key, affine: IDENTITY, opacity: 1 });
     /** The two sample scenes as pictures "a" and "b", at the cell size. */
     const scenes = (cw: number, ch: number) => {
@@ -293,7 +298,6 @@ function pageScript(): string {
         const own = document.createElement("canvas");
         const ctx = own.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false })!;
         const fresh = createCompositor(ctx);
-        fresh.setSceneRenderer(sceneRenderer);
         fresh.resize(job.width, job.height);
         const reads: number[][] = [];
         try {
@@ -320,20 +324,6 @@ function pageScript(): string {
           fresh.dispose();
         }
         return reads;
-      },
-      async loadScenes() {
-        const globals = globalThis as unknown as PageGlobals;
-        if (!globals.vaudioScenes) {
-          await new Promise<void>((resolve, reject) => {
-            const script = document.createElement("script");
-            script.src = "/scene-runtime.js";
-            script.onload = () => resolve();
-            script.onerror = () => reject(new Error("The 3D scenes' runtime didn't load."));
-            document.head.append(script);
-          });
-        }
-        sceneRenderer = globals.vaudioScenes!.createSceneRenderer();
-        compositor.setSceneRenderer(sceneRenderer);
       },
       async composite(job) {
         compositor.resize(job.width, job.height);
@@ -364,9 +354,9 @@ function pageScript(): string {
           Object.assign(shaders, head.shaders);
           for (const { key, source } of pictures) compositor.setPicture(key, source);
           for (const key of head.release) compositor.deletePicture(key);
-          compositor.clear();
+          compositor.clear(job.transparent ? [0, 0, 0, 0] : undefined);
           drawFrame(compositor, shaders, head.layers);
-          return compositor.readYuv420Async();
+          return job.readback === "rgba" ? compositor.readRgbaAsync() : compositor.readYuv420Async();
         };
         const lane = async () => {
           let finished: { frame: number; data: Uint8Array<ArrayBuffer> } | null = null;
@@ -585,13 +575,9 @@ export type FrameExchange = (finished: { frame: number; data: Buffer } | null) =
  */
 const LANES = 3;
 
-/** Whether a job draws a 3D scene (an effect pass with a `scene`). */
-const drawsScenes = (job: unknown) => JSON.stringify(job).includes('"scene":{');
-
 /** One headless page with the compositor. Close it when done. */
 export class GlSession {
   private exchange: FrameExchange | null = null;
-  private scenes = false;
   /** Why compositing stopped (the page only sees a message). */
   private failure: unknown = null;
 
@@ -607,11 +593,6 @@ export class GlSession {
       if (req.method === "GET" && req.url === "/") {
         res.setHeader("Content-Type", "text/html");
         res.end(`<!doctype html><meta charset="utf-8"><script>${script}</script>`);
-      } else if (req.method === "GET" && req.url === "/scene-runtime.js") {
-        sceneRuntime().then(
-          (code) => res.writeHead(200, { "Content-Type": "text/javascript" }).end(code),
-          (err) => res.writeHead(500, { "Content-Type": "text/plain" }).end(errorMessage(err)),
-        );
       } else if (req.method === "POST" && req.url?.startsWith("/exchange")) {
         const chunks: Buffer[] = [];
         req.on("data", (c: Buffer) => chunks.push(c));
@@ -638,17 +619,16 @@ export class GlSession {
   }
 
   /**
-   * Draw frames of `size` (as YUV 4:2:0, see `readYuv420`) until `exchange`
-   * says there are no more. They're drawn in order, but finished frames may
-   * come back out of order.
+   * Draw frames of `job`'s size (as YUV 4:2:0, see `readYuv420`, or RGBA) until
+   * `exchange` says there are no more. They're drawn in order, but finished
+   * frames may come back out of order.
    */
-  async composite(size: { width: number; height: number }, exchange: FrameExchange, fonts: string[] = [], scenes = false): Promise<void> {
+  async composite(job: CompositeJob, exchange: FrameExchange, fonts: string[] = []): Promise<void> {
     this.exchange = exchange;
     this.failure = null;
     try {
-      if (scenes) await this.loadScenes();
-      const job = { ...size, lanes: LANES, fonts };
-      await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.composite(j), job);
+      const full = { ...job, lanes: LANES, fonts };
+      await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.composite(j), full);
     } catch (err) {
       throw this.failure ?? err;
     } finally {
@@ -693,30 +673,20 @@ export class GlSession {
 
   /** Draw stacks of layers over the sample scenes (see `LayersJob`): a PNG contact sheet, and the first/last frame checks. */
   async layers(job: LayersJob): Promise<{ sheet: Buffer; results: LayersResult[] }> {
-    if (drawsScenes(job)) await this.loadScenes();
     const { sheet, results } = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.layers(j), job);
     return { sheet: Buffer.from(sheet.slice(sheet.indexOf(",") + 1), "base64"), results };
   }
 
   /** Run effects over the plain sample picture: a PNG contact sheet, and how much each changed it. */
   async effects(job: EffectJob): Promise<{ sheet: Buffer; results: EffectResult[] }> {
-    if (drawsScenes(job)) await this.loadScenes();
     const { sheet, results } = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.effects(j), job);
     return { sheet: Buffer.from(sheet.slice(sheet.indexOf(",") + 1), "base64"), results };
   }
 
   /** Draw planned frames in an order (see `FramesJob`): each one's RGBA, top row first. */
   async frames(job: FramesJob): Promise<Uint8Array[]> {
-    if (drawsScenes(job)) await this.loadScenes();
     const reads = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.frames(j), job);
     return reads.map((r) => Uint8Array.from(r));
-  }
-
-  /** Have the page render 3D scenes (loading three.js and the scenes: a second or so the first time). */
-  async loadScenes(): Promise<void> {
-    if (this.scenes) return;
-    await this.page.evaluate(() => (globalThis as unknown as PageGlobals).compositor.loadScenes(), null);
-    this.scenes = true;
   }
 
   /** Compile fragment shaders (by key) as the export's page does: the logs of those that don't. */

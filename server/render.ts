@@ -34,6 +34,7 @@
 import { type Hearing, type SignalStore, createSignalReader, nestedHearing, withHearing, withSignals } from "../shared/audio-signals.ts";
 import { type Adjustment, type Affine, type EffectPass, type Placed, matteIndex } from "../shared/compositor.ts";
 import { effectPasses, effectShader } from "../shared/effect-gl.ts";
+import type { FrameReadback } from "../shared/export-formats.ts";
 import { type Camera3D } from "../shared/camera.ts";
 import {
   VOLUME,
@@ -171,8 +172,6 @@ export interface RenderPlan {
   shaderUses: Record<string, string>;
   /** The CSS fonts its texts are drawn in, for the page to have ready before the first frame. */
   fonts: string[];
-  /** Whether it draws 3D scenes (the page loads their runtime first). */
-  scenes: boolean;
   /** What output frame `f` draws, bottom layer first. */
   frame(f: number): FrameLayer[];
   /**
@@ -490,7 +489,6 @@ export function planRender(
     shaders,
     shaderUses,
     fonts: [...new Set(Object.values(texts).flatMap((layouts) => layouts.map((l) => l.layout.font)))],
-    scenes: everyClip.some((clip) => clip.effects.some((e) => e.enabled && !!definitionOf(e)?.shader?.scene)),
     needsReversed: [...needsReversed],
     frame(f) {
       return layersOf(top, "", frameTime(f, F), f, 0, null);
@@ -712,7 +710,8 @@ export function lumaWeights(colorSpace: string | null | undefined, height: numbe
   }
 }
 
-const BT709 = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"];
+/** Tags a stream as BT.709, limited range (what the export's pictures are). */
+export const BT709 = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"];
 
 const rawOut = (pixelFormat: string) => ["-an", "-sn", "-f", "rawvideo", "-pix_fmt", pixelFormat, "pipe:1"];
 
@@ -1020,7 +1019,9 @@ export function soundPieces(project: Project, assets: Record<string, RenderAsset
 }
 
 /** Bytes of one composited frame as the compositor hands it over (YUV 4:2:0, see `readYuv420`). */
-export const frameBytes = (plan: Pick<RenderPlan, "width" | "height">) => (plan.width * plan.height * 3) / 2;
+/** An output frame's bytes as the page reads it back: YUV 4:2:0 (1.5 a pixel), or RGBA (4). */
+export const frameBytes = (plan: Pick<RenderPlan, "width" | "height">, readback: FrameReadback = "yuv420") =>
+  readback === "rgba" ? plan.width * plan.height * 4 : (plan.width * plan.height * 3) / 2;
 
 /**
  * A number's keyframes as an ffmpeg expression of `time` (an expression of
@@ -1060,30 +1061,6 @@ export function keyframeExpression(keys: readonly Keyframe[], offset: number, ti
     expr = `if(lt(${time},${at(b)}),${piece},${expr})`;
   }
   return `if(lt(${time},${at(keys[0])}),${value(keys[0])},${expr})`;
-}
-
-/**
- * The ffmpeg that encodes the composited frames (raw BT.709 YUV 4:2:0 on
- * stdin, exactly `plan.frames` of them) with the mixed sound into the final MP4.
- */
-export function encoderArgs(
-  plan: Pick<RenderPlan, "width" | "height" | "fps" | "frames">,
-  opts: Pick<RenderOptions, "ffmpegPath"> & { audioPath: string; outputPath: string },
-): string[] {
-  const { width: W, height: H, fps: F } = plan;
-  const crf = Math.min(W, H) <= 720 ? "23" : "20";
-  return [
-    opts.ffmpegPath ?? "ffmpeg", ...FFMPEG_QUIET,
-    "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", `${W}x${H}`, "-framerate", String(F),
-    ...BT709, "-i", "pipe:0",
-    "-i", opts.audioPath,
-    "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", crf, "-pix_fmt", "yuv420p", "-r", String(F), ...BT709,
-    "-c:a", "aac", "-b:a", "192k", "-ar", String(SAMPLE_RATE), "-ac", "2",
-    "-movflags", "+faststart",
-    "-frames:v", String(plan.frames),
-    "-y", opts.outputPath,
-  ];
 }
 
 /** Run an ffmpeg that reports `-progress` on stdout, reporting progress 0..1 of `duration`. */

@@ -401,6 +401,39 @@ test("exports an MP4", async ({ page }) => {
   expect(res.headers()["content-type"]).toContain("video/mp4");
 });
 
+test("exports a transparent ProRes 4444 and remembers the format", async ({ page }) => {
+  await openLatest(page);
+  await page.getByRole("button", { name: /^export$/i }).first().click();
+  const dialog = page.getByRole("region", { name: "Export" });
+  await dialog.getByText("720p").click();
+  // H.264 has a quality and no transparency; ProRes 4444 the other way round.
+  await expect(dialog.getByRole("radio", { name: "High" })).toBeVisible();
+  await expect(dialog.getByLabel("Transparent background")).toHaveCount(0);
+  await dialog.getByRole("combobox", { name: "Format" }).click();
+  await page.getByRole("option", { name: /ProRes 4444/ }).click();
+  await expect(dialog.getByText(".mov", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("radio", { name: "High" })).toHaveCount(0);
+  await dialog.getByLabel("Transparent background").click();
+  const request = page.waitForRequest((r) => r.url().endsWith("/api/exports") && r.method() === "POST");
+  await dialog.getByRole("button", { name: /^export$/i }).click();
+  expect((await request).postDataJSON()).toMatchObject({ format: "prores-4444", alpha: true, resolution: "720p" });
+  const download = dialog.getByRole("link", { name: /download/i });
+  await expect(download).toBeVisible({ timeout: 60_000 });
+  await expect(dialog.getByText(/ProRes 4444 \(MOV\), transparent · 720 × 1280/)).toBeVisible();
+  // No player for a MOV: it's downloaded, named by its type.
+  await expect(dialog.locator("video")).toHaveCount(0);
+  const res = await page.request.get((await download.getAttribute("href"))!);
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-disposition"]).toMatch(/\.mov"/);
+  expect(res.headers()["content-type"]).toContain("video/quicktime");
+
+  // The window opens on what was made last.
+  await dialog.getByRole("button", { name: "Close Export" }).click();
+  await page.getByRole("button", { name: /^export$/i }).first().click();
+  await expect(dialog.getByRole("combobox", { name: "Format" })).toContainText("ProRes 4444");
+  await expect(dialog.getByLabel("Transparent background")).toBeChecked();
+});
+
 test("video settings dialog, clip volume and previewing a library file", async ({ page }) => {
   await openLatest(page);
 
@@ -1815,14 +1848,14 @@ test("a simulation shows the same frame seeked to or stepped to, and a 3D scene 
   expect(Math.max(...stepped.map((c, i) => Math.abs(c - seeked[i])))).toBeLessThanOrEqual(3);
   await page.screenshot({ path: "/tmp/feedback.png" });
 
-  // A 3D scene: three.js loads the first time one's drawn, and the tesseract lights the black canvas.
+  // A 3D scene: the flight over the mountains lights the black canvas.
   await page.keyboard.press("Home");
   await page.getByRole("button", { name: "New layer" }).click();
   await page.getByRole("menuitem", { name: /Solid/ }).click();
   await expect.poll(async () => (await timelineClips(page)).length).toBe(2);
   await expect(page.getByRole("menu")).toHaveCount(0);
-  await addFromTab("tesseract", "Tesseract");
-  await expect.poll(async () => (await effectsOf()).some((types) => types.includes("tesseract"))).toBe(true);
+  await addFromTab("ridgeline", "Ridgeline");
+  await expect.poll(async () => (await effectsOf()).some((types) => types.includes("ridgeline"))).toBe(true);
   await page.keyboard.press("Shift+ArrowRight");
   const lit = async () => {
     await expect(canvas).toHaveAttribute("data-simulation", "exact");
@@ -1831,7 +1864,7 @@ test("a simulation shows the same frame seeked to or stepped to, and a 3D scene 
     return on;
   };
   await expect.poll(lit, { timeout: 30_000 }).toBeGreaterThan(5);
-  await page.screenshot({ path: "/tmp/tesseract.png" });
+  await page.screenshot({ path: "/tmp/ridgeline.png" });
 });
 
 test("pinching over the monitor scales the selected clip, as one undo step", async ({ page }) => {

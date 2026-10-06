@@ -182,6 +182,18 @@ export class SurfaceImage {
     return `${this.keyPrefix}${ref}`;
   }
 
+  /**
+   * What the GPU reads where no tile is (the fill). A level built from a fill tile holds the old fill, so when it
+   * changes every level above is built again.
+   */
+  private useFill(fill: readonly number[]) {
+    if (fill.join() === this.gpuFill) return;
+    this.gpuFill = fill.join();
+    this.image.setFill(this.gpuValue(fill));
+    const { tilesX, tilesY } = this.image.levels[0];
+    for (let ty = 0; ty < tilesY; ty++) for (let tx = 0; tx < tilesX; tx++) this.markParents(tx, ty);
+  }
+
   /** A stored value (a mask's one channel) as the GPU's RGBA. */
   private gpuValue(values: readonly number[]): [number, number, number, number] {
     return this.kind === "mask" ? [values[0], values[0], values[0], values[0]] : [values[0], values[1], values[2], values[3]];
@@ -223,10 +235,7 @@ export class SurfaceImage {
 
   private showManifest(manifest: SurfaceManifest) {
     this.manifest = manifest;
-    if (manifest.fill.join() !== this.gpuFill) {
-      this.gpuFill = manifest.fill.join();
-      this.image.setFill(this.gpuValue(manifest.fill));
-    }
+    this.useFill(manifest.fill);
     const { tilesX, tilesY } = this.image.levels[0];
     const listed = new Map(manifest.tiles.map((e) => [`${e[0]},${e[1]}`, e]));
     for (let ty = 0; ty < tilesY; ty++) {
@@ -680,6 +689,8 @@ export class SurfaceImage {
       if (existing !== null && existing !== d.slot) {
         this.ctx.atlas.release(d.slot);
         this.image.setSlot(0, d.tx, d.ty, existing);
+        // Its levels above are built from it (a surface made at once, as a mask from a selection, has none yet).
+        this.markParents(d.tx, d.ty);
       } else {
         this.ctx.atlas.rename(d.slot, key);
         // The Worker keeps its bytes until it's uploaded: the GPU's copy may be evicted now.
@@ -687,6 +698,7 @@ export class SurfaceImage {
       }
     });
     this.image.flush();
+    this.buildLevels();
     this.shown = id;
     this.manifest = manifest;
     this.showing++;
@@ -736,6 +748,8 @@ export class SurfaceImage {
    */
   async fillFromSelection(selection: PhotoSelection, place: SurfacePlace): Promise<SurfaceId> {
     if (this.stroke) this.cancel();
+    // Outside the selection the mask hides: its fill is 0 from the start, before any level is built from it.
+    this.useFill([0]);
     if (selection.kind === "mask") return this.fillFromMask(selection, place);
     const tile = this.ctx.tile;
     const box = selectionBox(selection);

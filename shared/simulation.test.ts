@@ -5,6 +5,8 @@ import { normalizeProject } from "./normalize.ts";
 import { demoScene, sceneSpec } from "./scenes/index.ts";
 import { CHECKPOINT_EVERY, frameSourceTime, simulationFrame, simulationVersion, steppedState } from "./simulation.ts";
 import { createDefaultProject, newLayerClip } from "./timeline.ts";
+import { ridgeHeight } from "./scenes/ridgeline.ts";
+import type { UniformValue } from "./transition-gl.ts";
 import type { Clip, Project } from "./types.ts";
 
 function solidWith(type: string): { project: Project; clip: Clip } {
@@ -84,7 +86,8 @@ describe("a clip's frames", () => {
 });
 
 describe("3D scenes", () => {
-  const SCENES = ["tesseract", "singularity", "cathedral", "leviathan"];
+  const SCENES = ["ridgeline", "infinite-dive", "aurora", "storm-sea", "ferrofluid"];
+  const uniform = (u: UniformValue[] | null, name: string) => u?.find((v) => v.name === name)?.value;
 
   it("each has a definition with a scene, and a state stepped in TypeScript", () => {
     for (const type of SCENES) {
@@ -95,20 +98,39 @@ describe("3D scenes", () => {
     }
   });
 
-  it("a frame's state is the same reached in order or straight away, and plain JSON", () => {
+  it("a frame's uniforms are the same reached in order or straight away", () => {
     for (const type of SCENES) {
-      const values = { detail: 0.5, speed: 1, reactivity: 0.8 };
-      const straight = JSON.stringify(demoScene(type, values, `straight-${type}`, 90, 30));
-      for (let f = 0; f <= 90; f++) demoScene(type, values, `ordered-${type}`, f, 30);
-      const ordered = JSON.stringify(demoScene(type, values, `ordered-${type}`, 90, 30));
-      expect(ordered.replace(`ordered-${type}`, ""), type).toBe(straight.replace(`straight-${type}`, ""));
-      expect(JSON.parse(straight).state.time, type).toBeGreaterThan(0);
+      const values = { speed: 1, reactivity: 1 };
+      const straight = demoScene(type, values, `straight-${type}`, 150, 30);
+      for (let f = 0; f <= 150; f++) demoScene(type, values, `ordered-${type}`, f, 30);
+      const ordered = demoScene(type, values, `ordered-${type}`, 150, 30);
+      expect(ordered, type).toEqual(straight);
+      // Every scene places its camera, and has moved it.
+      expect(uniform(straight, "camPos"), type).not.toEqual(uniform(demoScene(type, values, `start-${type}`, 0, 30), "camPos"));
     }
   });
 
-  it("a clip's scene reacts to hits: they step its state (the tesseract's shockwaves)", () => {
-    const shockwaves = (f: number) => (demoScene("tesseract", { detail: 0.5 }, "hits", f, 30)!.state.shockwaves as number[]).length;
-    // The made-up sound beats at 120 BPM: by two seconds in, waves have gone out.
-    expect(Math.max(...[20, 40, 60].map(shockwaves))).toBeGreaterThan(0);
+  it("the camera never goes into the mountains (Ridgeline mirrors its terrain in float32)", () => {
+    for (let f = 0; f <= 1800; f += 15) {
+      const [x, y, z] = uniform(demoScene("ridgeline", { speed: 1, reactivity: 1 }, "terrain", f, 30), "camPos") as number[];
+      expect(y, `frame ${f}`).toBeGreaterThan(ridgeHeight(x, z, 9) + 15);
+    }
+  });
+
+  it("Infinite Dive's camera stays within one level as it falls, so the fall never runs out of precision", () => {
+    for (let f = 0; f <= 3600; f += 37) {
+      const pos = uniform(demoScene("infinite-dive", { speed: 1, reactivity: 1 }, "dive", f, 30), "camPos") as number[];
+      const r = Math.hypot(pos[0], pos[1], pos[2]);
+      expect(r).toBeGreaterThan(0.9 / 2.4 - 1e-6);
+      expect(r).toBeLessThanOrEqual(2.4);
+    }
+    // ...while its level keeps counting down.
+    expect(uniform(demoScene("infinite-dive", { speed: 1, reactivity: 1 }, "dive", 3600, 30), "idLevel") as number).toBeGreaterThan(10);
+  });
+
+  it("hits set things off in the state (Storm Sea's lightning)", () => {
+    const lit = (f: number) => (uniform(demoScene("storm-sea", { weather: "storm" }, "hits", f, 30), "ssFlash0") as number[])[3];
+    // The made-up sound beats at 120 BPM: within a second a flash has struck.
+    expect(Math.max(...Array.from({ length: 30 }, (_, f) => lit(f + 1)))).toBeGreaterThan(0.2);
   });
 });

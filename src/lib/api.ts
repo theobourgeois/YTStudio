@@ -7,6 +7,7 @@ import type {
   CreateLibraryFolderRequest,
   CreateProjectRequest,
   ExportJob,
+  ExportFormat,
   ExportRequest,
   FontFamily,
   HealthResponse,
@@ -219,6 +220,8 @@ export const api = {
   startExport: (req: ExportRequest) =>
     request<ExportJob>("/api/exports", { method: "POST", body: JSON.stringify(req) }),
   getExport: (id: string) => request<ExportJob>(`/api/exports/${id}`),
+  /** The export formats this computer's ffmpeg can make. */
+  exportFormats: () => request<ExportFormat[]>("/api/exports/formats"),
   cancelExport: (id: string) => request<void>(`/api/exports/${id}`, { method: "DELETE" }),
 
   listTranscriptionEngines: () => request<TranscriptionEngineInfo[]>("/api/transcription/engines"),

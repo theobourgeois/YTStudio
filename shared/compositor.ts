@@ -126,8 +126,6 @@ export interface EffectPass<S = Shader> {
    * this frame (motion blur's in-between moments).
    */
   simulation?: { id: string; version: string; frame: number; fps: number; memory?: number; record?: false };
-  /** A 3D scene, rendered (by the compositor's `setSceneRenderer`) at the layer's size, bound as `uScene`. */
-  scene?: SceneDraw;
   /**
    * Room this effect needs past the picture's frame (a fraction of its height on every side),
    * like After Effects' Grow Bounds: particles flying off a text, a glow spilling past it.
@@ -135,21 +133,6 @@ export interface EffectPass<S = Shader> {
    */
   grow?: number;
 }
-
-/**
- * A 3D scene at a moment (see `shared/scenes/`): which one (`type`), the instance it is (a clip's effect,
- * so its objects are built once), what it's built from (`build`: a seed, a level of detail; a change
- * builds it again) and its state then, all plain values so it travels to the export's page.
- */
-export interface SceneDraw {
-  type: string;
-  instance: string;
-  build: Record<string, number | string | boolean>;
-  state: Record<string, unknown>;
-}
-
-/** Renders a 3D scene into a picture of `width` x `height` px (null: it can't yet, e.g. still loading). */
-export type SceneRenderer = (scene: SceneDraw, width: number, height: number) => TexImageSource | null;
 
 /** What a visualizer asks for: rows of spectrum over `span` seconds, each falling over `fall`; a waveform `window` seconds long (0: none). */
 export interface AudioRequest {
@@ -456,6 +439,11 @@ export interface Compositor {
    */
   readYuv420Async(): Promise<Uint8Array<ArrayBuffer>>;
   /**
+   * The frame (not the canvas) as RGBA with straight alpha, top row first, read without waiting for the GPU:
+   * what a ProRes or PNG export encodes (its alpha too, when the frame was begun transparent).
+   */
+  readRgbaAsync(): Promise<Uint8Array<ArrayBuffer>>;
+  /**
    * The first frame a simulation must be stepped from (`advance`) before frame `frame` of version
    * `version` can be drawn exactly: `frame` itself when its state a frame before is kept (or it's the
    * first), else the frame after the newest state or checkpoint it has before then (0 with none), but never
@@ -469,8 +457,6 @@ export interface Compositor {
   advance(picture: Placed): void;
   /** GPU memory simulations' checkpoints may take, in bytes (0: none are kept, as in the export). */
   setCheckpointBudget(bytes: number): void;
-  /** What renders 3D scenes (`EffectPass.scene`); without one, a scene is transparent. */
-  setSceneRenderer(render: SceneRenderer | null): void;
   dispose(): void;
 }
 
@@ -952,6 +938,8 @@ void main() {
   const maskTargets = new Map<string, Target>();
   // Where `readYuv420` packs the frame (sized on first use).
   const yuv = { ...target(), width: 0, height: 0 };
+  // Where `readRgbaAsync` copies the frame, straight and top row first (sized on first use).
+  const rgba = { ...target(), width: 0, height: 0 };
   let width = 0;
   let height = 0;
 
@@ -1656,29 +1644,6 @@ void main() {
     copy(st.target.tex);
   };
 
-  /** Scenes (`EffectPass.scene`): rendered by the page's renderer, uploaded here (unit 9). */
-  let sceneRenderer: SceneRenderer | null = null;
-  const sceneTex = texture();
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
-  const bindScene = (loc: (name: string) => WebGLUniformLocation | null, scene: SceneDraw, w: number, h: number) => {
-    let picture: TexImageSource | null = null;
-    try {
-      picture = sceneRenderer?.(scene, w, h) ?? null;
-    } catch (err) {
-      console.error(`The 3D scene "${scene.type}" failed to render`, err);
-    }
-    gl.activeTexture(gl.TEXTURE9);
-    gl.bindTexture(gl.TEXTURE_2D, sceneTex);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-    if (picture) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, picture);
-    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.uniform1i(loc("uScene"), 9);
-  };
-
   // ---------------------------------------------------------------------------
   // Masks and vector drawings: drawn with the browser's 2D canvas (the export's page has
   // one too), then uploaded. The last few are kept, so a still shape isn't drawn again.
@@ -2255,7 +2220,6 @@ void main() {
       setUniforms(loc, fx.uniforms);
       if (temporal) bindHistory(loc, temporal);
       if (fx.audio) bindAudio(loc, fx.audio);
-      if (fx.scene) bindScene(loc, fx.scene, w, h);
       if (fx.simulation) {
         // A simulation draws into its state, which becomes the layer.
         const dst = [0, 1, 2].find((i) => i !== input)!;
@@ -2454,7 +2418,20 @@ void main() {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     return { w, h };
   };
-  /** Pixel-pack buffers not in use by `readYuv420Async`. */
+  /** Copy the frame into `rgba`, top row first and un-premultiplied (left bound, for reading). */
+  const packRgba = () => {
+    if (rgba.width !== width || rgba.height !== height) {
+      rgba.width = width;
+      rgba.height = height;
+      allocate(rgba, width, height);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, rgba.fbo);
+    gl.viewport(0, 0, width, height);
+    gl.disable(gl.BLEND);
+    copy(frame.tex, { flipY: true, straight: true });
+    return { w: width, h: height };
+  };
+  /** Pixel-pack buffers not in use by `readAsync`. */
   const idleBuffers: WebGLBuffer[] = [];
   // Run `f` soon, letting other work (like incoming network data) go first.
   const channel = typeof MessageChannel !== "undefined" ? new MessageChannel() : null;
@@ -2464,6 +2441,45 @@ void main() {
     if (!channel) return void setTimeout(f, 0);
     queued.push(f);
     channel.port2.postMessage(null);
+  };
+
+  /**
+   * Read what was just packed (the framebuffer bound, \`w\` x \`h\` texels) without waiting for the GPU: copied
+   * into a pixel-pack buffer, then fetched once a fence says the copy is done.
+   */
+  const readAsync = ({ w, h }: { w: number; h: number }): Promise<Uint8Array<ArrayBuffer>> => {
+    const size = w * h * 4;
+    // Each read in flight has its own buffer.
+    const buffer = idleBuffers.pop() ?? gl.createBuffer()!;
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, size, gl.STREAM_READ);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
+    gl.flush();
+    return new Promise((resolve, reject) => {
+      const poll = () => {
+        const status = gl.clientWaitSync(sync, 0, 0);
+        if (status === gl.TIMEOUT_EXPIRED) {
+          yieldThen(poll);
+          return;
+        }
+        gl.deleteSync(sync);
+        if (status === gl.WAIT_FAILED) {
+          idleBuffers.push(buffer);
+          reject(new Error("Reading the frame back from the GPU failed."));
+          return;
+        }
+        const out = new Uint8Array(size);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        idleBuffers.push(buffer);
+        resolve(out);
+      };
+      yieldThen(poll);
+    });
   };
 
   // Groups (`beginGroup`): each level of nesting draws into its own set of frame-sized
@@ -2616,10 +2632,6 @@ void main() {
       trimCheckpoints();
     },
 
-    setSceneRenderer(render) {
-      sceneRenderer = render;
-    },
-
     drawAdjustment(adjustment) {
       // Opacity mixes the adjusted frame with the one below; each moment is drawn whole.
       const whole = { ...adjustment, opacity: 1, samples: adjustment.samples?.map((s) => ({ ...s, opacity: 1 })) };
@@ -2743,39 +2755,11 @@ void main() {
     },
 
     readYuv420Async() {
-      const { w, h } = packYuv();
-      const size = w * h * 4;
-      // Each read in flight has its own buffer.
-      const buffer = idleBuffers.pop() ?? gl.createBuffer()!;
-      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
-      gl.bufferData(gl.PIXEL_PACK_BUFFER, size, gl.STREAM_READ);
-      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, 0);
-      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
-      gl.flush();
-      return new Promise((resolve, reject) => {
-        const poll = () => {
-          const status = gl.clientWaitSync(sync, 0, 0);
-          if (status === gl.TIMEOUT_EXPIRED) {
-            yieldThen(poll);
-            return;
-          }
-          gl.deleteSync(sync);
-          if (status === gl.WAIT_FAILED) {
-            idleBuffers.push(buffer);
-            reject(new Error("Reading the frame back from the GPU failed."));
-            return;
-          }
-          const out = new Uint8Array(size);
-          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
-          gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);
-          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-          idleBuffers.push(buffer);
-          resolve(out);
-        };
-        yieldThen(poll);
-      });
+      return readAsync(packYuv());
+    },
+
+    readRgbaAsync() {
+      return readAsync(packRgba());
     },
 
     dispose() {
@@ -2808,7 +2792,7 @@ void main() {
         }
       }
       groupSets.clear();
-      for (const { tex, fbo } of [frame, spare, ...sides, accumTarget, matteTarget, yuv]) {
+      for (const { tex, fbo } of [frame, spare, ...sides, accumTarget, matteTarget, yuv, rgba]) {
         gl.deleteTexture(tex);
         gl.deleteFramebuffer(fbo);
       }
@@ -2824,7 +2808,6 @@ void main() {
       for (const h of histories.values()) deleteHistory(h);
       for (const [id, sim] of [...simulations]) deleteSimulation(id, sim);
       deleteState(passingState);
-      gl.deleteTexture(sceneTex);
       histories.clear();
       for (const t of flowTargets.values()) {
         for (const x of [t.cur, t.prev, t.a, t.b]) {

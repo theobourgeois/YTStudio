@@ -14,6 +14,8 @@ import { captionClips, captionSourceClips } from "@shared/captions";
 import { isRemapped } from "@shared/effects";
 import { clipMarkers } from "@shared/markers";
 import { errorMessage } from "@shared/errors";
+import { describeExport, exportFormat, exportSettings } from "@shared/export-formats";
+import { formatBytes } from "@shared/format";
 import { templateFromClips, templateFromSubclip } from "@shared/library";
 import { clamp } from "@shared/math";
 import { getSequence, writeSequence } from "@shared/sequences";
@@ -714,6 +716,12 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const { project } = await ctx.doc();
     if (project.clips.length === 0) throw new ToolError("The timeline is empty: there's nothing to export.");
     const resolution: ExportResolution = oneOf(input, "resolution", ["720p", "1080p", "4k"] as const) ?? "1080p";
+    const settings = exportSettings({ format: input.format ?? undefined, quality: input.quality ?? undefined, alpha: input.alpha ?? undefined });
+    if ("error" in settings) throw new ToolError(settings.error);
+    const formats = await api.exportFormats();
+    if (!formats.includes(settings.format)) {
+      throw new ToolError(`This computer's ffmpeg can't make ${exportFormat(settings.format).label}. It can make: ${formats.join(", ")}.`);
+    }
     ctx.progress(null, "Preparing");
     const texts = await layoutTexts(project, resolution);
     let job: ExportJob = await api.startExport({
@@ -722,6 +730,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
       fileName: optString(input, "fileName"),
       excludeAudioTracks: optBoolean(input, "excludeAudio") ?? false,
       texts,
+      ...settings,
     });
     ctx.signal.addEventListener("abort", () => void api.cancelExport(job.id).catch(() => {}));
     while (job.status === "queued" || job.status === "rendering") {
@@ -731,7 +740,10 @@ const TOOLS: Record<VideoToolName, Handler> = {
       job = await api.getExport(job.id);
     }
     if (job.status !== "done" || !job.url) throw new ToolError(job.error ?? "The export failed.");
-    return textResult(`Exported "${job.fileName}" (${job.width}×${job.height}, ${secs(job.duration)}s): ${location.origin}${job.downloadUrl ?? job.url}`);
+    const size = job.bytes ? `, ${formatBytes(job.bytes)}` : "";
+    return textResult(
+      `Exported "${job.fileName}.${job.extension}" (${describeExport(job)}, ${job.width}×${job.height}, ${secs(job.duration)}s${size}): ${location.origin}${job.downloadUrl ?? job.url}`,
+    );
   },
   async open_sequence(input, ctx) {
     const doc = await ctx.doc();
