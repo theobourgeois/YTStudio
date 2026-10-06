@@ -80,6 +80,8 @@ interface LayerSurface {
   shape: string;
   /** What the document says it shows. */
   wanted: SurfaceId | null;
+  /** Why it can't show that (its manifest or tiles couldn't be fetched): it's drawn as it is, and waited for no more. */
+  failed: string | null;
 }
 
 /** A stroke in progress: its surface, and how document points reach its pixels. */
@@ -288,7 +290,7 @@ export class PhotoRenderer {
         s = undefined;
       }
       if (!s) {
-        const made: LayerSurface = { image: null, shape, wanted: want.id };
+        const made: LayerSurface = { image: null, shape, wanted: want.id, failed: null };
         this.surfaces.set(key, made);
         void this.contextFor(want.bits).then((ctx) => {
           if (this.surfaces.get(key) !== made || this.destroyed) return;
@@ -301,6 +303,7 @@ export class PhotoRenderer {
       }
       if (s.wanted !== want.id) {
         s.wanted = want.id;
+        s.failed = null;
         void this.showSurface(s);
       }
     }
@@ -308,9 +311,12 @@ export class PhotoRenderer {
 
   private async showSurface(s: LayerSurface) {
     if (!s.image || s.image.painting) return;
+    const wanted = s.wanted;
     try {
-      await s.image.show(s.wanted);
+      await s.image.show(wanted);
+      await s.image.ensureResident();
     } catch (error) {
+      if (s.wanted === wanted) s.failed = error instanceof Error ? error.message : String(error);
       console.error("[photo] couldn't show a surface", error);
     }
     this.changed();
@@ -364,10 +370,13 @@ export class PhotoRenderer {
   /** Resolves when every image the document shows has loaded (or failed), and every surface shows its pixels. */
   async ready(): Promise<void> {
     const surfacesDone = () =>
-      [...this.surfaces.values()].every((s) => s.image && (s.image.painting || (s.image.shown === s.wanted && s.image.settled)));
+      [...this.surfaces.values()].every((s) => s.failed !== null || (s.image && (s.image.painting || (s.image.shown === s.wanted && s.image.settled))));
     while ([...this.sources.values()].some((s) => s.state.state === "loading") || !surfacesDone()) {
       await new Promise((r) => setTimeout(r, 20));
-      for (const s of this.surfaces.values()) if (s.image && s.image.shown === s.wanted && !s.image.settled) void s.image.ensureResident().catch(() => {});
+      for (const s of this.surfaces.values()) {
+        if (!s.image || s.failed !== null || s.image.shown !== s.wanted || s.image.settled) continue;
+        void s.image.ensureResident().catch((error: unknown) => (s.failed = error instanceof Error ? error.message : String(error)));
+      }
     }
   }
 
@@ -413,7 +422,7 @@ export class PhotoRenderer {
   private settledSources(plan: RenderPlan) {
     const surfaceDone = (layerId: string, part: SurfacePart) => {
       const s = this.surfaces.get(`${layerId}:${part}`);
-      return !s || (!!s.image && s.image.shown === s.wanted && s.image.settled);
+      return !s || s.failed !== null || (!!s.image && s.image.shown === s.wanted && s.image.settled);
     };
     return plan.nodes.every(
       (n) =>
