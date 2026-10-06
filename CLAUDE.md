@@ -48,7 +48,14 @@ walkthrough in the packaged app): the server side (`server/photo/recovery.ts`: t
 Filter menu and Filter Gallery (`filters.tsx`, from the catalogue `shared/photo/effects/catalog.ts`: a filter's
 `category` and `presets` in its definition, so a new filter needs no UI of its own), export cancel, and tight GPU
 budgets: a full-resolution render draws a region only in the same task as the check that its tiles are all resident
-(`whenResident` in renderer.ts); keep it so, or an export can silently read evicted tiles.
+(`whenResident` in renderer.ts); keep it so, or an export can silently read evicted tiles. The stylised filters (Gradient Map, Color Grade,
+Halftone, Glitch, VHS, Film Grain…: docs/photo/effects/stylized-filters.md) are **kernel filters**
+(`shared/photo/effects/kernel.ts`): a definition, a CPU reference and a WGSL `effect(p, c)` each, by category in
+`effects/filters/`, `reference/filters/` and `render/filters/` (change both sides; `kernel.ts`'s prelude and the
+reference's helpers share names), run by one generic pass in isolated.ts on the content grown by the filter's reach.
+`scripts/photo-sheet.ts` holds every look's GPU result to its reference and, with `--thumbnails`, renders the Filter
+Gallery's cards into `public/photo-filters/` (run it after adding or changing a look). The gallery previews a look on
+the canvas without touching the document (`filterPreview` in ui.ts, `shownDoc` in filter-preview.ts) until Apply.
 
 The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is
 planned in [`docs/visualizer/README.md`](docs/visualizer/README.md): signals, links, audio shaders, Perform, its
