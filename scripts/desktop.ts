@@ -301,6 +301,13 @@ async function pack(targets: "dir" | "installers") {
             LSItemContentTypes: ["gg.jestr.vaudio.project"],
             LSHandlerRank: "Owner",
             LSTypeIsPackage: true,
+          }, {
+            // Images dropped on the Dock icon (or Open With) start a photo: electron/main.ts's IMAGE_TYPES.
+            // An Alternate handler only, so Preview stays what opens them on a double-click.
+            CFBundleTypeName: "Image",
+            CFBundleTypeRole: "Editor",
+            LSItemContentTypes: ["public.jpeg", "public.png", "public.tiff", "org.webmproject.webp", "public.avif"],
+            LSHandlerRank: "Alternate",
           }],
           NSMicrophoneUsageDescription: "Vaudio records your microphone or audio interface when you arm a mixer track.",
           // The project type, a package (a folder Finder shows as one file), declared so macOS knows it.
