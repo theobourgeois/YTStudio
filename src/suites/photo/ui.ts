@@ -5,7 +5,7 @@ import type { PaintTarget } from "./paint-target";
 import { usePhoto } from "./store";
 
 /** The tools of the strip (ux.md, "Workspace"); more arrive with what they edit. */
-export type PhotoTool = "move" | "marquee" | "brush" | "hand" | "zoom";
+export type PhotoTool = "move" | "marquee" | "brush" | "eraser" | "hand" | "zoom";
 
 export type { PaintTarget };
 

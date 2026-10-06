@@ -124,3 +124,10 @@ describe("selections", () => {
     for (const c of shares) expect(Math.round(c * 64)).toBeCloseTo(c * 64, 9);
   });
 });
+
+describe("pasted pixels", () => {
+  it("make a pixel layer of their own size and place", () => {
+    const doc = addPixelLayer(createPhotoProject("Paste", { width: 800, height: 600 }), { id: "p", surface: "a".repeat(64), size: { width: 40, height: 30 }, transform: { x: 120, y: 95, scaleX: 1, scaleY: 1, rotation: 0 } });
+    expect(doc.layers[0]).toMatchObject({ kind: "pixel", name: "Layer 1", surface: "a".repeat(64), size: { width: 40, height: 30 }, transform: { x: 120, y: 95 } });
+  });
+});

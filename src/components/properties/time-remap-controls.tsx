@@ -17,7 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { EditGesture } from "@/lib/edit-gesture";
 import { useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
-import { ScrubNumber } from "./scrub-number";
+import { ScrubNumber } from "@/components/scrub-number";
 
 const editor = useEditor.getState;
 /** How long a freeze frame lasts when added (seconds). */

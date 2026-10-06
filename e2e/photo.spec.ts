@@ -1196,3 +1196,92 @@ test("the assistant selects, masks and adds a pixel layer", async ({ page }) => 
   const values = await surfaceTiles(page, glaze.id, "mask", [], [[0, 0, 150, 150, 0], [0, 0, 50, 50, 0]]);
   expect(values.values).toEqual([1, 0]);
 });
+
+// --- Edit commands, the eraser, options and colours ---
+
+test("copy, cut and paste make layers; fills, Delete and the eraser change pixels; options drag; the header keeps still", async ({ page }) => {
+  const id = await openNewPhoto(page, "Edits");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const photo = (await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(1).then(() => savedPhoto(page, id))).layers[0].id;
+  const layers = async () => (await savedPhoto(page, id)).layers as { id: string; kind: string; surface?: string | null; size?: { width: number; height: number }; transform: { x: number; y: number } }[];
+  const select = (x: number, y: number, width: number, height: number) =>
+    page.evaluate((s) => (window as unknown as { photoDebug: { photo: { getState(): { select(s: unknown): void } } } }).photoDebug.photo.getState().select({ kind: "rect", ...s }), { x, y, width, height });
+  const paste = () => page.evaluate(() => window.dispatchEvent(new ClipboardEvent("paste", { clipboardData: new DataTransfer() })));
+  const alphaAt = async (layerId: string, x: number, y: number) =>
+    (await surfaceTiles(page, layerId, "content", [], [[Math.floor(x / 256), Math.floor(y / 256), x % 256, y % 256, 3]])).values[0] ?? 0;
+
+  // The header doesn't move when the photo saves.
+  const undo = page.getByRole("button", { name: "Undo" });
+  const undoX = (await undo.boundingBox())!.x;
+
+  // ⌘C then ⌘V: the selection of the photo, as a new layer where it was.
+  await page.locator(`[data-layer="${photo}"]`).click();
+  await select(100, 100, 200, 150);
+  await page.keyboard.press("ControlOrMeta+c");
+  await page.waitForTimeout(300);
+  await paste();
+  const pasted = await expect.poll(async () => (await layers()).length).toBe(2).then(async () => (await layers())[1]);
+  expect(pasted).toMatchObject({ kind: "pixel", size: { width: 200, height: 150 }, transform: { x: 200, y: 175 } });
+  expect(pasted.surface).toMatch(/^[0-9a-f]{64}$/);
+  expect((await undo.boundingBox())!.x).toBe(undoX);
+
+  // ⌘J with a selection: Layer via Copy, right above.
+  await page.locator(`[data-layer="${photo}"]`).click();
+  await page.keyboard.press("ControlOrMeta+j");
+  await expect.poll(async () => (await layers()).map((l) => l.kind)).toEqual(["image", "pixel", "pixel"]);
+
+  // ⇧⌘J on painted pixels: Layer via Cut takes the selection out of them.
+  await page.locator(`[data-layer="${pasted.id}"]`).click();
+  await select(120, 120, 50, 50);
+  await page.keyboard.press("ControlOrMeta+Shift+j");
+  await expect.poll(async () => (await layers()).length).toBe(4);
+  // The pasted layer's own pixels: (40, 40) is inside the cut, (150, 100) isn't.
+  await expect.poll(() => alphaAt(pasted.id, 40, 40)).toBe(0);
+  expect(await alphaAt(pasted.id, 150, 100)).toBe(1);
+
+  // ⌥⌫ fills the selection with the foreground colour on a new layer; Delete clears it again.
+  await page.keyboard.press("ControlOrMeta+Shift+n");
+  const blank = await expect.poll(async () => (await layers()).length).toBe(5).then(async () => (await layers()).at(-1)!);
+  await select(600, 300, 400, 300);
+  await page.keyboard.press("d");
+  await page.keyboard.press("Alt+Backspace");
+  await expect.poll(() => alphaAt(blank.id, 800, 400)).toBe(1);
+  expect(await alphaAt(blank.id, 500, 400)).toBe(0);
+  await page.keyboard.press("Delete");
+  await expect.poll(() => alphaAt(blank.id, 800, 400)).toBe(0);
+  expect((await layers()).length).toBe(5);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => alphaAt(blank.id, 800, 400)).toBe(1);
+
+  // The Eraser (E) takes painted pixels away.
+  await page.keyboard.press("ControlOrMeta+d");
+  await page.keyboard.press("e");
+  const a = await screenOf(page, 650, 450);
+  const b = await screenOf(page, 950, 450);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x, b.y, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(() => alphaAt(blank.id, 800, 450)).toBe(0);
+  expect(await alphaAt(blank.id, 800, 350)).toBe(1);
+
+  // The options are dragged sideways: the brush grows.
+  const size = page.getByRole("spinbutton", { name: "Size" });
+  const before = Number(await size.getAttribute("aria-valuenow"));
+  const box = (await size.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  expect(Number(await size.getAttribute("aria-valuenow"))).toBeGreaterThanOrEqual(before + 30);
+
+  // The colours are the tool strip's, every tool's: X swaps them.
+  const tools = page.getByRole("navigation", { name: "Tools" });
+  const foreground = tools.getByRole("button", { name: "Foreground colour" });
+  await expect(foreground).toHaveCSS("background-color", "rgb(0, 0, 0)");
+  await page.keyboard.press("x");
+  await expect(foreground).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await page.keyboard.press("d");
+  expect((await undo.boundingBox())!.x).toBe(undoX);
+});

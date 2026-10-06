@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { EditGesture } from "@/lib/edit-gesture";
 import { cn } from "cn";
 import { type DisplayContext, fromDisplay, numberDisplay, roundShown, toDisplay } from "./display";
-import { ScrubNumber } from "./scrub-number";
+import { ScrubNumber } from "@/components/scrub-number";
 
 /** Changing one parameter: continuous edits (`begin`/`set`.../`end`) are one undo step; a lone `set` is one too. */
 export interface ParamEditor {

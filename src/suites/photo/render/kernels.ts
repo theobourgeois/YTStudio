@@ -189,8 +189,9 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 const SELECTION = /* wgsl */ `
 struct Dab { x: f32, y: f32, radius: f32, hardness: f32, strength: f32, p0: f32, p1: f32, p2: f32 }
 struct Job { slot: u32, tx: i32, ty: i32, first: u32, count: u32, p0: u32, p1: u32, p2: u32 }
-// m0, m1: layer pixels → document (a, b, c, d; e, f, right-angled); sel: x, y, width, height.
-struct Params { colour: vec4f, tile: u32, hasSelection: u32, p0: u32, p1: u32, m0: vec4f, m1: vec4f, sel: vec4f }
+// m0, m1: layer pixels → document (a, b, c, d; e, f, right-angled); sel: x, y, width, height; erase: the stroke
+// takes away (Photoshop's Eraser on pixels) instead of painting its colour.
+struct Params { colour: vec4f, tile: u32, hasSelection: u32, erase: u32, p1: u32, m0: vec4f, m1: vec4f, sel: vec4f }
 
 fn to_doc(u: vec2f) -> vec2f {
   return vec2f(params.m0.x * u.x + params.m0.z * u.y + params.m1.x, params.m0.y * u.x + params.m0.w * u.y + params.m1.y);
@@ -251,7 +252,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   for (var i = 0u; i < job.count; i++) {
     let d = dabs[job.first + i];
     let k = coverage(d, distance(p, vec2f(d.x, d.y)));
-    c = params.colour * k + c * (1.0 - params.colour.a * k);
+    if (params.erase == 1u) { c = c * (1.0 - k); } else { c = params.colour * k + c * (1.0 - params.colour.a * k); }
   }
   textureStore(out, vec2i(g.xy), i32(g.z), round_for_store(c));
 }

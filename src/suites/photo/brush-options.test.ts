@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { brushSettings, sanitizeBrush, stepBrushSize, strokeColour } from "./brush-options";
+import { sanitizeColours } from "./colours";
 
 describe("brush options", () => {
   it("steps sizes as Photoshop's [ and ] do", () => {
@@ -13,7 +14,8 @@ describe("brush options", () => {
   });
 
   it("keeps settings in range, and paints a mask's grey and pixels' light", () => {
-    expect(sanitizeBrush({ size: 0.2, hardness: 4, strength: -1, foreground: "red", background: "#ABCDEF" })).toEqual({ size: 1, hardness: 1, strength: 0, foreground: "#000000", background: "#abcdef" });
+    expect(sanitizeBrush({ size: 0.2, hardness: 4, strength: -1 })).toEqual({ size: 1, hardness: 1, strength: 0 });
+    expect(sanitizeColours({ foreground: "red", background: "#ABCDEF" })).toEqual({ foreground: "#000000", background: "#abcdef" });
     expect(brushSettings({ size: 40, hardness: 0.5, strength: 0.8 })).toEqual({ radius: 20, hardness: 0.5, strength: 0.8, spacing: 0.1 });
     expect(strokeColour("#ffffff", "mask")).toEqual([1, 1, 1, 1]);
     expect(strokeColour("#000000", "mask")).toEqual([0, 0, 0, 1]);

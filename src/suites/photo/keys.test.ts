@@ -79,6 +79,21 @@ describe("selection and brush keys (Photoshop's)", () => {
   });
 });
 
+describe("Edit keys (Photoshop's)", () => {
+  it("copies, cuts, makes layers via copy and cut, fills and erases", () => {
+    expect(resolvePhotoKey(press("c", { metaKey: true }), true)).toEqual({ type: "copy" });
+    expect(resolvePhotoKey(press("x", { metaKey: true }), true)).toEqual({ type: "cut" });
+    expect(resolvePhotoKey(press("v", { metaKey: true }), true)).toBeNull();
+    expect(resolvePhotoKey(press("j", { metaKey: true }), true)).toEqual({ type: "duplicate" });
+    expect(resolvePhotoKey(press("J", { metaKey: true, shiftKey: true }), true)).toEqual({ type: "layerViaCut" });
+    expect(resolvePhotoKey(press("Backspace", { altKey: true }), true)).toEqual({ type: "fill", colour: "foreground" });
+    expect(resolvePhotoKey(press("Backspace", { metaKey: true }), true)).toEqual({ type: "fill", colour: "background" });
+    expect(resolvePhotoKey(press("Backspace"), true)).toEqual({ type: "delete" });
+    expect(resolvePhotoKey(press("e"), true)).toEqual({ type: "tool", tool: "eraser" });
+    expect(resolvePhotoKey(press("c", { ctrlKey: true }), false)).toEqual({ type: "copy" });
+  });
+});
+
 describe("transform handles", () => {
   const size = { width: 200, height: 100 };
   const t = { x: 500, y: 300, scaleX: 1, scaleY: 1, rotation: 0 };
