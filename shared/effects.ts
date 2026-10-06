@@ -144,9 +144,9 @@ export interface EffectShader {
    */
   simulation?: { memory?: (values: ParamValues, fps: number) => number | null };
   /**
-   * A 3D scene (V8, `shared/scenes/`): its state is stepped in TypeScript from its clip's first frame (the
-   * same numbers in the preview and the export), rendered by three.js (`src/scenes/`) at the layer's size,
-   * and handed to `glsl` as `getScene(uv)` to put over the clip's picture.
+   * A 3D scene (`shared/scenes/<scene>.ts`, docs/visualizer/scenes.md): a raymarched world whose state (its
+   * camera, events set off by hits) is stepped in TypeScript from its clip's first frame (the same numbers in
+   * the preview and the export) and reaches its GLSL as uniforms, added to its pass.
    */
   scene?: string;
   /**

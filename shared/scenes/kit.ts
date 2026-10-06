@@ -3,6 +3,7 @@
  * beat's impulse, smoothed bands) on the sound's signals, and the small maths its scenes share. Rates
  * are per second and steps a frame long, so a scene moves the same at any frame rate.
  */
+import type { UniformValue } from "../transition-gl.ts";
 import type { ParamValues } from "../types.ts";
 
 /** A scene's input at a frame of its clip. */
@@ -93,12 +94,6 @@ export const follow = {
 /** The beat's impulse as scenes read it. */
 export const beatOf = (f: Follow) => f.beat * f.beat;
 
-/** What every scene's view carries of its sound: the smoothed levels, punch, the beat, the bands. */
-export function heard(frame: SceneFrame) {
-  const f = frame.follow;
-  return { level: r5(f.level), bass: r5(f.bass), mid: r5(f.mid), high: r5(f.high), punch: r5(f.punch), beat: r5(beatOf(f)), bands: frame.bands };
-}
-
 /** A number value of a scene's effect, or `fallback`. */
 export const num = (values: ParamValues, key: string, fallback: number) => {
   const v = Number(values[key]);
@@ -108,5 +103,45 @@ export const num = (values: ParamValues, key: string, fallback: number) => {
 /** How fast a scene's own clock runs (its Speed), times the frame. */
 export const sceneDt = (frame: SceneFrame) => frame.dt * Math.max(0, num(frame.values, "speed", 1));
 
-/** Round to 5 decimals, so what's sent to the renderer is short and the same everywhere. */
-export const r5 = (v: number) => Math.round(v * 1e5) / 1e5;
+/** Uniforms, by type. */
+export const float = (name: string, value: number): UniformValue => ({ name, type: "float", value });
+export const vec2 = (name: string, value: readonly number[]): UniformValue => ({ name, type: "vec2", value: [value[0], value[1]] });
+export const vec3 = (name: string, value: readonly number[]): UniformValue => ({ name, type: "vec3", value: [value[0], value[1], value[2]] });
+export const vec4 = (name: string, value: readonly number[]): UniformValue => ({ name, type: "vec4", value: [value[0], value[1], value[2], value[3]] });
+
+export type Vec3 = [number, number, number];
+export const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+export const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+export const scale = (a: Vec3, k: number): Vec3 => [a[0] * k, a[1] * k, a[2] * k];
+export const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+export const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+export const length = (a: Vec3) => Math.hypot(a[0], a[1], a[2]);
+export const normalize = (a: Vec3): Vec3 => scale(a, 1 / (length(a) || 1));
+export const mix3 = (a: Vec3, b: Vec3, t: number): Vec3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+
+/**
+ * A camera as the uniforms `SCENE_GLSL` reads (`camPos`, `camFwd`, `camRight`, `camUp`, `camLens`): at `pos`, looking
+ * at `target`, turned `roll` radians about its view, seeing `fov` degrees across the frame's shorter side. Up is +Y
+ * unless `up` says otherwise (a camera that turns through any direction gives its own).
+ */
+export function cameraUniforms(pos: Vec3, target: Vec3, roll: number, fov: number, up: Vec3 = [0, 1, 0]): UniformValue[] {
+  return cameraLooking(pos, normalize(sub(target, pos)), roll, fov, up);
+}
+
+/** A camera at `pos` looking along `fwd` (a unit vector), as `cameraUniforms`. */
+export function cameraLooking(pos: Vec3, fwd: Vec3, roll: number, fov: number, up: Vec3 = [0, 1, 0]): UniformValue[] {
+  let right = cross(fwd, up);
+  if (length(right) < 1e-6) right = cross(fwd, [1, 0, 0]);
+  right = normalize(right);
+  const upward = cross(right, fwd);
+  const [c, s] = [Math.cos(roll), Math.sin(roll)];
+  const r: Vec3 = add(scale(right, c), scale(upward, s));
+  const u: Vec3 = sub(scale(upward, c), scale(right, s));
+  return [vec3("camPos", pos), vec3("camFwd", fwd), vec3("camRight", r), vec3("camUp", u), float("camLens", Math.tan(((fov * Math.PI) / 180) / 2))];
+}
+
+/** The sound every scene's GLSL can read (`sLevel`, `sBass`, `sMid`, `sHigh`, `sPunch`, `sBeat`), followed and smoothed. */
+export function soundUniforms(frame: SceneFrame): UniformValue[] {
+  const f = frame.follow;
+  return [float("sLevel", f.level), float("sBass", f.bass), float("sMid", f.mid), float("sHigh", f.high), float("sPunch", f.punch), float("sBeat", beatOf(f))];
+}

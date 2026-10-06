@@ -119,9 +119,12 @@ beatPhase...). If it doesn't compile you get the errors on your lines: fix and c
 that zoom, turn and shift hue: put it after a generator or a visualizer on a solid, or on a clip), Motion Trace, \
 Freeze (holds, or updates only on hits), Slit-Scan, Echo Grid. They're simulations: a frame follows from every frame \
 of the clip before it, so a look's history matters (it builds up from the clip's start). Rates are per second.
-- 3D worlds (get_catalog "video_effects" "3D Scenes": Tesseract, Singularity, Cathedral, Leviathan) are effects on a \
-solid (or New item › Visualizer's solid): each reacts to the sound by itself (kicks by default: Hits, Listens To, \
-Reactivity, Speed), with its own camera; Colorize with Color A and B recolours it. Several at once are heavy.
+- 3D worlds (get_catalog "video_effects" "3D Scenes") are effects on a solid (or New item › Visualizer's solid), each \
+with its own camera and reacting to the sound by itself (Hits, Listens To, Reactivity, Speed): Ridgeline (a flight \
+down a mountain valley; Style Dusk, Neon synthwave, Night), Infinite Dive (falling for ever into a self-similar \
+fractal, swooping; Form Portals, Lattice, Spires; Palette), Aurora (northern lights over a frozen lake, the curtains \
+hearing the spectrum), Storm Sea (a night sea, lightning on the hits; or Moonlit, Sunset), Ferrofluid (liquid metal \
+whose spikes are the spectrum, pulled up on kicks). They're heavy: one at a time, Quality lowers their cost.
 - After edits, check what you did with get_timeline or view_frames when it matters.`,
   },
 };

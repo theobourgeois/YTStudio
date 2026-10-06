@@ -1815,14 +1815,14 @@ test("a simulation shows the same frame seeked to or stepped to, and a 3D scene 
   expect(Math.max(...stepped.map((c, i) => Math.abs(c - seeked[i])))).toBeLessThanOrEqual(3);
   await page.screenshot({ path: "/tmp/feedback.png" });
 
-  // A 3D scene: three.js loads the first time one's drawn, and the tesseract lights the black canvas.
+  // A 3D scene: the flight over the mountains lights the black canvas.
   await page.keyboard.press("Home");
   await page.getByRole("button", { name: "New layer" }).click();
   await page.getByRole("menuitem", { name: /Solid/ }).click();
   await expect.poll(async () => (await timelineClips(page)).length).toBe(2);
   await expect(page.getByRole("menu")).toHaveCount(0);
-  await addFromTab("tesseract", "Tesseract");
-  await expect.poll(async () => (await effectsOf()).some((types) => types.includes("tesseract"))).toBe(true);
+  await addFromTab("ridgeline", "Ridgeline");
+  await expect.poll(async () => (await effectsOf()).some((types) => types.includes("ridgeline"))).toBe(true);
   await page.keyboard.press("Shift+ArrowRight");
   const lit = async () => {
     await expect(canvas).toHaveAttribute("data-simulation", "exact");
@@ -1831,7 +1831,7 @@ test("a simulation shows the same frame seeked to or stepped to, and a 3D scene 
     return on;
   };
   await expect.poll(lit, { timeout: 30_000 }).toBeGreaterThan(5);
-  await page.screenshot({ path: "/tmp/tesseract.png" });
+  await page.screenshot({ path: "/tmp/ridgeline.png" });
 });
 
 test("pinching over the monitor scales the selected clip, as one undo step", async ({ page }) => {
