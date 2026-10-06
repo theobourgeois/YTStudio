@@ -171,8 +171,6 @@ export interface RenderPlan {
   shaderUses: Record<string, string>;
   /** The CSS fonts its texts are drawn in, for the page to have ready before the first frame. */
   fonts: string[];
-  /** Whether it draws 3D scenes (the page loads their runtime first). */
-  scenes: boolean;
   /** What output frame `f` draws, bottom layer first. */
   frame(f: number): FrameLayer[];
   /**
@@ -490,7 +488,6 @@ export function planRender(
     shaders,
     shaderUses,
     fonts: [...new Set(Object.values(texts).flatMap((layouts) => layouts.map((l) => l.layout.font)))],
-    scenes: everyClip.some((clip) => clip.effects.some((e) => e.enabled && !!definitionOf(e)?.shader?.scene)),
     needsReversed: [...needsReversed],
     frame(f) {
       return layersOf(top, "", frameTime(f, F), f, 0, null);

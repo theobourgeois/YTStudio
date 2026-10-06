@@ -284,7 +284,7 @@ export async function renderVideo(
       const packet = prepared.then(() => prepare(f));
       prepared = packet.catch(() => {});
       return packet;
-    }, plan.fonts, plan.scenes);
+    }, plan.fonts);
     if (written !== plan.frames) throw new Error("Some frames weren't drawn.");
     stdin.end();
     for (const decoder of running.values()) decoder.close();
