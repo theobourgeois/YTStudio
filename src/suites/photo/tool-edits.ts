@@ -4,9 +4,33 @@
  * and what there is to choose from.
  */
 import { createId } from "@shared/ids";
-import { addAdjustmentLayer, addImageLayer, addPixelLayer, findLayer, moveLayer, removeLayer, removeMask, resetEffect, setCanvas, setEffectParams, setHighlights, setMask, setTransform, updateLayer } from "@shared/photo/edits";
-import { ADJUSTMENTS, type EffectDefinition, type EffectKind, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
-import { CURVE_CHANNELS, MAX_CURVE_POINTS, type ParamSpec } from "@shared/photo/effects/params";
+import {
+  addAdjustmentLayer,
+  addFilter,
+  addGeneratorLayer,
+  addImageLayer,
+  addPixelLayer,
+  findLayer,
+  moveFilter,
+  moveLayer,
+  removeFilter,
+  removeLayer,
+  removeMask,
+  resetEffect,
+  setCanvas,
+  setEffectParams,
+  setFilter,
+  setFiltersEnabled,
+  setGeneratorBlend,
+  setHandle,
+  setHighlights,
+  setMask,
+  setTransform,
+  updateLayer,
+} from "@shared/photo/edits";
+import { FLARE_PRESETS } from "@shared/photo/effects/flare";
+import { ADJUSTMENTS, type EffectDefinition, type EffectKind, FILTERS, GENERATORS, effectDefinition, newEffect, unavailableReason } from "@shared/photo/effects/index";
+import { CURVE_CHANNELS, type ElementParamSpec, MAX_CURVE_POINTS, type ParamSpec } from "@shared/photo/effects/params";
 import { bounds } from "@shared/photo/layers";
 import type { MergeKind } from "@shared/photo/merge";
 import { isColour } from "@shared/photo/project";
@@ -24,6 +48,7 @@ import {
   type PhotoProject,
   type PhotoSelection,
   type PlacedLayer,
+  hasContent,
   isPlaced,
 } from "@shared/photo/types";
 import type { MediaAsset } from "@shared/types";
@@ -157,7 +182,7 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
 /** `get_photo`: the canvas and the layers, top down. */
 export function describePhoto(doc: PhotoProject, assets: readonly MediaAsset[], selected: readonly string[], selection: PhotoSelection | null = null): string {
   const lines = [
-    `"${doc.name}": canvas ${doc.canvas.width}×${doc.canvas.height} px, background ${doc.canvas.background ?? "transparent"}.`,
+    `"${doc.name}": canvas ${doc.canvas.width}×${doc.canvas.height} px, background ${doc.canvas.background ?? "transparent"}, highlights ${doc.output.highlights} (light brighter than white ${doc.output.highlights === "film" ? "rolls towards white" : "is clipped"}).`,
     doc.layers.length ? `Layers, top first (${doc.layers.length}):` : "No layers yet.",
     ...[...doc.layers].reverse().map((l) => describeLayer(l, assets, doc.layers.indexOf(l))),
   ];
@@ -235,6 +260,11 @@ export const setLayerTool: PhotoEdit = (doc, input) => {
   });
   const order = num(input.order);
   if (order !== undefined) next = moveLayer(next, layer.id, order);
+  if (input.blend !== undefined) {
+    if (layer.kind !== "generator") throw new Error(`blend is a generator layer's (a Lens Flare's) for now: "${layer.name}" is an ${layer.kind} layer.`);
+    if (input.blend !== "add" && input.blend !== "normal") throw new Error('blend must be "add" (Linear Dodge in linear light: light adds to what\'s below) or "normal".');
+    next = setGeneratorBlend(next, layer.id, input.blend === "add" ? "linear-dodge" : "normal", input.blend === "add" ? "linear" : "document");
+  }
   const after = findLayer(next, layer.id)!;
   return {
     doc: next,
@@ -244,48 +274,95 @@ export const setLayerTool: PhotoEdit = (doc, input) => {
 };
 
 /**
- * The model's parameters for an adjustment, checked strictly (an error says what's allowed, rather than a value
- * silently held): numbers within their range; for Curves, curves given at the top (`rgb`, `red`...) or under
- * `curves`, each replacing that curve of `current`.
+ * The model's parameters for an effect, checked strictly (an error says what's allowed, rather than a value silently
+ * held): numbers within their range, colours "#rrggbb", one of a choice's values, booleans, points [x, y] (null for
+ * one that can follow the canvas's centre); for Curves, curves given at the top (`rgb`, `red`...) or under
+ * `curves`, each replacing that curve of `current`; an element list replaced whole, each element checked.
  */
-export function adjustmentPatch(def: EffectDefinition, raw: unknown, current: Record<string, unknown>): Record<string, unknown> {
+export function effectPatch(def: EffectDefinition, raw: unknown, current: Record<string, unknown>): Record<string, unknown> {
   if (raw === undefined) return {};
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`params must be an object of ${def.label}'s parameters: ${def.params.map((p) => p.key).join(", ")}.`);
   const given = { ...(raw as Record<string, unknown>) };
   const patch: Record<string, unknown> = {};
   for (const spec of def.params) {
-    if (spec.kind === "number") {
-      if (!(spec.key in given)) continue;
-      const v = given[spec.key];
+    if (spec.kind === "curves") {
+      // Curves: { curves: { rgb, ... } } or { rgb, red, ... } at the top.
+      const nested = given[spec.key];
       delete given[spec.key];
-      if (typeof v !== "number" || !Number.isFinite(v) || v < spec.min || v > spec.max) throw new Error(`${spec.key} must be a number from ${spec.min} to ${spec.max}${spec.unit ? ` (${spec.unit})` : ""}; got ${JSON.stringify(v)}.`);
-      patch[spec.key] = v;
+      const source = (nested && typeof nested === "object" && !Array.isArray(nested) ? nested : given) as Record<string, unknown>;
+      const set = { ...(current[spec.key] as CurveSet) };
+      let touched = false;
+      for (const channel of CURVE_CHANNELS) {
+        if (!(channel in source)) continue;
+        const points = source[channel];
+        if (source === given) delete given[channel];
+        const ok =
+          Array.isArray(points) &&
+          points.length >= 2 &&
+          points.length <= MAX_CURVE_POINTS &&
+          points.every((p, i) => Array.isArray(p) && p.length === 2 && p.every((n) => typeof n === "number" && n >= 0 && n <= 255) && (i === 0 || p[0] > (points[i - 1] as number[])[0]));
+        if (!ok) throw new Error(`${channel} must be 2 to ${MAX_CURVE_POINTS} points [input, output], each 0..255, inputs increasing; got ${JSON.stringify(points)}.`);
+        set[channel] = (points as [number, number][]).map(([x, y]) => [x, y]);
+        touched = true;
+      }
+      if (touched) patch[spec.key] = set;
       continue;
     }
-    // Curves: { curves: { rgb, ... } } or { rgb, red, ... } at the top.
-    const nested = given[spec.key];
+    if (!(spec.key in given)) continue;
+    const v = given[spec.key];
     delete given[spec.key];
-    const source = (nested && typeof nested === "object" && !Array.isArray(nested) ? nested : given) as Record<string, unknown>;
-    const set = { ...(current[spec.key] as CurveSet) };
-    let touched = false;
-    for (const channel of CURVE_CHANNELS) {
-      if (!(channel in source)) continue;
-      const points = source[channel];
-      if (source === given) delete given[channel];
-      const ok =
-        Array.isArray(points) &&
-        points.length >= 2 &&
-        points.length <= MAX_CURVE_POINTS &&
-        points.every((p, i) => Array.isArray(p) && p.length === 2 && p.every((n) => typeof n === "number" && n >= 0 && n <= 255) && (i === 0 || p[0] > (points[i - 1] as number[])[0]));
-      if (!ok) throw new Error(`${channel} must be 2 to ${MAX_CURVE_POINTS} points [input, output], each 0..255, inputs increasing; got ${JSON.stringify(points)}.`);
-      set[channel] = (points as [number, number][]).map(([x, y]) => [x, y]);
-      touched = true;
+    if (spec.kind === "elements") {
+      if (!Array.isArray(v)) throw new Error(`${spec.key} must be a list of elements: { type, ...its parameters } each (keep an element's id to keep it).`);
+      patch[spec.key] = v.map((e, i) => {
+        const type = e && typeof e === "object" ? spec.types.find((t) => t.type === (e as Record<string, unknown>).type) : undefined;
+        if (!type) throw new Error(`${spec.key}[${i}] needs a type: ${spec.types.map((t) => t.type).join(", ")}.`);
+        const { id, type: _, enabled, ...values } = e as Record<string, unknown>;
+        const checked = elementPatch(type.params, values, `${spec.key}[${i}] (${type.type})`);
+        return { ...(typeof id === "string" ? { id } : {}), type: type.type, enabled: enabled !== false, ...checked };
+      });
+      continue;
     }
-    if (touched) patch[spec.key] = set;
+    patch[spec.key] = checkValue(spec, v, spec.key);
   }
   const unknown = Object.keys(given);
   if (unknown.length) throw new Error(`${def.label} has no parameter ${unknown.map((k) => `"${k}"`).join(", ")}. Its parameters: ${def.params.map((p) => (p.kind === "curves" ? CURVE_CHANNELS.join(", ") : p.key)).join(", ")}.`);
   return patch;
+}
+
+/** The old name, for adjustments. */
+export const adjustmentPatch = effectPatch;
+
+/** One parameter's value, checked strictly against its spec. */
+function checkValue(spec: Exclude<ParamSpec, { kind: "curves" | "elements" }>, v: unknown, name: string): unknown {
+  switch (spec.kind) {
+    case "number":
+      if (typeof v !== "number" || !Number.isFinite(v) || v < spec.min || v > spec.max) throw new Error(`${name} must be a number from ${spec.min} to ${spec.max}${spec.unit ? ` (${spec.unit})` : ""}; got ${JSON.stringify(v)}.`);
+      return v;
+    case "colour":
+      if (!isColour(v)) throw new Error(`${name} must be a colour like "#ffb070"; got ${JSON.stringify(v)}.`);
+      return (v as string).toLowerCase();
+    case "choice":
+      if (!spec.options.some((o) => o.value === v)) throw new Error(`${name} must be one of ${spec.options.map((o) => o.value).join(", ")}; got ${JSON.stringify(v)}.`);
+      return v;
+    case "boolean":
+      if (typeof v !== "boolean") throw new Error(`${name} must be true or false.`);
+      return v;
+    case "point":
+      if (v === null && spec.nullable) return null;
+      if (!Array.isArray(v) || v.length !== 2 || !v.every((n) => typeof n === "number" && Number.isFinite(n))) throw new Error(`${name} must be [x, y] in canvas pixels${spec.nullable ? " (or null: the canvas's centre)" : ""}; got ${JSON.stringify(v)}.`);
+      return [v[0], v[1]];
+  }
+}
+
+/** An element's own parameters, checked strictly. */
+function elementPatch(specs: readonly ElementParamSpec[], values: Record<string, unknown>, name: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(values)) {
+    const spec = specs.find((p) => p.key === key);
+    if (!spec) throw new Error(`${name} has no parameter "${key}". Its parameters: ${specs.map((p) => p.key).join(", ")}.`);
+    out[key] = checkValue(spec, v, `${name} ${key}`);
+  }
+  return out;
 }
 
 export const addAdjustmentTool: PhotoEdit = (doc, input) => {
@@ -302,15 +379,109 @@ export const addAdjustmentTool: PhotoEdit = (doc, input) => {
 
 export const setEffectParamsTool: PhotoEdit = (doc, input) => {
   const layer = findLayerRef(doc, input.layer);
-  if (layer.kind !== "adjustment") throw new Error(`"${layer.name}" is an ${layer.kind} layer: only adjustment layers have parameters. The adjustment layers: ${doc.layers.filter((l) => l.kind === "adjustment").map((l) => `${l.id} ("${l.name}")`).join(", ") || "none: add one with add_adjustment"}.`);
-  const reason = unavailableReason(layer.effect);
+  if (layer.kind !== "adjustment" && layer.kind !== "generator")
+    throw new Error(
+      `"${layer.name}" is an ${layer.kind} layer: only adjustment and generator layers have parameters of their own (a layer's filters: set_filter). The ones there are: ${doc.layers.filter((l) => l.kind === "adjustment" || l.kind === "generator").map((l) => `${l.id} ("${l.name}")`).join(", ") || "none"}.`,
+    );
+  const reason = unavailableReason(layer.effect, layer.kind);
   if (reason) throw new Error(`${reason} It can't be changed here.`);
   const def = effectDefinition(layer.effect.type)!;
-  let next = input.reset === true ? resetEffect(doc, layer.id) : doc;
-  const current = (findLayer(next, layer.id) as AdjustmentLayer).effect.params;
-  next = setEffectParams(next, layer.id, adjustmentPatch(def, input.params, current));
-  const after = findLayer(next, layer.id) as AdjustmentLayer;
-  return { doc: next, layerId: layer.id, text: next === doc ? `"${layer.name}" already had those settings.` : `"${after.name}": ${describeAdjustment(after)}` };
+  let next = input.reset === true ? (layer.kind === "adjustment" ? resetEffect(doc, layer.id) : setEffectParams(doc, layer.id, Object.fromEntries(def.params.filter((p) => p.kind !== "point" && p.kind !== "elements").map((p) => [p.key, p.default])))) : doc;
+  const current = (findLayer(next, layer.id) as AdjustmentLayer | GeneratorLayer).effect.params;
+  next = setEffectParams(next, layer.id, effectPatch(def, input.params, current));
+  const after = findLayer(next, layer.id) as AdjustmentLayer | GeneratorLayer;
+  const text = after.kind === "adjustment" ? describeAdjustment(after) : describeGenerator(after);
+  return { doc: next, layerId: layer.id, text: next === doc ? `"${layer.name}" already had those settings.` : `"${after.name}": ${text}` };
+};
+
+/** A filter of a layer by its id or its number in the layer's list (1: the first applied), or an error listing them. */
+function findFilterRef(layer: ContentLayer, ref: unknown): EffectInstance {
+  const filters = layer.filters ?? [];
+  const found = typeof ref === "number" ? filters[ref - 1] : filters.find((f) => f.id === ref) ?? (typeof ref === "string" && /^\d+$/.test(ref) ? filters[Number(ref) - 1] : undefined);
+  if (found) return found;
+  throw new Error(`"${layer.name}" has no filter ${JSON.stringify(ref)}. Its filters, first applied first: ${filters.map((f, i) => `${i + 1}. ${f.id} (${f.type})`).join(", ") || "none: add one with add_filter"}.`);
+}
+
+/** A layer that can have filters, or an error. */
+function contentLayerRef(doc: PhotoProject, ref: unknown): ContentLayer {
+  const layer = findLayerRef(doc, ref);
+  if (!hasContent(layer)) throw new Error(`"${layer.name}" is an adjustment layer: filters work on a layer's own pixels (an image, pixel or generator layer).`);
+  return layer;
+}
+
+export const addFilterTool: PhotoEdit = (doc, input) => {
+  const layer = contentLayerRef(doc, input.layer);
+  const def = effectDefinition(String(input.type ?? ""));
+  if (def?.kind !== "filter") throw new Error(`No filter "${String(input.type)}". The filters: ${FILTERS.map((d) => d.type).join(", ")}.`);
+  const id = createId("fx");
+  const fresh = addFilter(doc, layer.id, { id, type: def.type });
+  const next = setFilter(fresh, layer.id, id, { params: effectPatch(def, input.params, newEffect(def, id).params) });
+  const after = findLayer(next, layer.id) as ContentLayer;
+  return { doc: next, layerId: layer.id, text: `Added ${def.label} ${id} to "${layer.name}", applied after its other filters.\n${describeFilters(after).join("\n")}` };
+};
+
+export const setFilterTool: PhotoEdit = (doc, input) => {
+  const layer = contentLayerRef(doc, input.layer);
+  const filter = findFilterRef(layer, input.filter);
+  const def = effectDefinition(filter.type);
+  const reason = unavailableReason(filter, "filter");
+  let next = doc;
+  if (input.params !== undefined || input.reset === true) {
+    if (!def || reason) throw new Error(`${reason} It can't be changed here.`);
+    if (input.reset === true) next = setFilter(next, layer.id, filter.id, { params: newEffect(def, filter.id).params });
+    const current = (findLayer(next, layer.id) as ContentLayer).filters!.find((f) => f.id === filter.id)!.params;
+    next = setFilter(next, layer.id, filter.id, { params: effectPatch(def, input.params, current) });
+  }
+  if (typeof input.enabled === "boolean") next = setFilter(next, layer.id, filter.id, { enabled: input.enabled });
+  if (input.order !== undefined) {
+    if (typeof input.order !== "number" || !Number.isInteger(input.order) || input.order < 1) throw new Error("order must be a whole number from 1 (applied first).");
+    next = moveFilter(next, layer.id, filter.id, input.order - 1);
+  }
+  if (typeof input.all_enabled === "boolean") next = setFiltersEnabled(next, layer.id, input.all_enabled);
+  const after = findLayer(next, layer.id) as ContentLayer;
+  return { doc: next, layerId: layer.id, text: next === doc ? `"${layer.name}"'s filters already were that way.` : `"${after.name}":\n${describeFilters(after).join("\n")}` };
+};
+
+export const removeFilterTool: PhotoEdit = (doc, input) => {
+  const layer = contentLayerRef(doc, input.layer);
+  const filter = findFilterRef(layer, input.filter);
+  return { doc: removeFilter(doc, layer.id, filter.id), layerId: layer.id, text: `Removed ${filter.type} ${filter.id} from "${layer.name}" (undoable).` };
+};
+
+export const addGeneratorTool: PhotoEdit = (doc, input) => {
+  const def = effectDefinition(String(input.type ?? "lens-flare"));
+  if (def?.kind !== "generator") throw new Error(`No generator "${String(input.type)}". The generators: ${GENERATORS.map((d) => d.type).join(", ")}.`);
+  const preset = input.preset === undefined ? undefined : String(input.preset);
+  if (preset !== undefined && !FLARE_PRESETS.some((p) => p.id === preset)) throw new Error(`No preset "${preset}". The presets: ${FLARE_PRESETS.map((p) => p.id).join(", ")}.`);
+  const above = input.above === undefined ? null : findLayerRef(doc, input.above).id;
+  const id = createId("layer");
+  const fresh = addGeneratorLayer(doc, { id, type: def.type, preset, name: typeof input.name === "string" ? input.name : undefined }, above);
+  const params = effectPatch(def, { ...(input.source !== undefined ? { source: input.source } : {}), ...((input.params as object | undefined) ?? {}) }, (findLayer(fresh, id) as GeneratorLayer).effect.params);
+  const next = setEffectParams(fresh, id, params);
+  const layer = findLayer(next, id) as GeneratorLayer;
+  return { doc: next, layerId: id, text: `Added ${def.label} layer ${id} "${layer.name}", ${next.layers.indexOf(layer)} of ${next.layers.length - 1} from the bottom.\n   ${describeGenerator(layer)}` };
+};
+
+export const moveHandleTool: PhotoEdit = (doc, input) => {
+  const layer = findLayerRef(doc, input.layer);
+  if (layer.kind !== "generator") throw new Error(`"${layer.name}" is an ${layer.kind} layer: only generator layers (a Lens Flare) have handles. Move a layer with transform_layer.`);
+  const def = effectDefinition(layer.effect.type);
+  const handles = def?.params.filter((p) => p.kind === "point" && p.handle) ?? [];
+  const spec = handles.find((p) => p.key === input.handle);
+  if (!spec || spec.kind !== "point") throw new Error(`handle must be one of ${handles.map((h) => h.key).join(", ")}.`);
+  let value: DocPoint | null;
+  if (input.follow_canvas === true) {
+    if (!spec.nullable) throw new Error(`The ${spec.key} handle can't follow the canvas's centre.`);
+    value = null;
+  } else {
+    const n = (v: unknown, name: string) => {
+      if (typeof v !== "number" || !Number.isFinite(v)) throw new Error(`Give ${name} in canvas pixels${spec.nullable ? " (or follow_canvas: true)" : ""}.`);
+      return v;
+    };
+    value = [n(input.x, "x"), n(input.y, "y")];
+  }
+  const next = setHandle(doc, layer.id, spec.key, value);
+  return { doc: next, layerId: layer.id, text: `"${layer.name}": ${describeGenerator(findLayer(next, layer.id) as GeneratorLayer)}` };
 };
 
 export const addPixelLayerTool: PhotoEdit = (doc, input, env) => {
