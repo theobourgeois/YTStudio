@@ -8,12 +8,13 @@ import { useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 import { curveFunction } from "@shared/photo/effects/curve-math";
 import { CHANNEL_LABELS } from "@shared/photo/effects/index";
-import { CURVE_CHANNELS, type CurveChannel, MAX_CURVE_POINTS } from "@shared/photo/effects/params";
+import { CURVE_CHANNELS, type CurveChannel } from "@shared/photo/effects/params";
 import { setEffectParams } from "@shared/photo/edits";
 import type { AdjustmentLayer, CurvePoints, CurveSet } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { photoGesture, usePhoto } from "../store";
+import { addPoint, movePoint, removePoint } from "./curve-points";
 import { NumberField } from "./fields";
 
 /** How far past the graph (in levels) a dragged point goes before it's removed. */
@@ -21,28 +22,6 @@ const OFF = 24;
 
 /** The channels' colours on the graph (the composite in the page's text colour). */
 const STROKES: Record<CurveChannel, string> = { rgb: "currentColor", red: "#e5484d", green: "#30a46c", blue: "#3e8ef7" };
-
-/** A curve's points with point `i` moved to (x, y), kept strictly between its neighbours, levels rounded. */
-export function movePoint(points: CurvePoints, i: number, x: number, y: number): CurvePoints {
-  const lo = i > 0 ? points[i - 1][0] + 1 : 0;
-  const hi = i < points.length - 1 ? points[i + 1][0] - 1 : 255;
-  const nx = Math.max(lo, Math.min(hi, Math.round(x)));
-  const ny = Math.max(0, Math.min(255, Math.round(y)));
-  return points.map((p, j) => (j === i ? [nx, ny] : p));
-}
-
-/** A point added at (x, y) (levels rounded), and its index; null when there's no room or it's already there. */
-export function addPoint(points: CurvePoints, x: number, y: number): { points: CurvePoints; index: number } | null {
-  const nx = Math.max(0, Math.min(255, Math.round(x)));
-  if (points.length >= MAX_CURVE_POINTS || points.some((p) => p[0] === nx)) return null;
-  const index = points.findIndex((p) => p[0] > nx);
-  const at = index < 0 ? points.length : index;
-  const next: CurvePoints = [...points.slice(0, at), [nx, Math.max(0, Math.min(255, Math.round(y)))], ...points.slice(at)];
-  return { points: next, index: at };
-}
-
-/** Without point `i` (a curve keeps at least two). */
-export const removePoint = (points: CurvePoints, i: number): CurvePoints => (points.length <= 2 ? points : points.filter((_, j) => j !== i));
 
 const withChannel = (set: CurveSet, channel: CurveChannel, points: CurvePoints): CurveSet => ({ ...set, [channel]: points });
 
@@ -139,7 +118,7 @@ export function CurvesEditor({ layer }: { layer: AdjustmentLayer }) {
         tabIndex={0}
         role="application"
         aria-label={`${CHANNEL_LABELS[channel]} curve`}
-        className="sunken aspect-square w-full cursor-crosshair touch-none rounded text-foreground outline-none"
+        className="sunken aspect-square w-full cursor-crosshair touch-none overflow-visible rounded text-foreground outline-none"
         onPointerDown={onGraphDown}
         onKeyDown={onKey}
         data-channel={channel}

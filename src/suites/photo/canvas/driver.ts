@@ -5,23 +5,13 @@
  * opacity) stay final, so the composite kept below an adjustment is reused while it's dragged. Several requests in a
  * frame make one frame.
  */
-import type { PhotoProject } from "@shared/photo/types";
 import type { PhotoRenderer, FrameTiming } from "../render/renderer";
 import type { Quality } from "../render/compositor";
+import { layersMoved } from "./handles";
 import { usePhoto } from "../store";
 import { usePhotoUi } from "../ui";
 
 const SETTLE_MS = 120;
-
-/** Whether an image layer moved between two documents (its transform is a new object only when it changed). */
-export function layersMoved(prev: PhotoProject | undefined, next: PhotoProject | undefined): boolean {
-  if (!prev || !next) return false;
-  const before = new Map(prev.layers.map((l) => [l.id, l]));
-  return next.layers.some((l) => {
-    const was = before.get(l.id);
-    return l.kind === "image" && was?.kind === "image" && was.transform !== l.transform;
-  });
-}
 
 export class CanvasDriver {
   private frame: number | null = null;

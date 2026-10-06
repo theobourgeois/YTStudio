@@ -11,7 +11,22 @@ import { photoGesture } from "../store";
 import type { PhotoProject } from "@shared/photo/types";
 
 /** A number typed in: Enter or leaving the field commits (one undo step), Escape puts it back. */
-export function NumberField({ label, value, onCommit, suffix, disabled }: { label: string; value: number; onCommit: (v: number) => void; suffix?: string; disabled?: boolean }) {
+export function NumberField({
+  label,
+  value,
+  onCommit,
+  suffix,
+  disabled,
+  hideLabel,
+}: {
+  label: string;
+  value: number;
+  onCommit: (v: number) => void;
+  suffix?: string;
+  disabled?: boolean;
+  /** Named for assistive technology only (the row says it already). */
+  hideLabel?: boolean;
+}) {
   const [draft, setDraft] = useState<string | null>(null);
   const cancelled = useRef(false);
   const finish = (text: string) => {
@@ -25,7 +40,7 @@ export function NumberField({ label, value, onCommit, suffix, disabled }: { labe
   };
   return (
     <label className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
+      {!hideLabel && <span className="text-xs text-muted-foreground">{label}</span>}
       <span className="flex items-center rounded border border-line bg-surface-0 pr-1.5 focus-within:border-brand">
         <input
           inputMode="decimal"
@@ -56,7 +71,7 @@ export function ParamSlider({ spec, value, edit }: { spec: NumberParam; value: n
   const [gesture] = useState(() => photoGesture());
   return (
     <div className="flex flex-col gap-1" data-param={spec.key}>
-      <div className="flex items-end gap-2">
+      <div className="flex items-center gap-2">
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="flex-1 text-xs">{spec.label}</span>
@@ -64,7 +79,7 @@ export function ParamSlider({ spec, value, edit }: { spec: NumberParam; value: n
           <TooltipContent className="max-w-64">{spec.description}</TooltipContent>
         </Tooltip>
         <span className="w-24">
-          <NumberField label={spec.label} value={shown(value, spec.decimals)} suffix={spec.unit || undefined} onCommit={(v) => gesture.apply(edit(v))} />
+          <NumberField label={spec.label} hideLabel value={shown(value, spec.decimals)} suffix={spec.unit || undefined} onCommit={(v) => gesture.apply(edit(v))} />
         </span>
       </div>
       <Slider
