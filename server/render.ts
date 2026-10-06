@@ -713,7 +713,8 @@ export function lumaWeights(colorSpace: string | null | undefined, height: numbe
   }
 }
 
-const BT709 = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"];
+/** Tags a stream as BT.709, limited range (what the export's pictures are). */
+export const BT709 = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"];
 
 const rawOut = (pixelFormat: string) => ["-an", "-sn", "-f", "rawvideo", "-pix_fmt", pixelFormat, "pipe:1"];
 
@@ -1063,30 +1064,6 @@ export function keyframeExpression(keys: readonly Keyframe[], offset: number, ti
     expr = `if(lt(${time},${at(b)}),${piece},${expr})`;
   }
   return `if(lt(${time},${at(keys[0])}),${value(keys[0])},${expr})`;
-}
-
-/**
- * The ffmpeg that encodes the composited frames (raw BT.709 YUV 4:2:0 on
- * stdin, exactly `plan.frames` of them) with the mixed sound into the final MP4.
- */
-export function encoderArgs(
-  plan: Pick<RenderPlan, "width" | "height" | "fps" | "frames">,
-  opts: Pick<RenderOptions, "ffmpegPath"> & { audioPath: string; outputPath: string },
-): string[] {
-  const { width: W, height: H, fps: F } = plan;
-  const crf = Math.min(W, H) <= 720 ? "23" : "20";
-  return [
-    opts.ffmpegPath ?? "ffmpeg", ...FFMPEG_QUIET,
-    "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", `${W}x${H}`, "-framerate", String(F),
-    ...BT709, "-i", "pipe:0",
-    "-i", opts.audioPath,
-    "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", crf, "-pix_fmt", "yuv420p", "-r", String(F), ...BT709,
-    "-c:a", "aac", "-b:a", "192k", "-ar", String(SAMPLE_RATE), "-ac", "2",
-    "-movflags", "+faststart",
-    "-frames:v", String(plan.frames),
-    "-y", opts.outputPath,
-  ];
 }
 
 /** Run an ffmpeg that reports `-progress` on stdout, reporting progress 0..1 of `duration`. */

@@ -1,4 +1,5 @@
 import { Router, json } from "express";
+import { availableFormats } from "../encoders.ts";
 import type { ExportManager } from "../exports.ts";
 import { HttpError } from "../storage.ts";
 
@@ -9,6 +10,10 @@ export function exportRoutes(exports: ExportManager): Router {
   // Big enough for the text clips drawn by the browser.
   router.post("/", json({ limit: "200mb" }), async (req, res) => {
     res.status(202).json(await exports.create(req.body));
+  });
+  router.get("/formats", async (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await availableFormats());
   });
   router.get("/:id", (req, res) => {
     res.setHeader("Cache-Control", "no-store");

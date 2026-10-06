@@ -16,7 +16,8 @@ import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
 import { renderVideo } from "./frame-render.ts";
 import { probeColorSpace } from "./probe.ts";
-import { type RenderAsset, audioArgs, encoderArgs, planRender, runWithProgress } from "./render.ts";
+import { encoderArgs } from "./encoders.ts";
+import { type RenderAsset, audioArgs, planRender, runWithProgress } from "./render.ts";
 import { type DataPaths, HttpError, isValidId } from "./storage.ts";
 
 interface JobState {
@@ -242,7 +243,7 @@ export class ExportManager {
         signal,
       );
       let framesDrawn = 0;
-      await renderVideo(plan, encoderArgs(plan, { ...opts, audioPath: audio, outputPath: tmp }), signal, () => {
+      await renderVideo(plan, encoderArgs(plan, job, { ...opts, audioPath: audio, outputPath: tmp }), signal, () => {
         job.progress = audioShare + ((1 - audioShare) * ++framesDrawn) / plan.frames;
       });
       await fs.rename(tmp, this.paths.exportFile(job.id));

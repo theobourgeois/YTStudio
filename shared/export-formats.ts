@@ -4,8 +4,9 @@
  * read these, and `exportSettings` checks a request for all three.
  */
 
-export type ExportFormat = "h264" | "hevc" | "prores-hq" | "prores-4444" | "png";
-export type ExportQuality = "standard" | "high" | "best";
+import type { ExportFormat, ExportQuality } from "./types.ts";
+
+export type { ExportFormat, ExportQuality };
 
 /** How the export's page reads a frame back: YUV 4:2:0 packed on the GPU, or straight RGBA (top row first). */
 export type FrameReadback = "yuv420" | "rgba";

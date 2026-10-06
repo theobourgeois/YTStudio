@@ -3,7 +3,6 @@
  * All times are in seconds (floating point) unless the name says otherwise.
  */
 import type { AssistantModelInfo, AssistantProvider } from "./assistant.ts";
-import type { ExportFormat, ExportQuality } from "./export-formats.ts";
 import type { BezierPath } from "./path.ts";
 import type { TextLayout } from "./text-drawing.ts";
 import type { SuiteId } from "./suites.ts";
@@ -755,6 +754,10 @@ export interface UseLibraryItemResponse {
 // ---------------------------------------------------------------------------
 
 export type ExportResolution = "720p" | "1080p" | "4k";
+/** What an export makes (described in `shared/export-formats.ts`). */
+export type ExportFormat = "h264" | "hevc" | "prores-hq" | "prores-4444" | "png";
+/** H.264's and HEVC's quality. */
+export type ExportQuality = "standard" | "high" | "best";
 
 export interface ExportRequest {
   project: Project;
