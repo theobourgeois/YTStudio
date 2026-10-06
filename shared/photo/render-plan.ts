@@ -10,7 +10,7 @@
 import { type LayerBlending, blendSeed, blendingOf, compositingOf, isPlainBlending } from "./blending.ts";
 import { srgbToLinear } from "./colour.ts";
 import { activeFilters } from "./edits.ts";
-import { effectDefinition, unavailableReason } from "./effects/index.ts";
+import { effectDefinition, isKernelFilter, unavailableReason } from "./effects/index.ts";
 import { GLOW_CACHED_FROM } from "./effects/glow.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
 import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
@@ -88,7 +88,9 @@ export interface FilterNode {
   params: Record<string, EffectParamValue>;
   /** How far past its input it reaches, in document pixels. */
   reach: number;
-  /** Its own key (type, version, parameters). */
+  /** The document's canvas (where a kernel filter's centre is, as a vignette's). */
+  canvas: Size;
+  /** Its own key (type, version, parameters; a kernel filter's canvas too). */
   key: string;
 }
 
@@ -320,11 +322,12 @@ export function backgroundIn(hex: string | null, compositing: Compositing): [num
 const filterCommutesFrom = (f: FilterNode) => (f.type === "glow" ? GLOW_CACHED_FROM : effectDefinition(f.type)!.commutesWithReduction(f.params) ? 0 : Infinity);
 
 /** A layer's filters as the plan runs them: those on and usable, none while its "Filters" eye is off. */
-function filterNodes(layer: PhotoLayer): FilterNode[] {
+function filterNodes(layer: PhotoLayer, canvas: Size = { width: 0, height: 0 }): FilterNode[] {
   return activeFilters(layer).flatMap((f) => {
     const def = effectDefinition(f.type)!;
     if (def.isIdentity(f.params)) return [];
-    return [{ id: f.id, type: def.type, version: def.version, params: f.params, reach: def.reach(f.params), key: hashKey(`${def.type}@${def.version}|${JSON.stringify(f.params)}`) }];
+    const where = isKernelFilter(def.type) ? `|${canvas.width}x${canvas.height}` : "";
+    return [{ id: f.id, type: def.type, version: def.version, params: f.params, reach: def.reach(f.params), canvas, key: hashKey(`${def.type}@${def.version}|${JSON.stringify(f.params)}${where}`) }];
   });
 }
 
@@ -332,8 +335,8 @@ function filterNodes(layer: PhotoLayer): FilterNode[] {
 export const filtersReach = (layer: PhotoLayer): number => filterNodes(layer).reduce((sum, f) => sum + f.reach, 0);
 
 /** Its content's fields: filters, the content key they're keyed by, and from which level it commutes. */
-function contentFields(layer: PhotoLayer, contentKey: string, contentCommutesFrom = 0): ContentFields & { filtersKey: string } {
-  const filters = filterNodes(layer);
+function contentFields(layer: PhotoLayer, canvas: Size, contentKey: string, contentCommutesFrom = 0): ContentFields & { filtersKey: string } {
+  const filters = filterNodes(layer, canvas);
   return {
     filters,
     contentKey,
@@ -365,7 +368,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const size = { width: source.width, height: source.height };
       const t = layer.transform;
       const mask = maskOf(layer, size);
-      const { filtersKey, ...content } = contentFields(layer, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`));
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`));
       const matrix = layerMatrix(t, size);
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
@@ -390,7 +393,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       // An empty one is still drawn: the stroke that paints its first pixels shows through it.
       const { size, transform: t } = layer;
       const mask = maskOf(layer, size);
-      const { filtersKey, ...content } = contentFields(layer, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`));
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`));
       const matrix = layerMatrix(t, size);
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
@@ -422,7 +425,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const canvas = { width: doc.canvas.width, height: doc.canvas.height };
       const mask = maskOf(layer, canvas);
       const own = `${def.type}@${def.version}|${JSON.stringify(effect.params)}|${canvas.width}x${canvas.height}`;
-      const { filtersKey, ...content } = contentFields(layer, hashKey(own), def.commutesWithReduction(effect.params) ? 0 : Infinity);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(own), def.commutesWithReduction(effect.params) ? 0 : Infinity);
       const space = layer.blendSpace === "linear" ? "linear" : "document";
       // Linear Dodge (Add) in linear light adds light, which commutes with reduction; other modes don't.
       const b = blending.blend;

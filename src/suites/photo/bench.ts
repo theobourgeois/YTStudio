@@ -534,6 +534,14 @@ export async function sheetSetup(projectId: string, mediaId: string) {
   return usePhoto.getState().history!.doc.doc;
 }
 
+/** `doc` as the open photo's document, every image it shows loaded. */
+export async function showDoc(doc: PhotoProject) {
+  const r = await renderer();
+  usePhoto.getState().commit(() => doc);
+  await sleep(50);
+  await r.ready();
+}
+
 /** Any document (the open one's layers) rendered at `view` as RGBA floats, refined below 100% when it needs to be. */
 export async function renderDoc(doc: PhotoProject, view: View) {
   const r = await renderer();

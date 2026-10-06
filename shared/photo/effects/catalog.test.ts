@@ -3,8 +3,10 @@ import { describePresets, effectPreset, entryParams, FILTER_ENTRIES, filterCateg
 import { FILTERS, GENERATORS, effectDefinition, validateParams } from "./index.ts";
 
 describe("the filter catalogue", () => {
-  it("lists every filter's and generator's presets, filters first, each key once", () => {
-    expect(FILTER_ENTRIES.map((e) => e.key)).toEqual([
+  it("lists every filter's and generator's presets by category, filters first, each key once", () => {
+    const keys = FILTER_ENTRIES.map((e) => e.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.filter((k) => FILTER_ENTRIES.find((e) => e.key === k)!.def.category === "Light").slice(0, 8)).toEqual([
       "glow/bloom",
       "glow/soft-haze",
       "glow/neon",
@@ -16,7 +18,12 @@ describe("the filter catalogue", () => {
     ]);
     // Every filter and generator is listed: a new one without a category or presets would be found nowhere.
     for (const def of [...FILTERS, ...GENERATORS]) expect(FILTER_ENTRIES.some((e) => e.def === def), def.type).toBe(true);
-    expect(filterCategories()).toEqual(["Light"]);
+    // By category, in their order; within one, filters before generators.
+    const order = filterCategories();
+    expect(order[0]).toBe("Colour");
+    expect(order).toContain("Light");
+    const ranks = FILTER_ENTRIES.map((e) => order.indexOf(e.def.category) * 2 + (e.def.kind === "generator" ? 1 : 0));
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
   });
 
   it("gives every preset parameters its definition accepts as they are, on any canvas", () => {
@@ -46,7 +53,7 @@ describe("the filter catalogue", () => {
   it("finds presets by id and describes them for the model", () => {
     expect(effectPreset(effectDefinition("glow")!, "dreamy")?.label).toBe("Dreamy");
     expect(effectPreset(effectDefinition("glow")!, "classic")).toBeUndefined();
-    expect(describePresets("filter")).toMatch(/^glow presets: bloom \(Bloom: .*\); soft-haze/);
+    expect(describePresets("filter")).toMatch(/^glow presets: bloom \(Bloom: .*\); soft-haze/m);
     expect(describePresets("generator")).toMatch(/^lens-flare presets: classic/);
   });
 });

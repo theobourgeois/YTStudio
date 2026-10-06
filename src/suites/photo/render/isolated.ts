@@ -19,6 +19,8 @@ import type { Compositor, Drawable, LayerDraw, PlanSources, Quality } from "./co
 import { FLARE_SHADER, packFlare } from "./flare.ts";
 import { APPLY, APPLY_OCTAVES, BLUR, CONTRIBUTION, type OctaveRead, type PlacedOctave, applyUniform, blurUniform, placeOctaves, placedReach } from "./glow.ts";
 import { ROUND_FOR_STORE } from "./kernels.ts";
+import { FILTER_KERNELS } from "./filters/index.ts";
+import { type FilterKernel, kernelHeader, kernelShader } from "./kernel.ts";
 import { ATLAS, IMAGE_STRUCTS, MASK_SAMPLE, MATHS, imageFunctions } from "./wgsl.ts";
 
 const USAGE = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST;
@@ -181,6 +183,8 @@ type Blend = "normal" | "add";
 
 interface Pipelines {
   composite: Map<string, GPURenderPipeline>;
+  /** Kernel filters', by `type:format`. */
+  kernels: Map<string, GPURenderPipeline>;
   flare: Map<PlanFormat, GPURenderPipeline>;
   contribution: Map<PlanFormat, GPURenderPipeline>;
   blur: Map<PlanFormat, GPURenderPipeline>;
@@ -204,7 +208,9 @@ export class Isolation {
   private readonly sampler: GPUSampler;
   private readonly dummy: GPUTexture;
   private readonly flares = new Map<string, { buffer: GPUBuffer; count: number }>();
-  private readonly layouts: { composite: GPUBindGroupLayout; flare: GPUBindGroupLayout; textureUniform: GPUBindGroupLayout; apply: GPUBindGroupLayout };
+  private readonly layouts: { composite: GPUBindGroupLayout; flare: GPUBindGroupLayout; textureUniform: GPUBindGroupLayout; apply: GPUBindGroupLayout; kernel: GPUBindGroupLayout };
+  /** A placeholder for kernels that read no table. */
+  private readonly noTable: GPUBuffer;
 
   private constructor(
     private readonly compositor: Compositor,
@@ -215,6 +221,7 @@ export class Isolation {
     this.pool = new TexturePool(device);
     this.sampler = device.createSampler();
     this.dummy = device.createTexture({ label: "no octave", size: [1, 1], format: "rgba16float", usage: GPUTextureUsage.TEXTURE_BINDING });
+    this.noTable = device.createBuffer({ label: "no table", size: 16, usage: GPUBufferUsage.STORAGE });
     this.layouts = layouts;
   }
 
@@ -226,6 +233,7 @@ export class Isolation {
       [`contribution ${f}`, CONTRIBUTION(f)],
       [`blur ${f}`, BLUR(f)],
       [`apply ${f}`, APPLY(f)],
+      ...Object.entries(FILTER_KERNELS).map(([type, k]): [string, string] => [`${type} ${f}`, kernelShader(k, f)]),
     ]);
   }
 
@@ -255,6 +263,15 @@ export class Isolation {
         ...Array.from({ length: APPLY_OCTAVES }, (_, i): GPUBindGroupLayoutEntry => ({ binding: i + 2, visibility: FRAG, texture: { sampleType: "unfilterable-float" } })),
       ],
     });
+    const kernel = device.createBindGroupLayout({
+      label: "kernel filter",
+      entries: [
+        { binding: 0, visibility: FRAG, texture: { sampleType: "unfilterable-float" } },
+        { binding: 1, visibility: FRAG, buffer: { type: "uniform" } },
+        { binding: 2, visibility: FRAG, buffer: { type: "uniform" } },
+        { binding: 3, visibility: FRAG, buffer: { type: "read-only-storage" } },
+      ],
+    });
     const blendOf = (b: Blend): GPUBlendState => ({
       color: { srcFactor: "one", dstFactor: b === "add" ? "one" : "one-minus-src-alpha", operation: "add" },
       alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -269,7 +286,7 @@ export class Isolation {
         primitive: { topology: "triangle-list" },
       });
     };
-    const pipelines: Pipelines = { composite: new Map(), flare: new Map(), contribution: new Map(), blur: new Map(), apply: new Map() };
+    const pipelines: Pipelines = { composite: new Map(), kernels: new Map(), flare: new Map(), contribution: new Map(), blur: new Map(), apply: new Map() };
     const work: Promise<unknown>[] = [];
     for (const f of formats) {
       for (const b of ["normal", "add"] as const) work.push(render(`composite ${b} ${f}`, COMPOSITE(f), [kernels.atlasLayout, kernels.imageLayout, composite], f, blendOf(b)).then((p) => pipelines.composite.set(`${b}:${f}`, p)));
@@ -278,9 +295,16 @@ export class Isolation {
         render(`contribution ${f}`, CONTRIBUTION(f), [textureUniform], f).then((p) => pipelines.contribution.set(f, p)),
         render(`blur ${f}`, BLUR(f), [textureUniform], f).then((p) => pipelines.blur.set(f, p)),
         render(`apply ${f}`, APPLY(f), [apply], f).then((p) => pipelines.apply.set(f, p)),
+        // One filter that doesn't compile is left out (its layers aren't drawn), not the renderer.
+        ...Object.entries(FILTER_KERNELS).map(([type, k]) =>
+          render(`${type} ${f}`, kernelShader(k, f), [kernel], f).then(
+            (p) => void pipelines.kernels.set(`${type}:${f}`, p),
+            (error: unknown) => console.error(`[photo] the ${type} filter's shader doesn't compile`, error),
+          ),
+        ),
       );
     }
-    const isolation = new Isolation(compositor, pipelines, { composite, flare, textureUniform, apply });
+    const isolation = new Isolation(compositor, pipelines, { composite, flare, textureUniform, apply, kernel });
     return { isolation, ready: Promise.all(work).then(() => {}) };
   }
 
@@ -289,7 +313,7 @@ export class Isolation {
     const p = this.pipelines;
     if (!p.composite.has(`normal:${format}`) || !p.composite.has(`add:${format}`)) return false;
     if (node.kind === "generator" && !p.flare.has(format)) return false;
-    return node.filters.length === 0 || (p.contribution.has(format) && p.blur.has(format) && p.apply.has(format));
+    return node.filters.every((f) => (FILTER_KERNELS[f.type] ? p.kernels.has(`${f.type}:${format}`) : p.contribution.has(format) && p.blur.has(format) && p.apply.has(format)));
   }
 
   private uniform(data: ArrayBuffer | Float32Array, label: string): GPUBuffer {
@@ -336,12 +360,50 @@ export class Isolation {
     }
     for (let i = 0; i < upTo; i++) {
       const f = node.filters[i];
-      if (f.type !== "glow") continue;
-      const next = this.glow(encoder, node, i, current, at, quality, sources, format);
+      const kernel = FILTER_KERNELS[f.type];
+      const next = kernel ? this.kernel(encoder, node, i, kernel, current, at, quality, sources, format) : f.type === "glow" ? this.glow(encoder, node, i, current, at, quality, sources, format) : current;
       if (!next) return null;
       current = next;
     }
     return current;
+  }
+
+  /**
+   * A kernel filter (filter `index` of `node`) on `input` (`view`'s grid): a new texture of the pool. One that reads
+   * around a point gets its content again over the view grown by its reach (its earlier filters run on it), so
+   * what it reads near the view's edges is there.
+   */
+  private kernel(encoder: GPUCommandEncoder, node: ContentNode, index: number, kernel: FilterKernel, input: GPUTexture, view: View, quality: Quality, sources: PlanSources, format: PlanFormat): GPUTexture | null {
+    const f = node.filters[index];
+    const grow = f.reach > 0 ? Math.ceil(f.reach * view.zoom) + 1 : 0;
+    let source = input;
+    if (grow > 0) {
+      const grown: View = { zoom: view.zoom, x: view.x - grow / view.zoom, y: view.y - grow / view.zoom, width: view.width + 2 * grow, height: view.height + 2 * grow };
+      const content = this.content(encoder, node, grown, quality, sources, format, index);
+      if (!content) return null;
+      source = content;
+    }
+    const { device } = this.compositor.ctx;
+    const packed = kernel.pack(f.params, f.canvas);
+    let table = this.noTable;
+    if (packed.table) {
+      table = device.createBuffer({ label: "kernel table", size: Math.max(16, packed.table.byteLength), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      device.queue.writeBuffer(table, 0, packed.table);
+      const made = table;
+      void device.queue.onSubmittedWorkDone().then(() => setTimeout(() => made.destroy(), 0));
+    }
+    const group = device.createBindGroup({
+      layout: this.layouts.kernel,
+      entries: [
+        { binding: 0, resource: source.createView() },
+        { binding: 1, resource: { buffer: this.uniform(kernelHeader(view, grow, ((f.params.mix as number | undefined) ?? 100) / 100, f.canvas), "kernel header") } },
+        { binding: 2, resource: { buffer: this.uniform(packed.uniform, "kernel params") } },
+        { binding: 3, resource: { buffer: table } },
+      ],
+    });
+    const out = this.pool.take(view.width, view.height, format, f.type);
+    this.pass(encoder, out, this.pipelines.kernels.get(`${f.type}:${format}`)!, [group]);
+    return out;
   }
 
   /** A generator's content: a flare's elements at every target pixel. */
@@ -549,6 +611,7 @@ export class Isolation {
   destroy() {
     this.pool.destroy();
     this.dummy.destroy();
+    this.noTable.destroy();
     for (const t of this.dummies.values()) t.destroy();
     for (const f of this.flares.values()) f.buffer.destroy();
     this.flares.clear();
