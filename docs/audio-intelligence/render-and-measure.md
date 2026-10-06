@@ -7,7 +7,7 @@ Implemented locally. The assistant can capture its current song, request a passa
 | Tool | Result |
 | --- | --- |
 | `capture_audio_snapshot` | Snapshot id, musical revision, render settings and capture coverage; uses the chat's live document through the tab bridge |
-| `render_audio_passage` | Durable render job id; requires snapshot id, `startTick`, `endTick` (96 ticks per quarter note) |
+| `render_audio_passage` | Durable render job id; requires snapshot id, `startTick`, `endTick` (96 ticks per quarter note); `stemTrackId` also keeps that mixer track's stem (after its fader, same pass) as a second artifact (`track-stem`) |
 | `register_audio_artifact` | Private immutable artifact from a WAV in the current project's media |
 | `analyse_audio_artifact` | Durable local measurement job id |
 | `get_audio_job` | Status, stages, progress, errors, artifact/snapshot/evidence ids |
@@ -46,7 +46,16 @@ Per channel: sample peak and unweighted RMS in dBFS, sample peak/RMS crest facto
 
 Each finding names its method and version, channel and exact inspected artifact span. Undefined logarithmic/silence values are null with a reason. Full-scale samples are not asserted to be audible clipping; filter energies are not tonal judgements; activity is not beat detection. Reports contain no listening observations or musical hypotheses.
 
-LUFS, oversampled true peak, standardized loudness range and beat/phrase timing are explicitly unavailable. Local measurement tools do not perform hosted listening; the separate [hosted perception pilot](hosted-perception.md) adds consent-gated uploads and currently withholds unverified findings. Permissions default to local analysis only: no upload, retrieval display or training authorization is implied.
+Added 2026-10-05, over the whole passage (`shared/music/audio-intelligence/loudness.ts`, `spectrum.ts`):
+
+- **Loudness**: ITU-R BS.1770-4 integrated loudness (K-weighting at any sample rate, gated at −70 LUFS and 10 LU under the mean), EBU Tech 3342 loudness range, the largest momentary (400 ms) and short-term (3 s) loudness, and short-term loudness per second (`shortTermLufs`, one measurement per window, its span the window). Tested on EBU's reference cases (a −23 dBFS 1 kHz stereo tone reads −23 LUFS; a 10 dB step reads 10 LU of range).
+- **True peak**: 4× oversampled with a 12-tap-a-phase Hann-windowed sinc (our filter, not Annex 2's coefficients; within a few tenths of a dB). A quarter-rate sine sampled at 45° reads its real peak, 3 dB over its samples.
+- **Balance by band** (`bandBalanceDb.<band>`): sub, bass, low mids, mids, upper mids, presence and air, each band's share of the energy against pink noise's (equal energy per octave). A reference, not a target.
+- **When things change** (`loudnessChangeDb`, `toneChangeDb`, spans at the moment): loudness moving 3 dB or more (two-second means either side, a slow move measured again over four), and a band's share moving at least 3 dB and four times its usual move in that passage (three seconds either side), with the bands that moved. A tonal change is the balance moving, whether the music or processing moved it.
+
+On the hearing benchmark's 38 held-out real clips (`pnpm tsx scripts/hearing-benchmark.ts ears`), these found every constructed level change at its time (8/8; Qwen: 2/8) and half the tonal ones (4/8, two more in the right band about 2 s late; Qwen: 0/8), with no change reported on any untouched clip. See [the benchmark](hearing-benchmark.md).
+
+Beat/phrase timing and instrument identification remain unavailable. Local measurement tools do not perform hosted listening; the separate [hosted perception pilot](hosted-perception.md) adds consent-gated uploads and currently withholds unverified findings. Permissions default to local analysis only: no upload, retrieval display or training authorization is implied.
 
 ## Verification
 
