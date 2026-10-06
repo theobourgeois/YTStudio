@@ -14,15 +14,20 @@ FL Studio** (see "The music suite"). See "Suites" below: most of this file is ab
 The planned **photo suite** is a Photoshop-style image editor with creative lighting/render effects.
 Read [`docs/photo/README.md`](docs/photo/README.md) for its product, research and architecture (WebGPU in the
 page renders and paints; content-addressed tiles in the package; a helper process decodes files) and the
-foundations' milestones and gates. **F0 and F1 are built**: the suite is registered (`SuiteId` `photo`), with
-`shared/photo/` (the document: types.ts, project.ts, edits.ts, layers.ts; colour and ICC, geometry, half floats,
+foundations' milestones and gates. **F0, F1 and F2 are built**: the suite is registered (`SuiteId` `photo`), with
+`shared/photo/` (the document: types.ts, project.ts, edits.ts, layers.ts; image and adjustment layers; effects/:
+the effect definitions (Exposure, Curves) and their parameter specs; render-plan.ts: `compileRender`, prefix keys,
+`refinePlan`; reference/: the CPU references the GPU is tested against; colour and ICC, geometry, half floats,
 surfaces, brush, the output transform; tools.ts), `server/photo/` (the helper process, the only code that parses
 image files, with sharp; decoded sources in each package's `photo/cache/`; banded exports; the blob store; the lab),
 `server/suites/photo.ts`, and `src/suites/photo/` (store.ts, ui.ts, keys.ts, workspace.tsx, panels/, canvas/,
-tools.ts + tool-edits.ts, live.ts: the open photo's renderer; render/: the WebGPU renderer, its atlas, page tables,
-WGSL kernels and compositor.ts, which draws the screen, exports, covers and the assistant's pictures alike).
-`/photo-lab.html` in `pnpm dev` is F0's lab. Kernels storing `rgba16float` must round first (`round_for_store`):
-Metal truncates on store (docs/photo/rendering.md). F2 is next.
+tools.ts + tool-edits.ts, live.ts: the open photo's renderer (and, in development, `window.photoDebug` for e2e and
+`window.photoBench` for the bench); render/: the WebGPU renderer, its atlas, page tables,
+WGSL kernels and compositor.ts, the plan's evaluator, which draws the screen, exports, covers and the assistant's
+pictures alike; renderer.ts keeps the composite below each adjustment and refines reduced views, never showing a
+stale one; adjustments.ts the adjustments' passes). `/photo-lab.html` in `pnpm dev` is F0's lab, kept for the
+renderer's parts the suite doesn't use yet. Kernels and passes storing `rgba16float` must round first
+(`round_for_store`): Metal truncates on store (docs/photo/rendering.md). F3 is next.
 
 ## Commands
 
@@ -47,7 +52,7 @@ pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into reso
 pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit into public/kit/
 pnpm tsx scripts/make-audio-fixtures.ts [--out dir]   # the audio-intelligence fixtures as WAVs + a manifest (tests render them in memory)
 pnpm tsx scripts/photo-fixtures.ts [--skip-large]   # the photo suite's test images (48/100 MP, P3, 16-bit, alpha, EXIF) into data/photo-fixtures
-pnpm tsx scripts/photo-bench.ts [--runner chrome|electron] [--tiles 256,512] [--quick] [--shots dir]   # the photo renderer's F0 gate, measured
+pnpm tsx scripts/photo-bench.ts [--runner chrome|electron] [--quick] [--lab [--tiles 256,512]] [--shots dir]   # the photo suite's targets, measured in the workspace (--lab: F0's lab)
 pnpm tsx scripts/select-mixparams.ts   # MixParams' reviewed reference subset into the gitignored data/ (docs/audio-intelligence/)
 python3 scripts/audit-cl1b.py <Dataset.zip> --out <report.json>   # CL 1B's layout, read statically: never unpickles
 ```
