@@ -441,6 +441,8 @@ export function describeToolCall(rawName: string, input: unknown): string {
       return "List the media";
     case "view_frames": {
       const times = list(f("times"));
+      if (typeof f("at") === "string") return `Look at the ${String(f("at")) === "onsetLow" ? "kicks" : String(f("at")) === "onsetHigh" ? "hats" : String(f("at")).replace(/^onset(Mid)?$/, "hits")}`;
+      if (!times.length) return `Look at ${count(typeof f("count") === "number" ? (f("count") as number) : 8, "frame")}`;
       return times.length === 1 ? `Look at ${seconds(times[0])}` : `Look at ${count(times.length, "frame")}`;
     }
     case "view_media": {
@@ -453,6 +455,10 @@ export function describeToolCall(rawName: string, input: unknown): string {
       return ids() ? `Listen to ${count(ids(), "clip")}` : "Listen for silences";
     case "analyze_music":
       return "Find the beat";
+    case "get_signals":
+      return "Listen to the sound";
+    case "plot_signals":
+      return "Plot the sound";
     case "detect_scenes":
       return "Find shot changes";
     case "get_catalog": {

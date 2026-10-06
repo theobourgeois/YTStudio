@@ -1,6 +1,7 @@
 # Visualizer: audio-reactive video
 
-Status: plan, first written 2026-10-06. Nothing is built yet. The milestones are V1–V10 below; V1 (signals) is first.
+Status: plan first written 2026-10-06. **V1 (signals) and V2 (signals in expressions) are built** (2026-10-07; see
+"What V1 and V2 built" below); V3 (links, custom signals, the Signals window) is next.
 [vaudio-port.md](vaudio-port.md) lists what comes over from Théo's earlier visualizer (`~/code/vaudio`) and where.
 
 A professional audio visualizer inside the video editor, not a suite of its own. Any clip, effect parameter or shader
@@ -87,24 +88,29 @@ want something that looks designed (not a stock spectrum), plus people who perfo
 
 ### Signals
 
-**Analysis** (`server/signals/analyse.ts`, Proposed numbers, measured in V1): ffmpeg decodes to 48 kHz stereo f32;
-mono for bands, mid/side for width. STFT with a 2048 Hann window (43 ms) every 240 samples: **200 frames a second**,
-whatever the sequence's fps (24–120), read with linear interpolation. Per frame:
-- `bands`: 96 log-spaced bands, 20 Hz–20 kHz, as dB (−90..0) quantised to a byte (0.35 dB steps).
-- scalars: RMS level and peak (10 ms), K-weighted momentary loudness (reusing BS.1770 from `loudness.ts`, moved to
-  the platform), the seven named bands of `spectrum.ts`' `BANDS`, spectral flux (onset strength), stereo width and
-  balance, spectral centroid (brightness).
-- events: onsets (peak-picked flux), and from `server/beats.ts`' `analyseRhythm`: tempo, beats, downbeats, sections,
-  drops. Its per-frame `envelopes` (now thrown away) are kept.
-- `wave`: the waveform, 24 kHz stereo int16, in its own file, loaded only by effects that draw it (oscilloscope,
-  vectorscope).
+**Analysis** (`shared/signals/analyse.ts`, pure; run by `server/signals.ts`): ffmpeg decodes to 48 kHz stereo f32,
+streamed through the analyser. **200 frames a second**, each centred on its moment, whatever the sequence's fps
+(24–120), read with linear interpolation. Per frame:
+- `bands`: 96 log-spaced bands, 20 Hz–20 kHz, from a 2048-point Hann spectrum (43 ms), as dB (−90..0) quantised to a
+  byte (0.35 dB steps). 0 dB is a full-scale sine.
+- scalars (`SCALARS`): level and peak over 10 ms, the seven named bands (`NAMED_BANDS`, the music suite's edges),
+  stereo width and balance, brightness (the spectral centroid), and four onset strengths: `onset` (spectral flux over
+  32 log bands of a 1024-point spectrum, in dB, floored 30 dB under the recent loudest band) and `onsetLow`/`Mid`/
+  `High` (each region's energy rising, below 150 Hz, between, above 4 kHz, floored against itself and 35 dB under the
+  loudest region, so a hat's lows and a kick's highs don't count).
+- hits: each onset strength's peaks (above 1.4× the mean over ±0.15 s, 2 dB at least, 50 ms apart, the peak
+  interpolated between frames, 4 ms later as measured: within 3.5 ms of a kick's or hat's attack, tested), with
+  their velocity; and from `server/beats.ts`' `analyseRhythm` (files up to 12 minutes): tempo, beats, downbeats,
+  sections, drops.
+- references (auto-gain): each dB scalar's and band's 95th percentile over the frames with sound, each flux's 99th.
 
-**Files**: `media/<id>/signals/` beside the waveform: `signals.json` (version, rate, band edges, duration, scalar names,
-events), `bands.u8`, `scalars.f32`, `wave.i16`. About 5 MB for 3 minutes without `wave` (17 MB with). A version
-number in the file re-runs the analysis when the analyser changes.
+**Files**: one, `media/<id>/signals-v<version>.bin` (`format.ts`: a JSON header with the references, hits and rhythm,
+then the scalars as float32 and the bands as bytes): about 5 MB for 3 minutes. The version is in its name, so a
+newer analysis makes a new file (the old one is removed) and caches never serve a stale one. The waveform for
+oscilloscopes (`wave`) is V4's.
 
-**Lifecycle**: `MediaAsset.signals?: { status: "processing" | "ready" | "error"; url: string; version: number }`, its
-own status like `reversed`, so a file is `ready` (playable) before its signals are. Made after the waveform for every
+**Lifecycle**: `MediaAsset.signals?: MediaSignals` (`processing`, `ready` with its `src` and `version`, or `error`),
+its own status like `reversed`, so a file is `ready` (playable) before its signals are. Made after the waveform for every
 file with sound; old assets are analysed when first used (as `requestReversedCopies` does), and the export waits for
 them as it waits for reversed copies. Copy, rename and Library paths carry the URL (`copyAsset`, `renamed`).
 
@@ -120,16 +126,20 @@ bands of uncorrelated sources and close enough for the rest, costs nothing to re
 needs a mixdown. Events (onsets, beats) of a track are its clips' events mapped onto the timeline. Speed changes
 without kept pitch move the spectrum; we ignore that (noted, not hidden: the Signals window says so).
 
-**Resolving** (`shared/signals/resolve.ts`, pure): `createSignalResolver(view, store)` with `value(ref, t)`,
-`bands(ref, t, out)`, `events(ref)` and `series(ref)`, cached per clip list (`perClipList`) and per signal definition.
-`store` gives loaded `SignalData` by asset id: in the tab a store that fetches and keeps them (`stores/signals.ts`), on
-the server a reader of the package's files. Like `atFrameRate`, drawing code runs inside
-`withSignals(resolver, work)` so evaluation stays synchronous; a source not loaded yet reads 0 in the preview (and its
-row says "Analysing…") and is waited for by the export.
+**Reading** (`shared/audio-signals.ts`, video's, pure): a `SignalReader` is a video's document and its files'
+loaded `SignalData` by media id: in the tab `stores/signals.ts` fetches them (asking the server to analyse old media)
+and sets the open video's (`setSignalReader`); the export reads the package's files (`ExportService`, only when
+something uses them: `usesSignals`) and plans frames inside `withSignals`; the assistant's background videos pass
+their own (`PreviewSource.signals`). `signalValue`, `bandValue`, `sourceHits` (cached per store, clip list and
+tracks) and `beatAt` read a source at a timeline time. A source not loaded yet reads silence in the preview, and is
+waited for by the export.
 
-**Values are 0..1.** Built-in signals auto-gain per source: the source's 95th percentile of that signal maps to 1, so
-a quiet master and a loud one react alike (switchable off per custom signal, which then shows dB). Proposed: Théo to
-judge on real songs.
+**Values are 0..1.** Built-in signals auto-gain per source: a dB signal at its file's 95th percentile reads 1 and 24 dB
+under it 0 (`AUTO_RANGE_DB`); several sounds sum their energies and their references, at unity gain, so Volume
+still counts (a fade calms the pictures) but a quiet song reacts as much as a loud one. Onsets are flux over the
+file's 99th percentile, the strongest since the frame before (none falls between frames). Width is 0..1, balance
+−1..1, brightness 0..1 from 100 Hz to 10 kHz (log). Switchable off per custom signal (V3). Proposed: Théo to judge on
+real songs.
 
 **Nested sequences**: a clip inside a nest reads its own sequence's sources; a nest's clip contributes its sequence's
 mix to the outer one. (Open question: should a nest read the outer sequence's mix by default? See questions.)
@@ -171,19 +181,20 @@ limited (`audio.bass` doesn't parse today): these are functions, as `prop()` is.
 
 | Function | Value |
 | --- | --- |
-| `audio(name = "level", source?)` | a built-in signal, 0..1; `source` is "master", a track's name or number, or a clip's id |
+| `audio(name = "level", source?)` | a built-in signal, 0..1; `source` is "master" (default), "self" (the clip's own sound), a track's name or id, an audio track's number, or a clip's id |
 | `band(lowHz, highHz, source?)` | the energy between two frequencies, 0..1 |
-| `signal(name)` | a custom signal's value (a curve or a band) |
-| `audioAt(name, t)`, `signalAt(name, t)` | the value at another time, for lags and echoes |
-| `sinceHit(name)`, `hitCount(name)`, `hitVelocity(name)` | seconds since the last event (onsets of a band signal, a pad, a note), how many so far, its velocity |
-| `envelope(seconds, attack, decay, curve?)` | a one-shot shape, pure: `envelope(sinceHit("Kick"), 0.01, 0.3)` is a punch |
-| `beat()`, `bar()`, `beatPhase()`, `sinceBeat()`, `bpm()` | the beat grid: exact from a music handoff, else the analysed one |
+| `audioAt(name, t, source?)` | the value at another time on the clip's clock, for lags and echoes |
+| `sinceHit(name = "onset", source?)`, `hitCount(…)`, `hitVelocity(…)` | seconds since the last hit (`onset`, `onsetLow` kicks, `onsetMid`, `onsetHigh` hats), how many so far, its velocity |
+| `envelope(seconds, attack, decay, curve = 1)` | a one-shot shape, pure: `envelope(sinceHit("onsetLow"), 0.01, 0.3)` is a punch |
+| `beat()`, `bar()`, `beatPhase()`, `sinceBeat()`, `bpm()` | the beat of the song playing (the longest clip heard with a steady beat); exact from a music handoff in V5 |
 | `section()`, `sinceDrop()` | the arrangement |
+| `signal(name)`, `signalAt(name, t)` | a custom signal's value (V3) |
 
-The scope gets a `signal` reader from the ambient resolver; `expressionScope` takes the whole clip (today it's only
-`id` and `effects`) so a clip's source `time` maps back to timeline time. Volume still can't have an expression (the
-export mixes sound with ffmpeg). While here, `time`'s description is fixed: it's source time, not "since the clip's
-start", for media clips.
+Before the first hit or beat, "since" is 10 000 s (`NEVER`): any envelope of it is over. The scope's `signals`
+(`SignalScope`) comes from `audio-signals.ts` through `provideSignalScopes`, so `effects.ts` doesn't import it; it
+finds the clip in the reader's document (any sequence) and maps the expression's clip time to timeline time.
+Volume still can't have an expression (the export mixes sound with ffmpeg). `time`'s description is fixed: it's the
+clip's own time (in the file, for media).
 
 ### Links
 
@@ -345,14 +356,14 @@ Full control, at parity per milestone (a feature isn't done without its tools):
 
 | Tool | Kind | Milestone |
 | --- | --- | --- |
-| `get_signals`: sources, built-in and custom signals, roles, summaries (peaks, onset density, sections) and a curve's numbers over a range | look | V1 |
-| `plot_signals`: an image of curves and events over a range, with beats and markers | look | V1 |
+| `get_signals`: what sounds where, the beat, bars, sections, drops, every hit, the level's shape, and signals' values over a range (built) | look | V1 |
+| `plot_signals`: an image of signals as lanes over a range, with bars, drops and hits (built) | look | V1 |
 | `get_catalog` sections `signals`, `visualizers`, `shader_api` (the prelude, dialects, examples); audio functions under `expressions` | look | V2–V6 |
 | `define_signal`, `delete_signal` | edit | V3 |
 | `link_param` (set or clear links on clips' parameters) | edit | V3 |
 | `set_events` (add at times, beats or onsets; quantise; clear) | edit | V3 |
 | `set_shader` (code and dialect; compile-checked, the log returned on failure) | edit | V6 |
-| `view_frames` with `from`/`to`/`count` (a contact sheet in one image) and `at: "onsets" \| "beats"` | look | V2 |
+| `view_frames` with `from`/`to`/`count`, `at` beats, bars, drops or hits (with an `offset`), and `sheet` (one picture) (built) | look | V2 |
 | `make_visualizer` (music suite) | action | V5 |
 | `map_control` (Perform mappings) | edit | V7 |
 
@@ -366,25 +377,30 @@ assistant can't hear; signals are its ears and `plot_signals` its eyes on them.
 Each ends with `pnpm typecheck && pnpm test`, the video e2e spec, the effect-sheet script for anything drawn, and its
 assistant tools. Gates are what must be true (measured) before the next milestone builds on it.
 
-### V1: Signals
+### V1: Signals (built)
 
-- `shared/signals/`: types, the file format and its reader, the FFT (deduplicated), loudness and bands (moved from
-  the music suite into the platform), the resolver (sources, energy sums, events, series, caches), auto-gain.
-- `server/signals/`: the analyser, the derivative job and its status, on-demand analysis for old assets, serving,
-  the server-side store for the export. `MediaAsset.signals`.
-- The tab's `stores/signals.ts` (fetch, keep, evict); a spectrogram view for audio clips (a toggle).
+- `shared/signals/` (platform): the format, the analyser, reading at a time, the FFT (shared with `beats.ts`).
+- `server/signals.ts` + `MediaLibrary`: analysed after the waveform for every file with sound, on demand for old
+  ones (`POST /api/media/:id/signals`), waited for by the export (`signalsPath`); copied and renamed with the media.
+- `shared/audio-signals.ts` (video): sources, energy sums, hits, the beat, auto-gain; `stores/signals.ts` in the tab.
 - `get_signals`, `plot_signals`.
-- Tests: synthetic fixtures (clicks at known times, sines in known bands, silence, stereo) → onsets within one frame
-  (5 ms), band energies within 1 dB, beats on a click track; the resolver's sums against a mixdown of two fixtures.
-- **Gate**: a 3-minute song analysed in under 4 s on Théo's Mac; resolving 100 signals per frame under 0.2 ms.
+- Tests: synthetic kicks, hats, sines and stereo (`analyse.test.ts`: hits within 3.5 ms, levels and bands within a dB,
+  streaming in any chunks gives the same file); sources, sums, Volume, mutes, speed, nests and the beat
+  (`audio-signals.test.ts`); a real import analysed by the server (`integration.test.ts`).
+- Moved to V3: the spectrogram on audio clips (with the signal lanes). Not done: moving the music suite's
+  `loudness.ts`/`spectrum.ts` into the platform (signals didn't need BS.1770's loudness; their FFT stays as it is so
+  their reports' numbers don't move).
+- **Gate**: the analyser takes about 0.7 s for 3 minutes of sound in the tests (plus ffmpeg's decode and the
+  rhythm); to be timed on Théo's songs.
 
-### V2: Signals in expressions
+### V2: Signals in expressions (built)
 
-- The globals above, `withSignals`, the scope's clip, the beat grid from analysis (a music clip chosen per sequence:
-  the longest with a tempo, overridable).
-- Expression examples in `expression-row.tsx`; `view_frames` contact sheets.
-- Tests: expressions against fixtures in the preview's resolver and in `planRender` give the same values; an export
-  integration test where a solid's opacity follows a click track (frame luma at the clicks).
+- The globals above, `withSignals` / `setSignalReader`, the beat of the song playing (the longest clip heard with a
+  steady beat).
+- Expression examples in `expression-row.tsx` (Pump with the bass, Punch on every kick, Pulse on the beat);
+  `view_frames` contact sheets and frames `at` beats, bars, drops or hits.
+- Tests: expressions reading signals (`audio-signals.test.ts`); an export where a solid flashes on each thump of a
+  real file, checked in the MP4's pixels (`integration.test.ts`).
 
 ### V3: Links, custom signals, the Signals window
 

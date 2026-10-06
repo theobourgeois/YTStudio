@@ -34,6 +34,20 @@ export interface ExpressionScope {
   prop(path: string, t?: number): ExprValue | undefined;
   /** A stable seed for this property's random functions (wiggle, random, noise), so every property wiggles differently but deterministically. */
   seed: number;
+  /** The sound, for `audio()`, `sinceHit()`, `beat()`...; absent where it can't be read (they then read silence). */
+  signals?: SignalScope;
+}
+
+/**
+ * What an expression can ask of the sound (`shared/audio-signals.ts` answers), each at a time on the
+ * clip's own clock. `source` names what's heard: absent for the whole mix, else "self", a track or a clip.
+ * They throw `ExpressionError` for names that don't exist.
+ */
+export interface SignalScope {
+  audio(name: string, source: string | number | undefined, t: number): number;
+  band(low: number, high: number, source: string | number | undefined, t: number): number;
+  hits(name: string, source: string | number | undefined, t: number): { since: number; count: number; velocity: number };
+  beat(t: number): { beat: number; bar: number; since: number; bpm: number; section: number; sinceDrop: number };
 }
 
 /** A parsed expression: parse once, evaluate every frame. */
@@ -786,7 +800,12 @@ const vectorMaths = (fn: string, op: string) => (_r: Run, args: Val[], pos: numb
 };
 
 const GLOBALS: Global[] = [
-  { name: "time", signature: "time", description: "Seconds since the clip's start.", get: (r) => r.time },
+  {
+    name: "time",
+    signature: "time",
+    description: "The clip's own time in seconds: since its start for text, shapes and solids; the time in its file for media.",
+    get: (r) => r.time,
+  },
   {
     name: "value",
     signature: "value",
@@ -1016,6 +1035,170 @@ const GLOBALS: Global[] = [
     },
   },
 ];
+
+/** Before the first hit or beat: so long ago that any envelope of it is over. */
+const NEVER = 10_000;
+const SOUND_SOURCE = 'source = master: "self", a track\'s name or number, or a clip\'s id';
+
+/** A sound's name argument (`fallback` when absent). */
+function nameArg(args: Val[], i: number, fn: string, pos: number, fallback?: string): string {
+  const v = args[i];
+  if (v === undefined && fallback !== undefined) return fallback;
+  if (typeof v === "string") return v;
+  return fail(`${fn}(): the signal's name must be text, like "bass", not ${describe(v)}`, pos);
+}
+
+/** A sound's source argument: absent (the mix), a track's or clip's name or id, or an audio track's number. */
+function sourceArg(args: Val[], i: number, fn: string, pos: number): string | number | undefined {
+  const v = args[i];
+  if (v === undefined || typeof v === "string" || typeof v === "number") return v;
+  return fail(`${fn}(): the source must be text (a track's name, "self", "master") or a track's number, not ${describe(v)}`, pos);
+}
+
+/** Asks the sound, turning its errors into the expression's. */
+function hear<T>(r: Run, pos: number, ask: (signals: SignalScope) => T, silent: T): T {
+  charge(r, 4, pos);
+  const signals = r.scope.signals;
+  if (!signals) return silent;
+  try {
+    return ask(signals);
+  } catch (error) {
+    if (error instanceof ExpressionError) return fail(error.message, pos);
+    throw error;
+  }
+}
+
+const hitsOf = (fn: string) => (r: Run, args: Val[], pos: number) => {
+  arity(args, 0, 2, `${fn}(name = "onset", source)`, pos);
+  const name = nameArg(args, 0, fn, pos, "onset");
+  const source = sourceArg(args, 1, fn, pos);
+  return hear(r, pos, (s) => s.hits(name, source, r.time), { since: NEVER, count: 0, velocity: 0 });
+};
+
+const beatOf = (r: Run, pos: number) =>
+  hear(r, pos, (s) => s.beat(r.time), { beat: 0, bar: 0, since: NEVER, bpm: 0, section: 0, sinceDrop: NEVER });
+
+/** The sound: signals, hits and the beat (docs/visualizer/README.md). */
+const SOUND_GLOBALS: Global[] = [
+  {
+    name: "audio",
+    signature: `audio(name = "level", source)`,
+    description:
+      'What the sound is doing now, 0..1 (1: as loud as its own loud parts): "level", "peak", "sub", "bass", "lowMid", "mid", "upperMid", "presence", "air", "onset" (an impulse at each hit), "onsetLow" (kicks), "onsetMid", "onsetHigh" (hats), "width", "balance" (-1..1), "brightness". ' +
+      `${SOUND_SOURCE}. E.g. value * (1 + audio("bass") * 0.3).`,
+    call: (r, args, pos) => {
+      arity(args, 0, 2, 'audio(name = "level", source)', pos);
+      const name = nameArg(args, 0, "audio", pos, "level");
+      const source = sourceArg(args, 1, "audio", pos);
+      return hear(r, pos, (s) => s.audio(name, source, r.time), 0);
+    },
+  },
+  {
+    name: "audioAt",
+    signature: "audioAt(name, t, source)",
+    description: 'A signal at another time on the clip\'s clock (as `time`): audioAt("bass", time - 0.2) lags 0.2 s behind.',
+    call: (r, args, pos) => {
+      arity(args, 2, 3, "audioAt(name, t, source)", pos);
+      const name = nameArg(args, 0, "audioAt", pos);
+      const t = numArg(args, 1, "audioAt", "t", pos);
+      const source = sourceArg(args, 2, "audioAt", pos);
+      return hear(r, pos, (s) => s.audio(name, source, t), 0);
+    },
+  },
+  {
+    name: "band",
+    signature: "band(lowHz, highHz, source)",
+    description: "The energy between two frequencies now, 0..1, e.g. band(40, 120) for a kick's thump.",
+    call: (r, args, pos) => {
+      arity(args, 2, 3, "band(lowHz, highHz, source)", pos);
+      const low = numArg(args, 0, "band", "lowHz", pos);
+      const high = numArg(args, 1, "band", "highHz", pos);
+      const source = sourceArg(args, 2, "band", pos);
+      return hear(r, pos, (s) => s.band(low, high, source, r.time), 0);
+    },
+  },
+  {
+    name: "sinceHit",
+    signature: 'sinceHit(name = "onset", source)',
+    description: `Seconds since the sound's last hit: "onset" (any), "onsetLow" (kicks), "onsetMid", "onsetHigh" (hats). Very large before the first. Pair it with envelope().`,
+    call: (r, args, pos) => hitsOf("sinceHit")(r, args, pos).since,
+  },
+  {
+    name: "hitCount",
+    signature: 'hitCount(name = "onset", source)',
+    description: 'How many hits so far: hitCount("onsetLow") % 2 alternates on every kick.',
+    call: (r, args, pos) => hitsOf("hitCount")(r, args, pos).count,
+  },
+  {
+    name: "hitVelocity",
+    signature: 'hitVelocity(name = "onset", source)',
+    description: "How hard the last hit was, 0..1.",
+    call: (r, args, pos) => hitsOf("hitVelocity")(r, args, pos).velocity,
+  },
+  {
+    name: "envelope",
+    signature: "envelope(seconds, attack, decay, curve = 1)",
+    description:
+      'A one-shot shape: 0 before 0, up to 1 over `attack` seconds, back to 0 over `decay`; a curve above 1 snaps more. envelope(sinceHit("onsetLow"), 0.01, 0.3) punches on every kick.',
+    call: (_r, args, pos) => {
+      arity(args, 3, 4, "envelope(seconds, attack, decay, curve = 1)", pos);
+      const t = numArg(args, 0, "envelope", "seconds", pos);
+      const attack = Math.max(0, numArg(args, 1, "envelope", "attack", pos));
+      const decay = Math.max(0, numArg(args, 2, "envelope", "decay", pos));
+      const curve = Math.max(0.01, numArg(args, 3, "envelope", "curve", pos, 1));
+      if (!(t >= 0)) return 0;
+      const v = t < attack ? t / attack : decay > 0 ? Math.max(0, 1 - (t - attack) / decay) : t === attack ? 1 : 0;
+      return v ** curve;
+    },
+  },
+  {
+    name: "beat",
+    signature: "beat()",
+    description: "Beats since the song's first, counting up smoothly (2.5 is halfway between the third and fourth). 0 without a beat.",
+    call: (r, args, pos) => (arity(args, 0, 0, "beat()", pos), beatOf(r, pos).beat),
+  },
+  {
+    name: "bar",
+    signature: "bar()",
+    description: "Bars since the song's first downbeat, counting up smoothly.",
+    call: (r, args, pos) => (arity(args, 0, 0, "bar()", pos), beatOf(r, pos).bar),
+  },
+  {
+    name: "beatPhase",
+    signature: "beatPhase()",
+    description: "How far through the current beat, 0..1: Math.sin(beatPhase() * 2 * Math.PI) swings on the beat.",
+    call: (r, args, pos) => {
+      arity(args, 0, 0, "beatPhase()", pos);
+      const b = beatOf(r, pos).beat;
+      return b - Math.floor(b);
+    },
+  },
+  {
+    name: "sinceBeat",
+    signature: "sinceBeat()",
+    description: "Seconds since the last beat (very large before the first): envelope(sinceBeat(), 0, 0.2).",
+    call: (r, args, pos) => (arity(args, 0, 0, "sinceBeat()", pos), beatOf(r, pos).since),
+  },
+  {
+    name: "bpm",
+    signature: "bpm()",
+    description: "The song's tempo now (beats a minute), 0 without a beat.",
+    call: (r, args, pos) => (arity(args, 0, 0, "bpm()", pos), beatOf(r, pos).bpm),
+  },
+  {
+    name: "section",
+    signature: "section()",
+    description: "Which part of the song this is (0, 1, 2...: parts change where its loudness does).",
+    call: (r, args, pos) => (arity(args, 0, 0, "section()", pos), beatOf(r, pos).section),
+  },
+  {
+    name: "sinceDrop",
+    signature: "sinceDrop()",
+    description: "Seconds since the song's last drop (where its energy jumps up); very large before the first.",
+    call: (r, args, pos) => (arity(args, 0, 0, "sinceDrop()", pos), beatOf(r, pos).sinceDrop),
+  },
+];
+GLOBALS.push(...SOUND_GLOBALS);
 
 const VARIABLES = new Map<string, (r: Run) => Val>();
 const FUNCTIONS = new Map<string, (r: Run, args: Val[], pos: number) => Val>();

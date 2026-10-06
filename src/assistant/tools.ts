@@ -8,6 +8,7 @@
  */
 import type { VideoToolName } from "@shared/assistant-tools";
 import { type ToolContent, type ToolResult, textResult } from "@shared/tool-spec";
+import { type SignalSource, resolveSource, usesSignals } from "@shared/audio-signals";
 import { beatMarkerCount, beatMarks, setBeatMarkers } from "@shared/beat-sync";
 import { captionClips, captionSourceClips } from "@shared/captions";
 import { isRemapped } from "@shared/effects";
@@ -44,6 +45,8 @@ import {
 import { type ToolDoc, docFor } from "./doc";
 import { EDITS, clipChanges } from "./edits";
 import { mediaFrames, offscreenFrames, programFrames } from "./frames";
+import { describeSignals, eventTimes } from "./describe-signals";
+import { contactSheet, plotSignals, readerFor } from "./signals";
 import {
   type Input,
   ToolError,
@@ -79,6 +82,15 @@ const POLL_MS = 500;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const byId = (assets: readonly MediaAsset[]) => Object.fromEntries(assets.map((a) => [a.id, a]));
+
+/** What a tool's `source` names, in the sequence the call is in. */
+function signalSource(doc: ToolDoc, name: string | undefined): SignalSource {
+  try {
+    return resolveSource(doc.project, name);
+  } catch (err) {
+    throw new ToolError(errorMessage(err));
+  }
+}
 
 /** Edits wait for the user to finish a drag, so neither loses theirs. */
 function gesturesSettled(signal: AbortSignal): Promise<void> {
@@ -188,14 +200,30 @@ const TOOLS: Record<VideoToolName, Handler> = {
   },
   async view_frames(input, ctx) {
     const doc = await ctx.doc();
-    const times = optNumbers(input, "times") ?? [];
-    if (times.length === 0 || times.length > 8) throw new ToolError("`times` must have 1 to 8 times.");
-    const width = clamp(optNumber(input, "width") ?? 480, 64, 960);
     const duration = projectDuration(doc.project);
     if (duration <= 0) throw new ToolError("The timeline is empty: there's nothing to look at.");
+    // What reacts to sound needs its files heard first (the open video's are then in its reader too).
+    const reader = usesSignals(doc.document) || optString(input, "at") ? await readerFor(doc, ctx) : null;
+    let times = optNumbers(input, "times");
+    if (times && (times.length === 0 || times.length > 16)) throw new ToolError("`times` must have 1 to 16 times.");
+    if (!times) {
+      const from = clamp(optNumber(input, "from") ?? 0, 0, duration);
+      const to = clamp(optNumber(input, "to") ?? duration, from, duration);
+      const count = clamp(Math.round(optNumber(input, "count") ?? 8), 1, 16);
+      const at = optString(input, "at");
+      if (at) {
+        const source = signalSource(doc, optString(input, "source"));
+        const moments = eventTimes(reader!, doc.sequenceId, source, at, from, to);
+        if (!moments.length) throw new ToolError(`There are no ${at} between ${secs(from)}s and ${secs(to)}s. Look at get_signals.`);
+        const offset = optNumber(input, "offset") ?? 0;
+        times = moments.slice(0, count).map((t) => t + offset);
+      } else times = Array.from({ length: count }, (_, i) => (count === 1 ? from : from + (i * (to - from)) / count));
+    }
+    const sheet = optBoolean(input, "sheet") ?? times.length > 4;
+    const width = clamp(optNumber(input, "width") ?? (sheet ? 240 : 480), 64, 960);
     const at = times.map((t) => clamp(t, 0, Math.max(0, duration - 0.001)));
-    const content = doc.isOpen ? await programFrames(at, width, ctx.signal) : await offscreenFrames(doc, at, width, ctx.signal);
-    return { content };
+    const content = doc.isOpen ? await programFrames(at, width, ctx.signal) : await offscreenFrames(doc, at, width, ctx.signal, reader);
+    return { content: sheet ? await contactSheet(content, at, width) : content };
   },
   async get_layout(input, ctx) {
     const doc = await ctx.doc();
@@ -274,6 +302,39 @@ const TOOLS: Record<VideoToolName, Handler> = {
       lines.push(`  ${silences.length ? `silences: ${silences.join(", ")}` : "no silences"}`);
     }
     return textResult(lines.join("\n"));
+  },
+  async get_signals(input, ctx) {
+    const doc = await ctx.doc();
+    const reader = await readerFor(doc, ctx);
+    const length = projectDuration(doc.project);
+    const from = clamp(optNumber(input, "from") ?? 0, 0, length);
+    const to = clamp(optNumber(input, "to") ?? length, from, length);
+    if (!(to > from)) throw new ToolError("The stretch is empty: `to` must be after `from` (the sequence is " + secs(length) + "s long).");
+    const sourceName = optString(input, "source");
+    const source = signalSource(doc, sourceName);
+    const assets = byId(doc.assets);
+    return textResult(
+      describeSignals(reader, doc.sequenceId, {
+        source,
+        label: source.kind === "master" ? "The whole mix" : `"${sourceName}"`,
+        from,
+        to,
+        signals: optStrings(input, "signals") ?? [],
+        step: optNumber(input, "step", { min: 0.01 }),
+        hasAudio: (id) => !!assets[id]?.hasAudio,
+      }),
+    );
+  },
+  async plot_signals(input, ctx) {
+    const doc = await ctx.doc();
+    const reader = await readerFor(doc, ctx);
+    const length = projectDuration(doc.project);
+    const from = clamp(optNumber(input, "from") ?? 0, 0, length);
+    const to = clamp(optNumber(input, "to") ?? length, from, length);
+    if (!(to > from)) throw new ToolError("The stretch is empty: `to` must be after `from`.");
+    const names = optStrings(input, "signals") ?? ["level", "bass", "onsetLow", "onsetHigh"];
+    const width = clamp(Math.round(optNumber(input, "width") ?? 960), 320, 1600);
+    return { content: plotSignals(reader, doc.sequenceId, signalSource(doc, optString(input, "source")), names, from, to, width) };
   },
   async analyze_music(input, ctx) {
     const doc = await ctx.doc();
