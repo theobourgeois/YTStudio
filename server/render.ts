@@ -34,6 +34,7 @@
 import { type Hearing, type SignalStore, createSignalReader, nestedHearing, withHearing, withSignals } from "../shared/audio-signals.ts";
 import { type Adjustment, type Affine, type EffectPass, type Placed, matteIndex } from "../shared/compositor.ts";
 import { effectPasses, effectShader } from "../shared/effect-gl.ts";
+import type { FrameReadback } from "../shared/export-formats.ts";
 import { type Camera3D } from "../shared/camera.ts";
 import {
   VOLUME,
@@ -1020,7 +1021,9 @@ export function soundPieces(project: Project, assets: Record<string, RenderAsset
 }
 
 /** Bytes of one composited frame as the compositor hands it over (YUV 4:2:0, see `readYuv420`). */
-export const frameBytes = (plan: Pick<RenderPlan, "width" | "height">) => (plan.width * plan.height * 3) / 2;
+/** An output frame's bytes as the page reads it back: YUV 4:2:0 (1.5 a pixel), or RGBA (4). */
+export const frameBytes = (plan: Pick<RenderPlan, "width" | "height">, readback: FrameReadback = "yuv420") =>
+  readback === "rgba" ? plan.width * plan.height * 4 : (plan.width * plan.height * 3) / 2;
 
 /**
  * A number's keyframes as an ffmpeg expression of `time` (an expression of

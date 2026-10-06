@@ -456,6 +456,11 @@ export interface Compositor {
    */
   readYuv420Async(): Promise<Uint8Array<ArrayBuffer>>;
   /**
+   * The frame (not the canvas) as RGBA with straight alpha, top row first, read without waiting for the GPU:
+   * what a ProRes or PNG export encodes (its alpha too, when the frame was begun transparent).
+   */
+  readRgbaAsync(): Promise<Uint8Array<ArrayBuffer>>;
+  /**
    * The first frame a simulation must be stepped from (`advance`) before frame `frame` of version
    * `version` can be drawn exactly: `frame` itself when its state a frame before is kept (or it's the
    * first), else the frame after the newest state or checkpoint it has before then (0 with none), but never
@@ -952,6 +957,8 @@ void main() {
   const maskTargets = new Map<string, Target>();
   // Where `readYuv420` packs the frame (sized on first use).
   const yuv = { ...target(), width: 0, height: 0 };
+  // Where `readRgbaAsync` copies the frame, straight and top row first (sized on first use).
+  const rgba = { ...target(), width: 0, height: 0 };
   let width = 0;
   let height = 0;
 
@@ -2454,7 +2461,20 @@ void main() {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     return { w, h };
   };
-  /** Pixel-pack buffers not in use by `readYuv420Async`. */
+  /** Copy the frame into `rgba`, top row first and un-premultiplied (left bound, for reading). */
+  const packRgba = () => {
+    if (rgba.width !== width || rgba.height !== height) {
+      rgba.width = width;
+      rgba.height = height;
+      allocate(rgba, width, height);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, rgba.fbo);
+    gl.viewport(0, 0, width, height);
+    gl.disable(gl.BLEND);
+    copy(frame.tex, { flipY: true, straight: true });
+    return { w: width, h: height };
+  };
+  /** Pixel-pack buffers not in use by `readAsync`. */
   const idleBuffers: WebGLBuffer[] = [];
   // Run `f` soon, letting other work (like incoming network data) go first.
   const channel = typeof MessageChannel !== "undefined" ? new MessageChannel() : null;
@@ -2464,6 +2484,45 @@ void main() {
     if (!channel) return void setTimeout(f, 0);
     queued.push(f);
     channel.port2.postMessage(null);
+  };
+
+  /**
+   * Read what was just packed (the framebuffer bound, \`w\` x \`h\` texels) without waiting for the GPU: copied
+   * into a pixel-pack buffer, then fetched once a fence says the copy is done.
+   */
+  const readAsync = ({ w, h }: { w: number; h: number }): Promise<Uint8Array<ArrayBuffer>> => {
+    const size = w * h * 4;
+    // Each read in flight has its own buffer.
+    const buffer = idleBuffers.pop() ?? gl.createBuffer()!;
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, size, gl.STREAM_READ);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
+    gl.flush();
+    return new Promise((resolve, reject) => {
+      const poll = () => {
+        const status = gl.clientWaitSync(sync, 0, 0);
+        if (status === gl.TIMEOUT_EXPIRED) {
+          yieldThen(poll);
+          return;
+        }
+        gl.deleteSync(sync);
+        if (status === gl.WAIT_FAILED) {
+          idleBuffers.push(buffer);
+          reject(new Error("Reading the frame back from the GPU failed."));
+          return;
+        }
+        const out = new Uint8Array(size);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        idleBuffers.push(buffer);
+        resolve(out);
+      };
+      yieldThen(poll);
+    });
   };
 
   // Groups (`beginGroup`): each level of nesting draws into its own set of frame-sized
@@ -2743,39 +2802,11 @@ void main() {
     },
 
     readYuv420Async() {
-      const { w, h } = packYuv();
-      const size = w * h * 4;
-      // Each read in flight has its own buffer.
-      const buffer = idleBuffers.pop() ?? gl.createBuffer()!;
-      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
-      gl.bufferData(gl.PIXEL_PACK_BUFFER, size, gl.STREAM_READ);
-      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, 0);
-      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
-      gl.flush();
-      return new Promise((resolve, reject) => {
-        const poll = () => {
-          const status = gl.clientWaitSync(sync, 0, 0);
-          if (status === gl.TIMEOUT_EXPIRED) {
-            yieldThen(poll);
-            return;
-          }
-          gl.deleteSync(sync);
-          if (status === gl.WAIT_FAILED) {
-            idleBuffers.push(buffer);
-            reject(new Error("Reading the frame back from the GPU failed."));
-            return;
-          }
-          const out = new Uint8Array(size);
-          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
-          gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);
-          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-          idleBuffers.push(buffer);
-          resolve(out);
-        };
-        yieldThen(poll);
-      });
+      return readAsync(packYuv());
+    },
+
+    readRgbaAsync() {
+      return readAsync(packRgba());
     },
 
     dispose() {
@@ -2808,7 +2839,7 @@ void main() {
         }
       }
       groupSets.clear();
-      for (const { tex, fbo } of [frame, spare, ...sides, accumTarget, matteTarget, yuv]) {
+      for (const { tex, fbo } of [frame, spare, ...sides, accumTarget, matteTarget, yuv, rgba]) {
         gl.deleteTexture(tex);
         gl.deleteFramebuffer(fbo);
       }
