@@ -34,10 +34,12 @@ renderer's parts the suite doesn't use yet. Kernels and passes storing `rgba16fl
 (`render/surface.ts`: tiles by hash, strokes on drafts); a saved photo only names pixels the server has (`uploads.ts`,
 `SuiteBackend.checkSave`). Light (docs/photo/f4-light.md): no pixel is brighter than its coverage (up to white), the
 output's `film` rolls light above white off at the end (`output.ts`), and a glow's or flare's WGSL mirrors its CPU
-reference in `shared/photo/reference/`: change both. Layer Style L1–L3 are built (docs/photo/layer-style/README.md:
-blend modes and compositing in render/blend.ts, effects (Bevel & Emboss and Satin too) in shared/photo/style/ and
+reference in `shared/photo/reference/`: change both. Layer Style L1–L4 are built (docs/photo/layer-style/README.md:
+blend modes and compositing in render/blend.ts, effects (Bevel & Emboss, Satin, patterns too) in shared/photo/style/ and
 render/style.ts, their fields made in the layer's pixels and kept; reference/blend.ts and reference/style.ts are held
-to Photoshop's own renders, `scripts/photoshop-probes/bevel-sheet.ts` shows the bevels beside them). A filtered or
+to Photoshop's own renders, `scripts/photoshop-probes/bevel-sheet.ts` shows the bevels beside them). Patterns are
+the document's surfaces (`patterns`) or built in (`style/patterns.ts`), read by the style pass from a storage buffer
+of their mip levels; Styles (presets) are this computer's (`layer-style/styles.ts`). A filtered or
 generator layer (isolated.ts) composites by the GPU's own blending when it's Normal or light added in linear light,
 otherwise through the blend or style pass (`fixedComposite`); light blends in linear light in a "photoshop" document
 too (`blendsInLinear`: a layer with filters, a flare with `blendSpace`). F5 (harden) is built but for its gate (Théo's

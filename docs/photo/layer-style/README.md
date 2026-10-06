@@ -405,6 +405,45 @@ Patterns as content-addressed surfaces in the package (a built-in set; Define Pa
 Overlay, a stroke's pattern fill and Bevel's Texture; Styles (New Style…, a Styles panel of presets, applying with ⇧ to
 add); Scale Effects.
 
+### L4 as built
+
+- **Patterns** (`shared/photo/style/patterns.ts`): the document's are `PhotoProject.patterns` (version 6): each a
+  surface (`rgba16f`, premultiplied linear light) and its size, named by id, listed in `documentSurfaces` (so the
+  save gate, uploads and collection keep them). Ten built-in patterns are made by code (`builtin:checkerboard`,
+  `bricks`, `clouds`, `canvas`…), never stored. **Define Pattern** (the Layers menu; the assistant's
+  `define_pattern`) makes one of what a layer shows inside the selection, up to 1024 px a side; the same pixels twice
+  are one pattern. A photo's pattern no effect uses can be deleted from the picker.
+- **Measured in Photoshop 27.11** (`scripts/photoshop-probes/fx_pattern.py`, photoshop-measurements.md, "Patterns"):
+  a pixel shows the texel at (pixel − origin − phase), Phase in pixels (rounded to whole ones); at 100% exactly a
+  texel, enlarged mixed linearly between texels, reduced the pattern's 2 × 2 box mip level; turned anticlockwise by
+  Angle. With Link with Layer the pattern starts at the layer's top-left (Photoshop's at its effects' reference point,
+  the canvas's origin for a layer made there). **Bevel's Texture** raises the height by Texture Depth × (1 −
+  luminance), no smoothing (a hard step lights exactly two pixels), lit through the bevel's own Depth and Size.
+  `reference/pattern.test.ts` holds the reference to the renders: overlays texel for texel (a quarter turn: all but
+  two pixels, Photoshop repeating a texel there), textures within 4 levels (Emboss 10).
+- **Effects**: **Pattern Overlay** (drawn under the gradient overlay, as Photoshop's list says), a stroke's **Pattern**
+  fill, Bevel's **Texture** page (its own row and checkbox under Contour). Each pattern's controls are the pattern
+  picker (with Snap to Origin), Angle, Scale, Link with Layer and the offset, which a drag on the canvas moves while
+  the page shows.
+- **The GPU**: a styled layer's patterns go to the style pass as one storage buffer of their mip levels (premultiplied
+  encoded, the reference's layout), packed once per set and kept; `pattern_at` mirrors `patternCoord` and
+  `samplePattern`. A document pattern's pixels are read once from its surface's tiles (`surface-pixels.ts`); views,
+  exports and pictures wait for them (`ensurePatterns`). e2e: every case within 1e-3 of the reference.
+- **Styles** (`style/presets.ts`, `layer-style/styles.ts`): twelve built-in (Soft Shadow, Outline, Sticker, Neon,
+  Embossed, Chrome, Gold, Glass, Inset, Bricks, Canvas, Silk) and the user's own, this computer's (localStorage), each
+  carrying the photo's patterns it reads as PNGs so it brings them to any photo. The **Styles panel** (a tab beside
+  Properties): swatches the renderer draws (`stylePicture`), hover previews on the selected layers, click replaces,
+  ⇧-click adds, + is **New Style…** (Name, Include Layer Effects, Include Layer Blending Options); the Layer Style
+  window has the **Styles** row and New Style… too. Copy / Paste Layer Style carries its patterns between photos.
+- **Scale Effects…** (the Layers menu): every size and distance of the layers' effects, and their patterns' scales,
+  scaled at once (`scaleStyle`, each definition's `scaled`), previewed live, one undo step.
+- **The assistant**: `define_pattern`, `set_pattern`, `apply_style`, `save_style`, `scale_layer_effects`, patterns by
+  id or name in `set_layer_style`, the photo's patterns and the user's styles in `get_photo`.
+- **Not yet**: Photoshop's turned patterns are a fraction of a pixel off ours (its pivot isn't measured); where a
+  texture shows outside the shape (Outer Bevel, Emboss) isn't measured (ours: everywhere the bevel lights); a
+  pattern's own transparency is drawn (Krita flattens it; Photoshop's unverified); styles are this computer's, not
+  synced or exported as `.asl`; Image Size's Scale Styles waits for Image Size.
+
 ### After groups and clipping
 
 Pass Through, Knockout (Shallow, Deep), Blend Clipped Layers as Group, Vector Mask Hides Effects, groups' styles.

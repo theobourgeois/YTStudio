@@ -285,6 +285,10 @@ always uses 100 (Verified: code, `adjustRange` and `config->range()` versus `set
 
 ## Texture (sub-page)
 
+**Measured since** (Photoshop 27.11, photoshop-measurements.md, "Patterns"): the height added is Texture Depth × (1 −
+luminance) with **no 3 × 3 smoothing** (contrary to Patchy below: a hard step lights exactly two pixels), scaled by
+the bevel's Depth and Size as its own slopes are. Ours: `textureHeight` in `style/patterns.ts`.
+
 ![The Texture sub-page](img/bevel-texture-page.jpg)
 
 *The Texture sub-page: pattern picker, the + that saves the current pattern as a preset, Snap to Origin, Scale,

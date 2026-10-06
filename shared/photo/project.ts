@@ -6,6 +6,7 @@
  */
 import { createId } from "../ids.ts";
 import { normalizeLayerBlending } from "./blending.ts";
+import { MAX_PATTERN_SIDE } from "./style/patterns.ts";
 import { normalizeStyle } from "./style/style.ts";
 import { effectDefinition, validateParams } from "./effects/index.ts";
 import { isHash } from "./surfaces.ts";
@@ -22,6 +23,7 @@ import {
   PHOTO_VERSION,
   type PhotoCanvas,
   type PhotoLayer,
+  type PhotoPattern,
   type PhotoProject,
   type PixelLayer,
   type SurfaceId,
@@ -131,6 +133,27 @@ function surfaceRef(value: unknown, what: string, report: Report): SurfaceId | n
   report(`${what}: "${String(value)}" isn't a surface id; left empty.`);
   return null;
 }
+
+/** The document's patterns, checked: each a surface and a size, ids unique (one without its surface is left out). */
+function normalizePatterns(value: unknown, report: Report): PhotoPattern[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: PhotoPattern[] = [];
+  for (const raw of value) {
+    const p = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+    const s = (p.size && typeof p.size === "object" ? p.size : {}) as Record<string, unknown>;
+    const id = typeof p.id === "string" && /^[\w:-]{1,64}$/.test(p.id) && !p.id.startsWith("builtin:") ? p.id : null;
+    if (!id || seen.has(id) || !isHash(p.surface) || !isPatternSide(s.width) || !isPatternSide(s.height)) {
+      report(`Pattern ${String(p.id)}: not a pattern (an id, a surface and a size up to ${MAX_PATTERN_SIDE} px); left out.`);
+      continue;
+    }
+    seen.add(id);
+    out.push({ id, name: typeof p.name === "string" && p.name.trim() ? p.name.trim().slice(0, 100) : "Pattern", surface: p.surface, size: { width: s.width, height: s.height } });
+  }
+  return out;
+}
+
+const isPatternSide = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= MAX_PATTERN_SIDE;
 
 /** A layer's mask, checked: absent stays absent (no field written for a layer without one). */
 function normalizeMask(value: unknown, id: string, report: Report): { mask?: LayerMask } {
@@ -261,10 +284,12 @@ export function normalizePhotoProject(value: unknown, report: Report = () => {})
   const o = (d.output && typeof d.output === "object" ? d.output : {}) as Record<string, unknown>;
   const seen = new Set<string>();
   const layers = (Array.isArray(d.layers) ? d.layers : []).map((l) => normalizeLayer(l, canvas, seen, report)).filter((l): l is PhotoLayer => l !== null);
+  const patterns = normalizePatterns(d.patterns, report);
   return {
     version: PHOTO_VERSION,
     name: typeof d.name === "string" && d.name.trim() ? d.name.trim() : "Untitled",
     canvas,
+    ...(patterns.length ? { patterns } : {}),
     ...(d.compositing === "photoshop" || d.compositing === "linear" ? { compositing: d.compositing } : {}),
     ...globalLightOf(d.globalLight),
     // Before version 5 every photo was drawn clipped, whatever it said: it keeps that look (f4-light.md, D2).

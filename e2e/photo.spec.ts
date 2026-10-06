@@ -18,6 +18,7 @@ import { BLEND_MODES, SPECIAL_FILL, blendSeed } from "../shared/photo/blending.t
 import { type BlendParams, type Rgba, compositePixel } from "../shared/photo/reference/blend.ts";
 import { renderStyled } from "../shared/photo/reference/style.ts";
 import { CONTOUR_PRESETS } from "../shared/photo/style/contours.ts";
+import { type PatternImage, builtInPatternLevels, patternFromLinear, patternMips } from "../shared/photo/style/patterns.ts";
 import { newStyleEffect } from "../shared/photo/style/style.ts";
 import { glowReference } from "../shared/photo/reference/glow.ts";
 import { boxReduce, sampleMitchell } from "../shared/photo/reference/reduce.ts";
@@ -1507,13 +1508,15 @@ async function styleBench(page: Page, name: string) {
   const backdrop = new Float32Array(160 * 160 * 4);
   const bg = [0x5a, 0x78, 0x96].map((v) => (v / 255 <= 0.04045 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
   for (let i = 0; i < 160 * 160; i++) backdrop.set([...bg, 1], i * 4);
+  // Patterns of the photo's the reference reads (built-in ones it makes itself).
+  const patterns = new Map<string, PatternImage[]>();
   const fx = (type: string, params: Record<string, unknown> = {}) => newStyleEffect(type, `${type}_${Math.random().toString(36).slice(2, 8)}`, params)!;
   const check = async (label: string, effects: ReturnType<typeof fx>[], layer: Record<string, unknown> = {}, compositing: "photoshop" | "linear" = "photoshop") => {
     const style = { enabled: true, effects };
     await set({ layer: { style, ...layer }, doc: { compositing } });
     const got = await renderRegion(page, view);
     const doc = (await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc)) as unknown as { layers: Parameters<typeof renderStyled>[0][] };
-    const want = renderStyled(doc.layers[0], { compositing }, { width: 160, height: 160, pixels: backdrop }, { width: 160, height: 160, pixels: new Float32Array(content) }, (e) => (e.params.globalLight === true ? 120 : (e.params.angle as number)), { x0: 0, y0: 0, x1: 160, y1: 160 }, (e) => (e.params.globalLight === true ? 30 : (e.params.altitude as number)));
+    const want = renderStyled(doc.layers[0], { compositing }, { width: 160, height: 160, pixels: backdrop }, { width: 160, height: 160, pixels: new Float32Array(content) }, (e) => (e.params.globalLight === true ? 120 : (e.params.angle as number)), { x0: 0, y0: 0, x1: 160, y1: 160 }, (e) => (e.params.globalLight === true ? 30 : (e.params.altitude as number)), (id) => builtInPatternLevels(id) ?? patterns.get(id));
     let worst = 0;
     let at = 0;
     for (let i = 0; i < want.length; i++) {
@@ -1523,7 +1526,7 @@ async function styleBench(page: Page, name: string) {
     expect(worst, `${label}: worst at pixel ${Math.floor(at / 4) % 160}, ${Math.floor(at / 640)} (${got[at]} vs ${want[at]})`).toBeLessThan(1e-3);
     return got;
   };
-  return { id, layerId, set, fx, check };
+  return { id, layerId, set, fx, check, content, patterns };
 }
 
 test("layer effects draw as the reference does: shadows, glows, overlays and strokes, Precise and Softer, in either compositing", async ({ page }) => {
@@ -1651,6 +1654,87 @@ test("bevels and satin draw as the reference does: every style and technique, So
   expect(saved.layers[0].style.effects.map((e: { type: string }) => e.type)).toEqual(["satin", "bevel-emboss"]);
   expect(saved.layers[0].style.effects[1].params).toMatchObject({ useContour: true, range: 30, style: "inner-bevel" });
   await expect(page.locator("[data-effect]")).toHaveCount(2);
+});
+
+type SelectWindow = { photoDebug: { photo: { getState(): { select(selection: unknown): void } } } };
+
+test("patterns draw as the reference does (Pattern Overlay, pattern strokes, Bevel's Texture), Define Pattern makes one; styles apply, add and save; Scale Effects", async ({ page }) => {
+  const { id, layerId, set, fx, check, content, patterns } = await styleBench(page, "Patterns");
+  await check("Pattern Overlay: bricks", [fx("pattern-overlay", { pattern: "builtin:bricks" })]);
+  await check("Pattern Overlay: noise at 50% (a mip level), multiplied", [fx("pattern-overlay", { pattern: "builtin:noise", scale: 50, mode: "multiply", opacity: 80 })]);
+  await check("Pattern Overlay: dots at 250%, turned a quarter, moved, not linked", [fx("pattern-overlay", { pattern: "builtin:dots", scale: 250, angle: 90, phaseX: 7, phaseY: -3, link: false })]);
+  await check("a pattern stroke", [fx("stroke", { size: 9, fill: "pattern", pattern: "builtin:checkerboard", patternScale: 150 })]);
+  await check("Bevel's Texture", [fx("bevel-emboss", { size: 10, useTexture: true, texture: "builtin:canvas", textureDepth: 150 })]);
+  await check("Bevel's Texture inverted, scaled", [fx("bevel-emboss", { technique: "chisel-hard", size: 8, useTexture: true, texture: "builtin:clouds", textureDepth: -200, textureScale: 60 })]);
+  // (They draw something: a pattern changes the layer.)
+  const plain = await check("no effects", []);
+  const overlaid = await check("bricks again", [fx("pattern-overlay", { pattern: "builtin:bricks" })]);
+  expect(Math.max(...overlaid.map((v, i) => Math.abs(v - plain[i])))).toBeGreaterThan(0.1);
+
+  // Define Pattern (the Layers menu) from the selection on the disc's edge: a pattern of the photo's, with transparency.
+  await set({ layer: { style: null } });
+  await page.evaluate(() => (window as unknown as SelectWindow).photoDebug.photo.getState().select({ kind: "rect", x: 100, y: 40, width: 32, height: 32 }));
+  await page.locator("[data-layer]").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Define Pattern" }).click();
+  const defined = await expect.poll(async () => (await savedPhoto(page, id)).patterns?.length ?? 0).toBe(1).then(() => savedPhoto(page, id).then((d) => d.patterns[0] as { id: string; size: { width: number; height: number } }));
+  expect(defined.size).toEqual({ width: 32, height: 32 });
+  const crop = new Float32Array(32 * 32 * 4);
+  for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) crop.set(content.slice(((40 + y) * 160 + 100 + x) * 4, ((40 + y) * 160 + 100 + x) * 4 + 4), (y * 32 + x) * 4);
+  patterns.set(defined.id, patternMips(patternFromLinear(32, 32, crop)));
+  await page.evaluate(() => (window as unknown as SelectWindow).photoDebug.photo.getState().select(null));
+  await check("Pattern Overlay: the photo's own pattern", [fx("pattern-overlay", { pattern: defined.id, scale: 100 })]);
+  await check("…and as a texture", [fx("bevel-emboss", { size: 6, useTexture: true, texture: defined.id })]);
+
+  // The Layer Style window: Pattern Overlay's page has the pattern picker (the photo's pattern in it) and Snap to Origin.
+  await set({ layer: { style: { enabled: true, effects: [fx("pattern-overlay", { pattern: "builtin:grid", phaseX: 12 })] } } });
+  const layerNow = () => page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[0]) as Promise<{ style?: { effects: { type: string; params: Record<string, unknown> }[] } | null; fill?: number }>;
+  await page.locator("[data-layer]").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Blending Options…" }).click();
+  const dialog = page.locator("[data-layer-style]");
+  await dialog.locator('[data-style-row^="pattern-overlay"]').getByRole("button", { name: "Pattern Overlay" }).click();
+  await expect(dialog.locator('[data-page="pattern-overlay"]')).toBeVisible();
+  await dialog.getByRole("button", { name: "Snap to Origin" }).click();
+  await dialog.getByRole("button", { name: /^Pattern: Grid/ }).click();
+  await page.getByRole("listbox", { name: "Patterns" }).getByRole("option", { name: "Pattern 1" }).click();
+  await dialog.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(async () => (await layerNow()).style?.effects[0].params).toMatchObject({ pattern: defined.id, phaseX: 0 });
+
+  // Styles: a click replaces the layer's style, ⇧-click adds a style's effects; New Style keeps one.
+  await page.getByRole("tab", { name: "Styles" }).click();
+  await page.locator("[data-layer]").first().click();
+  await page.locator('[data-style-preset="builtin:neon"]').click();
+  await expect.poll(async () => (await layerNow()).style?.effects.map((e) => e.type)).toEqual(["outer-glow", "color-overlay", "inner-glow"]);
+  await page.keyboard.down("Shift");
+  await page.locator('[data-style-preset="builtin:outline"]').click();
+  await page.keyboard.up("Shift");
+  await expect.poll(async () => (await layerNow()).style?.effects.map((e) => e.type)).toEqual(["outer-glow", "color-overlay", "inner-glow", "stroke"]);
+  await page.locator('[data-style-preset="builtin:glass"]').click();
+  await expect.poll(async () => (await layerNow()).fill).toBe(0);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await layerNow()).style?.effects.length).toBe(4);
+  await page.getByRole("button", { name: "New Style" }).click();
+  await page.getByLabel("Style name").fill("Neon Outline");
+  await page.locator("[data-new-style]").getByRole("button", { name: "OK" }).click();
+  await expect(page.getByRole("button", { name: "Neon Outline" })).toBeVisible();
+  await set({ layer: { style: null } });
+  await page.getByRole("button", { name: "Neon Outline" }).click();
+  await expect.poll(async () => (await layerNow()).style?.effects.map((e) => e.type)).toEqual(["outer-glow", "color-overlay", "inner-glow", "stroke"]);
+
+  // Scale Effects: every size doubled, one undo step.
+  const sizes = async () => (await layerNow()).style!.effects.map((e) => e.params.size);
+  const before = await sizes();
+  await page.locator("[data-layer]").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Scale Effects…" }).click();
+  const scaling = page.locator("[data-scale-effects]");
+  await scaling.getByRole("spinbutton", { name: "Scale" }).click();
+  await page.keyboard.type("200");
+  await page.keyboard.press("Enter");
+  await scaling.getByRole("button", { name: "OK" }).click();
+  await expect.poll(sizes).toEqual(before.map((v) => (v === undefined ? undefined : Math.min(250, (v as number) * 2))));
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(sizes).toEqual(before);
+  void layerId;
 });
 
 // --- F4: light ---

@@ -6,10 +6,11 @@ assistant); layers and adjustments (F2: Exposure and Curves adjustment layers, t
 composites for 16-bit sources); resources, selections, masks and the brush (F3: pixel layers, layer masks, the
 Rectangular Marquee, the round brush, the publication gate and collection); light (F4: the glow as a filter, the
 Lens Flare as a generator layer, the `film` highlights; [f4-light.md](f4-light.md)). Results in
-[foundations-prototype.md](foundations-prototype.md#f4-results-2026-10-06). Layer Style's first three phases are built
+[foundations-prototype.md](foundations-prototype.md#f4-results-2026-10-06). Layer Style's four phases are built
 (L1: Blending Options, Photoshop's 27 blend modes, Fill, channels, Blend If and its compositing, the mode menu's live
 preview, the Layer Style window; L2: Drop and Inner Shadow, Outer and Inner Glow, Color and Gradient Overlay, Stroke,
-contours, gradients, Global Light; L3: Bevel & Emboss in every style and technique with its Contour page, Satin):
+contours, gradients, Global Light; L3: Bevel & Emboss in every style and technique with its Contour page, Satin; L4:
+patterns (Pattern Overlay, pattern strokes, Bevel's Texture, Define Pattern), Styles and Scale Effects):
 [layer-style/README.md](layer-style/README.md). F5 (harden) is built but for its gate, Théo's
 walkthrough in the packaged app ("F5 progress" in foundations-prototype.md): durable writes, the checkpoint, the
 check on open and the faults; the Filter menu and the Filter Gallery; export cancel; device loss mid-stroke; newer
@@ -37,7 +38,7 @@ source's profile on the GPU without clipping, and leaves through one output tran
 4. [Rendering](rendering.md): colour, formats and precision, resampling, the output transform, tiles, the evaluator.
 5. [UX](ux.md): workspace, keys and interaction contracts for the first workflow.
 6. [Effects](effects/system.md): definitions, glow, the flare, porting from the video editor.
-   [Layer Style](layer-style/README.md): Blending Options and layer effects, researched and planned (L1–L3 built).
+   [Layer Style](layer-style/README.md): Blending Options and layer effects, researched and planned (L1–L4 built).
 7. [Foundations](foundations-prototype.md): milestones F0–F5, gates, targets, the evidence log.
    F4's detailed plan: [f4-light.md](f4-light.md).
 8. [Engine options](research/engine-options.md): why WebGPU in the page, measured; the fallbacks.
@@ -100,5 +101,6 @@ and **Unverified** (an open question). Théo's corrections override the referenc
 | A34 | The check on open sets an incomplete document aside and opens the checkpoint if it's whole, else that document with only its lost surfaces emptied; the server saves what opened and says why (2026-10-06, F5) | Opening never shows a photo the server would then refuse to save (the gate), and nothing is deleted | Damaged `project.json`s: still refused (F1), not recovered |
 | A35 | Filters and generators carry a `category` and named `presets` in their definitions; the catalogue (`effects/catalog.ts`) is what the Filter menu, the Filter Gallery, the Layers menus and the assistant list; presets size what's in pixels from the canvas (2026-10-06, F5) | A new filter is a definition: no UI of its own; a look is the same on any canvas | Presets saved by the user (system.md, "Presets"): a second source for the catalogue |
 | A36 | A full-resolution render draws a region only in the same task as the check that every tile it reads is resident (`whenResident`); fetching marks what's resident as just used first; a region the budget can't hold is an error (2026-10-06, F5) | Under a tight budget a render evicted its own tiles and exported wrong pixels silently (measured) | Pinning, if regions grow past a quarter of the atlas |
+| A37 | Document version 6: the photo's patterns (`patterns`: a surface and a size each, in `documentSurfaces`); built-in patterns are code, never stored; styles (presets) are this computer's, carrying their patterns as PNGs (2026-10-06, Layer Style L4) | Photoshop keeps a file's patterns in the file; content-addressed surfaces make the same pixels one pattern; a style is a preference, not the photo's | Styles aren't synced between computers |
 
 Progress, measurements and gates live in [foundations-prototype.md](foundations-prototype.md).

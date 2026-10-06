@@ -15,6 +15,7 @@ import { linearToSrgb, srgbToLinear } from "../colour.ts";
 import { hash2 } from "../output.ts";
 import { contourFunction } from "../style/contours.ts";
 import { styleDefinition } from "../style/definitions.ts";
+import { type PatternImage, patternCoord, placementOf, samplePattern, textureHeight } from "../style/patterns.ts";
 import { type Box, type GradientStyle, gradientAt, gradientLayout, gradientPosition } from "../style/gradients.ts";
 import type { BlendMode, Compositing, Contour, EffectInstance, Gradient, PhotoLayer } from "../types.ts";
 import { type BlendParams, type Rgba, compositePixel } from "./blend.ts";
@@ -174,6 +175,8 @@ export interface StyledPixel {
   coverage: Record<string, number>;
   /** Each gradient effect's position here (0..1, before Reverse), by effect id. */
   position: Record<string, number>;
+  /** Each pattern effect's colour here (straight, encoded, and its alpha), by effect id. */
+  pattern?: Record<string, [number, number, number, number]>;
   /** Each bevel's highlight and shadow here (0..1, weighted by its style, before their opacities), by effect id. */
   bevel?: Record<string, BevelShade>;
 }
@@ -211,7 +214,8 @@ function lerp(a: Rgba, b: Rgba, t: number, compositing: Compositing): Rgba {
 }
 
 /** An effect's colour here: its own, or its gradient's at a position (reversed with Reverse). */
-function colourOf(e: EffectInstance, at: number): [number, number, number, number] {
+function colourOf(e: EffectInstance, at: number, pattern?: [number, number, number, number]): [number, number, number, number] {
+  if (e.type === "pattern-overlay" || e.params.fill === "pattern") return pattern ?? [0, 0, 0, 0];
   if (e.params.fill === "gradient" || e.type === "gradient-overlay") {
     const t = e.params.reverse === true ? 1 - at : at;
     return gradientAt(e.params.gradient as Gradient, clamp01(t));
@@ -224,7 +228,7 @@ export function styledPixel(ctx: StyleContext, p: StyledPixel): Rgba {
   const { layer, effects, compositing } = ctx;
   const n = (e: EffectInstance, k: string) => e.params[k] as number;
   const draw = (dst: Rgba, e: EffectInstance, cover: number) => {
-    const [r, g, b, a] = colourOf(e, p.position[e.id] ?? 0);
+    const [r, g, b, a] = colourOf(e, p.position[e.id] ?? 0, p.pattern?.[e.id]);
     return over(dst, [r, g, b], cover * a * (n(e, "opacity") / 100), e.params.mode as BlendMode, compositing);
   };
   // Outside: the backdrop, the drop shadows, the outer glow.
@@ -242,7 +246,7 @@ export function styledPixel(ctx: StyleContext, p: StyledPixel): Rgba {
   const blending = { mode: layer.blend ?? "normal", fill: layer.fill ?? 1, blendIf: layer.blending?.blendIf ?? {} };
   const content: BlendParams = { mode: blending.mode, opacity: 1, fill: blending.fill, channels: { r: true, g: true, b: true }, blendIf: blending.blendIf, compositing };
   const interior = effects.filter((e) => styleDefinition(e.type)?.side === "inside");
-  const interiorCover = (e: EffectInstance) => (e.type === "color-overlay" || e.type === "gradient-overlay" ? 1 : (p.coverage[e.id] ?? 0));
+  const interiorCover = (e: EffectInstance) => (e.type === "color-overlay" || e.type === "gradient-overlay" || e.type === "pattern-overlay" ? 1 : (p.coverage[e.id] ?? 0));
   let inside: Rgba;
   if (layer.blending?.interiorAsGroup) {
     // The interior effects join the layer's pixels first; then the whole meets the backdrop at Fill.
@@ -300,9 +304,19 @@ export interface LayerImage {
 /**
  * A layer and its style over a backdrop, both `width` × `height` and in the same pixels (the layer at 100%, not
  * moved): what the GPU's evaluator gives for that layer, premultiplied linear. `angleOf` gives each effect's light
- * angle (Global Light's or its own), `altitudeOf` a bevel's altitude.
+ * angle (Global Light's or its own), `altitudeOf` a bevel's altitude, `patternsOf` a pattern's levels by id (none:
+ * a pattern effect draws nothing). The layer's top-left is the canvas's, where a linked pattern starts.
  */
-export function renderStyled(layer: PhotoLayer, doc: { compositing?: Compositing }, backdrop: LayerImage, content: LayerImage, angleOf: (e: EffectInstance) => number, box: Box, altitudeOf: (e: EffectInstance) => number = () => 30): Float32Array {
+export function renderStyled(
+  layer: PhotoLayer,
+  doc: { compositing?: Compositing },
+  backdrop: LayerImage,
+  content: LayerImage,
+  angleOf: (e: EffectInstance) => number,
+  box: Box,
+  altitudeOf: (e: EffectInstance) => number = () => 30,
+  patternsOf: (id: string) => readonly PatternImage[] | undefined = () => undefined,
+): Float32Array {
   const { width: w, height: h } = content;
   const effects = layer.style?.enabled ? layer.style.effects.filter((e) => e.enabled && styleDefinition(e.type)) : [];
   const compositing = compositingOf(doc as never);
@@ -346,9 +360,20 @@ export function renderStyled(layer: PhotoLayer, doc: { compositing?: Compositing
       const coverage: Record<string, number> = {};
       const position: Record<string, number> = {};
       const bevelAmounts: Record<string, BevelShade> = {};
+      const patternColour: Record<string, [number, number, number, number]> = {};
       for (const e of effects) {
         const f = fields.get(e.id);
         const p = e.params;
+        const keys = e.type === "pattern-overlay" || p.fill === "pattern" ? styleDefinition(e.type)!.patterns![0] : undefined;
+        if (keys) {
+          // A pattern's colour here (premultiplied in the pattern: straight for drawing).
+          const levels = patternsOf(p[keys.pattern] as string);
+          const placement = placementOf(p, keys, { x: 0, y: 0 });
+          const { u, v } = patternCoord(x + 0.5, y + 0.5, placement);
+          const s = levels ? samplePattern(levels, u, v, 1 / placement.scale) : [0, 0, 0, 0];
+          patternColour[e.id] = s[3] > 0 ? [s[0] / s[3], s[1] / s[3], s[2] / s[3], s[3]] : [0, 0, 0, 0];
+          if (e.type === "pattern-overlay") continue;
+        }
         if (e.type === "stroke") {
           const d = f!.field[i];
           coverage[e.id] = strokeBand(d, p.size as number, p.position as string);
@@ -367,7 +392,15 @@ export function renderStyled(layer: PhotoLayer, doc: { compositing?: Compositing
         const bevel = bevels.get(e.id);
         if (bevel) {
           const contour = p.useContour === true ? contours.get(e.id)! : (v: number) => v;
-          const at = (sx: number, sy: number) => contour(sample(bevel.H, w, h, sx, sy, bevel.edge));
+          // Its Texture, pressed in after the Contour (measured: Texture Depth × (1 − luminance)).
+          const texture = p.useTexture === true ? patternsOf(p.texture as string) : undefined;
+          const placement = texture ? placementOf(p, TEXTURE_KEYS, { x: 0, y: 0 }) : undefined;
+          const pressed = (sx: number, sy: number) => {
+            if (!texture || !placement) return 0;
+            const { u, v } = patternCoord(sx, sy, placement);
+            return textureHeight(texture, u, v, 1 / placement.scale, (p.textureDepth as number) / 100, p.invertTexture === true);
+          };
+          const at = (sx: number, sy: number) => contour(sample(bevel.H, w, h, sx, sy, bevel.edge)) + pressed(sx, sy);
           const neighbours = { left: at(x - 0.5, y + 0.5), right: at(x + 1.5, y + 0.5), up: at(x + 0.5, y - 0.5), down: at(x + 0.5, y + 1.5) };
           const light = { depth: (p.depth as number) / 100, size: p.size as number, style: bevel.o.style, down: p.direction === "down", angle: angleOf(e), altitude: altitudeOf(e), slopeScale: p.useContour === true ? 100 / (p.range as number) : 1 };
           const total = { highlight: 0, shadow: 0 };
@@ -404,7 +437,7 @@ export function renderStyled(layer: PhotoLayer, doc: { compositing?: Compositing
         }
       }
       const px = (img: LayerImage): Rgba => [img.pixels[i * 4], img.pixels[i * 4 + 1], img.pixels[i * 4 + 2], img.pixels[i * 4 + 3]];
-      const r = styledPixel(ctx, { backdrop: px(backdrop), content: px(content), mask: 1, coverage, position, bevel: bevelAmounts });
+      const r = styledPixel(ctx, { backdrop: px(backdrop), content: px(content), mask: 1, coverage, position, bevel: bevelAmounts, pattern: patternColour });
       out.set(r, i * 4);
     }
   }
@@ -415,6 +448,9 @@ export function renderStyled(layer: PhotoLayer, doc: { compositing?: Compositing
 export const encodedCode = (v: number) => Math.round(linearToSrgb(Math.min(1, Math.max(0, v))) * 255);
 
 // --- Bevel & Emboss and Satin (Layer Style L3) ---
+
+/** Bevel's Texture's parameters (Photoshop's Texture has no Angle). */
+const TEXTURE_KEYS = { angle: "textureAngle", scale: "textureScale", link: "textureLink", phaseX: "texturePhaseX", phaseY: "texturePhaseY" };
 
 /** Bevel's options as the reference reads them (the definition's parameters). */
 export interface BevelOptions {

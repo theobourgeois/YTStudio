@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { duplicateLayer } from "../edits.ts";
 import { createPhotoProject, normalizePhotoProject } from "../project.ts";
 import type { PhotoProject, PixelLayer } from "../types.ts";
-import { addStyleEffect, describeStyle, globalLightOf, moveStyleEffect, newStyleEffect, removeStyleEffect, setGlobalLight, setLayerStyle, setStyleEffect, setStyleEnabled } from "./style.ts";
+import { addPattern, addStyleEffect, describeStyle, globalLightOf, moveStyleEffect, newStyleEffect, removePattern, removeStyleEffect, renamePattern, scaleStyle, setGlobalLight, setLayerStyle, setStyleEffect, setStyleEnabled, stylePatterns } from "./style.ts";
 
 const pixel = (id: string): PixelLayer => ({ id, kind: "pixel", name: id, visible: true, opacity: 1, surface: null, size: { width: 10, height: 10 }, transform: { x: 5, y: 5, scaleX: 1, scaleY: 1, rotation: 0 } });
 const doc = (): PhotoProject => ({ ...createPhotoProject("t", { width: 10, height: 10 }), layers: [pixel("a"), pixel("b")] });
@@ -101,5 +101,38 @@ describe("layer styles", () => {
     expect(problems.join("\n")).toMatch(/unknown type "sparkles"/);
     expect(problems.join("\n")).toMatch(/more than 1 Outer Glow/);
     expect(d.layers[1].style).toBeUndefined();
+  });
+});
+
+describe("patterns and Scale Effects", () => {
+  const pattern = (id: string, surface = "a".repeat(64)) => ({ id, name: id, surface, size: { width: 8, height: 8 } });
+  it("adds a pattern once (the same pixels are the same pattern), renames it, and deletes it only while unused", () => {
+    let { doc: d, id } = addPattern(doc(), pattern("p1"));
+    expect(id).toBe("p1");
+    const again = addPattern(d, pattern("p2"));
+    expect(again).toEqual({ doc: d, id: "p1" });
+    d = renamePattern(d, "p1", " Bricks ");
+    expect(d.patterns![0].name).toBe("Bricks");
+    const used = add(d, "pattern-overlay", "o1", { pattern: "p1" });
+    expect(stylePatterns(used.layers)).toEqual(["p1"]);
+    expect(removePattern(used, "p1")).toBe(used);
+    expect(removePattern(d, "p1").patterns).toBeUndefined();
+    // Saved and opened again, a pattern without a surface is left out.
+    const problems: string[] = [];
+    const n = normalizePhotoProject({ ...used, patterns: [...used.patterns!, { id: "bad", name: "x", size: { width: 4, height: 4 } }] }, (p) => problems.push(p));
+    expect(n.patterns!.map((p) => p.id)).toEqual(["p1"]);
+    expect(problems.join()).toMatch(/Pattern bad/);
+  });
+  it("Scale Effects multiplies sizes, distances and pattern scales, within their ranges", () => {
+    let d = add(doc(), "drop-shadow", "d1", { distance: 10, size: 7, opacity: 40 });
+    d = add(d, "stroke", "s1", { size: 3, fill: "pattern", patternScale: 100 });
+    d = add(d, "bevel-emboss", "b1", { size: 150, soften: 4 });
+    const scaled = scaleStyle(d, ["a"], 2);
+    const p = (id: string) => scaled.layers[0].style!.effects.find((e) => e.id === id)!.params;
+    expect(p("d1")).toMatchObject({ distance: 20, size: 14, opacity: 40 });
+    expect(p("s1")).toMatchObject({ size: 6, patternScale: 200 });
+    expect(p("b1")).toMatchObject({ size: 250, soften: 8 });
+    expect(scaleStyle(d, ["a"], 1)).toBe(d);
+    expect(scaleStyle(d, ["b"], 2)).toBe(d);
   });
 });

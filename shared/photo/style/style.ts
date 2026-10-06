@@ -4,8 +4,8 @@
  * type in their own order), at most `max` of a type; one of a type this app doesn't know is kept as it was and
  * draws nothing.
  */
-import { defaultParams, sanitizeParam } from "../effects/params.ts";
-import type { EffectInstance, EffectParamValue, GlobalLight, LayerStyle, PhotoLayer, PhotoProject } from "../types.ts";
+import { defaultParams, sanitizeParam, specShows } from "../effects/params.ts";
+import type { EffectInstance, EffectParamValue, GlobalLight, LayerStyle, PhotoLayer, PhotoPattern, PhotoProject } from "../types.ts";
 import { type StyleDefinition, type StyleType, drawOrder, styleDefinition } from "./definitions.ts";
 
 export const DEFAULT_GLOBAL_LIGHT: GlobalLight = { angle: 120, altitude: 30 };
@@ -172,6 +172,89 @@ export function setGlobalLight(doc: PhotoProject, patch: Partial<GlobalLight>): 
   };
   const next = { angle: patch.angle !== undefined && Number.isFinite(patch.angle) ? wrap(patch.angle) : now.angle, altitude: patch.altitude !== undefined && Number.isFinite(patch.altitude) ? Math.max(0, Math.min(90, patch.altitude)) : now.altitude };
   return next.angle === now.angle && next.altitude === now.altitude ? doc : { ...doc, globalLight: next };
+}
+
+/**
+ * Scale Effects (Layer › Layer Style › Scale Effects): every size, distance and pattern scale of the layers' effects
+ * multiplied by `factor` (each definition's `scaled`), held to its range; angles, opacities and the like stay. The
+ * same document when nothing changes.
+ */
+export function scaleStyle(doc: PhotoProject, ids: readonly string[], factor: number): PhotoProject {
+  if (!Number.isFinite(factor) || factor <= 0 || factor === 1) return doc;
+  return mapLayers(doc, ids, (l) => {
+    if (!l.style) return l;
+    let changed = false;
+    const effects = l.style.effects.map((e) => {
+      const def = styleDefinition(e.type);
+      if (!def || !def.scaled.length) return e;
+      const patch = Object.fromEntries(def.scaled.filter((k) => typeof e.params[k] === "number").map((k) => [k, Math.round((e.params[k] as number) * factor)]));
+      const params = styleParams(def, { ...e.params, ...patch }).params;
+      if (JSON.stringify(params) === JSON.stringify(e.params)) return e;
+      changed = true;
+      return { ...e, params };
+    });
+    return changed ? { ...l, style: { ...l.style, effects } } : l;
+  });
+}
+
+/** Every pattern id the layers' styles read (effects that are off too: they're kept with the style; a stroke's only with its Pattern fill, Texture's only when it's on). */
+export function stylePatterns(layers: readonly PhotoLayer[]): string[] {
+  const ids = new Set<string>();
+  for (const l of layers)
+    for (const e of l.style?.effects ?? []) for (const k of styleDefinition(e.type)?.patterns ?? []) if (specShows(k, e.params) && typeof e.params[k.pattern] === "string") ids.add(e.params[k.pattern] as string);
+  return [...ids];
+}
+
+/**
+ * Adds a pattern to the document (Define Pattern, a style that brings one). One with the same pixels is already
+ * there: its id is returned and the document stays the same (patterns are content-addressed).
+ */
+export function addPattern(doc: PhotoProject, pattern: PhotoPattern): { doc: PhotoProject; id: string } {
+  const same = doc.patterns?.find((p) => p.surface === pattern.surface && p.size.width === pattern.size.width && p.size.height === pattern.size.height);
+  if (same) return { doc, id: same.id };
+  return { doc: { ...doc, patterns: [...(doc.patterns ?? []), pattern] }, id: pattern.id };
+}
+
+export function renamePattern(doc: PhotoProject, id: string, name: string): PhotoProject {
+  const trimmed = name.trim().slice(0, 100);
+  if (!trimmed || !doc.patterns?.some((p) => p.id === id && p.name !== trimmed)) return doc;
+  return { ...doc, patterns: doc.patterns.map((p) => (p.id === id ? { ...p, name: trimmed } : p)) };
+}
+
+/**
+ * Patterns brought into the document (a style pasted from another photo, a style preset): each added unless the
+ * same pixels are there already; an id another pattern has gets a new one (`newId`). Returns how ids map.
+ */
+export function withPatterns(doc: PhotoProject, patterns: readonly PhotoPattern[], newId: () => string): { doc: PhotoProject; ids: Map<string, string> } {
+  const ids = new Map<string, string>();
+  let next = doc;
+  for (const p of patterns) {
+    const taken = next.patterns?.some((q) => q.id === p.id && q.surface !== p.surface);
+    const added = addPattern(next, taken ? { ...p, id: newId() } : p);
+    next = added.doc;
+    ids.set(p.id, added.id);
+  }
+  return { doc: next, ids };
+}
+
+/** A style with its pattern ids mapped (`withPatterns`'s), the others as they were. */
+export function remapStylePatterns(style: LayerStyle, ids: ReadonlyMap<string, string>): LayerStyle {
+  return {
+    ...style,
+    effects: style.effects.map((e) => {
+      const keys = styleDefinition(e.type)?.patterns ?? [];
+      const patch = Object.fromEntries(keys.filter((k) => ids.has(e.params[k.pattern] as string)).map((k) => [k.pattern, ids.get(e.params[k.pattern] as string)!]));
+      return Object.keys(patch).length ? { ...e, params: { ...e.params, ...patch } } : e;
+    }),
+  };
+}
+
+/** Deletes a pattern no effect names (one in use stays: the same document). */
+export function removePattern(doc: PhotoProject, id: string): PhotoProject {
+  if (!doc.patterns?.some((p) => p.id === id) || stylePatterns(doc.layers).includes(id)) return doc;
+  const patterns = doc.patterns.filter((p) => p.id !== id);
+  const { patterns: _, ...rest } = doc;
+  return patterns.length ? { ...rest, patterns } : rest;
 }
 
 /** The effects that draw: the style on, the effect on, its type known. */

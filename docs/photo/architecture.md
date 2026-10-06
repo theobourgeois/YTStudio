@@ -186,6 +186,7 @@ interface PixelLayer {
 // Then (L2): style?: { enabled, effects: EffectInstance[] } on image and pixel layers (Photoshop's fx, drawing
 // order; shared/photo/style/), and the document's globalLight?: { angle, altitude }.
 // Version 5 (F4): filters and generator layers; `output.highlights` is film by default (older photos: clip).
+// Version 6 (L4): patterns?: { id, name, surface, size }[] (the photo's patterns; built-in ones are code, never stored).
 interface Filtered {
   filters?: EffectInstance[];                          // Photoshop's Smart Filters (glow): first applied first
   filtersEnabled?: false;                              // the "Filters" row's eye: all bypassed, each keeping its own

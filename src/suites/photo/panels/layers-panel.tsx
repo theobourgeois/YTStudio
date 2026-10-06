@@ -340,6 +340,9 @@ function LayersMenu({ count }: { count: number }) {
       {active?.style && (
         <ContextMenuItem onSelect={() => layerActions.showEffects(!active.style!.enabled)}>{active.style.enabled ? "Hide All Effects" : "Show All Effects"}</ContextMenuItem>
       )}
+      <ContextMenuItem disabled={!active?.style} onSelect={() => usePhotoUi.getState().setScaleEffects(usePhotoUi.getState().selectedLayerIds)}>
+        Scale Effects…
+      </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => layerActions.newLayer()}>
         New Layer
@@ -350,6 +353,9 @@ function LayersMenu({ count }: { count: number }) {
       {active && hasContent(active) && <ContextMenuItem onSelect={() => layerActions.addFilter("glow", active.id)}>Add Glow Filter</ContextMenuItem>}
       <ContextMenuItem onSelect={() => usePhotoUi.getState().setFilterGalleryOpen(true)}>Filter Gallery…</ContextMenuItem>
       {(active?.kind === "image" || active?.kind === "generator") && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Convert to Pixels</ContextMenuItem>}
+      <ContextMenuItem disabled={!active || active.kind === "adjustment"} onSelect={() => void editActions.definePattern()}>
+        Define Pattern
+      </ContextMenuItem>
       <ContextMenuItem disabled={!selection || !active || active.kind === "adjustment"} onSelect={() => void editActions.layerVia(false)}>
         Layer via Copy
         <ContextMenuShortcut>{mod}J</ContextMenuShortcut>

@@ -20,7 +20,7 @@ export function thumbnailDoc(doc: PhotoProject, layer: ContentLayer): PhotoProje
 }
 
 /** An object URL of a picture `render` makes a moment after `deps` change; null until it's made (or while `ready` is false). */
-function useRendered(ready: boolean, render: (renderer: PhotoRenderer) => Promise<Blob | null>, deps: unknown[]): string | null {
+export function useRendered(ready: boolean, render: (renderer: PhotoRenderer) => Promise<Blob | null>, deps: unknown[]): string | null {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!ready) return;

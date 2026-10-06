@@ -133,9 +133,10 @@ export function canonicalJson(value: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(object[k])}`).join(",")}}`;
 }
 
-/** Every surface a document names (pixel layers' pixels and masks), once each: what a save needs the server to have. */
+/** Every surface a document names (pixel layers' pixels and masks, its patterns), once each: what a save needs the server to have. */
 export function documentSurfaces(doc: PhotoProject): SurfaceId[] {
   const ids = new Set<SurfaceId>();
+  for (const p of doc.patterns ?? []) ids.add(p.surface);
   for (const l of doc.layers) {
     if (l.kind === "pixel" && l.surface) ids.add(l.surface);
     if (l.mask?.surface) ids.add(l.mask.surface);

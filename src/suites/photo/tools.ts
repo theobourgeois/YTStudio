@@ -17,7 +17,9 @@ import type { ToolRunContext } from "../types";
 import { withRenderer } from "./live";
 import { planWith, renderMerge } from "./merge";
 import { useColours } from "./colours";
-import { editActions } from "./edit-actions";
+import { definePattern, editActions } from "./edit-actions";
+import { allStyles, findStyle, materialise, newStyle, styleEdit, useStyles } from "./layer-style/styles";
+import { addPattern, describeStyle, stylePatterns } from "@shared/photo/style/style";
 import { currentSelection } from "./store";
 import { usePhoto } from "./store";
 import {
@@ -41,6 +43,8 @@ import {
   setLayerBlendingTool,
   setLayerStyleTool,
   setGlobalLightTool,
+  setPatternTool,
+  scaleLayerEffectsTool,
   copyLayerStyleTool,
   setFilterTool,
   setLayerTool,
@@ -90,7 +94,8 @@ const base64 = async (blob: Blob) => {
 const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promise<ToolResult>> = {
   async get_photo(_input, ctx) {
     const target = await targetOf(ctx);
-    return textResult(describePhoto(target.doc, target.assets, target.open ? usePhotoUi.getState().selectedLayerIds : [], target.open ? currentSelection() : null));
+    const mine = useStyles.getState().mine;
+    return textResult(describePhoto(target.doc, target.assets, target.open ? usePhotoUi.getState().selectedLayerIds : [], target.open ? currentSelection() : null) + (mine.length ? `\nThe user's styles (apply_style): ${mine.map((s) => `"${s.name}"`).join(", ")}.` : ""));
   },
   async list_photo_media(_input, ctx) {
     return textResult(describeMedia((await targetOf(ctx)).assets));
@@ -113,6 +118,45 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
   set_layer_style: edit(setLayerStyleTool),
   set_global_light: edit(setGlobalLightTool),
   copy_layer_style: edit(copyLayerStyleTool),
+  set_pattern: edit(setPatternTool),
+  scale_layer_effects: edit(scaleLayerEffectsTool),
+  async define_pattern(input, ctx) {
+    const target = await targetOf(ctx);
+    if (!target.open) throw new Error("Open the photo in the editor first: its pixels need to be on the GPU, and the selection is the open photo's.");
+    const layer = findLayerRef(target.doc, input.layer);
+    const made = await definePattern(target.doc, layer.id, currentSelection(), typeof input.name === "string" ? input.name : undefined);
+    if ("error" in made) throw new Error(made.error);
+    usePhoto.getState().commit((d) => addPattern(d, made.pattern).doc);
+    const { pattern } = made;
+    return textResult(`Defined the pattern ${pattern.id} "${pattern.name}", ${pattern.size.width}×${pattern.size.height} px, from "${layer.name}"${currentSelection() ? " inside the selection" : ""}. Use it with set_layer_style (pattern: "${pattern.id}").`);
+  },
+  async apply_style(input, ctx) {
+    const preset = findStyle(String(input.style ?? ""));
+    if (!preset) throw new Error(`No style "${String(input.style)}". The styles: ${allStyles().map((s) => `"${s.name}"`).join(", ")}.`);
+    const add = input.add === true;
+    const target = await targetOf(ctx);
+    const layers = (Array.isArray(input.layers) ? input.layers : [input.layers]).map((r) => findLayerRef(target.doc, r));
+    const ids = layers.filter((l) => l.kind !== "adjustment").map((l) => l.id);
+    if (!ids.length) throw new Error("Give image or pixel layers: adjustment layers have no effects.");
+    if (preset.patterns?.length && !target.open) throw new Error(`"${preset.name}" brings patterns of its own: open the photo in the editor first.`);
+    const patterns = target.open ? await materialise(preset) : [];
+    const result = { doc: styleEdit(preset, ids, add, patterns)(target.doc) };
+    if (target.open && usePhoto.getState().projectId === target.projectId) usePhoto.getState().commit(styleEdit(preset, ids, add, patterns));
+    else await api.saveDocument("photo", target.projectId, result.doc);
+    const lines = ids.map((id) => {
+      const l = result.doc.layers.find((x) => x.id === id)!;
+      return `"${l.name}": ${describeStyle(l) ?? "no effects"}`;
+    });
+    return textResult(`${add ? "Added" : "Applied"} the style "${preset.name}". ${lines.join("; ")}.`, { added: [], changed: ids, removed: 0 });
+  },
+  async save_style(input, ctx) {
+    const target = await targetOf(ctx);
+    const layer = findLayerRef(target.doc, input.layer);
+    if (typeof input.name !== "string" || !input.name.trim()) throw new Error("Give the style a name.");
+    if (stylePatterns([layer]).some((id) => !id.startsWith("builtin:")) && !target.open) throw new Error("Its effects use the photo's own patterns: open the photo in the editor first, so they can be kept with the style.");
+    const kept = await newStyle(target.doc, layer, input.name, input.blending === true, input.effects !== false);
+    return textResult(`Kept "${layer.name}"'s ${input.effects !== false ? "effects" : ""}${input.blending === true ? `${input.effects !== false ? " and " : ""}Blending Options` : ""} as the style "${kept.name}" (${kept.effects.length} effects${kept.patterns?.length ? `, ${kept.patterns.length} pattern${kept.patterns.length > 1 ? "s" : ""}` : ""}): apply_style can use it on any layer and photo.`);
+  },
   add_adjustment: edit(addAdjustmentTool),
   set_effect_params: edit(setEffectParamsTool),
   add_filter: edit(addFilterTool),

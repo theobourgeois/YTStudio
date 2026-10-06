@@ -28,7 +28,7 @@ import { type AdjustmentNode, type ContentNode, type DrawNode, type GeneratorNod
 import type { LayerTransform } from "@shared/photo/types.ts";
 import { ADJUSTMENT_KERNELS, adjustmentShader } from "./adjustments.ts";
 import { BLEND, BLEND_PARAMS_SIZE, BLEND_STRUCT, packBlend } from "./blend.ts";
-import { STYLE_COMPOSITE, STYLE_UNIFORM_SIZE, StyleFields, packStyle, planFields } from "./style.ts";
+import { type PatternsOf, STYLE_COMPOSITE, STYLE_UNIFORM_SIZE, StyleFields, packStyle, planFields } from "./style.ts";
 import type { RenderContext } from "./context.ts";
 import { ROUND_FOR_STORE } from "./kernels.ts";
 import type { VirtualImage } from "./image.ts";
@@ -70,6 +70,8 @@ export interface PlanSources {
   glowCache?: (node: ContentNode, filterIndex: number) => GlowCache | null;
   /** What a styled layer's fields are keyed by besides the plan: its pixels' and mask's changes (a stroke, tiles arriving). */
   revision?: (node: DrawNode) => string;
+  /** A pattern's levels (null while it loads, or when it's missing: its effects draw without it). */
+  pattern?: PatternsOf;
 }
 
 /** Counted work, for the gate "re-renders only what depends on it". */
@@ -466,6 +468,8 @@ export class Compositor {
   private styleUniforms: GPUBuffer;
   /** Each styled layer's effects and tables on the GPU, by its node's key and its fields' plan. */
   private readonly styleData = new Map<string, { fx: GPUBuffer; tables: GPUBuffer; count: number }>();
+  /** The patterns styles read, on the GPU, by what's in them (`packStyle`'s `patternKey`). */
+  private readonly patternBuffers = new Map<string, GPUBuffer>();
   /** A styled layer's mask drawn alone (Layer Mask Hides Effects), as big as the biggest view. */
   private maskScratch: GPUTexture | null = null;
   private uniforms: GPUBuffer;
@@ -576,7 +580,7 @@ export class Compositor {
     const READ: GPUBufferBindingLayout = { type: "read-only-storage" };
     const styleData = device.createBindGroupLayout({
       label: "style data",
-      entries: [0, 1, 2].map((binding) => ({ binding, visibility: FRAG, buffer: READ })),
+      entries: [0, 1, 2, 3].map((binding) => ({ binding, visibility: FRAG, buffer: READ })),
     });
     const quantize = device.createBindGroupLayout({
       label: "quantize",
@@ -785,7 +789,7 @@ export class Compositor {
     }
     const grow = (buffer: GPUBuffer, slots: number) => {
       if (slots <= buffer.size / UNIFORM_STRIDE) return buffer;
-      buffer.destroy();
+      this.retire(buffer);
       return device.createBuffer({ size: UNIFORM_STRIDE * Math.ceil(slots * 1.5), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     };
     this.uniforms = grow(this.uniforms, images.length);
@@ -837,10 +841,10 @@ export class Compositor {
     const blendSlot = new Map(blends.map((b, slot) => [b.index, slot]));
     // Styled layers: their fields (made now if they aren't kept), effects and composite uniforms.
     if (styled.length * STYLE_SLOT > this.styleUniforms.size) {
-      this.styleUniforms.destroy();
+      this.retire(this.styleUniforms);
       this.styleUniforms = device.createBuffer({ size: STYLE_SLOT * Math.ceil(styled.length * 1.5), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     }
-    const styleOf = new Map<number, { slot: number; fields: GPUBuffer; fx: GPUBuffer; tables: GPUBuffer }>();
+    const styleOf = new Map<number, { slot: number; fields: GPUBuffer; fx: GPUBuffer; tables: GPUBuffer; patterns: GPUBuffer }>();
     if (styled.length) {
       const data = new ArrayBuffer(STYLE_SLOT * styled.length);
       styled.forEach(({ index, node, draw }, slot) => {
@@ -849,9 +853,20 @@ export class Compositor {
         const maskKey = node.style!.maskHidesEffects ? "" : `${node.mask?.surface ?? ""}`;
         const key = `${content}|${maskKey}|${node.size.width}x${node.size.height}|${fieldPlan.key}|${sources.revision?.(node) ?? ""}`;
         const set = this.styleFields.fields(encoder, fieldPlan, key, () => this.drawForFields(encoder, draw, node.style!.maskHidesEffects ? null : draw.mask, fieldPlan, format));
-        const dataKey = `${node.key}|${fieldPlan.key}`;
+        const packed = packStyle(node, node.blend!, node.opacity, plan.compositing, fieldPlan, draw.matrix, view, sources.pattern);
+        const dataKey = `${node.key}|${fieldPlan.key}|${packed.patternKey}`;
         let gpu = this.styleData.get(dataKey);
-        const packed = packStyle(node, node.blend!, node.opacity, plan.compositing, fieldPlan, draw.matrix, view);
+        let patterns = this.patternBuffers.get(packed.patternKey);
+        if (!patterns) {
+          patterns = device.createBuffer({ label: "style patterns", size: Math.max(16, packed.patterns.byteLength), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+          device.queue.writeBuffer(patterns, 0, packed.patterns);
+          this.patternBuffers.set(packed.patternKey, patterns);
+          while (this.patternBuffers.size > 16) {
+            const [oldest, old] = this.patternBuffers.entries().next().value!;
+            this.patternBuffers.delete(oldest);
+            void device.queue.onSubmittedWorkDone().then(() => old.destroy());
+          }
+        }
         if (!gpu) {
           const buffer = (bytes: ArrayBufferLike, label: string) => {
             const b = device.createBuffer({ label, size: Math.max(16, bytes.byteLength), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
@@ -870,7 +885,7 @@ export class Compositor {
           }
         }
         new Uint8Array(data, slot * STYLE_SLOT, STYLE_UNIFORM_SIZE).set(new Uint8Array(packed.uniform));
-        styleOf.set(index, { slot, fields: set.buffer, fx: gpu.fx, tables: gpu.tables });
+        styleOf.set(index, { slot, fields: set.buffer, fx: gpu.fx, tables: gpu.tables, patterns });
       });
       device.queue.writeBuffer(this.styleUniforms, 0, data);
     }
@@ -920,6 +935,7 @@ export class Compositor {
             { binding: 0, resource: { buffer: style.fields } },
             { binding: 1, resource: { buffer: style.fx } },
             { binding: 2, resource: { buffer: style.tables } },
+            { binding: 3, resource: { buffer: style.patterns } },
           ],
         }),
       );
@@ -1091,11 +1107,19 @@ export class Compositor {
     return linear;
   }
 
+  /**
+   * A buffer or texture replaced by a bigger one, destroyed once the GPU has done what was submitted with it: several
+   * evaluations (the screen, a picture, a swatch) can be in flight between their submission and their work.
+   */
+  private retire(resource: GPUBuffer | GPUTexture) {
+    void this.ctx.device.queue.onSubmittedWorkDone().then(() => setTimeout(() => resource.destroy(), 0));
+  }
+
   /** The texture a styled layer's mask is drawn alone into (as large as the biggest view asked for). */
   private maskScratchFor(format: PlanFormat, width: number, height: number): GPUTexture {
     const s = this.maskScratch;
     if (s && s.format === format && s.width >= width && s.height >= height) return s;
-    s?.destroy();
+    if (s) this.retire(s);
     this.maskScratch = compositeTexture(this.ctx.device, Math.max(width, s?.width ?? 0), Math.max(height, s?.height ?? 0), format, "style mask");
     return this.maskScratch;
   }
@@ -1150,7 +1174,7 @@ export class Compositor {
   private scratchFor(format: PlanFormat, width: number, height: number): GPUTexture {
     const s = this.scratch;
     if (s && s.format === format && s.width >= width && s.height >= height) return s;
-    s?.destroy();
+    if (s) this.retire(s);
     this.scratch = compositeTexture(this.ctx.device, Math.max(width, s?.width ?? 0), Math.max(height, s?.height ?? 0), format, "blend scratch");
     return this.scratch;
   }
@@ -1272,6 +1296,7 @@ export class Compositor {
     this.maskScratch?.destroy();
     this.styleUniforms.destroy();
     this.styleFields.destroy();
+    for (const b of this.patternBuffers.values()) b.destroy();
     for (const d of this.styleData.values()) {
       d.fx.destroy();
       d.tables.destroy();

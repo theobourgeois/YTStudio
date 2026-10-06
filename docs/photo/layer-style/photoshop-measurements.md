@@ -186,6 +186,24 @@ Size 20, Depth 100 %, light 120° / 30°, highlight white and shadow black, both
   Soft, plus one extra step across the edge: its lip). Every facet lands on Photoshop's to the pixel; levels within
   2 for the bevels, 4 for Emboss and Pillow.
 
+## Patterns
+
+`fx_pattern.py` defines patterns in Photoshop (Edit › Define Pattern through its descriptor) and renders them; the
+renders are in `data/photoshop-probes/fx4/`, their rows in `shared/photo/reference/pattern-fixtures.json`.
+
+- **Pattern Overlay**, read with a coded 16 × 10 pattern (each texel's colour says where it is) on a square at 40..130:
+  a pixel shows texel (x − phase) mod size: **Phase is in pixels**, positive moves the pattern right and down, and a
+  fractional one lands on whole pixels (2.5 as 3). With Link with Layer on or off the pattern starts at the canvas's
+  origin for a layer made there (its effects' reference point).
+- **Scale**: at 200% texels mix linearly, texel i at coordinate i (pixel 40 shows texel 4 exactly, 41 half 4 and 5);
+  at **50% a pixel is the 2 × 2 box of texels** (a mip level, on encoded values).
+- **Angle** turns the pattern anticlockwise (90°: the pattern's right points up). At 30° ours is a fraction of a
+  pixel off Photoshop's; at 90° Photoshop's repeats one texel and skips another along a column (its resampling).
+- **Bevel's Texture** (a 32-pixel sine and a 16-pixel step in an Inner Bevel's flat face): the height added is
+  **Texture Depth × (1 − luminance)** (dark rises; Invert the other way), fitted at 0.99 of that on the sine; **no
+  smoothing** (the step lights exactly the two pixels either side of it); its slopes are scaled as the bevel's are,
+  so Depth 200% equals Texture Depth 200%, Size 10 equals Texture Depth 50%, and Emboss (half the size) the same.
+
 ## Satin and gradients
 
 ![Satin and gradient styles](img/probe-satin-gradients.png)
@@ -227,6 +245,7 @@ Read back from Photoshop (`data/photoshop-probes/fx/defaults.json` has every key
 
 ## Still open
 
+- Where Bevel's Texture shows outside the shape (Outer Bevel, Emboss), and a pattern's transparency in an overlay.
 - Hue / Saturation / Color / Luminosity's last 5–7 levels, and Darker / Lighter Color's near-ties: Photoshop's integer
   arithmetic.
 - Gradient Methods other than Classic (set them in the dialog, then measure).

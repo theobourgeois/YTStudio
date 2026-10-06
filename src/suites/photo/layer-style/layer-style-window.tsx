@@ -16,11 +16,12 @@ import { PiArrowDown, PiArrowUp, PiPlus, PiTrash } from "react-icons/pi";
 import { createId } from "@shared/ids";
 import { BLEND_IF_CHANNELS, type BlendIfEntry, FULL_RANGE, blendingOf } from "@shared/photo/blending";
 import { findLayer, setLayerBlending } from "@shared/photo/edits";
-import type { ParamSpec } from "@shared/photo/effects/params";
+import { type ParamSpec, specShows } from "@shared/photo/effects/params";
 import { shadowOffset } from "@shared/photo/reference/style";
 import { STYLE_LIST, styleDefinition } from "@shared/photo/style/definitions";
-import { addStyleEffect, globalLightOf, moveStyleEffect, removeStyleEffect, replaceStyle, setGlobalLight, setStyleEffect } from "@shared/photo/style/style";
-import type { BlendIf, BlendMode, BlendRange, Contour, EffectInstance, EffectParamValue, GlobalLight, Gradient, LayerStyle, PhotoLayer, PhotoProject } from "@shared/photo/types";
+import { addPattern, addStyleEffect, globalLightOf, moveStyleEffect, removePattern, removeStyleEffect, replaceStyle, setGlobalLight, setStyleEffect, stylePatterns } from "@shared/photo/style/style";
+import type { BlendIf, BlendMode, BlendRange, Contour, EffectInstance, EffectParamValue, GlobalLight, Gradient, LayerStyle, PhotoLayer, PhotoPattern, PhotoProject } from "@shared/photo/types";
+import { useShallow } from "zustand/react/shallow";
 import { ColorSwatchPicker } from "@/components/color-picker";
 import { ScrubNumber } from "@/components/scrub-number";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,11 @@ import { useStyleCanvasDrag } from "./canvas-drag";
 import { AngleDial } from "./controls/angle-dial";
 import { ContourPicker } from "./controls/contour-picker";
 import { GradientPicker } from "./controls/gradient-picker";
+import { PatternPicker } from "./controls/pattern-picker";
+import { NewStyleForm } from "./new-style";
+import { materialise, useStyles } from "./styles";
+import { BUILT_IN_STYLES, type StylePreset, presetStyle } from "@shared/photo/style/presets";
+import { StyleSwatch } from "../panels/styles-panel";
 import { makeDefault, styleDefaults } from "./defaults";
 
 /** What the window edits: the layer's Blending Options, its style and the document's Global Light, all given. */
@@ -47,6 +53,8 @@ interface Draft {
   maskHidesEffects: boolean;
   style: LayerStyle;
   globalLight: GlobalLight;
+  /** Patterns the window adds to the photo (a style preset's) or deletes from it. */
+  patterns: { added: PhotoPattern[]; removed: string[] };
 }
 
 const draftOf = (layer: PhotoLayer, doc: PhotoProject): Draft => {
@@ -61,6 +69,7 @@ const draftOf = (layer: PhotoLayer, doc: PhotoProject): Draft => {
     maskHidesEffects: layer.blending?.maskHidesEffects === true,
     style: layer.style ? structuredClone(layer.style) : { enabled: true, effects: [] },
     globalLight: globalLightOf(doc),
+    patterns: { added: [], removed: [] },
   };
 };
 
@@ -79,7 +88,9 @@ const applyDraft = (layerId: string, d: Draft, hovered: Hovered = null) => (doc:
     maskHidesEffects: d.maskHidesEffects,
   });
   const style = hovered?.effectId ? { ...d.style, effects: d.style.effects.map((e) => (e.id === hovered.effectId ? { ...e, params: { ...e.params, mode: hovered.mode } } : e)) } : d.style;
+  for (const p of d.patterns.added) next = addPattern(next, p).doc;
   next = replaceStyle(next, layerId, style.effects.length ? style : undefined);
+  for (const id of d.patterns.removed) next = removePattern(next, id);
   return setGlobalLight(next, d.globalLight);
 };
 
@@ -91,6 +102,8 @@ function editStyle(style: LayerStyle, edit: (doc: PhotoProject) => PhotoProject)
 
 /** A new effect of `type` at this computer's defaults. */
 const newEffect = (type: string): EffectInstance => ({ id: createId("fx"), type, version: styleDefinition(type)!.version, enabled: true, params: styleDefaults(type) });
+
+const NO_PATTERNS: PhotoPattern[] = [];
 
 const ENTRY_LABELS: Record<BlendIfEntry, string> = { gray: "Gray", red: "Red", green: "Green", blue: "Blue" };
 const ENTRY_COLOURS: Record<BlendIfEntry, string> = { gray: "#fff", red: "#f00", green: "#0f0", blue: "#00f" };
@@ -120,6 +133,7 @@ export function LayerStyleWindow({ layerId, page: asked }: { layerId: string; pa
   const [hovered, setHovered] = useState<Hovered>(null);
   const [entry, setEntry] = useState<BlendIfEntry>("gray");
   const [alt, setAlt] = useState(false);
+  const [making, setMaking] = useState(false);
   const finished = useRef(false);
 
   /** A new effect of `type` (with `params` over its defaults), shown (on a sub-page of it). */
@@ -191,15 +205,23 @@ export function LayerStyleWindow({ layerId, page: asked }: { layerId: string; pa
   const [pageId, subPage] = page.split(":") as [string, string | undefined];
   const selected = draft.style.effects.find((e) => e.id === pageId);
 
-  // A drag on the canvas moves the shown shadow (Distance and Angle), or the gradient overlay's centre (its offset).
+  // The pattern a drag on the canvas moves (the overlay's, a pattern stroke's, the Texture page's), by its phase keys.
+  const draggedPattern = selected ? styleDefinition(selected.type)!.patterns?.find((k) => specShows(k, selected.params) && (selected.type !== "bevel-emboss" || subPage === "Texture")) : undefined;
+  // A drag on the canvas moves the shown shadow (Distance and Angle), the gradient overlay's centre (its offset), or
+  // a pattern (its phase, in pixels).
   useEffect(() => {
-    if (!selected || !["drop-shadow", "inner-shadow", "satin", "gradient-overlay"].includes(selected.type)) return;
+    if (!selected || (!draggedPattern && !["drop-shadow", "inner-shadow", "satin", "gradient-overlay"].includes(selected.type))) return;
     const id = selected.id;
     let start: { x: number; y: number } | null = null;
     useStyleCanvasDrag.getState().set((dx, dy, done) => {
       setDraft((d) => {
         const e = d.style.effects.find((x) => x.id === id);
         if (!e) return d;
+        if (draggedPattern) {
+          start ??= { x: e.params[draggedPattern.phaseX] as number, y: e.params[draggedPattern.phaseY] as number };
+          const params = { [draggedPattern.phaseX]: Math.round(start.x + dx), [draggedPattern.phaseY]: Math.round(start.y + dy) };
+          return { ...d, style: editStyle(d.style, (doc) => setStyleEffect(doc, "x", id, { params })) };
+        }
         if (e.type === "gradient-overlay") {
           const canvas = usePhoto.getState().history!.doc.doc.canvas;
           start ??= { x: e.params.offsetX as number, y: e.params.offsetY as number };
@@ -220,7 +242,7 @@ export function LayerStyleWindow({ layerId, page: asked }: { layerId: string; pa
       if (done) start = null;
     });
     return () => useStyleCanvasDrag.getState().set(null);
-  }, [selected?.id, selected?.type]);
+  }, [selected?.id, selected?.type, draggedPattern]);
 
   const ok = () => {
     finished.current = true;
@@ -260,6 +282,7 @@ export function LayerStyleWindow({ layerId, page: asked }: { layerId: string; pa
       >
         <div className="flex w-48 shrink-0 flex-col rounded border border-line bg-surface-0">
           <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto py-1" aria-label="Layer Style pages">
+            {effects && <ListRow label="Styles" page="styles" selected={page === "styles"} onSelect={() => setPage("styles")} />}
             <ListRow label="Blending Options" page="blending" selected={page === "blending"} onSelect={() => setPage("blending")} />
             {effects &&
               STYLE_LIST.map((type) => {
@@ -323,14 +346,31 @@ export function LayerStyleWindow({ layerId, page: asked }: { layerId: string; pa
             </div>
           )}
         </div>
-        <div className="flex max-h-[30rem] min-w-0 flex-1 flex-col gap-3 overflow-y-auto pr-1" data-page={selected ? `${selected.type}${subPage ? `-${subPage.toLowerCase()}` : ""}` : "blending-options"}>
-          {selected ? (
+        <div className="flex max-h-[30rem] min-w-0 flex-1 flex-col gap-3 overflow-y-auto pr-1" data-page={selected ? `${selected.type}${subPage ? `-${subPage.toLowerCase()}` : ""}` : page === "styles" ? "styles" : "blending-options"}>
+          {page === "styles" ? (
+            <StylesPage
+              onChoose={async (preset) => {
+                // A style replaces the window's: its effects, its Blending Options if it has them, its patterns brought.
+                const patterns = await materialise(preset);
+                setDraft((d) => {
+                  const b = preset.blending;
+                  return {
+                    ...d,
+                    style: presetStyle(preset),
+                    patterns: { added: [...d.patterns.added, ...patterns], removed: d.patterns.removed.filter((id) => !patterns.some((p) => p.id === id)) },
+                    ...(b ? { blend: b.blend ?? d.blend, fill: b.fill ?? d.fill, channels: b.channels ?? d.channels, blendIf: b.blendIf ?? d.blendIf } : {}),
+                  };
+                });
+              }}
+            />
+          ) : selected ? (
             <EffectPage
               key={page}
               effect={selected}
               subPage={subPage}
               globalLight={draft.globalLight}
               onParams={(params) => style((doc) => setStyleEffect(doc, "x", selected.id, { params }))}
+              onDeletePattern={(id) => setDraft((d) => ({ ...d, patterns: { added: d.patterns.added.filter((p) => p.id !== id), removed: [...d.patterns.removed, id] } }))}
               onGlobalLight={(patch) => set({ globalLight: { ...draft.globalLight, ...patch } })}
               onHoverMode={(mode) => setHovered(mode ? { effectId: selected.id, mode } : null)}
             />
@@ -399,6 +439,13 @@ export function LayerStyleWindow({ layerId, page: asked }: { layerId: string; pa
           <Button variant="outline" onClick={alt ? reset : cancel} data-cancel>
             {alt ? "Reset" : "Cancel"}
           </Button>
+          {effects && (
+            <NewStyleForm open={making} onOpenChange={setMaking} layer={() => findLayer(usePhoto.getState().history!.doc.doc, layerId) ?? null}>
+              <Button variant="outline" data-new-style-button>
+                New Style…
+              </Button>
+            </NewStyleForm>
+          )}
           <label className="mt-1 flex items-center gap-1.5">
             <input type="checkbox" checked={preview} onChange={(e) => setPreview(e.target.checked)} className="accent-[var(--brand)]" />
             Preview
@@ -406,6 +453,23 @@ export function LayerStyleWindow({ layerId, page: asked }: { layerId: string; pa
         </div>
       </div>
     </FloatingWindow>
+  );
+}
+
+/** The Styles page: every style's swatch; a click puts it in the window (Photoshop's dialog replaces the style). */
+function StylesPage({ onChoose }: { onChoose: (preset: StylePreset) => void }) {
+  const mine = useStyles((s) => s.mine);
+  return (
+    <>
+      <h3 className="text-sm font-medium">Styles</h3>
+      <div className="flex flex-wrap gap-1.5" data-styles-page>
+        {[...BUILT_IN_STYLES, ...mine].map((preset) => (
+          <button key={preset.id} type="button" aria-label={preset.name} title={preset.name} className="rounded-sm border border-line p-px outline-none hover:border-brand focus-visible:ring-2 focus-visible:ring-ring/50" onClick={() => onChoose(preset)}>
+            <StyleSwatch preset={preset} size={48} />
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -438,6 +502,7 @@ function EffectPage({
   onParams,
   onGlobalLight,
   onHoverMode,
+  onDeletePattern,
 }: {
   effect: EffectInstance;
   subPage?: string;
@@ -445,13 +510,17 @@ function EffectPage({
   onParams: (params: Record<string, EffectParamValue>) => void;
   onGlobalLight: (patch: Partial<GlobalLight>) => void;
   onHoverMode: (mode: BlendMode | null) => void;
+  onDeletePattern: (id: string) => void;
 }) {
   const def = styleDefinition(effect.type)!;
   const p = effect.params;
+  // The photo's patterns as the window shows it (its own added and deleted), and those its layers' effects read.
+  const patterns = usePhoto((s) => s.history?.doc.doc.patterns) ?? NO_PATTERNS;
+  const inUse = usePhoto(useShallow((s) => (s.history ? stylePatterns(s.history.doc.doc.layers) : [])));
   const sub = def.subPages?.find((s) => s.group === subPage);
   const groups: { name: string; specs: ParamSpec[] }[] = [];
   for (const spec of def.params) {
-    if (spec.showIf && p[spec.showIf.key] !== spec.showIf.is) continue;
+    if (!specShows(spec, p)) continue;
     // A sub-page's group shows on it alone, its toggle in the list.
     if (sub ? spec.group !== sub.group || spec.key === sub.toggle : def.subPages?.some((s) => s.group === spec.group)) continue;
     const name = spec.group ?? "";
@@ -516,6 +585,19 @@ function EffectPage({
         return <ContourPicker value={value as Contour} onChange={(c) => onParams({ [spec.key]: c })} />;
       case "gradient":
         return <GradientPicker value={value as Gradient} onChange={(g) => onParams({ [spec.key]: g })} />;
+      case "pattern": {
+        const keys = def.patterns?.find((k) => k.pattern === spec.key);
+        return (
+          <PatternPicker
+            value={value as string}
+            patterns={patterns}
+            inUse={inUse}
+            onChange={(id) => onParams({ [spec.key]: id })}
+            onSnap={keys ? () => onParams({ [keys.phaseX]: 0, [keys.phaseY]: 0 }) : undefined}
+            onDelete={onDeletePattern}
+          />
+        );
+      }
       default:
         return null;
     }
