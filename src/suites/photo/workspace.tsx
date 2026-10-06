@@ -203,25 +203,27 @@ function PhotoHeader() {
       </div>
       <SelectMenu />
       <FilterMenu />
-      <ToolOptions />
-      {tool === "move" && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Snap"
-              aria-pressed={snap}
-              className={cn(snap && "bg-accent text-foreground")}
-              onClick={() => usePhotoPreferences.getState().setSnap(!snap)}
-            >
-              <PiMagnet />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Snap to the canvas and layers (⇧⌘;). Hold Control while dragging to not snap.</TooltipContent>
-        </Tooltip>
-      )}
-      <div className="flex-1" />
+      {/* The tool's options take the room there is, scrolling sideways rather than squeezing the rest. */}
+      <div className="flex min-w-0 flex-[1_1_0%] items-center gap-2 overflow-x-auto [scrollbar-width:none]" data-tool-options-strip>
+        <ToolOptions />
+        {tool === "move" && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Snap"
+                aria-pressed={snap}
+                className={cn(snap && "bg-accent text-foreground")}
+                onClick={() => usePhotoPreferences.getState().setSnap(!snap)}
+              >
+                <PiMagnet />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Snap to the canvas and layers (⇧⌘;). Hold Control while dragging to not snap.</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
       <Button size="sm" variant="outline" onClick={fitToCanvas}>
         Fit
       </Button>
@@ -444,11 +446,11 @@ function usePhotoKeys(active: boolean) {
           return nudge(action.dx, action.dy);
         // Delete clears the selection's pixels (Photoshop's); with no selection it deletes the layers.
         case "delete":
-          if (currentSelection() && ui.selectedLayerId) return void editActions.fill(null);
+          if (currentSelection()) return void editActions.fill(null);
           return layerActions.delete();
         // ⌘J with a selection is Layer via Copy; without one it duplicates the layers.
         case "duplicate":
-          if (currentSelection() && ui.selectedLayerId) return void editActions.layerVia(false);
+          if (currentSelection()) return void editActions.layerVia(false);
           return layerActions.duplicate();
         case "merge":
           return void layerActions.merge();

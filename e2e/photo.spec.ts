@@ -1442,6 +1442,29 @@ test("the selection tools: Magic Wand, Lassos, Elliptical Marquee, Quick Selecti
   await page.getByRole("menuitem", { name: /Select All/ }).click();
   await expect.poll(() => selectionNow(page)).toMatchObject({ kind: "rect", x: 0, y: 0, width: 1600, height: 1200 });
   await page.keyboard.press("ControlOrMeta+d");
+
+  // ⌘J from a scaled layer through a mask whose tiles are all alike (half covered everywhere): the copy reads the
+  // mask's reduced levels, which are every tile's, with no layer active (the one under the selection is used).
+  await page.evaluate(() => {
+    const { photo } = (window as unknown as { photoDebug: { photo: { getState(): { commit(f: (d: { layers: { kind: string; transform: object }[] }) => unknown): void; select(s: unknown): void } } } }).photoDebug;
+    // The photo scaled to half; the layer filled above it hidden, so the photo is the one under the selection.
+    photo.getState().commit((d) => ({ ...d, layers: d.layers.map((l) => (l.kind === "image" ? { ...l, transform: { ...l.transform, scaleX: 0.5, scaleY: 0.5 } } : { ...l, visible: false })) }));
+    photo.getState().select({ kind: "mask", x: 0, y: 0, width: 1600, height: 1200, data: new Uint8Array(1600 * 1200).fill(128) });
+  });
+  await page.evaluate(() => (window as unknown as { photoDebug: { ui: { getState(): { select(id: string | null): void } } } }).photoDebug.ui.getState().select(null));
+  const ids = ((await savedPhoto(page, shapesId)).layers as { id: string }[]).map((l) => l.id);
+  await page.keyboard.press("ControlOrMeta+j");
+  await expect.poll(async () => (await savedPhoto(page, shapesId)).layers.length).toBe(ids.length + 1);
+  const half = ((await savedPhoto(page, shapesId)).layers as { id: string; size: object }[]).find((l) => !ids.includes(l.id))!;
+  expect(half.size).toEqual({ width: 800, height: 600 });
+  // Layer pixels from (400, 300): a point on blue in every tile of the copy.
+  for (const [x, y] of [[50, 50], [300, 60], [700, 100], [100, 500], [600, 550]] as [number, number][]) {
+    expect(await alphaAt(half.id, x, y)).toBeCloseTo(0.5, 1);
+  }
+  // Undone: the copy, the selection, the scale (the assistant's test reads this photo as it was).
+  for (let i = 0; i < 3; i++) await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, shapesId)).layers[0].transform.scaleX).toBe(1);
+  await expect(page.locator("[data-selection]")).toHaveCount(0);
 });
 
 test("the assistant selects with the wand, a lasso, Quick Selection and the subject, inverts, and looks at the selection", async ({ page }) => {

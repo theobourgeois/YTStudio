@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { DabSpacer, dabCoverage, strokeDabs, tilesUnder } from "./brush.ts";
 import { docToView, fitView, levelCount, levelForScale, levelSize, mitchell, panBy, tileGrid, viewToDoc, visibleTiles, zoomAbout } from "./geometry.ts";
 import { fromHalf, toHalf } from "./half.ts";
+import { layerUnder } from "./layers.ts";
+import type { PhotoLayer } from "./types.ts";
 
 describe("tiles and levels", () => {
   it("covers an image with whole tiles", () => {
@@ -118,5 +120,17 @@ describe("brush", () => {
     expect(dabCoverage(brush, 5)).toBe(1);
     expect(dabCoverage(brush, 7.5)).toBeCloseTo(0.5);
     expect(dabCoverage(brush, 10)).toBe(0);
+  });
+});
+
+describe("the layer under a selection", () => {
+  const layer = (id: string, x: number, extra: Record<string, unknown> = {}) =>
+    ({ id, kind: "pixel", name: id, visible: true, opacity: 1, surface: null, size: { width: 100, height: 100 }, transform: { x, y: 50, scaleX: 1, scaleY: 1, rotation: 0 }, ...extra }) as unknown as PhotoLayer;
+  const sizeOf = (l: PhotoLayer) => (l.kind === "pixel" ? l.size : null);
+  it("is the topmost visible layer with content that the selection meets", () => {
+    const layers = [layer("a", 50), layer("b", 250), layer("c", 60, { visible: false })];
+    expect(layerUnder(layers, { x0: 10, y0: 10, x1: 20, y1: 20 }, sizeOf)).toBe("a");
+    expect(layerUnder(layers, { x0: 210, y0: 10, x1: 220, y1: 20 }, sizeOf)).toBe("b");
+    expect(layerUnder(layers, { x0: 500, y0: 10, x1: 520, y1: 20 }, sizeOf)).toBeNull();
   });
 });

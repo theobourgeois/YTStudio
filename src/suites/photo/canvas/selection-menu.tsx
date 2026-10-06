@@ -6,12 +6,12 @@
 import type { ReactNode } from "react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { useColours } from "../colours";
-import { editActions } from "../edit-actions";
+import { actingLayerId, editActions } from "../edit-actions";
 import { layerActions } from "../layer-actions";
 import { keys, runSelectSubject, useFeather } from "../select-commands";
 import { selectActions } from "../selecting";
 import { useSelection } from "../store";
-import { type PhotoTool, isSelectionTool, usePhotoUi } from "../ui";
+import { type PhotoTool, isSelectionTool } from "../ui";
 
 export function SelectionMenu({ tool, children }: { tool: PhotoTool; children: ReactNode }) {
   const selection = useSelection();
@@ -28,7 +28,6 @@ export function SelectionMenu({ tool, children }: { tool: PhotoTool; children: R
 
 function SelectionMenuItems() {
   const selection = useSelection();
-  const layerId = usePhotoUi((s) => s.selectedLayerId);
   if (!selection) {
     return (
       <ContextMenuContent className="w-56" data-selection-menu="none">
@@ -52,23 +51,23 @@ function SelectionMenuItems() {
       </ContextMenuItem>
       <ContextMenuItem onSelect={() => void runSelectSubject("add")}>Add Subject</ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem disabled={!layerId} onSelect={() => void editActions.layerVia(false)}>
+      <ContextMenuItem onSelect={() => void editActions.layerVia(false)}>
         Layer via Copy <ContextMenuShortcut>{keys("⌘J", "Ctrl+J")}</ContextMenuShortcut>
       </ContextMenuItem>
-      <ContextMenuItem disabled={!layerId} onSelect={() => void editActions.layerVia(true)}>
+      <ContextMenuItem onSelect={() => void editActions.layerVia(true)}>
         Layer via Cut <ContextMenuShortcut>{keys("⇧⌘J", "Shift+Ctrl+J")}</ContextMenuShortcut>
       </ContextMenuItem>
-      <ContextMenuItem disabled={!layerId} onSelect={() => void layerActions.addMask(layerId, { replace: true })}>
+      <ContextMenuItem onSelect={() => void layerActions.addMask(actingLayerId(), { replace: true })}>
         Mask from Selection
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem disabled={!layerId} onSelect={() => void editActions.fill(useColours.getState().foreground)}>
+      <ContextMenuItem onSelect={() => void editActions.fill(useColours.getState().foreground)}>
         Fill with Foreground <ContextMenuShortcut>{keys("⌥⌫", "Alt+Del")}</ContextMenuShortcut>
       </ContextMenuItem>
-      <ContextMenuItem disabled={!layerId} onSelect={() => void editActions.fill(useColours.getState().background)}>
+      <ContextMenuItem onSelect={() => void editActions.fill(useColours.getState().background)}>
         Fill with Background <ContextMenuShortcut>{keys("⌘⌫", "Ctrl+Del")}</ContextMenuShortcut>
       </ContextMenuItem>
-      <ContextMenuItem disabled={!layerId} onSelect={() => void editActions.fill(null)}>
+      <ContextMenuItem onSelect={() => void editActions.fill(null)}>
         Clear <ContextMenuShortcut>⌫</ContextMenuShortcut>
       </ContextMenuItem>
     </ContextMenuContent>
