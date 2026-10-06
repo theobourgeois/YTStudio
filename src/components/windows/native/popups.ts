@@ -5,11 +5,11 @@
  * menu's place against the control that opened it (worked out in the control's window) is its place in
  * this one; it reaches to the display's right and bottom edges.
  */
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { POPUP_WINDOW } from "@shared/panels";
 import { desktopPanels } from "@/lib/desktop";
 import { addWindowListener, isElement, ownerWindow } from "@/lib/window-events";
-import { workAreas } from "./bridge";
+import { pageScale, workAreas } from "./bridge";
 import { areaFor } from "./geometry";
 import { type PanelWindow, openPanelWindow } from "./panel-window";
 
@@ -17,8 +17,8 @@ interface Popups {
   panel: PanelWindow;
   observer: MutationObserver;
   shown: boolean;
-  /** The panel it lies over, and where that was (so a move is noticed). */
-  over: { name: string; x: number; y: number; width: number; height: number } | null;
+  /** The window it lies over (a panel's name, or null for the main window), and where that was (so a move is noticed). */
+  over: { name: string | null; x: number; y: number; width: number; height: number } | null;
   placed: string;
   /** Closes what's in it when the user presses anywhere else (`watchOutside`), while something is. */
   unwatch: (() => void) | null;
@@ -89,7 +89,9 @@ function update() {
     p.unwatch = watchOutside(p.panel.win);
   } else {
     panels.hide(p.panel.name);
-    if (p.over) panels.raise(p.over.name);
+    // The keyboard back to the window the menu was opened from.
+    if (p.over?.name) panels.raise(p.over.name);
+    else if (p.over) window.focus();
   }
 }
 
@@ -138,18 +140,25 @@ function dismiss(win: Window) {
   }, 50);
 }
 
-/** Lie over `panel` from its corner to the display's edges: call as the pointer comes to a panel, before a menu is opened in it. */
-export function alignPopups(panel: PanelWindow) {
+/**
+ * Lie over a window from its content's corner to the display's edges: call as the pointer comes to a panel (or
+ * to the main window, `name` null), before a menu is opened in it. A menu is placed in the window it was opened
+ * from's own coordinates, so the popup window's corner has to be that window's content's: on Windows a frameless
+ * window has invisible borders to its left, right and bottom (7 points at 125%), which `screenX` counts (menus
+ * opened 7 points to the left of their control); this window has none.
+ */
+export function alignPopups(target: { name: string | null; win: Window }) {
   const p = popups;
   if (!p || p.shown) return;
-  const win = panel.win;
-  const x = win.screenX;
+  const win = target.win;
+  const border = Math.max(0, Math.round((win.outerWidth - win.innerWidth * pageScale()) / 2));
+  const x = win.screenX + border;
   const y = win.screenY;
-  const here = { x, y, width: win.outerWidth, height: win.outerHeight };
+  const here = { x, y, width: win.outerWidth - 2 * border, height: win.outerHeight };
   const area = areaFor(here, workAreas());
   const width = Math.max(here.width, area ? area.x + area.width - x : here.width);
   const height = Math.max(here.height, area ? area.y + area.height - y : here.height);
-  p.over = { name: panel.name, ...here };
+  p.over = { name: target.name, ...here };
   const key = `${x},${y},${width},${height}`;
   if (key === p.placed) return;
   p.placed = key;
@@ -178,4 +187,28 @@ export function acquirePopups(): () => void {
       tell();
     }, 500);
   };
+}
+
+/**
+ * The main window's menus, while the editor's windows are windows of the system: drawn in the popup window
+ * too, which floats over the panels (an owned window is always above the main window, so a menu drawn in the
+ * main page opened under them) and closes when clicked away from anywhere (`watchOutside`). The element to
+ * draw them in, once there is one (until then, the page itself).
+ */
+export function useMainWindowPopups(enabled: boolean): HTMLElement | undefined {
+  const container = usePopupContainerElement();
+  useEffect(() => {
+    if (!enabled || !desktopPanels()) return;
+    const release = acquirePopups();
+    const align = () => alignPopups({ name: null, win: window });
+    window.addEventListener("pointermove", align, { passive: true });
+    window.addEventListener("focus", align);
+    align();
+    return () => {
+      window.removeEventListener("pointermove", align);
+      window.removeEventListener("focus", align);
+      release();
+    };
+  }, [enabled]);
+  return enabled ? container : undefined;
 }

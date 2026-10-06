@@ -644,6 +644,9 @@ interface DesktopProps<Id extends string> {
  */
 const NATIVE_WINDOWS = typeof window !== "undefined" && window.editorDesktopInfo?.platform === "win32";
 
+/** Whether a `native` desktop's windows are windows of the system here (the desktop app, on Windows). */
+export const nativeWindowsOn = (): boolean => NATIVE_WINDOWS && desktopPanels() !== undefined;
+
 /**
  * Where windows float: they're placed in it, stick to its edges and snap to fill it. It's a stacking
  * context of its own, so its windows' order never reaches past it (the app's windows float above an
