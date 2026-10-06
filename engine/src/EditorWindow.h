@@ -20,6 +20,18 @@ public:
 
     /** Bring it in front of the other apps' windows: the engine has no Dock icon to do it from. */
     void show();
+    /** Centred over `area` (the app's window, where FL opens its plugins), kept on that area's screen. */
+    void centreOver (juce::Rectangle<int> area);
+
+    /**
+     * Windows: the desktop app's main window (`appWindowFromHandle`), or null. Plugin windows belong to it
+     * there (`setWindowOwner`: above it, not above other programs, minimised with it) and have no taskbar
+     * button or Alt+Tab entry of their own, as FL Studio's don't. Always null elsewhere.
+     */
+    static void setAppWindow (void* window);
+    static void* appWindow() { return owner; }
+    /** Belong to the app's window as it is now (Windows; nothing elsewhere). */
+    void followAppWindow();
     /** The typing piano takes note keys before a plugin can consume them. */
     static bool typingKeyboard;
 
@@ -41,8 +53,13 @@ public:
     /** Called when it becomes the active window (it was clicked, or opened): the app stacks its own windows by it. */
     std::function<void()> onActivated;
 
+    int getDesktopWindowStyleFlags() const override;
+
 private:
+    static void* owner;
     void activeWindowStatusChanged() override;
+    /** Its peer may be made again (a style change): the new one belongs to the app's window too. */
+    void parentHierarchyChanged() override;
     using DocumentWindow::keyPressed;
     /** Keys the plugin didn't use (Space, F6, ⌘Z…) go to the app, which runs its shortcut (`EngineEvent` "key"). */
     bool keyPressed (const juce::KeyPress&, juce::Component*) override;

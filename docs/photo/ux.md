@@ -83,7 +83,7 @@ Photo's own `keys.ts`, pure and tested, as music's is. Its listener skips text f
 | Key | Proposed |
 | --- | --- |
 | Space held | Hand, back to the previous tool on release |
-| V / M / B / H / Z | Move / Rectangular Marquee / Brush / Hand / Zoom (built) |
+| V / M / B / E / H / Z | Move / Rectangular Marquee / Brush / Eraser / Hand / Zoom (built) |
 | ⌘Z / ⇧⌘Z | Undo / redo |
 | ⌘0 / ⌘1 | Fit / 100% (the File menu's ⌘1 "New Video" only acts on Home: its accelerator isn't registered) |
 | ⌘+ / ⌘− | Zoom in / out, centred on the pointer when it's over the canvas |
@@ -91,8 +91,11 @@ Photo's own `keys.ts`, pure and tested, as music's is. Its listener skips text f
 | D / X | Black and white / swap (on a mask, the grey of the colour is painted: black hides, white reveals; built) |
 | ⌘A / ⌘D | Select the canvas / deselect (⌘D lets go of the selection, or with none of the layers; built) |
 | ⇧⌘N | A new, empty pixel layer above the active one (built) |
-| ⌘J | Duplicate the selected layers (built) |
-| Delete | Delete the selected layers (or the selection's pixels, later; built for layers) |
+| ⌘J | With a selection, Layer via Copy (what it covers of the active layer, as a new layer above); without, duplicate the selected layers (built) |
+| ⇧⌘J | Layer via Cut (painted pixels only; built) |
+| ⌘C / ⌘X / ⌘V | Copy / cut what the selection covers of the active layer (all of it with none); paste it as a new layer where it was, in this photo or another. An image copied in another app is placed (built) |
+| Delete | With a selection, clear it (painted pixels go transparent; a mask takes the background colour); without, delete the selected layers (built) |
+| ⌥⌫ / ⌘⌫ | Fill the selection (the whole layer with none) with the foreground / background colour (built) |
 | ⌘E | Merge Down, or Merge Layers with several selected (built) |
 | ⌥⌘A | Select all layers (built) |
 | ⌥[ / ⌥] | Select the next layer down / up; with ⇧, add it to the selection (built) |
@@ -175,7 +178,10 @@ Built in F3:
   everything. Its thumbnail sits beside the layer's; clicking either targets what the brush paints (outlined).
   Painting a mask: black hides, white reveals, and the source is untouched. Properties says what it does, and
   remakes it from the selection or deletes it.
-- **The first brush** (B) is round, with size, hardness and strength in the options bar and the colours' swatches.
+- **The first brush** (B) is round, with size, hardness and strength in the options bar (numbers dragged sideways,
+  clicked to type, as Premiere's). The Eraser (E) takes painted pixels away (on a mask it paints the background
+  colour). The colours are every tool's: the foreground and background swatches at the foot of the tool strip, each
+  opening the app's colour picker.
   Dabs are spaced in document pixels and come out the same at any zoom and pixel density (the same samples make the
   same tiles). The selection caps what a stroke paints by its coverage: a half-covered pixel gets half of the
   stroke. Its circle follows the pointer. A placed image asks first (New paint layer, or Convert to pixels); an

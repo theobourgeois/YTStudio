@@ -198,9 +198,24 @@ public:
 }
 
 bool EditorWindow::typingKeyboard = false;
+void* EditorWindow::owner = nullptr;
+
+namespace
+{
+/**
+ * On Windows its peer is made once everything is in it (`addToDesktop` at the end of the constructor), so
+ * it's made with this class's style (no taskbar button) rather than the base class's and then made again
+ * around a plugin's editor already attached to it, which some plugins don't survive.
+ */
+#if JUCE_WINDOWS
+constexpr bool addToDesktopFirst = false;
+#else
+constexpr bool addToDesktopFirst = true;
+#endif
+}
 
 EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::String& title, std::function<void()> onCloseButton)
-    : DocumentWindow (title, juce::Colours::black, DocumentWindow::closeButton),
+    : DocumentWindow (title, juce::Colours::black, DocumentWindow::closeButton, addToDesktopFirst),
       onClose (std::move (onCloseButton))
 {
     look = std::make_unique<StudioLook>();
@@ -219,6 +234,8 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
     setContentOwned (created, true);
     setResizable (created->isResizable(), false);
     centreWithSize (getWidth(), getHeight());
+    if (! addToDesktopFirst)
+        addToDesktop();
     setVisible (true);
 }
 
@@ -315,9 +332,47 @@ void EditorWindow::activeWindowStatusChanged()
         onActivated();
 }
 
+void EditorWindow::setAppWindow (void* window)
+{
+   #if JUCE_WINDOWS
+    owner = window;
+   #else
+    juce::ignoreUnused (window);
+   #endif
+}
+
+void EditorWindow::followAppWindow()
+{
+    setWindowOwner (*this, owner);
+}
+
+int EditorWindow::getDesktopWindowStyleFlags() const
+{
+    auto style = DocumentWindow::getDesktopWindowStyleFlags();
+    // A window of the app's (Windows): no taskbar button, and not in Alt+Tab (JUCE makes it a tool window).
+    if (owner != nullptr)
+        style &= ~juce::ComponentPeer::windowAppearsOnTaskbar;
+    return style;
+}
+
+void EditorWindow::parentHierarchyChanged()
+{
+    DocumentWindow::parentHierarchyChanged();
+    followAppWindow();
+}
+
+void EditorWindow::centreOver (juce::Rectangle<int> area)
+{
+    auto bounds = getBounds().withCentre (area.getCentre());
+    if (const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (area))
+        bounds = bounds.constrainedWithin (display->userArea);
+    setBounds (bounds);
+}
+
 void EditorWindow::show()
 {
     juce::Process::makeForegroundProcess();
+    followAppWindow();
     setVisible (true);
     keepOutOfWindowSwitchers (*this);
     toFront (true);

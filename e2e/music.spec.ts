@@ -826,6 +826,26 @@ test("settings: ⌘, opens on the music tab, with the device and the plugin benc
   await expect(device).toContainText("2.7 ms of buffer");
   await expect(dialog.getByTestId("engine-device")).toContainText("128 samples");
 
+  // The driver (ASIO, on Windows): one device both ways, with its own settings panel; and the recording offset.
+  const driver = device.getByRole("combobox", { name: "Audio driver" });
+  await driver.click();
+  await page.getByRole("option", { name: "Fake ASIO" }).click();
+  await expect(device).toContainText("Device");
+  const panel = page.waitForRequest((r) => r.url().endsWith("/api/engine/devices/panel"));
+  await device.getByRole("button", { name: "Device panel" }).click();
+  await panel;
+  const offset = device.getByRole("spinbutton", { name: "Recording offset in milliseconds" });
+  const offsetSent = page.waitForRequest((r) => r.url().endsWith("/api/engine/devices") && r.method() === "POST" && r.postDataJSON().recordOffsetMs === 12);
+  await offset.fill("12");
+  await offset.press("Enter");
+  await offsetSent;
+  await expect(offset).toHaveValue("12");
+  await offset.fill("0");
+  await offset.press("Enter");
+  await driver.click();
+  await page.getByRole("option", { name: "Fake Audio" }).click();
+  await expect(device.getByRole("button", { name: "Device panel" })).toBeHidden();
+
   // Resampling: Hermite while playing and sinc in exports, until changed; the engine gets the song again with it.
   const playing = dialog.getByRole("combobox", { name: "Resampling while playing" });
   await expect(playing).toHaveText("Hermite (4-point)");

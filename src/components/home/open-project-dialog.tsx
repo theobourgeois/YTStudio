@@ -4,6 +4,7 @@ import type { ProjectSummary } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { IS_MAC } from "@/lib/key-labels";
 import { useProjects } from "@/stores/projects";
 
 interface OpenDialogState {
@@ -53,7 +54,7 @@ function PathForm() {
         <DialogDescription>
           {locate
             ? "It isn't where it was last opened. Type where it is now: its .vaudio folder, or a file in it."
-            : "Type where the project is on this computer: its .vaudio folder, or a file in it. In Finder, ⌥⌘C copies a file's path."}
+            : `Type where the project is on this computer: its .vaudio folder, or a file in it. ${IS_MAC ? "In Finder, ⌥⌘C" : "In File Explorer, Ctrl+Shift+C"} copies a file's path.`}
         </DialogDescription>
       </DialogHeader>
       <Input autoFocus value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/Documents/Vaudio/My video.vaudio" aria-label="Project path" className="font-mono text-xs" />

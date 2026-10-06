@@ -435,10 +435,17 @@ export class AudioEngine {
     if (typeof input.input === "string") params.input = input.input;
     if (isFiniteNumber(input.bufferSize) && input.bufferSize > 0) params.bufferSize = Math.round(input.bufferSize);
     if (isFiniteNumber(input.sampleRate) && input.sampleRate > 0) params.sampleRate = input.sampleRate;
+    if (typeof input.type === "string" && input.type) params.type = input.type.slice(0, 100);
+    if (isFiniteNumber(input.recordOffsetMs)) params.recordOffsetMs = Math.max(-500, Math.min(500, input.recordOffsetMs));
     if (isObject(input.midiInput) && typeof input.midiInput.name === "string" && input.midiInput.name)
       params.midiInput = { name: input.midiInput.name.slice(0, 200), enabled: input.midiInput.enabled !== false };
-    if (!Object.keys(params).length) throw new HttpError(400, 'Give an "output", an "input", a "bufferSize", a "sampleRate" or a "midiInput".');
+    if (!Object.keys(params).length) throw new HttpError(400, 'Give a "type", an "output", an "input", a "bufferSize", a "sampleRate", a "recordOffsetMs" or a "midiInput".');
     return this.withSavedIn((await this.request("setDevice", params)) as RawDevices);
+  }
+
+  /** Open the device's own settings panel (an ASIO driver's), as FL's "Show ASIO panel". */
+  async deviceControlPanel(): Promise<void> {
+    await this.request("deviceControlPanel", {});
   }
 
   /** Be told what the engine says on its own (`EngineEvent`). Returns how to stop listening. */

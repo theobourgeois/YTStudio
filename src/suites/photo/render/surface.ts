@@ -13,7 +13,7 @@
 import { type BrushSettings, type Dab, DabSpacer, tilesUnder } from "@shared/photo/brush.ts";
 import type { Size } from "@shared/photo/geometry.ts";
 import { fromHalf, toHalf } from "@shared/photo/half.ts";
-import type { Affine } from "@shared/photo/layers.ts";
+import { type Affine, apply, invert } from "@shared/photo/layers.ts";
 import { selectionBox } from "@shared/photo/selection.ts";
 import { type SurfaceManifest, type TileEntry, constantRef, constantValues, emptySurface, withTiles } from "@shared/photo/surfaces.ts";
 import type { PhotoSelection, SurfaceId } from "@shared/photo/types.ts";
@@ -50,13 +50,14 @@ interface Draft {
 const rightAngled = (m: Affine) => (m[1] === 0 && m[2] === 0) || (m[0] === 0 && m[3] === 0);
 
 /** The 80 bytes of the stamp and mask-fill kernels' `Params`. */
-function packParams(tile: number, colour: readonly number[], place: SurfacePlace, selection: PhotoSelection | null): ArrayBuffer {
+function packParams(tile: number, colour: readonly number[], place: SurfacePlace, selection: PhotoSelection | null, erase = false): ArrayBuffer {
   const data = new ArrayBuffer(80);
   const f = new Float32Array(data);
   const u = new Uint32Array(data);
   f.set(colour, 0);
   u[4] = tile;
   u[5] = selection ? 1 : 0;
+  u[6] = erase ? 1 : 0;
   const m = place.matrix;
   f.set([m[0], m[1], m[2], m[3], m[4], m[5], rightAngled(m) ? 1 : 0, 0], 8);
   if (selection) f.set([selection.x, selection.y, selection.width, selection.height], 16);
@@ -381,12 +382,75 @@ export class SurfaceImage {
 
   /**
    * Starts a stroke with `colour` (premultiplied linear RGBA; a mask's is its value in every channel), `place`
-   * mapping this surface's pixels to the document, and the selection limiting it (or null: everywhere).
+   * mapping this surface's pixels to the document, and the selection limiting it (or null: everywhere). `erase`
+   * takes pixels away instead (the Eraser on a pixel layer).
    */
-  begin(brush: BrushSettings, colour: readonly number[], place: SurfacePlace, selection: PhotoSelection | null) {
+  begin(brush: BrushSettings, colour: readonly number[], place: SurfacePlace, selection: PhotoSelection | null, erase = false) {
     if (this.stroke) this.cancel();
     this.stroke = { spacer: new DabSpacer(brush), place, limited: selection !== null };
-    this.ctx.device.queue.writeBuffer(this.params, 0, packParams(this.ctx.tile, colour, place, selection));
+    this.ctx.device.queue.writeBuffer(this.params, 0, packParams(this.ctx.tile, colour, place, selection, erase));
+  }
+
+  /**
+   * Fills what a selection covers with `colour` (premultiplied; transparent clears: Delete), each pixel by its
+   * coverage, as one new surface: Photoshop's Edit › Fill. Only the tiles the selection reaches change. Resolves
+   * with its id (null: the selection misses the surface).
+   */
+  async fillSelection(colour: readonly number[], selection: PhotoSelection, place: SurfacePlace): Promise<SurfaceId | null> {
+    if (this.stroke) this.cancel();
+    const tile = this.ctx.tile;
+    const box = selectionBox(selection);
+    const m = place.matrix;
+    const inv = invert(m);
+    // The selection's box in this surface's pixels: the tiles it can reach.
+    const corners = [apply(inv, box.x0, box.y0), apply(inv, box.x1, box.y0), apply(inv, box.x0, box.y1), apply(inv, box.x1, box.y1)];
+    const { tilesX, tilesY } = this.image.levels[0];
+    const tx0 = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.x)) / tile));
+    const ty0 = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.y)) / tile));
+    const tx1 = Math.min(tilesX - 1, Math.floor(Math.max(...corners.map((p) => p.x)) / tile));
+    const ty1 = Math.min(tilesY - 1, Math.floor(Math.max(...corners.map((p) => p.y)) / tile));
+    if (tx1 < tx0 || ty1 < ty0) return null;
+    // A stroke whose "paint" is the colour everywhere, shown through the selection's coverage (`limit`).
+    this.stroke = { spacer: new DabSpacer({ radius: 1, hardness: 1, strength: 1, spacing: 1 }), place, limited: true };
+    this.ctx.device.queue.writeBuffer(this.params, 0, packParams(tile, colour, place, selection));
+    const { device } = this.ctx;
+    const touched: { tx: number; ty: number }[] = [];
+    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) touched.push({ tx, ty });
+    for (let i = 0; i < touched.length; i += BATCH) {
+      const batch = touched.slice(i, i + BATCH);
+      const encoder = device.createCommandEncoder({ label: "fill" });
+      const drafts = batch.map((t) => this.draftFor(t.tx, t.ty, encoder));
+      device.queue.submit([encoder.finish()]);
+      for (const d of drafts) this.ctx.fillSlot(d.paint!, this.gpuValue(this.kind === "mask" ? [colour[0]] : colour));
+      const limits = new ArrayBuffer(batch.length * 32);
+      drafts.forEach((d, j) => {
+        new Uint32Array(limits, j * 32, 1)[0] = d.paint!;
+        new Int32Array(limits, j * 32 + 4, 2).set([d.tx, d.ty]);
+        new Uint32Array(limits, j * 32 + 12, 1)[0] = d.base!;
+      });
+      device.queue.writeBuffer(this.limitJobs, 0, limits);
+      const fill = device.createCommandEncoder({ label: "fill limit" });
+      const pass = fill.beginComputePass();
+      pass.setPipeline(this.ctx.kernels.limit);
+      pass.setBindGroup(0, this.ctx.atlasBindGroup());
+      pass.setBindGroup(1, this.limitGroup);
+      pass.dispatchWorkgroups(tile / 16, tile / 16, batch.length);
+      pass.end();
+      this.ctx.copyScratchToSlots(
+        fill,
+        drafts.map((d) => d.slot),
+      );
+      device.queue.submit([fill.finish()]);
+      for (const d of drafts) {
+        this.image.setSlot(0, d.tx, d.ty, d.slot);
+        this.markParents(d.tx, d.ty);
+      }
+    }
+    this.image.flush();
+    this.buildLevels();
+    this.onChange?.();
+    const result = await this.end();
+    return result?.id ?? null;
   }
 
   /** Paints the dabs these samples (in this surface's pixels) add. */

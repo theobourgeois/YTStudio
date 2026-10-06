@@ -3,6 +3,7 @@ import { addWindowListener, ownerDocument } from "@/lib/window-events";
 import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretDownFill, PiCaretRightFill, PiCaretUpBold, PiClock, PiLinkSimpleBold, PiLockSimpleFill, PiMicrophoneFill, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { keyLabel } from "@/lib/key-labels";
 import { foldedAway, mainOutput, setGroupVca, setMixerVolumes, trackName, updateMixerTrack } from "@shared/music/mixer";
 import { SELECTION_METER } from "@shared/music/engine";
 import { type Hearing, cutOffBy, hearing } from "@shared/music/solo";
@@ -38,6 +39,7 @@ import { NameColorEditor } from "../name-color-editor";
 import { Input } from "@/components/ui/input";
 import { PERCENT, SongKnob, panText, percent } from "../knob";
 import { songGesture, useMusic, useSong } from "../store";
+import { wheelScroll } from "../wheel";
 import { useTransport } from "../transport";
 import { currentTrackId, useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
@@ -274,6 +276,12 @@ export function MixerWindow() {
             ref={scroller}
             className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
             data-testid="mixer-strips"
+            // A mouse's wheel (up and down) goes along the strips, as FL's does; a knob or fader under the
+            // pointer takes it first (it cancels the event). Sideways scrolls (Shift+wheel on Windows) go natively.
+            onWheel={(e) => {
+              if (e.defaultPrevented || e.deltaX !== 0 || e.ctrlKey || e.metaKey || e.altKey) return;
+              e.currentTarget.scrollLeft += wheelScroll(e).y;
+            }}
             // A press on the empty space past the strips: only the current track stays selected.
             onPointerDown={(e) => e.currentTarget.contains(e.target as Node) && !(e.target as HTMLElement).closest("[data-track], button") && selectOnlyCurrent()}
           >
@@ -846,7 +854,7 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
       <div
         className="grid h-14 cursor-grab place-items-center pb-3"
         style={{ color: "var(--mixer-on)" }}
-        title="A selected track: its sends are shown. Drag it onto a track to route there (⌘: a send besides)"
+        title={keyLabel("A selected track: its sends are shown. Drag it onto a track to route there (⌘: a send besides)")}
         onPointerDown={plugCable}
         data-plug
       >
@@ -1000,7 +1008,7 @@ function SoloButton({ id, name, solo, implied, safe }: { id: string; name: strin
       data-solo={solo || undefined}
       data-solo-safe={safe || undefined}
       data-solo-implied={implied || undefined}
-      title={`${solo ? "Soloed" : implied ? "Heard for a soloed track (it's on its path)" : "Solo"}${safe ? " (solo safe)" : ""}: click to solo, ⌥-click to solo it alone, ⇧-click for solo safe`}
+      title={keyLabel(`${solo ? "Soloed" : implied ? "Heard for a soloed track (it's on its path)" : "Solo"}${safe ? " (solo safe)" : ""}: click to solo, ⌥-click to solo it alone, ⇧-click for solo safe`)}
       className="relative grid h-3.5 w-3.5 shrink-0 place-items-center rounded-[3px] font-mono text-[9px] leading-none font-bold hover:brightness-125"
       style={
         solo
@@ -1258,7 +1266,7 @@ function CarriedState() {
   return (
     <div className="floating pointer-events-none fixed z-[10000] rounded-sm px-2 py-1 text-[11px]" style={{ left: carrying.x + 12, top: carrying.y + 8 }} data-testid="carried-state">
       {carrying.effect
-        ? `${carrying.effect.name}${carrying.over && (carrying.over !== carrying.from || carrying.effect.copy) ? (carrying.effect.copy ? " → drop to copy" : " → drop to move (⌘: copy)") : ""}`
+        ? `${carrying.effect.name}${carrying.over && (carrying.over !== carrying.from || carrying.effect.copy) ? (carrying.effect.copy ? " → drop to copy" : keyLabel(" → drop to move (⌘: copy)")) : ""}`
         : `${name}'s state${carrying.over && carrying.over !== carrying.from ? " → drop to copy" : ""}`}
     </div>
   );

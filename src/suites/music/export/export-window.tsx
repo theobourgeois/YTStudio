@@ -21,6 +21,7 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { WindowBody, WindowFooter } from "@/components/windows/floating-window";
 import { isDesktop } from "@/lib/desktop";
+import { FILE_MANAGER } from "@/lib/key-labels";
 import { musicApi } from "../api";
 import { usePiano } from "../piano/store";
 import { usePlaylist } from "../playlist/store";
@@ -207,8 +208,8 @@ function ExportForm({ failed }: { failed: string | null }) {
           </Row>
         )}
         {isDesktop && (
-          <Row label="Show in Finder when done">
-            <Switch checked={settings.reveal} onCheckedChange={(reveal) => set({ reveal })} aria-label="Show in Finder when done" />
+          <Row label={`Show in ${FILE_MANAGER} when done`}>
+            <Switch checked={settings.reveal} onCheckedChange={(reveal) => set({ reveal })} aria-label={`Show in ${FILE_MANAGER} when done`} />
           </Row>
         )}
       </Section>
@@ -377,7 +378,7 @@ function Progressing({ job }: { job: MusicExportJob }) {
             {job.state === "done" && job.files.some((f) => f.path) && (
               <Button variant="outline" onClick={() => void musicApi.revealExport(job.id)}>
                 <PiFolderOpen />
-                Show in Finder
+                Show in {FILE_MANAGER}
               </Button>
             )}
             {job.state === "done" && job.files.length > 1 && job.files.every((f) => f.path === null) && (

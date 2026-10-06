@@ -107,12 +107,31 @@ export class DataPaths {
   }
 }
 
+/** Errors Windows gives a rename onto a file someone has open for a moment (Defender, the indexer, a reader). */
+const TRANSIENT = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+/**
+ * `fs.rename`, tried again for up to about a second while Windows says the target is in use: replacing a
+ * file that's being scanned or read fails there, where macOS just replaces it. (graceful-fs does the same.)
+ */
+export async function renameRetrying(from: string, to: string, rename: (a: string, b: string) => Promise<void> = fs.rename): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await rename(from, to);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (process.platform !== "win32" || !code || !TRANSIENT.has(code) || attempt >= 10) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+    }
+  }
+}
+
 /** Write JSON atomically (temp file + rename) so readers never see a partial file. */
 export async function writeJson(file: string, data: unknown): Promise<void> {
   const tmp = `${file}.${randomBytes(6).toString("hex")}.tmp`;
   try {
     await fs.writeFile(tmp, JSON.stringify(data));
-    await fs.rename(tmp, file);
+    await renameRetrying(tmp, file);
   } catch (err) {
     await fs.rm(tmp, { force: true });
     throw err;

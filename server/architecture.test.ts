@@ -92,6 +92,8 @@ const PLATFORM = [
   "src/lib/route.ts",
   "src/lib/desktop.ts",
   "src/lib/focus-rings.ts",
+  // Shortcut labels and words for the computer the app runs on (⌘ or Ctrl, Finder or File Explorer).
+  "src/lib/key-labels.ts",
   "src/lib/pointer-drag.ts",
   // Generic card selection is shared by media/library grids and music's insert setup.
   "src/components/media/grid-selection.ts",
@@ -109,6 +111,7 @@ const PLATFORM = [
   "src/components/ui/",
   "src/gallery/",
   "src/components/color-picker.tsx",
+  "src/components/scrub-number.tsx",
   "src/components/home/",
   "src/components/assistant/",
   "src/components/header/header.tsx",

@@ -194,7 +194,7 @@ export function CanvasPanel() {
       return;
     }
     if (tool === "marquee") return selectRect(e);
-    if (tool === "brush") return paint(e);
+    if (tool === "brush" || tool === "eraser") return paint(e, tool === "eraser");
     // Move: with Auto-select (⌘ for the opposite), the layer under the pointer is picked first, as Photoshop's;
     // Shift adds it to the selection (or takes it out). A press on nothing (outside the selected layers' box)
     // selects nothing, or draws a marquee that selects the layers it touches. The drag moves the selected images.
@@ -326,11 +326,11 @@ export function CanvasPanel() {
   };
 
   /**
-   * The Brush: paints the active layer's target (its pixels or its mask) along the pointer, limited by the
-   * selection, as one undo step when it's let go; Escape drops it. An image asks first (a new paint layer, or
-   * convert it to pixels); an adjustment paints its mask, given one.
+   * The Brush and the Eraser (`erase`): paint the active layer's target (its pixels or its mask) along the pointer,
+   * limited by the selection, as one undo step when it's let go; Escape drops it. An image asks first (a new paint
+   * layer, or convert it to pixels); an adjustment paints its mask, given one.
    */
-  const paint = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const paint = (e: ReactPointerEvent<HTMLDivElement>, erase: boolean) => {
     const doc = usePhoto.getState().history!.doc.doc;
     const ui = usePhotoUi.getState();
     if (!renderer) return;
@@ -341,7 +341,7 @@ export function CanvasPanel() {
       usePhoto.getState().commit((d) => setMask(d, target.layerId, null));
       ui.setTarget("mask");
     }
-    const stroke = new StrokeController(renderer, target.layerId, target.part, currentSelection());
+    const stroke = new StrokeController(renderer, target.layerId, target.part, currentSelection(), erase);
     stroke.add([docPoint(e.clientX, e.clientY)]);
     startPointerDrag(e, {
       threshold: 0,
@@ -382,7 +382,7 @@ export function CanvasPanel() {
         ref={holderRef}
         className={cn(
           "relative min-h-0 flex-1 overflow-hidden touch-none",
-          tool === "hand" ? "cursor-grab" : tool === "zoom" ? "cursor-zoom-in" : tool === "marquee" ? "cursor-crosshair" : tool === "brush" ? "cursor-none" : "cursor-default",
+          tool === "hand" ? "cursor-grab" : tool === "zoom" ? "cursor-zoom-in" : tool === "marquee" ? "cursor-crosshair" : tool === "brush" || tool === "eraser" ? "cursor-none" : "cursor-default",
         )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -398,7 +398,7 @@ export function CanvasPanel() {
         {renderer && <SnapGuides />}
         {renderer && <Marquee />}
         {renderer && <SelectionAnts />}
-        {renderer && tool === "brush" && <BrushCursor />}
+        {renderer && (tool === "brush" || tool === "eraser") && <BrushCursor />}
         {failure && (
           <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-white/80">
             <div className="flex max-w-sm flex-col items-center gap-2">
