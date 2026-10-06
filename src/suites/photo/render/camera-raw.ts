@@ -2,9 +2,11 @@
  * Camera Raw's GPU develop (docs/photo/camera-raw.md, "The renderer"): one function, `develop`, mirroring
  * `developPixel` (shared/photo/effects/camera-raw/develop.ts) step for step, read by both of Camera Raw's passes:
  * the kernel filter's (`CAMERA_RAW_FILTER`, a Smart Filter on a layer) and the adjustment's (`CAMERA_RAW_ADJUSTMENT`).
- * Both read the same table: the develop's curves (`developTable`), then the darkening tone coordinate.
+ * Both read the same table: the develop's curves (`developTable`), the darkening tone coordinate, the Color Mixer's
+ * and Color Grading's numbers (`colourBlock`), then the analysis's grid and Glow's grid.
  */
-import { V_DARKEN } from "@shared/photo/effects/camera-raw/measured.ts";
+import { GRADING_LEVELS, V_DARKEN } from "@shared/photo/effects/camera-raw/measured.ts";
+import { COLOUR_BLOCK_SIZE, GRADING_SHAPE, MIXER_CENTRES, colourBlock } from "@shared/photo/effects/camera-raw/colour.ts";
 import {
   DEVELOP_TABLE_CURVES,
   DEVELOP_TABLE_SIZE,
@@ -16,6 +18,7 @@ import {
   LOCAL_STRENGTH,
   VIGNETTE,
   VIGNETTE_GREY,
+  GLOW_STRENGTH,
   ANALYSIS_PARAM,
   analysisOf,
   developSettings,
@@ -66,6 +69,17 @@ const FIELDS = [
   "air_r",
   "air_g",
   "air_b",
+  "mixer",
+  "grading",
+  "grading_narrow_shadows",
+  "grading_narrow_highlights",
+  "grading_balance",
+  "glow",
+  "glow_style",
+  "glow_r",
+  "glow_g",
+  "glow_b",
+  "glow_at",
 ] as const;
 
 function fieldValues(params: Record<string, EffectParamValue>, canvas: { width: number; height: number }): number[] {
@@ -105,25 +119,39 @@ function fieldValues(params: Record<string, EffectParamValue>, canvas: { width: 
     air_r: s.analysis?.airlight[0] ?? 1,
     air_g: s.analysis?.airlight[1] ?? 1,
     air_b: s.analysis?.airlight[2] ?? 1,
+    mixer: s.mixer ? 1 : 0,
+    grading: s.grading ? 1 : 0,
+    grading_narrow_shadows: s.grading?.narrowShadows ?? 0,
+    grading_narrow_highlights: s.grading?.narrowHighlights ?? 0,
+    grading_balance: s.grading?.balance ?? 0,
+    glow: s.glow,
+    glow_style: s.glowStyle,
+    glow_r: s.glowTint[0],
+    glow_g: s.glowTint[1],
+    glow_b: s.glowTint[2],
+    glow_at: GRID_OFFSET + (s.analysis?.grid.length ?? 0),
   };
   return FIELDS.map((k) => values[k]);
 }
 
-/** The develop's table, the darkening tone coordinate after it, then the analysis's grid (if it reads one). */
-function gpuTable(params: Record<string, EffectParamValue>): Float32Array {
+/** The develop's table, the darkening tone coordinate after it, the colour block, then the analysis's grid and Glow's (if it reads them). */
+function gpuTable(params: Record<string, EffectParamValue>, canvas: { width: number; height: number }): Float32Array {
   const curves = developTable(params);
   const grid = analysisOf(params)?.grid;
-  const table = new Float32Array(curves.length + 256 + (grid?.length ?? 0));
+  const glow = developSettings(params, canvas).glowGrid;
+  const table = new Float32Array(GRID_OFFSET + (grid?.length ?? 0) + (glow?.length ?? 0));
   table.set(curves);
-  table.set(V_DARKEN, curves.length);
-  if (grid) table.set(grid, curves.length + 256);
+  table.set(V_DARKEN, V_OFFSET);
+  table.set(colourBlock(params), COLOUR_OFFSET);
+  if (grid) table.set(grid, GRID_OFFSET);
+  if (glow) table.set(glow, GRID_OFFSET + (grid?.length ?? 0));
   return table;
 }
 
 /** What the table is made from: the parameters (but the analysis) and the analysis's id. */
-function tableKey(params: Record<string, EffectParamValue>): string {
+function tableKey(params: Record<string, EffectParamValue>, canvas: { width: number; height: number }): string {
   const { [ANALYSIS_PARAM]: _, ...own } = params;
-  return `camera-raw|${analysisOf(params)?.id ?? ""}|${JSON.stringify(own)}`;
+  return `camera-raw|${analysisOf(params)?.id ?? ""}|${canvas.width}x${canvas.height}|${JSON.stringify(own)}`;
 }
 
 /** Packs `values` as f32s, padded to a multiple of 16 bytes. */
@@ -135,12 +163,17 @@ function packFloats(values: number[]): ArrayBuffer {
 
 const N = DEVELOP_TABLE_SIZE;
 const V_OFFSET = DEVELOP_TABLE_CURVES * N;
+const COLOUR_OFFSET = V_OFFSET + 256;
+const GRID_OFFSET = COLOUR_OFFSET + COLOUR_BLOCK_SIZE;
+const LEVELS = GRADING_LEVELS.length;
 
 /** The develop's WGSL, after a `struct Params` holding `FIELDS` and `table` are declared. */
 const DEVELOP = /* wgsl */ `
 const CR_N: u32 = ${N}u;
 const CR_V: u32 = ${V_OFFSET}u;
-const CR_GRID: u32 = ${V_OFFSET + 256}u;
+const CR_COLOUR: u32 = ${COLOUR_OFFSET}u;
+const CR_LEVELS: u32 = ${LEVELS}u;
+const CR_GRID: u32 = ${GRID_OFFSET}u;
 const CR_GRID_FLOATS: u32 = ${GRID_FLOATS}u;
 const CR_TO_PROPHOTO = ${mat(SRGB_TO_PROPHOTO)};
 const CR_TO_SRGB = ${mat(PROPHOTO_TO_SRGB)};
@@ -333,6 +366,149 @@ fn cr_local(input: vec3f, p: vec2f) -> vec3f {
   return c * exp2(gain);
 }
 
+// --- the Color Mixer (colour.ts's mix), on encoded ProPhoto ---
+
+const CR_CENTRES = array<f32, 9>(${[...MIXER_CENTRES, 360].map(f).join(", ")});
+
+fn cr_hsv(c: vec3f) -> vec3f {
+  let hi = max(c.r, max(c.g, c.b));
+  let lo = min(c.r, min(c.g, c.b));
+  let d = hi - lo;
+  var h = 0.0;
+  if (d > 0.0) {
+    if (hi == c.r) { h = (c.g - c.b) / d; } else if (hi == c.g) { h = (c.b - c.r) / d + 2.0; } else { h = (c.r - c.g) / d + 4.0; }
+    h *= 60.0;
+    if (h < 0.0) { h += 360.0; }
+  }
+  return vec3f(h, select(0.0, d / hi, hi > 0.0), hi);
+}
+
+fn cr_from_hsv(hsv: vec3f) -> vec3f {
+  let hh = (hsv.x - 360.0 * floor(hsv.x / 360.0)) / 60.0;
+  let c = hsv.z * hsv.y;
+  let x = c * (1.0 - abs(hh - 2.0 * floor(hh / 2.0) - 1.0));
+  let i = floor(hh);
+  var rgb = vec3f(c, 0.0, x);
+  if (i == 0.0) { rgb = vec3f(c, x, 0.0); } else if (i == 1.0) { rgb = vec3f(x, c, 0.0); } else if (i == 2.0) { rgb = vec3f(0.0, c, x); } else if (i == 3.0) { rgb = vec3f(0.0, x, c); } else if (i == 4.0) { rgb = vec3f(x, 0.0, c); }
+  return rgb + vec3f(hsv.z - c);
+}
+
+// A band's setting (0 hue, 1 saturation, 2 luminance) shared between a hue's two bands.
+fn cr_band(kind: u32, h: f32) -> f32 {
+  var i = 0u;
+  for (var k = 0u; k < 8u; k++) { if (h >= CR_CENTRES[k] && h < CR_CENTRES[k + 1u]) { i = k; } }
+  let t = clamp((h - CR_CENTRES[i]) / (CR_CENTRES[i + 1u] - CR_CENTRES[i]), 0.0, 1.0);
+  let base = CR_COLOUR + kind * 8u;
+  return table[base + i] * (1.0 - t) + table[base + (i + 1u) % 8u] * t;
+}
+
+fn cr_mix(e: vec3f) -> vec3f {
+  let c = clamp(e, vec3f(0.0), vec3f(1.0));
+  let hsv = cr_hsv(c);
+  var rgb = cr_from_hsv(vec3f(hsv.x + cr_band(0u, hsv.x), clamp(hsv.y * (1.0 + cr_band(1u, hsv.x)), 0.0, 1.0), hsv.z));
+  let dl = cr_band(2u, hsv.x);
+  if (dl != 0.0) {
+    let hi = max(rgb.r, max(rgb.g, rgb.b));
+    let lo = min(rgb.r, min(rgb.g, rgb.b));
+    let L = (hi + lo) / 2.0;
+    var S = 0.0;
+    if (hi != lo) { S = select((hi - lo) / (hi + lo), (hi - lo) / (2.0 - hi - lo), L > 0.5); }
+    let L2 = clamp(L + dl * S * 0.5, 0.0, 1.0);
+    let q = select(L2 + S - L2 * S, L2 * (1.0 + S), L2 < 0.5);
+    let p = 2.0 * L2 - q;
+    if (hi > lo) { rgb = vec3f(p) + (rgb - vec3f(lo)) * ((q - p) / (hi - lo)); } else { rgb = vec3f(L2); }
+  }
+  return rgb + (e - c);
+}
+
+// --- Color Grading (colour.ts's grade), in stops of linear ProPhoto ---
+
+const CR_OK_M1 = ${mat([[0.4122214708, 0.5363325363, 0.0514459929], [0.2119034982, 0.6806995451, 0.1073969566], [0.0883024619, 0.2817188376, 0.6299787005]])};
+
+fn cr_cbrt(v: f32) -> f32 { return sign(v) * pow(abs(v), 1.0 / 3.0); }
+
+// A measured mask (table k of the colour block's) at lightness L, linear between levels.
+fn cr_mask(k: u32, L: f32) -> f32 {
+  let levels = CR_COLOUR + 56u;
+  let m = levels + CR_LEVELS * (1u + k);
+  if (L <= table[levels]) { return table[m]; }
+  if (L >= table[levels + CR_LEVELS - 1u]) { return table[m + CR_LEVELS - 1u]; }
+  var lo = 0u;
+  var hi = CR_LEVELS - 1u;
+  loop {
+    if (hi - lo <= 1u) { break; }
+    let mid = (lo + hi) / 2u;
+    if (table[levels + mid] <= L) { lo = mid; } else { hi = mid; }
+  }
+  return table[m + lo] + (table[m + hi] - table[m + lo]) * (L - table[levels + lo]) / (table[levels + hi] - table[levels + lo]);
+}
+
+fn cr_grade(pp: vec3f) -> vec3f {
+  let lms = max(CR_OK_M1 * (CR_TO_SRGB * pp), vec3f(0.0));
+  let L = dot(vec3f(cr_cbrt(lms.x), cr_cbrt(lms.y), cr_cbrt(lms.z)), vec3f(0.2104542553, 0.793617785, -0.0040720468));
+  var gain = vec3f(0.0);
+  let b = params.grading_balance;
+  for (var w = 0u; w < 4u; w++) {
+    let base = CR_COLOUR + 24u + w * 8u;
+    let up = vec3f(table[base], table[base + 1u], table[base + 2u]);
+    let down = vec3f(table[base + 3u], table[base + 4u], table[base + 5u]);
+    let lum = table[base + 6u];
+    if (all(up == vec3f(0.0)) && all(down == vec3f(0.0)) && lum == 0.0) { continue; }
+    var at = L;
+    var weight = 1.0;
+    if (w == 0u) {
+      at = L * (1.0 + params.grading_narrow_shadows) + ${f(GRADING_SHAPE.shiftShadows)} * b;
+      weight = select(1.0 - ${f(GRADING_SHAPE.gainShadows)} * b, 1.0 - b, b > 0.0);
+    }
+    if (w == 1u) { at = 0.6 + (L - 0.6) * (1.0 + (params.grading_narrow_shadows + params.grading_narrow_highlights) / 2.0); }
+    if (w == 2u) {
+      at = 1.0 - (1.0 - L) * (1.0 + params.grading_narrow_highlights) + ${f(GRADING_SHAPE.shiftHighlights)} * b;
+      weight = select(1.0 + ${f(GRADING_SHAPE.gainHighlights)} * b, 1.0 + b, b < 0.0);
+    }
+    gain += up * (cr_mask(w * 4u, at) * weight) - down * (cr_mask(w * 4u + 1u, at) * weight);
+    if (lum != 0.0) { gain += vec3f(abs(lum) * cr_mask(w * 4u + select(3u, 2u, lum < 0.0), at) * weight); }
+  }
+  return pp * exp2(gain);
+}
+
+// --- Glow (develop.ts), from the glow grid ---
+
+fn cr_glow_at(p: vec2f) -> vec3f {
+  let w = u32(params.grid_w);
+  let h = u32(params.grid_h);
+  let at = u32(params.glow_at);
+  let gx = clamp(p.x / params.grid_spacing - 0.5, 0.0, f32(w - 1u));
+  let gy = clamp(p.y / params.grid_spacing - 0.5, 0.0, f32(h - 1u));
+  let x0 = u32(floor(gx));
+  let y0 = u32(floor(gy));
+  let x1 = min(x0 + 1u, w - 1u);
+  let y1 = min(y0 + 1u, h - 1u);
+  let fx = gx - f32(x0);
+  let fy = gy - f32(y0);
+  let i00 = at + (y0 * w + x0) * 3u;
+  let i10 = at + (y0 * w + x1) * 3u;
+  let i01 = at + (y1 * w + x0) * 3u;
+  let i11 = at + (y1 * w + x1) * 3u;
+  let a = vec3f(table[i00], table[i00 + 1u], table[i00 + 2u]);
+  let b = vec3f(table[i10], table[i10 + 1u], table[i10 + 2u]);
+  let c = vec3f(table[i01], table[i01 + 1u], table[i01 + 2u]);
+  let d = vec3f(table[i11], table[i11 + 1u], table[i11 + 2u]);
+  let top = a + (b - a) * fx;
+  let bottom = c + (d - c) * fx;
+  return top + (bottom - top) * fy;
+}
+
+fn cr_glow(out: vec3f, p: vec2f) -> vec3f {
+  let g = cr_glow_at(p);
+  let tint = vec3f(params.glow_r, params.glow_g, params.glow_b);
+  if (params.glow_style == 0.0) {
+    let k = params.glow * ${f(GLOW_STRENGTH.diffusion)} * sqrt(clamp(cr_lum(out), 0.0, 1.0));
+    return out + (g * tint - out) * k;
+  }
+  let k = params.glow * select(${f(GLOW_STRENGTH.halation)}, ${f(GLOW_STRENGTH.bloom)}, params.glow_style == 1.0);
+  return out + g * tint * k;
+}
+
 // One pixel: straight linear sRGB in and out, at document point p.
 fn develop(input: vec3f, p: vec2f) -> vec3f {
   var rgb = input;
@@ -342,7 +518,9 @@ fn develop(input: vec3f, p: vec2f) -> vec3f {
   if (params.white_balance == 1.0) { e = vec3f(cr_table(1u, e.r), cr_table(2u, e.g), cr_table(3u, e.b)); }
   if (params.tone == 1.0) { e = cr_keep_hue(e); }
   if (params.channels == 1.0) { e = vec3f(cr_table(4u, e.r), cr_table(5u, e.g), cr_table(6u, e.b)); }
+  if (params.mixer == 1.0) { e = cr_mix(e); }
   var l = cr_decode3(e);
+  if (params.grading == 1.0) { l = cr_grade(l); }
   if (params.vibrance != 1.0) {
     let hi = max(l.r, max(l.g, l.b));
     let lo = min(l.r, min(l.g, l.b));
@@ -358,6 +536,7 @@ fn develop(input: vec3f, p: vec2f) -> vec3f {
   }
   if (params.bw == 1.0) { l = vec3f(dot(l, vec3f(${GREY_WEIGHTS.map(f).join(", ")}))); }
   var out = clamp(CR_TO_SRGB * l, vec3f(0.0), vec3f(top));
+  if (params.glow > 0.0) { out = cr_glow(out, p); }
   if (params.vignette != 0.0 || params.grain > 0.0) {
     var v = cr_encode3(out);
     if (params.vignette != 0.0) { v = cr_vignette(v, cr_vignette_at(p)); }
@@ -383,7 +562,7 @@ fn effect(p: vec2f, c: vec4f) -> vec4f {
   if (!(c.a > 0.0)) { return c; }
   return vec4f(develop(c.rgb / c.a, p) * c.a, c.a);
 }`,
-  pack: (params, canvas) => ({ uniform: packFloats(fieldValues(params, canvas)), table: gpuTable(params), tableKey: tableKey(params) }),
+  pack: (params, canvas) => ({ uniform: packFloats(fieldValues(params, canvas)), table: gpuTable(params, canvas), tableKey: tableKey(params, canvas) }),
 };
 
 /** Camera Raw as an adjustment layer: what's below, developed. */
@@ -395,5 +574,5 @@ fn adjust(c: vec4f, doc: vec2f) -> vec4f {
   if (c.a <= 0.0) { return c; }
   return vec4f(develop(c.rgb / c.a, doc) * c.a, c.a);
 }`,
-  pack: (params, opacity, canvas) => ({ uniform: packFloats([opacity, 0, 0, 0, ...fieldValues(params, canvas)]), table: gpuTable(params) }),
+  pack: (params, opacity, canvas) => ({ uniform: packFloats([opacity, 0, 0, 0, ...fieldValues(params, canvas)]), table: gpuTable(params, canvas) }),
 };

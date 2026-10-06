@@ -580,7 +580,7 @@ export async function runPlan(steps: BenchStep[]) {
 
 /**
  * A Camera Raw's analysis in `doc` (photo-sheet.ts holds the GPU to the CPU reference with it): the one the renderer
- * draws with, built if it isn't there; its grid as a plain array.
+ * draws with, built if it isn't there; its grid and colours as plain arrays.
  */
 export async function cameraRawAnalysis(doc: PhotoProject, layerId: string, filterId: string | null) {
   const r = await renderer();
@@ -589,7 +589,7 @@ export async function cameraRawAnalysis(doc: PhotoProject, layerId: string, filt
     const params =
       node.kind === "adjustment" ? (node.layerId === layerId && filterId === null ? node.params : null) : node.layerId === layerId ? (node.filters.find((f) => f.id === filterId)?.params ?? null) : null;
     const analysis = params ? analysisOf(params) : null;
-    if (analysis) return { ...analysis, grid: Array.from(analysis.grid) };
+    if (analysis) return { ...analysis, grid: Array.from(analysis.grid), colour: Array.from(analysis.colour) };
   }
   return null;
 }

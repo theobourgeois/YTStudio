@@ -5,7 +5,7 @@
 import fixtures from "../../reference/camera-raw-fixtures.json" with { type: "json" };
 import type { CurvePoints, EffectParamValue } from "../../types.ts";
 import { defaultParams, identityCurveSet } from "../params.ts";
-import { CAMERA_RAW_PARAMS } from "./params.ts";
+import { CAMERA_RAW_PARAMS, MIXER_COLOURS } from "./params.ts";
 
 export interface FixtureRun {
   name: string;
@@ -38,11 +38,34 @@ const NAMES: Record<string, string> = {
   ParametricMidtoneSplit: "curveMidtoneSplit",
   ParametricHighlightSplit: "curveHighlightSplit",
   PostCropVignetteAmount: "vignette",
+  ColorGradeBlending: "gradingBlending",
+  SplitToningBalance: "gradingBalance",
+  SplitToningShadowHue: "shadowsHue",
+  SplitToningShadowSaturation: "shadowsSaturation",
+  SplitToningHighlightHue: "highlightsHue",
+  SplitToningHighlightSaturation: "highlightsSaturation",
+  ColorGradeShadowLum: "shadowsLuminance",
+  ColorGradeMidtoneHue: "midtonesHue",
+  ColorGradeMidtoneSat: "midtonesSaturation",
+  ColorGradeMidtoneLum: "midtonesLuminance",
+  ColorGradeHighlightLum: "highlightsLuminance",
+  ColorGradeGlobalHue: "globalHue",
+  ColorGradeGlobalSat: "globalSaturation",
+  ColorGradeGlobalLum: "globalLuminance",
+  ...Object.fromEntries(
+    MIXER_COLOURS.flatMap((c) => [
+      [`HueAdjustment${c}`, `hue${c}`],
+      [`SaturationAdjustment${c}`, `saturation${c}`],
+      [`LuminanceAdjustment${c}`, `luminance${c}`],
+    ]),
+  ),
 };
 
 /** Our parameters for a run's Camera Raw settings, or null when it uses something we don't have yet. */
 export function paramsOf(settings: Record<string, unknown>): Record<string, EffectParamValue> | null {
   const params = defaultParams(CAMERA_RAW_PARAMS);
+  // A run's grading without Blending is at the legacy Split Toning's (100): what the probe's XMP leaves out.
+  if (Object.keys(settings).some((k) => k.startsWith("SplitToning") || k.startsWith("ColorGrade"))) params.gradingBlending = 100;
   for (const [k, v] of Object.entries(settings)) {
     if (NAMES[k]) params[NAMES[k]] = v as number;
     else if (k === "ConvertToGrayscale") params.treatment = v ? "bw" : "color";

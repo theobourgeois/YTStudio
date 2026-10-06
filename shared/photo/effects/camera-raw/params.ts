@@ -12,8 +12,16 @@ export const CAMERA_RAW_SECTIONS = [
   { id: "color", label: "Color" },
   { id: "effects", label: "Effects" },
   { id: "curve", label: "Curve" },
+  { id: "mixer", label: "Color Mixer" },
+  { id: "grading", label: "Color Grading" },
 ] as const;
 export type CameraRawSection = (typeof CAMERA_RAW_SECTIONS)[number]["id"];
+
+/** The Color Mixer's colours, Camera Raw's eight. */
+export const MIXER_COLOURS = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"] as const;
+/** Color Grading's wheels. */
+export const GRADING_WHEELS = ["shadows", "midtones", "highlights", "global"] as const;
+export type GradingWheel = (typeof GRADING_WHEELS)[number];
 
 const slider = (group: CameraRawSection, key: string, label: string, description: string, min = -100, max = 100, def = 0): NumberParam => ({
   kind: "number",
@@ -93,6 +101,22 @@ export const CAMERA_RAW_PARAMS: readonly ParamSpec[] = [
     "highlight",
     "How the vignette darkens: Highlight Priority keeps highlights, Color Priority keeps hues, Paint Overlay mixes in black or white.",
   ),
+  slider("effects", "glow", "Glow", "Light spreading from the picture's bright parts (Camera Raw 18.6's Glow): soft haze, bloom or film's halation, by Style.", 0, 100, 0),
+  slider("effects", "glowRange", "Range", "Which tones glow: low only the brightest, high reaching into the midtones.", 0, 100, 50),
+  slider("effects", "glowSpread", "Spread", "How far the glow spreads (a fraction of the picture's size, so the same on any size).", 0, 100, 50),
+  slider("effects", "glowWarmth", "Warmth", "The glow's colour: negative cooler (blue), positive warmer (orange)."),
+  choice(
+    "effects",
+    "glowStyle",
+    "Style",
+    [
+      ["diffusion", "Diffusion"],
+      ["bloom", "Bloom"],
+      ["halation", "Halation"],
+    ],
+    "diffusion",
+    "Diffusion softens the bright parts from within (Orton); Bloom spreads light out from them; Halation is film's tight, red fringe round lights.",
+  ),
   slider("effects", "grain", "Grain", "Film grain's strength.", 0, 100, 0),
   slider("effects", "grainSize", "Size", "How big the grains are (a fraction of the picture's size, so the same on any size).", 0, 100, 25),
   slider("effects", "grainRoughness", "Roughness", "How irregular the grain is: 0 even, 100 clumped.", 0, 100, 50),
@@ -104,6 +128,18 @@ export const CAMERA_RAW_PARAMS: readonly ParamSpec[] = [
   slider("curve", "curveMidtoneSplit", "Midtone Split", "Where the darks end and the lights begin.", 10, 90, 50),
   slider("curve", "curveHighlightSplit", "Highlight Split", "Where the lights end and the highlights begin.", 10, 95, 75),
   POINT_CURVE,
+  ...MIXER_COLOURS.flatMap((c) => [
+    slider("mixer", `hue${c}`, c, `Turns ${c.toLowerCase()} colours' hue towards their neighbours'.`),
+    slider("mixer", `saturation${c}`, c, `More (or less) saturated ${c.toLowerCase()} colours: −100 greys them.`),
+    slider("mixer", `luminance${c}`, c, `Lighter (or darker) ${c.toLowerCase()} colours.`),
+  ]),
+  ...GRADING_WHEELS.flatMap((w) => [
+    slider("grading", `${w}Hue`, "Hue", `The ${w === "global" ? "whole picture's" : w} tint's hue in degrees (0 red, 120 green, 240 blue).`, 0, 359, 0),
+    slider("grading", `${w}Saturation`, "Saturation", `How strong the ${w === "global" ? "whole picture's" : w} tint is.`, 0, 100, 0),
+    slider("grading", `${w}Luminance`, "Luminance", `Lighter or darker ${w === "global" ? "everywhere" : w}.`),
+  ]),
+  slider("grading", "gradingBlending", "Blending", "How much the shadows', midtones' and highlights' tones overlap: low keeps each to its own.", 0, 100, 50),
+  slider("grading", "gradingBalance", "Balance", "Moves where shadows end and highlights begin: negative gives the shadows' tint more of the picture, positive the highlights'."),
 ];
 
 /** The parameters shown in a section, in order. */

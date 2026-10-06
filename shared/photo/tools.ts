@@ -45,6 +45,13 @@ export function describeEffects(kind: EffectKind): string {
     .join("\n");
 }
 
+/** Presets outside the Filter Gallery (Camera Raw's), for the model: `type presets: id (Label: description); …`. */
+const describeOwnPresets = (kind: EffectKind) =>
+  EFFECTS.filter((d) => !d.category && d.presets?.length && (d.kinds ?? [d.kind]).includes(kind))
+    .map((d) => `${d.type} presets: ${d.presets!.map((p) => `${p.id} (${p.label}: ${p.description})`).join("; ")}`)
+    .join("\n");
+const ownPresetIds = (kind: EffectKind) => EFFECTS.filter((d) => !d.category && (d.kinds ?? [d.kind]).includes(kind)).flatMap((d) => (d.presets ?? []).map((p) => p.id));
+
 /** Every adjustment and its parameters. */
 export const describeAdjustments = () => describeEffects("adjustment");
 
@@ -247,13 +254,14 @@ export const PHOTO_TOOLS = [
     name: "add_adjustment",
     title: "Add an adjustment layer",
     kind: "edit",
-    description: `Adds an adjustment layer (Photoshop's): it changes everything below it, and nothing is lost (hide it, fade it with set_layer's opacity, or change it with set_effect_params). It goes above \`above\` (a layer), or on top. The adjustments:\n${describeAdjustments()}`,
+    description: `Adds an adjustment layer (Photoshop's): it changes everything below it, and nothing is lost (hide it, fade it with set_layer's opacity, or change it with set_effect_params). It goes above \`above\` (a layer), or on top. A preset is a named look; params given are set on top of it. The adjustments:\n${describeAdjustments()}\n${describeOwnPresets("adjustment")}`,
     inputSchema: obj(
       {
         type: oneOf(
           ADJUSTMENTS.map((d) => d.type),
           "Which adjustment.",
         ),
+        preset: oneOf(ownPresetIds("adjustment"), "A named look of that adjustment (default: its plain defaults)."),
         params: adjustmentParams,
         above: str("The layer to put it right above (id or name); default: the top."),
         name: str("Its name (default: the adjustment's)."),
@@ -273,7 +281,7 @@ export const PHOTO_TOOLS = [
     name: "add_filter",
     title: "Add a filter",
     kind: "edit",
-    description: `Adds a filter (Photoshop's Smart Filter) to an image, pixel or generator layer: it works on that layer's own pixels, in linear light, before its mask, after its other filters, and is kept editable (set_filter, remove_filter). A preset is a named look (the Filter Gallery's), its sizes scaled to the canvas; params given are set on top of it. The filters:\n${describeEffects("filter")}\n${describePresets("filter")}`,
+    description: `Adds a filter (Photoshop's Smart Filter) to an image, pixel or generator layer: it works on that layer's own pixels, in linear light, before its mask, after its other filters, and is kept editable (set_filter, remove_filter). A preset is a named look (the Filter Gallery's), its sizes scaled to the canvas; params given are set on top of it. The filters:\n${describeEffects("filter")}\n${describePresets("filter")}\n${describeOwnPresets("filter")}`,
     inputSchema: obj(
       {
         layer,
@@ -282,7 +290,7 @@ export const PHOTO_TOOLS = [
           "Which filter.",
         ),
         preset: oneOf(
-          [...new Set(FILTER_ENTRIES.filter((e) => e.def.kind === "filter").map((e) => e.preset.id))],
+          [...new Set([...FILTER_ENTRIES.filter((e) => e.def.kind === "filter").map((e) => e.preset.id), ...ownPresetIds("filter")])],
           "A named look of that filter (default: its plain defaults).",
         ),
         params: { type: "object", description: "Parameters other than the defaults (or the preset's): see above.", additionalProperties: true },

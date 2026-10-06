@@ -46,6 +46,8 @@ export interface CameraRawAnalysis {
   meanTone: number;
   /** Dehaze's airlight, straight linear sRGB. */
   airlight: [number, number, number];
+  /** Each cell's colour, premultiplied linear sRGB (3 a cell): what Glow spreads (`glowGrid`). */
+  colour: Float32Array;
 }
 
 /** The grid's spacing for a canvas: the smallest power of two putting its long side within `ANALYSIS_SIDE` cells. */
@@ -219,6 +221,7 @@ export function analyse(image: CoarseImage, canvas: { width: number; height: num
     high: percentile(base, w, 0.98),
     meanTone: weightSum > 0 ? toneSum / weightSum : 0,
     airlight,
+    colour: Float32Array.from({ length: n * 3 }, (_, k) => rgb[k] * w[Math.floor(k / 3)]),
   };
 }
 
@@ -240,4 +243,74 @@ export function gridAt(an: CameraRawAnalysis, x: number, y: number): number[] {
     out.push(top + (bottom - top) * fy);
   }
   return out;
+}
+
+/** Glow's looks: what spreads, how far (σ as a fraction of the picture's long side at Spread 0; ×20 at 100). */
+const GLOW = {
+  diffusion: { spread: 0.005, threshold: false },
+  bloom: { spread: 0.006, threshold: true },
+  halation: { spread: 0.003, threshold: true },
+} as const;
+export type GlowStyle = keyof typeof GLOW;
+
+const glows = new WeakMap<CameraRawAnalysis, Map<string, Float32Array>>();
+
+/**
+ * Glow's light on the grid (3 a cell, premultiplied linear sRGB), for a style, Range and Spread: the picture's bright
+ * parts (all of it, for Diffusion), blurred (three box passes: a Gaussian) by a fraction of its size. Worked out
+ * once for these three settings and kept with the analysis; Glow's amount and Warmth are the pixel's.
+ */
+export function glowGrid(an: CameraRawAnalysis, style: GlowStyle, range: number, spread: number, canvas: { width: number; height: number }): Float32Array {
+  const key = `${style}|${range}|${spread}`;
+  let kept = glows.get(an);
+  if (!kept) glows.set(an, (kept = new Map()));
+  const found = kept.get(key);
+  if (found) return found;
+  const { width, height } = an;
+  const n = width * height;
+  const look = GLOW[style];
+  // Range: which tones (linear luminance) start to glow: high Range reaches the midtones.
+  const threshold = 0.9 - 0.6 * (range / 100);
+  const channels = [0, 1, 2].map((c) => {
+    const v = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const r = an.colour[i * 3];
+      const g = an.colour[i * 3 + 1];
+      const b = an.colour[i * 3 + 2];
+      const Y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const t = Math.max(0, Math.min(1, (Y - threshold * 0.6) / (threshold * 0.4)));
+      v[i] = an.colour[i * 3 + c] * (look.threshold ? t * t * (3 - 2 * t) : 1);
+    }
+    return v;
+  });
+  const sigma = (look.spread * 20 ** (spread / 100) * Math.max(canvas.width, canvas.height)) / an.spacing;
+  // Three box passes of radius r have the variance of a Gaussian of this σ.
+  const r = Math.max(1, Math.round((Math.sqrt(4 * sigma * sigma + 1) - 1) / 2));
+  const ones = new Float64Array(n).fill(1);
+  const out = new Float32Array(n * 3);
+  channels.forEach((v, c) => {
+    let blurred: Float64Array = v;
+    for (let pass = 0; pass < 3; pass++) blurred = boxMean(blurred, ones, width, height, r);
+    for (let i = 0; i < n; i++) out[i * 3 + c] = blurred[i];
+  });
+  kept.set(key, out);
+  return out;
+}
+
+/** The glow grid at a document point: bilinear between cell centres, as `gridAt`. */
+export function glowAt(an: CameraRawAnalysis, grid: Float32Array, x: number, y: number): [number, number, number] {
+  const gx = Math.max(0, Math.min(an.width - 1, x / an.spacing - 0.5));
+  const gy = Math.max(0, Math.min(an.height - 1, y / an.spacing - 0.5));
+  const x0 = Math.floor(gx);
+  const y0 = Math.floor(gy);
+  const x1 = Math.min(x0 + 1, an.width - 1);
+  const y1 = Math.min(y0 + 1, an.height - 1);
+  const fx = gx - x0;
+  const fy = gy - y0;
+  const at = (cx: number, cy: number, k: number) => grid[(cy * an.width + cx) * 3 + k];
+  return [0, 1, 2].map((k) => {
+    const top = at(x0, y0, k) + (at(x1, y0, k) - at(x0, y0, k)) * fx;
+    const bottom = at(x0, y1, k) + (at(x1, y1, k) - at(x0, y1, k)) * fx;
+    return top + (bottom - top) * fy;
+  }) as [number, number, number];
 }
