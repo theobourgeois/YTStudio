@@ -11,7 +11,7 @@ import { createId } from "@shared/ids";
 import { addElement, moveElement, removeElement, setEffectParams, setElement, setFilter, setGeneratorBlend } from "@shared/photo/edits";
 import { FLARE_PRESETS, flarePreset } from "@shared/photo/effects/flare";
 import { effectDefinition, unavailableReason } from "@shared/photo/effects/index";
-import { type ElementsParam, defaultParams } from "@shared/photo/effects/params";
+import { type ElementsParam, defaultParams, specShows } from "@shared/photo/effects/params";
 import type { ContentLayer, EffectElement, GeneratorLayer } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -60,9 +60,11 @@ export function FilterProperties({ layer, filterId }: { layer: ContentLayer; fil
         </p>
       ) : (
         <div className={cn("flex flex-col gap-3", !filter.enabled && "opacity-60")} data-filter-properties={filter.type}>
-          {def.params.map((spec) => (
-            <ParamField key={spec.key} spec={spec} value={filter.params[spec.key]} edit={(v) => (d) => setFilter(d, layer.id, filter.id, { params: { [spec.key]: v } })} />
-          ))}
+          {def.params
+            .filter((spec) => specShows(spec, filter.params))
+            .map((spec) => (
+              <ParamField key={spec.key} spec={spec} value={filter.params[spec.key]} edit={(v) => (d) => setFilter(d, layer.id, filter.id, { params: { [spec.key]: v } })} />
+            ))}
         </div>
       )}
       <div className="flex gap-1.5">

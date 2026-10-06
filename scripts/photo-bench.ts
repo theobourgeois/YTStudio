@@ -30,7 +30,7 @@ type PlanStep =
 type LabWindow = { photoLab?: { ready: Promise<void>; bench: { runPlan(steps: PlanStep[]): Promise<unknown> } } };
 
 /** A step of the suite's `runPlan` (src/suites/photo/bench.ts `BenchStep`). */
-type SuiteStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk" | "paintMask" | "glow" | "flare"; label?: string; budgetMB?: number };
+type SuiteStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk" | "paintMask" | "glow" | "glowSweep" | "glowSweepGallery" | "flare"; label?: string; budgetMB?: number };
 
 /** What the app puts on `window` in development (src/suites/photo/live.ts). */
 type SuiteWindow = { photoBench?: { load(): Promise<{ runPlan(steps: SuiteStep[]): Promise<unknown> }> } };
@@ -226,6 +226,8 @@ async function suitePlan(): Promise<SuiteStep[]> {
     { run: "adjustCurves" },
     { run: "paintMask" },
     { run: "glow" },
+    { run: "glowSweep" },
+    { run: "glowSweepGallery" },
     { run: "flare" },
     { run: "exportPng", label: "exportPng 48MP" },
     { run: "deviceLoss" },

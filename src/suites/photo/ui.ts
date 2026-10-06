@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { View } from "@shared/photo/geometry";
+import type { EffectParamValue } from "@shared/photo/types";
 import type { Box, Guide } from "./canvas/snap";
 import type { PaintTarget } from "./paint-target";
 import { usePhoto } from "./store";
@@ -56,8 +57,14 @@ interface PhotoUi {
   /** Null until the canvas has a size (then it fits). */
   view: View | null;
   exportOpen: boolean;
-  /** The Filter Gallery window (every filter's looks, previewed on the photo). */
+  /** The Filter Gallery window (every filter's looks; the one picked previewed on the photo). */
   filterGalleryOpen: boolean;
+  /**
+   * The look the Filter Gallery shows on the canvas before it's applied (on the active layer, or a generator's new
+   * layer above it), with the settings it would be applied with: the renderer shows it, the document doesn't have
+   * it (no undo step, nothing saved) until Apply.
+   */
+  filterPreview: { key: string; params: Record<string, EffectParamValue> } | null;
   /**
    * The filter added last (Photoshop's Filter › Last Filter, ⌃⌘F, adds it again): its type and the filter it made,
    * whose settings are what's added again (it may have been changed since; its first ones if it's gone).
@@ -86,7 +93,9 @@ interface PhotoUi {
   pickGroup: (group: ToolGroup, cycle: boolean) => void;
   setView: (view: View) => void;
   setExportOpen: (open: boolean) => void;
+  /** Opens or closes the Filter Gallery (closing drops its preview). */
   setFilterGalleryOpen: (open: boolean) => void;
+  setFilterPreview: (preview: PhotoUi["filterPreview"]) => void;
   setLastFilter: (last: PhotoUi["lastFilter"]) => void;
   setLayerStyle: (open: { layerId: string; page: string } | null) => void;
   setScaleEffects: (layerIds: string[] | null) => void;
@@ -109,6 +118,7 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   view: null,
   exportOpen: false,
   filterGalleryOpen: false,
+  filterPreview: null,
   lastFilter: null,
   layerStyle: null,
   scaleEffects: null,
@@ -141,7 +151,8 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   setSelectionDraft: (selectionDraft) => set({ selectionDraft }),
   setView: (view) => set({ view }),
   setExportOpen: (exportOpen) => set({ exportOpen }),
-  setFilterGalleryOpen: (filterGalleryOpen) => set({ filterGalleryOpen }),
+  setFilterGalleryOpen: (filterGalleryOpen) => set(filterGalleryOpen ? { filterGalleryOpen } : { filterGalleryOpen, filterPreview: null }),
+  setFilterPreview: (filterPreview) => set({ filterPreview }),
   setLastFilter: (lastFilter) => set({ lastFilter }),
   setLayerStyle: (layerStyle) => set({ layerStyle }),
   setScaleEffects: (scaleEffects) => set({ scaleEffects }),
@@ -160,7 +171,7 @@ export const useActiveTool = () => usePhotoUi((s) => (s.spaceHand ? "hand" : s.t
 // Another photo: a fresh view, nothing selected, its windows closed.
 usePhoto.subscribe((state, prev) => {
   if (state.projectId !== prev.projectId)
-    usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, selectedFilterId: null, selectedElementId: null, guides: [], marquee: null, selectionDraft: null, view: null, exportOpen: false, filterGalleryOpen: false, lastFilter: null, layerStyle: null, scaleEffects: null, spaceHand: false, target: "content", paintChoice: null });
+    usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, selectedFilterId: null, selectedElementId: null, guides: [], marquee: null, selectionDraft: null, view: null, exportOpen: false, filterGalleryOpen: false, filterPreview: null, lastFilter: null, layerStyle: null, scaleEffects: null, spaceHand: false, target: "content", paintChoice: null });
   // Selected layers that are gone (undone, deleted) are no longer selected.
   const { selectedLayerIds, selectedLayerId } = usePhotoUi.getState();
   if (!state.history || selectedLayerIds.length === 0 || state.history.doc.doc.layers === prev.history?.doc.doc.layers) return;

@@ -11,6 +11,7 @@ import { create } from "zustand";
 import { PhotoRenderer, type RefineState, type SourceState } from "./render/renderer";
 import { usePhoto } from "./store";
 import { commitSurface } from "./paint-target";
+import { shownDoc } from "./filter-preview";
 import { usePhotoUi } from "./ui";
 
 let open: { projectId: string; renderer: Promise<PhotoRenderer> } | null = null;
@@ -36,11 +37,17 @@ export function liveRenderer(): Promise<PhotoRenderer> | null {
       r.onRefineState = (refine) => {
         if (open?.renderer === renderer) useRenderState.setState({ refine });
       };
-      r.setDocument(projectId, history.doc.doc, assets);
+      r.setDocument(projectId, shown(history.doc.doc), assets);
     }, () => {});
   }
   return open.renderer;
 }
+
+/** What the canvas shows of `doc`: with the Filter Gallery's look while one is picked. */
+const shown = (doc: PhotoProject) => {
+  const { filterPreview, selectedLayerId } = usePhotoUi.getState();
+  return shownDoc(doc, filterPreview, selectedLayerId);
+};
 
 export function closeRenderer() {
   const closing = open;
@@ -59,7 +66,15 @@ usePhoto.subscribe((state, prev) => {
   if (!open || !state.projectId || !state.history) return;
   if (state.history.doc.doc === prev.history?.doc.doc && state.assets === prev.assets) return;
   const { projectId, history, assets } = state;
-  void open.renderer.then((r) => r.setDocument(projectId, history.doc.doc, assets), () => {});
+  void open.renderer.then((r) => r.setDocument(projectId, shown(history.doc.doc), assets), () => {});
+});
+
+// The gallery's look follows what's picked, its settings and the active layer it goes on.
+usePhotoUi.subscribe((state, prev) => {
+  if (state.filterPreview === prev.filterPreview && (state.selectedLayerId === prev.selectedLayerId || (!state.filterPreview && !prev.filterPreview))) return;
+  const { projectId, history, assets } = usePhoto.getState();
+  if (!open || !projectId || !history) return;
+  void open.renderer.then((r) => r.setDocument(projectId, shown(history.doc.doc), assets), () => {});
 });
 
 /**

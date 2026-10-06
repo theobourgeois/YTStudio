@@ -378,6 +378,87 @@ export async function glow(frames = 30) {
   return result;
 }
 
+/**
+ * A glow's radius dragged fast across its whole range (60 → 4000 px and back) the way a hand does, stopping a
+ * moment now and then (long enough for a refinement, a cache build and the Layers thumbnails to start), at fit.
+ * Measures the longest the page went without a frame, and how long it took to settle after the drag: neither may
+ * grow with how far it was dragged. Undone after.
+ */
+export async function glowSweep(gallery = false, steps = 120, pauseEvery = 15, pauseMs = 600) {
+  const r = await renderer();
+  usePhotoUi.getState().setFilterGalleryOpen(gallery);
+  const doc = usePhoto.getState().history!.doc.doc;
+  usePhotoUi.getState().setView(fitView(doc.canvas, usePhotoUi.getState().view!.width, usePhotoUi.getState().view!.height));
+  const layerId = doc.layers.find((l) => l.kind !== "adjustment")!.id;
+  usePhoto.getState().commit((d) => addFilter(d, layerId, { id: "bench_sweep", type: "glow", params: { radius: 60 } }));
+  usePhotoUi.getState().selectFilter(layerId, "bench_sweep");
+  await until(() => r.glows.complete(r.planFor(usePhoto.getState().history!.doc.doc)), 60_000);
+  await gpuIdle();
+  const builds = { ...r.glows.stats };
+  // The longest gap between frames while it's dragged and while it settles.
+  let last = performance.now();
+  let worst = 0;
+  let watching = true;
+  const watch = () => {
+    const now = performance.now();
+    worst = Math.max(worst, now - last);
+    last = now;
+    if (watching) requestAnimationFrame(watch);
+  };
+  requestAnimationFrame(watch);
+  const gesture = photoGesture();
+  gesture.begin();
+  const started = performance.now();
+  for (let i = 1; i <= steps; i++) {
+    // Up to 4000 and back to 1000.
+    const t = i <= steps / 2 ? i / (steps / 2) : 1 - (0.75 * (i - steps / 2)) / (steps / 2);
+    gesture.apply((d) => setFilter(d, layerId, "bench_sweep", { params: { radius: Math.round(60 + (4000 - 60) * t) } }));
+    await nextFrame();
+    if (i % pauseEvery === 0) await sleep(pauseMs);
+  }
+  gesture.end();
+  const dragMs = performance.now() - started;
+  const dragWorst = worst;
+  // Settled: the last value's cache built and the screen showing its final picture.
+  const ended = performance.now();
+  await until(() => r.glows.complete(r.planFor(usePhoto.getState().history!.doc.doc)) && (r.refineState === "none" || r.refineState === "refined"), 120_000);
+  await gpuIdle();
+  const settleMs = performance.now() - ended;
+  // Busy: until no cache is being built (by anyone: thumbnails, the gallery's cards) and the GPU is idle.
+  await until(() => r.glows.building === 0, 120_000);
+  await sleep(1000);
+  await until(() => r.glows.building === 0, 120_000);
+  await gpuIdle();
+  const busyMs = performance.now() - ended - 1000;
+  watching = false;
+  const result = {
+    dragMs: round(dragMs),
+    worstFrameGapDuringDragMs: round(dragWorst),
+    worstFrameGapMs: round(worst),
+    settleMs: round(settleMs),
+    busyAfterMs: round(busyMs),
+    // What's kept on the GPU after it: scratch textures free for reuse, and the glows' caches.
+    gpuKeptMB: (() => {
+      const own = r as unknown as { compositor: { isolation: { pool: { free: Map<string, GPUTexture[]> } } }; glows: { caches: Map<string, { bytes: number }> } };
+      let pool = 0;
+      for (const list of own.compositor.isolation.pool.free.values()) for (const t of list) pool += t.width * t.height * (t.format === "rgba32float" ? 16 : 8);
+      let caches = 0;
+      for (const c of own.glows.caches.values()) caches += c.bytes;
+      return { pool: round(pool / 1024 ** 2), caches: round(caches / 1024 ** 2), cacheCount: own.glows.caches.size };
+    })(),
+    cacheBuilds: { started: r.glows.stats.started - builds.started, built: r.glows.stats.built - builds.built, abandoned: r.glows.stats.abandoned - builds.abandoned },
+    gpuErrors: r.gpu.errors.slice(-3),
+  };
+  usePhotoUi.getState().setFilterGalleryOpen(false);
+  usePhoto.getState().undo();
+  usePhoto.getState().undo();
+  await nextFrame();
+  return result;
+}
+
+/** The same with the Filter Gallery open (its cards drawn as they are while the photo changes). */
+export const glowSweepGallery = () => glowSweep(true);
+
 /** A Lens Flare added at fit, then its source handle dragged across the photo, a frame an edit: frame times. */
 export async function flare(frames = 60) {
   const d = driver();
@@ -453,6 +534,14 @@ export async function sheetSetup(projectId: string, mediaId: string) {
   return usePhoto.getState().history!.doc.doc;
 }
 
+/** `doc` as the open photo's document, every image it shows loaded. */
+export async function showDoc(doc: PhotoProject) {
+  const r = await renderer();
+  usePhoto.getState().commit(() => doc);
+  await sleep(50);
+  await r.ready();
+}
+
 /** Any document (the open one's layers) rendered at `view` as RGBA floats, refined below 100% when it needs to be. */
 export async function renderDoc(doc: PhotoProject, view: View) {
   const r = await renderer();
@@ -468,9 +557,9 @@ export async function compileErrors() {
   return Compositor.compileErrors(r.device);
 }
 
-export type BenchStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk" | "paintMask" | "glow" | "flare"; label?: string; budgetMB?: number };
+export type BenchStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk" | "paintMask" | "glow" | "glowSweep" | "glowSweepGallery" | "flare"; label?: string; budgetMB?: number };
 
-const TASKS = { reopen, panZoom, adjustExposure, adjustCurves, exportPng, deviceLoss, budgetWalk, paintMask, glow, flare } as const;
+const TASKS = { reopen, panZoom, adjustExposure, adjustCurves, exportPng, deviceLoss, budgetWalk, paintMask, glow, glowSweep, glowSweepGallery, flare } as const;
 
 /** Runs steps in order, collecting each result (an error is recorded and the plan goes on). */
 export async function runPlan(steps: BenchStep[]) {
