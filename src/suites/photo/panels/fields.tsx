@@ -66,9 +66,19 @@ export function NumberField({
 
 const shown = (v: number, decimals: number) => Number(v.toFixed(decimals));
 
-/** A number parameter: its label, a slider over its range (one undo step a drag), and its value typed. */
-export function ParamSlider({ spec, value, edit }: { spec: NumberParam; value: number; edit: (value: number) => (doc: PhotoProject) => PhotoProject }) {
+/**
+ * Where a parameter's new values go: the document, each change (or drag, `begin` … `end`) one undo step; or, with
+ * `change`, the caller's own state (the Filter Gallery's settings before Apply), the document untouched.
+ */
+export function useParamSink<T>(edit: ((value: T) => (doc: PhotoProject) => PhotoProject) | undefined, change: ((value: T) => void) | undefined) {
   const [gesture] = useState(() => photoGesture());
+  if (change) return { begin: () => {}, apply: change, end: () => {} };
+  return { begin: () => gesture.begin(), apply: (v: T) => gesture.apply(edit!(v)), end: () => gesture.end() };
+}
+
+/** A number parameter: its label, a slider over its range (one undo step a drag), and its value typed. */
+export function ParamSlider({ spec, value, edit, change }: { spec: NumberParam; value: number; edit?: (value: number) => (doc: PhotoProject) => PhotoProject; change?: (value: number) => void }) {
+  const gesture = useParamSink(edit, change);
   return (
     <div className="flex flex-col gap-1" data-param={spec.key}>
       <div className="flex items-center gap-2">
@@ -79,7 +89,7 @@ export function ParamSlider({ spec, value, edit }: { spec: NumberParam; value: n
           <TooltipContent className="max-w-64">{spec.description}</TooltipContent>
         </Tooltip>
         <span className="w-24">
-          <NumberField label={spec.label} hideLabel value={shown(value, spec.decimals)} suffix={spec.unit || undefined} onCommit={(v) => gesture.apply(edit(v))} />
+          <NumberField label={spec.label} hideLabel value={shown(value, spec.decimals)} suffix={spec.unit || undefined} onCommit={(v) => gesture.apply(v)} />
         </span>
       </div>
       <Slider
@@ -89,7 +99,7 @@ export function ParamSlider({ spec, value, edit }: { spec: NumberParam; value: n
         step={spec.step}
         value={[value]}
         onPointerDown={() => gesture.begin()}
-        onValueChange={([v]) => gesture.apply(edit(v))}
+        onValueChange={([v]) => gesture.apply(v)}
         onValueCommit={() => gesture.end()}
       />
     </div>
