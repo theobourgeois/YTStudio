@@ -65,8 +65,11 @@ define_pattern makes a pattern from what a layer shows in the selection, set_pat
 deletes; set_canvas resizes the canvas or changes its background (thumbnails are often 1280×720, stories \
 1080×1920). add_adjustment adds an Exposure or Curves layer (above a given layer, so it only changes what's under \
 it) and set_effect_params changes one: Exposure is in stops of light; Curves' points are [input, output] on 0..255 \
-as in Photoshop (a gentle S, [[0, 0], [64, 52], [192, 205], [255, 255]], adds contrast). select_rect selects a \
-rectangle (or all, or none); add_mask gives a layer a mask, from the selection (it shows only there) or empty, or \
+as in Photoshop (a gentle S, [[0, 0], [64, 52], [192, 205], [255, 255]], adds contrast). Selections: select_rect \
+selects a rectangle or an ellipse (or all, or none), select_polygon an outline (the lasso), select_magic_wand similar \
+colours, select_quick grows from strokes to an object's edges (Quick Selection), select_subject finds the main subject \
+with a model; each can add to, subtract from or intersect the selection there (mode), and modify_selection inverts or \
+feathers it. Check one with view_photo's show_selection. add_mask gives a layer a mask, from the selection (it shows only there) or empty, or \
 removes one; add_pixel_layer adds an empty layer for the user to paint on (you can't paint strokes); \
 layer_via_copy copies (or cuts) what the selection covers of a layer into a new layer; fill_selection fills it with \
 a colour or clears it. merge_layers merges layers into one image. export_photo writes a PNG (8 or 16 bits) or JPEG.

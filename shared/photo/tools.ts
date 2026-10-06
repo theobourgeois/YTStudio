@@ -14,6 +14,8 @@ import { BUILT_IN_STYLES } from "./style/presets.ts";
 
 const layer = str('A layer: its id (from get_photo) or its name ("Sky").');
 
+const SELECTION_MODE = oneOf(["new", "add", "subtract", "intersect"], "How it meets the selection there: new replaces it (the default), add, subtract, intersect.");
+
 /** A parameter for the model: its range, unit and default, and what it does. */
 function paramLine(p: ParamSpec | ElementParamSpec, indent: string): string {
   switch (p.kind) {
@@ -89,8 +91,11 @@ export const PHOTO_TOOLS = [
     title: "Look at the photo",
     kind: "look",
     description:
-      "A picture of the photo as it would export (every visible layer on the canvas), as a JPEG. Look before and after you change how it looks. Transparent parts show over a checkerboard.",
-    inputSchema: obj({ width: int("Width of the picture in pixels, 64 to 1600 (default 768). Its height follows the canvas.") }),
+      "A picture of the photo as it would export (every visible layer on the canvas), as a JPEG. Look before and after you change how it looks. Transparent parts show over a checkerboard. show_selection: true tints what isn't selected red (Photoshop's Quick Mask), to check a selection.",
+    inputSchema: obj({
+      width: int("Width of the picture in pixels, 64 to 1600 (default 768). Its height follows the canvas."),
+      show_selection: bool("Tint what isn't selected red, half strength (the open photo's selection)."),
+    }),
   }),
   tool({
     name: "add_image_layer",
@@ -191,7 +196,7 @@ export const PHOTO_TOOLS = [
     name: "define_pattern",
     title: "Define a pattern",
     kind: "action",
-    description: `Photoshop's Define Pattern: what a layer shows inside the selection (select_rect first; all of the layer without one) becomes a pattern of the photo's, up to ${MAX_PATTERN_SIDE} × ${MAX_PATTERN_SIDE} px, for Pattern Overlay, a pattern stroke or Bevel's texture (set_layer_style). The same pixels twice are one pattern. Needs the photo open in the editor.`,
+    description: `Photoshop's Define Pattern: what a layer shows inside the selection (make a selection first: select_rect, select_subject…; all of the layer without one) becomes a pattern of the photo's, up to ${MAX_PATTERN_SIDE} × ${MAX_PATTERN_SIDE} px, for Pattern Overlay, a pattern stroke or Bevel's texture (set_layer_style). The same pixels twice are one pattern. Needs the photo open in the editor.`,
     inputSchema: obj({ layer, name: str("Its name (default Pattern 1, Pattern 2…).") }, ["layer"]),
   }),
   tool({
@@ -348,25 +353,96 @@ export const PHOTO_TOOLS = [
   }),
   tool({
     name: "select_rect",
-    title: "Select a rectangle",
+    title: "Select a rectangle or an ellipse",
     kind: "edit",
     description:
-      "Selects a rectangle of the canvas (Photoshop's Rectangular Marquee), in canvas pixels from the top-left corner; it's clipped to the canvas. all: true selects the whole canvas, none: true deselects. The selection limits what the user's brush paints, and add_mask can make a layer's mask from it. It belongs to the photo open in the editor (undoable, not saved).",
+      "Selects a rectangle of the canvas (Photoshop's Rectangular Marquee), or the ellipse inside it (shape: ellipse, the Elliptical Marquee), in canvas pixels from the top-left corner; it's clipped to the canvas. all: true selects the whole canvas, none: true deselects. mode says how it meets the selection there: new (the default) replaces it, add, subtract, intersect. feather softens its edge by that many pixels. The selection limits what the user's brush paints, and add_mask can make a layer's mask from it. It belongs to the photo open in the editor (undoable, not saved).",
     inputSchema: obj({
       x: num("Left edge, canvas pixels."),
       y: num("Top edge, canvas pixels."),
       width: num("Width, pixels."),
       height: num("Height, pixels."),
+      shape: oneOf(["rect", "ellipse"], "A rectangle (the default) or the ellipse inside it."),
+      mode: SELECTION_MODE,
+      feather: num("Feather radius in pixels (default 0: a sharp edge)."),
       all: bool("Select the whole canvas."),
       none: bool("Deselect."),
     }),
+  }),
+  tool({
+    name: "select_polygon",
+    title: "Select a shape (lasso)",
+    kind: "edit",
+    description:
+      "Selects the inside of an outline (Photoshop's Lasso and Polygonal Lasso): points are its corners in canvas pixels, at least three, joined in order and closed back to the first. Use many points to follow a curved edge. mode: new (default), add, subtract or intersect with the selection there; feather softens the edge; anti_alias (default true) smooths it. Look with view_photo first to place it.",
+    inputSchema: obj(
+      {
+        points: arr(arr(num("A coordinate."), "[x, y]", { minItems: 2, maxItems: 2 }), "The outline's corners, [[x, y], …], canvas pixels.", { minItems: 3 }),
+        mode: SELECTION_MODE,
+        feather: num("Feather radius in pixels (default 0)."),
+        anti_alias: bool("Smooth the edge (default true)."),
+      },
+      ["points"],
+    ),
+  }),
+  tool({
+    name: "select_magic_wand",
+    title: "Select similar colours (magic wand)",
+    kind: "edit",
+    description:
+      "Photoshop's Magic Wand: a click at (x, y) selects the pixels whose colour is within tolerance (0..255, default 32: each of red, green, blue and alpha may differ by that much) of the colour there. contiguous (default true) keeps only what's joined to the point; false selects that colour everywhere. sample_all_layers (default true) reads the photo as it shows; false reads the selected layer alone. sample_size averages the colour over a square (1, 3, 5, 11, 31, 51 or 101 px; default 1). anti_alias (default true) smooths the edge. mode: new (default), add, subtract, intersect. Good for flat backgrounds and skies; for an object, select_subject or select_quick follow its edges better.",
+    inputSchema: obj(
+      {
+        x: num("Canvas pixels from the left."),
+        y: num("Canvas pixels from the top."),
+        tolerance: int("0..255 (default 32).", { minimum: 0, maximum: 255 }),
+        contiguous: bool("Only what's joined to the point (default true)."),
+        sample_all_layers: bool("Read the photo as it shows (default true), else the selected layer."),
+        sample_size: int("The square averaged at the point, px: 1, 3, 5, 11, 31, 51 or 101 (default 1)."),
+        anti_alias: bool("Smooth the edge (default true)."),
+        mode: SELECTION_MODE,
+      },
+      ["x", "y"],
+    ),
+  }),
+  tool({
+    name: "select_quick",
+    title: "Quick Selection",
+    kind: "edit",
+    description:
+      "Photoshop's Quick Selection: strokes painted over part of something (each a list of [x, y] canvas points; one point is a dab) and the selection grows out to that thing's edges, as the user's brush does. size is the brush's diameter in pixels (default 30): a smaller brush near edges, bigger inside. mode: add (the default when there's a selection), subtract (shrinks it to edges instead), or new. sample_all_layers (default true). Paint well inside what you mean, away from its edges, and check with view_photo; more strokes add more.",
+    inputSchema: obj(
+      {
+        strokes: arr(arr(arr(num("A coordinate."), "[x, y]", { minItems: 2, maxItems: 2 }), "One stroke's points.", { minItems: 1 }), "The strokes, [[[x, y], …], …], canvas pixels.", { minItems: 1 }),
+        size: num("The brush's diameter in pixels (default 30)."),
+        mode: oneOf(["new", "add", "subtract"], "new, add (default with a selection) or subtract."),
+        sample_all_layers: bool("Read the photo as it shows (default true), else the selected layer."),
+      },
+      ["strokes"],
+    ),
+  }),
+  tool({
+    name: "select_subject",
+    title: "Select the subject",
+    kind: "edit",
+    description:
+      "Photoshop's Select Subject: a segmentation model running on the user's computer finds the photo's main subject (a person, an animal, a product…) and selects it, soft at its edges. mode: new (default), add, subtract, intersect (e.g. intersect with a rectangle to keep one of several subjects). It needs its model downloaded once by the user (Select › Subject in the editor); if it isn't, the error says so. Then refine with select_quick, or modify_selection.",
+    inputSchema: obj({ mode: SELECTION_MODE }),
+  }),
+  tool({
+    name: "modify_selection",
+    title: "Invert or feather the selection",
+    kind: "edit",
+    description:
+      "Changes the selection there: invert (Select › Inverse: what wasn't selected becomes selected, e.g. the background around a subject) or feather (softens its edge by radius pixels).",
+    inputSchema: obj({ action: oneOf(["invert", "feather"], "What to do."), radius: num("feather: the radius in pixels.") }, ["action"]),
   }),
   tool({
     name: "add_mask",
     title: "Add a layer mask",
     kind: "edit",
     description:
-      "Adds a mask to a layer (Photoshop's layer mask: black hides the layer, white reveals it, painted by the user). from: selection makes it the current selection (select_rect first): the layer shows only there; from: empty (the default) reveals everything until it's painted. On an adjustment layer the mask says where it applies. remove: true deletes the layer's mask. Undoable.",
+      "Adds a mask to a layer (Photoshop's layer mask: black hides the layer, white reveals it, painted by the user). from: selection makes it the current selection (select_rect, select_polygon, select_magic_wand, select_quick or select_subject first): the layer shows only there; from: empty (the default) reveals everything until it's painted. On an adjustment layer the mask says where it applies. remove: true deletes the layer's mask. Undoable.",
     inputSchema: obj({ layer, from: oneOf(["selection", "empty"], "What it starts as (default empty: reveals everything)."), remove: bool("Delete the layer's mask instead.") }, ["layer"]),
   }),
   tool({
@@ -374,7 +450,7 @@ export const PHOTO_TOOLS = [
     title: "Copy the selection to a new layer",
     kind: "edit",
     description:
-      "Photoshop's Layer via Copy (⌘J) and Layer via Cut (⇧⌘J, cut: true): what a layer shows inside the current selection (select_rect first) becomes a new pixel layer right above it, where it was; cutting also clears it from the layer (painted pixels only: a placed image can be copied, not cut). Undoable. The photo must be open in the editor.",
+      "Photoshop's Layer via Copy (⌘J) and Layer via Cut (⇧⌘J, cut: true): what a layer shows inside the current selection (make one first) becomes a new pixel layer right above it, where it was; cutting also clears it from the layer (painted pixels only: a placed image can be copied, not cut). Undoable. The photo must be open in the editor.",
     inputSchema: obj({ layer, cut: bool("Also clear it from the layer.") }, ["layer"]),
   }),
   tool({
