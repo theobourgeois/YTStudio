@@ -14,7 +14,8 @@ import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
-import { PHOTO_HELPER, config } from "./config.ts";
+import { MODELS_DIR, PHOTO_HELPER, SUBJECT_MODEL, config } from "./config.ts";
+import { SubjectModel } from "./photo/models.ts";
 import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { listFonts } from "./fonts.ts";
@@ -224,7 +225,7 @@ export async function createApp({
   app.use("/api/music/audio", audioIntelligenceRoutes(audioIntelligence));
   app.use("/api/music/exports", musicExportRoutes(musicExports));
   app.use("/api/photo/lab", photoLabRoutes(photoLab));
-  app.use("/api/photo", photoRoutes(photo));
+  app.use("/api/photo", photoRoutes(photo, new SubjectModel(MODELS_DIR, SUBJECT_MODEL === "stand-in")));
   const mixerKeys = new ApiKeyStore(path.join(paths.root, "music-jev-settings.json"));
   await mixerKeys.load();
   app.use("/api/music/mixer-setup", mixerSetupRoutes({ engine, keys: mixerKeys, hasProject: (id) => projects.has(id), assets: (id) => library.list(id) }));
