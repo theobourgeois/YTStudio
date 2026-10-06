@@ -29,6 +29,7 @@ import { clickLayer } from "../selection";
 import { currentSelection, photoGesture, useLayerSize, usePhoto, usePhotoDoc } from "../store";
 import { uploadsFor } from "../uploads";
 import { BrushCursor, SelectionAnts, useCanvasPointer } from "./overlays";
+import { ClippingOverlay } from "../camera-raw/histogram";
 import { cancelPolygon, closePolygon, drawingPolygon, lasso, polygonClick, polygonHover, quickSelect, selectBox, undoPolygonPoint, wandClick } from "./select-tools";
 import { SelectionMenu } from "./selection-menu";
 import { useSelectOptions } from "../selecting";
@@ -427,6 +428,7 @@ export function CanvasPanel() {
         data-tool={tool}
       >
         <canvas ref={canvasRef} className="absolute inset-0 size-full" aria-label="Photo canvas" />
+        {renderer && <ClippingOverlay />}
         {renderer && tool === "move" && <HoverOutline />}
         {renderer && tool === "move" && <TransformOverlay docPoint={docPoint} />}
         {renderer && tool === "move" && <GeneratorHandles docPoint={docPoint} snap={(ev) => snapContext(usePhoto.getState().history!.doc.doc, [], ev)} />}

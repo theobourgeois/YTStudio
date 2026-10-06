@@ -2622,7 +2622,7 @@ test("Camera Raw: ⇧⌘A develops a layer in its window (one undo step, Cancel 
   // Preview off (P) shows the layer without it; Cancel leaves it as it was.
   await window_.getByLabel("Saturation", { exact: true }).fill("50");
   await window_.getByLabel("Saturation", { exact: true }).press("Enter");
-  await window_.getByText("Edit", { exact: true }).click();
+  await window_.locator("[data-camera-raw-histogram]").click({ position: { x: 100, y: 50 } });
   await page.keyboard.press("p");
   await expect(window_.getByRole("checkbox", { name: "Preview" })).not.toBeChecked();
   await window_.getByRole("button", { name: "Cancel" }).click();
@@ -2721,6 +2721,97 @@ test("Camera Raw's local sliders (CR2): read from the picture's analysis, the sa
   const before = pixelAt(await renderRegion(page, region), 24, 12, 12);
   const after = pixelAt(await renderRegion(page, region, { hide: [saved.layers[0].id] }), 24, 12, 12);
   expect(close(before, after, 0.05)).toBe(false);
+});
+
+test("Camera Raw CR3: the Color Mixer, Color Grading's wheels, Glow, Auto, the histogram's clipping overlay and Presets (hover previews, your own)", async ({ page }) => {
+  const id = await openNewPhoto(page, "Camera Raw colour");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await page.locator("[data-layer]").first().click();
+  const params = () =>
+    page.evaluate(() => {
+      const { history } = (window as unknown as { photoDebug: { photo: { getState(): { history: { doc: { doc: { layers: { filters?: { params: Record<string, unknown> }[] }[] } } } } } } }).photoDebug.photo.getState();
+      return history.doc.doc.layers[0].filters?.[0]?.params ?? null;
+    });
+  const window_ = page.locator("[data-camera-raw-window]");
+  await page.keyboard.press("ControlOrMeta+Shift+A");
+  await expect(window_).toHaveAttribute("data-camera-raw-window", "filter");
+
+  // The histogram draws the developed picture.
+  await expect.poll(async () => (await window_.locator("[data-camera-raw-histogram] path").first().getAttribute("d"))?.length ?? 0).toBeGreaterThan(100);
+
+  // The Color Mixer: Saturation's Red.
+  await window_.getByRole("button", { name: "Color Mixer", exact: true }).click();
+  await window_.getByRole("radio", { name: "Saturation", exact: true }).click();
+  await window_.getByLabel("Red", { exact: true }).fill("-60");
+  await window_.getByLabel("Red", { exact: true }).press("Enter");
+  await expect.poll(async () => (await params())?.saturationRed).toBe(-60);
+  await window_.getByRole("button", { name: "Color Mixer", exact: true }).click();
+
+  // Color Grading: the Shadows wheel dragged to its left (cyan), most of the way out.
+  await window_.getByRole("button", { name: "Color Grading", exact: true }).click();
+  const wheel = window_.locator('[data-wheel="shadows"]');
+  await wheel.scrollIntoViewIfNeeded();
+  const box = (await wheel.boundingBox())!;
+  const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await page.mouse.move(centre.x + 5, centre.y);
+  await page.mouse.down();
+  await page.mouse.move(centre.x - box.width * 0.2, centre.y, { steps: 4 });
+  await page.mouse.move(centre.x - box.width * 0.3, centre.y, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => (await params())?.shadowsHue).toBe(180);
+  expect((await params())!.shadowsSaturation as number).toBeGreaterThan(50);
+  // A double-click puts it back.
+  await wheel.dblclick({ position: { x: box.width / 2, y: box.height / 2 } });
+  await expect.poll(async () => (await params())?.shadowsSaturation).toBe(0);
+  await wheel.click({ position: { x: box.width * 0.2, y: box.height / 2 } });
+  await expect.poll(async () => (await params())?.shadowsHue).toBe(180);
+  await window_.getByRole("button", { name: "Color Grading", exact: true }).click();
+
+  // Glow: a bloom.
+  await window_.getByLabel("Glow", { exact: true }).fill("60");
+  await window_.getByLabel("Glow", { exact: true }).press("Enter");
+  await window_.getByRole("button", { name: "Show Glow's settings" }).click();
+  await window_.getByLabel("Style", { exact: true }).selectOption("bloom");
+  await expect.poll(async () => (await params())?.glowStyle).toBe("bloom");
+  expect((await params())!.glow).toBe(60);
+
+  // Auto sets Light from the picture.
+  await window_.getByRole("button", { name: "Auto", exact: true }).click();
+  await expect
+    .poll(async () => {
+      const p = (await params()) ?? {};
+      return ["exposure", "contrast", "highlights", "shadows", "whites", "blacks"].some((k) => (p[k] ?? 0) !== 0);
+    })
+    .toBe(true);
+
+  // The highlights' clipping warning shows where they clip on the canvas.
+  await window_.getByRole("button", { name: "Highlight clipping warning" }).click();
+  await expect(page.locator("[data-clipping-overlay]")).toBeVisible();
+  await window_.getByRole("button", { name: "Highlight clipping warning" }).click();
+  await expect(page.locator("[data-clipping-overlay]")).toHaveCount(0);
+
+  // Presets: their pictures; hovered, one shows on the canvas; left, the settings come back; clicked, it's applied.
+  const mixed = (await params())!;
+  await window_.getByRole("tab", { name: "Presets" }).click();
+  const teal = window_.locator('[data-preset="teal-orange"]');
+  await expect(teal.locator("img")).toBeVisible({ timeout: 20_000 });
+  await teal.hover();
+  await expect.poll(async () => (await params())?.shadowsHue).toBe(185);
+  await window_.getByRole("tab", { name: "Presets" }).hover();
+  await expect.poll(async () => (await params())?.glow).toBe(mixed.glow);
+  await teal.click();
+  await expect.poll(async () => (await params())?.highlightsHue).toBe(26);
+  expect((await params())!.saturationRed).toBe(0);
+  // Your own: saved from the settings, listed first, and applied as saved.
+  await window_.getByRole("button", { name: /Save current settings/ }).click();
+  await window_.getByLabel("Preset name").fill("My teal");
+  await window_.getByLabel("Preset name").press("Enter");
+  await expect(window_.locator("[data-preset]").filter({ hasText: "My teal" })).toBeVisible();
+  await window_.getByRole("button", { name: "OK" }).click();
+  const saved = await expect.poll(async () => (await savedPhoto(page, id)).layers[0].filters?.length ?? 0).toBe(1).then(() => savedPhoto(page, id));
+  expect(saved.layers[0].filters[0].params).toMatchObject({ shadowsHue: 185, highlightsHue: 26, contrast: 35 });
+  await page.evaluate(() => localStorage.removeItem("photo.cameraRaw.presets"));
 });
 
 test("an export cancelled while it renders writes nothing and lets go of what the server was sent", async ({ page }) => {

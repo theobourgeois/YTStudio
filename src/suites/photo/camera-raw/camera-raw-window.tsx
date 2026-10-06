@@ -5,15 +5,17 @@
  *
  * As the Layer Style window, it's one gesture: every change shows on the canvas at once and none is an undo step;
  * OK makes them one ("Camera Raw"), Cancel or Escape puts things back (a new one is gone), ⌥ turns Cancel into
- * Reset. Preview off (P) shows the picture without it; a section's eye, held, without that section. An edit made
+ * Reset. Preview off (P) shows the picture without it; a section's eye, held, without that section; a preset
+ * hovered, with it. Above the sections: the histogram (its clipping warnings: U, O) and Auto. An edit made
  * elsewhere ends the gesture (keeping what was shown), and the window closes with it.
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "cn";
 import { findLayer } from "@shared/photo/edits";
 import { neutralWhiteBalance } from "@shared/photo/effects/camera-raw/develop";
+import { autoSettings, autoStats } from "@shared/photo/effects/camera-raw/auto";
 import { type CameraRawSection, sectionParams } from "@shared/photo/effects/camera-raw/index";
-import { type EffectParamValue, type PhotoProject, hasContent } from "@shared/photo/types";
+import type { EffectParamValue, PhotoProject } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { FloatingWindow } from "@/components/windows/floating-window";
 import { liveRenderer } from "../live";
@@ -21,6 +23,9 @@ import { photoGesture, usePhoto } from "../store";
 import { type CameraRawTarget, usePhotoUi } from "../ui";
 import { cameraRawEdit, cameraRawOf, cameraRawParams } from "./actions";
 import { useCanvasPick } from "./canvas-pick";
+import { CameraRawHistogram, useClipping } from "./histogram";
+import { smallRender, targetDoc } from "./pictures";
+import { PresetsPanel } from "./presets-panel";
 import { CameraRawSections, type CameraRawSink } from "./sections";
 
 /** Where it opens: inside the canvas's right edge (not over the docked panels), as tall as the canvas. */
@@ -48,16 +53,8 @@ function withoutSection(params: Record<string, EffectParamValue>, section: Camer
  */
 async function beforeAt(doc: PhotoProject, target: CameraRawTarget, x: number, y: number): Promise<[number, number, number] | null> {
   const renderer = liveRenderer();
-  const layer = findLayer(doc, target.layerId);
-  if (!renderer || !layer) return null;
-  let source: PhotoProject;
-  if (target.filterId !== null && hasContent(layer)) {
-    const filters = layer.filters ?? [];
-    const index = filters.findIndex((f) => f.id === target.filterId);
-    source = { ...doc, canvas: { ...doc.canvas, background: null }, layers: [{ ...layer, opacity: 1, visible: true, filters: index < 0 ? filters : filters.slice(0, index) }] };
-  } else {
-    source = { ...doc, layers: doc.layers.slice(0, doc.layers.indexOf(layer)) };
-  }
+  const source = targetDoc(doc, target);
+  if (!renderer || !source) return null;
   const r = await renderer;
   const size = 5;
   const view = { zoom: 1, x: Math.round(x) - 2, y: Math.round(y) - 2, width: size, height: size };
@@ -86,6 +83,9 @@ export function CameraRawWindow({ target }: { target: CameraRawTarget }) {
   const [hidden, setHidden] = useState<CameraRawSection | null>(null);
   const [alt, setAlt] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [tab, setTab] = useState<"edit" | "presets">("edit");
+  const [hovered, setHovered] = useState<Record<string, EffectParamValue> | null>(null);
+  const [shownDoc, setShownDoc] = useState<PhotoProject | null>(null);
   const finished = useRef(false);
   const before = useRef<Record<string, EffectParamValue> | null>(null);
   const layerName = findLayer(session.baseDoc, target.layerId)?.name;
@@ -110,15 +110,27 @@ export function CameraRawWindow({ target }: { target: CameraRawTarget }) {
     return () => {
       if (session.gesture.active) session.gesture.cancel();
       useCanvasPick.getState().set(null);
+      useClipping.getState().off();
     };
   }, [session]);
 
-  // What the canvas shows follows the draft (without a held section, or without it all with Preview off).
+  // What the canvas shows follows the draft (without a held section, or without it all with Preview off; a preset
+  // hovered instead). The histogram reads what it develops.
   useEffect(() => {
     if (!session.gesture.active) return;
-    const shown = !preview ? (target.adding ? null : session.base) : hidden ? withoutSection(draft, hidden) : draft;
+    const shown = !preview ? (target.adding ? null : session.base) : hovered ? hovered : hidden ? withoutSection(draft, hidden) : draft;
     session.gesture.apply(cameraRawEdit(target, shown));
-  }, [draft, preview, hidden, session, target]);
+    setShownDoc(targetDoc(cameraRawEdit(target, shown)(session.baseDoc), target, shown !== null));
+  }, [draft, preview, hidden, hovered, session, target]);
+  const readHistogram = useCallback(async (doc: PhotoProject) => (await smallRender(doc, 256))?.data ?? null, []);
+
+  // Auto: Light's sliders and Vibrance from the picture before it.
+  const auto = async () => {
+    const input = targetDoc(session.baseDoc, target);
+    const picture = input ? await smallRender(input, 384) : null;
+    const stats = picture ? autoStats(picture.data) : null;
+    if (stats) setDraft((d) => ({ ...d, ...autoSettings(stats) }));
+  };
 
   // Its keys, wherever in the window the focus is (the window itself, once something plain is clicked): Enter is
   // OK and P is Preview, outside its fields.
@@ -130,8 +142,11 @@ export function CameraRawWindow({ target }: { target: CameraRawTarget }) {
       const target = e.target as Element | null;
       if (!win || !target || !win.contains(target)) return;
       if (target.closest("input, select, textarea, button, [role=slider], [role=menuitem], [contenteditable]")) return;
+      const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
       if (e.key === "Enter") keys.current.ok();
-      else if ((e.key === "p" || e.key === "P") && !e.metaKey && !e.ctrlKey && !e.altKey) keys.current.preview();
+      else if ((e.key === "p" || e.key === "P") && plain) keys.current.preview();
+      else if ((e.key === "u" || e.key === "U") && plain) useClipping.getState().toggle("shadows");
+      else if ((e.key === "o" || e.key === "O") && plain) useClipping.getState().toggle("highlights");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -205,8 +220,20 @@ export function CameraRawWindow({ target }: { target: CameraRawTarget }) {
       onClose={cancel}
     >
       <div ref={body} className="flex h-full min-h-0 flex-col text-sm" data-camera-raw-window={target.filterId ? "filter" : "adjustment"}>
-        <div className="flex items-center gap-1 border-b border-line px-3 py-2">
-          <span className="flex-1 text-[13px] font-semibold">Edit</span>
+        <div className="border-b border-line px-3 pt-2 pb-2">
+          <CameraRawHistogram doc={shownDoc} read={readHistogram} />
+        </div>
+        <div className="flex items-center gap-1 border-b border-line px-3 py-1.5">
+          <div className="flex flex-1 gap-0.5" role="tablist" aria-label="Camera Raw">
+            {(["edit", "presets"] as const).map((t) => (
+              <Button key={t} size="sm" variant={tab === t ? "secondary" : "ghost"} role="tab" aria-selected={tab === t} className="h-6 px-2 text-xs" onClick={() => setTab(t)}>
+                {t === "edit" ? "Edit" : "Presets"}
+              </Button>
+            ))}
+          </div>
+          <Button size="sm" variant="outline" className="h-6 px-2 text-xs" title="Set Light's sliders and Vibrance for this picture" onClick={() => void auto()}>
+            Auto
+          </Button>
           <Button
             size="sm"
             variant={draft.treatment === "bw" ? "secondary" : "outline"}
@@ -218,7 +245,11 @@ export function CameraRawWindow({ target }: { target: CameraRawTarget }) {
           </Button>
         </div>
         <div className={cn("min-h-0 flex-1 overflow-y-auto px-3", !preview && "opacity-60")}>
-          <CameraRawSections params={draft} sink={sink} onHide={setHidden} picking={picking} onPick={() => setPicking((p) => !p)} />
+          {tab === "edit" ? (
+            <CameraRawSections params={draft} sink={sink} onHide={setHidden} picking={picking} onPick={() => setPicking((p) => !p)} />
+          ) : (
+            <PresetsPanel baseDoc={session.baseDoc} target={target} draft={draft} onHover={setHovered} onApply={setDraft} />
+          )}
         </div>
         <div className="flex items-center gap-2 border-t border-line px-3 py-2">
           <label className="flex flex-1 items-center gap-1.5 text-xs" title="Show the picture with Camera Raw (P)">

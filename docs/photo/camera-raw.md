@@ -1,6 +1,6 @@
 # Camera Raw
 
-Status: researched and planned 2026-10-06; CR0 (the measurements), CR1 (the tool) and CR2 (the light) built. What Théo asked for: Photoshop's
+Status: researched and planned 2026-10-06; CR0 (the measurements), CR1 (the tool), CR2 (the light) and CR3 (the colour) built. What Théo asked for: Photoshop's
 Camera Raw Filter, which he uses to "control the light and colour coming from a picture" and layers a lot, as
 **one tool in one window**, not a set of separate effects. Labels as in the [README](README.md#labels).
 
@@ -375,7 +375,7 @@ against reference) and a look at the sheet.
   step edge and a backlit portrait at ±100), a reduced view within 2 levels of the settled one, a slider drag
   over 60 fps at fit on a 24 MP photo for the pointwise sections and a settled local edit under a second on 48
   MP (photo-bench).
-- **CR3, the colour.** **Color Mixer**, **Color Grading** (the wheels), the **histogram** with clipping, **Auto**,
+- **CR3, the colour (built 2026-10-06: "CR3 as built").** **Color Mixer**, **Color Grading** (the wheels), the **histogram** with clipping, **Auto**,
   **Glow** (Diffusion, Bloom, Halation on our glow), **Presets** with hover previews; the Color Grade filter's
   looks redone as Camera Raw presets.
 - **CR4, detail.** **Sharpening** and **colour noise reduction**, then **luminance noise reduction**, the one
@@ -505,7 +505,64 @@ Raw's depend on the picture in ways no probe slice explained). **Changed:** Cont
 mean, so a Camera Raw made in CR1 with Contrast set looks slightly different (kept at version 1: CR1 shipped the
 same day).
 
-## Where we differ from Photoshop (so far)
+## CR3 as built
+
+### What CR3 measured
+
+From CR0's runs (the Mixer's 48, Color Grading's 38) and new probes (`camera_raw.py glow`: a white disc and a ramp
+under each Glow style at Spread 0, 50 and 100 and Warmth ±100; `auto_settings`, Camera Raw's Auto read back as
+settings):
+
+1. **The Color Mixer** works on hue bands centred at 0°, 30°, 60°, 120°, 180°, 240°, 270° and 300° of HSV on
+   encoded ProPhoto, a colour shared by its two nearest. Fitted (`mixer_fits`, least squares per band and side):
+   hue turned by up to ~±30°, saturation scaled, then HSL lightness moved by the colour's saturation. Greys never
+   move; patches within 4–16 levels RMS (Luminance's 8–18).
+2. **Color Grading's tint is in stops of linear ProPhoto.** A red, green or blue tint at the same strength leaves
+   ProPhoto's max and mean channel the same: it multiplies the hue's channel by 2^up and the others by 2^−down
+   (HSV of the hue: red is 1, 0, 0). Midtones and Global are symmetric (±0.6 stops at their peak); Shadows lift
+   more than they lower (+1.3 / −1.4 at their darkest, falling off by the midtones), Highlights lower more than they
+   lift (+0.5 / −1.0). Luminance multiplies all three. `GRADING_MASKS` holds up, down and Luminance's ±100 per wheel
+   over OKLab lightness, read from the full-saturation runs where a channel isn't clipped.
+3. **Not one rule for in-between hues and half saturations.** Legacy Split Toning at 50 differs by hue (blue at 50
+   lowers nothing; red at 50 lowers half), and hue 220 lowers red a third as much as hue 240 does. Unmodelled.
+4. **Blending 0** narrows the shadows' region a little and the highlights' a lot (fitted: 1.5× and 2.75× along L);
+   **Balance ±100** hands the tones to one side: the highlights' tint at +100 reaches down to the shadows at twice
+   its strength, the shadows' at −100 up to the highlights at its own. Fitted shapes (`GRADING_SHAPE`), not
+   measured tables.
+5. **Glow** (Camera Raw 18.6): Bloom spreads light ~40 px round the disc on a 768-px picture at the default Spread
+   (~10 at 0, a third of the picture at 100); Halation is tighter and red; Diffusion adds no light outwards (it
+   softens the bright parts within); Warmth tints the glow blue or orange.
+6. **Auto** is learned and erratic on synthetic charts (the same grey ramp at two sizes got different Exposures),
+   so ours is a rule (below), not a fit.
+
+### How it's built
+
+- **The develop** (`colour.ts`, in `developPixel` and the WGSL alike): the Mixer after the curves on encoded
+  ProPhoto; Grading on linear ProPhoto before Vibrance and Saturation, its masks read at the pixel's OKLab
+  lightness (`wheelLightness`, `wheelWeight`); Glow last before the vignette, on linear sRGB, from a **glow grid**
+  made from the analysis's cell colours (`glowGrid`: the bright parts above Range's threshold, three box blurs of
+  Spread's σ, kept per analysis and settings), added (Bloom ×3, Halation ×2 in its red) or mixed towards
+  (Diffusion, by brightness). The GPU's table carries a colour block (the Mixer's bands, the wheels, the masks)
+  after the darkening coordinate, then the analysis's grid, then the glow grid. A Camera Raw with Glow reads an
+  analysis (`needsAnalysis`).
+- **The window:** the histogram of what the Camera Raw makes (a 256-px render, redrawn as it changes) with its
+  clipping warnings (U, O: blue and red over the canvas, read back from the screen while on: `ClippingOverlay`);
+  **Auto** (`auto.ts`, tested: the median towards middle grey by two-thirds, the ends towards black and white,
+  clipped highlights pulled back, deep shadows opened, a flat picture contrast, a dull one Vibrance); tabs **Edit**
+  and **Presets**. The Color Mixer by Hue, Saturation, Luminance or All, each track drawn in what it does; Color
+  Grading as 3-way or one wheel (`ColourWheel`: hue round it, 0° red to the right, saturation out; dragged or
+  pressed, double-click resets, arrows), Blending, Balance; Glow under Effects, as Vignette.
+- **Presets** (`presets.ts`): Color Grade's eight looks redone with the wheels and the point curve's fade, and
+  Vivid, Dreamy, Film Halation, Matte B&W. A card shows the target developed by it; hovered, the canvas shows it;
+  clicked, it's applied over the defaults (a whole look). Your own are saved from the window (what differs from
+  the defaults), this computer's (localStorage). The assistant's `add_filter` and `add_adjustment` take a preset.
+
+**Measured:** greys within ~1 level of Camera Raw's for a wheel at full saturation (Shadows, Midtones, Highlights,
+Global; Luminance exact on greys); Blending 0 within 10, Balance ±100 within 17; coloured patches 6–25 levels RMS,
+most of it the colours past sRGB's gamut, which Camera Raw rolls towards white and we clip (as for Exposure and
+Whites). The GPU is the CPU reference (photo-sheet's six CR3 looks: p99 below 2e-6).
+
+
 
 - Ours is also an adjustment layer, with a mask, opacity and a blend mode; Photoshop has only the filter.
 - Ours isn't modal: the editor's canvas is its preview, at any zoom, and the rest of the editor stays usable.
@@ -515,3 +572,5 @@ same day).
 - Out of scope: Profiles, Masking (a mask on the adjustment layer instead), Optics, Geometry, Remove, Red Eye,
   Crop, HDR, Calibration, snapshots.
 - The local sliders match Adobe's feel, not its pixels (decision 4).
+- Color Grading's in-between hues, half saturations, Blending and Balance are fitted shapes; Glow and Auto are
+  ours, after Camera Raw's feel. Presets apply over the defaults, with no Amount slider.

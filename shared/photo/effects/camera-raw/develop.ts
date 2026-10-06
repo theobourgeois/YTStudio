@@ -14,7 +14,8 @@
 import { linearToSrgb, srgbToLinear } from "../../colour.ts";
 import type { CurveSet, EffectParamValue } from "../../types.ts";
 import { curveFunction, isIdentityCurve } from "../curve-math.ts";
-import { type CameraRawAnalysis, gridAt, logLuminance } from "./analysis.ts";
+import { type CameraRawAnalysis, type GlowStyle, glowAt, glowGrid, gridAt, logLuminance } from "./analysis.ts";
+import { type Grading, grade, grading, mix, mixerBands, oklabLightness } from "./colour.ts";
 import { TONE_RESPONSES, V_BRIGHTEN, V_DARKEN, WHITE_BALANCE_SHIFTS } from "./measured.ts";
 
 /**
@@ -26,7 +27,18 @@ export const analysisOf = (p: Record<string, EffectParamValue>) => (p[ANALYSIS_P
 
 /** The sliders that read the analysis: the local ones, and Contrast (its pivot follows the picture's mean tone). */
 const LOCAL = ["highlights", "shadows", "texture", "clarity", "dehaze"] as const;
-export const needsAnalysis = (p: Record<string, EffectParamValue>) => LOCAL.some((k) => ((p[k] as number | undefined) ?? 0) !== 0) || ((p.contrast as number | undefined) ?? 0) !== 0;
+export const needsAnalysis = (p: Record<string, EffectParamValue>) =>
+  LOCAL.some((k) => ((p[k] as number | undefined) ?? 0) !== 0) || ((p.contrast as number | undefined) ?? 0) !== 0 || ((p.glow as number | undefined) ?? 0) > 0;
+
+/**
+ * Glow's strength at 100 per style, and its colours (CR3: Camera Raw 18.7's feel on a white disc and the scene):
+ * Bloom and Halation add their light (Halation's tight and red), Diffusion softens bright parts towards their blur.
+ */
+export const GLOW_STRENGTH = { diffusion: 0.6, bloom: 3, halation: 2 } as const;
+export const HALATION_COLOUR: Rgb = [1, 0.45, 0.25];
+const WARM: Rgb = [1, 0.78, 0.55];
+const COOL: Rgb = [0.6, 0.8, 1];
+const GLOW_STYLES: GlowStyle[] = ["diffusion", "bloom", "halation"];
 
 /**
  * Contrast's pivot in the tone coordinate: 0.549 + 0.342 × the picture's mean tone (CR2: fitted to Camera Raw on
@@ -205,6 +217,14 @@ export interface DevelopSettings {
   texture: number;
   dehaze: number;
   analysis: CameraRawAnalysis | null;
+  /** The Color Mixer's bands and Color Grading (null: they change nothing). */
+  mixer: { hue: number[]; saturation: number[]; luminance: number[] } | null;
+  grading: Grading | null;
+  /** Glow: its amount (0..1), style (0 diffusion, 1 bloom, 2 halation), colour, and its light on the grid. */
+  glow: number;
+  glowStyle: number;
+  glowTint: Rgb;
+  glowGrid: Float32Array | null;
 }
 
 const num = (p: Record<string, EffectParamValue>, k: string) => (p[k] as number | undefined) ?? 0;
@@ -340,7 +360,23 @@ export function developSettings(p: Record<string, EffectParamValue>, canvas: { w
     texture: num(p, "texture") / 100,
     dehaze: num(p, "dehaze") / 100,
     analysis: analysisOf(p),
+    mixer: mixerBands(p),
+    grading: grading(p),
+    ...glowSettings(p, canvas),
   };
+}
+
+/** Glow's settings, its grid worked out (and kept) from the analysis. */
+function glowSettings(p: Record<string, EffectParamValue>, canvas: { width: number; height: number }) {
+  const amount = num(p, "glow") / 100;
+  const style = Math.max(0, GLOW_STYLES.indexOf(p.glowStyle as GlowStyle));
+  const warmth = num(p, "glowWarmth") / 100;
+  const towards = warmth > 0 ? WARM : COOL;
+  const base: Rgb = style === 2 ? HALATION_COLOUR : [1, 1, 1];
+  const tint = base.map((c, i) => c * (1 + (towards[i] - 1) * Math.abs(warmth))) as Rgb;
+  const an = analysisOf(p);
+  const grid = amount > 0 && an ? glowGrid(an, GLOW_STYLES[style], (p.glowRange as number | undefined) ?? 50, (p.glowSpread as number | undefined) ?? 50, canvas) : null;
+  return { glow: grid ? amount : 0, glowStyle: style, glowTint: tint, glowGrid: grid };
 }
 
 // --- one pixel ---
@@ -412,7 +448,9 @@ export function developPixel(input: readonly number[], x: number, y: number, tab
   if (s.whiteBalance) e = [tableAt(table, TABLE_WHITE_BALANCE, e[0]), tableAt(table, TABLE_WHITE_BALANCE + 1, e[1]), tableAt(table, TABLE_WHITE_BALANCE + 2, e[2])];
   if (s.tone) e = keepingHue(e, (v) => tableAt(table, TABLE_TONE, v));
   if (s.channels) e = [tableAt(table, TABLE_CHANNELS, e[0]), tableAt(table, TABLE_CHANNELS + 1, e[1]), tableAt(table, TABLE_CHANNELS + 2, e[2])];
+  if (s.mixer) e = mix(e, s.mixer);
   let l = e.map(decode) as Rgb;
+  if (s.grading) l = grade(l, oklabLightness(mul(PROPHOTO_TO_SRGB, l)), s.grading);
   if (s.vibrance !== 1) {
     const hi = Math.max(l[0], l[1], l[2]);
     const lo = Math.min(l[0], l[1], l[2]);
@@ -431,6 +469,18 @@ export function developPixel(input: readonly number[], x: number, y: number, tab
   }
   // Back to sRGB, held in gamut as Camera Raw's result is (light above white that was there stays).
   let out = mul(PROPHOTO_TO_SRGB, l).map((c) => Math.max(0, Math.min(top, c))) as Rgb;
+  if (s.glow > 0 && s.glowGrid && s.analysis) {
+    const g = glowAt(s.analysis, s.glowGrid, x, y);
+    if (s.glowStyle === 0) {
+      // Diffusion: bright parts soften towards their blur (nothing glows into the dark: Camera Raw's doesn't).
+      const w = Math.sqrt(Math.max(0, Math.min(1, lum(out))));
+      const k = s.glow * GLOW_STRENGTH.diffusion * w;
+      out = out.map((c, i) => c + (g[i] * s.glowTint[i] - c) * k) as Rgb;
+    } else {
+      const k = s.glow * (s.glowStyle === 1 ? GLOW_STRENGTH.bloom : GLOW_STRENGTH.halation);
+      out = out.map((c, i) => c + g[i] * s.glowTint[i] * k) as Rgb;
+    }
+  }
   if (s.vignette !== 0 || s.grain > 0) {
     let v = out.map(encode) as Rgb;
     if (s.vignette !== 0) v = vignette(v, vignetteAt(s, x, y), s);

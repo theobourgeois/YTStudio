@@ -6,6 +6,7 @@
  *   pnpm build:desktop   a packaged app in release/ (data in ~/Library/Application Support/Vaudio)
  */
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { engineExecutable } from "../server/engine-path.ts";
 import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, screen, shell, systemPreferences } from "electron";
@@ -32,6 +33,17 @@ const isWindows = process.platform === "win32";
 const RESTACK_DELAY_MS = 150;
 /** How often the pointer's place is read to tell it to the windows without the focus (about a frame). */
 const HOVER_INTERVAL_MS = 16;
+
+/** The images the app opens as a new photo, by extension, with their types: what scripts/desktop.ts declares to macOS. */
+const IMAGE_TYPES: Record<string, string> = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".tif": "image/tiff",
+  ".tiff": "image/tiff",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+};
 
 app.setName(APP_NAME);
 // Windows groups the taskbar button, its pins and notifications by this: the installer's shortcut carries
@@ -60,8 +72,13 @@ if (app.isPackaged && !process.env.EDITOR_PHOTO_HELPER_PATH) {
 }
 
 let mainWindow: BrowserWindow | null = null;
-/** Projects asked to open (double-clicked in Finder, Open Recent) before the page could: it opens them once it's loaded. */
+/** Files asked to open (double-clicked in Finder, Open Recent, dropped on the Dock icon) before the page could: it opens them once it's loaded. */
 let pendingFiles: string[] = [];
+/** Images handed to the app (dropped on its Dock icon, Open With), gathered for a moment: dropped together, they start one photo. */
+let imageBatch: string[] = [];
+let imageBatchTimer: ReturnType<typeof setTimeout> | null = null;
+/** The images the page may read (`read-handed-image`): only those the system handed the app. */
+const handedImages = new Set<string>();
 let pageReady = false;
 let appUrl = "";
 let dataDir = "";
@@ -90,22 +107,57 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on("second-instance", (_event, argv) => {
     // Windows and Linux pass a project opened from the file manager as an argument.
-    for (const arg of argv.slice(1)) if (isProjectPath(arg)) openProject(arg);
+    for (const arg of argv.slice(1)) if (isHandedPath(arg)) openFile(arg);
     if (!mainWindow) return void createWindow();
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   });
-  // A project double-clicked in Finder, dropped on the Dock icon or picked from Open Recent (macOS), even before launch ends.
+  // A project double-clicked in Finder, dropped on the Dock icon or picked from Open Recent (macOS), or an image
+  // dropped on the Dock icon or opened with Vaudio, even before launch ends.
   app.on("open-file", (event, file) => {
     event.preventDefault();
-    openProject(file);
+    openFile(file);
   });
-  for (const arg of process.argv.slice(1)) if (isProjectPath(arg)) pendingFiles.push(arg);
+  for (const arg of process.argv.slice(1)) if (isHandedPath(arg)) pendingFiles.push(arg);
   void start();
 }
 
 function isProjectPath(file: string) {
   return /\.vaudio[/\\]?$/i.test(file);
+}
+
+function imageType(file: string): string | undefined {
+  return IMAGE_TYPES[path.extname(file).toLowerCase()];
+}
+
+function isHandedPath(file: string) {
+  return isProjectPath(file) || imageType(file) !== undefined;
+}
+
+/** A file the system handed the app: a project opens; an image starts a photo. */
+function openFile(file: string) {
+  if (isProjectPath(file)) return openProject(file);
+  if (!imageType(file)) return;
+  handedImages.add(file);
+  imageBatch.push(file);
+  // macOS hands several files dropped at once one by one, a moment apart.
+  if (imageBatchTimer) clearTimeout(imageBatchTimer);
+  imageBatchTimer = setTimeout(openImages, 150);
+}
+
+/** Start a photo from the images handed to the app (once the page can: until then they wait). */
+function openImages() {
+  imageBatchTimer = null;
+  const files = imageBatch;
+  imageBatch = [];
+  if (!mainWindow || !pageReady) {
+    pendingFiles.push(...files);
+    if (!mainWindow && appUrl) createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+  void mainWindow.webContents.executeJavaScript(`window.editorDesktop?.openImages(${JSON.stringify(files)})`).catch(() => {});
 }
 
 /** Open a project's package in the window (once the page can: until then it waits). */
@@ -245,12 +297,14 @@ function createWindow() {
         pageReady = true;
         const files = pendingFiles;
         pendingFiles = [];
-        for (const file of files) openProject(file);
+        for (const file of files) openFile(file);
       })
       .catch(() => {});
   });
-  win.webContents.on("did-start-loading", () => {
-    pageReady = false;
+  // Only a new page: `did-start-loading` also fires for the page's own `pushState` (opening a project), which
+  // left files handed to the app waiting for a load that never came.
+  win.webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) pageReady = false;
   });
   win.on("closed", () => {
     if (mainWindow === win) {
@@ -312,6 +366,7 @@ function answerSaveDialogs() {
  * Projects are files (`.vaudio` packages, which Finder shows as one file once the app is installed): the
  * Mac's Open dialog picks one (or a file inside one, where macOS doesn't know the type yet), its folder
  * dialog picks where new ones go, and an opened one joins the system's recent documents (File › Open Recent).
+ * An image handed to the app is read here for the page, which starts a photo with it.
  */
 function answerProjectDialogs() {
   const defaultPath = (options: unknown) => {
@@ -358,6 +413,12 @@ function answerProjectDialogs() {
   });
   ipcMain.on("project-opened", (_event, file: unknown) => {
     if (typeof file === "string" && isProjectPath(file)) app.addRecentDocument(file);
+  });
+  // An image handed to the app (`openImages`), for the page to start a photo with: never any other file.
+  ipcMain.handle("read-handed-image", async (_event, file: unknown) => {
+    if (typeof file !== "string" || !handedImages.has(file)) throw new Error("That file wasn't opened with Vaudio.");
+    handedImages.delete(file);
+    return { name: path.basename(file), type: imageType(file), data: await readFile(file) };
   });
 }
 

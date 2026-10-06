@@ -4,7 +4,8 @@ import { rand } from "../../reference/kernel.ts";
 import { defaultParams } from "../params.ts";
 import { developPixel, developSettings, developTable, keepingHue, neutralWhiteBalance, shiftCode } from "./develop.ts";
 import { CHART, fixtureRuns } from "./fixtures.ts";
-import { CAMERA_RAW, changedSections } from "./index.ts";
+import { validateParams } from "../index.ts";
+import { CAMERA_RAW, CAMERA_RAW_PRESETS, changedSections } from "./index.ts";
 import { CAMERA_RAW_PARAMS } from "./params.ts";
 
 /** A run developed by our maths: RMS against Camera Raw's own result, in 8-bit levels, over its ramp and its patches. */
@@ -40,11 +41,27 @@ const BOUNDS: [RegExp, { ramp: number; patches: number }][] = [
   // White balance on a rendered picture: greys within a few levels; saturated colours drift (unmatched so far).
   [/^temperature[+-]\d+$/, { ramp: 4, patches: 47 }],
   [/^tint[+-]/, { ramp: 6, patches: 33 }],
-  [/^saturation[+-]/, { ramp: 0.5, patches: 13.5 }],
+  [/^saturation[+-]\d+$/, { ramp: 0.5, patches: 13.5 }],
   [/^vibrance[+-]/, { ramp: 0.5, patches: 16 }],
   [/^bw$/, { ramp: 0.5, patches: 7 }],
   [/^vignette[+-]/, { ramp: 16, patches: 18.5 }],
   [/^(exposure\+1-(contrast|pdarks)|temperature\+50-saturation)/, { ramp: 1, patches: 9 }],
+  // CR3's Color Mixer: greys untouched; the patches as close as its HSV bands get to Camera Raw's.
+  [/^hue-[a-z]+[+-]100$/, { ramp: 0.5, patches: 16 }],
+  [/^saturation-[a-z]+[+-]100$/, { ramp: 0.5, patches: 16 }],
+  [/^luminance-[a-z]+[+-]100$/, { ramp: 4, patches: 18 }],
+  [/^hue-red\+100-curve-bump$/, { ramp: 0.5, patches: 14 }],
+  // CR3's Color Grading: a wheel alone on greys within a few levels at full saturation (Split Toning's at 50 differ by
+  // hue); Luminance exact on greys; colours past ProPhoto's sRGB gamut differ (Camera Raw rolls them towards white).
+  [/^grade-(shadows|highlights)-h\d+-s100$/, { ramp: 3, patches: 24 }],
+  [/^grade-(shadows|highlights)-h\d+-s50$/, { ramp: 11, patches: 21.5 }],
+  [/^grade-(midtones|global)-h\d+-s\d+$/, { ramp: 1, patches: 22.5 }],
+  [/^grade-\w+-l[+-]100$/, { ramp: 5, patches: 27 }],
+  [/^grade-(blend100|split-default)$/, { ramp: 5, patches: 24 }],
+  // Blending 0 and Balance are fitted shapes, not measured ones (docs/photo/camera-raw.md, "CR3 as built").
+  [/^grade-blend0$/, { ramp: 10, patches: 29 }],
+  [/^grade-balance[+-]100$/, { ramp: 17, patches: 32 }],
+  [/^saturation\+50-shadowsgrade$/, { ramp: 19, patches: 27.5 }],
 ];
 
 describe("Camera Raw's develop against Camera Raw 18.7 (CR0's fixtures)", () => {
@@ -127,5 +144,13 @@ describe("Camera Raw's develop", () => {
     const [r, g, b] = developPixel(cast, 0, 0, developTable(p), developSettings(p, { width: 10, height: 10 }), rand);
     expect(Math.abs(r - g) / g).toBeLessThan(0.08);
     expect(Math.abs(b - g) / g).toBeLessThan(0.08);
+  });
+});
+
+describe("Camera Raw's presets", () => {
+  it.each(CAMERA_RAW_PRESETS.map((p) => [p.id, p] as const))("%s is valid and changes the picture", (_id, preset) => {
+    const { params, problems } = validateParams(CAMERA_RAW, preset.params({ width: 1000, height: 800 }));
+    expect(problems).toEqual([]);
+    expect(CAMERA_RAW.isIdentity(params)).toBe(false);
   });
 });
