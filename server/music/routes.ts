@@ -2,6 +2,7 @@ import { Router, json } from "express";
 import type { BrowserMedia, SampleBrowser } from "./browser.ts";
 import type { AudioEngine } from "./engine.ts";
 import type { MusicExports } from "./exports.ts";
+import type { SongVisualizers } from "./visualizer.ts";
 
 /** `/api/engine`: the music suite's audio engine (the plugins it found, and commands to it). */
 export function engineRoutes(engine: AudioEngine): Router {
@@ -142,6 +143,26 @@ export function musicExportRoutes(exports: MusicExports): Router {
   });
   router.get("/:id/files/:name", (req, res) => {
     res.download(exports.file(req.params.id, req.params.name), req.params.name);
+  });
+  return router;
+}
+
+/** `/api/music/visualizer`: Make visualizer, a song made into a video project (`shared/music/visualizer.ts`). */
+export function musicVisualizerRoutes(visualizers: SongVisualizers): Router {
+  const router = Router();
+  router.use((_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
+  // The whole document, as it is when Make is pressed.
+  router.post("/", json({ limit: "10mb" }), async (req, res) => {
+    res.json(await visualizers.start(req.body));
+  });
+  router.get("/:id", (req, res) => {
+    res.json(visualizers.get(req.params.id));
+  });
+  router.post("/:id/abort", async (req, res) => {
+    res.json(await visualizers.abort(req.params.id));
   });
   return router;
 }

@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { errorMessage } from "../shared/errors.ts";
+import type { SongHandoff } from "../shared/handoff.ts";
 import { createId } from "../shared/ids.ts";
 import { DEFAULT_PROJECT_NAME, DEFAULT_SUITE, type SuiteDocument, type SuiteId, isSuiteId, SUITE_IDS, suiteNoun } from "../shared/suites.ts";
 import type { MediaAsset, ProjectLocation, ProjectSummary, ProjectTemplates } from "../shared/types.ts";
@@ -330,6 +331,39 @@ export class ProjectStore {
     if (template) return this.copy(template, { name, parent: this.location, adjust });
     const id = createId("project");
     return this.add(id, suite, adjust(backend.create(name)), this.now(), { dir: uniquePackage(this.location, name) });
+  }
+
+  /**
+   * A new project of `suite` made from what another suite handed over (`shared/handoff.ts`): its package in
+   * the location, the handoff's files moved into its media (they're gone from where they were, whatever
+   * happens), then the document its suite makes of them (`SuiteBackend.fromHandoff`). Nothing is left of
+   * it if any of that fails.
+   */
+  async createFromHandoff(suite: SuiteId, handoff: SongHandoff, options: unknown): Promise<ProjectSummary> {
+    const backend = suiteBackend(suite);
+    if (!backend.fromHandoff) throw new HttpError(400, `A ${suiteNoun(suite)} can't be made from a song.`);
+    const name = parseName(handoff.name || DEFAULT_PROJECT_NAME);
+    const id = createId("project");
+    const dir = uniquePackage(this.location, name);
+    this.pending.set(id, dir);
+    const files = [handoff.mix.file, ...handoff.stems.map((s) => s.file)];
+    try {
+      await fs.mkdir(path.join(dir, "media"), { recursive: true });
+      const making = () => this.pending.has(id);
+      const fileName = (label: string, file: string) => `${label.replace(/[\\/:*?"<>|]+/g, " ").trim() || "Stem"}${path.extname(file)}`;
+      const mix = await this.library.add(handoff.mix.file, fileName(name, handoff.mix.file), id, making, `handoff:${handoff.origin.projectId}:mix`);
+      const stems: MediaAsset[] = [];
+      for (const stem of handoff.stems) stems.push(await this.library.add(stem.file, fileName(`${name} - ${stem.name}`, stem.file), id, making, `handoff:${handoff.origin.projectId}:${stem.name}`));
+      const doc = backend.normalize(backend.fromHandoff(handoff, { mix, stems }, options), this.library.byId(id));
+      return await this.add(id, suite, doc as never, this.now(), { dir });
+    } catch (err) {
+      this.library.forgetProject(id);
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 5 });
+      throw err;
+    } finally {
+      this.pending.delete(id);
+      await Promise.all(files.map((file) => fs.rm(file, { force: true })));
+    }
   }
 
   /**

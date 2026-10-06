@@ -70,8 +70,12 @@ from a spectrum at the playhead and places hits; the timeline shows signal lanes
 video effects with `EffectShader.audio` (the Audio category, `shared/effect-library/audio.ts`); each pass carries what
 it hears at its clip's moment (`EffectPass.audio`, read by `effectPasses` through `clipAudio`), bound by the compositor
 as `uSpectrum`/`uWave` textures and uniforms (`AUDIO_PRELUDE` in `effect-gl.ts`); a `source` parameter says what it
-listens to; New item › Visualizer is a solid drawing only its visualizer. Signals files (v2) keep a small waveform. **V6 is
-built**: the Shader effect (type `shader`, `Effect.shader`: the user's GLSL, ours, ISF or Shadertoy's, read by
+listens to; New item › Visualizer is a solid drawing only its visualizer. Signals files (v2) keep a small waveform.
+**V5 is built**: Make visualizer (the music toolbar's film slate, `make_visualizer`) hands a song to the video suite
+through the platform (`shared/handoff.ts`, `ProjectStore.createFromHandoff`, `SuiteBackend.fromHandoff`): the music
+side renders the mix and stems and works out notes, beats and markers (`shared/music/visualizer.ts`,
+`server/music/visualizer.ts`), the video side builds the project with a starting look bound by role
+(`shared/song-video.ts`); `Project.tempo` is the song's exact beat, which `beat()` prefers to the analysis. **V6 is built**: the Shader effect (type `shader`, `Effect.shader`: the user's GLSL, ours, ISF or Shadertoy's, read by
 `shared/shader-code.ts`); its parameters are declared in its code, so **use `definitionOf(effect)` wherever an effect is
 at hand** (`effectDefinition(type)` gives the starting shader's). Keyed by a hash of the code (`fx:shader:<hash>`);
 the tab compiles each on a hidden context (`src/lib/shader-compiler.ts`, `provideShaderCheck`: one that doesn't compile

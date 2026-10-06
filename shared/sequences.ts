@@ -69,8 +69,8 @@ export function sequenceView(project: Project, id: string | null): Project {
   const seq = getSequence(project, id);
   if (!seq) return project;
   const cached = views.get(seq);
-  if (cached && cached.sequences === project.sequences && cached.name === project.name && cached.subclips === project.subclips && cached.signals === project.signals) return cached;
-  const { sequences, subclips, signals } = project;
+  if (cached && cached.sequences === project.sequences && cached.name === project.name && cached.subclips === project.subclips && cached.signals === project.signals && cached.tempo === project.tempo) return cached;
+  const { sequences, subclips, signals, tempo } = project;
   const view: Project = {
     version: 1,
     name: project.name,
@@ -81,6 +81,7 @@ export function sequenceView(project: Project, id: string | null): Project {
     ...(seq.markers && { markers: seq.markers }),
     ...(subclips && { subclips }),
     ...(signals && { signals }),
+    ...(tempo && { tempo }),
     ...(sequences && { sequences }),
   };
   views.set(seq, view);
@@ -90,7 +91,7 @@ export function sequenceView(project: Project, id: string | null): Project {
 /**
  * Put an edited view of sequence `id` back into the project: its settings, tracks and clips
  * go into the sequence, and anything else it changed that belongs to the whole project (its
- * sequences, subclips, signals) is kept. The main sequence's view is the project.
+ * sequences, subclips, signals, a song's tempo) is kept. The main sequence's view is the project.
  */
 export function writeSequence(project: Project, id: string | null, view: Project): Project {
   if (id === null) return view;
@@ -105,6 +106,8 @@ export function writeSequence(project: Project, id: string | null, view: Project
   else delete next.subclips;
   if (view.signals) next.signals = view.signals;
   else delete next.signals;
+  if (view.tempo) next.tempo = view.tempo;
+  else delete next.tempo;
   return next;
 }
 

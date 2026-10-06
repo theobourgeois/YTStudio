@@ -577,7 +577,8 @@ export function paramSpec(def: EffectDefinition, key: string): ParamSpec | undef
 // Validation
 // ---------------------------------------------------------------------------
 
-function sanitizeEffect(type: EffectDefinition, raw: Partial<Effect> | undefined, id: string): Effect {
+/** An effect of `type` with id `id` from untrusted (or partial) values, keyframes, expressions and links: the defaults where they're missing or wrong (a Shader effect's against its own code). */
+export function sanitizeEffect(type: EffectDefinition, raw: Partial<Effect> | undefined, id: string): Effect {
   // A shader's parameters are its code's.
   const code = type.type === SHADER.type ? (normalizeShaderCode(raw?.shader) ?? DEFAULT_SHADER) : undefined;
   const def = code ? shaderDefinition(code) : type;
