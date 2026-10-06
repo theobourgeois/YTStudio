@@ -136,17 +136,28 @@ function guided(I: Float64Array, p: Float64Array, w: Float64Array, width: number
   return { a: boxMean(a, ones, width, height, r), b: boxMean(b, ones, width, height, r) };
 }
 
-/** A weighted percentile. */
+/** A weighted percentile, from a fine histogram (exact to 1/4096 of the values' range). */
 function percentile(values: Float64Array, weights: Float64Array, q: number): number {
-  const order = Array.from(values.keys()).filter((i) => weights[i] > 0).sort((i, j) => values[i] - values[j]);
-  if (!order.length) return 0;
-  const total = order.reduce((s, i) => s + weights[i], 0);
-  let acc = 0;
-  for (const i of order) {
-    acc += weights[i];
-    if (acc >= q * total) return values[i];
+  let lo = Infinity;
+  let hi = -Infinity;
+  let total = 0;
+  for (let i = 0; i < values.length; i++) {
+    if (!(weights[i] > 0)) continue;
+    lo = Math.min(lo, values[i]);
+    hi = Math.max(hi, values[i]);
+    total += weights[i];
   }
-  return values[order[order.length - 1]];
+  if (!(total > 0)) return 0;
+  if (hi - lo < 1e-12) return lo;
+  const bins = 4096;
+  const counts = new Float64Array(bins);
+  for (let i = 0; i < values.length; i++) if (weights[i] > 0) counts[Math.min(bins - 1, Math.floor(((values[i] - lo) / (hi - lo)) * bins))] += weights[i];
+  let acc = 0;
+  for (let k = 0; k < bins; k++) {
+    acc += counts[k];
+    if (acc >= q * total) return lo + ((k + 0.5) / bins) * (hi - lo);
+  }
+  return hi;
 }
 
 /** The analysis of a coarse picture of a canvas (`id`: what it was made from). */
@@ -181,10 +192,10 @@ export function analyse(image: CoarseImage, canvas: { width: number; height: num
   for (let i = 0; i < n; i++) dark[i] = w[i] > 0 ? Math.min(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]) : 0;
   // No minimum over a patch (He's): it spreads a dark object's estimate into the haze beside it (a bright rim); the
   // guided filter keeps each side of an edge to its own.
-  const order = Array.from(dark.keys())
-    .filter((i) => w[i] > 0)
-    .sort((i, j) => dark[j] - dark[i]);
-  const top = order.slice(0, Math.max(1, Math.round(order.length * HAZE.top)));
+  const threshold = percentile(dark, w, 1 - HAZE.top);
+  const top: number[] = [];
+  for (let i = 0; i < n; i++) if (w[i] > 0 && dark[i] >= threshold) top.push(i);
+  if (!top.length) top.push(0);
   const airlight: [number, number, number] = [0, 0, 0];
   for (const i of top) for (let c = 0; c < 3; c++) airlight[c] += rgb[i * 3 + c] / top.length;
   for (let c = 0; c < 3; c++) airlight[c] = Math.max(airlight[c], 1e-3);
