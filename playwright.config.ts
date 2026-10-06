@@ -45,6 +45,8 @@ export default defineConfig({
         CODEX_PATH: path.resolve(import.meta.dirname, "e2e/fake-codex.mjs"),
         // And for the music suite's audio engine: no sound, no plugins of this computer.
         EDITOR_ENGINE_PATH: path.resolve(import.meta.dirname, "server/music/fake-engine.mjs"),
+        // And for the photo suite's Select Subject: no 88 MB model download.
+        EDITOR_SUBJECT_MODEL: "stand-in",
       },
       url: `http://127.0.0.1:${SERVER_PORT}/api/health`,
       reuseExistingServer: false,

@@ -7,9 +7,11 @@
 import { createId } from "@shared/ids";
 import { setMask } from "@shared/photo/edits";
 import { mergedLayer, replaceWithMerged } from "@shared/photo/merge";
-import { allSelection, rectSelection } from "@shared/photo/selection";
+import { dabsAlong } from "@shared/photo/quick-select";
+import { allSelection, boxCoverage, rectSelection } from "@shared/photo/selection";
+import { ellipseSelection, featherSelection, polygonSelection } from "@shared/photo/selection-shapes";
 import type { PhotoToolName } from "@shared/photo/tools";
-import type { PhotoProject } from "@shared/photo/types";
+import type { PhotoProject, PhotoSelection, SelectionMode } from "@shared/photo/types";
 import { type ToolResult, textResult } from "@shared/tool-spec";
 import type { MediaAsset } from "@shared/types";
 import { api } from "@/lib/api";
@@ -20,7 +22,9 @@ import { useColours } from "./colours";
 import { definePattern, editActions } from "./edit-actions";
 import { allStyles, findStyle, materialise, newStyle, styleEdit, useStyles } from "./layer-style/styles";
 import { addPattern, describeStyle, stylePatterns } from "@shared/photo/style/style";
-import { currentSelection } from "./store";
+import { currentDoc, currentSelection } from "./store";
+import { applySelection, quickSelectionResult, selectActions, startQuickSelection, wandAt } from "./selecting";
+import { selectSubject } from "./subject-model";
 import { usePhoto } from "./store";
 import {
   type PhotoEdit,
@@ -34,6 +38,7 @@ import {
   describeLayer,
   describeMedia,
   describePhoto,
+  describeSelection,
   mergeRequest,
   moveHandleTool,
   removeFilterTool,
@@ -103,10 +108,12 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
   async view_photo(input, ctx) {
     const target = await targetOf(ctx);
     const width = Math.max(64, Math.min(1600, Math.round(typeof input.width === "number" ? input.width : 768)));
-    const blob = await withRenderer(target.projectId, target.doc, target.assets, (r) => r.picture(target.doc, width));
+    let blob = await withRenderer(target.projectId, target.doc, target.assets, (r) => r.picture(target.doc, width));
+    const selection = input.show_selection === true && target.open ? currentSelection() : null;
+    if (selection) blob = await quickMask(blob, selection, target.doc.canvas);
     return {
       content: [
-        { type: "text", text: `"${target.doc.name}", ${target.doc.canvas.width}×${target.doc.canvas.height} px, shown ${width} px wide (transparency over a checkerboard).` },
+        { type: "text", text: `"${target.doc.name}", ${target.doc.canvas.width}×${target.doc.canvas.height} px, shown ${width} px wide (transparency over a checkerboard)${selection ? "; red tints what isn't selected" : input.show_selection === true ? "; nothing is selected" : ""}.` },
         { type: "image", data: await base64(blob), mimeType: "image/jpeg" },
       ],
     };
@@ -196,40 +203,110 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
   },
   add_pixel_layer: edit(addPixelLayerTool),
   async select_rect(input) {
-    const open = usePhoto.getState();
-    const doc = open.history?.doc.doc;
-    if (!doc) throw new Error("No photo is open in the editor: a selection belongs to the open one.");
-    let selection = null;
-    if (input.all === true) selection = allSelection(doc.canvas);
-    else if (input.none !== true) {
-      const n = (v: unknown, name: string) => {
-        if (typeof v !== "number" || !Number.isFinite(v)) throw new Error(`Give ${name} in canvas pixels (or all: true, or none: true).`);
-        return v;
-      };
+    const doc = openDoc();
+    if (input.none === true) {
+      usePhoto.getState().select(null);
+      return textResult("Deselected.");
+    }
+    const mode = selectionMode(input.mode);
+    let shape: PhotoSelection | null;
+    if (input.all === true) shape = allSelection(doc.canvas);
+    else {
       const x = n(input.x, "x");
       const y = n(input.y, "y");
-      selection = rectSelection({ x, y }, { x: x + n(input.width, "width"), y: y + n(input.height, "height") }, doc.canvas);
-      if (!selection) throw new Error(`That rectangle is off the canvas (${doc.canvas.width}×${doc.canvas.height} px): nothing would be selected.`);
+      const b = { x: x + n(input.width, "width"), y: y + n(input.height, "height") };
+      shape = input.shape === "ellipse" ? ellipseSelection({ x, y }, b, doc.canvas) : rectSelection({ x, y }, b, doc.canvas);
+      if (!shape) throw new Error(`That ${input.shape === "ellipse" ? "ellipse" : "rectangle"} is off the canvas (${doc.canvas.width}×${doc.canvas.height} px): nothing would be selected.`);
     }
-    open.select(selection);
-    return textResult(selection ? `Selected x ${selection.x}..${selection.x + selection.width}, y ${selection.y}..${selection.y + selection.height} (${selection.width}×${selection.height} px).` : "Deselected.");
+    applySelection(feathered(shape, input.feather, doc), mode);
+    return selectionResult(mode);
+  },
+  async select_polygon(input) {
+    const doc = openDoc();
+    const points = Array.isArray(input.points) ? input.points : [];
+    const outline = points.map((p, i) => {
+      if (!Array.isArray(p) || p.length !== 2 || !p.every((v) => typeof v === "number" && Number.isFinite(v))) throw new Error(`points[${i}] must be [x, y] in canvas pixels.`);
+      return { x: p[0] as number, y: p[1] as number };
+    });
+    if (outline.length < 3) throw new Error("Give at least three points: the outline's corners, [[x, y], …].");
+    const shape = polygonSelection(outline, doc.canvas, input.anti_alias !== false);
+    if (!shape) throw new Error(`That outline covers nothing of the canvas (${doc.canvas.width}×${doc.canvas.height} px).`);
+    const mode = selectionMode(input.mode);
+    applySelection(feathered(shape, input.feather, doc), mode);
+    return selectionResult(mode);
+  },
+  async select_magic_wand(input) {
+    const doc = openDoc();
+    const at = { x: n(input.x, "x"), y: n(input.y, "y") };
+    if (at.x < 0 || at.y < 0 || at.x >= doc.canvas.width || at.y >= doc.canvas.height) throw new Error(`(${at.x}, ${at.y}) is off the canvas (${doc.canvas.width}×${doc.canvas.height} px).`);
+    const sizes = [1, 3, 5, 11, 31, 51, 101];
+    if (input.sample_size !== undefined && !sizes.includes(input.sample_size as number)) throw new Error(`sample_size must be one of ${sizes.join(", ")}.`);
+    const tolerance = input.tolerance === undefined ? 32 : n(input.tolerance, "tolerance");
+    if (tolerance < 0 || tolerance > 255) throw new Error("tolerance must be 0..255.");
+    const mode = selectionMode(input.mode);
+    await wandAt(at, mode, {
+      tolerance,
+      contiguous: input.contiguous !== false,
+      antiAlias: input.anti_alias !== false,
+      sampleSize: (input.sample_size as number | undefined) ?? 1,
+      sampleAll: input.sample_all_layers !== false,
+    });
+    return selectionResult(mode);
+  },
+  async select_quick(input) {
+    const doc = openDoc();
+    const strokes = (Array.isArray(input.strokes) ? input.strokes : []).map((stroke, i) => {
+      if (!Array.isArray(stroke) || stroke.length === 0) throw new Error(`strokes[${i}] must be a list of [x, y] points.`);
+      return stroke.map((p, j) => {
+        if (!Array.isArray(p) || p.length !== 2 || !p.every((v) => typeof v === "number" && Number.isFinite(v))) throw new Error(`strokes[${i}][${j}] must be [x, y] in canvas pixels.`);
+        return { x: p[0] as number, y: p[1] as number };
+      });
+    });
+    if (!strokes.length) throw new Error("Give at least one stroke: [[[x, y], …]].");
+    const size = input.size === undefined ? 30 : n(input.size, "size");
+    if (size < 1 || size > 2500) throw new Error("size must be 1..2500 pixels.");
+    const mode: SelectionMode = input.mode === "new" || input.mode === "subtract" ? input.mode : currentSelection() ? "add" : "new";
+    const session = await startQuickSelection(doc, mode, size / 2, input.sample_all_layers !== false);
+    for (const stroke of strokes) session.q.paint(dabsAlong(stroke.map((p) => ({ x: p.x * session.scale, y: p.y * session.scale })), Math.max(0.75, (size / 2) * session.scale)));
+    if (currentDoc() !== doc) throw new Error("The photo changed while it was being read (the user edited it): nothing was selected. Try again.");
+    const result = quickSelectionResult(session, false);
+    if (result === undefined) return textResult(`Nothing changed: the strokes were all ${mode === "subtract" ? "outside" : "inside"} the selection already. Selection: ${selectionText()}.`);
+    usePhoto.getState().select(result);
+    return selectionResult(mode);
+  },
+  async select_subject(input) {
+    openDoc();
+    const mode = selectionMode(input.mode);
+    await selectSubject(mode);
+    return selectionResult(mode);
+  },
+  async modify_selection(input) {
+    const doc = openDoc();
+    if (!currentSelection()) throw new Error("There's no selection to change: make one first (select_rect, select_subject…).");
+    if (input.action === "invert") selectActions.inverse();
+    else if (input.action === "feather") {
+      const radius = n(input.radius, "radius");
+      if (radius <= 0 || radius > 250) throw new Error("radius must be more than 0 and at most 250 pixels.");
+      usePhoto.getState().select(featherSelection(currentSelection()!, radius, doc.canvas));
+    } else throw new Error('action must be "invert" or "feather".');
+    return textResult(`Selection: ${selectionText()}.`);
   },
   async add_mask(input, ctx) {
     if (input.remove === true || input.from !== "selection") return edit(maskTool)(input, ctx);
     const target = await targetOf(ctx);
     const selection = target.open ? currentSelection() : null;
-    if (!selection) throw new Error("There's no selection: select_rect first (a selection belongs to the photo open in the editor), or use from: empty.");
+    if (!selection) throw new Error("There's no selection: make one first (select_rect, select_polygon, select_magic_wand, select_quick or select_subject; a selection belongs to the photo open in the editor), or use from: empty.");
     const layer = findLayerRef(target.doc, input.layer);
     const surface = await withRenderer(target.projectId, target.doc, target.assets, (r) => r.maskFromSelection(target.doc, layer.id, selection));
     usePhoto.getState().commit((d) => setMask(d, layer.id, surface));
     usePhotoUi.getState().select(layer.id);
     usePhotoUi.getState().setTarget("mask");
-    return textResult(`Gave "${layer.name}" a mask from the selection: it shows only inside x ${selection.x}..${selection.x + selection.width}, y ${selection.y}..${selection.y + selection.height}.`, { added: [], changed: [layer.id], removed: 0 });
+    return textResult(`Gave "${layer.name}" a mask from the selection (${describeSelection(selection, target.doc.canvas)}): it shows only there.`, { added: [], changed: [layer.id], removed: 0 });
   },
   async layer_via_copy(input, ctx) {
     const target = await targetOf(ctx);
     if (!target.open) throw new Error("Open the photo in the editor first: copying pixels needs it on the GPU, and the selection is the open photo's.");
-    if (!currentSelection()) throw new Error("There's no selection: select_rect first.");
+    if (!currentSelection()) throw new Error("There's no selection: make one first (select_rect, select_subject…).");
     const layer = findLayerRef(target.doc, input.layer);
     const id = await editActions.layerVia(input.cut === true, layer.id);
     if (!id) throw new Error(`Nothing was copied from "${layer.name}": ${layer.kind === "adjustment" ? "an adjustment layer has no pixels" : input.cut === true && layer.kind === "image" ? "a placed image can't be cut (copy it, or ask the user to convert it to pixels)" : "the selection is empty there"}.`);
@@ -270,4 +347,64 @@ export async function runPhotoTool(name: string, input: Input, ctx: ToolRunConte
   const handler = (TOOLS as Record<string, ((input: Input, ctx: ToolRunContext) => Promise<ToolResult>) | undefined>)[name];
   if (!handler) return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   return handler(input, ctx);
+}
+
+/** The open photo's document (a selection is the open photo's). */
+function openDoc(): PhotoProject {
+  const doc = currentDoc();
+  if (!doc) throw new Error("No photo is open in the editor: a selection belongs to the open one.");
+  return doc;
+}
+
+/** A number the model gave, or a message saying what's wanted. */
+function n(v: unknown, name: string): number {
+  if (typeof v !== "number" || !Number.isFinite(v)) throw new Error(`Give ${name} as a number (canvas pixels).`);
+  return v;
+}
+
+function selectionMode(v: unknown): SelectionMode {
+  if (v === undefined) return "new";
+  if (v === "new" || v === "add" || v === "subtract" || v === "intersect") return v;
+  throw new Error('mode must be "new", "add", "subtract" or "intersect".');
+}
+
+function feathered(shape: PhotoSelection | null, radius: unknown, doc: PhotoProject): PhotoSelection | null {
+  if (radius === undefined || radius === 0) return shape;
+  const r = n(radius, "feather");
+  if (r < 0 || r > 250) throw new Error("feather must be 0..250 pixels.");
+  return shape && r > 0 ? featherSelection(shape, r, doc.canvas) : shape;
+}
+
+const selectionText = () => {
+  const s = currentSelection();
+  const doc = currentDoc();
+  return s && doc ? describeSelection(s, doc.canvas) : "none (nothing is selected)";
+};
+
+/** What a selection tool tells the model: the selection now (look with view_photo to see it). */
+const selectionResult = (mode: SelectionMode) => textResult(`${mode === "new" ? "Selected" : `Selection (${mode})`}: ${selectionText()}. view_photo with show_selection: true shows it.`);
+
+/** A picture with what the selection leaves out tinted red at half strength (Photoshop's Quick Mask). */
+async function quickMask(picture: Blob, selection: PhotoSelection, canvas: { width: number; height: number }): Promise<Blob> {
+  const image = await createImageBitmap(picture);
+  const { width, height } = image;
+  const out = new OffscreenCanvas(width, height);
+  const g = out.getContext("2d")!;
+  g.drawImage(image, 0, 0);
+  const tint = g.createImageData(width, height);
+  const sx = canvas.width / width;
+  const sy = canvas.height / height;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      // The selection's coverage over the document pixels under this picture pixel.
+      const c = boxCoverage(selection, { x0: x * sx, y0: y * sy, x1: (x + 1) * sx, y1: (y + 1) * sy });
+      const i = (y * width + x) * 4;
+      tint.data[i] = 255;
+      tint.data[i + 3] = Math.round((1 - c) * 128);
+    }
+  }
+  const layer = new OffscreenCanvas(width, height);
+  layer.getContext("2d")!.putImageData(tint, 0, 0);
+  g.drawImage(layer, 0, 0);
+  return out.convertToBlob({ type: "image/jpeg", quality: 0.85 });
 }

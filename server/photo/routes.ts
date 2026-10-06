@@ -4,6 +4,7 @@ import type { ExportRequest, TileSize } from "../../shared/photo/lab.ts";
 import { HttpError } from "../storage.ts";
 import { MAX_TILE_BYTES } from "./blobs.ts";
 import type { PhotoLab } from "./lab.ts";
+import type { SubjectModel } from "./models.ts";
 import type { ExportStart, PhotoService } from "./service.ts";
 
 const tileOf = (value: unknown): TileSize => {
@@ -101,8 +102,8 @@ export function photoLabRoutes(lab: PhotoLab): Router {
   return router;
 }
 
-/** `/api/photo`: the photo suite's own routes (a project's decoded images, exports). */
-export function photoRoutes(photo: PhotoService): Router {
+/** `/api/photo`: the photo suite's own routes (a project's decoded images, exports, Select Subject's model). */
+export function photoRoutes(photo: PhotoService, subject: SubjectModel): Router {
   const router = Router();
   // Paths are the server's own (a data folder can be a dot-folder: e2e's is e2e/.data).
   const immutable = { headers: { "Cache-Control": "no-cache" }, dotfiles: "allow" as const };
@@ -177,6 +178,21 @@ export function photoRoutes(photo: PhotoService): Router {
   });
   router.get("/exports/:id/compare", async (req, res) => {
     res.json(await photo.compare(req.params.id, text(req.query.projectId), text(req.query.mediaId)));
+  });
+
+  // Select Subject's model: whether it's here, its download (asked for by the user), the file.
+  router.get("/models/subject", async (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await subject.status());
+  });
+  router.post("/models/subject/setup", async (_req, res) => {
+    await subject.setUp();
+    res.status(202).json(await subject.status());
+  });
+  router.get("/models/subject/file", async (_req, res, next) => {
+    const file = await subject.file();
+    if (!file) throw new HttpError(404, "The subject model isn't downloaded: POST /api/photo/models/subject/setup first.");
+    res.sendFile(file, { headers: { "Cache-Control": "no-cache" }, dotfiles: "allow" }, (error) => error && next(error));
   });
 
   return router;

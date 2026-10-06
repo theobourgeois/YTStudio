@@ -109,14 +109,16 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 `;
 
 /**
- * What a selection covers of a layer pixel (shared/photo/selection.ts's `layerPixelCoverage`): exact through a
- * layer at a right angle, 8 × 8 points across the pixel otherwise; 1 without a selection.
+ * What a rectangle selection covers of a layer pixel (shared/photo/selection.ts's `layerPixelCoverage`): exact
+ * through a layer at a right angle, 8 × 8 points across the pixel otherwise; 1 without a selection. A mask selection
+ * (`hasSelection` 2) is handed over per tile, worked out by the CPU (`selectionCoverage`): the limit kernel reads it.
  */
 const SELECTION = /* wgsl */ `
 struct Dab { x: f32, y: f32, radius: f32, hardness: f32, strength: f32, p0: f32, p1: f32, p2: f32 }
 struct Job { slot: u32, tx: i32, ty: i32, first: u32, count: u32, p0: u32, p1: u32, p2: u32 }
 // m0, m1: layer pixels → document (a, b, c, d; e, f, right-angled); sel: x, y, width, height; erase: the stroke
-// takes away (Photoshop's Eraser on pixels) instead of painting its colour.
+// takes away (Photoshop's Eraser on pixels) instead of painting its colour. hasSelection: 0 none, 1 a rectangle,
+// 2 a mask (its coverage in the slot a limit job's p0 names).
 struct Params { colour: vec4f, tile: u32, hasSelection: u32, erase: u32, p1: u32, m0: vec4f, m1: vec4f, sel: vec4f }
 
 fn to_doc(u: vec2f) -> vec2f {
@@ -205,7 +207,12 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   let job = jobs[g.z];
   let before = loadSlot(job.first, vec2i(g.xy));
   let painted = loadSlot(job.slot, vec2i(g.xy));
-  let k = selection_coverage(vec2i(job.tx * i32(tile) + i32(g.x), job.ty * i32(tile) + i32(g.y)));
+  var k = 1.0;
+  if (params.hasSelection == 2u) {
+    k = clamp(loadSlot(job.p0, vec2i(g.xy)).r, 0.0, 1.0);
+  } else {
+    k = selection_coverage(vec2i(job.tx * i32(tile) + i32(g.x), job.ty * i32(tile) + i32(g.y)));
+  }
   textureStore(out, vec2i(g.xy), i32(g.z), round_for_store(mix(before, painted, k)));
 }
 `;

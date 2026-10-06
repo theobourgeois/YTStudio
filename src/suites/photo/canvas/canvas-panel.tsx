@@ -14,7 +14,6 @@ import { duplicateLayers, moveLayersBy } from "@shared/photo/edits";
 import { srgbToLinear } from "@shared/photo/colour";
 import { fitView, panBy, viewToDoc, zoomAbout } from "@shared/photo/geometry";
 import { contains } from "@shared/photo/layers";
-import { rectSelection } from "@shared/photo/selection";
 import { type LayerTransform, type PhotoLayer, type PhotoProject, type PlacedLayer, isPlaced } from "@shared/photo/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { liveRenderer, useRenderState } from "../live";
@@ -29,9 +28,12 @@ import { clickLayer } from "../selection";
 import { currentSelection, photoGesture, useLayerSize, usePhoto, usePhotoDoc } from "../store";
 import { uploadsFor } from "../uploads";
 import { BrushCursor, SelectionAnts, useCanvasPointer } from "./overlays";
+import { cancelPolygon, closePolygon, drawingPolygon, lasso, polygonClick, polygonHover, quickSelect, selectBox, undoPolygonPoint, wandClick } from "./select-tools";
+import { SelectionMenu } from "./selection-menu";
+import { useSelectOptions } from "../selecting";
 import { contentBox, hitsContent } from "./content";
 import { sizeOf } from "../tool-edits";
-import { useActiveTool, usePhotoUi } from "../ui";
+import { isSelectionTool, useActiveTool, usePhotoUi } from "../ui";
 import { CanvasDriver } from "./driver";
 import { resizeCursor, rotateCursor } from "./cursors";
 import { type Frame, frameOf, touches } from "./frame";
@@ -95,6 +97,7 @@ export function CanvasPanel() {
   const canvasWidth = usePhotoDoc((d) => d.canvas.width);
   const canvasHeight = usePhotoDoc((d) => d.canvas.height);
   const tool = useActiveTool();
+  usePolygonKeys(tool === "polygonLasso");
 
   // The open photo's renderer, drawing on this canvas while it's shown.
   useEffect(() => {
@@ -190,6 +193,8 @@ export function CanvasPanel() {
     const doc = usePhoto.getState().history?.doc.doc;
     if (!view || !doc) return;
     if (tool === "hand" || e.button === 1) return pan(e);
+    // The right button opens the canvas's menu.
+    if (e.button === 2) return;
     // The Layer Style window's page has a place on the canvas (a shadow, a gradient's centre): a drag moves it.
     const styleDrag = useStyleCanvasDrag.getState().handler;
     if (styleDrag && e.button === 0 && tool !== "zoom") {
@@ -210,7 +215,11 @@ export function CanvasPanel() {
       usePhotoUi.getState().setView(zoomAbout(view, (e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio, e.altKey ? 0.5 : 2));
       return;
     }
-    if (tool === "marquee") return selectRect(e);
+    if (tool === "marquee" || tool === "ellipse") return selectBox(e, docPoint, tool === "marquee" ? "rect" : "ellipse");
+    if (tool === "lasso") return lasso(e, docPoint);
+    if (tool === "polygonLasso") return polygonClick(e, docPoint);
+    if (tool === "magicWand") return void wandClick(e, docPoint);
+    if (tool === "quickSelect") return quickSelect(e, docPoint);
     if (tool === "brush" || tool === "eraser") return paint(e, tool === "eraser");
     // Move: with Auto-select (⌘ for the opposite), the layer under the pointer is picked first, as Photoshop's;
     // Shift adds it to the selection (or takes it out). A press on nothing (outside the selected layers' box)
@@ -330,39 +339,6 @@ export function CanvasPanel() {
   };
 
   /**
-   * The Rectangular Marquee: a drag selects the rectangle (whole pixels, clipped to the canvas; Shift: a square, Alt:
-   * from the centre), one undo step; a click deselects (Photoshop's).
-   */
-  const selectRect = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const doc = usePhoto.getState().history!.doc.doc;
-    const start = docPoint(e.clientX, e.clientY);
-    const gesture = photoGesture();
-    startPointerDrag(e, {
-      threshold: 2,
-      cursor: "crosshair",
-      onStart: () => gesture.begin(),
-      onMove: (ev) => {
-        const p = docPoint(ev.clientX, ev.clientY);
-        let dx = p.x - start.x;
-        let dy = p.y - start.y;
-        if (ev.shiftKey) {
-          const side = Math.max(Math.abs(dx), Math.abs(dy));
-          dx = Math.sign(dx || 1) * side;
-          dy = Math.sign(dy || 1) * side;
-        }
-        const a = ev.altKey ? { x: start.x - dx, y: start.y - dy } : start;
-        const b = { x: start.x + dx, y: start.y + dy };
-        const round = (q: { x: number; y: number }) => ({ x: Math.round(q.x), y: Math.round(q.y) });
-        const selection = rectSelection(round(a), round(b), doc.canvas);
-        gesture.applyState((s) => ({ ...s, selection }));
-      },
-      onEnd: () => gesture.end(),
-      onCancel: () => gesture.cancel(),
-      onClick: () => usePhoto.getState().select(null),
-    });
-  };
-
-  /**
    * The Brush and the Eraser (`erase`): paint the active layer's target (its pixels or its mask) along the pointer,
    * limited by the selection, as one undo step when it's let go; Escape drops it. An image asks first (a new paint
    * layer, or convert it to pixels); an adjustment paints its mask, given one.
@@ -398,7 +374,8 @@ export function CanvasPanel() {
     const doc = usePhoto.getState().history?.doc.doc;
     if (!doc || !usePhotoUi.getState().view) return;
     const at = docPoint(e.clientX, e.clientY);
-    useCanvasPointer.getState().set(at);
+    useCanvasPointer.getState().set(at, e.altKey);
+    if (tool === "polygonLasso") polygonHover(at);
     if (tool !== "move" || e.buttons !== 0) return;
     usePhotoUi.getState().hover(autoSelects(e) ? (layerAt(doc, at.x, at.y)?.id ?? null) : null);
   };
@@ -415,11 +392,20 @@ export function CanvasPanel() {
 
   return (
     <div ref={panelRef} className="relative flex min-h-0 flex-1 flex-col bg-stage" data-photo-canvas>
+      <SelectionMenu tool={tool}>
       <div
         ref={holderRef}
         className={cn(
           "relative min-h-0 flex-1 overflow-hidden touch-none",
-          tool === "hand" ? "cursor-grab" : tool === "zoom" ? "cursor-zoom-in" : tool === "marquee" ? "cursor-crosshair" : tool === "brush" || tool === "eraser" ? "cursor-none" : "cursor-default",
+          tool === "hand"
+            ? "cursor-grab"
+            : tool === "zoom"
+              ? "cursor-zoom-in"
+              : tool === "brush" || tool === "eraser" || tool === "quickSelect"
+                ? "cursor-none"
+                : isSelectionTool(tool)
+                  ? "cursor-crosshair"
+                  : "cursor-default",
         )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -437,6 +423,7 @@ export function CanvasPanel() {
         {renderer && <Marquee />}
         {renderer && <SelectionAnts />}
         {renderer && (tool === "brush" || tool === "eraser") && <BrushCursor />}
+        {renderer && tool === "quickSelect" && <QuickCursor />}
         {failure && (
           <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-white/80">
             <div className="flex max-w-sm flex-col items-center gap-2">
@@ -446,12 +433,41 @@ export function CanvasPanel() {
           </div>
         )}
       </div>
+      </SelectionMenu>
       <StatusBar renderer={renderer} />
     </div>
   );
 }
 
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
+/** Quick Selection's brush: + while it adds, − while it takes away (Alt, or the Subtract mode). */
+function QuickCursor() {
+  const alt = useCanvasPointer((s) => s.alt);
+  const mode = useSelectOptions((s) => s.mode);
+  return <BrushCursor quick={alt || mode === "subtract" ? "subtract" : "add"} />;
+}
+
+/** The Polygonal Lasso's keys while its outline is drawn: Enter closes it, Escape drops it, Backspace takes a corner back. */
+function usePolygonKeys(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const down = (e: KeyboardEvent) => {
+      if (!drawingPolygon()) return;
+      const act = e.key === "Enter" ? closePolygon : e.key === "Escape" ? cancelPolygon : e.key === "Backspace" || e.key === "Delete" ? undoPolygonPoint : null;
+      if (!act) return;
+      e.preventDefault();
+      e.stopPropagation();
+      act();
+    };
+    // Before the editor's own keys (Delete would delete layers).
+    window.addEventListener("keydown", down, true);
+    return () => {
+      window.removeEventListener("keydown", down, true);
+      cancelPolygon();
+    };
+  }, [active]);
+}
 
 /** Whether a press picks the layer under it: Auto-Select (Settings › Photo), the opposite while ⌘ (Ctrl) is held. */
 const autoSelects = (e: { metaKey: boolean; ctrlKey: boolean }) => usePhotoPreferences.getState().autoSelect !== (MAC ? e.metaKey : e.ctrlKey);
