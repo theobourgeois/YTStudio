@@ -1,163 +1,434 @@
-# Foundations prototype: implementation and validation
+# Foundations: implementation order and gates
 
-Status: proposed next implementation task, 2026-10-03. Nothing below is implemented or benchmarked yet.
-This milestone builds the application's first real foundation, with intentionally limited feature coverage.
+Status: revised 2026-10-06 (first proposal 2026-10-03). **F0, F1, F2 and F3 are done** (F0–F2 2026-10-05, F3
+2026-10-06): their gates passed; results and what each changed in the plan are under "F0 results" to "F3 results".
+F4 is next.
 
-## End-to-end result
+The foundations are the application's first real version with deliberately few features, not a throwaway prototype.
+Each milestone ends with something Théo can use and a gate that's checked, not argued. Lasting contracts (the
+document, resources, colour, effect definitions) are decided before the code that depends on them; hardening
+machinery waits for F5.
 
-Open a large JPEG/PNG; place a second image; transform it; add exposure/curves; select a region and
-paint a layer mask; add editable flare/glow; undo/redo; save; close; reopen; export PNG/JPEG. The project
-remains editable, portable and recoverable. Effects crossing tiles render without seams.
+## The end-to-end result
 
-This workflow tests resources, commands, coordinate systems, color, rendering, UI and persistence
-together. A polished workspace around a single mutable canvas does not pass this milestone.
+Open a large photo; place a second image; transform it; add exposure and curves; select a region and paint a layer
+mask; add glow and an editable flare; undo and redo all of it; close; reopen; export PNG and JPEG. The project stays
+editable, portable (moved, duplicated) and recoverable. Effects crossing tiles have no seams; preview and export agree.
 
-## Implementation order
+## F0: measure the risky assumptions (days, not weeks)
 
-### F0: prove backend and presentation
+Build the real renderer modules (`src/suites/photo/render/`) behind a development page, plus the helper process, and
+measure. Code that survives the gate stays; the page is deleted once F1's workspace exists.
 
-Create a small independent C++20 photo target. Implement capability handshake, one test source, a
-float surface, masked source-over, exposure and viewport output. Add one CPU reference kernel and
-native headless fixture. Integrate a minimal canvas presenter in our development and packaged app.
+1. Helper process: sharp decode of JPEG/PNG (8 and 16 bits) to raw tiles with orientation and ICC bytes; in `pnpm dev`
+   and **in the packaged desktop app** (sharp in `extraResources`, run through Electron in Node mode).
+2. GPU source conversion: TRC + matrix, unclipped; the P3 fixture.
+3. Level 0 → levels, the view at any zoom with bicubic final quality, pan and zoom.
+4. A blur across tile boundaries, compared with a monolithic render of the same small image.
+5. A stroke's end: read back, hash in a Worker, upload, verify on the server.
+6. `device.destroy()` mid-session; recovery.
+7. A 1 GB budget on a 48 MP image: eviction and refetching.
+8. Tile size 256 vs 512 on all of the above.
 
-First candidate is Dawn/WGSL. Exercise bounded viewport readback, then shared textures if necessary.
-Check the installed Electron API, texture format/color tagging, synchronization and sandbox bridge.
-Record build dependencies, binary size and latency. Force device loss/restart and verify cleanup.
+**Gate** (Electron and dev Chrome, on the baseline machine):
 
-**Gate:** select the backend/presenter using evidence. A standalone render that cannot reach our canvas
-is insufficient. Failed presentation may justify changing that adapter/backend; the document/resource
-contracts below should survive. Do not implement two complete backends speculatively.
-
-### F1: resource/document/command skeleton
-
-Define the minimum `PhotoProject`, layer/effect/resource IDs, pure edits, validation and a versioned
-render-plan/protocol schema. Register the photo suite and a minimal workspace. Build source import,
-immutable tile manifests, a configurable CPU/GPU budget, binary viewport delivery and revisions/epochs.
-
-Initial authored tile formats are explicit float32 color and coverage; prototype tile candidates are
-256 and 512. Imported source files belong to the existing project package. Decoder/color libraries
-are selected using profile/orientation/precision fixtures. No image buffers in metadata/history.
-
-**Gate:** open a 48 MP document; pan/zoom at several DPRs; change a layer transform; restart the engine;
-render the same document again. Memory is accounted and old revision responses cannot overwrite new views.
-
-### F2: masks, brush transactions and history
-
-Add a basic round mask brush and rectangular selection. Capture input on the tool path, batch samples,
-paint copy-on-write draft tiles, finalize/publish resources, commit one metadata/history operation.
-Implement Escape/pointercancel, target capture, undo/redo and history/selection resource pins.
-
-**Gate:** cross a tile boundary, undo, redo and compare exact authoritative coverage. Cancelled strokes
-leave the committed document unchanged. A small edit shares unchanged tile IDs. Duplicate/out-of-order
-input and stale transactions are rejected or deduplicated deterministically.
-
-### F3: adjustments and creative processing
-
-Add exposure, identity/composite curves, multi-scale glow and a flare generator with source glow,
-halo, ghost and streak elements. Register central parameter definitions and canvas handles. Implement
-region dependencies, halo expansion, deterministic noise and final SDR output mapping.
-
-**Gate:** compare monolithic small-fixture rendering with tile rendering; test radii wider than a tile,
-transparent edges and above-white color. Settled preview and export use the same evaluator. Save each
-effect's implementation version. Changing a slider produces one history entry and invalidates only
-the necessary graph nodes/dependencies.
-
-### F4: durable save, export and recovery
-
-Integrate resource publication with autosave/flush; save a verified checkpoint only after referenced
-blobs exist. Keep prior recovery state. Package duplication/remapping includes photo resources. Export
-pins a committed revision, streams full-quality tiles, embeds output color information and publishes
-a completed file atomically. Editing can continue while that snapshot renders.
-
-**Gate:** reopen after normal close, project move and duplicate; compare resource references and output.
-Inject failure before/after each save publication step. Stop the engine during a stroke and during
-export. Simulate disk full. Recover a consistent checkpoint and retain the previous successful output.
-
-### F5: harden the usable workflow
-
-Complete Layers/Properties/tool options, saved state and error handling; implement the assistant's
-read/core edit tools through the same commands. Run the whole editing walkthrough in both development
-browser and packaged desktop. Record benchmark results and limitations, then update the docs to match.
-
-**Gate:** the owner can perform the complete workflow without using developer tools. No unresolved
-data-loss, stale-response, color-tag or tile-seam failures remain. Backend tradeoffs and remaining
-feature gaps are explicit.
-
-## Proposed performance targets
-
-Targets below need a named baseline machine. Record CPU/GPU, RAM, OS, Electron build, backend, output
-viewport/DPR, build type and storage. Measure warm/cold separately and report p50/p95 plus worst visible
-stall. Do not claim a target is achieved from averages or a tiny fixture.
-
-| Scenario | Initial target | Method |
-| --- | --- | --- |
-| Tool/cursor response | Next display frame, independent of image jobs | Input timestamp -> overlay presentation |
-| Simple pan/transform on warm 48 MP document | Aim for 60 Hz; p95 frame time <= 33 ms as initial gate | 1920×1080 device-pixel viewport, fixed scripted path |
-| Mask stroke first visible response | p95 <= 50 ms | Input sample -> presented matching transaction |
-| Exposure/curves interactive preview | p95 <= 50 ms | Parameter change -> current-revision preview |
-| Heavy glow/flare preview | First approximate response <= 100 ms; refinement visibly progresses | High radius and several elements, fixed viewport |
-| Small-stroke undo/redo | p95 <= 100 ms | Command -> correct resource/view presented |
-| Memory | Within configured aggregate budget; bounded queues | Track CPU/GPU/scratch/pinned bytes throughout |
-| Export | Correct and cancellable with progress; throughput recorded | Full-resolution 48 MP PNG/JPEG, fixed settings |
-
-These are proposed acceptance thresholds, not universal guarantees. If targets miss, identify decode,
-processing, readback, transport and presentation costs separately. Revise a target only with recorded
-evidence and product consequences. Measure RAM-pressure behavior, not just an idle high-memory machine.
-
-Benchmark datasets: 24/48/100 MP single images; 48 MP five-layer composite; sparse mask strokes; ten
-fully populated layers as a stress case; huge glow support; out-of-canvas source; deep effect stack;
-transparent colored edges; portrait cutout; tagged profiles and 16-bit ramps. Include synthetic
-fixtures with redistribution-safe provenance and representative owner-provided images when available.
-
-## Correctness and fault matrix
-
-| Area | Required evidence |
+| Check | Pass |
 | --- | --- |
-| Domain edits | Stable IDs/order, validation, no-ops, migrations, bad references/cycles rejected |
-| Coordinates | Pixel-center convention, inverse transforms, zoom/DPR, selection/mask spaces |
-| Tiles | Boundary-crossing paint/filter, implicit defaults, halos, minified mip alignment |
-| Precision | CPU/reference comparison, identity curves, source-over, 16-bit distinction, float range |
-| Color/alpha | Known profile transforms, orientation once, no alpha color transform, no double display transform |
-| History | One gesture/step, exact resource restoration, pins across undo/redo, cancellation |
-| Async protocol | Stale view, project switch, duplicate finalize, engine epoch, bounded backpressure |
-| Persistence | Reachability before save, old/new checkpoint consistency, move/duplicate and disk-full recovery |
-| Export | Same snapshot despite later edits, full quality, profile/alpha/matte, cancellation/collision |
-| UI | Active target, keyboard focus, tool cancellation, accessibility labels, dark/light |
+| 48 MP JPEG, cold: first coarse picture / settled fit view | ≤ 1 s / ≤ 3 s |
+| Pan and zoom, warm, 1920 × 1080 device-pixel view | p95 frame ≤ 16.7 ms (hard limit 33 ms) |
+| Stroke end (20 tiles) → committed to history | ≤ 30 ms |
+| Blur, tiled vs monolithic | max difference within the kernel's declared tolerance; no seam |
+| Display P3 green | ≈ `[-0.2249, 1.0421, -0.0786]` to 1 × 10⁻³ |
+| 8-bit sRGB round trip through f16 tiles | bit-exact |
+| Device loss | view back from the server's data ≤ 2 s; nothing committed lost |
+| 1 GB budget | no out-of-memory error; panning works, refetching visibly |
+| Packaged app | the helper decodes and encodes |
 
-Compare float-domain kernels against analytic CPU fixtures with declared per-kernel tolerances; choose
-those tolerances from algorithm/precision analysis and commit them before reviewing results. Compare
-settled viewport against the same full-quality crop at matched sampling/output settings. Bit-identical
-results across different GPU drivers are not a blanket promise. Undo resource identity *is* exact.
+**If it fails**, use the ladder, in order, and record why. The document and resource formats don't change:
+1. **WebGL2** in the same architecture, if a WebGPU feature or driver problem is the blocker. Float targets are
+   available through `EXT_color_buffer_float`; brush and levels become fragment passes.
+2. **A native Dawn engine running the same WGSL**, if page-based rendering can't meet memory or throughput. That's
+   the original plan, with its kernels already written; presentation is then the problem
+   ([engine options](research/engine-options.md)).
 
-Fault injection includes interrupted blob write, finalized blob before document commit, interrupted
-checkpoint rename, stale save completion, engine death, GPU loss, missing source, corrupt manifest,
-unsupported effect version, scratch exhaustion and output encoder failure.
+### F0 results (2026-10-05)
 
-## What persists beyond the prototype
+**Passed.** Measured with `pnpm tsx scripts/photo-bench.ts` (both runners, both tile sizes, cold decodes) on the
+baseline machine, in Electron 44.5.0 (Chrome 152, a hidden window with the app's web preferences) and headless
+Chrome 154 (the export's launch flags). Each cell is Electron / Chrome, 256-pixel tiles unless it says otherwise.
 
-Canonical document/migrations, immutable resource format, command/transaction contracts, versioned
-effects, coordinate/color rules, dependency-aware evaluator, checkpoint lifecycle and fixture corpus.
-Keep the backend/presenter replaceable. Prototype-only debug UI and temporary transport optimizations
-must not leak into persisted files. An incomplete implementation is acceptable; unowned data lifetimes
-or two conflicting sources of truth are not.
+| Check | Pass | Measured |
+| --- | --- | --- |
+| 48 MP JPEG, cold: first coarse picture / settled fit view | ≤ 1 s / ≤ 3 s | 0.53 / 0.75 s · 0.45 / 0.67 s (the helper's decode is 0.43–0.52 s of it) |
+| 100 MP JPEG, cold | (dataset) | 0.88 / 1.21 s · 0.86 / 1.22 s |
+| Pan and zoom, warm, 1920 × 1080 device pixels, 240 frames | p95 ≤ 16.7 ms | GPU p95 4.0 ms (max 4.5) · 5.1 ms (max 5.8); CPU p95 ≤ 0.3 ms; a Mitchell frame at fit ≈ 10 ms |
+| Stroke end (20 tiles) → committed | ≤ 30 ms | 12.1 ms · 14.9 ms (readback 3.5–4, hashing 7–10); uploaded 0.1–0.25 s later |
+| Blur, tiled vs monolithic | within tolerance, no seam | identical: maximum difference 0, at the seams too (both tile sizes) |
+| Display P3 green | ≈ (−0.2249, 1.0421, −0.0786) to 10⁻³ | (−0.22498, 1.04199, −0.07874); every patch within 2 × 10⁻⁴ of the CPU reference |
+| 8-bit sRGB round trip through f16 tiles | bit-exact | 0 samples differ: 48 MP JPEG, an 8-bit ramp, an EXIF-rotated JPEG, a PNG with an alpha gradient (fully transparent pixels' colour isn't kept: rendering.md) |
+| Device loss | ≤ 2 s, nothing committed lost | 0.20 s · 0.21 s; the committed stroke restored from the server |
+| 1 GB budget | no out-of-memory error, refetching works | 100 MP at 1 GB and 48 MP at 256 MB: no GPU errors; 105–768 tiles evicted and fetched again; settle p95 17–28 ms |
+| Packaged app | the helper decodes and encodes | `pnpm test:desktop`: WebGPU (Metal) in the app's window, the helper from its resources, an exact round trip |
+| 16-bit precision | — | `rgba32f` tiles within 0.001 of a 16-bit step; `rgba16f` would be 7 steps off (so A08 holds) |
+| 48 MP PNG export | correct, throughput recorded | 3.2 s in Electron (quantise 0.3 s, encode 2.2 s); headless Chrome's 7.4 s is Playwright inspecting each band's upload |
 
-## Next milestones after foundations
+**Tile size: 256.** Pan and zoom are the same at both (4.0 vs 4.0 ms p95 in Electron). With a tight budget 256 is
+clearly better (100 MP at 1 GB: settle p95 17 ms vs 39 ms; 512 evicts and refetches four times the pixels per miss),
+and a small stroke writes less (20 tiles of 0.5 MB against 9 of 2 MB, uploaded in 0.1 s against 0.06–0.5 s). F1
+fixes 256; manifests still record it.
 
-1. Core depth: groups/isolation, clipping, crop/resize, richer selections, levels/saturation and masks.
-2. Painting/retouch: actual opacity/flow, eraser/tablet, clone sampling, then healing research.
-3. Composition: text, vector shapes/paths, layer styles, richer flare presets and additional effects.
-4. Photography/interchange: 16-bit formats, RAW development and an explicitly supported PSD subset.
+**What F0 changed in the plan** (each written into the docs it concerns):
 
-Each milestone starts with its feature research and ends with a complete workflow. Priorities can shift
-with the owner's use without replacing the foundation.
+- Metal *truncates* f32 → f16 on storage writes, and the compiler folds `quantizeToF16` away: kernels round the
+  mantissa themselves (ledger A10). The f16 round-trip error is 0.037 of a step opaque and 0.092 premultiplied, not
+  the 0.03 first worked out, so the 8-bit dither is ±0.375, not ±0.45 (A09; `shared/photo/output.test.ts` checks
+  every code at every alpha).
+- Shaders compile when a session starts (async pipelines): compiled on first use they added 0.5 s to the first open.
+- sharp tags 16-bit output sRGB by *changing* its samples (by up to 25 000): 16-bit output is untagged until the
+  profile chunk is written by hand. sharp's 16-bit raw input must be a `Uint16Array` (a Buffer is read as 8-bit).
+- Exports go to the server in bands (begin, rows, finish): one 192 MB body was too much for the test harness, and
+  bands mean neither side holds the whole image.
+- The packaged helper: electron-builder drops folders called `node_modules` from resources, so sharp's native
+  packages ship in `photo-helper/native/`. Mac packaging was broken on main since the Windows port (`electronDist`
+  pointed inside Electron.app); fixed.
+- A helper crash retries its requests one at a time, so only the request that crashes it fails.
+
+**Built in F0, and kept** (F1 builds on these): `shared/photo/` (colour and ICC, geometry, half floats, surfaces,
+brush spacing, the output transform; tested), `server/photo/` (the helper and its supervisor, the blob store, the
+lab's service and routes; tested with the real sharp), `src/suites/photo/render/` (the device, atlas, virtual
+images, kernels, source loading, paint surfaces, the view, checks, the session with device-loss recovery). **Goes in
+F1:** the lab (`photo-lab.html`, `src/suites/photo/lab/`, `/api/photo/lab`), replaced by the suite's workspace and
+project routes; `scripts/photo-bench.ts` stays, pointed at the suite.
+
+## F1: the photo suite exists
+
+**Platform first** (all done in F1):
+- photo's folders in `server/architecture.test.ts` (F0 added them; F1 adds `server/suites/photo.ts`);
+- never replace a corrupt `project.json` (all suites);
+- media import that accepts photo formats with the helper's probe (TIFF later, 16-bit PNG now, ICC, bit depth);
+- Home: images dropped alone start a photo project;
+- a still cover for photo projects;
+- "New Photo" in the desktop File menu;
+- Playwright's GPU flags.
+
+**Then the suite**:
+- `SuiteId` `photo`: `PhotoProject`, `normalizePhotoProject` (tested), `SuiteBackend`, `ClientSuite`.
+- New photo from a size preset (1080 × 1920 first, the app being short-form first; also 1080 × 1350, 1080 × 1080,
+  1280 × 720, 1920 × 1080) or from an image (canvas = its size).
+- The docked workspace (canvas, Layers and Properties stubs, tool options), Hand, Zoom, Move/Transform with handles
+  (one gesture, one undo step), placing a second image.
+- Autosave and reopen; PNG and JPEG export from the open tab, with the output transform's `clip` and `film` written
+  in F4 (F1 ships `film` as identity on [0, 1], which is all an unedited photo needs).
+- Assistant: `get_document`, `view_image`, `transform_layer`, `add_image_layer`, `export_image`.
+- `e2e/photo.spec.ts`: create from the picker, place, transform, undo, reload, export.
+
+**Gate**: an unedited 8-bit sRGB photo exports bit-exact. Transforming down to 10% and back up is lossless. Reopen
+restores everything. Duplicating and moving the package keep it working. The e2e spec passes alone (`pnpm test:e2e
+photo`).
+
+### F1 results (2026-10-05)
+
+**Passed.** `e2e/photo.spec.ts` (8 tests, about 25 s alone) checks each gate item in the real app, with WebGPU on:
+
+| Gate | How it's checked |
+| --- | --- |
+| An unedited 8-bit sRGB photo exports bit-exact | The sample JPEG opened as the canvas, exported as PNG through the export window (in bands), compared by the helper with the file: 0 samples differ |
+| Down to 10% and back up is lossless | W typed 10 then 100 in Properties: the saved transform equals the original exactly, and the source is what's resampled |
+| Reopen restores everything | Reload after transforms, hiding, renaming, reordering: the saved document and the panels agree |
+| Duplicate and move keep it working | A duplicated project's layer loads (`data-source="ready"`); a renamed one's package moves to `Moved.vaudio` and reopens with its images |
+| The spec passes alone | `pnpm test:e2e photo` |
+
+Also checked there: a new photo from the New tile, its size presets (undoable), images dropped on Home starting a
+photo the size of the first, a corner handle scaling about the opposite corner as one undo step, nudges coalescing
+into one undo step, and the assistant (`get_photo`, `set_canvas`, `transform_layer` with `fit`, a refused
+`update_layer`, `view_photo`). The canvas's own pixels are compared with the file's.
+
+**Platform work F1 needed** (all suites benefit): a damaged `project.json` is kept aside (`project.corrupt-<time>.json`)
+and refused, never replaced by an empty document (Home marks the project damaged); duplicating clones files and
+skips rebuildable `cache` folders and previews; the media store is platform code with an image probe the photo
+helper supplies (`MediaAsset.image`: bit depth, alpha, orientation, ICC); a project can have a cover the tab renders
+(`PUT /api/projects/:id/cover`); "New Photo" (⌘3) in the desktop File menu; Playwright launches with the GPU on.
+
+**What F1 changed in the plan:**
+- A layer's place is five numbers (`LayerTransform`: centre, scale, rotation), not a matrix, so that typing 100%
+  gives exactly 100%; skew and perspective would bring a matrix, by migration. F1's document has only what it
+  renders: no `blend`, `mask` or `effects` fields yet (architecture.md).
+- One compositor (`render/compositor.ts`) draws every layer into a float accumulator through its inverse transform;
+  the screen, exports, Home's cover and the assistant's pictures all use it. A layer whose pixels land exactly on
+  the target's (scale ±1, right angles, whole-pixel offsets) is read texel for texel: Mitchell softens even at 100%,
+  which would have broken the bit-exact export.
+- The canvas is drawn in the view's own resolution: the settled view samples layers at the view's level rather than
+  reducing a full-resolution composite. Identical for aligned layers; for transformed ones the difference is
+  resampling order. The full rule (rendering.md, "The render plan") arrives with F2's render plan.
+- The lab (`photo-lab.html`) and its bench stay for now: they measure the renderer's parts, which the suite uses
+  as they are. They move onto the suite when F2 adds what they'd measure there. (Done in F2, below.)
+
+## F2: layers and adjustments
+
+- Layers panel (F1 has visibility, order, rename, duplicate, delete; opacity is in Properties): thumbnails of the
+  layer as composited, drag to reorder, groups' groundwork.
+- Exposure and curves adjustment layers in Properties.
+- `compileRender` with the region and reduction rules, and the view's refinement.
+- Assistant: `add_adjustment`, `set_effect_params`, `set_layer` (visibility, opacity, order, name).
+
+**Gate**:
+- Identity curves are exact.
+- Exposure at level k equals level 0 reduced, within tolerance.
+- Curves below 100% refine to the level-0 result.
+- A slider drag is one undo step and re-renders only what depends on it (counted).
+- A stale render never replaces a newer one (scripted rapid edits).
+
+### F2 results (2026-10-05)
+
+**Passed.** Every gate is checked in the real app with WebGPU on (`e2e/photo.spec.ts`, 15 tests, about a minute
+alone), reading the GPU's own numbers through `window.photoDebug` (development only):
+
+| Gate | How it's checked |
+| --- | --- |
+| Identity curves are exact | A Curves layer drawn, then reset: the 8-bit photo under it exports with 0 samples differing (identity adjustments are left out of the plan: exact by construction) |
+| Exposure at level k equals level 0 reduced | Exposure +n stops at 50%, 25% and 12.5%: the view's level against the refinement (level 0, box-reduced, Mitchell-sampled), worst 4 × 10⁻³ relative |
+| Curves below 100% refine to the level-0 result | A curve drawn on the graph; at fit and at half of it, screen pixels against the CPU's reduction (`shared/photo/reference/reduce.ts`) of the GPU's level-0 render around each, within 4 × 10⁻³ |
+| A slider drag is one undo step and re-renders only what depends on it | Exposure's slider dragged over a photo: the screen ran the adjustment ≥ 3 times, drew the image at most once (the first frame keeps the composite below), resumed from it every other frame; one ⌘Z undoes the drag |
+| A stale render never replaces a newer one | 15 scripted curve edits 10–400 ms apart below 100%: every frame showed the plan current when it was drawn; the last is the refinement of the last edit, identical (≤ 10⁻⁶) to a fresh one; the scheduler's ordering is unit-tested (`render/latest.test.ts`) |
+
+Also checked there: the GPU's Exposure and Curves against the CPU references; layers reordered by dragging (one
+undo step); thumbnails rendered; the assistant's `add_adjustment`, `set_effect_params` (a refused out-of-range
+value), `set_layer`.
+
+**Closing F1's gaps** (found reviewing F0 and F1): the research F2 needed first
+([research/adjustments.md](research/adjustments.md)); the settled view below 100% is now the full-resolution
+render reduced, through the render plan; the evaluator runs adjustments (two buffers, revisions, refining); a
+16-bit source's composite is f32 (it was always f16: a 16-bit PNG export of a 16-bit ramp is now within 1 step,
+with an f16 composite it was 21 steps off, both measured in e2e), with 16-bit PNG export in the window and for the
+assistant; adjustment layers in the document (version 2, `EffectInstance`, photo's own parameter specs); the bench
+moved onto the suite, and `set_layer` replaced `update_layer` (order included).
+
+**Measured** with `pnpm tsx scripts/photo-bench.ts` (the suite's scenarios in the workspace, `src/suites/photo/bench.ts`;
+fresh projects, so the server's decode is cold) on the baseline machine. Each cell is Electron 44.5.0 / headless
+Chrome 154; the canvas panel was 2305 × 1394 / 1725 × 1188 device pixels.
+
+| Scenario | Target | Measured |
+| --- | --- | --- |
+| Open 48 MP JPEG cold: first picture / settled | ≤ 1 s / ≤ 3 s | 0.49 / 0.66 s · 0.50 / 0.71 s (three more Electron runs: 0.50–0.57 / 0.68–0.79 s) |
+| Open 100 MP JPEG cold | (dataset) | 0.95 / 1.27 s · 0.99 / 1.36 s |
+| Reopen 48 MP (server's decode cached, a new device) | — | 0.03 / 0.18 s · 0.05 / 0.21 s |
+| Pan and zoom, warm 48 MP, 240 frames | p95 ≤ 16.7 ms | GPU p95 6.2 ms · 4.9 ms |
+| Exposure drag at fit on 48 MP, 60 frames | p95 ≤ 33 ms; settled ≤ 500 ms | p95 2.6 ms · 5.2 ms; settled with its last frame (it commutes) |
+| Curves drag at fit on 48 MP, 60 frames | p95 ≤ 33 ms; settled ≤ 500 ms | p95 2.7 ms · 4.5 ms; refined 194 ms after the last edit · 194 ms (150 ms of it is the wait for stillness) |
+| Work during a drag | only the adjustment | 0 or 2 image draws for 60 frames (the first frame), every other frame resumed |
+| Export 48 MP PNG (with an exposure and curves) | correct, throughput recorded | 2.6 s · 7.3 s (Playwright inspects each band's upload) |
+| Device loss: new device / first picture / every tile back | ≤ 2 s | 9 / 22 / 174 ms · 12 / 20 / 253 ms |
+| Budget walk, 16 stops at 100% | no out-of-memory error | 48 MP in 256 MB and 100 MP in 1 GB: settle p95 ≤ 141 ms (120 ms of it the settle wait), no GPU errors |
+
+**What F2 changed in the plan:**
+- Curves' order, spline and Exposure's gamma direction are product decisions over unverified references
+  (ledger A14, A15): Théo checks them in Photoshop; a difference becomes a new definition version.
+- Identity adjustments are left out of the plan rather than computed exactly (A16).
+- A refinement is the sources' own pyramid applied to the composite (A17), so "commutes" holds measurably, not
+  just in principle; it runs 150 ms after stillness, one at a time, latest only.
+- The screen keeps the composite below each adjustment (A18). Its key includes the sources' residency, so tiles
+  arriving re-render; a full-resolution refinement doesn't depend on residency (it waits for every image).
+- Only the first picture's pipelines are compiled before a photo opens; the rest (f32, adjustments, refinement,
+  16-bit output) compile meanwhile. With all of them up front, a cold open's first picture took up to 1.36 s in
+  Electron (measured), over the 1 s target.
+- The lab stays only for the renderer's parts the suite doesn't use yet (strokes, the blur's seams, P3 patches,
+  f16 rounding, 16-bit precision): `scripts/photo-bench.ts --lab`. It's deleted when F3 brings painting into the
+  suite and those scenarios move too.
+
+## F3: resources, selections, masks and the brush
+
+- The blob store: content addressing, verification, the publication gate, collection on open.
+- Rectangle selection with marching ants; a layer mask from the selection; the round brush with size, hardness and
+  strength, on masks and on new pixel layers. Brushing a placed image offers "New paint layer" or "Convert to pixels",
+  never rasterising silently.
+- The selection limits paint by its coverage, fractionally.
+- Assistant: `select_rect`, `add_mask` (from the selection, or empty), `add_pixel_layer`.
+
+**Gate**:
+- A stroke across tile boundaries, undone and redone, restores exact coverage.
+- A cancelled stroke changes nothing.
+- A small stroke shares every untouched tile's hash.
+- A duplicate upload is a no-op.
+- A document referencing a missing blob is refused.
+- Collection deletes only what's unreachable (fixture with history roots excluded, saved roots kept).
+- Same samples give the same result at every zoom and DPR.
+
+### F3 results (2026-10-06)
+
+**Passed.** Every gate is checked in the real app with WebGPU on (`e2e/photo.spec.ts`, 25 tests, about two minutes
+alone), reading the GPU's own tiles through `window.photoDebug` (`paint`: a stroke from exact samples;
+`readSurfaceTile`) and the server's routes:
+
+| Gate | How it's checked |
+| --- | --- |
+| A stroke across tile boundaries, undone and redone, restores exact coverage | A mask stroke across x = 256 and 512: the crossed tiles' floats hashed; undone they're the fill again; redone, the same hashes, and the screen's composite identical |
+| A cancelled stroke changes nothing | A stroke begun and dropped: the document names the same surface, the screen's composite is identical |
+| A small stroke shares every untouched tile's hash | A dab in another tile: the new manifest is the old one plus that tile, every other entry the same |
+| A duplicate upload is a no-op | A tile the server has `PUT` again: 200, `{ stored: false }` |
+| A document referencing a missing blob is refused | A save naming an unknown surface: 409, and `project.json` keeps the last good document (also `server/photo/gate.test.ts`) |
+| Collection deletes only what's unreachable | Two strokes, the first only in history; the project closed and opened: the first's manifest is gone, the saved one and its tiles kept (fixtures in `server/photo/blobs.test.ts`: saved roots kept, history's collected, shared tiles kept, recent uploads kept) |
+| Same samples give the same result at every zoom and DPR | The same samples on new pixel layers at fit, at 200% and in a page at twice the pixel density: the same surface id (content-addressed, so the same bytes) |
+
+Also checked there: the Rectangular Marquee selecting whole pixels as one undo step; the brush on a placed image
+asking first (New paint layer); a selection's fractional edge (x = 300.5) leaving half of a stroke on that column;
+a mask from the selection (tiles inside constant, outside the fill, edges stored); the canvas showing the photo
+inside it and the checkerboard outside; painting the mask with the mouse as one undo step; the assistant's
+`add_pixel_layer`, `select_rect`, `add_mask` (from the selection, and removing one).
+
+**Measured** with `pnpm tsx scripts/photo-bench.ts --quick` (`paintMask`: a mask on the 48 MP photo at fit, a
+segment of samples a frame), Electron 44.5.0 / headless Chrome 154:
+
+| Scenario | Target | Measured |
+| --- | --- | --- |
+| Mask stroke, first visible dab | p95 ≤ 16.7 ms | first 11.2 ms · 13.3 ms; every dab p95 9.1 ms · 12.8 ms (samples to the GPU finishing the frame showing them) |
+| Stroke end → history | ≤ 30 ms | 7.6 ms · 8.4 ms for 13 tiles (readback 6–7, hashing 1); a 166-tile stroke 38 ms · 45 ms |
+| Undo/redo of a stroke | ≤ 50 ms | p95 13.7 / 13.3 ms · 28.1 / 26.6 ms (the command to the GPU finishing the frame) |
+| Open 48 MP JPEG cold (unchanged) | ≤ 1 s / ≤ 3 s | 0.51–0.54 / 0.68–0.72 s · 0.48 / 0.68 s (a first run after the fixtures were made: 1.06 s, the disk cold) |
+
+**What F3 changed in the plan:**
+- The selection is an analytic rectangle kept in history (`PhotoState`), not a coverage surface (ledger A20): F3 has
+  only rectangles, and their coverage is exact for nothing. Lasso and feather bring a surface, by the selection's kind.
+- A selection caps a stroke's *result* (A21): per-dab limiting builds a half-covered pixel back to full, which the
+  e2e test caught. With a selection a stroke paints into a tile of its own, and `limit` shows what was there mixed
+  towards it by coverage.
+- Masks live in their layer's atlas, RGBA on the GPU (A22): a layer pass binds one atlas, and WebGPU allows four
+  bind groups.
+- An empty pixel layer or a mask that reveals everything is `null` (A19): nothing to upload until it's painted.
+- The publication gate and collection are hooks every suite can have (`SuiteBackend.checkSave`, `opened`; A23).
+  Collection keeps blobs written since it started, so an upload racing a reopen is never lost.
+- Picking a pixel layer on the canvas goes by its painted tiles (a full-canvas paint layer would be picked
+  everywhere); its transform box is still its whole surface.
+- The lab keeps its blur seams, P3 patches, f16 rounding and 16-bit checks until F4 brings blur into the suite; its
+  stroke scenario moved to the suite's bench (`paintMask`).
+
+## F4: light
+
+- Glow as a layer effect; the flare as a generator layer with a source handle and its elements (source glow, halo,
+  ghosts, anamorphic streak).
+- The output transform's `film` curve fixed with fixtures.
+- `pnpm tsx scripts/photo-sheet.ts`, like the video effect sheet.
+- Assistant: `add_effect`, `add_generator`, `move_handle`.
+
+**Gate**:
+- Radii wider than a tile have no seams.
+- Tiled matches monolithic.
+- Above-white light survives to the output transform.
+- An isolated glowing object over transparency exports correctly over black, white and saturated backdrops.
+- A source handle at several zooms lands on the same document point.
+- Reordering, bypassing, masking, undoing and reopening keep every setting.
+
+## F5: harden
+
+- Durability:
+  - blobs flushed before they're acknowledged;
+  - documents flushed with their folder;
+  - the checkpoint;
+  - the check on open.
+- Fault injection:
+  - interrupted blob write;
+  - interrupted document write;
+  - helper killed mid-decode and mid-encode;
+  - server killed with uploads pending;
+  - disk full (a small disk image);
+  - device loss mid-stroke;
+  - a missing source;
+  - a corrupt manifest;
+  - an unknown effect version.
+- Budgets under pressure.
+- Export by strips with progress, cancel and collision handling.
+- The whole walkthrough in the packaged app.
+- Benchmarks recorded.
+- Docs updated to what was built.
+
+**Gate**: Théo does the whole workflow without developer tools. No open data-loss, stale-view, colour or seam bug.
+Limitations are written down.
+
+## Performance targets
+
+The baseline machine is Théo's: Apple M5 Pro, 64 GB, macOS 26.5. Report the Electron and Chromium versions, the
+budget, the view size and DPR, warm or cold, and p50/p95 plus the worst stall. Never claim a target from averages or a
+tiny fixture. A constrained run with a 1 GB GPU budget stands in for smaller machines.
+
+| Scenario | Target | Method |
+| --- | --- | --- |
+| Cursor and overlays | Next frame, whatever the renderer is doing | Input timestamp → overlay presented |
+| Pan and zoom, warm 48 MP | p95 ≤ 16.7 ms (gate 33 ms) | Scripted path, 1920 × 1080 device pixels |
+| Mask stroke, first visible dab | p95 ≤ 16.7 ms | Pointer sample → presented |
+| Stroke end → history | ≤ 30 ms | Pointer up → committed |
+| Exposure/curves drag | p95 ≤ 33 ms preview; settled ≤ 500 ms at fit on 48 MP | Parameter change → current revision presented |
+| Glow/flare, large radius | first response ≤ 100 ms; settled ≤ 1 s at fit on 48 MP | Fixed view and settings |
+| Undo/redo of a stroke | ≤ 50 ms | Command → view |
+| Open 48 MP JPEG (cold) | coarse ≤ 1 s, settled ≤ 3 s | Open → presented |
+| Export 48 MP PNG | correct, cancellable, throughput recorded | Fixed settings |
+
+If a target misses, split the time into decode, transfer, conversion, evaluation and presentation before changing
+anything. A target only moves with recorded evidence and its consequence for the product.
+
+Datasets: 24/48/100 MP single images; a 48 MP five-layer composite; sparse mask strokes; ten full layers (stress);
+huge glow support; content past the canvas; a deep effect stack; transparent coloured edges; a portrait cutout;
+tagged P3 and Adobe RGB images; 8- and 16-bit ramps. Synthetic fixtures are generated (their provenance is the
+script), and Théo's own photos are used where he provides them, never committed.
+
+## Correctness matrix
+
+| Area | Evidence |
+| --- | --- |
+| Document | Stable ids and order, validation and repair, no-ops, migrations, dangling references reported not dropped |
+| Coordinates | Pixel centres, inverse transforms, mirroring, zoom/DPR independence, layer vs document spaces |
+| Tiles | Boundary-crossing paint and filters, constant tiles, fills, halos, level alignment |
+| Precision | GPU vs CPU reference per kernel, with tolerances fixed before results are looked at; identity curves; 8-bit round trip; 16-bit stays distinct from 8-bit |
+| Colour and alpha | Profile conversions (P3, Adobe RGB, untagged), orientation once, alpha never colour-converted, one display transform |
+| History | One gesture per step, exact restoration, the selection in history, cancellation |
+| Async | Stale renders, project switches, duplicate uploads, uploads after the tab closed, helper restarts |
+| Persistence | Publication gate, checkpoint, check on open, move/duplicate, disk full |
+| Export | Pinned state despite later edits, profile/alpha/matte, cancel, collision, previous output kept on failure |
+| UI | Obvious target, tool cancellation, keyboard access, labels, both themes, no focus rings on clicks |
+
+Bit-identical results across GPUs aren't promised. Undo restoring the exact bytes is.
+
+## What lasts beyond the foundations
+
+The document and its migrations, the resource format, the publication gate, effect definitions and versions, the
+coordinate and colour rules, the evaluator's region and reduction rules, the output transform, and the fixtures. The
+backend stays replaceable. Development pages and temporary optimisations never reach a saved file.
+
+## After the foundations
+
+1. Core depth: groups (isolated first, then pass-through), clipping, crop and resize, lasso and selection modes,
+   feather, levels, hue/saturation.
+2. Painting and retouching: opacity vs flow (equations first), eraser, pressure, clone, then researched healing.
+3. Composition: text (the browser lays it out, as in the video suite), shapes, layer styles, flare presets, halation,
+   rays, bokeh.
+4. Photography and interchange: HEIC (macOS's decoder), 16-bit TIFF, wide-gamut and HDR display, RAW, a stated PSD
+   subset.
+
+Each starts with its research (`docs/photo/`, Photoshop's behaviour per panel, as `docs/fl-studio/` is for music) and
+ends with a complete workflow.
 
 ## Evidence log
 
-| Gate | State | Evidence |
+| Date | What | Result |
 | --- | --- | --- |
-| F0 backend/presenter | Not started | No build or measurements yet |
-| F1 document/resources | Not started | Architecture proposal only |
-| F2 mask/history | Not started | Transaction contract only |
-| F3 effects | Not started | Video kernels identified as possible references |
-| F4 persistence/export | Not started | Existing package integration inspected |
-| F5 usable workflow | Not started | UX/acceptance proposal only |
+| 2026-10-05 | WebGPU in Electron 44.5.0 (Chrome 152), M5 Pro | Apple Metal 3 adapter, not a fallback; `shader-f16`, `float32-filterable`, `float32-blendable`, `texture-formats-tier1/2`, `timestamp-query`; 2D textures to 16 384; buffers to 4 GB; read-write `rgba16float` storage textures compile |
+| 2026-10-05 | Secure context | `navigator.gpu` is absent on a `data:` URL; present on `file:` and `http://127.0.0.1` (how the app loads) |
+| 2026-10-05 | 48 MP tile traffic | `rgba16f` upload 151 ms; `rgba32f` allocation 237 ms, no out-of-memory error; 20-tile readback 2 ms |
+| 2026-10-05 | Canvas | `rgba16float` + `display-p3` + `extended` tone mapping accepted; the display reports P3 and high dynamic range |
+| 2026-10-05 | Headless Chromium 153 (Playwright) | With `server/gl-browser.ts`'s flags: same Metal adapter and features. Default launch: `navigator.gpu` but no adapter |
+| 2026-10-05 | sharp 0.35.5 (libvips 8.18.7, lcms 2.19.1) | 48 MP noisy JPEG → raw 226 ms; a 512² region re-decodes in 128 ms (so decode once to a cache); 2000-px preview 210 ms; 16-bit raw in and out; 16-bit PNG out; libvips binaries 17 MB |
+| 2026-10-05 | sharp colour | Converts embedded profiles to sRGB but clips: Display P3 green → `[0, 1, 0]` even as float scRGB. Hence GPU conversion |
+| 2026-10-05 | Profiles | macOS's Display P3 (v4, `para`), sRGB and Adobe RGB (v2, `curv`) are matrix/TRC |
+| 2026-10-05 | ffmpeg 8.1 (local) | No ICC filters (built without lcms): not a colour-managed decoder |
+| 2026-10-05 | f16 stores (F0) | Every differing sample truncated by a plain `textureStore` to `rgba16float`; `quantizeToF16` rounds in isolation but is dropped when its result is stored; integer rounding works (`rounding` check: all nearest) |
+| 2026-10-05 | sharp 16-bit tagging | `withIccProfile("srgb")` on 16-bit output changes samples by up to 25 032; on 8-bit output it changes none |
+| 2026-10-05 | F0 gate | See "F0 results": every check passed in Electron 44.5.0 and Chrome 154 |
+| 2026-10-05 | Device limits | A plain `requestDevice()` gets spec defaults (8192 textures, 256 MiB buffers); `requiredLimits` from the adapter gets 16 384 and 4 GB. A lost device needs a new adapter |
+| 2026-10-05 | Large readback | 4096² `rgba16float` (128 MiB) copy + map: 25–45 ms (3–5 GB/s); `writeTexture` of raw half-float bits is exact (subnormals, 65 504, −1) |
+| 2026-10-05 | sharp gotchas | 16-bit needs `toColourspace("rgb16")`; its 16-bit path drops the profile without converting; TIFF defaults to JPEG compression (8-bit); float raw input is read as 0–65 535; prebuilt HEIC decoding fails (no HEVC) |
+| 2026-10-05 | `sips` | HEIC → PNG/TIFF keeping depth (10-bit → 16-bit) and profile |
+| 2026-10-05 | Page decoding | `<img>` → `copyExternalImageToTexture` keeps more than 8 bits and doesn't clip; `createImageBitmap(blob)` and `ImageDecoder` are 8-bit |
+| 2026-10-05 | Electron windows | A hidden window has WebGPU and runs rAF; a fully covered window becomes `hidden` and throttles despite `backgroundThrottling: false` |
+| 2026-10-05 | F2 gate | See "F2 results": every check passed in the app (e2e) and every target in Electron 44.5.0 and Chrome 154 (bench) |
+| 2026-10-05 | f32 composites | `float32-blendable` and `float32-filterable` are on the Metal adapter in both; blending into `rgba32float` works. A 16-bit ramp through an f16 composite exports 21 steps off at worst, through f32 within 1 |
+| 2026-10-05 | Pipelines at open | Compiling all 13 of F2’s pipelines before the first picture: cold 48 MP opens' first picture 0.49–1.36 s in Electron; the first picture's 3 first, the rest meanwhile: 0.49–0.57 s |
+| 2026-10-06 | F3 gate | See "F3 results": every check passed in the app (e2e) and every target in Electron 44.5.0 and Chrome 154 (bench) |
+| 2026-10-06 | Selection limiting | Limiting each dab by a pixel's coverage: a pixel half inside the selection ended at 0.998 alpha after a stroke (overlapping dabs); limiting the stroke's result: 0.500 |

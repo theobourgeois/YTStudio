@@ -40,7 +40,22 @@ const eyeDropper = () => (globalThis as { EyeDropper?: EyeDropperCtor }).EyeDrop
  * A swatch that opens the colour picker: a saturation/brightness square, a hue strip, the eyedropper,
  * hex and RGB to type, and swatches (presets and recent colours).
  */
-export function ColorSwatchPicker({ value, label, disabled, edit, className }: { value: string; label: string; disabled?: boolean; edit: ColorEdit; className?: string }) {
+export function ColorSwatchPicker({
+  value,
+  label,
+  disabled,
+  edit,
+  className,
+  side,
+}: {
+  value: string;
+  label: string;
+  disabled?: boolean;
+  edit: ColorEdit;
+  className?: string;
+  /** Where the picker opens (below, by default). */
+  side?: "top" | "right" | "bottom" | "left";
+}) {
   const opened = useRef(value);
   return (
     <Popover
@@ -60,7 +75,7 @@ export function ColorSwatchPicker({ value, label, disabled, edit, className }: {
           style={{ background: value }}
         />
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-60 p-2.5" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <PopoverContent align="start" side={side} className="w-60 p-2.5" onOpenAutoFocus={(e) => e.preventDefault()}>
         <ColorPicker value={value} edit={edit} />
       </PopoverContent>
     </Popover>

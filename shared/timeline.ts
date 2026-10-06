@@ -4,6 +4,7 @@
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
 import { createId } from "./ids.ts";
+import { STILL_DURATION } from "./media.ts";
 import { DEFAULT_PROJECT_NAME } from "./suites.ts";
 import { cameraEffects, clipKind, defaultEffects, hasMedia, isRemapped, shapeEffects, solidEffects, textStyleAt } from "./effects.ts";
 import { EPS, clamp, even, roundTime, tidy } from "./math.ts";
@@ -26,7 +27,7 @@ export { DEFAULT_PROJECT_NAME };
 /** Shortest clip the editor allows (seconds). */
 export const MIN_CLIP_DURATION = 0.1;
 /** How long a new clip of a still image is (seconds), like Premiere's default. */
-export const STILL_DURATION = 5;
+export { STILL_DURATION };
 
 export { createId };
 

@@ -79,9 +79,16 @@ export const videoSuite: ClientSuite<"video"> = {
     });
   },
   runTool,
-  startsWith: (files) => acceptMediaFiles(files),
+  // Images alone start a photo (the photo suite takes them); anything with video or sound starts a video.
+  startsWith: (files) => {
+    const media = acceptMediaFiles(files);
+    return media.length && media.every(isImageFile) ? [] : media;
+  },
   async importFiles(files) {
     const assets = await useEditor.getState().importFiles(files);
     useEditor.getState().addAssetsToTimeline(assets.map((a) => a.id));
   },
 };
+
+/** An image file, by its type or its name. */
+export const isImageFile = (file: File) => file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name);

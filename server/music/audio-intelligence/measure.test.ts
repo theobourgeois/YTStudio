@@ -22,6 +22,25 @@ describe("local audio evidence", () => {
     expect(report.observations).toEqual([]);
     expect(validateEvidence(report, { artifacts: new Map([[a.id, a]]) }).ok).toBe(true);
   });
+  it("measures loudness (LUFS, range, true peak), the balance by band and when the level moves", async () => {
+    const quiet = 10 ** (-23 / 20), loud = 10 ** (-14 / 20);
+    const tone = Float32Array.from({ length: rate * 12 }, (_, i) => (i < rate * 6 ? quiet : loud) * Math.sin(2*Math.PI*1000*i/rate));
+    const a = artifact(tone.length);
+    const report = await measureAudio(a, { sampleRate: rate, channels: [tone, tone] });
+    const get = (name: string) => report.measurements.filter(m => m.name === name);
+    expect(get("integratedLufs")[0].value!).toBeGreaterThan(-23);
+    expect(get("integratedLufs")[0].value!).toBeLessThan(-14);
+    expect(get("truePeakDbtp")[0].value!).toBeCloseTo(-14, 0);
+    expect(get("loudnessRangeLu")[0].value!).toBeGreaterThan(6);
+    expect(get("shortTermLufs").length).toBeGreaterThan(5);
+    const change = get("loudnessChangeDb");
+    expect(change).toHaveLength(1);
+    expect(change[0].value!).toBeCloseTo(9, 0);
+    expect(change[0].span.startSeconds).toBeCloseTo(5.75, 1);
+    expect(get("bandBalanceDb.mid")[0].value!).toBeGreaterThan(get("bandBalanceDb.air")[0].value!);
+    expect(report.coverage.unavailable).not.toContain("true peak");
+    expect(validateEvidence(report, { artifacts: new Map([[a.id, a]]) }).ok).toBe(true);
+  });
   it("handles silence with explicit unavailable logarithmic values", async () => {
     const report = await measureAudio(artifact(rate, 1), { sampleRate: rate, channels: [new Float32Array(rate)] });
     expect(report.measurements.find(m => m.name === "peakDbfs")!.value).toBeNull();

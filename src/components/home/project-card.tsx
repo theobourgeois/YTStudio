@@ -69,6 +69,7 @@ export const ProjectCard = memo(function ProjectCard({ project, now }: ProjectCa
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const missing = !!project.missing;
+  const damaged = !!project.damaged;
 
   const projects = useProjects.getState;
   const open = () => {
@@ -105,6 +106,7 @@ export const ProjectCard = memo(function ProjectCard({ project, now }: ProjectCa
             data-project-id={project.id}
             data-chat-status={status?.kind}
             data-missing={missing || undefined}
+            data-damaged={damaged || undefined}
             className={cn(
               "group/card relative flex cursor-pointer flex-col overflow-hidden rounded-md border border-line bg-surface-2 outline-none transition-colors",
               "shadow-[inset_0_1px_0_var(--bevel-highlight)] hover:border-brand/70 hover:bg-surface-3",
@@ -134,9 +136,9 @@ export const ProjectCard = memo(function ProjectCard({ project, now }: ProjectCa
                 />
               ) : (
                 <span
-                  className={cn("truncate text-[13px] leading-5 font-semibold", missing && "text-muted-foreground")}
+                  className={cn("truncate text-[13px] leading-5 font-semibold", (missing || damaged) && "text-muted-foreground")}
                   onDoubleClick={(e) => {
-                    if (missing) return;
+                    if (missing || damaged) return;
                     e.stopPropagation();
                     setRenaming(true);
                   }}
@@ -149,6 +151,11 @@ export const ProjectCard = memo(function ProjectCard({ project, now }: ProjectCa
                   <span className="flex items-center gap-1 font-medium text-amber-700 dark:text-amber-400">
                     <PiWarningCircle className="size-3.5" />
                     Not where it was
+                  </span>
+                ) : damaged ? (
+                  <span className="flex min-w-0 items-center gap-1 font-medium text-amber-700 dark:text-amber-400" title={project.damaged}>
+                    <PiWarningCircle className="size-3.5 shrink-0" />
+                    <span className="truncate">Damaged: can't be opened</span>
                   </span>
                 ) : status?.kind === "working" && status.step ? (
                   <span className="truncate">{status.step}</span>
@@ -198,8 +205,24 @@ export const ProjectCard = memo(function ProjectCard({ project, now }: ProjectCa
   );
 });
 
-/** Its picture (a video's first frame), else its suite's icon; a missing one says what to do. */
+/** Its picture (a video's first frame), else its suite's icon; a missing or damaged one says what to do. */
 function Picture({ project }: { project: ProjectSummary }) {
+  if (project.damaged) {
+    return (
+      <div className="flex aspect-[16/10] flex-col items-center justify-center gap-2 bg-sunken px-4 text-center" title={project.damaged}>
+        <PiWarningCircle className="size-6 text-muted-foreground" />
+        <span className="text-xs leading-4 text-muted-foreground">Its document is damaged. Nothing was changed.</span>
+        <span className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
+          <Button variant="outline" size="xs" onClick={() => void useProjects.getState().reveal(project.id)}>
+            Show in Finder
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => void useProjects.getState().forget(project.id)}>
+            Remove
+          </Button>
+        </span>
+      </div>
+    );
+  }
   if (project.missing) {
     return (
       <div className="flex aspect-[16/10] flex-col items-center justify-center gap-2 bg-sunken px-4 text-center">
@@ -373,7 +396,7 @@ export function Thumbnail({ project }: { project: ProjectSummary }) {
       className={cn(
         "grid size-10 shrink-0 place-items-center overflow-hidden rounded-md ring-1 ring-line ring-inset",
         project.thumbnail ? "bg-black" : tint,
-        project.missing && "opacity-50 grayscale",
+        (project.missing || project.damaged) && "opacity-50 grayscale",
       )}
     >
       {project.thumbnail ? <img src={project.thumbnail} alt="" draggable={false} className="size-full object-cover" /> : <Icon className="size-4" />}

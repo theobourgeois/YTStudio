@@ -341,7 +341,8 @@ const effects = () => {
 /**
  * The export being "rendered": it takes about a second and a half whatever the song (so a test can watch
  * it), saying how far it is, then writes a tone as long as the song for the mix and each stem: half full
- * scale through the master's gain, so a song turned up goes over full scale as a real one would.
+ * scale through the master's gain (a stem through its own track's too), so a song turned up goes over full
+ * scale as a real one would.
  */
 let exporting = null;
 /** A 32-bit float WAV (stereo, or `count` channels) of a 440 Hz tone, `frames` long, peaking at `level`. */
@@ -393,7 +394,8 @@ function startExport(params) {
     // A stem for each track a channel plays into, but the master (the last).
     if (params.stems) {
       const used = new Set(exported.channels.map((c) => c.track));
-      exported.tracks.forEach((t, i) => i < exported.tracks.length - 1 && used.has(i) && files.push({ id: t.id, file: path.join(params.folder, `${t.id}.wav`), peak: level }));
+      // Each through the master's gain and its own track's fader (its left-to-left gain), as a stem after its fader is.
+      exported.tracks.forEach((t, i) => i < exported.tracks.length - 1 && used.has(i) && files.push({ id: t.id, file: path.join(params.folder, `${t.id}.wav`), peak: level * (t.gains?.[0] ?? 1) }));
     }
     for (const file of files) writeTone(file.file, frames, rate, file.peak);
     exporting = null;

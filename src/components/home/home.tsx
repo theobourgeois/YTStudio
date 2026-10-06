@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useNow } from "@/hooks/use-now";
-import { droppedPath } from "@/lib/desktop";
 import { cn } from "cn";
 import { useAppIcon } from "@/stores/app-icon";
 import { useProjects } from "@/stores/projects";
@@ -51,14 +50,7 @@ export function Home() {
     setFilter(next);
   };
 
-  const drop = useFileDrop((files) => {
-    const packages = files.map(droppedPath).filter((p) => /\.vaudio\/?$/i.test(p));
-    if (packages.length) return void useProjects.getState().openFile(packages[0]);
-    for (const suite of SUITE_IDS) {
-      const taken = clientSuite(suite).startsWith?.(files) ?? [];
-      if (taken.length) return void useProjects.getState().create({ suite, files: taken });
-    }
-  });
+  const drop = useFileDrop((files) => void useProjects.getState().startWith(files));
 
   // Packages may have been moved, renamed or deleted in Finder: read the list again when Home shows or comes back.
   useEffect(() => {
@@ -184,7 +176,7 @@ export function Home() {
         <div className="pointer-events-none absolute inset-3 z-10 grid place-items-center rounded-md border-2 border-dashed border-brand bg-brand/8">
           <span className="floating flex items-center gap-2 rounded-md px-4 py-3 text-sm font-medium">
             <PiUploadSimple className="size-5 text-brand" />
-            Drop clips to start a new {suiteNoun(SUITE_IDS[0])}, or a project to open it
+            Drop clips to start a new {suiteNoun(SUITE_IDS[0])}, images to start a photo, or a project to open it
           </span>
         </div>
       )}
@@ -277,7 +269,7 @@ function Empty({ searching, hasAny }: { searching: boolean; hasAny: boolean }) {
       </span>
       <h3 className="mt-4 text-[15px] font-semibold">Nothing here yet</h3>
       <p className="mt-1.5 max-w-sm text-[13px] leading-5 text-muted-foreground">
-        Start something above, drop your clips here to start a {suiteNoun(SUITE_IDS[0])}, or open a project you already have
+        Start something above, drop your clips here to start a {suiteNoun(SUITE_IDS[0])} (images alone start a photo), or open a project you already have
         ({OPEN_KEYS}). Projects you open show up here.
       </p>
       <p className="mt-3 text-xs text-muted-foreground">

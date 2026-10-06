@@ -186,13 +186,14 @@ export function gridPointerDown(e: Press) {
 
   const selecting = e.ctrlKey || e.metaKey || (tool === "select" && !hit);
   if (selecting) {
-    if (hit) {
+    // A click on a clip selects it (Shift: in or out of the selection); a drag, from anywhere, is a rectangle.
+    const click = () => {
+      if (!hit) return e.shiftKey ? undefined : deselect();
       const next = new Set(e.shiftKey ? p.selected : []);
       if (e.shiftKey && next.has(hit.clip.id)) next.delete(hit.clip.id);
       else next.add(hit.clip.id);
-      playlist.select(next);
-      return;
-    }
+      usePlaylist.getState().select(next);
+    };
     show(element, "crosshair");
     startGridDrag(e, element, {
       threshold: 3,
@@ -201,7 +202,7 @@ export function gridPointerDown(e: Press) {
         usePlaylist.getState().setDrag({ kind: "rect", from: tick0, to: q.tick, top: track0, bottom: q.track, add: e.shiftKey });
       },
       onEnd: commitDrag,
-      onClick: () => (e.shiftKey ? undefined : deselect()),
+      onClick: click,
       onCancel: cancelDrag,
     });
     return;

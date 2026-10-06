@@ -14,18 +14,22 @@ import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
-import { config } from "./config.ts";
+import { PHOTO_HELPER, config } from "./config.ts";
 import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { listFonts } from "./fonts.ts";
 import { LibraryStore } from "./library.ts";
-import { MediaLibrary } from "./media.ts";
+import { type ImageProbe, MediaLibrary } from "./media.ts";
 import { migrateData } from "./migrate.ts";
 import { AudioEngine, type EngineOptions } from "./music/engine.ts";
 import { SampleBrowser } from "./music/browser.ts";
 import { type MusicExportOptions, MusicExports } from "./music/exports.ts";
 import { browserRoutes, engineRoutes, musicExportRoutes } from "./music/routes.ts";
 import { mixerSetupRoutes } from "./music/mixer-setup.ts";
+import { PhotoHelper } from "./photo/helper.ts";
+import { PhotoLab } from "./photo/lab.ts";
+import { photoLabRoutes, photoRoutes } from "./photo/routes.ts";
+import { PhotoService } from "./photo/service.ts";
 import { ApiKeyStore } from "./transcription/settings.ts";
 import { ProjectStore } from "./projects.ts";
 import { assistantRoutes } from "./routes/assistant.ts";
@@ -117,8 +121,12 @@ export async function createApp({
   await paths.init();
   const location = projectsDir ?? (path.resolve(dataDir) === config.dataDir ? config.projectsDir : path.join(dataDir, "Documents", "Vaudio"));
   await migrateData(paths, location);
+  // The photo suite's helper process (the only code that parses image files), started on its first request.
+  const photoHelper = new PhotoHelper(PHOTO_HELPER);
+  // It reads what ffprobe can't of imported images (bit depth, ICC profile), for every suite's media.
+  const mediaOptions = { probeImage: (file: string) => photoHelper.request<ImageProbe>("probe", { file }) };
   // Each project's media is in its package (loaded with it), served by id whatever its package is called.
-  const library = new MediaLibrary(paths, undefined, (id) => projects.mediaDir(id));
+  const library = new MediaLibrary(paths, undefined, (id) => projects.mediaDir(id), mediaOptions);
   // The engine writes what's changed in a song's plugins before its package moves.
   let saveStates: () => Promise<void> = async () => {};
   const projects = new ProjectStore(paths, library, { location, trash, reveal, beforeMove: () => saveStates() });
@@ -126,7 +134,7 @@ export async function createApp({
   const exports = new ExportManager(paths, library);
   const web = new WebMediaLibrary(paths, library, ytdlpPath);
   await web.load();
-  const libraryMedia = new MediaLibrary(paths, { dir: paths.libraryMedia, url: "/files/library" });
+  const libraryMedia = new MediaLibrary(paths, { dir: paths.libraryMedia, url: "/files/library" }, undefined, mediaOptions);
   const shared = new LibraryStore(paths, libraryMedia, library, (id) => projects.has(id));
   await shared.load();
   const transcription = await TranscriptionService.create(paths, library, transcriptionOptions);
@@ -171,10 +179,25 @@ export async function createApp({
     music: (id, doc, folder, signal) => renderSongPreview(paths, {
       samplePath, projectDir: (projectId) => projects.dir(projectId), ...engineOptions,
     }, id, doc as MusicProject, folder, signal),
+    // A photo's cover is a still the tab renders (PUT /api/projects/:id/cover); it has nothing to play.
+    photo: async () => null,
   }, inspectPreview);
 
   const browser = new SampleBrowser(paths);
   await browser.load();
+
+  // The photo suite's F0 lab: the helper (made above, with the media) and the blob store.
+  const photoLab = new PhotoLab(path.join(paths.root, "photo-lab"), photoHelper);
+  await photoLab.init();
+  const photo = new PhotoService(photoHelper, {
+    projectDir: (id) => projects.dir(id),
+    sourcePath: (projectId, mediaId) => {
+      const asset = library.find(mediaId);
+      return asset && asset.projectId === projectId && asset.kind === "image" ? library.sourcePath(asset) : null;
+    },
+    exportsFolder: path.join(paths.exports, "photo"),
+    adoptImage: (projectId, file, name) => library.add(file, name, projectId, () => projects.has(projectId)),
+  });
 
   const app = express();
   app.disable("x-powered-by");
@@ -200,6 +223,8 @@ export async function createApp({
   app.use("/api/engine", engineRoutes(engine));
   app.use("/api/music/audio", audioIntelligenceRoutes(audioIntelligence));
   app.use("/api/music/exports", musicExportRoutes(musicExports));
+  app.use("/api/photo/lab", photoLabRoutes(photoLab));
+  app.use("/api/photo", photoRoutes(photo));
   const mixerKeys = new ApiKeyStore(path.join(paths.root, "music-jev-settings.json"));
   await mixerKeys.load();
   app.use("/api/music/mixer-setup", mixerSetupRoutes({ engine, keys: mixerKeys, hasProject: (id) => projects.has(id), assets: (id) => library.list(id) }));
@@ -248,7 +273,13 @@ export async function createApp({
 
   if (clientDir) {
     app.use(express.static(clientDir));
-    app.get("/{*path}", (_req, res) => res.sendFile(path.join(clientDir, "index.html")));
+    // Any other page is the app (`/p/<id>`): its index.html, read once. (Streamed with sendFile it was a 404 from
+    // inside the desktop app's archive, so a reload on a project there showed nothing.)
+    const index = await fs.readFile(path.join(clientDir, "index.html"), "utf8");
+    app.get("/{*path}", (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache");
+      res.type("html").send(index);
+    });
   }
 
   const onError: ErrorRequestHandler = (err, _req, res, next) => {
@@ -277,6 +308,7 @@ export async function createApp({
       ),
     closeEngineWindows: () => engine.closeEditors(),
     shutdown() {
+      photoHelper.close();
       previews.shutdown();
       projects.shutdown();
       library.shutdown();

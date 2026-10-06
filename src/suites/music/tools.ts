@@ -35,7 +35,6 @@ import { useSongExport } from "./export/store";
 import { useMusicUi } from "./ui";
 import { useMusic } from "./store";
 import { applyVocalMix, useVocalMix } from "./vocal-mix/store";
-import type { VocalVariant } from "@shared/music/audio-intelligence/vocal-mix";
 import {
   type EditResult,
   type SongEdit,
@@ -208,8 +207,9 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   },
   async apply_vocal_mix_candidate(input, ctx) {
     const target = await targetOf(ctx); requireOpen(target, "Applying a vocal alternative");
-    await applyVocalMix(target.projectId, String(input.runId), input.variant as VocalVariant);
-    return textResult(input.variant === "baseline" ? "Kept the current mix." : "Applied the selected vocal alternative as one undo step.");
+    const candidateId = String(input.candidateId ?? "");
+    await applyVocalMix(target.projectId, String(input.runId), candidateId);
+    return textResult(candidateId === "baseline" ? "Kept the current mix." : `Applied "${candidateId}" as one undo step.`);
   },
   async capture_audio_snapshot(_input, ctx) {
     const target = await targetOf(ctx);

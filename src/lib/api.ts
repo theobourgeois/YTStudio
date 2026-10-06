@@ -121,6 +121,13 @@ export const api = {
   projectClosed: (id: string) => request<ProjectSummary>(`/api/projects/${id}/closed`, { method: "POST" }),
   /** Show its package in Finder. */
   revealProject: (id: string) => request<void>(`/api/projects/${id}/reveal`, { method: "POST" }),
+  /** Its card's picture, drawn by the tab (a JPEG or PNG, at most 4 MB): for suites the server can't render. */
+  saveCover: (projectId: string, image: Blob) =>
+    request<void>(`/api/projects/${projectId}/cover`, {
+      method: "PUT",
+      body: image,
+      headers: { "Content-Type": image.type || "application/octet-stream" },
+    }),
   /** Where new projects are saved. */
   getProjectLocation: () => request<ProjectLocation>("/api/projects/location"),
   setProjectLocation: (path: string) => request<ProjectLocation>("/api/projects/location", { method: "PUT", body: JSON.stringify({ path }) }),

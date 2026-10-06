@@ -57,7 +57,7 @@ tools using aligned recorded vocal/accompaniment audio and the native engine.
 
 ## Slice C: add hosted perception
 
-Status: [infrastructure and generated-audio pilot implemented](hosted-perception.md). The updated key works and one 3.7 Flash audio response completed; 3.8 returned HTTP 503. The completed generated case contained unsupported source claims. Held-out usefulness acceptance remains pending and Gemini tasks remain unverified.
+Status: [infrastructure implemented](hosted-perception.md); the [held-out benchmark](hearing-benchmark.md) is built and run (2026-10-05). Local measurements (LUFS, band balance, timed loudness/tone changes; [B](render-and-measure.md)) now do what hosted listening was meant to for level and tone, scored on the same clips. Real cleared recordings (Mix Evaluation Dataset, 7 held-out artists), constructed changes with known truth, two Qwen 3.8 Omni Flash trials per case (76/76 completed) and a blind review page are ready. Read against the constructed truth, Qwen heard a voice entering/leaving and named solo instruments, but missed every tonal change and most level changes; Gemini (free tier) invented changes in untouched clips. The human review is the remaining step; no task is expected to pass, and none is promoted.
 
 Depends on artifact contracts from A/B. Deliverables:
 
@@ -91,11 +91,14 @@ Acceptance: Claude retrieves a relevant procedure/example, recognises missing co
 
 ## Slice E: complete the first mixing task
 
-Status: a first [local candidate comparison](vocal-mix-workflow.md) is implemented:
-baseline plus three native vocal alternatives, two passages, matched playback,
-stale/source checks and one-step apply/undo. These are fixed audition proposals.
-General MixRun orchestration, learned proposals and held-out genre/listener quality
-acceptance remain pending; this does not mark the full slice complete.
+Status (2026-10-05): [the vocal run](vocal-mix-workflow.md) is built end to end on a persisted `MixRun`
+(phases capture → inspect → hypothesise → propose → render → compare → present → accepted/discarded, its
+budgets charged per render): the beat (vocal muted) and the song with the vocal's stem are rendered over two
+passages and measured against each other; proposals come from the measurements (or the assistant's own, checked
+in native units); each is rendered, measured again, level-matched once if its compressor/EQ moved the vocal,
+and compared at matched LUFS; accepting is one undo step with stale-state refusal. Verified on two unseen real
+songs through the real engine (`scripts/verify-vocal-run.ts`): the accepted song measures as its candidate did.
+What remains is G's: whether the proposals sound better to listeners on held-out genre material.
 
 Depends on B/C/D. Deliverables:
 

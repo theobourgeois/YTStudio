@@ -4,6 +4,8 @@ import { passageFrames, useError } from "../../../shared/music/audio-intelligenc
 import type { AudioArtifact, Measurement } from "../../../shared/music/audio-intelligence/types.ts";
 import type { WavData } from "../wav.ts";
 import { setImmediate } from "node:timers/promises";
+import { LOUDNESS_METHOD, TRUE_PEAK_METHOD, loudnessSummary } from "../../../shared/music/audio-intelligence/loudness.ts";
+import { BANDS, CHANGE_METHOD, SPECTRUM_METHOD, describeTone, listen } from "../../../shared/music/audio-intelligence/spectrum.ts";
 
 export async function measureAudio(artifact: AudioArtifact, audio: WavData, signal?: AbortSignal) {
   const denied = useError(artifact, "localAnalysis");
@@ -57,11 +59,33 @@ export async function measureAudio(artifact: AudioArtifact, audio: WavData, sign
     add("firstActivitySeconds", first < 0 ? null : (first-range.first)/sampleRate, "seconds", channel, "absolute-sample-above-minus60dBFS", "Relative to the inspected passage, not a beat/phrase detector.");
     add("lastActivitySeconds", last < 0 ? null : (last-range.first)/sampleRate, "seconds", channel, "absolute-sample-above-minus60dBFS");
   }
+  // Loudness as streaming services measure it, the balance by band, and when loudness or tone moves.
+  signal?.throwIfAborted(); await setImmediate();
+  const body = channels.map(c => c.subarray(range.first, range.end)), at = range.first / sampleRate;
+  const timed = (name: string, value: number | null, unit: string, from: number, to: number, method: { name: string; version: string }, note?: string) => measurements.push({ id: `m${measurements.length}`, name, value, unit, channel: "all",
+    span: { artifactId: artifact.id, startSeconds: Math.max(span.startSeconds, at + from), endSeconds: Math.min(span.endSeconds, at + to) }, method: { ...method }, ...((note || value === null) ? { note: note ?? "Undefined for silent or zero-energy signals." } : {}) });
+  if (count >= sampleRate * 0.4) {
+    const loud = loudnessSummary(body, sampleRate);
+    const whole = (name: string, value: number | null, unit: string, method: { name: string; version: string }, note?: string) => timed(name, value, unit, 0, count / sampleRate, method, note);
+    whole("integratedLufs", loud.integratedLufs, "LUFS", LOUDNESS_METHOD, "ITU-R BS.1770-4: K-weighted, gated at -70 LUFS and 10 LU under the mean.");
+    whole("loudnessRangeLu", loud.loudnessRangeLu, "LU", LOUDNESS_METHOD, "EBU Tech 3342 (short-term loudness, P95 − P10, gated). Needs at least a few seconds.");
+    whole("truePeakDbtp", loud.truePeakDbtp, "dBTP", TRUE_PEAK_METHOD, "4x oversampled with a 12-tap-a-phase windowed sinc; within a few tenths of a dB of BS.1770 Annex 2.");
+    whole("maxMomentaryLufs", loud.maxMomentaryLufs, "LUFS", LOUDNESS_METHOD);
+    whole("maxShortTermLufs", loud.maxShortTermLufs, "LUFS", LOUDNESS_METHOD);
+    loud.shortTerm.times.forEach((t, i) => { if (Number.isFinite(loud.shortTerm.lufs[i])) timed("shortTermLufs", loud.shortTerm.lufs[i], "LUFS", t - 1.5, t + 1.5, LOUDNESS_METHOD); });
+    signal?.throwIfAborted(); await setImmediate();
+    const heard = listen(body, sampleRate);
+    for (const b of heard.balance) if (Number.isFinite(b.relativeToPinkDb)) whole(`bandBalanceDb.${b.band}`, b.relativeToPinkDb, "dB", SPECTRUM_METHOD,
+      `${BANDS.find(x => x.id === b.band)!.label}: its share of the energy against pink noise's (equal energy per octave). + is more than pink noise has there; a reference, not a target.`);
+    for (const c of heard.changes) timed(c.kind === "loudness" ? "loudnessChangeDb" : "toneChangeDb", c.deltaDb, "dB", c.at - 0.25, c.at + 0.25, CHANGE_METHOD,
+      c.kind === "loudness" ? `Loudness ${c.deltaDb > 0 ? "rises" : "falls"} from ${c.before.toFixed(1)} to ${c.after.toFixed(1)} LUFS (two-second means either side)${c.gradual ? ", gradually" : ""}.`
+        : `The balance moves: ${describeTone(c)} (each band's share, three seconds either side)${c.gradual ? ", gradually" : ""}.`);
+  }
   if (channels.length === 2) {
     add("stereoCorrelation", left2 > 0 && right2 > 0 ? Math.max(-1, Math.min(1, cross/Math.sqrt(left2*right2))) : null, "coefficient", "all", "uncentered-stereo-correlation");
     add("sideToMidDb", mid2 > 0 && side2 > 0 ? 10*Math.log10(side2/mid2) : null, "dB", "all", "side-to-mid-energy-ratio");
   }
   return createEvidence({ snapshotId: artifact.snapshotId, task: "local passage measurements", artifactRefs: [refOf(artifact)], measurements, observations: [], hypotheses: [],
-    limitations: [{ code: "supported-local-methods", text: "No LUFS, oversampled true peak, musical judgement, beat alignment, or hosted listening is provided. Lead-in and tail are excluded from passage measurements.", affects: [] }, ...(artifact.render ? [{ code: "render-history", text: `Render started ${artifact.render.start}; lead-in is ${(artifact.passage?.leadInFrames ?? 0) / sampleRate} seconds. Lead-in is a warm-up policy, not proof of convergence. Notes beginning before the lead-in and prior processor history may be absent. Plugin load states and render block size may be unknown.`, affects: [] }] : []), ...(artifact.render?.missingPlugins.length ? [{ code: "missing-render-sources", text: `The engine could not render these sources: ${artifact.render.missingPlugins.join(", ")}`, affects: [] }] : [])],
-    coverage: { inspected: [span], unavailable: ["integrated LUFS", "true peak", "hosted perception", "beat/phrase timing"] }, createdAt: Date.now() });
+    limitations: [{ code: "supported-local-methods", text: "Loudness (BS.1770-4 LUFS, EBU loudness range), 4x true peak, band balance against pink noise and timed loudness/tone changes are measured; no musical judgement, beat alignment, or hosted listening is provided. A tonal change is a band's share of the energy moving, whether the music or processing moved it. Lead-in and tail are excluded from passage measurements.", affects: [] }, ...(artifact.render ? [{ code: "render-history", text: `Render started ${artifact.render.start}; lead-in is ${(artifact.passage?.leadInFrames ?? 0) / sampleRate} seconds. Lead-in is a warm-up policy, not proof of convergence. Notes beginning before the lead-in and prior processor history may be absent. Plugin load states and render block size may be unknown.`, affects: [] }] : []), ...(artifact.render?.missingPlugins.length ? [{ code: "missing-render-sources", text: `The engine could not render these sources: ${artifact.render.missingPlugins.join(", ")}`, affects: [] }] : [])],
+    coverage: { inspected: [span], unavailable: ["hosted perception", "beat/phrase timing", "instrument identification"] }, createdAt: Date.now() });
 }

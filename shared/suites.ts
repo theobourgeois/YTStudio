@@ -13,14 +13,16 @@
  * suite keeps its code in a folder of its own (`shared/music/`, `src/suites/music/`...).
  */
 import type { MusicProject } from "./music/types.ts";
+import type { PhotoProject } from "./photo/types.ts";
 import type { Project } from "./types.ts";
 
-export type SuiteId = "video" | "music";
+export type SuiteId = "video" | "music" | "photo";
 
 /** Each suite's project document, as saved in `project.json`. */
 export interface SuiteDocuments {
   video: Project;
   music: MusicProject;
+  photo: PhotoProject;
 }
 
 export type SuiteDocument<S extends SuiteId = SuiteId> = SuiteDocuments[S];
@@ -60,6 +62,14 @@ export const SUITES: Record<SuiteId, SuiteInfo> = {
     noun: "song",
     description: "Make a song: tracks, instruments, plugins and a mixer.",
     app: "a music editor (a DAW that works like FL Studio)",
+    early: true,
+  },
+  photo: {
+    id: "photo",
+    label: "Photo",
+    noun: "photo",
+    description: "Compose and light images: layers, transforms, light effects. Thumbnails first.",
+    app: "a photo editor that works like Photoshop",
     early: true,
   },
 };

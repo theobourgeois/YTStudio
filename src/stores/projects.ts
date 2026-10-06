@@ -4,7 +4,7 @@ import { DEFAULT_SUITE, SUITE_IDS, type SuiteId, suiteNoun } from "@shared/suite
 import type { ProjectLocation, ProjectSummary, ProjectTemplates } from "@shared/types";
 import { errorMessage } from "@shared/errors";
 import { api } from "@/lib/api";
-import { chooseProjectFile, noteOpenedProject } from "@/lib/desktop";
+import { chooseProjectFile, droppedPath, noteOpenedProject } from "@/lib/desktop";
 import { projectIdFromUrl, setUrlProject } from "@/lib/route";
 import { clientSuite } from "@/suites";
 import { onProjectSaved } from "./autosave";
@@ -32,6 +32,8 @@ interface ProjectsState {
   templates: ProjectTemplates;
   /** Where new projects are saved. */
   location: ProjectLocation | null;
+  /** A suite's New window, open (`ClientSuite.NewProject`): what's asked before its project is made. */
+  choosing: { suite: SuiteId; blank: boolean } | null;
 
   /** Load the list and open the project from the URL (or show the Home screen). */
   init: () => Promise<void>;
@@ -50,11 +52,19 @@ interface ProjectsState {
   toggleHome: () => Promise<void>;
   /**
    * Create a new project of a suite (video by default), from its starting point unless `blank`, open it,
-   * and optionally import files into it.
+   * and optionally import files into it. A suite with a New window asks first (unless there are files, or
+   * `options`: what was chosen in it).
    */
-  create: (options?: { suite?: SuiteId; files?: File[]; blank?: boolean }) => Promise<void>;
+  create: (options?: { suite?: SuiteId; files?: File[]; blank?: boolean; options?: unknown }) => Promise<void>;
+  /** Close a suite's New window, making nothing. */
+  cancelNew: () => void;
   /** Open a package from anywhere on this computer (its folder, or a file in it). */
   openFile: (path: string) => Promise<void>;
+  /**
+   * Files dropped to start something (on Home, or on the tabs): a project's package opens; other files start a
+   * project of the first suite that takes them (images a photo, footage a video...). False when none does.
+   */
+  startWith: (files: File[]) => boolean;
   /**
    * Pick a package to open: the system's dialog in the desktop app (starting in `folder`, else where new
    * projects go), else `fallback` (a browser asks for a path).
@@ -151,6 +161,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
     lastOpenId: null,
     templates: {},
     location: null,
+    choosing: null,
 
     async init() {
       if (initStarted) return;
@@ -202,7 +213,10 @@ export const useProjects = create<ProjectsState>((set, get) => {
     },
 
     async open(projectId) {
-      if (get().projects.find((p) => p.id === projectId)?.missing) return;
+      const project = get().projects.find((p) => p.id === projectId);
+      if (project?.missing) return;
+      // Its document can't be read, and is left as it is: say why rather than open an empty one.
+      if (project?.damaged) return void failed(`Couldn't open ${noun(projectId)}`, new Error(project.damaged));
       setUrlProject(projectId);
       await show(projectId);
     },
@@ -238,10 +252,15 @@ export const useProjects = create<ProjectsState>((set, get) => {
       if (lastOpenId && projects.some((p) => p.id === lastOpenId && !p.missing)) await get().open(lastOpenId);
     },
 
-    async create({ suite = DEFAULT_SUITE, files, blank } = {}) {
+    async create({ suite = DEFAULT_SUITE, files, blank, options: chosen } = {}) {
+      if (!files?.length && chosen === undefined && clientSuite(suite).NewProject) {
+        set({ choosing: { suite, blank: !!blank } });
+        return;
+      }
+      set({ choosing: null });
       let summary: ProjectSummary;
       try {
-        const options = clientSuite(suite).newProjectOptions?.();
+        const options = chosen ?? clientSuite(suite).newProjectOptions?.();
         summary = await api.createProject({ suite, ...(blank && { blank }), ...(options !== undefined && { options }) });
       } catch (err) {
         failed(`Couldn't create a new ${suiteNoun(suite)}`, err);
@@ -251,6 +270,10 @@ export const useProjects = create<ProjectsState>((set, get) => {
       await get().open(summary.id);
       const { importFiles } = clientSuite(suite);
       if (files?.length && importFiles && get().openId === summary.id) await importFiles(files);
+    },
+
+    cancelNew() {
+      set({ choosing: null });
     },
 
     async openFile(path) {
@@ -263,6 +286,22 @@ export const useProjects = create<ProjectsState>((set, get) => {
       }
       upsert(summary);
       await get().open(summary.id);
+    },
+
+    startWith(files) {
+      const packages = files.map(droppedPath).filter((p) => /\.vaudio\/?$/i.test(p));
+      if (packages.length) {
+        void get().openFile(packages[0]);
+        return true;
+      }
+      for (const suite of SUITE_IDS) {
+        const taken = clientSuite(suite).startsWith?.(files) ?? [];
+        if (taken.length) {
+          void get().create({ suite, files: taken });
+          return true;
+        }
+      }
+      return false;
     },
 
     async chooseAndOpen(fallback, folder) {

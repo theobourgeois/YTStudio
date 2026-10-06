@@ -4,6 +4,7 @@
  * the frame they're fractions of: the project's canvas at 1080p (like a
  * Premiere sequence's frame size) or the clip's own media.
  */
+import { type NumberDisplay, formatShown, parseShown, roundShown } from "@/components/scrub-number";
 import type { NumberSpec, Vec2Spec } from "@shared/params";
 import type { Size } from "@shared/transform";
 import type { Vec2 } from "@shared/types";
@@ -15,13 +16,6 @@ export interface DisplayContext {
   media: Size;
 }
 
-export interface NumberDisplay {
-  min: number;
-  max: number;
-  step: number;
-  decimals: number;
-  unit?: string;
-}
 
 /** Display range, step and unit of a number, or of one component of a point. */
 export function numberDisplay(spec: NumberSpec | Vec2Spec, ctx: DisplayContext, axis: 0 | 1 = 0): NumberDisplay {
@@ -59,20 +53,4 @@ export function fromDisplay(spec: NumberSpec | Vec2Spec, shown: number | Vec2, c
   return [x / displayFactor(spec, ctx!, 0), y / displayFactor(spec, ctx!, 1)];
 }
 
-/** Round to the shown decimals (and never show "-0"). */
-export function roundShown(value: number, decimals: number): number {
-  const f = 10 ** decimals;
-  return Math.round(value * f) / f + 0;
-}
-
-export function formatShown(value: number, decimals: number): string {
-  return roundShown(value, decimals).toFixed(decimals);
-}
-
-/** Parse typed text (a plain number, commas allowed as decimal point); null when it isn't one. */
-export function parseShown(text: string): number | null {
-  const cleaned = text.trim().replace(/,/g, ".").replace(/[^\d.+\-eE]/g, "");
-  if (!cleaned) return null;
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : null;
-}
+export { type NumberDisplay, formatShown, parseShown, roundShown };

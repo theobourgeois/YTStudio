@@ -1065,7 +1065,7 @@ test("settings: a window; ⌘, opens it on the video editor's tab; themes and fo
   await page.keyboard.press("ControlOrMeta+Comma");
   const settings = page.getByRole("region", { name: "Settings" });
   await expect(settings.getByRole("tab", { selected: true })).toHaveText("Video editor");
-  await expect(settings.getByRole("tab")).toHaveText(["General", "Video editor", "Music"]);
+  await expect(settings.getByRole("tab")).toHaveText(["General", "Video editor", "Music", "Photo"]);
   // Keys pressed in it are its own: Space doesn't play the video under it.
   await page.keyboard.press("Space");
   await expect(page.locator("[data-settings]")).toHaveCount(1);
@@ -1403,7 +1403,7 @@ test("the assistant edits the video with the editor's tools, live and undoably; 
 
   // Any MCP client (e.g. Claude Code in a terminal) works in the open tab too.
   const mcp = async (method: string, params: object) => {
-    const res = await fetch("http://127.0.0.1:5321/mcp", {
+    const res = await fetch(`http://127.0.0.1:${process.env.E2E_SERVER_PORT || 5321}/mcp`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
@@ -2029,7 +2029,7 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   // The New project picker (⇧⌘O) lists every suite; typing narrows it, Enter makes one.
   await page.keyboard.press("ControlOrMeta+Shift+KeyO");
   const picker = page.getByRole("dialog");
-  await expect(picker.getByRole("option")).toHaveCount(2);
+  await expect(picker.getByRole("option")).toHaveCount(3);
   await picker.getByRole("textbox").fill("song");
   await expect(picker.getByRole("option")).toHaveCount(1);
   await page.keyboard.press("Enter");

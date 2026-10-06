@@ -19,6 +19,7 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 /** Suites with folders of their own. Add a suite's here when it's made. */
 const SUITE_FOLDERS: Record<string, string[]> = {
   music: ["shared/music/", "server/music/", "server/suites/music.ts", "src/suites/music/"],
+  photo: ["shared/photo/", "server/photo/", "server/suites/photo.ts", "src/suites/photo/"],
 };
 
 /** Files that list every suite (or wire the app together), so they import all of them. */
@@ -55,6 +56,15 @@ const PLATFORM = [
   "server/transcription/settings.ts",
   // Music analysis (tempo, beats): the video editor's beat sync and the music suite's Detect tempo.
   "server/beats.ts",
+  // Project media, every suite's (video's clips, music's samples, photo's sources): the store, its probe,
+  // posters, filmstrips and waveforms, ffmpeg's looks into a file, and `/api/media`.
+  "shared/media.ts",
+  "server/media.ts",
+  "server/probe.ts",
+  "server/derivatives.ts",
+  "server/ffmpeg.ts",
+  "server/media-analysis.ts",
+  "server/routes/media.ts",
   "server/projects.ts",
   "server/project-previews.ts",
   "server/packages.ts",
@@ -101,6 +111,7 @@ const PLATFORM = [
   "src/components/ui/",
   "src/gallery/",
   "src/components/color-picker.tsx",
+  "src/components/scrub-number.tsx",
   "src/components/home/",
   "src/components/assistant/",
   "src/components/header/header.tsx",
@@ -117,8 +128,6 @@ const PLATFORM = [
  * moving what's shared into the platform (ids, autosave, undo) or behind `ClientSuite`.
  */
 const DEBT: string[] = [
-  "server/index.ts -> server/ffmpeg.ts",
-  "server/projects.ts -> server/media.ts",
   // shared/types.ts is the platform's API types and the video editor's document at once; its clips' paths
   // and text layouts are types of the video editor's. Splitting the video document out of it fixes these.
   "shared/types.ts -> shared/path.ts",

@@ -1,94 +1,127 @@
 # Editable creative effects
 
-Status: proposed effect architecture and first implementations, 2026-10-03.
-See [rendering](../rendering.md) for domains, bounds and tile evaluation.
+Status: revised 2026-10-05 (first proposal 2026-10-03). See [rendering](../rendering.md) for domains, regions,
+levels and the output transform.
 
 ## Product direction
 
-Effects are a major reason to build this editor. Prioritize good-looking, adjustable systems rather
-than a long list of opaque filters. Start with glow and a small flare element editor; expand to
-halation, light rays, depth-driven bokeh, lens distortion, film treatments and procedural textures.
-Some later effects need depth maps or analysis passes: those are explicit input resources, not magic
-parameters assumed to exist.
+Effects are a big reason to build this editor. Prioritise good-looking, adjustable systems over a long list of opaque
+filters. Start with glow and a flare made of elements; then halation, light rays, depth-driven bokeh, lens distortion,
+film treatments and procedural textures. Some later effects need depth maps or analysis passes: those are explicit
+input resources, never magic parameters assumed to exist.
 
-The Optical Flares reference supports constructing flares from core objects and photographic sprites.
-That validates researching an element-based editor. Our element types, defaults and assets are our
-own design. [Video Copilot: create a flare](https://video-copilot.gitbook.io/opticalflaresnuke/using-optical-flares-for-nuke/creating-a-lens-flare-from-scratch).
+Optical Flares builds flares from core objects and photographic sprites, which supports an element-based editor
+([Video Copilot](https://video-copilot.gitbook.io/opticalflaresnuke/using-optical-flares-for-nuke/creating-a-lens-flare-from-scratch)).
+Our element types, defaults and assets are our own.
 
-## Definition and instance contract
+## Three kinds, kept distinct
 
-Each definition declares stable ID/version, parameters with units/defaults/ranges, input types,
-color/alpha domain, output bounds, dependency region mapping, quality policy and backend capability.
-Each instance stores parameters, enabled/mix state, mask and preset provenance where useful.
-Parameters are validated centrally; UI and assistant use the same definitions. Cache invalidation
-includes algorithm version, not just parameter values.
+- **Adjustment layers** process what's below them (exposure, curves).
+- **Layer effects** process their layer's content before its mask (glow).
+- **Generator layers** produce content (a flare, a texture) and are moved, masked and reordered like any layer.
 
-Processing supports a small set of nodes: pointwise color, resample, local kernel, multi-pass pyramid,
-reduction and procedural generator. Add a new node kind only for a concrete effect. A backend compiles
-the definition into passes; the UI should not contain effect-specific render code.
+They may share kernels; their semantics stay separate. Applying one never flattens a layer or changes its source.
 
-Generator layers produce content (flare, texture); layer effects process their input (glow, distortion);
-adjustment layers process scoped backdrop. Keep these semantics distinct even if they share kernels.
-Applying one must not silently flatten the layer or alter its original source.
+## Definition and instance
 
-## Glow: first filter
+A definition (`shared/photo/effects/<type>.ts`) declares:
+- its type, version and kind;
+- its parameters, with units, defaults, ranges and how they're shown;
+- its colour domain;
+- its region rule (input region for an output region, expanded bounds), whether it commutes with reduction (see
+  rendering);
+- its canvas handles;
+- its GPU passes: WGSL in `src/suites/photo/render/kernels/`;
+- its CPU reference in `shared/photo/reference/`, for the kernels that have one.
 
-Input: premultiplied linear RGB/alpha. Extract highlight contribution with an explicit threshold and
-soft knee in working luminance, blur at several aligned scales, tint/mix, then combine in linear light.
-Define whether alpha expands and how an isolated glowing object exports over transparency. A glow
-must not inject invisible color with zero alpha or depend on the checkerboard beneath the image.
+An instance (`EffectInstance`) stores id, type, version, enabled and parameters. Parameters are validated centrally,
+in one place, for the UI, the assistant and `normalizePhotoProject` alike. Cache keys include the version.
 
-Controls: radius in document pixels, intensity/exposure, threshold, softness, tint amount and output
-mix. Initially add light with a documented coverage policy; screen and other artistic blends follow
-extended-range tests. Do not bake the SDR highlight mapping into the glow itself.
+Parameter specs are photo's own. `shared/params.ts` is the video editor's and photo can't import it (the layering
+test forbids it). If the two turn out the same shape, move them into the platform rather than copying.
 
-Large radii require pyramid passes and cross-tile support. A one-tile padded blur is insufficient when
-the requested halo exceeds its memory budget. The global pyramid origin and sampling phase must be
-the same in viewport and export. Test tiny emitters, broad highlights, colored sources and transparency.
+Processing uses a few node kinds: pointwise colour, resample, local kernel, multi-scale pyramid, reduction (global
+statistics) and procedural generator. A new node kind is added only for a concrete effect. Panels never contain
+effect-specific rendering code: they render a definition's parameters.
 
-## Flare: first generator
+**As built (F2):** the definitions are in `shared/photo/effects/index.ts` (`EFFECTS`: exposure and curves, each
+with `isIdentity`, `commutesWithReduction`, `reference`, `summary`), their parameter specs in `params.ts` (`number`:
+unit, range, step, decimals; `curves`: a `CurveSet`), the curve maths in `curve-math.ts`, the references in
+`shared/photo/reference/adjustments.ts`, and the GPU passes in `src/suites/photo/render/adjustments.ts`
+(`ADJUSTMENT_KERNELS`: a WGSL `adjust` and how its parameters are packed). Properties renders a `number` spec as a
+slider with its field (`panels/fields.tsx`) and a `curves` spec as the Curves graph (`panels/curves-editor.tsx`).
+Adding an adjustment: a definition, a kernel, a reference and a test of each against the other; the panel, the
+assistant's catalogue (`describeAdjustments`), validation and the render plan follow. Behaviour and what's
+unverified: [research/adjustments.md](../research/adjustments.md).
 
-Represent a flare as source position, optical center, global intensity/color and ordered element
-descriptors. Each element has a stable ID, type, size, axis distance/offset, tint, intensity and shape
-parameters. Initial elements: source glow, halo/ring, ghost disc and anamorphic streak. Starbursts,
-sprites, dirt and richer chromatic separation follow once those render well.
+## Glow: the first layer effect
 
-Place the source with a canvas handle. Elements lie on/around the source-to-optical-center axis, using
-document-space coordinates and consistent aspect handling. Presets store editable descriptors and
-saved random seeds. A static image does not need timeline time to make its noise deterministic.
+Input is premultiplied linear RGBA. Steps:
+1. Take each pixel's contribution above a threshold with a soft knee, in linear luminance.
+2. Blur it at several scales with a pyramid (downsample, blur, upsample-and-add), aligned globally in document
+   pixels so tiles and exports agree.
+3. Tint it, scale by intensity, add in linear light.
 
-The generator produces linear premultiplied content with a defined alpha/coverage policy. Its layer
-mask can hide it behind objects. Automatic source occlusion based on a depth/matte resource is later
-work; a manual mask is not a physically simulated lens. Do not claim ray-traced optics for procedural
-approximations.
+The glow extends its layer's bounds, and alpha grows with its coverage. A glowing object exported over transparency
+composites correctly over black, white and colour: it never injects colour at zero alpha.
 
-## Reuse from the video editor
+Controls:
+- radius (document pixels);
+- intensity (stops);
+- threshold;
+- knee;
+- tint and tint amount;
+- mix.
 
-`shared/effect-library/light.ts` already implements glow, flare, chromatic aberration and bokeh;
-`shared/effect-gl.ts` defines shader inputs/passes. Use those as algorithm/control references and
-possible ports. The current video shader prelude clamps output, and light helpers include display
-mapping/dither. The photo path must separate linear light processing from final output mapping.
+Add is the first mode; screen and others follow their extended-range tests. No tone mapping inside: light above 1 is
+left for the output transform.
 
-Do not make photo effects depend on clip time, keyframes, media-frame coordinates or video history.
-Port pure kernels where suitable, add photo-specific units and bounds, and verify against fixtures.
-Do not change video rendering merely to make the photo prototype work.
+## Flare: the first generator
+
+A flare has:
+- a source position (document pixels, a canvas handle);
+- an optical centre (default: the canvas centre);
+- global intensity and colour;
+- an ordered list of elements, each with a stable id, type, size, position along the source-to-centre axis, offset,
+  tint, intensity and shape parameters.
+
+The first element types are source glow, halo/ring, ghost (disc or polygon, with a chromatic rim) and anamorphic
+streak; starbursts, sprites, dirt and richer chromatic separation follow when those look good. Random elements use a
+saved seed; nothing depends on time. The generator's output is premultiplied linear light whose alpha is its
+coverage. A mask hides it behind objects. Automatic occlusion from a depth or matte resource is later, and it's never
+described as physical optics.
+
+## Porting from the video editor
+
+`shared/effect-library/light.ts` has Deep Glow, Lens Flare, light rays, glint, light sweep, chromatic aberration,
+flash, light leak and bokeh. Use them as references for the look and the controls, and port the algorithms, not the
+code: they're GLSL for WebGL2, and built around 8-bit intermediate layers. What changes:
+
+| Video (`light.ts`, `effect-gl.ts`) | Photo |
+| --- | --- |
+| `pow(2.2)` / `pow(1/2.2)` for linear light | The exact sRGB curve, once, at input and output |
+| 8-bit intermediates, cube-root `enc`/`dec`, dither in every pass | Float intermediates, no dither until output quantisation |
+| Output clamped to [0, 1], `rgb ≤ a` (`effect-gl.ts` `MAIN`) | Nothing clamped; colour may exceed alpha |
+| `burn()`: highlight shoulder inside each effect | The document's output transform (`film`), applied once |
+| Glow: 32-sample golden-angle spiral per pass, randomly rotated per pixel | A deterministic pyramid: no per-pixel noise, tile-aligned |
+| Sizes as fractions of the clip's frame; a flare centre in media space | Document pixels |
+| Flare: ghosts at fixed axis positions (0.55, 0.25, −0.2, −0.45, −0.7, −1.1, −1.35), hexagon or disc, ±4% chromatic rim | The same idea as editable elements; the video's arrangement becomes the default preset |
+
+Never change video rendering to make photo work.
 
 ## Presets and extensibility
 
-Presets are versioned data referencing effect definitions and owned assets. Copy a preset into an
-instance on apply; a future preset update cannot rewrite existing projects. Preview uses transient
-instances; apply commits one history step. Asset-bearing presets are portable when copied/shared.
-
-First extensibility means adding built-in definitions cleanly. Arbitrary user shaders, third-party
-binary plugins and executable preset code are deferred. Do not design a large plugin ABI before the
-definition/instance model has been exercised by several effect families.
+Presets are versioned data referencing definitions and assets the preset owns. Applying one copies it into an
+instance, so updating a preset never rewrites existing projects. Previewing a preset doesn't touch history; applying
+it is one step. User shaders, third-party binary plugins and executable preset code are deferred: no plugin API until
+several effect families have exercised the definitions.
 
 ## Acceptance fixtures
 
-- Same source/seed, settled viewport and tiled export agree within a defined precision tolerance.
-- Glow/flare crossing tile boundaries produces no seams or cropped halos.
-- Highlights retain color/structure until the common output transform; intermediate energy is testable.
-- Alpha edges composite correctly over black, white and saturated backdrops.
-- Source handle at several zoom levels moves the same document-space light position.
-- Reordering, bypassing, masking, undoing and save/reopen preserve the full editable configuration.
-- Missing optional assets/effect versions produce a clear capability report without deleting settings.
+- Tiled vs monolithic, viewport vs export: within each kernel's declared tolerance.
+- Glow and flare across tile boundaries: no seams, no cropped halos.
+- Highlights keep their colour and structure until the output transform; intermediate energy is checked numerically.
+- Alpha edges over black, white and saturated backdrops.
+- The source handle at several zooms moves the same document point.
+- Reorder, bypass, mask, undo, save and reopen keep every setting.
+- An unknown effect version opens as unavailable with its settings intact.

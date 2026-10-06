@@ -12,8 +12,24 @@ FL Studio** (see "The music suite"). See "Suites" below: most of this file is ab
 `shared/`, `server/` and `src/`; every other suite has folders of its own.
 
 The planned **photo suite** is a Photoshop-style image editor with creative lighting/render effects.
-Read [`docs/photo/README.md`](docs/photo/README.md) for its product, research and architecture proposals
-and the foundations prototype's implementation gates. Photo implementation has not started yet.
+Read [`docs/photo/README.md`](docs/photo/README.md) for its product, research and architecture (WebGPU in the
+page renders and paints; content-addressed tiles in the package; a helper process decodes files) and the
+foundations' milestones and gates. **F0–F3 are built**: the suite is registered (`SuiteId` `photo`), with
+`shared/photo/` (the document: types.ts, project.ts, edits.ts, layers.ts; merge.ts plans merging layers; image and adjustment layers; effects/:
+the effect definitions (Exposure, Curves) and their parameter specs; render-plan.ts: `compileRender`, prefix keys,
+`refinePlan`; reference/: the CPU references the GPU is tested against; colour and ICC, geometry, half floats,
+surfaces, brush, the output transform; tools.ts), `server/photo/` (the helper process, the only code that parses
+image files, with sharp; decoded sources in each package's `photo/cache/`; banded exports; the blob store; the lab),
+`server/suites/photo.ts`, and `src/suites/photo/` (store.ts (history is a `PhotoState`: the document and the selection), ui.ts (several layers can be selected: selection.ts), keys.ts, layer-actions.ts (the Layers commands), merge.ts, painting.ts + paint-target.ts (the brush), uploads.ts (the publication gate), brush-options.ts, options-bar.tsx, workspace.tsx, panels/, canvas/,
+tools.ts + tool-edits.ts, live.ts: the open photo's renderer (and, in development, `window.photoDebug` for e2e and
+`window.photoBench` for the bench); render/: the WebGPU renderer, its atlas, page tables,
+WGSL kernels and compositor.ts, the plan's evaluator, which draws the screen, exports, covers and the assistant's
+pictures alike; renderer.ts keeps the composite below each adjustment and refines reduced views, never showing a
+stale one; adjustments.ts the adjustments' passes). `/photo-lab.html` in `pnpm dev` is F0's lab, kept for the
+renderer's parts the suite doesn't use yet. Kernels and passes storing `rgba16float` must round first
+(`round_for_store`): Metal truncates on store (docs/photo/rendering.md). Pixel layers and masks are surfaces
+(`render/surface.ts`: tiles by hash, strokes on drafts); a saved photo only names pixels the server has (`uploads.ts`,
+`SuiteBackend.checkSave`). F4 is next.
 
 ## Commands
 
@@ -22,7 +38,7 @@ pnpm dev          # server :5311 + app http://localhost:5310 (moves to 5410/5411
 pnpm typecheck    # tsc -b (app + node projects)
 pnpm test         # vitest: shared/, src/, server/ (the server integration tests need ffmpeg)
 pnpm test:e2e     # Playwright on :5320/5321 with a throwaway e2e/.data (serial, ~2 min)
-pnpm test:e2e music   # only e2e/music.spec.ts (seconds): each suite's spec stands on its own
+pnpm test:e2e music   # only e2e/music.spec.ts (seconds): each suite's spec stands on its own (photo too)
 pnpm samples      # test media into ./samples
 pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + check transitions
 pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + check video effects
@@ -37,6 +53,8 @@ pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build;
 pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
 pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit into public/kit/
 pnpm tsx scripts/make-audio-fixtures.ts [--out dir]   # the audio-intelligence fixtures as WAVs + a manifest (tests render them in memory)
+pnpm tsx scripts/photo-fixtures.ts [--skip-large]   # the photo suite's test images (48/100 MP, P3, 16-bit, alpha, EXIF) into data/photo-fixtures
+pnpm tsx scripts/photo-bench.ts [--runner chrome|electron] [--quick] [--lab [--tiles 256,512]] [--shots dir]   # the photo suite's targets, measured in the workspace (--lab: F0's lab)
 pnpm tsx scripts/select-mixparams.ts   # MixParams' reviewed reference subset into the gitignored data/ (docs/audio-intelligence/)
 python3 scripts/audit-cl1b.py <Dataset.zip> --out <report.json>   # CL 1B's layout, read statically: never unpickles
 ```
@@ -351,6 +369,8 @@ extension** (Node ESM through tsx).
   `ProjectSummary` is a union on `suite`: common fields plus the suite's own (`SuiteSummaries`).
   A suite's preferences for new projects, kept in the tab (music's default tempo), go with it as `options`
   (`ClientSuite.newProjectOptions` → `SuiteBackend.withOptions`, applied to a copy of the starting point too).
+  A suite can ask first (`ClientSuite.NewProject`, photo's New photo window): New opens it on the app's desktop
+  (`useProjects.choosing`) and its choices become the `options`; closing it makes nothing.
 - Everything suite-agnostic goes through the registries, keyed by `SuiteId` so TypeScript insists on every suite:
   `SUITES` + `SuiteDocuments` (`shared/suites.ts`), `SUITE_TOOLS` (`shared/suite-tools.ts`), `suiteBackend`
   (`server/suites/`) and `clientSuite` (`src/suites/`). Don't branch on a suite id anywhere else.
@@ -743,8 +763,10 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).
 - **Audio intelligence** (`docs/audio-intelligence/`: the plan is `audio-engineering-harness.md`, its slices
   `implementation-backlog.md`): giving the assistant truthful ears and hands. **A/B, D retrieval/workflows and bounded
-  F package intake are built. C infrastructure is built but quality certification is paused; E is partial; G/H are
-  planned.** `shared/music/audio-intelligence/` holds the contracts, all plain JSON, immutable, identified by a
+  F package intake are built. C infrastructure and its held-out benchmark (`scripts/hearing-benchmark.ts`,
+  `hearing-pack.ts`, `docs/audio-intelligence/hearing-benchmark.md`) are built and run; no listening task is promoted: the
+  local measurements (`loudness.ts`: BS.1770 LUFS, EBU range, true peak; `spectrum.ts`: band balance, timed loudness and
+  tone changes) are the ears. E's vocal run is built (`vocal-analysis.ts`, `vocal-mix.ts`, see below); G/H are planned.** `shared/music/audio-intelligence/` holds the contracts, all plain JSON, immutable, identified by a
   hash of what's in them (`shared/music/hash.ts`; their ids are fixed values in `identity.test.ts`: changing what
   is hashed orphans every stored record, so it's a schema change): `MixSnapshot` (`snapshot.ts`: the song's parts
   by hash, its media and plugins' state files by hash, and a `coverage` that says what couldn't be captured, so a
@@ -766,7 +788,12 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   platform's optional `AssistantOptions.serverTool` callback (wired in `app.ts`), so closed tabs don't lose jobs.
   Running jobs recover as interrupted; retry is explicit and bounded. Built-in-only song-mode renders share the
   engine's export queue and use a trusted resolver for immutable source copies. Measurements (`measure.ts`)
-  inspect only passage frames, keeping lead-in/tails intact; no LUFS/true peak/hosted hearing or musical opinions.
+  inspect only passage frames, keeping lead-in/tails intact; no hosted hearing or musical opinions. A render can keep a
+  track's stem (`stemTrackId`). E (`vocal-mix-workflow.md`): `create_vocal_mix_run` renders the beat (vocal muted) and the
+  song with the vocal's stem, `analyseVocal` measures one against the other, `proposeVocalChanges` turns findings both
+  passages share into bounded changes (fader, YT-C, YT-EQ: `applyVocalChange`; the fader is cubic, `faderMoved`), each
+  rendered, measured, level-matched once (`levelMatch`) and compared at matched LUFS, on a `MixRun`; candidates are
+  measured over the baseline's singing (`VocalAnalysis.sounding`).
   D (`workflows-and-examples.md`) adds curated workflow discovery, separately typed effect/decision/preference
   examples, reviewed use/context filters and source-backed profiles. `ExampleLibrary` stores project-local data
   separately from songs; references retain unknown units/intent and never become executable settings. F

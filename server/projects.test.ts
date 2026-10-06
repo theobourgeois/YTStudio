@@ -3,11 +3,13 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultEffects } from "../shared/effects.ts";
 import type { MediaAsset, Project, ProjectLocation, ProjectSummary } from "../shared/types.ts";
 import { createApp, type EditorApp } from "./app.ts";
 import { fileName, namedAfter, uniquePackage } from "./packages.ts";
+import { MAX_COVER_BYTES } from "./projects.ts";
+import { videoSuite } from "./suites/video.ts";
 
 describe("package names", () => {
   it("makes a project's name a file name", () => {
@@ -249,5 +251,195 @@ describe("project packages", () => {
     const template = path.join(dataDir, "templates", readdirSync(path.join(dataDir, "templates"))[0]);
     expect((await open(template)).status).toBe(400);
     expect((await send<ProjectSummary>("POST", "/api/projects", { name: "Copy", blank: true })).body).toMatchObject({ clipCount: 0 });
+  });
+
+  /** The copies of a package's damaged document kept beside it. */
+  const damagedCopies = (pkg: string) => readdirSync(pkg).filter((f) => /^project\.corrupt-.+\.json$/.test(f));
+
+  it("never writes over a damaged document: it's kept aside once, listed as damaged and refused", async () => {
+    await start();
+    const a = await create("Broken");
+    const healthy = readFileSync(path.join(a.path, "project.json"));
+    await stop();
+    const broken = Buffer.from('{"name":"Broken","tracks":[');
+    writeFileSync(path.join(a.path, "project.json"), broken);
+    await start();
+
+    const [listed] = await list();
+    expect(listed).toMatchObject({ id: a.id, name: "Broken" });
+    expect(listed.missing).toBeUndefined();
+    expect(listed.damaged).toMatch(/isn't valid JSON/);
+    const copies = damagedCopies(a.path);
+    expect(copies).toHaveLength(1);
+    expect(listed.damaged).toContain(path.join(a.path, copies[0]));
+    expect(readFileSync(path.join(a.path, copies[0])).equals(broken)).toBe(true);
+
+    // Opening, saving, renaming, copying: all refused, the file as it was.
+    const opened = await send<{ error: string }>("GET", `/api/projects/${a.id}`);
+    expect(opened.status).toBe(422);
+    expect(opened.body.error).toBe(listed.damaged);
+    expect((await send("PUT", `/api/projects/${a.id}`, JSON.parse(healthy.toString("utf8")))).status).toBe(422);
+    expect((await send("PATCH", `/api/projects/${a.id}`, { name: "Renamed" })).status).toBe(422);
+    expect((await send("POST", `/api/projects/${a.id}/duplicate`)).status).toBe(422);
+    expect((await send("POST", `/api/projects/${a.id}/template`)).status).toBe(422);
+    expect(readFileSync(path.join(a.path, "project.json")).equals(broken)).toBe(true);
+    expect(readdirSync(documents)).toEqual(["Broken.vaudio"]);
+
+    // Read again and again, across restarts: still the one copy.
+    await stop();
+    await start();
+    expect((await send("GET", `/api/projects/${a.id}`)).status).toBe(422);
+    expect(damagedCopies(a.path)).toEqual(copies);
+    expect((await list())[0].damaged).toBeDefined();
+
+    // Mended by hand: it opens and saves again.
+    writeFileSync(path.join(a.path, "project.json"), healthy);
+    const doc = (await send<Project>("GET", `/api/projects/${a.id}`)).body;
+    expect(doc.name).toBe("Broken");
+    expect((await list())[0].damaged).toBeUndefined();
+    expect((await send<ProjectSummary>("PUT", `/api/projects/${a.id}`, { ...doc, name: "Fixed" })).body.name).toBe("Fixed");
+  });
+
+  it("refuses a document its suite can't repair, and one that isn't a document, leaving healthy ones be", async () => {
+    // The suites repair almost anything: one that gives up is stood in for.
+    const normalize = videoSuite.normalize;
+    const spy = vi.spyOn(videoSuite, "normalize").mockImplementation((doc, media) => {
+      if ((doc as { poison?: unknown }).poison) throw new Error("tracks beyond repair");
+      return normalize(doc, media);
+    });
+    try {
+      await start();
+      const a = await create("Poisoned");
+      const b = await create("Healthy");
+      const doc = (await send<Project>("GET", `/api/projects/${a.id}`)).body;
+      const poisoned = Buffer.from(JSON.stringify({ ...doc, poison: true }));
+      writeFileSync(path.join(a.path, "project.json"), poisoned);
+
+      const opened = await send<{ error: string }>("GET", `/api/projects/${a.id}`);
+      expect(opened.status).toBe(422);
+      expect(opened.body.error).toMatch(/can't be repaired \(tracks beyond repair\)/);
+      expect((await list()).find((p) => p.id === a.id)?.damaged).toBe(opened.body.error);
+      expect((await send("PUT", `/api/projects/${a.id}`, doc)).status).toBe(422);
+      expect(readFileSync(path.join(a.path, "project.json")).equals(poisoned)).toBe(true);
+      const [copy] = damagedCopies(a.path);
+      expect(readFileSync(path.join(a.path, copy)).equals(poisoned)).toBe(true);
+
+      // Valid JSON that isn't an object is no document either: a second content, a second copy.
+      writeFileSync(path.join(a.path, "project.json"), "null");
+      expect((await send<{ error: string }>("GET", `/api/projects/${a.id}`)).body.error).toMatch(/isn't a video/);
+      expect(damagedCopies(a.path)).toHaveLength(2);
+      expect(readFileSync(path.join(a.path, "project.json"), "utf8")).toBe("null");
+
+      // The other project is untouched by any of it.
+      const other = (await send<Project>("GET", `/api/projects/${b.id}`)).body;
+      const saved = await send<ProjectSummary>("PUT", `/api/projects/${b.id}`, { ...other, name: "Still healthy" });
+      expect(saved.status).toBe(200);
+      expect((await list()).find((p) => p.id === b.id)).toMatchObject({ name: "Still healthy" });
+      expect((await list()).find((p) => p.id === b.id)?.damaged).toBeUndefined();
+      expect(damagedCopies(saved.body.path)).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("refuses to give a damaged copy made in Finder ids of its own, changing nothing in it", async () => {
+    await start();
+    const a = await create("Original");
+    await stop();
+    seedMedia(a.path, a.id, "media_00000000000b");
+    const copy = path.join(documents, "Original copy.vaudio");
+    cpSync(a.path, copy, { recursive: true });
+    writeFileSync(path.join(copy, "project.json"), "{ not json");
+    const meta = readFileSync(path.join(copy, "meta.json"));
+    await start();
+
+    const opened = await open(copy);
+    expect(opened.status).toBe(422);
+    expect((opened.body as unknown as { error: string }).error).toMatch(/isn't valid JSON/);
+    expect(readFileSync(path.join(copy, "project.json"), "utf8")).toBe("{ not json");
+    expect(readFileSync(path.join(copy, "meta.json")).equals(meta)).toBe(true);
+    expect(readdirSync(path.join(copy, "media"))).toEqual(["media_00000000000b"]);
+    expect(damagedCopies(copy)).toHaveLength(1);
+    expect((await list()).map((p) => p.id)).toEqual([a.id]);
+  });
+
+  it("makes a new document for a package that has none (there's nothing to lose)", async () => {
+    await start();
+    const a = await create("Emptied");
+    await stop();
+    rmSync(path.join(a.path, "project.json"));
+    await start();
+    expect((await list())[0].damaged).toBeUndefined();
+    expect((await send<Project>("GET", `/api/projects/${a.id}`)).body).toMatchObject({ name: "Emptied", clips: [] });
+    expect(damagedCopies(a.path)).toEqual([]);
+  });
+
+  it("duplicates a package's own folders without their caches or renditions, its cover too", async () => {
+    await start();
+    const a = await create("Layers");
+    mkdirSync(path.join(a.path, "photo", "resources"), { recursive: true });
+    mkdirSync(path.join(a.path, "photo", "cache"), { recursive: true });
+    mkdirSync(path.join(a.path, "photo", "deep", "cache"), { recursive: true });
+    mkdirSync(path.join(a.path, ".preview"));
+    writeFileSync(path.join(a.path, "photo", "resources", "x"), "pixels");
+    writeFileSync(path.join(a.path, "photo", "cache", "y"), "tiles");
+    writeFileSync(path.join(a.path, "photo", "deep", "cache", "z"), "not a top cache");
+    writeFileSync(path.join(a.path, ".preview", "preview.json"), "{}");
+    writeFileSync(path.join(a.path, ".preview", "preview.mp4"), "rendition");
+
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("cover")]);
+    expect((await putCover(a.id, png, "image/png")).status).toBe(204);
+
+    const copy = (await send<ProjectSummary>("POST", `/api/projects/${a.id}/duplicate`)).body;
+    expect(copy.path).toBe(path.join(documents, "Layers copy.vaudio"));
+    expect(readFileSync(path.join(copy.path, "photo", "resources", "x"), "utf8")).toBe("pixels");
+    expect(existsSync(path.join(copy.path, "photo", "cache"))).toBe(false);
+    expect(readFileSync(path.join(copy.path, "photo", "deep", "cache", "z"), "utf8")).toBe("not a top cache");
+    expect(readdirSync(path.join(copy.path, ".preview"))).toEqual(["cover.png"]);
+    expect(copy.thumbnail).toMatch(new RegExp(`^/api/projects/${copy.id}/cover\\?v=\\d+$`));
+    // The original keeps everything.
+    expect(readFileSync(path.join(a.path, "photo", "cache", "y"), "utf8")).toBe("tiles");
+  });
+
+  async function putCover(id: string, bytes: Buffer, type: string) {
+    const res = await fetch(`${base}/api/projects/${id}/cover`, { method: "PUT", headers: { "Content-Type": type }, body: new Uint8Array(bytes) });
+    return { status: res.status, body: res.status === 204 ? null : ((await res.json()) as { error: string }) };
+  }
+
+  it("keeps a cover the tab drew as the card's picture", async () => {
+    await start();
+    const a = await create("Composite");
+    const b = await create("Plain");
+    expect(a.thumbnail).toBeNull();
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("png pixels")]);
+    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from("jpeg pixels")]);
+
+    expect((await putCover(a.id, Buffer.from("GIF89a nope"), "image/png")).status).toBe(415);
+    expect((await putCover(a.id, Buffer.alloc(0), "image/png")).status).toBe(415);
+    const big = Buffer.concat([png, Buffer.alloc(MAX_COVER_BYTES)]);
+    expect((await putCover(a.id, big, "image/png")).status).toBe(413);
+    expect((await putCover("project_000000000000", png, "image/png")).status).toBe(404);
+    expect((await send("GET", `/api/projects/${a.id}/cover`)).status).toBe(404);
+    expect((await list()).find((p) => p.id === a.id)?.thumbnail).toBeNull();
+
+    expect((await putCover(a.id, png, "image/png")).status).toBe(204);
+    const first = (await list()).find((p) => p.id === a.id)!.thumbnail!;
+    expect(first).toMatch(new RegExp(`^/api/projects/${a.id}/cover\\?v=\\d+$`));
+    const served = await fetch(base + first);
+    expect(served.headers.get("content-type")).toBe("image/png");
+    expect(Buffer.from(await served.arrayBuffer()).equals(png)).toBe(true);
+
+    // Replaced by a JPEG: a new URL, the PNG gone.
+    expect((await putCover(a.id, jpeg, "application/octet-stream")).status).toBe(204);
+    const second = (await list()).find((p) => p.id === a.id)!.thumbnail!;
+    expect(second).not.toBe(first);
+    expect(readdirSync(path.join(a.path, ".preview"))).toEqual(["cover.jpg"]);
+    expect(Buffer.from(await (await fetch(base + second)).arrayBuffer()).equals(jpeg)).toBe(true);
+    expect((await list()).find((p) => p.id === b.id)?.thumbnail).toBeNull();
+
+    // Found again after a restart.
+    await stop();
+    await start();
+    expect((await list()).find((p) => p.id === a.id)?.thumbnail).toMatch(new RegExp(`^/api/projects/${a.id}/cover\\?v=\\d+$`));
   });
 });

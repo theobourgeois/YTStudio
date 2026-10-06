@@ -66,7 +66,8 @@ export class QwenPerception implements PerceptionAdapter {
       input.signal.throwIfAborted(); await input.beforeSend();
       const attempt: HearingAttempt = { number, startedAt: Date.now(), endedAt: null, status: "pending", inputTokens: null, outputTokens: null, costUsd: null };
       await input.onAttempt({ ...attempt });
-      const signal = AbortSignal.any([input.signal, AbortSignal.timeout(this.options.timeoutMs ?? 45_000)]);
+      // Its reasoning streams ~1,600 tokens for a 20-second clip: about 160 s measured (2026-10-05), so 45 s never finished.
+      const signal = AbortSignal.any([input.signal, AbortSignal.timeout(this.options.timeoutMs ?? 240_000)]);
       try {
         const response = await this.request(this.destination, { method: "POST", redirect: "error", headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.options.apiKey}` }, body, signal });
         if (!response.ok) {
