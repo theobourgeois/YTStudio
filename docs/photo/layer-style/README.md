@@ -367,6 +367,30 @@ Emboss and Stroke Emboss, then Chisel Hard and Soft once probes pin them; Satin.
 **Gate**: Patchy's MIT Photoshop renders (`photoshop-bevel-*`, `photoshop-emboss-styles`, `photoshop-pillow-emboss`)
 within 3 levels; Chisel only with its own fixtures.
 
+### L3 as built
+
+- **The document**: `bevel-emboss` (one a layer: Style, Technique, Depth, Direction, Size, Soften; Angle, Use Global
+  Light, Altitude; Gloss Contour; Highlight and Shadow, each a mode, colour and opacity; the Contour page's
+  `useContour`, contour and Range) and `satin` (mode, colour, opacity, Angle, Distance, Size, contour, Invert), at
+  the factory defaults bevel-emboss.md and stroke-satin-overlays.md give. Satin draws between the overlays and Inner
+  Glow, the bevel over everything, Stroke included. With Use Global Light a bevel's altitude is the document's too.
+- **The reference** (`reference/style.ts`): the height field (Smooth: the tent of the coverage at the bevel's width;
+  the chisels: `chiselShape`, fitted to Photoshop 27.11's renders, see photoshop-measurements.md; Stroke Emboss from
+  the strokes' band; Soften a box each way), the light from its slopes (`bevelShade`, Gloss Contour, the Contour at
+  Range as `100 / Range` on the slopes), each style's weights (`bevelParts`); Satin's tent read at two opposite
+  offsets in whole pixels. `reference/bevel.test.ts` holds every style × technique and Satin to Photoshop's renders:
+  within 6 levels (10 for Emboss's and Pillow's Smooth shadows and a Size 40 chisel's inner end), mean under 1.
+  `scripts/photoshop-probes/bevel-sheet.ts` draws them side by side ([the sheet](img/l3-bevel-sheet.png)).
+- **The GPU**: the height fields and Satin's tent are fields of `StyleFields` (kept as the others are); the style
+  pass lights the bevel and draws its highlight then its shadow over the result. e2e: every style and technique,
+  Soften, Gloss and Contour curves, Stroke Emboss and Satin within 1e-3 of the reference.
+- **The window**: Bevel & Emboss heads the list, its Contour row under it (checkbox and page); Altitude beside the
+  angle dial; Satin's page, its offset dragged on the canvas.
+- **Not yet**: Texture (L4: patterns); the anti-aliased checkboxes are stored and change nothing; Range with a curved
+  contour is our choice (the curve on the height, its slopes × 100 / Range: what a Linear contour measures), not
+  measured; Photoshop's one light dial for angle and altitude is a dial and a slider here; Chisel Soft's radial
+  streaks on curves aren't Photoshop's exact ones (both come from distances to pixel centres).
+
 ### L4: patterns and styles
 
 Patterns as content-addressed surfaces in the package (a built-in set; Define Pattern from a selection); Pattern

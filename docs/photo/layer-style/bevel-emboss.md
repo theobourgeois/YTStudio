@@ -428,6 +428,11 @@ a Size 5 bevel and a triple box, so the kernel is pinned.
 **Emboss and Pillow Emboss** use the same tent at **half** the size, `N' = max(2, round(Size / 2))`, and light both
 sides of the edge (Secondary: Patchy; partly Measured, see the check).
 
+**Measured since** (Photoshop 27.11, photoshop-measurements.md): both chisels are the signed distance to the edge at
+0.48 of a unit per pixel per width, flat past the width (Chisel Hard a pixel further outside), Chisel Soft with one
+extra step across the edge; that's `chiselShape` in `reference/style.ts`, within 2 levels of every facet. Patchy's
+model below is what we started from.
+
 **Chisel Hard** (Secondary, not calibrated): Patchy uses exact Euclidean distances (Felzenszwalb–Huttenlocher) to the
 nearest clear pixel `d_in` and to the nearest painted pixel `d_out`, blended by the edge pixel's alpha so anti-aliased
 edges stay smooth:

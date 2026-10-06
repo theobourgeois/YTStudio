@@ -1,19 +1,20 @@
 /**
- * Layer effects on the GPU (docs/photo/layer-style/README.md, phase L2): the same steps as the CPU reference
+ * Layer effects on the GPU (docs/photo/layer-style/README.md, phases L2 and L3): the same steps as the CPU reference
  * `shared/photo/reference/style.ts`, which they're tested against.
  *
  * Fields are made in the layer's own pixels (at a level of its pyramid when it's large), once for its content and
  * the effects' sizes, and kept: moving or zooming never makes them again, and colour, opacity, mode or a contour
  * only re-runs the composite. The layer is drawn alone into a texture there, its alpha taken, an exact Euclidean
  * distance transform (Felzenszwalb and Huttenlocher's, a line per thread) gives the signed distance to its edge,
- * and Softer's tents are box blurs of fractional width by moving sums. The composite pass then reads them at each
- * view pixel through the layer's transform.
+ * and Softer's tents are box blurs of fractional width by moving sums (Satin's and Smooth bevels' too; a chisel's
+ * height comes from the distance, and Soften blurs either). The composite pass then reads them at each view pixel
+ * through the layer's transform, a bevel's slopes a document pixel either way.
  */
 import { BLEND, BLEND_PARAMS_SIZE, BLEND_STRUCT, modeIndex, packBlend } from "./blend.ts";
 import { CONTOUR_TABLE_SIZE, contourTable } from "@shared/photo/style/contours.ts";
 import { styleDefinition } from "@shared/photo/style/definitions.ts";
 import { GRADIENT_TABLE_SIZE, type GradientStyle, gradientLayout, gradientTable } from "@shared/photo/style/gradients.ts";
-import { shadowOffset } from "@shared/photo/reference/style.ts";
+import { bevelOptions, bevelWidth, chiselShape, satinOffset, shadowOffset, strokeEmbossBand } from "@shared/photo/reference/style.ts";
 import { type Affine, invert, layerScale } from "@shared/photo/layers.ts";
 import type { DrawNode, NodeBlend, PlanFormat } from "@shared/photo/render-plan.ts";
 import type { BlendMode, Compositing, Contour, EffectInstance, Gradient } from "@shared/photo/types.ts";
@@ -24,15 +25,23 @@ import { MATHS } from "./wgsl.ts";
 export const MAX_FIELD_SIDE = 3072;
 
 /** The effects' kinds in the shaders: their place in the drawing order. */
-const KINDS = ["drop-shadow", "outer-glow", "gradient-overlay", "color-overlay", "inner-glow", "inner-shadow", "stroke"];
+const KINDS = ["drop-shadow", "outer-glow", "gradient-overlay", "color-overlay", "satin", "inner-glow", "inner-shadow", "stroke", "bevel-emboss"];
+const BEVEL_CODES: Record<string, number> = { "outer-bevel": 0, "inner-bevel": 1, emboss: 2, "pillow-emboss": 3, "stroke-emboss": 4 };
 const STYLE_CODES: Record<string, number> = { linear: 0, radial: 1, angle: 2, reflected: 3, diamond: 4, "shape-burst": 5 };
 const POSITION_CODES: Record<string, number> = { outside: 0, inside: 1, center: 2 };
 
-/** One Softer field to make: from the matte (or its inverse), grown by `grow`, blurred over `width` (field pixels). */
+/**
+ * One field to make: from the matte (or its inverse), grown by `grow`, blurred over `width` (a tent, field pixels),
+ * or a chisel's height from the signed distance; then Soften's box. Stroke Emboss's band (document pixels) is the
+ * matte, or what the chisel measures.
+ */
 interface SofterJob {
   inner: boolean;
   grow: number;
   width: number;
+  soften: number;
+  chisel: ReturnType<typeof chiselShape> | null;
+  band: readonly [number, number] | null;
 }
 
 /** What a layer's fields are made from and how big they are. */
@@ -46,7 +55,7 @@ export interface FieldPlan {
   /** Document pixels per field pixel. */
   scale: number;
   jobs: SofterJob[];
-  /** By effect id: its Softer field (1..), or 0 for none (it reads the signed distance). */
+  /** By effect id: its field (1..), or 0 for none (it reads the signed distance). */
   fieldOf: Record<string, number>;
   key: string;
 }
@@ -58,25 +67,36 @@ export function planFields(node: DrawNode, levels: number): FieldPlan {
   let level = 0;
   while (level < levels - 1 && Math.max(w, h) / 2 ** level > MAX_FIELD_SIDE) level++;
   const scale = layerScale(node.transform) * 2 ** level;
-  // Around the layer: as far as an effect's falloff or stroke reaches (a shadow's offset is read, not padded).
-  const reach = Math.max(0, ...style.effects.map((e) => ((e.params.size as number) ?? 0) + 4));
+  // Around the layer: as far as an effect's falloff, stroke or bevel reaches (a shadow's offset is read, not padded).
+  const reach = Math.max(0, ...style.effects.map((e) => ((e.params.size as number) ?? 0) + ((e.params.soften as number) ?? 0) + 6));
   const pad = Math.ceil(Math.min(reach, 512 * scale) / scale) + 3;
   const jobs: SofterJob[] = [];
   const fieldOf: Record<string, number> = {};
+  const band = strokeEmbossBand(style.effects);
+  const use = (job: SofterJob) => {
+    const key = JSON.stringify(job);
+    let at = jobs.findIndex((j) => JSON.stringify(j) === key);
+    if (at < 0) at = jobs.push(job) - 1;
+    return at + 1;
+  };
   for (const e of style.effects) {
     const p = e.params;
-    const inner = e.type === "inner-glow" || e.type === "inner-shadow";
-    const softer = e.type === "drop-shadow" || e.type === "inner-shadow" || ((e.type === "outer-glow" || e.type === "inner-glow") && p.technique === "softer");
-    if (!softer) {
-      fieldOf[e.id] = 0;
+    fieldOf[e.id] = 0;
+    if (e.type === "bevel-emboss") {
+      const o = bevelOptions(e, band);
+      if (o) fieldOf[e.id] = use({ inner: false, grow: 0, width: o.technique === "smooth" ? bevelWidth(o.style, o.size) / scale : 0, soften: o.soften / scale, chisel: o.technique === "smooth" ? null : chiselShape(o), band: o.band ?? null });
       continue;
     }
+    if (e.type === "satin") {
+      fieldOf[e.id] = use({ inner: false, grow: 0, width: (p.size as number) / scale, soften: 0, chisel: null, band: null });
+      continue;
+    }
+    const inner = e.type === "inner-glow" || e.type === "inner-shadow";
+    const softer = e.type === "drop-shadow" || e.type === "inner-shadow" || ((e.type === "outer-glow" || e.type === "inner-glow") && p.technique === "softer");
+    if (!softer) continue;
     const size = p.size as number;
     const grow = Math.round(size * ((inner ? (p.choke as number) : (p.spread as number)) / 100));
-    const job = { inner, grow: grow / scale, width: (size - grow) / scale };
-    let at = jobs.findIndex((j) => j.inner === job.inner && j.grow === job.grow && j.width === job.width);
-    if (at < 0) at = jobs.push(job) - 1;
-    fieldOf[e.id] = at + 1;
+    fieldOf[e.id] = use({ inner, grow: grow / scale, width: (size - grow) / scale, soften: 0, chisel: null, band: null });
   }
   const width = Math.ceil(w / 2 ** level) + 2 * pad;
   const height = Math.ceil(h / 2 ** level) + 2 * pad;
@@ -86,10 +106,12 @@ export function planFields(node: DrawNode, levels: number): FieldPlan {
 const FIELDS = /* wgsl */ `
 const INF: f32 = 1e20;
 struct P {
-  w: u32, h: u32, axis: u32, kind: u32,     // kind: the EDT's seeds (0 inside, 1 outside); the box's source (0 scratch, 1 matte, 2 grown)
+  w: u32, h: u32, axis: u32, kind: u32,     // kind: the EDT's seeds (0 inside, 1 outside); the box's source (0 scratch, 1 matte, 2 grown, 3 chisel, 4 band)
   src: u32, dst: u32, toFields: u32, field: u32,
   width: f32, edge: f32, grow: f32, sign: f32,
   a: u32, r: u32, t1: u32, t2: u32,
+  lo: f32, hi: f32, k: f32, jump: f32,      // a chisel's shape (reference style.ts's chiselShape), document pixels
+  offset: f32, blo: f32, bhi: f32, scale: f32, // Stroke Emboss's band (document pixels); document pixels per field pixel
 }
 @group(0) @binding(0) var<storage, read_write> scratch: array<f32>;
 @group(0) @binding(1) var<storage, read_write> fields: array<f32>;
@@ -173,6 +195,16 @@ fn read_box(line: u32, q: u32) -> f32 {
     return select(a, 1.0 - a, p.sign < 0.0);
   }
   if (p.kind == 2u) { return clamp(0.5 - (fields[i] * p.sign - p.grow), 0.0, 1.0); }
+  if (p.kind == 3u) {
+    let d = fields[i] * p.scale;
+    var t = -d;
+    if (p.bhi > p.blo) { t = min(d - p.blo, p.bhi - d); }
+    return p.offset + p.k * (clamp(t, p.lo, p.hi) + p.jump * clamp(t, -0.5, 0.5));
+  }
+  if (p.kind == 4u) {
+    let d = fields[i] * p.scale;
+    return clamp(p.bhi - d + 0.5, 0.0, 1.0) * clamp(d - p.blo + 0.5, 0.0, 1.0);
+  }
   return scratch[p.src + i];
 }
 
@@ -213,7 +245,7 @@ fn box(@builtin(global_invocation_id) g: vec3u) {
 
 const PARAMS_STRIDE = 256;
 
-/** A layer's fields on the GPU: the signed distance (field 0) and its Softer fields, each `width` × `height`. */
+/** A layer's fields on the GPU: the signed distance (field 0) and its other fields, each `width` × `height`. */
 export interface FieldSet {
   plan: FieldPlan;
   buffer: GPUBuffer;
@@ -279,7 +311,7 @@ export class StyleFields {
       this.ev = device.createBuffer({ label: "edt v", size: edtSize, usage: GPUBufferUsage.STORAGE });
       this.ez = device.createBuffer({ label: "edt z", size: edtSize, usage: GPUBufferUsage.STORAGE });
     }
-    const count = 6 + 4 * plan.jobs.length;
+    const count = 6 + 6 * plan.jobs.length;
     if (count * PARAMS_STRIDE > this.params.size) {
       this.params.destroy();
       this.params = device.createBuffer({ size: PARAMS_STRIDE * count * 2, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -293,7 +325,7 @@ export class StyleFields {
         { binding: 1, resource: { buffer } },
         { binding: 2, resource: { buffer: this.ev } },
         { binding: 3, resource: { buffer: this.ez! } },
-        { binding: 4, resource: { buffer: this.params, size: 64 } },
+        { binding: 4, resource: { buffer: this.params, size: 96 } },
         { binding: 5, resource: texture.createView() },
       ],
     });
@@ -305,8 +337,8 @@ export class StyleFields {
     const passes: { pipeline: GPUComputePipeline; params: number[]; groups: [number, number] }[] = [];
     const lines = (axis: number) => Math.ceil((axis === 0 ? h : w) / 64);
     const pixels: [number, number] = [Math.ceil(w / 8), Math.ceil(h / 8)];
-    // [w, h, axis, kind, src, dst, toFields, field, width, edge, grow, sign, a, r, t1, t2]
-    const P = (axis: number, kind: number, src: number, dst: number, toFields: number, field: number, width = 0, edge = 0, grow = 0, sign = 1) => [w, h, axis, kind, src, dst, toFields, field, width, edge, grow, sign, A, R, T1, T2];
+    // [w, h, axis, kind, src, dst, toFields, field, width, edge, grow, sign, a, r, t1, t2, lo, hi, k, jump, offset, blo, bhi, scale]
+    const P = (axis: number, kind: number, src: number, dst: number, toFields: number, field: number, width = 0, edge = 0, grow = 0, sign = 1, shape: number[] = [0, 0, 0, 0, 0, 0, 0, plan.scale]) => [w, h, axis, kind, src, dst, toFields, field, width, edge, grow, sign, A, R, T1, T2, ...shape];
     passes.push({ pipeline: this.pipelines.alpha, params: P(0, 0, 0, 0, 0, 0), groups: pixels });
     passes.push({ pipeline: this.pipelines.edt, params: P(0, 0, 0, R, 0, 0), groups: [lines(0), 1] });
     passes.push({ pipeline: this.pipelines.edt, params: P(1, 0, R, T1, 0, 0), groups: [lines(1), 1] });
@@ -314,23 +346,37 @@ export class StyleFields {
     passes.push({ pipeline: this.pipelines.edt, params: P(1, 1, R, T2, 0, 0), groups: [lines(1), 1] });
     passes.push({ pipeline: this.pipelines.signed, params: P(0, 0, 0, 0, 0, 0), groups: pixels });
     plan.jobs.forEach((job, j) => {
-      const edge = job.inner ? 1 : 0;
+      const c = job.chisel;
+      const edge = c ? c.outside : job.inner ? 1 : 0;
       const sign = job.inner ? -1 : 1;
-      const first = job.grow > 0 ? 2 : 1;
-      // Rows twice, then columns twice: Softer's tent.
-      passes.push({ pipeline: this.pipelines.box, params: P(0, first, 0, T1, 0, 0, job.width, edge, job.grow, sign), groups: [lines(0), 1] });
-      passes.push({ pipeline: this.pipelines.box, params: P(0, 0, T1, T2, 0, 0, job.width, edge, 0, sign), groups: [lines(0), 1] });
-      passes.push({ pipeline: this.pipelines.box, params: P(1, 0, T2, T1, 0, 0, job.width, edge, 0, sign), groups: [lines(1), 1] });
-      passes.push({ pipeline: this.pipelines.box, params: P(1, 0, T1, 0, 1, j + 1, job.width, edge, 0, sign), groups: [lines(1), 1] });
+      const shape = [c?.lo ?? 0, c?.hi ?? 0, c?.k ?? 0, c?.jump ?? 0, c?.offset ?? 0, job.band?.[0] ?? 0, job.band?.[1] ?? 0, plan.scale];
+      const box = (axis: number, kind: number, src: number, dst: number, last: boolean, width: number, grow = 0) =>
+        passes.push({ pipeline: this.pipelines.box, params: P(axis, kind, src, last ? 0 : dst, last ? 1 : 0, last ? j + 1 : 0, width, edge, grow, sign, shape), groups: [lines(axis), 1] });
+      if (c) {
+        // The chisel's height, through Soften's box (a copy without it).
+        box(0, 3, 0, T1, false, job.soften);
+        box(1, 0, T1, 0, true, job.soften);
+        return;
+      }
+      // Rows twice, then columns twice: the tent; then Soften's box each way.
+      const first = job.band ? 4 : job.grow > 0 ? 2 : 1;
+      box(0, first, 0, T1, false, job.width, job.grow);
+      box(0, 0, T1, T2, false, job.width);
+      box(1, 0, T2, T1, false, job.width);
+      if (job.soften <= 0) return void box(1, 0, T1, 0, true, job.width);
+      box(1, 0, T1, T2, false, job.width);
+      box(0, 0, T2, T1, false, job.soften);
+      box(1, 0, T1, 0, true, job.soften);
     });
     const data = new ArrayBuffer(PARAMS_STRIDE * passes.length);
     passes.forEach((pass, i) => {
-      const u = new Uint32Array(data, i * PARAMS_STRIDE, 16);
-      const f = new Float32Array(data, i * PARAMS_STRIDE, 16);
+      const u = new Uint32Array(data, i * PARAMS_STRIDE, 24);
+      const f = new Float32Array(data, i * PARAMS_STRIDE, 24);
       const v = pass.params;
       u.set(v.slice(0, 8), 0);
       f.set(v.slice(8, 12), 8);
       u.set(v.slice(12, 16), 12);
+      f.set(v.slice(16, 24), 16);
     });
     device.queue.writeBuffer(this.params, 0, data);
     const compute = encoder.beginComputePass({ label: "style fields" });
@@ -374,8 +420,12 @@ ${ROUND_FOR_STORE(format)}
 ${MATHS}
 ${BLEND_STRUCT}
 ${BLEND}
+// A bevel's fields: mode and colour its highlight's, opacity its highlight opacity, spread its height past the field,
+// contour its Gloss Contour, gradient its Contour's row (−1: off), offset Stroke Emboss's band, position its shadow's
+// mode, style its style (0 outer, 1 inner, 2 emboss, 3 pillow, 4 stroke), place its shadow's colour and opacity,
+// extra its light and slope scale.
 struct Fx {
-  kind: u32, mode: u32, field: i32, flags: u32,      // flags: 1 precise, 2 inner, 4 centre, 8 gradient, 16 outer
+  kind: u32, mode: u32, field: i32, flags: u32,      // flags: 1 precise, 2 inner, 4 centre (Satin: invert), 8 gradient, 16 outer, 32 knocks out, 64 down, 128 half
   colour: vec4f,                                      // straight, encoded
   opacity: f32, size: f32, spread: f32, range: f32,   // size in field pixels
   noise: f32, jitter: f32, contour: u32, gradient: i32,
@@ -490,11 +540,19 @@ fn band(d: f32, size: f32, position: u32) -> f32 {
 // What an effect paints here: its colour (straight, encoded) and alpha (coverage × its opacity).
 fn paint(fx: Fx, doc: vec2f) -> vec4f {
   if (fx.kind == 3u) { return vec4f(fx.colour.rgb, fx.opacity); }
+  if (fx.kind == 4u) {
+    // Satin: the blurred shape through the contour at two opposite offsets, differenced.
+    let a = contour(fx.contour, bil(fx.field, to_field(doc + fx.offset), 0.0));
+    let c = contour(fx.contour, bil(fx.field, to_field(doc - fx.offset), 0.0));
+    var m = abs(a - c);
+    if ((fx.flags & 4u) != 0u) { m = 1.0 - m; }
+    return vec4f(fx.colour.rgb, m * fx.opacity);
+  }
   if (fx.kind == 2u) {
     let g = gradient(fx.gradient, gradient_position(fx.style, fx.place, doc));
     return vec4f(g.rgb, g.a * fx.opacity);
   }
-  if (fx.kind == 6u) {
+  if (fx.kind == 7u) {
     let d = sd_at(to_field(doc)) * su.sdScale;
     let c = band(d, fx.extra.x, fx.position);
     if ((fx.flags & 8u) != 0u) {
@@ -522,6 +580,46 @@ fn paint(fx: Fx, doc: vec2f) -> vec4f {
     return vec4f(g.rgb, g.a * select(1.0, min(1.0, 8.4 * raw), outer) * fx.opacity);
   }
   return vec4f(fx.colour.rgb, c * fx.opacity);
+}
+// A bevel's height a document pixel away, through its Contour when it's on.
+fn bevel_height(fx: Fx, doc: vec2f) -> f32 {
+  let h = bil(fx.field, to_field(doc), fx.spread);
+  if (fx.gradient >= 0) { return contour(u32(fx.gradient), h); }
+  return h;
+}
+// The light on a slope \`g\`: highlight and shadow (reference style.ts's bevelShade).
+fn bevel_shade(fx: Fx, g: vec2f) -> vec2f {
+  let l = fx.extra.xyz;
+  let flat = l.z;
+  let raw = g.x * l.x + g.y * l.y;
+  let lit = contour(fx.contour, clamp((raw + flat) / length(vec3f(g, 1.0)), 0.0, 1.0));
+  var highlight = 0.0;
+  var shadow = 0.0;
+  if (lit >= flat) { highlight = min(1.0, (lit - flat) / max(1e-6, 1.0 - flat)); } else { shadow = min(1.0, (flat - lit) / max(1e-6, flat)); }
+  if ((fx.flags & 128u) != 0u) { shadow = clamp(-raw / max(1e-6, flat), 0.0, 1.0); }
+  return vec2f(highlight, shadow);
+}
+// A bevel's highlight (x) and shadow (y) here, weighed by its style at the layer's coverage \`a\`.
+fn bevel(fx: Fx, doc: vec2f, a: f32) -> vec2f {
+  var g = vec2f(bevel_height(fx, doc - vec2f(1.0, 0.0)) - bevel_height(fx, doc + vec2f(1.0, 0.0)), bevel_height(fx, doc - vec2f(0.0, 1.0)) - bevel_height(fx, doc + vec2f(0.0, 1.0))) * fx.extra.w;
+  if ((fx.flags & 64u) != 0u) { g = -g; }
+  var w0 = a;
+  var s0 = 1.0;
+  var w1 = 0.0;
+  switch (fx.style) {
+    case 0u: { w0 = 1.0 - a; }
+    case 2u: { w0 = 1.0; }
+    case 3u: { w0 = 1.0 - a; s0 = -1.0; w1 = a; }
+    case 4u: {
+      let d = sd_at(to_field(doc)) * su.sdScale;
+      w0 = clamp(fx.offset.y - d + 0.5, 0.0, 1.0) * clamp(d - fx.offset.x + 0.5, 0.0, 1.0);
+    }
+    default: {}
+  }
+  var out = vec2f(0.0);
+  if (w0 > 0.0) { out += w0 * bevel_shade(fx, g * s0); }
+  if (w1 > 0.0) { out += w1 * bevel_shade(fx, g); }
+  return min(out, vec2f(1.0));
 }
 
 @fragment
@@ -556,7 +654,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     var group = s;
     for (var i = 0u; i < su.count; i++) {
       let fx = fxs[i];
-      if (fx.kind < 2u || fx.kind > 5u) { continue; }
+      if (fx.kind < 2u || fx.kind > 6u) { continue; }
       let pnt = paint(fx, doc);
       group = over(group, pnt.rgb, pnt.a, fx.mode, doc);
     }
@@ -565,18 +663,25 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     inside = composite_pixel(lb, insideBase, s, doc);
     for (var i = 0u; i < su.count; i++) {
       let fx = fxs[i];
-      if (fx.kind < 2u || fx.kind > 5u) { continue; }
+      if (fx.kind < 2u || fx.kind > 6u) { continue; }
       let pnt = paint(fx, doc);
       inside = over(inside, pnt.rgb, pnt.a, fx.mode, doc);
     }
   }
   var result = mix(outside, inside, alpha);
-  // The strokes, over it all.
+  // The strokes, over it all; then the bevel's highlight and shadow.
   for (var i = 0u; i < su.count; i++) {
     let fx = fxs[i];
-    if (fx.kind != 6u) { continue; }
+    if (fx.kind != 7u) { continue; }
     let pnt = paint(fx, doc);
     result = over(result, pnt.rgb, pnt.a, fx.mode, doc);
+  }
+  for (var i = 0u; i < su.count; i++) {
+    let fx = fxs[i];
+    if (fx.kind != 8u) { continue; }
+    let light = bevel(fx, doc, alpha);
+    result = over(result, fx.colour.rgb, light.x * fx.opacity, fx.mode, doc);
+    result = over(result, fx.place.rgb, light.y * fx.place.w, fx.position, doc);
   }
   result = mix(b, result, su.blend.opacity * m);
   let keep = vec4<bool>((su.blend.channels & 1u) != 0u, (su.blend.channels & 2u) != 0u, (su.blend.channels & 4u) != 0u, true);
@@ -598,12 +703,50 @@ export function packStyle(node: DrawNode, blend: NodeBlend, opacity: number, com
   const gradients: Float32Array[] = [];
   const contourRow = (c: Contour) => contours.push(contourTable(c)) - 1;
   const gradientRow = (g: Gradient, reverse: boolean) => gradients.push(gradientTable(g, reverse)) - 1;
+  const band = strokeEmbossBand(effects);
   effects.forEach((e: EffectInstance, i) => {
     const p = e.params;
     const u = new Uint32Array(fx, i * FX_SIZE, FX_SIZE / 4);
     const f = new Float32Array(fx, i * FX_SIZE, FX_SIZE / 4);
     const i32 = new Int32Array(fx, i * FX_SIZE, FX_SIZE / 4);
     const kind = KINDS.indexOf(e.type);
+    if (e.type === "bevel-emboss") {
+      const o = bevelOptions(e, band);
+      const depth = (p.depth as number) / 100;
+      const half = p.style === "emboss" || p.style === "pillow-emboss";
+      const k = (half ? 0.5 * Math.max(depth, 0.25) * bevelWidth(o?.style ?? "emboss", p.size as number) : 0.5 * depth * Math.max(1, p.size as number)) * (p.useContour === true ? 100 / (p.range as number) : 1);
+      const a = (style.angles[e.id] * Math.PI) / 180;
+      const alt = ((style.altitudes[e.id] ?? 30) * Math.PI) / 180;
+      u[0] = kind;
+      u[1] = Math.max(0, modeIndex(p.highlightMode as BlendMode));
+      i32[2] = plan.fieldOf[e.id] ?? 0;
+      u[3] = (p.direction === "down" ? 64 : 0) | (half ? 128 : 0);
+      f.set([...hexEncoded(p.highlightColour as string), 1], 4);
+      f[8] = (p.highlightOpacity as number) / 100;
+      f[10] = o && o.technique !== "smooth" ? chiselShape(o).outside : 0;
+      u[14] = contourRow(p.gloss as Contour);
+      i32[15] = p.useContour === true ? contourRow(p.contour as Contour) : -1;
+      // Stroke Emboss without a stroke: an empty band.
+      f.set(o?.band ?? (p.style === "stroke-emboss" ? [1, -1] : [0, 0]), 16);
+      u[18] = Math.max(0, modeIndex(p.shadowMode as BlendMode));
+      u[19] = BEVEL_CODES[p.style as string] ?? 1;
+      f.set([...hexEncoded(p.shadowColour as string), (p.shadowOpacity as number) / 100], 20);
+      f.set([Math.cos(a) * Math.cos(alt), -Math.sin(a) * Math.cos(alt), Math.sin(alt), k], 24);
+      return;
+    }
+    if (e.type === "satin") {
+      const o = satinOffset(style.angles[e.id], p.distance as number);
+      u[0] = kind;
+      u[1] = Math.max(0, modeIndex(p.mode as BlendMode));
+      i32[2] = plan.fieldOf[e.id] ?? 0;
+      u[3] = p.invert === true ? 4 : 0;
+      f.set([...hexEncoded(p.colour as string), 1], 4);
+      f[8] = (p.opacity as number) / 100;
+      u[14] = contourRow(p.contour as Contour);
+      i32[15] = -1;
+      f.set([o.x, o.y], 16);
+      return;
+    }
     const inner = e.type === "inner-glow" || e.type === "inner-shadow";
     const gradientFill = e.type === "gradient-overlay" || p.fill === "gradient";
     u[0] = kind;

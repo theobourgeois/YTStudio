@@ -124,6 +124,8 @@ the default for new photos; README.md, A24). Older photos, and those set to it, 
   its effects. Their fields (a signed distance, Softer's blurs) are made in the layer's own pixels and kept by content
   and sizes (`render/style.ts`); the pass samples them through the layer's transform, so they're exact at every zoom
   and moving the layer never remakes them. A styled node doesn't commute with reduction: reduced views refine.
+  Bevels (L3) add a height field (Smooth: the tent of the coverage; a chisel: from the signed distance; then Soften's
+  box), lit in the pass from its slopes a document pixel either way; Satin reads a tent twice, offset either way.
 - Blend modes don't commute with reduction (a mode of averages isn't the average of the modes): reduced views of
   a plan with one refine at level 0. Normal does, in either compositing (within tolerance at soft edges).
 

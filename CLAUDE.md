@@ -29,7 +29,7 @@ stale one; adjustments.ts the adjustments' passes). `/photo-lab.html` in `pnpm d
 renderer's parts the suite doesn't use yet. Kernels and passes storing `rgba16float` must round first
 (`round_for_store`): Metal truncates on store (docs/photo/rendering.md). Pixel layers and masks are surfaces
 (`render/surface.ts`: tiles by hash, strokes on drafts); a saved photo only names pixels the server has (`uploads.ts`,
-`SuiteBackend.checkSave`). Layer Style L1–L2 are built (docs/photo/layer-style/README.md: blend modes and compositing in render/blend.ts, effects in shared/photo/style/ and render/style.ts, their fields made in the layer's pixels and kept; reference/blend.ts and reference/style.ts are held to Photoshop's own renders). F4 is next.
+`SuiteBackend.checkSave`). Layer Style L1–L3 are built (docs/photo/layer-style/README.md: blend modes and compositing in render/blend.ts, effects (Bevel & Emboss and Satin too) in shared/photo/style/ and render/style.ts, their fields made in the layer's pixels and kept; reference/blend.ts and reference/style.ts are held to Photoshop's own renders, `scripts/photoshop-probes/bevel-sheet.ts` shows the bevels beside them). F4 is next.
 
 ## Commands
 

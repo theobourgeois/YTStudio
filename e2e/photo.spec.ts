@@ -13,6 +13,7 @@ import { curvesFor, exposurePixel, type Pixel } from "../shared/photo/reference/
 import { BLEND_MODES, SPECIAL_FILL, blendSeed } from "../shared/photo/blending.ts";
 import { type BlendParams, type Rgba, compositePixel } from "../shared/photo/reference/blend.ts";
 import { renderStyled } from "../shared/photo/reference/style.ts";
+import { CONTOUR_PRESETS } from "../shared/photo/style/contours.ts";
 import { newStyleEffect } from "../shared/photo/style/style.ts";
 import { boxReduce, sampleMitchell } from "../shared/photo/reference/reduce.ts";
 
@@ -1457,7 +1458,11 @@ test("blend modes, Fill, channels and Blend If draw as the reference composites 
   await expect.poll(mode).toBe("screen");
 });
 
-test("layer effects draw as the reference does: shadows, glows, overlays and strokes, Precise and Softer, in either compositing", async ({ page }) => {
+/**
+ * A photo of one soft-edged disc (160 × 160, opened as the canvas, so the layer is at 100%) over a blue-grey canvas,
+ * and `check`, which gives the layer a style and compares the GPU's picture with the CPU reference's.
+ */
+async function styleBench(page: Page, name: string) {
   // A soft-edged disc in a 160 × 160 image with room around it: opened as the canvas, the layer is at 100%.
   const file = path.join(os.tmpdir(), "photo-style-disc.png");
   const disc = Buffer.alloc(160 * 160 * 4);
@@ -1467,7 +1472,7 @@ test("layer effects draw as the reference does: shadows, glows, overlays and str
       disc.set([230, 120, 40, Math.round(a * 255)], (y * 160 + x) * 4);
     }
   await sharp(disc, { raw: { width: 160, height: 160, channels: 4 } }).png().toFile(file);
-  const id = await openNewPhoto(page, "Effects");
+  const id = await openNewPhoto(page, name);
   await openImage(page, file);
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
   // Every shader compiles.
@@ -1503,7 +1508,7 @@ test("layer effects draw as the reference does: shadows, glows, overlays and str
     await set({ layer: { style, ...layer }, doc: { compositing } });
     const got = await renderRegion(page, view);
     const doc = (await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc)) as unknown as { layers: Parameters<typeof renderStyled>[0][] };
-    const want = renderStyled(doc.layers[0], { compositing }, { width: 160, height: 160, pixels: backdrop }, { width: 160, height: 160, pixels: new Float32Array(content) }, (e) => (e.params.globalLight === true ? 120 : (e.params.angle as number)), { x0: 0, y0: 0, x1: 160, y1: 160 });
+    const want = renderStyled(doc.layers[0], { compositing }, { width: 160, height: 160, pixels: backdrop }, { width: 160, height: 160, pixels: new Float32Array(content) }, (e) => (e.params.globalLight === true ? 120 : (e.params.angle as number)), { x0: 0, y0: 0, x1: 160, y1: 160 }, (e) => (e.params.globalLight === true ? 30 : (e.params.altitude as number)));
     let worst = 0;
     let at = 0;
     for (let i = 0; i < want.length; i++) {
@@ -1511,7 +1516,13 @@ test("layer effects draw as the reference does: shadows, glows, overlays and str
       if (d > worst) [worst, at] = [d, i];
     }
     expect(worst, `${label}: worst at pixel ${Math.floor(at / 4) % 160}, ${Math.floor(at / 640)} (${got[at]} vs ${want[at]})`).toBeLessThan(1e-3);
+    return got;
   };
+  return { id, layerId, set, fx, check };
+}
+
+test("layer effects draw as the reference does: shadows, glows, overlays and strokes, Precise and Softer, in either compositing", async ({ page }) => {
+  const { id, set, fx, check } = await styleBench(page, "Effects");
   await check("a drop shadow", [fx("drop-shadow", { distance: 12, size: 18, spread: 20, opacity: 75 })]);
   await check("a drop shadow at its own angle, not knocking out, under a 30% Fill", [fx("drop-shadow", { distance: 9, size: 6, angle: 30, globalLight: false, knocksOut: false })], { fill: 0.3 });
   await check("an outer glow, Softer, a Cone contour, Range 60", [fx("outer-glow", { size: 20, opacity: 80, colour: "#ffe066", contour: { name: "Cone", points: [{ x: 0, y: 0 }, { x: 129, y: 255 }, { x: 255, y: 0 }] }, range: 60 })]);
@@ -1590,4 +1601,49 @@ test("layer effects draw as the reference does: shadows, glows, overlays and str
   await page.locator("[data-layer]").first().click({ button: "right" });
   await page.getByRole("menuitem", { name: "Paste Layer Style" }).click();
   await expect.poll(async () => ((await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[1])) as { style?: { effects: { type: string }[] } }).style?.effects[0]?.type).toBe("stroke");
+});
+
+test("bevels and satin draw as the reference does: every style and technique, Soften, the contours; Bevel's Contour page", async ({ page }) => {
+  const { id, set, fx, check } = await styleBench(page, "Bevels");
+  const preset = (name: string) => CONTOUR_PRESETS.find((c) => c.name === name)!;
+  for (const style of ["inner-bevel", "outer-bevel", "emboss", "pillow-emboss"])
+    for (const technique of ["smooth", "chisel-hard", "chisel-soft"]) await check(`${style}, ${technique}`, [fx("bevel-emboss", { style, technique, size: 12, depth: 150 })]);
+  await check("down, softened, a Ring gloss, its own light at 60°, an Overlay highlight", [fx("bevel-emboss", { direction: "down", soften: 4, size: 10, globalLight: false, angle: 45, altitude: 60, gloss: preset("Ring"), highlightMode: "overlay", highlightColour: "#ffcc00" })]);
+  await check("a chisel softened, a Cove - Deep contour at Range 70", [fx("bevel-emboss", { technique: "chisel-hard", soften: 3, useContour: true, contour: preset("Cove - Deep"), range: 70, size: 14 })]);
+  await check("Stroke Emboss on an outside and an inside stroke, chiselled", [fx("stroke", { size: 8 }), fx("stroke", { size: 3, position: "inside", colour: "#ffffff" }), fx("bevel-emboss", { style: "stroke-emboss", technique: "chisel-hard", size: 6 })]);
+  await check("Stroke Emboss, Smooth", [fx("stroke", { size: 6, position: "center" }), fx("bevel-emboss", { style: "stroke-emboss", size: 5 })]);
+  await check("Stroke Emboss without a stroke draws nothing", [fx("bevel-emboss", { style: "stroke-emboss" })]);
+  await check("satin under a bevel", [fx("satin", { size: 10, distance: 7, angle: 30, colour: "#3355ff", mode: "normal", opacity: 80 }), fx("bevel-emboss", {})]);
+  // (They draw something: a bevel and a satin change the layer.)
+  const plain = await check("no effects", []);
+  for (const effect of [fx("bevel-emboss", { size: 12 }), fx("satin", {})]) {
+    const lit = await check(effect.type, [effect]);
+    expect(Math.max(...lit.map((v, i) => Math.abs(v - plain[i])))).toBeGreaterThan(0.1);
+  }
+  await check("satin, a Gaussian contour, not inverted, in linear light", [fx("satin", { invert: false, contour: preset("Gaussian"), size: 20, distance: 12 })], {}, "linear");
+
+  // The window: Bevel & Emboss from the fx menu, then its Contour row: ticked, Range typed, OK.
+  await set({ layer: { style: null }, doc: { compositing: "photoshop" } });
+  await page.locator("[data-layer]").first().click();
+  await page.getByRole("button", { name: "Add a layer style" }).click();
+  await page.locator("[data-fx-menu]").getByRole("menuitem", { name: "Bevel & Emboss…" }).click();
+  const dialog = page.locator("[data-layer-style]");
+  await expect(dialog.locator('[data-page="bevel-emboss"]')).toBeVisible();
+  await expect(dialog.getByRole("slider", { name: "Altitude slider" })).toBeVisible();
+  const contourRow = dialog.locator('[data-style-row$=":Contour"]');
+  await contourRow.getByRole("button", { name: "Contour" }).click();
+  await expect(dialog.locator('[data-page="bevel-emboss-contour"]')).toBeVisible();
+  await contourRow.getByRole("checkbox", { name: "Contour on" }).check();
+  await dialog.getByRole("spinbutton", { name: "Range" }).click();
+  await page.keyboard.type("30");
+  await page.keyboard.press("Enter");
+  // Satin's row adds one.
+  await dialog.locator('[data-style-row="satin"]').getByRole("button", { name: "Satin" }).click();
+  await expect(dialog.locator('[data-page="satin"]')).toBeVisible();
+  await dialog.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const saved = await expect.poll(async () => (await savedPhoto(page, id)).layers[0].style?.effects?.length).toBe(2).then(() => savedPhoto(page, id));
+  expect(saved.layers[0].style.effects.map((e: { type: string }) => e.type)).toEqual(["satin", "bevel-emboss"]);
+  expect(saved.layers[0].style.effects[1].params).toMatchObject({ useContour: true, range: 30, style: "inner-bevel" });
+  await expect(page.locator("[data-effect]")).toHaveCount(2);
 });

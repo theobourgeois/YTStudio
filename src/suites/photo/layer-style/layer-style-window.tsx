@@ -1,13 +1,13 @@
 /**
- * The Layer Style window (docs/photo/layer-style/README.md, phases L1 and L2), opened by Blending Options… or an
+ * The Layer Style window (docs/photo/layer-style/README.md, phases L1 to L3), opened by Blending Options… or an
  * effect: Photoshop's dialog. Its list on the left (Blending Options, then the effects top of the drawing first,
- * each with its checkbox, + for the five that can be added again, ↑ ↓ and the bin under it), the page in the
- * middle, OK / Cancel / Preview on the right.
+ * each with its checkbox, + for the five that can be added again, Bevel's Contour under it, ↑ ↓ and the bin under
+ * it), the page in the middle, OK / Cancel / Preview on the right.
  *
  * The whole window is one gesture: every change shows on the canvas at once and none is an undo step; OK makes them
  * one ("Layer Style"), Cancel (or Escape) puts the layer back as it was, Global Light included; ⌥ turns Cancel into
- * Reset. Preview off shows the layer as it was meanwhile. While a shadow's or the gradient overlay's page shows, a
- * drag on the canvas moves it (Photoshop's). An edit made elsewhere ends the gesture (keeping what was shown), and
+ * Reset. Preview off shows the layer as it was meanwhile. While a shadow's, Satin's or the gradient overlay's page
+ * shows, a drag on the canvas moves it (Photoshop's). An edit made elsewhere ends the gesture (keeping what was shown), and
  * the window closes with it.
  */
 import { Fragment, useEffect, useRef, useState } from "react";
@@ -122,11 +122,12 @@ export function LayerStyleWindow({ layerId, page: asked }: { layerId: string; pa
   const [alt, setAlt] = useState(false);
   const finished = useRef(false);
 
-  /** A new effect of `type`, shown. */
-  const add = (type: string) => {
+  /** A new effect of `type` (with `params` over its defaults), shown (on a sub-page of it). */
+  const add = (type: string, params: Record<string, EffectParamValue> = {}, sub?: string) => {
     const e = newEffect(type);
+    e.params = { ...e.params, ...params };
     setDraft((d) => ({ ...d, style: editStyle(d.style, (doc) => addStyleEffect(doc, "x", e)) }));
-    setPage(e.id);
+    setPage(sub ? `${e.id}:${sub}` : e.id);
   };
 
   // Another page asked for while it's open (an effect double-clicked in Layers, the fx menu).
@@ -186,11 +187,13 @@ export function LayerStyleWindow({ layerId, page: asked }: { layerId: string; pa
     };
   }, []);
 
-  const selected = draft.style.effects.find((e) => e.id === page);
+  // A sub-page is "<effect id>:<group>" (Bevel's Contour).
+  const [pageId, subPage] = page.split(":") as [string, string | undefined];
+  const selected = draft.style.effects.find((e) => e.id === pageId);
 
   // A drag on the canvas moves the shown shadow (Distance and Angle), or the gradient overlay's centre (its offset).
   useEffect(() => {
-    if (!selected || !["drop-shadow", "inner-shadow", "gradient-overlay"].includes(selected.type)) return;
+    if (!selected || !["drop-shadow", "inner-shadow", "satin", "gradient-overlay"].includes(selected.type)) return;
     const id = selected.id;
     let start: { x: number; y: number } | null = null;
     useStyleCanvasDrag.getState().set((dx, dy, done) => {
@@ -267,16 +270,29 @@ export function LayerStyleWindow({ layerId, page: asked }: { layerId: string; pa
                 return (
                   <Fragment key={type}>
                     {rows.map((e, i) => (
-                      <ListRow
-                        key={e?.id ?? type}
-                        label={def.label}
-                        page={e?.id ?? type}
-                        checked={e ? e.enabled : false}
-                        onCheck={(checked) => (e ? style((doc) => setStyleEffect(doc, "x", e.id, { enabled: checked })) : add(type))}
-                        selected={!!e && page === e.id}
-                        onSelect={() => (e ? setPage(e.id) : add(type))}
-                        onAdd={def.max > 1 && i === 0 && instances.length > 0 && instances.length < def.max ? () => add(type) : undefined}
-                      />
+                      <Fragment key={e?.id ?? type}>
+                        <ListRow
+                          label={def.label}
+                          page={e?.id ?? type}
+                          checked={e ? e.enabled : false}
+                          onCheck={(checked) => (e ? style((doc) => setStyleEffect(doc, "x", e.id, { enabled: checked })) : add(type))}
+                          selected={!!e && page === e.id}
+                          onSelect={() => (e ? setPage(e.id) : add(type))}
+                          onAdd={def.max > 1 && i === 0 && instances.length > 0 && instances.length < def.max ? () => add(type) : undefined}
+                        />
+                        {def.subPages?.map((sub) => (
+                          <ListRow
+                            key={sub.group}
+                            label={sub.label}
+                            page={`${e?.id ?? type}:${sub.group}`}
+                            indent
+                            checked={e?.params[sub.toggle] === true}
+                            onCheck={(checked) => (e ? style((doc) => setStyleEffect(doc, "x", e.id, { params: { [sub.toggle]: checked } })) : add(type, { [sub.toggle]: checked }, sub.group))}
+                            selected={!!e && page === `${e.id}:${sub.group}`}
+                            onSelect={() => (e ? setPage(`${e.id}:${sub.group}`) : add(type, {}, sub.group))}
+                          />
+                        ))}
+                      </Fragment>
                     ))}
                   </Fragment>
                 );
@@ -307,14 +323,15 @@ export function LayerStyleWindow({ layerId, page: asked }: { layerId: string; pa
             </div>
           )}
         </div>
-        <div className="flex max-h-[30rem] min-w-0 flex-1 flex-col gap-3 overflow-y-auto pr-1" data-page={selected ? selected.type : "blending-options"}>
+        <div className="flex max-h-[30rem] min-w-0 flex-1 flex-col gap-3 overflow-y-auto pr-1" data-page={selected ? `${selected.type}${subPage ? `-${subPage.toLowerCase()}` : ""}` : "blending-options"}>
           {selected ? (
             <EffectPage
-              key={selected.id}
+              key={page}
               effect={selected}
+              subPage={subPage}
               globalLight={draft.globalLight}
               onParams={(params) => style((doc) => setStyleEffect(doc, "x", selected.id, { params }))}
-              onGlobalAngle={(angle) => set({ globalLight: { ...draft.globalLight, angle } })}
+              onGlobalLight={(patch) => set({ globalLight: { ...draft.globalLight, ...patch } })}
               onHoverMode={(mode) => setHovered(mode ? { effectId: selected.id, mode } : null)}
             />
           ) : (
@@ -392,10 +409,10 @@ export function LayerStyleWindow({ layerId, page: asked }: { layerId: string; pa
   );
 }
 
-/** A row of the list: Blending Options, or an effect with its checkbox (and + for another of its type). */
-function ListRow({ label, page, selected, onSelect, checked, onCheck, onAdd }: { label: string; page: string; selected: boolean; onSelect: () => void; checked?: boolean; onCheck?: (checked: boolean) => void; onAdd?: () => void }) {
+/** A row of the list: Blending Options, or an effect with its checkbox (and + for another of its type), or a sub-page of one (indented). */
+function ListRow({ label, page, selected, onSelect, checked, onCheck, onAdd, indent }: { label: string; page: string; selected: boolean; onSelect: () => void; checked?: boolean; onCheck?: (checked: boolean) => void; onAdd?: () => void; indent?: boolean }) {
   return (
-    <div className={cn("flex items-center gap-1.5 px-2 py-1", selected ? "bg-accent" : "hover:bg-surface-2")} data-style-row={page} aria-current={selected ? "page" : undefined}>
+    <div className={cn("flex items-center gap-1.5 px-2 py-1", indent && "pl-6", selected ? "bg-accent" : "hover:bg-surface-2")} data-style-row={page} aria-current={selected ? "page" : undefined}>
       {onCheck && <input type="checkbox" checked={checked} onChange={(e) => onCheck(e.target.checked)} aria-label={`${label} on`} className="accent-[var(--brand)]" />}
       <button type="button" className={cn("min-w-0 flex-1 truncate text-left", selected && "font-medium")} onClick={onSelect}>
         {label}
@@ -411,26 +428,32 @@ function ListRow({ label, page, selected, onSelect, checked, onCheck, onAdd }: {
 
 /**
  * An effect's page, from its definition's specs in their groups (Structure, Elements, Quality…), with Make Default
- * and Reset to Default. An angle with Use Global Light on shows and sets the document's.
+ * and Reset to Default; or one of its sub-pages (a group of its own, whose toggle is the list's checkbox). An angle
+ * or altitude with Use Global Light on shows and sets the document's.
  */
 function EffectPage({
   effect,
+  subPage,
   globalLight,
   onParams,
-  onGlobalAngle,
+  onGlobalLight,
   onHoverMode,
 }: {
   effect: EffectInstance;
+  subPage?: string;
   globalLight: GlobalLight;
   onParams: (params: Record<string, EffectParamValue>) => void;
-  onGlobalAngle: (angle: number) => void;
+  onGlobalLight: (patch: Partial<GlobalLight>) => void;
   onHoverMode: (mode: BlendMode | null) => void;
 }) {
   const def = styleDefinition(effect.type)!;
   const p = effect.params;
+  const sub = def.subPages?.find((s) => s.group === subPage);
   const groups: { name: string; specs: ParamSpec[] }[] = [];
   for (const spec of def.params) {
     if (spec.showIf && p[spec.showIf.key] !== spec.showIf.is) continue;
+    // A sub-page's group shows on it alone, its toggle in the list.
+    if (sub ? spec.group !== sub.group || spec.key === sub.toggle : def.subPages?.some((s) => s.group === spec.group)) continue;
     const name = spec.group ?? "";
     const g = groups.find((x) => x.name === name);
     if (g) g.specs.push(spec);
@@ -440,15 +463,16 @@ function EffectPage({
     const value = p[spec.key];
     switch (spec.kind) {
       case "number": {
-        if (spec.key === "angle") {
-          const global = p.globalLight === true;
-          return <AngleDial value={global ? globalLight.angle : (value as number)} onChange={(a) => (global ? onGlobalAngle(a) : onParams({ angle: a }))} />;
-        }
+        const global = p.globalLight === true;
+        if (spec.key === "angle") return <AngleDial value={global ? globalLight.angle : (value as number)} onChange={(a) => (global ? onGlobalLight({ angle: a }) : onParams({ angle: a }))} />;
+        // Bevel's altitude is the Global Light's too.
+        const shown = spec.key === "altitude" && global ? globalLight.altitude : (value as number);
+        const change = (v: number) => (spec.key === "altitude" && global ? onGlobalLight({ altitude: v }) : onParams({ [spec.key]: v }));
         return (
           <span className="flex flex-1 items-center gap-2">
-            <Slider aria-label={`${spec.label} slider`} min={spec.min} max={spec.key === "distance" ? Math.max(200, value as number) : spec.max} step={spec.step} value={[value as number]} onValueChange={([v]) => onParams({ [spec.key]: v })} className="flex-1" />
+            <Slider aria-label={`${spec.label} slider`} min={spec.min} max={spec.key === "distance" ? Math.max(200, shown) : spec.max} step={spec.step} value={[shown]} onValueChange={([v]) => change(v)} className="flex-1" />
             <span className="w-16 rounded border border-line bg-surface-0 px-1">
-              <ScrubNumber label={spec.label} value={value as number} display={{ min: spec.min, max: spec.max, step: spec.step, decimals: spec.decimals, unit: spec.unit }} onBegin={() => {}} onChange={(v) => onParams({ [spec.key]: v })} onEnd={() => {}} />
+              <ScrubNumber label={spec.label} value={shown} display={{ min: spec.min, max: spec.max, step: spec.step, decimals: spec.decimals, unit: spec.unit }} onBegin={() => {}} onChange={change} onEnd={() => {}} />
             </span>
           </span>
         );
@@ -498,9 +522,10 @@ function EffectPage({
   };
   return (
     <>
-      <h3 className="text-sm font-medium">{def.label}</h3>
+      <h3 className="text-sm font-medium">{sub ? sub.label : def.label}</h3>
       {groups.map((g) => (
-        <Group key={g.name} title={g.name}>
+        // (A sub-page's one group is Photoshop's "Elements".)
+        <Group key={g.name} title={sub ? "Elements" : g.name}>
           {g.specs.map((spec) => (
             <Row key={spec.key} label={spec.kind === "boolean" ? "" : `${spec.label}:`}>
               {control(spec)}

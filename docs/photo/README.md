@@ -5,10 +5,11 @@ renderer, the helper and the blob store (F0); the photo suite itself (F1: new ph
 export, the assistant); layers and adjustments (F2: Exposure and Curves adjustment layers, the render plan, refined
 views, f32 composites for 16-bit sources); resources, selections, masks and the brush (F3: pixel layers, layer masks,
 the Rectangular Marquee, the round brush, the publication gate and collection). Results in
-[foundations-prototype.md](foundations-prototype.md#f3-results-2026-10-06). Layer Style's first two phases are built
+[foundations-prototype.md](foundations-prototype.md#f3-results-2026-10-06). Layer Style's first three phases are built
 (L1: Blending Options, Photoshop's 27 blend modes, Fill, channels, Blend If and its compositing, the mode menu's live
 preview, the Layer Style window; L2: Drop and Inner Shadow, Outer and Inner Glow, Color and Gradient Overlay, Stroke,
-contours, gradients, Global Light): [layer-style/README.md](layer-style/README.md). F4 (light: glow and the flare) is next.
+contours, gradients, Global Light; L3: Bevel & Emboss in every style and technique with its Contour page, Satin):
+[layer-style/README.md](layer-style/README.md). F4 (light: glow and the flare) is next.
 
 A Photoshop-style image editor with dependable layers, masks, painting and retouching, and a particularly strong set
 of editable light effects. The foundations are the application's first version, so the document, resource, colour
@@ -32,7 +33,7 @@ source's profile on the GPU without clipping, and leaves through one output tran
 4. [Rendering](rendering.md): colour, formats and precision, resampling, the output transform, tiles, the evaluator.
 5. [UX](ux.md): workspace, keys and interaction contracts for the first workflow.
 6. [Effects](effects/system.md): definitions, glow, the flare, porting from the video editor.
-   [Layer Style](layer-style/README.md): Blending Options and layer effects, researched and planned (not built).
+   [Layer Style](layer-style/README.md): Blending Options and layer effects, researched and planned (L1–L3 built).
 7. [Foundations](foundations-prototype.md): milestones F0–F5, gates, targets, the evidence log.
 8. [Engine options](research/engine-options.md): why WebGPU in the page, measured; the fallbacks.
 9. [Sources](research/sources.md): references and what's still unverified.

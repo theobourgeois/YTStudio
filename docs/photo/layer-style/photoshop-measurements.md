@@ -179,7 +179,12 @@ Size 20, Depth 100 %, light 120° / 30°, highlight white and shadow black, both
 - **Smooth at Depth 100 %** peaks at 168 on the light's side (the 45° the research predicted); Depth 200 and 500 tip
   the steepest part past the light and darken the outer edge (155, then 132), Depth 50 softens it. Soften 5 smooths
   the profile's inner end.
-- The images are kept as fixtures in `data/photoshop-probes/fx3/` (`bevel-<style>-<technique>-<shape>.png`).
+- The images are kept as fixtures in `data/photoshop-probes/fx3/` (`bevel-<style>-<technique>-<shape>.png`), their
+  middle row and column in `shared/photo/reference/bevel-fixtures.json` (`BEVEL=1 python3 export_fixtures.py`).
+- **Fitted** (`scripts/photoshop-probes/fit-bevel.ts`): a chisel's height is the signed distance at 0.48 a pixel per
+  width, flat past the width inside and past width + 1 outside for Chisel Hard (width + ½ both ways for Chisel
+  Soft, plus one extra step across the edge: its lip). Every facet lands on Photoshop's to the pixel; levels within
+  2 for the bevels, 4 for Emboss and Pillow.
 
 ## Satin and gradients
 
@@ -187,6 +192,8 @@ Size 20, Depth 100 %, light 120° / 30°, highlight white and shadow black, both
 *Satin on a square and inverted on a disc (red, Normal, angle 19°, distance 11, size 14); Gradient Overlay black to
 white in each style, and red to blue (Classic).*
 
+- **Satin** is the tent of the coverage at Size, through the contour, at ±(Distance at Angle) **rounded to whole
+  pixels**, differenced (inverted with Invert): within 1 level (a sub-pixel offset is 7 off).
 - **Classic interpolation at 100 % smoothness is the average of linear and smoothstep**:
   `c = ½·t + ½·(3t² − 2t³)`, with `t` the pixel's left edge over the width, within 1 level. Between stops' colours it
   mixes encoded values.
@@ -225,5 +232,4 @@ Read back from Photoshop (`data/photoshop-probes/fx/defaults.json` has every key
 - Gradient Methods other than Classic (set them in the dialog, then measure).
 - Factory defaults (needs a clean preferences folder).
 - Whether Noise and Dissolve move with the layer; Jitter.
-- Satin's exact model and Bevel's exact Chisel slopes, from the fixtures (the renders are kept; the fitting isn't done).
 - 16-bit documents and "Blend RGB Colors Using Gamma" (an application setting we didn't change on Théo's machine).
