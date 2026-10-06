@@ -2024,7 +2024,7 @@ test("the Filter menu and the Filter Gallery apply every look, previewed on the 
   await page.locator("[data-filter-menu]").click();
   await page.getByRole("menuitem", { name: "Glow" }).hover();
   await page.locator('[data-filter-item="glow/neon"]').click();
-  await expect.poll(async () => (await filtersOf())[0]?.params).toMatchObject({ radius: Math.round(0.015 * Math.hypot(1600, 1200)), threshold: 35, knee: 15, intensity: 1 });
+  await expect.poll(async () => (await filtersOf())[0]?.params).toMatchObject({ radius: Math.round(0.015 * Math.hypot(1600, 1200)), threshold: 60, knee: 15, intensity: 0.8 });
   await expect(page.locator('[data-filter-properties="glow"]')).toBeVisible();
 
   // Changed in Properties, then Last Filter: the same filter again, as it is now.

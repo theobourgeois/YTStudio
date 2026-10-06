@@ -2,7 +2,8 @@
  * The photo suite's light, rendered and checked (docs/photo/f4-light.md, "Tools and checks"), as the video editor's
  * effect sheet: starts its own server and Vite (ports 5344/5345, a throwaway data dir), opens a photo in headless
  * Chrome with WebGPU, paints its scenes (a night of lights above white, the sample photo, a cut-out on
- * transparency) and renders each with each filter and generator preset through the app's own renderer. Checks:
+ * transparency) and renders each with every look of the catalogue (each filter's and generator's presets: the Filter
+ * Gallery's) through the app's own renderer. Checks:
  * every pipeline compiles; each effect changes the picture; nothing is NaN; regions far smaller than a glow give the
  * same pixels as one. Writes a contact sheet, with a row comparing the output's `film` strengths (s = ½, 1, 2) and
  * `clip` on the same light, encoded here from the renderer's floats.
@@ -17,6 +18,7 @@ import { chromium } from "playwright-core";
 import sharp, { type OverlayOptions } from "sharp";
 import { linearToSrgb } from "../shared/photo/colour.ts";
 import { addFilter, addGeneratorLayer } from "../shared/photo/edits.ts";
+import { FILTER_ENTRIES, entryParams } from "../shared/photo/effects/catalog.ts";
 import type { View } from "../shared/photo/geometry.ts";
 import { filmHighlights } from "../shared/photo/output.ts";
 import type { PhotoProject } from "../shared/photo/types.ts";
@@ -122,16 +124,22 @@ interface Effect {
   tag: string;
   apply: (doc: PhotoProject, layer: string) => PhotoProject;
 }
+/** A glow with these parameters, and a flare of a preset (the tiled check's and the highlights row's light). */
 const glow = (name: string, params: Record<string, unknown>): Effect => ({ name, tag: "glow", apply: (doc, layer) => addFilter(doc, layer, { id: "sheet_glow", type: "glow", params }) });
 const flare = (preset: string): Effect => ({ name: `flare ${preset}`, tag: "flare", apply: (doc) => addGeneratorLayer(doc, { id: "sheet_flare", type: "lens-flare", preset, params: { source: [260, 190] } }) });
+/** A tag for the command line: a definition's type, the flare's "flare". */
+const tagOf = (type: string) => (type === "lens-flare" ? "flare" : type);
+// Every look of the catalogue, as the Filter Gallery applies it (a generator's source where the scenes' lights are).
 const EFFECTS: Effect[] = ([
   { name: "as it is", tag: "base", apply: (doc: PhotoProject) => doc },
-  glow("glow r30", { radius: 30, threshold: 60 }),
-  glow("glow r120", { radius: 120, threshold: 60 }),
-  glow("glow tinted", { radius: 80, threshold: 50, intensity: 0.5, tint: "#ff6a3d", tintAmount: 70 }),
-  flare("classic"),
-  flare("anamorphic"),
-  flare("subtle"),
+  ...FILTER_ENTRIES.map((e): Effect => ({
+    name: `${e.def.label.toLowerCase()} ${e.preset.label.toLowerCase()}`,
+    tag: tagOf(e.def.type),
+    apply: (doc, layer) =>
+      e.def.kind === "filter"
+        ? addFilter(doc, layer, { id: "sheet_filter", type: e.def.type, params: entryParams(e, doc.canvas) })
+        : addGeneratorLayer(doc, { id: "sheet_generator", type: e.def.type, params: { ...entryParams(e, doc.canvas), source: [260, 190] } }),
+  })),
 ] as Effect[]).filter((e) => e.tag === "base" || shows(e.tag));
 
 const view: View = { zoom: CELL.width / base.canvas.width, x: 0, y: 0, ...CELL };

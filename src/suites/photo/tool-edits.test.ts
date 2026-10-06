@@ -195,7 +195,7 @@ describe("the assistant's light", () => {
     const doc = withSky();
     const diagonal = Math.hypot(doc.canvas.width, doc.canvas.height);
     const r = addFilterTool(doc, { layer: "sky", type: "glow", preset: "neon", params: { intensity: 2 } }, env);
-    expect(imageOf(r.doc).filters![0].params).toMatchObject({ radius: Math.round(0.015 * diagonal), threshold: 35, knee: 15, intensity: 2 });
+    expect(imageOf(r.doc).filters![0].params).toMatchObject({ radius: Math.round(0.015 * diagonal), threshold: 60, knee: 15, intensity: 2 });
     expect(() => addFilterTool(doc, { layer: "sky", type: "glow", preset: "sparkly" }, env)).toThrow(/Its presets: bloom, soft-haze, neon, dreamy, halation/);
   });
 
