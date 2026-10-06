@@ -14,6 +14,11 @@ import { flarePreset, flareShape } from "../shared/photo/effects/flare.ts";
 import type { GlowParams } from "../shared/photo/effects/glow.ts";
 import { flareLight } from "../shared/photo/reference/flare.ts";
 import { curvesFor, exposurePixel, type Pixel } from "../shared/photo/reference/adjustments.ts";
+import { BLEND_MODES, SPECIAL_FILL, blendSeed } from "../shared/photo/blending.ts";
+import { type BlendParams, type Rgba, compositePixel } from "../shared/photo/reference/blend.ts";
+import { renderStyled } from "../shared/photo/reference/style.ts";
+import { CONTOUR_PRESETS } from "../shared/photo/style/contours.ts";
+import { newStyleEffect } from "../shared/photo/style/style.ts";
 import { glowReference } from "../shared/photo/reference/glow.ts";
 import { boxReduce, sampleMitchell } from "../shared/photo/reference/reduce.ts";
 
@@ -1326,6 +1331,328 @@ test("copy, cut and paste make layers; fills, Delete and the eraser change pixel
   expect((await undo.boundingBox())!.x).toBe(undoX);
 });
 
+test("blend modes, Fill, channels and Blend If draw as the reference composites them; the mode menu previews while hovered; Blending Options is one undo step", async ({ page }) => {
+  const id = await openNewPhoto(page, "Blending");
+  await openImage(page, PHOTO);
+  await expect(page.locator("[data-layer]")).toHaveCount(1);
+  await page.locator("[data-place-input]").setInputFiles(STICKER);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(2);
+  const doc = await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(2).then(() => savedPhoto(page, id));
+  expect(doc.compositing).toBe("photoshop");
+  const [photo, sticker] = doc.layers.map((l: { id: string }) => l.id);
+  // Over transparency, so the sticker alone is its own pixels.
+  await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().commit((d: unknown) => ({ ...(d as object), canvas: { ...(d as { canvas: object }).canvas, background: null } })));
+  // Half the sticker and half nothing, at 100%: every pixel read texel for texel (partial coverage is Opacity's cases).
+  const view = { zoom: 1, x: 980, y: 260, width: 48, height: 40 };
+  const below = await renderRegion(page, view, { hide: [sticker] });
+  const alone = await renderRegion(page, view, { hide: [photo] });
+  expect(alone.filter((v, i) => i % 4 === 3 && v === 0).length).toBeGreaterThan(200);
+  expect(alone.filter((v, i) => i % 4 === 3 && v === 1).length).toBeGreaterThan(200);
+  const setBlending = (blending: Record<string, unknown>) =>
+    page.evaluate(
+      ({ sticker, blending }) =>
+        (window as unknown as DebugWindow).photoDebug.photo.getState().commit((d: unknown) => {
+          const doc = d as { layers: Record<string, unknown>[] };
+          return { ...doc, layers: doc.layers.map((l) => (l.id === sticker ? { ...l, ...blending } : l)) };
+        }),
+      { sticker, blending },
+    );
+  const check = async (label: string, blending: { blend?: string; fill?: number; opacity?: number; blending?: { channels?: BlendParams["channels"]; blendIf?: BlendParams["blendIf"] } }, compositing: "photoshop" | "linear" = "photoshop") => {
+    await setBlending({ blend: blending.blend ?? "normal", fill: blending.fill ?? 1, opacity: blending.opacity ?? 1, blending: blending.blending ?? undefined });
+    const got = await renderRegion(page, view);
+    const params: BlendParams = {
+      mode: (blending.blend ?? "normal") as BlendParams["mode"],
+      opacity: blending.opacity ?? 1,
+      fill: blending.fill ?? 1,
+      channels: blending.blending?.channels ?? { r: true, g: true, b: true },
+      blendIf: blending.blending?.blendIf ?? {},
+      compositing,
+    };
+    let worst = 0;
+    for (let y = 0; y < view.height; y++)
+      for (let x = 0; x < view.width; x++) {
+        const i = (y * view.width + x) * 4;
+        const want = compositePixel(below.slice(i, i + 4) as Rgba, alone.slice(i, i + 4) as Rgba, { ...params, dissolveAt: { x: view.x + x, y: view.y + y, seed: blendSeed(sticker) } });
+        for (let c = 0; c < 4; c++) worst = Math.max(worst, Math.abs(got[i + c] - want[c]) / Math.max(1, Math.abs(want[c])));
+      }
+    expect(worst, label).toBeLessThan(2e-3);
+  };
+  for (const m of BLEND_MODES) await check(m.id, { blend: m.id });
+  for (const m of SPECIAL_FILL) await check(`${m} at Fill 40%`, { blend: m, fill: 0.4 });
+  await check("multiply at 60% opacity, Fill 50%", { blend: "multiply", opacity: 0.6, fill: 0.5 });
+  await check("normal, Fill 50%", { fill: 0.5 });
+  await check("Blend If", { blending: { blendIf: { gray: { layer: [0, 0, 180, 230], underlying: [30, 90, 255, 255] } } } });
+  await check("green excluded, screen", { blend: "screen", blending: { channels: { r: true, g: false, b: true } } });
+  await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().commit((d: unknown) => ({ ...(d as object), compositing: "linear" })));
+  await check("multiply in linear light", { blend: "multiply", opacity: 0.7 }, "linear");
+  await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().commit((d: unknown) => ({ ...(d as object), compositing: "photoshop" })));
+  await setBlending({ blend: "normal", fill: 1, opacity: 1, blending: undefined });
+  const mode = async () => ((await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[1])) as { blend?: string }).blend ?? "normal";
+
+  // The Layers panel's menu: hovering previews, Escape puts it back, a click keeps one (one undo step).
+  await page.locator("[data-layer]").first().click();
+  const menu = page.locator("[data-blend-bar]").getByRole("button", { name: "Blend mode" });
+  await menu.click();
+  await page.locator('[data-blend-menu] [data-mode="screen"]').hover();
+  await expect.poll(mode).toBe("screen");
+  await page.locator('[data-blend-menu] [data-mode="difference"]').hover();
+  await expect.poll(mode).toBe("difference");
+  await page.keyboard.press("Escape");
+  await expect.poll(mode).toBe("normal");
+  // (The menu's closing animation ends before it's opened again.)
+  await expect(page.locator("[data-blend-menu]")).toHaveCount(0);
+  await menu.click();
+  await page.locator('[data-blend-menu] [data-mode="overlay"]').click();
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[1].blend).toBe("overlay");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(mode).toBe("normal");
+  // Photoshop's keys: ⇧⌥M is Multiply, ⇧+ the next mode.
+  await page.getByLabel("Photo canvas").click();
+  await page.keyboard.press("Shift+Alt+KeyM");
+  await expect.poll(mode).toBe("multiply");
+  await page.keyboard.press("Shift+Equal");
+  await expect.poll(mode).toBe("color-burn");
+  // Fill in the panel: typed, one undo step.
+  await page.locator("[data-blend-bar]").getByLabel("Fill").click();
+  await page.keyboard.type("35");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[1].fill).toBe(0.35);
+
+  // Blending Options: a double-click on the row past its name, or the Layers menu. Everything previews, Cancel
+  // puts it all back, OK makes it one undo step.
+  const row = page.locator("[data-layer]").first();
+  const box = (await row.boundingBox())!;
+  await page.mouse.dblclick(box.x + box.width - 8, box.y + box.height / 2);
+  const dialog = page.locator("[data-layer-style]");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("checkbox", { name: "G", exact: true }).uncheck();
+  await expect.poll(async () => ((await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[1])) as { blending?: { channels?: { g: boolean } } }).blending?.channels?.g).toBe(false);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(async () => ((await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[1])) as { blending?: unknown }).blending).toBeUndefined();
+  await row.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Blending Options…" }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Blend mode" }).click();
+  await page.locator('[data-blend-menu] [data-mode="luminosity"]').click();
+  await dialog.getByRole("checkbox", { name: "B", exact: true }).uncheck();
+  const black = dialog.locator('[data-blend-if="Underlying Layer"] [data-handle="black"]');
+  const handle = (await black.boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2 + 40, handle.y + handle.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await dialog.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const saved = await expect.poll(async () => (await savedPhoto(page, id)).layers[1].blend).toBe("luminosity").then(() => savedPhoto(page, id));
+  expect(saved.layers[1].blending.channels).toEqual({ r: true, g: true, b: false });
+  const under = saved.layers[1].blending.blendIf.gray.underlying;
+  expect(under[0]).toBeGreaterThan(20);
+  expect(under[0]).toBe(under[1]);
+  // One undo step for the whole dialog.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(mode).toBe("color-burn");
+
+  // The assistant at parity.
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(['call set_layer_blending {"layers": ["sticker 800"], "mode": "screen", "fill": 0.5}', 'call set_layer_blending {"layers": ["sticker 800"], "mode": "glow"}'].join("\n"));
+  await composer.press("Enter");
+  await expect(panel).toContainText("set_layer_blending: ok, set_layer_blending: failed", { timeout: 30_000 });
+  await expect.poll(mode).toBe("screen");
+});
+
+/**
+ * A photo of one soft-edged disc (160 × 160, opened as the canvas, so the layer is at 100%) over a blue-grey canvas,
+ * and `check`, which gives the layer a style and compares the GPU's picture with the CPU reference's.
+ */
+async function styleBench(page: Page, name: string) {
+  // A soft-edged disc in a 160 × 160 image with room around it: opened as the canvas, the layer is at 100%.
+  const file = path.join(os.tmpdir(), "photo-style-disc.png");
+  const disc = Buffer.alloc(160 * 160 * 4);
+  for (let y = 0; y < 160; y++)
+    for (let x = 0; x < 160; x++) {
+      const a = Math.min(1, Math.max(0, 42 - Math.hypot(x + 0.5 - 80, y + 0.5 - 76) + 0.5));
+      disc.set([230, 120, 40, Math.round(a * 255)], (y * 160 + x) * 4);
+    }
+  await sharp(disc, { raw: { width: 160, height: 160, channels: 4 } }).png().toFile(file);
+  const id = await openNewPhoto(page, name);
+  await openImage(page, file);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  // Every shader compiles.
+  const errors = await page.evaluate(async () => {
+    const r = await (window as unknown as DebugWindow).photoDebug.renderer();
+    // The app's own module, as the dev server serves it.
+    const url = "/src/suites/photo/render/compositor.ts";
+    const { Compositor } = (await import(/* @vite-ignore */ url)) as { Compositor: { compileErrors(device: unknown): Promise<string[]> } };
+    return Compositor.compileErrors((r as unknown as { device: unknown }).device);
+  });
+  expect(errors).toEqual([]);
+  const layerId = await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(1).then(async () => (await savedPhoto(page, id)).layers[0].id as string);
+  const set = (patch: Record<string, unknown>) =>
+    page.evaluate(
+      ({ layerId, patch }) =>
+        (window as unknown as DebugWindow).photoDebug.photo.getState().commit((d: unknown) => {
+          const doc = d as { layers: Record<string, unknown>[] };
+          return { ...doc, ...(patch.doc as object), layers: doc.layers.map((l) => (l.id === layerId ? { ...l, ...(patch.layer as object) } : l)) };
+        }),
+      { layerId, patch },
+    );
+  const view = { zoom: 1, x: 0, y: 0, width: 160, height: 160 };
+  // The layer alone, over nothing: its own pixels.
+  await set({ doc: { canvas: { width: 160, height: 160, background: null } } });
+  const content = await renderRegion(page, view);
+  await set({ doc: { canvas: { width: 160, height: 160, background: "#5a7896" } } });
+  const backdrop = new Float32Array(160 * 160 * 4);
+  const bg = [0x5a, 0x78, 0x96].map((v) => (v / 255 <= 0.04045 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+  for (let i = 0; i < 160 * 160; i++) backdrop.set([...bg, 1], i * 4);
+  const fx = (type: string, params: Record<string, unknown> = {}) => newStyleEffect(type, `${type}_${Math.random().toString(36).slice(2, 8)}`, params)!;
+  const check = async (label: string, effects: ReturnType<typeof fx>[], layer: Record<string, unknown> = {}, compositing: "photoshop" | "linear" = "photoshop") => {
+    const style = { enabled: true, effects };
+    await set({ layer: { style, ...layer }, doc: { compositing } });
+    const got = await renderRegion(page, view);
+    const doc = (await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc)) as unknown as { layers: Parameters<typeof renderStyled>[0][] };
+    const want = renderStyled(doc.layers[0], { compositing }, { width: 160, height: 160, pixels: backdrop }, { width: 160, height: 160, pixels: new Float32Array(content) }, (e) => (e.params.globalLight === true ? 120 : (e.params.angle as number)), { x0: 0, y0: 0, x1: 160, y1: 160 }, (e) => (e.params.globalLight === true ? 30 : (e.params.altitude as number)));
+    let worst = 0;
+    let at = 0;
+    for (let i = 0; i < want.length; i++) {
+      const d = Math.abs(got[i] - want[i]);
+      if (d > worst) [worst, at] = [d, i];
+    }
+    expect(worst, `${label}: worst at pixel ${Math.floor(at / 4) % 160}, ${Math.floor(at / 640)} (${got[at]} vs ${want[at]})`).toBeLessThan(1e-3);
+    return got;
+  };
+  return { id, layerId, set, fx, check };
+}
+
+test("layer effects draw as the reference does: shadows, glows, overlays and strokes, Precise and Softer, in either compositing", async ({ page }) => {
+  const { id, set, fx, check } = await styleBench(page, "Effects");
+  await check("a drop shadow", [fx("drop-shadow", { distance: 12, size: 18, spread: 20, opacity: 75 })]);
+  await check("a drop shadow at its own angle, not knocking out, under a 30% Fill", [fx("drop-shadow", { distance: 9, size: 6, angle: 30, globalLight: false, knocksOut: false })], { fill: 0.3 });
+  await check("an outer glow, Softer, a Cone contour, Range 60", [fx("outer-glow", { size: 20, opacity: 80, colour: "#ffe066", contour: { name: "Cone", points: [{ x: 0, y: 0 }, { x: 129, y: 255 }, { x: 255, y: 0 }] }, range: 60 })]);
+  await check("an outer glow, Precise, spread", [fx("outer-glow", { size: 16, technique: "precise", spread: 30, opacity: 100, mode: "normal" })]);
+  await check("a gradient outer glow", [fx("outer-glow", { size: 24, fill: "gradient", opacity: 100, gradient: { name: "t", method: "classic", colours: [{ at: 0, colour: "#ff0000" }, { at: 1, colour: "#0000ff" }], opacities: [{ at: 0, opacity: 1 }, { at: 1, opacity: 0.2 }] } })]);
+  await check("an inner glow from the centre, and an inner shadow", [fx("inner-glow", { size: 14, source: "center", choke: 20, opacity: 70 }), fx("inner-shadow", { distance: 6, size: 8, opacity: 60 })]);
+  await check("overlays: a multiplied colour, a radial gradient", [fx("gradient-overlay", { style: "radial", opacity: 60, angle: 45 }), fx("color-overlay", { colour: "#3366ff", mode: "multiply", opacity: 50 })]);
+  await check("strokes: outside, inside, centre and a shape burst", [fx("stroke", { size: 6, colour: "#ffffff" }), fx("stroke", { size: 4, position: "inside", colour: "#000000", opacity: 70 }), fx("stroke", { size: 5, position: "center", fill: "gradient", style: "shape-burst" })]);
+  await check("everything, the interior as a group, in Multiply at 60% opacity", [fx("drop-shadow", { distance: 8, size: 10 }), fx("outer-glow", { size: 12 }), fx("color-overlay", { mode: "screen", opacity: 40 }), fx("inner-glow", { size: 10 }), fx("stroke", { size: 3 })], { blend: "multiply", opacity: 0.6, blending: { interiorAsGroup: true } });
+  await check("in linear light", [fx("drop-shadow", { distance: 12, size: 18 }), fx("stroke", { size: 4, opacity: 60 })], {}, "linear");
+  // Changing an effect's colour makes no fields again; its size does.
+  const made = () => page.evaluate(async () => ((await (window as unknown as DebugWindow).photoDebug.renderer()) as unknown as { compositor: { styleFields: { made: number } } }).compositor.styleFields.made);
+  const shadow = fx("drop-shadow", { distance: 12, size: 18 });
+  await check("before", [shadow]);
+  const before = await made();
+  await check("its colour changed", [{ ...shadow, params: { ...shadow.params, colour: "#ff0000" } }]);
+  expect(await made()).toBe(before);
+  await check("its size changed", [{ ...shadow, params: { ...shadow.params, size: 30 } }]);
+  expect(await made()).toBe(before + 1);
+
+  // The window: the fx menu's Drop Shadow adds one and shows its page; the canvas shows it while the window is open.
+  await set({ layer: { style: null, blend: "normal", opacity: 1, fill: 1, blending: null }, doc: { compositing: "photoshop" } });
+  const layerNow = () => page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[0]) as Promise<{ style?: { enabled: boolean; effects: { id: string; type: string; enabled: boolean; params: Record<string, unknown> }[] } | null }>;
+  await page.locator("[data-layer]").first().click();
+  await page.getByRole("button", { name: "Add a layer style" }).click();
+  await page.locator("[data-fx-menu]").getByRole("menuitem", { name: "Drop Shadow…" }).click();
+  const dialog = page.locator("[data-layer-style]");
+  await expect(dialog.locator('[data-page="drop-shadow"]')).toBeVisible();
+  await expect.poll(async () => (await layerNow()).style?.effects.map((e) => e.type)).toEqual(["drop-shadow"]);
+  // A drag on the canvas moves the shadow (Distance follows).
+  const canvas = (await page.getByLabel("Photo canvas").boundingBox())!;
+  // (By the canvas's corner: the window is over its middle.)
+  await page.mouse.move(canvas.x + 12, canvas.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(canvas.x + 72, canvas.y + 42, { steps: 5 });
+  await page.mouse.up();
+  // (The canvas is zoomed to 462%: 60 screen pixels are about 13 of the photo's.)
+  await expect.poll(async () => (await layerNow()).style?.effects[0]?.params.distance as number).toBeGreaterThan(10);
+  // Cancel puts it all back.
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(async () => (await layerNow()).style ?? null).toBeNull();
+
+  // Blending Options from the Layers menu, then Stroke from the list (ticked by clicking it), its Size typed, OK: one
+  // undo step.
+  await page.locator("[data-layer]").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Blending Options…" }).click();
+  await dialog.locator('[data-style-row="stroke"]').getByRole("button", { name: "Stroke" }).click();
+  await expect(dialog.locator('[data-page="stroke"]')).toBeVisible();
+  await dialog.getByRole("spinbutton", { name: "Size" }).click();
+  await page.keyboard.type("12");
+  await page.keyboard.press("Enter");
+  await dialog.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const saved = await expect.poll(async () => (await savedPhoto(page, id)).layers[0].style?.effects?.[0]?.params?.size).toBe(12).then(() => savedPhoto(page, id));
+  expect(saved.layers[0].style.effects.map((e: { type: string }) => e.type)).toEqual(["stroke"]);
+  // The Layers panel lists it under the layer: its eye hides it.
+  await expect(page.locator("[data-fx]")).toBeVisible();
+  await page.locator("[data-effect]").getByRole("button", { name: "Hide Stroke" }).click();
+  await expect.poll(async () => (await layerNow()).style?.effects[0]?.enabled).toBe(false);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await layerNow()).style?.effects[0]?.enabled).toBe(true);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await layerNow()).style ?? null).toBeNull();
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(async () => (await layerNow()).style?.effects.length).toBe(1);
+
+  // Copy Layer Style, then Paste onto a copy of the layer that has none.
+  await page.locator("[data-layer]").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Copy Layer Style" }).click();
+  await page.keyboard.press("ControlOrMeta+j");
+  await expect(page.locator("[data-layer]")).toHaveCount(2);
+  await page.locator("[data-layer]").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Clear Layer Style" }).click();
+  await expect.poll(async () => ((await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[1])) as { style?: unknown }).style ?? null).toBeNull();
+  await page.locator("[data-layer]").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Paste Layer Style" }).click();
+  await expect.poll(async () => ((await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[1])) as { style?: { effects: { type: string }[] } }).style?.effects[0]?.type).toBe("stroke");
+});
+
+test("bevels and satin draw as the reference does: every style and technique, Soften, the contours; Bevel's Contour page", async ({ page }) => {
+  const { id, set, fx, check } = await styleBench(page, "Bevels");
+  const preset = (name: string) => CONTOUR_PRESETS.find((c) => c.name === name)!;
+  for (const style of ["inner-bevel", "outer-bevel", "emboss", "pillow-emboss"])
+    for (const technique of ["smooth", "chisel-hard", "chisel-soft"]) await check(`${style}, ${technique}`, [fx("bevel-emboss", { style, technique, size: 12, depth: 150 })]);
+  await check("down, softened, a Ring gloss, its own light at 60°, an Overlay highlight", [fx("bevel-emboss", { direction: "down", soften: 4, size: 10, globalLight: false, angle: 45, altitude: 60, gloss: preset("Ring"), highlightMode: "overlay", highlightColour: "#ffcc00" })]);
+  await check("a chisel softened, a Cove - Deep contour at Range 70", [fx("bevel-emboss", { technique: "chisel-hard", soften: 3, useContour: true, contour: preset("Cove - Deep"), range: 70, size: 14 })]);
+  await check("Stroke Emboss on an outside and an inside stroke, chiselled", [fx("stroke", { size: 8 }), fx("stroke", { size: 3, position: "inside", colour: "#ffffff" }), fx("bevel-emboss", { style: "stroke-emboss", technique: "chisel-hard", size: 6 })]);
+  await check("Stroke Emboss, Smooth", [fx("stroke", { size: 6, position: "center" }), fx("bevel-emboss", { style: "stroke-emboss", size: 5 })]);
+  await check("Stroke Emboss without a stroke draws nothing", [fx("bevel-emboss", { style: "stroke-emboss" })]);
+  await check("satin under a bevel", [fx("satin", { size: 10, distance: 7, angle: 30, colour: "#3355ff", mode: "normal", opacity: 80 }), fx("bevel-emboss", {})]);
+  // (They draw something: a bevel and a satin change the layer.)
+  const plain = await check("no effects", []);
+  for (const effect of [fx("bevel-emboss", { size: 12 }), fx("satin", {})]) {
+    const lit = await check(effect.type, [effect]);
+    expect(Math.max(...lit.map((v, i) => Math.abs(v - plain[i])))).toBeGreaterThan(0.1);
+  }
+  await check("satin, a Gaussian contour, not inverted, in linear light", [fx("satin", { invert: false, contour: preset("Gaussian"), size: 20, distance: 12 })], {}, "linear");
+
+  // The window: Bevel & Emboss from the fx menu, then its Contour row: ticked, Range typed, OK.
+  await set({ layer: { style: null }, doc: { compositing: "photoshop" } });
+  await page.locator("[data-layer]").first().click();
+  await page.getByRole("button", { name: "Add a layer style" }).click();
+  await page.locator("[data-fx-menu]").getByRole("menuitem", { name: "Bevel & Emboss…" }).click();
+  const dialog = page.locator("[data-layer-style]");
+  await expect(dialog.locator('[data-page="bevel-emboss"]')).toBeVisible();
+  await expect(dialog.getByRole("slider", { name: "Altitude slider" })).toBeVisible();
+  const contourRow = dialog.locator('[data-style-row$=":Contour"]');
+  await contourRow.getByRole("button", { name: "Contour" }).click();
+  await expect(dialog.locator('[data-page="bevel-emboss-contour"]')).toBeVisible();
+  await contourRow.getByRole("checkbox", { name: "Contour on" }).check();
+  await dialog.getByRole("spinbutton", { name: "Range" }).click();
+  await page.keyboard.type("30");
+  await page.keyboard.press("Enter");
+  // Satin's row adds one.
+  await dialog.locator('[data-style-row="satin"]').getByRole("button", { name: "Satin" }).click();
+  await expect(dialog.locator('[data-page="satin"]')).toBeVisible();
+  await dialog.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const saved = await expect.poll(async () => (await savedPhoto(page, id)).layers[0].style?.effects?.length).toBe(2).then(() => savedPhoto(page, id));
+  expect(saved.layers[0].style.effects.map((e: { type: string }) => e.type)).toEqual(["satin", "bevel-emboss"]);
+  expect(saved.layers[0].style.effects[1].params).toMatchObject({ useContour: true, range: 30, style: "inner-bevel" });
+  await expect(page.locator("[data-effect]")).toHaveCount(2);
+});
+
 // --- F4: light ---
 
 type LightWindow = {
@@ -1416,6 +1743,7 @@ const flareLayer = (id: string, canvas: { width: number; height: number }, sourc
 });
 
 test("a lens flare is its CPU reference added in linear light, and a reduced view of it is level 0 reduced", async ({ page }) => {
+  // (A new photo mixes as Photoshop's does; the flare's Add in linear light still adds exactly: blendSpace.)
   await openNewPhoto(page, "Flare");
   const canvas = { width: 400, height: 300 };
   await setPhoto(page, { ...canvas, background: "#203040" }, [flareLayer("fl", canvas, [120, 90])]);
@@ -1485,19 +1813,23 @@ test("a glowing object on transparency exports correctly over black, white and s
     else if (png[i * 4 + 3] < 1) spill++;
   }
   expect(spill).toBeGreaterThan(1000);
-  for (const backdrop of ["#000000", "#ffffff", "#e01030"]) {
-    const app = await exportedPixels(page, backdrop);
-    const b = hexToLinear(backdrop);
-    let worst = 0;
-    for (let i = 0; i < W * H; i++) {
-      const a = png[i * 4 + 3];
-      for (let c = 0; c < 3; c++) {
-        // The file composited as any app composites a straight-alpha PNG, in this document's compositing (linear light).
-        const over = linearToSrgb(srgbToLinear(png[i * 4 + c]) * a + b[c] * (1 - a)) * 255;
-        worst = Math.max(worst, Math.abs(over - app[i * 4 + c] * 255));
+  for (const compositing of ["linear", "photoshop"] as const) {
+    await page.evaluate((compositing) => (window as unknown as LightWindow).photoDebug.photo.getState().commit((d) => ({ ...(d as object), compositing })), compositing);
+    for (const backdrop of ["#000000", "#ffffff", "#e01030"]) {
+      const app = await exportedPixels(page, backdrop);
+      const b = hexToLinear(backdrop);
+      let worst = 0;
+      for (let i = 0; i < W * H; i++) {
+        const a = png[i * 4 + 3];
+        for (let c = 0; c < 3; c++) {
+          // The file composited as a straight-alpha PNG is in linear light: a glowing layer blends in linear light
+          // in either compositing (light adds physically).
+          const over = linearToSrgb(srgbToLinear(png[i * 4 + c]) * a + b[c] * (1 - a)) * 255;
+          worst = Math.max(worst, Math.abs(over - app[i * 4 + c] * 255));
+        }
       }
+      expect(worst, `${backdrop}, ${compositing}`).toBeLessThanOrEqual(1);
     }
-    expect(worst, backdrop).toBeLessThanOrEqual(1);
   }
 });
 
@@ -1507,6 +1839,7 @@ test("a glow viewed from its cached levels is level 0 reduced, and refines betwe
   const W = 1024;
   const H = 768;
   await setPhoto(page, { width: W, height: H, background: "#101418" }, [pixelLayer("lit", W, H)]);
+  // (A new photo mixes as Photoshop's does; a glowing layer blends in linear light whatever the compositing.)
   await paint(page, "lit", "content", [{ x: 300, y: 240 }], { radius: 8, hardness: 1, colour: [4, 3, 1, 1] });
   await paint(page, "lit", "content", line(520, 500, 840, 600), { radius: 6, hardness: 0.8, colour: [1.2, 1.5, 2, 1] });
   await patchLayer(page, "lit", { filters: [glowFilter("g", { radius: 120, threshold: 60 })] });

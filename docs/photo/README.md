@@ -6,8 +6,11 @@ assistant); layers and adjustments (F2: Exposure and Curves adjustment layers, t
 composites for 16-bit sources); resources, selections, masks and the brush (F3: pixel layers, layer masks, the
 Rectangular Marquee, the round brush, the publication gate and collection); light (F4: the glow as a filter, the
 Lens Flare as a generator layer, the `film` highlights; [f4-light.md](f4-light.md)). Results in
-[foundations-prototype.md](foundations-prototype.md#f4-results-2026-10-06). F5 (harden) is next; Layer Style's L1
-(blending) is in progress beside it.
+[foundations-prototype.md](foundations-prototype.md#f4-results-2026-10-06). Layer Style's first three phases are built
+(L1: Blending Options, Photoshop's 27 blend modes, Fill, channels, Blend If and its compositing, the mode menu's live
+preview, the Layer Style window; L2: Drop and Inner Shadow, Outer and Inner Glow, Color and Gradient Overlay, Stroke,
+contours, gradients, Global Light; L3: Bevel & Emboss in every style and technique with its Contour page, Satin):
+[layer-style/README.md](layer-style/README.md). F5 (harden) is next.
 
 A Photoshop-style image editor with dependable layers, masks, painting and retouching, and a particularly strong set
 of editable light effects. The foundations are the application's first version, so the document, resource, colour
@@ -31,6 +34,7 @@ source's profile on the GPU without clipping, and leaves through one output tran
 4. [Rendering](rendering.md): colour, formats and precision, resampling, the output transform, tiles, the evaluator.
 5. [UX](ux.md): workspace, keys and interaction contracts for the first workflow.
 6. [Effects](effects/system.md): definitions, glow, the flare, porting from the video editor.
+   [Layer Style](layer-style/README.md): Blending Options and layer effects, researched and planned (L1–L3 built).
 7. [Foundations](foundations-prototype.md): milestones F0–F5, gates, targets, the evidence log.
    F4's detailed plan: [f4-light.md](f4-light.md).
 8. [Engine options](research/engine-options.md): why WebGPU in the page, measured; the fallbacks.
@@ -84,5 +88,10 @@ and **Unverified** (an open question). Théo's corrections override the referenc
 | A25 | Photos before version 5 keep `clip` highlights; new ones `film`, `s` = 1 (2026-10-06, F4) | Every photo was drawn clipped until F4: nothing made changes look | Théo's comparison of `s` on his images (the sheet's last row) |
 | A26 | The glow (version 1) is a definition in document pixels: six octaves on the document's 2^k grids, read by their B-spline; the renderer caches the contributions from level 2 up, from level 0 (2026-10-06, F4) | The view, regions, exports and the reference compute the same thing; at fit a glow needs no refinement; radius 1000 on 48 MP settles in ~0.3 s | — |
 | A27 | The glow is a filter (`filters`, Photoshop's Smart Filters), a flare a generator layer adding in linear light (`blend: "linear-dodge"`, `blendSpace: "linear"`) (2026-10-06, F4, Théo's compositing decision) | Light adds physically whatever the document's compositing; styles (L2) stay apart | — |
+| A28 | Document version 4: a layer's `blend`, `fill` and `blending` (channels, Blend If), absent at their defaults; the document's `compositing`, `photoshop` (encoded values, Photoshop's mixing: new photos) or `linear` (older ones) (2026-10-06, Layer Style L1) | Photoshop's look is its encoded mixing, measured in 27.11 (50% white over black is 128; a 35% shadow 83 over 128); older photos keep how they looked | Light effects (F4) add light in linear whatever the setting |
+| A29 | A `photoshop` plan composites encoded values (premultiplied, f32) and decodes once at the end; a blended layer is drawn alone and blended by a pass reading the composite below (2026-10-06, L1) | Normal stays the GPU's source-over, exactly Photoshop's mix; everything after the evaluator still sees linear light; f32 keeps unedited 8-bit exports exact | Memory: view-sized f32 buffers |
+| A30 | A layer's style is `{ enabled, effects }` of `EffectInstance`s in drawing order; the document's `globalLight` (2026-10-06, L2). F4's `filters` (Smart Filters: the glow) stay apart | Photoshop's model: effects (fx) from the layer's coverage, distinct from filters on its pixels | — |
+| A31 | Effects' fields are made in the layer's own pixels (a pyramid level past 3072 px), kept by content and sizes, and sampled through the layer's transform (2026-10-06, L2) | Exact at every zoom with no view-sized apron; moving, zooming and recolouring never remake them | Memory: fields of very large layers |
+| A32 | Merging F4 and Layer Style: a layer with filters (and a generator with `blendSpace`) blends in linear light in a "photoshop" document too, unless it has layer effects; Linear Dodge is unbounded in linear light (Photoshop's encoded values stop at 1) (2026-10-06) | A27 (light adds physically): mixed in encoded values a glow's halo all but vanished (measured on the light sheet's night row); a flare keeps light above white | A glowing layer's own soft edges mix in linear light, not Photoshop's way |
 
 Progress, measurements and gates live in [foundations-prototype.md](foundations-prototype.md).

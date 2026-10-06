@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { addImageLayer, duplicateLayer, fromImage, moveLayer, placement, removeLayer, setCanvas, setTransform, updateLayer } from "./edits.ts";
 import { apply, bounds, contains, corners, invert, layerMatrix } from "./layers.ts";
 import { MIN_SCALE, createPhotoProject, normalizePhotoProject, withPhotoOptions } from "./project.ts";
-import type { ImageLayer, PhotoProject } from "./types.ts";
+import { type ImageLayer, PHOTO_VERSION, type PhotoProject } from "./types.ts";
 
 /** An image layer's transform (the layers these tests make are images). */
 const placeOf = (d: PhotoProject, i = 0) => (d.layers[i] as ImageLayer).transform;
@@ -12,7 +12,7 @@ const image = (id: string, width = 400, height = 200) => ({ id, mediaId: `media_
 describe("photo documents", () => {
   it("starts as a white 9:16 canvas with no layers, or with the tab's choices", () => {
     const doc = createPhotoProject("Cover");
-    expect(doc).toMatchObject({ version: 5, name: "Cover", canvas: { width: 1080, height: 1920, background: "#ffffff" }, layers: [] });
+    expect(doc).toMatchObject({ version: 5, name: "Cover", canvas: { width: 1080, height: 1920, background: "#ffffff" }, compositing: "photoshop", layers: [] });
     expect(withPhotoOptions(doc, { width: 1280, height: 720, background: null }).canvas).toEqual({ width: 1280, height: 720, background: null });
     expect(withPhotoOptions(doc, { width: -3, height: "big", background: "red" })).toEqual(doc);
   });
@@ -41,7 +41,7 @@ describe("photo documents", () => {
 
   it("refuses what isn't a photo, or a newer one", () => {
     expect(() => normalizePhotoProject("nope")).toThrow(/Not a photo/);
-    expect(() => normalizePhotoProject({ version: 6 })).toThrow(/newer version/);
+    expect(() => normalizePhotoProject({ version: PHOTO_VERSION + 1 })).toThrow(/newer version/);
   });
 });
 

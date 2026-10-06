@@ -29,6 +29,7 @@ import { useFileDrop } from "@/hooks/use-file-drop";
 import { api } from "@/lib/api";
 import { CanvasPanel, actualPixels, canvasPointAt, fitToCanvas, zoomBy } from "./canvas/canvas-panel";
 import { PhotoExportWindow } from "./export-window";
+import { LayerStyleWindow } from "./layer-style/layer-style-window";
 import { resolvePhotoKey } from "./keys";
 import { layerActions, selectedInOrder } from "./layer-actions";
 import { liveRenderer } from "./live";
@@ -142,10 +143,12 @@ function ImageDrop({ children }: { children: ReactNode }) {
 
 function PhotoDesktop() {
   const exportOpen = usePhotoUi((s) => s.exportOpen);
+  const layerStyle = usePhotoUi((s) => s.layerStyle);
   return (
     <Desktop windows={usePhotoWindows} name="photo" label="Photo windows" overlay className="absolute inset-0 z-50">
       <FloatingPanels dock={usePhotoDock} panels={PANELS} windowId={panelWindow} />
       {exportOpen && <PhotoExportWindow />}
+      {layerStyle && <LayerStyleWindow key={layerStyle.layerId} layerId={layerStyle.layerId} page={layerStyle.page} />}
     </Desktop>
   );
 }
@@ -401,6 +404,10 @@ function usePhotoKeys(active: boolean) {
           return useColours.getState().reset();
         case "swapColours":
           return useColours.getState().swap();
+        case "blendMode":
+          return layerActions.setBlendMode(action.mode);
+        case "stepBlendMode":
+          return layerActions.stepBlendMode(action.direction);
         case "copy":
           return void editActions.copy();
         case "cut":

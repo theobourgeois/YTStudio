@@ -26,6 +26,21 @@ Layers show:
 - an effects indicator;
 - an obvious border on the active target (content or mask), which is never shown by colour alone.
 
+Above the rows (built, layer-style/README.md L1): Photoshop's blend-mode menu, Opacity and Fill for the selected
+layers. Hovering a mode in the menu (or reaching it with the arrow keys) shows it on the canvas at once; choosing
+keeps it (one undo step), Escape or a click away puts back what was there. Blending Options… (the Layers menu, the
+footer's fx, or a double-click on a row past its name) opens the Layer Style window: one gesture, OK one undo step,
+Cancel nothing, ⌥ Cancel is Reset, Preview off shows the layer as it was. An edit elsewhere while it's open ends it,
+keeping what it showed (Photoshop's is modal; ours leaves the view free).
+
+Layer effects (built, L2): the footer's fx menu (Blending Options…, then each effect), the Layer Style window's list
+(a click on an effect ticks it and shows its page; + adds another of the five that allow it; ↑ ↓ move one among its
+kind; the bin removes it), a styled row's fx badge and its effects listed under it (an eye each and one for all; a
+double-click opens one). While a shadow's, Satin's or the gradient overlay's page shows, a drag on the canvas moves
+it. Bevel & Emboss (L3) heads the list with its Contour row under it (its own checkbox and page, as Photoshop's);
+its Altitude follows Global Light as its Angle does.
+Copy / Paste / Clear Layer Style and Hide All Effects are in the Layers menu.
+
 Properties follows the selected layer, mask or effect. The tool options bar follows the active tool. These are
 different selections, kept apart.
 
@@ -91,6 +106,8 @@ Photo's own `keys.ts`, pure and tested, as music's is. Its listener skips text f
 | D / X | Black and white / swap (on a mask, the grey of the colour is painted: black hides, white reveals; built) |
 | ⌘A / ⌘D | Select the canvas / deselect (⌘D lets go of the selection, or with none of the layers; built) |
 | ⇧⌘N | A new, empty pixel layer above the active one (built) |
+| ⇧⌥ + a letter | The selected layers' blend mode, Photoshop's letters: N Normal, I Dissolve, K Darken, M Multiply, B Color Burn, A Linear Burn, G Lighten, S Screen, D Color Dodge, W Linear Dodge, O Overlay, F Soft Light, H Hard Light, V Vivid Light, J Linear Light, Z Pin Light, L Hard Mix, E Difference, X Exclusion, U Hue, T Saturation, C Color, Y Luminosity (built) |
+| ⇧+ / ⇧− | The next / previous blend mode (built) |
 | ⌘J | With a selection, Layer via Copy (what it covers of the active layer, as a new layer above); without, duplicate the selected layers (built) |
 | ⇧⌘J | Layer via Cut (painted pixels only; built) |
 | ⌘C / ⌘X / ⌘V | Copy / cut what the selection covers of the active layer (all of it with none); paste it as a new layer where it was, in this photo or another. An image copied in another app is placed (built) |

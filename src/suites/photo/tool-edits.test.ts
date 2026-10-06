@@ -17,6 +17,9 @@ import {
   setCanvasTool,
   setEffectParamsTool,
   setFilterTool,
+  setGlobalLightTool,
+  setLayerBlendingTool,
+  setLayerStyleTool,
   setLayerTool,
   transformLayerTool,
 } from "./tool-edits";
@@ -61,6 +64,24 @@ describe("the photo assistant's edits", () => {
     expect(canvas.doc.canvas).toEqual({ width: 1080, height: 1920, background: null });
     expect(() => setCanvasTool(doc, { width: 0 }, env)).toThrow(/whole number/);
     expect(() => setCanvasTool(doc, { background: "blue" }, env)).toThrow(/#ffffff/);
+  });
+
+  it("sets blend modes, Fill, channels and Blend If on several layers, says what's allowed, and switches the compositing", () => {
+    let doc = addImageLayerTool(addImageLayerTool(empty, { media: "sky.jpg" }, env).doc, { media: "cat.png" }, env).doc;
+    doc = setLayerBlendingTool(doc, { layers: ["sky", "cat"], mode: "multiply", fill: 0.5 }, env).doc;
+    expect(doc.layers.map((l) => [l.blend, l.fill])).toEqual([
+      ["multiply", 0.5],
+      ["multiply", 0.5],
+    ]);
+    const blended = setLayerBlendingTool(doc, { layers: ["cat"], channels: { g: false }, blendIf: { gray: { underlying: [0, 40, 255, 255] } } }, env);
+    expect(blended.doc.layers[1].blending).toEqual({ channels: { r: true, g: false, b: true }, blendIf: { gray: { layer: [0, 0, 255, 255], underlying: [0, 40, 255, 255] } } });
+    expect(describePhoto(blended.doc, env.assets, [])).toMatch(/blending: Multiply, Fill 50%, channels RB, Blend If gray/);
+    expect(describePhoto(blended.doc, env.assets, [])).toMatch(/layers mix as Photoshop's/);
+    expect(setLayerBlendingTool(blended.doc, { layers: ["cat"], blendIf: null }, env).doc.layers[1].blending).toEqual({ channels: { r: true, g: false, b: true } });
+    expect(() => setLayerBlendingTool(doc, { layers: ["cat"], mode: "glow" }, env)).toThrow(/multiply, color-burn/);
+    expect(() => setLayerBlendingTool(doc, { layers: ["cat"], fill: 50 }, env)).toThrow(/0 to 1/);
+    expect(() => setLayerBlendingTool(doc, { layers: ["cat"], blendIf: { alpha: {} } }, env)).toThrow(/gray, red, green, blue/);
+    expect(setCanvasTool(doc, { compositing: "linear" }, env).doc.compositing).toBe("linear");
   });
 
   it("adds adjustment layers above a layer, sets and resets their parameters, and says what's wrong", () => {
@@ -117,6 +138,27 @@ describe("the photo assistant's edits", () => {
     expect(text).toMatch(/pixel layer 1280×720 \(empty: nothing painted yet\)/);
     expect(text).toMatch(/mask: reveals everything/);
     expect(text).toMatch(/Selection \(marching ants\): x 10..40, y 20..60/);
+  });
+});
+
+describe("the assistant's layer styles", () => {
+  const empty = createPhotoProject("Thumb", { width: 1280, height: 720 });
+  it("adds, changes, hides and removes effects, by id or type, and says what's wrong", () => {
+    let doc = addImageLayerTool(empty, { media: "cat.png" }, env).doc;
+    doc = setLayerStyleTool(doc, { layer: "cat", add: "drop-shadow", params: { distance: 20, contour: "Cone" } }, env).doc;
+    const shadow = doc.layers[0].style!.effects[0];
+    expect(shadow.params).toMatchObject({ distance: 20, size: 7, opacity: 35, contour: { name: "Cone" } });
+    doc = setLayerStyleTool(doc, { layer: "cat", effect: "drop-shadow", params: { size: 30 } }, env).doc;
+    expect(doc.layers[0].style!.effects[0].params.size).toBe(30);
+    doc = setLayerStyleTool(doc, { layer: "cat", add: "stroke" }, env).doc;
+    expect(describePhoto(doc, env.assets, [])).toMatch(/effects \(top first\): fx_\w+ Stroke: 3 px outside/);
+    doc = setLayerStyleTool(doc, { layer: "cat", effect: shadow.id, enabled: false }, env).doc;
+    expect(doc.layers[0].style!.effects.find((e) => e.id === shadow.id)!.enabled).toBe(false);
+    doc = setLayerStyleTool(doc, { layer: "cat", effect: shadow.id, remove: true }, env).doc;
+    expect(doc.layers[0].style!.effects.map((e) => e.type)).toEqual(["stroke"]);
+    expect(() => setLayerStyleTool(doc, { layer: "cat", add: "outer-glow", params: { contour: "Wobble" } }, env)).toThrow(/Gaussian/);
+    expect(() => setLayerStyleTool(doc, { layer: "cat", effect: "satin" }, env)).toThrow(/stroke/);
+    expect(setGlobalLightTool(doc, { angle: 45 }, env).doc.globalLight).toEqual({ angle: 45, altitude: 30 });
   });
 });
 

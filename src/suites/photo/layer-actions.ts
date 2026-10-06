@@ -5,9 +5,11 @@
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import { createId } from "@shared/ids";
-import { addFilter, addGeneratorLayer, addPixelLayer, arrangeLayers, duplicateLayers, findLayer, removeFilter, removeLayers, removeMask, replaceLayer, setMask, shiftLayers } from "@shared/photo/edits";
+import { stepBlendMode } from "@shared/photo/blending";
+import { addFilter, addGeneratorLayer, addPixelLayer, arrangeLayers, duplicateLayers, findLayer, removeFilter, removeLayers, removeMask, replaceLayer, setLayerBlending, setMask, shiftLayers } from "@shared/photo/edits";
 import { effectDefinition } from "@shared/photo/effects/index";
-import { hasContent } from "@shared/photo/types";
+import { type BlendMode, type BlendingOptions, type LayerStyle, hasContent } from "@shared/photo/types";
+import { setLayerStyle, setStyleEnabled } from "@shared/photo/style/style";
 import { liveRenderer } from "./live";
 import { mergeLayers } from "./merge";
 import { type LayerSelection, allLayers, edgeLayer, inStackOrder, stepLayer } from "./selection";
@@ -15,6 +17,9 @@ import { currentDoc, currentSelection, usePhoto } from "./store";
 import { usePhotoUi } from "./ui";
 
 const order = () => usePhoto.getState().history?.doc.doc.layers.map((l) => l.id) ?? [];
+
+/** What Copy Layer Style kept (this tab's, as Photoshop's is the application's). */
+let copiedStyle: { style: LayerStyle | null; blend?: BlendMode; fill?: number; blending?: BlendingOptions } | null = null;
 
 /** The selected layers, bottom first. */
 export const selectedInOrder = () => inStackOrder(usePhotoUi.getState().selectedLayerIds, order());
@@ -80,6 +85,59 @@ export const layerActions = {
   mergeVisible: () => mergeLayers("visible"),
   selectAll: () => apply(allLayers(current(), order())),
   deselect: () => usePhotoUi.getState().select(null),
+  /** The selected layers' blend mode (one undo step). */
+  setBlendMode: (blend: BlendMode) => {
+    const ids = usePhotoUi.getState().selectedLayerIds;
+    if (ids.length) usePhoto.getState().commit((d) => setLayerBlending(d, ids, { blend }));
+  },
+  /** The active layer's next or previous mode, on every selected layer (Photoshop's ⇧+ / ⇧−). */
+  stepBlendMode: (direction: 1 | -1) => {
+    const { selectedLayerId } = usePhotoUi.getState();
+    const layer = selectedLayerId ? findLayer(usePhoto.getState().history!.doc.doc, selectedLayerId) : undefined;
+    if (layer) layerActions.setBlendMode(stepBlendMode(layer.blend ?? "normal", direction));
+  },
+  /**
+   * The Layer Style window for `layerId` (default: the active layer), which it selects, on a page: Blending Options,
+   * an effect's (its id), or an effect type's (its first instance, added at the user's defaults when it has none).
+   */
+  blendingOptions: (layerId?: string, page = "blending") => {
+    const ui = usePhotoUi.getState();
+    const id = layerId ?? ui.selectedLayerId;
+    if (!id) return;
+    if (ui.selectedLayerId !== id) ui.select(id);
+    ui.setLayerStyle({ layerId: id, page });
+  },
+  /** Copy Layer Style: the active layer's style (and Blending Options), kept for Paste. */
+  copyStyle: () => {
+    const { selectedLayerId } = usePhotoUi.getState();
+    const layer = selectedLayerId ? findLayer(usePhoto.getState().history!.doc.doc, selectedLayerId) : undefined;
+    if (!layer) return;
+    copiedStyle = { style: layer.style ? structuredClone(layer.style) : null, blend: layer.blend, fill: layer.fill, blending: layer.blending ? structuredClone(layer.blending) : undefined };
+    toast.success(`Copied "${layer.name}"'s layer style`);
+  },
+  /** Paste Layer Style onto every selected layer (one undo step). */
+  pasteStyle: () => {
+    const ids = usePhotoUi.getState().selectedLayerIds;
+    const copied = copiedStyle;
+    if (!copied || !ids.length) return;
+    usePhoto.getState().commit((d) => {
+      let next = setLayerStyle(d, ids.filter((id) => findLayer(d, id)?.kind !== "adjustment"), copied.style, () => createId("fx"));
+      next = setLayerBlending(next, ids, { blend: copied.blend ?? "normal", fill: copied.fill ?? 1, channels: copied.blending?.channels ?? { r: true, g: true, b: true }, blendIf: copied.blending?.blendIf ?? null, interiorAsGroup: copied.blending?.interiorAsGroup ?? false, maskHidesEffects: copied.blending?.maskHidesEffects ?? false });
+      return next;
+    });
+  },
+  canPasteStyle: () => copiedStyle !== null,
+  /** Clear Layer Style: the selected layers' effects gone, their Blending Options back to Normal. */
+  clearStyle: () => {
+    const ids = usePhotoUi.getState().selectedLayerIds;
+    if (!ids.length) return;
+    usePhoto.getState().commit((d) => setLayerBlending(setLayerStyle(d, ids, null, () => createId("fx")), ids, { blend: "normal", fill: 1, channels: { r: true, g: true, b: true }, blendIf: null, interiorAsGroup: false, maskHidesEffects: false }));
+  },
+  /** Hide All Effects / Show All Effects on the selected layers. */
+  showEffects: (shown: boolean) => {
+    const ids = usePhotoUi.getState().selectedLayerIds;
+    if (ids.length) usePhoto.getState().commit((d) => setStyleEnabled(d, ids, shown));
+  },
   step: (direction: 1 | -1, add: boolean) => apply(stepLayer(current(), order(), direction, add)),
   edge: (to: "top" | "bottom", add: boolean) => apply(edgeLayer(current(), order(), to, add)),
 
@@ -135,7 +193,9 @@ export const layerActions = {
       usePhoto.getState().commit((d) => {
         const now = findLayer(d, layerId);
         if (!now) return d;
-        return replaceLayer(d, layerId, { id: layerId, kind: "pixel", name: now.name, visible: now.visible, opacity: now.opacity, ...pixels });
+        // Its blending stays the layer's (the pixels are drawn plain).
+        const blending = { ...(now.blend ? { blend: now.blend } : {}), ...(now.fill !== undefined ? { fill: now.fill } : {}), ...(now.blending ? { blending: now.blending } : {}) };
+        return replaceLayer(d, layerId, { id: layerId, kind: "pixel", name: now.name, visible: now.visible, opacity: now.opacity, ...blending, ...pixels });
       });
       usePhotoUi.getState().setTarget("content");
       toast.success(`"${layer.name}" is pixels now`, { description: "Its place, filters and mask are part of them: scaling it now resamples these pixels." });

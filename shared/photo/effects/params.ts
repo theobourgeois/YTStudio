@@ -4,10 +4,22 @@
  * assistant and `normalizePhotoProject` alike. Photo's own: the video editor's `shared/params.ts` is another suite's.
  */
 import { createId } from "../../ids.ts";
-import type { CurvePoints, CurveSet, DocPoint, EffectElement, EffectParamValue } from "../types.ts";
+import { isBlendMode } from "../blending.ts";
+import { sanitizeContour } from "../style/contours.ts";
+import { sanitizeGradient } from "../style/gradients.ts";
+import type { BlendMode, Contour, CurvePoints, CurveSet, DocPoint, EffectElement, EffectParamValue, Gradient } from "../types.ts";
+
+/**
+ * Where a parameter goes on a Layer Style page (Photoshop's groups: Structure, Elements, Quality…), and when it shows
+ * (only while another parameter has a value: Outer Glow's gradient with its Gradient radio).
+ */
+interface Placement {
+  group?: string;
+  showIf?: { key: string; is: string | boolean };
+}
 
 /** A number with a unit, a range and a step (what the panel's slider and field show). */
-export interface NumberParam {
+export interface NumberParam extends Placement {
   kind: "number";
   key: string;
   label: string;
@@ -25,7 +37,7 @@ export interface NumberParam {
 }
 
 /** Curves: a composite curve and one per channel, as points on 0..255. */
-export interface CurvesParam {
+export interface CurvesParam extends Placement {
   kind: "curves";
   key: string;
   label: string;
@@ -33,8 +45,28 @@ export interface CurvesParam {
   description: string;
 }
 
-/** A colour, as sRGB "#rrggbb" (definitions convert it to linear light when they pack it). */
-export interface ColourParam {
+/** One of a few named values (a menu or radio buttons). */
+export interface ChoiceParam extends Placement {
+  kind: "choice";
+  key: string;
+  label: string;
+  options: readonly { value: string; label: string }[];
+  /** Radio buttons rather than a menu (Photoshop's for two or three). */
+  radio?: boolean;
+  default: string;
+  description: string;
+}
+
+export interface BooleanParam extends Placement {
+  kind: "boolean";
+  key: string;
+  label: string;
+  default: boolean;
+  description: string;
+}
+
+/** A colour, as sRGB "#rrggbb" (a swatch; definitions convert it to linear light when they pack it). */
+export interface ColourParam extends Placement {
   kind: "colour";
   key: string;
   label: string;
@@ -42,35 +74,44 @@ export interface ColourParam {
   description: string;
 }
 
+/** A blend mode (the blend-mode menu). */
+export interface BlendParam extends Placement {
+  kind: "blend";
+  key: string;
+  label: string;
+  default: BlendMode;
+  description: string;
+}
+
+/** A contour (the contour picker and its editor). */
+export interface ContourParam extends Placement {
+  kind: "contour";
+  key: string;
+  label: string;
+  default: Contour;
+  description: string;
+}
+
+/** A gradient (the gradient picker and its editor). */
+export interface GradientParam extends Placement {
+  kind: "gradient";
+  key: string;
+  label: string;
+  default: Gradient;
+  description: string;
+}
+
 /**
  * A point in document pixels. `handle`: drawn on the canvas, where it's dragged (a flare's source). `nullable`: null
  * means the canvas's centre (a flare's optical centre), following the canvas.
  */
-export interface PointParam {
+export interface PointParam extends Placement {
   kind: "point";
   key: string;
   label: string;
   default: DocPoint | null;
   nullable: boolean;
   handle: boolean;
-  description: string;
-}
-
-/** One of a few named values. */
-export interface ChoiceParam {
-  kind: "choice";
-  key: string;
-  label: string;
-  options: readonly { value: string; label: string }[];
-  default: string;
-  description: string;
-}
-
-export interface BooleanParam {
-  kind: "boolean";
-  key: string;
-  label: string;
-  default: boolean;
   description: string;
 }
 
@@ -86,7 +127,7 @@ export interface ElementType {
 }
 
 /** An ordered list of elements of a few types (a flare's), each with a stable id. */
-export interface ElementsParam {
+export interface ElementsParam extends Placement {
   kind: "elements";
   key: string;
   label: string;
@@ -97,7 +138,7 @@ export interface ElementsParam {
   description: string;
 }
 
-export type ParamSpec = NumberParam | CurvesParam | ColourParam | PointParam | ChoiceParam | BooleanParam | ElementsParam;
+export type ParamSpec = NumberParam | CurvesParam | ColourParam | PointParam | ChoiceParam | BooleanParam | ElementsParam | BlendParam | ContourParam | GradientParam;
 
 /** Photoshop's limit: 16 points on a curve, its ends included. */
 export const MAX_CURVE_POINTS = 16;
@@ -228,6 +269,12 @@ export function sanitizeParam(spec: ParamSpec, value: unknown): Sanitized<Effect
       return spec.options.some((o) => o.value === value) ? { value: value as string, repaired: false } : { value: spec.default, repaired: true };
     case "boolean":
       return typeof value === "boolean" ? { value, repaired: false } : { value: spec.default, repaired: true };
+    case "blend":
+      return isBlendMode(value) ? { value, repaired: false } : { value: spec.default, repaired: true };
+    case "contour":
+      return value === undefined ? { value: structuredClone(spec.default), repaired: true } : sanitizeContour(value);
+    case "gradient":
+      return value === undefined ? { value: structuredClone(spec.default), repaired: true } : sanitizeGradient(value);
     case "point": {
       if (value === null && spec.nullable) return { value: null, repaired: false };
       if (!Array.isArray(value) || value.length !== 2 || !value.every((n) => typeof n === "number" && Number.isFinite(n))) {
@@ -252,7 +299,7 @@ export const newElement = (type: ElementType, id: string): EffectElement => ({
   ...Object.fromEntries(type.params.map((p) => [p.key, p.default])),
 });
 
-/** Whether two parameter values are the same (deeply: curves, points and elements are arrays and objects). */
+/** Whether two parameter values are the same (deeply: curves, contours, gradients, points and elements are objects). */
 export function sameValue(a: EffectParamValue | undefined, b: EffectParamValue | undefined): boolean {
   if (a === b) return true;
   if (typeof a !== "object" || typeof b !== "object" || !a || !b) return false;
