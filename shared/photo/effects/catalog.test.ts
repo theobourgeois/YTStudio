@@ -6,7 +6,8 @@ describe("the filter catalogue", () => {
   it("lists every filter's and generator's presets by category, filters first, each key once", () => {
     const keys = FILTER_ENTRIES.map((e) => e.key);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys.filter((k) => FILTER_ENTRIES.find((e) => e.key === k)!.def.category === "Light").slice(0, 8)).toEqual([
+    // Light's glows and flares in order (its kernel filters, as Light Leak, come between them: filters first).
+    expect(keys.filter((k) => FILTER_ENTRIES.find((e) => e.key === k)!.def.category === "Light" && /^(glow|lens-flare)\//.test(k)).slice(0, 8)).toEqual([
       "glow/bloom",
       "glow/soft-haze",
       "glow/neon",
