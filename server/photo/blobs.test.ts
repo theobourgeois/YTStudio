@@ -74,3 +74,41 @@ describe("manifests", () => {
     await expect(store.putManifest(sha256("x"), { ...manifest, tile: 300 })).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe("collection", () => {
+  /** A manifest of these tiles, stored with them; its id. */
+  const surface = async (tiles: Uint8Array[]) => {
+    const hashes = tiles.map(sha256);
+    for (let i = 0; i < tiles.length; i++) await store.putTile(hashes[i], tiles[i]);
+    const manifest = withTiles(
+      emptySurface("rgba16f", 256, [0, 0, 0, 0]),
+      hashes.map((h, i) => [i, 0, h]),
+    );
+    const id = sha256(canonicalJson(manifest));
+    await store.putManifest(id, manifest);
+    return { id, hashes };
+  };
+
+  it("deletes only what the saved roots don't reach: history's states go, shared tiles stay", async () => {
+    // The saved state, and an earlier state that only the (closed) tab's history named: they share tile 1.
+    const saved = await surface([tile(1), tile(2)]);
+    const undone = await surface([tile(1), tile(3)]);
+    const later = Date.now() + 1000;
+    const result = await store.collect([saved.id], later);
+    expect(result).toEqual({ tiles: 1, manifests: 1, missing: [] });
+    expect(await store.hasManifest(saved.id)).toBe(true);
+    expect(await store.hasManifest(undone.id)).toBe(false);
+    for (const h of saved.hashes) expect(await store.hasTile(h)).toBe(true);
+    expect(await store.hasTile(undone.hashes[1])).toBe(false);
+    // Nothing's left to collect.
+    expect(await store.collect([saved.id], later)).toEqual({ tiles: 0, manifests: 0, missing: [] });
+  });
+
+  it("keeps what was written since it started, and reports roots it hasn't got", async () => {
+    const before = Date.now() - 60_000;
+    const recent = await surface([tile(4)]);
+    const result = await store.collect(["a".repeat(64)], before);
+    expect(result).toEqual({ tiles: 0, manifests: 0, missing: ["a".repeat(64)] });
+    expect(await store.hasManifest(recent.id)).toBe(true);
+  });
+});

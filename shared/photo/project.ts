@@ -6,18 +6,22 @@
  */
 import { createId } from "../ids.ts";
 import { effectDefinition, validateParams } from "./effects/index.ts";
+import { isHash } from "./surfaces.ts";
 import {
   type AdjustmentLayer,
   CANVAS_PRESETS,
   type EffectInstance,
   type EffectParamValue,
   type ImageLayer,
+  type LayerMask,
   type LayerTransform,
   MAX_CANVAS_SIDE,
   PHOTO_VERSION,
   type PhotoCanvas,
   type PhotoLayer,
   type PhotoProject,
+  type PixelLayer,
+  type SurfaceId,
 } from "./types.ts";
 
 const DEFAULT_PRESET = CANVAS_PRESETS[0];
@@ -115,20 +119,42 @@ export function normalizeEffect(value: unknown, seen: Set<string>, report: Repor
   return { id, type: def.type, version, enabled, params };
 }
 
+/** A surface reference: a SHA-256, or null (an empty surface). Anything else is reported and treated as null. */
+function surfaceRef(value: unknown, what: string, report: Report): SurfaceId | null {
+  if (value === null || value === undefined) return null;
+  if (isHash(value)) return value;
+  report(`${what}: "${String(value)}" isn't a surface id; left empty.`);
+  return null;
+}
+
+/** A layer's mask, checked: absent stays absent (no field written for a layer without one). */
+function normalizeMask(value: unknown, id: string, report: Report): { mask?: LayerMask } {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) {
+    report(`Layer ${id}: its mask isn't one; left out.`);
+    return {};
+  }
+  return { mask: { surface: surfaceRef((value as Record<string, unknown>).surface, `Layer ${id}'s mask`, report) } };
+}
+
+const LAYER_NAMES: Record<string, string> = { image: "Image", pixel: "Layer", adjustment: "Adjustment" };
+
 function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, report: Report): PhotoLayer | null {
   if (!value || typeof value !== "object") return null;
   const l = value as Record<string, unknown>;
-  const common = () => ({
-    name: typeof l.name === "string" && l.name.trim() ? l.name.trim().slice(0, 200) : l.kind === "image" ? "Image" : "Adjustment",
+  const common = (id: string) => ({
+    name: typeof l.name === "string" && l.name.trim() ? l.name.trim().slice(0, 200) : (LAYER_NAMES[String(l.kind)] ?? "Layer"),
     visible: l.visible !== false,
     opacity: Math.max(0, Math.min(1, finite(l.opacity, 1))),
+    ...normalizeMask(l.mask, id, report),
   });
   if (l.kind === "image") {
     if (typeof l.mediaId !== "string" || !l.mediaId) return null;
+    const id = uniqueId(l.id, "layer", seen);
     const layer: ImageLayer = {
-      id: uniqueId(l.id, "layer", seen),
+      id,
       kind: "image",
-      ...common(),
+      ...common(id),
       mediaId: l.mediaId,
       transform: normalizeTransform(l.transform, { x: canvas.width / 2, y: canvas.height / 2 }),
     };
@@ -141,7 +167,21 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
       report(`Layer ${id}: an adjustment layer without an effect was left out.`);
       return null;
     }
-    const layer: AdjustmentLayer = { id, kind: "adjustment", ...common(), effect };
+    const layer: AdjustmentLayer = { id, kind: "adjustment", ...common(id), effect };
+    return layer;
+  }
+  if (l.kind === "pixel") {
+    const id = uniqueId(l.id, "layer", seen);
+    const s = (l.size && typeof l.size === "object" ? l.size : {}) as Record<string, unknown>;
+    const size = { width: isSide(s.width) ? s.width : canvas.width, height: isSide(s.height) ? s.height : canvas.height };
+    const layer: PixelLayer = {
+      id,
+      kind: "pixel",
+      ...common(id),
+      surface: surfaceRef(l.surface, `Layer ${id}`, report),
+      size,
+      transform: normalizeTransform(l.transform, { x: size.width / 2, y: size.height / 2 }),
+    };
     return layer;
   }
   return null;
@@ -149,7 +189,7 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
 
 /**
  * Validates and repairs an untrusted document, and brings an older version up to this one (version 1 had image
- * layers only: it's a valid version 2 as it is). Throws only when it isn't a photo at all, or a newer version made
+ * layers only, version 2 added adjustments: either is a valid version 3 as it is). Throws only when it isn't a photo at all, or a newer version made
  * it (opening it here would lose what this version doesn't know). What it repairs is told to `report`.
  */
 export function normalizePhotoProject(value: unknown, report: Report = () => {}): PhotoProject {

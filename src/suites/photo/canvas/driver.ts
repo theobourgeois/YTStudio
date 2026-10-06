@@ -25,8 +25,8 @@ export class CanvasDriver {
     renderer.onChange = () => this.request("final");
     this.unsubscribe.push(
       usePhoto.subscribe((s, prev) => {
-        const doc = s.history?.doc;
-        if (doc !== prev.history?.doc) this.request(s.history?.gestureBase && layersMoved(prev.history?.doc, doc) ? "interactive" : "final");
+        const doc = s.history?.doc.doc;
+        if (doc !== prev.history?.doc.doc) this.request(s.history?.gestureBase && layersMoved(prev.history?.doc.doc, doc) ? "interactive" : "final");
       }),
       usePhotoUi.subscribe((s, prev) => {
         if (s.view !== prev.view) this.request("interactive");

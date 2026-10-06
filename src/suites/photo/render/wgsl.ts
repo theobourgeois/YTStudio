@@ -5,11 +5,11 @@
  */
 import { MAX_ARRAYS } from "./atlas.ts";
 
-/** Group 0: the atlas's arrays (`a0`..`a7`) and where slots are (`atlas.perArray`). */
-export const ATLAS = /* wgsl */ `
+/** The atlas's arrays (`a0`..`a7`) and where slots are (`atlas.perArray`), bound at `group`. */
+export const atlasAt = (group: number) => /* wgsl */ `
 struct Atlas { perArray: u32, tile: u32, p0: u32, p1: u32 }
-${Array.from({ length: MAX_ARRAYS }, (_, i) => `@group(0) @binding(${i}) var a${i}: texture_2d_array<f32>;`).join("\n")}
-@group(0) @binding(${MAX_ARRAYS}) var<uniform> atlas: Atlas;
+${Array.from({ length: MAX_ARRAYS }, (_, i) => `@group(${group}) @binding(${i}) var a${i}: texture_2d_array<f32>;`).join("\n")}
+@group(${group}) @binding(${MAX_ARRAYS}) var<uniform> atlas: Atlas;
 
 fn loadSlot(slot: u32, p: vec2i) -> vec4f {
   let layer = i32(slot % atlas.perArray);
@@ -17,6 +17,27 @@ fn loadSlot(slot: u32, p: vec2i) -> vec4f {
 ${Array.from({ length: MAX_ARRAYS - 1 }, (_, i) => `    case ${i}u: { return textureLoad(a${i}, p, layer, 0); }`).join("\n")}
     default: { return textureLoad(a${MAX_ARRAYS - 1}, p, layer, 0); }
   }
+}
+`;
+
+/** Group 0: the atlas (what most kernels bind first). */
+export const ATLAS = atlasAt(0);
+
+/**
+ * A mask's coverage at a point of its own pixels, bilinear at a level of its pyramid (1 when `on` is false). Needs
+ * `imageFunctions("mask", …)`.
+ */
+export const MASK_SAMPLE = /* wgsl */ `
+fn mask_at(on: bool, level: u32, p: vec2f) -> f32 {
+  if (!on) { return 1.0; }
+  let f = p - 0.5;
+  let i = vec2i(floor(f));
+  let t = f - floor(f);
+  let a = texel_mask(level, i.x, i.y).r;
+  let b = texel_mask(level, i.x + 1, i.y).r;
+  let c = texel_mask(level, i.x, i.y + 1).r;
+  let d = texel_mask(level, i.x + 1, i.y + 1).r;
+  return clamp(mix(mix(a, b, t.x), mix(c, d, t.x), t.y), 0.0, 1.0);
 }
 `;
 

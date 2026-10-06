@@ -40,5 +40,15 @@ export interface SuiteBackend<S extends SuiteId> {
   stats(doc: SuiteDocument<S>): DocStats<S>;
   /** The document with its media ids replaced (a duplicated project has its own copies of the media). */
   remapMedia(doc: SuiteDocument<S>, ids: ReadonlyMap<string, string>): SuiteDocument<S>;
+  /**
+   * Checks a document about to be saved against its package (`dir`): throws an `HttpError` to refuse it, and the
+   * document on disk stays as it was (the photo suite's publication gate: never name pixels the package hasn't got).
+   */
+  checkSave?(doc: SuiteDocument<S>, dir: string): Promise<void>;
+  /**
+   * A tab opened the project and no tab had it open: what the suite does with its package then (the photo suite
+   * collects the pixels nothing saved names any more).
+   */
+  opened?(doc: SuiteDocument<S>, dir: string): Promise<void>;
   assistant: SuiteAssistant;
 }

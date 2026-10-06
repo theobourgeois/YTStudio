@@ -15,6 +15,9 @@ import {
   type PhotoCanvas,
   type PhotoLayer,
   type PhotoProject,
+  type PixelLayer,
+  type SurfaceId,
+  isPlaced,
 } from "./types.ts";
 
 export const findLayer = (doc: PhotoProject, id: string): PhotoLayer | undefined => doc.layers.find((l) => l.id === id);
@@ -77,12 +80,12 @@ const sameTransform = (a: LayerTransform, b: LayerTransform) =>
   a.x === b.x && a.y === b.y && a.scaleX === b.scaleX && a.scaleY === b.scaleY && a.rotation === b.rotation;
 
 /**
- * Sets part of an image layer's transform; a scale too close to 0 is held at the smallest (it has to stay
- * invertible). Other layers have no place of their own: nothing changes.
+ * Sets part of a placed layer's transform (an image's or a pixel layer's); a scale too close to 0 is held at the
+ * smallest (it has to stay invertible). Adjustments have no place of their own: nothing changes.
  */
 export function setTransform(doc: PhotoProject, id: string, patch: Partial<LayerTransform>): PhotoProject {
   return mapLayer(doc, id, (l) => {
-    if (l.kind !== "image") return l;
+    if (!isPlaced(l)) return l;
     const t = { ...l.transform, ...patch };
     const clampScale = (s: number) => (Math.abs(s) < MIN_SCALE ? (s < 0 ? -MIN_SCALE : MIN_SCALE) : s);
     const next: LayerTransform = { x: t.x, y: t.y, scaleX: clampScale(t.scaleX), scaleY: clampScale(t.scaleY), rotation: wrapDegrees(t.rotation) };
@@ -188,12 +191,12 @@ export function duplicateLayers(doc: PhotoProject, ids: readonly string[], newId
   return ids.reduce((d, id) => duplicateLayer(d, id, newIdOf(id)), doc);
 }
 
-/** Moves image layers by (dx, dy) document pixels together (the Move tool with several layers selected). */
+/** Moves placed layers by (dx, dy) document pixels together (the Move tool with several layers selected). */
 export function moveLayersBy(doc: PhotoProject, ids: readonly string[], dx: number, dy: number): PhotoProject {
   const moving = new Set(ids);
   let changed = false;
   const layers = doc.layers.map((l) => {
-    if (!moving.has(l.id) || l.kind !== "image" || (!dx && !dy)) return l;
+    if (!moving.has(l.id) || !isPlaced(l) || (!dx && !dy)) return l;
     changed = true;
     return { ...l, transform: { ...l.transform, x: l.transform.x + dx, y: l.transform.y + dy } };
   });
@@ -275,6 +278,69 @@ export function setCanvas(doc: PhotoProject, patch: Partial<PhotoCanvas>, anchor
   if (width === doc.canvas.width && height === doc.canvas.height && background === doc.canvas.background) return doc;
   const dx = anchor === "centre" ? (width - doc.canvas.width) / 2 : 0;
   const dy = anchor === "centre" ? (height - doc.canvas.height) / 2 : 0;
-  const layers = dx || dy ? doc.layers.map((l) => (l.kind === "image" ? { ...l, transform: { ...l.transform, x: l.transform.x + dx, y: l.transform.y + dy } } : l)) : doc.layers;
+  const layers = dx || dy ? doc.layers.map((l) => (isPlaced(l) ? { ...l, transform: { ...l.transform, x: l.transform.x + dx, y: l.transform.y + dy } } : l)) : doc.layers;
   return { ...doc, canvas: { width, height, background }, layers };
+}
+
+/**
+ * A new, empty pixel layer (Photoshop's New Layer, ⇧⌘N): the canvas's size at 100% over it, right above `above`
+ * (an id), or on top.
+ */
+export function addPixelLayer(doc: PhotoProject, layer: { id: string; name?: string }, above?: string | null): PhotoProject {
+  if (findLayer(doc, layer.id)) return doc;
+  const { width, height } = doc.canvas;
+  const added: PixelLayer = {
+    id: layer.id,
+    kind: "pixel",
+    name: layer.name?.trim() || nextLayerName(doc),
+    visible: true,
+    opacity: 1,
+    surface: null,
+    size: { width, height },
+    transform: { x: width / 2, y: height / 2, scaleX: 1, scaleY: 1, rotation: 0 },
+  };
+  const layers = [...doc.layers];
+  const at = above ? layers.findIndex((l) => l.id === above) : -1;
+  layers.splice(at >= 0 ? at + 1 : layers.length, 0, added);
+  return { ...doc, layers };
+}
+
+/** "Layer 1", "Layer 2"…: the first number no layer is called yet (Photoshop's names for new layers). */
+export function nextLayerName(doc: PhotoProject): string {
+  const taken = new Set(doc.layers.map((l) => l.name));
+  for (let n = 1; ; n++) if (!taken.has(`Layer ${n}`)) return `Layer ${n}`;
+}
+
+/** A pixel layer's painted pixels (a stroke's result: one undo step). */
+export function setSurface(doc: PhotoProject, id: string, surface: SurfaceId | null): PhotoProject {
+  return mapLayer(doc, id, (l) => (l.kind !== "pixel" || l.surface === surface ? l : { ...l, surface }));
+}
+
+/**
+ * A layer's mask: its coverage surface (null reveals everything), added when the layer has none. A mask painted
+ * or made from a selection is one undo step.
+ */
+export function setMask(doc: PhotoProject, id: string, surface: SurfaceId | null): PhotoProject {
+  return mapLayer(doc, id, (l) => (l.mask && l.mask.surface === surface ? l : { ...l, mask: { surface } }));
+}
+
+/** Deletes a layer's mask (the layer shows whole again). */
+export function removeMask(doc: PhotoProject, id: string): PhotoProject {
+  return mapLayer(doc, id, (l) => {
+    if (!l.mask) return l;
+    const { mask: _, ...rest } = l;
+    return rest as PhotoLayer;
+  });
+}
+
+/**
+ * An image layer replaced by a pixel layer of what it showed (Photoshop's Rasterize / Convert to pixels): `layer`
+ * is the render, made by the tab (its transform and mask baked into its pixels), in the image's place.
+ */
+export function replaceLayer(doc: PhotoProject, id: string, layer: PhotoLayer): PhotoProject {
+  const index = doc.layers.findIndex((l) => l.id === id);
+  if (index < 0 || (layer.id !== id && findLayer(doc, layer.id))) return doc;
+  const layers = [...doc.layers];
+  layers[index] = layer;
+  return { ...doc, layers };
 }

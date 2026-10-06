@@ -8,31 +8,52 @@
  * never aliases), bilinear while the view moves, and read texel for texel when its pixels land exactly on the
  * view's (scale ±1, right angles, whole-pixel offsets), so an unedited photo exports bit for bit.
  *
+ * A layer's mask multiplies what it adds, read in the layer's own pixels (so it follows the layer); an adjustment's
+ * multiplies how much it changes, read in document pixels. Pixel layers draw as images do.
+ *
  * Refinement (a reduced view of a plan that doesn't commute with reduction) is built from three passes here: the
  * plan at full resolution over a region, `reduce` (the pyramid's 2 × 2 box) down to the view's level, and `sample`
  * (Mitchell at the view's pixels, as a source would be read).
  */
 import { type View, levelForScale } from "@shared/photo/geometry.ts";
 import { type Affine, invert, layerScale } from "@shared/photo/layers.ts";
-import type { AdjustmentNode, ImageNode, PlanFormat, RenderPlan } from "@shared/photo/render-plan.ts";
+import type { AdjustmentNode, DrawNode, PlanFormat, RenderPlan } from "@shared/photo/render-plan.ts";
 import type { LayerTransform } from "@shared/photo/types.ts";
 import { ADJUSTMENT_KERNELS, adjustmentShader } from "./adjustments.ts";
 import type { RenderContext } from "./context.ts";
 import { ROUND_FOR_STORE } from "./kernels.ts";
-import type { SourceImage } from "./source.ts";
-import { ATLAS, IMAGE_STRUCTS, MATHS, imageFunctions } from "./wgsl.ts";
+import type { VirtualImage } from "./image.ts";
+import { ATLAS, IMAGE_STRUCTS, MASK_SAMPLE, MATHS, atlasAt, imageFunctions } from "./wgsl.ts";
 
 export type Quality = "interactive" | "final";
 
 export const COMPOSITE_FORMATS: readonly PlanFormat[] = ["rgba16float", "rgba32float"];
 
-/** One layer to draw: its source on the GPU, where it goes, how opaque. */
+/** Pixels on the GPU a layer pass reads: a source image, or a surface (painted pixels, a mask). */
+export interface Drawable {
+  ctx: RenderContext;
+  image: VirtualImage;
+  /** Its size in its own pixels. */
+  width: number;
+  height: number;
+  /** A coarse picture shown until its tiles arrive (a source's), or null. */
+  preview: GPUTexture | null;
+}
+
+/** One layer to draw: its pixels on the GPU, where they go, how opaque, and its mask (in the same atlas). */
 export interface LayerDraw {
-  source: SourceImage;
+  source: Drawable;
   /** Layer pixels → document pixels. */
   matrix: Affine;
   transform: LayerTransform;
   opacity: number;
+  mask: Drawable | null;
+}
+
+/** What an evaluation reads: each drawing node's pixels, and each adjustment's mask (null while not on the GPU). */
+export interface PlanSources {
+  draw: (node: DrawNode) => LayerDraw | null;
+  mask: (node: AdjustmentNode) => Drawable | null;
 }
 
 /** Counted work, for the gate "re-renders only what depends on it". */
@@ -50,6 +71,8 @@ ${ATLAS}
 ${IMAGE_STRUCTS}
 ${MATHS}
 ${imageFunctions("src", 1)}
+${imageFunctions("mask", 3)}
+${MASK_SAMPLE}
 struct Layer {
   inv0: vec4f,        // u = dot(inv0.xy, doc) + inv0.z
   inv1: vec4f,        // v = dot(inv1.xy, doc) + inv1.z
@@ -61,7 +84,7 @@ struct Layer {
   mode: u32,          // 0 bilinear, 1 Mitchell, 2 texel for texel
   scale: f32,         // target pixels per source pixel
   hasPreview: u32,
-  p0: u32,
+  hasMask: u32,
   p1: u32,
 }
 @group(2) @binding(0) var<uniform> layer: Layer;
@@ -110,9 +133,11 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   // A source pixel's reach under Mitchell, in source pixels: never past this, nothing of the layer shows.
   let reach = 4.0 * max(1.0, 1.0 / layer.scale) + 1.0;
   if (u.x < -reach || u.y < -reach || u.x > layer.size.x + reach || u.y > layer.size.y + reach) { discard; }
+  let masked = layer.hasMask == 1u;
   if (layer.mode == 2u) {
-    // Texel for texel: the source pixel under this one, exactly.
-    return texel_src(0u, i32(floor(u.x)), i32(floor(u.y))) * layer.opacity;
+    // Texel for texel: the source pixel under this one, exactly (and its mask's).
+    let m = select(1.0, clamp(texel_mask(0u, i32(floor(u.x)), i32(floor(u.y))).r, 0.0, 1.0), masked);
+    return texel_src(0u, i32(floor(u.x)), i32(floor(u.y))) * (layer.opacity * m);
   }
   // The finest level at or coarser than the one wanted whose tile here is resident: the view refines as tiles arrive.
   var level = layer.level;
@@ -126,14 +151,15 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
       } else {
         c = bilinear(level, p);
       }
-      return c * layer.opacity;
+      return c * (layer.opacity * mask_at(masked, level, p));
     }
     if (level + 1u >= img_src.levels) { break; }
     level += 1u;
   }
   if (layer.hasPreview == 1u && u.x >= 0.0 && u.y >= 0.0 && u.x < layer.size.x && u.y < layer.size.y) {
     let p = textureSampleLevel(preview, previewSampler, u / layer.size, 0.0);
-    return vec4f(p.rgb * p.a, p.a) * layer.opacity;
+    let coarsest = img_mask.levels - 1u;
+    return vec4f(p.rgb * p.a, p.a) * (layer.opacity * mask_at(masked, coarsest, u * exp2(-f32(coarsest))));
   }
   discard;
   return vec4f(0.0);
@@ -306,6 +332,20 @@ export function compositeTexture(device: GPUDevice, width: number, height: numbe
   return device.createTexture({ label, size: [Math.max(1, width), Math.max(1, height)], format, usage: COMPOSITE_USAGE });
 }
 
+/** An adjustment's mask, read in document pixels: group 3 of an adjustment pass (its 32-byte `MaskParams`). */
+const ADJUSTMENT_MASK = /* wgsl */ `
+${IMAGE_STRUCTS}
+${atlasAt(2)}
+${imageFunctions("mask", 3)}
+${MASK_SAMPLE}
+struct MaskParams { origin: vec2f, zoom: f32, level: u32, on: u32, p0: u32, p1: u32, p2: u32 }
+@group(3) @binding(2) var<uniform> maskp: MaskParams;
+fn adjustment_mask(pos: vec2f) -> f32 {
+  let doc = maskp.origin + pos / maskp.zoom;
+  return mask_at(maskp.on == 1u, maskp.level, doc * exp2(-f32(maskp.level)));
+}
+`;
+
 interface Pipelines {
   layer: Record<PlanFormat, GPURenderPipeline>;
   adjustment: Map<string, GPURenderPipeline>;
@@ -321,16 +361,25 @@ export class Compositor {
   readonly pipelines: Pipelines;
   readonly stats: EvaluatorStats = { imageDraws: 0, adjustmentPasses: 0, resumed: 0 };
   private uniforms: GPUBuffer;
+  /** Adjustments' masks' parameters for an evaluation, one slot each. */
+  private maskUniforms: GPUBuffer;
   private readonly sampler: GPUSampler;
   private readonly blank: GPUTexture;
   private readonly emptyTable: GPUBuffer;
-  private readonly layerGroups = new WeakMap<SourceImage, { preview: GPUTexture | null; uniforms: GPUBuffer; group: GPUBindGroup }>();
+  private readonly layerGroups = new WeakMap<Drawable, { preview: GPUTexture | null; uniforms: GPUBuffer; group: GPUBindGroup }>();
   /** Each adjustment's parameters on the GPU, by its node's key (a node's parameters never change under its key). */
   private readonly adjustmentParams = new Map<string, { uniform: GPUBuffer; table: GPUBuffer | null; group: GPUBindGroup }>();
 
   private constructor(
     readonly ctx: RenderContext,
-    readonly layouts: { layer: GPUBindGroupLayout; texture: GPUBindGroupLayout; textureUniform: GPUBindGroupLayout; params: GPUBindGroupLayout; quantize: GPUBindGroupLayout },
+    readonly layouts: {
+      layer: GPUBindGroupLayout;
+      texture: GPUBindGroupLayout;
+      textureUniform: GPUBindGroupLayout;
+      params: GPUBindGroupLayout;
+      quantize: GPUBindGroupLayout;
+      mask: GPUBindGroupLayout;
+    },
     pipelines: Pipelines,
     private readonly formats: readonly PlanFormat[],
     /** Resolves when every pipeline has compiled (the first picture's are there from the start). */
@@ -339,6 +388,7 @@ export class Compositor {
     this.pipelines = pipelines;
     const { device } = ctx;
     this.uniforms = device.createBuffer({ size: UNIFORM_STRIDE * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.maskUniforms = device.createBuffer({ size: UNIFORM_STRIDE * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
     this.blank = device.createTexture({ size: [1, 1], format: "rgba8unorm-srgb", usage: GPUTextureUsage.TEXTURE_BINDING });
     this.emptyTable = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE });
@@ -379,6 +429,15 @@ export class Compositor {
         { binding: 1, visibility: FRAG, buffer: { type: "read-only-storage" } },
       ],
     });
+    const STORAGE: GPUBufferBindingLayout = { type: "read-only-storage" };
+    const mask = device.createBindGroupLayout({
+      label: "adjustment mask",
+      entries: [
+        { binding: 0, visibility: FRAG, buffer: STORAGE },
+        { binding: 1, visibility: FRAG, buffer: STORAGE },
+        { binding: 2, visibility: FRAG, buffer: { type: "uniform", hasDynamicOffset: true } },
+      ],
+    });
     const quantize = device.createBindGroupLayout({
       label: "quantize",
       entries: [
@@ -407,7 +466,7 @@ export class Compositor {
     // What a first picture needs is compiled before the compositor is ready; the rest (f32 composites, adjustments,
     // refinement, 16-bit exports) compiles meanwhile, and `ready` says when it has.
     const [first, present, quantize8] = await Promise.all([
-      render("layer rgba16float", LAYER, [ctx.kernels.atlasLayout, ctx.kernels.imageLayout, layerGroup], "rgba16float", true),
+      render("layer rgba16float", LAYER, [ctx.kernels.atlasLayout, ctx.kernels.imageLayout, layerGroup, ctx.kernels.imageLayout], "rgba16float", true),
       render("present", PRESENT, [textureUniform], canvasFormat),
       compute("quantize 8", QUANTIZE(8)),
     ]);
@@ -415,16 +474,16 @@ export class Compositor {
     const pipelines: Pipelines = { layer, adjustment, reduce, sample, present, quantize8, quantize16: null };
     const rest: Promise<unknown>[] = [compute("quantize 16", QUANTIZE(16)).then((p) => (pipelines.quantize16 = p))];
     for (const format of formats) {
-      if (format !== "rgba16float") rest.push(render(`layer ${format}`, LAYER, [ctx.kernels.atlasLayout, ctx.kernels.imageLayout, layerGroup], format, true).then((p) => (layer[format] = p)));
+      if (format !== "rgba16float") rest.push(render(`layer ${format}`, LAYER, [ctx.kernels.atlasLayout, ctx.kernels.imageLayout, layerGroup, ctx.kernels.imageLayout], format, true).then((p) => (layer[format] = p)));
       rest.push(
         render(`reduce ${format}`, REDUCE(format), [textureUniform], format).then((p) => (reduce[format] = p)),
         render(`sample ${format}`, SAMPLE(format), [textureUniform], format).then((p) => (sample[format] = p)),
         ...Object.entries(ADJUSTMENT_KERNELS).map(([type, kernel]) =>
-          render(`${type} ${format}`, adjustmentShader(kernel, format), [texture, params], format).then((p) => adjustment.set(`${type}:${format}`, p)),
+          render(`${type} ${format}`, adjustmentShader(kernel, format, ADJUSTMENT_MASK), [texture, params, ctx.kernels.atlasLayout, mask], format).then((p) => adjustment.set(`${type}:${format}`, p)),
         ),
       );
     }
-    return new Compositor(ctx, { layer: layerGroup, texture, textureUniform, params, quantize }, pipelines, formats, Promise.all(rest).then(() => {}));
+    return new Compositor(ctx, { layer: layerGroup, texture, textureUniform, params, quantize, mask }, pipelines, formats, Promise.all(rest).then(() => {}));
   }
 
   /** Whether every pipeline `plan` needs has compiled (and, to refine it, the reduction's). */
@@ -445,7 +504,7 @@ export class Compositor {
       ...COMPOSITE_FORMATS.flatMap((f): [string, string][] => [
         [`reduce ${f}`, REDUCE(f)],
         [`sample ${f}`, SAMPLE(f)],
-        ...Object.entries(ADJUSTMENT_KERNELS).map(([type, k]): [string, string] => [`${type} ${f}`, adjustmentShader(k, f)]),
+        ...Object.entries(ADJUSTMENT_KERNELS).map(([type, k]): [string, string] => [`${type} ${f}`, adjustmentShader(k, f, ADJUSTMENT_MASK)]),
       ]),
     ];
     const errors: string[] = [];
@@ -461,7 +520,7 @@ export class Compositor {
     return this.formats.includes(format);
   }
 
-  private groupFor(source: SourceImage) {
+  private groupFor(source: Drawable) {
     let entry = this.layerGroups.get(source);
     if (!entry || entry.preview !== source.preview || entry.uniforms !== this.uniforms) {
       entry = {
@@ -523,16 +582,20 @@ export class Compositor {
    * Evaluates `plan` for `view` (a target of `view.width` × `view.height`) into one of `work`'s textures, and
    * returns that one. Image layers whose source isn't on the GPU yet (`draw` gives null) are left out.
    */
-  evaluate(encoder: GPUCommandEncoder, plan: RenderPlan, view: View, quality: Quality, draw: (node: ImageNode) => LayerDraw | null, work: WorkPair, options: EvaluateOptions = {}): GPUTexture {
+  evaluate(encoder: GPUCommandEncoder, plan: RenderPlan, view: View, quality: Quality, sources: PlanSources, work: WorkPair, options: EvaluateOptions = {}): GPUTexture {
     const { device } = this.ctx;
     const format = plan.format;
     const start = options.from?.index ?? 0;
-    // Every image this evaluation draws, its uniforms written once (one slot each).
+    // Every layer this evaluation draws, its uniforms written once (one slot each), and every adjustment's mask.
     const images: { index: number; draw: LayerDraw }[] = [];
+    const masks: { index: number; mask: Drawable | null }[] = [];
     for (let i = start; i < plan.nodes.length; i++) {
       const node = plan.nodes[i];
-      if (node.kind !== "image") continue;
-      const d = draw(node);
+      if (node.kind === "adjustment") {
+        masks.push({ index: i, mask: node.mask ? sources.mask(node) : null });
+        continue;
+      }
+      const d = sources.draw(node);
       if (d) images.push({ index: i, draw: d });
     }
     if (images.length > this.uniforms.size / UNIFORM_STRIDE) {
@@ -545,16 +608,31 @@ export class Compositor {
         const f = new Float32Array(data, i * UNIFORM_STRIDE, 20);
         const u = new Uint32Array(data, i * UNIFORM_STRIDE, 20);
         const inv = invert(l.matrix);
-        f.set([inv[0], inv[2], inv[4], 0, inv[1], inv[3], inv[5], 0, view.x, view.y, view.zoom, l.opacity, l.source.layout.width, l.source.layout.height], 0);
+        f.set([inv[0], inv[2], inv[4], 0, inv[1], inv[3], inv[5], 0, view.x, view.y, view.zoom, l.opacity, l.source.width, l.source.height], 0);
         const scale = view.zoom * layerScale(l.transform);
         u[14] = levelForScale(scale, l.source.image.levels.length);
         u[15] = alignedLayer(l.matrix, view) ? 2 : quality === "final" ? 1 : 0;
         f[16] = scale;
         u[17] = l.source.preview ? 1 : 0;
+        u[18] = l.mask ? 1 : 0;
       });
       device.queue.writeBuffer(this.uniforms, 0, data);
     }
     const slotOf = new Map(images.map((im, slot) => [im.index, { slot, draw: im.draw }]));
+    // Adjustments' masks: where each reads its mask, at the view's level of it.
+    if (masks.length > this.maskUniforms.size / UNIFORM_STRIDE) {
+      this.maskUniforms.destroy();
+      this.maskUniforms = device.createBuffer({ size: UNIFORM_STRIDE * Math.ceil(masks.length * 1.5), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    }
+    if (masks.length) {
+      const data = new ArrayBuffer(UNIFORM_STRIDE * masks.length);
+      masks.forEach(({ mask }, i) => {
+        new Float32Array(data, i * UNIFORM_STRIDE, 3).set([view.x, view.y, view.zoom]);
+        new Uint32Array(data, i * UNIFORM_STRIDE + 12, 2).set([mask ? levelForScale(view.zoom, mask.image.levels.length) : 0, mask ? 1 : 0]);
+      });
+      device.queue.writeBuffer(this.maskUniforms, 0, data);
+    }
+    const maskSlot = new Map(masks.map((m, slot) => [m.index, { slot, mask: m.mask }]));
 
     let current = work.a;
     let clear = true;
@@ -566,21 +644,23 @@ export class Compositor {
     let i = start;
     while (i < plan.nodes.length) {
       const node = plan.nodes[i];
-      if (node.kind === "image") {
-        // A run of images: one pass, each blended over the last.
+      if (node.kind !== "adjustment") {
+        // A run of layers with pixels: one pass, each blended over the last.
         const pass = encoder.beginRenderPass({
           colorAttachments: [{ view: current.createView(), loadOp: clear ? "clear" : "load", storeOp: "store", clearValue: plan.background }],
         });
         clear = false;
         pass.setPipeline(this.pipelines.layer[format]);
-        while (i < plan.nodes.length && plan.nodes[i].kind === "image") {
+        while (i < plan.nodes.length && plan.nodes[i].kind !== "adjustment") {
           const entry = slotOf.get(i);
           if (entry) {
             const l = entry.draw;
             l.source.image.flush();
+            l.mask?.image.flush();
             pass.setBindGroup(0, l.source.ctx.atlasBindGroup());
             pass.setBindGroup(1, l.source.ctx.imageBindGroup(l.source.image));
             pass.setBindGroup(2, this.groupFor(l.source), [entry.slot * UNIFORM_STRIDE]);
+            pass.setBindGroup(3, l.source.ctx.imageBindGroup(l.mask?.image ?? l.source.ctx.emptyImage));
             pass.draw(3);
             this.stats.imageDraws++;
           }
@@ -599,6 +679,23 @@ export class Compositor {
       pass.setPipeline(this.pipelines.adjustment.get(`${node.type}:${format}`)!);
       pass.setBindGroup(0, device.createBindGroup({ layout: this.layouts.texture, entries: [{ binding: 0, resource: current.createView() }] }));
       pass.setBindGroup(1, this.paramsFor(node).group);
+      const m = maskSlot.get(i)!;
+      const maskCtx = m.mask?.ctx ?? this.ctx;
+      const maskImage = m.mask?.image ?? this.ctx.emptyImage;
+      maskImage.flush();
+      pass.setBindGroup(2, maskCtx.atlasBindGroup());
+      pass.setBindGroup(
+        3,
+        device.createBindGroup({
+          layout: this.layouts.mask,
+          entries: [
+            { binding: 0, resource: { buffer: maskImage.info } },
+            { binding: 1, resource: { buffer: maskImage.pages } },
+            { binding: 2, resource: { buffer: this.maskUniforms, size: 32 } },
+          ],
+        }),
+        [m.slot * UNIFORM_STRIDE],
+      );
       pass.setViewport(0, 0, view.width, view.height, 0, 1);
       pass.draw(3);
       pass.end();
@@ -679,6 +776,7 @@ export class Compositor {
 
   destroy() {
     this.uniforms.destroy();
+    this.maskUniforms.destroy();
     this.blank.destroy();
     this.emptyTable.destroy();
     for (const p of this.adjustmentParams.values()) {

@@ -1,12 +1,12 @@
 /**
- * What the Move tool moves and transforms: the selected images as one frame. One layer's frame is its own
+ * What the Move tool moves and transforms: the selected images and pixel layers as one frame. One layer's frame is its own
  * transform; several share the box around them (Photoshop's transform box for several layers), and dragging its
  * handles carries each layer by the same map. Pure, in document pixels.
  */
 import type { Size } from "@shared/photo/geometry";
 import { setTransform } from "@shared/photo/edits";
 import { bounds, compose, invert, layerMatrix, transformedBy } from "@shared/photo/layers";
-import type { ImageLayer, LayerTransform, PhotoLayer, PhotoProject } from "@shared/photo/types";
+import { type LayerTransform, type PhotoLayer, type PhotoProject, type PlacedLayer, isPlaced } from "@shared/photo/types";
 import type { Box } from "./snap";
 
 export interface Frame {
@@ -27,10 +27,10 @@ export interface Frame {
 const rightAngled = (rotation: number) => Math.abs(rotation / 90 - Math.round(rotation / 90)) < 1e-9;
 
 /** The frame of the selected images (`ids`, any order) among `layers`, or null when none is an image with a size. */
-export function frameOf(layers: readonly PhotoLayer[], ids: readonly string[], sizeOf: (layer: ImageLayer) => Size | null): Frame | null {
+export function frameOf(layers: readonly PhotoLayer[], ids: readonly string[], sizeOf: (layer: PlacedLayer) => Size | null): Frame | null {
   const images = layers.flatMap((l) => {
-    const size = l.kind === "image" && ids.includes(l.id) ? sizeOf(l) : null;
-    return size && l.kind === "image" ? [{ layer: l, size }] : [];
+    const size = isPlaced(l) && ids.includes(l.id) ? sizeOf(l) : null;
+    return size && isPlaced(l) ? [{ layer: l, size }] : [];
   });
   if (images.length === 0) return null;
   if (images.length === 1) {

@@ -5,7 +5,9 @@
  * the canvas.
  */
 import { createId } from "@shared/ids";
+import { setMask } from "@shared/photo/edits";
 import { mergedLayer, replaceWithMerged } from "@shared/photo/merge";
+import { allSelection, rectSelection } from "@shared/photo/selection";
 import type { PhotoToolName } from "@shared/photo/tools";
 import type { PhotoProject } from "@shared/photo/types";
 import { type ToolResult, textResult } from "@shared/tool-spec";
@@ -14,11 +16,15 @@ import { api } from "@/lib/api";
 import type { ToolRunContext } from "../types";
 import { withRenderer } from "./live";
 import { planWith, renderMerge } from "./merge";
+import { currentSelection } from "./store";
 import { usePhoto } from "./store";
 import {
   type PhotoEdit,
   addAdjustmentTool,
   addImageLayerTool,
+  addPixelLayerTool,
+  findLayerRef,
+  maskTool,
   describeLayer,
   describeMedia,
   describePhoto,
@@ -45,7 +51,7 @@ async function targetOf(ctx: ToolRunContext): Promise<Target> {
   const open = usePhoto.getState();
   const projectId = ctx.chat ?? open.projectId;
   if (!projectId) throw new Error("No photo is open in the editor. Ask the user to open one.");
-  if (projectId === open.projectId && open.history) return { projectId, doc: open.history.doc, assets: open.assets, open: true };
+  if (projectId === open.projectId && open.history) return { projectId, doc: open.history.doc.doc, assets: open.assets, open: true };
   const [doc, assets] = await Promise.all([api.getDocument("photo", projectId), api.listMedia(projectId)]);
   return { projectId, doc, assets, open: false };
 }
@@ -73,7 +79,7 @@ const base64 = async (blob: Blob) => {
 const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promise<ToolResult>> = {
   async get_photo(_input, ctx) {
     const target = await targetOf(ctx);
-    return textResult(describePhoto(target.doc, target.assets, target.open ? usePhotoUi.getState().selectedLayerIds : []));
+    return textResult(describePhoto(target.doc, target.assets, target.open ? usePhotoUi.getState().selectedLayerIds : [], target.open ? currentSelection() : null));
   },
   async list_photo_media(_input, ctx) {
     return textResult(describeMedia((await targetOf(ctx)).assets));
@@ -105,7 +111,7 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     let doc: PhotoProject | null;
     if (target.open && usePhoto.getState().projectId === target.projectId) {
       usePhoto.setState((s) => ({ assets: [...s.assets, asset] }));
-      doc = replaceWithMerged(usePhoto.getState().history!.doc, target.doc, plan.ids, layer);
+      doc = replaceWithMerged(usePhoto.getState().history!.doc.doc, target.doc, plan.ids, layer);
       if (doc) {
         const merged = doc;
         usePhoto.getState().commit(() => merged);
@@ -123,6 +129,38 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
       changed: [],
       removed: plan.ids.length,
     });
+  },
+  add_pixel_layer: edit(addPixelLayerTool),
+  async select_rect(input) {
+    const open = usePhoto.getState();
+    const doc = open.history?.doc.doc;
+    if (!doc) throw new Error("No photo is open in the editor: a selection belongs to the open one.");
+    let selection = null;
+    if (input.all === true) selection = allSelection(doc.canvas);
+    else if (input.none !== true) {
+      const n = (v: unknown, name: string) => {
+        if (typeof v !== "number" || !Number.isFinite(v)) throw new Error(`Give ${name} in canvas pixels (or all: true, or none: true).`);
+        return v;
+      };
+      const x = n(input.x, "x");
+      const y = n(input.y, "y");
+      selection = rectSelection({ x, y }, { x: x + n(input.width, "width"), y: y + n(input.height, "height") }, doc.canvas);
+      if (!selection) throw new Error(`That rectangle is off the canvas (${doc.canvas.width}×${doc.canvas.height} px): nothing would be selected.`);
+    }
+    open.select(selection);
+    return textResult(selection ? `Selected x ${selection.x}..${selection.x + selection.width}, y ${selection.y}..${selection.y + selection.height} (${selection.width}×${selection.height} px).` : "Deselected.");
+  },
+  async add_mask(input, ctx) {
+    if (input.remove === true || input.from !== "selection") return edit(maskTool)(input, ctx);
+    const target = await targetOf(ctx);
+    const selection = target.open ? currentSelection() : null;
+    if (!selection) throw new Error("There's no selection: select_rect first (a selection belongs to the photo open in the editor), or use from: empty.");
+    const layer = findLayerRef(target.doc, input.layer);
+    const surface = await withRenderer(target.projectId, target.doc, target.assets, (r) => r.maskFromSelection(target.doc, layer.id, selection));
+    usePhoto.getState().commit((d) => setMask(d, layer.id, surface));
+    usePhotoUi.getState().select(layer.id);
+    usePhotoUi.getState().setTarget("mask");
+    return textResult(`Gave "${layer.name}" a mask from the selection: it shows only inside x ${selection.x}..${selection.x + selection.width}, y ${selection.y}..${selection.y + selection.height}.`, { added: [], changed: [layer.id], removed: 0 });
   },
   remove_layer: edit(removeLayerTool),
   set_canvas: edit(setCanvasTool),

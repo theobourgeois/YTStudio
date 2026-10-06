@@ -117,7 +117,7 @@ the export, and nothing else maps light to display:
 2. **Highlights**: `output.highlights` in the document. `clip` clips each channel to 1. `film` (the default) is
    identity on [0, 1] and rolls light above 1 towards white, hue-preserving, continuous and monotonic: the look the
    video suite's lighting effects get from their `burn`, but done once at output instead of per effect. Effects
-   never apply their own tone curves. The exact curve is fixed in F3 with fixtures; values in [0, 1] are untouched
+   never apply their own tone curves. The exact curve is fixed in F4 with fixtures; values in [0, 1] are untouched
    either way, so ordinary photos are unaffected.
 3. Out-of-gamut (negative) components: clipped per channel for SDR sRGB output. Wide-gamut output is a later milestone.
 4. Encode with the sRGB transfer curve, unpremultiplied for formats that store straight alpha.
@@ -196,6 +196,18 @@ stale result is never shown as current: every request carries the view and docum
   kept late). The assistant's pictures, Home's cover and the Layers thumbnails refine the same way.
 - At 100% and above the view's level is level 0, evaluated directly (above 100% a curve then applies to the
   resampled light, not before it: what Photoshop shows at 200% is the pixels enlarged; ours is smooth).
+
+### Masks and painted pixels (as built, F3)
+
+- A pixel layer is drawn by the same layer pass as an image (its surface is a virtual image with a pyramid built by
+  `reduce` where level 0 changed), so it resamples, refines and exports alike.
+- A layer's mask is read in the layer's own pixels at the level the layer is read at, bilinear (texel for texel when
+  the layer is), and multiplies what the layer adds; an adjustment's mask is read in document pixels at the view's
+  level and multiplies how much it changes. Masks are linear: plans with them still commute with reduction.
+- A stroke stamps dabs into draft tiles (copies made on first touch) with the coverage curve of
+  `shared/photo/brush.ts`; with a selection, the dabs go into a tile of their own and the shown tile is what was
+  there mixed towards it by `selection_coverage` (the CPU reference is `shared/photo/selection.ts`). Every store
+  rounds to the nearest half first, as other kernels' do.
 
 Large glows use a pyramid with one global alignment (phase fixed in document pixels), so a tile and its neighbour
 agree and the view and the export agree. Procedural noise (grain, flare dust) uses document coordinates and a saved

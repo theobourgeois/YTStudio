@@ -1,16 +1,27 @@
 /**
  * The photo suite's document (docs/photo/architecture.md, "The document"): a canvas and its layers, bottom to
  * top. Coordinates are document pixels, x right, y down, from the top-left pixel edge. A document never holds
- * pixels: an image layer names project media, and later layers will name surfaces by hash.
+ * pixels: an image layer names project media, and painted pixels and masks are surfaces named by hash
+ * (`shared/photo/surfaces.ts`).
  *
- * Image layers (a placed source, kept whole: transforming resamples the source, never the last result) and, from
- * version 2, adjustment layers (exposure, curves: they change what's below them). Other kinds arrive with their
- * renderers, through versioned migrations (`normalizePhotoProject`).
+ * Image layers (a placed source, kept whole: transforming resamples the source, never the last result); from
+ * version 2, adjustment layers (exposure, curves: they change what's below them); from version 3, pixel layers
+ * (painted pixels) and every layer's mask. Other kinds arrive with their renderers, through versioned migrations
+ * (`normalizePhotoProject`).
  */
 import type { DocumentBase } from "../suites.ts";
 
-/** 2: adjustment layers. A version-1 document is a valid version-2 one; an older app refuses a version-2 one. */
-export const PHOTO_VERSION = 2;
+/**
+ * 3: pixel layers and masks (2: adjustment layers). An older document is a valid version-3 one; an older app
+ * refuses a newer one.
+ */
+export const PHOTO_VERSION = 3;
+
+/**
+ * A surface: the SHA-256 (lowercase hex) of its manifest's canonical JSON. The server has every manifest a saved
+ * document names, and every tile those list (the publication gate).
+ */
+export type SurfaceId = string;
 
 /**
  * Where a layer is: its centre in document pixels, its scale (negative mirrors) and its rotation in degrees,
@@ -26,12 +37,23 @@ export interface LayerTransform {
   rotation: number;
 }
 
+/**
+ * A layer mask (Photoshop's): coverage, 1 where the layer shows and 0 where it's hidden, in the layer's own pixels
+ * (an image's source pixels, a pixel layer's; an adjustment's are the document's), so it follows the layer. An
+ * `r16f` surface whose fill is 1; null is a mask that reveals everything (nothing painted yet).
+ */
+export interface LayerMask {
+  surface: SurfaceId | null;
+}
+
 interface LayerBase {
   id: string;
   name: string;
   visible: boolean;
   /** 0..1. */
   opacity: number;
+  /** Absent: no mask. */
+  mask?: LayerMask;
 }
 
 /** A source image placed on the canvas, kept whole (Photoshop's embedded Smart Object, for this). */
@@ -78,7 +100,45 @@ export interface AdjustmentLayer extends LayerBase {
   effect: EffectInstance;
 }
 
-export type PhotoLayer = ImageLayer | AdjustmentLayer;
+/**
+ * Painted pixels (Photoshop's pixel layer): an `rgba16f` surface of `size` pixels, transparent where nothing is
+ * painted (null: nothing yet), placed by its transform like an image (a new one covers the canvas at 100%).
+ */
+export interface PixelLayer extends LayerBase {
+  kind: "pixel";
+  surface: SurfaceId | null;
+  /** Its pixels: the surface's extent. */
+  size: { width: number; height: number };
+  transform: LayerTransform;
+}
+
+export type PhotoLayer = ImageLayer | PixelLayer | AdjustmentLayer;
+
+/** A layer with pixels of its own and a place on the canvas: what the Move tool moves. */
+export type PlacedLayer = ImageLayer | PixelLayer;
+
+export const isPlaced = (layer: PhotoLayer): layer is PlacedLayer => layer.kind !== "adjustment";
+
+/**
+ * A selection (Photoshop's marching ants), in document pixels: what limits painting and makes masks. Session state
+ * kept in history (selecting is an undo step, as in Photoshop), never saved. A rectangle's edges cover pixels
+ * fractionally (`shared/photo/selection.ts`).
+ */
+export interface RectSelection {
+  kind: "rect";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type PhotoSelection = RectSelection;
+
+/** What history holds: the document and the selection (only the document is saved). */
+export interface PhotoState {
+  doc: PhotoProject;
+  selection: PhotoSelection | null;
+}
 
 export interface PhotoCanvas {
   /** Whole document pixels. */

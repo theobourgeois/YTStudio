@@ -29,7 +29,7 @@ type PlanStep =
 type LabWindow = { photoLab?: { ready: Promise<void>; bench: { runPlan(steps: PlanStep[]): Promise<unknown> } } };
 
 /** A step of the suite's `runPlan` (src/suites/photo/bench.ts `BenchStep`). */
-type SuiteStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk"; label?: string; budgetMB?: number };
+type SuiteStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk" | "paintMask"; label?: string; budgetMB?: number };
 
 /** What the app puts on `window` in development (src/suites/photo/live.ts). */
 type SuiteWindow = { photoBench?: { load(): Promise<{ runPlan(steps: SuiteStep[]): Promise<unknown> }> } };
@@ -204,7 +204,7 @@ async function photoProject(name: string): Promise<string> {
   if (!uploaded.ok) throw new Error(`Uploading ${name}: ${uploaded.status} ${await uploaded.text()}`);
   const media = (await uploaded.json()) as { id: string; width: number; height: number };
   const doc = {
-    version: 2,
+    version: 3,
     name,
     canvas: { width: media.width, height: media.height, background: null },
     output: { highlights: "film" },
@@ -225,6 +225,7 @@ async function suitePlan(): Promise<SuiteStep[]> {
     { run: "panZoom" },
     { run: "adjustExposure" },
     { run: "adjustCurves" },
+    { run: "paintMask" },
     { run: "exportPng", label: "exportPng 48MP" },
     { run: "deviceLoss" },
     // F0's budgets: the 48 MP image in 256 MB, the 100 MP one in 1 GB (its levels above level 0 alone are ~270 MB).

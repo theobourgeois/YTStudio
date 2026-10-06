@@ -84,11 +84,12 @@ describe("merging", () => {
     expect(ids(plan.doc)).toEqual(["a", "b"]);
   });
 
-  it("keeps what's past the canvas, and moves the render to start at 0", () => {
+  it("keeps what's past the canvas, rendering the layers where they are from the box's corner", () => {
     const plan = planMerge(doc, "selected", ["b", "c"], sizeOf);
     if ("error" in plan) throw new Error(plan.error);
     expect(plan.box).toEqual({ x: 300, y: 300, width: 700, height: 500 });
-    expect((plan.doc.layers[1] as ImageLayer).transform).toMatchObject({ x: 500, y: 400 });
+    expect(plan.doc.canvas).toMatchObject({ width: 700, height: 500 });
+    expect((plan.doc.layers[1] as ImageLayer).transform).toMatchObject({ x: 800, y: 700 });
     expect(plan.name).toBe("Image c");
     // The result goes where the merged images were, at 100%.
     const layer = mergedLayer(plan, "m", "media_m");
@@ -102,7 +103,7 @@ describe("merging", () => {
     expect(err(planMerge(updateLayer(doc, "a", { visible: false }), "down", ["b"], sizeOf))).toMatch(/hidden/);
     expect(err(planMerge(doc, "selected", ["a", "b"], () => null))).toMatch(/no image/);
     const adjusted = addAdjustmentLayer(addAdjustmentLayer(doc, { id: "x", type: "exposure" }, "a"), { id: "y", type: "curves" }, "x");
-    expect(err(planMerge(adjusted, "selected", ["x", "y"], sizeOf))).toMatch(/needs an image/);
+    expect(err(planMerge(adjusted, "selected", ["x", "y"], sizeOf))).toMatch(/needs an image or pixel layer/);
     expect(err(planMerge(adjusted, "down", ["b"], sizeOf))).toMatch(/adjustment layer/);
   });
 

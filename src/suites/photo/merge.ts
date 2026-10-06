@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import { createId } from "@shared/ids";
 import { type MergeKind, type MergePlan, mergedLayer, planMerge, replaceWithMerged } from "@shared/photo/merge";
-import type { ImageLayer, PhotoProject } from "@shared/photo/types";
+import type { PhotoProject, PlacedLayer } from "@shared/photo/types";
 import type { MediaAsset } from "@shared/types";
 import { photoApi } from "./api";
 import { withRenderer } from "./live";
@@ -17,14 +17,14 @@ import { usePhotoUi } from "./ui";
 
 /** Plans a merge against a project's images. */
 export function planWith(doc: PhotoProject, kind: MergeKind, selected: readonly string[], assets: readonly MediaAsset[]) {
-  return planMerge(doc, kind, selected, (l: ImageLayer) => sizeOf(l, assets));
+  return planMerge(doc, kind, selected, (l: PlacedLayer) => sizeOf(l, assets));
 }
 
 /** Renders a merge's layers into a new image of the project (`doc` is the document they're in). */
 export async function renderMerge(projectId: string, doc: PhotoProject, plan: MergePlan, assets: readonly MediaAsset[]): Promise<MediaAsset> {
   const deep = plan.doc.layers.some((l) => l.kind === "image" && assets.find((a) => a.id === l.mediaId)?.image?.bits === 16);
   const name = `${plan.name.replace(/[^\w .,()'&+-]+/g, " ").trim().slice(0, 100) || "Merged"}.png`;
-  const result = await withRenderer(projectId, doc, [...assets], (r) => r.export(projectId, plan.doc, { name, format: "png", bits: deep ? 16 : 8 }));
+  const result = await withRenderer(projectId, doc, [...assets], (r) => r.export(projectId, plan.doc, { name, format: "png", bits: deep ? 16 : 8, origin: plan.box }));
   return photoApi.adoptExport(result.id, projectId);
 }
 
@@ -35,7 +35,7 @@ export async function renderMerge(projectId: string, doc: PhotoProject, plan: Me
 export async function mergeLayers(kind: MergeKind | "auto") {
   const { projectId, history, assets } = usePhoto.getState();
   if (!projectId || !history) return;
-  const doc = history.doc;
+  const doc = history.doc.doc;
   const selected = usePhotoUi.getState().selectedLayerIds;
   const how = kind === "auto" ? (selected.length === 1 ? "down" : "selected") : kind;
   const plan = planWith(doc, how, selected, assets);

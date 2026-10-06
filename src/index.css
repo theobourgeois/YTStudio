@@ -115,6 +115,16 @@
   cursor: pointer;
 }
 
+/* The photo editor's selection: marching ants. */
+@keyframes photo-ants {
+  to {
+    stroke-dashoffset: -8;
+  }
+}
+.photo-ants {
+  animation: photo-ants 0.5s linear infinite;
+}
+
 /* The music Browser's waveform (browser-panel.tsx): it opens out from its middle as a file's peaks arrive. */
 @keyframes browser-wave-in {
   from { opacity: 0; transform: scaleY(0.15); }
