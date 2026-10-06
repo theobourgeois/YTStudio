@@ -9,7 +9,10 @@ import path from "node:path";
 import { type Page, expect, test } from "@playwright/test";
 import sharp from "sharp";
 import { levelForScale } from "../shared/photo/geometry.ts";
+import { hexToLinear, linearToSrgb, srgbToLinear } from "../shared/photo/colour.ts";
+import { flarePreset, flareShape } from "../shared/photo/effects/flare.ts";
 import type { GlowParams } from "../shared/photo/effects/glow.ts";
+import { flareLight } from "../shared/photo/reference/flare.ts";
 import { curvesFor, exposurePixel, type Pixel } from "../shared/photo/reference/adjustments.ts";
 import { glowReference } from "../shared/photo/reference/glow.ts";
 import { boxReduce, sampleMitchell } from "../shared/photo/reference/reduce.ts";
@@ -1363,4 +1366,102 @@ test("a glow is its CPU reference, the same tiled as whole, and keeps light abov
     }
   }
   expect(seams).toBeLessThan(1e-5);
+});
+
+/** A Lens Flare layer as the document holds it: the preset's elements for this canvas, adding in linear light. */
+const flareLayer = (id: string, canvas: { width: number; height: number }, source: [number, number], extra: Record<string, unknown> = {}) => ({
+  id,
+  kind: "generator",
+  name: "Lens Flare",
+  visible: true,
+  opacity: 1,
+  blend: "linear-dodge",
+  blendSpace: "linear",
+  effect: { id: `${id}_fx`, type: "lens-flare", version: 1, enabled: true, params: { source, centre: null, intensity: 0, colour: "#ffffff", elements: flarePreset("classic", canvas.width, canvas.height), ...extra } },
+});
+
+test("a lens flare is its CPU reference added in linear light, and a reduced view of it is level 0 reduced", async ({ page }) => {
+  await openNewPhoto(page, "Flare");
+  const canvas = { width: 400, height: 300 };
+  await setPhoto(page, { ...canvas, background: "#203040" }, [flareLayer("fl", canvas, [120, 90])]);
+  const whole: ViewBox = { zoom: 1, ...{ x: 0, y: 0 }, ...canvas };
+  const pixels = await renderRegion(page, whole);
+  const shape = flareShape({ source: [120, 90], centre: null, intensity: 0, colour: "#ffffff", elements: flarePreset("classic", canvas.width, canvas.height) }, canvas, hexToLinear);
+  const background = hexToLinear("#203040");
+  let worst = 0;
+  for (let y = 1; y < canvas.height; y += 7) {
+    for (let x = 2; x < canvas.width; x += 7) {
+      const light = flareLight(shape, x + 0.5, y + 0.5, 1, hexToLinear);
+      const expected = [0, 1, 2].map((c) => background[c] + light[c]);
+      const got = pixelAt(pixels, canvas.width, x, y);
+      worst = Math.max(worst, worstDifference(got.slice(0, 3), expected));
+      expect(got[3]).toBeCloseTo(1, 3);
+    }
+  }
+  // Linear Add in linear light: the background plus the light, to f16's rounding.
+  expect(worst).toBeLessThan(2e-3);
+  // Its source is brighter than white: the output transform rolls it off.
+  expect(maxOf(pixels)).toBeGreaterThan(1);
+
+  // A quarter-size view, evaluated at its own level (it needs no refining), against level 0 box-reduced twice.
+  const level2 = boxReduce(boxReduce({ ...canvas, data: Float64Array.from(pixels) }));
+  const quarter = await renderRegion(page, { zoom: 0.25, x: 0, y: 0, width: 100, height: 75 });
+  let reduced = 0;
+  // (Not the canvas's edge, where the reference's Mitchell reads transparency past it.) Measured: 0.031, at the
+  // ghosts' rims: their edges, widened by the footprint, aren't exactly a box.
+  for (let y = 1; y < 74; y++) for (let x = 1; x < 99; x++) reduced = Math.max(reduced, worstDifference(pixelAt(quarter, 100, x, y), sampleMitchell(level2, x + 0.5, y + 0.5, 1)));
+  expect(reduced).toBeLessThan(0.05);
+});
+
+/**
+ * The photo with `background` as RGBA on 0..1, through the export's own path at `bits` (undithered, so files
+ * compare exactly).
+ */
+const exportedPixels = (page: Page, background: string | null, bits: 8 | 16 = 8) =>
+  page.evaluate(
+    async ({ background, bits }) => {
+      const { photoDebug } = window as unknown as LightWindow & { photoDebug: { renderer(): Promise<{ renderBands(doc: unknown, options: unknown, onBand: (from: number, rows: Uint8Array, width: number) => void): Promise<unknown> }> } };
+      const doc = photoDebug.photo.getState().history.doc.doc as { canvas: object };
+      const r = await photoDebug.renderer();
+      const out: number[] = [];
+      await r.renderBands({ ...doc, canvas: { ...doc.canvas, background } }, { bits, under: "none", dither: false }, (_from, rows) => {
+        if (bits === 8) for (const v of rows) out.push(v / 255);
+        else for (const v of new Uint16Array(rows.buffer, rows.byteOffset, rows.length / 2)) out.push(v / 65535);
+      });
+      return out;
+    },
+    { background, bits },
+  );
+
+test("a glowing object on transparency exports correctly over black, white and saturated backdrops", async ({ page }) => {
+  await openNewPhoto(page, "Glow cut-out");
+  const W = 200;
+  const H = 160;
+  await setPhoto(page, { width: W, height: H, background: null }, [pixelLayer("obj", W, H)]);
+  await paint(page, "obj", "content", [{ x: 100, y: 80 }], { radius: 22, hardness: 0.6, colour: [2, 1.6, 0.8, 1] });
+  await patchLayer(page, "obj", { filters: [glowFilter("g", { radius: 40, threshold: 50 })] });
+  // A 16-bit PNG: 8 bits can't carry faint light (alpha under about 1%, which rounds by a whole step: up to ~7
+  // levels over black, measured), a limit of the format, not of the light.
+  const png = await exportedPixels(page, null, 16);
+  // Colour is never without alpha; light spills past the object with coverage of its own.
+  let spill = 0;
+  for (let i = 0; i < W * H; i++) {
+    if (png[i * 4 + 3] === 0) expect([png[i * 4], png[i * 4 + 1], png[i * 4 + 2]]).toEqual([0, 0, 0]);
+    else if (png[i * 4 + 3] < 1) spill++;
+  }
+  expect(spill).toBeGreaterThan(1000);
+  for (const backdrop of ["#000000", "#ffffff", "#e01030"]) {
+    const app = await exportedPixels(page, backdrop);
+    const b = hexToLinear(backdrop);
+    let worst = 0;
+    for (let i = 0; i < W * H; i++) {
+      const a = png[i * 4 + 3];
+      for (let c = 0; c < 3; c++) {
+        // The file composited as any app composites a straight-alpha PNG, in this document's compositing (linear light).
+        const over = linearToSrgb(srgbToLinear(png[i * 4 + c]) * a + b[c] * (1 - a)) * 255;
+        worst = Math.max(worst, Math.abs(over - app[i * 4 + c] * 255));
+      }
+    }
+    expect(worst, backdrop).toBeLessThanOrEqual(1);
+  }
 });

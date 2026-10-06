@@ -97,7 +97,8 @@ export const APPLY_OCTAVES = 6;
 
 /**
  * The apply pass: the layer's content (`content`, on the target's grid) plus the light, every octave read by the
- * cubic B-spline on its own grid; where the content had no coverage the light's is its `max` (D1).
+ * cubic B-spline on its own grid; where the content had no coverage the light's is its `max` (D1), and no pixel is
+ * brighter than its coverage, up to white.
  */
 export const APPLY = (format: StorageFormat) => /* wgsl */ `
 ${ROUND_FOR_STORE(format)}
@@ -149,7 +150,10 @@ ${Array.from({ length: APPLY_OCTAVES }, (_, n) => `  if (params.count > ${n}u) {
   let light = mix(s, params.tint.rgb * y, params.tint.a) * params.gain;
   let c = textureLoad(content, vec2i(pos.xy), 0);
   let coverage = clamp(max(light.r, max(light.g, light.b)), 0.0, 1.0);
-  return round_for_store(vec4f(c.rgb + light, c.a + coverage * (1.0 - c.a)));
+  let rgb = c.rgb + light;
+  // Never brighter than its coverage, up to white (shared/photo/effects/glow.ts's addLight).
+  let a = max(c.a + coverage * (1.0 - c.a), clamp(max(rgb.r, max(rgb.g, rgb.b)), 0.0, 1.0));
+  return round_for_store(vec4f(rgb, a));
 }
 `;
 

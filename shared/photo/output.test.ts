@@ -66,3 +66,10 @@ describe("the output transform", () => {
     expect(encodePixel(2, 1, 0, 1, "film")[1]).toBeCloseTo(linearToSrgb(0.75), 9);
   });
 });
+
+describe("transparent pixels", () => {
+  it("keep no colour once their alpha is stored as 0, however faint their light", () => {
+    expect(quantize8(0.001, 0.0005, 0, 0.001, 3, 4)).toEqual([0, 0, 0, 0]);
+    expect(quantize8(0.004, 0.004, 0.004, 0.004, 3, 4)[3]).toBe(1);
+  });
+});

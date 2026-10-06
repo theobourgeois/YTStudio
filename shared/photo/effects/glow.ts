@@ -7,7 +7,8 @@
  *    level kⱼ of the document's pyramid (phase fixed at document pixel 0), blurred there by a Gaussian of
  *    σⱼ / 2^kⱼ texels (transparent outside), and read anywhere by a cubic B-spline on that level's grid.
  * 3. The light: 2^intensity × their sum, tinted, × mix, added to the layer; where the layer had no coverage the light
- *    gets `max(r, g, b)` (Unmult: D1), so it exports over any backdrop.
+ *    gets `max(r, g, b)` (Unmult: D1), and no pixel is brighter than its coverage (up to white), so it exports over
+ *    any backdrop.
  *
  * The CPU reference is `../reference/glow.ts`; the GPU (`src/suites/photo/render/glow.ts`) follows these numbers.
  */
@@ -139,11 +140,16 @@ export function glowLight(s: readonly [number, number, number], shape: GlowShape
   return [0, 1, 2].map((c) => (s[c] * (1 - t) + shape.tint[c] * y * t) * shape.gain) as [number, number, number];
 }
 
-/** The layer's pixel with light added: rgb added, and the light's coverage (`max`, held to 1) where it had none. */
+/**
+ * The layer's pixel with light added: rgb added, and coverage (D1) at least the light's brightest channel where it
+ * had none, and at least the result's brightest channel (held to 1) anywhere, so a straight-alpha file holds it
+ * exactly and composites over any backdrop as it does here.
+ */
 export function addLight(pixel: readonly [number, number, number, number], light: readonly [number, number, number]): [number, number, number, number] {
   const [r, g, b, a] = pixel;
   const coverage = Math.min(1, Math.max(0, light[0], light[1], light[2]));
-  return [r + light[0], g + light[1], b + light[2], a + coverage * (1 - a)];
+  const out: [number, number, number] = [r + light[0], g + light[1], b + light[2]];
+  return [...out, Math.max(a + coverage * (1 - a), Math.min(1, Math.max(0, ...out)))];
 }
 
 const n = (params: Record<string, EffectParamValue>, key: string) => params[key] as number;

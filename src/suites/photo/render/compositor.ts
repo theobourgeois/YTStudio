@@ -228,10 +228,13 @@ ${
     ? `  let x = params.origin.x + g.x;
   let y = params.origin.y + g.y;
   let d = select(0.0, dither_at(x, y, params.amplitude), params.amplitude > 0.0);
-  let q = vec3u(clamp(floor(e.rgb * 255.0 + d + 0.5), vec3f(0.0), vec3f(255.0)));
+  var q = vec3u(clamp(floor(e.rgb * 255.0 + d + 0.5), vec3f(0.0), vec3f(255.0)));
   let alpha = u32(floor(e.a * 255.0 + 0.5));
+  // Stored transparent: no colour (shared/photo/output.ts's quantize8).
+  if (alpha == 0u) { q = vec3u(0u); }
   out[i] = q.r | (q.g << 8u) | (q.b << 16u) | (alpha << 24u);`
-    : `  let q = vec4u(clamp(floor(e * 65535.0 + 0.5), vec4f(0.0), vec4f(65535.0)));
+    : `  var q = vec4u(clamp(floor(e * 65535.0 + 0.5), vec4f(0.0), vec4f(65535.0)));
+  if (q.a == 0u) { q = vec4u(0u); }
   out[2u * i] = q.r | (q.g << 16u);
   out[2u * i + 1u] = q.b | (q.a << 16u);`
 }

@@ -58,7 +58,10 @@ export function encodePixel(r: number, g: number, b: number, a: number, highligh
 /** One premultiplied linear pixel at document pixel (x, y) as 8-bit RGBA, dithered (alpha isn't). */
 export function quantize8(r: number, g: number, b: number, a: number, x: number, y: number, amplitude = DITHER_8BIT, highlights: Highlights = "clip"): [number, number, number, number] {
   const [er, eg, eb, ea] = encodePixel(r, g, b, a, highlights);
+  const alpha = Math.floor(ea * 255 + 0.5);
+  // A pixel stored transparent keeps no colour (a faint light's would be its full colour, unpremultiplied).
+  if (alpha === 0) return [0, 0, 0, 0];
   const d = amplitude > 0 ? ditherAt(x, y, amplitude) : 0;
   const q = (v: number) => Math.min(255, Math.max(0, Math.floor(v * 255 + d + 0.5)));
-  return [q(er), q(eg), q(eb), Math.floor(ea * 255 + 0.5)];
+  return [q(er), q(eg), q(eb), alpha];
 }
