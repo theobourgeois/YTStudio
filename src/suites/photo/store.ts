@@ -9,7 +9,7 @@ import { ApiRequestError, api } from "@/lib/api";
 import { createAutosaver } from "@/lib/autosaver";
 import { DocumentGesture, type DocumentHistory, commit, historyOf, redo, rewrite, undo } from "@/lib/document-history";
 import { useProjects } from "@/stores/projects";
-import { imageLayerOf } from "./media";
+import { imageLayerOf, isDefaultName, projectNameOf } from "./media";
 
 /**
  * The open photo: its document with undo (`lib/document-history.ts`) and the project's media (its images). Every
@@ -134,8 +134,13 @@ export const usePhoto = create<PhotoState>((set, get) => ({
         }
         if (get().projectId !== projectId) return ids;
         set({ assets: [...get().assets, asset] });
-        const id = get().placeMedia(asset, { asCanvas: asCanvas && ids.length === 0 });
+        const first = asCanvas && ids.length === 0;
+        const wasEmpty = get().history?.doc.layers.length === 0;
+        const id = get().placeMedia(asset, { asCanvas: first });
         if (id) ids.push(id);
+        // A photo opened from an image is called what the image is (Photoshop's document takes the file's name),
+        // unless it's been named already.
+        if (id && first && wasEmpty && isDefaultName(get().history?.doc.name ?? "")) get().rename(projectNameOf(file.name));
       } catch (err) {
         toast.error(`Couldn't place ${file.name}`, { description: errorMessage(err) });
       }

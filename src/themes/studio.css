@@ -14,6 +14,8 @@
 .theme {
   color-scheme: light;
   --radius: 4px;
+  /* The photo editor's smart guides: Photoshop's magenta, the same in every theme (it's on the picture). */
+  --snap-guide: #ff2bd6;
 
   /* Surfaces, from the desktop behind everything up to a raised control's face. */
   --surface-0: #c9d0d9;

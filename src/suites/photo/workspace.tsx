@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from "react";
 import { cn } from "cn";
-import { PiArrowCounterClockwise, PiArrowClockwise, PiCursor, PiExport, PiHand, PiMagnifyingGlass } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiArrowClockwise, PiCursor, PiExport, PiHand, PiMagnet, PiMagnifyingGlass } from "react-icons/pi";
 import { toast } from "sonner";
 import { createId } from "@shared/ids";
 import { duplicateLayer, removeLayer, setTransform } from "@shared/photo/edits";
@@ -16,7 +16,6 @@ import type { DockLayout } from "@/components/dock/model";
 import { createDock } from "@/components/dock/store";
 import { ProjectName } from "@/components/header/project-name";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Desktop, keptByWindow } from "@/components/windows/floating-window";
 import { createWindows } from "@/components/windows/store";
@@ -28,6 +27,7 @@ import { PhotoExportWindow } from "./export-window";
 import { resolvePhotoKey } from "./keys";
 import { liveRenderer } from "./live";
 import { LayersPanel } from "./panels/layers-panel";
+import { usePhotoPreferences } from "./preferences";
 import { PropertiesPanel } from "./panels/properties-panel";
 import { flushPhotos, photoGesture, usePhoto } from "./store";
 import { type PhotoTool, useActiveTool, usePhotoUi } from "./ui";
@@ -115,7 +115,7 @@ function PhotoHeader() {
   const canRedo = usePhoto((s) => (s.history?.future.length ?? 0) > 0);
   const saving = usePhoto((s) => s.saving);
   const tool = useActiveTool();
-  const autoSelect = usePhotoUi((s) => s.autoSelect);
+  const snap = usePhotoPreferences((s) => s.snap);
   return (
     <header data-titlebar="header" className="flex h-13 shrink-0 items-center gap-2 border-b border-line bg-surface-1 px-3" data-photo-header>
       <ProjectName name={name} onRename={(n) => usePhoto.getState().rename(n)} />
@@ -131,10 +131,21 @@ function PhotoHeader() {
         </Button>
       </div>
       {tool === "move" && (
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Switch checked={autoSelect} onCheckedChange={(on) => usePhotoUi.getState().setAutoSelect(on)} aria-label="Auto-select" />
-          Auto-select
-        </label>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Snap"
+              aria-pressed={snap}
+              className={cn(snap && "bg-accent text-foreground")}
+              onClick={() => usePhotoPreferences.getState().setSnap(!snap)}
+            >
+              <PiMagnet />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Snap to the canvas and layers (⇧⌘;). Hold Control while dragging to not snap.</TooltipContent>
+        </Tooltip>
       )}
       <div className="flex-1" />
       <Button size="sm" variant="outline" onClick={fitToCanvas}>
@@ -258,6 +269,8 @@ function usePhotoKeys(active: boolean) {
           return;
         case "export":
           return ui.setExportOpen(true);
+        case "snap":
+          return usePhotoPreferences.getState().setSnap(!usePhotoPreferences.getState().snap);
         case "save":
           void flushPhotos().then(() => toast.success("Saved"));
           return;

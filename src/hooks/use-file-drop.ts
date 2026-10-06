@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { dragKind } from "@/lib/dnd";
 
 /**
@@ -39,4 +39,40 @@ export function useFileDrop(onFiles: (files: File[], e: DragEvent) => void) {
   };
 
   return { active, handlers };
+}
+
+/**
+ * Whether OS files are being dragged anywhere over the page. A desktop title bar is a window drag region, which
+ * gets no drag-and-drop events, so a drop zone in one turns that off while this is true.
+ */
+export function useFilesDragged(): boolean {
+  const [dragged, setDragged] = useState(false);
+  useEffect(() => {
+    let depth = 0;
+    const enter = (e: globalThis.DragEvent) => {
+      if (!e.dataTransfer || dragKind(e.dataTransfer) !== "files") return;
+      depth++;
+      setDragged(true);
+    };
+    const leave = (e: globalThis.DragEvent) => {
+      if (!e.dataTransfer || dragKind(e.dataTransfer) !== "files") return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragged(false);
+    };
+    const end = () => {
+      depth = 0;
+      setDragged(false);
+    };
+    window.addEventListener("dragenter", enter);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("drop", end);
+    window.addEventListener("dragend", end);
+    return () => {
+      window.removeEventListener("dragenter", enter);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("drop", end);
+      window.removeEventListener("dragend", end);
+    };
+  }, []);
+  return dragged;
 }

@@ -34,6 +34,10 @@ coordinates are proven. A tool that doesn't work yet isn't shown.
 
 ## New photo
 
+**Built:** images dropped on Home or on the tab strip start a photo the size of the first, named after it
+("Screenshot 2026-10-05 at 8.57.28 PM"), as Photoshop names a document after its file; a new photo still called
+"Untitled" takes the name of the image it's opened from too.
+
 From the picker or Home's New tile: a size preset or an image.
 
 **Presets**, short-form first like the rest of the app:
@@ -80,6 +84,7 @@ Photo's own `keys.ts`, pure and tested, as music's is. Its listener skips text f
 | Delete | Delete layer (or the selection's pixels, later) |
 | Enter / Escape | Commit / cancel a transform, a selection being made or a handle drag |
 | ⌘S | Save now (saving is automatic, as in every suite; this flushes and shows it) |
+| ⇧⌘; | Snap on or off (Photoshop's View › Snap; built) |
 
 ## Gestures
 
@@ -95,6 +100,19 @@ Pointer capture keeps a gesture alive outside the canvas.
 
 - **Handles** are in document space, showing size and angle. The aspect ratio is kept by default, ⇧ frees it, and ⌥
   scales from the centre. Mirroring is allowed; a singular matrix isn't.
+- **Picking (Auto-Select, built)**: with Move, a click on the canvas picks the topmost layer under the pointer, and the
+  layer a click would pick is outlined while the pointer is over it (Photoshop's). On by default; Settings › Photo turns
+  it off, and ⌘ (Ctrl) held does the opposite for that click. Where no layer is under the pointer the selection
+  stays (⌘D deselects).
+- **Pointers (built)**: each handle shows a double arrow along the way it pulls, turned with the layer (a corner of a
+  layer turned 90° shows the other diagonal); just outside each corner a drag rotates, with a curved-arrow pointer,
+  as Photoshop's.
+- **Smart guides (built)**: moving a layer snaps its box's edges and centre, and resizing snaps the edges the handle
+  moves, to the canvas's edges and centre and to other visible layers' edges and centres, within 6 screen pixels; a
+  magenta line (`--snap-guide`) shows each alignment while it's held. A corner keeping its proportions snaps its
+  nearer edge exactly and scales both ways. Layers at an angle other than a right angle snap only when moved (by
+  their box). Snap is on by default: the magnet over the canvas, ⇧⌘; or Settings › Photo turn it off, and Control
+  held during a drag turns it off for that drag. Equal-spacing guides and a document grid are later.
 - **Lossless**: a drag previews by resampling the source, and committing changes a matrix. Scaling down and up again
   loses nothing until the user explicitly converts to pixels.
 - **Zoom** centres on the pointer; panning doesn't touch the document.

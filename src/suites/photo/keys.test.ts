@@ -17,6 +17,10 @@ describe("photo keys", () => {
     expect(resolvePhotoKey(press("H"), true)).toEqual({ type: "tool", tool: "hand" });
     expect(resolvePhotoKey(press("z", { metaKey: true }), true)).toEqual({ type: "undo" });
     expect(resolvePhotoKey(press("z", { metaKey: true, shiftKey: true }), true)).toEqual({ type: "redo" });
+    // Photoshop's View › Snap: ⇧⌘; (some layouts send ":" with Shift).
+    expect(resolvePhotoKey(press(";", { metaKey: true, shiftKey: true }), true)).toEqual({ type: "snap" });
+    expect(resolvePhotoKey(press(":", { metaKey: true, shiftKey: true }), true)).toEqual({ type: "snap" });
+    expect(resolvePhotoKey(press(";", { metaKey: true }), true)).toBeNull();
     expect(resolvePhotoKey(press("y", { ctrlKey: true }), false)).toEqual({ type: "redo" });
     expect(resolvePhotoKey(press("z", { ctrlKey: true }), true)).toBeNull();
     expect(resolvePhotoKey(press("0", { metaKey: true }), true)).toEqual({ type: "fit" });

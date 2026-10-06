@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useNow } from "@/hooks/use-now";
-import { droppedPath } from "@/lib/desktop";
 import { cn } from "cn";
 import { useAppIcon } from "@/stores/app-icon";
 import { useProjects } from "@/stores/projects";
@@ -51,14 +50,7 @@ export function Home() {
     setFilter(next);
   };
 
-  const drop = useFileDrop((files) => {
-    const packages = files.map(droppedPath).filter((p) => /\.vaudio\/?$/i.test(p));
-    if (packages.length) return void useProjects.getState().openFile(packages[0]);
-    for (const suite of SUITE_IDS) {
-      const taken = clientSuite(suite).startsWith?.(files) ?? [];
-      if (taken.length) return void useProjects.getState().create({ suite, files: taken });
-    }
-  });
+  const drop = useFileDrop((files) => void useProjects.getState().startWith(files));
 
   // Packages may have been moved, renamed or deleted in Finder: read the list again when Home shows or comes back.
   useEffect(() => {
