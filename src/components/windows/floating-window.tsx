@@ -168,6 +168,26 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
   const [measured, setMeasured] = useState<{ width: number; height: number } | null>(null);
   const shown = useRef(false);
   const configured = useRef("");
+  /**
+   * Where the page last put its native window, in screen points. It's moved and sized from this, never from
+   * what the window says it is: at a fractional display scale (125%, 150%) the system rounds a window to whole
+   * pixels and Electron reports it back rounded again, so a size read back and set again grows a little at
+   * every move (and `moveTo` derives one that way on each call: a dragged window kept getting bigger).
+   */
+  const placed = useRef<Rect | null>(null);
+  const placeNative = (name: string, r: Rect) => {
+    const next = { x: Math.round(r.x), y: Math.round(r.y), width: Math.max(1, Math.round(r.width)), height: Math.max(1, Math.round(r.height)) };
+    const was = placed.current;
+    if (was && was.x === next.x && was.y === next.y && was.width === next.width && was.height === next.height) return;
+    placed.current = next;
+    desktopPanels()?.place(name, next);
+  };
+  // A new window (opened again) starts from where it is.
+  useLayoutEffect(() => {
+    placed.current = null;
+  }, [panel]);
+  /** The native window as the page last placed it (or, before that, as it is). */
+  const nativeRect = (win: Window): Rect => placed.current ?? { x: win.screenX, y: win.screenY, width: win.outerWidth, height: win.outerHeight };
   useLayoutEffect(() => {
     // A window that fits what's in it is as big as that: the panel's container is as big as its content.
     if (!panel) return;
@@ -224,12 +244,9 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
       // (The page resizes it, by its edges below: the system's own resizing of a frameless window differs from one system to the next.)
       desktopPanels()?.configure(panel.name, { resizable: false, backgroundColor: cssColour(panel.win, ownerDocument(panel.container).body), title });
     }
-    const win = panel.win;
-    const moved = win.screenX !== next.x || win.screenY !== next.y;
-    const resized = win.outerWidth !== next.width || win.outerHeight !== next.height;
-    // (Both at once or not at all: a move followed by a resize from the page undoes the move.)
-    if (resized) desktopPanels()?.place(panel.name, next);
-    else if (moved) win.moveTo(next.x, next.y);
+    // (Its place and size at once, always: a move followed by a resize from the page undoes the move, and a
+    // move alone lets the system work the size out again, a little larger each time: `placed`.)
+    placeNative(panel.name, next);
     if (!shown.current) {
       shown.current = true;
       const front = windows.getState().order[windows.getState().order.length - 1] === id;
@@ -337,7 +354,7 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
     const win = panel.win;
     const areas = workAreas();
     const deskSize = { width: m.desk.width, height: m.desk.height };
-    const start = screenToDesk(m, { x: win.screenX, y: win.screenY, width: win.outerWidth, height: win.outerHeight });
+    const start = screenToDesk(m, nativeRect(win));
     const grabbed = pointToDesk(m, { x: e.screenX, y: e.screenY });
     const offset = { x: grabbed.x - start.x, y: grabbed.y - start.y };
     const others: Rect[] = [];
@@ -351,9 +368,9 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
     let snapTo: WindowSnap | null = null;
     const put = (r: Rect, sized: boolean) => {
       const s = deskToScreen(m, r);
-      const rounded = { x: Math.round(s.x), y: Math.round(s.y), width: Math.round(s.width), height: Math.round(s.height) };
-      if (sized) desktopPanels()?.place(panel.name, rounded);
-      else win.moveTo(rounded.x, rounded.y);
+      // Moved only: exactly the size it was placed at, never one converted back from the desk's units.
+      const size = !sized && placed.current ? { width: placed.current.width, height: placed.current.height } : { width: s.width, height: s.height };
+      placeNative(panel.name, { x: s.x, y: s.y, ...size });
     };
     const settle = (next: WindowPlace | null) => {
       windows.getState().setSnapPreview(null);
@@ -395,12 +412,8 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
     const m = desk?.metrics();
     if (!resizable || !desk || !panel || !m) return;
     e.stopPropagation();
-    const win = panel.win;
-    const start = screenToDesk(m, { x: win.screenX, y: win.screenY, width: win.outerWidth, height: win.outerHeight });
-    const put = (r: Rect) => {
-      const s = deskToScreen(m, r);
-      desktopPanels()?.place(panel.name, { x: Math.round(s.x), y: Math.round(s.y), width: Math.round(s.width), height: Math.round(s.height) });
-    };
+    const start = screenToDesk(m, nativeRect(panel.win));
+    const put = (r: Rect) => placeNative(panel.name, deskToScreen(m, r));
     let next = start;
     startPointerDrag(e, {
       threshold: 0,
