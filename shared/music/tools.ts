@@ -2,6 +2,7 @@
  * The music suite's tools for AI agents (see `shared/tool-spec.ts`; handlers in
  * `src/suites/music/tools.ts`, their edits in `tool-edits.ts`). Add a tool with each feature.
  */
+import { HANDOFF_ROLES, VISUALIZER_ASPECTS, VISUALIZER_LOOKS } from "../handoff.ts";
 import { type ToolSpec, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { CHOP_PATTERNS } from "./chop.ts";
 import { EXPORT_FORMATS } from "./export.ts";
@@ -2115,6 +2116,27 @@ export const MUSIC_TOOLS = [
       wavBits: int("WAV bit depth: 16, 24 or 32 (floating point)."),
       mp3Bitrate: int("MP3 kilobits a second, 64 to 320."),
       preventClipping: bool("Turn the whole render down if it goes over full scale, so it doesn't clip (default: on)."),
+    }),
+  }),
+  tool({
+    name: "make_visualizer",
+    title: "Make a visualizer video of the song",
+    kind: "action",
+    description:
+      "Make a video project of the open song, as the toolbar's Make visualizer does: the song is rendered (the playlist, or the pattern shown " +
+      "if the playlist is empty) with a stem per mixer track that has sound, and the video gets the mix, each stem on a muted track (its signals " +
+      "drive pictures), each channel's notes as hits, the song's exact beat and its arrangement as markers, plus a starting look that reacts to " +
+      "them by role (the kick, the snare, the bass). Roles are guessed from names; give `roles` where a name says nothing (\"Serum 2\" is the lead). " +
+      "Channels playing straight into the master have no stem of their own (route one to an insert first to get one). Takes seconds; playback " +
+      "stops while it renders. Answers with the new video's id and name; it's among the user's projects (Home), opened if `open`.",
+    inputSchema: obj({
+      look: oneOf(VISUALIZER_LOOKS.map((l) => l.id), `The starting look: ${VISUALIZER_LOOKS.map((l) => `"${l.id}" (${l.description})`).join("; ")}. Default: the user's last.`),
+      aspectRatio: oneOf(VISUALIZER_ASPECTS, "The video's shape (default: the user's last, at first 9:16)."),
+      fps: int("Frames a second: 30 or 60."),
+      stems: arr(str("A mixer track: its id, number or name."), "The stems to include (default: every mixer track with sound)."),
+      channels: arr(str("A channel's id or name."), "The channels whose notes become hits (default: every one that plays notes)."),
+      roles: arr(obj({ ref: str("A mixer track (id, number or name) or a channel (id or name)."), role: oneOf([...HANDOFF_ROLES, "none"], "What it is.") }, ["ref", "role"]), "What stems and channels are, where their names don't say."),
+      open: bool("Open the new video in the editor (it switches the user to it). Default: false."),
     }),
   }),
 ] as const satisfies readonly ToolSpec[];

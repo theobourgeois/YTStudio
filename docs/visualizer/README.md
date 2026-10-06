@@ -3,7 +3,8 @@
 Status: plan first written 2026-10-06. **V1 (signals) and V2 (signals in expressions) are built** (2026-10-07; see
 "What V1 and V2 built" below). **V3 is built** (2026-10-07: links, custom signals, nests hearing where they're placed,
 the link popover, the assistant's tools, the Signals window, signal lanes, spectrograms). **V4 is built** (visualizer
-effects, New item › Visualizer); V5 (Make visualizer) or V6 (shaders) is next.
+effects, New item › Visualizer). **V5 is built** (Make visualizer: a song of the music suite made into a video project);
+V6 (shaders) is next.
 [vaudio-port.md](vaudio-port.md) lists what comes over from Théo's earlier visualizer (`~/code/vaudio`) and where.
 
 A professional audio visualizer inside the video editor, not a suite of its own. Any clip, effect parameter or shader
@@ -386,7 +387,7 @@ Full control, at parity per milestone (a feature isn't done without its tools):
 | `set_events` (add at times, beats or onsets; quantise; clear) | edit | V3 |
 | `set_shader` (code and dialect; compile-checked, the log returned on failure) | edit | V6 |
 | `view_frames` with `from`/`to`/`count`, `at` beats, bars, drops or hits (with an `offset`), and `sheet` (one picture) (built) | look | V2 |
-| `make_visualizer` (music suite) | action | V5 |
+| `make_visualizer` (music suite) (built) | action | V5 |
 | `map_control` (Perform mappings) | edit | V7 |
 
 Compile checks stay synchronous inside edits through `EditEnv` (the tab passes a compiler; tests pass a fake), so
@@ -488,12 +489,42 @@ assistant tools. Gates are what must be true (measured) before the next mileston
   Spectrum and a Spectrogram over a song, 60.2 frames a second paused and playing, slowest frame 17 ms, no long tasks
   (the page's frame rate: the GPU's own time isn't measured).
 
-### V5: Make visualizer
+### V5: Make visualizer (built)
 
-- The platform handoff (`SongHandoff`, `createFromHandoff`, the route, `SuiteBackend.fromHandoff`).
-- Music: the window, rendering, notes, tempo, markers, roles. Video: `Project.tempo`, building the project, starting
-  looks (three presets binding by role).
-- `make_visualizer`; an e2e test that makes one from a fixture song (with the fake engine).
+**Built (2026-10-06):**
+- The platform's handoff (`shared/handoff.ts`: `SongHandoff`, the looks, the video's options, `guessRole`) and
+  `ProjectStore.createFromHandoff` (the files moved into the new package's media, then `SuiteBackend.fromHandoff`;
+  nothing left of it if anything fails). No `POST /api/projects/handoff`: a handoff's files are paths on the server,
+  so only the server makes one (the music job calls the store, wired in `app.ts`).
+- Music (`shared/music/visualizer.ts`, pure; `server/music/visualizer.ts`, `/api/music/visualizer`): the song played
+  once (the playlist, or the pattern shown when it's empty) rendered by the engine with stems and its tail (up to
+  8 s), as FLAC, every file down alike if the mix went over full scale; a stem for each mixer track a sounding
+  channel plays or sends into (muted and soloed-out tracks left out), each channel's audible notes in seconds
+  through the compiled tempo, every beat from the tempo map (`songSeconds`) on through the tail, markers from the
+  playlist's own and from where the set of patterns heard at a bar changes (two bars apart at least). Roles guessed
+  from track and channel names (a track's from its channels' when they agree).
+- The window (`src/suites/music/visualizer/`, the toolbar's film slate): the look, aspect ratio and frame rate
+  (remembered), each stem and channel on or off with its role to correct, a note of the channels that play straight
+  into the master (no stem is theirs); Make renders (Stop while it does), then the video opens in a tab.
+- Video (`shared/song-video.ts`): the mix on a "Mix" track, each stem on a muted track named after it, each
+  channel's notes an events signal with its role and colour, `Project.tempo` (the song's beats in its files' seconds,
+  for the clips playing them: `clipGrid` prefers it to the analysis, so `beat()`, `bar()`, `bpm()` are exact, follow a
+  moved or sped-up clip, and work before the signals are analysed; `bpm()` is the tempo between the beats either
+  side), the markers, and a starting look: **Pulse** (Circular Spectrum and a Waveform Ring punching on the kick, an
+  RGB split on the snare), **Bars** (Spectrum Bars, Hit Burst on the kick, a Glow with the bass), **Wave** (a
+  Waveform Ring breathing with the bass, a flash on the snare, sparks on the hats), or nothing. Each binds by role:
+  the role's notes first (exact hits), then its stem (its onsets, its level; a visualizer listens to the stem's
+  track), then the mix's band for it. A title of the song's name over a dark gradient.
+- `make_visualizer` (music, `action`: look, shape, stems, channels, roles; `open`); the video assistant's
+  instructions say what a song's video has.
+- Tests: `shared/music/visualizer.test.ts` (sources, mutes, notes in seconds, tempo clips, beats, markers),
+  `shared/song-video.test.ts` (the project, binding by role, every look surviving `normalizeProject` unchanged,
+  roles guessed), `audio-signals.test.ts` (an exact beat over the analysis's, moved, sped up, unloaded),
+  `server/music/visualizer.test.ts` (the whole path through the app with the stand-in engine and ffmpeg), e2e:
+  the window makes one that opens in a tab; the assistant makes one with a stem and a role given.
+- Not yet: looks as Library templates (they're built in, in `song-video.ts`); **Update from song** (`origin` is
+  kept on the media: `handoff:<song project id>:...`); a section's arrangement on the beat grid (sections still come
+  from the analysis, markers from the song).
 
 ### V6: Shaders
 

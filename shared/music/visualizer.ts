@@ -8,7 +8,7 @@
  * Routes (`/api/music/visualizer`, `server/music/visualizer.ts`): POST `/` starts one (`MakeVisualizerRequest`,
  * answers the `VisualizerJob`), GET `/:id` follows it, POST `/:id/abort` stops its render.
  */
-import { HANDOFF_COLORS, type HandoffNotes, type VisualizerOptions, guessRole, normalizeVisualizerOptions } from "../handoff.ts";
+import { HANDOFF_COLORS, HANDOFF_ROLES, type HandoffNotes, type VisualizerOptions, guessRole, normalizeVisualizerOptions } from "../handoff.ts";
 import type { ProjectSummary, SignalEvent, SignalRole } from "../types.ts";
 import { type EngineSong, type PlayMode, compileSong } from "./compile.ts";
 import { trackName } from "./mixer.ts";
@@ -170,7 +170,7 @@ export function defaultChoice(sources: VisualizerSources, video: VisualizerOptio
   return { stems: sources.stems.map((s) => s.trackId), channels: sources.channels.map((c) => c.channelId), roles: {}, video };
 }
 
-const ROLES: readonly (SignalRole | "none")[] = ["kick", "snare", "hats", "bass", "vocal", "lead", "mix", "none"];
+const ROLES: readonly (SignalRole | "none")[] = [...HANDOFF_ROLES, "none"];
 
 /** A choice from a request (untrusted), against the song's own tracks and channels. */
 export function normalizeVisualizerChoice(raw: unknown, song: MusicProject): VisualizerChoice {

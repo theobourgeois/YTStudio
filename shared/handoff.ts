@@ -99,6 +99,9 @@ export const HANDOFF_COLORS = ["#f97316", "#22d3ee", "#a3e635", "#f472b6", "#fac
 // Roles
 // ---------------------------------------------------------------------------
 
+/** What a stem or channel can be, for a look to find it ("the kick"). */
+export const HANDOFF_ROLES: readonly SignalRole[] = ["kick", "snare", "hats", "bass", "vocal", "lead", "mix"];
+
 /** Words in a channel's, a track's or a sample's name that say what it is, in the order they're tried. */
 const ROLE_WORDS: [SignalRole, RegExp][] = [
   ["kick", /\b(kick|kik|bd|bass ?drum|808 ?kick)\b/],

@@ -29,6 +29,7 @@ import type {
   UseBrowserFileRequest,
 } from "@shared/music/browser";
 import type { ExportSongRequest, MusicExportJob } from "@shared/music/export";
+import type { MakeVisualizerRequest, VisualizerJob } from "@shared/music/visualizer";
 import type { MediaAsset } from "@shared/types";
 import type { ChannelEvidence, MixerSetupRequest, MixerSetupResult } from "@shared/music/mixer-setup";
 import { request } from "@/lib/api";
@@ -88,6 +89,10 @@ export const musicApi = {
   exportJob: (id: string) => request<MusicExportJob>(`/api/music/exports/${encodeURIComponent(id)}`),
   abortExport: (id: string) => request<MusicExportJob>(`/api/music/exports/${encodeURIComponent(id)}/abort`, { method: "POST" }),
   revealExport: (id: string) => request<void>(`/api/music/exports/${encodeURIComponent(id)}/reveal`, { method: "POST" }),
+  /** Make visualizer: the song rendered and made into a video project. */
+  startVisualizer: (body: MakeVisualizerRequest) => request<VisualizerJob>("/api/music/visualizer", { method: "POST", body: JSON.stringify(body) }),
+  visualizerJob: (id: string) => request<VisualizerJob>(`/api/music/visualizer/${encodeURIComponent(id)}`),
+  abortVisualizer: (id: string) => request<VisualizerJob>(`/api/music/visualizer/${encodeURIComponent(id)}/abort`, { method: "POST" }),
   /** Where a file an export kept on the server is downloaded from (a browser's export). */
   exportFileUrl: (id: string, name: string) => `/api/music/exports/${encodeURIComponent(id)}/files/${encodeURIComponent(name)}`,
   /** What the engine says on its own (where the song is, the meter). Returns how to stop listening. */
