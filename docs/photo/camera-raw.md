@@ -1,8 +1,8 @@
 # Camera Raw
 
-Status: researched and planned 2026-10-06, nothing built. What Théo asked for: Photoshop's Camera Raw Filter,
-which he uses to "control the light and colour coming from a picture" and layers a lot, as **one tool in one
-window**, not a set of separate effects. Labels as in the [README](README.md#labels).
+Status: researched and planned 2026-10-06; CR0 (the measurements) done. What Théo asked for: Photoshop's
+Camera Raw Filter, which he uses to "control the light and colour coming from a picture" and layers a lot, as
+**one tool in one window**, not a set of separate effects. Labels as in the [README](README.md#labels).
 
 Scope, decided with Théo (2026-10-06): the light (Light, Effects' presence), the colour (Color, the Color Mixer,
 Color Grading), the Curve, Detail and Effects (vignette, grain, glow). **Out**: Profiles, Masking (a layer mask on
@@ -54,56 +54,77 @@ window and record it here.
 
 ### How it can be driven
 
-**Measured (2026-10-06, `executeAction("Adobe Camera Raw Filter", descriptor, DialogModes.NO)` on a 64 × 64
-document of its own, closed unsaved):** Camera Raw Filter runs from a script with its settings in the descriptor,
-and **returns the settings it used** (those not at their defaults, plus `CrVe` "18.7", process version `PrVN` 6).
-Keys it took and gave back: `WBal` (enum), `Temp`, `Tint`, `Ex12` (double), `Cr12`, `Hi12`, `Sh12`, `Wh12`,
-`Bk12`, `CrTx` (Texture), `Cl12`, `Dhze`, `Vibr`, `Strt` (Saturation), `Shrp`, `ShpR` (double), `ShpD`, `ShpM`,
-`LNR `, `LNRD`, `LNRC`, `CNR `, `CNRD`, `CNRS`, `GRNA`, `GRNS`, `GRNF`, `PCVA`, `PCVM`, `PCVF`, `PCVR`, `PCVS`
-(the vignette), `TMMs`, `PGTM`, `RGBt`. The HSL keys tried (`H_Re`, `S_Or`, `L_Bl`) were accepted and not given
-back: the Color Mixer's, Color Grading's, the curves' and Glow's keys are still to find (run the filter with the
-dialog, set one control, read the returned descriptor).
+**Measured (2026-10-06):** Camera Raw Filter runs from a script, `executeAction("Adobe Camera Raw Filter",
+descriptor, DialogModes.NO)`, with no window, and returns the settings it used (those not at their defaults, plus
+`CrVe` "18.7" and process version `PrVN` 6). Its **scripting dictionary** is in the plugin's resources (`Camera
+Raw.rsrc`, the `$$$/CRaw/AETE/…` entries): every setting's name, four-letter key and type, e.g. `Exposure2012`
+`Ex12` (double), `Contrast2012` `Cr12`, `Highlights2012` `Hi12`, `Shadows2012` `Sh12`, `Whites2012` `Wh12`,
+`Blacks2012` `Bk12`, `Texture` `CrTx`, `Clarity2012` `Cl12`, `Dehaze` `Dhze`, `Vibrance` `Vibr`, `Saturation`
+`Strt`, `ParametricShadows`… `PC_S PC_D PC_L PC_H PC_1 PC_2 PC_3`, `HueAdjustRed`… `HA_R`…, `SaturationAdjust…`
+`SA_…`, `LuminanceAdjust…` `LA_…`, `SplitToneShadowHue` `STSH`, `ColorGradingMidtoneHue` `CgMH`, `ColorGradingBlending`
+`CgBl`, `GrainAmount` `GRNA`, `PostCropVignettingAmount` `PCVA`, `ConvertToGrayscale` `CtoG`. A key `XMPp`
+takes Camera Raw's settings as **XMP** (`crs:` names, as in a preset), which reaches what the dictionary lacks:
+`Glow`, `GlowStyle` (a number: 0 Diffusion, the default; 1 Bloom; 2 Halation; names are ignored), `GlowRange`,
+`GlowSpread`, `GlowWarmth`, and the point curve (`ToneCurvePV2012` as an `rdf:Seq` of "x, y"). **Unverified:** the
+channel point curves (`ToneCurvePV2012Red`…) given that way change nothing; how to pass them is open.
 
-So every slider's response can be measured the way Layer Style's were
-([photoshop-measurements.md](layer-style/photoshop-measurements.md)), **without the window**: scripts only, no
-clicks, nothing to interrupt.
-
-**Measured:** a flat (128, 100, 80) at Exposure +0.50 became (157, 124, 100). A gain of 2^0.5 in linear light
-gives (150, 118, 95): **Camera Raw's Exposure on a rendered image isn't a plain gain**: it lifts the midtones
-more (a tone curve, or a roll-off towards white, sits around it). The probes say which.
+`scripts/photoshop-probes/camera_raw.py` uses both. Every probe opens its own document and closes it unsaved: no
+window, no clicks, nothing to interrupt. 222 runs take about two minutes.
 
 ### What's known of how it works
 
-- **Verified reference (Adobe's DNG SDK, open source):** the SDK's reference code has the exposure ramp
+- **Verified reference (the plugin's own names, Camera Raw 18.7's binary):** its stages include
+  `cr_laplacian_pyramid`, `cr_laplacian_filter_params` and `cr_stage_laplacian_render_incremental` ("Choosing RPTM
+  Pyramid Level"): the **local Laplacian filter** (Paris, Hasinoff and Kautz, 2011, at Adobe) is in it, the
+  usual account of how Highlights, Shadows and Clarity work. Dehaze's stages are `DehazeTrMDarkChannel`,
+  `DehazeEstimateAirlight1–3` and `DehazeMin…DarkChannel…Radius1–6`: the **dark-channel prior** (He, Sun and Tang,
+  2009) at six radii, with an estimated airlight. Noise reduction is `DenoiseCrossBilateral…`; the Glow is
+  `cr_stage_glow_bloom`, extracted at a pyramid level ("Glow extract level coarser than bloom level").
+- **Verified reference (Adobe's DNG SDK, open source):** the reference code has the exposure ramp
   (`dng_function_exposure_ramp`) and a hue-preserving RGB tone curve (`RefBaselineRGBTone`: the curve on the
   largest and smallest channel, the middle one placed between them in proportion, so a tone curve never turns
-  hues). That is how Camera Raw applies tone curves without shifting colours.
-- **Verified reference (secondary):** Camera Raw works in linear light with ProPhoto RGB's primaries. Saturation,
-  Vibrance and the Color Mixer act in that wide space, so they behave differently from the same maths in sRGB.
-- **Unverified (widely reported):** since process version 2012, Highlights, Shadows and Clarity are local
-  (edge-aware) operators, reportedly from the local Laplacian filter (Paris, Hasinoff and Kautz, 2011, with
-  Adobe). Whites and Blacks may be adaptive too. The *locality probe* below says which sliders are.
-- **Unverified:** Dehaze is commonly assumed to be the dark-channel prior (He, Sun and Tang, 2009): a haze
-  estimate from each region's darkest channel and a global "airlight". Texture is a finer-scale cousin of Clarity
-  that leaves smooth areas (skin) alone.
-- **Unverified:** whether local radii (Clarity, Texture, Dehaze) scale with the image's size. The *size probe*
-  says. It decides whether a look is the same on any canvas (ledger A35).
+  hues).
+- **Verified reference (secondary):** Camera Raw works in linear light with ProPhoto RGB's primaries.
 
-### The probes (CR0)
+### What CR0 measured
 
-`scripts/photoshop-probes/camera_raw.py`, on `ps.py`, writing fixtures the tests read (never Photoshop):
+Fixtures: `shared/photo/reference/camera-raw-fixtures.json` (`camera_raw.py --fixtures`): for each of 160 runs on
+the chart, its grey ramp at 65 levels and 96 patches (24 hues at saturation and value 0.5 and 1); for 13 runs on
+the mixed image, a ramp in a black half and the same ramp in a white half. The tests read it, never Photoshop.
 
-1. **Identity**: the filter at its defaults on a colour chart and ramps. Is it exact?
-2. **Responses**: each global slider at −100, −50, −25, 25, 50, 100 (Exposure in stops) on a 256-step grey ramp
-   and a 24-patch chart: the curve per slider, and what it does to hue and saturation.
-3. **Locality**: the same ramp alone, and beside a large white and a large black block. A slider whose output
-   for the same input changes with its neighbours is local.
-4. **Size**: a local slider on the same picture at 1000 px and 4000 px wide, compared at the same scale.
-5. **Order**: pairs that don't commute (Exposure and Contrast, Saturation and Color Grading, Curve and HSL),
-   to find the order of operations.
-6. **Keys**: the ones not found yet (HSL, grading, curves, Glow), by running the dialog once per control.
+1. **Identity. Measured:** at its defaults the filter changes no pixel by more than 1 level (chart, ramps, scene).
+2. **Exposure. Measured:** a shift of `ev` in a **tone coordinate** V (stops), not a gain in linear light:
+   `out = V⁻¹(V(in) + ev)`. One V, fitted to all six runs (−2 to +2), explains the grey ramp within 0.08 stop RMS.
+   V runs from −9.2 at code 1 to +4.5 at 255 (0 at code 118): about one stop per doubling of the code in the
+   shadows, and a shoulder at the top, so white stays white when brightening (+1: 240 → 251, 255 → 255) and
+   comes down when darkening (−2: 255 → 197). On colours it's applied **hue-preserving, on ProPhoto primaries**:
+   RMS 3.4 to 7.7 levels over the patches at ±1, +2 (per channel in sRGB: 14 to 40). What's left is at the gamut
+   edge: Camera Raw brings a colour that would leave the document's gamut back towards white, keeping its hue
+   (red at +1: (255, 63, 63), where clipping would give (255, 57, 37)).
+3. **Which sliders look at more than the pixel. Measured** (`loc-*`, `*-loc-mixed`):
+   - *Pointwise*: **Exposure**, **Blacks** (the same ramp gives the same result whatever surrounds it).
+   - *Global but adaptive*: **Contrast** and **Whites**. The ramp in the black half and the one in the white half
+     come out identical, yet the same ramp on a mid grey, beside black blocks or beside white blocks comes out
+     differently (Contrast +100 at code 64: 35, 72, 38). The curve depends on the **whole image's statistics**.
+   - *Local*: **Highlights**, **Shadows**, **Clarity**, **Dehaze**: the two ramps of one image differ by up to 58,
+     77, 167 and 99 levels.
+   - **Texture** did nothing measurable to a smooth ramp (as it should: it acts on fine detail).
+4. **Size. Measured:** each local slider on the scene at 768 and at 384 px wide, the larger result reduced to
+   the smaller: their effects differ by 0.4 to 1.3 levels on average (Dehaze +100: 5). **The local radii are
+   fractions of the image's size**, so a look is the same at any size.
+5. **Point curve. Measured:** on the image's 8-bit sRGB values, through its points exactly (128 → 180 gives 180).
+6. **Saturation, Vibrance, B&W. Measured:** greys are left exactly as they were.
+7. **Glow. Measured:** the three styles differ as described: Halation's change is small and red (around the
+   brightest edge only), Bloom's from the bright areas, Diffusion's everywhere.
 
-Each result goes here as **Measured**, with its fixture.
+Seen (the contact sheet of the scene, not kept): Highlights −100 recovers the sky without halos; Shadows +100 opens
+the figure without lifting the sky; Clarity +100 brightens edges' outsides and darkens their insides over tens of
+pixels, a clear but soft halo; Dehaze +100 deepens the sky's blue and darkens strongly, −100 washes everything
+towards white; Vignette −50 darkens the corners round an ellipse; Grain is coarse, luminance-only noise.
+
+**Unverified (CR1 and CR2 work them out against the fixtures):** what Blacks does in V; the statistic Contrast and
+Whites adapt to; Temperature and Tint's gains; the Color Mixer's hue bands; Color Grading's luminance weights;
+the parametric curve's shape; the order of operations (the `order` runs are in the fixtures).
 
 ## Decisions
 
@@ -166,8 +187,8 @@ pages already use) and `showIf` where a control depends on another:
 | Color Grading | `shadowsHue`, `shadowsSaturation`, `shadowsLuminance`, the same for `midtones`, `highlights` and `global` (hue 0–359, saturation 0–100, luminance ±100); `gradingBlending` (50), `gradingBalance` (0, ±100) |
 | Detail | `sharpen` (0, 0–150), `sharpenRadius` (1.0, 0.5–3.0), `sharpenDetail` (25), `sharpenMasking` (0); `noiseReduction` (0), `noiseDetail` (50), `noiseContrast` (0); `colourNoise` (0), `colourNoiseDetail` (50), `colourNoiseSmoothness` (50) |
 
-Defaults are identity; the ranges and defaults marked unverified above are checked by CR0 before they're
-frozen, because changing them later changes saved photos (a new `version`). `isIdentity` is every value at its
+Defaults are identity; the ranges and defaults marked unverified above are checked in the window (CR1) before
+they're frozen, because changing them later changes saved photos (a new `version`). `isIdentity` is every value at its
 default, so an untouched Camera Raw costs nothing (ledger A16). `summary` lists the sections that changed
 ("Light, Color Grading"). The definition's `presets` are the looks below.
 
@@ -180,19 +201,25 @@ default, so an untouched Camera Raw costs nothing (ledger A16). `summary` lists 
 1. **Noise reduction** (before anything amplifies the noise): colour noise, a chroma blur guided by luminance;
    luminance noise, edge-aware smoothing.
 2. **White balance**: Temperature and Tint as channel gains in linear light (a Bradford adaptation about D65).
-3. **Exposure**, in linear light, with the response the probes measure.
+3. **Exposure**: a shift in Camera Raw's tone coordinate (CR0 2), hue-preserving on ProPhoto primaries.
 4. **Dehaze**.
-5. **Tone**: Contrast, Highlights, Shadows, Whites, Blacks.
+5. **Tone**: Blacks (pointwise), Contrast and Whites (one curve for the image, from its statistics), Highlights
+   and Shadows (local).
 6. **Presence**: Texture, Clarity.
 7. **Curve**: parametric, then the point curves, applied hue-preserving (`RefBaselineRGBTone`) for RGB, per
    channel for Red, Green and Blue.
 8. **Colour**, in linear ProPhoto primaries: the Color Mixer, Color Grading, Vibrance, Saturation; B&W.
 9. **Sharpening**.
 10. **Vignette**, **Glow**, **Grain**, last, as Adobe's are (they act on the finished picture).
+11. **Into gamut**: a colour that would leave [0, 1] is brought back towards white along its hue, as Camera Raw
+    does (CR0 2), rather than clipped channel by channel. **Proposed:** only what Camera Raw itself pushed out:
+    light above white that was already in the layer passes through, as everywhere in our pipeline.
 
 ### Pointwise parts: one pass, from tables
 
-Steps 2, 3, 7, 8 and the vignette are per pixel. They run as **one fused WGSL pass**. Their parameters are
+Steps 2, 3, 5's Blacks, Contrast and Whites, 7, 8, the vignette and 11 are per pixel. They run as **one fused
+WGSL pass**. Contrast and Whites take the image's statistics as two numbers in the parameters (CR1: fixed, as
+for a typical picture; CR2: measured by the reduction below). Their parameters are
 turned into **tables on the CPU** (the combined tone curve, a hue-indexed table for the mixer, a
 luminance-indexed table for the grading), as Curves already sends its `curveTable`. The kernel and the CPU
 reference read the same tables, so they agree by construction, and the kernel stays cheap. That also gets round
@@ -205,16 +232,18 @@ and can't hold light above white (our pixels are extended linear: rendering.md).
 
 Steps 1, 4, 5 (Highlights and Shadows), 6, 9 and the Glow look at neighbours. **The rule, from the glow (ledger
 A26):** every local operator is defined in document pixels on the document's 2^k grids, so the view at any zoom,
-a tile, an export and the CPU reference compute the same thing. A reduced view is then close to the settled one
+a tile, an export and the CPU reference compute the same thing. Its radii are **fractions of the document's
+size** (Camera Raw's are of the image's: CR0 4), turned into document pixels, so a look is the same on any
+canvas. A reduced view is then close to the settled one
 (the refinement after a drag hardly moves anything), and the coarse levels can be cached.
 
-- **Tone (Highlights, Shadows; Whites and Blacks if local):** a base layer from an edge-aware smoothing of
-  log-luminance (a guided filter on the pyramid, or a fast local Laplacian; CR2 picks by measuring halos and
-  cost). The sliders move the base; the detail rides on top unchanged, so contrast across edges is kept and
+- **Tone (Highlights, Shadows):** a base layer from an edge-aware smoothing of
+  log-luminance (a fast local Laplacian, as Camera Raw's own, or a guided filter on the pyramid; CR2 picks by
+  measuring halos and cost against the fixtures' local runs). The sliders move the base; the detail rides on top unchanged, so contrast across edges is kept and
   nothing halos.
 - **Texture and Clarity:** band-pass detail of that pyramid's fine (Texture) and middle (Clarity) octaves,
   scaled. Clarity's band is edge-aware (the same base), Texture's damped where the picture is smooth.
-- **Dehaze:** a haze estimate from each region's darkest channel on the pyramid, an airlight from a **global
+- **Dehaze:** the dark-channel prior, as Camera Raw's: a haze estimate from each region's darkest channel on the pyramid, an airlight from a **global
   reduction** (the brightest of the haziest), the recovered picture mixed by the slider (negative adds haze). The
   reduction is a new node kind (rendering.md names it as planned).
 - **Sharpening:** an unsharp mask at Radius, Detail damping its halos, Masking limiting it to edges.
@@ -236,7 +265,9 @@ This is CR2's renderer work.
 
 ### Histogram and Auto
 
-The histogram is of the **whole picture as it's shown** (the layer as filtered, or the composite at the
+The **reduction** (CR2) measures the effect's input once per change of it, from a render where the long side is at
+most 512 px: the statistics Contrast and Whites adapt to, and Dehaze's airlight. The histogram is of the **whole
+picture as it's shown** (the layer as filtered, or the composite at the
 adjustment layer), from a render where the long side is at most 1024 px, counted by a compute pass (atomics in
 256 bins a channel), read back once per settled frame. Auto (Camera Raw's auto tone) sets Exposure, Contrast,
 Highlights, Shadows, Whites and Blacks from those statistics; its exact rules are Adobe's. **Proposed:** ours
@@ -325,17 +356,17 @@ The assistant sees the result with its existing pictures of the photo.
 Each phase ends with typecheck, tests, the photo e2e, `scripts/photo-sheet.ts` (every section and preset, GPU
 against reference) and a look at the sheet.
 
-- **CR0, research.** The probes above, run on Théo's Photoshop by script (no clicks), and their fixtures. The
-  unverified items in this document become measured or are corrected. The order of the panels below Effects, read
-  off the window once with Théo.
+- **CR0, research (done 2026-10-06).** The probes, run on Théo's Photoshop by script, and their fixtures ("What
+  CR0 measured"). Still to read off the window once with Théo: the order of the panels below Effects, and the
+  ranges below Effects.
 - **CR1, the tool.** The definition (`shared/photo/effects/camera-raw/`: parameters by section, tables, `kinds`),
   the CPU reference (`shared/photo/reference/camera-raw/`), the fused pass (`render/camera-raw.ts`), the filter and
-  the adjustment layer. Sections: **Light** (Exposure, Contrast, Whites, Blacks; Highlights and Shadows wait for
-  CR2 if CR0 finds them local), **Color** (white balance with its eyedropper, Vibrance, Saturation, B&W),
-  **Curve**, **vignette** and **grain**. The window (sections, eyes, Preview, before/after, OK as one step), the
-  same sections in Properties, ⇧⌘A, the assistant. Fixture tests for every global slider.
+  the adjustment layer. Sections: **Light** (Exposure, Contrast, Whites, Blacks; Contrast and Whites with fixed
+  statistics), **Color** (white balance with its eyedropper, Vibrance, Saturation, B&W), **Curve**, **vignette**
+  and **grain**. The window (sections, eyes, Preview, before/after, OK as one step), the same sections in
+  Properties, ⇧⌘A, the assistant. Fixture tests for every global slider.
 - **CR2, the light.** Neighbourhood adjustments in the render plan; the pyramid's tone base; **Highlights,
-  Shadows, Texture, Clarity, Dehaze** (and the reduction node). Gates: no visible halo on the test pictures (a
+  Shadows, Texture, Clarity, Dehaze**; the reduction node, and Contrast and Whites adapting to its statistics. Gates: no visible halo on the test pictures (a
   step edge and a backlit portrait at ±100), a reduced view within 2 levels of the settled one, a slider drag
   over 60 fps at fit on a 24 MP photo for the pointwise sections and a settled local edit under a second on 48
   MP (photo-bench).
