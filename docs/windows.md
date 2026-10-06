@@ -43,12 +43,19 @@ same title bars, snapping, stacking and keys.
 
 ## Native windows (the desktop app)
 
-> **Currently off** (`NATIVE_WINDOWS` in `components/windows/floating-window.tsx`): the editor's windows are boxes
-> in the page in the desktop app too, as in a browser. Native ones gave no hover or keyboard to the windows
-> beside the one in use, and a window system per panel was more than the editor wanted. A plugin's window floats
-> over the main window instead and **closes when one of the app's own windows is used** (`closeEngineWindows`,
-> on the main window's focus). Everything below describes the native mode, which setting the flag brings back
-> whole (its smoke test is `pnpm test:desktop:music`, which needs it).
+> **On on Windows, off on a Mac** (`NATIVE_WINDOWS` in `components/windows/floating-window.tsx`).
+>
+> - **Windows**: every panel is a window owned by the main window (`setParentWindow`, `electron/panels.ts`), and so
+>   is every plugin window (the engine's `setWindowOwner`). Owned windows are always above their owner, never
+>   above another program, minimised with it, and stacked among each other by use. So the Piano roll comes in front
+>   of Serum when it's clicked and Serum in front of it, as in FL Studio, with no window levels and no restacking.
+>   A plugin's window never closes because the app was used. The keys the editor needs reach it even while a
+>   plugin holds the keyboard in a child window of its own: the engine hooks its message thread's keyboard
+>   (`hookThreadKeys`, `EditorWindow::takeFirst`, FL's default typing keyboard priority).
+> - **Mac**: the editor's windows are boxes in the page, as in a browser. Native ones gave no hover or keyboard
+>   to the windows beside the one in use. A plugin's window floats over the main window instead and **closes
+>   when one of the app's own windows is used** (`closeEngineWindows`, on the main window's focus). The levels
+>   below describe the Mac's native mode (its smoke test is `pnpm test:desktop:music`, which needs the flag).
 
 In the desktop app the music editor's windows (and Settings) are not boxes in the page but **windows of the
 operating system**, so a plugin's window, which is the audio engine's (another program), can sit *between* them:

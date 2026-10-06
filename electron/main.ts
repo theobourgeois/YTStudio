@@ -175,8 +175,9 @@ async function start() {
     floatingState = state;
     panels?.setState(state);
     // The levels change, which doesn't keep the windows in order across programs: they're put back in the stack's.
+    // (Windows has no levels: owned windows keep their order as the app comes and goes.)
     void tellEngineWhereWeAre().then(async () => {
-      if (!state.floating || !state.visible) return;
+      if (!state.floating || !state.visible || isWindows) return;
       // The system orders the app's windows itself as it comes to the front, a moment later than it says so.
       await new Promise((resolve) => setTimeout(resolve, RESTACK_DELAY_MS));
       if (floatingState.floating && floatingState.visible) await restacker.run();
@@ -184,8 +185,10 @@ async function start() {
   });
   app.on("browser-window-focus", (_event, focused) => {
     group?.setAppFocused(BrowserWindow.getFocusedWindow() !== null);
-    // A plugin's window is the engine's, not one of the editor's: it closes when the app's own window is used.
-    if (focused === mainWindow) void closeEngineWindows?.().catch(() => {});
+    // A plugin's window is the engine's, not one of the editor's: on a Mac, where the editor's windows are
+    // drawn in the page (which can't come in front of it), it closes when the app's own window is used. On
+    // Windows it stays: it and the editor's windows are all the main window's own, stacked by use.
+    if (focused === mainWindow && !isWindows) void closeEngineWindows?.().catch(() => {});
   });
   app.on("browser-window-blur", () => group?.setAppFocused(BrowserWindow.getFocusedWindow() !== null));
   // (Only macOS withholds mouse moves from windows without the focus: elsewhere the 60 Hz poll would be for nothing.)

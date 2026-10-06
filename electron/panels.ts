@@ -11,6 +11,14 @@ import { PANEL_PREFIX, POPUP_WINDOW } from "../shared/panels.ts";
 import type { FloatingState } from "./floating.ts";
 import type { WindowStack } from "./stacking.ts";
 
+/**
+ * Windows has no window levels, but it has owned windows: always above their owner, never above another
+ * program's windows, minimised and hidden with it, and stacked among each other by use. The plugin windows
+ * are the main window's (the engine's `setWindowOwner`), so the panels are too: siblings, a click raises
+ * whichever it lands on, the Piano roll in front of Serum or Serum in front of it, as in FL Studio.
+ */
+const ownedByMain = process.platform === "win32";
+
 /** A panel's key in the stack of floating windows (stacking.ts). */
 export const panelKey = (name: string) => `panel:${name}`;
 
@@ -87,7 +95,8 @@ export class Panels {
   adopt(name: string, win: BrowserWindow) {
     if (this.navigating) return void win.destroy();
     this.windows.set(name, win);
-    win.setAlwaysOnTop(this.state.floating, "floating");
+    if (ownedByMain) win.setParentWindow(this.main);
+    else win.setAlwaysOnTop(this.state.floating, "floating");
     // The popup window is transient: it isn't one of the windows in use that the stack keeps in order.
     const stacked = name !== POPUP_WINDOW;
     if (stacked) win.on("focus", () => this.stack.raise(panelKey(name)));
@@ -105,7 +114,7 @@ export class Panels {
     this.state = state;
     for (const [name, win] of this.windows) {
       if (win.isDestroyed()) continue;
-      win.setAlwaysOnTop(state.floating, "floating");
+      if (!ownedByMain) win.setAlwaysOnTop(state.floating, "floating");
       if (visibleChanged && this.shown.has(name)) {
         if (state.visible) win.showInactive();
         else win.hide();

@@ -622,12 +622,14 @@ interface DesktopProps<Id extends string> {
 }
 
 /**
- * Whether a `native` desktop's windows are windows of the operating system in the desktop app. Off: they're
- * drawn in the page, as in a browser, and a plugin's window (the audio engine's) floats over the main window
- * and closes when the app is clicked (`closeEngineWindows`). The native machinery (native/, electron/panels.ts)
- * is kept, and turning this on brings it back whole (docs/windows.md).
+ * Whether a `native` desktop's windows are windows of the operating system in the desktop app. On Windows they
+ * are: each is owned by the main window, as the plugin windows are (electron/panels.ts), so the two kinds stack
+ * among each other by use, as FL Studio's do. On a Mac they're drawn in the page, as in a browser, and a plugin's
+ * window (the audio engine's) floats over the main window and closes when the app is clicked
+ * (`closeEngineWindows`): window levels there gave no hover or keyboard to the windows beside the one in use
+ * (docs/windows.md).
  */
-const NATIVE_WINDOWS = false;
+const NATIVE_WINDOWS = typeof window !== "undefined" && window.editorDesktopInfo?.platform === "win32";
 
 /**
  * Where windows float: they're placed in it, stick to its edges and snap to fill it. It's a stacking
