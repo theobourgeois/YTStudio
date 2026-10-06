@@ -38,7 +38,7 @@ import {
 } from "@shared/photo/edits";
 import { effectPreset } from "@shared/photo/effects/catalog";
 import { FLARE_PRESETS } from "@shared/photo/effects/flare";
-import { ADJUSTMENTS, type EffectDefinition, type EffectKind, FILTERS, GENERATORS, effectDefinition, newEffect, unavailableReason } from "@shared/photo/effects/index";
+import { ADJUSTMENTS, type EffectDefinition, type EffectKind, FILTERS, GENERATORS, effectDefinition, newEffect, unavailableReason, usableAs } from "@shared/photo/effects/index";
 import { CURVE_CHANNELS, type ElementParamSpec, MAX_CURVE_POINTS, type ParamSpec } from "@shared/photo/effects/params";
 import { bounds } from "@shared/photo/layers";
 import type { MergeKind } from "@shared/photo/merge";
@@ -547,7 +547,7 @@ function elementPatch(specs: readonly ElementParamSpec[], values: Record<string,
 
 export const addAdjustmentTool: PhotoEdit = (doc, input) => {
   const def = effectDefinition(String(input.type ?? ""));
-  if (def?.kind !== "adjustment") throw new Error(`No adjustment "${String(input.type)}". The adjustments: ${ADJUSTMENTS.map((d) => d.type).join(", ")}.${def ? ` (${def.label} is a ${def.kind}: ${def.kind === "filter" ? "add it with add_filter" : "add it with add_generator"}.)` : ""}`);
+  if (!def || !usableAs(def, "adjustment")) throw new Error(`No adjustment "${String(input.type)}". The adjustments: ${ADJUSTMENTS.map((d) => d.type).join(", ")}.${def ? ` (${def.label} is a ${def.kind}: ${def.kind === "filter" ? "add it with add_filter" : "add it with add_generator"}.)` : ""}`);
   const above = input.above === undefined ? null : findLayerRef(doc, input.above).id;
   const id = createId("layer");
   const fresh = addAdjustmentLayer(doc, { id, type: def.type, name: typeof input.name === "string" ? input.name : undefined }, above);
@@ -592,7 +592,7 @@ function contentLayerRef(doc: PhotoProject, ref: unknown): ContentLayer {
 export const addFilterTool: PhotoEdit = (doc, input) => {
   const layer = contentLayerRef(doc, input.layer);
   const def = effectDefinition(String(input.type ?? ""));
-  if (def?.kind !== "filter") throw new Error(`No filter "${String(input.type)}". The filters: ${FILTERS.map((d) => d.type).join(", ")}.`);
+  if (!def || !usableAs(def, "filter")) throw new Error(`No filter "${String(input.type)}". The filters: ${FILTERS.map((d) => d.type).join(", ")}.`);
   const preset = input.preset === undefined ? undefined : effectPreset(def, String(input.preset));
   if (input.preset !== undefined && !preset) throw new Error(`${def.label} has no preset "${String(input.preset)}". Its presets: ${(def.presets ?? []).map((p) => p.id).join(", ") || "none"}.`);
   const id = createId("fx");

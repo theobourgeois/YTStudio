@@ -17,8 +17,9 @@ describe("the filter catalogue", () => {
       "lens-flare/anamorphic",
       "lens-flare/subtle",
     ]);
-    // Every filter and generator is listed: a new one without a category or presets would be found nowhere.
-    for (const def of [...FILTERS, ...GENERATORS]) expect(FILTER_ENTRIES.some((e) => e.def === def), def.type).toBe(true);
+    // Every filter and generator is listed: a new one without a category or presets would be found nowhere. Camera
+    // Raw has a window of its own (Filter › Camera Raw Filter…, ⇧⌘A), not looks in the gallery.
+    for (const def of [...FILTERS, ...GENERATORS].filter((d) => d.type !== "camera-raw")) expect(FILTER_ENTRIES.some((e) => e.def === def), def.type).toBe(true);
     // By category, in their order; within one, filters before generators.
     const order = filterCategories();
     expect(order[0]).toBe("Colour");
