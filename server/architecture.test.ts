@@ -62,6 +62,8 @@ const PLATFORM = [
   "server/media.ts",
   "server/probe.ts",
   "server/derivatives.ts",
+  // Uncompressed audio read without ffmpeg, for the probe and the waveforms.
+  "server/pcm.ts",
   "server/ffmpeg.ts",
   "server/media-analysis.ts",
   "server/routes/media.ts",
