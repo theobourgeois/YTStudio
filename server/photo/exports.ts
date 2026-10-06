@@ -117,6 +117,11 @@ export class PhotoExports {
     return done;
   }
 
+  /** Lets go of a finished export whose file has gone elsewhere (adopted as media). */
+  forget(id: string) {
+    this.done.delete(id);
+  }
+
   stream(id: string) {
     return createReadStream(this.file(id).file);
   }

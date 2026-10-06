@@ -122,6 +122,55 @@ export function moveLayer(doc: PhotoProject, id: string, index: number): PhotoPr
   return { ...doc, layers };
 }
 
+/** Deletes every layer of `ids` (Photoshop's Delete with several layers selected). */
+export function removeLayers(doc: PhotoProject, ids: readonly string[]): PhotoProject {
+  const gone = new Set(ids);
+  const layers = doc.layers.filter((l) => !gone.has(l.id));
+  return layers.length === doc.layers.length ? doc : { ...doc, layers };
+}
+
+/**
+ * Moves the layers of `ids` together, in their order, so that `below` other layers of the stack are under them
+ * (`below` counts every layer, theirs included, as a gap in the Layers panel does: 0 is the bottom). A drag of
+ * several rows drops them as one block.
+ */
+export function moveLayersTo(doc: PhotoProject, ids: readonly string[], below: number): PhotoProject {
+  const moving = new Set(ids);
+  const block = doc.layers.filter((l) => moving.has(l.id));
+  if (block.length === 0) return doc;
+  const cut = Math.max(0, Math.min(doc.layers.length, Math.round(below)));
+  const under = doc.layers.slice(0, cut).filter((l) => !moving.has(l.id));
+  const over = doc.layers.slice(cut).filter((l) => !moving.has(l.id));
+  const layers = [...under, ...block, ...over];
+  return layers.every((l, i) => l === doc.layers[i]) ? doc : { ...doc, layers };
+}
+
+/**
+ * Each layer of `ids` one place up (`1`, Photoshop's Bring Forward, ⌘]) or down (`-1`, Send Backward, ⌘[), past
+ * the next layer that isn't moving; a run of them moves as one, and one already at the end stays.
+ */
+export function shiftLayers(doc: PhotoProject, ids: readonly string[], direction: 1 | -1): PhotoProject {
+  const moving = new Set(ids);
+  const layers = [...doc.layers];
+  let changed = false;
+  const n = layers.length;
+  for (let k = 0; k < n - 1; k++) {
+    // Up: from the top down, so a run carries the layer above it down past itself; down, the other way.
+    const i = direction === 1 ? n - 2 - k : k + 1;
+    const j = i + direction;
+    if (moving.has(layers[i].id) && !moving.has(layers[j].id)) {
+      [layers[i], layers[j]] = [layers[j], layers[i]];
+      changed = true;
+    }
+  }
+  return changed ? { ...doc, layers } : doc;
+}
+
+/** The layers of `ids` to the top of the stack (Bring to Front) or the bottom (Send to Back), in their order. */
+export function arrangeLayers(doc: PhotoProject, ids: readonly string[], to: "top" | "bottom"): PhotoProject {
+  return moveLayersTo(doc, ids, to === "top" ? doc.layers.length : 0);
+}
+
 /** A copy of a layer right above it, named "… copy" (an adjustment's effect gets an id of its own: `${newId}_fx`). */
 export function duplicateLayer(doc: PhotoProject, id: string, newId: string): PhotoProject {
   const index = doc.layers.findIndex((l) => l.id === id);
@@ -132,6 +181,23 @@ export function duplicateLayer(doc: PhotoProject, id: string, newId: string): Ph
     from.kind === "adjustment" ? { ...from, id: newId, name: `${from.name} copy`, effect: { ...structuredClone(from.effect), id: `${newId}_fx` } } : { ...from, id: newId, name: `${from.name} copy` };
   layers.splice(index + 1, 0, copy);
   return { ...doc, layers };
+}
+
+/** Copies of the layers of `ids`, each right above its original; `newIdOf` names each copy. */
+export function duplicateLayers(doc: PhotoProject, ids: readonly string[], newIdOf: (id: string) => string): PhotoProject {
+  return ids.reduce((d, id) => duplicateLayer(d, id, newIdOf(id)), doc);
+}
+
+/** Moves image layers by (dx, dy) document pixels together (the Move tool with several layers selected). */
+export function moveLayersBy(doc: PhotoProject, ids: readonly string[], dx: number, dy: number): PhotoProject {
+  const moving = new Set(ids);
+  let changed = false;
+  const layers = doc.layers.map((l) => {
+    if (!moving.has(l.id) || l.kind !== "image" || (!dx && !dy)) return l;
+    changed = true;
+    return { ...l, transform: { ...l.transform, x: l.transform.x + dx, y: l.transform.y + dy } };
+  });
+  return changed ? { ...doc, layers } : doc;
 }
 
 export interface NewAdjustmentLayer {

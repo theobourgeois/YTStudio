@@ -7,6 +7,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { CompareResult, ExportRequest, SourceLayout, TileSize } from "../../shared/photo/lab.ts";
+import type { MediaAsset } from "../../shared/types.ts";
 import { HttpError } from "../storage.ts";
 import { PhotoExports } from "./exports.ts";
 import type { PhotoHelper } from "./helper.ts";
@@ -19,6 +20,8 @@ export interface PhotoServiceOptions {
   sourcePath(projectId: string, mediaId: string): string | null;
   /** Where exports with no destination wait to be downloaded. */
   exportsFolder: string;
+  /** Moves an image file into a project's media (merged layers become the project's images this way). */
+  adoptImage(projectId: string, file: string, name: string): Promise<MediaAsset>;
 }
 
 export interface ExportStart extends ExportRequest {
@@ -76,6 +79,18 @@ export class PhotoService {
     this.options.projectDir(start.projectId);
     const { projectId, destination, ...request } = start;
     return this.exports.begin(request, { destination, owner: projectId });
+  }
+
+  /**
+   * A finished export kept to download, made one of its project's images instead (a merge's render): the file
+   * moves into the project's media.
+   */
+  async adoptExport(exportId: string, projectId: string): Promise<MediaAsset> {
+    const done = this.exports.file(exportId);
+    if (done.owner !== projectId) throw new HttpError(404, "No such export for this project.");
+    const asset = await this.options.adoptImage(projectId, done.file, done.name);
+    this.exports.forget(exportId);
+    return asset;
   }
 
   /** A finished export's samples against one of the project's images (decoded the same way): the round-trip check. */

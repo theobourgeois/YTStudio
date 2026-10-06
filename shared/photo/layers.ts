@@ -56,3 +56,32 @@ export function bounds(t: LayerTransform, size: Size) {
   const ys = c.map((p) => p.y);
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
 }
+
+/** `m` after `n`: the map that applies `n`, then `m`. */
+export function compose(m: Affine, n: Affine): Affine {
+  return [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ];
+}
+
+/**
+ * A layer's transform after `m` moves its pixels (several layers transformed together: each is carried by the same
+ * map), or null when the result would skew it, which a `LayerTransform` can't say (a rotated layer stretched one
+ * way).
+ */
+export function transformedBy(t: LayerTransform, size: Size, m: Affine): LayerTransform | null {
+  const [a, b, c, d] = compose(m, layerMatrix(t, size));
+  const scaleX = Math.hypot(a, b);
+  if (!scaleX) return null;
+  const rotation = (Math.atan2(b, a) * 180) / Math.PI;
+  const scaleY = (a * d - b * c) / scaleX;
+  // The second column must be the first turned a right angle: no skew.
+  if (Math.abs(a * c + b * d) > 1e-9 * Math.max(1, scaleX * Math.abs(scaleY))) return null;
+  const centre = apply(compose(m, layerMatrix(t, size)), size.width / 2, size.height / 2);
+  return { x: centre.x, y: centre.y, scaleX, scaleY, rotation: rotation === -180 ? 180 : rotation };
+}
