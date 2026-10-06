@@ -30,6 +30,7 @@ import { FloatingWindow, WindowBody, WindowFooter, centredOnDesktop } from "@/co
 import { isHtmlElement, ownerDocument } from "@/lib/window-events";
 import { type FilterPreview, startingPreview } from "./filter-preview";
 import { layerActions } from "./layer-actions";
+import { cameraRawActions } from "./camera-raw/actions";
 import { ParamField } from "./panels/params";
 import { currentDoc, usePhotoDoc } from "./store";
 import { usePhotoUi } from "./ui";
@@ -78,6 +79,10 @@ export function FilterMenu() {
           <DropdownMenuShortcut>{MAC ? "⌃⌘F" : "Ctrl+Alt+F"}</DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => usePhotoUi.getState().setFilterGalleryOpen(true)}>Filter Gallery…</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => cameraRawActions.filter()} data-camera-raw-item>
+          Camera Raw Filter…
+          <DropdownMenuShortcut>{MAC ? "⇧⌘A" : "Shift+Ctrl+A"}</DropdownMenuShortcut>
+        </DropdownMenuItem>
         {filterCategories().map((category) => (
           <div key={category}>
             <DropdownMenuSeparator />

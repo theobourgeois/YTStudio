@@ -62,6 +62,9 @@ describe("layer keys (Photoshop's)", () => {
   it("Last Filter is Photoshop's ⌃⌘F, Ctrl+Alt+F elsewhere", () => {
     expect(resolvePhotoKey({ ...press("f", { metaKey: true, ctrlKey: true }), code: "KeyF" }, true)).toEqual({ type: "lastFilter" });
     expect(resolvePhotoKey({ ...press("f", { ctrlKey: true, altKey: true }), code: "KeyF" }, false)).toEqual({ type: "lastFilter" });
+    // ⇧⌘A: Filter › Camera Raw Filter…
+    expect(resolvePhotoKey({ ...press("A", { metaKey: true, shiftKey: true }), code: "KeyA" }, true)).toEqual({ type: "cameraRaw" });
+    expect(resolvePhotoKey({ ...press("a", { ctrlKey: true, shiftKey: true }), code: "KeyA" }, false)).toEqual({ type: "cameraRaw" });
     expect(resolvePhotoKey(press("f", { metaKey: true }), true)).toBeNull();
     expect(resolvePhotoKey(press("f", { metaKey: true, ctrlKey: true, shiftKey: true }), true)).toBeNull();
   });

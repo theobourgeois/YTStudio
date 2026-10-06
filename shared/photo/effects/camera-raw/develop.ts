@@ -439,3 +439,33 @@ function vignette(v: Rgb, t: number, s: DevelopSettings): Rgb {
   const f = (1 - t * a) ** VIGNETTE.lighten;
   return v.map((c) => 1 - (1 - c) * f) as Rgb;
 }
+
+/**
+ * White balance's eyedropper: the Temperature and Tint (whole numbers in ±100) that make `rgb` (straight linear
+ * sRGB, as it is before Camera Raw) neutral, as near as they can: its ProPhoto channels equal after white balance.
+ */
+export function neutralWhiteBalance(rgb: readonly number[]): { temperature: number; tint: number } {
+  const e = mul(SRGB_TO_PROPHOTO, rgb).map(encode);
+  const cast = (temperature: number, tint: number) => {
+    const wb = whiteBalanceShifts({ temperature, tint });
+    const [r, g, b] = wb ? e.map((v, c) => shiftCode(v * 255, wb[c])) : e.map((v) => v * 255);
+    return (r - g) ** 2 + (b - g) ** 2;
+  };
+  let best = { temperature: 0, tint: 0 };
+  let score = cast(0, 0);
+  // Coarse to fine over the whole square.
+  for (const step of [20, 5, 1]) {
+    const around = { ...best };
+    for (let t = around.temperature - 4 * step; t <= around.temperature + 4 * step; t += step) {
+      for (let g = around.tint - 4 * step; g <= around.tint + 4 * step; g += step) {
+        if (Math.abs(t) > 100 || Math.abs(g) > 100) continue;
+        const s = cast(t, g);
+        if (s < score) {
+          score = s;
+          best = { temperature: t, tint: g };
+        }
+      }
+    }
+  }
+  return best;
+}

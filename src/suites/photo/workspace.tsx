@@ -51,6 +51,8 @@ import { CanvasPanel, actualPixels, canvasPointAt, fitToCanvas, zoomBy } from ".
 import { PhotoExportWindow } from "./export-window";
 import { FilterGalleryWindow, FilterMenu } from "./filters";
 import { LayerStyleWindow } from "./layer-style/layer-style-window";
+import { CameraRawWindow } from "./camera-raw/camera-raw-window";
+import { cameraRawActions } from "./camera-raw/actions";
 import { ScaleEffectsWindow } from "./layer-style/scale-effects-window";
 import { resolvePhotoKey } from "./keys";
 import { layerActions, selectedInOrder } from "./layer-actions";
@@ -171,6 +173,7 @@ function PhotoDesktop() {
   const exportOpen = usePhotoUi((s) => s.exportOpen);
   const filterGalleryOpen = usePhotoUi((s) => s.filterGalleryOpen);
   const layerStyle = usePhotoUi((s) => s.layerStyle);
+  const cameraRaw = usePhotoUi((s) => s.cameraRaw);
   const scaleEffects = usePhotoUi((s) => s.scaleEffects);
   return (
     <Desktop windows={usePhotoWindows} name="photo" label="Photo windows" overlay className="absolute inset-0 z-50">
@@ -178,6 +181,7 @@ function PhotoDesktop() {
       {exportOpen && <PhotoExportWindow />}
       {filterGalleryOpen && <FilterGalleryWindow />}
       {layerStyle && <LayerStyleWindow key={layerStyle.layerId} layerId={layerStyle.layerId} page={layerStyle.page} />}
+      {cameraRaw && <CameraRawWindow key={`${cameraRaw.layerId}:${cameraRaw.filterId}`} target={cameraRaw} />}
       {scaleEffects && <ScaleEffectsWindow key={scaleEffects.join()} layerIds={scaleEffects} />}
     </Desktop>
   );
@@ -466,6 +470,8 @@ function usePhotoKeys(active: boolean) {
           return ui.setExportOpen(true);
         case "lastFilter":
           return void layerActions.repeatLastFilter();
+        case "cameraRaw":
+          return cameraRawActions.filter();
         case "snap":
           return usePhotoPreferences.getState().setSnap(!usePhotoPreferences.getState().snap);
         case "save":

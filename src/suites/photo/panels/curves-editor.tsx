@@ -25,14 +25,37 @@ const STROKES: Record<CurveChannel, string> = { rgb: "currentColor", red: "#e548
 
 const withChannel = (set: CurveSet, channel: CurveChannel, points: CurvePoints): CurveSet => ({ ...set, [channel]: points });
 
+/** How a curve set's edits land: a drag (`begin`, `apply`…, `end` or `cancel`) is one step, as is a `commit`. */
+export interface CurveSetEdit {
+  begin: () => void;
+  apply: (next: CurveSet) => void;
+  end: () => void;
+  cancel: () => void;
+  commit: (next: CurveSet) => void;
+}
+
+/** An adjustment layer's Curves, in Properties: each drag or typed value one undo step. */
 export function CurvesEditor({ layer }: { layer: AdjustmentLayer }) {
   const set = layer.effect.params.curves as CurveSet;
+  const [gesture] = useState(() => photoGesture());
+  const edit: CurveSetEdit = {
+    begin: () => gesture.begin(),
+    apply: (next) => gesture.apply((d) => setEffectParams(d, layer.id, { curves: next })),
+    end: () => gesture.end(),
+    cancel: () => gesture.cancel(),
+    commit: (next) => usePhoto.getState().commit((d) => setEffectParams(d, layer.id, { curves: next })),
+  };
+  return <CurveSetEditor set={set} edit={edit} />;
+}
+
+/** The graph and its channels for any curve set (Curves', Camera Raw's point curves). */
+export function CurveSetEditor({ set, edit }: { set: CurveSet; edit: CurveSetEdit }) {
   const [channel, setChannel] = useState<CurveChannel>("rgb");
   const [selected, setSelected] = useState<number | null>(null);
   const graph = useRef<SVGSVGElement>(null);
   const points = set[channel];
   const point = selected !== null && selected < points.length ? points[selected] : null;
-  const commit = (next: CurvePoints) => usePhoto.getState().commit((d) => setEffectParams(d, layer.id, { curves: withChannel(set, channel, next) }));
+  const commit = (next: CurvePoints) => edit.commit(withChannel(set, channel, next));
 
   /** A pointer position in levels: x along the bottom, y up the side (may be past the graph). */
   const levelsAt = (clientX: number, clientY: number) => {
@@ -40,12 +63,12 @@ export function CurvesEditor({ layer }: { layer: AdjustmentLayer }) {
     return { x: ((clientX - r.left) / r.width) * 255, y: (1 - (clientY - r.top) / r.height) * 255 };
   };
 
-  /** Drags point `index` of `base` (a curve, maybe with the point just added) as one undo step. */
-  const drag = (e: React.PointerEvent, base: CurvePoints, index: number, gesture = photoGesture()) => {
-    if (!gesture.active) gesture.begin();
+  /** Drags point `index` of `base` (a curve, maybe with the point just added) as one step (`begun`: it already is). */
+  const drag = (e: React.PointerEvent, base: CurvePoints, index: number, begun = false) => {
+    if (!begun) edit.begin();
     setSelected(index);
     const startSet = set;
-    const apply = (next: CurvePoints) => gesture.apply((d) => setEffectParams(d, layer.id, { curves: withChannel(startSet, channel, next) }));
+    const apply = (next: CurvePoints) => edit.apply(withChannel(startSet, channel, next));
     startPointerDrag(e, {
       threshold: 0,
       cursor: "grabbing",
@@ -60,9 +83,9 @@ export function CurvesEditor({ layer }: { layer: AdjustmentLayer }) {
           setSelected(index);
         }
       },
-      onEnd: () => gesture.end(),
-      onCancel: () => gesture.cancel(),
-      onClick: () => gesture.end(),
+      onEnd: () => edit.end(),
+      onCancel: () => edit.cancel(),
+      onClick: () => edit.end(),
     });
   };
 
@@ -75,12 +98,10 @@ export function CurvesEditor({ layer }: { layer: AdjustmentLayer }) {
     if (near >= 0) return drag(e, points, near);
     const added = addPoint(points, at.x, at.y);
     if (!added) return;
-    const gesture = photoGesture();
-    gesture.begin();
-    gesture.apply((d) => setEffectParams(d, layer.id, { curves: withChannel(set, channel, added.points) }));
-    drag(e, added.points, added.index, gesture);
+    edit.begin();
+    edit.apply(withChannel(set, channel, added.points));
+    drag(e, added.points, added.index, true);
   };
-
   const onKey = (e: React.KeyboardEvent) => {
     if ((e.key === "Delete" || e.key === "Backspace") && selected !== null && points.length > 2) {
       e.preventDefault();

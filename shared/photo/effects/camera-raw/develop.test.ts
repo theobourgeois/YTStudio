@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { linearToSrgb, srgbToLinear } from "../../colour.ts";
 import { rand } from "../../reference/kernel.ts";
 import { defaultParams } from "../params.ts";
-import { developPixel, developSettings, developTable, keepingHue, shiftCode } from "./develop.ts";
+import { developPixel, developSettings, developTable, keepingHue, neutralWhiteBalance, shiftCode } from "./develop.ts";
 import { CHART, fixtureRuns } from "./fixtures.ts";
 import { CAMERA_RAW, changedSections } from "./index.ts";
 import { CAMERA_RAW_PARAMS } from "./params.ts";
@@ -114,5 +114,18 @@ describe("Camera Raw's develop", () => {
   it("says which sections changed", () => {
     expect(changedSections({ ...defaultParams(CAMERA_RAW_PARAMS), exposure: 1, vignette: -20 })).toEqual(["light", "effects"]);
     expect(CAMERA_RAW.summary({ ...defaultParams(CAMERA_RAW_PARAMS), tint: 5 })).toBe("Color");
+  });
+  it("finds the white balance that makes a picked colour grey", () => {
+    expect(neutralWhiteBalance([0.3, 0.3, 0.3])).toEqual({ temperature: 0, tint: 0 });
+    // A warm cast wants cooling, a green one magenta.
+    expect(neutralWhiteBalance([0.45, 0.3, 0.15]).temperature).toBeLessThan(-10);
+    expect(neutralWhiteBalance([0.25, 0.4, 0.25]).tint).toBeGreaterThan(10);
+    // And it is grey after, near enough.
+    const cast = [0.42, 0.33, 0.22];
+    const wb = neutralWhiteBalance(cast);
+    const p = { ...defaultParams(CAMERA_RAW_PARAMS), ...wb };
+    const [r, g, b] = developPixel(cast, 0, 0, developTable(p), developSettings(p, { width: 10, height: 10 }), rand);
+    expect(Math.abs(r - g) / g).toBeLessThan(0.08);
+    expect(Math.abs(b - g) / g).toBeLessThan(0.08);
   });
 });
