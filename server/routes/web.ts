@@ -19,7 +19,8 @@ export function webRoutes(web: WebMediaLibrary, projects: ProjectStore): Router 
   });
   router.get("/audio", async (req, res, next) => {
     const file = await web.audio(queryString(req.query.url));
-    res.sendFile(file, { maxAge: "1y", immutable: true }, (err) => {
+    // The cache is the server's own (in a data folder that may be under a dot folder: e2e's is `e2e/.data`).
+    res.sendFile(file, { maxAge: "1y", immutable: true, dotfiles: "allow" }, (err) => {
       if (err && !res.headersSent) next(err);
     });
   });

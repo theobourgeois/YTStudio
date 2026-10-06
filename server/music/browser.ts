@@ -61,6 +61,10 @@ export interface BrowserMedia {
   find(projectId: string, origin: string): MediaAsset | undefined;
   /** Copy a file into the project's media, remembering where it came from. */
   importFile(file: string, projectId: string, origin: string): Promise<MediaAsset>;
+  /** An online clip's sound, downloaded (once) for the Online tab: where it is. */
+  webAudio(url: unknown): Promise<string>;
+  /** An online clip's sound in the project's media (the copy it has, if it has one). */
+  importWeb(projectId: unknown, url: unknown, title: unknown): Promise<MediaAsset>;
 }
 
 export interface SampleBrowserOptions {

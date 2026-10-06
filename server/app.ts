@@ -240,6 +240,8 @@ export async function createApp({
       hasProject: (id) => projects.has(id),
       find: (projectId, origin) => library.list(projectId).find((a) => a.origin === origin),
       importFile: (file, projectId, origin) => library.importFile(file, projectId, () => projects.has(projectId), origin),
+      webAudio: (url) => web.audio(url),
+      importWeb: (projectId, url, title) => web.import({ projectId, url, title, kind: "audio" }, (id) => projects.has(id)),
     }),);
   app.all(
     "/mcp",

@@ -71,6 +71,10 @@ const PLATFORM = [
   "server/ffmpeg.ts",
   "server/media-analysis.ts",
   "server/routes/media.ts",
+  // Online media (YouTube's search and links yt-dlp reads): the video editor's Online panel, the music Browser's Online tab.
+  "server/web-media.ts",
+  "server/routes/web.ts",
+  "src/components/media/use-web-search.ts",
   "server/projects.ts",
   // Work handed from one suite to another (a song made into a video: Make visualizer).
   "shared/handoff.ts",

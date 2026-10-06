@@ -1,5 +1,5 @@
-/** The Browser's waveforms: a file's loudest points in a few hundred columns, decoded in the tab and kept small. */
-import { musicApi } from "../api";
+/** The Browser's waveforms (a file's, or an online clip's): its loudest points in a few hundred columns, decoded in the tab and kept small. */
+import { sampleUrl } from "./online";
 import { METER_COLOUR_STOPS } from "../mixer/meter";
 
 export const PEAK_COLUMNS = 400;
@@ -18,6 +18,7 @@ export interface Peaks {
 
 const cache = new Map<string, Promise<Peaks>>();
 
+/** A sample's peaks: a file's path, or an online clip's URL (downloaded first, if it isn't yet). */
 export function loadPeaks(path: string): Promise<Peaks> {
   const known = cache.get(path);
   if (known) {
@@ -27,7 +28,7 @@ export function loadPeaks(path: string): Promise<Peaks> {
     return known;
   }
   const peaks = (async () => {
-    const response = await fetch(musicApi.browserFileUrl(path));
+    const response = await fetch(sampleUrl(path));
     if (!response.ok) throw new Error("The file couldn't be read.");
     if (Number(response.headers.get("Content-Length")) > MAX_BYTES) {
       void response.body?.cancel();

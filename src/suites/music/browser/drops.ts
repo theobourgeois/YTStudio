@@ -20,9 +20,6 @@ let carried: string[] | null = null;
 export const setCarriedPaths = (paths: string[] | null) => (carried = paths);
 export const carriedPaths = (): readonly string[] | null => carried;
 
-/** What a sample's channel and clips are called, from its file's name ("808_kick.wav": "808 kick"). */
-export const sampleName = (fileName: string) => fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "Sample";
-
 /** Whether a drag carries samples (while it's over something, only the kinds of what it carries are known). */
 export const carriesSamples = (data: DataTransfer) => data.types.includes("Files") || data.types.includes(BROWSER_DRAG_TYPE);
 

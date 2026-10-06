@@ -134,7 +134,8 @@ plain browser (`pnpm dev`) needn't add folders.
 
 | What | FL Studio | Vaudio |
 | --- | --- | --- |
-| What it shows | Many tabs: FL's folders, the project, plugins, presets, online sounds | **The user's folders**, with **Favourites** on top. No tabs to start with |
+| What it shows | Many tabs: FL's folders, the project, plugins, presets, online sounds | Two tabs: **Files**, the user's folders with **Favourites** on top, and **Online** (below) |
+| Online sounds | Sounds: FL Cloud's sample shop | **Online**: YouTube searched, or a link pasted from any site yt-dlp reads (YouTube, SoundCloud, TikTok…), Théo's way of sampling (2026-10-06). A result is used as a file is: pressed it plays (its sound downloaded once, then kept), its waveform below; dragged onto the rack, a channel, the Piano roll or the Playlist; Enter or the middle button sends it to the selected channel; its + opens it in a new channel. Its sound is copied into the project once, named after its title. The tab keeps its results while Files shows |
 | Adding a folder | Drag from Finder, or File settings | Drag from Finder onto the Browser (the desktop app gives the dropped folder's path), referenced where it is, never copied. Removed from its right-click |
 | Global | Yes | Yes: one list for every project, kept by the server (`data/music/browser.json`) |
 | Which files | Every type FL knows | **Audio files only** to start with (wav, aiff, flac, mp3, ogg, m4a) |
@@ -151,7 +152,7 @@ plain browser (`pnpm dev`) needn't add folders.
 | Favourites | Files, in the Starred tab | Files and folders, at the top of the tree. A favourite folder is a **shortcut**: it jumps to the folder where it is in the tree (Théo) |
 | Tags | Free tags, filtered in the search | Not yet. Favourites only |
 | Docking | Docked left by default | A window, but **it lives on the left** (Théo never moves it): full height, against the left edge, only its right edge resizes it. Its title bar doesn't move it unless it's pulled well away, and it snaps back to the left when let go near it. The other windows treat its right edge as the desktop's (sticking, maximising, half-screen), like FL's docked Browser |
-| The assistant | — | `search_samples`, `list_samples` (the folders, favourites, a folder), `preview_sample`, `load_sample` (new channels, or a sampler's sample), `add_sample_folder`, `star_sample` |
+| The assistant | — | `search_samples`, `list_samples` (the folders, favourites, a folder), `preview_sample`, `load_sample` (new channels, or a sampler's sample), `add_sample_folder`, `star_sample`; `search_online_audio` searches YouTube, and its URLs go to `preview_sample` (`url`), `load_sample` and `add_audio_clip` (`urls`) |
 
 ## Decided with Théo
 

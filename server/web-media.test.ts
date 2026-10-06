@@ -250,7 +250,8 @@ if (url.endsWith("blocked0000")) {
 const video = args.includes("--merge-output-format");
 const dir = args[args.indexOf("-P") + 1];
 fs.mkdirSync(dir, { recursive: true });
-const out = path.join(dir, args[args.indexOf("-o") + 1].replace("%(ext)s", video ? "mp4" : "m4a"));
+// A link with "webm" in it comes as WebM audio (the engine can't read it): the bytes are the fixture's, which ffmpeg reads anyway.
+const out = path.join(dir, args[args.indexOf("-o") + 1].replace("%(ext)s", video ? "mp4" : url.includes("webm") ? "webm" : "m4a"));
 fs.copyFileSync(video ? process.env.FAKE_VIDEO : process.env.FAKE_FIXTURE, out);
 console.log(out);
 `;
@@ -427,6 +428,23 @@ describe.skipIf(!ffmpegAvailable)("web media routes (fake yt-dlp)", () => {
     });
     expect(blocked.status).toBe(502);
     expect(await errorOf(blocked)).toMatch(/blocked the download.*brew upgrade yt-dlp/);
+    expect(readdirSync(path.join(dataDir, "tmp"))).toEqual([]);
+  });
+
+  it("gives a project the copy it has of a link's audio, rather than another", async () => {
+    const media = async () => (await (await api(`/api/media?projectId=${project.id}`)).json()) as MediaAsset[];
+    const before = (await media()).length;
+    const again = await post("/api/web/import", { projectId: project.id, url: "https://youtu.be/dQw4w9WgXcQ", title: "Another name", kind: "audio" });
+    expect(again.status).toBe(201);
+    expect(((await again.json()) as MediaAsset).name).toBe("AC-DC - Thunderstruck.m4a");
+    expect((await media()).length).toBe(before);
+  });
+
+  it("names media after its link's title when none is given, and keeps audio the engine can't read as a WAV", async () => {
+    const res = await post("/api/web/import", { projectId: project.id, url: "https://www.youtube.com/watch?v=webmwebmweb", kind: "audio" });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ name: "dance.wav", kind: "audio", hasAudio: true });
+    expect(readdirSync(path.join(dataDir, "music"))).toContain("webmwebmweb.wav");
     expect(readdirSync(path.join(dataDir, "tmp"))).toEqual([]);
   });
 });

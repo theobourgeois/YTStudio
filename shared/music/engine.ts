@@ -313,9 +313,13 @@ export interface DetectedTempo {
   seconds: number;
 }
 
-/** Preview one of the Browser's files (`POST /api/browser/preview`), cutting off the last one. */
+/**
+ * Preview one of the Browser's files (`POST /api/browser/preview`), cutting off the last one: a file in its
+ * folders (`path`), or an online clip's sound (`url`, its Online tab's: downloaded first, then kept).
+ */
 export interface PreviewFileRequest {
-  path: string;
+  path?: string;
+  url?: string;
   /** Seconds into the file (default: its start). */
   start?: number;
   /** The tab's name for it, given back in `EnginePreview.id`. */

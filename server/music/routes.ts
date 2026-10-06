@@ -98,15 +98,16 @@ export function browserRoutes(browser: SampleBrowser, engine: AudioEngine, media
   router.get("/search", (req, res) => {
     res.json(browser.search(req.query.q, req.query.limit));
   });
-  // Hear a file, outside the song (`PreviewFileRequest`); `/api/engine/stopPreview` stops it.
+  // Hear a file or an online clip, outside the song (`PreviewFileRequest`); `/api/engine/stopPreview` stops it.
   router.post("/preview", json(), async (req, res) => {
-    const file = await browser.audioFile(req.body?.path);
+    const file = req.body?.url !== undefined ? await media.webAudio(req.body.url) : await browser.audioFile(req.body?.path);
     const start = Number(req.body?.start);
     const id = typeof req.body?.id === "string" ? req.body.id.slice(0, 200) : "";
     res.json(await engine.previewFile(file, Number.isFinite(start) && start > 0 ? start : 0, id));
   });
-  // A file into a song: the project's copy of it (`UseBrowserFileRequest`), made once.
+  // A file or an online clip into a song: the project's copy of it (`UseBrowserFileRequest`), made once.
   router.post("/use", json(), async (req, res) => {
+    if (req.body?.url !== undefined) return void res.json(await media.importWeb(req.body.projectId, req.body.url, req.body.title));
     res.json(await browser.use(req.body?.projectId, req.body?.path, media));
   });
   router.post("/reveal", json(), async (req, res) => {

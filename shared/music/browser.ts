@@ -48,10 +48,15 @@ export interface BrowserSearchResult {
 export interface AddBrowserRootRequest {
   path: string;
 }
-/** One of the Browser's files into a song (`POST /api/browser/use`): answered with the project's media copy of it. */
+/**
+ * One of the Browser's files into a song (`POST /api/browser/use`): answered with the project's media copy of
+ * it. A file in its folders (`path`), or an online clip's sound (`url`, named `title`, else the link's own).
+ */
 export interface UseBrowserFileRequest {
   projectId: string;
-  path: string;
+  path?: string;
+  url?: string;
+  title?: string;
 }
 export interface SetBrowserFavouriteRequest {
   path: string;

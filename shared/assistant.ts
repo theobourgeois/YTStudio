@@ -467,7 +467,8 @@ export function describeToolCall(rawName: string, input: unknown): string {
     }
     case "get_library":
       return "Browse the Library";
-    case "search_online": {
+    case "search_online":
+    case "search_online_audio": {
       const q = String(f("query") ?? "").trim();
       return q ? `Search online for “${q.length > 32 ? `${q.slice(0, 31)}…` : q}”` : "Search online";
     }
