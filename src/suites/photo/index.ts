@@ -52,4 +52,6 @@ export const photoSuite: ClientSuite<"photo"> = {
     await usePhoto.getState().placeFiles(files, { asCanvas: true });
   },
   newProjectOptions: newPhotoOptions,
+  // New asks first, as Photoshop's New Document: a size (a preset or typed in) and a background, or an image.
+  NewProject: lazy(() => import("./new-photo-window")),
 };

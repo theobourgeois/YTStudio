@@ -109,6 +109,7 @@ export const CANVAS_PRESETS: readonly CanvasPreset[] = [
   { id: "story", label: "Story / Reel", width: 1080, height: 1920 },
   { id: "portrait", label: "Portrait post", width: 1080, height: 1350 },
   { id: "square", label: "Square", width: 1080, height: 1080 },
+  { id: "square-1000", label: "Square 1000", width: 1000, height: 1000 },
   { id: "thumbnail", label: "Thumbnail", width: 1280, height: 720 },
   { id: "hd", label: "HD", width: 1920, height: 1080 },
 ];

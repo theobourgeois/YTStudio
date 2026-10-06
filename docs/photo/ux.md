@@ -38,7 +38,12 @@ coordinates are proven. A tool that doesn't work yet isn't shown.
 ("Screenshot 2026-10-05 at 8.57.28 PM"), as Photoshop names a document after its file; a new photo still called
 "Untitled" takes the name of the image it's opened from too.
 
-From the picker or Home's New tile: a size preset or an image.
+**Built:** New (the picker, Home's New tile, ⌘3) asks first, as Photoshop's New Document does: a window
+(`new-photo-window.tsx`) before anything is made. Its presets are cards that show their shape, with their size and
+ratio; any size can be typed in (Custom, up to 30 000 px a side), turned with Portrait / Landscape, on a White,
+Black or Transparent background. Create makes the photo; Open an image… makes it from an image instead; closing the
+window makes nothing. It starts on the last preset made (Settings › Photo). An open photo with no layers shows its
+empty canvas: nothing over it.
 
 **Presets**, short-form first like the rest of the app:
 
@@ -47,6 +52,7 @@ From the picker or Home's New tile: a size preset or an image.
 | Story / Reel | 1080 × 1920 |
 | Portrait post | 1080 × 1350 |
 | Square | 1080 × 1080 |
+| Square 1000 | 1000 × 1000 |
 | Thumbnail | 1280 × 720 |
 | HD | 1920 × 1080 |
 

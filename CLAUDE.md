@@ -365,6 +365,8 @@ extension** (Node ESM through tsx).
   `ProjectSummary` is a union on `suite`: common fields plus the suite's own (`SuiteSummaries`).
   A suite's preferences for new projects, kept in the tab (music's default tempo), go with it as `options`
   (`ClientSuite.newProjectOptions` → `SuiteBackend.withOptions`, applied to a copy of the starting point too).
+  A suite can ask first (`ClientSuite.NewProject`, photo's New photo window): New opens it on the app's desktop
+  (`useProjects.choosing`) and its choices become the `options`; closing it makes nothing.
 - Everything suite-agnostic goes through the registries, keyed by `SuiteId` so TypeScript insists on every suite:
   `SUITES` + `SuiteDocuments` (`shared/suites.ts`), `SUITE_TOOLS` (`shared/suite-tools.ts`), `suiteBackend`
   (`server/suites/`) and `clientSuite` (`src/suites/`). Don't branch on a suite id anywhere else.

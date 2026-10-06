@@ -14,6 +14,16 @@ export interface ToolRunContext {
   progress: (fraction: number | null, label?: string) => void;
 }
 
+/** What a suite's New window (`ClientSuite.NewProject`) is given. */
+export interface NewProjectWindowProps {
+  /** Alt was held: start blank, whatever the suite's starting point. */
+  blank: boolean;
+  /** Make the project with these choices (`CreateProjectRequest.options`), or from these files (as if dropped on Home). */
+  create(request: { options?: unknown; files?: File[] }): void;
+  /** Make nothing. */
+  close(): void;
+}
+
 /** How the assistant's panel talks about a suite's projects. The `use*` are hooks. */
 export interface SuiteChat {
   /** The empty chat's pitch, after the assistant's name: "can watch your footage, … and style your video." */
@@ -88,4 +98,10 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
   importFiles?(files: File[]): Promise<void>;
   /** The suite's choices for a new project, kept in this browser (`CreateProjectRequest.options`: music's default tempo). */
   newProjectOptions?(): unknown;
+  /**
+   * A window asking what to make before anything is (Photoshop's New Document): New opens it on the app's
+   * desktop instead of making the project at once, and closing it makes nothing. A `FloatingWindow` with the id
+   * `"new-project"`; `lazy`, as the Workspace is.
+   */
+  NewProject?: ComponentType<NewProjectWindowProps>;
 }
