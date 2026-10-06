@@ -116,8 +116,11 @@ As built (F2), the names differ a little from the plan above: the evaluator is `
 passes: layers, adjustments, reduce, sample, present, quantise), the screen and regions are `render/renderer.ts`
 (kept composites, refinement through `render/latest.ts`), adjustment kernels are `render/adjustments.ts`, the
 tool handlers are `tools.ts`, the panels' pure helpers `panels/curve-points.ts` and `panels/stack.ts`, and
-`bench.ts` is `scripts/photo-bench.ts`'s scenarios in the workspace. There's no `state.ts` yet: the selection
-arrives with F3.
+`bench.ts` is `scripts/photo-bench.ts`'s scenarios in the workspace. As built in F3: there's no `state.ts`
+(`PhotoState`, the document and the selection, is in `types.ts`; the selection's maths in `selection.ts`); a surface
+on the GPU is `render/surface.ts` (tiles by hash, its pyramid, strokes on drafts), its uploads and the publication
+gate's tab side `uploads.ts`, what a brush press paints `paint-target.ts` and the stroke `painting.ts`; there's no
+`tools/` folder (each tool's pointer handling is in `canvas/canvas-panel.tsx`, its options in `options-bar.tsx`).
 
 Register the folders in `server/architecture.test.ts`'s `SUITE_FOLDERS` **in the first commit**: until then the test
 counts photo files as the video zone and lets them import video code silently.
@@ -162,8 +165,18 @@ interface EffectInstance {
 /** Curves' parameter: points [input, output] on 0..255, 2 to 16 a curve, inputs increasing. */
 interface CurveSet { rgb: [number, number][]; red: [number, number][]; green: [number, number][]; blue: [number, number][] }
 
-// Planned (F3–F4), as proposed: blend, mask (a SurfaceId, layer-local), effects (EffectInstance[]),
-// PixelLayer { kind: "pixel"; surface: SurfaceId }, GeneratorLayer.
+// Version 3 (F3): pixel layers and masks.
+interface PixelLayer {
+  id: string; name: string; visible: boolean; opacity: number;
+  kind: "pixel";
+  surface: SurfaceId | null;                           // null: nothing painted yet
+  size: { width: number; height: number };             // its pixels (a new one: the canvas's)
+  transform: LayerTransform;                           // placed as an image is
+}
+// Every layer may have mask?: { surface: SurfaceId | null }: coverage in the layer's own pixels (an adjustment's:
+// the document's), r16f, fill 1; null reveals everything.
+
+// Planned (F4), as proposed: blend, effects (EffectInstance[]), GeneratorLayer.
 ```
 
 Rules, each enforced by `normalizePhotoProject` and tested:
@@ -181,7 +194,7 @@ Rules, each enforced by `normalizePhotoProject` and tested:
 
 `DocumentHistory` is reused as it is: its document is small (layer metadata and hashes), so its 200-entry cap and its
 JSON comparison at a gesture's end are fine. Its document type is `PhotoState = { doc: PhotoProject; selection:
-SurfaceId | null }`: Photoshop records selection changes in history, so the selection rides along; autosave saves
+PhotoSelection | null }` (as built in F3, the selection is a rectangle, not a surface: ledger A20): Photoshop records selection changes in history, so the selection rides along; autosave saves
 only `doc` and runs when `doc` changes. Active tool, target (content or mask), viewport, hover, drafts and GPU handles
 are session state in `ui.ts`, never in history.
 
@@ -282,8 +295,10 @@ A brush stroke, start to end:
 Undo and redo switch `SurfaceId`s; tiles the GPU cache no longer holds are fetched by hash. Strokes on the same
 surface are serial (the next one's base is the previous one's result, already on the GPU), so there's no merge.
 
-A selection is a coverage surface in document pixels (a rectangle's edges antialiased), committed as
-`PhotoState.selection`. It is session state, never saved, so its tiles stay in the tab and are never uploaded (most
+As built (F3), a selection is a rectangle in document pixels whose edges cover pixels fractionally (ledger A20),
+committed as `PhotoState.selection`; a stroke with one paints into a tile of its own and shows what was there mixed
+towards it by the selection's coverage (A21). As first planned, a selection is a coverage surface in document
+pixels, committed as `PhotoState.selection`. It is session state, never saved, so its tiles stay in the tab and are never uploaded (most
 are constant, so it costs almost nothing). "Mask from selection" makes the mask in the layer's own pixels. If the
 layer's transform is the identity, it shares the selection's manifest (safe, since nothing changes in place);
 otherwise the GPU resamples the selection through the inverse transform into a new surface, which is uploaded like a
@@ -354,9 +369,10 @@ Same parity rule as every suite: each feature lands with its tool. Tools act thr
 text (`get_document`: layers, their kinds, transforms, effects with values) and sees it as pictures (`view_image`:
 the renderer draws a JPEG of the document or a region, as video's `view_frames` does, `src/assistant/frames.ts`).
 It can't paint strokes in v1; it can add and change layers, adjustments, effects, transforms, masks from selections
-and exports. As built (F2): `get_photo`, `list_photo_media`, `view_photo` (pictures are refined like the screen),
+and exports. As built (F3): `get_photo`, `list_photo_media`, `view_photo` (pictures are refined like the screen),
 `add_image_layer`, `transform_layer`, `set_layer` (name, visibility, opacity, order), `remove_layer`, `set_canvas`,
-`add_adjustment`, `set_effect_params` and `export_photo` (8 or 16 bits).
+`add_adjustment`, `set_effect_params`, `merge_layers`, `select_rect`, `add_mask` (from the selection, empty, or
+removed), `add_pixel_layer` and `export_photo` (8 or 16 bits).
 
 ## Integration with the platform
 

@@ -1,9 +1,11 @@
 /**
  * The Layers panel's thumbnails (ux.md, "Workspace"): a layer as it's composited on the canvas (its place, alone,
- * over the checkerboard), rendered by the same renderer as everything else, a moment after it last changed.
+ * over the checkerboard, its mask left out as Photoshop's content thumbnail does), and its mask (black hides, white
+ * reveals), rendered by the same renderer as everything else, a moment after they last changed.
  */
 import { useEffect, useState } from "react";
-import type { ImageLayer, PhotoProject } from "@shared/photo/types";
+import type { PhotoLayer, PhotoProject, PlacedLayer } from "@shared/photo/types";
+import { type PhotoRenderer } from "../render/renderer";
 import { liveRenderer, useSourceStates } from "../live";
 import { usePhoto } from "../store";
 
@@ -11,29 +13,25 @@ import { usePhoto } from "../store";
 const SIZE = 72;
 const DELAY_MS = 250;
 
-/** One layer alone on the canvas, shown, over transparency. */
-export function thumbnailDoc(doc: PhotoProject, layer: ImageLayer): PhotoProject {
-  return { ...doc, canvas: { ...doc.canvas, background: null }, layers: [{ ...layer, visible: true, opacity: 1 }] };
+/** One layer alone on the canvas, shown, over transparency, without its mask. */
+export function thumbnailDoc(doc: PhotoProject, layer: PlacedLayer): PhotoProject {
+  const { mask: _mask, ...alone } = layer;
+  return { ...doc, canvas: { ...doc.canvas, background: null }, layers: [{ ...alone, visible: true, opacity: 1 } as PhotoLayer] };
 }
 
-/** An object URL of the layer's thumbnail, or null until it's rendered (or while its image loads). */
-export function useLayerThumbnail(layer: ImageLayer): string | null {
-  const width = usePhoto((s) => s.history?.doc.canvas.width);
-  const height = usePhoto((s) => s.history?.doc.canvas.height);
-  const ready = useSourceStates((s) => s.states[layer.mediaId]?.state === "ready");
+/** An object URL of a picture `render` makes a moment after `deps` change; null until it's made (or while `ready` is false). */
+function useRendered(ready: boolean, render: (renderer: PhotoRenderer) => Promise<Blob | null>, deps: unknown[]): string | null {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
-    if (!ready || !width || !height) return;
+    if (!ready) return;
     let made: string | null = null;
     let cancelled = false;
     const timer = setTimeout(async () => {
       const pending = liveRenderer();
-      const doc = usePhoto.getState().history?.doc;
-      if (!pending || !doc) return;
+      if (!pending) return;
       try {
-        const renderer = await pending;
-        const blob = await renderer.picture(thumbnailDoc(doc, layer), SIZE);
-        if (cancelled) return;
+        const blob = await render(await pending);
+        if (cancelled || !blob) return;
         made = URL.createObjectURL(blob);
         setUrl(made);
       } catch {
@@ -46,7 +44,30 @@ export function useLayerThumbnail(layer: ImageLayer): string | null {
       // The previous one stays shown until the next is ready; it's let go once that's replaced it.
       if (made) setTimeout(() => URL.revokeObjectURL(made!), DELAY_MS * 4);
     };
-    // Its place and image are what it looks like; its name, visibility and opacity aren't (Photoshop's neither).
-  }, [layer.mediaId, layer.transform, width, height, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, ...deps]); // eslint-disable-line react-hooks/exhaustive-deps
   return ready ? url : null;
+}
+
+/** An object URL of the layer's thumbnail, or null until it's rendered (or while its image loads). */
+export function useLayerThumbnail(layer: PlacedLayer): string | null {
+  const width = usePhoto((s) => s.history?.doc.doc.canvas.width);
+  const height = usePhoto((s) => s.history?.doc.doc.canvas.height);
+  const ready = useSourceStates((s) => layer.kind === "pixel" || s.states[layer.mediaId]?.state === "ready");
+  // Its place and pixels are what it looks like; its name, visibility and opacity aren't (Photoshop's neither).
+  const pixels = layer.kind === "image" ? layer.mediaId : layer.surface;
+  return useRendered(
+    ready && !!width && !!height,
+    (renderer) => {
+      const doc = usePhoto.getState().history?.doc.doc;
+      return doc ? renderer.picture(thumbnailDoc(doc, layer), SIZE) : Promise.resolve(null);
+    },
+    [pixels, layer.transform, width, height],
+  );
+}
+
+/** An object URL of the layer's mask, black where it hides and white where it reveals, or null until it's rendered. */
+export function useMaskThumbnail(layer: PhotoLayer): string | null {
+  const surface = layer.mask?.surface;
+  const ready = useSourceStates((s) => layer.kind !== "image" || s.states[layer.mediaId]?.state === "ready");
+  return useRendered(!!layer.mask && ready, (renderer) => renderer.maskPicture(layer.id, SIZE), [surface, layer.id]);
 }

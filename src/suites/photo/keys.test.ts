@@ -59,6 +59,26 @@ describe("layer keys (Photoshop's)", () => {
   });
 });
 
+describe("selection and brush keys (Photoshop's)", () => {
+  it("picks the marquee and the brush, selects all, deselects, makes a layer", () => {
+    expect(resolvePhotoKey(press("m"), true)).toEqual({ type: "tool", tool: "marquee" });
+    expect(resolvePhotoKey(press("B"), true)).toEqual({ type: "tool", tool: "brush" });
+    expect(resolvePhotoKey(press("a", { metaKey: true }), true)).toEqual({ type: "selectCanvas" });
+    expect(resolvePhotoKey(press("d", { metaKey: true }), true)).toEqual({ type: "deselect" });
+    expect(resolvePhotoKey(press("n", { metaKey: true, shiftKey: true }), true)).toEqual({ type: "newLayer" });
+    expect(resolvePhotoKey(press("n", { metaKey: true }), true)).toBeNull();
+  });
+
+  it("sizes and hardens the brush with [ and ], and sets the colours with D and X", () => {
+    expect(resolvePhotoKey(press("["), true)).toEqual({ type: "brushSize", direction: -1 });
+    expect(resolvePhotoKey(press("]"), true)).toEqual({ type: "brushSize", direction: 1 });
+    expect(resolvePhotoKey(press("{", { shiftKey: true }), true)).toEqual({ type: "brushHardness", direction: -1 });
+    expect(resolvePhotoKey(press("}", { shiftKey: true }), true)).toEqual({ type: "brushHardness", direction: 1 });
+    expect(resolvePhotoKey(press("d"), true)).toEqual({ type: "defaultColours" });
+    expect(resolvePhotoKey(press("x"), true)).toEqual({ type: "swapColours" });
+  });
+});
+
 describe("transform handles", () => {
   const size = { width: 200, height: 100 };
   const t = { x: 500, y: 300, scaleX: 1, scaleY: 1, rotation: 0 };

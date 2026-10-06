@@ -6,6 +6,7 @@
  * node:crypto on the server).
  */
 import type { TileSize } from "./lab.ts";
+import type { PhotoProject, SurfaceId } from "./types.ts";
 
 export type SurfaceFormat = "rgba16f" | "r16f" | "rgba32f";
 
@@ -130,4 +131,14 @@ export function canonicalJson(value: unknown): string {
   const object = value as Record<string, unknown>;
   const keys = Object.keys(object).filter((k) => object[k] !== undefined).sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(object[k])}`).join(",")}}`;
+}
+
+/** Every surface a document names (pixel layers' pixels and masks), once each: what a save needs the server to have. */
+export function documentSurfaces(doc: PhotoProject): SurfaceId[] {
+  const ids = new Set<SurfaceId>();
+  for (const l of doc.layers) {
+    if (l.kind === "pixel" && l.surface) ids.add(l.surface);
+    if (l.mask?.surface) ids.add(l.mask.surface);
+  }
+  return [...ids];
 }

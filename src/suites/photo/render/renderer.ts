@@ -1,6 +1,7 @@
 /**
  * The open photo on the GPU (docs/photo/architecture.md): the device, a source for each image the document shows
- * (decoded on the server, converted and levelled here), the compositor, and the screen. The document is compiled
+ * (decoded on the server, converted and levelled here), a surface for each pixel layer and mask (tiles by hash,
+ * painted here: `surface.ts`), the compositor, and the screen. The document is compiled
  * into a render plan (`shared/photo/render-plan.ts`) and evaluated; exports, Home's cover and the assistant's
  * pictures render through the same evaluator at other views, with the canvas element or without one. A lost device
  * is replaced and everything fetched again from the server.
@@ -13,29 +14,36 @@
 import { sourceTransform } from "@shared/photo/colour.ts";
 import { type View, levelForScale } from "@shared/photo/geometry.ts";
 import { fromHalf } from "@shared/photo/half.ts";
-import { type Affine, apply, invert, layerMatrix, layerScale } from "@shared/photo/layers.ts";
+import type { BrushSettings } from "@shared/photo/brush.ts";
+import { type Affine, IDENTITY, apply, invert, layerMatrix, layerScale } from "@shared/photo/layers.ts";
 import type { TileSize } from "@shared/photo/lab.ts";
 import { DITHER_8BIT } from "@shared/photo/output.ts";
 import {
-  type ImageNode,
+  type AdjustmentNode,
+  type DrawNode,
   type PlanFormat,
   type RenderPlan,
   type SourceFacts,
   backgroundLight,
   compileRender,
+  isDrawNode,
   keyBelow,
   needsRefinement,
   refinePlan,
 } from "@shared/photo/render-plan.ts";
-import type { PhotoProject } from "@shared/photo/types.ts";
+import { type SurfaceManifest, emptySurface, withTiles } from "@shared/photo/surfaces.ts";
+import type { LayerTransform, PhotoProject, PhotoSelection, SurfaceId } from "@shared/photo/types.ts";
 import type { MediaAsset } from "@shared/types";
 import { photoApi } from "../api.ts";
+import type { SurfacePart } from "../paint-target.ts";
+import { type SurfaceUploads, uploadsFor } from "../uploads.ts";
 import type { AtlasFormat } from "./atlas.ts";
-import { COMPOSITE_FORMATS, Compositor, type EvaluatorStats, type LayerDraw, type Quality, type WorkPair, compositeTexture } from "./compositor.ts";
+import { COMPOSITE_FORMATS, Compositor, type Drawable, type EvaluatorStats, type LayerDraw, type PlanSources, type Quality, type WorkPair, compositeTexture } from "./compositor.ts";
 import { RenderContext } from "./context.ts";
 import { type Gpu, createGpu } from "./gpu.ts";
 import { LatestOnly } from "./latest.ts";
 import { SourceImage } from "./source.ts";
+import { SurfaceImage, type SurfaceKind } from "./surface.ts";
 
 export { backgroundLight };
 
@@ -60,6 +68,29 @@ interface Source {
   mediaId: string;
   image: SourceImage | null;
   state: SourceState;
+}
+
+export type { SurfacePart };
+
+/** A layer's surface on the GPU, and what it's made for (a different size or atlas makes a new one). */
+interface LayerSurface {
+  /** Null while its atlas is made (a 16-bit image's mask lives in the f32 one, beside its source). */
+  image: SurfaceImage | null;
+  /** `kind|width×height|format`. */
+  shape: string;
+  /** What the document says it shows. */
+  wanted: SurfaceId | null;
+  /** Why it can't show that (its manifest or tiles couldn't be fetched): it's drawn as it is, and waited for no more. */
+  failed: string | null;
+}
+
+/** A stroke in progress: its surface, and how document points reach its pixels. */
+interface Stroke {
+  key: string;
+  surface: SurfaceImage;
+  /** Document pixels → the surface's pixels, and its scale (a dab's radius is in document pixels). */
+  toSurface: Affine;
+  scale: number;
 }
 
 export interface FrameTiming {
@@ -121,6 +152,10 @@ export class PhotoRenderer {
   private contexts = new Map<AtlasFormat, RenderContext>();
   compositor!: Compositor;
   private readonly sources = new Map<string, Source>();
+  /** Pixel layers' pixels and masks, by `layerId:part`. */
+  private readonly surfaces = new Map<string, LayerSurface>();
+  private uploads: SurfaceUploads | null = null;
+  private stroke: Stroke | null = null;
   private projectId: string | null = null;
   private doc: PhotoProject | null = null;
   private assets = new Map<string, MediaAsset>();
@@ -204,6 +239,8 @@ export class PhotoRenderer {
     this.projectId = projectId;
     this.doc = doc;
     if (assets.length !== this.assets.size || assets.some((a) => this.assets.get(a.id) !== a)) this.assets = new Map(assets.map((a) => [a.id, a]));
+    this.uploads = uploadsFor(projectId);
+    this.syncSurfaces(doc);
     const wanted = new Set(doc.layers.flatMap((l) => (l.kind === "image" ? [l.mediaId] : [])));
     for (const [mediaId, source] of this.sources) {
       if (!wanted.has(mediaId)) {
@@ -220,6 +257,75 @@ export class PhotoRenderer {
       if (!this.assets.has(mediaId)) this.setSourceState(source, { state: "missing" });
       else void this.load(projectId, source);
     }
+  }
+
+  /**
+   * Follows the document's surfaces: a pixel layer's pixels (f16), a mask in its layer's pixels (an image's source
+   * pixels, in its source's atlas; a pixel layer's; an adjustment's: the canvas), each showing what the document
+   * says. A surface whose size or atlas changed is made afresh; one no layer has any more goes.
+   */
+  private syncSurfaces(doc: PhotoProject) {
+    const wanted = new Map<string, { kind: SurfaceKind; size: { width: number; height: number }; bits: 8 | 16; id: SurfaceId | null }>();
+    for (const l of doc.layers) {
+      if (l.kind === "pixel") wanted.set(`${l.id}:content`, { kind: "pixels", size: l.size, bits: 8, id: l.surface });
+      if (!l.mask) continue;
+      if (l.kind === "image") {
+        const asset = this.assets.get(l.mediaId);
+        if (!asset?.width || !asset.height) continue;
+        wanted.set(`${l.id}:mask`, { kind: "mask", size: { width: asset.width, height: asset.height }, bits: asset.image?.bits === 16 ? 16 : 8, id: l.mask.surface });
+      } else wanted.set(`${l.id}:mask`, { kind: "mask", size: l.kind === "pixel" ? l.size : doc.canvas, bits: 8, id: l.mask.surface });
+    }
+    for (const [key, s] of this.surfaces) {
+      if (wanted.has(key)) continue;
+      if (this.stroke?.key === key) this.stroke = null;
+      s.image?.destroy();
+      this.surfaces.delete(key);
+    }
+    for (const [key, want] of wanted) {
+      const shape = `${want.kind}|${want.size.width}x${want.size.height}|${want.bits}`;
+      let s = this.surfaces.get(key);
+      if (s && s.shape !== shape) {
+        if (this.stroke?.key === key) this.stroke = null;
+        s.image?.destroy();
+        s = undefined;
+      }
+      if (!s) {
+        const made: LayerSurface = { image: null, shape, wanted: want.id, failed: null };
+        this.surfaces.set(key, made);
+        void this.contextFor(want.bits).then((ctx) => {
+          if (this.surfaces.get(key) !== made || this.destroyed) return;
+          const image = new SurfaceImage(ctx, want.size, want.kind, this.uploads!);
+          image.onChange = () => this.changed();
+          made.image = image;
+          void this.showSurface(made);
+        });
+        continue;
+      }
+      if (s.wanted !== want.id) {
+        s.wanted = want.id;
+        s.failed = null;
+        void this.showSurface(s);
+      }
+    }
+  }
+
+  private async showSurface(s: LayerSurface) {
+    if (!s.image || s.image.painting) return;
+    const wanted = s.wanted;
+    try {
+      await s.image.show(wanted);
+      await s.image.ensureResident();
+    } catch (error) {
+      if (s.wanted === wanted) s.failed = error instanceof Error ? error.message : String(error);
+      console.error("[photo] couldn't show a surface", error);
+    }
+    this.changed();
+  }
+
+  /** A layer's surface on the GPU, when it's there and shows what the document says. */
+  private surfaceOf(layerId: string, part: SurfacePart): SurfaceImage | null {
+    const s = this.surfaces.get(`${layerId}:${part}`);
+    return s?.image ?? null;
   }
 
   private async load(projectId: string, source: Source) {
@@ -261,9 +367,17 @@ export class PhotoRenderer {
   /** When the last image the document shows finished loading (`performance.now()`), for the bench. */
   loadedAt: number | null = null;
 
-  /** Resolves when every image the document shows has loaded (or failed). */
+  /** Resolves when every image the document shows has loaded (or failed), and every surface shows its pixels. */
   async ready(): Promise<void> {
-    while ([...this.sources.values()].some((s) => s.state.state === "loading")) await new Promise((r) => setTimeout(r, 20));
+    const surfacesDone = () =>
+      [...this.surfaces.values()].every((s) => s.failed !== null || (s.image && (s.image.painting || (s.image.shown === s.wanted && s.image.settled))));
+    while ([...this.sources.values()].some((s) => s.state.state === "loading") || !surfacesDone()) {
+      await new Promise((r) => setTimeout(r, 20));
+      for (const s of this.surfaces.values()) {
+        if (!s.image || s.failed !== null || s.image.shown !== s.wanted || s.image.settled) continue;
+        void s.image.ensureResident().catch((error: unknown) => (s.failed = error instanceof Error ? error.message : String(error)));
+      }
+    }
   }
 
   // --- the plan ---
@@ -285,16 +399,37 @@ export class PhotoRenderer {
     return plan;
   }
 
-  /** An image node as the compositor draws it, or null while its source isn't on the GPU. */
-  private readonly drawOf = (node: ImageNode): LayerDraw | null => {
-    const image = this.sources.get(node.mediaId)?.image;
-    if (!image) return null;
-    return { source: image, matrix: layerMatrix(node.transform, image.layout), transform: node.transform, opacity: node.opacity };
+  /** What the compositor reads: each layer's pixels and mask, each adjustment's mask (null while not on the GPU). */
+  private readonly planSources: PlanSources = {
+    draw: (node: DrawNode): LayerDraw | null => {
+      const mask = node.mask ? this.surfaceOf(node.layerId, "mask") : null;
+      if (node.mask && !mask) return null;
+      if (node.kind === "pixel") {
+        const pixels = this.surfaceOf(node.layerId, "content");
+        if (!pixels) return null;
+        return { source: pixels, matrix: node.matrix, transform: node.transform, opacity: node.opacity, mask };
+      }
+      const image = this.sources.get(node.mediaId)?.image;
+      if (!image) return null;
+      // A mask lives in its source's atlas (a 16-bit source's is f32): one made for another isn't drawn with it.
+      if (mask && mask.ctx !== image.ctx) return null;
+      return { source: image, matrix: layerMatrix(node.transform, image.layout), transform: node.transform, opacity: node.opacity, mask };
+    },
+    mask: (node: AdjustmentNode): Drawable | null => this.surfaceOf(node.layerId, "mask"),
   };
 
-  /** Whether every image the plan draws has loaded (or can't): only then is a refinement final. */
+  /** Whether every image the plan draws has loaded (or can't), and every surface shows its pixels: only then is a refinement final. */
   private settledSources(plan: RenderPlan) {
-    return plan.nodes.every((n) => n.kind !== "image" || this.sources.get(n.mediaId)?.state.state !== "loading");
+    const surfaceDone = (layerId: string, part: SurfacePart) => {
+      const s = this.surfaces.get(`${layerId}:${part}`);
+      return !s || s.failed !== null || (!!s.image && s.image.shown === s.wanted && s.image.settled);
+    };
+    return plan.nodes.every(
+      (n) =>
+        (n.kind !== "image" || this.sources.get(n.mediaId)?.state.state !== "loading") &&
+        (n.kind !== "pixel" || surfaceDone(n.layerId, "content")) &&
+        (!n.mask || surfaceDone(n.layerId, "mask")),
+    );
   }
 
   /** Fetches the evicted tiles of every layer that `view` needs at full resolution. */
@@ -304,14 +439,16 @@ export class PhotoRenderer {
 
   private async ensurePlanVisible(plan: RenderPlan, view: View) {
     let fetched = 0;
+    for (const s of this.surfaces.values()) if (s.image) fetched += await s.image.ensureResident();
     for (const node of plan.nodes) {
       if (node.kind !== "image") continue;
-      const draw = this.drawOf(node);
-      if (!draw) continue;
-      const scale = layerScale(draw.transform);
-      if (levelForScale(view.zoom * scale, draw.source.image.levels.length) !== 0) continue;
-      const local = layerView(view, draw.matrix, scale, draw.source.layout);
-      if (local) fetched += await draw.source.ensureVisible({ ...local, zoom: Math.max(1, local.zoom) });
+      const image = this.sources.get(node.mediaId)?.image;
+      if (!image) continue;
+      const matrix = layerMatrix(node.transform, image.layout);
+      const scale = layerScale(node.transform);
+      if (levelForScale(view.zoom * scale, image.image.levels.length) !== 0) continue;
+      const local = layerView(view, matrix, scale, image.layout);
+      if (local) fetched += await image.ensureVisible({ ...local, zoom: Math.max(1, local.zoom) });
     }
     if (fetched) this.residency++;
     return fetched;
@@ -383,7 +520,8 @@ export class PhotoRenderer {
     const { device } = this;
     const at: View = { ...view, width, height };
     const viewKey = `${view.zoom}|${view.x}|${view.y}|${width}x${height}`;
-    const refineKey = needsRefinement(plan, view.zoom) ? `${plan.key}|${viewKey}` : null;
+    // A stroke paints without changing the plan, and tiles arriving change what's drawn: neither may show an old refinement.
+    const refineKey = needsRefinement(plan, view.zoom) ? `${plan.key}|${viewKey}|${this.residency}` : null;
     const encoder = device.createCommandEncoder({ label: "screen" });
     let composite: GPUTexture;
     const refined = refineKey !== null && screen.refinedKey === refineKey;
@@ -401,7 +539,7 @@ export class PhotoRenderer {
         }
       }
       const counted = { ...this.compositor.stats };
-      composite = this.compositor.evaluate(encoder, plan, at, quality, this.drawOf, screen.work, {
+      composite = this.compositor.evaluate(encoder, plan, at, quality, this.planSources, screen.work, {
         from,
         beforeAdjustment: (index, below, enc) => {
           if (index === from?.index) return;
@@ -435,7 +573,7 @@ export class PhotoRenderer {
       refined,
       at: started,
       quality,
-      drawn: plan.nodes.some((n) => n.kind === "image" && this.drawOf(n) !== null),
+      drawn: plan.nodes.some((n) => isDrawNode(n) && this.planSources.draw(n) !== null),
     });
     if (this.presented.length > 600) this.presented.splice(0, 300);
 
@@ -504,7 +642,7 @@ export class PhotoRenderer {
         await this.ensurePlanVisible(plan, region);
         if (!isCurrent() || this.destroyed) return null;
         const encoder = device.createCommandEncoder({ label: "refine" });
-        let current = this.compositor.evaluate(encoder, plan, region, "final", this.drawOf, work);
+        let current = this.compositor.evaluate(encoder, plan, region, "final", this.planSources, work);
         let size = { width, height };
         for (const next of levels) {
           this.compositor.reduce(encoder, plan.format, current, size, next);
@@ -538,7 +676,7 @@ export class PhotoRenderer {
    */
   async renderBands(
     doc: PhotoProject,
-    options: { bits?: 8 | 16; under: "none" | "matte" | "checker"; matte?: [number, number, number]; dither?: boolean },
+    options: { bits?: 8 | 16; under: "none" | "matte" | "checker"; matte?: [number, number, number]; dither?: boolean; origin?: { x: number; y: number } },
     onBand: (from: number, rows: Uint8Array, width: number) => Promise<void> | void,
   ) {
     await this.compositor.ready;
@@ -554,16 +692,19 @@ export class PhotoRenderer {
     const matte = options.matte ?? [1, 1, 1];
     const groups = new Map<GPUTexture, GPUBindGroup>();
     const groupFor = (t: GPUTexture) => groups.get(t) ?? groups.set(t, this.compositor.quantizeGroup(t, out, params)).get(t)!;
+    // The document point at the render's top-left (a merge renders a box of the document where it is).
+    const ox = options.origin?.x ?? 0;
+    const oy = options.origin?.y ?? 0;
     try {
       for (let y = 0; y < height; y += REGION) {
         const rows = Math.min(REGION, height - y);
         const band = new Uint8Array(width * rows * bytesPerPixel);
         for (let x = 0; x < width; x += REGION) {
           const cols = Math.min(REGION, width - x);
-          const view: View = { zoom: 1, x, y, width: cols, height: rows };
+          const view: View = { zoom: 1, x: ox + x, y: oy + y, width: cols, height: rows };
           await this.ensurePlanVisible(plan, view);
           const p = new ArrayBuffer(48);
-          new Uint32Array(p, 0, 4).set([x, y, cols, rows]);
+          new Uint32Array(p, 0, 4).set([ox + x, oy + y, cols, rows]);
           new Float32Array(p, 16, 1)[0] = options.dither === false ? 0 : DITHER_8BIT;
           new Uint32Array(p, 20, 1)[0] = options.under === "matte" ? 1 : options.under === "checker" ? 2 : 0;
           new Float32Array(p, 24, 1)[0] = 8;
@@ -571,7 +712,7 @@ export class PhotoRenderer {
           device.queue.writeBuffer(params, 0, p);
           const readback = device.createBuffer({ size: cols * rows * bytesPerPixel, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
           const encoder = device.createCommandEncoder({ label: "region" });
-          const composite = this.compositor.evaluate(encoder, plan, view, "final", this.drawOf, work);
+          const composite = this.compositor.evaluate(encoder, plan, view, "final", this.planSources, work);
           const pass = encoder.beginComputePass();
           pass.setPipeline(bits === 16 ? this.compositor.pipelines.quantize16! : this.compositor.pipelines.quantize8);
           pass.setBindGroup(0, groupFor(composite));
@@ -617,7 +758,7 @@ export class PhotoRenderer {
     await this.ensurePlanVisible(plan, at);
     const work: WorkPair = { a: compositeTexture(device, width, height, plan.format, "view a"), b: compositeTexture(device, width, height, plan.format, "view b") };
     const encoder = device.createCommandEncoder({ label: "view" });
-    const composite = this.compositor.evaluate(encoder, plan, at, "final", this.drawOf, work);
+    const composite = this.compositor.evaluate(encoder, plan, at, "final", this.planSources, work);
     encoder.copyTextureToTexture({ texture: composite }, { texture: target }, [width, height]);
     device.queue.submit([encoder.finish()]);
     await device.queue.onSubmittedWorkDone();
@@ -628,11 +769,57 @@ export class PhotoRenderer {
 
   /** The document as a picture `width` wide (Home's cover, the assistant's view, thumbnails), over the checkerboard. */
   async picture(doc: PhotoProject, width: number, type: "image/jpeg" | "image/png" = "image/jpeg"): Promise<Blob> {
-    const { device } = this;
     const zoom = Math.min(1, width / doc.canvas.width);
     const w = Math.max(1, Math.round(doc.canvas.width * zoom));
     const h = Math.max(1, Math.round(doc.canvas.height * zoom));
     const { texture } = await this.renderView(doc, { zoom, x: 0, y: 0, width: w, height: h });
+    return this.encodePicture(texture, w, h, type);
+  }
+
+  /**
+   * A layer's mask as a picture `width` wide (its Layers thumbnail): black where it hides, white where it reveals,
+   * in its own pixels. Null while it isn't on the GPU.
+   */
+  async maskPicture(layerId: string, width: number): Promise<Blob | null> {
+    await this.compositor.ready;
+    const mask = this.surfaceOf(layerId, "mask");
+    if (!mask) return null;
+    await mask.ensureResident();
+    const size = mask.size;
+    const transform = { x: size.width / 2, y: size.height / 2, scaleX: 1, scaleY: 1, rotation: 0 };
+    const matrix = layerMatrix(transform, size);
+    // The mask drawn as light over black (it holds its value in every channel): its grey.
+    const plan: RenderPlan = {
+      canvas: size,
+      background: [0, 0, 0, 1],
+      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, commutes: true, key: "mask" }],
+      baseKey: "mask",
+      prefixKeys: ["mask"],
+      key: "mask",
+      commutes: true,
+      format: "rgba16float",
+      skipped: [],
+    };
+    const zoom = Math.min(1, width / size.width);
+    const w = Math.max(1, Math.round(size.width * zoom));
+    const h = Math.max(1, Math.round(size.height * zoom));
+    const { device } = this;
+    const work: WorkPair = { a: compositeTexture(device, w, h, "rgba16float", "mask a"), b: compositeTexture(device, w, h, "rgba16float", "mask b") };
+    const target = compositeTexture(device, w, h, "rgba16float", "mask picture");
+    const encoder = device.createCommandEncoder({ label: "mask picture" });
+    const sources: PlanSources = { draw: () => ({ source: mask, matrix, transform, opacity: 1, mask: null }), mask: () => null };
+    const composite = this.compositor.evaluate(encoder, plan, { zoom, x: 0, y: 0, width: w, height: h }, "final", sources, work);
+    encoder.copyTextureToTexture({ texture: composite }, { texture: target }, [w, h]);
+    device.queue.submit([encoder.finish()]);
+    await device.queue.onSubmittedWorkDone();
+    work.a.destroy();
+    work.b.destroy();
+    return this.encodePicture(target, w, h, "image/png");
+  }
+
+  /** A composite through the output transform into an image file (it destroys the texture). */
+  private async encodePicture(texture: GPUTexture, w: number, h: number, type: "image/jpeg" | "image/png"): Promise<Blob> {
+    const { device } = this;
     const out = device.createBuffer({ size: w * h * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
     const params = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const readback = device.createBuffer({ size: w * h * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -672,7 +859,7 @@ export class PhotoRenderer {
   async export(
     projectId: string,
     doc: PhotoProject,
-    request: { name: string; format: "png" | "jpeg"; bits?: 8 | 16; quality?: number; destination?: string | null },
+    request: { name: string; format: "png" | "jpeg"; bits?: 8 | 16; quality?: number; destination?: string | null; origin?: { x: number; y: number } },
     onProgress?: (fraction: number) => void,
   ) {
     const bits = request.format === "png" && request.bits === 16 ? 16 : 8;
@@ -687,7 +874,7 @@ export class PhotoRenderer {
       destination: request.destination,
     });
     try {
-      await this.renderBands(doc, { bits, under: request.format === "jpeg" ? "matte" : "none", matte: matteOf(doc) }, async (from, rows, width) => {
+      await this.renderBands(doc, { bits, under: request.format === "jpeg" ? "matte" : "none", matte: matteOf(doc), origin: request.origin }, async (from, rows, width) => {
         await photoApi.exportRows(id, from, rows);
         onProgress?.((from + rows.length / (width * (bits === 16 ? 8 : 4))) / doc.canvas.height);
       });
@@ -696,6 +883,143 @@ export class PhotoRenderer {
       void photoApi.cancelExport(id).catch(() => {});
       throw error;
     }
+  }
+
+  // --- painting ---
+
+  /** Where a layer's surface is: its pixels → document pixels, and how many document pixels one covers. */
+  private placeOf(layerId: string, part: SurfacePart): { matrix: Affine; scale: number } | null {
+    const layer = this.doc?.layers.find((l) => l.id === layerId);
+    if (!layer) return null;
+    if (layer.kind === "adjustment") return { matrix: IDENTITY, scale: 1 };
+    const surface = this.surfaceOf(layerId, part);
+    const size = layer.kind === "pixel" ? layer.size : surface?.size;
+    if (!size) return null;
+    return { matrix: layerMatrix(layer.transform, size), scale: layerScale(layer.transform) };
+  }
+
+  /**
+   * Starts a stroke on a layer's pixels or mask: `brush` in document pixels (its radius is scaled into the surface's
+   * own), `colour` premultiplied linear light (a mask's: its value in every channel), limited by `selection`. False
+   * when that surface isn't on the GPU yet.
+   */
+  beginStroke(layerId: string, part: SurfacePart, brush: BrushSettings, colour: readonly number[], selection: PhotoSelection | null): boolean {
+    this.cancelStroke();
+    const surface = this.surfaceOf(layerId, part);
+    const place = this.placeOf(layerId, part);
+    if (!surface || !place) return false;
+    surface.begin({ ...brush, radius: brush.radius / place.scale }, colour, { matrix: place.matrix }, selection);
+    this.stroke = { key: `${layerId}:${part}`, surface, toSurface: invert(place.matrix), scale: place.scale };
+    return true;
+  }
+
+  /** Paints the stroke through these pointer samples (document pixels). */
+  strokeTo(points: readonly { x: number; y: number }[]) {
+    const s = this.stroke;
+    if (!s) return;
+    s.surface.add(points.map((p) => apply(s.toSurface, p.x, p.y)));
+  }
+
+  get stroking() {
+    return this.stroke !== null;
+  }
+
+  /** Drops the stroke in progress: nothing changes. */
+  cancelStroke() {
+    const s = this.stroke;
+    this.stroke = null;
+    s?.surface.cancel();
+  }
+
+  /** Ends the stroke: resolves with the surface it made (the caller commits it), or null when nothing was painted. */
+  async endStroke(): Promise<{ id: SurfaceId; tiles: number; readbackMs: number; hashMs: number } | null> {
+    const s = this.stroke;
+    this.stroke = null;
+    if (!s) return null;
+    const result = await s.surface.end();
+    const entry = this.surfaces.get(s.key);
+    // The document will name it next: it shows already.
+    if (result && entry) entry.wanted = result.id;
+    return result;
+  }
+
+  /** The size and place of a layer's mask, as the document has it now. */
+  private maskShape(doc: PhotoProject, layerId: string): { size: { width: number; height: number }; matrix: Affine; bits: 8 | 16 } | null {
+    const layer = doc.layers.find((l) => l.id === layerId);
+    if (!layer) return null;
+    if (layer.kind === "adjustment") return { size: doc.canvas, matrix: IDENTITY, bits: 8 };
+    if (layer.kind === "pixel") return { size: layer.size, matrix: layerMatrix(layer.transform, layer.size), bits: 8 };
+    const asset = this.assets.get(layer.mediaId);
+    if (!asset?.width || !asset.height) return null;
+    const size = { width: asset.width, height: asset.height };
+    return { size, matrix: layerMatrix(layer.transform, size), bits: asset.image?.bits === 16 ? 16 : 8 };
+  }
+
+  /**
+   * A mask for layer `layerId` from a selection (Photoshop's Add Layer Mask › Reveal Selection): the selection's
+   * coverage of each of the layer's pixels, as a new surface (uploaded as a stroke is). Resolves with its id.
+   */
+  async maskFromSelection(doc: PhotoProject, layerId: string, selection: PhotoSelection): Promise<SurfaceId> {
+    const shape = this.maskShape(doc, layerId);
+    if (!shape || !this.uploads) throw new Error("That layer has no pixels on the GPU to make a mask for.");
+    const ctx = await this.contextFor(shape.bits);
+    const surface = new SurfaceImage(ctx, shape.size, "mask", this.uploads);
+    try {
+      return await surface.fillFromSelection(selection, { matrix: shape.matrix });
+    } finally {
+      surface.destroy();
+    }
+  }
+
+  /**
+   * A layer as pixels (Photoshop's Rasterize: an image's transform and mask baked in): rendered alone at 100% over
+   * the box around it, into tiles of a new pixel surface (uploaded as a stroke is). Resolves with the surface (null:
+   * nothing showed) and the pixel layer's size and place.
+   */
+  async rasterize(doc: PhotoProject, layerId: string): Promise<{ surface: SurfaceId | null; size: { width: number; height: number }; transform: LayerTransform }> {
+    await this.compositor.ready;
+    const layer = doc.layers.find((l) => l.id === layerId);
+    const shape = layer && layer.kind !== "adjustment" ? (layer.kind === "pixel" ? layer.size : this.maskShape(doc, layerId)?.size) : null;
+    if (!layer || layer.kind === "adjustment" || !shape || !this.uploads) throw new Error("Only an image or pixel layer can be made pixels.");
+    const corners = [apply(layerMatrix(layer.transform, shape), 0, 0), apply(layerMatrix(layer.transform, shape), shape.width, 0), apply(layerMatrix(layer.transform, shape), 0, shape.height), apply(layerMatrix(layer.transform, shape), shape.width, shape.height)];
+    const x0 = Math.floor(Math.min(...corners.map((p) => p.x)) + 1e-6);
+    const y0 = Math.floor(Math.min(...corners.map((p) => p.y)) + 1e-6);
+    const width = Math.max(1, Math.min(30_000, Math.ceil(Math.max(...corners.map((p) => p.x)) - 1e-6) - x0));
+    const height = Math.max(1, Math.min(30_000, Math.ceil(Math.max(...corners.map((p) => p.y)) - 1e-6) - y0));
+    // The layer alone, opaque (its opacity stays the layer's), in an f16 composite: the surface's own format.
+    const alone: PhotoProject = { ...doc, canvas: { width, height, background: null }, layers: [{ ...layer, opacity: 1, visible: true }] };
+    const plan = compileRender(alone, this.facts(), { float32: false });
+    const { device } = this;
+    const tile = TILE;
+    const work: WorkPair = { a: compositeTexture(device, tile, tile, "rgba16float", "rasterize a"), b: compositeTexture(device, tile, tile, "rgba16float", "rasterize b") };
+    const tilesX = Math.ceil(width / tile);
+    const tilesY = Math.ceil(height / tile);
+    const entries: [number, number, string][] = [];
+    try {
+      for (let ty = 0; ty < tilesY; ty++) {
+        for (let tx = 0; tx < tilesX; tx++) {
+          const region: View = { zoom: 1, x: x0 + tx * tile, y: y0 + ty * tile, width: tile, height: tile };
+          await this.ensurePlanVisible(plan, region);
+          const readback = device.createBuffer({ size: tile * tile * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+          const encoder = device.createCommandEncoder({ label: "rasterize" });
+          const composite = this.compositor.evaluate(encoder, plan, region, "final", this.planSources, work);
+          encoder.copyTextureToBuffer({ texture: composite }, { buffer: readback, bytesPerRow: tile * 8 }, [tile, tile]);
+          device.queue.submit([encoder.finish()]);
+          await readback.mapAsync(GPUMapMode.READ);
+          const bytes = readback.getMappedRange().slice(0);
+          readback.unmap();
+          readback.destroy();
+          const { refs } = await this.uploads.hash([bytes], 4);
+          entries.push([tx, ty, refs[0]]);
+        }
+      }
+    } finally {
+      work.a.destroy();
+      work.b.destroy();
+    }
+    const manifest: SurfaceManifest = withTiles(emptySurface("rgba16f", tile, [0, 0, 0, 0]), entries);
+    const surface = manifest.tiles.length ? await this.uploads.add(manifest, entries.map((e) => e[2])) : null;
+    return { surface, size: { width, height }, transform: { x: x0 + width / 2, y: y0 + height / 2, scaleX: 1, scaleY: 1, rotation: 0 } };
   }
 
   // --- checks ---
@@ -724,6 +1048,31 @@ export class PhotoRenderer {
     return out;
   }
 
+  /**
+   * A layer's surface's level-0 tile as the GPU holds it, as floats (its RGBA; a mask's value in every channel), or
+   * null when it shows no slot there (its fill, or not resident): the checks compare strokes by it.
+   */
+  async readSurfaceTile(layerId: string, part: SurfacePart, tx: number, ty: number): Promise<{ shown: SurfaceId | null; data: Float32Array | null }> {
+    const surface = this.surfaceOf(layerId, part);
+    if (!surface) return { shown: null, data: null };
+    await surface.ensureResident();
+    const slot = surface.image.slotOf(0, tx, ty);
+    if (slot === null) return { shown: surface.shown, data: null };
+    const { ctx } = surface;
+    const { texture, layer } = ctx.atlas.location(slot);
+    const tile = ctx.tile;
+    const buffer = this.device.createBuffer({ size: ctx.atlas.tileBytes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const encoder = this.device.createCommandEncoder();
+    encoder.copyTextureToBuffer({ texture, origin: [0, 0, layer] }, { buffer, bytesPerRow: ctx.rowBytes }, [tile, tile, 1]);
+    this.device.queue.submit([encoder.finish()]);
+    await buffer.mapAsync(GPUMapMode.READ);
+    const mapped = buffer.getMappedRange();
+    const data = ctx.format === "rgba16float" ? Float32Array.from(new Uint16Array(mapped), fromHalf) : new Float32Array(mapped.slice(0));
+    buffer.unmap();
+    buffer.destroy();
+    return { shown: surface.shown, data };
+  }
+
   /** What the screen last showed, as floats (before the output transform), and whether it was refined. */
   async readScreen(): Promise<{ data: Float32Array; width: number; height: number; refined: boolean } | null> {
     const screen = this.screen;
@@ -740,6 +1089,10 @@ export class PhotoRenderer {
 
   private recover(): Promise<void> {
     this.recovering ??= (async () => {
+      // A stroke in progress is lost with the device (its drafts were on it); committed ones are the Worker's and the server's.
+      this.stroke = null;
+      for (const s of this.surfaces.values()) s.image?.destroy();
+      this.surfaces.clear();
       for (const s of this.sources.values()) s.image?.destroy();
       this.sources.clear();
       this.dropScreen();
@@ -760,6 +1113,8 @@ export class PhotoRenderer {
     this.destroyed = true;
     if (this.refineTimer) clearTimeout(this.refineTimer);
     this.refiner.want(null);
+    for (const s of this.surfaces.values()) s.image?.destroy();
+    this.surfaces.clear();
     for (const s of this.sources.values()) s.image?.destroy();
     this.sources.clear();
     this.dropScreen();

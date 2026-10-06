@@ -1,4 +1,10 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { createPhotoProject, normalizePhotoProject, withPhotoOptions } from "../../shared/photo/project.ts";
+import { documentSurfaces } from "../../shared/photo/surfaces.ts";
+import { BlobStore } from "../photo/blobs.ts";
+import { resourcesOf } from "../photo/service.ts";
+import { HttpError } from "../storage.ts";
 import type { SuiteBackend } from "./suite.ts";
 
 /**
@@ -13,6 +19,19 @@ export const photoSuite: SuiteBackend<"photo"> = {
   normalize: (doc) => normalizePhotoProject(doc),
   stats: (doc) => ({ name: doc.name, duration: 0, width: doc.canvas.width, height: doc.canvas.height, layerCount: doc.layers.length, coverAssetId: null }),
   remapMedia: (doc, ids) => ({ ...doc, layers: doc.layers.map((l) => (l.kind === "image" && ids.has(l.mediaId) ? { ...l, mediaId: ids.get(l.mediaId)! } : l)) }),
+  // The publication gate: a saved document only names pixels the package has (the tab uploads them first).
+  async checkSave(doc, dir) {
+    const blobs = new BlobStore(resourcesOf(dir));
+    const missing = [];
+    for (const id of documentSurfaces(doc)) if (!(await blobs.hasManifest(id))) missing.push(id);
+    if (missing.length) throw new HttpError(409, `The photo names pixels the project hasn't got yet: upload these surfaces first: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? ` and ${missing.length - 3} more` : ""}.`);
+  },
+  // Pixels only a closed tab's history named go when the project is next opened.
+  async opened(doc, dir) {
+    if (!existsSync(path.join(dir, "project.json"))) return;
+    const result = await new BlobStore(resourcesOf(dir)).collect(documentSurfaces(doc));
+    if (result.missing.length) console.warn(`[photo] ${dir} names surfaces it hasn't got: ${result.missing.join(", ")}`);
+  },
   assistant: {
     context: "the photo's canvas and which layer is selected when they sent it",
     background: "no layer is selected",
@@ -25,7 +44,9 @@ image layer is a picture placed whole: moving, scaling and rotating it resamples
 smaller and bigger again never loses quality. Coordinates are canvas pixels from the top-left corner; a layer's \
 position is its centre, its scale a factor of its own size (1 = 100%), its rotation degrees clockwise. An \
 adjustment layer (Exposure, Curves) changes everything below it without changing any image: hide it, fade it with \
-its opacity, or change its settings at any time.
+its opacity, or change its settings at any time. A pixel layer holds what the user paints. Any layer can have a \
+mask: black hides the layer, white reveals it (on an adjustment, where it applies). The selection (marching ants) \
+limits the user's brush and can become a mask.
 
 Start with get_photo, and look with view_photo before and after you change how it looks: you can't see the \
 canvas otherwise. list_photo_media lists the project's images; add_image_layer places one; transform_layer \
@@ -33,7 +54,9 @@ moves, scales (fit: contain or cover) and rotates; set_layer renames, hides, fad
 deletes; set_canvas resizes the canvas or changes its background (thumbnails are often 1280×720, stories \
 1080×1920). add_adjustment adds an Exposure or Curves layer (above a given layer, so it only changes what's under \
 it) and set_effect_params changes one: Exposure is in stops of light; Curves' points are [input, output] on 0..255 \
-as in Photoshop (a gentle S, [[0, 0], [64, 52], [192, 205], [255, 255]], adds contrast). export_photo writes a PNG \
-(8 or 16 bits) or JPEG.`,
+as in Photoshop (a gentle S, [[0, 0], [64, 52], [192, 205], [255, 255]], adds contrast). select_rect selects a \
+rectangle (or all, or none); add_mask gives a layer a mask, from the selection (it shows only there) or empty, or \
+removes one; add_pixel_layer adds an empty layer for the user to paint on (you can't paint strokes). merge_layers \
+merges layers into one image. export_photo writes a PNG (8 or 16 bits) or JPEG.`,
   },
 };

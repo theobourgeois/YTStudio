@@ -7,7 +7,7 @@
 import { findLayer } from "./edits.ts";
 import type { Size } from "./geometry.ts";
 import { bounds } from "./layers.ts";
-import { type ImageLayer, MAX_CANVAS_SIDE, type PhotoLayer, type PhotoProject } from "./types.ts";
+import { type ImageLayer, MAX_CANVAS_SIDE, type PhotoLayer, type PhotoProject, type PlacedLayer, isPlaced } from "./types.ts";
 
 /** Merge Down (one layer into the one below it), Merge Layers (those selected) or Merge Visible (every visible one). */
 export type MergeKind = "down" | "selected" | "visible";
@@ -15,7 +15,10 @@ export type MergeKind = "down" | "selected" | "visible";
 export interface MergePlan {
   /** The layers the result replaces, bottom to top. */
   ids: string[];
-  /** What's rendered: the merged layers alone on a transparent canvas the size of `box`, moved to start at 0. */
+  /**
+   * What's rendered: the merged layers alone, where they are, on a transparent canvas the size of `box`, whose
+   * top-left is document point `box.x, box.y` (the render's origin: nothing moves, so masks stay put).
+   */
   doc: PhotoProject;
   /** Where the result goes, in whole document pixels: the box around the merged images (within the canvas when that's too big). */
   box: { x: number; y: number; width: number; height: number };
@@ -33,7 +36,7 @@ export function mergeKindOf(selected: readonly string[]): MergeKind {
  * left as they are; adjustments change only the merged layers below them, and one with no merged image below it
  * goes (it changed nothing in the result). `sizeOf` is an image layer's source size, null while it's missing.
  */
-export function planMerge(doc: PhotoProject, kind: MergeKind, selected: readonly string[], sizeOf: (layer: ImageLayer) => Size | null): MergePlan | { error: string } {
+export function planMerge(doc: PhotoProject, kind: MergeKind, selected: readonly string[], sizeOf: (layer: PlacedLayer) => Size | null): MergePlan | { error: string } {
   let layers: PhotoLayer[];
   if (kind === "down") {
     const index = doc.layers.findIndex((l) => l.id === selected[0]);
@@ -48,8 +51,8 @@ export function planMerge(doc: PhotoProject, kind: MergeKind, selected: readonly
     layers = doc.layers.filter((l) => wanted.has(l.id) && l.visible);
     if (layers.length < 2) return { error: kind === "visible" ? "There's only one visible layer: nothing to merge." : "Select two or more visible layers to merge." };
   }
-  const images = layers.filter((l): l is ImageLayer => l.kind === "image");
-  if (images.length === 0) return { error: "Merging needs an image layer: adjustments alone have no pixels to merge into." };
+  const images = layers.filter(isPlaced);
+  if (images.length === 0) return { error: "Merging needs an image or pixel layer: adjustments alone have no pixels to merge into." };
   let x0 = Infinity;
   let y0 = Infinity;
   let x1 = -Infinity;
@@ -76,8 +79,7 @@ export function planMerge(doc: PhotoProject, kind: MergeKind, selected: readonly
     y1 = Math.min(doc.canvas.height, y1);
   }
   if (x1 <= x0 || y1 <= y0) return { error: "The merged layers are all off the canvas: nothing would show." };
-  const firstImage = layers.findIndex((l) => l.kind === "image");
-  const drawn = layers.slice(firstImage).map((l): PhotoLayer => (l.kind === "image" ? { ...l, transform: { ...l.transform, x: l.transform.x - x0, y: l.transform.y - y0 } } : l));
+  const drawn = layers.slice(layers.findIndex(isPlaced));
   return {
     ids: layers.map((l) => l.id),
     doc: { ...doc, canvas: { width: x1 - x0, height: y1 - y0, background: null }, layers: drawn },

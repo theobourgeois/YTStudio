@@ -1,10 +1,13 @@
 import { create } from "zustand";
 import type { View } from "@shared/photo/geometry";
 import type { Box, Guide } from "./canvas/snap";
+import type { PaintTarget } from "./paint-target";
 import { usePhoto } from "./store";
 
 /** The tools of the strip (ux.md, "Workspace"); more arrive with what they edit. */
-export type PhotoTool = "move" | "hand" | "zoom";
+export type PhotoTool = "move" | "marquee" | "brush" | "hand" | "zoom";
+
+export type { PaintTarget };
 
 /**
  * The photo editor's session state, outside the document and its history: the tool, which layers are selected, the
@@ -14,6 +17,10 @@ interface PhotoUi {
   tool: PhotoTool;
   /** Space held: the Hand, until it's let go. */
   spaceHand: boolean;
+  /** What the brush paints on the active layer (a click on its mask's thumbnail targets the mask). */
+  target: PaintTarget;
+  /** An image layer the brush was pressed on: the choice between a new paint layer and converting it (ux.md). */
+  paintChoice: string | null;
   /** The selected layers (Photoshop's: several at once), in the order they were picked. */
   selectedLayerIds: string[];
   /**
@@ -31,6 +38,8 @@ interface PhotoUi {
   view: View | null;
   exportOpen: boolean;
   setTool: (tool: PhotoTool) => void;
+  setTarget: (target: PaintTarget) => void;
+  setPaintChoice: (layerId: string | null) => void;
   setSpaceHand: (held: boolean) => void;
   /** That layer alone, or nothing. */
   select: (layerId: string | null) => void;
@@ -45,6 +54,8 @@ interface PhotoUi {
 
 export const usePhotoUi = create<PhotoUi>((set) => ({
   tool: "move",
+  target: "content",
+  paintChoice: null,
   spaceHand: false,
   selectedLayerIds: [],
   selectedLayerId: null,
@@ -54,9 +65,16 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   view: null,
   exportOpen: false,
   setTool: (tool) => set({ tool }),
+  setTarget: (target) => set({ target }),
+  setPaintChoice: (paintChoice) => set({ paintChoice }),
   setSpaceHand: (spaceHand) => set({ spaceHand }),
-  select: (layerId) => set(selectionOf(layerId ? [layerId] : [])),
-  setSelection: (layerIds, active) => set(selectionOf(layerIds, active)),
+  // Another active layer is targeted by its content first (its mask's thumbnail targets the mask).
+  select: (layerId) => set((s) => ({ ...selectionOf(layerId ? [layerId] : []), target: layerId === s.selectedLayerId ? s.target : "content" })),
+  setSelection: (layerIds, active) =>
+    set((s) => {
+      const next = selectionOf(layerIds, active);
+      return { ...next, target: next.selectedLayerId === s.selectedLayerId ? s.target : "content" };
+    }),
   hover: (hoveredLayerId) => set((s) => (s.hoveredLayerId === hoveredLayerId ? s : { hoveredLayerId })),
   setGuides: (guides) => set((s) => (s.guides.length === 0 && guides.length === 0 ? s : { guides })),
   setMarquee: (marquee) => set({ marquee }),
@@ -76,11 +94,11 @@ export const useActiveTool = () => usePhotoUi((s) => (s.spaceHand ? "hand" : s.t
 
 // Another photo: a fresh view, nothing selected, its windows closed.
 usePhoto.subscribe((state, prev) => {
-  if (state.projectId !== prev.projectId) usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, guides: [], marquee: null, view: null, exportOpen: false, spaceHand: false });
+  if (state.projectId !== prev.projectId) usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, guides: [], marquee: null, view: null, exportOpen: false, spaceHand: false, target: "content", paintChoice: null });
   // Selected layers that are gone (undone, deleted) are no longer selected.
   const { selectedLayerIds, selectedLayerId } = usePhotoUi.getState();
-  if (!state.history || selectedLayerIds.length === 0 || state.history.doc.layers === prev.history?.doc.layers) return;
-  const there = new Set(state.history.doc.layers.map((l) => l.id));
+  if (!state.history || selectedLayerIds.length === 0 || state.history.doc.doc.layers === prev.history?.doc.doc.layers) return;
+  const there = new Set(state.history.doc.doc.layers.map((l) => l.id));
   const kept = selectedLayerIds.filter((id) => there.has(id));
   if (kept.length !== selectedLayerIds.length) usePhotoUi.setState(selectionOf(kept, selectedLayerId));
 });

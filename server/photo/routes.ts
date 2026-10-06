@@ -120,6 +120,26 @@ export function photoRoutes(photo: PhotoService): Router {
     res.sendFile(await photo.previewFile(...params(req), tileOf(req.query.tile)), immutable, (error) => error && next(error));
   });
 
+  // A project's pixels, by hash (docs/photo/architecture.md, "Resources"): a tile's raw samples, a manifest's JSON.
+  // Writing one that's there is a no-op that succeeds; what's sent is checked against its hash.
+  router.put("/projects/:projectId/blobs/:hash", raw({ type: () => true, limit: MAX_TILE_BYTES }), async (req, res) => {
+    const stored = await photo.blobs(req.params.projectId).putTile(req.params.hash, req.body as Buffer);
+    res.status(stored ? 201 : 200).json({ stored });
+  });
+  router.get("/projects/:projectId/blobs/:hash", async (req, res) => {
+    const tile = await photo.blobs(req.params.projectId).getTile(req.params.hash);
+    res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+    res.type("application/octet-stream").send(tile);
+  });
+  router.put("/projects/:projectId/manifests/:hash", json({ limit: "8mb" }), async (req, res) => {
+    const stored = await photo.blobs(req.params.projectId).putManifest(req.params.hash, req.body);
+    res.status(stored ? 201 : 200).json({ stored });
+  });
+  router.get("/projects/:projectId/manifests/:hash", async (req, res) => {
+    res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+    res.json(await photo.blobs(req.params.projectId).getManifest(req.params.hash));
+  });
+
   router.post("/exports", json(), async (req, res) => {
     const body = (req.body ?? {}) as Partial<ExportStart>;
     res.status(201).json({

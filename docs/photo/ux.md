@@ -79,13 +79,14 @@ Photo's own `keys.ts`, pure and tested, as music's is. Its listener skips text f
 | Key | Proposed |
 | --- | --- |
 | Space held | Hand, back to the previous tool on release |
-| V / M / B / H / Z | Move / Marquee / Brush / Hand / Zoom |
+| V / M / B / H / Z | Move / Rectangular Marquee / Brush / Hand / Zoom (built) |
 | ⌘Z / ⇧⌘Z | Undo / redo |
 | ⌘0 / ⌘1 | Fit / 100% (the File menu's ⌘1 "New Video" only acts on Home: its accelerator isn't registered) |
 | ⌘+ / ⌘− | Zoom in / out, centred on the pointer when it's over the canvas |
-| [ / ] | Brush size, with its value shown |
-| D / X | Default colours / swap (on a mask: white and black) |
-| ⌘A / ⌘D | Select all / deselect (⌘D deselects layers until there are pixel selections; built for layers) |
+| [ / ] | Brush size, Photoshop's steps (1 px under 10, 10 under 100…), shown in the options bar; with ⇧, hardness by 25% (built) |
+| D / X | Black and white / swap (on a mask, the grey of the colour is painted: black hides, white reveals; built) |
+| ⌘A / ⌘D | Select the canvas / deselect (⌘D lets go of the selection, or with none of the layers; built) |
+| ⇧⌘N | A new, empty pixel layer above the active one (built) |
 | ⌘J | Duplicate the selected layers (built) |
 | Delete | Delete the selected layers (or the selection's pixels, later; built for layers) |
 | ⌘E | Merge Down, or Merge Layers with several selected (built) |
@@ -160,12 +161,22 @@ Photoshop's: several layers can be selected, and what acts on a layer acts on al
 
 ## Selections, masks and brushes
 
-- **Selections**: a rectangle is document-space coverage with antialiased edges. No selection means everything; an
-  empty selection means nothing. Selection changes are undo steps (Photoshop's way).
-- **Masks**: a mask made from the selection is that coverage in the layer's own pixels, and follows the layer from
-  then on. Painting a mask: black hides, white reveals, and the source is untouched.
-- **The first brush** is round, with size, hardness and strength. Dabs are spaced in document pixels and come out the
-  same at any zoom. The selection limits paint by its coverage.
+Built in F3:
+- **Selections**: a rectangle is document-space coverage with antialiased edges (a pixel half inside is covered by
+  half). No selection means everything; an empty selection means nothing. Selection changes are undo steps
+  (Photoshop's way). The Rectangular Marquee (M) drags whole pixels, clipped to the canvas (⇧ a square, ⌥ from its
+  centre); a click deselects; the marching ants show under every tool, and the options bar says its size.
+- **Masks**: Layers' Add a mask button (and the Layers menu) gives the active layer a mask: from the selection when
+  there is one (that coverage in the layer's own pixels, following the layer from then on), else revealing
+  everything. Its thumbnail sits beside the layer's; clicking either targets what the brush paints (outlined).
+  Painting a mask: black hides, white reveals, and the source is untouched. Properties says what it does, and
+  remakes it from the selection or deletes it.
+- **The first brush** (B) is round, with size, hardness and strength in the options bar and the colours' swatches.
+  Dabs are spaced in document pixels and come out the same at any zoom and pixel density (the same samples make the
+  same tiles). The selection caps what a stroke paints by its coverage: a half-covered pixel gets half of the
+  stroke. Its circle follows the pointer. A placed image asks first (New paint layer, or Convert to pixels); an
+  adjustment paints its mask (given one when it has none); a hidden layer refuses, saying why. Escape mid-stroke
+  drops it.
 - **Later brush controls**: Opacity and Flow only once their accumulation equations are written and tested. Pressure,
   texture, scatter and smoothing follow their own research; nothing is guessed from browser pointer behaviour.
 

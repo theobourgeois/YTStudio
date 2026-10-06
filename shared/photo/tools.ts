@@ -121,6 +121,36 @@ export const PHOTO_TOOLS = [
     inputSchema: obj({ layer, params: adjustmentParams, reset: bool("Back to its defaults first.") }, ["layer"]),
   }),
   tool({
+    name: "select_rect",
+    title: "Select a rectangle",
+    kind: "edit",
+    description:
+      "Selects a rectangle of the canvas (Photoshop's Rectangular Marquee), in canvas pixels from the top-left corner; it's clipped to the canvas. all: true selects the whole canvas, none: true deselects. The selection limits what the user's brush paints, and add_mask can make a layer's mask from it. It belongs to the photo open in the editor (undoable, not saved).",
+    inputSchema: obj({
+      x: num("Left edge, canvas pixels."),
+      y: num("Top edge, canvas pixels."),
+      width: num("Width, pixels."),
+      height: num("Height, pixels."),
+      all: bool("Select the whole canvas."),
+      none: bool("Deselect."),
+    }),
+  }),
+  tool({
+    name: "add_mask",
+    title: "Add a layer mask",
+    kind: "edit",
+    description:
+      "Adds a mask to a layer (Photoshop's layer mask: black hides the layer, white reveals it, painted by the user). from: selection makes it the current selection (select_rect first): the layer shows only there; from: empty (the default) reveals everything until it's painted. On an adjustment layer the mask says where it applies. remove: true deletes the layer's mask. Undoable.",
+    inputSchema: obj({ layer, from: oneOf(["selection", "empty"], "What it starts as (default empty: reveals everything)."), remove: bool("Delete the layer's mask instead.") }, ["layer"]),
+  }),
+  tool({
+    name: "add_pixel_layer",
+    title: "Add a pixel layer",
+    kind: "edit",
+    description: "Adds an empty pixel layer (Photoshop's New Layer) the canvas's size, for the user to paint on: above `above` (a layer), or on top. You can't paint strokes yourself.",
+    inputSchema: obj({ name: str("Its name (default Layer 1, Layer 2…)."), above: str("The layer to put it right above (id or name); default: the top.") }),
+  }),
+  tool({
     name: "merge_layers",
     title: "Merge layers",
     kind: "edit",

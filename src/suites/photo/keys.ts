@@ -27,7 +27,17 @@ export type PhotoKeyAction =
   /** The selected layers one place up or down (⌘] / ⌘[: Bring Forward, Send Backward). */
   | { type: "shift"; direction: 1 | -1 }
   /** Merge Down, or Merge Layers with several selected (⌘E). */
-  | { type: "merge" };
+  | { type: "merge" }
+  /** ⌘A: select the whole canvas. */
+  | { type: "selectCanvas" }
+  /** ⇧⌘N: a new, empty pixel layer. */
+  | { type: "newLayer" }
+  /** [ and ]: the brush smaller or bigger; with Shift, softer or harder. */
+  | { type: "brushSize"; direction: 1 | -1 }
+  | { type: "brushHardness"; direction: 1 | -1 }
+  /** D: black and white; X: swapped. */
+  | { type: "defaultColours" }
+  | { type: "swapColours" };
 
 export interface KeyPress {
   key: string;
@@ -70,6 +80,8 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
     if ((key === ";" || key === ":") && e.shiftKey) return { type: "snap" };
     if (key === "s" && !e.shiftKey) return { type: "save" };
     if (key === "d" && !e.shiftKey) return { type: "deselect" };
+    if (key === "a" && !e.shiftKey) return { type: "selectCanvas" };
+    if (key === "n" && e.shiftKey) return { type: "newLayer" };
     return null;
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
@@ -77,6 +89,21 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
   switch (key) {
     case "v":
       return { type: "tool", tool: "move" };
+    case "m":
+      return { type: "tool", tool: "marquee" };
+    case "b":
+      return { type: "tool", tool: "brush" };
+    case "d":
+      return { type: "defaultColours" };
+    case "x":
+      return { type: "swapColours" };
+    case "[":
+    case "{":
+      return e.shiftKey ? { type: "brushHardness", direction: -1 } : { type: "brushSize", direction: -1 };
+    case "]":
+    case "}":
+      return e.shiftKey ? { type: "brushHardness", direction: 1 } : { type: "brushSize", direction: 1 };
+
     case "h":
       return { type: "tool", tool: "hand" };
     case "z":

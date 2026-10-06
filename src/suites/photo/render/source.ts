@@ -93,6 +93,15 @@ export class SourceImage {
     });
   }
 
+  /** Its upright size in its own pixels (a `Drawable`'s). */
+  get width() {
+    return this.layout.width;
+  }
+
+  get height() {
+    return this.layout.height;
+  }
+
   private key(level: number, tx: number, ty: number) {
     return `s${this.id}:${level}:${tx}:${ty}`;
   }

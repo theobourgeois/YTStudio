@@ -1,8 +1,8 @@
 # Foundations: implementation order and gates
 
-Status: revised 2026-10-05 (first proposal 2026-10-03). **F0, F1 and F2 are done** (2026-10-05): their gates
-passed; results and what each changed in the plan are under "F0 results", "F1 results" and "F2 results". F3 is
-next.
+Status: revised 2026-10-06 (first proposal 2026-10-03). **F0, F1, F2 and F3 are done** (F0–F2 2026-10-05, F3
+2026-10-06): their gates passed; results and what each changed in the plan are under "F0 results" to "F3 results".
+F4 is next.
 
 The foundations are the application's first real version with deliberately few features, not a throwaway prototype.
 Each milestone ends with something Théo can use and a gate that's checked, not argued. Lasting contracts (the
@@ -253,6 +253,54 @@ Chrome 154; the canvas panel was 2305 × 1394 / 1725 × 1188 device pixels.
 - Collection deletes only what's unreachable (fixture with history roots excluded, saved roots kept).
 - Same samples give the same result at every zoom and DPR.
 
+### F3 results (2026-10-06)
+
+**Passed.** Every gate is checked in the real app with WebGPU on (`e2e/photo.spec.ts`, 25 tests, about two minutes
+alone), reading the GPU's own tiles through `window.photoDebug` (`paint`: a stroke from exact samples;
+`readSurfaceTile`) and the server's routes:
+
+| Gate | How it's checked |
+| --- | --- |
+| A stroke across tile boundaries, undone and redone, restores exact coverage | A mask stroke across x = 256 and 512: the crossed tiles' floats hashed; undone they're the fill again; redone, the same hashes, and the screen's composite identical |
+| A cancelled stroke changes nothing | A stroke begun and dropped: the document names the same surface, the screen's composite is identical |
+| A small stroke shares every untouched tile's hash | A dab in another tile: the new manifest is the old one plus that tile, every other entry the same |
+| A duplicate upload is a no-op | A tile the server has `PUT` again: 200, `{ stored: false }` |
+| A document referencing a missing blob is refused | A save naming an unknown surface: 409, and `project.json` keeps the last good document (also `server/photo/gate.test.ts`) |
+| Collection deletes only what's unreachable | Two strokes, the first only in history; the project closed and opened: the first's manifest is gone, the saved one and its tiles kept (fixtures in `server/photo/blobs.test.ts`: saved roots kept, history's collected, shared tiles kept, recent uploads kept) |
+| Same samples give the same result at every zoom and DPR | The same samples on new pixel layers at fit, at 200% and in a page at twice the pixel density: the same surface id (content-addressed, so the same bytes) |
+
+Also checked there: the Rectangular Marquee selecting whole pixels as one undo step; the brush on a placed image
+asking first (New paint layer); a selection's fractional edge (x = 300.5) leaving half of a stroke on that column;
+a mask from the selection (tiles inside constant, outside the fill, edges stored); the canvas showing the photo
+inside it and the checkerboard outside; painting the mask with the mouse as one undo step; the assistant's
+`add_pixel_layer`, `select_rect`, `add_mask` (from the selection, and removing one).
+
+**Measured** with `pnpm tsx scripts/photo-bench.ts --quick` (`paintMask`: a mask on the 48 MP photo at fit, a
+segment of samples a frame), Electron 44.5.0 / headless Chrome 154:
+
+| Scenario | Target | Measured |
+| --- | --- | --- |
+| Mask stroke, first visible dab | p95 ≤ 16.7 ms | first 11.2 ms · 13.3 ms; every dab p95 9.1 ms · 12.8 ms (samples to the GPU finishing the frame showing them) |
+| Stroke end → history | ≤ 30 ms | 7.6 ms · 8.4 ms for 13 tiles (readback 6–7, hashing 1); a 166-tile stroke 38 ms · 45 ms |
+| Undo/redo of a stroke | ≤ 50 ms | p95 13.7 / 13.3 ms · 28.1 / 26.6 ms (the command to the GPU finishing the frame) |
+| Open 48 MP JPEG cold (unchanged) | ≤ 1 s / ≤ 3 s | 0.51–0.54 / 0.68–0.72 s · 0.48 / 0.68 s (a first run after the fixtures were made: 1.06 s, the disk cold) |
+
+**What F3 changed in the plan:**
+- The selection is an analytic rectangle kept in history (`PhotoState`), not a coverage surface (ledger A20): F3 has
+  only rectangles, and their coverage is exact for nothing. Lasso and feather bring a surface, by the selection's kind.
+- A selection caps a stroke's *result* (A21): per-dab limiting builds a half-covered pixel back to full, which the
+  e2e test caught. With a selection a stroke paints into a tile of its own, and `limit` shows what was there mixed
+  towards it by coverage.
+- Masks live in their layer's atlas, RGBA on the GPU (A22): a layer pass binds one atlas, and WebGPU allows four
+  bind groups.
+- An empty pixel layer or a mask that reveals everything is `null` (A19): nothing to upload until it's painted.
+- The publication gate and collection are hooks every suite can have (`SuiteBackend.checkSave`, `opened`; A23).
+  Collection keeps blobs written since it started, so an upload racing a reopen is never lost.
+- Picking a pixel layer on the canvas goes by its painted tiles (a full-canvas paint layer would be picked
+  everywhere); its transform box is still its whole surface.
+- The lab keeps its blur seams, P3 patches, f16 rounding and 16-bit checks until F4 brings blur into the suite; its
+  stroke scenario moved to the suite's bench (`paintMask`).
+
 ## F4: light
 
 - Glow as a layer effect; the flare as a generator layer with a source handle and its elements (source glow, halo,
@@ -382,3 +430,5 @@ ends with a complete workflow.
 | 2026-10-05 | F2 gate | See "F2 results": every check passed in the app (e2e) and every target in Electron 44.5.0 and Chrome 154 (bench) |
 | 2026-10-05 | f32 composites | `float32-blendable` and `float32-filterable` are on the Metal adapter in both; blending into `rgba32float` works. A 16-bit ramp through an f16 composite exports 21 steps off at worst, through f32 within 1 |
 | 2026-10-05 | Pipelines at open | Compiling all 13 of F2’s pipelines before the first picture: cold 48 MP opens' first picture 0.49–1.36 s in Electron; the first picture's 3 first, the rest meanwhile: 0.49–0.57 s |
+| 2026-10-06 | F3 gate | See "F3 results": every check passed in the app (e2e) and every target in Electron 44.5.0 and Chrome 154 (bench) |
+| 2026-10-06 | Selection limiting | Limiting each dab by a pixel's coverage: a pixel half inside the selection ended at 0.998 alpha after a stroke (overlapping dabs); limiting the stroke's result: 0.500 |

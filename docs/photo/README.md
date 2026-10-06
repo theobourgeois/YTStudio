@@ -1,10 +1,11 @@
 # Photo suite
 
-Status: plan revised and hardened 2026-10-05 (first written 2026-10-03). **F0, F1 and F2 are built**: the renderer,
-the helper and the blob store (F0); the photo suite itself (F1: new photos, image layers, transforms, export, the
-assistant); layers and adjustments (F2: Exposure and Curves adjustment layers, the render plan, refined views, f32
-composites for 16-bit sources). Results in [foundations-prototype.md](foundations-prototype.md#f2-results-2026-10-05).
-F3 (resources, selections, masks and the brush) is next.
+Status: plan revised and hardened 2026-10-05 (first written 2026-10-03). **F0, F1, F2 and F3 are built**: the
+renderer, the helper and the blob store (F0); the photo suite itself (F1: new photos, image layers, transforms,
+export, the assistant); layers and adjustments (F2: Exposure and Curves adjustment layers, the render plan, refined
+views, f32 composites for 16-bit sources); resources, selections, masks and the brush (F3: pixel layers, layer masks,
+the Rectangular Marquee, the round brush, the publication gate and collection). Results in
+[foundations-prototype.md](foundations-prototype.md#f3-results-2026-10-06). F4 (light: glow and the flare) is next.
 
 A Photoshop-style image editor with dependable layers, masks, painting and retouching, and a particularly strong set
 of editable light effects. The foundations are the application's first version, so the document, resource, colour
@@ -71,5 +72,10 @@ and **Unverified** (an open question). Théo's corrections override the referenc
 | A16 | Identity adjustments are left out of the render plan (2026-10-05, F2) | Identity is then exact by construction, whatever the kernel's rounding | — |
 | A17 | A refined view is the plan at level 0 over regions, reduced by the sources' own 2 × 2 box to the view's level, then sampled with Mitchell as a source is; shown only while it's still what the screen should show (2026-10-05, F2) | Commuting plans then give the same result at the view's level (measured within 4 × 10⁻³); the newest edit always wins | Large glows (F4) need their pyramid's alignment |
 | A18 | The screen keeps the composite below each adjustment (by its prefix key) and resumes from it (2026-10-05, F2) | A slider drag re-runs only the adjustment and what's above (counted) | Memory: four screen-sized buffers |
+| A19 | Document version 3: a pixel layer is a surface (null: empty), a size and a `LayerTransform` (a new one covers the canvas at 100%); any layer's mask is `{ surface }` in the layer's own pixels (an adjustment's: the document's), null revealing everything (2026-10-06, F3) | An empty layer or mask needs no upload; a pixel layer moves like an image; a mask follows its layer | Content past the canvas: a surface that grows |
+| A20 | The selection is an analytic rectangle in history (`PhotoState`), not a coverage surface (2026-10-06, F3, replaces "a selection is a surface") | Exact fractional coverage at no cost; F3 has only rectangles; selecting is an undo step, never saved | Lasso, feather, selection modes: a surface then, by `PhotoSelection`'s kind |
+| A21 | A selection caps a stroke's result (what was there mixed towards the unlimited stroke by its coverage), not each dab (2026-10-06, F3) | Photoshop's behaviour: a half-covered pixel gets half the stroke; per-dab limiting builds it back to full (measured) | — |
+| A22 | Masks are `r16f` in the package and RGBA on the GPU (the value in every channel), in their layer's atlas: a 16-bit image's mask is f32 (2026-10-06, F3) | One atlas per layer pass (WebGPU's four bind groups); the stamp kernel paints masks as colour (v, v, v, 1) | Masks' GPU memory under a tight budget (×4) |
+| A23 | The publication gate and collection are the platform's `SuiteBackend.checkSave` (409) and `opened` (when no tab has the project); collection keeps blobs newer than its start (2026-10-06, F3) | A suite says what its documents need; an upload racing a reopen is never collected | A checkpoint (F5) is a second root |
 
 Progress, measurements and gates live in [foundations-prototype.md](foundations-prototype.md).

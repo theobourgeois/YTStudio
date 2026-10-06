@@ -5,14 +5,14 @@
  * value is one undo step; a slider or graph drag is one too.
  */
 import { useState } from "react";
-import { PiArrowCounterClockwise, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiStack, PiWarningCircle } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiPaintBrush, PiStack, PiTrash, PiWarningCircle } from "react-icons/pi";
 import { resetEffect, setCanvas, setEffectParams, setTransform, updateLayer } from "@shared/photo/edits";
 import { effectDefinition, unavailableReason } from "@shared/photo/effects/index";
-import { type AdjustmentLayer, CANVAS_PRESETS, type ImageLayer, type PhotoLayer } from "@shared/photo/types";
+import { type AdjustmentLayer, CANVAS_PRESETS, type PhotoLayer, type PlacedLayer, isPlaced } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { fitted } from "../canvas/handles";
-import { photoGesture, useLayerSize, usePhoto, usePhotoDoc } from "../store";
+import { photoGesture, useLayerSize, usePhoto, usePhotoDoc, useSelection } from "../store";
 import { layerActions } from "../layer-actions";
 import { usePhotoUi } from "../ui";
 import { CurvesEditor } from "./curves-editor";
@@ -24,7 +24,16 @@ export function PropertiesPanel() {
   const layer = usePhotoDoc((d) => d.layers.find((l) => l.id === selected));
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 text-sm">
-      {count > 1 ? <SeveralProperties count={count} /> : layer?.kind === "image" ? <LayerProperties layer={layer} /> : layer?.kind === "adjustment" ? <AdjustmentProperties layer={layer} /> : <CanvasProperties />}
+      {count > 1 ? (
+        <SeveralProperties count={count} />
+      ) : layer && isPlaced(layer) ? (
+        <LayerProperties layer={layer} />
+      ) : layer?.kind === "adjustment" ? (
+        <AdjustmentProperties layer={layer} />
+      ) : (
+        <CanvasProperties />
+      )}
+      {count === 1 && layer?.mask && <MaskProperties layer={layer} />}
     </div>
   );
 }
@@ -81,8 +90,42 @@ function AdjustmentProperties({ layer }: { layer: AdjustmentLayer }) {
   );
 }
 
-function LayerProperties({ layer }: { layer: ImageLayer }) {
-  const size = useLayerSize(layer.mediaId);
+/**
+ * A layer's mask: what it hides, whether the brush paints it (its thumbnail in Layers targets it too), and making
+ * it again from the selection or deleting it.
+ */
+function MaskProperties({ layer }: { layer: PhotoLayer }) {
+  const targeted = usePhotoUi((s) => s.target === "mask");
+  const selection = useSelection();
+  return (
+    <Section title="Mask">
+      <p className="text-xs text-muted-foreground" data-mask-state={layer.mask?.surface ? "painted" : "clear"}>
+        {layer.mask?.surface ? "Painted: black hides the layer, white reveals it." : "Reveals everything: paint black on it to hide parts of the layer."}
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        <Button size="sm" variant={targeted ? "secondary" : "outline"} aria-pressed={targeted} onClick={() => usePhotoUi.getState().setTarget(targeted ? "content" : "mask")}>
+          <PiPaintBrush /> {targeted ? "Painting the mask" : "Paint the mask"}
+        </Button>
+        {selection && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void layerActions.addMask(layer.id, { replace: true })}
+          >
+            From selection
+          </Button>
+        )}
+        <Button size="sm" variant="outline" onClick={() => layerActions.deleteMask(layer.id)}>
+          <PiTrash /> Delete mask
+        </Button>
+      </div>
+    </Section>
+  );
+}
+
+function LayerProperties({ layer }: { layer: PlacedLayer }) {
+  const imageSize = useLayerSize(layer.kind === "image" ? layer.mediaId : undefined);
+  const size = layer.kind === "pixel" ? layer.size : imageSize;
   const canvas = usePhotoDoc((d) => d.canvas);
   const commit = usePhoto((s) => s.commit);
   const [linked, setLinked] = useState(true);
@@ -121,7 +164,7 @@ function LayerProperties({ layer }: { layer: ImageLayer }) {
         )}
         {size && (
           <p className="text-xs text-muted-foreground">
-            Source {size.width} × {size.height} px · shown {Math.round(size.width * Math.abs(t.scaleX))} × {Math.round(size.height * Math.abs(t.scaleY))} px
+            {layer.kind === "pixel" ? "Pixels" : "Source"} {size.width} × {size.height} px · shown {Math.round(size.width * Math.abs(t.scaleX))} × {Math.round(size.height * Math.abs(t.scaleY))} px
           </p>
         )}
       </Section>
