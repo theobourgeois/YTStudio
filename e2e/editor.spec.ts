@@ -401,6 +401,39 @@ test("exports an MP4", async ({ page }) => {
   expect(res.headers()["content-type"]).toContain("video/mp4");
 });
 
+test("exports a transparent ProRes 4444 and remembers the format", async ({ page }) => {
+  await openLatest(page);
+  await page.getByRole("button", { name: /^export$/i }).first().click();
+  const dialog = page.getByRole("region", { name: "Export" });
+  await dialog.getByText("720p").click();
+  // H.264 has a quality and no transparency; ProRes 4444 the other way round.
+  await expect(dialog.getByRole("radio", { name: "High" })).toBeVisible();
+  await expect(dialog.getByLabel("Transparent background")).toHaveCount(0);
+  await dialog.getByRole("combobox", { name: "Format" }).click();
+  await page.getByRole("option", { name: /ProRes 4444/ }).click();
+  await expect(dialog.getByText(".mov", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("radio", { name: "High" })).toHaveCount(0);
+  await dialog.getByLabel("Transparent background").click();
+  const request = page.waitForRequest((r) => r.url().endsWith("/api/exports") && r.method() === "POST");
+  await dialog.getByRole("button", { name: /^export$/i }).click();
+  expect((await request).postDataJSON()).toMatchObject({ format: "prores-4444", alpha: true, resolution: "720p" });
+  const download = dialog.getByRole("link", { name: /download/i });
+  await expect(download).toBeVisible({ timeout: 60_000 });
+  await expect(dialog.getByText(/ProRes 4444 \(MOV\), transparent · 720 × 1280/)).toBeVisible();
+  // No player for a MOV: it's downloaded, named by its type.
+  await expect(dialog.locator("video")).toHaveCount(0);
+  const res = await page.request.get((await download.getAttribute("href"))!);
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-disposition"]).toMatch(/\.mov"/);
+  expect(res.headers()["content-type"]).toContain("video/quicktime");
+
+  // The window opens on what was made last.
+  await dialog.getByRole("button", { name: "Close Export" }).click();
+  await page.getByRole("button", { name: /^export$/i }).first().click();
+  await expect(dialog.getByRole("combobox", { name: "Format" })).toContainText("ProRes 4444");
+  await expect(dialog.getByLabel("Transparent background")).toBeChecked();
+});
+
 test("video settings dialog, clip volume and previewing a library file", async ({ page }) => {
   await openLatest(page);
 

@@ -2,11 +2,13 @@ import { signalAssets, usesSignals } from "../shared/audio-signals.ts";
 import type { SignalData } from "../shared/signals/format.ts";
 import { readSignals } from "./signals.ts";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { EXPORT_RESOLUTIONS, createId, outputSize, projectDuration, withoutAudioTracks } from "../shared/timeline.ts";
 import { hasMedia, isTextClip } from "../shared/effects.ts";
 import { sanitizeTextLayout } from "../shared/text-drawing.ts";
 import type { ExportJob, ExportRequest, ExportResolution, Project, TextLayoutAt } from "../shared/types.ts";
 import { errorMessage } from "../shared/errors.ts";
+import { EXPORT_FORMATS, exportFormat, exportSettings } from "../shared/export-formats.ts";
 import { normalizeProject } from "../shared/normalize.ts";
 import { allClips, isNestedClip } from "../shared/sequences.ts";
 import { FFMPEG } from "./config.ts";
@@ -15,8 +17,11 @@ import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
 import { renderVideo } from "./frame-render.ts";
 import { probeColorSpace } from "./probe.ts";
-import { type RenderAsset, audioArgs, encoderArgs, planRender, runWithProgress } from "./render.ts";
+import { run } from "./process.ts";
+import { availableFormats, encoderArgs, wavArgs } from "./encoders.ts";
+import { type RenderAsset, audioArgs, planRender, runWithProgress } from "./render.ts";
 import { type DataPaths, HttpError, isValidId } from "./storage.ts";
+import { writeZip } from "./zip.ts";
 
 interface JobState {
   job: ExportJob;
@@ -48,14 +53,14 @@ function parseLayouts(raw: unknown): TextLayoutAt[] | null {
 function cleanFileName(raw: unknown, fallback: string): string {
   const name = String(raw ?? "")
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ")
-    .replace(/\.mp4$/i, "")
+    .replace(/\.(mp4|mov|zip)$/i, "")
     .replace(/\s+/g, " ")
     .replace(/^[\s.]+|[\s.]+$/g, "")
     .slice(0, 120);
   return name || fallback;
 }
 
-/** Export jobs (in memory) rendered one at a time; outputs go to `data/exports/<id>.mp4`. */
+/** Export jobs (in memory) rendered one at a time; outputs go to `data/exports/<id>.<mp4|mov|zip>`. */
 export class ExportManager {
   private jobs = new Map<string, JobState>();
   private limit = createLimiter(1);
@@ -77,7 +82,18 @@ export class ExportManager {
     if (!EXPORT_RESOLUTIONS.includes(req.resolution as ExportResolution)) {
       throw new HttpError(400, `Resolution must be one of ${EXPORT_RESOLUTIONS.join(", ")}.`);
     }
+    const settings = exportSettings(req);
+    if ("error" in settings) throw new HttpError(400, settings.error);
     if (!(await ffmpegVersion())) throw new HttpError(503, "ffmpeg isn't installed, so exporting is unavailable.");
+    const available = await availableFormats();
+    if (!available.includes(settings.format)) {
+      const info = exportFormat(settings.format);
+      const others = EXPORT_FORMATS.filter((f) => available.includes(f.id)).map((f) => `${f.label} (${f.id})`);
+      throw new HttpError(
+        400,
+        `This computer's ffmpeg can't make ${info.label}: it has no ${info.encoder} encoder. Install a full build (brew install ffmpeg)${others.length ? `, or export as ${others.join(", ")}` : ""}.`,
+      );
+    }
 
     const assets = this.library.byId();
     let project: Project;
@@ -122,6 +138,8 @@ export class ExportManager {
       downloadUrl: null,
       url: null,
       fileName: cleanFileName(req.fileName, cleanFileName(project.name, "export")),
+      ...settings,
+      extension: exportFormat(settings.format).extension,
     };
     const state: JobState = { job, project, texts, preview, controller: new AbortController() };
     this.jobs.set(job.id, state);
@@ -166,7 +184,7 @@ export class ExportManager {
   output(id: string): { file: string; name: string } {
     const { job } = this.state(id);
     if (job.status !== "done") throw new HttpError(409, "This export isn't finished.");
-    return { file: this.paths.exportFile(id), name: `${job.fileName}.mp4` };
+    return { file: this.paths.exportFile(id, job.extension), name: `${job.fileName}.${job.extension}` };
   }
 
   shutdown(): void {
@@ -182,8 +200,12 @@ export class ExportManager {
   private async render({ job, project, texts, controller, preview }: JobState): Promise<void> {
     if (job.status !== "queued") return;
     job.status = "rendering";
-    const tmp = this.paths.tmpFile(".mp4");
+    const format = exportFormat(job.format);
+    const sequence = format.id === "png";
+    const tmp = this.paths.tmpFile(`.${format.extension}`);
     const audio = this.paths.tmpFile(".flac");
+    // A PNG sequence's frames and sound, before they go into its ZIP.
+    const frames = sequence ? this.paths.tmpFile("") : null;
     const { signal } = controller;
     try {
       const library = this.library.byId();
@@ -195,9 +217,9 @@ export class ExportManager {
         const asset = library[clip.assetId];
         if (!asset) throw new Error("Some media was deleted before the export started.");
         if (assets[asset.id]) continue;
-        const path = this.library.sourcePath(asset);
-        const colorSpace = asset.kind === "video" && asset.hasVideo ? await probeColorSpace(path) : null;
-        assets[asset.id] = { ...asset, path, colorSpace };
+        const file = this.library.sourcePath(asset);
+        const colorSpace = asset.kind === "video" && asset.hasVideo ? await probeColorSpace(file) : null;
+        assets[asset.id] = { ...asset, path: file, colorSpace };
       }
       // Clips played backwards play their media's reversed copy (made now if it isn't yet).
       for (const clip of project.clips) {
@@ -226,8 +248,9 @@ export class ExportManager {
 
       if (preview) plan.frames = Math.min(plan.frames, Math.ceil(job.duration * opts.fps));
 
-      // The sound first (quick), then every frame, drawn and encoded with it.
+      // The sound first (quick), then every frame, drawn and encoded with it (a sequence's go into its ZIP last).
       const audioShare = 0.03;
+      const zipShare = sequence ? 0.04 : 0;
       const soundArgs = audioArgs(project, assets, { ...opts, outputPath: audio });
       if (preview) soundArgs.splice(soundArgs.length - 1, 0, "-t", String(job.duration));
       await runWithProgress(
@@ -237,19 +260,46 @@ export class ExportManager {
         signal,
       );
       let framesDrawn = 0;
-      await renderVideo(plan, encoderArgs(plan, { ...opts, audioPath: audio, outputPath: tmp }), signal, () => {
-        job.progress = audioShare + ((1 - audioShare) * ++framesDrawn) / plan.frames;
+      const frameName = (n: number) => `${job.fileName}_${String(n).padStart(5, "0")}.png`;
+      const encoder = encoderArgs(plan, job, {
+        ...opts,
+        audioPath: sequence ? null : audio,
+        // ffmpeg's pattern: a % in the name is written %%.
+        outputPath: frames ? path.join(frames, `${job.fileName.replaceAll("%", "%%")}_%05d.png`) : tmp,
       });
-      await fs.rename(tmp, this.paths.exportFile(job.id));
+      if (frames) await fs.mkdir(frames);
+      await renderVideo(
+        plan,
+        encoder,
+        signal,
+        () => (job.progress = audioShare + ((1 - audioShare - zipShare) * ++framesDrawn) / plan.frames),
+        { readback: format.readback, transparent: job.alpha },
+      );
+      if (frames) {
+        const wav = path.join(frames, `${job.fileName}.wav`);
+        await run(FFMPEG, wavArgs(audio, wav).slice(1), { signal });
+        const entries = Array.from({ length: plan.frames }, (_, i) => ({ name: frameName(i + 1), path: path.join(frames, frameName(i + 1)) }));
+        entries.push({ name: `${job.fileName}.wav`, path: wav });
+        await writeZip(tmp, entries, {
+          signal,
+          removeAfter: true,
+          onEntry: (n) => (job.progress = 1 - zipShare + (zipShare * n) / entries.length),
+        });
+      }
+      const output = this.paths.exportFile(job.id, format.extension);
+      await fs.rename(tmp, output);
       // Cancelled while the file was being moved: the job stays cancelled.
       if (signal.aborted) {
-        await fs.rm(this.paths.exportFile(job.id), { force: true });
+        await fs.rm(output, { force: true });
         return;
       }
+      const { size } = await fs.stat(output);
       Object.assign(job, {
         status: "done",
         progress: 1,
-        url: `/files/exports/${job.id}.mp4`,
+        bytes: size,
+        // Only an MP4 plays in the page; a MOV (ProRes) or a ZIP is downloaded.
+        url: format.extension === "mp4" ? `/files/exports/${job.id}.mp4` : null,
         downloadUrl: `/api/exports/${job.id}/download`,
       });
     } catch (err) {
@@ -260,6 +310,7 @@ export class ExportManager {
       console.error(`[export] ${job.id} failed: ${job.error}`);
     } finally {
       await fs.rm(audio, { force: true });
+      if (frames) await fs.rm(frames, { recursive: true, force: true });
       texts.clear();
     }
   }

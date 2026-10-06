@@ -2,7 +2,7 @@
 
 A simple, clean video editor for cutting clips together — short-form first (9:16 by default), but any aspect works.
 Drag clips and images in, arrange and trim them on the timeline, position them on the canvas, drop music
-underneath, export an MP4.
+underneath, export an MP4 (or ProRes, HEVC, a PNG sequence, with transparency).
 
 ## Quick start
 
@@ -301,6 +301,21 @@ out, the first or last frame is held. On a free edge it plays inside the clip, f
 Exports are drawn frame by frame by the same WebGL compositor as the preview, run in a headless Chromium: Playwright's
 (`pnpm exec playwright install chromium-headless-shell`) or your installed Google Chrome (or set `CHROMIUM_PATH`).
 
+The export window's **Format** picks what's made, as Premiere's export settings do:
+
+| Format | File | For |
+| --- | --- | --- |
+| **H.264** (default) | `.mp4` | posting anywhere; **Quality** Standard (quick), High or Best (slower, larger) |
+| **HEVC (H.265)** | `.mp4` | smaller files at the same quality (Apple devices and most recent ones play it); the same qualities |
+| **ProRes 422 HQ** | `.mov` | editing elsewhere (Premiere, Final Cut, Resolve): large, close to lossless, 10-bit 4:2:2, PCM sound |
+| **ProRes 4444** | `.mov` | full colour detail, and **transparency** |
+| **PNG sequence** | `.zip` | every frame as a lossless PNG (`Name_00001.png`...) with the sound as a WAV, and **transparency** |
+
+**Transparent background** (ProRes 4444 and PNG): what no clip covers is transparent in the file instead of black,
+to lay a visualizer, titles or captions over footage edited elsewhere. The canvas stays black in the editor. Formats
+your ffmpeg can't make (a build without `libx265`, say) are greyed out; `brew install ffmpeg` has them all. The
+window remembers what you made last.
+
 ### Library
 
 **Media** → **Library** holds things you reuse across videos, like sound effects, logos, intros and music, in folders
@@ -532,7 +547,7 @@ Keyframes stay on their frame of the media when a clip is moved, trimmed or spli
   thumbnails/waveforms with ffmpeg, and renders exports. `render.ts` plans an export (pure): an ffmpeg per visible clip
   decodes its frames at the size they're shown, a headless Chromium page (`gl-browser.ts`) composites every output
   frame with the preview's compositor (`frame-render.ts` drives it), and ffmpeg encodes the result with the sound,
-  which is mixed in a pass of its own.
+  which is mixed in a pass of its own (`encoders.ts`: each format's encoder; `zip.ts` packs a PNG sequence).
 
 The browser preview plays the original files with hidden `<video>`/`<img>`/`<audio>` elements synced to the playback
 clock and draws them on one WebGL canvas with the compositor, so preview and export are drawn by the same code.

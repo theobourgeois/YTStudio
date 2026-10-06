@@ -1,16 +1,19 @@
 import { useRef, useState } from "react";
 import { PiDownloadSimple } from "react-icons/pi";
 import type { ExportResolution } from "@shared/types";
-import { formatDuration } from "@shared/format";
+import { describeExport } from "@shared/export-formats";
+import { formatBytes, formatDuration } from "@shared/format";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { FloatingWindow, WindowBody, WindowLead, centredOnDesktop } from "@/components/windows/floating-window";
 import { useEditor } from "@/stores/editor";
+import { exportRequestSettings } from "@/stores/export-preferences";
 import { useOpenVideoWindows } from "@/stores/video-windows";
 import { layoutTexts } from "./layout-texts";
 import { ExportForm, brandButton } from "./export-form";
 import { ExportDone, ExportError, ExportProgress, formatElapsed } from "./export-status";
 import { useExportJob, type ExportPhase } from "./use-export-job";
+import { useExportFormats } from "./use-export-formats";
 import { useFfmpegStatus } from "./use-ffmpeg-status";
 
 /** The header's "Export" button: opens the export window (`ExportWindow`), or brings it to the front. */
@@ -44,10 +47,11 @@ const WIDTH = 448;
  * closing the window cancels the render, so Esc doesn't close it then, only its × or Cancel.
  */
 export function ExportWindow() {
-  const [initial] = useState(() => centredOnDesktop(WIDTH, 420, "video"));
+  const [initial] = useState(() => centredOnDesktop(WIDTH, 560, "video"));
   const [resolution, setResolution] = useState<ExportResolution>("1080p");
   const [excludeAudioTracks, setExcludeAudioTracks] = useState(false);
   const ffmpeg = useFfmpegStatus(true);
+  const formats = useExportFormats(ffmpeg === "available");
   const { phase, start, reset } = useExportJob();
   const lastRun = useRef({ fileName: "", excludeAudioTracks: false });
   const busy = phase.status === "starting" || phase.status === "running";
@@ -61,7 +65,8 @@ export function ExportWindow() {
   const run = (fileName: string, excludeAudioTracks: boolean) => {
     lastRun.current = { fileName, excludeAudioTracks };
     const project = useEditor.getState().document;
-    void start(layoutTexts(project, resolution).then((texts) => ({ project, resolution, fileName, excludeAudioTracks, texts })));
+    const settings = exportRequestSettings();
+    void start(layoutTexts(project, resolution).then((texts) => ({ project, resolution, fileName, excludeAudioTracks, texts, ...settings })));
   };
 
   const { title, description } = copy(phase);
@@ -73,6 +78,7 @@ export function ExportWindow() {
         {(phase.status === "idle" || phase.status === "starting") && (
           <ExportForm
             ffmpeg={ffmpeg}
+            formats={formats}
             resolution={resolution}
             onResolutionChange={setResolution}
             excludeAudioTracks={excludeAudioTracks}
@@ -96,17 +102,23 @@ function copy(phase: ExportPhase): { title: string; description: string } {
   switch (phase.status) {
     case "idle":
     case "starting":
-      return { title: "Export video", description: "Render your timeline to an MP4 file." };
+      return { title: "Export video", description: "Render your timeline to a video file, or a sequence of frames." };
     case "running":
       return {
         title: "Exporting…",
         description: "Keep this window open — closing it cancels the export. You can go on editing meanwhile.",
       };
     case "done": {
-      const { width, height, duration } = phase.job;
+      const { width, height, duration, bytes } = phase.job;
       return {
-        title: "Your video is ready",
-        description: `${width} × ${height} · ${formatDuration(duration)} · rendered in ${formatElapsed(phase.elapsedMs)}`,
+        title: phase.job.format === "png" ? "Your frames are ready" : "Your video is ready",
+        description: [
+          describeExport(phase.job),
+          `${width} × ${height}`,
+          formatDuration(duration),
+          ...(bytes ? [formatBytes(bytes)] : []),
+          `rendered in ${formatElapsed(phase.elapsedMs)}`,
+        ].join(" · "),
       };
     }
     case "error":

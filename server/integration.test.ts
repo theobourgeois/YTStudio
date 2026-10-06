@@ -5,14 +5,17 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { addEffect, defaultEffects, setEffectEnabled, setExpression, setLink, setParams, shapeEffects, solidEffects, textEffects } from "../shared/effects.ts";
+import { addEffect, atFrameRate, defaultEffects, opacityAt, setEffectEnabled, setExpression, setLink, setParams, shapeEffects, solidEffects, textEffects } from "../shared/effects.ts";
+import { createSignalReader, withSignals } from "../shared/audio-signals.ts";
+import type { ExportFormat } from "../shared/export-formats.ts";
+import { normalizeProject } from "../shared/normalize.ts";
 import { SIGNALS_VERSION, decodeSignals } from "../shared/signals/format.ts";
 import { addMask } from "../shared/masks.ts";
 import { addAnimator } from "../shared/text-animators.ts";
 import { ellipsePath, polygonPath, rectPath } from "../shared/path.ts";
 import { addFreezeFrame, addReverseSection } from "../shared/time-remap.ts";
 import { nestClips, sequenceView, writeSequence } from "../shared/sequences.ts";
-import { createDefaultProject } from "../shared/timeline.ts";
+import { createDefaultProject, sourceTime } from "../shared/timeline.ts";
 import type {
   Clip,
   ExportJob,
@@ -64,6 +67,22 @@ function pixelAt(file: string, time: number, x: number, y: number): [number, num
   ]);
   return [out[0], out[1], out[2]];
 }
+
+/** One pixel's RGBA in every frame of a video or image sequence (BT.709 limited range, as exports are tagged), in order. */
+function rgbaFrames(input: string[], x: number, y: number): [number, number, number, number][] {
+  const out = execFileSync(FFMPEG, [
+    "-hide_banner", "-loglevel", "error", "-nostdin", ...input,
+    "-vf", `scale=in_color_matrix=bt709:in_range=tv,format=rgba,crop=1:1:${x}:${y}`, "-f", "rawvideo", "-pix_fmt", "rgba", "-",
+  ]);
+  const frames: [number, number, number, number][] = [];
+  for (let i = 0; i + 4 <= out.length; i += 4) frames.push([out[i], out[i + 1], out[i + 2], out[i + 3]]);
+  return frames;
+}
+
+/** One pixel's RGBA at a moment of a video. */
+const rgbaAt = (file: string, time: number, x: number, y: number) => rgbaFrames(["-ss", String(time), "-i", file, "-frames:v", "1"], x, y)[0];
+
+const hasUnzip = spawnSync("unzip", ["-v"]).status === 0;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -1015,6 +1034,135 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     const brokenJob = await waitForExport(((await (await sendJson("POST", "/api/exports", { project: broken, resolution: "720p" })).json()) as ExportJob).id);
     expect(brokenJob.status).toBe("error");
     expect(brokenJob.error).toMatch(/The shader "Broken" on a solid at 0\.0 s doesn't compile \(Line 3: 'oops': undeclared identifier\)/);
+  });
+
+  describe("formats (V10)", () => {
+    let formats: ExportFormat[] = [];
+    const exportAs = async (project: Project, settings: Record<string, unknown>) => {
+      const res = await sendJson("POST", "/api/exports", { project, resolution: "720p", ...settings });
+      expect(res.status, res.status === 202 ? "" : await errorOf(res)).toBe(202);
+      const job = await waitForExport(((await res.json()) as ExportJob).id);
+      expect(job.error).toBeUndefined();
+      return job;
+    };
+    /** A red 2:1 still fitted in the frame (720x360 around 360,640 of 720x1280), with its tone, for a second. */
+    const redStill = () => projectWith([clip("red", "main", 0, 0, 1), clip("tone", "audio_1", 0, 0, 1)]);
+    const isRed = ([r, g, b]: number[]) => r > 240 && g < 15 && b < 15;
+
+    beforeAll(async () => {
+      formats = await json<ExportFormat[]>("/api/exports/formats");
+    });
+
+    it("lists what this ffmpeg can make, and refuses what doesn't fit", async () => {
+      expect(formats).toContain("h264");
+      const refused = async (body: Record<string, unknown>) => {
+        const res = await sendJson("POST", "/api/exports", { project: redStill(), resolution: "720p", ...body });
+        expect(res.status).toBe(400);
+        return errorOf(res);
+      };
+      expect(await refused({ format: "gif" })).toMatch(/format must be one of h264, hevc/);
+      expect(await refused({ format: "h264", alpha: true })).toMatch(/H\.264 can't be transparent: only ProRes 4444/);
+      expect(await refused({ quality: "ultra" })).toMatch(/quality must be one of standard, high, best/);
+    });
+
+    it("exports a linked parameter's every frame as the preview's resolver works it out", async (ctx) => {
+      if (!formats.includes("png") || !hasUnzip) ctx.skip();
+      // The thumps the signals' test analysed (another file would change what later tests count).
+      const song = (await json<MediaAsset[]>(`/api/media?projectId=${projects.main.id}`)).find((a) => a.name === "thumps.wav")!;
+      const ready = await until(async () => {
+        const a = await json<MediaAsset>(`/api/media/${song.id}`);
+        return a.signals?.status === "ready" ? a : undefined;
+      }, 60_000);
+      if (ready.signals?.status !== "ready") throw new Error("No signals.");
+      // A white solid, invisible but for its Opacity linked to the bass (with an attack and a release, so every
+      // frame between the thumps has its own value), over nothing: exported transparent, its alpha is its opacity.
+      let project = projectWith([
+        { id: "lit", assetId: "", trackId: "main", start: 0, in: 0, out: 3, effects: solidEffects({ color: "#ffffff" }) },
+        { ...clip("tone", "audio_1", 0, 0, 3), assetId: song.id },
+      ]);
+      project = setParams(project, "lit", "opacity", { opacity: 0 }, 0);
+      project = setLink(project, "lit", "opacity", "opacity", {
+        signal: { name: "bass" }, mode: "add", amount: 1,
+        response: { threshold: 0, curve: 1, attack: 0.04, release: 0.25, invert: false },
+      });
+      const job = await exportAs(project, { format: "png", alpha: true, fileName: "Lit 100%" });
+      expect(job).toMatchObject({ format: "png", alpha: true, extension: "zip", url: null });
+      expect(job.bytes).toBeGreaterThan(0);
+      const download = await api(job.downloadUrl!);
+      expect(download.headers.get("content-disposition")).toMatch(/filename="Lit 100%\.zip"/);
+      expect(download.headers.get("content-type")).toMatch(/zip/);
+
+      const zip = path.join(tmp, "lit.zip");
+      writeFileSync(zip, Buffer.from(await download.arrayBuffer()));
+      const folder = path.join(tmp, "lit");
+      execFileSync("unzip", ["-q", "-o", zip, "-d", folder]);
+      const names = readdirSync(folder);
+      expect(names.length).toBe(90 + 1);
+      expect(names).toContain("Lit 100%_00001.png");
+      expect(names).toContain("Lit 100%_00090.png");
+      expect(names).toContain("Lit 100%.wav");
+      expect(probe(path.join(folder, "Lit 100%.wav")).streams[0]).toMatchObject({ codec_type: "audio" });
+
+      // The PNGs' alpha at the middle of the frame, against Opacity as the preview works it out at each frame's moment.
+      const frames = rgbaFrames(["-start_number", "1", "-i", path.join(folder, "Lit 100%%_%05d.png")], 360, 640);
+      expect(frames.length).toBe(90);
+      const data = decodeSignals(await (await api(ready.signals.src)).arrayBuffer());
+      const document = normalizeProject(project);
+      const lit = document.clips.find((c) => c.id === "lit")!;
+      const expected = withSignals(createSignalReader(document, new Map([[song.id, data]])), () =>
+        atFrameRate(30, () => frames.map((_, f) => opacityAt(lit, sourceTime(lit, f / 30)))),
+      );
+      const alphas = frames.map((p) => p[3]);
+      const worst = Math.max(...alphas.map((a, f) => Math.abs(a - Math.round(255 * expected[f]))));
+      expect(worst, `alpha ${alphas.join(",")}\nexpected ${expected.map((o) => Math.round(255 * o)).join(",")}`).toBeLessThanOrEqual(1);
+      // It moves: up on each thump (the attack softens them), nothing before the first.
+      expect(Math.max(...alphas)).toBeGreaterThan(120);
+      expect(alphas[5]).toBe(0);
+      // Straight alpha: what's there is white, however transparent.
+      for (const [r, g, b, a] of frames) if (a > 16) expect([r, g, b]).toEqual([255, 255, 255]);
+    });
+
+    it("exports ProRes 4444 with alpha, transparent where nothing covers the frame", async (ctx) => {
+      if (!formats.includes("prores-4444")) ctx.skip();
+      const job = await exportAs(redStill(), { format: "prores-4444", alpha: true, fileName: "Over" });
+      expect(job).toMatchObject({ extension: "mov", url: null });
+      const output = path.join(dataDir, "exports", `${job.id}.mov`);
+      const info = probe(output);
+      expect(info.streams.find((s) => s.codec_type === "video")).toMatchObject({
+        codec_name: "prores", profile: "4444", pix_fmt: "yuva444p12le", color_space: "bt709", width: 720, height: 1280,
+      });
+      expect(info.streams.find((s) => s.codec_type === "audio")).toMatchObject({ codec_name: "pcm_s24le" });
+      const inside = rgbaAt(output, 0.5, 360, 640);
+      expect(isRed(inside) && inside[3] === 255, String(inside)).toBe(true);
+      expect(rgbaAt(output, 0.5, 20, 20)[3]).toBe(0);
+      const download = await api(job.downloadUrl!);
+      expect(download.headers.get("content-disposition")).toMatch(/filename="Over\.mov"/);
+      await download.arrayBuffer();
+
+      // Opaque, the canvas's black is there.
+      const opaque = await exportAs(redStill(), { format: "prores-4444" });
+      const flat = path.join(dataDir, "exports", `${opaque.id}.mov`);
+      expect(probe(flat).streams.find((s) => s.codec_type === "video")).toMatchObject({ pix_fmt: "yuv444p12le" });
+      expect(rgbaAt(flat, 0.5, 20, 20)).toEqual([0, 0, 0, 255]);
+    });
+
+    it("exports ProRes 422 HQ and HEVC in their true colours", async (ctx) => {
+      if (!formats.includes("prores-hq") || !formats.includes("hevc")) ctx.skip();
+      const hq = await exportAs(redStill(), { format: "prores-hq" });
+      const mov = path.join(dataDir, "exports", `${hq.id}.mov`);
+      expect(probe(mov).streams.find((s) => s.codec_type === "video")).toMatchObject({
+        codec_name: "prores", profile: "HQ", pix_fmt: "yuv422p10le", color_space: "bt709",
+      });
+      expect(isRed(rgbaAt(mov, 0.5, 360, 640))).toBe(true);
+      expect(rgbaAt(mov, 0.5, 20, 20).slice(0, 3).every((c) => c < 4)).toBe(true);
+
+      const hevc = await exportAs(redStill(), { format: "hevc", quality: "high" });
+      expect(hevc).toMatchObject({ extension: "mp4", url: `/files/exports/${hevc.id}.mp4` });
+      const mp4 = path.join(dataDir, "exports", `${hevc.id}.mp4`);
+      const video = probe(mp4).streams.find((s) => s.codec_type === "video") as { codec_name?: string; codec_tag_string?: string };
+      expect([video.codec_name, video.codec_tag_string]).toEqual(["hevc", "hvc1"]);
+      expect(isRed(rgbaAt(mp4, 0.5, 360, 640).map((c, i) => (i < 3 ? c : 255)))).toBe(true);
+    });
   });
 
   it("cancels queued and running exports", async () => {

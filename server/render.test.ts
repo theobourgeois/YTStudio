@@ -17,7 +17,6 @@ import {
   type RenderAsset,
   SAMPLE_RATE,
   audioArgs,
-  encoderArgs,
   tempoFilters,
   lumaWeights,
   planRender,
@@ -481,27 +480,6 @@ describe("audioArgs", () => {
 
   it("is silence for a timeline without sound", () => {
     expect(graphOf(audioArgs(project([clip("photo", "main", 0, 0, 2)]), assets, out)).at(-1)).toBe("[abase]anull[aout]");
-  });
-});
-
-describe("encoderArgs", () => {
-  const encode = (width: number, height: number) =>
-    encoderArgs({ width, height, fps: 30, frames: 120 }, { audioPath: "/tmp/mix.flac", outputPath: "/out/x.mp4" });
-
-  it("encodes BT.709 YUV frames from stdin with the mixed sound", () => {
-    const argv = encode(1080, 1920);
-    expect(argv.slice(argv.indexOf("-f"), argv.indexOf("-i") + 2)).toEqual([
-      "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", "1080x1920", "-framerate", "30",
-      "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv", "-i", "pipe:0",
-    ]);
-    expect(inputsOf(argv)).toEqual(["pipe:0", "/tmp/mix.flac"]);
-    expect(arg(argv, "-frames:v")).toBe("120");
-    expect(argv.at(-1)).toBe("/out/x.mp4");
-  });
-
-  it("picks the quality from the output size", () => {
-    expect(arg(encode(720, 1280), "-crf")).toBe("23");
-    expect(arg(encode(1080, 1920), "-crf")).toBe("20");
   });
 });
 
