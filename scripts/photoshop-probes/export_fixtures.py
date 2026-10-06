@@ -37,7 +37,7 @@ def blend_fixtures():
     print(path, os.path.getsize(path))
 
 
-if __name__ == "__main__" and not os.environ.get("STYLE"):
+if __name__ == "__main__" and not os.environ.get("STYLE") and not os.environ.get("BEVEL"):
     blend_fixtures()
 
 
@@ -67,3 +67,30 @@ def style_fixtures():
 
 if __name__ == "__main__" and os.environ.get("STYLE"):
     style_fixtures()
+
+
+def bevel_fixtures():
+    """Bevel & Emboss and Satin rows (fx_bevel.py's renders) for reference/style.test.ts: bevel-fixtures.json."""
+    d = os.path.join(OUT, "fx3")
+    out = {"source": "Photoshop 27.11, 8-bit sRGB (scripts/photoshop-probes/fx_bevel.py)",
+           "setup": "A grey 128 layer on black, 320 x 320: a square 90..230 or a disc of radius 80 at (160, 160); highlight white Normal 100%, shadow black Normal 100%, Size 20, Depth 100, 120 deg / 30 deg; satin red Normal 100%, 19 deg, distance 11, size 14",
+           "rows": {}}
+    for name in sorted(os.listdir(d)):
+        if not name.endswith(".png") or not (name.startswith("bevel-") or name.startswith("satin-")):
+            continue
+        im = load(os.path.join(d, name))
+        key = name[:-4]
+        # Row 160 and column 160 across the shape and 30 px past it, red (and green for satin).
+        r = {"row": im[160, 50:271, 0].astype(int).tolist(), "column": im[50:271, 160, 0].astype(int).tolist()}
+        if key.startswith("satin"):
+            r["rowGreen"] = im[160, 50:271, 1].astype(int).tolist()
+            r["columnGreen"] = im[50:271, 160, 1].astype(int).tolist()
+        out["rows"][key] = r
+    path = os.path.join(ROOT, "shared", "photo", "reference", "bevel-fixtures.json")
+    with open(path, "w") as f:
+        f.write('{\n "source": ' + json.dumps(out["source"]) + ',\n "setup": ' + json.dumps(out["setup"]) + ',\n "rows": {\n' + ",\n".join(f"  {json.dumps(k)}: {json.dumps(v, separators=(',', ':'))}" for k, v in out["rows"].items()) + "\n }\n}\n")
+    print(path, os.path.getsize(path))
+
+
+if __name__ == "__main__" and os.environ.get("BEVEL"):
+    bevel_fixtures()

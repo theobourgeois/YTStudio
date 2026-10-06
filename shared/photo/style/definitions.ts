@@ -1,7 +1,7 @@
 /**
- * The layer effects (fx) of a layer's style (docs/photo/layer-style/README.md, phase L2): each one's parameters as
- * Photoshop's Layer Style pages show them, with Photoshop's factory defaults (shadows-and-glows.md, "Defaults";
- * stroke-satin-overlays.md), in Photoshop's units (percentages 0..100, pixels, degrees). Their order is the drawing
+ * The layer effects (fx) of a layer's style (docs/photo/layer-style/README.md, phases L2 and L3): each one's parameters
+ * as Photoshop's Layer Style pages show them, with Photoshop's factory defaults (shadows-and-glows.md, "Defaults";
+ * stroke-satin-overlays.md; bevel-emboss.md), in Photoshop's units (percentages 0..100, pixels, degrees). Their order is the drawing
  * order (dialog.md, "The drawing order": bottom to top); what each draws is `reference/style.ts` (and the GPU's
  * `render/style.ts`).
  */
@@ -11,7 +11,7 @@ import type { EffectParamValue } from "../types.ts";
 import { LINEAR_CONTOUR } from "./contours.ts";
 import { DEFAULT_GRADIENT, GRADIENT_PRESETS } from "./gradients.ts";
 
-export type StyleType = "drop-shadow" | "outer-glow" | "gradient-overlay" | "color-overlay" | "inner-glow" | "inner-shadow" | "stroke";
+export type StyleType = "drop-shadow" | "outer-glow" | "gradient-overlay" | "color-overlay" | "satin" | "inner-glow" | "inner-shadow" | "stroke" | "bevel-emboss";
 
 export interface StyleDefinition {
   type: StyleType;
@@ -22,8 +22,10 @@ export interface StyleDefinition {
   description: string;
   /** How many a layer can have (Photoshop's + button: 10 of five of them). */
   max: number;
-  /** Outside the layer's shape (drawn under it), inside it (over its pixels), or the stroke (over everything). */
-  side: "outside" | "inside" | "stroke";
+  /** Outside the layer's shape (drawn under it), inside it (over its pixels), the stroke (over them), or the bevel (over everything). */
+  side: "outside" | "inside" | "stroke" | "top";
+  /** Pages of its own under it in the list (Bevel's Contour): its parameters in that group, turned on by `toggle`. */
+  subPages?: readonly { group: string; label: string; toggle: string }[];
   params: readonly ParamSpec[];
   /** How far past the layer's pixels it reaches, in document pixels (what its fields need around the layer). */
   reach: (p: Record<string, EffectParamValue>) => number;
@@ -78,8 +80,8 @@ const gradient = (group = "Structure", showIf?: GradientParam["showIf"], def = D
 });
 const antiAliased = (group = "Quality") => bool("antiAliased", "Anti-aliased", false, "Smooths the steps a steep contour makes.", group);
 const noise = (group = "Quality") => num("noise", "Noise", "%", 0, 100, 0, "Grain in its opacity.", group);
-const angle = (def = 120) => num("angle", "Angle", "°", -180, 180, def, "Where the light comes from: degrees anticlockwise from 3 o'clock (the shadow falls the other way).", "Structure");
-const globalLight = () => bool("globalLight", "Use Global Light", true, "Follow (and set) the document's one light angle.", "Structure");
+const angle = (def = 120, group = "Structure", description = "Where the light comes from: degrees anticlockwise from 3 o'clock (the shadow falls the other way).") => num("angle", "Angle", "°", -180, 180, def, description, group);
+const globalLight = (group = "Structure", description = "Follow (and set) the document's one light angle.") => bool("globalLight", "Use Global Light", true, description, group);
 const size = (def: number, group = "Structure") => num("size", "Size", "px", 0, 250, def, "How far it reaches, in pixels.", group);
 
 const n = (p: Record<string, EffectParamValue>, k: string) => p[k] as number;
@@ -136,6 +138,38 @@ const gradientGeometry = (shapeBurst: boolean, showIf?: ChoiceParam["showIf"]): 
   { ...num("offsetY", "Offset Y", "%", -100, 100, 0, "Its centre moved down, in % of the box.", "Gradient"), showIf },
 ];
 
+const bevelStyles: [string, string][] = [
+  ["outer-bevel", "Outer Bevel"],
+  ["inner-bevel", "Inner Bevel"],
+  ["emboss", "Emboss"],
+  ["pillow-emboss", "Pillow Emboss"],
+  ["stroke-emboss", "Stroke Emboss"],
+];
+
+const bevelParams: ParamSpec[] = [
+  choice("style", "Style", bevelStyles, "inner-bevel", "Where the bevel is: outside the edge, inside it, both ways (Emboss), a groove along it (Pillow Emboss), or on the layer's Stroke (Stroke Emboss, which needs one).", "Structure"),
+  choice("technique", "Technique", [["smooth", "Smooth"], ["chisel-hard", "Chisel Hard"], ["chisel-soft", "Chisel Soft"]], "smooth", "Smooth rounds the edge (a blur); Chisel Hard cuts a flat facet by distance (keeps corners); Chisel Soft the same, rougher.", "Structure"),
+  num("depth", "Depth", "%", 1, 1000, 100, "How steep its slopes are (100%: 45° for Smooth).", "Structure"),
+  choice("direction", "Direction", [["up", "Up"], ["down", "Down"]], "up", "Raised (Up) or sunk (Down): swaps the highlight and the shadow.", "Structure", true),
+  size(5),
+  num("soften", "Soften", "px", 0, 16, 0, "Blurs the bevel's shape, in pixels.", "Structure"),
+  angle(120, "Shading", "Where the light comes from: degrees anticlockwise from 3 o'clock."),
+  globalLight("Shading", "Follow (and set) the document's light: its angle and altitude."),
+  num("altitude", "Altitude", "°", 0, 90, 30, "How high the light is: 0 grazes the surface, 90 is straight above.", "Shading"),
+  { ...contour("Shading"), key: "gloss", label: "Gloss Contour", description: `Remaps the light for a glossy or metallic look. ${contour().description}` },
+  bool("antiAliasGloss", "Anti-aliased", false, "Smooths the steps a steep gloss contour makes.", "Shading"),
+  { ...blend("screen", "Shading"), key: "highlightMode", label: "Highlight Mode", description: "How the highlight mixes." },
+  { ...colour("#ffffff", "The highlight's colour.", "Shading"), key: "highlightColour", label: "Highlight Colour" },
+  { ...opacity(75, "Shading"), key: "highlightOpacity", label: "Highlight Opacity", description: "How strong the highlight is." },
+  { ...blend("multiply", "Shading"), key: "shadowMode", label: "Shadow Mode", description: "How the shadow mixes." },
+  { ...colour("#000000", "The shadow's colour.", "Shading"), key: "shadowColour", label: "Shadow Colour" },
+  { ...opacity(75, "Shading"), key: "shadowOpacity", label: "Shadow Opacity", description: "How strong the shadow is." },
+  bool("useContour", "Contour", false, "Shapes the bevel's profile with a contour (its sub-page).", "Contour"),
+  { ...contour("Contour"), description: `The bevel's profile from the edge in: its ridges and valleys. ${contour().description}` },
+  antiAliased("Contour"),
+  num("range", "Range", "%", 1, 100, 50, "How much of the profile the contour spans: under 100% steepens it.", "Contour"),
+];
+
 export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
   {
     type: "drop-shadow",
@@ -182,6 +216,27 @@ export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
     summary: (p) => `${label(p.mode)} ${p.colour}, ${n(p, "opacity")}%`,
   },
   {
+    type: "satin",
+    version: 1,
+    label: "Satin",
+    description: "Silky shading inside the layer: two blurred copies of its shape, offset either way and differenced.",
+    max: 1,
+    side: "inside",
+    params: [
+      blend("multiply"),
+      colour("#000000"),
+      opacity(50),
+      num("angle", "Angle", "°", -180, 180, 19, "Which way the two copies are offset: degrees anticlockwise from 3 o'clock.", "Structure"),
+      num("distance", "Distance", "px", 0, 250, 11, "How far each copy is offset, in pixels.", "Structure"),
+      size(14),
+      { ...contour("Structure"), description: `Remaps the satin's strength. ${contour().description}` },
+      antiAliased("Structure"),
+      bool("invert", "Invert", true, "Shades where the copies agree rather than where they differ.", "Structure"),
+    ],
+    reach: () => 0,
+    summary: (p) => `${label(p.mode)} ${p.colour}, ${n(p, "opacity")}%, ${n(p, "distance")} px at ${n(p, "angle")}°, size ${n(p, "size")}${p.invert ? ", inverted" : ""}`,
+  },
+  {
     type: "inner-glow",
     version: 1,
     label: "Inner Glow",
@@ -224,12 +279,25 @@ export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
     reach: (p) => (p.position === "inside" ? 1 : p.position === "center" ? n(p, "size") / 2 + 2 : n(p, "size") + 2),
     summary: (p) => `${n(p, "size")} px ${p.position}, ${p.fill === "gradient" ? "gradient" : p.colour}, ${n(p, "opacity")}%`,
   },
+  {
+    type: "bevel-emboss",
+    version: 1,
+    label: "Bevel & Emboss",
+    description: "Lights the layer's edges as if raised (or sunk): a highlight on the slopes facing the light, a shadow on the others. Drawn over every other effect.",
+    max: 1,
+    side: "top",
+    params: bevelParams,
+    subPages: [{ group: "Contour", label: "Contour", toggle: "useContour" }],
+    // Outer Bevel, Emboss and Pillow Emboss light outside the shape; Stroke Emboss as far as a stroke goes.
+    reach: (p) => (p.style === "inner-bevel" ? 1 : p.style === "emboss" || p.style === "pillow-emboss" ? n(p, "size") / 2 + n(p, "soften") + 3 : n(p, "size") + n(p, "soften") + 3),
+    summary: (p) => `${bevelStyles.find(([v]) => v === p.style)?.[1] ?? p.style}, ${String(p.technique).replace("-", " ")}, ${n(p, "depth")}% ${p.direction}, size ${n(p, "size")}${n(p, "soften") ? `, soften ${n(p, "soften")}` : ""}, light ${n(p, "angle")}° / ${n(p, "altitude")}°${p.useContour ? `, contour ${(p.contour as { name: string }).name} at ${n(p, "range")}%` : ""}`,
+  },
 ];
 
 export const styleDefinition = (type: string): StyleDefinition | undefined => STYLE_DEFINITIONS.find((d) => d.type === type);
 
 /** Photoshop's Layer Style list, top to bottom (the drawing order reversed). */
-export const STYLE_LIST: readonly StyleType[] = ["stroke", "inner-shadow", "inner-glow", "color-overlay", "gradient-overlay", "outer-glow", "drop-shadow"];
+export const STYLE_LIST: readonly StyleType[] = ["bevel-emboss", "stroke", "inner-shadow", "inner-glow", "satin", "color-overlay", "gradient-overlay", "outer-glow", "drop-shadow"];
 
 /** Where a type is drawn: its place in the drawing order (bottom first). */
 export const drawOrder = (type: string) => {

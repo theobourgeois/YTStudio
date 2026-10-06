@@ -174,6 +174,8 @@ export interface StyledPixel {
   coverage: Record<string, number>;
   /** Each gradient effect's position here (0..1, before Reverse), by effect id. */
   position: Record<string, number>;
+  /** Each bevel's highlight and shadow here (0..1, weighted by its style, before their opacities), by effect id. */
+  bevel?: Record<string, BevelShade>;
 }
 
 export interface StyleContext {
@@ -254,6 +256,13 @@ export function styledPixel(ctx: StyleContext, p: StyledPixel): Rgba {
   let result = lerp(outside, inside, alpha, compositing);
   // The strokes, over it all.
   for (const e of effects) if (e.type === "stroke") result = draw(result, e, p.coverage[e.id] ?? 0);
+  // The bevel over everything: its highlight, then its shadow.
+  for (const e of effects) {
+    const b = e.type === "bevel-emboss" ? p.bevel?.[e.id] : undefined;
+    if (!b) continue;
+    result = over(result, hexEncoded(e.params.highlightColour as string), b.highlight * (n(e, "highlightOpacity") / 100), e.params.highlightMode as BlendMode, compositing);
+    result = over(result, hexEncoded(e.params.shadowColour as string), b.shadow * (n(e, "shadowOpacity") / 100), e.params.shadowMode as BlendMode, compositing);
+  }
   // Opacity, and a mask that hides the effects too.
   result = lerp(p.backdrop, result, layer.opacity * p.mask, compositing);
   const channels = layer.blending?.channels;
@@ -291,9 +300,9 @@ export interface LayerImage {
 /**
  * A layer and its style over a backdrop, both `width` × `height` and in the same pixels (the layer at 100%, not
  * moved): what the GPU's evaluator gives for that layer, premultiplied linear. `angleOf` gives each effect's light
- * angle (Global Light's or its own); `seed` salts the noise as the GPU's does.
+ * angle (Global Light's or its own), `altitudeOf` a bevel's altitude.
  */
-export function renderStyled(layer: PhotoLayer, doc: { compositing?: Compositing }, backdrop: LayerImage, content: LayerImage, angleOf: (e: EffectInstance) => number, box: Box): Float32Array {
+export function renderStyled(layer: PhotoLayer, doc: { compositing?: Compositing }, backdrop: LayerImage, content: LayerImage, angleOf: (e: EffectInstance) => number, box: Box, altitudeOf: (e: EffectInstance) => number = () => 30): Float32Array {
   const { width: w, height: h } = content;
   const effects = layer.style?.enabled ? layer.style.effects.filter((e) => e.enabled && styleDefinition(e.type)) : [];
   const compositing = compositingOf(doc as never);
@@ -316,6 +325,16 @@ export function renderStyled(layer: PhotoLayer, doc: { compositing?: Compositing
       const o = e.type === "inner-shadow" ? shadowOffset(angleOf(e), num("distance")) : { x: 0, y: 0 };
       fields.set(e.id, { field: f, edge: 1, dx: o.x, dy: o.y });
     } else if (e.type === "stroke") fields.set(e.id, { field: sd, edge: 1e9, dx: 0, dy: 0 });
+    else if (e.type === "satin") fields.set(e.id, { field: tent(alpha, w, h, num("size"), 0), edge: 0, dx: 0, dy: 0 });
+  }
+  // Each bevel's height field, the edge it has past the image, and its options.
+  const band = strokeEmbossBand(effects);
+  const bevels = new Map<string, { H: Float32Array; edge: number; o: BevelOptions; gloss: (x: number) => number }>();
+  for (const e of effects) {
+    if (e.type !== "bevel-emboss") continue;
+    const o = bevelOptions(e, band);
+    if (!o) continue;
+    bevels.set(e.id, { H: bevelHeight(alpha, sd, w, h, o), edge: o.technique === "smooth" ? 0 : chiselShape(o).outside, o, gloss: contourFunction(e.params.gloss as Contour) });
   }
   const contours = new Map(effects.map((e) => [e.id, e.params.contour ? contourFunction(e.params.contour as Contour) : (x: number) => x]));
   const layouts = new Map(effects.filter((e) => e.params.style !== undefined).map((e) => [e.id, gradientLayout(box, e.params.angle as number, e.params.scale as number, { x: e.params.offsetX as number, y: e.params.offsetY as number })]));
@@ -326,6 +345,7 @@ export function renderStyled(layer: PhotoLayer, doc: { compositing?: Compositing
       const i = y * w + x;
       const coverage: Record<string, number> = {};
       const position: Record<string, number> = {};
+      const bevelAmounts: Record<string, BevelShade> = {};
       for (const e of effects) {
         const f = fields.get(e.id);
         const p = e.params;
@@ -337,6 +357,27 @@ export function renderStyled(layer: PhotoLayer, doc: { compositing?: Compositing
         }
         if (e.type === "gradient-overlay") {
           position[e.id] = gradientPosition(p.style as GradientStyle, layouts.get(e.id)!, x + 0.5, y + 0.5);
+          continue;
+        }
+        if (e.type === "satin" && f) {
+          const off = satinOffset(angleOf(e), p.distance as number);
+          coverage[e.id] = satinAt((sx, sy) => sample(f.field, w, h, sx, sy, 0), contours.get(e.id)!, x + 0.5, y + 0.5, off, p.invert === true);
+          continue;
+        }
+        const bevel = bevels.get(e.id);
+        if (bevel) {
+          const contour = p.useContour === true ? contours.get(e.id)! : (v: number) => v;
+          const at = (sx: number, sy: number) => contour(sample(bevel.H, w, h, sx, sy, bevel.edge));
+          const neighbours = { left: at(x - 0.5, y + 0.5), right: at(x + 1.5, y + 0.5), up: at(x + 0.5, y - 0.5), down: at(x + 0.5, y + 1.5) };
+          const light = { depth: (p.depth as number) / 100, size: p.size as number, style: bevel.o.style, down: p.direction === "down", angle: angleOf(e), altitude: altitudeOf(e), slopeScale: p.useContour === true ? 100 / (p.range as number) : 1 };
+          const total = { highlight: 0, shadow: 0 };
+          for (const [weight, sign] of bevelParts(bevel.o.style, alpha[i], band ? bandCover(sd[i], band) : 0)) {
+            if (weight <= 0) continue;
+            const s = bevelShade(neighbours, { ...light, sign }, bevel.gloss);
+            total.highlight += weight * s.highlight;
+            total.shadow += weight * s.shadow;
+          }
+          bevelAmounts[e.id] = { highlight: Math.min(1, total.highlight), shadow: Math.min(1, total.shadow) };
           continue;
         }
         if (!f) continue;
@@ -363,7 +404,7 @@ export function renderStyled(layer: PhotoLayer, doc: { compositing?: Compositing
         }
       }
       const px = (img: LayerImage): Rgba => [img.pixels[i * 4], img.pixels[i * 4 + 1], img.pixels[i * 4 + 2], img.pixels[i * 4 + 3]];
-      const r = styledPixel(ctx, { backdrop: px(backdrop), content: px(content), mask: 1, coverage, position });
+      const r = styledPixel(ctx, { backdrop: px(backdrop), content: px(content), mask: 1, coverage, position, bevel: bevelAmounts });
       out.set(r, i * 4);
     }
   }
@@ -372,3 +413,148 @@ export function renderStyled(layer: PhotoLayer, doc: { compositing?: Compositing
 
 /** The encoded value of a linear one (for tests reading 8-bit codes). */
 export const encodedCode = (v: number) => Math.round(linearToSrgb(Math.min(1, Math.max(0, v))) * 255);
+
+// --- Bevel & Emboss and Satin (Layer Style L3) ---
+
+/** Bevel's options as the reference reads them (the definition's parameters). */
+export interface BevelOptions {
+  style: "outer-bevel" | "inner-bevel" | "emboss" | "pillow-emboss" | "stroke-emboss";
+  technique: "smooth" | "chisel-hard" | "chisel-soft";
+  size: number;
+  soften: number;
+  /** Stroke Emboss: the strokes' band, in signed distance from the edge (`strokeEmbossBand`). */
+  band?: readonly [number, number];
+}
+
+/** A tent's width for a Size (measured: max(2, round(Size)); Emboss and Pillow use half the Size). */
+export const bevelWidth = (style: BevelOptions["style"], size: number) => Math.max(2, Math.round(style === "emboss" || style === "pillow-emboss" ? size / 2 : size));
+
+/** The chisels' height per pixel of distance, as a fraction of a unit per width (fitted: within 2 levels of Photoshop's facets). */
+const CHISEL_SLOPE = 0.48;
+/** Chisel Soft's extra step across the edge (its edge pixels are steeper; fitted). */
+const CHISEL_SOFT_JUMP = 1;
+
+/**
+ * A chisel's height from the distance `t` into the shape (or the stroke's band), in pixels: `offset + k · (clamp(t,
+ * lo, hi) + jump · clamp(t, −½, ½))`. Measured on Photoshop's renders: the facet is exactly the bevel's width, held
+ * flat past it (a pixel further outside for Chisel Hard), and Chisel Soft's edge pixels are steeper.
+ */
+export function chiselShape(o: BevelOptions) {
+  const size = bevelWidth(o.style, o.size);
+  const soft = o.technique === "chisel-soft";
+  const shape = { lo: -(size + (soft ? 0.5 : 1.5)), hi: size + 0.5, k: CHISEL_SLOPE / size, jump: soft ? CHISEL_SOFT_JUMP : 0, offset: 0.5 };
+  return { ...shape, outside: shape.offset + shape.k * (shape.lo - 0.5 * shape.jump) };
+}
+
+/** Stroke Emboss's band: the enabled strokes' together (each one touches the edge, so they make one band), or null. */
+export function strokeEmbossBand(effects: readonly EffectInstance[]): [number, number] | null {
+  let band: [number, number] | null = null;
+  for (const e of effects) {
+    if (e.type !== "stroke" || !e.enabled) continue;
+    const size = e.params.size as number;
+    const [lo, hi] = e.params.position === "inside" ? [-size, 0] : e.params.position === "center" ? [-size / 2, size / 2] : [0, size];
+    band = band ? [Math.min(band[0], lo), Math.max(band[1], hi)] : [lo, hi];
+  }
+  return band;
+}
+
+/** The band's coverage at signed distance `d` (a stroke's, anti-aliased over a pixel). */
+const bandCover = (d: number, band: readonly [number, number]) => clamp01(band[1] - d + 0.5) * clamp01(d - band[0] + 0.5);
+
+/**
+ * The bevel's height field, rising from outside the shape to inside (only its slopes matter): Smooth is the coverage
+ * (or Stroke Emboss's band) through the tent of the bevel's width; the chisels are `chiselShape`s of the distance
+ * into it. Soften blurs the result by a box of its width each way. Measured: every facet's width to the pixel
+ * (docs/photo/layer-style/bevel-emboss.md).
+ */
+export function bevelHeight(alpha: Float32Array, sd: Float32Array, w: number, h: number, o: BevelOptions): Float32Array {
+  let H: Float32Array;
+  let edge = 0;
+  if (o.technique === "smooth") {
+    const band = o.band;
+    const matte = band ? sd.map((d) => bandCover(d, band)) : alpha;
+    H = tent(matte, w, h, bevelWidth(o.style, o.size), 0);
+  } else {
+    const c = chiselShape(o);
+    edge = c.outside;
+    H = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const t = o.band ? Math.min(sd[i] - o.band[0], o.band[1] - sd[i]) : -sd[i];
+      H[i] = c.offset + c.k * (Math.min(c.hi, Math.max(c.lo, t)) + c.jump * Math.min(0.5, Math.max(-0.5, t)));
+    }
+  }
+  if (o.soften > 0) H = boxBlur(boxBlur(H, w, h, o.soften, 0, edge), w, h, o.soften, 1, edge);
+  return H;
+}
+
+/** A bevel effect's options (Stroke Emboss with the strokes' band), or null when it draws nothing (Stroke Emboss without a stroke). */
+export function bevelOptions(e: EffectInstance, band: readonly [number, number] | null): BevelOptions | null {
+  const style = e.params.style as BevelOptions["style"];
+  if (style === "stroke-emboss" && !band) return null;
+  return { style, technique: e.params.technique as BevelOptions["technique"], size: e.params.size as number, soften: e.params.soften as number, band: style === "stroke-emboss" ? band! : undefined };
+}
+
+/** How each style weighs the light at a pixel of coverage `a` (`band`: Stroke Emboss's), and which way its slope faces. */
+export function bevelParts(style: BevelOptions["style"], a: number, band: number): [number, number][] {
+  switch (style) {
+    case "outer-bevel":
+      return [[1 - a, 1]];
+    case "emboss":
+      return [[1, 1]];
+    case "pillow-emboss":
+      return [
+        [1 - a, -1],
+        [a, 1],
+      ];
+    case "stroke-emboss":
+      return [[band, 1]];
+    default:
+      return [[a, 1]];
+  }
+}
+
+export interface BevelShade {
+  highlight: number;
+  shadow: number;
+}
+
+/**
+ * The light on a bevel at a pixel from its height field's slopes (central differences, `H` read at the four
+ * neighbours): Depth scales them so 100% is a 45° Smooth slope at any Size, the light comes from Angle at Altitude,
+ * and the highlight is how far the lighting rises above a flat face's (sin Altitude), the shadow how far it falls
+ * below (measured: docs/photo/layer-style/bevel-emboss.md, "The algorithm"). Gloss Contour remaps the lighting first.
+ */
+export function bevelShade(
+  h: { left: number; right: number; up: number; down: number },
+  p: { depth: number; size: number; style: BevelOptions["style"]; down: boolean; angle: number; altitude: number; slopeScale: number; sign: number },
+  gloss: (x: number) => number,
+): BevelShade {
+  const half = p.style === "emboss" || p.style === "pillow-emboss";
+  const k = half ? 0.5 * Math.max(p.depth, 0.25) * bevelWidth(p.style, p.size) : 0.5 * p.depth * Math.max(1, p.size);
+  let gx = (h.left - h.right) * k * p.slopeScale * p.sign;
+  let gy = (h.up - h.down) * k * p.slopeScale * p.sign;
+  if (p.down) [gx, gy] = [-gx, -gy];
+  const a = (p.angle * Math.PI) / 180;
+  const alt = (p.altitude * Math.PI) / 180;
+  const L = [Math.cos(a) * Math.cos(alt), -Math.sin(a) * Math.cos(alt), Math.sin(alt)];
+  const n = Math.hypot(gx, gy, 1);
+  const flat = Math.sin(alt);
+  const l = gloss(Math.min(1, Math.max(0, (gx * L[0] + gy * L[1] + L[2]) / n)));
+  const highlight = l >= flat ? Math.min(1, (l - flat) / Math.max(1e-6, 1 - flat)) : 0;
+  let shadow = l < flat ? Math.min(1, (flat - l) / Math.max(1e-6, flat)) : 0;
+  // Emboss and Pillow's shadows are linear in the slope (Patchy's, within 3 levels to Depth 25%).
+  if (half) shadow = Math.min(1, Math.max(0, (flat - (gx * L[0] + gy * L[1] + flat)) / Math.max(1e-6, flat)));
+  return { highlight, shadow };
+}
+
+/** Satin's offset: the shadows' rounded to whole pixels (measured: Photoshop's copies move by whole pixels). */
+export function satinOffset(angle: number, distance: number) {
+  const o = shadowOffset(angle, distance);
+  return { x: Math.round(o.x), y: Math.round(o.y) };
+}
+
+/** Satin's coverage at a pixel: the blurred coverage, through the contour, at two opposite offsets, differenced (inverted with Invert). */
+export function satinAt(blurred: (x: number, y: number) => number, contour: (x: number) => number, x: number, y: number, off: { x: number; y: number }, invert: boolean): number {
+  const m = Math.abs(contour(blurred(x + off.x, y + off.y)) - contour(blurred(x - off.x, y - off.y)));
+  return invert ? 1 - m : m;
+}

@@ -6,7 +6,7 @@
 import { createId } from "@shared/ids";
 import { BLEND_IF_CHANNELS, BLEND_MODES, type BlendingPatch, compositingOf, describeBlending, isBlendMode, normalizeRange } from "@shared/photo/blending";
 import { contourPreset } from "@shared/photo/style/contours";
-import { styleDefinition } from "@shared/photo/style/definitions";
+import { STYLE_LIST, styleDefinition } from "@shared/photo/style/definitions";
 import { gradientPreset } from "@shared/photo/style/gradients";
 import { addStyleEffect, describeStyle, globalLightOf, newStyleEffect, removeStyleEffect, setGlobalLight, setLayerStyle, setStyleEffect, setStyleEnabled } from "@shared/photo/style/style";
 import { addAdjustmentLayer, addImageLayer, addPixelLayer, findLayer, moveLayer, removeLayer, removeMask, resetEffect, setCanvas, setCompositing, setEffectParams, setLayerBlending, setMask, setTransform, updateLayer } from "@shared/photo/edits";
@@ -270,7 +270,7 @@ export const setLayerStyleTool: PhotoEdit = (doc, input) => {
   }
   if (typeof input.add === "string") {
     const def = styleDefinition(input.add);
-    if (!def) throw new Error(`No effect "${input.add}". The effects: ${["drop-shadow", "inner-shadow", "outer-glow", "inner-glow", "color-overlay", "gradient-overlay", "stroke"].join(", ")}.`);
+    if (!def) throw new Error(`No effect "${input.add}". The effects: ${STYLE_LIST.join(", ")}.`);
     const have = (findLayer(next, layer.id)!.style?.effects ?? []).filter((e) => e.type === def.type).length;
     if (have >= def.max) throw new Error(`"${layer.name}" has ${have} ${def.label} already, the most it can have: change it with effect "${def.type}" instead.`);
     const e = newStyleEffect(def.type, createId("fx"), effectParams(input.params))!;

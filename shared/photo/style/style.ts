@@ -180,6 +180,9 @@ export const drawnEffects = (layer: PhotoLayer): EffectInstance[] => (layer.styl
 /** An effect's angle: the document's with Use Global Light, else its own. */
 export const effectAngle = (doc: PhotoProject, e: EffectInstance) => (e.params.globalLight === true ? globalLightOf(doc).angle : (e.params.angle as number));
 
+/** A bevel's light altitude: the document's with Use Global Light, else its own. */
+export const effectAltitude = (doc: PhotoProject, e: EffectInstance) => (e.params.globalLight === true ? globalLightOf(doc).altitude : ((e.params.altitude as number | undefined) ?? DEFAULT_GLOBAL_LIGHT.altitude));
+
 /** How far a layer's drawn effects reach past its pixels, in document pixels. */
 export const styleReach = (layer: PhotoLayer) => Math.max(0, ...drawnEffects(layer).map((e) => styleDefinition(e.type)!.reach(e.params)));
 

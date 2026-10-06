@@ -19,6 +19,18 @@ describe("layer styles", () => {
     expect(moveStyleEffect(d, "a", "d1", 1).layers[0].style!.effects.map((e) => e.id)).toEqual(["d2", "d1", "c1", "s1"]);
     expect(moveStyleEffect(d, "a", "d2", 1)).toBe(d);
   });
+  it("draw Satin between the overlays and the inner glow, Bevel & Emboss over everything", () => {
+    let d = add(doc(), "bevel-emboss", "b1");
+    d = add(d, "inner-glow", "g1");
+    d = add(d, "satin", "s1");
+    d = add(d, "stroke", "k1");
+    d = add(d, "color-overlay", "c1");
+    expect(d.layers[0].style!.effects.map((e) => e.id)).toEqual(["c1", "s1", "g1", "k1", "b1"]);
+    expect(describeStyle(d.layers[0])).toMatch(/^b1 Bevel & Emboss: Inner Bevel, smooth, 100% up, size 5, light 120° \/ 30°; k1 Stroke/);
+    // One bevel: its sub-page's toggle is a parameter.
+    expect(add(d, "bevel-emboss", "b2")).toBe(d);
+    expect(setStyleEffect(d, "a", "b1", { params: { useContour: true, range: 0 } }).layers[0].style!.effects.at(-1)!.params).toMatchObject({ useContour: true, range: 1 });
+  });
   it("allow ten of a multiple type and one of the others", () => {
     let d = doc();
     for (let i = 0; i < 12; i++) d = add(d, "stroke", `s${i}`);

@@ -12,7 +12,7 @@ import { srgbToLinear } from "./colour.ts";
 import { effectDefinition, unavailableReason } from "./effects/index.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
 import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
-import { drawnEffects, effectAngle, styleReach } from "./style/style.ts";
+import { drawnEffects, effectAltitude, effectAngle, styleReach } from "./style/style.ts";
 import type { Box } from "./style/gradients.ts";
 import type { Compositing, EffectInstance, EffectParamValue, LayerTransform, PhotoLayer, PhotoProject, SurfaceId } from "./types.ts";
 
@@ -60,8 +60,10 @@ export interface NodeBlend extends LayerBlending {
  */
 export interface NodeStyle {
   effects: EffectInstance[];
-  /** By effect id: the angle its shadow falls from. */
+  /** By effect id: the angle its shadow falls from (or its light comes from). */
   angles: Record<string, number>;
+  /** By effect id: a bevel's light altitude. */
+  altitudes: Record<string, number>;
   /** The layer's bounds on the canvas (Align with Layer), and the canvas. */
   layerBox: Box;
   canvasBox: Box;
@@ -208,16 +210,18 @@ function styleOf(doc: PhotoProject, layer: PhotoLayer, matrix: Affine, size: Siz
   const effects = drawnEffects(layer);
   if (!effects.length) return { style: null, key: "" };
   const angles = Object.fromEntries(effects.map((e) => [e.id, effectAngle(doc, e)]));
+  const altitudes = Object.fromEntries(effects.filter((e) => e.type === "bevel-emboss").map((e) => [e.id, effectAltitude(doc, e)]));
   const style: NodeStyle = {
     effects,
     angles,
+    altitudes,
     layerBox: boundsOf(matrix, size),
     canvasBox: { x0: 0, y0: 0, x1: doc.canvas.width, y1: doc.canvas.height },
     reach: styleReach(layer),
     interiorAsGroup: layer.blending?.interiorAsGroup === true,
     maskHidesEffects: layer.blending?.maskHidesEffects === true,
   };
-  return { style, key: `|style:${JSON.stringify(effects)}|${JSON.stringify(angles)}|${style.interiorAsGroup},${style.maskHidesEffects}` };
+  return { style, key: `|style:${JSON.stringify(effects)}|${JSON.stringify(angles)}|${JSON.stringify(altitudes)}|${style.interiorAsGroup},${style.maskHidesEffects}` };
 }
 
 /** The canvas's background in the compositing's values: encoded for "photoshop", linear light otherwise. */
