@@ -189,7 +189,7 @@ describe("the assistant's light", () => {
     expect(imageOf(doc).filtersEnabled).toBe(false);
     doc = removeFilterTool(doc, { layer: "sky", filter: first }, env).doc;
     expect(imageOf(doc).filters!.map((f) => f.id)).toEqual([second]);
-    expect(() => addFilterTool(doc, { layer: "sky", type: "exposure" }, env)).toThrow(/The filters: glow/);
+    expect(() => addFilterTool(doc, { layer: "sky", type: "exposure" }, env)).toThrow(/The filters: camera-raw, glow/);
     expect(() => setFilterTool(doc, { layer: "sky", filter: "9" }, env)).toThrow(/1\. fx_/);
     expect(() => setFilterTool(doc, { layer: "sky", filter: second, params: { radius: 9000 } }, env)).toThrow(/from 1 to 4000/);
     expect(() => setFilterTool(doc, { layer: "sky", filter: second, params: { tint: "orange" } }, env)).toThrow(/#ffb070/);
