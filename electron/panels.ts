@@ -26,6 +26,13 @@ const ownedByMain = process.platform === "win32";
  */
 const followsMain = ownedByMain;
 
+/**
+ * Windows animates a transparent window each time it's shown, even without a frame, so a menu "swooped" in.
+ * There the menu window is never hidden: once it's ready it stays shown, see-through and letting clicks pass
+ * (`setIgnoreMouseEvents`) while it's empty, and a menu in it only raises it and gives it the keyboard.
+ */
+const popupStaysShown = ownedByMain;
+
 /** A panel's key in the stack of floating windows (stacking.ts). */
 export const panelKey = (name: string) => `panel:${name}`;
 
@@ -153,6 +160,13 @@ export class Panels {
     if (!win || win.isDestroyed()) return;
     this.shown.add(name);
     if (name === POPUP_WINDOW) {
+      if (popupStaysShown) {
+        win.setIgnoreMouseEvents(false);
+        if (!win.isVisible()) win.show();
+        win.moveTop();
+        win.focus();
+        return;
+      }
       if (this.state.visible) win.show();
       return;
     }
@@ -202,6 +216,11 @@ export class Panels {
     if (options.resizable !== undefined) win.setResizable(options.resizable);
     if (options.backgroundColor) win.setBackgroundColor(options.backgroundColor);
     if (options.title) win.setTitle(options.title);
+    // The menu window, ready (see-through now): shown for good, empty, letting clicks pass.
+    if (name === POPUP_WINDOW && popupStaysShown && options.backgroundColor && !win.isVisible()) {
+      win.setIgnoreMouseEvents(true);
+      win.showInactive();
+    }
   }
 
   /**
@@ -238,6 +257,7 @@ export class Panels {
     const win = this.windows.get(name);
     if (!win || win.isDestroyed()) return;
     this.shown.delete(name);
+    if (name === POPUP_WINDOW && popupStaysShown) return void win.setIgnoreMouseEvents(true);
     win.hide();
   }
 
