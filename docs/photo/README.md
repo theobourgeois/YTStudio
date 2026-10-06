@@ -6,8 +6,9 @@ assistant); layers and adjustments (F2: Exposure and Curves adjustment layers, t
 composites for 16-bit sources); resources, selections, masks and the brush (F3: pixel layers, layer masks, the
 Rectangular Marquee, the round brush, the publication gate and collection); light (F4: the glow as a filter, the
 Lens Flare as a generator layer, the `film` highlights; [f4-light.md](f4-light.md)). Results in
-[foundations-prototype.md](foundations-prototype.md#f4-results-2026-10-06). F5 (harden) is next; Layer Style's L1
-(blending) is in progress beside it.
+[foundations-prototype.md](foundations-prototype.md#f4-results-2026-10-06). F5 (harden) is in progress: its
+server side is built (durable writes, the checkpoint, the check on open, faults; "F5 progress" there); the rest
+waits for Layer Style (L1 and L2, in progress beside it).
 
 A Photoshop-style image editor with dependable layers, masks, painting and retouching, and a particularly strong set
 of editable light effects. The foundations are the application's first version, so the document, resource, colour
@@ -84,5 +85,7 @@ and **Unverified** (an open question). Théo's corrections override the referenc
 | A25 | Photos before version 5 keep `clip` highlights; new ones `film`, `s` = 1 (2026-10-06, F4) | Every photo was drawn clipped until F4: nothing made changes look | Théo's comparison of `s` on his images (the sheet's last row) |
 | A26 | The glow (version 1) is a definition in document pixels: six octaves on the document's 2^k grids, read by their B-spline; the renderer caches the contributions from level 2 up, from level 0 (2026-10-06, F4) | The view, regions, exports and the reference compute the same thing; at fit a glow needs no refinement; radius 1000 on 48 MP settles in ~0.3 s | — |
 | A27 | The glow is a filter (`filters`, Photoshop's Smart Filters), a flare a generator layer adding in linear light (`blend: "linear-dodge"`, `blendSpace: "linear"`) (2026-10-06, F4, Théo's compositing decision) | Light adds physically whatever the document's compositing; styles (L2) stay apart | — |
+| A28 | The checkpoint is the document each save replaces, hard-linked as `photo/recovery/previous.json`; every document in `photo/recovery/` is a root of collection (2026-10-06, F5) | Free (no copy), and it passed the gate when it was saved | — |
+| A29 | The check on open sets an incomplete document aside and opens the checkpoint if it's whole, else that document with only its lost surfaces emptied; the server saves what opened and says why (2026-10-06, F5) | Opening never shows a photo the server would then refuse to save (the gate), and nothing is deleted | Damaged `project.json`s: still refused (F1), not recovered |
 
 Progress, measurements and gates live in [foundations-prototype.md](foundations-prototype.md).

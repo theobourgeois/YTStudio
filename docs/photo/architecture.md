@@ -335,11 +335,17 @@ Name.vaudio/
 ```
 
 - **Saving** is the platform's autosave (`createAutosaver`, debounced, one at a time, retried), behind the
-  publication gate. After a successful save the server copies the previous `project.json` to the checkpoint.
+  publication gate. Before a save replaces `project.json`, the server keeps it as the checkpoint
+  (`SuiteBackend.keepPrevious`: a hard link, so it costs nothing; a copy where the disk can't link). Every document in
+  `photo/recovery/` is a root of collection.
 - **Durability**: blobs are flushed before they're acknowledged; photo documents are written temp, flush, rename,
   and the folder flushed. What we promise: a crash of the tab, server or helper never loses an acknowledged edit,
-  and a document never references a missing blob; a power loss can lose the last seconds. **On open** the server
-  checks that every referenced manifest and tile exists; if not, it opens the checkpoint and says so.
+  and a document never references a missing blob; a power loss can lose the last seconds. **On open**
+  (`SuiteBackend.check`, from `GET /api/projects/:id`) the server checks that every referenced manifest is whole and
+  every tile it lists exists; if not, it sets the document aside (`photo/recovery/incomplete-<time>.json`) and opens
+  the checkpoint, or, when the checkpoint is no better, the document with only the lost surfaces emptied, saves
+  what it opened, and says so (`X-Project-Notice`, shown by the tab). As built in F5 (foundations-prototype.md,
+  "F5 progress").
 - **A corrupt `project.json` must not be replaced.** Today the platform swaps an unreadable document for a new empty
   one (`readDocAt` in `server/projects.ts`), which the next autosave writes over the damaged file. Fix this for every
   suite before photo ships: set the file aside (`project.corrupt-<date>.json`) and open the checkpoint, or refuse
@@ -376,7 +382,8 @@ flags `server/gl-browser.ts` already passes (measured); the prototype only expor
 | Helper process dies | Restarted on the next request; its job is retried once, then fails with the file's name |
 | Server unreachable | Uploads and saves retry; the header says not saved; nothing committed is dropped from the tab |
 | Tab closes or crashes | The last autosave and its blobs are on disk; at most the debounce window is lost |
-| Disk full | Uploads fail with that reason; the project shows not saved; the previous good state on disk is intact |
+| Disk full | Uploads and saves fail with a 507 saying so (`diskError`); the project shows not saved; the previous good state on disk is intact, with no temporary file left |
+| Damaged blob | A read tile or manifest is checked against its name: a 500 saying it's damaged, never served; an upload of it mends it; opening treats a surface with a damaged manifest as lost |
 | Missing source file | The layer renders as missing (hatched), keeps its settings, can be relinked later |
 | No WebGPU adapter | The photo workspace says it needs WebGPU and why; other suites are unaffected. No CPU renderer in v1 |
 
@@ -407,7 +414,7 @@ Registries (TypeScript lists what's missing): `SuiteId`, `SUITES`, `SuiteDocumen
 | `DocStats`, `ProjectPreviews` (`server/project-previews.ts`) | A still cover for Home: the tab renders one after saves; previews are audio/video only today |
 | Home drop (`home.tsx`: first suite whose `startsWith` accepts) | Images alone start a photo project; video currently takes them |
 | `electron/main.ts` File menu, `server/projects.ts` error text | Hard-coded to video and music |
-| `server/storage.ts` `writeJson` | A flushed variant (file and folder) for documents that promise durability |
+| `server/storage.ts` `writeJson` | **Done in F5**: `writeFileDurably` / `writeJsonDurably` (file and folder flushed); every suite's documents use it |
 | `playwright.config.ts` | WebGPU needs the GPU launch flags (`--use-angle=metal --enable-gpu`, what `server/gl-browser.ts` passes): the default headless launch has `navigator.gpu` but no adapter (measured; `scripts/photo-bench.ts` launches that way) |
 | Desktop packaging (`scripts/desktop.ts`) | **Built in F0.** `Resources/photo-helper/helper.mjs` (the helper and sharp's JavaScript, bundled) and `native/@img/` (the addon and libvips, 19 MB; Node-API, so not tied to Electron's ABI). electron-builder drops any folder called `node_modules` from resources, so the bundle's one require of the addon is pointed at `native/` (asserted at build). libvips is LGPL-3.0-or-later, dynamically linked: its package keeps its licence and notices. `pnpm test:desktop` checks the packaged helper decodes and encodes exactly |
 | `electron/main.ts` switches | **Built in F0.** Chrome stops giving a page an adapter after a second GPU-process crash within two minutes; the desktop app turns that off (`--disable-gpu-process-crash-limit`, `--disable-domain-blocking-for-3d-apis`) so recovery always works. The browser keeps Chrome's behaviour: after repeated crashes the workspace asks for a reload |

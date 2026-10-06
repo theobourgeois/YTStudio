@@ -34,7 +34,9 @@ renderer's parts the suite doesn't use yet. Kernels and passes storing `rgba16fl
 (`render/surface.ts`: tiles by hash, strokes on drafts); a saved photo only names pixels the server has (`uploads.ts`,
 `SuiteBackend.checkSave`). Light (docs/photo/f4-light.md): no pixel is brighter than its coverage (up to white), the
 output's `film` rolls light above white off at the end (`output.ts`), and a glow's or flare's WGSL mirrors its CPU
-reference in `shared/photo/reference/`: change both. F5 is next; Layer Style's L1 (blend modes, `compositing`)
+reference in `shared/photo/reference/`: change both. F5 (harden) is in progress: its server side is built
+(`server/photo/recovery.ts`: the checkpoint and the check on open, `SuiteBackend.keepPrevious`/`check`; documents and
+blobs written with `writeFileDurably`; `faults.test.ts`). Layer Style's L1 (blend modes, `compositing`)
 replaces isolated.ts's composite with its blend pass.
 
 The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is

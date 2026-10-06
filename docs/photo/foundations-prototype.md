@@ -2,7 +2,8 @@
 
 Status: revised 2026-10-06 (first proposal 2026-10-03). **F0, F1, F2, F3 and F4 are done** (F0–F2 2026-10-05,
 F3 and F4 2026-10-06): their gates passed (F4's in linear compositing: its "photoshop" lines wait for Layer Style's
-L1); results and what each changed in the plan are under "F0 results" to "F4 results". F5 is next.
+L1); results and what each changed in the plan are under "F0 results" to "F4 results". **F5 is in progress**: its
+server side is built ("F5 progress"); the rest waits for Layer Style's L2.
 
 The foundations are the application's first real version with deliberately few features, not a throwaway prototype.
 Each milestone ends with something Théo can use and a gate that's checked, not argued. Lasting contracts (the
@@ -397,6 +398,33 @@ The sheet (`pnpm tsx scripts/photo-sheet.ts`): every pipeline compiles; each fil
 **Gate**: Théo does the whole workflow without developer tools. No open data-loss, stale-view, colour or seam bug.
 Limitations are written down.
 
+### F5 progress: the server side (2026-10-06)
+
+Built and tested first, apart from Layer Style (L2), which changes the compositor, the document and the tools: what
+F5 does to the package, the blob store and the helper. Waiting for L2: export by strips, the unknown effect
+version, a filters entry point (a whole Filter menu, so the workflow needs no hidden menu), the walkthrough in the
+packaged app; and on the client, device loss mid-stroke and budgets under pressure.
+
+| Item | As built | Checked by |
+| --- | --- | --- |
+| Blobs flushed before they're acknowledged | `writeFileDurably` (`server/storage.ts`): temporary file, flushed, renamed, its folder flushed (and the folders made for it) | `storage.test.ts` |
+| Documents flushed with their folder | Every suite's `project.json` and `meta.json` (`ProjectStore`), not only photo's | `projects.test.ts`, `faults.test.ts` |
+| The checkpoint | `SuiteBackend.keepPrevious`: before a save replaces `project.json`, photo links it as `photo/recovery/previous.json` (a copy where the disk can't link); every document in `photo/recovery/` is a root of collection | `recovery.test.ts`, `faults.test.ts` |
+| The check on open | `SuiteBackend.check`, run by `GET /api/projects/:id` (`ProjectStore.openDoc`): every manifest whole and every tile it lists present. If not, the document is set aside (`photo/recovery/incomplete-<time>.json`) and the checkpoint opens, if it's whole; else this one with only the lost surfaces emptied. The platform saves what opened; `X-Project-Notice` says why, and the photo tab shows it | `recovery.test.ts`, `faults.test.ts` |
+| Interrupted blob write | Leftover temporary files in `photo/resources` are swept by collection once older than its start; the blob is absent, so the tab uploads it again | `blobs.test.ts`, `faults.test.ts` |
+| Interrupted document write | The saved document opens; the half-written temporary file is ignored | `faults.test.ts` |
+| Helper killed mid-decode and mid-encode | Retried once on a new helper (as before); what the killed one half-wrote (`<file>.<pid>.<time>.tmp`: a decoded source's hundreds of MB, an export's beside the user's file) is deleted once the request settles (`removeLeftovers`) | `helper.test.ts` |
+| Server killed with uploads pending | The saved document is intact; uploads it never named are collected on the next open | `faults.test.ts` |
+| Disk full (a small disk image) | A 507 saying the disk is full, for uploads and saves; nothing saved is changed, no temporary file is left; the same requests go through once there's room | `faults.test.ts` (macOS: a 4 MB `hdiutil` image, filled to the last byte) |
+| A missing source | A 404 naming the file (`media/<id>`), not "couldn't decode" | `faults.test.ts` |
+| A corrupt manifest (and tile) | Read blobs are checked against their names: a damaged one is a 500 saying so, never served; an upload of it mends it; opening treats a surface with a damaged manifest as lost | `blobs.test.ts`, `recovery.test.ts` |
+
+What opening can't do: a **damaged** `project.json` (not JSON, refused by `normalize`) is still refused with its
+message (F1's platform rule) rather than opening the checkpoint, because the tab won't open a project whose
+summary says it's damaged; the checkpoint is in `photo/recovery/previous.json` to put back by hand. Tiles are only
+checked for presence on open (hashing every tile of a large photo is too slow); a damaged one is found when it's
+drawn.
+
 ## Performance targets
 
 The baseline machine is Théo's: Apple M5 Pro, 64 GB, macOS 26.5. Report the Electron and Chromium versions, the
@@ -487,4 +515,5 @@ ends with a complete workflow.
 | 2026-10-06 | F3 gate | See "F3 results": every check passed in the app (e2e) and every target in Electron 44.5.0 and Chrome 154 (bench) |
 | 2026-10-06 | F4 gate | See "F4 results": every check passed in the app (e2e) in linear compositing, and every target in Electron 44.5.0 and Chrome 154 (bench) |
 | 2026-10-06 | Straight alpha and light | A soft edge of light above white (colour over alpha) exported as a PNG and composited over black missed the app's own render by 44 levels: hence coverage at least the light's brightest channel. 8-bit alpha under ~1% moves faint light up to 7 levels: the gate uses 16 bits |
+| 2026-10-06 | Durable writes, M5 Pro, APFS | A 200 kB file written and renamed: p50 0.22 ms; flushed too: 4.05 ms (libuv's `fsync` is `F_FULLFSYNC` on macOS); flushed with its folder: 8.03 ms (p95 10.1). So a blob upload costs ~8 ms more in the background, and a save (`project.json`, `meta.json`, the checkpoint's link) ~20 ms |
 | 2026-10-06 | Selection limiting | Limiting each dab by a pixel's coverage: a pixel half inside the selection ended at 0.998 alpha after a stroke (overlapping dabs); limiting the stroke's result: 0.500 |
