@@ -125,7 +125,11 @@ export const mix3 = (a: Vec3, b: Vec3, t: number): Vec3 => [a[0] + (b[0] - a[0])
  * unless `up` says otherwise (a camera that turns through any direction gives its own).
  */
 export function cameraUniforms(pos: Vec3, target: Vec3, roll: number, fov: number, up: Vec3 = [0, 1, 0]): UniformValue[] {
-  const fwd = normalize(sub(target, pos));
+  return cameraLooking(pos, normalize(sub(target, pos)), roll, fov, up);
+}
+
+/** A camera at `pos` looking along `fwd` (a unit vector), as `cameraUniforms`. */
+export function cameraLooking(pos: Vec3, fwd: Vec3, roll: number, fov: number, up: Vec3 = [0, 1, 0]): UniformValue[] {
   let right = cross(fwd, up);
   if (length(right) < 1e-6) right = cross(fwd, [1, 0, 0]);
   right = normalize(right);
