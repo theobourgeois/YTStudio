@@ -29,6 +29,7 @@ source's profile on the GPU without clipping, and leaves through one output tran
 4. [Rendering](rendering.md): colour, formats and precision, resampling, the output transform, tiles, the evaluator.
 5. [UX](ux.md): workspace, keys and interaction contracts for the first workflow.
 6. [Effects](effects/system.md): definitions, glow, the flare, porting from the video editor.
+   [Layer Style](layer-style/README.md): Blending Options and layer effects, researched and planned (not built).
 7. [Foundations](foundations-prototype.md): milestones F0–F5, gates, targets, the evidence log.
 8. [Engine options](research/engine-options.md): why WebGPU in the page, measured; the fallbacks.
 9. [Sources](research/sources.md): references and what's still unverified.
