@@ -241,7 +241,6 @@ export function PhotoLab() {
           <LabButton onClick={() => void run("compile", bench.compileCheck)}>Compile</LabButton>
           <LabButton onClick={() => void run("pan/zoom", (s) => bench.panZoom(s))}>Pan/zoom</LabButton>
           <LabButton onClick={() => void run("stroke", (s) => bench.stroke(s))}>Stroke</LabButton>
-          <LabButton onClick={() => void run("blur", (s) => bench.blur(s))}>Blur check</LabButton>
           <LabButton onClick={() => void run("P3", bench.p3)}>P3 check</LabButton>
           <LabButton onClick={() => void run("round trip", bench.roundTrip)}>Round trip</LabButton>
           <LabButton onClick={() => void run("GPU loss", bench.deviceLoss)}>Lose GPU</LabButton>

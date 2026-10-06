@@ -10,7 +10,7 @@
  *   pnpm tsx scripts/photo-bench.ts --lab [--tiles 256,512] [--quick]
  *
  * `--lab` runs F0's lab instead (`photo-lab.html`, `src/suites/photo/lab/`): the renderer's parts the suite doesn't
- * use yet (strokes, the blur's seams, P3, f16 rounding, 16-bit precision), at both tile sizes. `--quick` skips the
+ * use yet (strokes, P3, f16 rounding, 16-bit precision), at both tile sizes. `--quick` skips the
  * 100 MP image (and the lab's 48 MP export). `--shots dir` saves screenshots of the lab's canvas instead.
  */
 import { type ChildProcess, spawn } from "node:child_process";
@@ -98,8 +98,6 @@ function plan(tile: 256 | 512): PlanStep[] {
     { run: "stroke" },
     { run: "deviceLoss" },
     ...(quick ? [] : [{ run: "roundTrip", label: "roundTrip 48MP" } as PlanStep]),
-    { open: "blur-detail.png" },
-    { run: "blur" },
     { open: "p3-patches.png" },
     { run: "p3" },
     { open: "alpha-gradient.png" },
@@ -189,7 +187,7 @@ await waitFor(`${api}/helper`);
 await waitFor(lab ? pageUrl : appUrl);
 
 if (lab) {
-  const names = ["noise-48mp.jpg", "blur-detail.png", "p3-patches.png", "alpha-gradient.png", "ramp-8bit.png", "orientation-6.jpg", "ramp-16bit.png", ...(quick ? [] : ["noise-100mp.jpg"])];
+  const names = ["noise-48mp.jpg", "p3-patches.png", "alpha-gradient.png", "ramp-8bit.png", "orientation-6.jpg", "ramp-16bit.png", ...(quick ? [] : ["noise-100mp.jpg"])];
   for (const name of names) {
     const res = await fetch(`${api}/sources?name=${name}`, { method: "POST", body: fs.readFileSync(path.join(FIXTURES, name)) });
     if (!res.ok) throw new Error(`Uploading ${name}: ${res.status} ${await res.text()}`);
