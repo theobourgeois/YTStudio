@@ -32,7 +32,7 @@ export function ToolOptions() {
 
 const percent = (v: number) => Math.round(v * 100);
 
-function BrushOptionsBar() {
+export function BrushOptionsBar() {
   const size = useBrush((s) => s.size);
   const hardness = useBrush((s) => s.hardness);
   const strength = useBrush((s) => s.strength);
