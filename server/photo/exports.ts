@@ -10,7 +10,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { ExportRequest, ExportResult } from "../../shared/photo/lab.ts";
 import { HttpError } from "../storage.ts";
-import type { PhotoHelper } from "./helper.ts";
+import { type PhotoHelper, removeLeftovers } from "./helper.ts";
 
 const EXPORT_NAME = /^[\w .,()'&+-]{1,120}\.(png|jpe?g)$/i;
 const MAX_PIXELS = 400_000_000;
@@ -101,6 +101,8 @@ export class PhotoExports {
       throw error instanceof HttpError ? error : new HttpError(400, (error as Error).message);
     } finally {
       await fs.rm(job.samples, { force: true });
+      // A helper killed mid-encode (and retried) leaves its half-written file beside the destination.
+      await removeLeftovers(job.out).catch(() => {});
     }
   }
 
