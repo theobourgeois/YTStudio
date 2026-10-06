@@ -8,6 +8,7 @@ import { renderSongPreview } from "./music/project-preview.ts";
 import type { MusicProject } from "../shared/music/types.ts";
 import type { Project } from "../shared/types.ts";
 import path from "node:path";
+import { sceneRuntimeIn } from "./scene-runtime.ts";
 import express, { type ErrorRequestHandler, type Express, type Response } from "express";
 import type { HostWindow } from "../shared/music/engine.ts";
 import type { HealthResponse } from "../shared/types.ts";
@@ -280,6 +281,8 @@ export async function createApp({
   });
 
   if (clientDir) {
+    // The export's page loads the 3D scenes' runtime from beside the built app (the packaged app's).
+    sceneRuntimeIn(clientDir);
     app.use(express.static(clientDir));
     // Any other page is the app (`/p/<id>`): its index.html, read once. (Streamed with sendFile it was a 404 from
     // inside the desktop app's archive, so a reload on a project there showed nothing.)

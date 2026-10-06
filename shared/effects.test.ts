@@ -309,9 +309,9 @@ describe("video effects", () => {
       expect(def.shader!.tags.every((t) => EFFECT_TAGS.includes(t)), def.type).toBe(true);
       expect(def.builtIn).toBe(false);
       for (const p of def.params) {
-        // A visualizer's source is read for it, not a uniform.
+        // A visualizer's (or a 3D scene's) source is read for it, not a uniform.
         if (p.kind === "source") {
-          expect(def.shader!.audio, `${def.type}.${p.key}`).toBeDefined();
+          expect(def.shader!.audio ?? def.shader!.scene, `${def.type}.${p.key}`).toBeDefined();
           continue;
         }
         expect(["number", "boolean", "choice", "vec2", "color"], `${def.type}.${p.key}`).toContain(p.kind);

@@ -28,7 +28,9 @@ async function previewSettled(root: ParentNode, signal: AbortSignal): Promise<vo
     const busy = videos.some((v) => v.src && (v.seeking || (v.readyState < HTMLMediaElement.HAVE_CURRENT_DATA && !v.error)));
     const images = [...root.querySelectorAll<HTMLImageElement>("img")];
     const loading = images.some((i) => i.src && !i.complete);
-    if (!busy && !loading) break;
+    // A simulation still catching up after the seek (or a 3D scene's runtime still loading).
+    const catching = [...root.querySelectorAll<HTMLCanvasElement>("canvas")].some((c) => c.dataset.simulation === "catching-up");
+    if (!busy && !loading && !catching) break;
     await sleep(50);
   }
   // The engine draws on the frame after the media reports it's ready.

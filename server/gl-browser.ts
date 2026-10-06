@@ -14,12 +14,13 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Browser } from "playwright-core";
-import { type Adjustment, type EffectPass, IDENTITY, type Placed, type Shader, createCompositor } from "../shared/compositor.ts";
+import { type Adjustment, type EffectPass, IDENTITY, type Placed, type SceneRenderer, type Shader, createCompositor } from "../shared/compositor.ts";
 import { errorMessage } from "../shared/errors.ts";
 import type { UniformValue } from "../shared/transition-gl.ts";
 import { drawSampleScene } from "../shared/transition-samples.ts";
 import { CHROMIUM } from "./config.ts";
 import type { FrameLayer, PlacedRef } from "./render.ts";
+import { sceneRuntime } from "./scene-runtime.ts";
 
 // On a Mac, headless Chromium can draw with the GPU (Metal); elsewhere it falls back to SwiftShader.
 const ARGS = [
@@ -94,6 +95,10 @@ interface PageApi {
   layers(job: LayersJob): { sheet: string; results: LayersResult[] };
   /** Compile fragment shaders by key: the logs of those that don't. */
   compile(sources: Record<string, string>): Record<string, string>;
+  /** Load the 3D scenes' runtime (`/scene-runtime.js`) and render scenes with it from now on. */
+  loadScenes(): Promise<void>;
+  /** Draw planned frames (`FramesJob`) on a compositor of its own, in `order`: each one's RGBA, top row first. */
+  frames(job: FramesJob): number[][];
 }
 
 /** What the page needs for its next frame. */
@@ -150,6 +155,20 @@ export interface EffectJob {
   cell: { width: number; height: number };
 }
 
+/**
+ * Planned frames (`RenderPlan.frame`) drawn in `order` (indices into `frames`) on a compositor of its own.
+ * With `catchUp`, the plan's warm-ups are left out and simulations are caught up as the preview does
+ * after a seek (from their newest state or checkpoint, stepping the frames' own layers).
+ */
+export interface FramesJob {
+  width: number;
+  height: number;
+  shaders: Record<string, string>;
+  frames: FrameLayer[][];
+  order: number[];
+  catchUp?: boolean;
+}
+
 /** One thing drawn on a frame of a `LayersJob`: a sample picture ("a", "b", or "plain", the sunset without its letter) placed like a clip, or an adjustment layer. */
 export type DrawOp = { kind: "picture"; picture: Placed } | { kind: "adjustment"; adjustment: Adjustment };
 
@@ -182,6 +201,8 @@ export interface EffectResult {
 /** The page's globals: its API, and the functions inlined into it. */
 interface PageGlobals {
   compositor: PageApi;
+  /** The 3D scenes' runtime, once loaded (`src/scenes/page.ts`). */
+  vaudioScenes?: { createSceneRenderer(): SceneRenderer };
   createCompositor: typeof createCompositor;
   drawSampleScene: typeof drawSampleScene;
   IDENTITY: typeof IDENTITY;
@@ -199,6 +220,7 @@ function pageScript(): string {
     const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false });
     if (!gl) throw new Error("WebGL 2 isn't available in the headless browser.");
     const compositor = createCompositor(gl);
+    let sceneRenderer: SceneRenderer | null = null;
     const whole = (key: string): Placed => ({ key, affine: IDENTITY, opacity: 1 });
     /** The two sample scenes as pictures "a" and "b", at the cell size. */
     const scenes = (cw: number, ch: number) => {
@@ -224,9 +246,99 @@ function pageScript(): string {
       compositor.present({ flipY });
     };
 
+    /** Draw a planned frame's layers (their shaders by key, the sources in `shaders`) over the frame begun. */
+    const drawFrame = (target: typeof compositor, shaders: Record<string, string>, layers: FrameLayer[]) => {
+      const shader = (key: string): Shader => ({
+        key,
+        source: shaders[key],
+        ...(shaders[`${key}#vs`] && { vertex: shaders[`${key}#vs`] }),
+        ...(shaders[`${key}#base`] && { base: shaders[`${key}#base`] }),
+      });
+      // Effects name their shaders by key; the sources came in earlier packets.
+      const passes = (effects: EffectPass<string>[] | undefined) => effects?.map((fx) => ({ ...fx, shader: shader(fx.shader) }));
+      const samples = (list: PlacedRef["samples"]) => list?.map((sample) => ({ ...sample, effects: passes(sample.effects) }));
+      const toPlaced = (p: PlacedRef): Placed => ({
+        ...p,
+        effects: passes(p.effects),
+        samples: samples(p.samples),
+        matte: p.matte && { mode: p.matte.mode, layer: toPlaced(p.matte.layer) },
+      });
+      const toAdjustment = (a: Adjustment<string>): Adjustment => ({
+        ...a,
+        effects: passes(a.effects),
+        samples: samples(a.samples),
+        matte: a.matte && { mode: a.matte.mode, layer: toPlaced(a.matte.layer) },
+      });
+      const placed = (p: PlacedRef | null): Placed | null => p && toPlaced(p);
+      const drawLayers = (list: FrameLayer[]) => {
+        for (const layer of list) {
+          if (layer.kind === "picture") target.drawPicture(placed(layer.picture)!);
+          else if (layer.kind === "adjustment") target.drawAdjustment(toAdjustment(layer.adjustment));
+          else if (layer.kind === "group") {
+            // A nested sequence: its layers into a picture of its own, placed by a later layer.
+            target.beginGroup(layer.width, layer.height);
+            drawLayers(layer.layers);
+            target.endGroup(layer.key);
+          } else if (layer.kind === "advance") target.advance(placed(layer.picture)!);
+          else target.drawTransition(shader(layer.shader), layer.uniforms, layer.progress, placed(layer.from), placed(layer.to));
+        }
+      };
+      drawLayers(layers);
+      return { toPlaced };
+    };
+
     const api: PageApi = {
+      frames(job) {
+        // A compositor of its own, so no simulation's states carry over from another job.
+        const own = document.createElement("canvas");
+        const ctx = own.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false })!;
+        const fresh = createCompositor(ctx);
+        fresh.setSceneRenderer(sceneRenderer);
+        fresh.resize(job.width, job.height);
+        const reads: number[][] = [];
+        try {
+          for (const f of job.order) {
+            if (job.catchUp) {
+              // As the preview does after a seek: each simulation stepped from the newest state it has.
+              const pictures = (layers: FrameLayer[]) => layers.flatMap((l) => (l.kind === "picture" ? [l.picture] : []));
+              for (const picture of pictures(job.frames[f])) {
+                const sims = (picture.effects ?? []).flatMap((fx) => (fx.simulation ? [fx.simulation] : []));
+                if (!sims.length) continue;
+                const from = Math.min(...sims.map((sim) => fresh.simulationFrom(sim.id, sim.version, sim.frame, sim.memory)));
+                for (let k = Math.max(0, from); k < f; k++) {
+                  const earlier = pictures(job.frames[k]).find((p) => p.effects?.some((fx) => fx.simulation?.id === sims[0].id));
+                  if (earlier) fresh.advance(drawFrame(fresh, job.shaders, []).toPlaced(earlier));
+                }
+              }
+            }
+            fresh.clear();
+            drawFrame(fresh, job.shaders, job.frames[f].filter((l) => !job.catchUp || l.kind !== "advance"));
+            fresh.present({ flipY: true });
+            reads.push(Array.from(fresh.read()));
+          }
+        } finally {
+          fresh.dispose();
+        }
+        return reads;
+      },
+      async loadScenes() {
+        const globals = globalThis as unknown as PageGlobals;
+        if (!globals.vaudioScenes) {
+          await new Promise<void>((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = "/scene-runtime.js";
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error("The 3D scenes' runtime didn't load."));
+            document.head.append(script);
+          });
+        }
+        sceneRenderer = globals.vaudioScenes!.createSceneRenderer();
+        compositor.setSceneRenderer(sceneRenderer);
+      },
       async composite(job) {
         compositor.resize(job.width, job.height);
+        // Frames are drawn in order: a simulation always has its frame before, so keeps no checkpoints.
+        compositor.setCheckpointBudget(0);
         // Texts are drawn here, in the user's fonts: have them ready before the first frame.
         await Promise.all(job.fonts.map((font) => document.fonts.load(font).catch(() => [])));
         const shaders: Record<string, string> = {};
@@ -253,41 +365,7 @@ function pageScript(): string {
           for (const { key, source } of pictures) compositor.setPicture(key, source);
           for (const key of head.release) compositor.deletePicture(key);
           compositor.clear();
-          const shader = (key: string): Shader => ({
-            key,
-            source: shaders[key],
-            ...(shaders[`${key}#vs`] && { vertex: shaders[`${key}#vs`] }),
-            ...(shaders[`${key}#base`] && { base: shaders[`${key}#base`] }),
-          });
-          // Effects name their shaders by key; the sources came in earlier packets.
-          const passes = (effects: EffectPass<string>[] | undefined) => effects?.map((fx) => ({ ...fx, shader: shader(fx.shader) }));
-          const samples = (list: PlacedRef["samples"]) => list?.map((sample) => ({ ...sample, effects: passes(sample.effects) }));
-          const toPlaced = (p: PlacedRef): Placed => ({
-            ...p,
-            effects: passes(p.effects),
-            samples: samples(p.samples),
-            matte: p.matte && { mode: p.matte.mode, layer: toPlaced(p.matte.layer) },
-          });
-          const toAdjustment = (a: Adjustment<string>): Adjustment => ({
-            ...a,
-            effects: passes(a.effects),
-            samples: samples(a.samples),
-            matte: a.matte && { mode: a.matte.mode, layer: toPlaced(a.matte.layer) },
-          });
-          const placed = (p: PlacedRef | null): Placed | null => p && toPlaced(p);
-          const drawLayers = (layers: FrameLayer[]) => {
-            for (const layer of layers) {
-              if (layer.kind === "picture") compositor.drawPicture(placed(layer.picture)!);
-              else if (layer.kind === "adjustment") compositor.drawAdjustment(toAdjustment(layer.adjustment));
-              else if (layer.kind === "group") {
-                // A nested sequence: its layers into a picture of its own, placed by a later layer.
-                compositor.beginGroup(layer.width, layer.height);
-                drawLayers(layer.layers);
-                compositor.endGroup(layer.key);
-              } else compositor.drawTransition(shader(layer.shader), layer.uniforms, layer.progress, placed(layer.from), placed(layer.to));
-            }
-          };
-          drawLayers(head.layers);
+          drawFrame(compositor, shaders, head.layers);
           return compositor.readYuv420Async();
         };
         const lane = async () => {
@@ -507,9 +585,13 @@ export type FrameExchange = (finished: { frame: number; data: Buffer } | null) =
  */
 const LANES = 3;
 
+/** Whether a job draws a 3D scene (an effect pass with a `scene`). */
+const drawsScenes = (job: unknown) => JSON.stringify(job).includes('"scene":{');
+
 /** One headless page with the compositor. Close it when done. */
 export class GlSession {
   private exchange: FrameExchange | null = null;
+  private scenes = false;
   /** Why compositing stopped (the page only sees a message). */
   private failure: unknown = null;
 
@@ -525,6 +607,11 @@ export class GlSession {
       if (req.method === "GET" && req.url === "/") {
         res.setHeader("Content-Type", "text/html");
         res.end(`<!doctype html><meta charset="utf-8"><script>${script}</script>`);
+      } else if (req.method === "GET" && req.url === "/scene-runtime.js") {
+        sceneRuntime().then(
+          (code) => res.writeHead(200, { "Content-Type": "text/javascript" }).end(code),
+          (err) => res.writeHead(500, { "Content-Type": "text/plain" }).end(errorMessage(err)),
+        );
       } else if (req.method === "POST" && req.url?.startsWith("/exchange")) {
         const chunks: Buffer[] = [];
         req.on("data", (c: Buffer) => chunks.push(c));
@@ -555,10 +642,11 @@ export class GlSession {
    * says there are no more. They're drawn in order, but finished frames may
    * come back out of order.
    */
-  async composite(size: { width: number; height: number }, exchange: FrameExchange, fonts: string[] = []): Promise<void> {
+  async composite(size: { width: number; height: number }, exchange: FrameExchange, fonts: string[] = [], scenes = false): Promise<void> {
     this.exchange = exchange;
     this.failure = null;
     try {
+      if (scenes) await this.loadScenes();
       const job = { ...size, lanes: LANES, fonts };
       await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.composite(j), job);
     } catch (err) {
@@ -605,14 +693,30 @@ export class GlSession {
 
   /** Draw stacks of layers over the sample scenes (see `LayersJob`): a PNG contact sheet, and the first/last frame checks. */
   async layers(job: LayersJob): Promise<{ sheet: Buffer; results: LayersResult[] }> {
+    if (drawsScenes(job)) await this.loadScenes();
     const { sheet, results } = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.layers(j), job);
     return { sheet: Buffer.from(sheet.slice(sheet.indexOf(",") + 1), "base64"), results };
   }
 
   /** Run effects over the plain sample picture: a PNG contact sheet, and how much each changed it. */
   async effects(job: EffectJob): Promise<{ sheet: Buffer; results: EffectResult[] }> {
+    if (drawsScenes(job)) await this.loadScenes();
     const { sheet, results } = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.effects(j), job);
     return { sheet: Buffer.from(sheet.slice(sheet.indexOf(",") + 1), "base64"), results };
+  }
+
+  /** Draw planned frames in an order (see `FramesJob`): each one's RGBA, top row first. */
+  async frames(job: FramesJob): Promise<Uint8Array[]> {
+    if (drawsScenes(job)) await this.loadScenes();
+    const reads = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.frames(j), job);
+    return reads.map((r) => Uint8Array.from(r));
+  }
+
+  /** Have the page render 3D scenes (loading three.js and the scenes: a second or so the first time). */
+  async loadScenes(): Promise<void> {
+    if (this.scenes) return;
+    await this.page.evaluate(() => (globalThis as unknown as PageGlobals).compositor.loadScenes(), null);
+    this.scenes = true;
   }
 
   /** Compile fragment shaders (by key) as the export's page does: the logs of those that don't. */
