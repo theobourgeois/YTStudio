@@ -2,8 +2,8 @@
 
 Status: revised 2026-10-06 (first proposal 2026-10-03). **F0, F1, F2, F3 and F4 are done** (F0–F2 2026-10-05,
 F3 and F4 2026-10-06): their gates passed (F4's in linear compositing: its "photoshop" lines wait for Layer Style's
-L1); results and what each changed in the plan are under "F0 results" to "F4 results". **F5 is in progress**: its
-server side is built ("F5 progress"); the rest waits for Layer Style's L2.
+L1, which has since merged: both halves hold); results and what each changed in the plan are under "F0 results" to
+"F4 results". **F5 is built but for its gate** ("F5 progress"): Théo's walkthrough in the packaged app.
 
 The foundations are the application's first real version with deliberately few features, not a throwaway prototype.
 Each milestone ends with something Théo can use and a gate that's checked, not argued. Lasting contracts (the
@@ -337,9 +337,10 @@ real app with WebGPU on (`e2e/photo.spec.ts`, the last seven tests), reading the
 | A source handle at several zooms lands on the same document point | The handle dragged to (430, 310) at 33%, 100% and 250%: within half a screen pixel each time; Escape cancels a drag |
 | Reordering, bypassing, masking, undoing and reopening keep every setting | Two glows (one tinted) and a flare: a filter dragged below the other, the Filters eye off and on, a mask added and painted, undone and redone, reloaded: the same layers and the same pixels (a SHA-256 of a refined render) |
 
-Not yet (they need Layer Style's L1, in progress): the backdrop gate in "photoshop" compositing, light above 1
-through an encoded Normal and Add blend, and a flare in `blendSpace: "linear"` inside a "photoshop" document. Each is
-a line of the same e2e tests once `compositing` exists.
+The "photoshop" half, once Layer Style's L1 merged (2026-10-06): the backdrop gate runs in both compositings (L1's
+merge), the flare's reference test and the glow's run in new photos, which are "photoshop" (the flare's in
+`blendSpace: "linear"`), and light above 1 survives a new photo's Normal and its Linear Dodge (F5's line in the glow's
+test). Every F4 gate now holds in both compositings.
 
 **Measured** with `pnpm tsx scripts/photo-bench.ts --quick` (`glow`: a radius-1000 glow on the 48 MP photo at fit;
 `flare`: a flare added and its source dragged, a frame an edit), headless Chrome 154 / Electron 44.5.0:
@@ -398,12 +399,13 @@ The sheet (`pnpm tsx scripts/photo-sheet.ts`): every pipeline compiles; each fil
 **Gate**: Théo does the whole workflow without developer tools. No open data-loss, stale-view, colour or seam bug.
 Limitations are written down.
 
-### F5 progress: the server side (2026-10-06)
+### F5 progress (2026-10-06)
 
-Built and tested first, apart from Layer Style (L2), which changes the compositor, the document and the tools: what
-F5 does to the package, the blob store and the helper. Waiting for L2: export by strips, the unknown effect
-version, a filters entry point (a whole Filter menu, so the workflow needs no hidden menu), the walkthrough in the
-packaged app; and on the client, device loss mid-stroke and budgets under pressure.
+**Built: everything but the walkthrough in the packaged app**, which is Théo's gate. First the server side, apart from
+Layer Style (it changes the compositor, the document and the tools); then, once L1–L3 merged, the rest, with a way
+to find filters, which the workflow needs without developer tools.
+
+The server side:
 
 | Item | As built | Checked by |
 | --- | --- | --- |
@@ -418,6 +420,29 @@ packaged app; and on the client, device loss mid-stroke and budgets under pressu
 | Disk full (a small disk image) | A 507 saying the disk is full, for uploads and saves; nothing saved is changed, no temporary file is left; the same requests go through once there's room | `faults.test.ts` (macOS: a 4 MB `hdiutil` image, filled to the last byte) |
 | A missing source | A 404 naming the file (`media/<id>`), not "couldn't decode" | `faults.test.ts` |
 | A corrupt manifest (and tile) | Read blobs are checked against their names: a damaged one is a 500 saying so, never served; an upload of it mends it; opening treats a surface with a damaged manifest as lost | `blobs.test.ts`, `recovery.test.ts` |
+
+The rest:
+
+| Item | As built | Checked by |
+| --- | --- | --- |
+| Filters found without a hidden menu | The header's **Filter** menu (Photoshop's): Last Filter (⌃⌘F; Ctrl+Alt+F elsewhere: the filter added last, again, with its settings now), Filter Gallery…, then each category's filters and their looks. The **Filter Gallery** window: every look as a card previewed on this photo (the active layer filtered, or a generator added), searchable, by category, a click applying it; filters can't go on an adjustment layer and say so. Built from the catalogue (`shared/photo/effects/catalog.ts`): a filter's `category` and `presets` in its definition, so a new filter needs no UI of its own. Glow gets five looks (Bloom, Soft Haze, Neon, Dreamy, Halation: radii as fractions of the canvas's diagonal); the assistant's `add_filter` takes a `preset` | `catalog.test.ts`, `keys.test.ts`, `tool-edits.test.ts`, e2e "the Filter menu and the Filter Gallery…" |
+| Export by strips with progress, cancel and collision handling | Strips and progress were there (bands of 512 rows, the bar). Cancel (and Esc) now stop an export while it renders: nothing is written and the server lets go of its samples; once every band is sent the helper encodes, which finishes. One export per file at a time (a second to the same file is a 409); an export a tab abandoned (nothing sent for 10 minutes) is let go of. The assistant's `export_photo` stops with its turn | `exports.test.ts`, e2e "an export cancelled while it renders…" |
+| Device loss mid-stroke | The stroke is lost with its drafts; the renderer counts it (`lostStrokes`) and the stroke's controller says so ("The GPU stopped mid-stroke"); the photo is drawn again as it was and painting goes on | e2e "the GPU lost mid-stroke…" (the device destroyed between two pointer moves) |
+| An unknown effect version | Filters, adjustments, generators and layer effects from a newer app (or of a type unknown here) are kept byte for byte through save and reopen, say they're unavailable (Layers, Properties), and draw nothing (the render equals the photo without them) | e2e "effects from a newer app…" (with `light.test.ts`, `style.test.ts`, `render-plan.test.ts`) |
+| Budgets under pressure | **A bug found and fixed**: under a budget smaller than the photo's tiles, a full-resolution render (an export, a refinement, a glow's cache) could read tiles evicted by its own loading or by another render's, and export wrong pixels without a word (Settings' smallest budget, 1 GB, is 2 048 tiles: a 48 MP photo with two full painted layers and a mask needs ~2 400). Now a surface fetches only what a region needs, what's resident is marked as just used before fetching the rest, the region is drawn in the same task as the check that it's all there (`whenResident`), and a region the budget can't hold is an error saying so. A glow's cache reads only its own layer, in regions the budget holds (`glowBuildRegion`: 2 048 at every budget Settings offers) | e2e "a tight GPU budget…": an export and a 100% view at 48 MB equal a 2 GB one's bit for bit, with tiles evicted (12 runs in a row); at 24 MB the export says the budget is too small |
+| Benchmarks recorded | `photo-bench.ts --quick` after all of it: every target met, nothing slower (below) | evidence log |
+
+**Measured after F5** (`pnpm tsx scripts/photo-bench.ts --quick`, 48 MP at fit, headless Chrome 154 · Electron 44.5.0):
+open 721 · 969 ms (reopen 477 · 407); pan and zoom p95 5.1 · 6.3 ms; Exposure drag p95 8.9 · 4.3 ms; mask dab p95 8.9 ·
+8.6 ms (first 11.2 · 11.1, stroke end 7.6 · 8.6 ms, undo 24.5 · 13.8 ms); glow first response 18.4 · 13.4 ms, settled
+302 · 290 ms; flare drag p95 9.3 · 4.5 ms; 48 MP PNG export 7.2 · 2.8 s; device loss back in 210 · 174 ms; the 256 MB
+budget walk settles a view in p95 133 · 136 ms. Still open: a glow's radius drag in Electron, p95 47 ms (9.6 in
+Chrome), as F4 measured it; Chrome's export is slow because Playwright inspects each band's upload.
+
+What's left for the gate: Théo's walkthrough in the packaged app (`pnpm build:desktop`). Known limitations, written
+down: a damaged `project.json` is refused, not recovered (below); a tile is only checked for presence on open; ⌃⌘F
+is also the desktop app's View › Enter Full Screen, and which wins there hasn't been checked (Chrome hands a page
+its keys first); an export's encoding can't be cancelled once every band is sent.
 
 What opening can't do: a **damaged** `project.json` (not JSON, refused by `normalize`) is still refused with its
 message (F1's platform rule) rather than opening the checkpoint, because the tab won't open a project whose
@@ -515,5 +540,6 @@ ends with a complete workflow.
 | 2026-10-06 | F3 gate | See "F3 results": every check passed in the app (e2e) and every target in Electron 44.5.0 and Chrome 154 (bench) |
 | 2026-10-06 | F4 gate | See "F4 results": every check passed in the app (e2e) in linear compositing, and every target in Electron 44.5.0 and Chrome 154 (bench) |
 | 2026-10-06 | Straight alpha and light | A soft edge of light above white (colour over alpha) exported as a PNG and composited over black missed the app's own render by 44 levels: hence coverage at least the light's brightest channel. 8-bit alpha under ~1% moves faint light up to 7 levels: the gate uses 16 bits |
+| 2026-10-06 | Tight GPU budgets (F5) | At 24 MB a 1600 × 1200 photo's export differed from a 2 GB one's, run to run, with every variant (no glow, no mask, no paint): a region's tiles evicted by its own loading and by the screen's. Fixed (`whenResident`); 48 MB then matches bit for bit with 50–800 evictions per export |
 | 2026-10-06 | Durable writes, M5 Pro, APFS | A 200 kB file written and renamed: p50 0.22 ms; flushed too: 4.05 ms (libuv's `fsync` is `F_FULLFSYNC` on macOS); flushed with its folder: 8.03 ms (p95 10.1). So a blob upload costs ~8 ms more in the background, and a save (`project.json`, `meta.json`, the checkpoint's link) ~20 ms |
 | 2026-10-06 | Selection limiting | Limiting each dab by a pixel's coverage: a pixel half inside the selection ended at 0.998 alpha after a stroke (overlapping dabs); limiting the stroke's result: 0.500 |

@@ -10,8 +10,10 @@ Lens Flare as a generator layer, the `film` highlights; [f4-light.md](f4-light.m
 (L1: Blending Options, Photoshop's 27 blend modes, Fill, channels, Blend If and its compositing, the mode menu's live
 preview, the Layer Style window; L2: Drop and Inner Shadow, Outer and Inner Glow, Color and Gradient Overlay, Stroke,
 contours, gradients, Global Light; L3: Bevel & Emboss in every style and technique with its Contour page, Satin):
-[layer-style/README.md](layer-style/README.md). F5 (harden) is in progress: its server side is built (durable
-writes, the checkpoint, the check on open, faults; "F5 progress" in foundations-prototype.md).
+[layer-style/README.md](layer-style/README.md). F5 (harden) is built but for its gate, Théo's
+walkthrough in the packaged app ("F5 progress" in foundations-prototype.md): durable writes, the checkpoint, the
+check on open and the faults; the Filter menu and the Filter Gallery; export cancel; device loss mid-stroke; newer
+effects kept; and tight GPU budgets rendering right or saying so.
 
 A Photoshop-style image editor with dependable layers, masks, painting and retouching, and a particularly strong set
 of editable light effects. The foundations are the application's first version, so the document, resource, colour
@@ -96,5 +98,7 @@ and **Unverified** (an open question). Théo's corrections override the referenc
 | A32 | Merging F4 and Layer Style: a layer with filters (and a generator with `blendSpace`) blends in linear light in a "photoshop" document too, unless it has layer effects; Linear Dodge is unbounded in linear light (Photoshop's encoded values stop at 1) (2026-10-06) | A27 (light adds physically): mixed in encoded values a glow's halo all but vanished (measured on the light sheet's night row); a flare keeps light above white | A glowing layer's own soft edges mix in linear light, not Photoshop's way |
 | A33 | The checkpoint is the document each save replaces, hard-linked as `photo/recovery/previous.json`; every document in `photo/recovery/` is a root of collection (2026-10-06, F5) | Free (no copy), and it passed the gate when it was saved | — |
 | A34 | The check on open sets an incomplete document aside and opens the checkpoint if it's whole, else that document with only its lost surfaces emptied; the server saves what opened and says why (2026-10-06, F5) | Opening never shows a photo the server would then refuse to save (the gate), and nothing is deleted | Damaged `project.json`s: still refused (F1), not recovered |
+| A35 | Filters and generators carry a `category` and named `presets` in their definitions; the catalogue (`effects/catalog.ts`) is what the Filter menu, the Filter Gallery, the Layers menus and the assistant list; presets size what's in pixels from the canvas (2026-10-06, F5) | A new filter is a definition: no UI of its own; a look is the same on any canvas | Presets saved by the user (system.md, "Presets"): a second source for the catalogue |
+| A36 | A full-resolution render draws a region only in the same task as the check that every tile it reads is resident (`whenResident`); fetching marks what's resident as just used first; a region the budget can't hold is an error (2026-10-06, F5) | Under a tight budget a render evicted its own tiles and exported wrong pixels silently (measured) | Pinning, if regions grow past a quarter of the atlas |
 
 Progress, measurements and gates live in [foundations-prototype.md](foundations-prototype.md).

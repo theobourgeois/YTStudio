@@ -40,9 +40,13 @@ render/style.ts, their fields made in the layer's pixels and kept; reference/ble
 to Photoshop's own renders, `scripts/photoshop-probes/bevel-sheet.ts` shows the bevels beside them). A filtered or
 generator layer (isolated.ts) composites by the GPU's own blending when it's Normal or light added in linear light,
 otherwise through the blend or style pass (`fixedComposite`); light blends in linear light in a "photoshop" document
-too (`blendsInLinear`: a layer with filters, a flare with `blendSpace`). F5 (harden) is in progress: its server side
-is built (`server/photo/recovery.ts`: the checkpoint and the check on open, `SuiteBackend.keepPrevious`/`check`;
-documents and blobs written with `writeFileDurably`; `faults.test.ts`).
+too (`blendsInLinear`: a layer with filters, a flare with `blendSpace`). F5 (harden) is built but for its gate (Théo's
+walkthrough in the packaged app): the server side (`server/photo/recovery.ts`: the checkpoint and the check on open,
+`SuiteBackend.keepPrevious`/`check`; documents and blobs written with `writeFileDurably`; `faults.test.ts`), the
+Filter menu and Filter Gallery (`filters.tsx`, from the catalogue `shared/photo/effects/catalog.ts`: a filter's
+`category` and `presets` in its definition, so a new filter needs no UI of its own), export cancel, and tight GPU
+budgets: a full-resolution render draws a region only in the same task as the check that its tiles are all resident
+(`whenResident` in renderer.ts); keep it so, or an export can silently read evicted tiles.
 
 The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is
 planned in [`docs/visualizer/README.md`](docs/visualizer/README.md): signals, links, audio shaders, Perform, its

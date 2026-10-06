@@ -365,7 +365,9 @@ and quantises (8-bit with deterministic dithering, see rendering.md), and sends 
 (F0's lab: `POST /exports` to begin, `PUT /exports/:id/rows?from=` per band, `POST /exports/:id/finish`), so neither
 side ever holds the whole image (a single 192 MB body from a 48 MP page broke F0's first run). The helper encodes (PNG, JPEG over a matte; TIFF 16-bit later) into a temporary file that is renamed into
 place only when complete; cancelling deletes it; an existing file is never overwritten by a failed export. The export
-pins one document state, so editing continues meanwhile. The export loop is driven by GPU completion
+pins one document state, so editing continues meanwhile. Cancel stops it between bands (F5): the server deletes the
+samples it gathered and nothing is written; one export writes a given file at a time (409 otherwise), and one a tab
+abandoned (nothing sent for ten minutes) is let go of. The export loop is driven by GPU completion
 (`onSubmittedWorkDone`), never `requestAnimationFrame`: a window that's fully covered on macOS becomes hidden and is
 throttled even with `backgroundThrottling: false` (verified), and exports must not slow down because of that. 16-bit
 TIFF must name a lossless compression (sharp's TIFF default is JPEG, which forces 8 bits). 8-bit output is tagged
@@ -386,6 +388,7 @@ flags `server/gl-browser.ts` already passes (measured); the prototype only expor
 | Helper process dies | Restarted on the next request; its job is retried once, then fails with the file's name |
 | Server unreachable | Uploads and saves retry; the header says not saved; nothing committed is dropped from the tab |
 | Tab closes or crashes | The last autosave and its blobs are on disk; at most the debounce window is lost |
+| GPU budget too small for a region | The render (export, refinement) stops with an error naming Settings › Photo's budget; never wrong pixels (F5) |
 | Disk full | Uploads and saves fail with a 507 saying so (`diskError`); the project shows not saved; the previous good state on disk is intact, with no temporary file left |
 | Damaged blob | A read tile or manifest is checked against its name: a 500 saying it's damaged, never served; an upload of it mends it; opening treats a surface with a damaged manifest as lost |
 | Missing source file | The layer renders as missing (hatched), keeps its settings, can be relinked later |
