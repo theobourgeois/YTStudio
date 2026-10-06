@@ -189,8 +189,8 @@ export function ProjectPreviewPicture({ project }: { project: ProjectSummary }) 
             {muted ? <PiSpeakerSlash className="size-3.5" /> : <PiSpeakerHigh className="size-3.5" />}
           </button>
         )}
-        {/* A still (a photo's cover) has nothing to play: its picture is all there is, not an empty project. */}
-        {((empty && !poster) || (plays && active && (busy || failed)) || playError) && (
+        {/* A suite with nothing to play (a photo's) has its picture, or its icon: neither is an empty timeline. */}
+        {((plays && empty && !poster) || (plays && active && (busy || failed)) || playError) && (
           <span className="pointer-events-none absolute right-2 bottom-2 left-2 truncate text-center text-[10px] text-current opacity-80"
             title={playError ?? preview?.error}>
             {playError ?? (empty ? `Empty ${plays === "sound" ? "song" : "timeline"}` : failed ? "Preview unavailable" : "Preparing preview…")}
