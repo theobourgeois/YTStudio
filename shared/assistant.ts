@@ -613,7 +613,7 @@ export function describeToolCall(rawName: string, input: unknown): string {
     case "library_use":
       return "Add from the Library";
     case "export_video":
-      return `Export ${String(f("resolution") ?? "1080p")}`;
+      return `Export ${String(f("resolution") ?? "1080p")}${typeof f("format") === "string" && f("format") !== "h264" ? ` as ${String(f("format"))}` : ""}`;
     case "focus":
       return typeof f("time") === "number" ? `Show ${seconds(f("time"))}` : "Select clips";
     default:
