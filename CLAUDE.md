@@ -55,7 +55,20 @@ format, the pure analyser, reading at a time; `server/signals.ts` + `MediaLibrar
 read on the timeline by `shared/audio-signals.ts` (video: a clip's, a track's or the mix's energies summed, hits, the
 beat; a `SignalReader` per video: the tab's is `stores/signals.ts`, the export's built in `ExportService`, used through
 `withSignals`), so expressions react to sound (`audio("bass")`, `sinceHit("onsetLow")`, `envelope`, `beat()`...) alike
-in the preview and the export. The assistant's `get_signals` and `plot_signals` are its ears. V3 is next.
+in the preview and the export. The assistant's `get_signals` and `plot_signals` are its ears. **V3 is built**: links
+(`Effect.links`: a number or point follows a signal by an amount, through a response; worked out in `effectValuesAt`
+before expressions; `shared/links.ts` is their data, `linkLevel` in `audio-signals.ts` reads them,
+followers in warmed-up blocks so values never depend on what was read first), the video's own signals
+(`Project.signals`: bands of a source, hits, curves), and a nest hearing the mix of the sequence it's placed in
+(`Hearing`: whatever draws a nest wraps it in `withHearing(nestedHearing(clip, outer))`, as with `atFrameRate`). The
+link button sits by each stopwatch (`properties/link-button.tsx`); the tools are `link_param`, `define_signal`,
+`delete_signal`, `set_events` (`src/assistant/signal-edits.ts`). The Signals window (`components/signals/`) makes bands
+from a spectrum at the playhead and places hits; the timeline shows signal lanes under its ruler
+(`timeline/signal-lanes.tsx`) and, switched on there, spectrograms on audio clips. **V4 is built**: visualizers are
+video effects with `EffectShader.audio` (the Audio category, `shared/effect-library/audio.ts`); each pass carries what
+it hears at its clip's moment (`EffectPass.audio`, read by `effectPasses` through `clipAudio`), bound by the compositor
+as `uSpectrum`/`uWave` textures and uniforms (`AUDIO_PRELUDE` in `effect-gl.ts`); a `source` parameter says what it
+listens to; New item › Visualizer is a solid drawing only its visualizer. Signals files (v2) keep a small waveform.
 
 ## Commands
 
@@ -1167,7 +1180,7 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 
 ## Windows (the page can be in several)
 
-In the desktop app the music editor's windows and Settings can be windows of the operating system (off for now: `NATIVE_WINDOWS` in `floating-window.tsx`, `docs/windows.md`), drawn by the same
+In the desktop app the music editor's windows and Settings can be windows of the operating system (on on Windows, where they and the plugin windows are all owned by the main window; off on a Mac: `NATIVE_WINDOWS` in `floating-window.tsx`, `docs/windows.md`), drawn by the same
 React tree (`docs/windows.md`). `window` and `document` are always the main page's, so code that runs inside a
 window must say which one it means: `addWindowListener` for what the editor wants in every window (shortcuts, a
 drag's end), `ownerWindow` / `ownerDocument(event.target)` (`elementFromPoint`, `devicePixelRatio`, `activeElement`,

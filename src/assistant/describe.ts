@@ -31,7 +31,7 @@ import { clipEnd, clipName, clipSpeed, getTrack, outputSize, projectDuration, ti
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
 import { PRESETS, type PresetDefinition } from "@shared/presets";
 import { TRANSITIONS } from "@shared/transitions";
-import type { Clip, Effect, FontFamily, Library, Marker, MediaAsset, MusicAnalysis, ParamValue, Project, Transcript } from "@shared/types";
+import type { Clip, Effect, FontFamily, Library, Marker, MediaAsset, MusicAnalysis, ParamLink, ParamValue, Project, SignalDef, Transcript } from "@shared/types";
 import { clipMarkers, sequenceMarkers } from "@shared/markers";
 import { getSequence, sequenceDuration } from "@shared/sequences";
 import { remapSegments } from "@shared/time-remap";
@@ -59,6 +59,22 @@ const quote = (s: string, max = 60) => JSON.stringify(s.length > max ? `${s.slic
 /** `3.5 "Drop" (marker_ab12)`. */
 const markerText = (m: Marker, time: number) => `${secs(time)}${m.label ? ` ${quote(m.label, 40)}` : ""} (${m.id})`;
 
+/** A link, as link_param takes it: `"bass" add 0.3 (attack 0.01s, release 0.12s)`. */
+export function linkText(link: ParamLink): string {
+  const source = "name" in link.signal ? link.signal.source : undefined;
+  const of = !source || source.kind === "master" ? "" : source.kind === "track" ? ` of track ${source.trackId}` : ` of clip ${source.clipId}`;
+  const signal = "id" in link.signal ? `signal ${link.signal.id}` : `"${link.signal.name}"${of}`;
+  const how = link.mode === "map" ? `map to ${value(link.to)}` : `${link.mode} ${value(link.amount)}`;
+  const r = link.response;
+  const response = [
+    r.threshold ? `threshold ${r.threshold}` : "",
+    r.curve !== 1 ? `curve ${r.curve}` : "",
+    link.hit ? `hit ${secs(link.hit.attack)}/${secs(link.hit.hold)}/${secs(link.hit.decay)}s` : `attack ${secs(r.attack)}s, release ${secs(r.release)}s`,
+    r.invert ? "inverted" : "",
+  ].filter(Boolean);
+  return `${signal} ${how} (${response.join(", ")})`;
+}
+
 /** What's different about one effect: `scale 1.2, position animated (3 keyframes)`. */
 function effectSummary(def: EffectDefinition, effect: Effect, skip: readonly string[] = []): string[] {
   const out: string[] = [];
@@ -66,6 +82,8 @@ function effectSummary(def: EffectDefinition, effect: Effect, skip: readonly str
     if (skip.includes(spec.key)) continue;
     const keys = effect.keyframes?.[spec.key];
     const expression = effect.expressions?.[spec.key];
+    const link = effect.links?.[spec.key];
+    if (link) out.push(`${spec.key} linked to ${linkText(link)}`);
     if (expression !== undefined) out.push(`${spec.key} = expression ${quote(expression.replace(/\s+/g, " "), 80)}`);
     if (keys?.length) {
       out.push(`${spec.key} animated (${keys.length} keyframe${keys.length === 1 ? "" : "s"})`);
@@ -145,6 +163,18 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
   return `  ${clip.id}  ${range(clip.start, clipEnd(clip))}  ${parts.join(" · ")}`;
 }
 
+/** A custom signal in a line: `sig_ab "Kick" (kick): band 40–120 Hz of the mix, onsets`. */
+export function signalText(def: SignalDef): string {
+  const what =
+    def.kind === "band"
+      ? `band ${def.low}–${def.high} Hz of ${def.source.kind === "master" ? "the mix" : def.source.kind === "track" ? `track ${def.source.trackId}` : `clip ${def.source.clipId}`}` +
+        `${def.threshold ? `, threshold ${def.threshold}` : ""}, release ${secs(def.release)}s${def.onsets ? ", onsets" : ""}${def.autoGain ? "" : ", absolute"}`
+      : def.kind === "events"
+        ? `${def.events.length} hits${def.events.length ? ` ${range(def.events[0].time, def.events.at(-1)!.time)}s` : ""}`
+        : `curve of ${def.points.length} points`;
+  return `${def.id} ${quote(def.name)}${def.role ? ` (${def.role})` : ""}: ${what}`;
+}
+
 /** The whole timeline as text (see `get_timeline`). */
 export function describeTimeline(project: Project, assets: Assets, view: TimelineView, filter: TimelineFilter = {}): string {
   const { width, height } = outputSize(project.settings.aspectRatio, "1080p");
@@ -160,6 +190,7 @@ export function describeTimeline(project: Project, assets: Assets, view: Timelin
     const shown = markers.slice(0, 60).map((m) => markerText(m, m.time));
     lines.push(`Markers (set_markers): ${shown.join(", ")}${markers.length > 60 ? `, … ${markers.length - 60} more` : ""}`);
   }
+  if (project.signals?.length) lines.push(`The video's own signals (define_signal): ${project.signals.map(signalText).join("; ")}`);
   const nested = (project.sequences ?? []).filter((s) => s.id !== open?.id);
   if (nested.length) {
     lines.push(
@@ -243,6 +274,7 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
         enabled: e.enabled,
         params: Object.fromEntries(Object.entries(e.params).map(([k, v]) => [k, round(v)])),
         ...(e.expressions && { expressions: e.expressions }),
+        ...(e.links && { links: e.links }),
         ...(e.keyframes && {
           keyframes: Object.fromEntries(
             Object.entries(e.keyframes).map(([k, keys]) => [
@@ -326,6 +358,8 @@ function specLine(spec: ParamSpec): string {
       return `${spec.key}: font family (see get_catalog "fonts"), default ${d}`;
     case "fontStyle":
       return `${spec.key}: one of the font's styles, default ${d}`;
+    case "source":
+      return `${spec.key}: what it listens to: "master" (the mix), "self" (the clip's own sound) or "t:<audio track id>", default ${d}`;
     default:
       return `${spec.key}: text, default ${d}`;
   }

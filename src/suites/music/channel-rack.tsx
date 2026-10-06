@@ -1,5 +1,5 @@
-import { type RefObject, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ownerDocument } from "@/lib/window-events";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ownerDocument, ownerWindow } from "@/lib/window-events";
 import { PiCaretDownBold, PiCaretRightFill, PiChartBar, PiPlugs, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
@@ -181,7 +181,13 @@ export function ChannelRack() {
   const file = useRef<HTMLInputElement>(null);
   const [drop, setDrop] = useState<{ index: number; top: number } | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
-  const room = useStepsRoom(scroller);
+  // (The element as state too: in a window of the system it only exists once that window has opened.)
+  const [scrollerElement, setScrollerElement] = useState<HTMLDivElement | null>(null);
+  const scrollerRef = useCallback((element: HTMLDivElement | null) => {
+    scroller.current = element;
+    setScrollerElement(element);
+  }, []);
+  const room = useStepsRoom(scrollerElement);
 
   return (
     <MusicWindow
@@ -257,7 +263,9 @@ export function ChannelRack() {
               <ChannelLead key={channel.id} channel={channel} selected={selectedIdsNow.includes(channel.id)} sounding={sounding.has(channel.id)} />
             ))}
           </div>
-          <div ref={scroller} className="ml-1.5 overflow-x-auto pb-1" style={{ maxWidth: `min(62vw, ${room}px)` }} data-testid="rack-steps">
+          <div
+            ref={scrollerRef}
+            className="ml-1.5 overflow-x-auto pb-1" style={{ maxWidth: room.native ? `${room.width}px` : `min(62vw, ${room.width}px)` }} data-testid="rack-steps">
             <div className="flex flex-col" style={{ gap: ROW_GAP, width: stepsWidth(steps) }}>
               <StepLights steps={steps} />
               {/* An audio clip's channel too, as in FL Studio: its file can be played from steps and notes as well as from the playlist. */}
@@ -301,24 +309,36 @@ const RIGHT_OF_STEPS = 18;
  * How wide the steps can be: up to the desktop's right edge from where they start, so the end of a long
  * pattern can always be scrolled to (the window fits what's in it, and the desktop hides what's past its
  * edge: with the Browser open or the page zoomed in, 62vw went past it). Measured again when the window
- * moves and when the desktop changes size.
+ * moves and when the desktop changes size. In a window of the system (`native`) there's no desktop around
+ * it, and `vw` is that window's own width, which fits the steps: a cap of it would never let the window
+ * grow. There the room is up to the screen's right edge.
  */
-function useStepsRoom(scroller: RefObject<HTMLDivElement | null>): number {
+function useStepsRoom(element: HTMLDivElement | null): { width: number; native: boolean } {
   const place = useMusicWindows((s) => s.places.rack);
-  const [room, setRoom] = useState(MAX_STEPS_ROOM);
+  const [room, setRoom] = useState({ width: MAX_STEPS_ROOM, native: false });
   useLayoutEffect(() => {
-    const element = scroller.current;
-    const desk = element?.closest("[data-desktop]");
-    if (!element || !desk) return;
+    if (!element) return;
+    // A window of the system draws into a document of its own.
+    if (ownerDocument(element) !== document) {
+      const win = ownerWindow(element);
+      const screenRight = ((win.screen as Screen & { availLeft?: number }).availLeft ?? 0) + win.screen.availWidth;
+      const left = win.screenX + (win.outerWidth - win.innerWidth) / 2 + element.getBoundingClientRect().left;
+      const width = Math.round(clamp(screenRight - left - RIGHT_OF_STEPS, MIN_STEPS_ROOM, MAX_STEPS_ROOM));
+      setRoom((was) => (was.native && was.width === width ? was : { width, native: true }));
+      return;
+    }
+    const desk = element.closest("[data-desktop]");
+    if (!desk) return;
     const measure = () => {
       const space = desk.getBoundingClientRect().right - element.getBoundingClientRect().left - RIGHT_OF_STEPS;
-      setRoom(Math.round(clamp(space, MIN_STEPS_ROOM, MAX_STEPS_ROOM)));
+      const width = Math.round(clamp(space, MIN_STEPS_ROOM, MAX_STEPS_ROOM));
+      setRoom((was) => (!was.native && was.width === width ? was : { width, native: false }));
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(desk);
     return () => observer.disconnect();
-  }, [scroller, place]);
+  }, [element, place]);
   return room;
 }
 

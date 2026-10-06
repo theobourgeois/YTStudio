@@ -1,5 +1,5 @@
 import type { Clip, ExportResolution, Project, TextLayoutAt } from "@shared/types";
-import { APPEARANCE, TEXT, atFrameRate, hasExpressions, isTextClip, textStyleAt } from "@shared/effects";
+import { APPEARANCE, TEXT, atFrameRate, isComputed, isTextClip, textStyleAt } from "@shared/effects";
 import { keyframeTimes } from "@shared/animation";
 import { sequenceView } from "@shared/sequences";
 import { isOnVideoTrack, outputSize } from "@shared/timeline";
@@ -54,7 +54,7 @@ function lookTimes(clip: Clip, fps: number): number[] {
   const animated = clip.effects.filter((e) => e.enabled && (e.type === TEXT.type || e.type === APPEARANCE.type));
   const keys = animated.flatMap((effect) => keyframeTimes(clip, { effectId: effect.id }));
   // An expression can change it at any frame of the clip.
-  const always = animated.some(hasExpressions);
+  const always = animated.some(isComputed);
   if (keys.length === 0 && !always) return [clip.in];
   const from = always ? clip.in : Math.max(clip.in, Math.min(...keys));
   const to = always ? clip.out : Math.min(clip.out, Math.max(...keys));

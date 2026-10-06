@@ -18,6 +18,7 @@ import {
   PiSubtitles,
   PiTrash,
   PiCrosshairSimple,
+  PiWaveform,
 } from "react-icons/pi";
 import { type LayerKind, addTrack } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { cn } from "cn";
 import { useCaptions } from "@/stores/captions";
+import { useSignalView } from "@/stores/signal-view";
 import { MAX_ZOOM, useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { TOOLBAR_HEIGHT } from "./constants";
@@ -174,7 +176,8 @@ export function TimelineToolbar() {
           <TooltipContent side="top" className="max-w-64">
             Add an adjustment layer (its effects change everything below it), a solid (a colour for effects to draw on),
             a shape layer (vector shapes, drawn with the Pen, Rectangle and Ellipse tools too), a camera (3D layers are
-            seen through it) or a null object (clips parented to it follow its Motion).
+            seen through it), a null object (clips parented to it follow its Motion) or a visualizer (spectrum bars
+            that move with the song; the Effects tab's Audio category has more).
           </TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start" className="w-64">
@@ -196,6 +199,9 @@ export function TimelineToolbar() {
           <DropdownMenuItem onSelect={() => newLayer("null")}>
             <PiCrosshairSimple /> Null object
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => newLayer("visualizer")}>
+            <PiWaveform /> Visualizer
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -209,6 +215,17 @@ export function TimelineToolbar() {
       >
         <PiSubtitles />
         <span>Captions</span>
+      </ToolButton>
+
+      <ToolButton
+        label="Signals"
+        hint="Sounds of your own to react to: a band of the song, or hits you place"
+        wide
+        onClick={() => useSignalView.getState().show()}
+        className="px-2 text-xs text-muted-foreground hover:text-foreground"
+      >
+        <PiWaveform />
+        <span>Signals</span>
       </ToolButton>
 
       <div className="ml-auto flex items-center gap-1">

@@ -40,7 +40,6 @@ import {
 import {
   APPEARANCE,
   EFFECTS,
-  type EffectDefinition,
   CAMERA,
   MOTION,
   SHAPE,
@@ -133,7 +132,7 @@ import {
   storedTransition,
 } from "@shared/transition-windows";
 import { ALIGNMENT_SPEC, DURATION_SPEC, transitionDefinition } from "@shared/transitions";
-import type { AspectRatio, Clip, Easing, Effect, Keyframe, MediaAsset, ParamValues, Project, Track } from "@shared/types";
+import type { AspectRatio, Clip, Easing, Keyframe, MediaAsset, ParamValues, Project, Track } from "@shared/types";
 import {
   type Input,
   PATH_FORMAT,
@@ -153,6 +152,9 @@ import {
   strings,
   value,
 } from "./input";
+import { clipOf, effectOf } from "./lookup";
+import { defineSignalTool, deleteSignalTool, linkParamTool, setEventsTool } from "./signal-edits";
+import type { SignalStore } from "@shared/audio-signals";
 
 export interface EditEnv {
   /** The video's media, and its nested sequences as media. */
@@ -160,6 +162,11 @@ export interface EditEnv {
   playhead: number;
   /** The nested sequence the project is a view of (null or absent: the main one). */
   sequenceId?: string | null;
+  /**
+   * The video's sounds, for edits that place things on them or say what they do (links, events): its
+   * files' signals, and the whole video with an edited view put back in it.
+   */
+  signals?: { store: SignalStore; document(view: Project): Project };
 }
 
 export interface EditOutcome {
@@ -175,11 +182,6 @@ type EditHandler = (project: Project, input: Input, env: EditEnv) => EditOutcome
 // Helpers
 // ---------------------------------------------------------------------------
 
-function clipOf(project: Project, id: string): Clip {
-  const clip = getClip(project, id);
-  if (!clip) throw new ToolError(`There's no clip "${id}". Call get_timeline for the current clip ids.`);
-  return clip;
-}
 
 function trackOf(project: Project, id: string): Track {
   const track = getTrack(project, id);
@@ -194,15 +196,6 @@ function place(project: Project, clip: Clip, env: EditEnv): string {
   return `${clip.id} "${clipName(clip, env.assets[clip.assetId])}" on ${trackName(project, clip.trackId)} at ${range(clip.start, clipEnd(clip))}`;
 }
 
-/** One of a clip's effects, by id (or by type when that's unambiguous). */
-function effectOf(clip: Clip, id: string): { effect: Effect; def: EffectDefinition } {
-  const effect = clip.effects.find((e) => e.id === id) ?? clip.effects.find((e) => e.type === id);
-  const def = effect && effectDefinition(effect.type);
-  if (!effect || !def) {
-    throw new ToolError(`Clip ${clip.id} has no effect "${id}". Its effects: ${clip.effects.map((e) => e.id).join(", ")}.`);
-  }
-  return { effect, def };
-}
 
 function expected(spec: ParamSpec): string {
   switch (spec.kind) {
@@ -362,8 +355,8 @@ const addText: EditHandler = (project, input, env) => {
 };
 
 const addLayer: EditHandler = (project, input, env) => {
-  const kind = oneOf(input, "kind", ["adjustment", "solid", "shape", "camera", "null"] as const);
-  if (!kind) throw new ToolError('`kind` must be "adjustment", "solid", "shape", "camera" or "null".');
+  const kind = oneOf(input, "kind", ["adjustment", "solid", "shape", "camera", "null", "visualizer"] as const);
+  if (!kind) throw new ToolError('`kind` must be "adjustment", "solid", "shape", "camera", "null" or "visualizer".');
   const start = number(input, "start", { min: 0 });
   const duration = optNumber(input, "duration", { min: MIN_CLIP_DURATION }) ?? STILL_DURATION;
   const trackId = optString(input, "trackId");
@@ -385,9 +378,11 @@ const addLayer: EditHandler = (project, input, env) => {
       : kind === "camera" && cameraValues
         ? checkParams(CAMERA.params, cameraValues, "Camera").values
         : (shape?.values ?? {});
-  const clip = newLayerClip(kind, start, duration, values);
-  let p = addLayerClip(project, clip, trackId).project;
   const raw = input.effects;
+  // A visualizer with effects given draws those (Audio effects alone over what's below), not the default bars.
+  const ownVisualizers = kind === "visualizer" && Array.isArray(raw) && raw.length > 0;
+  const clip = ownVisualizers ? newLayerClip("solid", start, duration, { color: "#000000" }) : newLayerClip(kind, start, duration, values);
+  let p = addLayerClip(project, clip, trackId).project;
   if (raw !== undefined && !Array.isArray(raw)) throw new ToolError("`effects` must be a list of { type, params }.");
   for (const [i, item] of (raw ?? []).entries()) {
     if (!item || typeof item !== "object") throw new ToolError(`effects[${i}] must be { type, params }.`);
@@ -396,7 +391,8 @@ const addLayer: EditHandler = (project, input, env) => {
     if (!def || !(def.shader || def.stackable)) {
       throw new ToolError(`effects[${i}]: "${type}" isn't a video effect, a mask or a shape layer's content. See get_catalog with kind "video_effects" or "masks_and_shapes".`);
     }
-    const { values, notes: clamped } = checkParams(def.params, optObject(item as Input, "params") ?? {}, def.label);
+    const given = optObject(item as Input, "params") ?? {};
+    const { values, notes: clamped } = checkParams(def.params, kind === "visualizer" && def.shader?.audio ? { blendMode: "replace", ...given } : given, def.label);
     notes.push(...clamped);
     const res = addEffect(p, [clip.id], type, values);
     if (!res.added.size) throw new ToolError(`effects[${i}]: ${def.label} doesn't go on ${kind === "shape" ? "a shape layer" : `a ${kind} layer`}.`);
@@ -411,7 +407,8 @@ const addLayer: EditHandler = (project, input, env) => {
       `Added ${kind === "adjustment" ? "adjustment layer" : kind === "null" ? "null object" : kind === "shape" ? "shape layer" : kind} ${place(p, placed, env)}${effects.length ? ` with ${effects.join(", ")}` : ""}.` +
         (kind === "camera" ? " Only 3D layers (motion threeD: true) are seen through it." : "") +
         (kind === "shape" ? " Add more shapes and operators to it with add_effect, in the order they apply." : "") +
-        (kind === "null" ? " Parent clips to it with set_parent, then animate its motion." : ""),
+        (kind === "null" ? " Parent clips to it with set_parent, then animate its motion." : "") +
+        (kind === "visualizer" ? " It draws only its Audio effects (blendMode replace), listening to the mix; change them with edit_effect." : ""),
       notes,
     ),
   };
@@ -1261,6 +1258,10 @@ export const EDITS: Record<EditToolName, EditHandler> = {
   set_markers: setMarkersTool,
   cut_to_markers: cutToMarkersTool,
   set_expression: setExpressionTool,
+  link_param: linkParamTool,
+  define_signal: defineSignalTool,
+  delete_signal: deleteSignalTool,
+  set_events: setEventsTool,
   nest_clips: nestClipsTool,
   break_apart: breakApartTool,
   edit_sequence: editSequenceTool,

@@ -2,13 +2,15 @@
  * The assistant's ears: a video's sounds analysed and loaded (waited for, so its answers are never
  * about sound not yet heard), plot_signals' picture, and view_frames' contact sheets.
  */
-import { type SignalReader, type SignalSource, beatGridAt, createSignalReader, isOnsetName, isSignalName, signalAssets, signalValue, sourceHits } from "@shared/audio-signals";
+import { type SignalReader, type SignalSource, beatGridAt, createSignalReader, customSignalHits, isOnsetName, signalAssets, sourceHits } from "@shared/audio-signals";
+import { findSignal } from "@shared/links";
 import { SIGNALS_VERSION, type SignalData } from "@shared/signals/format";
 import type { ToolContent } from "@shared/tool-spec";
 import type { MediaAsset } from "@shared/types";
 import { api } from "@/lib/api";
 import { loadSignals } from "@/stores/signals";
 import type { ToolDoc } from "./doc";
+import { signalReadersOf } from "./describe-signals";
 import { ToolError, secs } from "./input";
 
 const POLL_MS = 500;
@@ -59,7 +61,7 @@ export function plotSignals(
   to: number,
   width: number,
 ): ToolContent[] {
-  for (const name of names) if (!isSignalName(name)) throw new ToolError(`There's no signal "${name}".`);
+  const read = signalReadersOf(reader, sequenceId, source, names);
   const lane = 90;
   const axis = 24;
   const canvas = document.createElement("canvas");
@@ -99,7 +101,7 @@ export function plotSignals(
     ctx.moveTo(0, top + lane - 2);
     for (let px = 0; px < width; px++) {
       const t = from + px * column;
-      const v = signalValue(reader, sequenceId, source, name as never, t + column, isOnsetName(name) ? column : 0);
+      const v = read[i](t + column, column);
       const shown = name === "balance" ? (v + 1) / 2 : v;
       ctx.lineTo(px, top + lane - 2 - shown * (lane - 18));
     }
@@ -109,9 +111,11 @@ export function plotSignals(
     ctx.fill();
     ctx.strokeStyle = colour;
     ctx.stroke();
-    if (isOnsetName(name)) {
+    const own = findSignal(reader.document, name);
+    const hits = isOnsetName(name) ? sourceHits(reader, sequenceId, source, name) : own ? customSignalHits(reader, own, from, to) : [];
+    if (hits.length) {
       ctx.fillStyle = "#ffffff";
-      for (const [t, v] of sourceHits(reader, sequenceId, source, name)) {
+      for (const [t, v] of hits) {
         if (t < from || t > to) continue;
         ctx.fillRect(Math.round(x(t)), top + 14, 2, 4 + v * 10);
       }

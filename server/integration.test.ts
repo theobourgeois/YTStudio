@@ -5,13 +5,13 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { addEffect, defaultEffects, setEffectEnabled, setExpression, setParams, shapeEffects, solidEffects, textEffects } from "../shared/effects.ts";
+import { addEffect, defaultEffects, setEffectEnabled, setExpression, setLink, setParams, shapeEffects, solidEffects, textEffects } from "../shared/effects.ts";
 import { SIGNALS_VERSION, decodeSignals } from "../shared/signals/format.ts";
 import { addMask } from "../shared/masks.ts";
 import { addAnimator } from "../shared/text-animators.ts";
 import { ellipsePath, polygonPath, rectPath } from "../shared/path.ts";
 import { addFreezeFrame, addReverseSection } from "../shared/time-remap.ts";
-import { nestClips } from "../shared/sequences.ts";
+import { nestClips, sequenceView, writeSequence } from "../shared/sequences.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
 import type {
   Clip,
@@ -959,6 +959,40 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     // Just after each thump it's bright; a quarter second later and before the first, black.
     for (const t of [0.52, 1.52, 2.52]) expect(pixelAt(output, t, 360, 640)[0], `at ${t}s`).toBeGreaterThan(200);
     for (const t of [0.2, 0.8, 1.9]) expect(pixelAt(output, t, 360, 640)[0], `at ${t}s`).toBeLessThan(30);
+
+    // The same flash as a link, on a look kept in a nested sequence placed from 1 s: it hears the song
+    // of the video it's in (its own sequence has no sound), at its moment there.
+    const base = createDefaultProject();
+    const look = { id: "seq_look", name: "Look", settings: base.settings, tracks: [{ id: "look_v", kind: "video" as const, name: "Video 1", muted: false }], clips: [
+      { id: "flash", assetId: "", trackId: "look_v", start: 0, in: 0, out: 2, effects: solidEffects({ color: "#ffffff" }) },
+    ] };
+    let linked: Project = {
+      ...projectWith([
+        { id: "nest", assetId: "seq_look", trackId: "main", start: 1, in: 0, out: 2, effects: defaultEffects() },
+        { ...clip("tone", "audio_1", 0, 0, 3), assetId: thumps.id },
+      ]),
+      sequences: [look],
+    };
+    const inLook = (edit: (view: Project) => Project) => (p: Project) => writeSequence(p, "seq_look", edit(sequenceView(p, "seq_look")));
+    linked = inLook((v) => setParams(v, "flash", "opacity", { opacity: 0 }, 0))(linked);
+    linked = inLook((v) => setLink(v, "flash", "opacity", "opacity", { signal: { name: "onsetLow" }, mode: "add", amount: 1, response: { threshold: 0, curve: 1, attack: 0, release: 0, invert: false }, hit: { attack: 0, hold: 0, decay: 0.2 } }))(linked);
+    const linkedJob = await waitForExport(((await (await sendJson("POST", "/api/exports", { project: linked, resolution: "720p" })).json()) as ExportJob).id);
+    expect(linkedJob.error).toBeUndefined();
+    const linkedOut = path.join(dataDir, "exports", `${linkedJob.id}.mp4`);
+    for (const t of [1.52, 2.52]) expect(pixelAt(linkedOut, t, 360, 640)[0], `linked at ${t}s`).toBeGreaterThan(200);
+    for (const t of [0.52, 1.9, 2.8]) expect(pixelAt(linkedOut, t, 360, 640)[0], `linked at ${t}s`).toBeLessThan(30);
+
+    // A visualizer: a black solid that flashes white on each kick (Strobe on Hits), its sound sent with each frame.
+    let strobe = projectWith([
+      { id: "strobe", assetId: "", trackId: "main", start: 0, in: 0, out: 3, effects: solidEffects({ color: "#000000" }) },
+      { ...clip("tone", "audio_1", 0, 0, 3), assetId: thumps.id },
+    ]);
+    strobe = addEffect(strobe, ["strobe"], "audio-strobe", { hits: "kicks", mode: "flash", amount: 1, decay: 0.08, color: "#ffffff" }).project;
+    const strobeJob = await waitForExport(((await (await sendJson("POST", "/api/exports", { project: strobe, resolution: "720p" })).json()) as ExportJob).id);
+    expect(strobeJob.error).toBeUndefined();
+    const strobeOut = path.join(dataDir, "exports", `${strobeJob.id}.mp4`);
+    for (const t of [0.52, 1.52, 2.52]) expect(pixelAt(strobeOut, t, 360, 640)[0], `strobe at ${t}s`).toBeGreaterThan(150);
+    for (const t of [0.3, 0.95, 2]) expect(pixelAt(strobeOut, t, 360, 640)[0], `strobe at ${t}s`).toBeLessThan(30);
   });
 
   it("cancels queued and running exports", async () => {

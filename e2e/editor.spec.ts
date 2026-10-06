@@ -1558,6 +1558,137 @@ test("marks a song's beats on its clip and cuts a clip to them", async ({ page }
   expect(await page.locator("[data-beat]").count()).toBeGreaterThan(8);
 });
 
+test("links a clip's scale to the song's bass, then to its kicks, and unlinks it", async ({ page }) => {
+  await openLatest(page);
+  await newVideo(page);
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles([FILES[0], FILES[3]]);
+  await expect(page.locator("[draggable=true]").filter({ hasText: "music-20s" }).first()).toBeVisible();
+  await dragAsset(page, "music-20s", await timeX(page, 0.05), await laneY(page, "Audio 1"));
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+  await dragAsset(page, "vertical-1080x1920", await timeX(page, 0.05), await laneY(page, "Video 1"));
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(2);
+  const [video] = await timelineClips(page);
+  await page.mouse.click(video.x + 30, video.y + video.h / 2);
+  await page.getByRole("tab", { name: "Properties", exact: true }).click();
+  type Linked = { id: string; effects: (FullEffect & { links?: Record<string, { signal: { name?: string }; mode: string; amount: unknown; hit?: object }> })[] };
+  const link = async () => ((await savedProject(page)).clips as Linked[]).find((c) => c.id === video.id)?.effects.find((e) => e.type === "motion")?.links?.scale;
+
+  // The link button by Scale's stopwatch links it to the bass at once (a fifth more at full) and opens its popover.
+  const motion = page.getByRole("region", { name: "Motion" });
+  await motion.getByRole("button", { name: "Link Scale to a signal" }).click();
+  await expect.poll(link).toMatchObject({ signal: { name: "bass" }, mode: "add", amount: 0.2 });
+  const popover = page.locator("[data-link-popover=scale]");
+  await expect(popover).toBeVisible();
+  // Its meter reads the song once it's analysed.
+  await expect(popover.locator("[data-link-value]")).toContainText("Now", { timeout: 60_000 });
+
+  // Kicks: hits, each a punch.
+  await popover.getByRole("combobox", { name: "Scale: signal" }).click();
+  await page.getByRole("option", { name: "Kicks" }).click();
+  await expect.poll(link).toMatchObject({ signal: { name: "onsetLow" }, hit: { decay: 0.25 } });
+  await popover.getByRole("radio", { name: "multiply" }).click();
+  await expect.poll(link).toMatchObject({ mode: "multiply", amount: 0.3 });
+  // One undo takes the mode back; Unlink takes the link away.
+  await page.keyboard.press("Escape");
+  await expect(popover).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(link).toMatchObject({ mode: "add" });
+  await expect(motion.getByRole("button", { name: "Link Scale to a signal" })).toHaveAttribute("aria-pressed", "true");
+  await motion.getByRole("button", { name: "Link Scale to a signal" }).click();
+  await page.locator("[data-link-popover=scale]").getByRole("button", { name: "Unlink" }).click();
+  await expect.poll(link).toBeUndefined();
+});
+
+test("makes signals in the Signals window: a band from the spectrum, hits dragged on their lane, spectrograms", async ({ page }) => {
+  await openLatest(page);
+  await newVideo(page);
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles([FILES[3]]);
+  await expect(page.locator("[draggable=true]").filter({ hasText: "music-20s" }).first()).toBeVisible();
+  await dragAsset(page, "music-20s", await timeX(page, 0.05), await laneY(page, "Audio 1"));
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+  type Signal = { id: string; name: string; kind: string; low?: number; high?: number; events?: { time: number }[] };
+  const signals = async () => ((await savedProject(page)).signals ?? []) as Signal[];
+
+  // The toolbar's Signals opens the window; New band makes a kick (40–120 Hz).
+  await page.getByRole("button", { name: /^Signals/ }).click();
+  const win = page.locator("[data-signals-window]");
+  await expect(win).toBeVisible();
+  await win.getByRole("button", { name: "New band" }).click();
+  await expect.poll(signals).toMatchObject([{ name: "Kick", kind: "band", low: 40, high: 120 }]);
+  // Dragged across the spectrum (log, 20 Hz to 20 kHz): about 200 Hz to 2 kHz.
+  const spectrum = (await win.locator("[data-spectrum]").boundingBox())!;
+  const at = (hz: number) => spectrum.x + (Math.log(hz / 20) / Math.log(1000)) * spectrum.width;
+  await drag(page, { x: at(200), y: spectrum.y + 40 }, { x: at(2000), y: spectrum.y + 40 });
+  await expect.poll(async () => {
+    const [kick] = await signals();
+    return Math.abs(Math.log((kick.low ?? 0) / 200)) < 0.1 && Math.abs(Math.log((kick.high ?? 0) / 2000)) < 0.1;
+  }).toBe(true);
+  // Its lane shows under the ruler, and the meter reads the song once it's analysed.
+  await expect(page.locator("[data-signal-lane]")).toHaveCount(1);
+  await expect(win.locator("[data-signal-meter]")).toContainText("Now");
+
+  // New hits, one at the playhead (1 s): dragged half a second along its lane, then right-clicked away.
+  await win.getByRole("button", { name: "New hits" }).click();
+  await expect.poll(async () => (await signals()).length).toBe(2);
+  const ruler = (await page.locator("[data-timeline-ruler]").boundingBox())!;
+  await page.mouse.click(ruler.x + 60, ruler.y + ruler.height / 2);
+  await win.getByRole("button", { name: "At the playhead" }).click();
+  const hits = async () => (await signals())[1]?.events?.map((e) => Math.round(e.time * 100) / 100);
+  await expect.poll(hits).toEqual([1]);
+  const tick = (await page.locator("[data-hit]").first().boundingBox())!;
+  // Without snapping (the magnet), so it lands where it's let go rather than on a beat.
+  await page.getByRole("button", { name: "Snapping" }).click();
+  await drag(page, { x: tick.x + 1, y: tick.y + tick.height / 2 }, { x: tick.x + 1 + 30, y: tick.y + tick.height / 2 });
+  await expect.poll(hits).toEqual([1.5]);
+  const moved = (await page.locator("[data-hit]").first().boundingBox())!;
+  await page.mouse.click(moved.x + 1, moved.y + moved.height / 2, { button: "right" });
+  await expect.poll(hits).toEqual([]);
+
+  // Spectrograms instead of waveforms on audio clips.
+  await expect(page.locator("[data-spectrogram]")).toHaveCount(0);
+  await win.getByRole("switch", { name: "Spectrograms on audio clips" }).click();
+  await expect(page.locator("[data-spectrogram]").first()).toBeVisible();
+  await win.getByRole("switch", { name: "Spectrograms on audio clips" }).click();
+  await page.getByRole("button", { name: "Snapping" }).click();
+});
+
+test("adds a visualizer that moves with the song, and edits what it listens to", async ({ page }) => {
+  await openLatest(page);
+  await newVideo(page);
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles([FILES[3]]);
+  await expect(page.locator("[draggable=true]").filter({ hasText: "music-20s" }).first()).toBeVisible();
+  await dragAsset(page, "music-20s", await timeX(page, 0), await laneY(page, "Audio 1"));
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+  type Visual = { id: string; out: number; effects: { type: string; params: Record<string, unknown> }[] };
+  const visualizer = async () => ((await savedProject(page)).clips as Visual[]).find((c) => c.effects.some((e) => e.type === "audio-bars"));
+
+  // New item › Visualizer: Spectrum Bars drawn alone over what's below, as long as the song.
+  const ruler = (await page.locator("[data-timeline-ruler]").boundingBox())!;
+  await page.mouse.click(ruler.x + 1, ruler.y + ruler.height / 2);
+  await page.getByRole("button", { name: "New layer" }).click();
+  await page.getByRole("menuitem", { name: "Visualizer" }).click();
+  await expect.poll(async () => (await visualizer())?.effects.find((e) => e.type === "audio-bars")?.params).toMatchObject({ blendMode: "replace", source: "master" });
+  expect((await visualizer())!.out).toBeGreaterThan(19);
+
+  // Once the song is analysed, bars stand on the Program monitor while it plays (the canvas is black elsewhere).
+  await page.mouse.click(ruler.x + 2 * 60, ruler.y + ruler.height / 2);
+  const lit = async () => {
+    for (let u = 0.1; u < 0.9; u += 0.02) if ((await monitorPixel(page, u, 0.68)).some((c) => c > 60)) return true;
+    return false;
+  };
+  await expect.poll(lit, { timeout: 60_000 }).toBe(true);
+  await page.screenshot({ path: "/tmp/visualizer.png" });
+
+  // Its Listens To picks an audio track; Properties shows the Audio effect's controls.
+  const bars = page.getByRole("region", { name: "Spectrum Bars" });
+  await bars.getByRole("combobox", { name: "Listens To" }).click();
+  await page.getByRole("option", { name: "Audio 1" }).click();
+  await expect.poll(async () => (await visualizer())?.effects.find((e) => e.type === "audio-bars")?.params.source).toMatch(/^t:/);
+});
+
 test("pinching over the monitor scales the selected clip, as one undo step", async ({ page }) => {
   await openLatest(page);
   await newVideo(page);

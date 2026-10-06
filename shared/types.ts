@@ -337,6 +337,109 @@ export interface Effect {
    * or keyframed). Only on numbers and points.
    */
   expressions?: Record<string, string>;
+  /**
+   * Links to signals, by parameter key: the parameter moves with a sound (the bass, the kick, a custom
+   * signal) by an amount (see `shared/links.ts`). Worked out after keyframes and before an expression,
+   * which sees the linked value. Only where an expression can be (numbers and points).
+   */
+  links?: Record<string, ParamLink>;
+}
+
+// ---------------------------------------------------------------------------
+// Signals and links (the visualizer: docs/visualizer/README.md)
+// ---------------------------------------------------------------------------
+
+/** What a signal is read from, in a sequence: the whole mix, one track, or one clip. */
+export type SignalSource = { kind: "master" } | { kind: "track"; trackId: string } | { kind: "clip"; clipId: string };
+
+/** What a custom signal stands for, so looks made for "the kick" find it in any video. */
+export type SignalRole = "kick" | "snare" | "hats" | "bass" | "vocal" | "lead" | "mix";
+
+/** A hit of an events signal: a pad pressed, a note played, a moment the assistant chose (timeline seconds). */
+export interface SignalEvent {
+  time: number;
+  /** 0..1. */
+  velocity: number;
+  /** Seconds it's held (a note's length), when it has one. */
+  length?: number;
+  /** A MIDI note number, when it came from one. */
+  key?: number;
+}
+
+/**
+ * A signal of the video's own, by name (Trapcode Sound Keys'): a band of frequencies of a source
+ * shaped into 0..1, a list of hits, or a curve. Times are on the main sequence's timeline.
+ */
+export type SignalDef = {
+  id: string;
+  name: string;
+  /** A CSS colour (#rrggbb). */
+  color: string;
+  role?: SignalRole;
+} & (
+  | {
+      kind: "band";
+      source: SignalSource;
+      /** Hz, low < high. */
+      low: number;
+      high: number;
+      /** dB added before the threshold. */
+      gain: number;
+      /** 0..1: below it the signal reads 0, and what's above is stretched to 0..1. */
+      threshold: number;
+      /** Seconds to rise and to fall (0: at once). */
+      attack: number;
+      release: number;
+      /** A power: 1 straight, above 1 only the loud parts count, below 1 the quiet ones too. */
+      curve: number;
+      /** 0..1 against the sound's own loud parts (true), or against full scale. */
+      autoGain: boolean;
+      /** Also a hit each time it rises out of silence. */
+      onsets: boolean;
+    }
+  | { kind: "events"; events: SignalEvent[] }
+  | { kind: "curve"; points: { time: number; value: number }[] }
+);
+
+/**
+ * Which signal: a built-in one by name (`level`, `bass`, `onsetLow`, `beat`...; see `LINK_SIGNALS`)
+ * of a source (absent: the mix), or a custom one by id.
+ */
+export type SignalRef = { name: string; source?: SignalSource } | { id: string };
+
+/** How a signal's 0..1 is shaped before it moves anything. */
+export interface SignalResponse {
+  /** 0..1: below it nothing moves. */
+  threshold: number;
+  /** A power on what's above the threshold. */
+  curve: number;
+  /** Seconds to rise and to fall. */
+  attack: number;
+  release: number;
+  /** 1 - the value: moves when it's quiet. */
+  invert: boolean;
+}
+
+/** What one hit does over time (attack up to its velocity, hold, decay to 0), in seconds. */
+export interface HitShape {
+  attack: number;
+  hold: number;
+  decay: number;
+}
+
+/**
+ * A parameter linked to a signal (`Effect.links`). `add`: plus `amount` times the signal;
+ * `multiply`: times 1 + `amount` times the signal (0.5: up to 50% more); `map`: from its own value
+ * towards `to` as the signal goes from 0 to 1. A point's amounts may be points.
+ */
+export interface ParamLink {
+  signal: SignalRef;
+  mode: "add" | "multiply" | "map";
+  amount: number | Vec2;
+  to?: number | Vec2;
+  response: SignalResponse;
+  /** For hits (events, onsets, the beat): the shape each one makes. Absent: they're read as they come. */
+  hit?: HitShape;
 }
 
 /**
@@ -356,6 +459,8 @@ export interface Project {
   markers?: Marker[];
   /** Parts of media files kept as media of their own (see `Subclip`), in the order they were made. */
   subclips?: Subclip[];
+  /** The video's own signals (`SignalDef`), for every sequence, in the order they were made. */
+  signals?: SignalDef[];
   /**
    * Nested sequences (Premiere's nests, After Effects' precomps), in the order they were made.
    * The project's own tracks and clips are its main sequence. A clip plays a sequence by

@@ -15,6 +15,7 @@ import { contentWidth, layoutLanes } from "./geometry";
 import { DragGhosts, DropIndicator, EmptyVideoHint, LaneBackgrounds, MarqueeBox, SelectedGap, SnapGuide } from "./lane-overlays";
 import { PlayheadLine, usePlayheadFollow } from "./playhead";
 import { Ruler } from "./ruler";
+import { SignalLanes } from "./signal-lanes";
 import { TimelineClip } from "./timeline-clip";
 import { LanesContextMenu } from "./timeline-menus";
 import { TrackHeaders } from "./track-headers";
@@ -79,6 +80,7 @@ export function TimelineBody() {
           <div className="sticky left-0 z-20 shrink-0 border-r bg-timeline" style={{ width: HEADER_WIDTH }} />
           <Ruler width={width} zoom={zoom} />
         </div>
+        <SignalLanes width={width} zoom={zoom} />
         <div className="flex flex-1">
           <TrackHeaders tracks={tracks} lanes={lanes} />
           <LanesContextMenu>
