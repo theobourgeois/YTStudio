@@ -13,7 +13,8 @@
 import type { DocumentBase } from "../suites.ts";
 
 /**
- * 4: Blending Options and compositing (3: pixel layers and masks; 2: adjustment layers). An older document is a
+ * 4: Blending Options and compositing, then layer styles and Global Light (3: pixel layers and masks; 2: adjustment
+ * layers): fields absent at their defaults, so an older version-4 photo is still one. An older document is a
  * valid version-4 one (compositing in linear light, as it was made); an older app refuses a newer one.
  */
 export const PHOTO_VERSION = 4;
@@ -104,6 +105,28 @@ export interface BlendingOptions {
   /** Channels that blend; an excluded one keeps what's below. Absent: all three. */
   channels?: { r: boolean; g: boolean; b: boolean };
   blendIf?: BlendIf;
+  /** Blend Interior Effects as Group: the overlays, inner glow and inner shadow join the layer's pixels before its mode and Fill. */
+  interiorAsGroup?: boolean;
+  /** Layer Mask Hides Effects: the effects are made from the layer's pixels unmasked, then the mask hides them too. */
+  maskHidesEffects?: boolean;
+}
+
+/**
+ * A layer's style (Photoshop's fx: docs/photo/layer-style/README.md, phase L2): its effects, each an
+ * `EffectInstance` of a style definition (`shared/photo/style/definitions.ts`), kept in drawing order, bottom
+ * first. `enabled` is the Layers panel's "Effects" eye (Hide All Effects).
+ */
+export interface LayerStyle {
+  enabled: boolean;
+  effects: EffectInstance[];
+}
+
+/** The document's one light (Layer › Layer Style › Global Light): what effects with Use Global Light follow. */
+export interface GlobalLight {
+  /** Degrees, where the light comes from: anticlockwise from 3 o'clock. */
+  angle: number;
+  /** Degrees above the horizon. */
+  altitude: number;
 }
 
 interface LayerBase {
@@ -120,6 +143,8 @@ interface LayerBase {
   fill?: number;
   /** Absent: every option at its default. */
   blending?: BlendingOptions;
+  /** Layer effects (fx); absent when it has none. */
+  style?: LayerStyle;
 }
 
 /** A source image placed on the canvas, kept whole (Photoshop's embedded Smart Object, for this). */
@@ -144,8 +169,51 @@ export interface CurveSet {
   blue: CurvePoints;
 }
 
+/** One of a contour's points on 0..255: smooth, or a corner where the curve breaks (Photoshop's Contour Editor). */
+export interface ContourPoint {
+  x: number;
+  y: number;
+  corner?: true;
+}
+
+/**
+ * A contour (docs/photo/layer-style/dialog.md, "Contours"; measured: photoshop-measurements.md): how an effect's
+ * falloff is reshaped, a curve on 0..255 through its points (natural cubic splines broken at corners). `name` is
+ * the preset's ("Linear", "Cone"…) or "Custom".
+ */
+export interface Contour {
+  name: string;
+  points: ContourPoint[];
+}
+
+/** A gradient's colour stop: where (0..1), the colour (sRGB "#rrggbb"), and where between it and the next the mix is half (0..1, absent ½). */
+export interface GradientColourStop {
+  at: number;
+  colour: string;
+  mid?: number;
+}
+
+/** A gradient's opacity stop (0..1 each). */
+export interface GradientOpacityStop {
+  at: number;
+  opacity: number;
+  mid?: number;
+}
+
+/**
+ * A gradient (Photoshop's Gradient Editor): colour stops and opacity stops, kept apart as Photoshop keeps them, and
+ * how it interpolates (stroke-satin-overlays.md, "Gradient Overlay": Classic measured, Linear in linear light,
+ * Perceptual in OKLab).
+ */
+export interface Gradient {
+  name: string;
+  colours: GradientColourStop[];
+  opacities: GradientOpacityStop[];
+  method: "classic" | "linear" | "perceptual";
+}
+
 /** A parameter's value: what the definitions' specs allow (`shared/photo/effects/params.ts`). */
-export type EffectParamValue = number | boolean | string | CurveSet;
+export type EffectParamValue = number | boolean | string | CurveSet | Contour | Gradient;
 
 /**
  * An effect as a document holds it (docs/photo/effects/system.md, "Definition and instance"): its type and the
@@ -226,6 +294,8 @@ export interface PhotoProject extends DocumentBase {
   canvas: PhotoCanvas;
   /** Absent: "linear" (photos made before version 4). New photos are "photoshop". */
   compositing?: Compositing;
+  /** Absent: 120° and 30°, Photoshop's. */
+  globalLight?: GlobalLight;
   /** How light above white leaves (rendering.md, "The output transform"); film rolls it off, clip clips it. */
   output: { highlights: "film" | "clip" };
   /** Bottom to top. */

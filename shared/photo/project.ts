@@ -6,6 +6,7 @@
  */
 import { createId } from "../ids.ts";
 import { normalizeLayerBlending } from "./blending.ts";
+import { normalizeStyle } from "./style/style.ts";
 import { effectDefinition, validateParams } from "./effects/index.ts";
 import { isHash } from "./surfaces.ts";
 import {
@@ -151,7 +152,13 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
     opacity: Math.max(0, Math.min(1, finite(l.opacity, 1))),
     ...normalizeMask(l.mask, id, report),
     ...normalizeLayerBlending(l),
+    // Adjustment layers have Blending Options but no effects (Photoshop's).
+    ...(l.kind === "adjustment" ? {} : styleOf(l.style)),
   });
+  const styleOf = (value: unknown) => {
+    const style = normalizeStyle(value, seen, () => createId("fx"), report);
+    return style ? { style } : {};
+  };
   if (l.kind === "image") {
     if (typeof l.mediaId !== "string" || !l.mediaId) return null;
     const id = uniqueId(l.id, "layer", seen);
@@ -197,6 +204,14 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
  * compositing in linear light as it was made). Throws only when it isn't a photo at all, or a newer version made
  * it (opening it here would lose what this version doesn't know). What it repairs is told to `report`.
  */
+/** Global Light checked: kept when it's two finite numbers (the angle wrapped, the altitude on 0..90). */
+function globalLightOf(value: unknown): { globalLight?: { angle: number; altitude: number } } {
+  if (!value || typeof value !== "object") return {};
+  const g = value as Record<string, unknown>;
+  if (typeof g.angle !== "number" || typeof g.altitude !== "number" || !Number.isFinite(g.angle) || !Number.isFinite(g.altitude)) return {};
+  return { globalLight: { angle: wrapDegrees(g.angle), altitude: Math.max(0, Math.min(90, g.altitude)) } };
+}
+
 export function normalizePhotoProject(value: unknown, report: Report = () => {}): PhotoProject {
   if (!value || typeof value !== "object") throw new Error("Not a photo.");
   const d = value as Record<string, unknown>;
@@ -215,6 +230,7 @@ export function normalizePhotoProject(value: unknown, report: Report = () => {})
     name: typeof d.name === "string" && d.name.trim() ? d.name.trim() : "Untitled",
     canvas,
     ...(d.compositing === "photoshop" || d.compositing === "linear" ? { compositing: d.compositing } : {}),
+    ...globalLightOf(d.globalLight),
     output: { highlights: o.highlights === "clip" ? "clip" : "film" },
     layers,
   };

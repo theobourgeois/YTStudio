@@ -205,6 +205,8 @@ export function duplicateLayer(doc: PhotoProject, id: string, newId: string): Ph
   const from = doc.layers[index];
   const copy: PhotoLayer =
     from.kind === "adjustment" ? { ...from, id: newId, name: `${from.name} copy`, effect: { ...structuredClone(from.effect), id: `${newId}_fx` } } : { ...from, id: newId, name: `${from.name} copy` };
+  // Its layer effects are copies, with ids of their own.
+  if (from.style) copy.style = { ...from.style, effects: from.style.effects.map((e, i) => ({ ...structuredClone(e), id: `${newId}_fx${i + 1}` })) };
   layers.splice(index + 1, 0, copy);
   return { ...doc, layers };
 }

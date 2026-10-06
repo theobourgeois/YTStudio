@@ -106,6 +106,8 @@ export function normalizeBlendingOptions(value: unknown): BlendingOptions | unde
   }
   const blendIf = normalizeBlendIf(v.blendIf);
   if (blendIf) out.blendIf = blendIf;
+  if (v.interiorAsGroup === true) out.interiorAsGroup = true;
+  if (v.maskHidesEffects === true) out.maskHidesEffects = true;
   return Object.keys(out).length ? out : undefined;
 }
 
@@ -134,8 +136,11 @@ export function blendingOf(layer: PhotoLayer): LayerBlending {
   return { mode: layer.blend ?? "normal", fill: layer.fill ?? 1, channels: layer.blending?.channels ?? ALL_CHANNELS, blendIf: layer.blending?.blendIf ?? NO_BLEND_IF };
 }
 
-/** Whether a layer blends as plain Normal (no mode, no Blend If, every channel): Fill then just multiplies Opacity. */
-export const isPlainBlending = (layer: PhotoLayer) => (layer.blend ?? "normal") === "normal" && !layer.blending;
+/**
+ * Whether a layer blends as plain Normal (no mode, no Blend If, every channel; the two effect options aside): Fill
+ * then just multiplies Opacity.
+ */
+export const isPlainBlending = (layer: PhotoLayer) => (layer.blend ?? "normal") === "normal" && !layer.blending?.channels && !layer.blending?.blendIf;
 
 /** A document's compositing: "linear" for photos made before it was a choice. */
 export const compositingOf = (doc: PhotoProject): Compositing => doc.compositing ?? "linear";
@@ -148,6 +153,8 @@ export interface BlendingPatch {
   channels?: Partial<{ r: boolean; g: boolean; b: boolean }>;
   /** Entries to set (a full range on both sides clears it); null clears every entry. */
   blendIf?: Partial<Record<BlendIfEntry, Partial<BlendIfChannel> | null>> | null;
+  interiorAsGroup?: boolean;
+  maskHidesEffects?: boolean;
 }
 
 /** A layer with `patch` applied, its fields at their defaults left out; the same layer when nothing changes. */
@@ -169,7 +176,9 @@ export function patchBlending<L extends PhotoLayer>(layer: L, patch: BlendingPat
       else blendIf[entry] = { layer: p.layer ?? blendIf[entry]?.layer ?? FULL_RANGE, underlying: p.underlying ?? blendIf[entry]?.underlying ?? FULL_RANGE };
     }
   }
-  const fields = normalizeLayerBlending({ blend, fill, blending: { channels, blendIf } });
+  const interiorAsGroup = patch.interiorAsGroup ?? layer.blending?.interiorAsGroup;
+  const maskHidesEffects = patch.maskHidesEffects ?? layer.blending?.maskHidesEffects;
+  const fields = normalizeLayerBlending({ blend, fill, blending: { channels, blendIf, interiorAsGroup, maskHidesEffects } });
   const next = { ...layer, opacity } as L & { blend?: BlendMode; fill?: number; blending?: BlendingOptions };
   delete next.blend;
   delete next.fill;
