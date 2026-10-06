@@ -18,6 +18,7 @@ import {
   PiSubtitles,
   PiTrash,
   PiCrosshairSimple,
+  PiWaveform,
 } from "react-icons/pi";
 import { type LayerKind, addTrack } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { cn } from "cn";
 import { useCaptions } from "@/stores/captions";
+import { useSignalView } from "@/stores/signal-view";
 import { MAX_ZOOM, useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { TOOLBAR_HEIGHT } from "./constants";
@@ -209,6 +211,17 @@ export function TimelineToolbar() {
       >
         <PiSubtitles />
         <span>Captions</span>
+      </ToolButton>
+
+      <ToolButton
+        label="Signals"
+        hint="Sounds of your own to react to: a band of the song, or hits you place"
+        wide
+        onClick={() => useSignalView.getState().show()}
+        className="px-2 text-xs text-muted-foreground hover:text-foreground"
+      >
+        <PiWaveform />
+        <span>Signals</span>
       </ToolButton>
 
       <div className="ml-auto flex items-center gap-1">

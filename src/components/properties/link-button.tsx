@@ -5,7 +5,8 @@
  * Clicking the button on a property that isn't linked links it to the bass at once, sized for it.
  */
 import { useRef } from "react";
-import { PiLinkSimple, PiLinkSimpleBreak } from "react-icons/pi";
+import { PiLinkSimple, PiLinkSimpleBreak, PiWaveform } from "react-icons/pi";
+import { useSignalView } from "@/stores/signal-view";
 import { create } from "zustand";
 import { currentSignalReader, findClip, linkLevel } from "@shared/audio-signals";
 import { type EffectDefinition, atFrameRate, effectValuesAt, setLink } from "@shared/effects";
@@ -175,6 +176,13 @@ function LinkEditor({ clip, effect, def, spec, label, ctx, link }: LinkButtonPro
     <>
       <div className="flex items-center justify-between">
         <span className="font-medium">{label} follows</span>
+        <button
+          type="button"
+          className="ml-auto flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={() => useSignalView.getState().show("id" in link.signal ? link.signal.id : undefined)}
+        >
+          <PiWaveform className="size-3.5" /> Signals…
+        </button>
         <button
           type="button"
           className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"

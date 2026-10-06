@@ -49,14 +49,16 @@ format, the pure analyser, reading at a time; `server/signals.ts` + `MediaLibrar
 read on the timeline by `shared/audio-signals.ts` (video: a clip's, a track's or the mix's energies summed, hits, the
 beat; a `SignalReader` per video: the tab's is `stores/signals.ts`, the export's built in `ExportService`, used through
 `withSignals`), so expressions react to sound (`audio("bass")`, `sinceHit("onsetLow")`, `envelope`, `beat()`...) alike
-in the preview and the export. The assistant's `get_signals` and `plot_signals` are its ears. **V3's first pass is
-built**: links (`Effect.links`: a number or point follows a signal by an amount, through a response; worked out in
-`effectValuesAt` before expressions; `shared/links.ts` is their data, `linkLevel` in `audio-signals.ts` reads them,
+in the preview and the export. The assistant's `get_signals` and `plot_signals` are its ears. **V3 is built**: links
+(`Effect.links`: a number or point follows a signal by an amount, through a response; worked out in `effectValuesAt`
+before expressions; `shared/links.ts` is their data, `linkLevel` in `audio-signals.ts` reads them,
 followers in warmed-up blocks so values never depend on what was read first), the video's own signals
 (`Project.signals`: bands of a source, hits, curves), and a nest hearing the mix of the sequence it's placed in
 (`Hearing`: whatever draws a nest wraps it in `withHearing(nestedHearing(clip, outer))`, as with `atFrameRate`). The
 link button sits by each stopwatch (`properties/link-button.tsx`); the tools are `link_param`, `define_signal`,
-`delete_signal`, `set_events` (`src/assistant/signal-edits.ts`). Pass 2 (the Signals window, signal lanes) is next.
+`delete_signal`, `set_events` (`src/assistant/signal-edits.ts`). The Signals window (`components/signals/`) makes bands
+from a spectrum at the playhead and places hits; the timeline shows signal lanes under its ruler
+(`timeline/signal-lanes.tsx`) and, switched on there, spectrograms on audio clips. V4 (visualizer effects) is next.
 
 ## Commands
 

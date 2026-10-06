@@ -8,6 +8,7 @@
  * (⌘C / ⌘V: at the playhead, or onto another property from its lane's menu)
  * and deleted with ⌫. An effect's own row sums up its keyframes.
  */
+import { LinkedCurve } from "./linked-curve";
 import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PiArrowsOutLineHorizontal, PiClipboardText, PiCopy, PiLineSegments, PiTrash, PiWaveSine } from "react-icons/pi";
 import {
@@ -354,6 +355,7 @@ export function ParamLane({ clip, effectId, paramKey, label }: { clip: Clip; eff
   const range = laneRange(clip);
   return (
     <Lane clip={clip} label={`${label} keyframes`} param={[effectId, paramKey]}>
+      <LinkedCurve clip={clip} effectId={effectId} paramKey={paramKey} />
       {keys.map((k) => {
         const ref: KeyframeRef = { effectId, key: paramKey, time: k.time };
         return (

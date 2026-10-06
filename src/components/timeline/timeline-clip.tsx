@@ -12,6 +12,9 @@ import { ClipMarkers } from "./markers";
 import { useAssistant } from "@/stores/assistant";
 import { startClipMove, startClipTrim } from "./clip-gestures";
 import { Filmstrip, PosterStrip, Waveform } from "./clip-media";
+import { Spectrogram } from "./spectrogram";
+import { useSignalView } from "@/stores/signal-view";
+import { useSignals } from "@/stores/signals";
 import { CLIP_INSET_Y } from "./constants";
 import { useTimelineContext } from "./context";
 import type { LaneLayout } from "./geometry";
@@ -179,10 +182,15 @@ function ClipContent({
   height: number;
   zoom: number;
 }) {
+  const spectrograms = useSignalView((s) => s.spectrograms);
+  const analysed = useSignals((s) => !!asset && s.data.has(asset.id));
   if (!asset) return null;
   // Source time at the left edge, and how fast (and which way) it runs from there.
   const inPoint = sourceEdge(clip, clip.start);
   const rate = sourceDelta(clip, 1);
+  if (audioLane && spectrograms && analysed) {
+    return <Spectrogram assetId={asset.id} clipLeft={left} width={width} height={height - 2} inPoint={inPoint} zoom={zoom} rate={rate} />;
+  }
   if (audioLane) {
     return (
       <Waveform url={asset.waveform} clipLeft={left} width={width} height={height - 2} inPoint={inPoint} zoom={zoom} rate={rate} />

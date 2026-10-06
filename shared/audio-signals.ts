@@ -12,7 +12,7 @@
 import { ExpressionError, type SignalScope } from "./expressions.ts";
 import { TIME_REMAP, VOLUME, findEffect, hasLinks, hasMedia, isRemapped, provideLinks, provideSignalScopes, volumeAt } from "./effects.ts";
 import { BEAT_SIGNALS, DEFAULT_HIT, findSignal, follow, hitLevel, hitSpan, isHitSignal, shapeValue } from "./links.ts";
-import { DB_SCALARS, type Hit, ONSET_SCALARS, type OnsetName, SIGNAL_RATE, type ScalarName, type SignalData } from "./signals/format.ts";
+import { BAND_COUNT, DB_SCALARS, type Hit, ONSET_SCALARS, type OnsetName, SIGNAL_RATE, type ScalarName, type SignalData, byteDb } from "./signals/format.ts";
 import { bandEnergyAt, bandReferenceEnergy, dbPower, powerDb, scalarAt, scalarMax } from "./signals/sample.ts";
 import { isNestedClip, sequenceView } from "./sequences.ts";
 import { mediaTime } from "./time-remap.ts";
@@ -227,6 +227,26 @@ export function bandValue(reader: SignalReader, sequenceId: string | null, sourc
   if (gainDb) energy *= 10 ** (gainDb / 10);
   if (!absolute) return fromDb(energy, reference);
   return energy > 0 ? Math.min(1, Math.max(0, 1 + powerDb(energy) / ABSOLUTE_RANGE_DB)) : 0;
+}
+
+/**
+ * What `source` sounds like at `t`: each of the 96 bands' level in dB (a full-scale sine is 0), the sounds'
+ * energies summed, and the bands' edges in Hz. Null where nothing is loaded that sounds.
+ */
+export function spectrumAt(reader: SignalReader, sequenceId: string | null, source: SignalSource, t: number): { edges: number[]; db: Float32Array } | null {
+  const where = heard(reader, sequenceId, source, t);
+  const sounds: Sounding[] = [];
+  soundsAt(reader, viewOf(reader, where.sequenceId), source, where.t, 1, sounds);
+  if (!sounds.length) return null;
+  const energy = new Float64Array(BAND_COUNT);
+  for (const s of sounds) {
+    const frame = Math.round(s.time * s.data.header.rate);
+    if (frame < 0 || frame >= s.data.header.frames) continue;
+    for (let b = 0; b < BAND_COUNT; b++) energy[b] += s.gain * s.gain * dbPower(byteDb(s.data.bands[frame * BAND_COUNT + b]));
+  }
+  const db = new Float32Array(BAND_COUNT);
+  for (let b = 0; b < BAND_COUNT; b++) db[b] = powerDb(energy[b]);
+  return { edges: sounds[0].data.header.bandEdges, db };
 }
 
 // ---------------------------------------------------------------------------
@@ -875,6 +895,27 @@ export function signalScope(clipId: string, fps: number): SignalScope | undefine
 }
 
 provideSignalScopes(signalScope);
+
+/**
+ * The moments of a kind of event in a stretch of a sequence: beats, bars, drops (each song's own along the
+ * stretch) or a kind of hit of `source`.
+ */
+export function eventTimes(reader: SignalReader, sequenceId: string | null, source: SignalSource, kind: string, from: number, to: number): number[] {
+  const inside = (t: number) => t >= from && t <= to;
+  if (kind === "beats" || kind === "bars" || kind === "drops") {
+    const times: number[] = [];
+    const seen = new Set<string>();
+    for (let t = from; t <= to; t += 1) {
+      const grid = beatGridAt(reader, sequenceId, t);
+      if (!grid || seen.has(grid.clipId)) continue;
+      seen.add(grid.clipId);
+      times.push(...(kind === "beats" ? grid.beats : kind === "bars" ? grid.downbeats : grid.drops).filter(inside));
+    }
+    return [...new Set(times)].sort((a, b) => a - b);
+  }
+  if (isOnsetName(kind)) return sourceHits(reader, sequenceId, source, kind).map(([t]) => t).filter(inside);
+  throw new ExpressionError(`There are no "${kind}": use "beats", "bars", "drops" or a kind of hit: ${ONSET_SCALARS.map((n) => `"${n}"`).join(", ")}.`);
+}
 
 /** A reader of a video's signals. */
 export const createSignalReader = (document: Project, store: SignalStore): SignalReader => ({ document, store });

@@ -10,6 +10,7 @@ import {
   beatGridAt,
   customSignalHits,
   customSignalLevel,
+  eventTimes as sharedEventTimes,
   isOnsetName,
   isSignalName,
   signalValue,
@@ -144,23 +145,13 @@ function list(times: number[], most = 40): string {
   return times.length > most ? `${shown}, … (${times.length})` : shown;
 }
 
-/** The moments of a kind of event in a stretch: beats, bars, drops or a kind of hit. */
+/** The moments of a kind of event in a stretch: beats, bars, drops or a kind of hit (its errors the model's). */
 export function eventTimes(reader: SignalReader, sequenceId: string | null, source: SignalSource, kind: string, from: number, to: number): number[] {
-  const inside = (t: number) => t >= from && t <= to;
-  if (kind === "beats" || kind === "bars" || kind === "drops") {
-    const times: number[] = [];
-    // The beat can change song along the stretch: each song's own.
-    const seen = new Set<string>();
-    for (let t = from; t <= to; t += 1) {
-      const grid = beatGridAt(reader, sequenceId, t);
-      if (!grid || seen.has(grid.clipId)) continue;
-      seen.add(grid.clipId);
-      times.push(...(kind === "beats" ? grid.beats : kind === "bars" ? grid.downbeats : grid.drops).filter(inside));
-    }
-    return [...new Set(times)].sort((a, b) => a - b);
+  try {
+    return sharedEventTimes(reader, sequenceId, source, kind, from, to);
+  } catch (err) {
+    throw new ToolError(`\`at\` must be "beats", "bars", "drops" or a kind of hit: ${ONSET_SCALARS.map((n) => `"${n}"`).join(", ")}.`, { cause: err });
   }
-  if (isOnsetName(kind)) return sourceHits(reader, sequenceId, source, kind).map(([t]) => t).filter(inside);
-  throw new ToolError(`\`at\` must be "beats", "bars", "drops" or a kind of hit: ${ONSET_SCALARS.map((n) => `"${n}"`).join(", ")}.`);
 }
 
 /**
