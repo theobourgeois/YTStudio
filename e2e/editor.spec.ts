@@ -823,9 +823,9 @@ test("panels dock where they're dragged, float out and back, and keep their layo
     await page.mouse.move(to.x, to.y, { steps: 8 });
   };
 
-  // The usual layout: Media, Effects and Captions, the Program monitor, Properties, the timeline below.
+  // The usual layout: Media, Online, Effects and Captions, the Program monitor, Properties, the timeline below.
   await expect(page.locator("[data-dock-group]")).toHaveCount(4);
-  await expect(panelTabs("Media")).toHaveText(["Media", "Effects", "Captions"]);
+  await expect(panelTabs("Media")).toHaveText(["Media", "Online", "Effects", "Captions"]);
 
   // Effects dropped in the middle of Properties: among its tabs, in front.
   const props = (await group("Properties").boundingBox())!;
@@ -833,7 +833,7 @@ test("panels dock where they're dragged, float out and back, and keep their layo
   await expect(page.getByTestId("dock-drop-preview")).toHaveAttribute("data-zone", "center");
   await page.mouse.up();
   await expect(panelTabs("Effects")).toHaveText(["Properties", "Effects"]);
-  await expect(panelTabs("Media")).toHaveText(["Media", "Captions"]);
+  await expect(panelTabs("Media")).toHaveText(["Media", "Online", "Captions"]);
 
   // Captions dragged to the Program monitor's left edge: a column of its own between the two.
   const program = (await group("Program").boundingBox())!;
@@ -867,11 +867,11 @@ test("panels dock where they're dragged, float out and back, and keep their layo
   await page.getByRole("button", { name: "Program panel menu" }).click();
   await page.getByRole("menuitem", { name: "Compact" }).click();
   await expect(page.locator("[data-dock-group]")).toHaveCount(3);
-  await expect(panelTabs("Media")).toHaveText(["Media", "Effects", "Captions", "Properties"]);
+  await expect(panelTabs("Media")).toHaveText(["Media", "Online", "Effects", "Captions", "Properties"]);
   await page.getByRole("button", { name: "Program panel menu" }).click();
   await page.getByRole("menuitem", { name: "Reset layout" }).click();
   await expect(page.locator("[data-dock-group]")).toHaveCount(4);
-  await expect(panelTabs("Media")).toHaveText(["Media", "Effects", "Captions"]);
+  await expect(panelTabs("Media")).toHaveText(["Media", "Online", "Effects", "Captions"]);
 });
 
 test("adds adjustment layers and solids, and presets: a transition across a cut and a move on a clip", async ({ page }) => {
