@@ -431,10 +431,62 @@ expressions can read, never exported (the export refuses a project that needs it
 
 ### Export (V10)
 
-Today: H.264 MP4 at up to 4K, YUV 4:2:0 readback, no alpha. Added: an RGBA readback path, ProRes 422 HQ, ProRes 4444
-with alpha (the black canvas becomes transparent only in that export: the canvas stays black in the app), HEVC, a
-higher-quality H.264, PNG sequences. The export request gets a `format`. A test checks a linked parameter's frame
-values in the export against the preview's resolver.
+Before V10: H.264 MP4 at up to 4K, one quality (CRF 20, 23 at 720p, `veryfast`), the frame read back as YUV 4:2:0
+packed on the GPU, no alpha. V10 adds formats for the next program in a pipeline (an editor, a compositor, a VJ
+tool), as Premiere's and After Effects' export settings do: a **format**, a **quality** where the codec has one, and
+**transparency** where the format can carry it.
+
+| Format (`ExportFormat`) | File | Picture | Readback | Sound | Quality |
+| --- | --- | --- | --- | --- | --- |
+| `h264` H.264 | `.mp4` | YUV 4:2:0, 8-bit, BT.709 | `yuv420` | AAC 192k | Standard / High / Best (CRF, preset) |
+| `hevc` HEVC (H.265) | `.mp4` (`hvc1`, so Apple plays it) | YUV 4:2:0, 8-bit | `yuv420` | AAC 192k | Standard / High / Best |
+| `prores-hq` ProRes 422 HQ | `.mov` | YUV 4:2:2, 10-bit | `rgba` | PCM 24-bit | the profile is the quality |
+| `prores-4444` ProRes 4444 | `.mov` | YUV 4:4:4, 10-bit (+ 16-bit alpha) | `rgba` | PCM 24-bit | the profile |
+| `png` PNG sequence | `.zip` of `<name>_00001.png`… and `<name>.wav` | RGB or RGBA, 8-bit, lossless | `rgba` | WAV 24-bit beside the frames | lossless |
+
+- **The pure part** (`shared/export-formats.ts`): the formats as data (label, container, extension, what it's for,
+  whether it has a quality or alpha, the ffmpeg encoder it needs, its readback), `exportSettings` (validates a
+  request's `format`, `quality` and `alpha` and says what's wrong, for the server and the assistant alike), and
+  `formatsFrom(encoders)` (what this computer's ffmpeg can make). `ExportRequest` gets `format?`, `quality?` and
+  `alpha?` (absent: H.264, Standard, opaque, so every older caller exports as before); `ExportJob` says its `format`,
+  `alpha`, file `extension` and, once done, its `bytes`. `url` (playable inline) is only an MP4's.
+- **Readback** (`shared/compositor.ts`): `readRgbaAsync()` beside `readYuv420Async()`, sharing the asynchronous
+  pixel-pack path: the frame copied into a target of its own top row first and **un-premultiplied** (straight alpha,
+  what ProRes 4444 and PNG carry), then read without stalling the GPU. H.264 and HEVC keep YUV 4:2:0 (1.5 bytes a
+  pixel, converted on the GPU with BT.709); ProRes and PNG read RGBA (4 bytes) and ffmpeg converts with BT.709's
+  matrix explicitly (`scale=out_color_matrix=bt709:out_range=tv`, with accurate rounding and full chroma
+  interpolation), since swscale assumes BT.601 for RGB input. The frame is 8-bit (RGBA8 targets): a 10-bit ProRes
+  holds an 8-bit picture without generation loss, not more precision. Half-float frames are a later change (they
+  would change every blend and the preview).
+- **Transparency**: only in an export that asks for it (`alpha`, ProRes 4444 and PNG): the export's page clears
+  each frame to transparent instead of opaque black, so what no clip covers is transparent in the file. **The
+  canvas stays black in the app** (a product decision); everything is premultiplied already, blend modes follow the
+  W3C's compositing over a transparent base, and nests are drawn into transparent groups, so nothing else changes.
+  A video clip covering the frame makes it opaque, as in After Effects.
+- **The page** (`server/gl-browser.ts`): the composite job says its `readback` and whether it's `transparent`;
+  `renderVideo` (`frame-render.ts`) checks frames against `frameBytes(plan, readback)`.
+- **Encoding** (`server/encoders.ts`, out of `render.ts`): `encoderArgs(plan, settings, paths)` per format; the
+  qualities are CRF and preset (H.264 Standard is today's, unchanged; High CRF 17 `medium`; Best CRF 13 `slow`.
+  HEVC Standard CRF 24 `fast`, High 20 `medium`, Best 16 `slow`, each about the H.264 one's quality at a smaller
+  size), MOVs carry PCM. `ffmpegEncoders()` (`server/ffmpeg.ts`, asked once) feeds `availableFormats()`:
+  `GET /api/exports/formats` lists what this ffmpeg can make, and an export of another is refused naming the
+  encoder it lacks.
+- **PNG sequences**: ffmpeg writes the frames into a folder in `tmp`, the sound is written as a WAV, and
+  `server/zip.ts` stores them in one ZIP (stored, not deflated: PNG is compressed already; ZIP64 when it passes
+  4 GB or 65,535 entries, as a 4K sequence soon does), so a browser downloads one file. The frames go into the ZIP
+  as they're read and are removed from `tmp` as they go.
+- **The window** (`components/export/`): Format (a select whose options say what each is for; those this ffmpeg
+  can't make are disabled with why), Quality (H.264 and HEVC), Transparent background (ProRes 4444 and PNG; its
+  note says the canvas's black becomes transparent only in the file), the extension beside the name; remembered
+  in this browser (`stores/export-preferences.ts`). The finished view plays an MP4 and says a MOV's or ZIP's size.
+- **The assistant**: `export_video` takes `format`, `quality` and `alpha` (checked by `exportSettings`; an
+  unavailable format's error lists those that are) and says what it made.
+- **The check** (`integration.test.ts`): a white solid's Opacity **linked** to a song's bass is exported as a
+  transparent PNG sequence, and every frame's alpha is compared with what the preview's resolver
+  (`effectValuesAt` inside `withSignals`, on the same signals file) says for that frame's moment: within one level
+  of 255. ProRes 422 HQ and 4444 (probed: profile, pixel format, alpha, BT.709 tags, PCM; colours and alpha read
+  back), HEVC (`hvc1`), H.264's qualities (arguments, unit-tested), the ZIP (`zip.test.ts`: read back entry by entry,
+  ZIP64 forced on a small one and checked by `unzip -t`).
 
 ### The assistant
 
@@ -637,7 +689,15 @@ Datamosh) moved onto simulations; scenes in New item › Visualizer and in Make 
 
 ### V10: Professional export
 
-- RGBA readback, ProRes 422 HQ and 4444 (alpha), HEVC, PNG sequences, a quality setting.
+- RGBA readback, ProRes 422 HQ and 4444 (alpha), HEVC, PNG sequences, a quality setting (see "Export (V10)" above).
+- Steps, a commit each: the formats as data and the request's fields; the compositor's RGBA readback and the
+  page's transparent frames; the encoders and the formats this ffmpeg can make; the ZIP writer; the export service
+  (files by extension, PNG sequences, refusals); the integration tests (the linked-parameter check first); the
+  window; `export_video`; e2e; the docs.
+- Tests: `export-formats.test.ts`, `encoders.test.ts`, `zip.test.ts`; `integration.test.ts` (above); e2e: a
+  transparent ProRes 4444 exported from the window, downloaded as a `.mov`.
+- **Gate**: a 1080×1920, 30 fps ProRes 4444 with alpha renders at least in real time for an edit of solids, text and
+  a visualizer (`scripts/perf.ts` doesn't cover exports: timed in the integration test's log).
 
 V10 doesn't depend on the others and can be built whenever it's wanted; V5 and V6 don't depend on each other.
 
