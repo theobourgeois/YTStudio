@@ -41,6 +41,9 @@ export function panelOptions(): BrowserWindowConstructorOptions {
     height: 320,
     backgroundColor: "#16191d",
     hasShadow: true,
+    // Windows: no frame of the system's at all, so it appears and goes at once (with one, Windows zooms and fades
+    // each window in as it's shown). It has no invisible borders either; the page draws its edge and resizes it.
+    ...(ownedByMain && { thickFrame: false }),
     // The page draws square windows (a plugin's are too); macOS would round a frameless one's corners and clip the page's own.
     roundedCorners: false,
     // A click that raises it must also act, as in the main window.

@@ -52,6 +52,8 @@ same title bars, snapping, stacking and keys.
 >   A plugin's window never closes because the app was used. The keys the editor needs reach it even while a
 >   plugin holds the keyboard in a child window of its own: the engine hooks its message thread's keyboard
 >   (`hookThreadKeys`, `EditorWindow::takeFirst`, FL's default typing keyboard priority).
+>   Panels have no frame of the system's (`thickFrame: false`), so Windows doesn't zoom and fade them in, and
+>   what pops up in them (menus, popovers, tooltips) has no CSS animation: everything appears at once.
 > - **Mac**: the editor's windows are boxes in the page, as in a browser. Native ones gave no hover or keyboard
 >   to the windows beside the one in use. A plugin's window floats over the main window instead and **closes
 >   when one of the app's own windows is used** (`closeEngineWindows`, on the main window's focus). The levels
