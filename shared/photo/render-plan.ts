@@ -14,7 +14,8 @@ import { effectDefinition, unavailableReason } from "./effects/index.ts";
 import { GLOW_CACHED_FROM } from "./effects/glow.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
 import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
-import { drawnEffects, effectAltitude, effectAngle, styleReach } from "./style/style.ts";
+import { findPattern } from "./style/patterns.ts";
+import { drawnEffects, effectAltitude, effectAngle, stylePatterns, styleReach } from "./style/style.ts";
 import type { Box } from "./style/gradients.ts";
 import type { Compositing, EffectInstance, EffectParamValue, LayerTransform, PhotoLayer, PhotoProject, SurfaceId } from "./types.ts";
 
@@ -60,12 +61,17 @@ export interface NodeBlend extends LayerBlending {
  * each one's light angle resolved (Global Light's or its own), the boxes its gradients are laid out on, and how far
  * it reaches past the layer's pixels (document pixels).
  */
+/** A pattern as the renderer finds its pixels: made by code, or a surface of the document's. */
+export type PatternRef = { builtin: string } | { surface: SurfaceId; width: number; height: number };
+
 export interface NodeStyle {
   effects: EffectInstance[];
   /** By effect id: the angle its shadow falls from (or its light comes from). */
   angles: Record<string, number>;
   /** By effect id: a bevel's light altitude. */
   altitudes: Record<string, number>;
+  /** By pattern id: the patterns its effects read (a built-in one's, or the document's surface); missing ones aren't here. */
+  patterns: Record<string, PatternRef>;
   /** The layer's bounds on the canvas (Align with Layer), and the canvas. */
   layerBox: Box;
   canvasBox: Box;
@@ -284,17 +290,23 @@ function styleOf(doc: PhotoProject, layer: PhotoLayer, matrix: Affine, size: Siz
   if (!effects.length) return { style: null, key: "" };
   const angles = Object.fromEntries(effects.map((e) => [e.id, effectAngle(doc, e)]));
   const altitudes = Object.fromEntries(effects.filter((e) => e.type === "bevel-emboss").map((e) => [e.id, effectAltitude(doc, e)]));
+  const patterns: Record<string, PatternRef> = {};
+  for (const id of stylePatterns([{ ...layer, style: { enabled: true, effects } }])) {
+    const p = findPattern(doc, id);
+    if (p) patterns[id] = "surface" in p ? { surface: p.surface, width: p.size.width, height: p.size.height } : { builtin: p.id };
+  }
   const style: NodeStyle = {
     effects,
     angles,
     altitudes,
+    patterns,
     layerBox: boundsOf(matrix, size),
     canvasBox: { x0: 0, y0: 0, x1: doc.canvas.width, y1: doc.canvas.height },
     reach: styleReach(layer),
     interiorAsGroup: layer.blending?.interiorAsGroup === true,
     maskHidesEffects: layer.blending?.maskHidesEffects === true,
   };
-  return { style, key: `|style:${JSON.stringify(effects)}|${JSON.stringify(angles)}|${JSON.stringify(altitudes)}|${style.interiorAsGroup},${style.maskHidesEffects}` };
+  return { style, key: `|style:${JSON.stringify(effects)}|${JSON.stringify(angles)}|${JSON.stringify(altitudes)}|${JSON.stringify(patterns)}|${style.interiorAsGroup},${style.maskHidesEffects}` };
 }
 
 /** The canvas's background in the compositing's values: encoded for "photoshop", linear light otherwise. */

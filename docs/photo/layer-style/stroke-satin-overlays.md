@@ -486,6 +486,10 @@ The `Grad` object (`Grdn`) **[S]** (ag-psd, Krita, libpsd):
 
 ## Pattern Overlay
 
+**Measured since** (Photoshop 27.11, photoshop-measurements.md, "Patterns"): Phase is in pixels (whole ones), 100% is
+texel for texel, enlarged texels mix linearly, 50% is the 2 × 2 box; Angle turns anticlockwise. Ours:
+`style/patterns.ts`.
+
 ![The Pattern Overlay page](img/overlay-pattern-dialog.png)
 
 *The Pattern Overlay page (before 21.2 added Angle): Blend Mode, Opacity, Pattern with New Preset (+) and Snap to

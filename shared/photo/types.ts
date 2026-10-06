@@ -14,12 +14,13 @@
 import type { DocumentBase } from "../suites.ts";
 
 /**
- * 5: light (F4: filters, generator layers, the `film` highlights by default), 4: Layer Style (Blending Options and
+ * 6: the document's patterns (Layer Style L4: Pattern Overlay, pattern strokes, Bevel's Texture), 5: light (F4:
+ * filters, generator layers, the `film` highlights by default), 4: Layer Style (Blending Options and
  * compositing, then layer styles and Global Light: fields absent at their defaults), 3: pixel layers and masks, 2:
  * adjustment layers. An older document is a valid newer one (compositing in linear light and its highlights
  * clipped, as it was drawn then); an older app refuses a newer one.
  */
-export const PHOTO_VERSION = 5;
+export const PHOTO_VERSION = 6;
 
 /**
  * A surface: the SHA-256 (lowercase hex) of its manifest's canonical JSON. The server has every manifest a saved
@@ -338,9 +339,23 @@ export interface PhotoCanvas {
  */
 export type Compositing = "photoshop" | "linear";
 
+/**
+ * A pattern the document keeps (Photoshop's patterns in a file: those its effects use, and those defined in it): its
+ * pixels a surface (`rgba16f`, premultiplied linear light, `size` pixels), tiled where it's used. Built-in patterns
+ * aren't kept: they're made by code (`style/patterns.ts`), named `builtin:<id>`.
+ */
+export interface PhotoPattern {
+  id: string;
+  name: string;
+  surface: SurfaceId;
+  size: { width: number; height: number };
+}
+
 export interface PhotoProject extends DocumentBase {
   version: typeof PHOTO_VERSION;
   canvas: PhotoCanvas;
+  /** Absent: none. */
+  patterns?: PhotoPattern[];
   /** Absent: "linear" (photos made before version 4). New photos are "photoshop". */
   compositing?: Compositing;
   /** Absent: 120° and 30°, Photoshop's. */

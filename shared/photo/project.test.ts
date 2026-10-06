@@ -12,7 +12,7 @@ const image = (id: string, width = 400, height = 200) => ({ id, mediaId: `media_
 describe("photo documents", () => {
   it("starts as a white 9:16 canvas with no layers, or with the tab's choices", () => {
     const doc = createPhotoProject("Cover");
-    expect(doc).toMatchObject({ version: 5, name: "Cover", canvas: { width: 1080, height: 1920, background: "#ffffff" }, compositing: "photoshop", layers: [] });
+    expect(doc).toMatchObject({ version: PHOTO_VERSION, name: "Cover", canvas: { width: 1080, height: 1920, background: "#ffffff" }, compositing: "photoshop", layers: [] });
     expect(withPhotoOptions(doc, { width: 1280, height: 720, background: null }).canvas).toEqual({ width: 1280, height: 720, background: null });
     expect(withPhotoOptions(doc, { width: -3, height: "big", background: "red" })).toEqual(doc);
   });

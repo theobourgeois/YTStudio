@@ -15,8 +15,17 @@ import type { BlendMode, Contour, CurvePoints, CurveSet, DocPoint, EffectElement
  */
 interface Placement {
   group?: string;
-  showIf?: { key: string; is: string | boolean };
+  /** Shown while `key` is `is` (or one of them). */
+  showIf?: { key: string; is: string | boolean | readonly (string | boolean)[] };
 }
+
+/** Whether a spec shows for these values (its `showIf`). */
+export const specShows = (spec: { showIf?: Placement["showIf"] }, values: Record<string, unknown>) => {
+  if (!spec.showIf) return true;
+  const is = spec.showIf.is;
+  const v = values[spec.showIf.key];
+  return Array.isArray(is) ? is.includes(v as string | boolean) : v === is;
+};
 
 /** A number with a unit, a range and a step (what the panel's slider and field show). */
 export interface NumberParam extends Placement {
@@ -92,6 +101,15 @@ export interface ContourParam extends Placement {
   description: string;
 }
 
+/** A pattern (the pattern picker): a document pattern's id, or a built-in one's (`builtin:…`). */
+export interface PatternParam extends Placement {
+  kind: "pattern";
+  key: string;
+  label: string;
+  default: string;
+  description: string;
+}
+
 /** A gradient (the gradient picker and its editor). */
 export interface GradientParam extends Placement {
   kind: "gradient";
@@ -138,7 +156,7 @@ export interface ElementsParam extends Placement {
   description: string;
 }
 
-export type ParamSpec = NumberParam | CurvesParam | ColourParam | PointParam | ChoiceParam | BooleanParam | ElementsParam | BlendParam | ContourParam | GradientParam;
+export type ParamSpec = NumberParam | CurvesParam | ColourParam | PointParam | ChoiceParam | BooleanParam | ElementsParam | BlendParam | ContourParam | GradientParam | PatternParam;
 
 /** Photoshop's limit: 16 points on a curve, its ends included. */
 export const MAX_CURVE_POINTS = 16;
@@ -271,6 +289,8 @@ export function sanitizeParam(spec: ParamSpec, value: unknown): Sanitized<Effect
       return typeof value === "boolean" ? { value, repaired: false } : { value: spec.default, repaired: true };
     case "blend":
       return isBlendMode(value) ? { value, repaired: false } : { value: spec.default, repaired: true };
+    case "pattern":
+      return typeof value === "string" && /^[\w:-]{1,64}$/.test(value) ? { value, repaired: false } : { value: spec.default, repaired: true };
     case "contour":
       return value === undefined ? { value: structuredClone(spec.default), repaired: true } : sanitizeContour(value);
     case "gradient":

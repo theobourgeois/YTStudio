@@ -6,12 +6,13 @@
  * `render/style.ts`).
  */
 import { BLEND_MODES } from "../blending.ts";
-import type { BlendParam, BooleanParam, ChoiceParam, ColourParam, ContourParam, GradientParam, NumberParam, ParamSpec } from "../effects/params.ts";
+import type { BlendParam, BooleanParam, ChoiceParam, ColourParam, ContourParam, GradientParam, NumberParam, ParamSpec, PatternParam } from "../effects/params.ts";
 import type { EffectParamValue } from "../types.ts";
 import { LINEAR_CONTOUR } from "./contours.ts";
 import { DEFAULT_GRADIENT, GRADIENT_PRESETS } from "./gradients.ts";
+import { BUILT_IN_PATTERNS, DEFAULT_PATTERN } from "./patterns.ts";
 
-export type StyleType = "drop-shadow" | "outer-glow" | "gradient-overlay" | "color-overlay" | "satin" | "inner-glow" | "inner-shadow" | "stroke" | "bevel-emboss";
+export type StyleType = "drop-shadow" | "outer-glow" | "pattern-overlay" | "gradient-overlay" | "color-overlay" | "satin" | "inner-glow" | "inner-shadow" | "stroke" | "bevel-emboss";
 
 export interface StyleDefinition {
   type: StyleType;
@@ -26,6 +27,10 @@ export interface StyleDefinition {
   side: "outside" | "inside" | "stroke" | "top";
   /** Pages of its own under it in the list (Bevel's Contour): its parameters in that group, turned on by `toggle`. */
   subPages?: readonly { group: string; label: string; toggle: string }[];
+  /** Its parameters Scale Effects multiplies (sizes, distances, a pattern's scale). */
+  scaled: readonly string[];
+  /** Its patterns' placements: which parameters say where each pattern lies (the canvas drag moves its phase). */
+  patterns?: readonly PatternKeys[];
   params: readonly ParamSpec[];
   /** How far past the layer's pixels it reaches, in document pixels (what its fields need around the layer). */
   reach: (p: Record<string, EffectParamValue>) => number;
@@ -119,6 +124,42 @@ const glowParams = (inner: boolean): ParamSpec[] => [
   num("jitter", "Jitter", "%", 0, 100, 0, "Scatters the gradient's colours.", "Quality"),
 ];
 
+/** The parameters that place a pattern: which pattern, its Angle, Scale, Link with Layer and phase (pixels). */
+export interface PatternKeys {
+  pattern: string;
+  angle: string;
+  scale: string;
+  link: string;
+  phaseX: string;
+  phaseY: string;
+  /** While this shows it (a stroke's Pattern fill, Bevel's Texture page). */
+  showIf?: ChoiceParam["showIf"];
+}
+
+const patternSpec = (key: string, group: string, showIf?: PatternParam["showIf"]): PatternParam => ({
+  kind: "pattern",
+  key,
+  label: "Pattern",
+  default: DEFAULT_PATTERN,
+  description: `Which pattern: one of the document's (their ids are in get_photo) or a built-in one (${BUILT_IN_PATTERNS.map((p) => p.id).join(", ")}).`,
+  group,
+  showIf,
+});
+
+/** A pattern's controls, Photoshop's: the pattern, Angle, Scale, Link with Layer, and its phase (dragged on the canvas, Snap to Origin zeroes it). */
+const patternParams = (k: PatternKeys, group: string): ParamSpec[] => [
+  patternSpec(k.pattern, group, k.showIf),
+  { ...num(k.angle, "Angle", "°", -180, 180, 0, "Turns the pattern: degrees anticlockwise.", group), showIf: k.showIf },
+  { ...num(k.scale, "Scale", "%", 1, 1000, 100, "The pattern's size.", group), showIf: k.showIf },
+  bool(k.link, "Link with Layer", true, "The pattern moves with the layer (off: it stays on the canvas).", group, k.showIf),
+  { ...num(k.phaseX, "Offset X", "px", -30000, 30000, 0, "Where the pattern starts across, in pixels (drag it on the canvas; Snap to Origin: 0).", group), showIf: k.showIf },
+  { ...num(k.phaseY, "Offset Y", "px", -30000, 30000, 0, "Where the pattern starts down, in pixels.", group), showIf: k.showIf },
+];
+
+const OVERLAY_PATTERN: PatternKeys = { pattern: "pattern", angle: "angle", scale: "scale", link: "link", phaseX: "phaseX", phaseY: "phaseY" };
+const STROKE_PATTERN: PatternKeys = { pattern: "pattern", angle: "patternAngle", scale: "patternScale", link: "patternLink", phaseX: "phaseX", phaseY: "phaseY", showIf: { key: "fill", is: "pattern" } };
+const TEXTURE_PATTERN: PatternKeys = { pattern: "texture", angle: "textureAngle", scale: "textureScale", link: "textureLink", phaseX: "texturePhaseX", phaseY: "texturePhaseY" };
+
 const gradientGeometry = (shapeBurst: boolean, showIf?: ChoiceParam["showIf"]): ParamSpec[] => [
   bool("reverse", "Reverse", false, "Flips the gradient.", "Gradient", showIf),
   choice(
@@ -168,6 +209,10 @@ const bevelParams: ParamSpec[] = [
   { ...contour("Contour"), description: `The bevel's profile from the edge in: its ridges and valleys. ${contour().description}` },
   antiAliased("Contour"),
   num("range", "Range", "%", 1, 100, 50, "How much of the profile the contour spans: under 100% steepens it.", "Contour"),
+  bool("useTexture", "Texture", false, "Presses a pattern into the bevel's surface (its sub-page).", "Texture"),
+  ...patternParams(TEXTURE_PATTERN, "Texture").filter((s) => s.key !== "textureAngle"),
+  num("textureDepth", "Depth", "%", -1000, 1000, 100, "How deep the texture is pressed: dark parts rise (negative: light ones).", "Texture"),
+  bool("invertTexture", "Invert", false, "Raises the light parts instead of the dark.", "Texture"),
 ];
 
 export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
@@ -179,6 +224,7 @@ export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
     max: 10,
     side: "outside",
     params: shadowParams(false),
+    scaled: ["distance", "size"],
     reach: (p) => n(p, "size") + n(p, "distance") + 4,
     summary: (p) => `${label(p.mode)} ${p.colour}, ${n(p, "opacity")}%, ${n(p, "distance")} px at ${n(p, "angle")}°, size ${n(p, "size")}`,
   },
@@ -190,8 +236,22 @@ export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
     max: 1,
     side: "outside",
     params: glowParams(false),
+    scaled: ["size"],
     reach: (p) => n(p, "size") + 4,
     summary: (p) => `${label(p.mode)} ${p.fill === "gradient" ? "gradient" : p.colour}, ${n(p, "opacity")}%, size ${n(p, "size")} ${p.technique}`,
+  },
+  {
+    type: "pattern-overlay",
+    version: 1,
+    label: "Pattern Overlay",
+    description: "Fills the layer's pixels with a pattern, tiled.",
+    max: 1,
+    side: "inside",
+    params: [blend("normal", "Pattern"), opacity(100, "Pattern"), ...patternParams(OVERLAY_PATTERN, "Pattern")],
+    scaled: ["scale"],
+    patterns: [OVERLAY_PATTERN],
+    reach: () => 0,
+    summary: (p) => `${label(p.mode)}, ${n(p, "opacity")}%, ${p.pattern} at ${n(p, "scale")}%${n(p, "angle") ? `, ${n(p, "angle")}°` : ""}`,
   },
   {
     type: "gradient-overlay",
@@ -201,6 +261,7 @@ export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
     max: 10,
     side: "inside",
     params: [blend("normal", "Gradient"), bool("dither", "Dither", false, "Noise against banding (the export dithers already).", "Gradient"), opacity(100, "Gradient"), gradient("Gradient"), ...gradientGeometry(false)],
+    scaled: [],
     reach: () => 0,
     summary: (p) => `${label(p.mode)}, ${n(p, "opacity")}%, ${p.style} at ${n(p, "angle")}°`,
   },
@@ -212,6 +273,7 @@ export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
     max: 10,
     side: "inside",
     params: [blend("normal", "Color"), colour("#ff0000", "Its colour.", "Color"), opacity(100, "Color")],
+    scaled: [],
     reach: () => 0,
     summary: (p) => `${label(p.mode)} ${p.colour}, ${n(p, "opacity")}%`,
   },
@@ -233,6 +295,7 @@ export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
       antiAliased("Structure"),
       bool("invert", "Invert", true, "Shades where the copies agree rather than where they differ.", "Structure"),
     ],
+    scaled: ["distance", "size"],
     reach: () => 0,
     summary: (p) => `${label(p.mode)} ${p.colour}, ${n(p, "opacity")}%, ${n(p, "distance")} px at ${n(p, "angle")}°, size ${n(p, "size")}${p.invert ? ", inverted" : ""}`,
   },
@@ -244,6 +307,7 @@ export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
     max: 1,
     side: "inside",
     params: glowParams(true),
+    scaled: ["size"],
     reach: (p) => n(p, "size") + 4,
     summary: (p) => `${label(p.mode)} ${p.fill === "gradient" ? "gradient" : p.colour}, ${n(p, "opacity")}%, size ${n(p, "size")} from the ${p.source}`,
   },
@@ -255,6 +319,7 @@ export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
     max: 10,
     side: "inside",
     params: shadowParams(true),
+    scaled: ["distance", "size"],
     reach: (p) => n(p, "size") + n(p, "distance") + 4,
     summary: (p) => `${label(p.mode)} ${p.colour}, ${n(p, "opacity")}%, ${n(p, "distance")} px at ${n(p, "angle")}°, size ${n(p, "size")}`,
   },
@@ -271,11 +336,14 @@ export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
       blend("normal"),
       opacity(100),
       bool("overprint", "Overprint", false, "Blends with the layer's pixels rather than covering them.", "Structure"),
-      choice("fill", "Fill Type", [["colour", "Color"], ["gradient", "Gradient"]], "colour", "A colour, or a gradient.", "Fill"),
+      choice("fill", "Fill Type", [["colour", "Color"], ["gradient", "Gradient"], ["pattern", "Pattern"]], "colour", "A colour, a gradient or a pattern.", "Fill"),
       colour("#000000", "Its colour.", "Fill", { key: "fill", is: "colour" }),
       gradient("Fill", { key: "fill", is: "gradient" }),
       ...gradientGeometry(true, { key: "fill", is: "gradient" }),
+      ...patternParams(STROKE_PATTERN, "Fill"),
     ],
+    scaled: ["size", "patternScale"],
+    patterns: [STROKE_PATTERN],
     reach: (p) => (p.position === "inside" ? 1 : p.position === "center" ? n(p, "size") / 2 + 2 : n(p, "size") + 2),
     summary: (p) => `${n(p, "size")} px ${p.position}, ${p.fill === "gradient" ? "gradient" : p.colour}, ${n(p, "opacity")}%`,
   },
@@ -287,7 +355,12 @@ export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
     max: 1,
     side: "top",
     params: bevelParams,
-    subPages: [{ group: "Contour", label: "Contour", toggle: "useContour" }],
+    subPages: [
+      { group: "Contour", label: "Contour", toggle: "useContour" },
+      { group: "Texture", label: "Texture", toggle: "useTexture" },
+    ],
+    scaled: ["size", "soften", "textureScale"],
+    patterns: [{ ...TEXTURE_PATTERN, showIf: { key: "useTexture", is: true } }],
     // Outer Bevel, Emboss and Pillow Emboss light outside the shape; Stroke Emboss as far as a stroke goes.
     reach: (p) => (p.style === "inner-bevel" ? 1 : p.style === "emboss" || p.style === "pillow-emboss" ? n(p, "size") / 2 + n(p, "soften") + 3 : n(p, "size") + n(p, "soften") + 3),
     summary: (p) => `${bevelStyles.find(([v]) => v === p.style)?.[1] ?? p.style}, ${String(p.technique).replace("-", " ")}, ${n(p, "depth")}% ${p.direction}, size ${n(p, "size")}${n(p, "soften") ? `, soften ${n(p, "soften")}` : ""}, light ${n(p, "angle")}° / ${n(p, "altitude")}°${p.useContour ? `, contour ${(p.contour as { name: string }).name} at ${n(p, "range")}%` : ""}`,
@@ -297,7 +370,7 @@ export const STYLE_DEFINITIONS: readonly StyleDefinition[] = [
 export const styleDefinition = (type: string): StyleDefinition | undefined => STYLE_DEFINITIONS.find((d) => d.type === type);
 
 /** Photoshop's Layer Style list, top to bottom (the drawing order reversed). */
-export const STYLE_LIST: readonly StyleType[] = ["bevel-emboss", "stroke", "inner-shadow", "inner-glow", "satin", "color-overlay", "gradient-overlay", "outer-glow", "drop-shadow"];
+export const STYLE_LIST: readonly StyleType[] = ["bevel-emboss", "stroke", "inner-shadow", "inner-glow", "satin", "color-overlay", "gradient-overlay", "pattern-overlay", "outer-glow", "drop-shadow"];
 
 /** Where a type is drawn: its place in the drawing order (bottom first). */
 export const drawOrder = (type: string) => {
