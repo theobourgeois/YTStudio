@@ -74,6 +74,12 @@ export function linearToSrgb(l: number): number {
   return l < 0 ? -v : v;
 }
 
+/** An sRGB "#rrggbb" as linear light. */
+export function hexToLinear(hex: string): [number, number, number] {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return [srgbToLinear(((n >> 16) & 255) / 255), srgbToLinear(((n >> 8) & 255) / 255), srgbToLinear((n & 255) / 255)];
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // Primaries and the PCS
 

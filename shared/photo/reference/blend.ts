@@ -136,7 +136,11 @@ function channel(mode: BlendMode, b: number, s: number, fill: number): number {
  * The mode's colour `B(b, s)` at Fill `fill`, on straight colour in the blend's domain. Its result never leaves
  * [0, 1] further than its inputs did: within sRGB it clamps as Photoshop's does; light above white stays light.
  */
-export function blendColour(mode: BlendMode, backdrop: Rgb, layer: Rgb, fill = 1): Rgb {
+/**
+ * The mode's colour at Fill `fill`, kept no further out than its inputs. Linear Dodge (Add) in linear light
+ * (`unboundedAdd`) isn't: light adds past white (a flare's), where Photoshop's encoded values stop at 1.
+ */
+export function blendColour(mode: BlendMode, backdrop: Rgb, layer: Rgb, fill = 1, unboundedAdd = false): Rgb {
   const bounded = !UNBOUNDED.has(mode);
   const b = bounded ? (backdrop.map((v) => clamp(v)) as Rgb) : backdrop;
   const s = bounded ? (layer.map((v) => clamp(v)) as Rgb) : layer;
@@ -163,7 +167,7 @@ export function blendColour(mode: BlendMode, backdrop: Rgb, layer: Rgb, fill = 1
     default:
       out = [0, 1, 2].map((i) => channel(mode, b[i], s[i], SPECIAL_FILL.has(mode) ? fill : 1)) as Rgb;
   }
-  return out.map((v, i) => clamp(v, Math.min(0, b[i], s[i]), Math.max(1, b[i], s[i]))) as Rgb;
+  return out.map((v, i) => clamp(v, Math.min(0, b[i], s[i]), mode === "linear-dodge" && unboundedAdd ? Infinity : Math.max(1, b[i], s[i]))) as Rgb;
 }
 
 // --- Blend If ---
@@ -262,7 +266,7 @@ export function compositePixel(backdrop: Rgba, layer: Rgba, p: BlendParams): Rgb
   }
   const special = SPECIAL_FILL.has(mode);
   // The colour where there's backdrop; the layer's own where there isn't.
-  const mixed = blendColour(mode, B.c, S.c, special ? fill : 1);
+  const mixed = blendColour(mode, B.c, S.c, special ? fill : 1, !encoded);
   const weight = coverage * opacity * (special ? 1 : fill);
   const added = coverage * fill * opacity;
   const alpha = added + B.a * (1 - added);
@@ -286,7 +290,7 @@ export function compositeAdjustment(original: Rgba, adjusted: Rgba, mask: number
   const gate = Object.keys(p.blendIf).length ? blendIfGate(p.blendIf, encoded ? S.c : (S.c.map(enc) as Rgb), encoded ? B.c : (B.c.map(enc) as Rgb), 1) : 1;
   const mode = p.mode === "dissolve" ? "normal" : p.mode;
   const special = SPECIAL_FILL.has(mode);
-  const mixed = blendColour(mode, B.c, S.c, special ? p.fill : 1);
+  const mixed = blendColour(mode, B.c, S.c, special ? p.fill : 1, !encoded);
   const k = clamp(mask * gate * p.opacity * (special ? 1 : p.fill));
   const keep = [p.channels.r, p.channels.g, p.channels.b];
   const c = [0, 1, 2].map((i) => (keep[i] ? B.c[i] + (mixed[i] - B.c[i]) * k : B.c[i])) as Rgb;

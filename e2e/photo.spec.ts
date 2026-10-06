@@ -9,12 +9,17 @@ import path from "node:path";
 import { type Page, expect, test } from "@playwright/test";
 import sharp from "sharp";
 import { levelForScale } from "../shared/photo/geometry.ts";
+import { hexToLinear, linearToSrgb, srgbToLinear } from "../shared/photo/colour.ts";
+import { flarePreset, flareShape } from "../shared/photo/effects/flare.ts";
+import type { GlowParams } from "../shared/photo/effects/glow.ts";
+import { flareLight } from "../shared/photo/reference/flare.ts";
 import { curvesFor, exposurePixel, type Pixel } from "../shared/photo/reference/adjustments.ts";
 import { BLEND_MODES, SPECIAL_FILL, blendSeed } from "../shared/photo/blending.ts";
 import { type BlendParams, type Rgba, compositePixel } from "../shared/photo/reference/blend.ts";
 import { renderStyled } from "../shared/photo/reference/style.ts";
 import { CONTOUR_PRESETS } from "../shared/photo/style/contours.ts";
 import { newStyleEffect } from "../shared/photo/style/style.ts";
+import { glowReference } from "../shared/photo/reference/glow.ts";
 import { boxReduce, sampleMitchell } from "../shared/photo/reference/reduce.ts";
 
 test.describe.configure({ mode: "serial" });
@@ -1646,4 +1651,357 @@ test("bevels and satin draw as the reference does: every style and technique, So
   expect(saved.layers[0].style.effects.map((e: { type: string }) => e.type)).toEqual(["satin", "bevel-emboss"]);
   expect(saved.layers[0].style.effects[1].params).toMatchObject({ useContour: true, range: 30, style: "inner-bevel" });
   await expect(page.locator("[data-effect]")).toHaveCount(2);
+});
+
+// --- F4: light ---
+
+type LightWindow = {
+  photoDebug: {
+    photo: { getState(): { history: { doc: { doc: { canvas: { width: number; height: number }; layers: { id: string }[] } } }; commit(fn: (doc: unknown) => unknown): void } };
+  };
+};
+
+/** Replaces the open photo's canvas and layers (one undo step), as the tests' starting point. */
+const setPhoto = (page: Page, canvas: { width: number; height: number; background: string | null }, layers: unknown[]) =>
+  page.evaluate(
+    ({ canvas, layers }) => (window as unknown as LightWindow).photoDebug.photo.getState().commit((d) => ({ ...(d as object), canvas, layers })),
+    { canvas, layers },
+  );
+
+/** A layer's fields replaced (one undo step). */
+const patchLayer = (page: Page, id: string, patch: Record<string, unknown>) =>
+  page.evaluate(
+    ({ id, patch }) =>
+      (window as unknown as LightWindow).photoDebug.photo
+        .getState()
+        .commit((d) => ({ ...(d as object), layers: (d as { layers: { id: string }[] }).layers.map((l) => (l.id === id ? { ...l, ...patch } : l)) })),
+    { id, patch },
+  );
+
+const pixelLayer = (id: string, width: number, height: number) => ({ id, kind: "pixel", name: id, visible: true, opacity: 1, surface: null, size: { width, height }, transform: { x: width / 2, y: height / 2, scaleX: 1, scaleY: 1, rotation: 0 } });
+
+const GLOW: GlowParams = { radius: 100, intensity: 0, threshold: 75, knee: 25, tint: "#ffb070", tintAmount: 30, mix: 100 };
+const glowFilter = (id: string, params: Partial<GlowParams> = {}) => ({ id, type: "glow", version: 1, enabled: true, params: { ...GLOW, ...params } });
+
+const maxOf = (a: ArrayLike<number>) => {
+  let m = -Infinity;
+  for (let i = 0; i < a.length; i++) m = Math.max(m, a[i]);
+  return m;
+};
+
+/** The largest difference between two float images, relative to the larger value (and at least 1). */
+function worstDifference(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  let worst = 0;
+  for (let i = 0; i < a.length; i++) worst = Math.max(worst, Math.abs(a[i] - b[i]) / Math.max(1, Math.abs(b[i])));
+  return worst;
+}
+
+test("a glow is its CPU reference, the same tiled as whole, and keeps light above white", async ({ page }) => {
+  await openNewPhoto(page, "Glow");
+  const W = 320;
+  const H = 224;
+  await setPhoto(page, { width: W, height: H, background: null }, [pixelLayer("lit", W, H)]);
+  // Light above white in two spots, and a dim line that stays under the threshold.
+  await paint(page, "lit", "content", [{ x: 80, y: 60 }], { radius: 5, hardness: 1, colour: [3, 2, 0.5, 1] });
+  await paint(page, "lit", "content", [{ x: 230, y: 150 }], { radius: 3, hardness: 1, colour: [1.5, 1.5, 4, 1] });
+  await paint(page, "lit", "content", line(20, 200, 300, 190), { radius: 4, hardness: 1, colour: [0.3, 0.3, 0.3, 1] });
+  const whole: ViewBox = { zoom: 1, x: 0, y: 0, width: W, height: H };
+  const content = await renderRegion(page, whole);
+  expect(maxOf(content)).toBeGreaterThan(2);
+
+  await patchLayer(page, "lit", { filters: [glowFilter("g1")] });
+  const glowing = await renderRegion(page, whole);
+  const reference = glowReference({ width: W, height: H, data: Float64Array.from(content) }, GLOW).out;
+  expect(worstDifference(glowing, reference)).toBeLessThan(4e-3);
+  // Light above white survives to the output transform.
+  expect(maxOf(glowing.filter((_, i) => i % 4 !== 3))).toBeGreaterThan(1);
+  // The glow spills past the layer's pixels: coverage where there was none.
+  expect(pixelAt(glowing, W, 80, 30)[3]).toBeGreaterThan(0);
+  expect(pixelAt(content, W, 80, 30)[3]).toBe(0);
+
+  // Regions far smaller than the radius (as an export's) give the very same pixels: no seams.
+  let seams = 0;
+  for (let y = 0; y < H; y += 64) {
+    for (let x = 0; x < W; x += 64) {
+      const tile = await renderRegion(page, { zoom: 1, x, y, width: 64, height: 64 });
+      for (let j = 0; j < Math.min(64, H - y); j++) for (let i = 0; i < Math.min(64, W - x); i++) for (let c = 0; c < 4; c++) seams = Math.max(seams, Math.abs(tile[(j * 64 + i) * 4 + c] - glowing[((y + j) * W + x + i) * 4 + c]));
+    }
+  }
+  expect(seams).toBeLessThan(1e-5);
+});
+
+/** A Lens Flare layer as the document holds it: the preset's elements for this canvas, adding in linear light. */
+const flareLayer = (id: string, canvas: { width: number; height: number }, source: [number, number], extra: Record<string, unknown> = {}) => ({
+  id,
+  kind: "generator",
+  name: "Lens Flare",
+  visible: true,
+  opacity: 1,
+  blend: "linear-dodge",
+  blendSpace: "linear",
+  effect: { id: `${id}_fx`, type: "lens-flare", version: 1, enabled: true, params: { source, centre: null, intensity: 0, colour: "#ffffff", elements: flarePreset("classic", canvas.width, canvas.height), ...extra } },
+});
+
+test("a lens flare is its CPU reference added in linear light, and a reduced view of it is level 0 reduced", async ({ page }) => {
+  // (A new photo mixes as Photoshop's does; the flare's Add in linear light still adds exactly: blendSpace.)
+  await openNewPhoto(page, "Flare");
+  const canvas = { width: 400, height: 300 };
+  await setPhoto(page, { ...canvas, background: "#203040" }, [flareLayer("fl", canvas, [120, 90])]);
+  const whole: ViewBox = { zoom: 1, ...{ x: 0, y: 0 }, ...canvas };
+  const pixels = await renderRegion(page, whole);
+  const shape = flareShape({ source: [120, 90], centre: null, intensity: 0, colour: "#ffffff", elements: flarePreset("classic", canvas.width, canvas.height) }, canvas, hexToLinear);
+  const background = hexToLinear("#203040");
+  let worst = 0;
+  for (let y = 1; y < canvas.height; y += 7) {
+    for (let x = 2; x < canvas.width; x += 7) {
+      const light = flareLight(shape, x + 0.5, y + 0.5, 1, hexToLinear);
+      const expected = [0, 1, 2].map((c) => background[c] + light[c]);
+      const got = pixelAt(pixels, canvas.width, x, y);
+      worst = Math.max(worst, worstDifference(got.slice(0, 3), expected));
+      expect(got[3]).toBeCloseTo(1, 3);
+    }
+  }
+  // Linear Add in linear light: the background plus the light, to f16's rounding.
+  expect(worst).toBeLessThan(2e-3);
+  // Its source is brighter than white: the output transform rolls it off.
+  expect(maxOf(pixels)).toBeGreaterThan(1);
+
+  // A quarter-size view, evaluated at its own level (it needs no refining), against level 0 box-reduced twice.
+  const level2 = boxReduce(boxReduce({ ...canvas, data: Float64Array.from(pixels) }));
+  const quarter = await renderRegion(page, { zoom: 0.25, x: 0, y: 0, width: 100, height: 75 });
+  let reduced = 0;
+  // (Not the canvas's edge, where the reference's Mitchell reads transparency past it.) Measured: 0.031, at the
+  // ghosts' rims: their edges, widened by the footprint, aren't exactly a box.
+  for (let y = 1; y < 74; y++) for (let x = 1; x < 99; x++) reduced = Math.max(reduced, worstDifference(pixelAt(quarter, 100, x, y), sampleMitchell(level2, x + 0.5, y + 0.5, 1)));
+  expect(reduced).toBeLessThan(0.05);
+});
+
+/**
+ * The photo with `background` as RGBA on 0..1, through the export's own path at `bits` (undithered, so files
+ * compare exactly).
+ */
+const exportedPixels = (page: Page, background: string | null, bits: 8 | 16 = 8) =>
+  page.evaluate(
+    async ({ background, bits }) => {
+      const { photoDebug } = window as unknown as LightWindow & { photoDebug: { renderer(): Promise<{ renderBands(doc: unknown, options: unknown, onBand: (from: number, rows: Uint8Array, width: number) => void): Promise<unknown> }> } };
+      const doc = photoDebug.photo.getState().history.doc.doc as { canvas: object };
+      const r = await photoDebug.renderer();
+      const out: number[] = [];
+      await r.renderBands({ ...doc, canvas: { ...doc.canvas, background } }, { bits, under: "none", dither: false }, (_from, rows) => {
+        if (bits === 8) for (const v of rows) out.push(v / 255);
+        else for (const v of new Uint16Array(rows.buffer, rows.byteOffset, rows.length / 2)) out.push(v / 65535);
+      });
+      return out;
+    },
+    { background, bits },
+  );
+
+test("a glowing object on transparency exports correctly over black, white and saturated backdrops", async ({ page }) => {
+  await openNewPhoto(page, "Glow cut-out");
+  const W = 200;
+  const H = 160;
+  await setPhoto(page, { width: W, height: H, background: null }, [pixelLayer("obj", W, H)]);
+  await paint(page, "obj", "content", [{ x: 100, y: 80 }], { radius: 22, hardness: 0.6, colour: [2, 1.6, 0.8, 1] });
+  await patchLayer(page, "obj", { filters: [glowFilter("g", { radius: 40, threshold: 50 })] });
+  // A 16-bit PNG: 8 bits can't carry faint light (alpha under about 1%, which rounds by a whole step: up to ~7
+  // levels over black, measured), a limit of the format, not of the light.
+  const png = await exportedPixels(page, null, 16);
+  // Colour is never without alpha; light spills past the object with coverage of its own.
+  let spill = 0;
+  for (let i = 0; i < W * H; i++) {
+    if (png[i * 4 + 3] === 0) expect([png[i * 4], png[i * 4 + 1], png[i * 4 + 2]]).toEqual([0, 0, 0]);
+    else if (png[i * 4 + 3] < 1) spill++;
+  }
+  expect(spill).toBeGreaterThan(1000);
+  for (const compositing of ["linear", "photoshop"] as const) {
+    await page.evaluate((compositing) => (window as unknown as LightWindow).photoDebug.photo.getState().commit((d) => ({ ...(d as object), compositing })), compositing);
+    for (const backdrop of ["#000000", "#ffffff", "#e01030"]) {
+      const app = await exportedPixels(page, backdrop);
+      const b = hexToLinear(backdrop);
+      let worst = 0;
+      for (let i = 0; i < W * H; i++) {
+        const a = png[i * 4 + 3];
+        for (let c = 0; c < 3; c++) {
+          // The file composited as a straight-alpha PNG is in linear light: a glowing layer blends in linear light
+          // in either compositing (light adds physically).
+          const over = linearToSrgb(srgbToLinear(png[i * 4 + c]) * a + b[c] * (1 - a)) * 255;
+          worst = Math.max(worst, Math.abs(over - app[i * 4 + c] * 255));
+        }
+      }
+      expect(worst, `${backdrop}, ${compositing}`).toBeLessThanOrEqual(1);
+    }
+  }
+});
+
+test("a glow viewed from its cached levels is level 0 reduced, and refines between them and 100%", async ({ page }) => {
+  await openNewPhoto(page, "Glow levels");
+  // Big enough that its pixels have a level 2 (a pyramid stops at a level that fits in one tile).
+  const W = 1024;
+  const H = 768;
+  await setPhoto(page, { width: W, height: H, background: "#101418" }, [pixelLayer("lit", W, H)]);
+  // (A new photo mixes as Photoshop's does; a glowing layer blends in linear light whatever the compositing.)
+  await paint(page, "lit", "content", [{ x: 300, y: 240 }], { radius: 8, hardness: 1, colour: [4, 3, 1, 1] });
+  await paint(page, "lit", "content", line(520, 500, 840, 600), { radius: 6, hardness: 0.8, colour: [1.2, 1.5, 2, 1] });
+  await patchLayer(page, "lit", { filters: [glowFilter("g", { radius: 120, threshold: 60 })] });
+  const full = await renderRegion(page, { zoom: 1, x: 0, y: 0, width: W, height: H });
+  const compare = (view: number[], level: number, width: number, height: number) => {
+    let image: { width: number; height: number; data: Float64Array | Float32Array } = { width: W, height: H, data: Float64Array.from(full) };
+    for (let k = 0; k < level; k++) image = boxReduce(image);
+    let worst = 0;
+    for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) worst = Math.max(worst, worstDifference(pixelAt(view, width, x, y), sampleMitchell(image, x + 0.5, y + 0.5, 1)));
+    return worst;
+  };
+  // A quarter: level 2, the glow's cached levels. Drawn at its own level, without refining.
+  const quarter = await renderRegion(page, { zoom: 0.25, x: 0, y: 0, width: W / 4, height: H / 4 });
+  const atQuarter = compare(quarter, 2, W / 4, H / 4);
+  // A half: level 1, finer than the cache: drawn at its level it's a preview, and refined it's level 0 reduced.
+  const half = await renderRegion(page, { zoom: 0.5, x: 0, y: 0, width: W / 2, height: H / 2 }, { refine: true });
+  const atHalf = compare(half, 1, W / 2, H / 2);
+  // Measured: 0.0008 refined at a half; 0.022 at a quarter, where octaves finer than the view are read at its level.
+  expect(atHalf).toBeLessThan(4e-3);
+  expect(atQuarter).toBeLessThan(0.05);
+});
+
+type DocWindow = { photoDebug: { photo: { getState(): { history: { doc: { doc: { layers: { id: string; kind: string; filters?: { id: string; enabled: boolean; params: Record<string, unknown> }[]; effect?: { params: Record<string, unknown> }; mask?: unknown }[] } } } } } } };
+const docLayers = (page: Page) => page.evaluate(() => (window as unknown as DocWindow).photoDebug.photo.getState().history.doc.doc.layers);
+const SHOTS = process.env.PHOTO_SHOTS;
+
+let lightId = "";
+
+test("glow and Lens Flare are added from Layers and edited in Properties; the flare's handle lands on the same document point at every zoom", async ({ page }) => {
+  lightId = await openNewPhoto(page, "Light");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const [photo] = await docLayers(page);
+  await page.locator(`[data-layer="${photo.id}"]`).click();
+
+  // Glow: a filter on the selected layer, listed under it, shown in Properties.
+  await page.getByRole("button", { name: "New adjustment layer" }).click();
+  await page.getByRole("menuitem", { name: /Glow/ }).click();
+  await expect(page.locator("[data-filter]")).toHaveCount(1);
+  await expect(page.locator('[data-filter-properties="glow"]')).toBeVisible();
+  const radius = page.locator('[data-filter-properties="glow"] [data-param="radius"]').getByRole("textbox");
+  await radius.fill("240");
+  await radius.press("Enter");
+  await expect.poll(async () => (await docLayers(page))[0].filters?.[0].params.radius).toBe(240);
+  // Its eye bypasses it, keeping its settings.
+  await page.locator("[data-filter]").getByRole("button", { name: /Bypass/ }).click();
+  await expect.poll(async () => (await docLayers(page))[0].filters?.[0]).toMatchObject({ enabled: false, params: { radius: 240 } });
+  await page.locator("[data-filter]").getByRole("button", { name: /Turn .* on/ }).click();
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "glow.png") });
+
+  // Lens Flare: a layer above, its handles on the canvas.
+  await page.getByRole("button", { name: "New adjustment layer" }).click();
+  await page.getByRole("menuitem", { name: "Lens Flare" }).click();
+  await expect(page.locator('[data-kind="generator"]')).toHaveCount(1);
+  await expect(page.locator('[data-generator-properties="lens-flare"]')).toBeVisible();
+  await expect(page.locator('[data-handle="source"]')).toBeVisible();
+  const flareId = (await docLayers(page))[1].id;
+  // An element added from the list's menu is shown, selected, in Properties.
+  const before = Number(await page.locator("[data-elements]").getAttribute("data-elements"));
+  await page.getByRole("button", { name: "Add an element" }).click();
+  await page.getByRole("menuitem", { name: "Anamorphic streak" }).click();
+  await expect(page.locator("[data-elements]")).toHaveAttribute("data-elements", String(before + 1));
+  await expect(page.locator('[data-element-properties="streak"]')).toBeVisible();
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "flare.png") });
+
+  // The source handle dragged to document point (430, 310) at a third, at 100% and at 250%: the same point each time.
+  const sourceOf = async () => (await docLayers(page)).find((l) => l.id === flareId)!.effect!.params.source as number[];
+  for (const zoom of [1 / 3, 1, 2.5]) {
+    await page.evaluate(
+      ({ zoom }) => {
+        const ui = (window as unknown as PaintWindow).photoDebug.ui.getState();
+        const view = ui.view;
+        // Centred on the point, so it's on screen.
+        ui.setView({ ...view, zoom, x: 430 - view.width / zoom / 2, y: 310 - view.height / zoom / 2 });
+      },
+      { zoom },
+    );
+    // Away first, so each drag moves it.
+    const handle = page.locator('[data-handle="source"]');
+    const from = (await handle.boundingBox())!;
+    const to = await screenOf(page, 430, 310);
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + 40, to.y + 30, { steps: 3 });
+    await page.mouse.move(to.x, to.y, { steps: 3 });
+    await page.mouse.up();
+    const [x, y] = await sourceOf();
+    expect(Math.abs(x - 430), `x at ${zoom}`).toBeLessThan(0.75 / zoom + 0.01);
+    expect(Math.abs(y - 310), `y at ${zoom}`).toBeLessThan(0.75 / zoom + 0.01);
+  }
+  // A drag is one undo step, and Escape cancels one.
+  const at = await sourceOf();
+  const handle = (await page.locator('[data-handle="source"]').boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 80, handle.y + 60, { steps: 4 });
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  expect(await sourceOf()).toEqual(at);
+  // Saved as it is (the next test reopens it).
+  await expect.poll(async () => (await savedPhoto(page, lightId)).layers.find((l: { id: string }) => l.id === flareId)?.effect.params.source).toEqual(at);
+});
+
+/** A SHA-256 of the open photo rendered at a fixed view: whether two states look the same, to the bit. */
+const renderDigest = (page: Page, view: ViewBox) =>
+  page.evaluate(async (view) => {
+    const { photoDebug } = window as unknown as DebugWindow;
+    const r = await photoDebug.renderer();
+    const { texture } = await r.renderView(photoDebug.photo.getState().history.doc.doc, view, { refine: true });
+    const data = await r.readFloat(texture, view.width, view.height);
+    texture.destroy();
+    return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new Float32Array(data)))].map((x) => x.toString(16).padStart(2, "0")).join("");
+  }, view);
+
+test("reordering, bypassing, masking, undoing and reopening keep every setting of the light", async ({ page }) => {
+  await page.goto(`/p/${lightId}`);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const photo = (await docLayers(page)).find((l) => l.kind === "image")!;
+  // A second glow, from the Layers menu, tinted.
+  await page.locator(`[data-layer="${photo.id}"]`).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Add Glow Filter" }).click();
+  await expect(page.locator(`[data-filter-of="${photo.id}"]`)).toHaveCount(2);
+  const amount = page.locator('[data-filter-properties="glow"] [data-param="tintAmount"]').getByRole("textbox");
+  await amount.fill("60");
+  await amount.press("Enter");
+  const filters = async () => (await docLayers(page)).find((l) => l.id === photo.id)!.filters!;
+  await expect.poll(async () => (await filters())[1].params.tintAmount).toBe(60);
+  const [first, second] = (await filters()).map((f) => f.id);
+
+  // Dragged below the first (the list shows the last applied on top): it applies first now.
+  const top = (await page.locator(`[data-filter="${second}"]`).boundingBox())!;
+  const below = (await page.locator(`[data-filter="${first}"]`).boundingBox())!;
+  // (By its name: its eye is at its left.)
+  await page.mouse.move(top.x + 150, top.y + top.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(below.x + 150, below.y + below.height - 2, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await filters()).map((f) => f.id)).toEqual([second, first]);
+
+  // The Filters row's eye bypasses both, each keeping its own; a mask from the footer, painted.
+  await page.locator(`[data-filters="${photo.id}"]`).getByRole("button", { name: "Bypass every filter" }).click();
+  await expect.poll(async () => (await docLayers(page)).find((l) => l.id === photo.id)).toMatchObject({ filtersEnabled: false });
+  await page.locator(`[data-filters="${photo.id}"]`).getByRole("button", { name: "Turn the filters on" }).click();
+  await page.locator(`[data-layer="${photo.id}"]`).click();
+  await page.getByRole("button", { name: /Add a mask/ }).click();
+  await paint(page, photo.id, "mask", line(200, 200, 900, 700), { radius: 60, colour: [0, 0, 0, 1] });
+  await expect.poll(async () => typeof (await docLayers(page)).find((l) => l.id === photo.id)!.mask).toBe("object");
+
+  // Undone and redone: the same.
+  const view: ViewBox = { zoom: 0.25, x: 0, y: 0, width: 400, height: 300 };
+  const doc = await docLayers(page);
+  const look = await renderDigest(page, view);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => await docLayers(page)).not.toEqual(doc);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(async () => await docLayers(page)).toEqual(doc);
+  expect(await renderDigest(page, view)).toBe(look);
+
+  // Reopened: every setting, and the same pixels.
+  await expect.poll(async () => (await savedPhoto(page, lightId)).layers).toEqual(doc);
+  await page.reload();
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  expect(await docLayers(page)).toEqual(doc);
+  expect(await renderDigest(page, view)).toBe(look);
 });

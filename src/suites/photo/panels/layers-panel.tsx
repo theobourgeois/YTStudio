@@ -4,9 +4,10 @@
  * undo step), the eye shows and hides, a double-click renames, a right-click is the Layers menu (merge, arrange).
  * A layer with a mask shows its thumbnail beside its own: clicking either targets what the brush paints (outlined,
  * as Photoshop's). Images show a thumbnail of themselves as they're placed on the
- * canvas; adjustments their kind and settings. Missing images and adjustments this app can't run are said so. Its
- * footer places images, adds adjustment layers (above the selected layer, as Photoshop's does), duplicates, moves
- * and deletes. Above the rows, Photoshop's blend-mode menu (each mode previewed while it's hovered), Opacity and
+ * canvas; adjustments their kind and settings. A layer's filters (the glow) are listed under it as Photoshop's Smart
+ * Filters are, after its effects. Missing images and effects this app can't run are said so. Its footer places
+ * images, adds adjustment layers (above the selected layer, as Photoshop's does), a glow or a Lens Flare, duplicates,
+ * moves and deletes. Above the rows, Photoshop's blend-mode menu (each mode previewed while it's hovered), Opacity and
  * Fill set every selected layer; Blending Options… (the menu, the fx button, a double-click on a row past its name)
  * opens the Layer Style window. Every change is an undoable edit.
  */
@@ -22,26 +23,29 @@ import {
   PiCopy,
   PiEye,
   PiEyeSlash,
+  PiFunnelSimple,
   PiImage,
   PiPaintBrush,
   PiPlus,
   PiSelectionBackground,
+  PiSparkle,
   PiStackPlus,
   PiSun,
+  PiSunHorizon,
   PiTrash,
   PiWarningCircle,
 } from "react-icons/pi";
 import { createId } from "@shared/ids";
 import { blendingOf } from "@shared/photo/blending";
-import { addAdjustmentLayer, moveLayersTo, setLayerBlending, updateLayer } from "@shared/photo/edits";
+import { addAdjustmentLayer, moveFilter, moveLayersTo, setFilter, setFiltersEnabled, setLayerBlending, updateLayer } from "@shared/photo/edits";
 import { STYLE_LIST, styleDefinition } from "@shared/photo/style/definitions";
 import { setStyleEffect, setStyleEnabled } from "@shared/photo/style/style";
 import { ADJUSTMENTS, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
-import type { AdjustmentLayer, ImageLayer, PhotoLayer, PixelLayer } from "@shared/photo/types";
+import { type AdjustmentLayer, type ContentLayer, type GeneratorLayer, type ImageLayer, type PhotoLayer, type PixelLayer, hasContent } from "@shared/photo/types";
 import { ScrubNumber } from "@/components/scrub-number";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { useSourceStates } from "../live";
@@ -77,6 +81,7 @@ export function LayersPanel() {
   const selectedIndexes = layers.flatMap((l, i) => (selectedIds.includes(l.id) ? [i] : []));
   const activeId = usePhotoUi((s) => s.selectedLayerId);
   const index = layers.findIndex((l) => l.id === activeId);
+  const activeHasContent = index >= 0 && hasContent(layers[index]);
   const none = selectedIndexes.length === 0;
 
   /**
@@ -149,6 +154,7 @@ export function LayersPanel() {
               <Fragment key={l.id}>
                 <LayerRow layer={l} selected={selectedIds.includes(l.id)} onPress={press} dropAbove={dropGap === i} dropBelow={dropGap === layers.length && i === layers.length - 1} folded={folded.has(l.id)} onFold={() => fold(l.id)} />
                 {l.style && !folded.has(l.id) && <EffectRows layer={l} />}
+                {hasContent(l) && (l.filters?.length ?? 0) > 0 && !folded.has(l.id) && <FilterRows layer={l} />}
               </Fragment>
             ))}
             {layers.length === 0 && <li className="px-3 py-6 text-center text-xs text-muted-foreground">No layers: place an image.</li>}
@@ -222,6 +228,14 @@ export function LayersPanel() {
                 </DropdownMenuItem>
               );
             })}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs text-muted-foreground">Light</DropdownMenuLabel>
+            <DropdownMenuItem disabled={!activeHasContent} onSelect={() => layerActions.addFilter("glow")}>
+              <PiSunHorizon /> Glow (filter on the layer)
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => layerActions.addFlare()}>
+              <PiSparkle /> Lens Flare
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <div className="flex-1" />
@@ -295,8 +309,21 @@ function LayersMenu({ count }: { count: number }) {
   const selection = useSelection();
   const mod = MAC ? "⌘" : "Ctrl+";
   const alt = MAC ? "⌥" : "Alt+";
+  const filterId = usePhotoUi((s) => s.selectedFilterId);
+  const filter = active && hasContent(active) && filterId ? active.filters?.find((f) => f.id === filterId) : undefined;
+  const commit = usePhoto((s) => s.commit);
   return (
     <ContextMenuContent className="w-56" data-layers-menu>
+      {active && filter && (
+        <>
+          <ContextMenuItem onSelect={() => commit((d) => setFilter(d, active.id, filter.id, { enabled: !filter.enabled }))}>{filter.enabled ? "Bypass Filter" : "Turn Filter On"}</ContextMenuItem>
+          <ContextMenuItem onSelect={() => layerActions.delete()}>
+            Delete Filter
+            <ContextMenuShortcut>⌫</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+        </>
+      )}
       <ContextMenuItem disabled={!active} onSelect={() => layerActions.blendingOptions()}>
         Blending Options…
       </ContextMenuItem>
@@ -319,7 +346,8 @@ function LayersMenu({ count }: { count: number }) {
       </ContextMenuItem>
       {active && !active.mask && <ContextMenuItem onSelect={() => void layerActions.addMask()}>Add Layer Mask</ContextMenuItem>}
       {active?.mask && <ContextMenuItem onSelect={() => layerActions.deleteMask()}>Delete Layer Mask</ContextMenuItem>}
-      {active?.kind === "image" && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Convert to Pixels</ContextMenuItem>}
+      {active && hasContent(active) && <ContextMenuItem onSelect={() => layerActions.addFilter("glow", active.id)}>Add Glow Filter</ContextMenuItem>}
+      {(active?.kind === "image" || active?.kind === "generator") && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Convert to Pixels</ContextMenuItem>}
       <ContextMenuItem disabled={!selection || !active || active.kind === "adjustment"} onSelect={() => void editActions.layerVia(false)}>
         Layer via Copy
         <ContextMenuShortcut>{mod}J</ContextMenuShortcut>
@@ -470,7 +498,7 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow, folded, onFo
         {layer.visible ? <PiEye /> : <PiEyeSlash />}
       </button>
       <span className={cn("shrink-0 rounded-sm ring-offset-1 ring-offset-surface-1", targeted("content") && layer.kind !== "adjustment" && "ring-1 ring-foreground/70")} data-thumb="content" data-targeted={targeted("content") || undefined}>
-        {layer.kind === "image" ? <ImageThumb layer={layer} /> : layer.kind === "pixel" ? <PixelThumb layer={layer} /> : <AdjustmentThumb layer={layer} />}
+        {layer.kind === "image" ? <ImageThumb layer={layer} /> : layer.kind === "pixel" ? <PixelThumb layer={layer} /> : layer.kind === "generator" ? <GeneratorThumb layer={layer} /> : <AdjustmentThumb layer={layer} />}
       </span>
       {layer.mask && (
         <span className={cn("shrink-0 rounded-sm ring-offset-1 ring-offset-surface-1", targeted("mask") && "ring-1 ring-foreground/70")} data-thumb="mask" data-targeted={targeted("mask") || undefined} title="Layer mask: black hides, white reveals">
@@ -512,6 +540,93 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow, folded, onFo
   );
 }
 
+/**
+ * A layer's filters under it, as Photoshop lists Smart Filters: a "Filters" row whose eye bypasses them all, then
+ * each, the last applied on top, with its eye. A click shows it in Properties; a drag reorders it among them.
+ */
+function FilterRows({ layer }: { layer: ContentLayer }) {
+  const commit = usePhoto((s) => s.commit);
+  const selectedId = usePhotoUi((s) => (s.selectedLayerId === layer.id ? s.selectedFilterId : null));
+  const filters = layer.filters ?? [];
+  const on = layer.filtersEnabled !== false;
+  const press = (e: React.PointerEvent<HTMLLIElement>, id: string) => {
+    if (e.button !== 0 || (e.target as Element).closest("button")) return;
+    e.stopPropagation();
+    usePhotoUi.getState().selectFilter(layer.id, id);
+    // (React lets go of `currentTarget` once this handler returns.)
+    const list = e.currentTarget.parentElement;
+    let to: number | null = null;
+    startPointerDrag(e, {
+      threshold: 4,
+      cursor: "grabbing",
+      onMove: (ev) => {
+        const rows = [...(list?.querySelectorAll<HTMLElement>(`[data-filter-of="${layer.id}"]`) ?? [])].map((r) => r.getBoundingClientRect());
+        let gap = rows.findIndex((b) => ev.clientY < b.top + b.height / 2);
+        if (gap < 0) gap = rows.length;
+        // Listed last applied first: places count from the end.
+        const shown = filters.length - 1 - filters.findIndex((f) => f.id === id);
+        to = filters.length - 1 - (gap > shown ? gap - 1 : gap);
+      },
+      onEnd: () => {
+        if (to !== null) commit((d) => moveFilter(d, layer.id, id, to!));
+      },
+    });
+  };
+  return (
+    <>
+      <li className={cn("flex h-6 items-center gap-1.5 pr-2 pl-9 text-xs text-muted-foreground", !layer.visible && "opacity-60")} data-filters={layer.id}>
+        <button
+          type="button"
+          className="grid size-5 place-items-center rounded hover:text-foreground"
+          aria-label={on ? "Bypass every filter" : "Turn the filters on"}
+          aria-pressed={on}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => commit((d) => setFiltersEnabled(d, layer.id, !on))}
+        >
+          {on ? <PiEye /> : <PiEyeSlash />}
+        </button>
+        <PiFunnelSimple className="shrink-0" /> Filters
+      </li>
+      {[...filters].reverse().map((f) => {
+        const def = effectDefinition(f.type);
+        const reason = unavailableReason(f, "filter");
+        return (
+          <li
+            key={f.id}
+            className={cn("flex h-6 cursor-default items-center gap-1.5 pr-2 pl-14 text-xs", f.id === selectedId ? "bg-accent" : "hover:bg-surface-2", (!f.enabled || !on) && "text-muted-foreground")}
+            onPointerDown={(e) => press(e, f.id)}
+            onContextMenu={() => usePhotoUi.getState().selectFilter(layer.id, f.id)}
+            data-filter={f.id}
+            data-filter-of={layer.id}
+            aria-selected={f.id === selectedId}
+          >
+            <button
+              type="button"
+              className="grid size-5 place-items-center rounded text-muted-foreground hover:text-foreground"
+              aria-label={f.enabled ? `Bypass ${def?.label ?? "the filter"}` : `Turn ${def?.label ?? "the filter"} on`}
+              aria-pressed={f.enabled}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => commit((d) => setFilter(d, layer.id, f.id, { enabled: !f.enabled }))}
+            >
+              {f.enabled ? <PiEye /> : <PiEyeSlash />}
+            </button>
+            <span className="truncate">{def?.label ?? f.type}</span>
+            {def && !reason && <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{def.summary(f.params)}</span>}
+            {reason && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PiWarningCircle className="ml-auto shrink-0 text-destructive" aria-label="Filter unavailable" />
+                </TooltipTrigger>
+                <TooltipContent>{reason} It's kept as it is and changes nothing here.</TooltipContent>
+              </Tooltip>
+            )}
+          </li>
+        );
+      })}
+    </>
+  );
+}
+
 function ImageThumb({ layer }: { layer: ImageLayer }) {
   const thumbnail = useLayerThumbnail(layer);
   const poster = usePhoto((s) => s.assets.find((a) => a.id === layer.mediaId)?.poster);
@@ -530,6 +645,17 @@ function PixelThumb({ layer }: { layer: PixelLayer }) {
   ) : (
     <span className="grid size-8 shrink-0 place-items-center rounded-sm bg-surface-2 text-muted-foreground" aria-hidden>
       <PiPaintBrush className="size-4" />
+    </span>
+  );
+}
+
+function GeneratorThumb({ layer }: { layer: GeneratorLayer }) {
+  const thumbnail = useLayerThumbnail(layer);
+  return thumbnail ? (
+    <img src={thumbnail} alt="" draggable={false} className="size-8 shrink-0 rounded-sm bg-surface-2 object-contain" data-thumbnail="rendered" />
+  ) : (
+    <span className="grid size-8 shrink-0 place-items-center rounded-sm bg-surface-2 text-muted-foreground" aria-hidden>
+      <PiSparkle className="size-4" />
     </span>
   );
 }

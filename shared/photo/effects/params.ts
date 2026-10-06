@@ -3,10 +3,11 @@
  * its unit, range and default, and how an untrusted value is checked. Validated here once, for the panel, the
  * assistant and `normalizePhotoProject` alike. Photo's own: the video editor's `shared/params.ts` is another suite's.
  */
+import { createId } from "../../ids.ts";
 import { isBlendMode } from "../blending.ts";
 import { sanitizeContour } from "../style/contours.ts";
 import { sanitizeGradient } from "../style/gradients.ts";
-import type { BlendMode, Contour, CurvePoints, CurveSet, EffectParamValue, Gradient } from "../types.ts";
+import type { BlendMode, Contour, CurvePoints, CurveSet, DocPoint, EffectElement, EffectParamValue, Gradient } from "../types.ts";
 
 /**
  * Where a parameter goes on a Layer Style page (Photoshop's groups: Structure, Elements, Quality…), and when it shows
@@ -64,7 +65,7 @@ export interface BooleanParam extends Placement {
   description: string;
 }
 
-/** A colour, sRGB "#rrggbb" (a swatch). */
+/** A colour, as sRGB "#rrggbb" (a swatch; definitions convert it to linear light when they pack it). */
 export interface ColourParam extends Placement {
   kind: "colour";
   key: string;
@@ -100,7 +101,44 @@ export interface GradientParam extends Placement {
   description: string;
 }
 
-export type ParamSpec = NumberParam | CurvesParam | ChoiceParam | BooleanParam | ColourParam | BlendParam | ContourParam | GradientParam;
+/**
+ * A point in document pixels. `handle`: drawn on the canvas, where it's dragged (a flare's source). `nullable`: null
+ * means the canvas's centre (a flare's optical centre), following the canvas.
+ */
+export interface PointParam extends Placement {
+  kind: "point";
+  key: string;
+  label: string;
+  default: DocPoint | null;
+  nullable: boolean;
+  handle: boolean;
+  description: string;
+}
+
+/** What an element's own parameters can be. */
+export type ElementParamSpec = NumberParam | ColourParam | ChoiceParam | BooleanParam;
+
+/** A type of element: what it's called and its parameters. */
+export interface ElementType {
+  type: string;
+  label: string;
+  description: string;
+  params: readonly ElementParamSpec[];
+}
+
+/** An ordered list of elements of a few types (a flare's), each with a stable id. */
+export interface ElementsParam extends Placement {
+  kind: "elements";
+  key: string;
+  label: string;
+  types: readonly ElementType[];
+  default: EffectElement[];
+  /** At most this many. */
+  max: number;
+  description: string;
+}
+
+export type ParamSpec = NumberParam | CurvesParam | ColourParam | PointParam | ChoiceParam | BooleanParam | ElementsParam | BlendParam | ContourParam | GradientParam;
 
 /** Photoshop's limit: 16 points on a curve, its ends included. */
 export const MAX_CURVE_POINTS = 16;
@@ -168,6 +206,52 @@ function sanitizeCurveSet(value: unknown): Sanitized<CurveSet> {
   return { value: out, repaired };
 }
 
+export const isColourValue = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
+
+/** The farthest a point may be from the canvas (as a layer's centre may). */
+const POINT_LIMIT = 1e6;
+
+const ELEMENT_ID = /^[\w-]{1,64}$/;
+
+/** An element's own parameters checked by its type's specs (a bad one at its default, an out-of-range one held). */
+function sanitizeElement(type: ElementType, raw: Record<string, unknown>, id: string): Sanitized<EffectElement> {
+  let repaired = false;
+  const out: EffectElement = { id, type: type.type, enabled: raw.enabled !== false };
+  if (typeof raw.enabled !== "boolean") repaired ||= raw.enabled !== undefined;
+  for (const spec of type.params) {
+    const s = sanitizeParam(spec, raw[spec.key]);
+    out[spec.key] = s.value as number | boolean | string;
+    repaired ||= s.repaired;
+  }
+  for (const key of Object.keys(raw)) if (key !== "id" && key !== "type" && key !== "enabled" && !type.params.some((p) => p.key === key)) repaired = true;
+  return { value: out, repaired };
+}
+
+function sanitizeElements(spec: ElementsParam, value: unknown): Sanitized<EffectElement[]> {
+  if (!Array.isArray(value)) return { value: structuredClone(spec.default), repaired: true };
+  let repaired = false;
+  const seen = new Set<string>();
+  const out: EffectElement[] = [];
+  for (const raw of value) {
+    const e = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : null) as Record<string, unknown> | null;
+    const type = e ? spec.types.find((t) => t.type === e.type) : undefined;
+    if (!e || !type || out.length >= spec.max) {
+      repaired = true;
+      continue;
+    }
+    let id = typeof e.id === "string" && ELEMENT_ID.test(e.id) ? e.id : "";
+    if (!id || seen.has(id)) {
+      id = createId("el");
+      repaired = true;
+    }
+    seen.add(id);
+    const s = sanitizeElement(type, e, id);
+    out.push(s.value);
+    repaired ||= s.repaired;
+  }
+  return { value: out, repaired };
+}
+
 /** A parameter's value checked against its spec: a bad one goes back to its default, an out-of-range one is held. */
 export function sanitizeParam(spec: ParamSpec, value: unknown): Sanitized<EffectParamValue> {
   switch (spec.kind) {
@@ -176,28 +260,46 @@ export function sanitizeParam(spec: ParamSpec, value: unknown): Sanitized<Effect
       const held = Math.max(spec.min, Math.min(spec.max, value));
       return { value: held, repaired: held !== value };
     }
+    case "curves":
+      if (value === undefined) return { value: structuredClone(spec.default), repaired: true };
+      return sanitizeCurveSet(value);
+    case "colour":
+      return isColourValue(value) ? { value: value.toLowerCase(), repaired: value !== value.toLowerCase() } : { value: spec.default, repaired: true };
     case "choice":
       return spec.options.some((o) => o.value === value) ? { value: value as string, repaired: false } : { value: spec.default, repaired: true };
     case "boolean":
       return typeof value === "boolean" ? { value, repaired: false } : { value: spec.default, repaired: true };
-    case "colour":
-      return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? { value: value.toLowerCase(), repaired: value !== value.toLowerCase() } : { value: spec.default, repaired: true };
     case "blend":
       return isBlendMode(value) ? { value, repaired: false } : { value: spec.default, repaired: true };
     case "contour":
       return value === undefined ? { value: structuredClone(spec.default), repaired: true } : sanitizeContour(value);
     case "gradient":
       return value === undefined ? { value: structuredClone(spec.default), repaired: true } : sanitizeGradient(value);
-    case "curves":
-      if (value === undefined) return { value: structuredClone(spec.default), repaired: true };
-      return sanitizeCurveSet(value);
+    case "point": {
+      if (value === null && spec.nullable) return { value: null, repaired: false };
+      if (!Array.isArray(value) || value.length !== 2 || !value.every((n) => typeof n === "number" && Number.isFinite(n))) {
+        return { value: spec.default === null ? null : [...spec.default], repaired: true };
+      }
+      const held: DocPoint = [Math.max(-POINT_LIMIT, Math.min(POINT_LIMIT, value[0])), Math.max(-POINT_LIMIT, Math.min(POINT_LIMIT, value[1]))];
+      return { value: held, repaired: held[0] !== value[0] || held[1] !== value[1] };
+    }
+    case "elements":
+      return sanitizeElements(spec, value);
   }
 }
 
 export const defaultParams = (specs: readonly ParamSpec[]): Record<string, EffectParamValue> =>
-  Object.fromEntries(specs.map((s) => [s.key, typeof s.default === "object" ? structuredClone(s.default) : s.default]));
+  Object.fromEntries(specs.map((s) => [s.key, typeof s.default === "object" && s.default !== null ? structuredClone(s.default) : s.default]));
 
-/** Whether two parameter values are the same (deeply: curves, contours and gradients are objects). */
+/** An element of `type` at its defaults. */
+export const newElement = (type: ElementType, id: string): EffectElement => ({
+  id,
+  type: type.type,
+  enabled: true,
+  ...Object.fromEntries(type.params.map((p) => [p.key, p.default])),
+});
+
+/** Whether two parameter values are the same (deeply: curves, contours, gradients, points and elements are objects). */
 export function sameValue(a: EffectParamValue | undefined, b: EffectParamValue | undefined): boolean {
   if (a === b) return true;
   if (typeof a !== "object" || typeof b !== "object" || !a || !b) return false;

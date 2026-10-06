@@ -14,9 +14,9 @@ FL Studio** (see "The music suite"). See "Suites" below: most of this file is ab
 The planned **photo suite** is a Photoshop-style image editor with creative lighting/render effects.
 Read [`docs/photo/README.md`](docs/photo/README.md) for its product, research and architecture (WebGPU in the
 page renders and paints; content-addressed tiles in the package; a helper process decodes files) and the
-foundations' milestones and gates. **F0–F3 are built**: the suite is registered (`SuiteId` `photo`), with
-`shared/photo/` (the document: types.ts, project.ts, edits.ts, layers.ts; merge.ts plans merging layers; image and adjustment layers; effects/:
-the effect definitions (Exposure, Curves) and their parameter specs; render-plan.ts: `compileRender`, prefix keys,
+foundations' milestones and gates. **F0–F4 are built**: the suite is registered (`SuiteId` `photo`), with
+`shared/photo/` (the document: types.ts, project.ts, edits.ts, layers.ts; merge.ts plans merging layers; image, pixel, adjustment and generator layers, filters; effects/:
+the effect definitions by kind (adjustments: Exposure, Curves; filters: glow.ts; generators: flare.ts, the Lens Flare) and their parameter specs (numbers, curves, colours, points, choices, booleans, element lists); render-plan.ts: `compileRender`, prefix keys,
 `refinePlan`; reference/: the CPU references the GPU is tested against; colour and ICC, geometry, half floats,
 surfaces, brush, the output transform; tools.ts), `server/photo/` (the helper process, the only code that parses
 image files, with sharp; decoded sources in each package's `photo/cache/`; banded exports; the blob store; the lab),
@@ -25,11 +25,31 @@ tools.ts + tool-edits.ts, live.ts: the open photo's renderer (and, in developmen
 `window.photoBench` for the bench); render/: the WebGPU renderer, its atlas, page tables,
 WGSL kernels and compositor.ts, the plan's evaluator, which draws the screen, exports, covers and the assistant's
 pictures alike; renderer.ts keeps the composite below each adjustment and refines reduced views, never showing a
-stale one; adjustments.ts the adjustments' passes). `/photo-lab.html` in `pnpm dev` is F0's lab, kept for the
+stale one; adjustments.ts the adjustments' passes; isolated.ts evaluates a layer with filters or a generator alone and
+composites it; glow.ts the glow's passes (its octaves live on the document's 2^k grids, read at any grid by their
+B-spline) and glow-cache.ts its contributions from level 0, kept per glow; flare.ts the flare's pass).
+`scripts/photo-sheet.ts` renders and checks every filter and preset, as the video effect sheet does. `/photo-lab.html` in `pnpm dev` is F0's lab, kept for the
 renderer's parts the suite doesn't use yet. Kernels and passes storing `rgba16float` must round first
 (`round_for_store`): Metal truncates on store (docs/photo/rendering.md). Pixel layers and masks are surfaces
 (`render/surface.ts`: tiles by hash, strokes on drafts); a saved photo only names pixels the server has (`uploads.ts`,
-`SuiteBackend.checkSave`). Layer Style L1–L3 are built (docs/photo/layer-style/README.md: blend modes and compositing in render/blend.ts, effects (Bevel & Emboss and Satin too) in shared/photo/style/ and render/style.ts, their fields made in the layer's pixels and kept; reference/blend.ts and reference/style.ts are held to Photoshop's own renders, `scripts/photoshop-probes/bevel-sheet.ts` shows the bevels beside them). F4 is next.
+`SuiteBackend.checkSave`). Light (docs/photo/f4-light.md): no pixel is brighter than its coverage (up to white), the
+output's `film` rolls light above white off at the end (`output.ts`), and a glow's or flare's WGSL mirrors its CPU
+reference in `shared/photo/reference/`: change both. Layer Style L1–L3 are built (docs/photo/layer-style/README.md:
+blend modes and compositing in render/blend.ts, effects (Bevel & Emboss and Satin too) in shared/photo/style/ and
+render/style.ts, their fields made in the layer's pixels and kept; reference/blend.ts and reference/style.ts are held
+to Photoshop's own renders, `scripts/photoshop-probes/bevel-sheet.ts` shows the bevels beside them). A filtered or
+generator layer (isolated.ts) composites by the GPU's own blending when it's Normal or light added in linear light,
+otherwise through the blend or style pass (`fixedComposite`); light blends in linear light in a "photoshop" document
+too (`blendsInLinear`: a layer with filters, a flare with `blendSpace`). F5 is next.
+
+The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is
+planned in [`docs/visualizer/README.md`](docs/visualizer/README.md): signals, links, audio shaders, Perform, its
+milestones V1–V10. **V1 and V2 are built**: every file with sound gets *signals* (`shared/signals/`, platform: the
+format, the pure analyser, reading at a time; `server/signals.ts` + `MediaLibrary.analyseSignals`, `MediaAsset.signals`),
+read on the timeline by `shared/audio-signals.ts` (video: a clip's, a track's or the mix's energies summed, hits, the
+beat; a `SignalReader` per video: the tab's is `stores/signals.ts`, the export's built in `ExportService`, used through
+`withSignals`), so expressions react to sound (`audio("bass")`, `sinceHit("onsetLow")`, `envelope`, `beat()`...) alike
+in the preview and the export. The assistant's `get_signals` and `plot_signals` are its ears. V3 is next.
 
 ## Commands
 

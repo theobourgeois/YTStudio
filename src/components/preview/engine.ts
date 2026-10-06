@@ -1,3 +1,5 @@
+import { type SignalReader, withSignals } from "@shared/audio-signals";
+import { useSignals } from "@/stores/signals";
 import type { Clip, MediaAsset, Project } from "@shared/types";
 import { atFrameRate, clipKind, effectDefinition, isRemapped, lookAt, motionAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
 import { nestedSequence, sequenceDuration, sequenceSize, sequenceView } from "@shared/sequences";
@@ -110,6 +112,8 @@ export interface PreviewSource {
   get(): { project: Project; assets: MediaAsset[]; time: number; playing: boolean };
   /** Be told when any of it changes. Returns the unsubscribe. */
   subscribe(listener: () => void): () => void;
+  /** Where its sound's signals are read from; absent: the open video's (`setSignalReader`). */
+  signals?(): SignalReader | null;
 }
 
 /** The Program monitor's source: the open video at the playback clock. */
@@ -212,9 +216,17 @@ export class PreviewEngine {
       this.clearNestFrames();
       this.update();
     });
+    // So do a sound's signals arriving: whatever reacts to it changes.
+    const offSignals = useSignals.subscribe((s, prev) => {
+      if (s.data === prev.data) return;
+      this.contentVersion++;
+      this.clearNestFrames();
+      this.update();
+    });
     this.unsubscribe = () => {
       offSource();
       offFonts();
+      offSignals();
     };
     this.update();
   }
@@ -373,8 +385,11 @@ export class PreviewEngine {
       this.windows.clear();
     }
     const status = { offline: false, unsettled: false };
-    const layers = this.planLevel({ view: project, prefix: "", time, playing, rate: 1, muted: false, gain: 1, canvas: this.size, depth: 0 }, status);
-    this.draw(project, layers);
+    // Expressions hear the source's sound (the open video's unless it says otherwise).
+    withSignals(this.source.signals?.() ?? null, () => {
+      const layers = this.planLevel({ view: project, prefix: "", time, playing, rate: 1, muted: false, gain: 1, canvas: this.size, depth: 0 }, status);
+      this.draw(project, layers);
+    });
     if (status.offline !== this.offline) {
       this.offline = status.offline;
       this.reportStatus();

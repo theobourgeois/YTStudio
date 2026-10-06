@@ -3,7 +3,7 @@
  * real workspace on real projects: `scripts/photo-bench.ts` opens the app and drives them through
  * `window.photoBench` (development only, installed by `live.ts`). Each returns plain JSON.
  */
-import { addAdjustmentLayer, setEffectParams, setMask } from "@shared/photo/edits";
+import { addAdjustmentLayer, addFilter, addGeneratorLayer, setEffectParams, setFilter, setHandle, setMask } from "@shared/photo/edits";
 import { type View, fitView, zoomAbout } from "@shared/photo/geometry";
 import { identityCurveSet } from "@shared/photo/effects/params";
 import { useProjects } from "@/stores/projects";
@@ -12,6 +12,8 @@ import { liveRenderer } from "./live";
 import { usePhotoPreferences } from "./preferences";
 import type { Presented } from "./render/renderer";
 import { commitSurface } from "./paint-target";
+import type { PhotoProject } from "@shared/photo/types";
+import { Compositor } from "./render/compositor";
 import { currentDoc, photoGesture, usePhoto } from "./store";
 import { usePhotoUi } from "./ui";
 
@@ -302,9 +304,164 @@ export async function paintMask(frames = 90, undos = 10) {
   };
 }
 
-export type BenchStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk" | "paintMask"; label?: string; budgetMB?: number };
+/** Resolves when the GPU has done what's been submitted. */
+const gpuIdle = async () => (await renderer()).device.queue.onSubmittedWorkDone();
 
-const TASKS = { reopen, panZoom, adjustExposure, adjustCurves, exportPng, deviceLoss, budgetWalk, paintMask } as const;
+/**
+ * Light's target (foundations-prototype.md: "Glow/flare, large radius: first response ≤ 100 ms; settled ≤ 1 s at
+ * fit on 48 MP"): a radius-1000 glow put on the photo at fit, timed from the edit to the first frame showing it
+ * (the GPU done: its preview) and to the first frame after its cache was built (settled). Then its radius dragged
+ * (the cache re-blurred, not rebuilt) and its threshold changed (rebuilt). Undone after.
+ */
+export async function glow(frames = 30) {
+  const d = driver();
+  const r = await renderer();
+  const doc = usePhoto.getState().history!.doc.doc;
+  usePhotoUi.getState().setView(fitView(doc.canvas, usePhotoUi.getState().view!.width, usePhotoUi.getState().view!.height));
+  const layerId = doc.layers.find((l) => l.kind !== "adjustment")!.id;
+  await nextFrame();
+  await gpuIdle();
+  const stage = <T>(name: string, p: Promise<T>) => p.catch((error: unknown) => Promise.reject(new Error(`${name}: ${error instanceof Error ? error.message : String(error)} (refine ${r.refineState})`)));
+  const shown = async (started: number) => {
+    const frame = await stage("a frame showing it", until(() => r.presented.find((f) => f.at >= started && f.revision === r.revision), 30_000));
+    await gpuIdle();
+    return { frame, ms: performance.now() - started };
+  };
+  // Settled: its cache built and a frame drawn with it, done on the GPU (the screen draws one by itself too).
+  const settle = async (started: number) => {
+    await stage("its cache", until(() => r.glows.complete(r.planFor(usePhoto.getState().history!.doc.doc)), 60_000));
+    const timing = d.draw("final");
+    if (timing) await timing.gpuMs;
+    return performance.now() - started;
+  };
+  const started = performance.now();
+  usePhoto.getState().commit((d) => addFilter(d, layerId, { id: "bench_glow", type: "glow", params: { radius: 1000, threshold: 60 } }));
+  const first = await shown(started);
+  const settled = await settle(started);
+  // The radius dragged: each frame re-blurs the cached contributions.
+  const gesture = photoGesture();
+  gesture.begin();
+  const gpu: Promise<number>[] = [];
+  for (let i = 1; i <= frames; i++) {
+    gesture.apply((doc) => setFilter(doc, layerId, "bench_glow", { params: { radius: Math.round(1000 + 400 * Math.sin((i / frames) * Math.PI)) } }));
+    await nextFrame();
+    const timing = d.draw("final");
+    if (timing) gpu.push(timing.gpuMs);
+  }
+  gesture.end();
+  const radiusDrag = percentiles(await Promise.all(gpu));
+  // The threshold changed: the contributions are made again from level 0.
+  const again = performance.now();
+  usePhoto.getState().commit((d) => setFilter(d, layerId, "bench_glow", { params: { threshold: 80 } }));
+  const thresholdFirst = await shown(again);
+  const thresholdSettled = await settle(again);
+  const result = {
+    firstResponseMs: round(first.ms),
+    settledMs: round(settled),
+    radiusDrag,
+    threshold: { firstResponseMs: round(thresholdFirst.ms), settledMs: round(thresholdSettled) },
+    gpuErrors: r.gpu.errors.slice(-3),
+  };
+  usePhoto.getState().undo();
+  usePhoto.getState().undo();
+  usePhoto.getState().undo();
+  await nextFrame();
+  return result;
+}
+
+/** A Lens Flare added at fit, then its source handle dragged across the photo, a frame an edit: frame times. */
+export async function flare(frames = 60) {
+  const d = driver();
+  const r = await renderer();
+  const doc = usePhoto.getState().history!.doc.doc;
+  const { width, height } = doc.canvas;
+  usePhotoUi.getState().setView(fitView(doc.canvas, usePhotoUi.getState().view!.width, usePhotoUi.getState().view!.height));
+  await nextFrame();
+  await gpuIdle();
+  const started = performance.now();
+  usePhoto.getState().commit((d) => addGeneratorLayer(d, { id: "bench_flare", type: "lens-flare" }));
+  await until(() => r.presented.find((f) => f.at >= started && f.revision === r.revision), 30_000);
+  await gpuIdle();
+  const firstMs = performance.now() - started;
+  const gesture = photoGesture();
+  gesture.begin();
+  const gpu: Promise<number>[] = [];
+  const cpu: number[] = [];
+  for (let i = 1; i <= frames; i++) {
+    const t = i / frames;
+    gesture.apply((doc) => setHandle(doc, "bench_flare", "source", [width * (0.2 + 0.6 * t), height * (0.3 + 0.2 * Math.sin(t * Math.PI))]));
+    await nextFrame();
+    const timing = d.draw("final");
+    if (timing) {
+      cpu.push(timing.cpuMs);
+      gpu.push(timing.gpuMs);
+    }
+  }
+  gesture.end();
+  const result = { firstMs: round(firstMs), drag: { gpu: percentiles(await Promise.all(gpu)), cpu: percentiles(cpu) }, gpuErrors: r.gpu.errors.slice(-3) };
+  usePhoto.getState().undo();
+  usePhoto.getState().undo();
+  await nextFrame();
+  return result;
+}
+
+// --- the photo sheet (`scripts/photo-sheet.ts`): scenes painted here, any document rendered to floats ---
+
+/** Paints `points` on a layer's pixels with this colour (premultiplied linear), committed as a stroke is. */
+async function paintDabs(layerId: string, points: { x: number; y: number }[], radius: number, colour: number[], hardness = 1) {
+  const r = await renderer();
+  await until(() => r.beginStroke(layerId, "content", { radius, hardness, strength: 1, spacing: 0.1 }, colour, null), 10_000);
+  r.strokeTo(points);
+  const result = await r.endStroke();
+  if (result) usePhoto.getState().commit(commitSurface(layerId, "content", result.id));
+}
+
+/**
+ * The sheet's scenes in the open photo (800 × 600): `photo` the sample image (half size), `lights` a night of bright
+ * dabs and a lit line above white, `object` a soft bright blob (alone on transparency, it's the cut-out). Returns
+ * the document, whose layers the sheet shows and hides per scene.
+ */
+export async function sheetSetup(projectId: string, mediaId: string) {
+  await useProjects.getState().open(projectId);
+  const r = await until(() => usePhoto.getState().projectId === projectId && usePhoto.getState().history && liveRenderer());
+  const pixel = (id: string) => ({ id, kind: "pixel" as const, name: id, visible: true, opacity: 1, surface: null, size: { width: 800, height: 600 }, transform: { x: 400, y: 300, scaleX: 1, scaleY: 1, rotation: 0 } });
+  usePhoto.getState().commit((d) => ({
+    ...d,
+    canvas: { width: 800, height: 600, background: "#05070c" },
+    layers: [{ id: "photo", kind: "image", name: "photo", visible: true, opacity: 1, mediaId, transform: { x: 400, y: 300, scaleX: 0.5, scaleY: 0.5, rotation: 0 } }, pixel("lights"), pixel("object")],
+  }));
+  await sleep(50);
+  for (const [x, y, c] of [
+    [160, 140, [6, 4.5, 2, 1]],
+    [420, 210, [2.5, 3, 5, 1]],
+    [610, 120, [5, 1.5, 1, 1]],
+    [300, 420, [3, 3, 3, 1]],
+  ] as const)
+    await paintDabs("lights", [{ x, y }], 5, [...c]);
+  await paintDabs("lights", Array.from({ length: 60 }, (_, i) => ({ x: 120 + i * 9, y: 520 - Math.sin(i / 8) * 30 })), 2.5, [1.6, 1.2, 0.6, 1]);
+  await paintDabs("object", Array.from({ length: 30 }, (_, i) => ({ x: 400 + Math.cos(i / 4.8) * 90, y: 300 + Math.sin(i / 4.8) * 60 })), 40, [1.4, 1.1, 0.5, 1], 0.4);
+  await r.ready();
+  return usePhoto.getState().history!.doc.doc;
+}
+
+/** Any document (the open one's layers) rendered at `view` as RGBA floats, refined below 100% when it needs to be. */
+export async function renderDoc(doc: PhotoProject, view: View) {
+  const r = await renderer();
+  const { texture } = await r.renderView(doc, view);
+  const data = await r.readFloat(texture, view.width, view.height);
+  texture.destroy();
+  return Array.from(data);
+}
+
+/** Every pipeline's WGSL compiled: the errors (none, when they all compile). */
+export async function compileErrors() {
+  const r = await renderer();
+  return Compositor.compileErrors(r.device);
+}
+
+export type BenchStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk" | "paintMask" | "glow" | "flare"; label?: string; budgetMB?: number };
+
+const TASKS = { reopen, panZoom, adjustExposure, adjustCurves, exportPng, deviceLoss, budgetWalk, paintMask, glow, flare } as const;
 
 /** Runs steps in order, collecting each result (an error is recorded and the plan goes on). */
 export async function runPlan(steps: BenchStep[]) {

@@ -17,22 +17,22 @@ import { fromHalf } from "@shared/photo/half.ts";
 import type { BrushSettings } from "@shared/photo/brush.ts";
 import { type Affine, IDENTITY, apply, invert, layerMatrix, layerScale } from "@shared/photo/layers.ts";
 import type { TileSize } from "@shared/photo/lab.ts";
-import { DITHER_8BIT } from "@shared/photo/output.ts";
+import { DITHER_8BIT, type Highlights } from "@shared/photo/output.ts";
 import {
-  type AdjustmentNode,
   type DrawNode,
   type PlanFormat,
   type RenderPlan,
   type SourceFacts,
   backgroundLight,
   compileRender,
+  filtersReach,
   isDrawNode,
   keyBelow,
   needsRefinement,
   refinePlan,
 } from "@shared/photo/render-plan.ts";
 import { type SurfaceManifest, emptySurface, withTiles } from "@shared/photo/surfaces.ts";
-import type { LayerTransform, PhotoProject, PhotoSelection, SurfaceId } from "@shared/photo/types.ts";
+import { type LayerTransform, type PhotoProject, type PhotoSelection, type SurfaceId, isPlaced } from "@shared/photo/types.ts";
 import type { MediaAsset } from "@shared/types";
 import { photoApi } from "../api.ts";
 import type { SurfacePart } from "../paint-target.ts";
@@ -41,6 +41,7 @@ import type { AtlasFormat } from "./atlas.ts";
 import { planFields } from "./style.ts";
 import { COMPOSITE_FORMATS, Compositor, type Drawable, type EvaluatorStats, type LayerDraw, type PlanSources, type Quality, type WorkPair, compositeTexture, needsPass } from "./compositor.ts";
 import { RenderContext } from "./context.ts";
+import { GlowCaches } from "./glow-cache.ts";
 import { type Gpu, createGpu } from "./gpu.ts";
 import { LatestOnly } from "./latest.ts";
 import { SourceImage } from "./source.ts";
@@ -184,7 +185,18 @@ export class PhotoRenderer {
   private recovering: Promise<void> | null = null;
   recoveries = 0;
 
+  /** Each glow's contributions over its layer, from level-0 renders (`glow-cache.ts`). */
+  readonly glows: GlowCaches;
+
   private constructor(readonly budgetBytes: number) {
+    this.glows = new GlowCaches({
+      compositor: () => this.compositor,
+      device: () => this.device,
+      sources: this.planSources,
+      ensureVisible: (plan, view) => this.ensurePlanVisible(plan, view),
+      settled: (plan) => this.settledSources(plan),
+      built: () => this.changed(),
+    });
     this.refiner = new LatestOnly<true>((key) => {
       const screen = this.screen;
       if (!screen) return;
@@ -397,6 +409,8 @@ export class PhotoRenderer {
     if (this.compiled?.doc === doc && this.compiled.assets === this.assets) return this.compiled.plan;
     const plan = compileRender(doc, this.facts(), { float32: this.compositor.supports("rgba32float") });
     if (doc === this.doc) this.compiled = { doc, assets: this.assets, plan };
+    // The glows' caches are found by node: say which this plan's are.
+    this.glows.glowsOf(plan);
     return plan;
   }
 
@@ -416,7 +430,8 @@ export class PhotoRenderer {
       if (mask && mask.ctx !== image.ctx) return null;
       return { source: image, matrix: layerMatrix(node.transform, image.layout), transform: node.transform, opacity: node.opacity, mask };
     },
-    mask: (node: AdjustmentNode): Drawable | null => this.surfaceOf(node.layerId, "mask"),
+    mask: (node: { layerId: string }): Drawable | null => this.surfaceOf(node.layerId, "mask"),
+    glowCache: (node, index) => this.glows.lookup(node, index),
     // A styled layer's fields follow its pixels and mask as they change (strokes, tiles arriving).
     revision: (node: DrawNode) => `${this.residency}|${this.surfaceOf(node.layerId, "content")?.revision ?? ""}|${this.surfaceOf(node.layerId, "mask")?.revision ?? ""}`,
   };
@@ -569,7 +584,7 @@ export class PhotoRenderer {
     const u = new Float32Array(12);
     const x0 = (0 - view.x) * view.zoom;
     const y0 = (0 - view.y) * view.zoom;
-    u.set([x0, y0, x0 + doc.canvas.width * view.zoom, y0 + doc.canvas.height * view.zoom, checker, DITHER_8BIT, 0, 0, ...this.pasteboard, 1]);
+    u.set([x0, y0, x0 + doc.canvas.width * view.zoom, y0 + doc.canvas.height * view.zoom, checker, DITHER_8BIT, doc.output.highlights === "film" ? 1 : 0, 0, ...this.pasteboard, 1]);
     device.queue.writeBuffer(screen.uniform, 0, u);
     this.compositor.present(encoder, composite, screen.uniform, screen.context.getCurrentTexture());
     device.queue.submit([encoder.finish()]);
@@ -588,9 +603,11 @@ export class PhotoRenderer {
     // Refining: wanted for this view once it's been still a moment, and all its images are in.
     if (this.refineTimer) clearTimeout(this.refineTimer);
     this.refineTimer = null;
+    // A glow's cache is built once the plan has been still a moment (the screen reads previews of it until then).
+    this.glows.want(quality === "final" ? plan : null);
     if (!refineKey) {
       this.refiner.want(null);
-      this.setRefineState("none");
+      this.setRefineState(this.glows.complete(plan) ? "none" : "refining");
     } else if (refined) this.setRefineState("refined");
     else {
       this.setRefineState("refining");
@@ -626,6 +643,8 @@ export class PhotoRenderer {
    */
   async refine(plan: RenderPlan, view: View, target: GPUTexture, isCurrent: () => boolean = () => true): Promise<true | null> {
     await this.compositor.ready;
+    await this.glows.ensure(plan);
+    if (!isCurrent() || this.destroyed) return null;
     const { device } = this;
     const rp = refinePlan(view, plan.canvas, REFINE_REGION);
     const s = 2 ** rp.level;
@@ -692,6 +711,7 @@ export class PhotoRenderer {
     const bits = options.bits ?? 8;
     const bytesPerPixel = bits === 16 ? 8 : 4;
     const plan = this.planFor(doc);
+    await this.glows.ensure(plan);
     const width = doc.canvas.width;
     const height = doc.canvas.height;
     const work: WorkPair = { a: compositeTexture(device, REGION, REGION, plan.format, "region a"), b: compositeTexture(device, REGION, REGION, plan.format, "region b") };
@@ -716,6 +736,7 @@ export class PhotoRenderer {
           new Float32Array(p, 16, 1)[0] = options.dither === false ? 0 : DITHER_8BIT;
           new Uint32Array(p, 20, 1)[0] = options.under === "matte" ? 1 : options.under === "checker" ? 2 : 0;
           new Float32Array(p, 24, 1)[0] = 8;
+          new Uint32Array(p, 28, 1)[0] = doc.output.highlights === "film" ? 1 : 0;
           new Float32Array(p, 32, 4).set([...matte, 1]);
           device.queue.writeBuffer(params, 0, p);
           const readback = device.createBuffer({ size: cols * rows * bytesPerPixel, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -757,6 +778,7 @@ export class PhotoRenderer {
     const width = Math.max(1, Math.round(view.width));
     const height = Math.max(1, Math.round(view.height));
     const at = { ...view, width, height };
+    await this.glows.ensure(plan);
     const target = compositeTexture(device, width, height, plan.format, "view");
     const refine = options.refine ?? needsRefinement(plan, view.zoom);
     if (refine && view.zoom < 1) {
@@ -781,7 +803,7 @@ export class PhotoRenderer {
     const w = Math.max(1, Math.round(doc.canvas.width * zoom));
     const h = Math.max(1, Math.round(doc.canvas.height * zoom));
     const { texture } = await this.renderView(doc, { zoom, x: 0, y: 0, width: w, height: h });
-    return this.encodePicture(texture, w, h, type);
+    return this.encodePicture(texture, w, h, type, doc.output.highlights);
   }
 
   /**
@@ -801,11 +823,12 @@ export class PhotoRenderer {
       canvas: size,
       compositing: "linear",
       background: [0, 0, 0, 1],
-      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, blend: null, style: null, commutes: true, key: "mask" }],
+      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, blend: null, style: null, filters: [], contentKey: "mask", commutesFrom: 0, commutes: true, key: "mask" }],
       baseKey: "mask",
       prefixKeys: ["mask"],
       key: "mask",
       commutes: true,
+      commutesFrom: 0,
       format: "rgba16float",
       skipped: [],
     };
@@ -827,7 +850,7 @@ export class PhotoRenderer {
   }
 
   /** A composite through the output transform into an image file (it destroys the texture). */
-  private async encodePicture(texture: GPUTexture, w: number, h: number, type: "image/jpeg" | "image/png"): Promise<Blob> {
+  private async encodePicture(texture: GPUTexture, w: number, h: number, type: "image/jpeg" | "image/png", highlights: Highlights = "clip"): Promise<Blob> {
     const { device } = this;
     const out = device.createBuffer({ size: w * h * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
     const params = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -838,6 +861,7 @@ export class PhotoRenderer {
       new Float32Array(p, 16, 1)[0] = DITHER_8BIT;
       new Uint32Array(p, 20, 1)[0] = 2;
       new Float32Array(p, 24, 1)[0] = 8;
+      new Uint32Array(p, 28, 1)[0] = highlights === "film" ? 1 : 0;
       device.queue.writeBuffer(params, 0, p);
       const encoder = device.createCommandEncoder({ label: "picture" });
       const pass = encoder.beginComputePass();
@@ -900,7 +924,8 @@ export class PhotoRenderer {
   private placeOf(layerId: string, part: SurfacePart): { matrix: Affine; scale: number } | null {
     const layer = this.doc?.layers.find((l) => l.id === layerId);
     if (!layer) return null;
-    if (layer.kind === "adjustment") return { matrix: IDENTITY, scale: 1 };
+    // An adjustment's or a generator's pixels (its mask's) are the document's.
+    if (!isPlaced(layer)) return { matrix: IDENTITY, scale: 1 };
     const surface = this.surfaceOf(layerId, part);
     const size = layer.kind === "pixel" ? layer.size : surface?.size;
     if (!size) return null;
@@ -971,7 +996,7 @@ export class PhotoRenderer {
   private maskShape(doc: PhotoProject, layerId: string): { size: { width: number; height: number }; matrix: Affine; bits: 8 | 16 } | null {
     const layer = doc.layers.find((l) => l.id === layerId);
     if (!layer) return null;
-    if (layer.kind === "adjustment") return { size: doc.canvas, matrix: IDENTITY, bits: 8 };
+    if (!isPlaced(layer)) return { size: doc.canvas, matrix: IDENTITY, bits: 8 };
     if (layer.kind === "pixel") return { size: layer.size, matrix: layerMatrix(layer.transform, layer.size), bits: 8 };
     const asset = this.assets.get(layer.mediaId);
     if (!asset?.width || !asset.height) return null;
@@ -1004,8 +1029,9 @@ export class PhotoRenderer {
   }
 
   /**
-   * A layer as pixels (Photoshop's Rasterize: an image's transform and mask baked in): rendered alone at 100% over
-   * the box around it, into tiles of a new pixel surface (uploaded as a stroke is). Resolves with the surface (null:
+   * A layer as pixels (Photoshop's Rasterize: an image's transform, filters and mask baked in; a generator's content
+   * over the canvas): rendered alone at 100% over the box around it (grown by its filters' reach), into tiles of a
+   * new pixel surface (uploaded as a stroke is). Resolves with the surface (null:
    * nothing showed) and the pixel layer's size and place.
    */
   async rasterize(
@@ -1035,14 +1061,18 @@ export class PhotoRenderer {
     cutout: SurfaceImage | null,
   ): Promise<{ surface: SurfaceId | null; size: { width: number; height: number }; transform: LayerTransform }> {
     const layerId = layer?.id ?? "";
-    const shape = layer && layer.kind !== "adjustment" ? (layer.kind === "pixel" ? layer.size : this.maskShape(doc, layerId)?.size) : null;
-    if (!layer || layer.kind === "adjustment" || !shape || !this.uploads) throw new Error("Only an image or pixel layer can be made pixels.");
-    const corners = [apply(layerMatrix(layer.transform, shape), 0, 0), apply(layerMatrix(layer.transform, shape), shape.width, 0), apply(layerMatrix(layer.transform, shape), 0, shape.height), apply(layerMatrix(layer.transform, shape), shape.width, shape.height)];
+    if (!layer || layer.kind === "adjustment" || !this.uploads) throw new Error("Only an image, pixel or generator layer can be made pixels.");
+    // A generator's content is everywhere: what the canvas shows of it. Filters reach past a layer's box.
+    const shape = layer.kind === "generator" ? doc.canvas : layer.kind === "pixel" ? layer.size : this.maskShape(doc, layerId)?.size;
+    if (!shape) throw new Error("That image isn't loaded yet.");
+    const matrix = layer.kind === "generator" ? IDENTITY : layerMatrix(layer.transform, shape);
+    const reach = layer.kind === "generator" ? 0 : filtersReach(layer);
+    const corners = [apply(matrix, 0, 0), apply(matrix, shape.width, 0), apply(matrix, 0, shape.height), apply(matrix, shape.width, shape.height)];
     const s = selection;
-    const x0 = Math.floor(Math.max(Math.min(...corners.map((p) => p.x)), s ? s.x : -Infinity) + 1e-6);
-    const y0 = Math.floor(Math.max(Math.min(...corners.map((p) => p.y)), s ? s.y : -Infinity) + 1e-6);
-    const width = Math.max(1, Math.min(30_000, Math.ceil(Math.min(Math.max(...corners.map((p) => p.x)), s ? s.x + s.width : Infinity) - 1e-6) - x0));
-    const height = Math.max(1, Math.min(30_000, Math.ceil(Math.min(Math.max(...corners.map((p) => p.y)), s ? s.y + s.height : Infinity) - 1e-6) - y0));
+    const x0 = Math.floor(Math.max(Math.min(...corners.map((p) => p.x)) - reach, s ? s.x : -Infinity) + 1e-6);
+    const y0 = Math.floor(Math.max(Math.min(...corners.map((p) => p.y)) - reach, s ? s.y : -Infinity) + 1e-6);
+    const width = Math.max(1, Math.min(30_000, Math.ceil(Math.min(Math.max(...corners.map((p) => p.x)) + reach, s ? s.x + s.width : Infinity) - 1e-6) - x0));
+    const height = Math.max(1, Math.min(30_000, Math.ceil(Math.min(Math.max(...corners.map((p) => p.y)) + reach, s ? s.y + s.height : Infinity) - 1e-6) - y0));
     // The layer alone, opaque (its opacity stays the layer's), in an f16 composite: the surface's own format.
     // Plain and in linear light: its pixels as they are, whatever its blending (which stays the layer's).
     const plain = { ...layer, opacity: 1, visible: true };
@@ -1051,6 +1081,8 @@ export class PhotoRenderer {
     delete plain.blending;
     const alone: PhotoProject = { ...doc, compositing: "linear", canvas: { width, height, background: null }, layers: [plain] };
     const plan = compileRender(alone, this.facts(), { float32: false });
+    this.glows.glowsOf(plan);
+    await this.glows.ensure(plan);
     const { device } = this;
     const tile = TILE;
     const work: WorkPair = { a: compositeTexture(device, tile, tile, "rgba16float", "rasterize a"), b: compositeTexture(device, tile, tile, "rgba16float", "rasterize b") };
@@ -1169,6 +1201,7 @@ export class PhotoRenderer {
       this.sources.clear();
       this.dropScreen();
       this.compiled = null;
+      this.glows.destroy();
       this.compositor.destroy();
       for (const ctx of this.contexts.values()) ctx.destroy();
       await this.start();
@@ -1190,6 +1223,7 @@ export class PhotoRenderer {
     for (const s of this.sources.values()) s.image?.destroy();
     this.sources.clear();
     this.dropScreen();
+    this.glows.destroy();
     this.compositor?.destroy();
     for (const ctx of this.contexts.values()) ctx.destroy();
     this.gpu?.device.destroy();

@@ -1,40 +1,56 @@
 /**
  * Properties (ux.md, "Workspace"): the selected image layer's place in numbers (position, size as a percentage,
  * angle) and fitting it to the canvas; an adjustment layer's parameters, rendered from its definition's specs
- * (sliders, Curves' graph); either's opacity. With nothing selected, the canvas's size and background. A typed
+ * (sliders, Curves' graph); either's opacity; a filter clicked in Layers (the glow), or a generator layer (the Lens
+ * Flare: its parameters and elements: `light.tsx`). With nothing selected, the canvas's size, background and
+ * highlights. A typed
  * value is one undo step; a slider or graph drag is one too.
  */
 import { useState } from "react";
 import { PiArrowCounterClockwise, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiPaintBrush, PiStack, PiTrash, PiWarningCircle } from "react-icons/pi";
 import { compositingOf } from "@shared/photo/blending";
-import { resetEffect, setCanvas, setCompositing, setEffectParams, setTransform, updateLayer } from "@shared/photo/edits";
+import { resetEffect, setCanvas, setCompositing, setEffectParams, setHighlights, setTransform, updateLayer } from "@shared/photo/edits";
 import { effectDefinition, unavailableReason } from "@shared/photo/effects/index";
-import { type AdjustmentLayer, CANVAS_PRESETS, type Compositing, type PhotoLayer, type PlacedLayer, isPlaced } from "@shared/photo/types";
+import { type AdjustmentLayer, CANVAS_PRESETS, type Compositing, type PhotoLayer, type PlacedLayer, hasContent, isPlaced } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fitted } from "../canvas/handles";
 import { photoGesture, useLayerSize, usePhoto, usePhotoDoc, useSelection } from "../store";
 import { layerActions } from "../layer-actions";
 import { usePhotoUi } from "../ui";
 import { CurvesEditor } from "./curves-editor";
+import { FilterProperties, GeneratorProperties } from "./light";
 import { NumberField, ParamSlider } from "./fields";
 
 export function PropertiesPanel() {
   const selected = usePhotoUi((s) => s.selectedLayerId);
+  const filterId = usePhotoUi((s) => s.selectedFilterId);
   const count = usePhotoUi((s) => s.selectedLayerIds.length);
   const layer = usePhotoDoc((d) => d.layers.find((l) => l.id === selected));
+  const filter = layer && hasContent(layer) && filterId ? layer.filters?.find((f) => f.id === filterId) : undefined;
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 text-sm">
       {count > 1 ? (
         <SeveralProperties count={count} />
+      ) : layer && filter && hasContent(layer) ? (
+        <FilterProperties layer={layer} filterId={filter.id} />
       ) : layer && isPlaced(layer) ? (
         <LayerProperties layer={layer} />
+      ) : layer?.kind === "generator" ? (
+        <>
+          <GeneratorProperties layer={layer} />
+          <Section title="Opacity">
+            <OpacitySlider layer={layer} />
+          </Section>
+        </>
       ) : layer?.kind === "adjustment" ? (
         <AdjustmentProperties layer={layer} />
       ) : (
         <CanvasProperties />
       )}
-      {count === 1 && layer?.mask && <MaskProperties layer={layer} />}
+      {count === 1 && !filter && layer?.mask && <MaskProperties layer={layer} />}
     </div>
   );
 }
@@ -198,6 +214,7 @@ function OpacitySlider({ layer }: { layer: PhotoLayer }) {
 function CanvasProperties() {
   const canvas = usePhotoDoc((d) => d.canvas);
   const compositing = usePhotoDoc((d) => compositingOf(d));
+  const highlights = usePhotoDoc((d) => d.output.highlights);
   const commit = usePhoto((s) => s.commit);
   return (
     <Section title="Canvas">
@@ -246,6 +263,22 @@ function CanvasProperties() {
           ? "Blend modes, opacity and soft edges mix encoded values, as Photoshop's do."
           : "Layers mix linear light: physically, as light adds up (Photoshop's Blend RGB Colors Using Gamma 1.0)."}
       </p>
+      <div className="flex items-center justify-between gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>Highlights</span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-64">How light brighter than white leaves the photo: Film rolls it towards white, so glows and flares bloom; Clip clips each colour on its own.</TooltipContent>
+        </Tooltip>
+        <ToggleGroup type="single" size="sm" variant="outline" value={highlights} onValueChange={(v) => v && commit((d) => setHighlights(d, v as typeof highlights))} aria-label="Highlights">
+          <ToggleGroupItem value="film" className="px-2.5 text-xs">
+            Film
+          </ToggleGroupItem>
+          <ToggleGroupItem value="clip" className="px-2.5 text-xs">
+            Clip
+          </ToggleGroupItem>
+        </ToggleGroup>
+      </div>
     </Section>
   );
 }

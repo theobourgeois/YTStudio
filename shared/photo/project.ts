@@ -14,6 +14,7 @@ import {
   CANVAS_PRESETS,
   type EffectInstance,
   type EffectParamValue,
+  type GeneratorLayer,
   type ImageLayer,
   type LayerMask,
   type LayerTransform,
@@ -141,7 +142,20 @@ function normalizeMask(value: unknown, id: string, report: Report): { mask?: Lay
   return { mask: { surface: surfaceRef((value as Record<string, unknown>).surface, `Layer ${id}'s mask`, report) } };
 }
 
-const LAYER_NAMES: Record<string, string> = { image: "Image", pixel: "Layer", adjustment: "Adjustment" };
+/** A layer's filters, checked (each kept, even one this app can't use: it's shown as unavailable). Absent stays absent. */
+function normalizeFilters(l: Record<string, unknown>, id: string, seen: Set<string>, report: Report): { filters?: EffectInstance[]; filtersEnabled?: false } {
+  const out: { filters?: EffectInstance[]; filtersEnabled?: false } = {};
+  if (Array.isArray(l.filters)) {
+    const filters = l.filters.map((f) => normalizeEffect(f, seen, report)).filter((f): f is EffectInstance => f !== null);
+    if (filters.length !== l.filters.length) report(`Layer ${id}: ${l.filters.length - filters.length} filter(s) weren't effects; left out.`);
+    for (const f of filters) if (effectDefinition(f.type) && effectDefinition(f.type)!.kind !== "filter") report(`Layer ${id}: ${f.type} isn't a filter; kept, unavailable.`);
+    if (filters.length) out.filters = filters;
+  } else if (l.filters !== undefined) report(`Layer ${id}: its filters aren't a list; left out.`);
+  if (l.filtersEnabled === false) out.filtersEnabled = false;
+  return out;
+}
+
+const LAYER_NAMES: Record<string, string> = { image: "Image", pixel: "Layer", adjustment: "Adjustment", generator: "Lens Flare" };
 
 function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, report: Report): PhotoLayer | null {
   if (!value || typeof value !== "object") return null;
@@ -152,8 +166,8 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
     opacity: Math.max(0, Math.min(1, finite(l.opacity, 1))),
     ...normalizeMask(l.mask, id, report),
     ...normalizeLayerBlending(l),
-    // Adjustment layers have Blending Options but no effects (Photoshop's).
-    ...(l.kind === "adjustment" ? {} : styleOf(l.style)),
+    // Adjustment layers have Blending Options but no effects (Photoshop's); generator layers none yet either.
+    ...(l.kind === "image" || l.kind === "pixel" ? styleOf(l.style) : {}),
   });
   const styleOf = (value: unknown) => {
     const style = normalizeStyle(value, seen, () => createId("fx"), report);
@@ -168,6 +182,7 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
       ...common(id),
       mediaId: l.mediaId,
       transform: normalizeTransform(l.transform, { x: canvas.width / 2, y: canvas.height / 2 }),
+      ...normalizeFilters(l, id, seen, report),
     };
     return layer;
   }
@@ -178,7 +193,26 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
       report(`Layer ${id}: an adjustment layer without an effect was left out.`);
       return null;
     }
+    if (effectDefinition(effect.type) && effectDefinition(effect.type)!.kind !== "adjustment") report(`Layer ${id}: ${effect.type} isn't an adjustment; kept, unavailable.`);
     const layer: AdjustmentLayer = { id, kind: "adjustment", ...common(id), effect };
+    return layer;
+  }
+  if (l.kind === "generator") {
+    const id = uniqueId(l.id, "layer", seen);
+    const effect = normalizeEffect(l.effect, seen, report);
+    if (!effect) {
+      report(`Layer ${id}: a generator layer without an effect was left out.`);
+      return null;
+    }
+    if (effectDefinition(effect.type) && effectDefinition(effect.type)!.kind !== "generator") report(`Layer ${id}: ${effect.type} isn't a generator; kept, unavailable.`);
+    const layer: GeneratorLayer = {
+      id,
+      kind: "generator",
+      ...common(id),
+      effect,
+      ...(l.blendSpace === "linear" ? { blendSpace: "linear" as const } : {}),
+      ...normalizeFilters(l, id, seen, report),
+    };
     return layer;
   }
   if (l.kind === "pixel") {
@@ -192,6 +226,7 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
       surface: surfaceRef(l.surface, `Layer ${id}`, report),
       size,
       transform: normalizeTransform(l.transform, { x: size.width / 2, y: size.height / 2 }),
+      ...normalizeFilters(l, id, seen, report),
     };
     return layer;
   }
@@ -200,8 +235,9 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
 
 /**
  * Validates and repairs an untrusted document, and brings an older version up to this one (version 1 had image
- * layers only, version 2 added adjustments, version 3 pixel layers and masks: each is a valid version 4 as it is,
- * compositing in linear light as it was made). Throws only when it isn't a photo at all, or a newer version made
+ * layers only, version 2 added adjustments, version 3 pixel layers and masks, version 4 Layer Style's blending and
+ * effects: each is a valid version 5, compositing in linear light (before version 4) and its highlights clipped
+ * (before version 5) as it was drawn). Throws only when it isn't a photo at all, or a newer version made
  * it (opening it here would lose what this version doesn't know). What it repairs is told to `report`.
  */
 /** Global Light checked: kept when it's two finite numbers (the angle wrapped, the altitude on 0..90). */
@@ -231,7 +267,8 @@ export function normalizePhotoProject(value: unknown, report: Report = () => {})
     canvas,
     ...(d.compositing === "photoshop" || d.compositing === "linear" ? { compositing: d.compositing } : {}),
     ...globalLightOf(d.globalLight),
-    output: { highlights: o.highlights === "clip" ? "clip" : "film" },
+    // Before version 5 every photo was drawn clipped, whatever it said: it keeps that look (f4-light.md, D2).
+    output: { highlights: o.highlights === "clip" || !(typeof d.version === "number" && d.version >= 5) ? "clip" : "film" },
     layers,
   };
 }

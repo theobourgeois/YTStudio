@@ -42,8 +42,17 @@ function snippets(spec: ParamSpec): { label: string; source: string }[] {
     { label: "Grow over time", source: spec.kind === "vec2" ? `value + [time * ${amount}, 0]` : `value + time * ${amount}` },
     { label: "Swing back and forth", source: spec.kind === "vec2" ? `value + [Math.sin(time * 3) * ${amount}, 0]` : `value + Math.sin(time * 3) * ${amount}` },
     { label: "Step at 12 frames a second", source: "posterizeTime(12); value" },
+    // Reacting to the sound (the whole mix; a track's name as a second argument listens to it alone).
+    { label: "Pump with the bass", source: offset(spec, 'audio("bass")', amount * 2) },
+    { label: "Punch on every kick", source: offset(spec, 'envelope(sinceHit("onsetLow"), 0.01, 0.25)', amount * 2) },
+    { label: "Pulse on the beat", source: offset(spec, "envelope(sinceBeat(), 0, 0.3, 2)", amount * 2) },
   ];
 }
+
+/** `value` moved by `by` times `amount` (a point upwards on the canvas). */
+const offset = (spec: ParamSpec, by: string, amount: number) =>
+  spec.kind === "vec2" ? `value + [0, -${by} * ${round(amount)}]` : `value + ${by} * ${round(amount)}`;
+const round = (n: number) => Math.round(n * 1000) / 1000;
 
 /** A value as the row shows it: short, rounded. */
 function shown(v: unknown): string {

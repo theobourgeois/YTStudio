@@ -159,8 +159,9 @@ fn is_unbounded(mode: u32) -> bool {
   return ${UNBOUNDED.map((m) => `mode == ${M(m)}`).join(" || ")};
 }
 
-// The mode's colour B(b, s) at Fill f (only the special eight use it), clamped no further out than its inputs.
-fn blend_colour(mode: u32, b_in: vec3f, s_in: vec3f, f: f32) -> vec3f {
+// The mode's colour B(b, s) at Fill f (only the special eight use it), clamped no further out than its inputs, but
+// Linear Dodge in linear light (\`unbounded_add\`): light adds past white.
+fn blend_colour(mode: u32, b_in: vec3f, s_in: vec3f, f: f32, unbounded_add: bool) -> vec3f {
   var b = b_in;
   var s = s_in;
   if (!is_unbounded(mode)) { b = clamp(b, vec3f(0.0), vec3f(1.0)); s = clamp(s, vec3f(0.0), vec3f(1.0)); }
@@ -177,7 +178,9 @@ fn blend_colour(mode: u32, b_in: vec3f, s_in: vec3f, f: f32) -> vec3f {
       out = vec3f(channel(mode, b.r, s.r, ff), channel(mode, b.g, s.g, ff), channel(mode, b.b, s.b, ff));
     }
   }
-  return clamp(out, min(vec3f(0.0), min(b, s)), max(vec3f(1.0), max(b, s)));
+  let lo = min(vec3f(0.0), min(b, s));
+  if (unbounded_add && mode == ${M("linear-dodge")}) { return max(out, lo); }
+  return clamp(out, lo, max(vec3f(1.0), max(b, s)));
 }
 
 fn range_pass(r: vec4f, v: f32) -> f32 {
@@ -233,7 +236,7 @@ fn composite_pixel(p: BlendParams, backdrop: vec4f, layer: vec4f, doc: vec2f) ->
     }
   }
   let special = is_special(mode);
-  let mixed = blend_colour(mode, b, s, select(1.0, fill, special));
+  let mixed = blend_colour(mode, b, s, select(1.0, fill, special), p.encoded == 0u);
   let weight = coverage * opacity * select(fill, 1.0, special);
   let added = coverage * fill * opacity;
   let alpha = added + ba * (1.0 - added);
@@ -255,7 +258,7 @@ fn composite_adjustment(p: BlendParams, original: vec4f, adjusted: vec4f, mask: 
   var mode = p.mode;
   if (mode == ${M("dissolve")}) { mode = ${M("normal")}; }
   let special = is_special(mode);
-  let mixed = blend_colour(mode, b, s, select(1.0, p.fill, special));
+  let mixed = blend_colour(mode, b, s, select(1.0, p.fill, special), p.encoded == 0u);
   let k = clamp(mask * gate * p.opacity * select(p.fill, 1.0, special), 0.0, 1.0);
   let keep = vec3<bool>((p.channels & 1u) != 0u, (p.channels & 2u) != 0u, (p.channels & 4u) != 0u);
   let c = select(b, b + (mixed - b) * k, keep);

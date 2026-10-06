@@ -4,8 +4,6 @@
  * - `convert`: a source tile's stored samples → linear premultiplied light (transfer LUT, then the profile's
  *   matrix), unclipped (rendering.md, "Getting sources in").
  * - `reduce`: a level's tile from four of the level below, a 2×2 box in linear premultiplied light.
- * - `blur`: a Gaussian through the page table (crossing tiles), and the same on one plain texture, so F0 can
- *   compare tiled against monolithic.
  * - `stamp`: brush dabs into draft tiles; `limit`: the selection capping a stroke's result.
  * - `maskFill`: a mask's tiles from a selection.
  * - `quantize`: the output transform to 8-bit RGBA (exports, the round-trip check).
@@ -107,78 +105,6 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
     c /= n;
   }
   textureStore(out, vec2i(g.xy), i32(g.z), round_for_store(c));
-}
-`;
-
-const GAUSSIAN = /* wgsl */ `
-struct BlurParams { sigma: f32, radius: i32, tile: u32, p0: u32 }
-fn gauss(d: i32, sigma: f32) -> f32 {
-  let x = f32(d);
-  return exp(-x * x / (2.0 * sigma * sigma));
-}
-fn gauss_norm(radius: i32, sigma: f32) -> f32 {
-  var s = 0.0;
-  for (var i = -radius; i <= radius; i++) { s += gauss(i, sigma); }
-  return s * s;
-}
-`;
-
-const BLUR_TILED = (format: StorageFormat) => /* wgsl */ `
-${ROUND_FOR_STORE(format)}
-${ATLAS}
-${IMAGE_STRUCTS}
-${MATHS}
-${GAUSSIAN}
-${imageFunctions("src", 1)}
-@group(2) @binding(0) var<storage, read> jobs: array<vec4u>;
-@group(2) @binding(1) var out: texture_storage_2d_array<${format}, write>;
-@group(2) @binding(2) var<uniform> params: BlurParams;
-
-@compute @workgroup_size(16, 16)
-fn main(@builtin(global_invocation_id) g: vec3u) {
-  let tile = params.tile;
-  if (g.x >= tile || g.y >= tile) { return; }
-  let job = jobs[g.z];
-  let x = i32(job.x * tile + g.x);
-  let y = i32(job.y * tile + g.y);
-  var c = vec4f(0.0);
-  for (var j = -params.radius; j <= params.radius; j++) {
-    let wy = gauss(j, params.sigma);
-    for (var i = -params.radius; i <= params.radius; i++) {
-      c += texel_src(0u, x + i, y + j) * (wy * gauss(i, params.sigma));
-    }
-  }
-  textureStore(out, vec2i(g.xy), i32(g.z), round_for_store(c / gauss_norm(params.radius, params.sigma)));
-}
-`;
-
-const BLUR_MONO = /* wgsl */ `
-${ROUND_FOR_STORE("rgba16float")}
-${GAUSSIAN}
-@group(0) @binding(0) var src: texture_2d<f32>;
-@group(0) @binding(1) var out: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(2) var<uniform> params: BlurParams;
-
-fn at(x: i32, y: i32) -> vec4f {
-  let size = vec2i(textureDimensions(src));
-  if (x < 0 || y < 0 || x >= size.x || y >= size.y) { return vec4f(0.0); }
-  return textureLoad(src, vec2i(x, y), 0);
-}
-
-@compute @workgroup_size(16, 16)
-fn main(@builtin(global_invocation_id) g: vec3u) {
-  let size = textureDimensions(src);
-  if (g.x >= size.x || g.y >= size.y) { return; }
-  let x = i32(g.x);
-  let y = i32(g.y);
-  var c = vec4f(0.0);
-  for (var j = -params.radius; j <= params.radius; j++) {
-    let wy = gauss(j, params.sigma);
-    for (var i = -params.radius; i <= params.radius; i++) {
-      c += at(x + i, y + j) * (wy * gauss(i, params.sigma));
-    }
-  }
-  textureStore(out, vec2i(g.xy), round_for_store(c / gauss_norm(params.radius, params.sigma)));
 }
 `;
 
@@ -461,8 +387,6 @@ export class Kernels {
   readonly imageLayout: GPUBindGroupLayout;
   convert!: GPUComputePipeline;
   reduce!: GPUComputePipeline;
-  blurTiled!: GPUComputePipeline;
-  blurMono!: GPUComputePipeline;
   stamp!: GPUComputePipeline;
   limit!: GPUComputePipeline;
   maskFill!: GPUComputePipeline;
@@ -507,14 +431,6 @@ export class Kernels {
     this.ready = Promise.all([
       compute("convert", CONVERT(format), [bgl(device, "convert", [readOnly(0), readOnly(1), uniform(2), readOnly(3), storageArray(4)])]).then((p) => (this.convert = p)),
       compute("reduce", REDUCE(format), [this.atlasLayout, this.imageLayout, jobsOut]).then((p) => (this.reduce = p)),
-      compute("blur tiled", BLUR_TILED(format), [this.atlasLayout, this.imageLayout, bgl(device, "blur", [readOnly(0), storageArray(1), uniform(2)])]).then((p) => (this.blurTiled = p)),
-      compute("blur mono", BLUR_MONO, [
-        bgl(device, "blur mono", [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } },
-          uniform(2),
-        ]),
-      ]).then((p) => (this.blurMono = p)),
       compute("stamp", STAMP(format), [this.atlasLayout, stampLayout]).then((p) => (this.stamp = p)),
       compute("limit", LIMIT(format), [this.atlasLayout, stampLayout]).then((p) => (this.limit = p)),
       compute("mask fill", MASK_FILL(format), [bgl(device, "mask fill", [readOnly(0), storageArray(1), uniform(2)])]).then((p) => (this.maskFill = p)),
@@ -550,8 +466,6 @@ export class Kernels {
     const sources: [string, string][] = [
       ["convert", CONVERT(format)],
       ["reduce", REDUCE(format)],
-      ["blur tiled", BLUR_TILED(format)],
-      ["blur mono", BLUR_MONO],
       ["stamp", STAMP(format)],
       ["limit", LIMIT(format)],
       ["mask fill", MASK_FILL(format)],

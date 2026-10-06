@@ -307,11 +307,11 @@ const isTyping = (target: EventTarget | null) =>
 /** Arrow nudges a moment apart are one undo step (ux.md, "Gestures"). */
 let nudging: { gesture: ReturnType<typeof photoGesture>; timer: ReturnType<typeof setTimeout>; key: string } | null = null;
 
-/** Moves the selected images by (dx, dy), all of them together. */
+/** Moves the selected layers by (dx, dy), all of them together (a generator's handles too). */
 function nudge(dx: number, dy: number) {
   const ids = selectedInOrder();
   const doc = usePhoto.getState().history?.doc.doc;
-  if (!doc || !doc.layers.some((l) => l.kind === "image" && ids.includes(l.id))) return;
+  if (!doc || !doc.layers.some((l) => l.kind !== "adjustment" && ids.includes(l.id))) return;
   const key = ids.join(" ");
   if (!nudging || nudging.key !== key) {
     if (nudging) {

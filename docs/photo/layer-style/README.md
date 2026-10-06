@@ -3,7 +3,7 @@
 Status: researched and planned 2026-10-06, after F3; measured in Photoshop 27.11 the same day. **L1 (Blending
 Options) and L2 (seven effects) are built** (2026-10-06): see [L1 as built](#l1-as-built) and
 [L2 as built](#l2-as-built). Decision 1 was taken as proposed (Photoshop's
-compositing for new photos, A24 and A25 in the ledger); decision 4 as built: the window doesn't block the view, and an
+compositing for new photos, A28 and A29 in the ledger); decision 4 as built: the window doesn't block the view, and an
 edit elsewhere while it's open ends it (keeping what it showed). L2 onwards are still the plan.
 
 What Théo asked for: Photoshop's **Blending Options**. Right-click a layer › Blending Options… opens the Layer Style
@@ -390,6 +390,14 @@ within 3 levels; Chisel only with its own fixtures.
   contour is our choice (the curve on the height, its slopes × 100 / Range: what a Linear contour measures), not
   measured; Photoshop's one light dial for angle and altitude is a dial and a slider here; Chisel Soft's radial
   streaks on curves aren't Photoshop's exact ones (both come from distances to pixel centres).
+
+### With F4 (light)
+
+Merged after F4 (2026-10-06): F4's filtered and generator layers go through the blend and style passes (`isolated.ts`
+`prepare`, then the compositor's), keeping the GPU's own Normal and Add where a linear plan allows it
+(`fixedComposite`). In a "photoshop" document light still blends in linear light (`blendsInLinear`; ledger A32), the
+blend pass decoding what's below and encoding the result; a generator's blend is any mode now, its `blendSpace` kept.
+Layer effects stay on image and pixel layers; their fields are made from the layer's pixels before its filters.
 
 ### L4: patterns and styles
 

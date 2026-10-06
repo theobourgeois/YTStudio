@@ -65,6 +65,11 @@ export interface MediaAsset {
    */
   reversed?: ReversedMedia;
   /**
+   * What its sound does at every moment (`shared/signals/`): made after its waveform for every file with
+   * sound, or when first needed (`POST /api/media/:id/signals`). Absent until then.
+   */
+  signals?: MediaSignals;
+  /**
    * The asset this one is a copy of: the Library media it came from, or the
    * project media it was added to the Library from; or for a file of the music
    * Browser's, `file:<path>:<size>:<modified>`. Used to avoid copying twice.
@@ -102,6 +107,12 @@ export interface ImageInfo {
 export type ReversedMedia =
   | { status: "processing" }
   | { status: "ready"; src: string }
+  | { status: "error"; error: string };
+
+/** A media file's signals: `src` is the file (`SignalData`), of the analysis `version` (an older one is made again). */
+export type MediaSignals =
+  | { status: "processing" }
+  | { status: "ready"; src: string; version: number }
   | { status: "error"; error: string };
 
 export interface WaveformData {
@@ -916,6 +927,7 @@ export interface ToolCallProgressRequest {
 //   GET    /api/media/:id/music?from&to     -> MusicAnalysis (tempo, beats, bars, sections, drops)
 //   GET    /api/media/:id/scenes?threshold=<0..1> -> SceneCuts
 //   POST   /api/media/:id/reversed      -> MediaAsset: starts making its reversed copy (for reversed clips), if not made yet
+//   POST   /api/media/:id/signals       -> MediaAsset: starts making its signals (what its sound does over time), if not made yet
 //   POST   /api/media/import-file  body: ImportFileRequest -> MediaAsset (201): a copy of a file on this computer
 //   DELETE /api/media/:id               -> 204
 //   GET    /api/web/search?q=<query>    -> WebClip[] from YouTube  (503 if yt-dlp isn't installed)

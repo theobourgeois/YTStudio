@@ -4,13 +4,20 @@
  */
 import { type BlendingPatch, patchBlending } from "./blending.ts";
 import { type EffectDefinition, effectDefinition, newEffect, unavailableReason } from "./effects/index.ts";
-import { sameValue, sanitizeParam } from "./effects/params.ts";
+import { flarePreset } from "./effects/flare.ts";
+import { type ElementsParam, newElement, sameValue, sanitizeParam } from "./effects/params.ts";
 import type { Size } from "./geometry.ts";
 import { MIN_SCALE, isColour, wrapDegrees } from "./project.ts";
 import {
   type AdjustmentLayer,
   type Compositing,
+  type ContentLayer,
+  type DocPoint,
+  type EffectElement,
+  type EffectInstance,
   type EffectParamValue,
+  type BlendMode,
+  type GeneratorLayer,
   type ImageLayer,
   type LayerTransform,
   MAX_CANVAS_SIDE,
@@ -19,6 +26,7 @@ import {
   type PhotoProject,
   type PixelLayer,
   type SurfaceId,
+  hasContent,
   isPlaced,
 } from "./types.ts";
 
@@ -197,16 +205,22 @@ export function arrangeLayers(doc: PhotoProject, ids: readonly string[], to: "to
   return moveLayersTo(doc, ids, to === "top" ? doc.layers.length : 0);
 }
 
-/** A copy of a layer right above it, named "… copy" (an adjustment's effect gets an id of its own: `${newId}_fx`). */
+/**
+ * A copy of a layer right above it, named "… copy" (an adjustment's or a generator's effect gets an id of its own,
+ * `${newId}_fx`, and its filters `${newId}_f1`…).
+ */
 export function duplicateLayer(doc: PhotoProject, id: string, newId: string): PhotoProject {
   const index = doc.layers.findIndex((l) => l.id === id);
   if (index < 0 || findLayer(doc, newId)) return doc;
   const layers = [...doc.layers];
   const from = doc.layers[index];
-  const copy: PhotoLayer =
-    from.kind === "adjustment" ? { ...from, id: newId, name: `${from.name} copy`, effect: { ...structuredClone(from.effect), id: `${newId}_fx` } } : { ...from, id: newId, name: `${from.name} copy` };
+  let copy: PhotoLayer =
+    from.kind === "adjustment" || from.kind === "generator"
+      ? { ...from, id: newId, name: `${from.name} copy`, effect: { ...structuredClone(from.effect), id: `${newId}_fx` } }
+      : { ...from, id: newId, name: `${from.name} copy` };
+  if (hasContent(copy) && copy.filters) copy = { ...copy, filters: copy.filters.map((f, i) => ({ ...structuredClone(f), id: `${newId}_f${i + 1}` })) };
   // Its layer effects are copies, with ids of their own.
-  if (from.style) copy.style = { ...from.style, effects: from.style.effects.map((e, i) => ({ ...structuredClone(e), id: `${newId}_fx${i + 1}` })) };
+  if (from.style) copy = { ...copy, style: { ...from.style, effects: from.style.effects.map((e, i) => ({ ...structuredClone(e), id: `${newId}_fx${i + 1}` })) } };
   layers.splice(index + 1, 0, copy);
   return { ...doc, layers };
 }
@@ -216,16 +230,235 @@ export function duplicateLayers(doc: PhotoProject, ids: readonly string[], newId
   return ids.reduce((d, id) => duplicateLayer(d, id, newIdOf(id)), doc);
 }
 
-/** Moves placed layers by (dx, dy) document pixels together (the Move tool with several layers selected). */
+/**
+ * Moves placed layers by (dx, dy) document pixels together (the Move tool with several layers selected). A
+ * generator moves its handles (a flare's source, and its optical centre once it has one of its own).
+ */
 export function moveLayersBy(doc: PhotoProject, ids: readonly string[], dx: number, dy: number): PhotoProject {
   const moving = new Set(ids);
   let changed = false;
   const layers = doc.layers.map((l) => {
-    if (!moving.has(l.id) || !isPlaced(l) || (!dx && !dy)) return l;
+    if (!moving.has(l.id) || (!dx && !dy)) return l;
+    if (l.kind === "generator") {
+      const moved = movedHandles(l, dx, dy);
+      if (moved !== l) changed = true;
+      return moved;
+    }
+    if (!isPlaced(l)) return l;
     changed = true;
     return { ...l, transform: { ...l.transform, x: l.transform.x + dx, y: l.transform.y + dy } };
   });
   return changed ? { ...doc, layers } : doc;
+}
+
+/** A generator with every handle that has a place moved by (dx, dy). */
+function movedHandles(l: GeneratorLayer, dx: number, dy: number): GeneratorLayer {
+  const def = effectDefinition(l.effect.type);
+  if (!def || unavailableReason(l.effect, "generator")) return l;
+  let params = l.effect.params;
+  for (const spec of def.params) {
+    const v = params[spec.key];
+    if (spec.kind !== "point" || !spec.handle || !Array.isArray(v)) continue;
+    const [x, y] = v as DocPoint;
+    if (params === l.effect.params) params = { ...params };
+    params[spec.key] = [x + dx, y + dy] as DocPoint;
+  }
+  return params === l.effect.params ? l : { ...l, effect: { ...l.effect, params } };
+}
+
+/** Where a generator's handle is: its point, or the canvas's centre for one that follows it (null). */
+export function handlePoint(doc: PhotoProject, layer: GeneratorLayer, key: string): DocPoint | null {
+  const v = layer.effect.params[key];
+  if (Array.isArray(v) && v.length === 2 && typeof v[0] === "number") return v as DocPoint;
+  return v === null ? [doc.canvas.width / 2, doc.canvas.height / 2] : null;
+}
+
+/** Puts a generator's handle (a point parameter) at a document point, or back on the canvas's centre (null, if it can be). */
+export function setHandle(doc: PhotoProject, layerId: string, key: string, value: DocPoint | null): PhotoProject {
+  const layer = findLayer(doc, layerId);
+  if (layer?.kind !== "generator") return doc;
+  const spec = effectDefinition(layer.effect.type)?.params.find((p) => p.key === key);
+  if (spec?.kind !== "point" || (value === null && !spec.nullable)) return doc;
+  return setEffectParams(doc, layerId, { [key]: value });
+}
+
+// --- filters (Photoshop's Smart Filters) ---
+
+/** A layer's filters, first applied first (none: an empty list). */
+export const filtersOf = (layer: PhotoLayer): EffectInstance[] => (hasContent(layer) ? (layer.filters ?? []) : []);
+
+function mapFilters(doc: PhotoProject, layerId: string, update: (filters: EffectInstance[], layer: ContentLayer) => EffectInstance[]): PhotoProject {
+  return mapLayer(doc, layerId, (l) => {
+    if (!hasContent(l)) return l;
+    const before = l.filters ?? [];
+    const after = update(before, l);
+    if (after === before) return l;
+    if (after.length) return { ...l, filters: after };
+    const { filters: _, filtersEnabled: __, ...rest } = l;
+    return rest as ContentLayer;
+  });
+}
+
+export interface NewFilter {
+  id: string;
+  /** A definition of kind "filter" ("glow"). */
+  type: string;
+  /** Parameters other than the defaults (checked by the definition). */
+  params?: Record<string, unknown>;
+}
+
+/** A filter on a layer with content, applied after its others (the top of its list). A wrong type changes nothing. */
+export function addFilter(doc: PhotoProject, layerId: string, filter: NewFilter): PhotoProject {
+  const def = effectDefinition(filter.type);
+  if (def?.kind !== "filter" || doc.layers.some((l) => filtersOf(l).some((f) => f.id === filter.id))) return doc;
+  let effect = newEffect(def, filter.id);
+  if (filter.params) effect = { ...effect, params: patchParams(def, effect.params, filter.params) };
+  return mapFilters(doc, layerId, (filters) => [...filters, effect]);
+}
+
+export function removeFilter(doc: PhotoProject, layerId: string, filterId: string): PhotoProject {
+  return mapFilters(doc, layerId, (filters) => (filters.some((f) => f.id === filterId) ? filters.filter((f) => f.id !== filterId) : filters));
+}
+
+/** Moves a filter to `index` in its layer's list (0 applies first), clamped. */
+export function moveFilter(doc: PhotoProject, layerId: string, filterId: string, index: number): PhotoProject {
+  return mapFilters(doc, layerId, (filters) => {
+    const from = filters.findIndex((f) => f.id === filterId);
+    const to = Math.max(0, Math.min(filters.length - 1, Math.round(index)));
+    if (from < 0 || from === to) return filters;
+    const next = [...filters];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    return next;
+  });
+}
+
+/** Turns a filter on or off (its settings kept) and sets some of its parameters (each checked by its spec). */
+export function setFilter(doc: PhotoProject, layerId: string, filterId: string, patch: { enabled?: boolean; params?: Record<string, unknown> }): PhotoProject {
+  return mapFilters(doc, layerId, (filters) => {
+    const i = filters.findIndex((f) => f.id === filterId);
+    if (i < 0) return filters;
+    const f = filters[i];
+    const def = effectDefinition(f.type);
+    const params = patch.params && def && !unavailableReason(f, "filter") ? patchParams(def, f.params, patch.params) : f.params;
+    const enabled = patch.enabled ?? f.enabled;
+    if (params === f.params && enabled === f.enabled) return filters;
+    const next = [...filters];
+    next[i] = { ...f, enabled, params };
+    return next;
+  });
+}
+
+/** The "Filters" row's eye: every filter of a layer off or on together, each keeping its own setting. */
+export function setFiltersEnabled(doc: PhotoProject, layerId: string, enabled: boolean): PhotoProject {
+  return mapLayer(doc, layerId, (l) => {
+    if (!hasContent(l) || (l.filtersEnabled !== false) === enabled) return l;
+    if (enabled) {
+      const { filtersEnabled: _, ...rest } = l;
+      return rest as ContentLayer;
+    }
+    return { ...l, filtersEnabled: false };
+  });
+}
+
+/** The filters that act on a layer now: its own that are on and usable, none while its "Filters" eye is off. */
+export const activeFilters = (layer: PhotoLayer): EffectInstance[] =>
+  !hasContent(layer) || layer.filtersEnabled === false ? [] : filtersOf(layer).filter((f) => f.enabled && !unavailableReason(f, "filter"));
+
+// --- generators ---
+
+export interface NewGeneratorLayer {
+  id: string;
+  /** A definition of kind "generator" ("lens-flare"). */
+  type: string;
+  name?: string;
+  /** A flare's preset ("classic"…), its sizes made for this canvas. */
+  preset?: string;
+  /** Parameters other than the defaults and the preset's (checked by the definition). */
+  params?: Record<string, unknown>;
+}
+
+/**
+ * A new generator layer right above `above` (an id), or at the top; its effect's id is `${id}_fx`. A new flare's
+ * source starts at the canvas's upper left third (where the video editor's sample sun is), its elements are the
+ * preset's for this canvas, and it adds its light in linear light (Linear Dodge, `blendSpace: "linear"`). A wrong
+ * type changes nothing.
+ */
+export function addGeneratorLayer(doc: PhotoProject, layer: NewGeneratorLayer, above?: string | null): PhotoProject {
+  const def = effectDefinition(layer.type);
+  if (def?.kind !== "generator" || findLayer(doc, layer.id)) return doc;
+  let effect = newEffect(def, `${layer.id}_fx`);
+  const { width, height } = doc.canvas;
+  const start: Record<string, unknown> = def.type === "lens-flare" ? { source: [Math.round(width * 0.3), Math.round(height * 0.34)], elements: flarePreset(layer.preset ?? "classic", width, height) } : {};
+  effect = { ...effect, params: patchParams(def, effect.params, { ...start, ...layer.params }) };
+  const added: GeneratorLayer = { id: layer.id, kind: "generator", name: layer.name?.trim() || def.label, visible: true, opacity: 1, effect, blend: "linear-dodge", blendSpace: "linear" };
+  const layers = [...doc.layers];
+  const at = above ? layers.findIndex((l) => l.id === above) : -1;
+  layers.splice(at >= 0 ? at + 1 : layers.length, 0, added);
+  return { ...doc, layers };
+}
+
+// --- elements (a flare's): an `elements` parameter of a generator's own effect ---
+
+/** A generator's elements under `key`, or null when it has none there (or can't be changed). */
+function elementsOf(doc: PhotoProject, layerId: string, key: string): { layer: GeneratorLayer; spec: ElementsParam; list: EffectElement[] } | null {
+  const layer = findLayer(doc, layerId);
+  if (layer?.kind !== "generator" || unavailableReason(layer.effect, "generator")) return null;
+  const spec = effectDefinition(layer.effect.type)?.params.find((p) => p.key === key);
+  const list = layer.effect.params[key];
+  return spec?.kind === "elements" && Array.isArray(list) ? { layer, spec, list: list as EffectElement[] } : null;
+}
+
+/** The list replaced, checked by its spec (ids kept), as one edit. */
+const withElements = (doc: PhotoProject, layerId: string, key: string, list: EffectElement[]) => setEffectParams(doc, layerId, { [key]: list });
+
+/** A new element of `type` (at its defaults, `values` over them) on top of the list. */
+export function addElement(doc: PhotoProject, layerId: string, key: string, type: string, id: string, values: Record<string, unknown> = {}): PhotoProject {
+  const found = elementsOf(doc, layerId, key);
+  const t = found?.spec.types.find((x) => x.type === type);
+  if (!found || !t || found.list.some((e) => e.id === id) || found.list.length >= found.spec.max) return doc;
+  return withElements(doc, layerId, key, [...found.list, { ...newElement(t, id), ...values, id, type } as EffectElement]);
+}
+
+/** Some of an element's own parameters (and whether it's shown), each checked by its type's spec. */
+export function setElement(doc: PhotoProject, layerId: string, key: string, elementId: string, patch: Record<string, unknown>): PhotoProject {
+  const found = elementsOf(doc, layerId, key);
+  const i = found ? found.list.findIndex((e) => e.id === elementId) : -1;
+  if (!found || i < 0) return doc;
+  const list = [...found.list];
+  const { id: _, type: __, ...rest } = patch;
+  list[i] = { ...list[i], ...rest } as EffectElement;
+  return withElements(doc, layerId, key, list);
+}
+
+export function removeElement(doc: PhotoProject, layerId: string, key: string, elementId: string): PhotoProject {
+  const found = elementsOf(doc, layerId, key);
+  if (!found || !found.list.some((e) => e.id === elementId)) return doc;
+  return withElements(doc, layerId, key, found.list.filter((e) => e.id !== elementId));
+}
+
+/** Moves an element to `index` (0 is the first drawn), clamped. */
+export function moveElement(doc: PhotoProject, layerId: string, key: string, elementId: string, index: number): PhotoProject {
+  const found = elementsOf(doc, layerId, key);
+  const from = found ? found.list.findIndex((e) => e.id === elementId) : -1;
+  if (!found || from < 0) return doc;
+  const to = Math.max(0, Math.min(found.list.length - 1, Math.round(index)));
+  if (to === from) return doc;
+  const list = [...found.list];
+  const [moved] = list.splice(from, 1);
+  list.splice(to, 0, moved);
+  return withElements(doc, layerId, key, list);
+}
+
+/** A generator's blend: how its content mixes with what's below (Normal, or Linear Dodge's Add). */
+export function setGeneratorBlend(doc: PhotoProject, layerId: string, blend: BlendMode, space?: "linear" | "document"): PhotoProject {
+  return mapLayer(doc, layerId, (l) => {
+    if (l.kind !== "generator") return l;
+    const linear = space === undefined ? l.blendSpace === "linear" : space === "linear";
+    if ((l.blend ?? "normal") === blend && (l.blendSpace === "linear") === linear) return l;
+    const { blend: _, blendSpace: __, ...rest } = l;
+    return { ...rest, ...(blend !== "normal" ? { blend } : {}), ...(linear ? { blendSpace: "linear" as const } : {}) };
+  });
 }
 
 export interface NewAdjustmentLayer {
@@ -243,7 +476,7 @@ export interface NewAdjustmentLayer {
  */
 export function addAdjustmentLayer(doc: PhotoProject, layer: NewAdjustmentLayer, above?: string | null): PhotoProject {
   const def = effectDefinition(layer.type);
-  if (!def || findLayer(doc, layer.id)) return doc;
+  if (def?.kind !== "adjustment" || findLayer(doc, layer.id)) return doc;
   let effect = newEffect(def, `${layer.id}_fx`);
   if (layer.params) effect = { ...effect, params: patchParams(def, effect.params, layer.params) };
   const added: AdjustmentLayer = { id: layer.id, kind: "adjustment", name: layer.name?.trim() || def.label, visible: true, opacity: 1, effect };
@@ -267,12 +500,12 @@ function patchParams(def: EffectDefinition, params: Record<string, EffectParamVa
 }
 
 /**
- * Sets some of an adjustment layer's parameters (each checked: held to its range, a bad one ignored). An effect
- * this app can't use is never changed.
+ * Sets some of an adjustment's or a generator layer's own parameters (each checked: held to its range, a bad one
+ * ignored). An effect this app can't use is never changed.
  */
 export function setEffectParams(doc: PhotoProject, layerId: string, patch: Record<string, unknown>): PhotoProject {
   return mapLayer(doc, layerId, (l) => {
-    if (l.kind !== "adjustment" || unavailableReason(l.effect)) return l;
+    if ((l.kind !== "adjustment" && l.kind !== "generator") || unavailableReason(l.effect, l.kind)) return l;
     const def = effectDefinition(l.effect.type)!;
     const valid = Object.fromEntries(Object.entries(patch).filter(([key, value]) => {
       const spec = def.params.find((s) => s.key === key);
@@ -305,6 +538,11 @@ export function setCanvas(doc: PhotoProject, patch: Partial<PhotoCanvas>, anchor
   const dy = anchor === "centre" ? (height - doc.canvas.height) / 2 : 0;
   const layers = dx || dy ? doc.layers.map((l) => (isPlaced(l) ? { ...l, transform: { ...l.transform, x: l.transform.x + dx, y: l.transform.y + dy } } : l)) : doc.layers;
   return { ...doc, canvas: { width, height, background }, layers };
+}
+
+/** How light above white leaves the photo (rendering.md, "The output transform"). */
+export function setHighlights(doc: PhotoProject, highlights: PhotoProject["output"]["highlights"]): PhotoProject {
+  return doc.output.highlights === highlights ? doc : { ...doc, output: { ...doc.output, highlights } };
 }
 
 export interface NewPixelLayer {

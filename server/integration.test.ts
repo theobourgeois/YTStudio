@@ -5,7 +5,8 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { addEffect, defaultEffects, setEffectEnabled, setParams, shapeEffects, solidEffects, textEffects } from "../shared/effects.ts";
+import { addEffect, defaultEffects, setEffectEnabled, setExpression, setParams, shapeEffects, solidEffects, textEffects } from "../shared/effects.ts";
+import { SIGNALS_VERSION, decodeSignals } from "../shared/signals/format.ts";
 import { addMask } from "../shared/masks.ts";
 import { addAnimator } from "../shared/text-animators.ts";
 import { ellipsePath, polygonPath, rectPath } from "../shared/path.ts";
@@ -152,6 +153,10 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     ffmpeg("-f", "lavfi", "-i", "nullsrc=size=128x128:rate=30:duration=4,geq=lum='2*N':cb=128:cr=128",
       "-f", "lavfi", "-i", "aevalsrc='if(lt(t,2),0,0.5*sin(2*PI*440*t))':s=48000:d=4",
       "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", f("ramp.mp4"));
+
+    // 3s of a low thump once a second (at 0.5, 1.5 and 2.5 s), silent between: kicks for signals to find.
+    ffmpeg("-f", "lavfi", "-i", "aevalsrc='if(gte(t,0.5)*lt(mod(t-0.5,1),0.08),0.9*sin(2*PI*60*t)*exp(-30*mod(t-0.5,1)),0)':s=48000:d=3",
+      "-c:a", "pcm_s16le", f("thumps.wav"));
 
     editor = await createApp({ dataDir });
     server = http.createServer(editor.app);
@@ -926,6 +931,36 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(await errorOf(empty)).toMatch(/video track is empty/);
   });
 
+  it("analyses a file's sound into signals, and exports pictures that react to it", async () => {
+    const thumps = (await (await upload(fixtures["thumps.wav"])).json()) as MediaAsset;
+    const ready = await until(async () => {
+      const a = await json<MediaAsset>(`/api/media/${thumps.id}`);
+      return a.signals?.status === "ready" || a.signals?.status === "error" ? a : undefined;
+    }, 60_000);
+    expect(ready.signals).toMatchObject({ status: "ready", version: SIGNALS_VERSION });
+    if (ready.signals?.status !== "ready") return;
+    const file = await api(ready.signals.src);
+    expect(file.headers.get("cache-control")).toMatch(/immutable/);
+    const data = decodeSignals(await file.arrayBuffer());
+    expect(data.header.hits.onsetLow.map(([t]) => Math.round(t * 100) / 100)).toEqual([0.5, 1.5, 2.5]);
+    // Asking again does nothing more.
+    expect((await json<MediaAsset>(`/api/media/${thumps.id}/signals`, { method: "POST" })).signals).toEqual(ready.signals);
+
+    // A white solid that flashes on each thump and fades out over 0.2 s.
+    let project = projectWith([
+      { id: "flash", assetId: "", trackId: "main", start: 0, in: 0, out: 3, effects: solidEffects({ color: "#ffffff" }) },
+      { ...clip("tone", "audio_1", 0, 0, 3), assetId: thumps.id },
+    ]);
+    project = setExpression(project, "flash", "opacity", "opacity", 'envelope(sinceHit("onsetLow"), 0, 0.2)');
+    const queued = (await (await sendJson("POST", "/api/exports", { project, resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    // Just after each thump it's bright; a quarter second later and before the first, black.
+    for (const t of [0.52, 1.52, 2.52]) expect(pixelAt(output, t, 360, 640)[0], `at ${t}s`).toBeGreaterThan(200);
+    for (const t of [0.2, 0.8, 1.9]) expect(pixelAt(output, t, 360, 640)[0], `at ${t}s`).toBeLessThan(30);
+  });
+
   it("cancels queued and running exports", async () => {
     const long = projectWith(
       Array.from({ length: 8 }, (_, i) => clip("landscape", "main", i * 2, 0, 2)),
@@ -963,7 +998,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect((await mediaFolders()).some((dir) => dir.endsWith(other.id))).toBe(false);
     expect((await json<ProjectSummary[]>("/api/projects")).map((p) => p.id)).toEqual([projects.main.id]);
     // The remaining project's media is untouched.
-    expect((await json<MediaAsset[]>(`/api/media?projectId=${projects.main.id}`))).toHaveLength(7);
+    expect((await json<MediaAsset[]>(`/api/media?projectId=${projects.main.id}`))).toHaveLength(8);
   });
 
   it("deletes media", async () => {

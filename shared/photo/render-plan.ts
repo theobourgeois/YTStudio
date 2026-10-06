@@ -9,7 +9,9 @@
  */
 import { type LayerBlending, blendSeed, blendingOf, compositingOf, isPlainBlending } from "./blending.ts";
 import { srgbToLinear } from "./colour.ts";
+import { activeFilters } from "./edits.ts";
 import { effectDefinition, unavailableReason } from "./effects/index.ts";
+import { GLOW_CACHED_FROM } from "./effects/glow.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
 import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
 import { drawnEffects, effectAltitude, effectAngle, styleReach } from "./style/style.ts";
@@ -72,8 +74,31 @@ export interface NodeStyle {
   maskHidesEffects: boolean;
 }
 
-/** A placed image: its source resampled through its transform, composited at its opacity by its blending. */
-export interface ImageNode {
+/** A filter as the plan runs it on its layer's content (in linear light, before the layer's mask). */
+export interface FilterNode {
+  id: string;
+  type: string;
+  version: number;
+  params: Record<string, EffectParamValue>;
+  /** How far past its input it reaches, in document pixels. */
+  reach: number;
+  /** Its own key (type, version, parameters). */
+  key: string;
+}
+
+/**
+ * What every node with content of its own has: its filters (on: none while the layer's "Filters" eye is off), the
+ * key of its content before its filters (what a filter's caches are keyed by: never its opacity or mask), and from
+ * which view level it commutes with reduction (0: always; a glow from its cached levels; Infinity: never).
+ */
+interface ContentFields {
+  filters: FilterNode[];
+  contentKey: string;
+  commutesFrom: number;
+}
+
+/** A placed image: its source resampled through its transform (then its filters), composited at its opacity by its blending. */
+export interface ImageNode extends ContentFields {
   kind: "image";
   layerId: string;
   mediaId: string;
@@ -87,13 +112,13 @@ export interface ImageNode {
   blend: NodeBlend | null;
   /** Its layer effects; null when it has none drawn. */
   style: NodeStyle | null;
-  /** Resampling and Normal compositing commute with reduction (within tolerance at transparent overlaps); modes don't. */
+  /** Resampling and Normal compositing commute with reduction (within tolerance at transparent overlaps); modes and filters may not. */
   commutes: boolean;
   key: string;
 }
 
 /** Painted pixels (a pixel layer's surface), placed and composited as an image is. Empty (null) draws nothing. */
-export interface PixelNode {
+export interface PixelNode extends ContentFields {
   kind: "pixel";
   layerId: string;
   surface: SurfaceId | null;
@@ -104,6 +129,29 @@ export interface PixelNode {
   mask: MaskRef | null;
   blend: NodeBlend | null;
   style: NodeStyle | null;
+  commutes: boolean;
+  key: string;
+}
+
+/**
+ * A generator layer: content made by its effect at every document point (a lens flare), then its filters, then
+ * blended at its opacity through its mask (in document pixels), in linear light when `space` says so (light that
+ * adds physically).
+ */
+export interface GeneratorNode extends ContentFields {
+  kind: "generator";
+  layerId: string;
+  type: string;
+  version: number;
+  params: Record<string, EffectParamValue>;
+  /** Where its handles that follow the canvas are (the canvas's centre). */
+  canvas: Size;
+  opacity: number;
+  mask: MaskRef | null;
+  /** Its mode, Blend If and channels; null for plain Normal (a new flare is Linear Dodge). */
+  blend: NodeBlend | null;
+  /** "linear": it blends in linear light whatever the document's compositing (`blendSpace`); "document": as the plan does. */
+  space: "linear" | "document";
   commutes: boolean;
   key: string;
 }
@@ -124,12 +172,36 @@ export interface AdjustmentNode {
   key: string;
 }
 
-export type PlanNode = ImageNode | PixelNode | AdjustmentNode;
+export type PlanNode = ImageNode | PixelNode | GeneratorNode | AdjustmentNode;
 
 /** A node that draws pixels of its own (an image's or a pixel layer's), as the compositor's layer pass does. */
 export type DrawNode = ImageNode | PixelNode;
 
-export const isDrawNode = (node: PlanNode): node is DrawNode => node.kind !== "adjustment";
+export const isDrawNode = (node: PlanNode): node is DrawNode => node.kind === "image" || node.kind === "pixel";
+
+/** A node with content of its own: one that can have filters. */
+export type ContentNode = ImageNode | PixelNode | GeneratorNode;
+
+export const isContentNode = (node: PlanNode): node is ContentNode => node.kind !== "adjustment";
+
+/**
+ * Whether a node is evaluated alone before it joins the stack (effects/system.md: filters see the layer before its
+ * mask): one with filters, or a generator. Others draw straight into the composite.
+ */
+/** Whether a blending is Linear Dodge (Add) and nothing else: light added, as the GPU's own blending can. */
+export const addsLight = (b: NodeBlend | null) => !!b && b.mode === "linear-dodge" && b.fill === 1 && b.channels.r && b.channels.g && b.channels.b && !Object.values(b.blendIf).some(Boolean);
+
+/** A layer evaluated alone first: a generator, or a layer with filters. */
+export type IsolatedNode = GeneratorNode | ((ImageNode | PixelNode) & { filters: [FilterNode, ...FilterNode[]] });
+
+/**
+ * Whether an isolated layer blends in linear light whatever the document's compositing: a generator told so
+ * (`blendSpace`), and a layer with filters (its light adds physically, ledger A27) unless it has layer effects, whose
+ * pass works in the document's values.
+ */
+export const blendsInLinear = (node: IsolatedNode) => (node.kind === "generator" ? node.space === "linear" : !node.style);
+
+export const isIsolated = (node: PlanNode): node is IsolatedNode => node.kind === "generator" || (isDrawNode(node) && node.filters.length > 0);
 
 export interface RenderPlan {
   canvas: Size;
@@ -150,6 +222,8 @@ export interface RenderPlan {
   key: string;
   /** Whether every node commutes with reduction: then a reduced view can be evaluated at its own level. */
   commutes: boolean;
+  /** The view level from which the whole plan does (0: any; a glow's cached levels; Infinity: none below 100%). */
+  commutesFrom: number;
   format: PlanFormat;
   /** Layers that would draw but can't: their media is missing, or their effect is unavailable here. */
   skipped: { layerId: string; reason: "missing" | "unavailable" }[];
@@ -181,7 +255,6 @@ export interface CompileOptions {
   float32?: boolean;
 }
 
-/** The plan for `doc`, given what's known of its media (a layer whose media isn't known is skipped as missing). */
 /** A layer's mask for the plan (`size`: the layer's own pixels), or null when it has none, or one that hides nothing. */
 function maskOf(layer: PhotoLayer, size: Size): MaskRef | null {
   return layer.mask?.surface ? { surface: layer.mask.surface, size } : null;
@@ -231,6 +304,32 @@ export function backgroundIn(hex: string | null, compositing: Compositing): [num
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, 1];
 }
 
+/** A filter's version of `commutesFrom`: a glow from its cached levels, anything else that doesn't commute never. */
+const filterCommutesFrom = (f: FilterNode) => (f.type === "glow" ? GLOW_CACHED_FROM : effectDefinition(f.type)!.commutesWithReduction(f.params) ? 0 : Infinity);
+
+/** A layer's filters as the plan runs them: those on and usable, none while its "Filters" eye is off. */
+function filterNodes(layer: PhotoLayer): FilterNode[] {
+  return activeFilters(layer).flatMap((f) => {
+    const def = effectDefinition(f.type)!;
+    if (def.isIdentity(f.params)) return [];
+    return [{ id: f.id, type: def.type, version: def.version, params: f.params, reach: def.reach(f.params), key: hashKey(`${def.type}@${def.version}|${JSON.stringify(f.params)}`) }];
+  });
+}
+
+/** How far a layer's filters reach past its pixels, in document pixels (each filter's reach adds to the last's). */
+export const filtersReach = (layer: PhotoLayer): number => filterNodes(layer).reduce((sum, f) => sum + f.reach, 0);
+
+/** Its content's fields: filters, the content key they're keyed by, and from which level it commutes. */
+function contentFields(layer: PhotoLayer, contentKey: string, contentCommutesFrom = 0): ContentFields & { filtersKey: string } {
+  const filters = filterNodes(layer);
+  return {
+    filters,
+    contentKey,
+    commutesFrom: Math.max(contentCommutesFrom, ...filters.map(filterCommutesFrom)),
+    filtersKey: filters.length ? `|filters:${filters.map((f) => f.key).join(",")}` : "",
+  };
+}
+
 export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, SourceFacts>, options: CompileOptions = {}): RenderPlan {
   const compositing = compositingOf(doc);
   const background = backgroundIn(doc.canvas.background, compositing);
@@ -238,6 +337,9 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
   const nodes: PlanNode[] = [];
   const skipped: RenderPlan["skipped"] = [];
   let sixteen = false;
+  // Light (filters' and generators' content, far above white) mixed in encoded values doesn't commute with reduction;
+  // a layer with filters blends in linear light (`blendsInLinear`), unless effects make it the document's.
+  const encodedLight = compositing === "photoshop";
   for (const layer of doc.layers) {
     if (!layer.visible || layer.opacity <= 0) continue;
     const blending = blendOf(layer);
@@ -251,6 +353,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const size = { width: source.width, height: source.height };
       const t = layer.transform;
       const mask = maskOf(layer, size);
+      const { filtersKey, ...content } = contentFields(layer, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`));
       const matrix = layerMatrix(t, size);
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
@@ -264,8 +367,10 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         mask,
         blend: blending.blend,
         style: styled.style,
-        commutes: !blending.blend,
-        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}`),
+        ...content,
+        commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
+        commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
+        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}`),
       });
       continue;
     }
@@ -273,6 +378,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       // An empty one is still drawn: the stroke that paints its first pixels shows through it.
       const { size, transform: t } = layer;
       const mask = maskOf(layer, size);
+      const { filtersKey, ...content } = contentFields(layer, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`));
       const matrix = layerMatrix(t, size);
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
@@ -286,16 +392,45 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         mask,
         blend: blending.blend,
         style: styled.style,
-        commutes: !blending.blend,
-        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}`),
+        ...content,
+        commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
+        commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
+        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}`),
       });
       continue;
     }
     const effect = layer.effect;
     if (!effect.enabled) continue;
     const def = effectDefinition(effect.type);
-    if (!def || unavailableReason(effect)) {
+    if (!def || unavailableReason(effect, layer.kind)) {
       skipped.push({ layerId: layer.id, reason: "unavailable" });
+      continue;
+    }
+    if (layer.kind === "generator") {
+      const canvas = { width: doc.canvas.width, height: doc.canvas.height };
+      const mask = maskOf(layer, canvas);
+      const own = `${def.type}@${def.version}|${JSON.stringify(effect.params)}|${canvas.width}x${canvas.height}`;
+      const { filtersKey, ...content } = contentFields(layer, hashKey(own), def.commutesWithReduction(effect.params) ? 0 : Infinity);
+      const space = layer.blendSpace === "linear" ? "linear" : "document";
+      // Linear Dodge (Add) in linear light adds light, which commutes with reduction; other modes don't.
+      const b = blending.blend;
+      const blendCommutes = (!b || addsLight(b)) && (space === "linear" || !encodedLight);
+      nodes.push({
+        kind: "generator",
+        layerId: layer.id,
+        type: def.type,
+        version: def.version,
+        params: effect.params,
+        canvas,
+        opacity: blending.opacity,
+        mask,
+        blend: b,
+        space,
+        ...content,
+        commutesFrom: blendCommutes ? content.commutesFrom : Infinity,
+        commutes: blendCommutes && content.commutesFrom === 0,
+        key: hashKey(`generator|${own}|${space}|${blending.opacity}${maskKey(mask)}${blending.key}${filtersKey}`),
+      });
       continue;
     }
     if (def.isIdentity(effect.params)) continue;
@@ -328,6 +463,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
     prefixKeys,
     key,
     commutes: nodes.every((n) => n.commutes),
+    commutesFrom: Math.max(0, ...nodes.map((n) => (n.kind === "adjustment" ? (n.commutes ? 0 : Infinity) : n.commutesFrom))),
     // Encoded composites are f32 too: an 8-bit sample's trip through f16 linear tiles and then f16 encoded
     // composites could leave its 8-bit level (rendering.md, "Storage formats"); f32 keeps unedited exports exact.
     format: (sixteen || compositing === "photoshop") && options.float32 !== false ? "rgba32float" : "rgba16float",
@@ -344,6 +480,10 @@ export const keyBelow = (plan: RenderPlan, index: number) => (index <= 0 ? plan.
  */
 export function inputRegion(node: PlanNode, rect: Rect): Rect | null {
   if (node.kind === "adjustment") return rect;
+  // Filters need their reach around the region; a generator's content is everywhere, in document pixels.
+  const reach = node.filters.reduce((sum, f) => sum + f.reach, 0);
+  if (reach) rect = { x0: rect.x0 - reach, y0: rect.y0 - reach, x1: rect.x1 + reach, y1: rect.y1 + reach };
+  if (node.kind === "generator") return rect;
   const inv = invert(node.matrix);
   const pts = [apply(inv, rect.x0, rect.y0), apply(inv, rect.x1, rect.y0), apply(inv, rect.x0, rect.y1), apply(inv, rect.x1, rect.y1)];
   const x0 = Math.max(0, Math.min(...pts.map((p) => p.x)));
@@ -355,9 +495,10 @@ export function inputRegion(node: PlanNode, rect: Rect): Rect | null {
 
 /**
  * Whether a view needs refining (rendering.md: "the settled view is the full-resolution render, reduced"): below
- * 100%, when some node doesn't commute with reduction, the view's own level is only a preview.
+ * 100%, when some node doesn't commute with reduction at the view's level, that level is only a preview. A glow
+ * commutes from its cached levels on (f4-light.md, "Levels").
  */
-export const needsRefinement = (plan: RenderPlan, zoom: number) => zoom < 1 && !plan.commutes;
+export const needsRefinement = (plan: RenderPlan, zoom: number) => zoom < 1 && levelForScale(zoom, 32) < plan.commutesFrom;
 
 /** Mitchell's reach in pixels of the level a refinement samples (its scale is 1 to 2: ±4 pixels, and one more). */
 export const REFINE_HALO = 5;

@@ -1,16 +1,17 @@
 /**
  * The photo suite's controls in the component gallery (`/gallery`): Properties' parameter sliders and the Curves
- * graph, as an adjustment shows them, the Brush's options bar, and Blending Options' blend-mode menu and Blend If
- * bars, and Layer Style's angle dial, contour and gradient pickers. Outside an open photo their edits go nowhere (the
- * brush's are this browser's): the gallery is for looking.
+ * graph, as an adjustment shows them, a glow's parameters and a Lens Flare's Properties, the Brush's options bar, and
+ * Blending Options' blend-mode menu and Blend If bars, and Layer Style's angle dial, contour and gradient pickers.
+ * Outside an open photo their edits go nowhere (the brush's are this browser's): the gallery is for looking.
  */
+import { useEffect, useState } from "react";
 import { effectDefinition } from "@shared/photo/effects/index";
 import type { NumberParam } from "@shared/photo/effects/params";
 import { identityCurveSet } from "@shared/photo/effects/params";
-import { useState } from "react";
+import { flarePreset } from "@shared/photo/effects/flare";
 import { CONTOUR_PRESETS } from "@shared/photo/style/contours";
 import { GRADIENT_PRESETS } from "@shared/photo/style/gradients";
-import type { AdjustmentLayer, BlendMode, BlendRange, Contour, Gradient } from "@shared/photo/types";
+import type { AdjustmentLayer, BlendMode, BlendRange, Contour, GeneratorLayer, Gradient } from "@shared/photo/types";
 import type { GallerySection } from "@/gallery/types";
 import { BrushOptionsBar } from "./options-bar";
 import { CurvesEditor } from "./panels/curves-editor";
@@ -20,6 +21,9 @@ import { ContourPicker } from "./layer-style/controls/contour-picker";
 import { GradientPicker } from "./layer-style/controls/gradient-picker";
 import { BlendModeMenu } from "./panels/blend-mode-menu";
 import { ParamSlider } from "./panels/fields";
+import { GeneratorProperties } from "./panels/light";
+import { ParamField } from "./panels/params";
+import { usePhotoUi } from "./ui";
 
 const curves = (id: string, set: AdjustmentLayer["effect"]["params"]["curves"]): AdjustmentLayer => ({
   id,
@@ -115,6 +119,37 @@ function StyleControls() {
   );
 }
 
+/** Light: a glow's parameters (a filter's, from its specs: sliders and a colour), and a Lens Flare's Properties. */
+function Light() {
+  const glow = effectDefinition("glow")!;
+  const values: Record<string, number | string> = { radius: 240, intensity: 0.5, threshold: 75, knee: 25, tint: "#ffb070", tintAmount: 30, mix: 100 };
+  const elements = flarePreset("classic", 1080, 1920);
+  const flare: GeneratorLayer = {
+    id: "gallery-flare",
+    kind: "generator",
+    name: "Lens Flare",
+    visible: true,
+    opacity: 1,
+    blend: "linear-dodge",
+    blendSpace: "linear",
+    effect: { id: "gallery-flare_fx", type: "lens-flare", version: 1, enabled: true, params: { source: [324, 653], centre: null, intensity: 0, colour: "#ffffff", elements } },
+  };
+  // A ghost selected, so its own parameters (a choice among them) show.
+  useEffect(() => usePhotoUi.getState().selectElement("e4"), []);
+  return (
+    <div className="grid grid-cols-2 gap-6 text-sm">
+      <div className="flex w-64 flex-col gap-3">
+        {glow.params.map((spec) => (
+          <ParamField key={spec.key} spec={spec} value={values[spec.key]} edit={() => (d) => d} />
+        ))}
+      </div>
+      <div className="flex w-72 flex-col gap-4">
+        <GeneratorProperties layer={flare} />
+      </div>
+    </div>
+  );
+}
+
 export const PHOTO_SECTIONS: GallerySection[] = [
   { id: "photo-brush", title: "Photo: the Brush's and Eraser's options bar (size, hardness, strength: drag sideways, click to type)", source: "suites/photo/options-bar.tsx", render: () => <BrushOptionsBar /> },
   { id: "photo-adjustments", title: "Photo: an adjustment's sliders, and Curves (straight; an S with its channels' curves faint behind)", source: "suites/photo/panels/fields.tsx, curves-editor.tsx", render: () => <Adjustments /> },
@@ -130,4 +165,5 @@ export const PHOTO_SECTIONS: GallerySection[] = [
       { name: "gradient-editor", click: "Gradient: White, Transparent. Edit the gradient" },
     ],
   },
+  { id: "photo-light", title: "Photo: a glow's parameters (from its specs), and a Lens Flare's Properties: its handles, blend, elements, a ghost's own", source: "suites/photo/panels/params.tsx, light.tsx", render: () => <Light /> },
 ];

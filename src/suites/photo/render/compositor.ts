@@ -24,7 +24,7 @@
  */
 import { type View, levelForScale } from "@shared/photo/geometry.ts";
 import { type Affine, invert, layerScale } from "@shared/photo/layers.ts";
-import type { AdjustmentNode, DrawNode, PlanFormat, PlanNode, RenderPlan } from "@shared/photo/render-plan.ts";
+import { type AdjustmentNode, type ContentNode, type DrawNode, type GeneratorNode, type PlanFormat, type PlanNode, type RenderPlan, addsLight, blendsInLinear, isDrawNode, isIsolated } from "@shared/photo/render-plan.ts";
 import type { LayerTransform } from "@shared/photo/types.ts";
 import { ADJUSTMENT_KERNELS, adjustmentShader } from "./adjustments.ts";
 import { BLEND, BLEND_PARAMS_SIZE, BLEND_STRUCT, packBlend } from "./blend.ts";
@@ -32,6 +32,7 @@ import { STYLE_COMPOSITE, STYLE_UNIFORM_SIZE, StyleFields, packStyle, planFields
 import type { RenderContext } from "./context.ts";
 import { ROUND_FOR_STORE } from "./kernels.ts";
 import type { VirtualImage } from "./image.ts";
+import { type GlowCache, Isolation } from "./isolated.ts";
 import { ATLAS, IMAGE_STRUCTS, MASK_SAMPLE, MATHS, atlasAt, imageFunctions } from "./wgsl.ts";
 
 export type Quality = "interactive" | "final";
@@ -59,10 +60,14 @@ export interface LayerDraw {
   mask: Drawable | null;
 }
 
-/** What an evaluation reads: each drawing node's pixels, and each adjustment's mask (null while not on the GPU). */
+/**
+ * What an evaluation reads: each drawing node's pixels, each adjustment's or generator's mask (null while not on the
+ * GPU), and each glow's cache once it's built (`isolated.ts`).
+ */
 export interface PlanSources {
   draw: (node: DrawNode) => LayerDraw | null;
-  mask: (node: AdjustmentNode) => Drawable | null;
+  mask: (node: AdjustmentNode | GeneratorNode) => Drawable | null;
+  glowCache?: (node: ContentNode, filterIndex: number) => GlowCache | null;
   /** What a styled layer's fields are keyed by besides the plan: its pixels' and mask's changes (a stroke, tiles arriving). */
   revision?: (node: DrawNode) => string;
 }
@@ -206,6 +211,13 @@ fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f { return full_s
 fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let p = vec2i(pos.xy);
   let doc = blend.origin + pos.xy / blend.zoom;
+  // \`p0\`: a layer blending in linear light in an encoded composite (a flare's blendSpace): drawn in linear light,
+  // it meets what's below decoded, and the result is encoded again.
+  if (blend.p0 > 0.5) {
+    var q = blend;
+    q.encoded = 0u;
+    return round_for_store(premult_encode(composite_pixel(q, premult_decode(textureLoad(below, p, 0)), textureLoad(drawn, p, 0), doc)));
+  }
   return round_for_store(composite_pixel(blend, textureLoad(below, p, 0), textureLoad(drawn, p, 0), doc));
 }
 `;
@@ -230,7 +242,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 /** A composite onto the canvas element: the canvas's area over the checkerboard, the pasteboard around it. */
 const PRESENT = /* wgsl */ `
 ${MATHS}
-struct Present { canvas: vec4f, checker: f32, amplitude: f32, p0: f32, p1: f32, pasteboard: vec4f }
+struct Present { canvas: vec4f, checker: f32, amplitude: f32, film: f32, p1: f32, pasteboard: vec4f }
 @group(0) @binding(0) var accumulated: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> present: Present;
 
@@ -247,7 +259,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let cell = vec2u(floor((pos.xy - present.canvas.xy) / present.checker));
   let grey = select(0.8, 0.48, ((cell.x + cell.y) & 1u) == 1u);
   let shown = vec4f(c.rgb + vec3f(grey) * (1.0 - clamp(c.a, 0.0, 1.0)), 1.0);
-  let e = encode_pixel(shown);
+  let e = encode_pixel_with(shown, present.film > 0.5);
   let d = dither_at(u32(pos.x), u32(pos.y), present.amplitude) / 255.0;
   return vec4f(e.rgb + d, 1.0);
 }
@@ -260,7 +272,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
  */
 const QUANTIZE = (bits: 8 | 16) => /* wgsl */ `
 ${MATHS}
-struct Params { origin: vec2u, size: vec2u, amplitude: f32, under: u32, checker: f32, p0: u32, matte: vec4f }
+struct Params { origin: vec2u, size: vec2u, amplitude: f32, under: u32, checker: f32, film: u32, matte: vec4f }
 @group(0) @binding(0) var accumulated: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read_write> out: array<u32>;
 @group(0) @binding(2) var<uniform> params: Params;
@@ -277,17 +289,20 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
     let grey = select(0.8, 0.48, ((cell.x + cell.y) & 1u) == 1u);
     c = vec4f(c.rgb + vec3f(grey) * (1.0 - a), 1.0);
   }
-  let e = encode_pixel(c);
+  let e = encode_pixel_with(c, params.film == 1u);
   let i = g.y * params.size.x + g.x;
 ${
   bits === 8
     ? `  let x = params.origin.x + g.x;
   let y = params.origin.y + g.y;
   let d = select(0.0, dither_at(x, y, params.amplitude), params.amplitude > 0.0);
-  let q = vec3u(clamp(floor(e.rgb * 255.0 + d + 0.5), vec3f(0.0), vec3f(255.0)));
+  var q = vec3u(clamp(floor(e.rgb * 255.0 + d + 0.5), vec3f(0.0), vec3f(255.0)));
   let alpha = u32(floor(e.a * 255.0 + 0.5));
+  // Stored transparent: no colour (shared/photo/output.ts's quantize8).
+  if (alpha == 0u) { q = vec3u(0u); }
   out[i] = q.r | (q.g << 8u) | (q.b << 16u) | (alpha << 24u);`
-    : `  let q = vec4u(clamp(floor(e * 65535.0 + 0.5), vec4f(0.0), vec4f(65535.0)));
+    : `  var q = vec4u(clamp(floor(e * 65535.0 + 0.5), vec4f(0.0), vec4f(65535.0)));
+  if (q.a == 0u) { q = vec4u(0u); }
   out[2u * i] = q.r | (q.g << 16u);
   out[2u * i + 1u] = q.b | (q.a << 16u);`
 }
@@ -395,7 +410,13 @@ export interface EvaluateOptions {
  * Whether a node runs as a pass of its own, reading the composite below (an adjustment, or a layer that blends by
  * more than Normal): the places an evaluation can resume from.
  */
-export const needsPass = (node: PlanNode) => node.kind === "adjustment" || node.blend !== null || node.style !== null;
+export const needsPass = (node: PlanNode) => node.kind === "adjustment" || node.blend !== null || (isDrawNode(node) && node.style !== null) || isIsolated(node);
+
+/**
+ * Whether an isolated layer (filtered, or a generator) composites by the GPU's own blending: Normal, or light added
+ * in linear light, in a linear plan without effects. Otherwise its content goes through the blend or style pass.
+ */
+export const fixedComposite = (node: ContentNode, encoded: boolean) => !encoded && !(isDrawNode(node) && node.style) && (!node.blend || (node.kind === "generator" && addsLight(node.blend)));
 
 const COMPOSITE_USAGE = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST;
 
@@ -456,6 +477,10 @@ export class Compositor {
   private scratch: GPUTexture | null = null;
   private readonly sampler: GPUSampler;
   private readonly blank: GPUTexture;
+  /** Layers evaluated alone: filters and generators. */
+  isolation!: Isolation;
+  /** Resolves when every pipeline has compiled (the first picture's are there from the start). */
+  ready: Promise<void>;
   private readonly emptyTable: GPUBuffer;
   private readonly layerGroups = new WeakMap<Drawable, { preview: GPUTexture | null; uniforms: GPUBuffer; group: GPUBindGroup }>();
   /** Each adjustment's parameters on the GPU, by its node's key (a node's parameters never change under its key). */
@@ -477,10 +502,10 @@ export class Compositor {
     },
     pipelines: Pipelines,
     private readonly formats: readonly PlanFormat[],
-    /** Resolves when every pipeline has compiled (the first picture's are there from the start). */
-    readonly ready: Promise<void>,
+    ready: Promise<void>,
   ) {
     this.pipelines = pipelines;
+    this.ready = ready;
     const { device } = ctx;
     this.uniforms = device.createBuffer({ size: UNIFORM_STRIDE * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.maskUniforms = device.createBuffer({ size: UNIFORM_STRIDE * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -604,7 +629,11 @@ export class Compositor {
         ),
       );
     }
-    return new Compositor(ctx, { layer: layerGroup, texture, textureUniform, params, quantize, mask, twoTextures, blendUniform, threeTextures, styleData }, pipelines, formats, Promise.all(rest).then(() => {}));
+    const compositor = new Compositor(ctx, { layer: layerGroup, texture, textureUniform, params, quantize, mask, twoTextures, blendUniform, threeTextures, styleData }, pipelines, formats, Promise.resolve());
+    const isolated = Isolation.create(compositor, formats, textureUniform);
+    compositor.isolation = isolated.isolation;
+    compositor.ready = Promise.all([...rest, isolated.ready]).then(() => {});
+    return compositor;
   }
 
   /** Whether every pipeline `plan` needs has compiled (and, to refine it, the reduction's). */
@@ -613,9 +642,13 @@ export class Compositor {
     if (!p.layer[plan.format]) return false;
     if (refine && (!p.reduce[plan.format] || !p.sample[plan.format])) return false;
     if (plan.compositing === "photoshop" && !p.decode[plan.format]) return false;
-    if (plan.nodes.some((n) => n.kind !== "adjustment" && n.blend) && !p.blend[plan.format]) return false;
-    if (plan.nodes.some((n) => n.kind !== "adjustment" && n.style) && !p.style[plan.format]) return false;
-    return plan.nodes.every((n) => n.kind !== "adjustment" || p.adjustment.has(`${n.type}:${plan.format}`));
+    if (plan.nodes.some((n) => (n.kind !== "adjustment" && n.blend) || (isIsolated(n) && !fixedComposite(n, plan.compositing === "photoshop"))) && !p.blend[plan.format]) return false;
+    if (plan.nodes.some((n) => isDrawNode(n) && n.style) && !p.style[plan.format]) return false;
+    return plan.nodes.every((n) => {
+      if (n.kind === "adjustment") return p.adjustment.has(`${n.type}:${plan.format}`);
+      if (!isIsolated(n)) return true;
+      return this.isolation.canEvaluate(n, plan.format) && (n.filters.length === 0 || !!p.reduce[plan.format]);
+    });
   }
 
   /** Compilation errors of the compositor's modules (empty when they compile), for checks. */
@@ -633,6 +666,7 @@ export class Compositor {
         [`sample ${f}`, SAMPLE(f)],
         ...Object.entries(ADJUSTMENT_KERNELS).map(([type, k]): [string, string] => [`${type} ${f}`, adjustmentShader(k, f, ADJUSTMENT_MASK)]),
       ]),
+      ...Isolation.modules(COMPOSITE_FORMATS),
     ];
     const errors: string[] = await StyleFields.compileErrors(device);
     for (const [label, code] of modules) {
@@ -719,7 +753,7 @@ export class Compositor {
     // A styled layer whose mask hides its effects is drawn unmasked, and its mask drawn alone as a second image.
     const images: { index: number; draw: LayerDraw; maskOnly?: true }[] = [];
     const masks: { index: number; node: AdjustmentNode; mask: Drawable | null }[] = [];
-    const blends: { index: number; node: DrawNode }[] = [];
+    const blends: { index: number; node: DrawNode | GeneratorNode }[] = [];
     const styled: { index: number; node: DrawNode; draw: LayerDraw }[] = [];
     for (let i = start; i < plan.nodes.length; i++) {
       const node = plan.nodes[i];
@@ -727,13 +761,23 @@ export class Compositor {
         masks.push({ index: i, node, mask: node.mask ? sources.mask(node) : null });
         continue;
       }
+      const isolated = isIsolated(node);
+      if (!isDrawNode(node)) {
+        if (isolated && !fixedComposite(node, encoded)) blends.push({ index: i, node });
+        continue;
+      }
       const d = sources.draw(node);
       if (!d) continue;
       if (node.style) {
+        // (An isolated layer's own entry isn't drawn: its content is its filters'.)
         const hides = node.style.maskHidesEffects && d.mask;
         images.push({ index: i, draw: hides ? { ...d, mask: null } : d });
         if (hides) images.push({ index: i, draw: { source: d.mask!, matrix: d.matrix, transform: d.transform, opacity: 1, mask: null }, maskOnly: true });
         styled.push({ index: i, node, draw: d });
+        continue;
+      }
+      if (isolated) {
+        if (!fixedComposite(node, encoded)) blends.push({ index: i, node });
         continue;
       }
       images.push({ index: i, draw: d });
@@ -783,7 +827,11 @@ export class Compositor {
     this.blendUniforms = grow(this.blendUniforms, blends.length);
     if (blends.length) {
       const data = new ArrayBuffer(UNIFORM_STRIDE * blends.length);
-      blends.forEach(({ node }, i) => packBlend(node.blend, node.opacity, plan.compositing, view, data, i * UNIFORM_STRIDE));
+      blends.forEach(({ node }, i) => {
+        packBlend(node.blend, node.opacity, plan.compositing, view, data, i * UNIFORM_STRIDE);
+        // Light blending in linear light in an encoded plan: the pass decodes what's below, blends, encodes.
+        if (encoded && isIsolated(node) && blendsInLinear(node)) new Float32Array(data, i * UNIFORM_STRIDE + 44, 1)[0] = 1;
+      });
       device.queue.writeBuffer(this.blendUniforms, 0, data);
     }
     const blendSlot = new Map(blends.map((b, slot) => [b.index, slot]));
@@ -845,10 +893,71 @@ export class Compositor {
       pass.draw(3);
       this.stats.imageDraws++;
     };
+    // The style pass: a styled layer drawn alone (`drawn`, its mask alone in `maskTexture` when it hides the effects)
+    // with its effects over what's below.
+    const stylePass = (index: number, drawn: GPUTexture, maskTexture: GPUTexture) => {
+      const style = styleOf.get(index)!;
+      const next = current === work.a ? work.b : work.a;
+      const pass = encoder.beginRenderPass({ colorAttachments: [{ view: next.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
+      pass.setPipeline(this.pipelines.style[format]);
+      pass.setBindGroup(
+        0,
+        device.createBindGroup({
+          layout: this.layouts.threeTextures,
+          entries: [
+            { binding: 0, resource: current.createView() },
+            { binding: 1, resource: drawn.createView() },
+            { binding: 2, resource: maskTexture.createView() },
+          ],
+        }),
+      );
+      pass.setBindGroup(1, device.createBindGroup({ layout: this.layouts.blendUniform, entries: [{ binding: 0, resource: { buffer: this.styleUniforms, size: STYLE_UNIFORM_SIZE } }] }), [style.slot * STYLE_SLOT]);
+      pass.setBindGroup(
+        2,
+        device.createBindGroup({
+          layout: this.layouts.styleData,
+          entries: [
+            { binding: 0, resource: { buffer: style.fields } },
+            { binding: 1, resource: { buffer: style.fx } },
+            { binding: 2, resource: { buffer: style.tables } },
+          ],
+        }),
+      );
+      pass.setViewport(0, 0, view.width, view.height, 0, 1);
+      pass.draw(3);
+      pass.end();
+      this.stats.stylePasses++;
+      current = next;
+    };
+    // The blend pass: a layer drawn alone (`drawn`) over what's below by its blending.
+    const blendPass = (index: number, drawn: GPUTexture) => {
+      const next = current === work.a ? work.b : work.a;
+      const pass = encoder.beginRenderPass({ colorAttachments: [{ view: next.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
+      pass.setPipeline(this.pipelines.blend[format]);
+      pass.setBindGroup(0, device.createBindGroup({ layout: this.layouts.twoTextures, entries: [{ binding: 0, resource: current.createView() }, { binding: 1, resource: drawn.createView() }] }));
+      pass.setBindGroup(1, device.createBindGroup({ layout: this.layouts.blendUniform, entries: [{ binding: 0, resource: { buffer: this.blendUniforms, size: BLEND_PARAMS_SIZE } }] }), [blendSlot.get(index)! * UNIFORM_STRIDE]);
+      pass.setViewport(0, 0, view.width, view.height, 0, 1);
+      pass.draw(3);
+      pass.end();
+      this.stats.blendPasses++;
+      current = next;
+    };
+    // A layer's mask drawn alone (Layer Mask Hides Effects), or `fallback`.
+    const maskAlone = (index: number, fallback: GPUTexture) => {
+      const maskEntry = maskOnlySlot.get(index);
+      if (!maskEntry) return fallback;
+      const maskTexture = this.maskScratchFor(format, view.width, view.height);
+      const m = encoder.beginRenderPass({ colorAttachments: [{ view: maskTexture.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
+      m.setPipeline(this.pipelines.layer[format]);
+      m.setViewport(0, 0, view.width, view.height, 0, 1);
+      drawLayer(m, maskEntry);
+      m.end();
+      return maskTexture;
+    };
     let i = start;
     while (i < plan.nodes.length) {
       const node = plan.nodes[i];
-      if (node.kind !== "adjustment" && !node.blend && !node.style) {
+      if (!needsPass(node)) {
         // A run of plain layers: one pass, each blended over the last by the GPU.
         const pass = encoder.beginRenderPass({
           colorAttachments: [{ view: current.createView(), loadOp: clear ? "clear" : "load", storeOp: "store", clearValue: plan.background }],
@@ -867,10 +976,45 @@ export class Compositor {
         this.clear(encoder, current, plan.background);
         clear = false;
       }
-      if (node.kind !== "adjustment" && node.style) {
+      if (isIsolated(node)) {
+        // Alone first (its filters, or a generator's content), then over what's below through its mask.
+        const draw = isDrawNode(node) ? sources.draw(node) : null;
+        const mask = isDrawNode(node) ? (draw?.mask ?? null) : node.mask ? sources.mask(node) : null;
+        if (!((isDrawNode(node) && draw) || (node.kind === "generator" && (!node.mask || mask)))) {
+          i++;
+          continue;
+        }
+        const styled = isDrawNode(node) && node.style ? styleOf.get(i) : undefined;
+        if (isDrawNode(node) && node.style && !styled) {
+          i++;
+          continue;
+        }
+        options.beforeAdjustment?.(i, current, encoder);
+        const content = this.isolation.content(encoder, node, view, quality, sources, format);
+        if (isDrawNode(node)) this.stats.imageDraws++;
+        if (!content) {
+          i++;
+          continue;
+        }
+        if (fixedComposite(node, encoded)) {
+          // Normal, or light added in linear light: the GPU's own blending, exactly.
+          this.isolation.composite(encoder, node, content, current, view, mask, draw, format);
+          i++;
+          continue;
+        }
+        // Its content through its mask (not when the mask hides the effects), in the values it blends in, then the
+        // style or blend pass.
+        const hides = isDrawNode(node) && !!node.style?.maskHidesEffects && !!draw?.mask;
+        const scratch = this.scratchFor(format, view.width, view.height);
+        this.isolation.prepare(encoder, content, scratch, view, hides ? null : mask, draw, format, encoded && !blendsInLinear(node));
+        if (styled) stylePass(i, scratch, maskAlone(i, scratch));
+        else blendPass(i, scratch);
+        i++;
+        continue;
+      }
+      if (isDrawNode(node) && node.style) {
         const entry = slotOf.get(i);
-        const style = styleOf.get(i);
-        if (!entry || !style) {
+        if (!entry || !styleOf.get(i)) {
           i++;
           continue;
         }
@@ -882,47 +1026,7 @@ export class Compositor {
         alone.setViewport(0, 0, view.width, view.height, 0, 1);
         drawLayer(alone, entry);
         alone.end();
-        let maskTexture = scratch;
-        const maskEntry = maskOnlySlot.get(i);
-        if (maskEntry) {
-          maskTexture = this.maskScratchFor(format, view.width, view.height);
-          const m = encoder.beginRenderPass({ colorAttachments: [{ view: maskTexture.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
-          m.setPipeline(this.pipelines.layer[format]);
-          m.setViewport(0, 0, view.width, view.height, 0, 1);
-          drawLayer(m, maskEntry);
-          m.end();
-        }
-        const next = current === work.a ? work.b : work.a;
-        const pass = encoder.beginRenderPass({ colorAttachments: [{ view: next.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
-        pass.setPipeline(this.pipelines.style[format]);
-        pass.setBindGroup(
-          0,
-          device.createBindGroup({
-            layout: this.layouts.threeTextures,
-            entries: [
-              { binding: 0, resource: current.createView() },
-              { binding: 1, resource: scratch.createView() },
-              { binding: 2, resource: maskTexture.createView() },
-            ],
-          }),
-        );
-        pass.setBindGroup(1, device.createBindGroup({ layout: this.layouts.blendUniform, entries: [{ binding: 0, resource: { buffer: this.styleUniforms, size: STYLE_UNIFORM_SIZE } }] }), [style.slot * STYLE_SLOT]);
-        pass.setBindGroup(
-          2,
-          device.createBindGroup({
-            layout: this.layouts.styleData,
-            entries: [
-              { binding: 0, resource: { buffer: style.fields } },
-              { binding: 1, resource: { buffer: style.fx } },
-              { binding: 2, resource: { buffer: style.tables } },
-            ],
-          }),
-        );
-        pass.setViewport(0, 0, view.width, view.height, 0, 1);
-        pass.draw(3);
-        pass.end();
-        this.stats.stylePasses++;
-        current = next;
+        stylePass(i, scratch, maskAlone(i, scratch));
         i++;
         continue;
       }
@@ -940,16 +1044,7 @@ export class Compositor {
         alone.setViewport(0, 0, view.width, view.height, 0, 1);
         drawLayer(alone, entry);
         alone.end();
-        const next = current === work.a ? work.b : work.a;
-        const pass = encoder.beginRenderPass({ colorAttachments: [{ view: next.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
-        pass.setPipeline(this.pipelines.blend[format]);
-        pass.setBindGroup(0, device.createBindGroup({ layout: this.layouts.twoTextures, entries: [{ binding: 0, resource: current.createView() }, { binding: 1, resource: scratch.createView() }] }));
-        pass.setBindGroup(1, device.createBindGroup({ layout: this.layouts.blendUniform, entries: [{ binding: 0, resource: { buffer: this.blendUniforms, size: BLEND_PARAMS_SIZE } }] }), [blendSlot.get(i)! * UNIFORM_STRIDE]);
-        pass.setViewport(0, 0, view.width, view.height, 0, 1);
-        pass.draw(3);
-        pass.end();
-        this.stats.blendPasses++;
-        current = next;
+        blendPass(i, scratch);
         i++;
         continue;
       }
@@ -1060,6 +1155,47 @@ export class Compositor {
     return this.scratch;
   }
 
+  /**
+   * One layer drawn alone into `target` (cleared to transparent) on `view`'s grid: an isolated layer's content, or a
+   * filter's input at another level. Its uniforms are its own, so any number can be drawn in one encoder.
+   */
+  drawLayerAlone(encoder: GPUCommandEncoder, l: LayerDraw, view: View, quality: Quality, target: GPUTexture, format: PlanFormat) {
+    const { device } = this.ctx;
+    const data = new ArrayBuffer(80);
+    const f = new Float32Array(data);
+    const u = new Uint32Array(data);
+    const inv = invert(l.matrix);
+    f.set([inv[0], inv[2], inv[4], 0, inv[1], inv[3], inv[5], 0, view.x, view.y, view.zoom, l.opacity, l.source.width, l.source.height], 0);
+    const scale = view.zoom * layerScale(l.transform);
+    u[14] = levelForScale(scale, l.source.image.levels.length);
+    u[15] = alignedLayer(l.matrix, view) ? 2 : quality === "final" ? 1 : 0;
+    f[16] = scale;
+    u[17] = l.source.preview ? 1 : 0;
+    u[18] = l.mask ? 1 : 0;
+    const uniform = device.createBuffer({ label: "layer alone", size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(uniform, 0, data);
+    void device.queue.onSubmittedWorkDone().then(() => setTimeout(() => uniform.destroy(), 0));
+    const group = device.createBindGroup({
+      layout: this.layouts.layer,
+      entries: [
+        { binding: 0, resource: { buffer: uniform, size: 80 } },
+        { binding: 1, resource: (l.source.preview ?? this.blank).createView() },
+        { binding: 2, resource: this.sampler },
+      ],
+    });
+    l.source.image.flush();
+    l.mask?.image.flush();
+    const pass = encoder.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
+    pass.setPipeline(this.pipelines.layer[format]);
+    pass.setBindGroup(0, l.source.ctx.atlasBindGroup());
+    pass.setBindGroup(1, l.source.ctx.imageBindGroup(l.source.image));
+    pass.setBindGroup(2, group, [0]);
+    pass.setBindGroup(3, l.source.ctx.imageBindGroup(l.mask?.image ?? l.source.ctx.emptyImage));
+    pass.setViewport(0, 0, Math.max(1, Math.round(view.width)), Math.max(1, Math.round(view.height)), 0, 1);
+    pass.draw(3);
+    pass.end();
+  }
+
   private clear(encoder: GPUCommandEncoder, target: GPUTexture, colour: readonly number[]) {
     encoder.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: "clear", storeOp: "store", clearValue: [...colour] }] }).end();
   }
@@ -1103,7 +1239,7 @@ export class Compositor {
     void device.queue.onSubmittedWorkDone().then(() => uniform.destroy());
   }
 
-  /** Draws a composite on a canvas texture through the output transform (`uniform`: `Present`'s 48 bytes). */
+  /** Draws a composite on a canvas texture through the output transform (`uniform`: `Present`'s 48 bytes, `film` at byte 24). */
   present(encoder: GPUCommandEncoder, composite: GPUTexture, uniform: GPUBuffer, canvas: GPUTexture) {
     const pass = encoder.beginRenderPass({ colorAttachments: [{ view: canvas.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }] });
     pass.setPipeline(this.pipelines.present);
@@ -1128,6 +1264,7 @@ export class Compositor {
   }
 
   destroy() {
+    this.isolation.destroy();
     this.uniforms.destroy();
     this.maskUniforms.destroy();
     this.blendUniforms.destroy();

@@ -31,6 +31,7 @@
  * - Colour: videos are decoded as YUV and turned into RGB by the compositor
  *   with their own YCbCr matrix; the output is BT.709, tagged as such.
  */
+import { type SignalStore, createSignalReader, withSignals } from "../shared/audio-signals.ts";
 import { type Adjustment, type Affine, type EffectPass, type Placed, matteIndex } from "../shared/compositor.ts";
 import { effectPasses, effectShader } from "../shared/effect-gl.ts";
 import { type Camera3D } from "../shared/camera.ts";
@@ -99,6 +100,8 @@ export interface RenderOptions {
   height: number;
   fps: number;
   ffmpegPath?: string;
+  /** The media's signals, by id, for what reacts to sound (`audio()` in expressions): those it uses. */
+  signals?: SignalStore;
 }
 
 /** One clip's pictures: an ffmpeg writing raw frames to stdout. */
@@ -343,9 +346,11 @@ export function planRender(
     if (s.native && s.times.at(-1)?.[0] !== f) s.times.push([f, mediaAt(shown, drawn.asset)]);
   };
   const shaders: Record<string, string> = {};
+  // What expressions hear (here and in `layersOf`).
+  const signals = createSignalReader(project, opts.signals ?? new Map());
   const visit = (f: number, level: Level, path: string, t: number, depth: number) =>
     // Expressions are told this sequence's frame rate (here and in `layersOf`).
-    atFrameRate(level.view.settings.fps, () => {
+    withSignals(signals, () => atFrameRate(level.view.settings.fps, () => {
       for (const shot of shotsAt(level, t)) {
         if (shot.kind === "clip") see(f, level, path, shot.shown, depth);
         else {
@@ -355,7 +360,7 @@ export function planRender(
           shaders[shader.key] = shader.source;
         }
       }
-    });
+    }));
   // Every video effect a visible clip has on, whenever it's shown.
   for (const clip of everyClip) {
     for (const pass of effectPasses(clip, clip.in)) {
@@ -478,7 +483,7 @@ export function planRender(
 
   /** A level's layers at its time `t` (output frame `f`), bottom first: groups (nested sequences) before what uses them. */
   function layersOf(level: Level, path: string, t: number, f: number, depth: number): FrameLayer[] {
-    return atFrameRate(level.view.settings.fps, () => levelLayers(level, path, t, f, depth));
+    return withSignals(signals, () => atFrameRate(level.view.settings.fps, () => levelLayers(level, path, t, f, depth)));
   }
 
   function levelLayers(level: Level, path: string, t: number, f: number, depth: number): FrameLayer[] {

@@ -9,7 +9,7 @@ import { fromHalf, toHalf } from "@shared/photo/half.ts";
 import type { SourceInfo, TileSize } from "@shared/photo/lab.ts";
 import { DITHER_8BIT, encodePixel } from "@shared/photo/output.ts";
 import { labApi } from "../api.ts";
-import { compareBlur, quantize, readLevel0, roundTripError } from "../render/checks.ts";
+import { quantize, readLevel0, roundTripError } from "../render/checks.ts";
 import { Compositor } from "../render/compositor.ts";
 import { Kernels } from "../render/kernels.ts";
 import type { PhotoSession } from "../render/session.ts";
@@ -123,12 +123,6 @@ export async function stroke(session: PhotoSession, radius = 180) {
     redoMs: round(redoMs),
     manifest: paint.manifestId,
   };
-}
-
-/** The tiled blur against the monolithic one, on whatever is open (blur-detail.png). */
-export async function blur(session: PhotoSession, sigma = 6) {
-  const r = await compareBlur(session.ctx, session.source!, sigma);
-  return { ...r, tiledMs: round(r.tiledMs), monoMs: round(r.monoMs) };
 }
 
 /** Display P3 patches (p3-patches.png: green, red, blue, grey) converted on the GPU, against the CPU reference. */
@@ -256,7 +250,7 @@ const toHalfValue = (v: number) => fromHalf(toHalf(v));
 export type PlanStep =
   | { start: { tile: TileSize; budgetMB: number; width: number; height: number } }
   | { open: string }
-  | { run: "compileCheck" | "panZoom" | "stroke" | "blur" | "p3" | "roundTrip" | "deviceLoss" | "budgetWalk" | "precision16" | "rounding"; label?: string };
+  | { run: "compileCheck" | "panZoom" | "stroke" | "p3" | "roundTrip" | "deviceLoss" | "budgetWalk" | "precision16" | "rounding"; label?: string };
 
 /** Runs steps in order, collecting each result (an error is recorded and the plan goes on). */
 export async function runPlan(steps: PlanStep[]) {
@@ -275,7 +269,7 @@ export async function runPlan(steps: PlanStep[]) {
         if (!session) throw new Error("No session: start one first.");
         if ("open" in step) result = await openSource(session, step.open);
         else {
-          const tasks = { compileCheck, panZoom, stroke, blur, p3, roundTrip, deviceLoss, budgetWalk, precision16, rounding } as const;
+          const tasks = { compileCheck, panZoom, stroke, p3, roundTrip, deviceLoss, budgetWalk, precision16, rounding } as const;
           result = await (tasks[step.run] as (s: PhotoSession) => Promise<unknown>)(session);
         }
       }

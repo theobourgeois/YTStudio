@@ -85,6 +85,8 @@ const ICONS: Record<string, IconType> = {
   get_audio_report: PiWaveform,
 
   analyze_music: PiMetronome,
+  get_signals: PiWaveform,
+  plot_signals: PiWaveform,
   detect_scenes: PiMagnifyingGlass,
   get_catalog: PiMagnifyingGlass,
   get_library: PiBooks,
