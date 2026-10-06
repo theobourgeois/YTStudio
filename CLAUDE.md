@@ -1175,6 +1175,9 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   theme (`.theme.theme-<id>`) sets only what differs and `derived.css` works out the rest (faces, accent
   buttons, steps, knobs). A value a canvas reads (`--piano-*`, `--meter-*`, `--brand`, `--line`) must be a plain
   colour, never `color-mix()`. `src/themes/themes.test.ts` fails any theme whose text or accent isn't readable.
+- Hover tips are the app's, never the browser's: a `title` anywhere (any suite, any window) shows as our tooltip
+  (`components/ui/title-tips.tsx` moves it to `data-title` while the pointer is on it), so a plain `title` is fine;
+  code that reads a control's tip uses `titleOf` (the music hint bar does), tests don't `getByTitle` a hovered one.
 - The component gallery (`/gallery` in `pnpm dev`, `src/gallery/`) shows every primitive and suite control in
   each state; `pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]` screenshots it and the app's screens
   into `ui-sheet/`. Add a section (`GallerySection`) when you add a control.
