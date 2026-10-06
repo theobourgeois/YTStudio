@@ -8,6 +8,8 @@ import {
   PiFolderSimpleDashed,
   PiGlobe,
   PiMagnifyingGlass,
+  PiPauseFill,
+  PiPlayFill,
   PiSpeakerHighFill,
   PiSpeakerLowFill,
   PiStar,
@@ -34,7 +36,7 @@ import { droppedPath, isDesktop } from "@/lib/desktop";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { FILE_MANAGER, IS_MAC, keyLabel } from "@/lib/key-labels";
 import { useTransport } from "../transport";
-import { openInNewChannels, samplerToSendTo, sendToSelectedChannel, showInFinder } from "./actions";
+import { openInNewChannels, samplerToSendTo, sendToSelectedChannel, showInFinder, togglePreview } from "./actions";
 import { BROWSER_DRAG_TYPE, type BrowserDrag, setCarriedPaths } from "./drops";
 import { resolveBrowserKey } from "./keys";
 import { displayName, isOnline } from "./online";
@@ -653,6 +655,7 @@ function PreviewBar() {
     return isItem(row) && row.item.kind === "file" ? row.item.path : playing;
   });
   const volume = useBrowser((s) => s.volume);
+  const playing = useBrowser((s) => path !== null && s.previewing?.path === path);
   const [peaks, setPeaks] = useState<{ path: string; peaks: Peaks | null; error?: string } | null>(null);
 
   useEffect(() => {
@@ -672,6 +675,17 @@ function PreviewBar() {
   return (
     <div className="shrink-0 border-t border-line bg-surface-1 px-2 pt-1.5 pb-2" data-testid="browser-preview">
       <div className="mb-1 flex h-4 items-center gap-1.5 text-[11px]">
+        <button
+          type="button"
+          aria-label={playing ? "Pause the preview" : "Play the preview"}
+          title={playing ? "Pause (Space)" : "Play"}
+          disabled={!path}
+          className="grid size-4 shrink-0 place-items-center rounded-sm text-muted-foreground hover:text-foreground disabled:opacity-40"
+          onClick={() => path && togglePreview(path)}
+          data-testid="browser-preview-toggle"
+        >
+          {playing ? <PiPauseFill className="size-3" /> : <PiPlayFill className="size-3" />}
+        </button>
         <span className="min-w-0 flex-1 truncate" title={name}>{name || <span className="text-muted-foreground">No file selected</span>}</span>
         {shown?.peaks && <span className="shrink-0 text-muted-foreground tabular-nums">{formatSeconds(shown.peaks.duration)}</span>}
       </div>
@@ -708,9 +722,12 @@ function Waveform({ path, peaks, note }: { path: string | null; peaks: Peaks | n
       const element = head.current;
       if (!element) return;
       const { filePreview, at, latencyMs } = useTransport.getState();
-      const previewing = useBrowser.getState().previewing;
+      const { previewing, paused } = useBrowser.getState();
       if (!filePreview || !previewing || previewing.id !== filePreview.id || previewing.path !== path || filePreview.duration <= 0) {
-        element.style.opacity = "0";
+        // Paused: the playhead stays where it stopped, for play to go on from.
+        const stopped = paused?.path === path && peaks && peaks.duration > 0;
+        element.style.opacity = stopped ? "0.6" : "0";
+        if (stopped) element.style.left = `${Math.min(100, (paused.seconds / peaks.duration) * 100)}%`;
         return;
       }
       const seconds = filePreview.seconds + Math.max(0, performance.now() - at - latencyMs) / 1000;
@@ -719,7 +736,7 @@ function Waveform({ path, peaks, note }: { path: string | null; peaks: Peaks | n
     };
     draw();
     return () => cancelAnimationFrame(frame);
-  }, [path]);
+  }, [path, peaks]);
 
   const d = useMemo(() => {
     if (!peaks) return "";

@@ -7,6 +7,7 @@ import { useMainWindowPopups } from "@/components/windows/native/popups";
 import { addWindowListener, isHtmlElement, ownerWindow, queryAnywhere } from "@/lib/window-events";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
 import { BrowserPanel } from "./browser/browser-panel";
+import { togglePreview } from "./browser/actions";
 import { carriesSamples, dropAsChannels } from "./browser/drops";
 import { useBrowser } from "./browser/store";
 import { ChannelRack } from "./channel-rack";
@@ -419,8 +420,12 @@ function runMixerKey(action: MixerKeyAction) {
 function runKey(action: MusicKeyAction) {
   const ui = useMusicUi.getState();
   switch (action.type) {
-    case "togglePlay":
+    case "togglePlay": {
+      // A preview playing (a whole song from the Online tab, say): Space pauses it rather than starting the song.
+      const previewing = useBrowser.getState().previewing;
+      if (previewing) return togglePreview(previewing.path);
       return useTransport.getState().toggle();
+    }
     case "undo":
       return useMusic.getState().undo();
     case "redo":
