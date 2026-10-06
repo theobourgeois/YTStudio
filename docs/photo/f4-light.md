@@ -1,7 +1,8 @@
 # F4: light, the detailed plan
 
-Status: proposed 2026-10-06, before any F4 code; revised the same day for the compositing decision of the Layer Style
-research (`docs/photo/layer-style/`, on `t3code/layer-blending-options`: its README's decision 1 and
+Status: **built 2026-10-06** (results, measurements and what changed: [foundations-prototype.md, "F4
+results"](foundations-prototype.md#f4-results-2026-10-06); as built, briefly, at the end). Proposed the same day,
+before any F4 code, and revised for the compositing decision of the Layer Style research (`docs/photo/layer-style/`, on `t3code/layer-blending-options`: its README's decision 1 and
 `photoshop-measurements.md`). The milestone's scope and gate are in
 [foundations-prototype.md](foundations-prototype.md#f4-light); the effects' intent is in
 [effects/system.md](effects/system.md); the pixel rules are in [rendering.md](rendering.md). This document turns them
@@ -414,3 +415,18 @@ pass and document fields must be in.
   layer pass's groups, so no pass needs more than four.
 - **Scope creep.** Starbursts, sprites, dirt, preset previews, halation and rays are out of F4 (system.md, foundations
   "After the foundations"), as are layer styles (Layer Style's L2–L4).
+
+## As built (2026-10-06)
+
+Built as planned, with these differences (each recorded in F4's results and the ledger, A24–A27):
+- **D1 generalised**: a glowing layer's pixel is never brighter than its coverage (up to white), not only where its
+  layer had none; the backdrop gate is measured on a 16-bit export (8 bits can't hold faint light).
+- **L1 isn't in yet**: the composite step is fixed-function (Normal, and Linear Dodge in linear light), every
+  document composites in linear light, the document jumps from version 3 to 5 (4 is L1's), and the gate's
+  "photoshop" lines wait for it.
+- **Octaves finer than the view** are read by Mitchell, as a refinement samples; the spike (step 1) wasn't needed
+  separately: the design held at 48 MP (settled in ~0.3 s).
+- **Convert to Pixels bakes filters**, as Photoshop's Rasterize does (the plan said they'd stay live).
+- **The flare's elements** have no seed (none is random yet) and size ranges a slider can use (to 10 000 px).
+- Folding a layer's filters away in Layers, and previewing presets, are later.
+

@@ -1,11 +1,13 @@
 # Photo suite
 
-Status: plan revised and hardened 2026-10-05 (first written 2026-10-03). **F0, F1, F2 and F3 are built**: the
-renderer, the helper and the blob store (F0); the photo suite itself (F1: new photos, image layers, transforms,
-export, the assistant); layers and adjustments (F2: Exposure and Curves adjustment layers, the render plan, refined
-views, f32 composites for 16-bit sources); resources, selections, masks and the brush (F3: pixel layers, layer masks,
-the Rectangular Marquee, the round brush, the publication gate and collection). Results in
-[foundations-prototype.md](foundations-prototype.md#f3-results-2026-10-06). F4 (light: glow and the flare) is next.
+Status: plan revised and hardened 2026-10-05 (first written 2026-10-03). **F0 to F4 are built**: the renderer,
+the helper and the blob store (F0); the photo suite itself (F1: new photos, image layers, transforms, export, the
+assistant); layers and adjustments (F2: Exposure and Curves adjustment layers, the render plan, refined views, f32
+composites for 16-bit sources); resources, selections, masks and the brush (F3: pixel layers, layer masks, the
+Rectangular Marquee, the round brush, the publication gate and collection); light (F4: the glow as a filter, the
+Lens Flare as a generator layer, the `film` highlights; [f4-light.md](f4-light.md)). Results in
+[foundations-prototype.md](foundations-prototype.md#f4-results-2026-10-06). F5 (harden) is next; Layer Style's L1
+(blending) is in progress beside it.
 
 A Photoshop-style image editor with dependable layers, masks, painting and retouching, and a particularly strong set
 of editable light effects. The foundations are the application's first version, so the document, resource, colour
@@ -78,5 +80,9 @@ and **Unverified** (an open question). Théo's corrections override the referenc
 | A21 | A selection caps a stroke's result (what was there mixed towards the unlimited stroke by its coverage), not each dab (2026-10-06, F3) | Photoshop's behaviour: a half-covered pixel gets half the stroke; per-dab limiting builds it back to full (measured) | — |
 | A22 | Masks are `r16f` in the package and RGBA on the GPU (the value in every channel), in their layer's atlas: a 16-bit image's mask is f32 (2026-10-06, F3) | One atlas per layer pass (WebGPU's four bind groups); the stamp kernel paints masks as colour (v, v, v, 1) | Masks' GPU memory under a tight budget (×4) |
 | A23 | The publication gate and collection are the platform's `SuiteBackend.checkSave` (409) and `opened` (when no tab has the project); collection keeps blobs newer than its start (2026-10-06, F3) | A suite says what its documents need; an upload racing a reopen is never collected | A checkpoint (F5) is a second root |
+| A24 | Light's coverage: `max(r, g, b)` where its layer had none, and a glowing layer's pixel never brighter than its coverage, up to white (2026-10-06, F4) | A straight-alpha file of it composites over any backdrop as it does here (measured within 1 level, 16-bit) | Emissive light with alpha 0: a true Add here, but no file can hold it |
+| A25 | Photos before version 5 keep `clip` highlights; new ones `film`, `s` = 1 (2026-10-06, F4) | Every photo was drawn clipped until F4: nothing made changes look | Théo's comparison of `s` on his images (the sheet's last row) |
+| A26 | The glow (version 1) is a definition in document pixels: six octaves on the document's 2^k grids, read by their B-spline; the renderer caches the contributions from level 2 up, from level 0 (2026-10-06, F4) | The view, regions, exports and the reference compute the same thing; at fit a glow needs no refinement; radius 1000 on 48 MP settles in ~0.3 s | — |
+| A27 | The glow is a filter (`filters`, Photoshop's Smart Filters), a flare a generator layer adding in linear light (`blend: "linear-dodge"`, `blendSpace: "linear"`) (2026-10-06, F4, Théo's compositing decision) | Light adds physically whatever the document's compositing; styles (L2) stay apart | — |
 
 Progress, measurements and gates live in [foundations-prototype.md](foundations-prototype.md).

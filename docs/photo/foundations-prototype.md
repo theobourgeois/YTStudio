@@ -1,8 +1,8 @@
 # Foundations: implementation order and gates
 
-Status: revised 2026-10-06 (first proposal 2026-10-03). **F0, F1, F2 and F3 are done** (F0–F2 2026-10-05, F3
-2026-10-06): their gates passed; results and what each changed in the plan are under "F0 results" to "F3 results".
-F4 is next.
+Status: revised 2026-10-06 (first proposal 2026-10-03). **F0, F1, F2, F3 and F4 are done** (F0–F2 2026-10-05,
+F3 and F4 2026-10-06): their gates passed (F4's in linear compositing: its "photoshop" lines wait for Layer Style's
+L1); results and what each changed in the plan are under "F0 results" to "F4 results". F5 is next.
 
 The foundations are the application's first real version with deliberately few features, not a throwaway prototype.
 Each milestone ends with something Théo can use and a gate that's checked, not argued. Lasting contracts (the
@@ -321,6 +321,56 @@ builds on Layer Style's phase L1 (the blend pass, blend modes, the document's `c
 - A source handle at several zooms lands on the same document point.
 - Reordering, bypassing, masking, undoing and reopening keep every setting.
 
+### F4 results (2026-10-06)
+
+**Passed in linear compositing; the "photoshop" half waits for Layer Style's L1.** Every gate is checked in the
+real app with WebGPU on (`e2e/photo.spec.ts`, the last seven tests), reading the GPU's floats through
+`window.photoDebug` and the export's own path (`renderBands`):
+
+| Gate | How it's checked |
+| --- | --- |
+| Radii wider than a tile have no seams | A radius-100 glow rendered in 64-pixel regions and as one region: identical (under 1e-5); the sheet's radius-120 glow in 200-pixel regions: 0 |
+| Tiled matches monolithic | The GPU's glow against the CPU reference (`shared/photo/reference/glow.ts`) on a painted 320 × 224 photo: within 4e-3 relative; a Lens Flare in linear Add against the background plus `reference/flare.ts`: within 2e-3 |
+| Above-white light survives to the output transform | The composite read back holds values above 1 around the glow; a flare's source above 1 |
+| An isolated glowing object exports correctly over black, white and saturated backdrops | A glowing cut-out on transparency exported (16 bits, undithered), composited on the CPU over black, white and red in linear light: within 1 level of the app's own render over each; colour 0 wherever alpha is 0 |
+| A source handle at several zooms lands on the same document point | The handle dragged to (430, 310) at 33%, 100% and 250%: within half a screen pixel each time; Escape cancels a drag |
+| Reordering, bypassing, masking, undoing and reopening keep every setting | Two glows (one tinted) and a flare: a filter dragged below the other, the Filters eye off and on, a mask added and painted, undone and redone, reloaded: the same layers and the same pixels (a SHA-256 of a refined render) |
+
+Not yet (they need Layer Style's L1, in progress): the backdrop gate in "photoshop" compositing, light above 1
+through an encoded Normal and Add blend, and a flare in `blendSpace: "linear"` inside a "photoshop" document. Each is
+a line of the same e2e tests once `compositing` exists.
+
+**Measured** with `pnpm tsx scripts/photo-bench.ts --quick` (`glow`: a radius-1000 glow on the 48 MP photo at fit;
+`flare`: a flare added and its source dragged, a frame an edit), headless Chrome 154 / Electron 44.5.0:
+
+| Scenario | Target | Measured |
+| --- | --- | --- |
+| Glow, large radius: first response | ≤ 100 ms | 18.5 ms · 17.3 ms (the edit to the GPU finishing the frame: its preview) |
+| Glow, large radius: settled | ≤ 1 s | 285 ms · 303 ms (its cache built from level 0, and a frame drawn with it) |
+| Glow: threshold changed (cache rebuilt) | — | first 14.6 ms, settled 186 ms · 15.4 ms, 191 ms |
+| Glow: radius dragged (cache re-blurred) | — | frame p95 11.8 ms in Chrome; 56 ms in Electron, measured while another checkout's e2e suite held the GPU (its flare drag read 47 ms then, 13–19 ms before): to measure again quiet |
+| Flare: first frame, handle drag | — | 17.5 ms, p95 9.2 ms · 12.8 ms, p95 19.2 ms (quiet run) |
+
+The sheet (`pnpm tsx scripts/photo-sheet.ts`): every pipeline compiles; each filter and preset changes each scene
+(a night of lights, the sample photo, a cut-out); nothing is NaN; tiles match; and the film strengths side by side.
+
+**What F4 changed in the plan:**
+- A glowing layer's pixel is never brighter than its coverage, up to white (D1 generalised): light gets coverage
+  `max(r, g, b)` where its layer had none, and the result anywhere. Without it a soft edge of light above white
+  can't be held by a straight-alpha file, and the export composited over a backdrop missed by 44 levels.
+- The backdrop gate is measured on a 16-bit export: 8 bits can't hold faint light (alpha under about 1% rounds by
+  a whole step: up to 7 levels over black), a limit of the format, not of the light.
+- A pixel stored with alpha 0 keeps no colour (`quantize8`, WGSL `QUANTIZE`): a faint light's unpremultiplied colour
+  was its full brightness.
+- Octaves read at a coarser level than their own (finer than the view's pixels) are read by Mitchell, as a
+  refinement samples, not by their B-spline: 0.149 → 0.022 of level 0 reduced at 25%.
+- A glow's cache, whoever builds it (a thumbnail, an export), redraws the screen, and the screen's own build retries
+  until its images are in.
+- Pyramids end at the first level that fits in a tile, so a small layer at 25% reads a coarser level stretched: up
+  to 0.15 off level 0 reduced at a tiny, very bright dab (measured; F2's commuting claim holds for images with the
+  level). Recorded in rendering.md, not changed.
+- The lab's blur seam check is retired with its kernels: the glow's tests cover tiles in the suite.
+
 ## F5: harden
 
 - Durability:
@@ -435,4 +485,6 @@ ends with a complete workflow.
 | 2026-10-05 | f32 composites | `float32-blendable` and `float32-filterable` are on the Metal adapter in both; blending into `rgba32float` works. A 16-bit ramp through an f16 composite exports 21 steps off at worst, through f32 within 1 |
 | 2026-10-05 | Pipelines at open | Compiling all 13 of F2’s pipelines before the first picture: cold 48 MP opens' first picture 0.49–1.36 s in Electron; the first picture's 3 first, the rest meanwhile: 0.49–0.57 s |
 | 2026-10-06 | F3 gate | See "F3 results": every check passed in the app (e2e) and every target in Electron 44.5.0 and Chrome 154 (bench) |
+| 2026-10-06 | F4 gate | See "F4 results": every check passed in the app (e2e) in linear compositing, and every target in Electron 44.5.0 and Chrome 154 (bench) |
+| 2026-10-06 | Straight alpha and light | A soft edge of light above white (colour over alpha) exported as a PNG and composited over black missed the app's own render by 44 levels: hence coverage at least the light's brightest channel. 8-bit alpha under ~1% moves faint light up to 7 levels: the gate uses 16 bits |
 | 2026-10-06 | Selection limiting | Limiting each dab by a pixel's coverage: a pixel half inside the selection ended at 0.998 alpha after a stroke (overlapping dabs); limiting the stroke's result: 0.500 |
