@@ -68,7 +68,7 @@ export async function open(projectId: string) {
   await until(() => r.loadedAt !== null && r.loadedAt >= started);
   const settled = await until(() => r.presented.find((f) => f.at >= r.loadedAt! && f.quality === "final"), 60_000);
   const view = usePhotoUi.getState().view!;
-  const doc = usePhoto.getState().history!.doc;
+  const doc = usePhoto.getState().history!.doc.doc;
   return {
     size: `${doc.canvas.width}×${doc.canvas.height}`,
     view: `${Math.round(view.width)}×${Math.round(view.height)} device px at ${round(view.zoom * 100)}%`,
@@ -95,7 +95,7 @@ export async function reopen() {
 export async function panZoom(steps = 60) {
   const d = driver();
   const ui = usePhotoUi.getState();
-  const doc = usePhoto.getState().history!.doc;
+  const doc = usePhoto.getState().history!.doc.doc;
   const { width, height } = ui.view!;
   const fit = fitView(doc.canvas, width, height);
   const gpu: Promise<number>[] = [];
@@ -130,7 +130,7 @@ export async function panZoom(steps = 60) {
 async function drag(type: "exposure" | "curves", frames = 60) {
   const d = driver();
   const r = await renderer();
-  const doc = usePhoto.getState().history!.doc;
+  const doc = usePhoto.getState().history!.doc.doc;
   usePhotoUi.getState().setView(fitView(doc.canvas, usePhotoUi.getState().view!.width, usePhotoUi.getState().view!.height));
   const id = `layer_bench_${type}`;
   usePhoto.getState().commit((d) => addAdjustmentLayer(d, { id, type }));
@@ -183,7 +183,7 @@ export const adjustCurves = () => drag("curves");
 export async function exportPng() {
   const r = await renderer();
   const { projectId, history } = usePhoto.getState();
-  let doc = addAdjustmentLayer(history!.doc, { id: "bench_ex", type: "exposure", params: { exposure: 0.5 } });
+  let doc = addAdjustmentLayer(history!.doc.doc, { id: "bench_ex", type: "exposure", params: { exposure: 0.5 } });
   doc = addAdjustmentLayer(doc, { id: "bench_cu", type: "curves", params: { curves: { ...identityCurveSet(), rgb: [[0, 0], [64, 50], [192, 205], [255, 255]] } } });
   const started = performance.now();
   const result = await r.export(projectId!, doc, { name: "bench.png", format: "png" });
@@ -211,7 +211,7 @@ export async function budgetWalk(budgetMB = 256, stops = 16) {
   try {
     await reopen();
     const r = await renderer();
-    const doc = usePhoto.getState().history!.doc;
+    const doc = usePhoto.getState().history!.doc.doc;
     const { width, height } = usePhotoUi.getState().view!;
     const settle: number[] = [];
     const cols = Math.ceil(Math.sqrt(stops));

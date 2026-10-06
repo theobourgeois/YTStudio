@@ -44,7 +44,7 @@ export function PhotoExportWindow() {
     try {
       const r = await renderer;
       await r.ready();
-      const result = await r.export(projectId, history.doc, { name: fileName, format, bits, quality, destination }, (progress) => setPhase({ status: "running", progress }));
+      const result = await r.export(projectId, history.doc.doc, { name: fileName, format, bits, quality, destination }, (progress) => setPhase({ status: "running", progress }));
       setPhase({ status: "done", path: result.path, bytes: result.bytes });
       // A browser downloads what the server kept.
       if (!destination) {

@@ -12,16 +12,24 @@ import { createId } from "@shared/ids";
 import { duplicateLayers } from "@shared/photo/edits";
 import { srgbToLinear } from "@shared/photo/colour";
 import { fitView, panBy, viewToDoc, zoomAbout } from "@shared/photo/geometry";
-import { bounds, contains } from "@shared/photo/layers";
-import { CANVAS_PRESETS, type ImageLayer, type LayerTransform, type PhotoLayer, type PhotoProject } from "@shared/photo/types";
+import { contains } from "@shared/photo/layers";
+import { rectSelection } from "@shared/photo/selection";
+import { CANVAS_PRESETS, type LayerTransform, type PhotoLayer, type PhotoProject, type PlacedLayer, isPlaced } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { liveRenderer, useRenderState } from "../live";
 import { usePhotoPreferences } from "../preferences";
 import { GpuUnavailableError } from "../render/gpu";
 import type { PhotoRenderer } from "../render/renderer";
+import { toast } from "sonner";
+import { setMask } from "@shared/photo/edits";
+import { paintTargetOf } from "../paint-target";
+import { StrokeController } from "../painting";
 import { clickLayer } from "../selection";
-import { photoGesture, useLayerSize, usePhoto, usePhotoDoc } from "../store";
+import { currentSelection, photoGesture, useLayerSize, usePhoto, usePhotoDoc } from "../store";
+import { uploadsFor } from "../uploads";
+import { BrushCursor, SelectionAnts, useCanvasPointer } from "./overlays";
+import { contentBox, hitsContent } from "./content";
 import { sizeOf } from "../tool-edits";
 import { useActiveTool, usePhotoUi } from "../ui";
 import { CanvasDriver } from "./driver";
@@ -49,7 +57,7 @@ function backgroundOf(element: HTMLElement): [number, number, number] {
 /** Fits the document in the canvas element's current size. */
 export function fitToCanvas() {
   const { view } = usePhotoUi.getState();
-  const doc = usePhoto.getState().history?.doc;
+  const doc = usePhoto.getState().history?.doc.doc;
   if (!view || !doc) return;
   usePhotoUi.getState().setView(fitView(doc.canvas, view.width, view.height, 24 * devicePixelRatio));
 }
@@ -115,7 +123,7 @@ export function CanvasPanel() {
       const width = Math.max(1, Math.round(r.width * devicePixelRatio));
       const height = Math.max(1, Math.round(r.height * devicePixelRatio));
       const { view, setView } = usePhotoUi.getState();
-      const doc = usePhoto.getState().history?.doc;
+      const doc = usePhoto.getState().history?.doc.doc;
       if (!doc) return;
       if (!view) setView(fitView(doc.canvas, width, height, 24 * devicePixelRatio));
       else if (view.width !== width || view.height !== height) setView({ ...view, width, height });
@@ -152,7 +160,7 @@ export function CanvasPanel() {
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     const { view } = usePhotoUi.getState();
-    const doc = usePhoto.getState().history?.doc;
+    const doc = usePhoto.getState().history?.doc.doc;
     if (!view || !doc) return;
     if (tool === "hand" || e.button === 1) return pan(e);
     if (tool === "zoom") {
@@ -160,13 +168,15 @@ export function CanvasPanel() {
       usePhotoUi.getState().setView(zoomAbout(view, (e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio, e.altKey ? 0.5 : 2));
       return;
     }
+    if (tool === "marquee") return selectRect(e);
+    if (tool === "brush") return paint(e);
     // Move: with Auto-select (⌘ for the opposite), the layer under the pointer is picked first, as Photoshop's;
     // Shift adds it to the selection (or takes it out). A press on nothing (outside the selected layers' box)
     // selects nothing, or draws a marquee that selects the layers it touches. The drag moves the selected images.
     const at = docPoint(e.clientX, e.clientY);
     const ui = usePhotoUi.getState();
     const { assets } = usePhoto.getState();
-    const sized = (l: ImageLayer) => sizeOf(l, assets);
+    const sized = (l: PlacedLayer) => sizeOf(l, assets);
     const picking = autoSelects(e);
     const hit = picking ? layerAt(doc, at.x, at.y) : undefined;
     // One of several selected layers, pressed: they're all dragged, but a click selects it alone.
@@ -182,7 +192,7 @@ export function CanvasPanel() {
       const current = frameOf(doc.layers, ui.selectedLayerIds, sized);
       if (!current || !contains(current.t, current.size, at.x, at.y)) return marquee(e, at);
     }
-    // Only images have a place to move (an adjustment changes everything below it).
+    // Only images and pixel layers have a place to move (an adjustment changes everything below it).
     let frame = frameOf(doc.layers, usePhotoUi.getState().selectedLayerIds, sized);
     if (!frame) return;
     const gesture = photoGesture();
@@ -198,7 +208,7 @@ export function CanvasPanel() {
         const ids = frame.ids;
         gesture.apply((d) => duplicateLayers(d, ids, (id) => copies.get(id)!));
         usePhotoUi.getState().setSelection([...copies.values()]);
-        frame = frameOf(usePhoto.getState().history!.doc.layers, [...copies.values()], sized) ?? frame;
+        frame = frameOf(usePhoto.getState().history!.doc.doc.layers, [...copies.values()], sized) ?? frame;
       },
       onMove: (ev, travel) => {
         if (!frame) return;
@@ -237,11 +247,12 @@ export function CanvasPanel() {
         const p = docPoint(ev.clientX, ev.clientY);
         const box: Box = { x0: Math.min(start.x, p.x), y0: Math.min(start.y, p.y), x1: Math.max(start.x, p.x), y1: Math.max(start.y, p.y) };
         usePhotoUi.getState().setMarquee(box);
-        const doc = usePhoto.getState().history!.doc;
+        const doc = usePhoto.getState().history!.doc.doc;
         const { assets } = usePhoto.getState();
         const touched = doc.layers.flatMap((l) => {
-          const size = l.kind === "image" && l.visible ? sizeOf(l, assets) : null;
-          return size && l.kind === "image" && touches(box, bounds(l.transform, size)) ? [l.id] : [];
+          const size = isPlaced(l) && l.visible ? sizeOf(l, assets) : null;
+          const content = size && isPlaced(l) ? contentBox(l, size, knownManifest) : null;
+          return content && touches(box, content) ? [l.id] : [];
         });
         usePhotoUi.getState().setSelection([...kept, ...touched.filter((id) => !kept.includes(id))]);
       },
@@ -256,11 +267,77 @@ export function CanvasPanel() {
     });
   };
 
-  // The layer a click would pick, outlined while the pointer is over it (Move, no button down).
+  /**
+   * The Rectangular Marquee: a drag selects the rectangle (whole pixels, clipped to the canvas; Shift: a square, Alt:
+   * from the centre), one undo step; a click deselects (Photoshop's).
+   */
+  const selectRect = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const doc = usePhoto.getState().history!.doc.doc;
+    const start = docPoint(e.clientX, e.clientY);
+    const gesture = photoGesture();
+    startPointerDrag(e, {
+      threshold: 2,
+      cursor: "crosshair",
+      onStart: () => gesture.begin(),
+      onMove: (ev) => {
+        const p = docPoint(ev.clientX, ev.clientY);
+        let dx = p.x - start.x;
+        let dy = p.y - start.y;
+        if (ev.shiftKey) {
+          const side = Math.max(Math.abs(dx), Math.abs(dy));
+          dx = Math.sign(dx || 1) * side;
+          dy = Math.sign(dy || 1) * side;
+        }
+        const a = ev.altKey ? { x: start.x - dx, y: start.y - dy } : start;
+        const b = { x: start.x + dx, y: start.y + dy };
+        const round = (q: { x: number; y: number }) => ({ x: Math.round(q.x), y: Math.round(q.y) });
+        const selection = rectSelection(round(a), round(b), doc.canvas);
+        gesture.applyState((s) => ({ ...s, selection }));
+      },
+      onEnd: () => gesture.end(),
+      onCancel: () => gesture.cancel(),
+      onClick: () => usePhoto.getState().select(null),
+    });
+  };
+
+  /**
+   * The Brush: paints the active layer's target (its pixels or its mask) along the pointer, limited by the
+   * selection, as one undo step when it's let go; Escape drops it. An image asks first (a new paint layer, or
+   * convert it to pixels); an adjustment paints its mask, given one.
+   */
+  const paint = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const doc = usePhoto.getState().history!.doc.doc;
+    const ui = usePhotoUi.getState();
+    if (!renderer) return;
+    const target = paintTargetOf(doc, ui.selectedLayerId, ui.target);
+    if ("error" in target) return void toast.error(target.error);
+    if ("choice" in target) return ui.setPaintChoice(target.choice);
+    if (target.addMask) {
+      usePhoto.getState().commit((d) => setMask(d, target.layerId, null));
+      ui.setTarget("mask");
+    }
+    const stroke = new StrokeController(renderer, target.layerId, target.part, currentSelection());
+    stroke.add([docPoint(e.clientX, e.clientY)]);
+    startPointerDrag(e, {
+      threshold: 0,
+      onMove: (ev) => {
+        // Every sample the pointer gave, not just the frame's last: fast strokes stay smooth.
+        const samples = ev.getCoalescedEvents?.() ?? [];
+        stroke.add((samples.length ? samples : [ev]).map((s) => docPoint(s.clientX, s.clientY)));
+      },
+      onEnd: () => void stroke.end(),
+      onCancel: () => stroke.cancel(),
+      onClick: () => void stroke.end(),
+    });
+  };
+
+  // The layer a click would pick, outlined while the pointer is over it (Move, no button down); the brush's circle.
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const doc = usePhoto.getState().history?.doc;
-    if (tool !== "move" || e.buttons !== 0 || !doc || !usePhotoUi.getState().view) return;
+    const doc = usePhoto.getState().history?.doc.doc;
+    if (!doc || !usePhotoUi.getState().view) return;
     const at = docPoint(e.clientX, e.clientY);
+    useCanvasPointer.getState().set(at);
+    if (tool !== "move" || e.buttons !== 0) return;
     usePhotoUi.getState().hover(autoSelects(e) ? (layerAt(doc, at.x, at.y)?.id ?? null) : null);
   };
 
@@ -278,16 +355,25 @@ export function CanvasPanel() {
     <div ref={panelRef} className="relative flex min-h-0 flex-1 flex-col bg-stage" data-photo-canvas>
       <div
         ref={holderRef}
-        className={cn("relative min-h-0 flex-1 overflow-hidden touch-none", tool === "hand" ? "cursor-grab" : tool === "zoom" ? "cursor-zoom-in" : "cursor-default")}
+        className={cn(
+          "relative min-h-0 flex-1 overflow-hidden touch-none",
+          tool === "hand" ? "cursor-grab" : tool === "zoom" ? "cursor-zoom-in" : tool === "marquee" ? "cursor-crosshair" : tool === "brush" ? "cursor-none" : "cursor-default",
+        )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerLeave={() => usePhotoUi.getState().hover(null)}
+        onPointerLeave={() => {
+          usePhotoUi.getState().hover(null);
+          useCanvasPointer.getState().set(null);
+        }}
+        data-tool={tool}
       >
         <canvas ref={canvasRef} className="absolute inset-0 size-full" aria-label="Photo canvas" />
         {renderer && tool === "move" && <HoverOutline />}
         {renderer && tool === "move" && <TransformOverlay docPoint={docPoint} />}
         {renderer && <SnapGuides />}
         {renderer && <Marquee />}
+        {renderer && <SelectionAnts />}
+        {renderer && tool === "brush" && <BrushCursor />}
         {failure && (
           <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-white/80">
             <div className="flex max-w-sm flex-col items-center gap-2">
@@ -320,19 +406,26 @@ function snapContext(doc: PhotoProject, moving: readonly string[], e: { ctrlKey:
   if (!usePhotoPreferences.getState().snap || e.ctrlKey || !view) return null;
   const { assets } = usePhoto.getState();
   const others = doc.layers.flatMap((l) => {
-    const size = l.kind === "image" && l.visible && !moving.includes(l.id) ? sizeOf(l, assets) : null;
-    return size && l.kind === "image" ? [bounds(l.transform, size)] : [];
+    const size = isPlaced(l) && l.visible && !moving.includes(l.id) ? sizeOf(l, assets) : null;
+    const box = size && isPlaced(l) ? contentBox(l, size, knownManifest) : null;
+    return box ? [box] : [];
   });
   return { targets: snapTargets(doc.canvas, others), threshold: (SNAP_CSS_PX * devicePixelRatio) / view.zoom };
 }
 
-/** The topmost visible image layer whose pixels are under document point (x, y). */
+/** A surface's manifest if the tab knows it already (picking never waits for the server). */
+function knownManifest(id: string) {
+  const projectId = usePhoto.getState().projectId;
+  return projectId ? uploadsFor(projectId).knownManifest(id) : null;
+}
+
+/** The topmost visible image or painted pixel layer under document point (x, y). */
 function layerAt(doc: PhotoProject, x: number, y: number): PhotoLayer | undefined {
   const { assets } = usePhoto.getState();
   for (let i = doc.layers.length - 1; i >= 0; i--) {
     const l = doc.layers[i];
     const size = sizeOf(l, assets);
-    if (l.kind === "image" && l.visible && size && contains(l.transform, size, x, y)) return l;
+    if (isPlaced(l) && l.visible && size && hitsContent(l, size, x, y, knownManifest)) return l;
   }
   return undefined;
 }
@@ -400,7 +493,7 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
     drag(
       e,
       (p, ev) => {
-        const doc = usePhoto.getState().history!.doc;
+        const doc = usePhoto.getState().history!.doc.doc;
         return scaledWithSnap(base, size, h, p, { free: ev.shiftKey && frame.stretches, fromCentre: ev.altKey }, snapContext(doc, frame.ids, ev));
       },
       cursorOf(h),
@@ -457,7 +550,7 @@ function SelectedOutlines({ ids }: { ids: readonly string[] }) {
     <>
       {layers.map((l) => {
         const size = ids.includes(l.id) ? sizeOf(l, assets) : null;
-        if (!size || l.kind !== "image") return null;
+        if (!size || !isPlaced(l)) return null;
         const points = outline(l.transform, size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);
         return <polygon key={l.id} points={points.join(" ")} fill="none" stroke="var(--brand)" strokeOpacity={0.6} strokeDasharray="3 3" strokeWidth={1} data-selected-outline={l.id} />;
       })}
@@ -471,8 +564,9 @@ function HoverOutline() {
   const hovered = usePhotoUi((s) => s.hoveredLayerId);
   const selected = usePhotoUi((s) => (hovered ? s.selectedLayerIds.includes(hovered) : false));
   const found = usePhotoDoc((d) => d.layers.find((l) => l.id === hovered));
-  const layer = found?.kind === "image" && !selected ? found : undefined;
-  const size = useLayerSize(layer?.mediaId);
+  const layer = found && isPlaced(found) && !selected ? found : undefined;
+  const imageSize = useLayerSize(layer?.kind === "image" ? layer.mediaId : undefined);
+  const size = layer?.kind === "pixel" ? layer.size : imageSize;
   if (!view || !layer || !size) return null;
   const dpr = devicePixelRatio;
   const points = outline(layer.transform, size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);

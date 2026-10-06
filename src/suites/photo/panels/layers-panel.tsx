@@ -1,18 +1,36 @@
 /**
  * The Layers panel (ux.md, "Workspace" and "Selecting layers"): the stack, top first; click selects (⌘ toggles,
  * Shift selects a run, a click below the rows selects nothing), a drag reorders every selected row together (one
- * undo step), the eye shows and hides, a double-click renames, a right-click is the Layers menu (merge, arrange). Images show a thumbnail of themselves as they're placed on the
+ * undo step), the eye shows and hides, a double-click renames, a right-click is the Layers menu (merge, arrange).
+ * A layer with a mask shows its thumbnail beside its own: clicking either targets what the brush paints (outlined,
+ * as Photoshop's). Images show a thumbnail of themselves as they're placed on the
  * canvas; adjustments their kind and settings. Missing images and adjustments this app can't run are said so. Its
  * footer places images, adds adjustment layers (above the selected layer, as Photoshop's does), duplicates, moves
  * and deletes. Every change is an undoable edit.
  */
 import { useRef, useState } from "react";
 import { cn } from "cn";
-import { PiArrowDown, PiArrowUp, PiChartLine, PiCircleHalfTilt, PiCopy, PiEye, PiEyeSlash, PiImage, PiPlus, PiSun, PiTrash, PiWarningCircle } from "react-icons/pi";
+import {
+  PiArrowDown,
+  PiArrowUp,
+  PiChartLine,
+  PiCircleHalfTilt,
+  PiCopy,
+  PiEye,
+  PiEyeSlash,
+  PiImage,
+  PiPaintBrush,
+  PiPlus,
+  PiSelectionBackground,
+  PiStackPlus,
+  PiSun,
+  PiTrash,
+  PiWarningCircle,
+} from "react-icons/pi";
 import { createId } from "@shared/ids";
 import { addAdjustmentLayer, moveLayersTo, updateLayer } from "@shared/photo/edits";
 import { ADJUSTMENTS, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
-import type { AdjustmentLayer, ImageLayer, PhotoLayer } from "@shared/photo/types";
+import type { AdjustmentLayer, ImageLayer, PhotoLayer, PixelLayer } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -23,7 +41,7 @@ import { usePhoto, usePhotoDoc } from "../store";
 import { layerActions } from "../layer-actions";
 import { clickLayer } from "../selection";
 import { usePhotoUi } from "../ui";
-import { useLayerThumbnail } from "./thumbnails";
+import { useLayerThumbnail, useMaskThumbnail } from "./thumbnails";
 
 /** Each adjustment's icon (Photoshop's Adjustments panel has one per kind). */
 export const ADJUSTMENT_ICONS: Record<string, typeof PiSun> = { exposure: PiSun, curves: PiChartLine };
@@ -44,6 +62,8 @@ export function LayersPanel() {
   const list = useRef<HTMLUListElement>(null);
   const [dropGap, setDropGap] = useState<number | null>(null);
   const selectedIndexes = layers.flatMap((l, i) => (selectedIds.includes(l.id) ? [i] : []));
+  const activeId = usePhotoUi((s) => s.selectedLayerId);
+  const index = layers.findIndex((l) => l.id === activeId);
   const none = selectedIndexes.length === 0;
 
   /**
@@ -58,13 +78,16 @@ export function LayersPanel() {
       return;
     }
     const ui = usePhotoUi.getState();
-    const order = usePhoto.getState().history!.doc.layers.map((l) => l.id);
+    const order = usePhoto.getState().history!.doc.doc.layers.map((l) => l.id);
     const mods = { toggle: MAC ? e.metaKey : e.ctrlKey, range: e.shiftKey };
     const keepForDrag = !mods.toggle && !mods.range && ui.selectedLayerIds.includes(layer.id);
     if (!keepForDrag) {
       const next = clickLayer({ ids: ui.selectedLayerIds, active: ui.selectedLayerId }, order, layer.id, mods);
       ui.setSelection(next.ids, next.active);
     }
+    // A thumbnail pressed targets it: the layer's pixels, or its mask.
+    const thumb = (e.target as Element).closest("[data-thumb]")?.getAttribute("data-thumb");
+    if (thumb && usePhotoUi.getState().selectedLayerId === layer.id) usePhotoUi.getState().setTarget(thumb === "mask" ? "mask" : "content");
     // Toggled off: nothing to drag.
     if (!usePhotoUi.getState().selectedLayerIds.includes(layer.id)) return;
     const rows = () => [...(list.current?.querySelectorAll<HTMLElement>("[data-layer]") ?? [])];
@@ -80,7 +103,7 @@ export function LayersPanel() {
       },
       onEnd: () => {
         setDropGap(null);
-        const doc = usePhoto.getState().history?.doc;
+        const doc = usePhoto.getState().history?.doc.doc;
         if (gap === null || !doc) return;
         // The gap counts rows from the top; the edit counts layers below it.
         const below = doc.layers.length - gap;
@@ -119,6 +142,12 @@ export function LayersPanel() {
       <div className="flex shrink-0 items-center gap-0.5 border-t border-line px-1.5 py-1">
         <FooterButton label="Place an image…" onClick={() => input.current?.click()}>
           <PiPlus />
+        </FooterButton>
+        <FooterButton label="New layer (⇧⌘N)" onClick={() => layerActions.newLayer()}>
+          <PiStackPlus />
+        </FooterButton>
+        <FooterButton label="Add a mask (from the selection, if there is one)" disabled={index < 0} onClick={() => void layerActions.addMask()}>
+          <PiSelectionBackground />
         </FooterButton>
         <input
           ref={input}
@@ -176,10 +205,20 @@ export function LayersPanel() {
 /** The Layers menu (a right-click on the panel): Photoshop's Layer menu, on the selected layers. */
 function LayersMenu({ count }: { count: number }) {
   const total = usePhotoDoc((d) => d.layers.length);
+  const activeId = usePhotoUi((s) => s.selectedLayerId);
+  const active = usePhotoDoc((d) => d.layers.find((l) => l.id === activeId));
   const mod = MAC ? "⌘" : "Ctrl+";
   const alt = MAC ? "⌥" : "Alt+";
   return (
     <ContextMenuContent className="w-56" data-layers-menu>
+      <ContextMenuItem onSelect={() => layerActions.newLayer()}>
+        New Layer
+        <ContextMenuShortcut>⇧{mod}N</ContextMenuShortcut>
+      </ContextMenuItem>
+      {active && !active.mask && <ContextMenuItem onSelect={() => void layerActions.addMask()}>Add Layer Mask</ContextMenuItem>}
+      {active?.mask && <ContextMenuItem onSelect={() => layerActions.deleteMask()}>Delete Layer Mask</ContextMenuItem>}
+      {active?.kind === "image" && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Convert to Pixels</ContextMenuItem>}
+      <ContextMenuSeparator />
       <ContextMenuItem disabled={count === 0} onSelect={layerActions.duplicate}>
         {count > 1 ? "Duplicate Layers" : "Duplicate Layer"}
         <ContextMenuShortcut>{mod}J</ContextMenuShortcut>
@@ -250,6 +289,9 @@ interface RowProps {
 
 function LayerRow({ layer, selected, onPress, dropAbove, dropBelow }: RowProps) {
   const [renaming, setRenaming] = useState(false);
+  // What the brush paints on the active layer is outlined (only one thumbnail of a layer can be).
+  const target = usePhotoUi((s) => (s.selectedLayerId === layer.id ? s.target : null));
+  const targeted = (part: "content" | "mask") => target !== null && (part === "mask" ? target === "mask" && !!layer.mask : target !== "mask" || !layer.mask);
   const commit = usePhoto((s) => s.commit);
   const source = useSourceStates((s) => (layer.kind === "image" ? (s.states[layer.mediaId]?.state ?? "loading") : undefined));
   return (
@@ -279,7 +321,14 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow }: RowProps) 
       >
         {layer.visible ? <PiEye /> : <PiEyeSlash />}
       </button>
-      {layer.kind === "image" ? <ImageThumb layer={layer} /> : <AdjustmentThumb layer={layer} />}
+      <span className={cn("shrink-0 rounded-sm ring-offset-1 ring-offset-surface-1", targeted("content") && layer.kind !== "adjustment" && "ring-1 ring-foreground/70")} data-thumb="content" data-targeted={targeted("content") || undefined}>
+        {layer.kind === "image" ? <ImageThumb layer={layer} /> : layer.kind === "pixel" ? <PixelThumb layer={layer} /> : <AdjustmentThumb layer={layer} />}
+      </span>
+      {layer.mask && (
+        <span className={cn("shrink-0 rounded-sm ring-offset-1 ring-offset-surface-1", targeted("mask") && "ring-1 ring-foreground/70")} data-thumb="mask" data-targeted={targeted("mask") || undefined} title="Layer mask: black hides, white reveals">
+          <MaskThumb layer={layer} />
+        </span>
+      )}
       {renaming ? (
         <input
           autoFocus
@@ -304,7 +353,7 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow }: RowProps) 
           {layer.kind === "adjustment" && <AdjustmentSummary layer={layer} />}
         </span>
       )}
-      {layer.kind === "image" ? <ImageWarning layer={layer} /> : <AdjustmentWarning layer={layer} />}
+      {layer.kind === "image" ? <ImageWarning layer={layer} /> : layer.kind === "adjustment" ? <AdjustmentWarning layer={layer} /> : null}
     </li>
   );
 }
@@ -317,6 +366,26 @@ function ImageThumb({ layer }: { layer: ImageLayer }) {
     <img src={src} alt="" draggable={false} className="size-8 shrink-0 rounded-sm bg-surface-2 object-contain" data-thumbnail={thumbnail ? "rendered" : "poster"} />
   ) : (
     <PiImage className="size-8 shrink-0 text-muted-foreground" />
+  );
+}
+
+function PixelThumb({ layer }: { layer: PixelLayer }) {
+  const thumbnail = useLayerThumbnail(layer);
+  return thumbnail ? (
+    <img src={thumbnail} alt="" draggable={false} className="size-8 shrink-0 rounded-sm bg-surface-2 object-contain" data-thumbnail="rendered" />
+  ) : (
+    <span className="grid size-8 shrink-0 place-items-center rounded-sm bg-surface-2 text-muted-foreground" aria-hidden>
+      <PiPaintBrush className="size-4" />
+    </span>
+  );
+}
+
+function MaskThumb({ layer }: { layer: PhotoLayer }) {
+  const thumbnail = useMaskThumbnail(layer);
+  return thumbnail ? (
+    <img src={thumbnail} alt="" draggable={false} className="size-8 shrink-0 rounded-sm bg-white object-contain" data-mask-thumbnail="rendered" />
+  ) : (
+    <span className="block size-8 shrink-0 rounded-sm bg-white" aria-hidden data-mask-thumbnail="blank" />
   );
 }
 

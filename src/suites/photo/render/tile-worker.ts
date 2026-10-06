@@ -9,13 +9,15 @@ import { constantRef } from "@shared/photo/surfaces.ts";
 export type WorkerRequest =
   | { type: "hash"; id: number; tiles: ArrayBuffer[]; channels: number }
   | { type: "manifest"; id: number; json: string }
-  | { type: "upload"; id: number; base: string; refs: string[]; manifest: { hash: string; json: string } };
+  | { type: "upload"; id: number; base: string; refs: string[]; manifest: { hash: string; json: string } }
+  | { type: "bytes"; id: number; hash: string };
 
 export type WorkerReply =
   | { type: "hash"; id: number; refs: string[]; ms: number }
   | { type: "manifest"; id: number; hash: string }
   | { type: "upload"; id: number; ok: true; ms: number; sent: number }
-  | { type: "upload"; id: number; ok: false; error: string };
+  | { type: "upload"; id: number; ok: false; error: string }
+  | { type: "bytes"; id: number; bytes: ArrayBuffer | null };
 
 const waiting = new Map<string, ArrayBuffer>();
 
@@ -61,10 +63,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     reply({ type: "hash", id: message.id, refs, ms: performance.now() - started });
   } else if (message.type === "manifest") {
     reply({ type: "manifest", id: message.id, hash: hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(message.json))) });
+  } else if (message.type === "bytes") {
+    // A copy: the original stays until it's uploaded.
+    const bytes = waiting.get(message.hash);
+    reply({ type: "bytes", id: message.id, bytes: bytes ? bytes.slice(0) : null });
   } else if (message.type === "upload") {
     const started = performance.now();
     try {
-      const hashes = message.refs.filter((r) => waiting.has(r));
+      const hashes = [...new Set(message.refs.filter((r) => waiting.has(r)))];
       // Four at a time.
       let next = 0;
       await Promise.all(

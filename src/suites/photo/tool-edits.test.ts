@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createPhotoProject } from "@shared/photo/project";
 import type { AdjustmentLayer, ImageLayer, PhotoProject } from "@shared/photo/types";
 import type { MediaAsset } from "@shared/types";
-import { addAdjustmentTool, addImageLayerTool, describePhoto, mergeRequest, removeLayerTool, setCanvasTool, setEffectParamsTool, setLayerTool, transformLayerTool } from "./tool-edits";
+import { addAdjustmentTool, addImageLayerTool, addPixelLayerTool, describePhoto, maskTool, mergeRequest, removeLayerTool, setCanvasTool, setEffectParamsTool, setLayerTool, transformLayerTool } from "./tool-edits";
 
 const placeOf = (doc: PhotoProject, i = 0) => (doc.layers[i] as ImageLayer).transform;
 const effectOf = (doc: PhotoProject, i: number) => (doc.layers[i] as AdjustmentLayer).effect;
@@ -83,5 +83,22 @@ describe("the photo assistant's edits", () => {
     expect(() => mergeRequest(doc, { layers: ["Cat"] })).toThrow(/two or more/);
     expect(() => mergeRequest(doc, { layers: ["Cat", "Sky"], down: true })).toThrow(/exactly one/);
     expect(() => mergeRequest(doc, { layers: ["Dog", "Sky"] })).toThrow(/The layers: .*Cat/);
+  });
+
+  it("adds pixel layers and masks, and says what's painted and selected", () => {
+    let doc = addImageLayerTool(empty, { media: "media_cat", name: "Cat" }, env).doc;
+    const added = addPixelLayerTool(doc, { name: "Paint", above: "Cat" }, env);
+    doc = added.doc;
+    expect(doc.layers.map((l) => l.kind)).toEqual(["image", "pixel"]);
+    expect(added.text).toMatch(/empty pixel layer .* "Paint"/);
+    const masked = maskTool(doc, { layer: "Cat" }, env);
+    expect(masked.doc.layers[0].mask).toEqual({ surface: null });
+    expect(maskTool(masked.doc, { layer: "Cat" }, env).doc).toBe(masked.doc);
+    expect(maskTool(masked.doc, { layer: "Cat", remove: true }, env).doc.layers[0].mask).toBeUndefined();
+    expect(() => maskTool(doc, { layer: "Cat", remove: true }, env)).toThrow(/has no mask/);
+    const text = describePhoto(masked.doc, env.assets, [masked.doc.layers[1].id], { kind: "rect", x: 10, y: 20, width: 30, height: 40 });
+    expect(text).toMatch(/pixel layer 1280×720 \(empty: nothing painted yet\)/);
+    expect(text).toMatch(/mask: reveals everything/);
+    expect(text).toMatch(/Selection \(marching ants\): x 10..40, y 20..60/);
   });
 });

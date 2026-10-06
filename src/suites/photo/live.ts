@@ -35,7 +35,7 @@ export function liveRenderer(): Promise<PhotoRenderer> | null {
       r.onRefineState = (refine) => {
         if (open?.renderer === renderer) useRenderState.setState({ refine });
       };
-      r.setDocument(projectId, history.doc, assets);
+      r.setDocument(projectId, history.doc.doc, assets);
     }, () => {});
   }
   return open.renderer;
@@ -56,9 +56,9 @@ usePhoto.subscribe((state, prev) => {
     return;
   }
   if (!open || !state.projectId || !state.history) return;
-  if (state.history.doc === prev.history?.doc && state.assets === prev.assets) return;
+  if (state.history.doc.doc === prev.history?.doc.doc && state.assets === prev.assets) return;
   const { projectId, history, assets } = state;
-  void open.renderer.then((r) => r.setDocument(projectId, history.doc, assets), () => {});
+  void open.renderer.then((r) => r.setDocument(projectId, history.doc.doc, assets), () => {});
 });
 
 /**

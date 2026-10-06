@@ -4,13 +4,13 @@
  * and what there is to choose from.
  */
 import { createId } from "@shared/ids";
-import { addAdjustmentLayer, addImageLayer, findLayer, moveLayer, removeLayer, resetEffect, setCanvas, setEffectParams, setTransform, updateLayer } from "@shared/photo/edits";
+import { addAdjustmentLayer, addImageLayer, addPixelLayer, findLayer, moveLayer, removeLayer, removeMask, resetEffect, setCanvas, setEffectParams, setMask, setTransform, updateLayer } from "@shared/photo/edits";
 import { ADJUSTMENTS, type EffectDefinition, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import { CURVE_CHANNELS, MAX_CURVE_POINTS } from "@shared/photo/effects/params";
 import { bounds } from "@shared/photo/layers";
 import type { MergeKind } from "@shared/photo/merge";
 import { isColour } from "@shared/photo/project";
-import type { AdjustmentLayer, CurveSet, ImageLayer, LayerTransform, PhotoLayer, PhotoProject } from "@shared/photo/types";
+import { type AdjustmentLayer, type CurveSet, type LayerTransform, type PhotoLayer, type PhotoProject, type PhotoSelection, type PlacedLayer, isPlaced } from "@shared/photo/types";
 import type { MediaAsset } from "@shared/types";
 import { fitted } from "./canvas/handles";
 import { imageLayerOf } from "./media";
@@ -33,8 +33,9 @@ export type PhotoEdit = (doc: PhotoProject, input: Input, env: PhotoEditEnv) => 
 const round = (n: number, places = 2) => Math.round(n * 10 ** places) / 10 ** places;
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
-/** An image layer's source size (null for other layers, or while its image is missing). */
+/** A placed layer's size in its own pixels: an image's source (null while it's missing), a pixel layer's (null for adjustments). */
 export const sizeOf = (layer: PhotoLayer, assets: readonly MediaAsset[]): { width: number; height: number } | null => {
+  if (layer.kind === "pixel") return layer.size;
   if (layer.kind !== "image") return null;
   const a = assets.find((x) => x.id === layer.mediaId);
   return a?.width && a.height ? { width: a.width, height: a.height } : null;
@@ -71,29 +72,35 @@ export function describeAdjustment(layer: AdjustmentLayer): string {
 /** One layer as the model reads it. */
 export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], index: number): string {
   const faded = !layer.visible || layer.opacity < 1 ? [`   ${layer.visible ? "" : "hidden, "}opacity ${round(layer.opacity)}`] : [];
-  if (layer.kind === "adjustment") return [`${index}. ${layer.id} "${layer.name}": adjustment layer (changes everything below it)`, `   ${describeAdjustment(layer)}`, ...faded].join("\n");
+  const mask = layer.mask ? [`   mask: ${layer.mask.surface ? "painted (hides parts of it)" : "reveals everything (nothing painted on it yet)"}`] : [];
+  if (layer.kind === "adjustment") return [`${index}. ${layer.id} "${layer.name}": adjustment layer (changes everything below it)`, `   ${describeAdjustment(layer)}`, ...mask, ...faded].join("\n");
   const size = sizeOf(layer, assets);
   const t = layer.transform;
-  const asset = assets.find((a) => a.id === layer.mediaId);
+  const asset = layer.kind === "image" ? assets.find((a) => a.id === layer.mediaId) : undefined;
+  const what =
+    layer.kind === "pixel"
+      ? `pixel layer ${layer.size.width}×${layer.size.height}${layer.surface ? " (painted)" : " (empty: nothing painted yet)"}`
+      : `image ${layer.mediaId}${asset ? ` (${asset.name}, ${asset.width}×${asset.height})` : " (missing: the file isn't in the project)"}`;
   const parts = [
-    `${index}. ${layer.id} "${layer.name}": image ${layer.mediaId}${asset ? ` (${asset.name}, ${asset.width}×${asset.height})` : " (missing: the file isn't in the project)"}`,
+    `${index}. ${layer.id} "${layer.name}": ${what}`,
     `   centre (${round(t.x)}, ${round(t.y)}), scale ${round(t.scaleX, 4)} × ${round(t.scaleY, 4)}, rotation ${round(t.rotation)}°`,
   ];
   if (size) {
     const b = bounds(t, size);
     parts.push(`   box on the canvas: x ${round(b.x0)}..${round(b.x1)}, y ${round(b.y0)}..${round(b.y1)}`);
   }
-  return [...parts, ...faded].join("\n");
+  return [...parts, ...mask, ...faded].join("\n");
 }
 
 /** `get_photo`: the canvas and the layers, top down. */
-export function describePhoto(doc: PhotoProject, assets: readonly MediaAsset[], selected: readonly string[]): string {
+export function describePhoto(doc: PhotoProject, assets: readonly MediaAsset[], selected: readonly string[], selection: PhotoSelection | null = null): string {
   const lines = [
     `"${doc.name}": canvas ${doc.canvas.width}×${doc.canvas.height} px, background ${doc.canvas.background ?? "transparent"}.`,
     doc.layers.length ? `Layers, top first (${doc.layers.length}):` : "No layers yet.",
     ...[...doc.layers].reverse().map((l) => describeLayer(l, assets, doc.layers.indexOf(l))),
   ];
-  if (selected.length) lines.push(`Selected: ${selected.join(", ")}.`);
+  if (selected.length) lines.push(`Selected layers: ${selected.join(", ")}.`);
+  if (selection) lines.push(`Selection (marching ants): x ${round(selection.x)}..${round(selection.x + selection.width)}, y ${round(selection.y)}..${round(selection.y + selection.height)}.`);
   return lines.join("\n");
 }
 
@@ -127,15 +134,15 @@ export const addImageLayerTool: PhotoEdit = (doc, input, env) => {
   return { doc: next, layerId: layer.id, text: `Placed ${asset.name} as layer ${layer.id} on top.\n${describeLayer(placed, env.assets, next.layers.length - 1)}` };
 };
 
-/** An image layer by id or name: other layers have no place to move. */
-function findImageRef(doc: PhotoProject, ref: unknown): ImageLayer {
+/** An image or pixel layer by id or name: adjustments have no place to move. */
+function findPlacedRef(doc: PhotoProject, ref: unknown): PlacedLayer {
   const layer = findLayerRef(doc, ref);
-  if (layer.kind !== "image") throw new Error(`"${layer.name}" is an adjustment layer: it has no place of its own (it changes everything below it). Move it in the stack with set_layer's order.`);
+  if (!isPlaced(layer)) throw new Error(`"${layer.name}" is an adjustment layer: it has no place of its own (it changes everything below it). Move it in the stack with set_layer's order.`);
   return layer;
 }
 
 export const transformLayerTool: PhotoEdit = (doc, input, env) => {
-  const layer = findImageRef(doc, input.layer);
+  const layer = findPlacedRef(doc, input.layer);
   let t: LayerTransform = { ...layer.transform };
   const size = sizeOf(layer, env.assets);
   if (input.fit === "contain" || input.fit === "cover") {
@@ -233,7 +240,7 @@ export const addAdjustmentTool: PhotoEdit = (doc, input) => {
 
 export const setEffectParamsTool: PhotoEdit = (doc, input) => {
   const layer = findLayerRef(doc, input.layer);
-  if (layer.kind !== "adjustment") throw new Error(`"${layer.name}" is an image layer: only adjustment layers have parameters. The adjustment layers: ${doc.layers.filter((l) => l.kind === "adjustment").map((l) => `${l.id} ("${l.name}")`).join(", ") || "none: add one with add_adjustment"}.`);
+  if (layer.kind !== "adjustment") throw new Error(`"${layer.name}" is an ${layer.kind} layer: only adjustment layers have parameters. The adjustment layers: ${doc.layers.filter((l) => l.kind === "adjustment").map((l) => `${l.id} ("${l.name}")`).join(", ") || "none: add one with add_adjustment"}.`);
   const reason = unavailableReason(layer.effect);
   if (reason) throw new Error(`${reason} It can't be changed here.`);
   const def = effectDefinition(layer.effect.type)!;
@@ -242,6 +249,25 @@ export const setEffectParamsTool: PhotoEdit = (doc, input) => {
   next = setEffectParams(next, layer.id, adjustmentPatch(def, input.params, current));
   const after = findLayer(next, layer.id) as AdjustmentLayer;
   return { doc: next, layerId: layer.id, text: next === doc ? `"${layer.name}" already had those settings.` : `"${after.name}": ${describeAdjustment(after)}` };
+};
+
+export const addPixelLayerTool: PhotoEdit = (doc, input, env) => {
+  const above = input.above === undefined ? null : findLayerRef(doc, input.above).id;
+  const id = createId("layer");
+  const next = addPixelLayer(doc, { id, name: typeof input.name === "string" ? input.name : undefined }, above);
+  const layer = findLayer(next, id)!;
+  return { doc: next, layerId: id, text: `Added an empty pixel layer ${id} "${layer.name}" the canvas's size, ${next.layers.indexOf(layer)} of ${next.layers.length - 1} from the bottom.\n${describeLayer(layer, env.assets, next.layers.indexOf(layer))}` };
+};
+
+/** An empty mask (reveals everything until it's painted), or none for `remove`. A mask from the selection is the tab's (it renders it). */
+export const maskTool: PhotoEdit = (doc, input) => {
+  const layer = findLayerRef(doc, input.layer);
+  if (input.remove === true) {
+    if (!layer.mask) throw new Error(`"${layer.name}" has no mask.`);
+    return { doc: removeMask(doc, layer.id), layerId: layer.id, text: `Removed "${layer.name}"'s mask: it shows whole again.` };
+  }
+  if (layer.mask) return { doc, layerId: layer.id, text: `"${layer.name}" has a mask already${layer.mask.surface ? " (painted)" : ""}.` };
+  return { doc: setMask(doc, layer.id, null), layerId: layer.id, text: `Added a mask to "${layer.name}": it reveals everything until the user paints on it (black hides, white reveals).` };
 };
 
 export const removeLayerTool: PhotoEdit = (doc, input) => {

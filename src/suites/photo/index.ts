@@ -26,24 +26,24 @@ export const photoSuite: ClientSuite<"photo"> = {
     Panel: lazy(() => import("./settings")),
   },
   describe: (p) => `${p.width} × ${p.height} · ${p.layerCount} layer${p.layerCount === 1 ? "" : "s"}`,
-  useLiveName: (projectId) => usePhoto((s) => (s.projectId === projectId ? (s.history?.doc.name ?? null) : null)),
+  useLiveName: (projectId) => usePhoto((s) => (s.projectId === projectId ? (s.history?.doc.doc.name ?? null) : null)),
   chat: {
     pitch: "can see your photo and work on it: place images, move, scale and rotate layers, brighten it and shape its tones with adjustment layers, size the canvas and export.",
     useSuggestions() {
-      const hasLayers = usePhoto((s) => (s.history?.doc.layers.length ?? 0) > 0);
+      const hasLayers = usePhoto((s) => (s.history?.doc.doc.layers.length ?? 0) > 0);
       return hasLayers ? ["Make this a 1280×720 thumbnail", "Add a bit of contrast with Curves", "What do you see?"] : ["What can you do?", "Make the canvas a YouTube thumbnail"];
     },
     ask: "help with your photo",
     useContextLabel: () =>
       usePhoto((s) => {
         if (!s.history) return "";
-        return photoLabel(s.history.doc, null);
+        return photoLabel(s.history.doc.doc, null);
       }),
     contextHint: "Sent with your message, so the assistant knows the photo",
   },
   messageContext() {
     const { history } = usePhoto.getState();
-    return history ? photoContext(history.doc, usePhotoUi.getState().selectedLayerIds) : null;
+    return history ? photoContext(history.doc.doc, usePhotoUi.getState().selectedLayerIds) : null;
   },
   runTool: runPhotoTool,
   // Images dropped on Home on their own start a photo (video gives way to it: src/suites/video.ts).

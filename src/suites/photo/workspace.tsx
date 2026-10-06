@@ -5,9 +5,12 @@
  */
 import { useEffect, useState } from "react";
 import { cn } from "cn";
-import { PiArrowCounterClockwise, PiArrowClockwise, PiCursor, PiExport, PiHand, PiMagnet, PiMagnifyingGlass } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiArrowClockwise, PiCursor, PiExport, PiHand, PiMagnet, PiMagnifyingGlass, PiPaintBrush, PiSelection } from "react-icons/pi";
 import { toast } from "sonner";
 import { moveLayersBy } from "@shared/photo/edits";
+import { allSelection } from "@shared/photo/selection";
+import { stepBrushSize, useBrush } from "./brush-options";
+import { PaintChoiceDialog, ToolOptions } from "./options-bar";
 import { AssistantButton } from "@/components/assistant/assistant-button";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { DockArea, FloatingPanels, type DockPanel } from "@/components/dock/dock-area";
@@ -28,7 +31,7 @@ import { liveRenderer } from "./live";
 import { LayersPanel } from "./panels/layers-panel";
 import { usePhotoPreferences } from "./preferences";
 import { PropertiesPanel } from "./panels/properties-panel";
-import { flushPhotos, photoGesture, usePhoto } from "./store";
+import { currentDoc, currentSelection, flushPhotos, photoGesture, usePhoto } from "./store";
 import { type PhotoTool, useActiveTool, usePhotoUi } from "./ui";
 
 type PhotoPanel = "canvas" | "layers" | "properties";
@@ -94,6 +97,7 @@ export default function PhotoWorkspace() {
         <AssistantPanel suite="photo" />
       </div>
       <PhotoDesktop />
+      <PaintChoiceDialog />
     </div>
   );
 }
@@ -109,7 +113,7 @@ function PhotoDesktop() {
 }
 
 function PhotoHeader() {
-  const name = usePhoto((s) => s.history!.doc.name);
+  const name = usePhoto((s) => s.history!.doc.doc.name);
   const canUndo = usePhoto((s) => (s.history?.past.length ?? 0) > 0);
   const canRedo = usePhoto((s) => (s.history?.future.length ?? 0) > 0);
   const saving = usePhoto((s) => s.saving);
@@ -129,6 +133,7 @@ function PhotoHeader() {
           <PiArrowClockwise />
         </Button>
       </div>
+      <ToolOptions />
       {tool === "move" && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -163,6 +168,8 @@ function PhotoHeader() {
 
 const TOOLS: { tool: PhotoTool; label: string; key: string; Icon: typeof PiCursor }[] = [
   { tool: "move", label: "Move", key: "V", Icon: PiCursor },
+  { tool: "marquee", label: "Rectangular Marquee", key: "M", Icon: PiSelection },
+  { tool: "brush", label: "Brush", key: "B", Icon: PiPaintBrush },
   { tool: "hand", label: "Hand", key: "H", Icon: PiHand },
   { tool: "zoom", label: "Zoom", key: "Z", Icon: PiMagnifyingGlass },
 ];
@@ -203,7 +210,7 @@ let nudging: { gesture: ReturnType<typeof photoGesture>; timer: ReturnType<typeo
 /** Moves the selected images by (dx, dy), all of them together. */
 function nudge(dx: number, dy: number) {
   const ids = selectedInOrder();
-  const doc = usePhoto.getState().history?.doc;
+  const doc = usePhoto.getState().history?.doc.doc;
   if (!doc || !doc.layers.some((l) => l.kind === "image" && ids.includes(l.id))) return;
   const key = ids.join(" ");
   if (!nudging || nudging.key !== key) {
@@ -276,8 +283,23 @@ function usePhotoKeys(active: boolean) {
         case "save":
           void flushPhotos().then(() => toast.success("Saved"));
           return;
+        // ⌘D lets go of the selection, as Photoshop's; with none, of the layers.
         case "deselect":
-          return layerActions.deselect();
+          return currentSelection() ? photo.select(null) : layerActions.deselect();
+        case "selectCanvas": {
+          const doc = currentDoc();
+          return doc && photo.select(allSelection(doc.canvas));
+        }
+        case "newLayer":
+          return void layerActions.newLayer();
+        case "brushSize":
+          return useBrush.getState().set({ size: stepBrushSize(useBrush.getState().size, action.direction) });
+        case "brushHardness":
+          return useBrush.getState().set({ hardness: Math.round((useBrush.getState().hardness + action.direction * 0.25) * 4) / 4 });
+        case "defaultColours":
+          return useBrush.getState().resetColours();
+        case "swapColours":
+          return useBrush.getState().swapColours();
       }
     };
     const up = (e: KeyboardEvent) => {
@@ -304,13 +326,13 @@ function useCover(active: boolean) {
     const timer = setTimeout(async () => {
       const { projectId, history } = usePhoto.getState();
       const pending = liveRenderer();
-      if (!projectId || !history || !pending || history.doc === lastCover) return;
+      if (!projectId || !history || !pending || history.doc.doc === lastCover) return;
       try {
         const renderer = await pending;
         await renderer.ready();
-        const blob = await renderer.picture(history.doc, 480);
+        const blob = await renderer.picture(history.doc.doc, 480);
         await api.saveCover(projectId, blob);
-        setLastCover(history.doc);
+        setLastCover(history.doc.doc);
       } catch {
         // A cover is a nicety: the card keeps its last one.
       }

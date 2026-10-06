@@ -6,7 +6,8 @@
  * - `reduce`: a level's tile from four of the level below, a 2×2 box in linear premultiplied light.
  * - `blur`: a Gaussian through the page table (crossing tiles), and the same on one plain texture, so F0 can
  *   compare tiled against monolithic.
- * - `stamp`: brush dabs into draft tiles.
+ * - `stamp`: brush dabs into draft tiles, limited by the selection.
+ * - `maskFill`: a mask's tiles from a selection.
  * - `quantize`: the output transform to 8-bit RGBA (exports, the round-trip check).
  * - `view`: what the canvas shows (render pipeline).
  *
@@ -181,12 +182,51 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 }
 `;
 
+/**
+ * What a selection covers of a layer pixel (shared/photo/selection.ts's `layerPixelCoverage`): exact through a
+ * layer at a right angle, 8 × 8 points across the pixel otherwise; 1 without a selection.
+ */
+const SELECTION = /* wgsl */ `
+struct Dab { x: f32, y: f32, radius: f32, hardness: f32, strength: f32, p0: f32, p1: f32, p2: f32 }
+struct Job { slot: u32, tx: i32, ty: i32, first: u32, count: u32, p0: u32, p1: u32, p2: u32 }
+// m0, m1: layer pixels → document (a, b, c, d; e, f, right-angled); sel: x, y, width, height.
+struct Params { colour: vec4f, tile: u32, hasSelection: u32, p0: u32, p1: u32, m0: vec4f, m1: vec4f, sel: vec4f }
+
+fn to_doc(u: vec2f) -> vec2f {
+  return vec2f(params.m0.x * u.x + params.m0.z * u.y + params.m1.x, params.m0.y * u.x + params.m0.w * u.y + params.m1.y);
+}
+
+fn box_coverage(lo: vec2f, hi: vec2f) -> f32 {
+  let area = (hi.x - lo.x) * (hi.y - lo.y);
+  if (area <= 0.0) { return 0.0; }
+  let w = max(0.0, min(hi.x, params.sel.x + params.sel.z) - max(lo.x, params.sel.x));
+  let h = max(0.0, min(hi.y, params.sel.y + params.sel.w) - max(lo.y, params.sel.y));
+  return min(1.0, w * h / area);
+}
+
+fn selection_coverage(pixel: vec2i) -> f32 {
+  if (params.hasSelection == 0u) { return 1.0; }
+  let u = vec2f(pixel);
+  if (params.m1.z > 0.5) {
+    let p = to_doc(u);
+    let q = to_doc(u + vec2f(1.0));
+    return box_coverage(min(p, q), max(p, q));
+  }
+  var inside = 0.0;
+  for (var j = 0; j < 8; j++) {
+    for (var i = 0; i < 8; i++) {
+      let p = to_doc(u + (vec2f(f32(i), f32(j)) + 0.5) / 8.0);
+      if (p.x >= params.sel.x && p.x < params.sel.x + params.sel.z && p.y >= params.sel.y && p.y < params.sel.y + params.sel.w) { inside += 1.0; }
+    }
+  }
+  return inside / 64.0;
+}
+`;
+
 const STAMP = (format: StorageFormat) => /* wgsl */ `
 ${ROUND_FOR_STORE(format)}
 ${ATLAS}
-struct Dab { x: f32, y: f32, radius: f32, hardness: f32, strength: f32, p0: f32, p1: f32, p2: f32 }
-struct Job { slot: u32, tx: i32, ty: i32, first: u32, count: u32, p0: u32, p1: u32, p2: u32 }
-struct Params { colour: vec4f, tile: u32, p0: u32, p1: u32, p2: u32 }
+${SELECTION}
 @group(1) @binding(0) var<storage, read> jobs: array<Job>;
 @group(1) @binding(1) var<storage, read> dabs: array<Dab>;
 @group(1) @binding(2) var out: texture_storage_2d_array<${format}, write>;
@@ -207,13 +247,34 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   if (g.x >= tile || g.y >= tile) { return; }
   let job = jobs[g.z];
   var c = loadSlot(job.slot, vec2i(g.xy));
-  let p = vec2f(f32(job.tx * i32(tile) + i32(g.x)) + 0.5, f32(job.ty * i32(tile) + i32(g.y)) + 0.5);
+  let pixel = vec2i(job.tx * i32(tile) + i32(g.x), job.ty * i32(tile) + i32(g.y));
+  let p = vec2f(pixel) + 0.5;
+  // The selection limits the paint by how much of this pixel it covers.
+  let limit = selection_coverage(pixel);
   for (var i = 0u; i < job.count; i++) {
     let d = dabs[job.first + i];
-    let k = coverage(d, distance(p, vec2f(d.x, d.y)));
+    let k = coverage(d, distance(p, vec2f(d.x, d.y))) * limit;
     c = params.colour * k + c * (1.0 - params.colour.a * k);
   }
   textureStore(out, vec2i(g.xy), i32(g.z), round_for_store(c));
+}
+`;
+
+/** A mask's tiles from a selection: each pixel's coverage, in every channel (masks are `r16f`; the GPU keeps RGBA). */
+const MASK_FILL = (format: StorageFormat) => /* wgsl */ `
+${ROUND_FOR_STORE(format)}
+${SELECTION}
+@group(0) @binding(0) var<storage, read> jobs: array<Job>;
+@group(0) @binding(1) var out: texture_storage_2d_array<${format}, write>;
+@group(0) @binding(2) var<uniform> params: Params;
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) g: vec3u) {
+  let tile = params.tile;
+  if (g.x >= tile || g.y >= tile) { return; }
+  let job = jobs[g.z];
+  let c = selection_coverage(vec2i(job.tx * i32(tile) + i32(g.x), job.ty * i32(tile) + i32(g.y)));
+  textureStore(out, vec2i(g.xy), i32(g.z), round_for_store(vec4f(c)));
 }
 `;
 
@@ -379,6 +440,7 @@ export class Kernels {
   blurTiled!: GPUComputePipeline;
   blurMono!: GPUComputePipeline;
   stamp!: GPUComputePipeline;
+  maskFill!: GPUComputePipeline;
   quantize!: GPUComputePipeline;
   view!: GPURenderPipeline;
   /** Resolves when every pipeline has compiled. */
@@ -428,6 +490,7 @@ export class Kernels {
         ]),
       ]).then((p) => (this.blurMono = p)),
       compute("stamp", STAMP(format), [this.atlasLayout, bgl(device, "stamp", [readOnly(0), readOnly(1), storageArray(2), uniform(3)])]).then((p) => (this.stamp = p)),
+      compute("mask fill", MASK_FILL(format), [bgl(device, "mask fill", [readOnly(0), storageArray(1), uniform(2)])]).then((p) => (this.maskFill = p)),
       compute("quantize", QUANTIZE, [
         this.atlasLayout,
         this.imageLayout,
@@ -463,6 +526,7 @@ export class Kernels {
       ["blur tiled", BLUR_TILED(format)],
       ["blur mono", BLUR_MONO],
       ["stamp", STAMP(format)],
+      ["mask fill", MASK_FILL(format)],
       ["quantize", QUANTIZE],
       ["view", VIEW],
     ];

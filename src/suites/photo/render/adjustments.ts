@@ -70,11 +70,15 @@ fn adjust(c: vec4f) -> vec4f {
 
 export const ADJUSTMENT_KERNELS: Record<string, AdjustmentKernel> = { exposure: EXPOSURE, curves: CURVES };
 
-/** The whole shader for an adjustment writing a target of `format`. */
-export function adjustmentShader(kernel: AdjustmentKernel, format: StorageFormat): string {
+/**
+ * The whole shader for an adjustment writing a target of `format`. `mask` is the compositor's WGSL for groups 2
+ * and 3 (the adjustment's mask, in document pixels), defining `adjustment_mask(pos)`.
+ */
+export function adjustmentShader(kernel: AdjustmentKernel, format: StorageFormat, mask: string): string {
   return /* wgsl */ `
 ${ROUND_FOR_STORE(format)}
 ${MATHS}
+${mask}
 @group(0) @binding(0) var below: texture_2d<f32>;
 ${kernel.wgsl.replace("fn adjust", "@group(1) @binding(0) var<uniform> params: Params;\n@group(1) @binding(1) var<storage, read> table: array<f32>;\nfn adjust")}
 
@@ -85,8 +89,10 @@ fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f { return full_s
 fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let c = textureLoad(below, vec2i(pos.xy), 0);
   let adjusted = adjust(c);
-  if (params.opacity >= 1.0) { return round_for_store(adjusted); }
-  return round_for_store(mix(c, adjusted, params.opacity));
+  // Its opacity and its mask say how much it changes this pixel.
+  let k = params.opacity * adjustment_mask(pos.xy);
+  if (k >= 1.0) { return round_for_store(adjusted); }
+  return round_for_store(mix(c, adjusted, k));
 }
 `;
 }

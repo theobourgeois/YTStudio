@@ -59,6 +59,11 @@ export class VirtualImage {
     device.queue.writeBuffer(this.info, 0, data);
   }
 
+  /** What a tile with no slot (FILL) reads as: a surface's fill changes with the manifest it shows. */
+  setFill(fill: readonly [number, number, number, number]) {
+    this.device.queue.writeBuffer(this.info, 0, new Float32Array(fill));
+  }
+
   private index(level: number, tx: number, ty: number): number {
     const l = this.levels[level];
     if (tx < 0 || ty < 0 || tx >= l.tilesX || ty >= l.tilesY) return -1;
