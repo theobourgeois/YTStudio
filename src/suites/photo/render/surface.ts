@@ -680,6 +680,8 @@ export class SurfaceImage {
       if (existing !== null && existing !== d.slot) {
         this.ctx.atlas.release(d.slot);
         this.image.setSlot(0, d.tx, d.ty, existing);
+        // Its levels above are built from it (a surface made at once, as a mask from a selection, has none yet).
+        this.markParents(d.tx, d.ty);
       } else {
         this.ctx.atlas.rename(d.slot, key);
         // The Worker keeps its bytes until it's uploaded: the GPU's copy may be evicted now.
@@ -687,6 +689,7 @@ export class SurfaceImage {
       }
     });
     this.image.flush();
+    this.buildLevels();
     this.shown = id;
     this.manifest = manifest;
     this.showing++;
