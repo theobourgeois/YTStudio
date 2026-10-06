@@ -5,12 +5,27 @@
  */
 import { createId } from "@shared/ids";
 import { addAdjustmentLayer, addImageLayer, addPixelLayer, findLayer, moveLayer, removeLayer, removeMask, resetEffect, setCanvas, setEffectParams, setHighlights, setMask, setTransform, updateLayer } from "@shared/photo/edits";
-import { ADJUSTMENTS, type EffectDefinition, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
-import { CURVE_CHANNELS, MAX_CURVE_POINTS } from "@shared/photo/effects/params";
+import { ADJUSTMENTS, type EffectDefinition, type EffectKind, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
+import { CURVE_CHANNELS, MAX_CURVE_POINTS, type ParamSpec } from "@shared/photo/effects/params";
 import { bounds } from "@shared/photo/layers";
 import type { MergeKind } from "@shared/photo/merge";
 import { isColour } from "@shared/photo/project";
-import { type AdjustmentLayer, type CurveSet, type LayerTransform, type PhotoLayer, type PhotoProject, type PhotoSelection, type PlacedLayer, isPlaced } from "@shared/photo/types";
+import {
+  type AdjustmentLayer,
+  type ContentLayer,
+  type CurveSet,
+  type DocPoint,
+  type EffectElement,
+  type EffectInstance,
+  type EffectParamValue,
+  type GeneratorLayer,
+  type LayerTransform,
+  type PhotoLayer,
+  type PhotoProject,
+  type PhotoSelection,
+  type PlacedLayer,
+  isPlaced,
+} from "@shared/photo/types";
 import type { MediaAsset } from "@shared/types";
 import { fitted } from "./canvas/handles";
 import { imageLayerOf } from "./media";
@@ -69,11 +84,58 @@ export function describeAdjustment(layer: AdjustmentLayer): string {
   return `${def.label}: ${parts.join(", ")}`;
 }
 
+/** A parameter's value as the model reads it. */
+function paramText(spec: ParamSpec, v: EffectParamValue | undefined): string {
+  switch (spec.kind) {
+    case "number":
+      return `${spec.key} ${round(v as number, spec.decimals)}${spec.unit ? ` ${spec.unit}` : ""}`;
+    case "curves":
+      return CURVE_CHANNELS.map((c) => `${c} ${pointsText((v as CurveSet)[c])}`).join(", ");
+    case "point":
+      return `${spec.key} ${v === null ? "(the canvas's centre)" : `(${round((v as DocPoint)[0])}, ${round((v as DocPoint)[1])})`}`;
+    case "elements": {
+      const list = v as EffectElement[];
+      return `${spec.key}: ${list.length ? "" : "none"}\n${list
+        .map((e) => {
+          const type = spec.types.find((t) => t.type === e.type);
+          const own = type ? type.params.map((p) => paramText(p, e[p.key])).join(", ") : "";
+          return `      ${e.id} ${e.type}${e.enabled ? "" : " (hidden)"}: ${own}`;
+        })
+        .join("\n")}`;
+    }
+    default:
+      return `${spec.key} ${String(v)}`;
+  }
+}
+
+/** An effect's parameters as the model reads them, or why it can't be used. */
+function describeEffect(effect: EffectInstance, kind: EffectKind): string {
+  const def = effectDefinition(effect.type);
+  const reason = unavailableReason(effect, kind);
+  if (!def || reason) return `unavailable (${reason} It's kept and changes nothing.)`;
+  return `${def.label}: ${def.params.map((p) => paramText(p, effect.params[p.key])).join(", ")}`;
+}
+
+/** A generator layer's effect and how it blends. */
+export function describeGenerator(layer: GeneratorLayer): string {
+  return `${describeEffect(layer.effect, "generator")}\n   blend ${layer.blend ?? "normal"}${layer.blendSpace === "linear" ? " in linear light" : ""}`;
+}
+
+/** A layer's filters, first applied first: what the model reads under the layer. */
+export function describeFilters(layer: ContentLayer): string[] {
+  const filters = layer.filters ?? [];
+  if (!filters.length) return [];
+  const off = layer.filtersEnabled === false ? " (all bypassed)" : "";
+  return [`   filters${off}, first applied first:`, ...filters.map((f) => `     ${f.id}${f.enabled ? "" : " (bypassed)"}: ${describeEffect(f, "filter")}`)];
+}
+
 /** One layer as the model reads it. */
 export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], index: number): string {
   const faded = !layer.visible || layer.opacity < 1 ? [`   ${layer.visible ? "" : "hidden, "}opacity ${round(layer.opacity)}`] : [];
   const mask = layer.mask ? [`   mask: ${layer.mask.surface ? "painted (hides parts of it)" : "reveals everything (nothing painted on it yet)"}`] : [];
   if (layer.kind === "adjustment") return [`${index}. ${layer.id} "${layer.name}": adjustment layer (changes everything below it)`, `   ${describeAdjustment(layer)}`, ...mask, ...faded].join("\n");
+  const filters = describeFilters(layer);
+  if (layer.kind === "generator") return [`${index}. ${layer.id} "${layer.name}": generator layer`, `   ${describeGenerator(layer)}`, ...filters, ...mask, ...faded].join("\n");
   const size = sizeOf(layer, assets);
   const t = layer.transform;
   const asset = layer.kind === "image" ? assets.find((a) => a.id === layer.mediaId) : undefined;
@@ -89,7 +151,7 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
     const b = bounds(t, size);
     parts.push(`   box on the canvas: x ${round(b.x0)}..${round(b.x1)}, y ${round(b.y0)}..${round(b.y1)}`);
   }
-  return [...parts, ...mask, ...faded].join("\n");
+  return [...parts, ...filters, ...mask, ...faded].join("\n");
 }
 
 /** `get_photo`: the canvas and the layers, top down. */
@@ -228,7 +290,7 @@ export function adjustmentPatch(def: EffectDefinition, raw: unknown, current: Re
 
 export const addAdjustmentTool: PhotoEdit = (doc, input) => {
   const def = effectDefinition(String(input.type ?? ""));
-  if (!def) throw new Error(`No adjustment "${String(input.type)}". The adjustments: ${ADJUSTMENTS.map((d) => d.type).join(", ")}.`);
+  if (def?.kind !== "adjustment") throw new Error(`No adjustment "${String(input.type)}". The adjustments: ${ADJUSTMENTS.map((d) => d.type).join(", ")}.${def ? ` (${def.label} is a ${def.kind}: ${def.kind === "filter" ? "add it with add_filter" : "add it with add_generator"}.)` : ""}`);
   const above = input.above === undefined ? null : findLayerRef(doc, input.above).id;
   const id = createId("layer");
   const fresh = addAdjustmentLayer(doc, { id, type: def.type, name: typeof input.name === "string" ? input.name : undefined }, above);

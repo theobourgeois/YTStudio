@@ -22,6 +22,7 @@ import {
   PiPaintBrush,
   PiPlus,
   PiSelectionBackground,
+  PiSparkle,
   PiStackPlus,
   PiSun,
   PiTrash,
@@ -30,7 +31,7 @@ import {
 import { createId } from "@shared/ids";
 import { addAdjustmentLayer, moveLayersTo, updateLayer } from "@shared/photo/edits";
 import { ADJUSTMENTS, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
-import type { AdjustmentLayer, ImageLayer, PhotoLayer, PixelLayer } from "@shared/photo/types";
+import type { AdjustmentLayer, GeneratorLayer, ImageLayer, PhotoLayer, PixelLayer } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -332,7 +333,7 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow }: RowProps) 
         {layer.visible ? <PiEye /> : <PiEyeSlash />}
       </button>
       <span className={cn("shrink-0 rounded-sm ring-offset-1 ring-offset-surface-1", targeted("content") && layer.kind !== "adjustment" && "ring-1 ring-foreground/70")} data-thumb="content" data-targeted={targeted("content") || undefined}>
-        {layer.kind === "image" ? <ImageThumb layer={layer} /> : layer.kind === "pixel" ? <PixelThumb layer={layer} /> : <AdjustmentThumb layer={layer} />}
+        {layer.kind === "image" ? <ImageThumb layer={layer} /> : layer.kind === "pixel" ? <PixelThumb layer={layer} /> : layer.kind === "generator" ? <GeneratorThumb layer={layer} /> : <AdjustmentThumb layer={layer} />}
       </span>
       {layer.mask && (
         <span className={cn("shrink-0 rounded-sm ring-offset-1 ring-offset-surface-1", targeted("mask") && "ring-1 ring-foreground/70")} data-thumb="mask" data-targeted={targeted("mask") || undefined} title="Layer mask: black hides, white reveals">
@@ -386,6 +387,17 @@ function PixelThumb({ layer }: { layer: PixelLayer }) {
   ) : (
     <span className="grid size-8 shrink-0 place-items-center rounded-sm bg-surface-2 text-muted-foreground" aria-hidden>
       <PiPaintBrush className="size-4" />
+    </span>
+  );
+}
+
+function GeneratorThumb({ layer }: { layer: GeneratorLayer }) {
+  const thumbnail = useLayerThumbnail(layer);
+  return thumbnail ? (
+    <img src={thumbnail} alt="" draggable={false} className="size-8 shrink-0 rounded-sm bg-surface-2 object-contain" data-thumbnail="rendered" />
+  ) : (
+    <span className="grid size-8 shrink-0 place-items-center rounded-sm bg-surface-2 text-muted-foreground" aria-hidden>
+      <PiSparkle className="size-4" />
     </span>
   );
 }

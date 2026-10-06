@@ -151,11 +151,14 @@ export const FILTERS = EFFECTS.filter((d) => d.kind === "filter");
 /** What makes a generator layer's content. */
 export const GENERATORS = EFFECTS.filter((d) => d.kind === "generator");
 
-/** Why an instance can't be used here, or null when it can. */
-export function unavailableReason(effect: EffectInstance): string | null {
+const KIND_NAMES: Record<EffectKind, string> = { adjustment: "an adjustment", filter: "a filter", generator: "a generator" };
+
+/** Why an instance can't be used here (as `kind`, where it's held as one), or null when it can. */
+export function unavailableReason(effect: EffectInstance, kind?: EffectKind): string | null {
   const def = effectDefinition(effect.type);
   if (!def) return `"${effect.type}" isn't an effect this version of the app knows.`;
   if (effect.version > def.version) return `This ${def.label} was made by a newer version of the app.`;
+  if (kind && def.kind !== kind) return `${def.label} isn't ${KIND_NAMES[kind]}.`;
   return null;
 }
 

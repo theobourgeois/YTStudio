@@ -25,6 +25,11 @@ export const GLOW_MIN_TEXELS = 1.5;
 export const GLOW_SIGMAS = 3;
 /** The B-spline's reach, in texels of its level. */
 export const BSPLINE_REACH = 2;
+/**
+ * The renderer keeps each glow's contributions from this level up, reduced from level 0 (`render/glow.ts`), so a view
+ * at this level or coarser reads the full-resolution result: it needs no refinement (f4-light.md, "Levels").
+ */
+export const GLOW_CACHED_FROM = 2;
 
 export interface GlowParams {
   /** Document pixels. */

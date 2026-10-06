@@ -6,13 +6,15 @@
  *
  * Image layers (a placed source, kept whole: transforming resamples the source, never the last result); from
  * version 2, adjustment layers (exposure, curves: they change what's below them); from version 3, pixel layers
- * (painted pixels) and every layer's mask. Other kinds arrive with their renderers, through versioned migrations
+ * (painted pixels) and every layer's mask; from version 5, filters and generator layers (F4: light). Other kinds
+ * arrive with their renderers, through versioned migrations
  * (`normalizePhotoProject`).
  */
 import type { DocumentBase } from "../suites.ts";
 
 /**
- * 5: light (F4: the `film` highlights by default; 4 is Layer Style's blending), 3: pixel layers and masks, 2:
+ * 5: light (F4: filters, generator layers, the `film` highlights by default; 4 is Layer Style's blending), 3:
+ * pixel layers and masks, 2:
  * adjustment layers. An older document is a valid newer one (its highlights clip, as they were drawn then); an
  * older app refuses a newer one.
  */
@@ -57,8 +59,20 @@ interface LayerBase {
   mask?: LayerMask;
 }
 
+/**
+ * What a layer with content of its own carries from version 5: filters (Photoshop's Smart Filters; the glow first),
+ * applied in order to its content in linear light, before its mask (the first applies first; the Layers panel lists
+ * them bottom up, as Photoshop does).
+ */
+interface Filtered {
+  /** Absent: none (only fields that exist are written). */
+  filters?: EffectInstance[];
+  /** The "Filters" row's eye: false bypasses them all, keeping each one's own setting. Absent: true. */
+  filtersEnabled?: false;
+}
+
 /** A source image placed on the canvas, kept whole (Photoshop's embedded Smart Object, for this). */
-export interface ImageLayer extends LayerBase {
+export interface ImageLayer extends LayerBase, Filtered {
   kind: "image";
   /** The project media it shows. */
   mediaId: string;
@@ -119,7 +133,7 @@ export interface AdjustmentLayer extends LayerBase {
  * Painted pixels (Photoshop's pixel layer): an `rgba16f` surface of `size` pixels, transparent where nothing is
  * painted (null: nothing yet), placed by its transform like an image (a new one covers the canvas at 100%).
  */
-export interface PixelLayer extends LayerBase {
+export interface PixelLayer extends LayerBase, Filtered {
   kind: "pixel";
   surface: SurfaceId | null;
   /** Its pixels: the surface's extent. */
@@ -127,12 +141,41 @@ export interface PixelLayer extends LayerBase {
   transform: LayerTransform;
 }
 
-export type PhotoLayer = ImageLayer | PixelLayer | AdjustmentLayer;
+/**
+ * How a generator layer mixes with what's below. Layer Style's L1 brings Photoshop's modes to every layer; F4 needs
+ * Normal and Linear Dodge (Add) for flares.
+ */
+export type GeneratorBlend = "normal" | "linear-dodge";
+
+/**
+ * A generator layer (version 5): content made by its effect (a lens flare), in document pixels. It has no transform:
+ * its handles are document points in its parameters (Move moves them). Its mask is in document pixels, as an
+ * adjustment's is.
+ */
+export interface GeneratorLayer extends LayerBase, Filtered {
+  kind: "generator";
+  /** A definition of kind "generator". */
+  effect: EffectInstance;
+  /** Absent: normal. A new flare adds its light (linear-dodge). */
+  blend?: GeneratorBlend;
+  /**
+   * Where it blends: "linear" in linear light whatever the document's compositing (a flare's light adds physically,
+   * a deliberate difference from Photoshop). Absent: the document's.
+   */
+  blendSpace?: "linear";
+}
+
+export type PhotoLayer = ImageLayer | PixelLayer | AdjustmentLayer | GeneratorLayer;
 
 /** A layer with pixels of its own and a place on the canvas: what the Move tool moves. */
 export type PlacedLayer = ImageLayer | PixelLayer;
 
-export const isPlaced = (layer: PhotoLayer): layer is PlacedLayer => layer.kind !== "adjustment";
+export const isPlaced = (layer: PhotoLayer): layer is PlacedLayer => layer.kind === "image" || layer.kind === "pixel";
+
+/** A layer with content of its own (pixels, or made by a generator): one that can carry filters. */
+export type ContentLayer = ImageLayer | PixelLayer | GeneratorLayer;
+
+export const hasContent = (layer: PhotoLayer): layer is ContentLayer => layer.kind !== "adjustment";
 
 /**
  * A selection (Photoshop's marching ants), in document pixels: what limits painting and makes masks. Session state

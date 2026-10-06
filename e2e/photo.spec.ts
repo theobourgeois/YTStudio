@@ -9,7 +9,9 @@ import path from "node:path";
 import { type Page, expect, test } from "@playwright/test";
 import sharp from "sharp";
 import { levelForScale } from "../shared/photo/geometry.ts";
+import type { GlowParams } from "../shared/photo/effects/glow.ts";
 import { curvesFor, exposurePixel, type Pixel } from "../shared/photo/reference/adjustments.ts";
+import { glowReference } from "../shared/photo/reference/glow.ts";
 import { boxReduce, sampleMitchell } from "../shared/photo/reference/reduce.ts";
 
 test.describe.configure({ mode: "serial" });
@@ -1284,4 +1286,81 @@ test("copy, cut and paste make layers; fills, Delete and the eraser change pixel
   await expect(foreground).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await page.keyboard.press("d");
   expect((await undo.boundingBox())!.x).toBe(undoX);
+});
+
+// --- F4: light ---
+
+type LightWindow = {
+  photoDebug: {
+    photo: { getState(): { history: { doc: { doc: { canvas: { width: number; height: number }; layers: { id: string }[] } } }; commit(fn: (doc: unknown) => unknown): void } };
+  };
+};
+
+/** Replaces the open photo's canvas and layers (one undo step), as the tests' starting point. */
+const setPhoto = (page: Page, canvas: { width: number; height: number; background: string | null }, layers: unknown[]) =>
+  page.evaluate(
+    ({ canvas, layers }) => (window as unknown as LightWindow).photoDebug.photo.getState().commit((d) => ({ ...(d as object), canvas, layers })),
+    { canvas, layers },
+  );
+
+/** A layer's fields replaced (one undo step). */
+const patchLayer = (page: Page, id: string, patch: Record<string, unknown>) =>
+  page.evaluate(
+    ({ id, patch }) =>
+      (window as unknown as LightWindow).photoDebug.photo
+        .getState()
+        .commit((d) => ({ ...(d as object), layers: (d as { layers: { id: string }[] }).layers.map((l) => (l.id === id ? { ...l, ...patch } : l)) })),
+    { id, patch },
+  );
+
+const pixelLayer = (id: string, width: number, height: number) => ({ id, kind: "pixel", name: id, visible: true, opacity: 1, surface: null, size: { width, height }, transform: { x: width / 2, y: height / 2, scaleX: 1, scaleY: 1, rotation: 0 } });
+
+const GLOW: GlowParams = { radius: 100, intensity: 0, threshold: 75, knee: 25, tint: "#ffb070", tintAmount: 30, mix: 100 };
+const glowFilter = (id: string, params: Partial<GlowParams> = {}) => ({ id, type: "glow", version: 1, enabled: true, params: { ...GLOW, ...params } });
+
+const maxOf = (a: ArrayLike<number>) => {
+  let m = -Infinity;
+  for (let i = 0; i < a.length; i++) m = Math.max(m, a[i]);
+  return m;
+};
+
+/** The largest difference between two float images, relative to the larger value (and at least 1). */
+function worstDifference(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  let worst = 0;
+  for (let i = 0; i < a.length; i++) worst = Math.max(worst, Math.abs(a[i] - b[i]) / Math.max(1, Math.abs(b[i])));
+  return worst;
+}
+
+test("a glow is its CPU reference, the same tiled as whole, and keeps light above white", async ({ page }) => {
+  await openNewPhoto(page, "Glow");
+  const W = 320;
+  const H = 224;
+  await setPhoto(page, { width: W, height: H, background: null }, [pixelLayer("lit", W, H)]);
+  // Light above white in two spots, and a dim line that stays under the threshold.
+  await paint(page, "lit", "content", [{ x: 80, y: 60 }], { radius: 5, hardness: 1, colour: [3, 2, 0.5, 1] });
+  await paint(page, "lit", "content", [{ x: 230, y: 150 }], { radius: 3, hardness: 1, colour: [1.5, 1.5, 4, 1] });
+  await paint(page, "lit", "content", line(20, 200, 300, 190), { radius: 4, hardness: 1, colour: [0.3, 0.3, 0.3, 1] });
+  const whole: ViewBox = { zoom: 1, x: 0, y: 0, width: W, height: H };
+  const content = await renderRegion(page, whole);
+  expect(maxOf(content)).toBeGreaterThan(2);
+
+  await patchLayer(page, "lit", { filters: [glowFilter("g1")] });
+  const glowing = await renderRegion(page, whole);
+  const reference = glowReference({ width: W, height: H, data: Float64Array.from(content) }, GLOW).out;
+  expect(worstDifference(glowing, reference)).toBeLessThan(4e-3);
+  // Light above white survives to the output transform.
+  expect(maxOf(glowing.filter((_, i) => i % 4 !== 3))).toBeGreaterThan(1);
+  // The glow spills past the layer's pixels: coverage where there was none.
+  expect(pixelAt(glowing, W, 80, 30)[3]).toBeGreaterThan(0);
+  expect(pixelAt(content, W, 80, 30)[3]).toBe(0);
+
+  // Regions far smaller than the radius (as an export's) give the very same pixels: no seams.
+  let seams = 0;
+  for (let y = 0; y < H; y += 64) {
+    for (let x = 0; x < W; x += 64) {
+      const tile = await renderRegion(page, { zoom: 1, x, y, width: 64, height: 64 });
+      for (let j = 0; j < Math.min(64, H - y); j++) for (let i = 0; i < Math.min(64, W - x); i++) for (let c = 0; c < 4; c++) seams = Math.max(seams, Math.abs(tile[(j * 64 + i) * 4 + c] - glowing[((y + j) * W + x + i) * 4 + c]));
+    }
+  }
+  expect(seams).toBeLessThan(1e-5);
 });
