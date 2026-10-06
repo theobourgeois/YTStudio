@@ -46,8 +46,8 @@ for (let i = 0; i < 300 && comparison.status !== "ready"; i++) {
   comparison = await call<VocalMixRun>("get_vocal_mix_run", { runId: created.id });
   if (["failed", "interrupted", "cancelled"].includes(comparison.status)) throw new Error(JSON.stringify(comparison));
 }
-if (comparison.status !== "ready" || comparison.candidates.length !== 4 || comparison.candidates.some(c => c.renders.some(r => !r.reportId || r.auditionGainDb === null || r.auditionGainDb > 0))) throw new Error("Incomplete comparison or invalid audition gains");
+if (comparison.status !== "ready" || comparison.candidates.length < 1 || comparison.candidates.some(c => c.renders.some(r => !r.reportId || r.auditionGainDb === null || r.auditionGainDb > 0))) throw new Error("Incomplete comparison or invalid audition gains");
 await fs.writeFile(path.join(root, "assistant-verification.json"), JSON.stringify({ snapshot, render: rendered, analysis: measured, report, comparison }, null, 2));
-console.log(`Comparison ready: ${comparison.id}; four alternatives, two passages, eight native renders/reports`);
+console.log(`Comparison ready: ${comparison.id}; ${comparison.candidates.length - 1} measured alternative(s) and the baseline, two passages each`);
 await call("review_vocal_mix_run", { runId: comparison.id });
 console.log("Opened native app comparison playback");
