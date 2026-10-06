@@ -8,9 +8,9 @@ export function webRoutes(web: WebMediaLibrary, projects: ProjectStore): Router 
   const router = Router();
 
   router.get("/search", async (req, res) => {
-    const clips = await web.search(queryString(req.query.q), abortOnClose(res));
+    const page = await web.search(queryString(req.query.q), abortOnClose(res), req.query.page);
     res.setHeader("Cache-Control", "private, max-age=300");
-    res.json(clips);
+    res.json(page);
   });
   router.get("/resolve", async (req, res) => {
     const clip = await web.resolve(queryString(req.query.url), abortOnClose(res));

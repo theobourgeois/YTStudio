@@ -1751,8 +1751,8 @@ test("the Browser: a folder added once for every song, opened, previewed, search
   await expect(item("Kick 1.wav")).toHaveAttribute("data-playing", "true");
   await expect(browser.getByTestId("browser-waveform")).toHaveAttribute("data-loaded", "true");
   await expect(browser.getByTestId("browser-preview")).toContainText("Kick 1.wav");
-  // The stand-in engine's previews last 2 s.
-  await expect(item("Kick 1.wav")).not.toHaveAttribute("data-playing", "true", { timeout: 5000 });
+  // The stand-in engine's previews last 4 s.
+  await expect(item("Kick 1.wav")).not.toHaveAttribute("data-playing", "true", { timeout: 10_000 });
 
   // FL's keys: the arrows go from file to file, playing each; ← goes out to the folder and closes it.
   await list.focus();
@@ -1888,17 +1888,22 @@ test("the Browser's Online tab: YouTube searched, a result heard and dragged int
   // Pressed, it plays (its sound downloaded first), and its waveform shows below.
   await result("Amen Break").click();
   await expect(result("Amen Break")).toHaveAttribute("data-playing", "true");
-  // Pressed again it pauses; the preview bar's button goes on; Space pauses it (rather than playing the song).
+  // Space pauses it (rather than playing the song); the preview bar's button goes on; pressed again, it pauses.
+  // (The stand-in engine's previews last 4 s from where they start.)
   const toggle = browser.getByTestId("browser-preview-toggle");
-  await result("Amen Break").click();
-  await expect(result("Amen Break")).not.toHaveAttribute("data-playing", "true");
-  await expect(toggle).toHaveAccessibleName("Play the preview");
-  await toggle.click();
-  await expect(result("Amen Break")).toHaveAttribute("data-playing", "true");
+  // (The stand-in engine is every test's: an earlier one may have left the song playing. Space mustn't change it.)
+  const play = page.getByRole("toolbar", { name: "Transport" }).getByRole("button", { name: "Play" });
+  const songPlaying = await play.getAttribute("aria-pressed");
   await page.keyboard.press("Space");
   await expect(toggle).toHaveAccessibleName("Play the preview");
   await expect(result("Amen Break")).not.toHaveAttribute("data-playing", "true");
-  await expect(page.getByRole("toolbar", { name: "Transport" }).getByRole("button", { name: "Play" })).not.toHaveAttribute("aria-pressed", "true");
+  await page.waitForTimeout(300);
+  expect(await play.getAttribute("aria-pressed")).toBe(songPlaying);
+  await toggle.click();
+  await expect(result("Amen Break")).toHaveAttribute("data-playing", "true");
+  await result("Amen Break").click();
+  await expect(result("Amen Break")).not.toHaveAttribute("data-playing", "true");
+  await expect(toggle).toHaveAccessibleName("Play the preview");
   await toggle.click();
   await expect(result("Amen Break")).toHaveAttribute("data-playing", "true");
   await expect(browser.getByTestId("browser-preview")).toContainText("Amen Break");
@@ -1922,6 +1927,19 @@ test("the Browser's Online tab: YouTube searched, a result heard and dragged int
   await expect(result("Pasted Sound")).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Enter");
   await expect.poll(names).toEqual(["Pasted Sound", "Vocal Chop"]);
+
+  // A search's results come 15 at a time: scrolled to the end, the list loads the next page, until there are no more.
+  await search.fill("many results");
+  await expect(result("Result 15")).toBeAttached();
+  await expect
+    .poll(async () => {
+      await results.evaluate((e) => (e.scrollTop = e.scrollHeight));
+      return results.getByRole("option").count();
+    })
+    .toBe(40);
+  await expect(browser.getByTestId("online-more")).toHaveCount(0);
+  await search.fill("https://soundcloud.com/someone/pasted-sound");
+  await expect(result("Pasted Sound")).toBeVisible();
 
   // The Files tab is as it was; the Online tab keeps its results meanwhile.
   await browser.getByRole("tab", { name: "Files" }).click();

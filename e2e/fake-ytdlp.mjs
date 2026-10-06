@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * A stand-in for yt-dlp in the e2e tests (`YTDLP_PATH`), so they never reach the web: a search answers
- * with two clips, a link with a clip of its own, and a download is a short tone, written as a WAV.
+ * with two clips (one for "many…" has 40, given a page at a time by `-I`), a link with a clip of its own,
+ * and a download is a short tone, written as a WAV.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -9,6 +10,13 @@ import path from "node:path";
 const args = process.argv.slice(2);
 if (args.includes("--version")) {
   console.log("2099.01.01");
+  process.exit(0);
+}
+if (args.includes("--flat-playlist") && /^ytsearch\d+:many/.test(args[args.length - 1])) {
+  const [from, to] = (args[args.indexOf("-I") + 1] ?? "1:15").split(":").map(Number);
+  const entries = [];
+  for (let n = from; n <= Math.min(to, 40); n++) entries.push({ id: `manyclip${String(n).padStart(3, "0")}`, title: `Result ${n}`, channel: "Many", duration: 30 });
+  process.stdout.write(JSON.stringify({ entries }));
   process.exit(0);
 }
 if (args.includes("--flat-playlist")) {

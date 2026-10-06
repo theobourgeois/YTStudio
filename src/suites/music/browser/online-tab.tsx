@@ -5,7 +5,7 @@ import { formatDuration } from "@shared/format";
 import type { WebClip } from "@shared/types";
 import { cn } from "cn";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { useWebSearch } from "@/components/media/use-web-search";
+import { useEndOfList, useWebSearch } from "@/components/media/use-web-search";
 import { useTransport } from "../transport";
 import { openInNewChannels, samplerToSendTo, sendToSelectedChannel, togglePreview } from "./actions";
 import { BROWSER_DRAG_TYPE, type BrowserDrag, setCarriedPaths } from "./drops";
@@ -25,6 +25,8 @@ export function OnlineTab({ shown }: { shown: boolean }) {
   const loading = search.status === "loading";
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  // Scrolled to its end, the list asks for YouTube's next page.
+  const end = useEndOfList(search.loadMore, search.status === "done" && search.more && !search.loadingMore && !search.moreError, clips.length);
 
   useEffect(() => rememberClips(clips), [clips]);
   useEffect(() => {
@@ -110,6 +112,23 @@ export function OnlineTab({ shown }: { shown: boolean }) {
         {clips.map((clip, i) => (
           <OnlineRow key={clip.url} clip={clip} index={i} />
         ))}
+        {search.status === "done" && (search.more || search.moreError) && (
+          <div ref={end} className="flex h-8 items-center justify-center gap-1.5 text-[11px] text-muted-foreground" data-testid="online-more">
+            {search.moreError ? (
+              <>
+                Couldn't load more.
+                <button type="button" className="underline hover:text-foreground" onClick={search.loadMore}>
+                  Try again
+                </button>
+              </>
+            ) : (
+              <>
+                <PiSpinnerGap className="size-3 animate-spin" />
+                Loading more…
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

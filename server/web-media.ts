@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ImportWebMediaRequest, MediaAsset, WebClip, WebDownloadProgress, WebMediaKind } from "../shared/types.ts";
+import type { ImportWebMediaRequest, MediaAsset, WebClip, WebDownloadProgress, WebMediaKind, WebSearchPage } from "../shared/types.ts";
 import { errorMessage } from "../shared/errors.ts";
 import { FFMPEG, YTDLP } from "./config.ts";
 import { isAbortError, run } from "./process.ts";
@@ -9,7 +9,9 @@ import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
 import { type DataPaths, HttpError } from "./storage.ts";
 
+/** A search's results come a page at a time (scrolled to its end, the list asks for the next), up to `SEARCH_PAGES`. */
 const SEARCH_RESULTS = 15;
+const SEARCH_PAGES = 10;
 const SEARCH_TIMEOUT_MS = 30_000;
 const RESOLVE_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS: Record<WebMediaKind, number> = { audio: 3 * 60_000, video: 10 * 60_000 };
@@ -108,6 +110,12 @@ interface InfoEntry {
 const SITE_NAMES: Record<string, string> = { Youtube: "YouTube", Twitter: "X", TikTok: "TikTok", Instagram: "Instagram" };
 
 /** yt-dlp's `--flat-playlist -J` search output -> clips (skipping livestreams and long mixes). */
+/** A page of yt-dlp's search output: its clips, and whether YouTube had a full page (so there may be more). */
+export function parseSearchPage(json: string, page: number): WebSearchPage {
+  const { entries } = JSON.parse(json) as { entries?: unknown[] };
+  return { clips: parseSearchResults(json), more: (entries?.length ?? 0) >= SEARCH_RESULTS && page + 1 < SEARCH_PAGES };
+}
+
 export function parseSearchResults(json: string): WebClip[] {
   const { entries } = JSON.parse(json) as { entries?: InfoEntry[] };
   const clips = new Map<string, WebClip>();
@@ -261,15 +269,19 @@ export class WebMediaLibrary {
     }
   }
 
-  async search(query: string, signal: AbortSignal): Promise<WebClip[]> {
+  /** A page of YouTube's results (from 0): yt-dlp is asked for the results up to its end, and given only its own. */
+  async search(query: string, signal: AbortSignal, rawPage: unknown = 0): Promise<WebSearchPage> {
     const q = query.trim().replace(/\s+/g, " ");
     if (!q) throw new HttpError(400, "Type something to search for.");
     if (q.length > 200) throw new HttpError(400, "That search is too long.");
+    const page = rawPage === undefined || rawPage === "" ? 0 : Number(rawPage);
+    if (!Number.isInteger(page) || page < 0 || page >= SEARCH_PAGES) throw new HttpError(400, `page must be a whole number from 0 to ${SEARCH_PAGES - 1}.`);
+    const last = (page + 1) * SEARCH_RESULTS;
     try {
-      const out = await run(this.ytdlp, [...BASE_ARGS, "--flat-playlist", "-J", `ytsearch${SEARCH_RESULTS}:${q}`], {
+      const out = await run(this.ytdlp, [...BASE_ARGS, "--flat-playlist", "-J", "-I", `${last - SEARCH_RESULTS + 1}:${last}`, `ytsearch${last}:${q}`], {
         signal: this.signal(signal, SEARCH_TIMEOUT_MS),
       });
-      return parseSearchResults(out);
+      return parseSearchPage(out, page);
     } catch (err) {
       throw webMediaError(err, "search");
     }

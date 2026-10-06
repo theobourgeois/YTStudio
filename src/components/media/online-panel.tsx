@@ -24,7 +24,7 @@ import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { downloadLabel } from "./upload-card";
 import { type WebPreview, useWebPreview } from "./use-web-preview";
-import { useWebSearch } from "./use-web-search";
+import { useEndOfList, useWebSearch } from "./use-web-search";
 
 const KIND_KEY = "editor-online-kind";
 
@@ -70,6 +70,8 @@ export function OnlinePanel({ active }: { active: boolean }) {
 
   const clips = search.status === "loading" || search.status === "done" ? search.clips : [];
   const loading = search.status === "loading";
+  // Scrolled to its end, the list asks for YouTube's next page.
+  const end = useEndOfList(search.loadMore, search.status === "done" && search.more && !search.loadingMore && !search.moreError, clips.length);
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", !active && "hidden")}>
@@ -170,6 +172,23 @@ export function OnlinePanel({ active }: { active: boolean }) {
               />
             ))}
           </ul>
+          {search.status === "done" && (search.more || search.moreError) && (
+            <div ref={end} className="flex h-9 items-center justify-center gap-1.5 pb-2 text-xs text-muted-foreground" data-testid="online-more">
+              {search.moreError ? (
+                <>
+                  Couldn't load more.
+                  <button type="button" className="underline hover:text-foreground" onClick={search.loadMore}>
+                    Try again
+                  </button>
+                </>
+              ) : (
+                <>
+                  <PiSpinnerGap className="size-3.5 animate-spin" />
+                  Loading more…
+                </>
+              )}
+            </div>
+          )}
         </ScrollArea>
       )}
     </div>
