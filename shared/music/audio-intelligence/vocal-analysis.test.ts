@@ -44,7 +44,10 @@ describe("a vocal against its beat", () => {
     const { proposals } = proposeVocalChanges([a, a], 2, "balanced");
     const shape = proposals.find(p => p.id === "shape")!;
     expect(shape.change.compressor!.ratio).toBe(3);
-    expect(shape.change.compressor!.threshold).toBeCloseTo(Math.round((a.loudRmsDbfs! - 2 - 4) * 2) / 2, 5);
+    // From the loud words' peaks, before the 2 dB fader, 6 dB under them; and 2 dB of make-up.
+    expect(shape.change.compressor!.threshold).toBeCloseTo(Math.round((a.loudPeakDbfs! - 2 - 6) * 2) / 2, 5);
+    expect(shape.change.compressor!.makeup).toBe(2);
+    expect(a.loudPeakDbfs!).toBeGreaterThan(a.loudRmsDbfs!);
     expect(shape.reasons.join(" ")).toMatch(/Uneven phrases/);
   });
   it("finds rumble, mud, harshness and sibilance and proposes cuts where they are", () => {
@@ -59,7 +62,21 @@ describe("a vocal against its beat", () => {
     const eq = proposeVocalChanges([a, a], 0).proposals.find(p => p.id === "shape")!.change.eq!;
     expect(eq.find(b => b.shape === "lowCut")!.frequency).toBe(80);
     expect(eq.find(b => b.shape === "bell" && b.gain < 0)!.frequency).toBeGreaterThan(280);
-    expect(eq.find(b => b.range === -6)!.frequency).toBeGreaterThan(6000);
+    const deEss = eq.find(b => b.range === -6)!;
+    expect(deEss.frequency).toBeGreaterThan(6000);
+    // Its threshold is the band's usual level, which a 7 kHz tone at 0.08 puts near -25 dBFS.
+    expect(deEss.threshold!).toBeGreaterThan(-35);
+    expect(deEss.threshold!).toBeLessThan(-15);
+  });
+  it("measures a candidate over the baseline's singing, so a quieter vocal doesn't let its breaths in", () => {
+    const sung = phrases(voiceLike(11, 0.2), [1, 0.5]), breaths = Float32Array.from(voiceLike(12, 0.004), (v, i) => sung[i] === 0 ? v : 0);
+    const vocal = add(sung, breaths), beat = voiceLike(13, 0.1), base = passage(vocal, beat);
+    // The vocal 12 dB down, its breaths as they were (a compressor's work, exaggerated).
+    const lower = add(Float32Array.from(sung, v => v / 4), breaths);
+    const own = analyseVocal(stereo(lower), stereo(beat), stereo(add(lower, beat)), RATE), held = analyseVocal(stereo(lower), stereo(beat), stereo(add(lower, beat)), RATE, base.sounding);
+    expect(base.sounding.chunks).toMatch(/^[01]+$/);
+    expect(held.vocal.phraseSpreadLu!).toBeCloseTo(base.vocal.phraseSpreadLu!, 0);
+    expect(own.vocal.activeFraction).toBeGreaterThanOrEqual(held.vocal.activeFraction);
   });
   it("proposes nothing when only one passage shows a finding, or none does", () => {
     const even = phrases(voiceLike(7, 0.1), [1]), uneven = phrases(voiceLike(8, 0.2), [1, 0.15]);
@@ -86,6 +103,8 @@ describe("a vocal change in its own units", () => {
     expect(() => checkVocalChange({ eq: [{ shape: "notch", frequency: 100 }] })).toThrow(/shape/);
     expect(() => checkVocalChange({ eq: [{ shape: "lowCut", frequency: 500 }] })).toThrow(/300 Hz/);
     expect(() => checkVocalChange({ eq: [{ shape: "highShelf", frequency: 8000, gain: 2, range: -4 }] })).toThrow(/only a bell/);
+    expect(() => checkVocalChange({ eq: [{ shape: "bell", frequency: 7000, gain: 0, threshold: -30 }] })).toThrow(/needs a range/);
+    expect(checkVocalChange({ eq: [{ shape: "bell", frequency: 7000, gain: 0, q: 2, range: -6, threshold: -30 }] }).eq![0].threshold).toBe(-30);
     expect(() => checkVocalChange({})).toThrow(/changes nothing/);
   });
 });

@@ -113,7 +113,9 @@ test("hosted listening permission is explicit, persists, and belongs to one song
   expect(invalid.status()).toBe(400);
 });
 
-test("vocal alternatives render without edits, apply as one undo step, and refuse stale comparisons", async ({ page, context }) => {
+test("the vocal is measured against the beat, alternatives proposed from it render without edits, apply as one undo step, and refuse stale comparisons", async ({ page, context }) => {
+  // Ten renders through the stand-in engine's queue, about a second and a half each.
+  test.setTimeout(120000);
   const source = path.resolve("e2e/.data/vocal-comparison.wav");
   await writeWav(source, Float32Array.from({ length: 48000 * 40 }, (_, i) => .2 * Math.sin(i * 2 * Math.PI * 1000 / 48000)), 48000);
   const project = await (await page.request.post("/api/projects", { data: { suite: "music", name: "Vocal comparison" } })).json();
@@ -127,21 +129,24 @@ test("vocal alternatives render without edits, apply as one undo step, and refus
   await page.getByRole("button", { name: "Vocal mix comparison", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Vocal mix comparison" });
   await expect(dialog.getByLabel("Vocal mixer insert")).toHaveValue("insert_vocal");
-  await dialog.getByRole("button", { name: "Render alternatives", exact: true }).click();
-  await expect(dialog.getByText("Both passages are ready to compare.")).toBeVisible({ timeout: 35000 });
+  await dialog.getByRole("button", { name: "Measure and render alternatives", exact: true }).click();
+  await expect(dialog.getByText("Both passages are ready to compare.")).toBeVisible({ timeout: 60000 });
+  // The stand-in engine's vocal stem and beat are the same tone: 0 LU apart, so a "balanced" vocal comes down 3 dB.
+  await expect(dialog.getByLabel("What the measurements found")).toContainText("The vocal sits 0.0 LU over the beat");
   const saved = async () => (await (await page.request.get(`/api/projects/${project.id}`)).json());
   expect((await saved()).mixer.tracks.find((t: { id: string }) => t.id === "insert_vocal").effects.filter(Boolean)).toHaveLength(0);
-  await dialog.getByRole("button", { name: "Gentle compression + presence EQ", exact: true }).click();
+  await dialog.getByRole("button", { name: "Level + tone & dynamics", exact: true }).click();
+  await expect(dialog.getByText(/^Vocal against the beat .*: 0\.0 → -3\.0 LU$/)).toBeVisible();
   await expect(dialog.locator("audio")).toHaveAttribute("src", /\/artifacts\/art_.*\/audio$/);
   await dialog.getByRole("button", { name: "Passage 2", exact: true }).click();
   await dialog.getByRole("button", { name: "Apply selected alternative", exact: true }).click();
   await expect(dialog.getByText("Applied as one undo step. Use Undo to restore the previous mix.")).toBeVisible();
-  await expect.poll(async () => (await saved()).mixer.tracks.find((t: { id: string }) => t.id === "insert_vocal").effects.filter(Boolean).length).toBe(2);
+  await expect.poll(async () => (await saved()).mixer.tracks.find((t: { id: string }) => t.id === "insert_vocal").effects.filter(Boolean).length).toBe(1);
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect.poll(async () => (await saved()).mixer.tracks.find((t: { id: string }) => t.id === "insert_vocal").effects.filter(Boolean).length).toBe(0);
   await page.getByRole("button", { name: "Vocal mix comparison", exact: true }).click();
-  await dialog.getByRole("button", { name: "Vocal +2 dB", exact: true }).click();
+  await dialog.getByRole("button", { name: "Vocal level", exact: true }).click();
   const mcpUrl = `http://127.0.0.1:${process.env.E2E_SERVER_PORT || 5321}/mcp?chat=${project.id}`;
   const changed = await context.request.post(mcpUrl, { data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "update_song", arguments: { tempo: 130 } } } });
   expect((await changed.json()).result.isError).not.toBe(true);

@@ -46,8 +46,16 @@ export interface VocalAnalysis {
   masking: { medianDb: number | null; maskedFraction: number | null };
   /** Spectral shape of the vocal while it sounds. */
   shape: { mudDb: number | null; rumbleDb: number | null; harshDb: number | null; sibilantFraction: number | null; mudHz: number | null; harshHz: number | null; sibilanceHz: number | null };
-  /** For the compressor's threshold: the vocal's loud 50 ms RMS (P90 while it sounds, dBFS, after its fader). */
+  /** For a compressor's threshold: the vocal's loud 50 ms RMS and peaks (P90 while it sounds, dBFS, after its fader). */
   loudRmsDbfs: number | null;
+  loudPeakDbfs: number | null;
+  /** For a de-esser's threshold: the usual level (median while it sounds, 10 ms RMS, dBFS, after its fader) around `shape.sibilanceHz`. */
+  sibilanceLevelDbfs: number | null;
+  /**
+   * When the vocal sounds, as "1"/"0" per 100 ms chunk and per spectrum frame. A candidate is measured over the
+   * baseline's (the singing's timing doesn't change), or compression, lowering the vocal, would let its breaths in.
+   */
+  sounding: { chunks: string; frames: string };
 }
 
 const finite = (v: number) => Number.isFinite(v) ? v : null;
@@ -76,12 +84,12 @@ function peakHz(bins: Float64Array[], active: boolean[], binHz: number, low: num
  * The analysis of one passage: `vocal` (the vocal's track, after its fader), `accompaniment` (the song with
  * the vocal muted) and `mix` (the song), all the same length and rate, lead-in and tails already cut.
  */
-export function analyseVocal(vocal: Float32Array[], accompaniment: Float32Array[], mix: Float32Array[], sampleRate: number): VocalAnalysis {
+export function analyseVocal(vocal: Float32Array[], accompaniment: Float32Array[], mix: Float32Array[], sampleRate: number, reference?: VocalAnalysis["sounding"]): VocalAnalysis {
   const seconds = vocal[0].length / sampleRate;
   const vc = loudnessChunks(vocal, sampleRate), ac = loudnessChunks(accompaniment, sampleRate), mc = loudnessChunks(mix, sampleRate);
   const vocalLufs = integratedLoudness(vc), accLufs = integratedLoudness(ac);
   // Sounding: a chunk within 20 LU of the vocal's integrated loudness (and above -60).
-  const sounding = [...vc].map(e => vocalLufs !== null && lufs(e) > Math.max(-60, vocalLufs - 20));
+  const sounding = reference ? [...vc].map((_, i) => reference.chunks[i] === "1") : [...vc].map(e => vocalLufs !== null && lufs(e) > Math.max(-60, vocalLufs - 20));
   const activeFraction = sounding.length ? sounding.filter(Boolean).length / sounding.length : 0;
   // Per second: vocal minus beat, where the vocal sounds for at least half of it.
   const per = Math.round(1 / CHUNK_SECONDS), secondsRows: { start: number; lu: number }[] = [];
@@ -96,7 +104,7 @@ export function analyseVocal(vocal: Float32Array[], accompaniment: Float32Array[
   // Frames: the vocal's shape and the beat over its presence range.
   const vf = bandFrames(mono(vocal), sampleRate), af = bandFrames(mono(accompaniment), sampleRate);
   const framePower = vf.bins.map(b => b.reduce((a, x) => a + x, 0)), loud = percentile(framePower, 0.9) ?? 0;
-  const active = framePower.map(p => p > 0 && db(p) > db(loud) - 25);
+  const active = reference ? framePower.map((_, f) => reference.frames[f] === "1") : framePower.map(p => p > 0 && db(p) > db(loud) - 25);
   const masking: number[] = [], sibilant: boolean[] = [];
   vf.bins.forEach((b, f) => {
     if (!active[f]) return;
@@ -107,13 +115,28 @@ export function analyseVocal(vocal: Float32Array[], accompaniment: Float32Array[
   const balance = bandBalance(vf, sampleRate, active), rel = (id: string) => balance.find(x => x.band === id)!.relativeToPinkDb;
   let total = 0, under80 = 0;
   vf.bins.forEach((b, f) => { if (active[f]) { total += b.reduce((a, x) => a + x, 0); under80 += binSum(b, vf.binHz, 20, 80); } });
-  // The loud 50 ms RMS (the louder channel), for a compressor's threshold.
-  const size = Math.round(sampleRate * 0.05), rms: number[] = [];
+  // The loud 50 ms RMS and peaks (the louder channel), for a compressor's threshold.
+  const size = Math.round(sampleRate * 0.05), rms: number[] = [], peaks: number[] = [];
   for (let at = 0; at + size <= vocal[0].length; at += size) {
-    let best = 0;
-    for (const c of vocal) { let s = 0; for (let i = at; i < at + size; i++) s += c[i] * c[i]; best = Math.max(best, s / size); }
+    let best = 0, peak = 0;
+    for (const c of vocal) { let s = 0; for (let i = at; i < at + size; i++) { s += c[i] * c[i]; peak = Math.max(peak, Math.abs(c[i])); } best = Math.max(best, s / size); }
     const chunk = Math.floor(at / sampleRate / CHUNK_SECONDS);
-    if (sounding[chunk]) rms.push(10 * Math.log10(best || 1e-20));
+    if (sounding[chunk]) { rms.push(10 * Math.log10(best || 1e-20)); peaks.push(20 * Math.log10(peak || 1e-10)); }
+  }
+  // The sibilance band's usual level: a band-pass (Q 2) at its peak, 10 ms windows while singing.
+  const sibilanceHz = peakHz(vf.bins, active, vf.binHz, 5000, 9000);
+  let sibilanceLevel: number | null = null;
+  if (sibilanceHz) {
+    const w = 2 * Math.PI * sibilanceHz / sampleRate, alpha = Math.sin(w) / 4, a0 = 1 + alpha;
+    const b0 = alpha / a0, b2 = -alpha / a0, a1 = -2 * Math.cos(w) / a0, a2 = (1 - alpha) / a0;
+    const x = mono(vocal), win = Math.round(sampleRate * 0.01), levels: number[] = [];
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0, sum = 0;
+    for (let i = 0; i < x.length; i++) {
+      const y = b0 * x[i] + b2 * x2 - a1 * y1 - a2 * y2;
+      x2 = x1; x1 = x[i]; y2 = y1; y1 = y; sum += y * y;
+      if ((i + 1) % win === 0) { if (sounding[Math.floor(i / sampleRate / CHUNK_SECONDS)] && sum > 0) levels.push(10 * Math.log10(sum / win)); sum = 0; }
+    }
+    sibilanceLevel = percentile(levels, 0.5);
   }
   const vocalPeak = truePeak(vocal, sampleRate), mixPeak = truePeak(mix, sampleRate);
   return {
@@ -126,9 +149,10 @@ export function analyseVocal(vocal: Float32Array[], accompaniment: Float32Array[
     shape: {
       mudDb: finite(rel("lowMid") - rel("mid")), rumbleDb: total > 0 ? finite(db(under80 / total)) : null, harshDb: finite(rel("upperMid") - rel("mid")),
       sibilantFraction: sibilant.length ? sibilant.filter(Boolean).length / sibilant.length : null,
-      mudHz: peakHz(vf.bins, active, vf.binHz, 200, 500), harshHz: peakHz(vf.bins, active, vf.binHz, 2000, 5000), sibilanceHz: peakHz(vf.bins, active, vf.binHz, 5000, 9000),
+      mudHz: peakHz(vf.bins, active, vf.binHz, 200, 500), harshHz: peakHz(vf.bins, active, vf.binHz, 2000, 5000), sibilanceHz,
     },
-    loudRmsDbfs: percentile(rms, 0.9),
+    loudRmsDbfs: percentile(rms, 0.9), loudPeakDbfs: percentile(peaks, 0.9), sibilanceLevelDbfs: sibilanceLevel,
+    sounding: { chunks: sounding.map(x => x ? "1" : "0").join(""), frames: active.map(x => x ? "1" : "0").join("") },
   };
 }
 
@@ -141,10 +165,13 @@ export interface VocalFinding { kind: FindingKind; text: string; value: number; 
 export interface VocalChange {
   /** dB on the vocal's fader. */
   faderDb?: number;
-  /** YT-C (Pro-C) in a free slot. Times in seconds. */
-  compressor?: { threshold: number; ratio: number; attack: number; release: number; knee: number; range: number };
-  /** YT-EQ (Pro-Q) in a free slot: up to four bands. A dynamic band (range ≠ 0) cuts only when that range is loud. */
-  eq?: { shape: "bell" | "lowCut" | "highShelf" | "lowShelf"; frequency: number; gain: number; q: number; slope?: 12 | 18 | 24; range?: number }[];
+  /** YT-C (Pro-C) in a free slot. Times in seconds; `makeup` is its wet gain (dB). */
+  compressor?: { threshold: number; ratio: number; attack: number; release: number; knee: number; range: number; makeup?: number };
+  /**
+   * YT-EQ (Pro-Q) in a free slot: up to four bands. A dynamic band (range ≠ 0) cuts only when that range is loud,
+   * from `threshold` (dBFS of the band, before the fader; absent: Auto, 4 dB over its long average).
+   */
+  eq?: { shape: "bell" | "lowCut" | "highShelf" | "lowShelf"; frequency: number; gain: number; q: number; slope?: 12 | 18 | 24; range?: number; threshold?: number }[];
 }
 export interface VocalProposal { id: string; label: string; reasons: string[]; change: VocalChange }
 
@@ -185,11 +212,12 @@ export function proposeVocalChanges(passages: VocalAnalysis[], faderDb: number, 
   const levelDb = levelFinding ? Math.max(-6, Math.min(6, round(VOCAL_LEVEL_TARGETS[level] - mean(levelFinding.map(f => f.value))!, 0.5))) : 0;
   const dynamics = both("dynamics");
   if (dynamics) {
-    const loud = mean(passages.map(p => p.loudRmsDbfs));
-    // The compressor sits before the fader: its threshold is the vocal's loud level without the fader, a little under it.
-    const threshold = loud === null ? -24 : Math.max(-50, Math.min(-6, round(loud - faderDb - 4, 0.5)));
-    fixes.compressor = { threshold, ratio: 3, attack: 0.01, release: 0.15, knee: 6, range: 12 };
-    reasons.push(`Uneven phrases (${dynamics.map(f => f.value.toFixed(1)).join(" and ")} LU): 3:1 compression from ${threshold} dBFS, 10 ms attack, 150 ms release, at most 12 dB.`);
+    // A compressor's detector follows peaks, and it sits before the fader: 6 dB under the loud words' peaks
+    // without the fader takes about 4 dB off them at 3:1; 2 dB of make-up gives back some of the level.
+    const loud = mean(passages.map(p => p.loudPeakDbfs));
+    const threshold = loud === null ? -24 : Math.max(-50, Math.min(-6, round(loud - faderDb - 6, 0.5)));
+    fixes.compressor = { threshold, ratio: 3, attack: 0.01, release: 0.15, knee: 6, range: 12, makeup: 2 };
+    reasons.push(`Uneven phrases (${dynamics.map(f => f.value.toFixed(1)).join(" and ")} LU): 3:1 compression from ${threshold} dBFS (6 dB under the loud words' peaks), 10 ms attack, 150 ms release, at most 12 dB, 2 dB make-up.`);
   }
   if (both("rumble")) { eq.push({ shape: "lowCut", frequency: 80, gain: 0, q: 0.7, slope: 12 }); reasons.push("Energy under 80 Hz: a 12 dB/octave low cut at 80 Hz."); }
   const mud = both("mud");
@@ -206,8 +234,11 @@ export function proposeVocalChanges(passages: VocalAnalysis[], faderDb: number, 
   }
   const sibilance = both("sibilance");
   if (sibilance) {
-    const hz = Math.round(mean(passages.map(p => p.shape.sibilanceHz)) ?? 7000);
-    eq.push({ shape: "bell", frequency: hz, gain: 0, q: 2, range: -6 }); reasons.push(`Sibilance (${sibilance.map(f => `${Math.round(f.value * 100)}%`).join(" and ")} of sung frames): a dynamic band at ${(hz / 1000).toFixed(1)} kHz that cuts up to 6 dB only on the esses.`);
+    const hz = Math.round(mean(passages.map(p => p.shape.sibilanceHz)) ?? 7000), level = mean(passages.map(p => p.sibilanceLevelDbfs));
+    // From the band's usual level (before the fader), so the esses, well over it, are what's cut.
+    const threshold = level === null ? undefined : Math.max(-60, Math.min(0, round(level - faderDb, 0.5)));
+    eq.push({ shape: "bell", frequency: hz, gain: 0, q: 2, range: -6, ...(threshold !== undefined ? { threshold } : {}) });
+    reasons.push(`Sibilance (${sibilance.map(f => `${Math.round(f.value * 100)}%`).join(" and ")} of sung frames): a dynamic band at ${(hz / 1000).toFixed(1)} kHz that cuts up to 6 dB only on the esses${threshold !== undefined ? `, from ${threshold} dBFS (the band's usual level)` : ""}.`);
   }
   if (eq.length) fixes.eq = eq.slice(0, 4);
   const proposals: VocalProposal[] = [];
@@ -230,7 +261,8 @@ export function checkVocalChange(input: unknown): VocalChange {
     if (!object(o.compressor)) fail("compressor must be an object.");
     const c = o.compressor as Record<string, unknown>;
     out.compressor = { threshold: num(c.threshold, "compressor.threshold (dBFS)", -50, 0), ratio: num(c.ratio, "compressor.ratio", 1.2, 8), attack: num(c.attack, "compressor.attack (s)", 0.0005, 0.08),
-      release: num(c.release, "compressor.release (s)", 0.02, 1), knee: num(c.knee ?? 6, "compressor.knee (dB)", 0, 24), range: num(c.range ?? 12, "compressor.range (dB)", 3, 24) };
+      release: num(c.release, "compressor.release (s)", 0.02, 1), knee: num(c.knee ?? 6, "compressor.knee (dB)", 0, 24), range: num(c.range ?? 12, "compressor.range (dB)", 3, 24),
+      ...(c.makeup !== undefined ? { makeup: num(c.makeup, "compressor.makeup (dB)", 0, 12) } : {}) };
   }
   if (o.eq !== undefined && o.eq !== null) {
     if (!Array.isArray(o.eq) || o.eq.length > 4) fail("eq is at most four bands.");
@@ -242,6 +274,7 @@ export function checkVocalChange(input: unknown): VocalChange {
       const band: NonNullable<VocalChange["eq"]>[number] = { shape, frequency: num(x.frequency, `eq[${i}].frequency (Hz)`, 20, 20000), gain: shape === "lowCut" ? 0 : num(x.gain ?? 0, `eq[${i}].gain (dB)`, -9, 6), q: num(x.q ?? 1, `eq[${i}].q`, 0.3, 6) };
       if (shape === "lowCut") { const slope = x.slope ?? 12; if (![12, 18, 24].includes(slope as number)) fail(`eq[${i}].slope is 12, 18 or 24.`); band.slope = slope as 12 | 18 | 24; if (band.frequency > 300) fail(`eq[${i}]: a vocal's low cut is at most 300 Hz.`); }
       if (x.range !== undefined && x.range !== 0) { if (shape !== "bell") fail(`eq[${i}]: only a bell can be dynamic.`); band.range = num(x.range, `eq[${i}].range (dB)`, -12, -1); }
+      if (x.threshold !== undefined && x.threshold !== null) { if (!band.range) fail(`eq[${i}]: a threshold needs a range (a dynamic band).`); band.threshold = num(x.threshold, `eq[${i}].threshold (dBFS)`, -60, 0); }
       return band;
     });
   }

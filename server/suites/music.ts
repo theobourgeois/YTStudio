@@ -74,13 +74,17 @@ Separate hosted observations from measured facts; unverified tasks withhold obse
 contain local-only fallback: check report coverage and receipt unavailableReason. Do not turn raw evaluation \
 output into mixing advice, claim stereo listening, or infer exact processor settings.
 
-For a vocal over an instrumental: get_vocal_mixing_workflow explains the first local procedure. Identify a \
-dedicated vocal mixer insert and two active nonoverlapping passages. Capture the song, then create_vocal_mix_run \
-to render the baseline and three fixed vocal alternatives without changing the live song. Poll get_vocal_mix_run \
-until ready and open review_vocal_mix_run for playback. Reports and audition gains are measurements, not a \
-musical quality ranking. Compare both passages, offer keeping the baseline, and apply_vocal_mix_candidate only \
-after the user chooses an alternative. It rechecks source files and live song state, refuses stale comparisons, \
-and applies one undoable built-in-only patch. No local neural model is loaded by this workflow.
+For a vocal over an instrumental: get_vocal_mixing_workflow explains the procedure. Identify the vocal's own \
+mixer insert and two nonoverlapping passages where it sings. Capture the song, then create_vocal_mix_run: it renders \
+the beat (vocal muted) and the song with the vocal's stem, measures the vocal against the beat (LU, masking at \
+1-4 kHz, phrase spread, mud, rumble, harshness, sibilance) and renders the changes the measurements suggest, or \
+your own candidates in the effects' units ([] measures only), without changing the live song. Poll \
+get_vocal_mix_run for the findings and each candidate's measured effects, and open review_vocal_mix_run for \
+matched-loudness playback. These are measurements, not a quality ranking: when nothing passes its starting point, \
+say keeping the mix is the measured answer. Offer the baseline, and apply_vocal_mix_candidate only after the user \
+chooses; it refuses stale comparisons and applies one undoable built-in-only patch. For any passage, \
+analyse_audio_artifact reports loudness (LUFS, range, true peak), the balance by band and when loudness or tone \
+changes: trust these over hosted listening.
 
 For procedure discovery use list_mix_workflows, then get_mix_workflow only for the relevant task. \
 search_mix_examples returns up to five reviewed project-local references, filtered by role, plugin, goal \
