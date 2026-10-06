@@ -1,7 +1,8 @@
 # Visualizer: audio-reactive video
 
 Status: plan first written 2026-10-06. **V1 (signals) and V2 (signals in expressions) are built** (2026-10-07; see
-"What V1 and V2 built" below); V3 (links, custom signals, the Signals window) is next.
+"What V1 and V2 built" below). **V3's first pass is built** (links, custom signals, nests hearing where they're placed,
+the link popover, the assistant's tools); its second (the Signals window, signal lanes on the timeline) is next.
 [vaudio-port.md](vaudio-port.md) lists what comes over from Théo's earlier visualizer (`~/code/vaudio`) and where.
 
 A professional audio visualizer inside the video editor, not a suite of its own. Any clip, effect parameter or shader
@@ -142,8 +143,14 @@ file's 99th percentile, the strongest since the frame before (none falls between
 −1..1, brightness 0..1 from 100 Hz to 10 kHz (log). Switchable off per custom signal (V3). Proposed: Théo to judge on
 real songs.
 
-**Nested sequences**: a clip inside a nest reads its own sequence's sources; a nest's clip contributes its sequence's
-mix to the outer one. (Open question: should a nest read the outer sequence's mix by default? See questions.)
+**Nested sequences**: a nest's clip contributes its sequence's mix to the outer one. Inside a nest, **the mix is the
+song of the video it's placed in** (Théo, 2026-10-07: nests are how looks get reused): `master` (an expression's
+`audio()` without a source, a link's built-in signal, the beat, a custom signal's mix) is read on the outermost
+sequence drawn, at the moment the nest's time is there (`Hearing`, `audio-signals.ts`). The preview's and the
+export's levels say which use of the nest is being drawn (`withHearing`, `nestedHearing`); where nothing is drawing
+(Properties, the assistant), a nest hears where it's first used, the main sequence's uses first. Tracks, clips and
+"self" stay the nest's own. A kept nest frame (the preview's cache) is keyed by the outer time too when anything
+reacts to sound.
 
 ### Custom signals and events
 
@@ -164,8 +171,11 @@ type SignalEvent = { time: number; length?: number; velocity: number; key?: numb
 type SignalSource = { kind: "master" } | { kind: "track"; trackId: string } | { kind: "clip"; clipId: string };
 ```
 
-A band signal's attack and release are run over the whole series from its start (200 Hz, cached), never from the
-frame before, so it's still a pure function of time. Events are timeline seconds; a music handoff's notes keep their
+A band signal's attack and release (and a link's) are a follower run at 200 Hz in blocks (`Series`), each started
+eight time constants before it (from silence at 0), never from the frame before, so it's still a pure function of
+time: scrubbed, played and exported agree, to within a ten-thousandth of following from the start. Series are kept
+per video sound (`soundPrint`: its sound clips, their Volume and the tracks' mutes), so moving a picture keeps them. A
+band with `onsets` has a hit where its shaped value rises out of silence (as hard as its highest in the next 40 ms). Events are timeline seconds; a music handoff's notes keep their
 key and length. Roles let a preset say "the kick" and find it: a stem or channel named like one, a custom signal
 given the role, or, for a song with nothing better, a band default (kick: 40–120 Hz onsets; snare: 150–250 Hz plus
 2–5 kHz; hats: 8 kHz up; vocal: 300 Hz–3 kHz mid).
@@ -216,11 +226,21 @@ type ParamLink = {
 Evaluated in `effectValuesAt` after keyframes and before expressions, so an expression's `value` includes the link
 (and `effectValuesAt` stays the one place every drawer reads values). A link's attack and release make a cached
 derived series, as a custom signal's do. Colours aren't linkable in V3 (a hue shift effect is); later maybe.
+As built (`shared/links.ts`: validation, maths, edits; `linkLevel` in `audio-signals.ts`): `multiply` is
+value × (1 + amount × signal); besides the sound's signals a link can follow `beat` and `downbeat`, the song's beat as
+hits; hits (onsets, the beat, events, a band's onsets) with a `hit` shape make it on each, at its velocity, and
+events are held as long as they last (a note's length); the response's threshold and curve shape a 0..1 value first,
+then its attack and release follow it, then `invert`. A link to a deleted signal moves nothing (deleting a signal
+removes its links).
 
-**UI** (Properties, `param-rows.tsx`): a link icon in the row (the grid gains a column), lit when linked; it opens a
-popover: signal picker (built-ins by source, custom, events), mode, amount (a scrubbable number), the response, and a
-meter of the value now. The row's value shows the result moving while playing. Right-click › Link to signal, Unlink.
-Keyframe lanes show a linked parameter's resulting curve faintly over its keyframes.
+**UI** (Properties, `link-button.tsx`, its options in `link-model.ts`): a link button beside each stopwatch (the
+row's first column holds both), lit when linked. Clicking it on a property that isn't linked links it to the bass at
+once, sized for the property (a fifth of its usual range, 15° of a rotation, a little lift of a point), and opens the
+popover: the signal (Sound, Hits, this video's signals), where a built-in one is heard (the mix, the clip's own sound,
+an audio track), Add / Multiply / Map to, the amount in the property's display units, attack and release (or a hit's
+attack, hold and decay), threshold, curve, invert, Unlink, and a meter of the signal now with the value it gives.
+Right-click on a property's name › Link to signal / Edit link, Unlink. Pass 2: the keyframe lanes' faint resulting
+curve.
 
 ### Visualizer effects and shader inputs
 
@@ -407,12 +427,24 @@ assistant tools. Gates are what must be true (measured) before the next mileston
 
 ### V3: Links, custom signals, the Signals window
 
-- `Effect.links`, normalised and copied (`splitClip`, `pasteClips`, `pasteEffects`, Library templates);
-  `Project.signals`; evaluation in `effectValuesAt`.
-- The link popover, the row's meter, the keyframe lanes' overlay; the Signals window; the timeline's signal lanes
-  (curves, editable events).
-- `define_signal`, `delete_signal`, `link_param`, `set_events`.
-- **Gate**: a timeline with 300 linked clips plays at 60 fps (`scripts/perf.ts` scenario).
+**Pass 1 (built, 2026-10-07)**:
+- `Effect.links` (normalised in `sanitizeEffect`, so copied with effects everywhere: splits, paste, Library
+  templates) and `Project.signals` (normalised, carried through nested sequences' views); evaluation in
+  `effectValuesAt`; custom signals in expressions (`signal()`, `signalAt()`, `sinceHit("Kick")`...).
+- Nests hear the song of the video they're placed in (Q4), in the preview and the export.
+- The link button and popover in Properties.
+- `link_param` (says how far the parameter moves), `define_signal` (says how often it's on and where its hits are),
+  `delete_signal`, `set_events` (by hand, on beats, bars, drops or hits, every nth, quantised); `get_signals` and
+  `plot_signals` read custom signals; get_timeline shows links and signals.
+- Tests: `links.test.ts`, `audio-signals.test.ts` (links following kicks, beats, bands, events; reading order doesn't
+  matter; a nest placed twice hears two moments), `signal-edits.test.ts`, `link-model.test.ts`; an export of a linked
+  look in a nest flashing on the outer song's thumps (`integration.test.ts`); e2e linking Scale from Properties.
+
+**Pass 2 (next)**: the Signals window (a live spectrum, ranges dragged on it, the response drawn over the timeline),
+the timeline's signal lanes (curves, editable events), the spectrogram on audio clips (from V1), the keyframe lanes'
+resulting curve.
+
+- **Gate**: a timeline with 300 linked clips plays at 60 fps (`scripts/perf.ts --links`).
 
 ### V4: Visualizer effects
 
@@ -478,6 +510,8 @@ V10 doesn't depend on the others and can be built whenever it's wanted; V5 and V
 | V08 | User code is GLSL and expressions only, never JavaScript (2026-10-06) | Both are sandboxed; the assistant writes them freely | — |
 | V09 | Performances are recorded into the project (keyframes, events, media) (2026-10-06) | The export never needs a performance repeated; recordings are edited like anything else | — |
 | V10 | Music hands a song over as a platform `SongHandoff`; video's backend builds the project (2026-10-06) | The layering: suites never import each other | — |
+| V11 | A nest hears the mix of the sequence it's placed in, at its moment there (2026-10-07) | Looks are reused as nests; a look with no sound of its own must react to the song | A nest needs its own mix: name its tracks |
+| V12 | Followers (attack, release) run in blocks warmed up from eight time constants before (2026-10-07) | Pure in time without computing a song from its start on every seek or edit | Long releases (over 7 s) cost more per block |
 
 ## Questions for Théo
 
@@ -485,9 +519,8 @@ V10 doesn't depend on the others and can be built whenever it's wanted; V5 and V
    from the start.
 2. **Stem separation** for songs that don't come from the music suite (a Demucs-class model, local, a few hundred MB,
    no Python ideally: an ONNX or ggml port)? It would make "the kick" exact for any song. When?
-3. **Auto-gain** by default (a quiet song reacts as much as a loud one), or absolute levels?
-4. **Nested sequences**: should a visualizer inside a nest hear the outer sequence's mix by default (nests are how
-   looks get reused), or only its own?
+3. ~~**Auto-gain** by default~~: yes (Théo, 2026-10-07). A band signal's `autoGain` is on unless turned off.
+4. ~~**Nested sequences**~~: a nest hears the outer sequence's mix by default (Théo, 2026-10-07; see Signals).
 5. **3D scenes**: how important, against 2D visualizers and shaders? Which first?
 6. **The shader editor**: CodeMirror 6 (a dependency, syntax colours, inline errors), or a plain text field first?
 7. **vaudio**: archived once ported, or kept as a separate toy?

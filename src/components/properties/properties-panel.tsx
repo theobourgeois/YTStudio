@@ -84,6 +84,7 @@ import { graphId, useLayout } from "@/stores/layout";
 import { usePathEditing } from "@/stores/path-editing";
 import { usePlayback } from "@/stores/playback";
 import { KeyframeNavigator, Stopwatch } from "./animation-controls";
+import { LinkButton, toggleLink } from "./link-button";
 import { ExpressionRow, toggleExpression } from "./expression-row";
 import type { DisplayContext } from "./display";
 import { GraphControls, GraphToggle, ParamGraph } from "./graph-editor";
@@ -489,6 +490,16 @@ export const EffectSection = memo(function EffectSection({
                       ) : null
                     }
                     expression={expressible ? { on: expression, toggle: () => toggleExpression(clipId, effect.id, spec.key) } : undefined}
+                    link={
+                      expressible
+                        ? {
+                            button: <LinkButton clip={clip} effect={effect} def={def} spec={spec} label={label} ctx={ctx} />,
+                            on: !!effect.links?.[spec.key],
+                            open: () => toggleLink(clipId, effect, spec),
+                            unlink: () => toggleLink(clipId, effect, spec, true),
+                          }
+                        : undefined
+                    }
                     navigator={animatable && animated ? <KeyframeNavigator {...param} /> : null}
                   />
                 </PanelRow>
