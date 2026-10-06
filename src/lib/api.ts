@@ -43,6 +43,7 @@ import type {
   WebClip,
   WebDownloadProgress,
   WebMediaKind,
+  WebSearchPage,
 } from "@shared/types";
 import { PROJECT_NOTICE_HEADER } from "@shared/types";
 
@@ -177,8 +178,9 @@ export const api = {
       signal,
     ),
 
-  searchWeb: (query: string, signal?: AbortSignal) =>
-    request<WebClip[]>(`/api/web/search?q=${encodeURIComponent(query)}`, { signal }),
+  /** A page of YouTube's results for a search (15 a page, from 0), and whether there are more. */
+  searchWeb: (query: string, signal?: AbortSignal, page = 0) =>
+    request<WebSearchPage>(`/api/web/search?q=${encodeURIComponent(query)}${page ? `&page=${page}` : ""}`, { signal }),
   /** What's at a pasted link (title, duration...), without downloading it. */
   resolveWebLink: (url: string, signal?: AbortSignal) =>
     request<WebClip>(`/api/web/resolve?url=${encodeURIComponent(url)}`, { signal }),

@@ -432,7 +432,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const query = string(input, "query");
     const limit = clamp(Math.round(optNumber(input, "limit") ?? 8), 1, 20);
     ctx.progress(null, "Searching");
-    const clips = (await api.searchWeb(query, ctx.signal)).slice(0, limit);
+    const clips = (await api.searchWeb(query, ctx.signal)).clips.slice(0, limit);
     if (clips.length === 0) return textResult(`Nothing found for "${query}".`);
     return textResult(
       [

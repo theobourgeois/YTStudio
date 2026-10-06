@@ -27,13 +27,16 @@ let song = null;
 let playingSince = null;
 /** What the desktop app last said of its window (`host`). */
 let host = null;
-/** The Browser's preview: what, from where, since when (ms). It plays for 2 s: the fake reads no files. */
+/**
+ * The Browser's preview: what, from where, since when (ms). It plays for 4 s from where it starts (the fake reads
+ * no files): long enough that a test pausing it finds it still playing on a busy computer.
+ */
 let preview = null;
-const PREVIEW_SECONDS = 2;
+const PREVIEW_SECONDS = 4;
 const previewNow = () => {
   if (!preview) return null;
   const seconds = preview.start + (Date.now() - preview.since) / 1000;
-  if (seconds >= PREVIEW_SECONDS) return (preview = null);
+  if (Date.now() - preview.since >= PREVIEW_SECONDS * 1000) return (preview = null);
   return { id: preview.id, seconds, duration: PREVIEW_SECONDS };
 };
 /** Each fake plugin's parameters (`parameters`), by plugin id. */

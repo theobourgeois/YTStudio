@@ -692,7 +692,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     if (!query) throw new Error('"query" must be what to look for ("amen break").');
     const limit = typeof input.limit === "number" ? Math.max(1, Math.min(15, Math.round(input.limit))) : 8;
     ctx.progress(null, "Searching");
-    const clips = (await api.searchWeb(query, ctx.signal)).slice(0, limit);
+    const clips = (await api.searchWeb(query, ctx.signal)).clips.slice(0, limit);
     // Named by their titles when they're brought in.
     rememberClips(clips);
     if (!clips.length) return textResult(`Nothing found for "${query}".`);

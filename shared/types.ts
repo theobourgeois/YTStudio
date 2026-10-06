@@ -834,6 +834,12 @@ export interface WebClip {
   site: string;
 }
 
+/** A page of a search's results, and whether there's another after it (`GET /api/web/search`). */
+export interface WebSearchPage {
+  clips: WebClip[];
+  more: boolean;
+}
+
 /** What to take from an online clip: just its sound, or the whole video. */
 export type WebMediaKind = "audio" | "video";
 
@@ -1092,7 +1098,7 @@ export interface ToolCallProgressRequest {
 //   POST   /api/media/:id/signals       -> MediaAsset: starts making its signals (what its sound does over time), if not made yet
 //   POST   /api/media/import-file  body: ImportFileRequest -> MediaAsset (201): a copy of a file on this computer
 //   DELETE /api/media/:id               -> 204
-//   GET    /api/web/search?q=<query>    -> WebClip[] from YouTube  (503 if yt-dlp isn't installed)
+//   GET    /api/web/search?q=<query>&page=<n> -> WebSearchPage from YouTube, 15 a page from 0 (503 if yt-dlp isn't installed)
 //   GET    /api/web/resolve?url=<link>  -> WebClip  (400 for unsupported links, playlists, livestreams)
 //   GET    /api/web/audio?url=<link>    -> audio file (downloaded on first request, then cached)
 //   GET    /api/web/progress?url=<link>&kind=audio|video -> WebDownloadProgress (poll while importing)

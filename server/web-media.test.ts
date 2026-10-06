@@ -5,13 +5,21 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { MediaAsset, ProjectSummary, WebClip, WebDownloadProgress } from "../shared/types.ts";
+import type { MediaAsset, ProjectSummary, WebClip, WebDownloadProgress, WebSearchPage } from "../shared/types.ts";
 import { createApp, type EditorApp } from "./app.ts";
 import { FFMPEG, FFPROBE } from "./config.ts";
 import { HttpError } from "./storage.ts";
-import { DownloadProgress, parseLink, parseLinkInfo, parseSearchResults, webMediaError } from "./web-media.ts";
+import { DownloadProgress, parseLink, parseLinkInfo, parseSearchPage, parseSearchResults, webMediaError } from "./web-media.ts";
 
 describe("parseSearchResults", () => {
+  it("says a page has more after it when YouTube gave a full one, up to the last page", () => {
+    const page = (n: number) => JSON.stringify({ entries: Array.from({ length: n }, (_, i) => ({ id: `abcdefghi${String(i).padStart(2, "0")}`, title: "Song", duration: 100 })) });
+    expect(parseSearchPage(page(15), 0)).toMatchObject({ more: true });
+    expect(parseSearchPage(page(15), 0).clips).toHaveLength(15);
+    expect(parseSearchPage(page(9), 3)).toMatchObject({ more: false });
+    expect(parseSearchPage(page(15), 9)).toMatchObject({ more: false });
+  });
+
   it("maps yt-dlp's flat search output to clips", () => {
     const json = JSON.stringify({
       entries: [
@@ -313,10 +321,17 @@ describe.skipIf(!ffmpegAvailable)("web media routes (fake yt-dlp)", () => {
   it("searches", async () => {
     const res = await api("/api/web/search?q=%20never%20%20gonna%20");
     expect(res.status).toBe(200);
-    const clips = (await res.json()) as WebClip[];
+    const { clips, more } = (await res.json()) as WebSearchPage;
     expect(clips.map((t) => t.url)).toEqual([RICK]);
+    // Two entries aren't a full page: there's nothing after them.
+    expect(more).toBe(false);
     // The query goes to yt-dlp as one normalised argument, never a flag.
     expect(runs().at(-1)?.at(-1)).toBe("ytsearch15:never gonna");
+
+    // A later page: the results up to its end, and only its own taken.
+    expect((await api("/api/web/search?q=never%20gonna&page=2")).status).toBe(200);
+    expect(runs().at(-1)?.slice(-3)).toEqual(["-I", "31:45", "ytsearch45:never gonna"]);
+    for (const page of ["-1", "1.5", "10", "x"]) expect((await api(`/api/web/search?q=a&page=${page}`)).status).toBe(400);
 
     expect((await api("/api/web/search?q=%20")).status).toBe(400);
     expect((await api(`/api/web/search?q=${"a".repeat(201)}`)).status).toBe(400);
