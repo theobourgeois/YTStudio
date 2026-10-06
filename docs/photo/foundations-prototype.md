@@ -303,7 +303,9 @@ segment of samples a frame), Electron 44.5.0 / headless Chrome 154:
 
 ## F4: light
 
-The detailed plan (decisions, the version-4 document, the glow's evaluation, order of work): [f4-light.md](f4-light.md).
+The detailed plan (decisions, the document, the glow's evaluation, order of work): [f4-light.md](f4-light.md). F4
+builds on Layer Style's phase L1 (the blend pass, blend modes, the document's `compositing`); the glow is a filter
+(`filters`), and its tools are `add_filter` / `set_filter` rather than `add_effect`.
 
 - Glow as a layer effect; the flare as a generator layer with a source handle and its elements (source glow, halo,
   ghosts, anamorphic streak).
