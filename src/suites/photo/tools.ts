@@ -34,6 +34,7 @@ import {
   removeLayerTool,
   setCanvasTool,
   setEffectParamsTool,
+  setLayerBlendingTool,
   setLayerTool,
   transformLayerTool,
 } from "./tool-edits";
@@ -100,6 +101,7 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
   add_image_layer: edit(addImageLayerTool),
   transform_layer: edit(transformLayerTool),
   set_layer: edit(setLayerTool),
+  set_layer_blending: edit(setLayerBlendingTool),
   add_adjustment: edit(addAdjustmentTool),
   set_effect_params: edit(setEffectParamsTool),
   async merge_layers(input, ctx) {

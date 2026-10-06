@@ -3,6 +3,7 @@
  * edits in `tool-edits.ts`). Whatever the user can do, the assistant can: add a tool with each feature.
  */
 import { type Schema, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
+import { BLEND_MODES } from "./blending.ts";
 import { ADJUSTMENTS } from "./effects/index.ts";
 
 const layer = str('A layer: its id (from get_photo) or its name ("Sky").');
@@ -93,6 +94,32 @@ export const PHOTO_TOOLS = [
         order: int("Its place in the stack: 0 is the bottom; a big number puts it on top."),
       },
       ["layer"],
+    ),
+  }),
+  tool({
+    name: "set_layer_blending",
+    title: "Set a layer's blending",
+    kind: "edit",
+    description:
+      "Photoshop's Blending Options on one or more layers: the blend mode (how the layer's colours mix with what's below: multiply darkens, screen lightens, overlay adds contrast, color/luminosity/hue/saturation take part of the colour…), Opacity, Fill (fades the layer but, in eight modes (color-burn, linear-burn, color-dodge, linear-dodge, vivid-light, linear-light, hard-mix, difference), works inside the mode and looks different from Opacity), the channels that blend, and Blend If: ranges on 0..255 that hide the layer where its own colour (layer) or the colour below it (underlying) is outside them, [black low, black high, white low, white high], a split handle (low < high) fading it in between. Give only what changes. An adjustment layer's mode blends its adjusted picture with the original (Curves in luminosity changes contrast without colour).",
+    inputSchema: obj(
+      {
+        layers: arr(layer, "The layers (ids or names)."),
+        mode: oneOf(
+          BLEND_MODES.map((m) => m.id),
+          "The blend mode.",
+        ),
+        opacity: num("0 to 1."),
+        fill: num("Fill, 0 to 1."),
+        channels: obj({ r: bool("Red blends."), g: bool("Green blends."), b: bool("Blue blends.") }),
+        blendIf: {
+          type: "object",
+          description:
+            'Blend If entries to set, by "gray", "red", "green" or "blue": { "layer": [0, 0, 255, 255], "underlying": [0, 40, 255, 255] } (a side left out keeps its range); null clears an entry, and blendIf: null clears all. E.g. { "gray": { "layer": [0, 0, 200, 240] } } fades out the layer\'s brightest parts.',
+          additionalProperties: true,
+        },
+      },
+      ["layers"],
     ),
   }),
   tool({
@@ -197,12 +224,13 @@ export const PHOTO_TOOLS = [
     title: "Resize the canvas",
     kind: "edit",
     description:
-      "Changes the canvas: its size in pixels (layers keep their place, measured from the top-left corner, or from the centre with anchor: centre) and its background (a colour like #ffffff, or none for transparent). Common sizes: 1080×1920 story/reel, 1080×1350 portrait post, 1080×1080 square, 1280×720 thumbnail.",
+      "Changes the canvas: how its layers mix (compositing), its size in pixels (layers keep their place, measured from the top-left corner, or from the centre with anchor: centre) and its background (a colour like #ffffff, or none for transparent). Common sizes: 1080×1920 story/reel, 1080×1350 portrait post, 1080×1080 square, 1280×720 thumbnail.",
     inputSchema: obj({
       width: int("Width in pixels."),
       height: int("Height in pixels."),
       background: str('A colour "#rrggbb", or "none" for transparent.'),
       anchor: oneOf(["top-left", "centre"], "What stays put when the size changes (default top-left)."),
+      compositing: oneOf(["photoshop", "linear"], "How layers mix: photoshop (encoded values, as Photoshop: blend modes and opacity look as they do there; new photos) or linear (linear light, physically mixed)."),
     }),
   }),
   tool({

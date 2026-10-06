@@ -10,6 +10,8 @@ import { type Page, expect, test } from "@playwright/test";
 import sharp from "sharp";
 import { levelForScale } from "../shared/photo/geometry.ts";
 import { curvesFor, exposurePixel, type Pixel } from "../shared/photo/reference/adjustments.ts";
+import { BLEND_MODES, SPECIAL_FILL, blendSeed } from "../shared/photo/blending.ts";
+import { type BlendParams, type Rgba, compositePixel } from "../shared/photo/reference/blend.ts";
 import { boxReduce, sampleMitchell } from "../shared/photo/reference/reduce.ts";
 
 test.describe.configure({ mode: "serial" });
@@ -1319,4 +1321,136 @@ test("copy, cut and paste make layers; fills, Delete and the eraser change pixel
   await expect(foreground).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await page.keyboard.press("d");
   expect((await undo.boundingBox())!.x).toBe(undoX);
+});
+
+test("blend modes, Fill, channels and Blend If draw as the reference composites them; the mode menu previews while hovered; Blending Options is one undo step", async ({ page }) => {
+  const id = await openNewPhoto(page, "Blending");
+  await openImage(page, PHOTO);
+  await expect(page.locator("[data-layer]")).toHaveCount(1);
+  await page.locator("[data-place-input]").setInputFiles(STICKER);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(2);
+  const doc = await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(2).then(() => savedPhoto(page, id));
+  expect(doc.compositing).toBe("photoshop");
+  const [photo, sticker] = doc.layers.map((l: { id: string }) => l.id);
+  // Over transparency, so the sticker alone is its own pixels.
+  await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().commit((d: unknown) => ({ ...(d as object), canvas: { ...(d as { canvas: object }).canvas, background: null } })));
+  // Half the sticker and half nothing, at 100%: every pixel read texel for texel (partial coverage is Opacity's cases).
+  const view = { zoom: 1, x: 980, y: 260, width: 48, height: 40 };
+  const below = await renderRegion(page, view, { hide: [sticker] });
+  const alone = await renderRegion(page, view, { hide: [photo] });
+  expect(alone.filter((v, i) => i % 4 === 3 && v === 0).length).toBeGreaterThan(200);
+  expect(alone.filter((v, i) => i % 4 === 3 && v === 1).length).toBeGreaterThan(200);
+  const setBlending = (blending: Record<string, unknown>) =>
+    page.evaluate(
+      ({ sticker, blending }) =>
+        (window as unknown as DebugWindow).photoDebug.photo.getState().commit((d: unknown) => {
+          const doc = d as { layers: Record<string, unknown>[] };
+          return { ...doc, layers: doc.layers.map((l) => (l.id === sticker ? { ...l, ...blending } : l)) };
+        }),
+      { sticker, blending },
+    );
+  const check = async (label: string, blending: { blend?: string; fill?: number; opacity?: number; blending?: { channels?: BlendParams["channels"]; blendIf?: BlendParams["blendIf"] } }, compositing: "photoshop" | "linear" = "photoshop") => {
+    await setBlending({ blend: blending.blend ?? "normal", fill: blending.fill ?? 1, opacity: blending.opacity ?? 1, blending: blending.blending ?? undefined });
+    const got = await renderRegion(page, view);
+    const params: BlendParams = {
+      mode: (blending.blend ?? "normal") as BlendParams["mode"],
+      opacity: blending.opacity ?? 1,
+      fill: blending.fill ?? 1,
+      channels: blending.blending?.channels ?? { r: true, g: true, b: true },
+      blendIf: blending.blending?.blendIf ?? {},
+      compositing,
+    };
+    let worst = 0;
+    for (let y = 0; y < view.height; y++)
+      for (let x = 0; x < view.width; x++) {
+        const i = (y * view.width + x) * 4;
+        const want = compositePixel(below.slice(i, i + 4) as Rgba, alone.slice(i, i + 4) as Rgba, { ...params, dissolveAt: { x: view.x + x, y: view.y + y, seed: blendSeed(sticker) } });
+        for (let c = 0; c < 4; c++) worst = Math.max(worst, Math.abs(got[i + c] - want[c]) / Math.max(1, Math.abs(want[c])));
+      }
+    expect(worst, label).toBeLessThan(2e-3);
+  };
+  for (const m of BLEND_MODES) await check(m.id, { blend: m.id });
+  for (const m of SPECIAL_FILL) await check(`${m} at Fill 40%`, { blend: m, fill: 0.4 });
+  await check("multiply at 60% opacity, Fill 50%", { blend: "multiply", opacity: 0.6, fill: 0.5 });
+  await check("normal, Fill 50%", { fill: 0.5 });
+  await check("Blend If", { blending: { blendIf: { gray: { layer: [0, 0, 180, 230], underlying: [30, 90, 255, 255] } } } });
+  await check("green excluded, screen", { blend: "screen", blending: { channels: { r: true, g: false, b: true } } });
+  await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().commit((d: unknown) => ({ ...(d as object), compositing: "linear" })));
+  await check("multiply in linear light", { blend: "multiply", opacity: 0.7 }, "linear");
+  await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().commit((d: unknown) => ({ ...(d as object), compositing: "photoshop" })));
+  await setBlending({ blend: "normal", fill: 1, opacity: 1, blending: undefined });
+  const mode = async () => ((await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[1])) as { blend?: string }).blend ?? "normal";
+
+  // The Layers panel's menu: hovering previews, Escape puts it back, a click keeps one (one undo step).
+  await page.locator("[data-layer]").first().click();
+  const menu = page.locator("[data-blend-bar]").getByRole("button", { name: "Blend mode" });
+  await menu.click();
+  await page.locator('[data-blend-menu] [data-mode="screen"]').hover();
+  await expect.poll(mode).toBe("screen");
+  await page.locator('[data-blend-menu] [data-mode="difference"]').hover();
+  await expect.poll(mode).toBe("difference");
+  await page.keyboard.press("Escape");
+  await expect.poll(mode).toBe("normal");
+  // (The menu's closing animation ends before it's opened again.)
+  await expect(page.locator("[data-blend-menu]")).toHaveCount(0);
+  await menu.click();
+  await page.locator('[data-blend-menu] [data-mode="overlay"]').click();
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[1].blend).toBe("overlay");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(mode).toBe("normal");
+  // Photoshop's keys: ⇧⌥M is Multiply, ⇧+ the next mode.
+  await page.getByLabel("Photo canvas").click();
+  await page.keyboard.press("Shift+Alt+KeyM");
+  await expect.poll(mode).toBe("multiply");
+  await page.keyboard.press("Shift+Equal");
+  await expect.poll(mode).toBe("color-burn");
+  // Fill in the panel: typed, one undo step.
+  await page.locator("[data-blend-bar]").getByLabel("Fill").click();
+  await page.keyboard.type("35");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[1].fill).toBe(0.35);
+
+  // Blending Options: a double-click on the row past its name, or the Layers menu. Everything previews, Cancel
+  // puts it all back, OK makes it one undo step.
+  const row = page.locator("[data-layer]").first();
+  const box = (await row.boundingBox())!;
+  await page.mouse.dblclick(box.x + box.width - 8, box.y + box.height / 2);
+  const dialog = page.locator("[data-layer-style]");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("checkbox", { name: "G" }).uncheck();
+  await expect.poll(async () => ((await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[1])) as { blending?: { channels?: { g: boolean } } }).blending?.channels?.g).toBe(false);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(async () => ((await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[1])) as { blending?: unknown }).blending).toBeUndefined();
+  await row.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Blending Options…" }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Blend mode" }).click();
+  await page.locator('[data-blend-menu] [data-mode="luminosity"]').click();
+  await dialog.getByRole("checkbox", { name: "B" }).uncheck();
+  const black = dialog.locator('[data-blend-if="Underlying Layer"] [data-handle="black"]');
+  const handle = (await black.boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2 + 40, handle.y + handle.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await dialog.getByRole("button", { name: "OK" }).click();
+  await expect(dialog).toBeHidden();
+  const saved = await expect.poll(async () => (await savedPhoto(page, id)).layers[1].blend).toBe("luminosity").then(() => savedPhoto(page, id));
+  expect(saved.layers[1].blending.channels).toEqual({ r: true, g: true, b: false });
+  const under = saved.layers[1].blending.blendIf.gray.underlying;
+  expect(under[0]).toBeGreaterThan(20);
+  expect(under[0]).toBe(under[1]);
+  // One undo step for the whole dialog.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(mode).toBe("color-burn");
+
+  // The assistant at parity.
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(['call set_layer_blending {"layers": ["sticker 800"], "mode": "screen", "fill": 0.5}', 'call set_layer_blending {"layers": ["sticker 800"], "mode": "glow"}'].join("\n"));
+  await composer.press("Enter");
+  await expect(panel).toContainText("set_layer_blending: ok, set_layer_blending: failed", { timeout: 30_000 });
+  await expect.poll(mode).toBe("screen");
 });

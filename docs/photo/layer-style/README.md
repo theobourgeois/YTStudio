@@ -1,7 +1,9 @@
 # Layer Style and Blending Options: research and plan
 
-Status: researched and planned 2026-10-06, after F3. Nothing here is built. The plan below is a proposal for Théo
-to check before implementation; [the decisions](#decisions-for-théo) come first because several change what's built.
+Status: researched and planned 2026-10-06, after F3; measured in Photoshop 27.11 the same day. **L1 (Blending
+Options) is built** (2026-10-06): see [L1 as built](#l1-as-built). Decision 1 was taken as proposed (Photoshop's
+compositing for new photos, A24 and A25 in the ledger); decision 4 as built: the window doesn't block the view, and an
+edit elsewhere while it's open ends it (keeping what it showed). L2 onwards are still the plan.
 
 What Théo asked for: Photoshop's **Blending Options**. Right-click a layer › Blending Options… opens the Layer Style
 dialog, with every section of it (Bevel & Emboss, Stroke, Inner Shadow, the glows, Satin, the overlays, Drop
@@ -299,6 +301,22 @@ effects' rows appear as they're built); the right-click and double-click ways in
 1.5/255; a grey Overlay layer changes nothing in a "photoshop" document; Cancel restores the document exactly; hovering
 re-runs only the layer and above (counted); an unedited 8-bit export is still bit-exact; the e2e right-clicks a layer,
 opens Blending Options, hovers modes and cancels.
+
+### L1 as built
+
+- `shared/photo/blending.ts`: the 27 modes (Photoshop's order, groups, ⇧⌥ letters), the special eight, a layer's
+  blending with its defaults, normalising, `patchBlending`; `reference/blend.ts`: the CPU reference
+  (`compositePixel`, `compositeAdjustment`), tested against 1 500 Photoshop samples (`blend-fixtures.json`, exported by
+  `scripts/photoshop-probes/export_fixtures.py`); edits `setLayerBlending` (several layers) and `setCompositing`.
+- The renderer: `render/blend.ts` (the same steps in WGSL), the blend pass, encoded composites and the decode at the
+  end (rendering.md, "Blending (as built, L1)"). The e2e test checks every mode, Fill, Opacity, Blend If, channels
+  and linear compositing on the GPU against the reference (2 × 10⁻³).
+- The interface: the Layers panel's mode menu (hover previews, Escape puts back), Opacity and Fill; Blending
+  Options… (menu, footer fx, double-click past a row's name) opens `layer-style/layer-style-window.tsx`; Blend If's
+  bars (`blend-if-slider.tsx`, ⌥ splits a handle); ⇧⌥ letters and ⇧+ / ⇧−; Canvas › Layers mix (compositing). The
+  assistant: `set_layer_blending`, `set_canvas`'s `compositing`, blending in `get_photo`.
+- Not in L1: Dissolve's speckle isn't Photoshop's own noise (ours, fixed in document pixels); Darker / Lighter Color
+  pick differently at near-ties (0.26% of random pairs) and the component modes are within 7 levels.
 
 ### L2: the effect machinery and eight effects
 

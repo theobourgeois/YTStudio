@@ -6,16 +6,17 @@
  *
  * Image layers (a placed source, kept whole: transforming resamples the source, never the last result); from
  * version 2, adjustment layers (exposure, curves: they change what's below them); from version 3, pixel layers
- * (painted pixels) and every layer's mask. Other kinds arrive with their renderers, through versioned migrations
+ * (painted pixels) and every layer's mask; from version 4, Blending Options (a layer's blend mode, Fill, channels and
+ * Blend If) and the document's compositing. Other kinds arrive with their renderers, through versioned migrations
  * (`normalizePhotoProject`).
  */
 import type { DocumentBase } from "../suites.ts";
 
 /**
- * 3: pixel layers and masks (2: adjustment layers). An older document is a valid version-3 one; an older app
- * refuses a newer one.
+ * 4: Blending Options and compositing (3: pixel layers and masks; 2: adjustment layers). An older document is a
+ * valid version-4 one (compositing in linear light, as it was made); an older app refuses a newer one.
  */
-export const PHOTO_VERSION = 3;
+export const PHOTO_VERSION = 4;
 
 /**
  * A surface: the SHA-256 (lowercase hex) of its manifest's canonical JSON. The server has every manifest a saved
@@ -46,6 +47,65 @@ export interface LayerMask {
   surface: SurfaceId | null;
 }
 
+/**
+ * Photoshop's layer blend modes (docs/photo/layer-style/blend-modes.md, measured in photoshop-measurements.md), in
+ * its menu's order. What each does is `shared/photo/reference/blend.ts`; their names and groups `blending.ts`.
+ */
+export type BlendMode =
+  | "normal"
+  | "dissolve"
+  | "darken"
+  | "multiply"
+  | "color-burn"
+  | "linear-burn"
+  | "darker-color"
+  | "lighten"
+  | "screen"
+  | "color-dodge"
+  | "linear-dodge"
+  | "lighter-color"
+  | "overlay"
+  | "soft-light"
+  | "hard-light"
+  | "vivid-light"
+  | "linear-light"
+  | "pin-light"
+  | "hard-mix"
+  | "difference"
+  | "exclusion"
+  | "subtract"
+  | "divide"
+  | "hue"
+  | "saturation"
+  | "color"
+  | "luminosity";
+
+/**
+ * One Blend If range on 0..255 encoded values, Photoshop's handles: [black low, black high, white low, white high],
+ * ordered. Values outside [black low, white high] are left out, ramping in across a split handle.
+ */
+export type BlendRange = [number, number, number, number];
+
+/** Blend If's ranges for one of Gray, Red, Green, Blue: This Layer's (Photoshop's "Current Layer") and Underlying Layer's. */
+export interface BlendIfChannel {
+  layer: BlendRange;
+  underlying: BlendRange;
+}
+
+/** Blend If, by the menu's entries: each entry absent passes everything, and every entry present applies at once. */
+export type BlendIf = Partial<Record<"gray" | "red" | "green" | "blue", BlendIfChannel>>;
+
+/**
+ * Blending Options' advanced part (docs/photo/layer-style/advanced-blending.md). Absent fields are Photoshop's
+ * defaults. Knockout, the "as Group" options and the masks hiding effects arrive with groups, clipping and layer
+ * effects (README.md, decision 3).
+ */
+export interface BlendingOptions {
+  /** Channels that blend; an excluded one keeps what's below. Absent: all three. */
+  channels?: { r: boolean; g: boolean; b: boolean };
+  blendIf?: BlendIf;
+}
+
 interface LayerBase {
   id: string;
   name: string;
@@ -54,6 +114,12 @@ interface LayerBase {
   opacity: number;
   /** Absent: no mask. */
   mask?: LayerMask;
+  /** Absent: normal. */
+  blend?: BlendMode;
+  /** 0..1, absent 1. Fades the layer's own pixels but not its effects; the same as Opacity but in eight modes. */
+  fill?: number;
+  /** Absent: every option at its default. */
+  blending?: BlendingOptions;
 }
 
 /** A source image placed on the canvas, kept whole (Photoshop's embedded Smart Object, for this). */
@@ -148,9 +214,18 @@ export interface PhotoCanvas {
   background: string | null;
 }
 
+/**
+ * How layers mix (docs/photo/layer-style/README.md, decision 1). "photoshop" mixes encoded (sRGB) values, modes,
+ * opacity and soft edges alike, as Photoshop does (measured); "linear" mixes linear light. Pixels are linear light
+ * either way: only the mixing differs.
+ */
+export type Compositing = "photoshop" | "linear";
+
 export interface PhotoProject extends DocumentBase {
   version: typeof PHOTO_VERSION;
   canvas: PhotoCanvas;
+  /** Absent: "linear" (photos made before version 4). New photos are "photoshop". */
+  compositing?: Compositing;
   /** How light above white leaves (rendering.md, "The output transform"); film rolls it off, clip clips it. */
   output: { highlights: "film" | "clip" };
   /** Bottom to top. */

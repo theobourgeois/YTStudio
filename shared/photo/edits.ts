@@ -2,12 +2,14 @@
  * Pure edits of a photo document, the only way it changes (the UI, keys and the assistant all use these). Each
  * returns the same document when nothing changes, so a no-op makes no undo step and no save.
  */
+import { type BlendingPatch, patchBlending } from "./blending.ts";
 import { type EffectDefinition, effectDefinition, newEffect, unavailableReason } from "./effects/index.ts";
 import { sameValue, sanitizeParam } from "./effects/params.ts";
 import type { Size } from "./geometry.ts";
 import { MIN_SCALE, isColour, wrapDegrees } from "./project.ts";
 import {
   type AdjustmentLayer,
+  type Compositing,
   type EffectParamValue,
   type ImageLayer,
   type LayerTransform,
@@ -107,6 +109,27 @@ export function updateLayer(doc: PhotoProject, id: string, patch: LayerPatch): P
     const opacity = patch.opacity !== undefined && Number.isFinite(patch.opacity) ? Math.max(0, Math.min(1, patch.opacity)) : l.opacity;
     return name === l.name && visible === l.visible && opacity === l.opacity ? l : { ...l, name, visible, opacity };
   });
+}
+
+/**
+ * Blending Options on layers (one, or several selected: Photoshop's Layers panel sets them all): mode, Opacity, Fill,
+ * channels, Blend If. Only what `patch` names changes.
+ */
+export function setLayerBlending(doc: PhotoProject, ids: readonly string[], patch: BlendingPatch): PhotoProject {
+  const set = new Set(ids);
+  let changed = false;
+  const layers = doc.layers.map((l) => {
+    if (!set.has(l.id)) return l;
+    const next = patchBlending(l, patch);
+    if (next !== l) changed = true;
+    return next;
+  });
+  return changed ? { ...doc, layers } : doc;
+}
+
+/** How the document's layers mix: Photoshop's encoded values, or linear light. */
+export function setCompositing(doc: PhotoProject, compositing: Compositing): PhotoProject {
+  return (doc.compositing ?? "linear") === compositing ? doc : { ...doc, compositing };
 }
 
 export function removeLayer(doc: PhotoProject, id: string): PhotoProject {

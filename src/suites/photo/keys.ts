@@ -2,6 +2,8 @@
  * The photo editor's keys (ux.md, "Keys"), pure so they're tested: what a key press means, or null when it isn't
  * the editor's. Photoshop's where it has one; the app's own keys (⌘W, ⌘, …) are left alone.
  */
+import { blendModeForKey } from "@shared/photo/blending";
+import type { BlendMode } from "@shared/photo/types";
 import type { PhotoTool } from "./ui";
 
 export type PhotoKeyAction =
@@ -44,7 +46,11 @@ export type PhotoKeyAction =
   /** ⇧⌘J: Layer via Cut (⌘J with a selection is Layer via Copy, the "duplicate" key). */
   | { type: "layerViaCut" }
   /** ⌥⌫ / ⌘⌫: fill the selection with the foreground / background colour. */
-  | { type: "fill"; colour: "foreground" | "background" };
+  | { type: "fill"; colour: "foreground" | "background" }
+  /** ⇧⌥ + a letter: the selected layers' blend mode (Photoshop's letters: M Multiply, S Screen, O Overlay…). */
+  | { type: "blendMode"; mode: BlendMode }
+  /** ⇧+ / ⇧−: the next or previous blend mode in the menu. */
+  | { type: "stepBlendMode"; direction: 1 | -1 };
 
 export interface KeyPress {
   key: string;
@@ -71,6 +77,12 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
     if (is("[", "BracketLeft")) return { type: "step", direction: -1, add: e.shiftKey };
     if (is(".", "Period")) return { type: "edge", to: "top", add: e.shiftKey };
     if (is(",", "Comma")) return { type: "edge", to: "bottom", add: e.shiftKey };
+    // ⇧⌥ + a letter: a blend mode (by the physical key: ⌥ makes a Mac's letters other characters).
+    const letter = /^Key([A-Z])$/.exec(code)?.[1] ?? (!code && /^[a-z]$/.test(key) ? key : null);
+    if (e.shiftKey && letter) {
+      const mode = blendModeForKey(letter);
+      if (mode) return { type: "blendMode", mode };
+    }
   }
   if (mod) {
     if (key === "z") return e.shiftKey ? { type: "redo" } : { type: "undo" };
@@ -98,6 +110,9 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
   const step = e.shiftKey ? 10 : 1;
+  // ⇧+ and ⇧− step through the blend modes (Shift turns = into + and - into _).
+  if (e.shiftKey && (key === "+" || is("=", "Equal"))) return { type: "stepBlendMode", direction: 1 };
+  if (e.shiftKey && (key === "_" || is("-", "Minus"))) return { type: "stepBlendMode", direction: -1 };
   switch (key) {
     case "v":
       return { type: "tool", tool: "move" };

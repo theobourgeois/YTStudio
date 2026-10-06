@@ -8,6 +8,7 @@
  */
 import { CURVE_TABLE_SIZE, curveTable, identityChannels } from "@shared/photo/effects/curve-math.ts";
 import type { CurveSet, EffectParamValue } from "@shared/photo/types.ts";
+import { BLEND, BLEND_STRUCT } from "./blend.ts";
 import { ROUND_FOR_STORE, type StorageFormat } from "./kernels.ts";
 import { MATHS } from "./wgsl.ts";
 
@@ -72,12 +73,16 @@ export const ADJUSTMENT_KERNELS: Record<string, AdjustmentKernel> = { exposure: 
 
 /**
  * The whole shader for an adjustment writing a target of `format`. `mask` is the compositor's WGSL for groups 2
- * and 3 (the adjustment's mask, in document pixels), defining `adjustment_mask(pos)`.
+ * and 3 (the adjustment's mask, in document pixels, and its blending), defining `adjustment_mask(pos)` and
+ * `adjustment_blend()`. Kernels work on linear light: in an encoded composite ("photoshop") the pixel is decoded
+ * for them and their result encoded again, then blended with what was there by the layer's mode.
  */
 export function adjustmentShader(kernel: AdjustmentKernel, format: StorageFormat, mask: string): string {
   return /* wgsl */ `
 ${ROUND_FOR_STORE(format)}
 ${MATHS}
+${BLEND_STRUCT}
+${BLEND}
 ${mask}
 @group(0) @binding(0) var below: texture_2d<f32>;
 ${kernel.wgsl.replace("fn adjust", "@group(1) @binding(0) var<uniform> params: Params;\n@group(1) @binding(1) var<storage, read> table: array<f32>;\nfn adjust")}
@@ -88,11 +93,12 @@ fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f { return full_s
 @fragment
 fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let c = textureLoad(below, vec2i(pos.xy), 0);
-  let adjusted = adjust(c);
-  // Its opacity and its mask say how much it changes this pixel.
-  let k = params.opacity * adjustment_mask(pos.xy);
-  if (k >= 1.0) { return round_for_store(adjusted); }
-  return round_for_store(mix(c, adjusted, k));
+  let p = adjustment_blend();
+  let encoded = p.encoded == 1u;
+  var adjusted = adjust(select(c, premult_decode(c), encoded));
+  if (encoded) { adjusted = premult_encode(adjusted); }
+  // Its mode, opacity, Blend If and mask say how much it changes this pixel, and how.
+  return round_for_store(composite_adjustment(p, c, adjusted, adjustment_mask(pos.xy)));
 }
 `;
 }

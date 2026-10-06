@@ -38,7 +38,7 @@ import { photoApi } from "../api.ts";
 import type { SurfacePart } from "../paint-target.ts";
 import { type SurfaceUploads, uploadsFor } from "../uploads.ts";
 import type { AtlasFormat } from "./atlas.ts";
-import { COMPOSITE_FORMATS, Compositor, type Drawable, type EvaluatorStats, type LayerDraw, type PlanSources, type Quality, type WorkPair, compositeTexture } from "./compositor.ts";
+import { COMPOSITE_FORMATS, Compositor, type Drawable, type EvaluatorStats, type LayerDraw, type PlanSources, type Quality, type WorkPair, compositeTexture, needsPass } from "./compositor.ts";
 import { RenderContext } from "./context.ts";
 import { type Gpu, createGpu } from "./gpu.ts";
 import { LatestOnly } from "./latest.ts";
@@ -226,7 +226,7 @@ export class PhotoRenderer {
   }
 
   /** The screen's counted work (image draws, adjustment passes, resumes from kept composites): pictures' isn't. */
-  readonly stats: EvaluatorStats = { imageDraws: 0, adjustmentPasses: 0, resumed: 0 };
+  readonly stats: EvaluatorStats = { imageDraws: 0, adjustmentPasses: 0, blendPasses: 0, resumed: 0 };
 
   /** What each image is doing (the Layers panel shows missing and failed ones). */
   sourceState(mediaId: string): SourceState {
@@ -531,7 +531,7 @@ export class PhotoRenderer {
       const keptKey = (index: number) => `${keyBelow(plan, index)}|${viewKey}|${quality}|${this.residency}`;
       let from: { index: number; texture: GPUTexture } | undefined;
       for (let i = plan.nodes.length - 1; i >= 0 && !from; i--) {
-        const texture = plan.nodes[i].kind === "adjustment" ? screen.kept.get(keptKey(i)) : undefined;
+        const texture = needsPass(plan.nodes[i]) ? screen.kept.get(keptKey(i)) : undefined;
         if (texture) {
           from = { index: i, texture };
           screen.kept.delete(keptKey(i));
@@ -791,8 +791,9 @@ export class PhotoRenderer {
     // The mask drawn as light over black (it holds its value in every channel): its grey.
     const plan: RenderPlan = {
       canvas: size,
+      compositing: "linear",
       background: [0, 0, 0, 1],
-      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, commutes: true, key: "mask" }],
+      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, blend: null, commutes: true, key: "mask" }],
       baseKey: "mask",
       prefixKeys: ["mask"],
       key: "mask",
@@ -1035,7 +1036,12 @@ export class PhotoRenderer {
     const width = Math.max(1, Math.min(30_000, Math.ceil(Math.min(Math.max(...corners.map((p) => p.x)), s ? s.x + s.width : Infinity) - 1e-6) - x0));
     const height = Math.max(1, Math.min(30_000, Math.ceil(Math.min(Math.max(...corners.map((p) => p.y)), s ? s.y + s.height : Infinity) - 1e-6) - y0));
     // The layer alone, opaque (its opacity stays the layer's), in an f16 composite: the surface's own format.
-    const alone: PhotoProject = { ...doc, canvas: { width, height, background: null }, layers: [{ ...layer, opacity: 1, visible: true }] };
+    // Plain and in linear light: its pixels as they are, whatever its blending (which stays the layer's).
+    const plain = { ...layer, opacity: 1, visible: true };
+    delete plain.blend;
+    delete plain.fill;
+    delete plain.blending;
+    const alone: PhotoProject = { ...doc, compositing: "linear", canvas: { width, height, background: null }, layers: [plain] };
     const plan = compileRender(alone, this.facts(), { float32: false });
     const { device } = this;
     const tile = TILE;

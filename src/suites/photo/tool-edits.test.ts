@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createPhotoProject } from "@shared/photo/project";
 import type { AdjustmentLayer, ImageLayer, PhotoProject } from "@shared/photo/types";
 import type { MediaAsset } from "@shared/types";
-import { addAdjustmentTool, addImageLayerTool, addPixelLayerTool, describePhoto, maskTool, mergeRequest, removeLayerTool, setCanvasTool, setEffectParamsTool, setLayerTool, transformLayerTool } from "./tool-edits";
+import { addAdjustmentTool, addImageLayerTool, addPixelLayerTool, describePhoto, maskTool, mergeRequest, removeLayerTool, setCanvasTool, setEffectParamsTool, setLayerBlendingTool, setLayerTool, transformLayerTool } from "./tool-edits";
 
 const placeOf = (doc: PhotoProject, i = 0) => (doc.layers[i] as ImageLayer).transform;
 const effectOf = (doc: PhotoProject, i: number) => (doc.layers[i] as AdjustmentLayer).effect;
@@ -44,6 +44,24 @@ describe("the photo assistant's edits", () => {
     expect(canvas.doc.canvas).toEqual({ width: 1080, height: 1920, background: null });
     expect(() => setCanvasTool(doc, { width: 0 }, env)).toThrow(/whole number/);
     expect(() => setCanvasTool(doc, { background: "blue" }, env)).toThrow(/#ffffff/);
+  });
+
+  it("sets blend modes, Fill, channels and Blend If on several layers, says what's allowed, and switches the compositing", () => {
+    let doc = addImageLayerTool(addImageLayerTool(empty, { media: "sky.jpg" }, env).doc, { media: "cat.png" }, env).doc;
+    doc = setLayerBlendingTool(doc, { layers: ["sky", "cat"], mode: "multiply", fill: 0.5 }, env).doc;
+    expect(doc.layers.map((l) => [l.blend, l.fill])).toEqual([
+      ["multiply", 0.5],
+      ["multiply", 0.5],
+    ]);
+    const blended = setLayerBlendingTool(doc, { layers: ["cat"], channels: { g: false }, blendIf: { gray: { underlying: [0, 40, 255, 255] } } }, env);
+    expect(blended.doc.layers[1].blending).toEqual({ channels: { r: true, g: false, b: true }, blendIf: { gray: { layer: [0, 0, 255, 255], underlying: [0, 40, 255, 255] } } });
+    expect(describePhoto(blended.doc, env.assets, [])).toMatch(/blending: Multiply, Fill 50%, channels RB, Blend If gray/);
+    expect(describePhoto(blended.doc, env.assets, [])).toMatch(/layers mix as Photoshop's/);
+    expect(setLayerBlendingTool(blended.doc, { layers: ["cat"], blendIf: null }, env).doc.layers[1].blending).toEqual({ channels: { r: true, g: false, b: true } });
+    expect(() => setLayerBlendingTool(doc, { layers: ["cat"], mode: "glow" }, env)).toThrow(/multiply, color-burn/);
+    expect(() => setLayerBlendingTool(doc, { layers: ["cat"], fill: 50 }, env)).toThrow(/0 to 1/);
+    expect(() => setLayerBlendingTool(doc, { layers: ["cat"], blendIf: { alpha: {} } }, env)).toThrow(/gray, red, green, blue/);
+    expect(setCanvasTool(doc, { compositing: "linear" }, env).doc.compositing).toBe("linear");
   });
 
   it("adds adjustment layers above a layer, sets and resets their parameters, and says what's wrong", () => {

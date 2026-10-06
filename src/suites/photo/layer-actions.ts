@@ -5,7 +5,9 @@
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import { createId } from "@shared/ids";
-import { addPixelLayer, arrangeLayers, duplicateLayers, findLayer, removeLayers, removeMask, replaceLayer, setMask, shiftLayers } from "@shared/photo/edits";
+import { stepBlendMode } from "@shared/photo/blending";
+import { addPixelLayer, arrangeLayers, duplicateLayers, findLayer, removeLayers, removeMask, replaceLayer, setLayerBlending, setMask, shiftLayers } from "@shared/photo/edits";
+import type { BlendMode } from "@shared/photo/types";
 import { liveRenderer } from "./live";
 import { mergeLayers } from "./merge";
 import { type LayerSelection, allLayers, edgeLayer, inStackOrder, stepLayer } from "./selection";
@@ -46,6 +48,25 @@ export const layerActions = {
   mergeVisible: () => mergeLayers("visible"),
   selectAll: () => apply(allLayers(current(), order())),
   deselect: () => usePhotoUi.getState().select(null),
+  /** The selected layers' blend mode (one undo step). */
+  setBlendMode: (blend: BlendMode) => {
+    const ids = usePhotoUi.getState().selectedLayerIds;
+    if (ids.length) usePhoto.getState().commit((d) => setLayerBlending(d, ids, { blend }));
+  },
+  /** The active layer's next or previous mode, on every selected layer (Photoshop's ⇧+ / ⇧−). */
+  stepBlendMode: (direction: 1 | -1) => {
+    const { selectedLayerId } = usePhotoUi.getState();
+    const layer = selectedLayerId ? findLayer(usePhoto.getState().history!.doc.doc, selectedLayerId) : undefined;
+    if (layer) layerActions.setBlendMode(stepBlendMode(layer.blend ?? "normal", direction));
+  },
+  /** The Layer Style window on Blending Options, for `layerId` (default: the active layer), which it selects. */
+  blendingOptions: (layerId?: string) => {
+    const ui = usePhotoUi.getState();
+    const id = layerId ?? ui.selectedLayerId;
+    if (!id) return;
+    if (ui.selectedLayerId !== id) ui.select(id);
+    ui.setLayerStyle(id);
+  },
   step: (direction: 1 | -1, add: boolean) => apply(stepLayer(current(), order(), direction, add)),
   edge: (to: "top" | "bottom", add: boolean) => apply(edgeLayer(current(), order(), to, add)),
 
@@ -98,7 +119,9 @@ export const layerActions = {
       usePhoto.getState().commit((d) => {
         const now = findLayer(d, layerId);
         if (!now) return d;
-        return replaceLayer(d, layerId, { id: layerId, kind: "pixel", name: now.name, visible: now.visible, opacity: now.opacity, ...pixels });
+        // Its blending stays the layer's (the pixels are drawn plain).
+        const blending = { ...(now.blend ? { blend: now.blend } : {}), ...(now.fill !== undefined ? { fill: now.fill } : {}), ...(now.blending ? { blending: now.blending } : {}) };
+        return replaceLayer(d, layerId, { id: layerId, kind: "pixel", name: now.name, visible: now.visible, opacity: now.opacity, ...blending, ...pixels });
       });
       usePhotoUi.getState().setTarget("content");
       toast.success(`"${layer.name}" is pixels now`, { description: "Its place and mask are part of them: scaling it now resamples these pixels." });

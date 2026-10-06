@@ -5,6 +5,7 @@
  * missing), a bad number goes back to its default, never a silent deletion of the user's work.
  */
 import { createId } from "../ids.ts";
+import { normalizeLayerBlending } from "./blending.ts";
 import { effectDefinition, validateParams } from "./effects/index.ts";
 import { isHash } from "./surfaces.ts";
 import {
@@ -31,6 +32,8 @@ export function createPhotoProject(name: string, canvas: Partial<PhotoCanvas> = 
     version: PHOTO_VERSION,
     name,
     canvas: { width: canvas.width ?? DEFAULT_PRESET.width, height: canvas.height ?? DEFAULT_PRESET.height, background: canvas.background === undefined ? "#ffffff" : canvas.background },
+    // New photos mix as Photoshop does (docs/photo/layer-style/README.md, decision 1).
+    compositing: "photoshop",
     output: { highlights: "film" },
     layers: [],
   };
@@ -147,6 +150,7 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
     visible: l.visible !== false,
     opacity: Math.max(0, Math.min(1, finite(l.opacity, 1))),
     ...normalizeMask(l.mask, id, report),
+    ...normalizeLayerBlending(l),
   });
   if (l.kind === "image") {
     if (typeof l.mediaId !== "string" || !l.mediaId) return null;
@@ -189,7 +193,8 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
 
 /**
  * Validates and repairs an untrusted document, and brings an older version up to this one (version 1 had image
- * layers only, version 2 added adjustments: either is a valid version 3 as it is). Throws only when it isn't a photo at all, or a newer version made
+ * layers only, version 2 added adjustments, version 3 pixel layers and masks: each is a valid version 4 as it is,
+ * compositing in linear light as it was made). Throws only when it isn't a photo at all, or a newer version made
  * it (opening it here would lose what this version doesn't know). What it repairs is told to `report`.
  */
 export function normalizePhotoProject(value: unknown, report: Report = () => {}): PhotoProject {
@@ -209,6 +214,7 @@ export function normalizePhotoProject(value: unknown, report: Report = () => {})
     version: PHOTO_VERSION,
     name: typeof d.name === "string" && d.name.trim() ? d.name.trim() : "Untitled",
     canvas,
+    ...(d.compositing === "photoshop" || d.compositing === "linear" ? { compositing: d.compositing } : {}),
     output: { highlights: o.highlights === "clip" ? "clip" : "film" },
     layers,
   };

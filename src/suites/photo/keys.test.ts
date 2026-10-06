@@ -12,6 +12,16 @@ const press = (key: string, mods: Partial<{ metaKey: boolean; ctrlKey: boolean; 
 });
 
 describe("photo keys", () => {
+  it("sets blend modes with Photoshop's ⇧⌥ letters, and steps through them with ⇧+ / ⇧−", () => {
+    // A Mac's ⌥ letters are other characters: the physical key decides.
+    expect(resolvePhotoKey({ ...press("Ó", { shiftKey: true, altKey: true }), code: "KeyM" }, true)).toEqual({ type: "blendMode", mode: "multiply" });
+    expect(resolvePhotoKey(press("s", { shiftKey: true, altKey: true }), false)).toEqual({ type: "blendMode", mode: "screen" });
+    expect(resolvePhotoKey({ ...press("Q", { shiftKey: true, altKey: true }), code: "KeyQ" }, true)).toBeNull();
+    expect(resolvePhotoKey({ ...press("+", { shiftKey: true }), code: "Equal" }, true)).toEqual({ type: "stepBlendMode", direction: 1 });
+    expect(resolvePhotoKey({ ...press("_", { shiftKey: true }), code: "Minus" }, true)).toEqual({ type: "stepBlendMode", direction: -1 });
+    // ⌘+ is still the zoom.
+    expect(resolvePhotoKey(press("+", { metaKey: true, shiftKey: true }), true)).toEqual({ type: "zoom", factor: 2 });
+  });
   it("picks tools, undoes and zooms, with the platform's modifier", () => {
     expect(resolvePhotoKey(press("v"), true)).toEqual({ type: "tool", tool: "move" });
     expect(resolvePhotoKey(press("H"), true)).toEqual({ type: "tool", tool: "hand" });

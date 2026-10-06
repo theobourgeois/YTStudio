@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addAdjustmentLayer, addImageLayer, setEffectParams, updateLayer } from "./edits.ts";
+import { addAdjustmentLayer, addImageLayer, setCompositing, setEffectParams, setLayerBlending, updateLayer } from "./edits.ts";
 import { identityCurveSet } from "./effects/params.ts";
 import { fitView } from "./geometry.ts";
 import { createPhotoProject } from "./project.ts";
@@ -13,7 +13,8 @@ const sources = new Map<string, SourceFacts>([
   ["m_deep", { width: 400, height: 200, bits: 16 }],
 ]);
 
-const doc = () => addImageLayer(addImageLayer(createPhotoProject("P", { width: 800, height: 600 }), image("a")), image("b"));
+/** A photo compositing in linear light (as photos made before version 4 do): its plans are as they were. */
+const doc = () => addImageLayer(addImageLayer(setCompositing(createPhotoProject("P", { width: 800, height: 600 }), "linear"), image("a")), image("b"));
 
 describe("compileRender", () => {
   it("lists what draws, bottom to top, and leaves out what changes nothing", () => {
@@ -57,6 +58,37 @@ describe("compileRender", () => {
     expect(keyBelow(after, 0)).toBe(after.baseKey);
     // The same document compiles to the same keys.
     expect(compileRender(d, sources).key).toBe(after.key);
+  });
+
+  it("composites Photoshop's way in encoded values, in f32, its background encoded", () => {
+    const d = setCompositing(doc(), "photoshop");
+    const plan = compileRender({ ...d, canvas: { ...d.canvas, background: "#808080" } }, sources);
+    expect(plan.compositing).toBe("photoshop");
+    expect(plan.format).toBe("rgba32float");
+    expect(plan.background).toEqual([128 / 255, 128 / 255, 128 / 255, 1]);
+    expect(compileRender(d, sources).baseKey).not.toBe(compileRender(doc(), sources).baseKey);
+    expect(compileRender(d, sources, { float32: false }).format).toBe("rgba16float");
+  });
+
+  it("folds Fill into a plain layer's opacity, and gives a blended one its own pass that doesn't commute", () => {
+    let d = setLayerBlending(updateLayer(doc(), "b", { opacity: 0.8 }), ["b"], { fill: 0.5 });
+    let b = compileRender(d, sources).nodes[1];
+    expect(b.opacity).toBeCloseTo(0.4, 9);
+    expect(b.blend).toBeNull();
+    expect(b.commutes).toBe(true);
+    const plain = compileRender(d, sources);
+    d = setLayerBlending(d, ["b"], { blend: "multiply" });
+    const plan = compileRender(d, sources);
+    b = plan.nodes[1];
+    expect(b.opacity).toBe(0.8);
+    expect(b.blend).toMatchObject({ mode: "multiply", fill: 0.5 });
+    expect(plan.commutes).toBe(false);
+    // Its key changes, the one below doesn't.
+    expect(plan.prefixKeys[0]).toBe(plain.prefixKeys[0]);
+    expect(plan.prefixKeys[1]).not.toBe(plain.prefixKeys[1]);
+    // An adjustment's mode is its node's too.
+    d = setLayerBlending(setEffectParams(addAdjustmentLayer(d, { id: "ex", type: "exposure" }), "ex", { exposure: 1 }), ["ex"], { blend: "luminosity" });
+    expect(compileRender(d, sources).nodes[2]).toMatchObject({ kind: "adjustment", blend: { mode: "luminosity" }, commutes: false });
   });
 
   it("says which region each node needs", () => {

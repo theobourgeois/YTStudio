@@ -6,7 +6,9 @@
  * as Photoshop's). Images show a thumbnail of themselves as they're placed on the
  * canvas; adjustments their kind and settings. Missing images and adjustments this app can't run are said so. Its
  * footer places images, adds adjustment layers (above the selected layer, as Photoshop's does), duplicates, moves
- * and deletes. Every change is an undoable edit.
+ * and deletes. Above the rows, Photoshop's blend-mode menu (each mode previewed while it's hovered), Opacity and
+ * Fill set every selected layer; Blending Options… (the menu, the fx button, a double-click on a row past its name)
+ * opens the Layer Style window. Every change is an undoable edit.
  */
 import { useRef, useState } from "react";
 import { cn } from "cn";
@@ -28,20 +30,23 @@ import {
   PiWarningCircle,
 } from "react-icons/pi";
 import { createId } from "@shared/ids";
-import { addAdjustmentLayer, moveLayersTo, updateLayer } from "@shared/photo/edits";
+import { blendingOf } from "@shared/photo/blending";
+import { addAdjustmentLayer, moveLayersTo, setLayerBlending, updateLayer } from "@shared/photo/edits";
 import { ADJUSTMENTS, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import type { AdjustmentLayer, ImageLayer, PhotoLayer, PixelLayer } from "@shared/photo/types";
+import { ScrubNumber } from "@/components/scrub-number";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { useSourceStates } from "../live";
-import { usePhoto, usePhotoDoc, useSelection } from "../store";
+import { photoGesture, usePhoto, usePhotoDoc, useSelection } from "../store";
 import { editActions } from "../edit-actions";
 import { layerActions } from "../layer-actions";
 import { clickLayer } from "../selection";
 import { usePhotoUi } from "../ui";
+import { BlendModeMenu, useBlendModePreview } from "./blend-mode-menu";
 import { useLayerThumbnail, useMaskThumbnail } from "./thumbnails";
 
 /** Each adjustment's icon (Photoshop's Adjustments panel has one per kind). */
@@ -120,6 +125,7 @@ export function LayersPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 select-none flex-col text-sm" data-layers-panel>
+      <BlendBar />
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <ul
@@ -146,6 +152,11 @@ export function LayersPanel() {
         </FooterButton>
         <FooterButton label="New layer (⇧⌘N)" onClick={() => layerActions.newLayer()}>
           <PiStackPlus />
+        </FooterButton>
+        <FooterButton label="Blending Options…" disabled={index < 0} onClick={() => layerActions.blendingOptions()}>
+          <span className="font-serif text-[13px] italic leading-none" aria-hidden>
+            fx
+          </span>
         </FooterButton>
         <FooterButton label="Add a mask (from the selection, if there is one)" disabled={index < 0} onClick={() => void layerActions.addMask()}>
           <PiSelectionBackground />
@@ -203,6 +214,51 @@ export function LayersPanel() {
   );
 }
 
+/**
+ * Photoshop's row above the layers: the blend mode (previewed while hovered), Opacity and Fill, of the active layer,
+ * setting every selected one (one undo step a change, or a drag).
+ */
+function BlendBar() {
+  const activeId = usePhotoUi((s) => s.selectedLayerId);
+  const active = usePhotoDoc((d) => d.layers.find((l) => l.id === activeId));
+  const [gesture] = useState(() => photoGesture());
+  const ids = () => usePhotoUi.getState().selectedLayerIds;
+  const preview = useBlendModePreview(ids, (ids, blend) => (d) => setLayerBlending(d, ids, { blend }));
+  const b = active ? blendingOf(active) : null;
+  const percent = (label: string, value: number, key: "opacity" | "fill") => (
+    <label className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+      {label}
+      <span className="w-14 rounded border border-line bg-surface-0 px-1 text-sm text-foreground">
+        <ScrubNumber
+          label={label}
+          value={Math.round(value * 100)}
+          display={{ min: 0, max: 100, step: 1, decimals: 0, unit: "%" }}
+          disabled={!active}
+          onBegin={() => gesture.begin()}
+          onChange={(v) => gesture.apply((d) => setLayerBlending(d, ids(), { [key]: v / 100 }))}
+          onEnd={() => gesture.end()}
+        />
+      </span>
+    </label>
+  );
+  return (
+    <div className="flex shrink-0 flex-col gap-1 border-b border-line px-2 py-1.5" data-blend-bar>
+      <div className="flex items-center gap-2">
+        <BlendModeMenu
+          className="flex-1"
+          value={b?.mode ?? "normal"}
+          disabled={!active}
+          onOpenChange={(open, chosen) => preview.onOpenChange(open, chosen, b?.mode ?? "normal")}
+          onPreview={preview.onPreview}
+          onChoose={preview.onChoose}
+        />
+        {percent("Opacity", active?.opacity ?? 1, "opacity")}
+      </div>
+      <div className="flex items-center justify-end gap-2">{percent("Fill", b?.fill ?? 1, "fill")}</div>
+    </div>
+  );
+}
+
 /** The Layers menu (a right-click on the panel): Photoshop's Layer menu, on the selected layers. */
 function LayersMenu({ count }: { count: number }) {
   const total = usePhotoDoc((d) => d.layers.length);
@@ -213,6 +269,10 @@ function LayersMenu({ count }: { count: number }) {
   const alt = MAC ? "⌥" : "Alt+";
   return (
     <ContextMenuContent className="w-56" data-layers-menu>
+      <ContextMenuItem disabled={!active} onSelect={() => layerActions.blendingOptions()}>
+        Blending Options…
+      </ContextMenuItem>
+      <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => layerActions.newLayer()}>
         New Layer
         <ContextMenuShortcut>⇧{mod}N</ContextMenuShortcut>
@@ -310,9 +370,14 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow }: RowProps) 
       onPointerDown={(e) => {
         if (e.currentTarget.contains(e.target as Node)) onPress(e, layer);
       }}
-      // On the row: its press captures the pointer (for dragging), so the click lands on the row, not the name.
+      // On the row: its press captures the pointer (for dragging), so the click lands on the row, not the name. The
+      // name renames; anywhere else past the buttons opens Blending Options (Photoshop's).
       onDoubleClick={(e) => {
-        if (!(e.target as Element).closest("button, input")) setRenaming(true);
+        if ((e.target as Element).closest("button, input")) return;
+        const name = e.currentTarget.querySelector("[data-layer-name]")?.getBoundingClientRect();
+        const onName = name && e.clientX >= name.left - 2 && e.clientX <= name.right + 2 && e.clientY >= name.top - 2 && e.clientY <= name.bottom + 2;
+        if (onName) setRenaming(true);
+        else layerActions.blendingOptions(layer.id);
       }}
       data-layer={layer.id}
       data-kind={layer.kind}
@@ -357,7 +422,7 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow }: RowProps) 
         />
       ) : (
         <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", !layer.visible && "text-muted-foreground")}>
-          <span className="truncate" data-layer-name>
+          <span className="max-w-full self-start truncate" data-layer-name>
             {layer.name}
           </span>
           {layer.kind === "adjustment" && <AdjustmentSummary layer={layer} />}

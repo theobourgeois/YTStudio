@@ -50,7 +50,9 @@ limits the user's brush and can become a mask.
 
 Start with get_photo, and look with view_photo before and after you change how it looks: you can't see the \
 canvas otherwise. list_photo_media lists the project's images; add_image_layer places one; transform_layer \
-moves, scales (fit: contain or cover) and rotates; set_layer renames, hides, fades and reorders; remove_layer \
+moves, scales (fit: contain or cover) and rotates; set_layer renames, hides, fades and reorders; \
+set_layer_blending sets blend modes (multiply, screen, overlay, soft-light, color, luminosity…), Fill and Blend If, \
+as Photoshop's Blending Options; remove_layer \
 deletes; set_canvas resizes the canvas or changes its background (thumbnails are often 1280×720, stories \
 1080×1920). add_adjustment adds an Exposure or Curves layer (above a given layer, so it only changes what's under \
 it) and set_effect_params changes one: Exposure is in stops of light; Curves' points are [input, output] on 0..255 \

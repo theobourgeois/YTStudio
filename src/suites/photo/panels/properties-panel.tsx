@@ -6,9 +6,10 @@
  */
 import { useState } from "react";
 import { PiArrowCounterClockwise, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiPaintBrush, PiStack, PiTrash, PiWarningCircle } from "react-icons/pi";
-import { resetEffect, setCanvas, setEffectParams, setTransform, updateLayer } from "@shared/photo/edits";
+import { compositingOf } from "@shared/photo/blending";
+import { resetEffect, setCanvas, setCompositing, setEffectParams, setTransform, updateLayer } from "@shared/photo/edits";
 import { effectDefinition, unavailableReason } from "@shared/photo/effects/index";
-import { type AdjustmentLayer, CANVAS_PRESETS, type PhotoLayer, type PlacedLayer, isPlaced } from "@shared/photo/types";
+import { type AdjustmentLayer, CANVAS_PRESETS, type Compositing, type PhotoLayer, type PlacedLayer, isPlaced } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { fitted } from "../canvas/handles";
@@ -196,6 +197,7 @@ function OpacitySlider({ layer }: { layer: PhotoLayer }) {
 
 function CanvasProperties() {
   const canvas = usePhotoDoc((d) => d.canvas);
+  const compositing = usePhotoDoc((d) => compositingOf(d));
   const commit = usePhoto((s) => s.commit);
   return (
     <Section title="Canvas">
@@ -227,6 +229,23 @@ function CanvasProperties() {
           </label>
         </span>
       </label>
+      <label className="flex items-center justify-between gap-2">
+        <span>Layers mix</span>
+        <select
+          aria-label="How layers mix"
+          value={compositing}
+          onChange={(e) => commit((d) => setCompositing(d, e.target.value as Compositing))}
+          className="h-7 rounded border border-line bg-surface-0 px-1.5"
+        >
+          <option value="photoshop">As Photoshop</option>
+          <option value="linear">In linear light</option>
+        </select>
+      </label>
+      <p className="text-xs text-muted-foreground" data-compositing={compositing}>
+        {compositing === "photoshop"
+          ? "Blend modes, opacity and soft edges mix encoded values, as Photoshop's do."
+          : "Layers mix linear light: physically, as light adds up (Photoshop's Blend RGB Colors Using Gamma 1.0)."}
+      </p>
     </Section>
   );
 }

@@ -176,7 +176,11 @@ interface PixelLayer {
 // Every layer may have mask?: { surface: SurfaceId | null }: coverage in the layer's own pixels (an adjustment's:
 // the document's), r16f, fill 1; null reveals everything.
 
-// Planned (F4), as proposed: blend, effects (EffectInstance[]), GeneratorLayer.
+// Version 4 (L1): Blending Options on every layer, absent at their defaults (shared/photo/blending.ts):
+//   blend?: BlendMode (27 of Photoshop's), fill?: number, blending?: { channels?, blendIf? }
+// and the document's compositing?: "photoshop" | "linear" (absent: linear, as photos before it; new ones photoshop).
+// Planned (F4), as proposed: filters (EffectInstance[]: a layer's content, Photoshop's Smart Filters), GeneratorLayer;
+// later, a layer's style (Photoshop's fx: layer-style/README.md).
 ```
 
 Rules, each enforced by `normalizePhotoProject` and tested:

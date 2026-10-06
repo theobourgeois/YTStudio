@@ -4,7 +4,8 @@
  * and what there is to choose from.
  */
 import { createId } from "@shared/ids";
-import { addAdjustmentLayer, addImageLayer, addPixelLayer, findLayer, moveLayer, removeLayer, removeMask, resetEffect, setCanvas, setEffectParams, setMask, setTransform, updateLayer } from "@shared/photo/edits";
+import { BLEND_IF_CHANNELS, BLEND_MODES, type BlendingPatch, compositingOf, describeBlending, isBlendMode, normalizeRange } from "@shared/photo/blending";
+import { addAdjustmentLayer, addImageLayer, addPixelLayer, findLayer, moveLayer, removeLayer, removeMask, resetEffect, setCanvas, setCompositing, setEffectParams, setLayerBlending, setMask, setTransform, updateLayer } from "@shared/photo/edits";
 import { ADJUSTMENTS, type EffectDefinition, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import { CURVE_CHANNELS, MAX_CURVE_POINTS } from "@shared/photo/effects/params";
 import { bounds } from "@shared/photo/layers";
@@ -72,6 +73,8 @@ export function describeAdjustment(layer: AdjustmentLayer): string {
 /** One layer as the model reads it. */
 export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], index: number): string {
   const faded = !layer.visible || layer.opacity < 1 ? [`   ${layer.visible ? "" : "hidden, "}opacity ${round(layer.opacity)}`] : [];
+  const blending = describeBlending(layer);
+  if (blending) faded.push(`   blending: ${blending}`);
   const mask = layer.mask ? [`   mask: ${layer.mask.surface ? "painted (hides parts of it)" : "reveals everything (nothing painted on it yet)"}`] : [];
   if (layer.kind === "adjustment") return [`${index}. ${layer.id} "${layer.name}": adjustment layer (changes everything below it)`, `   ${describeAdjustment(layer)}`, ...mask, ...faded].join("\n");
   const size = sizeOf(layer, assets);
@@ -95,7 +98,7 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
 /** `get_photo`: the canvas and the layers, top down. */
 export function describePhoto(doc: PhotoProject, assets: readonly MediaAsset[], selected: readonly string[], selection: PhotoSelection | null = null): string {
   const lines = [
-    `"${doc.name}": canvas ${doc.canvas.width}×${doc.canvas.height} px, background ${doc.canvas.background ?? "transparent"}.`,
+    `"${doc.name}": canvas ${doc.canvas.width}×${doc.canvas.height} px, background ${doc.canvas.background ?? "transparent"}, layers mix ${compositingOf(doc) === "photoshop" ? "as Photoshop's (encoded values)" : "in linear light"}.`,
     doc.layers.length ? `Layers, top first (${doc.layers.length}):` : "No layers yet.",
     ...[...doc.layers].reverse().map((l) => describeLayer(l, assets, doc.layers.indexOf(l))),
   ];
@@ -179,6 +182,56 @@ export const setLayerTool: PhotoEdit = (doc, input) => {
     layerId: layer.id,
     text: `Layer "${after.name}": ${after.visible ? "shown" : "hidden"}, opacity ${round(after.opacity)}, ${next.layers.indexOf(after)} of ${next.layers.length - 1} from the bottom.`,
   };
+};
+
+/** `set_layer_blending`: Blending Options on layers, checked strictly (an error says what's allowed). */
+export const setLayerBlendingTool: PhotoEdit = (doc, input) => {
+  const refs = Array.isArray(input.layers) ? input.layers : input.layer !== undefined ? [input.layer] : [];
+  if (!refs.length) throw new Error("Give layers: a list of layer ids or names.");
+  const ids = refs.map((r) => findLayerRef(doc, r).id);
+  const patch: BlendingPatch = {};
+  if (input.mode !== undefined) {
+    if (!isBlendMode(input.mode)) throw new Error(`mode must be one of: ${BLEND_MODES.map((m) => m.id).join(", ")}.`);
+    patch.blend = input.mode;
+  }
+  for (const key of ["opacity", "fill"] as const) {
+    const v = num(input[key]);
+    if (v === undefined) continue;
+    if (v < 0 || v > 1) throw new Error(`${key} must be from 0 to 1 (${key === "fill" ? "Fill" : "Opacity"} 50% is 0.5).`);
+    patch[key] = v;
+  }
+  if (input.channels !== undefined) {
+    if (!input.channels || typeof input.channels !== "object") throw new Error('channels is { "r": true, "g": false, "b": true }.');
+    const c = input.channels as Record<string, unknown>;
+    patch.channels = Object.fromEntries((["r", "g", "b"] as const).filter((k) => typeof c[k] === "boolean").map((k) => [k, c[k]]));
+  }
+  if (input.blendIf === null) patch.blendIf = null;
+  else if (input.blendIf !== undefined) {
+    if (typeof input.blendIf !== "object") throw new Error('blendIf is { "gray": { "layer": [0, 0, 255, 255], "underlying": [0, 0, 255, 255] } }, or null to clear it.');
+    const out: NonNullable<BlendingPatch["blendIf"]> = {};
+    for (const [entry, value] of Object.entries(input.blendIf as Record<string, unknown>)) {
+      if (!(BLEND_IF_CHANNELS as readonly string[]).includes(entry)) throw new Error(`blendIf's entries are ${BLEND_IF_CHANNELS.join(", ")}; "${entry}" isn't one.`);
+      if (value === null) {
+        out[entry as (typeof BLEND_IF_CHANNELS)[number]] = null;
+        continue;
+      }
+      const v = (value ?? {}) as Record<string, unknown>;
+      const side = (name: "layer" | "underlying") => {
+        if (v[name] === undefined) return undefined;
+        const r = normalizeRange(v[name]);
+        if (!r) throw new Error(`blendIf.${entry}.${name} must be four numbers on 0..255: [black low, black high, white low, white high].`);
+        return r;
+      };
+      out[entry as (typeof BLEND_IF_CHANNELS)[number]] = { layer: side("layer"), underlying: side("underlying") };
+    }
+    patch.blendIf = out;
+  }
+  const next = setLayerBlending(doc, ids, patch);
+  const lines = ids.map((id) => {
+    const l = findLayer(next, id)!;
+    return `"${l.name}": ${describeBlending(l) ?? "Normal"}, opacity ${round(l.opacity)}`;
+  });
+  return { doc: next, layerId: ids[0], text: next === doc ? `Nothing changed: ${lines.join("; ")}.` : `Blending: ${lines.join("; ")}.` };
 };
 
 /**
@@ -283,6 +336,8 @@ export const setCanvasTool: PhotoEdit = (doc, input) => {
   for (const [name, v] of [["width", width], ["height", height]] as const) {
     if (v !== undefined && (!Number.isInteger(v) || v < 1 || v > 30000)) throw new Error(`${name} must be a whole number of pixels from 1 to 30000.`);
   }
-  const next = setCanvas(doc, { width, height, background: background as string | null | undefined }, input.anchor === "centre" ? "centre" : "top-left");
-  return { doc: next, text: `Canvas: ${next.canvas.width}×${next.canvas.height} px, background ${next.canvas.background ?? "transparent"}.` };
+  if (input.compositing !== undefined && input.compositing !== "photoshop" && input.compositing !== "linear") throw new Error('compositing is "photoshop" or "linear".');
+  let next = setCanvas(doc, { width, height, background: background as string | null | undefined }, input.anchor === "centre" ? "centre" : "top-left");
+  if (input.compositing) next = setCompositing(next, input.compositing as "photoshop" | "linear");
+  return { doc: next, text: `Canvas: ${next.canvas.width}×${next.canvas.height} px, background ${next.canvas.background ?? "transparent"}, layers mix ${compositingOf(next) === "photoshop" ? "as Photoshop's" : "in linear light"}.` };
 };
