@@ -187,7 +187,7 @@ function ShaderWindowBody({ clipId, effectId }: { clipId: string; effectId: stri
 }
 
 /** Whether the shader compiles, or how many problems it has. */
-function Status({ problems }: { problems: readonly ShaderProblem[] }) {
+export function Status({ problems }: { problems: readonly ShaderProblem[] }) {
   return problems.length ? (
     <span className="flex items-center gap-1 text-destructive" data-shader-status="problems">
       <PiWarningCircle className="size-3.5" />
