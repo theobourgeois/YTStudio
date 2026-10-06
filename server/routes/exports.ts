@@ -25,7 +25,8 @@ export function exportRoutes(exports: ExportManager): Router {
   });
   router.get("/:id/download", (req, res, next) => {
     const { file, name } = exports.output(req.params.id);
-    res.download(file, name, (err) => {
+    // The data folder may be under a dot-folder (e2e/.data, ~/.something): send refuses those by default.
+    res.download(file, name, { dotfiles: "allow" }, (err) => {
       if (err && !res.headersSent) next(new HttpError(410, "The exported file is gone."));
     });
   });
