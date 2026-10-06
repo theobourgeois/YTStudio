@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FloatingWindow, WindowFooter, centredOnDesktop } from "@/components/windows/floating-window";
 import type { NewProjectWindowProps } from "../types";
+import { isImage } from "./media";
 import { parseSide, presetOf, ratioOf, shapeBox } from "./new-photo";
 import { newPhotoOptions, usePhotoPreferences } from "./preferences";
 
@@ -25,8 +26,6 @@ const BACKGROUNDS = [
   { id: "transparent", label: "Transparent", colour: null },
 ] as const;
 type Background = (typeof BACKGROUNDS)[number];
-
-const isImage = (file: File) => file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name);
 
 export default function NewPhotoWindow({ create, close }: NewProjectWindowProps) {
   const [initial] = useState(() => centredOnDesktop(WIDTH, 440, "app"));

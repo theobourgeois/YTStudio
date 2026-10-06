@@ -924,6 +924,41 @@ test("files dropped on the tabs start a new project, named after the image", asy
   await expect.poll(async () => (await savedPhoto(page, id)).name).toBe("sticker-800");
 });
 
+test("images dragged into a photo are placed as layers where they're dropped, and selected", async ({ page }) => {
+  const id = await openNewPhoto(page, "Dropped");
+  await expect(page.locator("[data-photo-status]")).toContainText("1080 × 1920 px");
+  const transferOf = (name: string, type: string, data: number[]) =>
+    page.evaluateHandle(({ name, type, data }) => {
+      const t = new DataTransfer();
+      t.items.add(new File([new Uint8Array(data)], name, { type }));
+      return t;
+    }, { name, type, data });
+  const canvas = page.getByLabel("Photo canvas");
+  const point = await screenOf(page, 300, 500);
+  const sticker = await transferOf("sticker-800.png", "image/png", [...(await fs.readFile(STICKER))]);
+  await canvas.dispatchEvent("dragenter", { dataTransfer: sticker });
+  await canvas.dispatchEvent("dragover", { dataTransfer: sticker, clientX: point.x, clientY: point.y });
+  await expect(page.locator("[data-image-drop]")).toContainText("Drop to place as layers");
+  await canvas.dispatchEvent("drop", { dataTransfer: sticker, clientX: point.x, clientY: point.y });
+  await expect(page.locator("[data-image-drop]")).toHaveCount(0);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await expect(page.locator("[data-layer]")).toHaveAttribute("aria-selected", "true");
+  // The canvas keeps its size (it's placed, not opened); the image is centred on the drop, fitted in the canvas.
+  await expect(page.locator("[data-photo-status]")).toContainText("1080 × 1920 px");
+  const doc = await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(1).then(() => savedPhoto(page, id));
+  expect(doc.canvas).toMatchObject({ width: 1080, height: 1920 });
+  // (Within a screen pixel: at this zoom one is about two of the photo's.)
+  const { x, y, scaleX, scaleY } = doc.layers[0].transform;
+  expect([Math.abs(x - 300) <= 3, Math.abs(y - 500) <= 3, scaleX, scaleY]).toEqual([true, true, 1, 1]);
+
+  // Something that isn't an image is turned away.
+  const text = await transferOf("notes.txt", "text/plain", [...Buffer.from("hello")]);
+  await canvas.dispatchEvent("dragenter", { dataTransfer: text });
+  await canvas.dispatchEvent("drop", { dataTransfer: text, clientX: point.x, clientY: point.y });
+  await expect(page.getByText("notes.txt isn't an image")).toBeVisible();
+  await expect(page.locator("[data-layer]")).toHaveCount(1);
+});
+
 // --- F3: resources, selections, masks and the brush ---
 
 type PaintWindow = {

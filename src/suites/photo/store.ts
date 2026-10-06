@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { create } from "zustand";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import { addImageLayer, fromImage } from "@shared/photo/edits";
+import { addImageLayer, fromImage, placement } from "@shared/photo/edits";
 import { sameSelection } from "@shared/photo/selection";
 import type { PhotoProject, PhotoSelection, PhotoState } from "@shared/photo/types";
 import type { MediaAsset } from "@shared/types";
@@ -21,6 +21,11 @@ import { imageLayerOf, isDefaultName, projectNameOf } from "./media";
  * publication gate, `uploads.ts`). Which layers are selected, the tool and the view are in `ui.ts`; the GPU follows
  * the document from the workspace (`render/renderer.ts`).
  */
+interface Point {
+  x: number;
+  y: number;
+}
+
 interface PhotoStore {
   projectId: string | null;
   history: DocumentHistory<PhotoState> | null;
@@ -44,11 +49,12 @@ interface PhotoStore {
   redo: () => void;
   /**
    * Image files as new layers on top (uploaded as the project's media). `asCanvas`: an empty photo takes the first
-   * image's size, as Photoshop opening a file does. Returns the new layers' ids.
+   * image's size, as Photoshop opening a file does. `at`: centred on this point of the canvas (where they were
+   * dropped), else on the canvas's middle. Returns the new layers' ids.
    */
-  placeFiles: (files: File[], options?: { asCanvas?: boolean }) => Promise<string[]>;
-  /** One of the project's images as a new layer on top. Returns its id. */
-  placeMedia: (asset: MediaAsset, options?: { asCanvas?: boolean; name?: string }) => string | null;
+  placeFiles: (files: File[], options?: { asCanvas?: boolean; at?: Point }) => Promise<string[]>;
+  /** One of the project's images as a new layer on top (centred on `at`, if given). Returns its id. */
+  placeMedia: (asset: MediaAsset, options?: { asCanvas?: boolean; name?: string; at?: Point }) => string | null;
 }
 
 const autosaver = createAutosaver<PhotoProject, Awaited<ReturnType<typeof api.saveDocument>>>({
@@ -138,15 +144,19 @@ export const usePhoto = create<PhotoStore>((set, get) => ({
     if (history) set({ history: redo(history) });
   },
 
-  placeMedia(asset, { asCanvas = false, name } = {}) {
+  placeMedia(asset, { asCanvas = false, name, at } = {}) {
     const { history } = get();
     if (!history || asset.kind !== "image") return null;
     const layer = imageLayerOf(asset, name);
-    get().commit((doc) => (asCanvas && doc.layers.length === 0 ? fromImage(doc, layer) : addImageLayer(doc, layer)));
+    get().commit((doc) => {
+      if (asCanvas && doc.layers.length === 0) return fromImage(doc, layer);
+      // Fitted in the canvas as ever, but centred where it was dropped (as Photoshop places a file dragged in).
+      return addImageLayer(doc, layer, at ? { transform: { ...placement(doc.canvas, layer.size), x: Math.round(at.x), y: Math.round(at.y) } } : {});
+    });
     return layer.id;
   },
 
-  async placeFiles(files, { asCanvas = false } = {}) {
+  async placeFiles(files, { asCanvas = false, at } = {}) {
     const { projectId } = get();
     if (!projectId) return [];
     const ids: string[] = [];
@@ -161,7 +171,7 @@ export const usePhoto = create<PhotoStore>((set, get) => ({
         set({ assets: [...get().assets, asset] });
         const first = asCanvas && ids.length === 0;
         const wasEmpty = currentDoc()?.layers.length === 0;
-        const id = get().placeMedia(asset, { asCanvas: first });
+        const id = get().placeMedia(asset, { asCanvas: first, at });
         if (id) ids.push(id);
         // A photo opened from an image is called what the image is (Photoshop's document takes the file's name),
         // unless it's been named already.
