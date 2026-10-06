@@ -184,6 +184,8 @@ export class PhotoRenderer {
   private destroyed = false;
   private recovering: Promise<void> | null = null;
   recoveries = 0;
+  /** Strokes lost with the device (counted: a stroke's controller tells the user its stroke wasn't kept). */
+  lostStrokes = 0;
 
   /** Each glow's contributions over its layer, from level-0 renders (`glow-cache.ts`). */
   readonly glows: GlowCaches;
@@ -1200,6 +1202,7 @@ export class PhotoRenderer {
   private recover(): Promise<void> {
     this.recovering ??= (async () => {
       // A stroke in progress is lost with the device (its drafts were on it); committed ones are the Worker's and the server's.
+      if (this.stroke) this.lostStrokes++;
       this.stroke = null;
       for (const s of this.surfaces.values()) s.image?.destroy();
       this.surfaces.clear();

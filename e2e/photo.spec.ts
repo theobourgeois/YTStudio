@@ -2097,3 +2097,41 @@ test("an export cancelled while it renders writes nothing and lets go of what th
   expect(downloaded).toBe(true);
   await window.getByRole("button", { name: "Close", exact: true }).click();
 });
+
+test("the GPU lost mid-stroke: that stroke isn't kept and the user is told; the photo is drawn again and painting goes on", async ({ page }) => {
+  await openNewPhoto(page, "Device loss");
+  await setPhoto(page, { width: 600, height: 400, background: "#ffffff" }, [pixelLayer("paint", 600, 400)]);
+  await page.evaluate(() => (window as unknown as { photoDebug: { ui: { getState(): { select(id: string): void } } } }).photoDebug.ui.getState().select("paint"));
+  await page.keyboard.press("b");
+  const surface = async () => ((await docLayers(page)).find((l) => l.id === "paint") as unknown as { surface: string | null }).surface;
+  const view: ViewBox = { zoom: 0.5, x: 0, y: 0, width: 300, height: 200 };
+  const before = await renderDigest(page, view);
+  const recoveries = () => page.evaluate(async () => ((await (window as unknown as DebugWindow).photoDebug.renderer()) as unknown as { recoveries: number }).recoveries);
+  const recovered = await recoveries();
+
+  // A stroke begun, the device lost halfway, then finished.
+  const from = await screenOf(page, 100, 200);
+  const to = await screenOf(page, 500, 200);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move((from.x + to.x) / 2, from.y, { steps: 6 });
+  await page.evaluate(async () => {
+    const r = (await (window as unknown as DebugWindow).photoDebug.renderer()) as unknown as { simulateLoss(): Promise<void> };
+    await r.simulateLoss();
+  });
+  await page.mouse.move(to.x, to.y, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.getByText("The GPU stopped mid-stroke")).toBeVisible();
+  expect(await surface()).toBeNull();
+  expect(await recoveries()).toBe(recovered + 1);
+  // Drawn again, as it was.
+  expect(await renderDigest(page, view)).toBe(before);
+
+  // The next stroke paints and is kept.
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(surface).not.toBeNull();
+  expect(await renderDigest(page, view)).not.toBe(before);
+});
