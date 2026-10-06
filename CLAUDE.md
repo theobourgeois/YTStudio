@@ -70,7 +70,13 @@ from a spectrum at the playhead and places hits; the timeline shows signal lanes
 video effects with `EffectShader.audio` (the Audio category, `shared/effect-library/audio.ts`); each pass carries what
 it hears at its clip's moment (`EffectPass.audio`, read by `effectPasses` through `clipAudio`), bound by the compositor
 as `uSpectrum`/`uWave` textures and uniforms (`AUDIO_PRELUDE` in `effect-gl.ts`); a `source` parameter says what it
-listens to; New item › Visualizer is a solid drawing only its visualizer. Signals files (v2) keep a small waveform.
+listens to; New item › Visualizer is a solid drawing only its visualizer. Signals files (v2) keep a small waveform. **V6 is
+built**: the Shader effect (type `shader`, `Effect.shader`: the user's GLSL, ours, ISF or Shadertoy's, read by
+`shared/shader-code.ts`); its parameters are declared in its code, so **use `definitionOf(effect)` wherever an effect is
+at hand** (`effectDefinition(type)` gives the starting shader's). Keyed by a hash of the code (`fx:shader:<hash>`);
+the tab compiles each on a hidden context (`src/lib/shader-compiler.ts`, `provideShaderCheck`: one that doesn't compile
+isn't drawn), the export refuses one (`GlSession.compile`), and a lost GPU turns the likely one off
+(`preview/shader-recovery.ts`). The editor is `components/shader/` (CodeMirror 6); the assistant's `set_shader`.
 
 ## Commands
 
