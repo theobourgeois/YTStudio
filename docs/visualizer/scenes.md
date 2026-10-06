@@ -117,3 +117,91 @@ sheet checks they compile and draw; `server/simulation.test.ts` keeps one scene 
 
 Costs: the export draws at full size, so a scene must hold up at 1080x1920 (march budgets, distance-field LOD); Quality
 lowers the step count for a fast preview.
+
+## Five more
+
+Théo loved the five above and asked for five more (2026-10-06): the most beautiful worlds that could be made this way,
+inspired by them and by what's out there, each syncing with the music. What was looked at: Shadertoy's classics (Inigo
+Quilez's landscapes, nimitz's *Protean Clouds* for volumes, TDM's *Seascape*, the Schwarzschild black holes that
+integrate bent rays), the films they echo (*Interstellar*'s Gargantua, *Blade Runner 2049*'s city, Hubble's *Pillars
+of Creation*, the deep-sea footage of *Blue Planet II*), and the visualizers people buy (infinite cities whose windows
+pulse, underwater beats, Cinema 4D's fields of pillars). The five each take a place the first five don't: space, a
+city, a gas, under the sea, and something abstract that is plainly an equaliser. Same rules as above: raymarched GLSL,
+state stepped in TypeScript, portrait first, a full 1080x1920 frame in about the first five's time.
+
+### 6. Event Horizon: a black hole
+
+Gargantua: a black disc ringed by a thin photon ring, its accretion disk lensed up over the top and under the bottom,
+one side brighter as it rushes at us, against a bent starfield.
+
+- **World**: rays bent towards the hole as light is (the Schwarzschild orbit equation, `r'' = -1.5 h² r / |r|⁵`, stepped
+  per pixel, finer near the hole); a ray that falls in is black. Each crossing of the disk's plane (interpolated) adds
+  the disk's light there: hot at its inner edge (three times the horizon), cooling outwards (a blackbody colour from a
+  temperature profile), streaked by turbulence that swirls at Kepler's speed (the inner rings faster), brighter where
+  it comes at us (Doppler beaming) and redder deep in the well. A ray that escapes reads a starfield and a faint galaxy
+  in its final direction, so the sky is lensed for free (Einstein rings round the shadow).
+- **Camera** (stepped): a slow orbit; its inclination eases between nearly edge-on (the iconic view, the disk bent over
+  the shadow) and from above; it comes closer in loud passages and drifts back in quiet ones.
+- **Sound**: the disk's rings are the spectrum (the bass at the inner edge, the highs outwards); each hit drops a bright
+  clump in that spirals inwards at its orbit's speed and flares as it goes (stepped: a few at once); the level heats
+  the disk; the punch pulses the photon ring.
+- **Looks**: Disk (Gargantua, Blue Giant, Ember), Inclination, Turbulence.
+
+### 7. Neon City: night flight through a rain-soaked megacity
+
+Down an endless avenue between towers at night, in the rain: neon signs, a thousand lit windows, a wet street that
+mirrors them, haze glowing with their colours.
+
+- **World**: city blocks repeated along the flight (heights, setbacks and signs from a hash per block), windows a grid
+  on each facade, neon strips and signs that glow into the haze (light gathered along the march from how near it ran
+  to each sign), a wet street that reflects the city (a second, cheaper march), rain as streaks, the sky the city's
+  orange-violet glow on low cloud. The world repeats over a long period, and the camera's place wraps in it, so the
+  flight never runs out of precision.
+- **Camera** (stepped): down the avenue at a speed on the bass, weaving between lanes and changing height (now just over
+  the street, now among the tops), banking into the weaves; hits pick the next weave.
+- **Sound**: the windows are an equaliser: each tower's columns lit up to the height of their band, so the whole street
+  is a spectrum analyser in perspective; kicks flash the neon and the haze; the highs are the rain.
+- **Looks**: Palette (Cyberpunk, Blade Runner, Tokyo, Matrix), Rain, Height.
+
+### 8. Nebula: drifting through a stellar nursery
+
+Gliding through glowing clouds of gas and dark dust, pillars and cavities lit from inside by newborn stars.
+
+- **World**: a volume of domain-warped noise marched front to back: emission coloured by how near the ionising stars
+  are (blue-white near, teal oxygen, deep red hydrogen far: the Hubble palette's logic), dark dust that absorbs, a few
+  bright stars inside it with their glow and diffraction spikes, a starfield behind. A tunnel is carved along the
+  flight path, as Ridgeline's valley is, so the camera's never inside a wall of gas.
+- **Camera** (stepped): forward along a slowly curving path, rolling a little; faster on the bass.
+- **Sound**: each hit ignites a star ahead (seeded, stepped: it flares and lights the gas round it, then settles, a few
+  at once); the level is the emission's brightness; the bass warms the hydrogen, the highs the oxygen.
+- **Looks**: Palette (Hubble, Natural, Cosmic), Density, Stars.
+
+### 9. Abyss: jellyfish in the deep
+
+The deep sea's twilight: shafts of light from far above, marine snow drifting through them, and glowing jellyfish
+pulsing as they swim, their bells contracting on the kicks.
+
+- **World**: water that absorbs (blue-green falling to black with depth), god rays from a rippling surface far above
+  (light gathered along the ray through caustic noise), marine snow (hashed motes in cells round the camera, drifting).
+  The jellyfish are translucent bells (a squashed shell with a frilled rim) trailing tentacles that sway behind them,
+  shaded by Fresnel and an inner glow, with bioluminescent spots along the rim.
+- **Camera** (stepped): drifting slowly among them, turning to follow the group, bobbing.
+- **Sound**: kicks contract the bells, and each contraction pushes its jelly up (stepped per jelly: a pulse and a
+  glide); each jelly's glow is a part of the spectrum; the level brightens the shafts; the highs make the plankton
+  sparkle.
+- **Looks**: Glow (Cyan, Magenta, Gold, Rainbow), Depth (from sunlit blue to the abyss), Jellies.
+
+### 10. Monoliths: an equaliser the size of a landscape
+
+An endless field of polished black pillars under a vast dusk sky, rising and falling with the music: a living
+equaliser the camera glides over, waves rippling through it on every kick.
+
+- **World**: a grid of rounded pillars, traversed cell by cell (exact and cheap, a DDA, not a guessed march); each
+  pillar's height is its band of the spectrum (the frequency across, mirrored about the path, so every row reads as the
+  spectrum) plus the kicks' ripples. Glossy dark faces that reflect the sky, tops lit by an edge of light whose
+  brightness is their height, soft shadows, occlusion between them, haze.
+- **Camera** (stepped): gliding low over the field, turning slowly, rising now and then to show the patterns,
+  banking.
+- **Sound**: heights are the spectrum; each kick sends a ring outwards from the camera's place (stepped, several at
+  once) that lifts the pillars it passes; the level lights the horizon.
+- **Looks**: Style (Obsidian, Marble, Synth), Height, Spacing.
