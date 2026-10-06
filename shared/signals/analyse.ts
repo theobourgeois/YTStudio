@@ -46,6 +46,11 @@ const LOW_REGION_HZ = 150;
 const HIGH_REGION_HZ = 4000;
 /** Bands this far below the recent loudest are leakage, which flickers with the window's phase: not onsets. */
 const FLUX_RANGE_DB = 30;
+/**
+ * A rise is measured against the highest of this many frames before (30 ms), not just the last: noise
+ * flickers up and down but never far above its own recent peaks; a hit does (SuperFlux's trick, over time).
+ */
+const RISE_FRAMES = 6;
 /** A region this far below the loudest region is too quiet to have onsets of its own. */
 const REGION_RANGE_DB = 35;
 const REGION_SCALARS = ["onsetLow", "onsetMid", "onsetHigh"] as const;
@@ -65,6 +70,9 @@ const HIT_FACTOR = 1.4;
 const HIT_FLOOR = 0.08;
 /** And rise at least this much (dB): a whisper of leakage isn't a hit, however quiet the rest. */
 const MIN_HIT_RISE = 2;
+/** And reach this share of the strongest rise within `HIT_NEIGHBOURHOOD` seconds: a noisy bed's flicker isn't a hit beside the beat's. */
+const HIT_SHARE = 0.3;
+const HIT_NEIGHBOURHOOD = 1;
 
 // References (auto-gain).
 /** A frame with sound: louder than this. */
@@ -116,11 +124,18 @@ export class SignalAnalyser {
   private readonly re = new Float64Array(LONG);
   private readonly im = new Float64Array(LONG);
   private readonly power = new Float64Array(LONG / 2 + 1);
-  private prevFlux = new Float64Array(FLUX_BANDS);
-  private prevRegion = new Float64Array(3);
-  private nextRegion = new Float64Array(3);
+  /** The last `RISE_FRAMES` frames' band and region levels (a ring, frame `f` at `f % RISE_FRAMES`). */
+  private fluxHistory = Array.from({ length: RISE_FRAMES }, () => new Float64Array(FLUX_BANDS));
+  private regionHistory = Array.from({ length: RISE_FRAMES }, () => new Float64Array(3));
+  private regions = new Float64Array(3);
   private regionReference = [-Infinity, -Infinity, -Infinity];
   private nextFlux = new Float64Array(FLUX_BANDS);
+  /** The highest of each band's or region's last levels, floored. */
+  private recent = (history: Float64Array[], i: number, f: number, floor: number) => {
+    let most = floor;
+    for (let k = 1; k <= Math.min(f, RISE_FRAMES); k++) most = Math.max(most, history[(f - k) % RISE_FRAMES][i]);
+    return most;
+  };
   private fluxReference = -Infinity;
   private readonly fluxRelease: number;
 
@@ -296,10 +311,10 @@ export class SignalAnalyser {
     // silence when the sound starts.
     const floor = this.fluxReference - FLUX_RANGE_DB;
     let rises = 0;
-    const regions = this.nextRegion;
+    const regions = this.regions;
     regions.fill(0);
     for (let b = 0; b < FLUX_BANDS; b++) {
-      const rise = f > 0 ? Math.max(next[b], floor) - Math.max(this.prevFlux[b], floor) : 0;
+      const rise = f > 0 ? Math.max(next[b], floor) - this.recent(this.fluxHistory, b, f, floor) : 0;
       if (rise > 0) rises += rise;
       for (let k = edges[b]; k < edges[b + 1]; k++) regions[this.fluxRegion[b]] += power[k];
     }
@@ -314,11 +329,11 @@ export class SignalAnalyser {
     }
     REGION_SCALARS.forEach((name, r) => {
       const regionFloor = Math.max(this.regionReference[r] - FLUX_RANGE_DB, loudestRegion - REGION_RANGE_DB);
-      const rise = f > 0 ? Math.max(regions[r], regionFloor) - Math.max(this.prevRegion[r], regionFloor) : 0;
+      const rise = f > 0 ? Math.max(regions[r], regionFloor) - this.recent(this.regionHistory, r, f, regionFloor) : 0;
       out[row + SCALAR_INDEX[name]] = Math.max(0, rise);
     });
-    [this.prevRegion, this.nextRegion] = [this.nextRegion, this.prevRegion];
-    [this.prevFlux, this.nextFlux] = [this.nextFlux, this.prevFlux];
+    this.fluxHistory[f % RISE_FRAMES].set(next);
+    this.regionHistory[f % RISE_FRAMES].set(regions);
   }
 }
 
@@ -384,10 +399,11 @@ export function pickHits(flux: Float64Array, reference: number): Hit[] {
   // Moving mean over ±radius.
   const prefix = new Float64Array(n + 1);
   for (let i = 0; i < n; i++) prefix[i + 1] = prefix[i] + flux[i];
+  const near = localMax(flux, Math.round(HIT_NEIGHBOURHOOD * SIGNAL_RATE));
   const candidates: number[] = [];
   for (let i = 0; i < n; i++) {
     const v = flux[i];
-    if (v <= Math.max(HIT_FLOOR * reference, MIN_HIT_RISE)) continue;
+    if (v <= Math.max(HIT_FLOOR * reference, MIN_HIT_RISE) || v < HIT_SHARE * near[i]) continue;
     const lo = Math.max(0, i - radius);
     const hi = Math.min(n, i + radius + 1);
     const mean = (prefix[hi] - prefix[lo]) / (hi - lo);
@@ -409,4 +425,23 @@ export function pickHits(flux: Float64Array, reference: number): Hit[] {
     const shift = curve < 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (a - c)) / curve)) : 0;
     return [round(Math.max(0, (i + shift) / SIGNAL_RATE + ONSET_SHIFT)), Math.round(Math.min(1, b / reference) * 100) / 100];
   });
+}
+
+/** The largest value within `radius` of each (a sliding maximum, in one pass). */
+function localMax(x: Float64Array, radius: number): Float64Array {
+  const n = x.length;
+  const out = new Float64Array(n);
+  const window: number[] = [];
+  let head = 0;
+  for (let i = 0, j = 0; i < n; i++) {
+    // Take in everything up to i + radius, keeping the indices of falling values.
+    for (; j < Math.min(n, i + radius + 1); j++) {
+      while (window.length > head && x[window[window.length - 1]] <= x[j]) window.pop();
+      window.push(j);
+      if (head > window.length) head = window.length;
+    }
+    while (window[head] < i - radius) head++;
+    out[i] = x[window[head]];
+  }
+  return out;
 }
