@@ -176,6 +176,10 @@ describe.runIf(canMakeDisks)("a full disk", () => {
     mount = path.join(tmp, "volume");
     await fs.mkdir(mount);
     execFileSync("hdiutil", ["attach", image, "-mountpoint", mount, "-nobrowse", "-noverify"], { stdio: "ignore" });
+    // Neither the file-event log nor Spotlight may write to it (or free room on it) behind the test's back.
+    await fs.mkdir(path.join(mount, ".fseventsd"), { recursive: true });
+    await fs.writeFile(path.join(mount, ".fseventsd", "no_log"), "");
+    await fs.writeFile(path.join(mount, ".metadata_never_index"), "");
 
     await start(path.join(mount, "Documents"));
     const { summary, doc } = await newPhoto();
@@ -183,23 +187,27 @@ describe.runIf(canMakeDisks)("a full disk", () => {
     await json("PUT", `/api/projects/${summary.id}`, painted(doc, s.id!));
     const before = await fs.readFile(path.join(summary.path, "project.json"), "utf8");
 
-    // Fill it, to the last byte.
-    const filler = await fs.open(path.join(mount, "filler"), "w");
-    try {
-      for (let chunk = 64 * 1024; chunk >= 1; chunk >>= 1) {
-        try {
-          for (;;) await filler.write(Buffer.alloc(chunk, 1));
-        } catch (error) {
-          expect((error as NodeJS.ErrnoException).code).toBe("ENOSPC");
+    // Fill it, to the last byte (again before each refusal: nothing else may have made room meanwhile).
+    const fill = async () => {
+      const filler = await fs.open(path.join(mount, "filler"), "a");
+      try {
+        for (let chunk = 64 * 1024; chunk >= 1; chunk >>= 1) {
+          try {
+            for (;;) await filler.write(Buffer.alloc(chunk, 1));
+          } catch (error) {
+            expect((error as NodeJS.ErrnoException).code).toBe("ENOSPC");
+          }
         }
+      } finally {
+        await filler.close();
       }
-    } finally {
-      await filler.close();
-    }
+    };
+    await fill();
 
     const refused = await upload(summary.id, 7);
     expect(refused.status).toBe(507);
     expect(refused.error).toMatch(/disk is full/);
+    await fill();
     const save = await json<{ error: string }>("PUT", `/api/projects/${summary.id}`, { ...painted(doc, s.id!), name: "Night at the pier, a much longer name that needs more room" });
     expect(save.status).toBe(507);
     expect(save.body.error).toMatch(/disk is full/);
