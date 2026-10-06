@@ -86,7 +86,7 @@ describe("a clip's frames", () => {
 });
 
 describe("3D scenes", () => {
-  const SCENES = ["ridgeline", "infinite-dive", "aurora", "storm-sea", "ferrofluid"];
+  const SCENES = ["ridgeline", "infinite-dive", "aurora", "storm-sea", "ferrofluid", "event-horizon", "neon-city", "nebula", "abyss", "monoliths"];
   const uniform = (u: UniformValue[] | null, name: string) => u?.find((v) => v.name === name)?.value;
 
   it("each has a definition with a scene, and a state stepped in TypeScript", () => {

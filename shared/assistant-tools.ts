@@ -14,6 +14,7 @@
  * `src/assistant/`; TypeScript then insists every tool has a handler.
  */
 import { type Schema, type ToolSpec, arr, bool, int, num, obj, oneOf, str, tool } from "./tool-spec.ts";
+import { EXPORT_FORMATS, EXPORT_QUALITIES } from "./export-formats.ts";
 
 /** Parameter values of an effect or transition: keys and value types as listed by `get_catalog`. */
 const params = (description: string): Schema => ({ type: "object", description, additionalProperties: true });
@@ -1233,12 +1234,19 @@ export const VIDEO_TOOLS = [
     kind: "action",
     timeout: 3600,
     description:
-      "Render the video to an MP4 and wait for it. Returns where the file is. The user can also export " +
-      "from the Export button.",
+      "Render the video to a file and wait for it. Returns where the file is and its size. The user can also export " +
+      "from the Export button. Formats: " +
+      EXPORT_FORMATS.map((f) => `${f.id} (${f.label}, .${f.extension}: ${f.description.replace(/\.$/, "")})`).join("; ") +
+      ". H.264 (the default) is what to post; ProRes or PNG when the user takes it into another program. `alpha` " +
+      "makes what no clip covers transparent instead of black (prores-4444 and png only): for overlays such as a " +
+      "visualizer or titles over footage edited elsewhere; leave out full-frame backgrounds then.",
     inputSchema: obj({
       resolution: oneOf(["720p", "1080p", "4k"], "Default 1080p."),
       fileName: str("File name without extension."),
       excludeAudio: bool("Leave out the audio tracks."),
+      format: oneOf(EXPORT_FORMATS.map((f) => f.id), "Default h264."),
+      quality: oneOf(EXPORT_QUALITIES.map((q) => q.id), "h264 and hevc only: standard (default), high or best (slower, larger)."),
+      alpha: bool("Transparent background (prores-4444 and png only). Default false."),
     }),
   }),
   tool({

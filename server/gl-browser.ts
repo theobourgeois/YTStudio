@@ -16,6 +16,7 @@ import type { AddressInfo } from "node:net";
 import type { Browser } from "playwright-core";
 import { type Adjustment, type EffectPass, IDENTITY, type Placed, type Shader, createCompositor } from "../shared/compositor.ts";
 import { errorMessage } from "../shared/errors.ts";
+import type { FrameReadback } from "../shared/export-formats.ts";
 import type { UniformValue } from "../shared/transition-gl.ts";
 import { drawSampleScene } from "../shared/transition-samples.ts";
 import { CHROMIUM } from "./config.ts";
@@ -87,7 +88,7 @@ export function setGlPageOpener(opener: GlPageOpener) {
 /** What the page script exposes (see `pageScript`). */
 interface PageApi {
   /** Draw frames until told to stop, exchanging them with `/exchange` (see `GlSession.composite`). */
-  composite(job: { width: number; height: number; lanes: number; fonts: string[] }): Promise<void>;
+  composite(job: CompositeJob & { lanes: number; fonts: string[] }): Promise<void>;
   sheet(job: SheetJob): string;
   check(job: CheckJob): CheckResult[];
   effects(job: EffectJob): { sheet: string; results: EffectResult[] };
@@ -96,6 +97,16 @@ interface PageApi {
   compile(sources: Record<string, string>): Record<string, string>;
   /** Draw planned frames (`FramesJob`) on a compositor of its own, in `order`: each one's RGBA, top row first. */
   frames(job: FramesJob): number[][];
+}
+
+/** What an export's frames are: their size, how they're read back, and whether what nothing covers is transparent. */
+export interface CompositeJob {
+  width: number;
+  height: number;
+  /** YUV 4:2:0 (the default), or straight RGBA. */
+  readback?: FrameReadback;
+  /** Begin each frame transparent instead of the canvas's black (an export with alpha). */
+  transparent?: boolean;
 }
 
 /** What the page needs for its next frame. */
@@ -343,9 +354,9 @@ function pageScript(): string {
           Object.assign(shaders, head.shaders);
           for (const { key, source } of pictures) compositor.setPicture(key, source);
           for (const key of head.release) compositor.deletePicture(key);
-          compositor.clear();
+          compositor.clear(job.transparent ? [0, 0, 0, 0] : undefined);
           drawFrame(compositor, shaders, head.layers);
-          return compositor.readYuv420Async();
+          return job.readback === "rgba" ? compositor.readRgbaAsync() : compositor.readYuv420Async();
         };
         const lane = async () => {
           let finished: { frame: number; data: Uint8Array<ArrayBuffer> } | null = null;
@@ -608,16 +619,16 @@ export class GlSession {
   }
 
   /**
-   * Draw frames of `size` (as YUV 4:2:0, see `readYuv420`) until `exchange`
-   * says there are no more. They're drawn in order, but finished frames may
-   * come back out of order.
+   * Draw frames of `job`'s size (as YUV 4:2:0, see `readYuv420`, or RGBA) until
+   * `exchange` says there are no more. They're drawn in order, but finished
+   * frames may come back out of order.
    */
-  async composite(size: { width: number; height: number }, exchange: FrameExchange, fonts: string[] = []): Promise<void> {
+  async composite(job: CompositeJob, exchange: FrameExchange, fonts: string[] = []): Promise<void> {
     this.exchange = exchange;
     this.failure = null;
     try {
-      const job = { ...size, lanes: LANES, fonts };
-      await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.composite(j), job);
+      const full = { ...job, lanes: LANES, fonts };
+      await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.composite(j), full);
     } catch (err) {
       throw this.failure ?? err;
     } finally {

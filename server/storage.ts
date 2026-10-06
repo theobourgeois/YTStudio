@@ -91,9 +91,11 @@ export class DataPaths {
     if (!isValidId(id)) throw new HttpError(400, "Invalid project id");
     return path.join(this.projects, id);
   }
-  exportFile(id: string) {
+  /** An export's file: `<id>.<extension>` (mp4, mov or zip). */
+  exportFile(id: string, extension = "mp4") {
     if (!isValidId(id)) throw new HttpError(400, "Invalid export id");
-    return path.join(this.exports, `${id}.mp4`);
+    if (!/^[a-z0-9]+$/.test(extension)) throw new HttpError(400, "Invalid export file type");
+    return path.join(this.exports, `${id}.${extension}`);
   }
   tmpFile(suffix: string) {
     return path.join(this.tmp, `${Date.now()}-${randomBytes(6).toString("hex")}${suffix}`);

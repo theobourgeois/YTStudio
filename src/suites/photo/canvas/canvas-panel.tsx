@@ -6,6 +6,7 @@
  * draws in device pixels; the overlay and the pointer are in CSS pixels; `geometry.ts` converts.
  */
 import { useStyleCanvasDrag } from "../layer-style/canvas-drag";
+import { useCanvasPick } from "../camera-raw/canvas-pick";
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 import { PiWarningCircle } from "react-icons/pi";
@@ -188,6 +189,7 @@ export function CanvasPanel() {
     return viewToDoc(view, (clientX - r.left) * devicePixelRatio, (clientY - r.top) * devicePixelRatio);
   };
 
+  const picking = useCanvasPick((s) => s.handler !== null);
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     const { view } = usePhotoUi.getState();
     const doc = usePhoto.getState().history?.doc.doc;
@@ -195,6 +197,13 @@ export function CanvasPanel() {
     if (tool === "hand" || e.button === 1) return pan(e);
     // The right button opens the canvas's menu.
     if (e.button === 2) return;
+    // A window asked for a point on the canvas (Camera Raw's white balance eyedropper): this press is it.
+    const pick = useCanvasPick.getState().handler;
+    if (pick && e.button === 0) {
+      const p = docPoint(e.clientX, e.clientY);
+      pick(p.x, p.y);
+      return;
+    }
     // The Layer Style window's page has a place on the canvas (a shadow, a gradient's centre): a drag moves it.
     const styleDrag = useStyleCanvasDrag.getState().handler;
     if (styleDrag && e.button === 0 && tool !== "zoom") {
@@ -391,13 +400,15 @@ export function CanvasPanel() {
   };
 
   return (
-    <div ref={panelRef} className="relative flex min-h-0 flex-1 flex-col bg-stage" data-photo-canvas>
+    <div ref={panelRef} className="relative flex min-h-0 flex-1 flex-col bg-stage" data-photo-canvas data-picking={picking || undefined}>
       <SelectionMenu tool={tool}>
       <div
         ref={holderRef}
         className={cn(
           "relative min-h-0 flex-1 overflow-hidden touch-none",
-          tool === "hand"
+          picking
+            ? "cursor-crosshair"
+            : tool === "hand"
             ? "cursor-grab"
             : tool === "zoom"
               ? "cursor-zoom-in"
