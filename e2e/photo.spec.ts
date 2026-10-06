@@ -2135,3 +2135,38 @@ test("the GPU lost mid-stroke: that stroke isn't kept and the user is told; the 
   await expect.poll(surface).not.toBeNull();
   expect(await renderDigest(page, view)).not.toBe(before);
 });
+
+test("effects from a newer app (or of a type this one doesn't know) are kept as they are, said to be unavailable, and draw nothing", async ({ page }) => {
+  const id = await openNewPhoto(page, "From the future");
+  const future = (type: string, version: number, extra: Record<string, unknown> = {}) => ({ id: `${type}_future`, type, version, enabled: true, params: { tomorrow: [1, 2, 3], ...extra } });
+  const lit = { ...pixelLayer("lit", 300, 200), filters: [future("glow", 99, { radius: 40 }), future("sparkle", 1)], style: { enabled: true, effects: [future("drop-shadow", 42)] } };
+  const adjustment = { id: "adj", kind: "adjustment", name: "Future exposure", visible: true, opacity: 1, effect: future("exposure", 9, { exposure: 2 }) };
+  const generator = { id: "gen", kind: "generator", name: "Future flare", visible: true, opacity: 1, effect: future("lens-flare", 7), blend: "linear-dodge", blendSpace: "linear" };
+  await setPhoto(page, { width: 300, height: 200, background: "#406080" }, [lit, adjustment, generator]);
+  await paint(page, "lit", "content", line(40, 100, 260, 100), { radius: 12, hardness: 1, colour: [1, 0.6, 0.2, 1] });
+  const layers = await docLayers(page);
+
+  // Each is said to be unavailable where it's shown.
+  await expect(page.getByLabel("Filter unavailable")).toHaveCount(2);
+  await expect(page.getByLabel("Adjustment unavailable")).toHaveCount(1);
+  await page.locator('[data-layer="lit"]').click();
+  await expect(page.locator('[data-effect="drop-shadow_future"] [data-unavailable]')).toHaveText("Drop Shadow (unavailable)");
+
+  // It draws exactly what it would without them.
+  const view: ViewBox = { zoom: 1, x: 0, y: 0, width: 300, height: 200 };
+  const shown = await renderDigest(page, view);
+  await patchLayer(page, "lit", { filters: [], style: null });
+  await page.evaluate(() =>
+    (window as unknown as LightWindow).photoDebug.photo.getState().commit((d) => ({ ...(d as object), layers: (d as { layers: { id: string }[] }).layers.filter((l) => l.id === "lit") })),
+  );
+  expect(await renderDigest(page, view)).toBe(shown);
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => docLayers(page)).toEqual(layers);
+
+  // Saved and reopened byte for byte: an older app never drops or repairs what a newer one wrote.
+  await expect.poll(async () => (await savedPhoto(page, id)).layers).toEqual(layers);
+  await page.reload();
+  await expect(page.getByLabel("Filter unavailable")).toHaveCount(2);
+  expect(await docLayers(page)).toEqual(layers);
+});

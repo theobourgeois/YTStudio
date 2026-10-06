@@ -452,7 +452,9 @@ function EffectRows({ layer }: { layer: PhotoLayer }) {
         return (
           <li key={e.id} className="flex h-6 items-center gap-1 pr-2 pl-2 text-xs" data-effect={e.id} onDoubleClick={() => layerActions.blendingOptions(layer.id, e.id)}>
             {eye(e.enabled, def?.label ?? e.type, () => commit((d) => setStyleEffect(d, layer.id, e.id, { enabled: !e.enabled })))}
-            <span className={cn("truncate pl-12", (!e.enabled || !style.enabled) && "text-muted-foreground")}>{def?.label ?? `${e.type} (unavailable)`}</span>
+            <span className={cn("truncate pl-12", (!e.enabled || !style.enabled) && "text-muted-foreground")} data-unavailable={!def || e.version > def.version || undefined}>
+              {def && e.version <= def.version ? def.label : `${def?.label ?? e.type} (unavailable)`}
+            </span>
           </li>
         );
       })}
