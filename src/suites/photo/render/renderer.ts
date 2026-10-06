@@ -13,7 +13,8 @@
  */
 import { sourceTransform, srgbToLinear } from "@shared/photo/colour.ts";
 import { type View, levelForScale } from "@shared/photo/geometry.ts";
-import { fromHalf } from "@shared/photo/half.ts";
+import { fromHalf, toHalf } from "@shared/photo/half.ts";
+import { coverageIn } from "@shared/photo/selection.ts";
 import type { BrushSettings } from "@shared/photo/brush.ts";
 import { type Affine, IDENTITY, apply, invert, layerMatrix, layerScale } from "@shared/photo/layers.ts";
 import type { TileSize } from "@shared/photo/lab.ts";
@@ -1306,24 +1307,20 @@ export class PhotoRenderer {
   ): Promise<{ surface: SurfaceId | null; size: { width: number; height: number }; transform: LayerTransform }> {
     await this.compositor.ready;
     let layer = doc.layers.find((l) => l.id === layerId);
-    // What a selection covers alone (a copy): the layer seen through a mask of the selection, inside its box.
-    let cutout: { surface: SurfaceImage; id: SurfaceId } | null = null;
+    // A copy is what the selection covers of the layer's own pixels (not through the mask the layer has): each
+    // tile rendered plain, then multiplied by the selection's coverage of its document pixels. No mask surface is
+    // made for it, so nothing of it can be evicted while the tiles render.
     if (layer && options.selection) {
-      cutout = await this.selectionMask(doc, layerId, options.selection);
-      layer = { ...layer, mask: { surface: cutout.id } };
+      layer = { ...layer };
+      delete layer.mask;
     }
-    try {
-      return await this.rasterizeLayer(doc, layer, options.selection ?? null, cutout?.surface ?? null);
-    } finally {
-      cutout?.surface.destroy();
-    }
+    return this.rasterizeLayer(doc, layer, options.selection ?? null);
   }
 
   private async rasterizeLayer(
     doc: PhotoProject,
     layer: PhotoProject["layers"][number] | undefined,
     selection: PhotoSelection | null,
-    cutout: SurfaceImage | null,
   ): Promise<{ surface: SurfaceId | null; size: { width: number; height: number }; transform: LayerTransform }> {
     const layerId = layer?.id ?? "";
     if (!layer || layer.kind === "adjustment" || !this.uploads) throw new Error("Only an image, pixel or generator layer can be made pixels.");
@@ -1353,21 +1350,15 @@ export class PhotoRenderer {
     const work: WorkPair = { a: compositeTexture(device, tile, tile, "rgba16float", "rasterize a"), b: compositeTexture(device, tile, tile, "rgba16float", "rasterize b") };
     const tilesX = Math.ceil(width / tile);
     const tilesY = Math.ceil(height / tile);
-    // The layer's own pixels, through the selection's mask when it's a copy (not the mask the layer has).
-    const sources: PlanSources = cutout
-      ? {
-          draw: (node) => {
-            const drawn = this.planSources.draw({ ...node, mask: null });
-            return drawn && { ...drawn, mask: cutout };
-          },
-          mask: this.planSources.mask,
-        }
-      : this.planSources;
+    const sources = this.planSources;
     const entries: [number, number, string][] = [];
     try {
       for (let ty = 0; ty < tilesY; ty++) {
         for (let tx = 0; tx < tilesX; tx++) {
           const region: View = { zoom: 1, x: x0 + tx * tile, y: y0 + ty * tile, width: tile, height: tile };
+          // What the selection covers of this tile's document pixels: none, and the tile is left out.
+          const cover = selection ? coverageIn(selection, { x: region.x, y: region.y, width: tile, height: tile }) : null;
+          if (cover && !cover.some((v) => v > 0)) continue;
           const readback = await this.whenResident(plan, region, () => {
             const readback = device.createBuffer({ size: tile * tile * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
             const encoder = device.createCommandEncoder({ label: "rasterize" });
@@ -1380,6 +1371,15 @@ export class PhotoRenderer {
           const bytes = readback.getMappedRange().slice(0);
           readback.unmap();
           readback.destroy();
+          if (cover) {
+            // Premultiplied: every channel scaled by the coverage.
+            const halves = new Uint16Array(bytes);
+            for (let i = 0; i < cover.length; i++) {
+              if (cover[i] === 255) continue;
+              const k = cover[i] / 255;
+              for (let c = 0; c < 4; c++) halves[i * 4 + c] = k === 0 ? 0 : toHalf(fromHalf(halves[i * 4 + c]) * k);
+            }
+          }
           const { refs } = await this.uploads.hash([bytes], 4);
           entries.push([tx, ty, refs[0]]);
         }
