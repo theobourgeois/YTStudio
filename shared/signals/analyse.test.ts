@@ -125,7 +125,21 @@ describe("SignalAnalyser", () => {
     const bits = analyse(sound, 333);
     expect(bits.scalars).toEqual(whole.scalars);
     expect(bits.bands).toEqual(whole.bands);
+    expect(bits.wave).toEqual(whole.wave);
     expect(bits.header).toEqual(whole.header);
+  });
+
+  it("keeps a small waveform: 8 kHz, a byte a sample, left then right", () => {
+    // 100 Hz at half scale on the left, silence on the right.
+    const data = analyse(stereo(0.5, (i) => 0.5 * Math.sin((2 * Math.PI * 100 * i) / RATE), () => 0));
+    expect(data.header.waveRate).toBe(8000);
+    expect(data.header.waveSamples).toBe(4000);
+    const left = Array.from({ length: 4000 }, (_, i) => data.wave[i * 2]);
+    expect(Math.max(...left)).toBeGreaterThan(60);
+    expect(Math.max(...left)).toBeLessThan(65);
+    // A quarter period in (25 samples at 8 kHz) the sine is near its top.
+    expect(left[20]).toBeGreaterThan(55);
+    expect(Array.from({ length: 4000 }, (_, i) => data.wave[i * 2 + 1]).every((v) => v === 0)).toBe(true);
   });
 
   it("writes and reads a signals file", () => {
@@ -134,6 +148,7 @@ describe("SignalAnalyser", () => {
     expect(back.header).toEqual(data.header);
     expect(back.scalars).toEqual(data.scalars);
     expect(back.bands).toEqual(data.bands);
+    expect(back.wave).toEqual(data.wave);
     expect(() => decodeSignals(new ArrayBuffer(20))).toThrow("Not a signals file");
   });
 
