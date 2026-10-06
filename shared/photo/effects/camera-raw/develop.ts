@@ -14,7 +14,36 @@
 import { linearToSrgb, srgbToLinear } from "../../colour.ts";
 import type { CurveSet, EffectParamValue } from "../../types.ts";
 import { curveFunction, isIdentityCurve } from "../curve-math.ts";
+import { type CameraRawAnalysis, gridAt, logLuminance } from "./analysis.ts";
 import { TONE_RESPONSES, V_BRIGHTEN, V_DARKEN, WHITE_BALANCE_SHIFTS } from "./measured.ts";
+
+/**
+ * Where the render plan hands a Camera Raw its analysis (`analysis.ts`): a parameter of the instance as drawn, never
+ * of the document.
+ */
+export const ANALYSIS_PARAM = "__analysis";
+export const analysisOf = (p: Record<string, EffectParamValue>) => (p[ANALYSIS_PARAM] as unknown as CameraRawAnalysis | undefined) ?? null;
+
+/** The sliders that read the analysis: the local ones, and Contrast (its pivot follows the picture's mean tone). */
+const LOCAL = ["highlights", "shadows", "texture", "clarity", "dehaze"] as const;
+export const needsAnalysis = (p: Record<string, EffectParamValue>) => LOCAL.some((k) => ((p[k] as number | undefined) ?? 0) !== 0) || ((p.contrast as number | undefined) ?? 0) !== 0;
+
+/**
+ * Contrast's pivot in the tone coordinate: 0.549 + 0.342 × the picture's mean tone (CR2: fitted to Camera Raw on
+ * seven greys and a split picture, within 0.06 stop). Its responses were measured on the chart, whose mean is this.
+ */
+const PIVOT_SLOPE = 0.3424;
+const CHART_MEAN_TONE = -0.08;
+
+/**
+ * The local sliders' strengths (CR2: Camera Raw's feel on the test scene and the step edge, not its numbers: its
+ * Highlights and Shadows adapt to the picture in ways no slice of it explains; docs/photo/camera-raw.md).
+ * Highlights and Shadows move the tone base by these many stops at ±100, at their strongest, for a picture whose
+ * range is `LOCAL_RANGE` stops (scaled by its own, so a flat picture doesn't change); Clarity and Texture scale the
+ * detail over their bases (Clarity mostly in the midtones); Dehaze removes (or adds) the haze it estimates.
+ */
+export const LOCAL_STRENGTH = { highlightsDown: 0.35, highlightsUp: 0.3, shadowsUp: 2.2, shadowsDown: 2.0, clarityUp: 3.2, clarityDown: 0.3, texture: 0.8, dehazeDown: 0.35, maxClarity: 1.5 } as const;
+export const LOCAL_RANGE = 6;
 
 export type Rgb = [number, number, number];
 type M3 = [Rgb, Rgb, Rgb];
@@ -139,9 +168,9 @@ const VIBRANCE_SPARE = [0.1, 0.167, 0.167, 0.668, 0.719] as const;
 const VIBRANCE_PIVOT = [0.628, 0.694, 0.694, 0.73, 0.768] as const;
 /** B&W's grey: weights on linear ProPhoto (fitted to Camera Raw's default mix). */
 export const GREY_WEIGHTS: Rgb = [0.248, 0.673, 0.079];
-/** The vignette's falloff (fitted to CR0's runs on grey): Midpoint and Feather move its centre and width. */
 /** The grey CR0's vignette runs were measured on (an 8-bit code). */
 export const VIGNETTE_GREY = 118;
+/** The vignette's falloff (fitted to CR0's runs on grey): Midpoint and Feather move its centre and width. */
 export const VIGNETTE = { centre: [0.4537, 0.9449], width: [0.0357, 0.9708], darken: 1.5134, lighten: 1.0689, exponent: 1.962 } as const;
 
 /** The develop's numbers besides its table, in the order the GPU's uniform holds them. */
@@ -169,6 +198,13 @@ export interface DevelopSettings {
   grainSize: number;
   grainRoughness: number;
   canvas: { width: number; height: number };
+  /** The local sliders, −1..1, and the analysis they read (null: none of them moves, or it isn't there yet). */
+  highlights: number;
+  shadows: number;
+  clarity: number;
+  texture: number;
+  dehaze: number;
+  analysis: CameraRawAnalysis | null;
 }
 
 const num = (p: Record<string, EffectParamValue>, k: string) => (p[k] as number | undefined) ?? 0;
@@ -176,7 +212,12 @@ const num = (p: Record<string, EffectParamValue>, k: string) => (p[k] as number 
 /** The tone curve: an 8-bit code in, out (Exposure, Blacks, Contrast, Whites, the parametric curve, the point curve). */
 export function toneFunction(p: Record<string, EffectParamValue>): ((code: number) => number) | null {
   const exposure = num(p, "exposure");
-  const steps = [response("blacks", num(p, "blacks")), response("contrast", num(p, "contrast")), response("whites", num(p, "whites"))].filter((f) => f !== null);
+  const analysis = analysisOf(p);
+  const contrast = response("contrast", num(p, "contrast"));
+  // Contrast measured on the chart, moved along the tone coordinate to pivot around this picture's mean.
+  const shift = analysis ? PIVOT_SLOPE * (analysis.meanTone - CHART_MEAN_TONE) : 0;
+  const pivoted = contrast && shift !== 0 ? (code: number) => codeAt(V_BRIGHTEN, vAt(V_BRIGHTEN, contrast(codeAt(V_BRIGHTEN, vAt(V_BRIGHTEN, code) - shift))) + shift) : contrast;
+  const steps = [response("blacks", num(p, "blacks")), pivoted, response("whites", num(p, "whites"))].filter((f) => f !== null);
   // The parametric curve's regions, each measured at the default splits. Each split shapes only its own regions
   // (CR0: Shadow Split moves Shadows alone, Midtone Split Darks and Lights, Highlight Split Highlights alone), so a
   // region reads its response with its split moved back to where it was measured.
@@ -293,6 +334,12 @@ export function developSettings(p: Record<string, EffectParamValue>, canvas: { w
     grainSize: Math.max(0.5, diagonal * 0.0004 * (1 + ((p.grainSize as number | undefined) ?? 25) / 12.5)),
     grainRoughness: ((p.grainRoughness as number | undefined) ?? 50) / 100,
     canvas,
+    highlights: num(p, "highlights") / 100,
+    shadows: num(p, "shadows") / 100,
+    clarity: num(p, "clarity") / 100,
+    texture: num(p, "texture") / 100,
+    dehaze: num(p, "dehaze") / 100,
+    analysis: analysisOf(p),
   };
 }
 
@@ -358,7 +405,8 @@ export function grainAt(s: DevelopSettings, rand: Rand, x: number, y: number): n
  * One pixel: straight linear sRGB in (any range), out, at document point (x, y). `rand` is the kernels' hash
  * (shared/photo/reference/kernel.ts), passed in so this module needs nothing of the renderer's.
  */
-export function developPixel(rgb: readonly number[], x: number, y: number, table: Float32Array, s: DevelopSettings, rand: Rand): Rgb {
+export function developPixel(input: readonly number[], x: number, y: number, table: Float32Array, s: DevelopSettings, rand: Rand): Rgb {
+  const rgb = s.analysis && (s.highlights || s.shadows || s.clarity || s.texture || s.dehaze) ? local(input, x, y, s, s.analysis) : input;
   const top = Math.max(1, rgb[0], rgb[1], rgb[2]);
   let e = mul(SRGB_TO_PROPHOTO, rgb).map(encode) as Rgb;
   if (s.whiteBalance) e = [tableAt(table, TABLE_WHITE_BALANCE, e[0]), tableAt(table, TABLE_WHITE_BALANCE + 1, e[1]), tableAt(table, TABLE_WHITE_BALANCE + 2, e[2])];
@@ -395,6 +443,47 @@ export function developPixel(rgb: readonly number[], x: number, y: number, table
     out = v.map(decode) as Rgb;
   }
   return out;
+}
+
+const lum = (c: readonly number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+
+/**
+ * The local sliders on straight linear sRGB, first (on the picture the analysis saw): Dehaze, then the tone base
+ * moved (Highlights, Shadows) and the detail over the bases scaled (Clarity, Texture), as one gain, so hues hold.
+ */
+function local(input: readonly number[], x: number, y: number, s: DevelopSettings, an: CameraRawAnalysis): Rgb {
+  const [at, bt, ac, bc, ax, bx, ad, bd, soft, af, bf] = gridAt(an, x, y);
+  let c: Rgb = [input[0], input[1], input[2]];
+  if (s.dehaze !== 0) {
+    const A = an.airlight;
+    if (s.dehaze > 0) {
+      // The dark channel over the airlight is how much haze there is: removed by as much as the slider says.
+      const d = Math.max(0, Math.min(1, ad * logLuminance(c[0], c[1], c[2]) + bd));
+      const t = Math.max(0.1, 1 - 0.95 * s.dehaze * d);
+      c = c.map((v, i) => Math.max(0, (v - A[i]) / t + A[i])) as Rgb;
+    } else {
+      const k = -s.dehaze * LOCAL_STRENGTH.dehazeDown;
+      c = c.map((v, i) => v + (A[i] - v) * k) as Rgb;
+    }
+  }
+  const L = Math.log2(Math.max(lum(c), 2 ** -20));
+  const base = at * L + bt;
+  const range = Math.max(0, an.high - an.low);
+  const u = range > 1e-3 ? Math.max(0, Math.min(1, (base - an.low) / range)) : 0.5;
+  const scale = Math.min(range, LOCAL_RANGE) / LOCAL_RANGE;
+  let gain = 0;
+  if (s.highlights) gain += s.highlights * (s.highlights < 0 ? LOCAL_STRENGTH.highlightsDown : LOCAL_STRENGTH.highlightsUp) * smoothstep(0.4, 1, u) * scale;
+  if (s.shadows) gain += s.shadows * (s.shadows > 0 ? LOCAL_STRENGTH.shadowsUp : LOCAL_STRENGTH.shadowsDown) * (1 - smoothstep(0.05, 0.8, u)) * scale;
+  // Texture: the finest detail, over its own base. Clarity: the band between the fine base and its own (so a
+  // picture's grain isn't Clarity's), mostly in the midtones; negative, softening towards the plain mean, across edges.
+  if (s.texture) gain += s.texture * LOCAL_STRENGTH.texture * (L - (ax * L + bx));
+  if (s.clarity > 0) {
+    const band = af * L + bf - (ac * L + bc);
+    const midtones = 1 - 0.5 * (2 * u - 1) ** 2;
+    gain += Math.max(-LOCAL_STRENGTH.maxClarity, Math.min(LOCAL_STRENGTH.maxClarity, s.clarity * LOCAL_STRENGTH.clarityUp * band * midtones));
+  } else if (s.clarity < 0) gain += -s.clarity * LOCAL_STRENGTH.clarityDown * (soft - L);
+  const g = 2 ** gain;
+  return [c[0] * g, c[1] * g, c[2] * g];
 }
 
 /**
