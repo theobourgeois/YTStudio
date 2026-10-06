@@ -33,7 +33,7 @@ import { contentBox, hitsContent } from "./content";
 import { sizeOf } from "../tool-edits";
 import { useActiveTool, usePhotoUi } from "../ui";
 import { CanvasDriver } from "./driver";
-import { ROTATE_CURSOR, resizeCursor } from "./cursors";
+import { resizeCursor, rotateCursor } from "./cursors";
 import { type Frame, frameOf, touches } from "./frame";
 import { HANDLES, type Handle, type SnapContext, handlePoint, movedWithSnap, outline, rotated, scaledWithSnap } from "./handles";
 import { type Box, type Guide, snapTargets } from "./snap";
@@ -484,11 +484,13 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
   };
   const base = frame.t;
   const size = frame.size;
+  /** Where a point is from the frame's centre on screen (degrees: 0 is right, 90 is down). */
+  const angleOf = (p: { x: number; y: number }) => (Math.atan2(p.y - centre.y, p.x - centre.x) * 180) / Math.PI;
   /** The way a handle pulls on screen: from the frame's centre out to it (turned and mirrored with the layer). */
-  const cursorOf = (h: Handle) => {
-    const p = css(handlePoint(shown.t, shown.size, h));
-    return resizeCursor((Math.atan2(p.y - centre.y, p.x - centre.x) * 180) / Math.PI);
-  };
+  const cursorOf = (h: Handle) => resizeCursor(angleOf(css(handlePoint(shown.t, shown.size, h))));
+  /** The rotate pointer bowed around a corner, as it's turned now (so it turns with the layer while dragged). */
+  const rotateCursorOf = (h: Handle) => rotateCursor(angleOf(css(handlePoint(shown.t, shown.size, h))));
+  const knobCursor = rotateCursor(angleOf(knob));
   const scaleFrom = (h: Handle) => (e: ReactPointerEvent<SVGElement>) =>
     drag(
       e,
@@ -498,9 +500,9 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
       },
       cursorOf(h),
     );
-  const rotate = (e: ReactPointerEvent<SVGElement>) => {
+  const rotate = (cursor: string) => (e: ReactPointerEvent<SVGElement>) => {
     const from = docPoint(e.clientX, e.clientY);
-    drag(e, (p, ev) => ({ t: rotated(base, from, p, ev.shiftKey), guides: [] }), ROTATE_CURSOR);
+    drag(e, (p, ev) => ({ t: rotated(base, from, p, ev.shiftKey), guides: [] }), cursor);
   };
   const corners = HANDLES.filter((h) => h.u !== 0.5 && h.v !== 0.5);
   const handles = frame.stretches ? HANDLES : corners;
@@ -512,10 +514,11 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
       {/* Just outside each corner a drag rotates, as Photoshop's (under the handles, so they win where they meet). */}
       {corners.map((h) => {
         const p = css(handlePoint(shown.t, shown.size, h));
-        return <circle key={`r${h.u},${h.v}`} cx={p.x} cy={p.y} r={18} fill="transparent" className="pointer-events-auto" style={{ cursor: ROTATE_CURSOR }} onPointerDown={rotate} data-rotate-zone={`${h.u},${h.v}`} />;
+        const cursor = rotateCursorOf(h);
+        return <circle key={`r${h.u},${h.v}`} cx={p.x} cy={p.y} r={18} fill="transparent" className="pointer-events-auto" style={{ cursor }} onPointerDown={rotate(cursor)} data-rotate-zone={`${h.u},${h.v}`} />;
       })}
       <line x1={top.x} y1={top.y} x2={knob.x} y2={knob.y} stroke="var(--brand)" strokeWidth={1} />
-      <circle cx={knob.x} cy={knob.y} r={5} fill="white" stroke="var(--brand)" className="pointer-events-auto" style={{ cursor: ROTATE_CURSOR }} onPointerDown={rotate} data-handle="rotate" />
+      <circle cx={knob.x} cy={knob.y} r={5} fill="white" stroke="var(--brand)" className="pointer-events-auto" style={{ cursor: knobCursor }} onPointerDown={rotate(knobCursor)} data-handle="rotate" />
       {handles.map((h) => {
         const p = css(handlePoint(shown.t, shown.size, h));
         return (
