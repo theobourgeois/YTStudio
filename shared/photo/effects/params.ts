@@ -36,7 +36,7 @@ export interface NumberParam extends Placement {
 }
 
 /** Curves: a composite curve and one per channel, as points on 0..255. */
-export interface CurvesParam {
+export interface CurvesParam extends Placement {
   kind: "curves";
   key: string;
   label: string;

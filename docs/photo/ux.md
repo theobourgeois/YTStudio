@@ -33,6 +33,12 @@ footer's fx, or a double-click on a row past its name) opens the Layer Style win
 Cancel nothing, ⌥ Cancel is Reset, Preview off shows the layer as it was. An edit elsewhere while it's open ends it,
 keeping what it showed (Photoshop's is modal; ours leaves the view free).
 
+Layer effects (built, L2): the footer's fx menu (Blending Options…, then each effect), the Layer Style window's list
+(a click on an effect ticks it and shows its page; + adds another of the five that allow it; ↑ ↓ move one among its
+kind; the bin removes it), a styled row's fx badge and its effects listed under it (an eye each and one for all; a
+double-click opens one). While a shadow's or the gradient overlay's page shows, a drag on the canvas moves it.
+Copy / Paste / Clear Layer Style and Hide All Effects are in the Layers menu.
+
 Properties follows the selected layer, mask or effect. The tool options bar follows the active tool. These are
 different selections, kept apart.
 

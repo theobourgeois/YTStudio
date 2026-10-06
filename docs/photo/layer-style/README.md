@@ -1,7 +1,8 @@
 # Layer Style and Blending Options: research and plan
 
 Status: researched and planned 2026-10-06, after F3; measured in Photoshop 27.11 the same day. **L1 (Blending
-Options) is built** (2026-10-06): see [L1 as built](#l1-as-built). Decision 1 was taken as proposed (Photoshop's
+Options) and L2 (seven effects) are built** (2026-10-06): see [L1 as built](#l1-as-built) and
+[L2 as built](#l2-as-built). Decision 1 was taken as proposed (Photoshop's
 compositing for new photos, A24 and A25 in the ledger); decision 4 as built: the window doesn't block the view, and an
 edit elsewhere while it's open ends it (keeping what it showed). L2 onwards are still the plan.
 
@@ -318,7 +319,7 @@ opens Blending Options, hovers modes and cancels.
 - Not in L1: Dissolve's speckle isn't Photoshop's own noise (ours, fixed in document pixels); Darker / Lighter Color
   pick differently at near-ties (0.26% of random pairs) and the component modes are within 7 levels.
 
-### L2: the effect machinery and eight effects
+### L2: the effect machinery and seven effects
 
 Matte, apron, tent blur, distance field, contour LUTs (Contour picker and editor), gradients (picker and editor),
 noise, Global Light, the two-world composite; **Color Overlay, Gradient Overlay, Stroke (colour and gradient fills),
@@ -329,6 +330,34 @@ copy / paste / clear style; Layer Mask Hides Effects and Blend Interior Effects 
 **Gate**: no seams between regions for any effect at Size 250; the view at 25% matches level 0 reduced; changing an
 effect's colour doesn't recompute its field (counted); fixtures from Photoshop's renders within 2 levels; reopening,
 undoing and merging keep every setting.
+
+### L2 as built
+
+- **The document**: a layer's `style` (`{ enabled, effects }`: `EffectInstance`s of the definitions in
+  `shared/photo/style/definitions.ts`, Photoshop's factory defaults and units, kept in drawing order, at most 10 of the
+  five that allow it) and the document's `globalLight` (120° / 30°); Blending Options' Blend Interior Effects as Group
+  and Layer Mask Hides Effects. Adjustment layers have no effects. Contours are Photoshop's 12 presets
+  (`style/contours.ts`, read from its own files) and splines; gradients its stops and Classic, Linear and Perceptual
+  (`style/gradients.ts`). The edits are `style/style.ts`.
+- **The reference** (`reference/style.ts`): a signed distance by an exact Euclidean transform, Softer's two box blurs
+  of width Size, Precise's ramp, Spread and Choke as shares of Size, Range, contours, the outer fade, Krita's scattering
+  Noise, gradient glows at 1 − c, strokes as distance bands; then the two worlds, mixed by the layer's coverage in the
+  compositing's values. Tested against Photoshop's renders (`style-fixtures.json`): every glow falloff within 1
+  level, strokes, inner glows within 2, a 35% Multiply shadow over 128 at 83.
+- **The GPU** (`render/style.ts`): fields in the layer's own pixels (a level of its pyramid past 3072 px a side),
+  kept by content and sizes (`StyleFields`), so moving, zooming or recolouring makes none; a style pass composites
+  them. e2e: every effect within 1e-4 of the reference, in either compositing, and a colour change makes no field.
+- **The window**: Photoshop's list (checkbox, + for more, ↑ ↓, bin), each effect's page from its specs (the angle
+  dial, contour and gradient pickers and editors from `layer-style/controls/`), Make Default / Reset to Default (this
+  computer's: `layer-style/defaults.ts`), the shadows and the gradient overlay dragged on the canvas. Layers: the fx
+  badge, the effects listed under the layer with their eyes (double-click opens one), the fx menu, Copy / Paste /
+  Clear Layer Style, Hide All Effects. The assistant: `set_layer_style`, `set_global_light`, `copy_layer_style`, and
+  each layer's effects in `get_photo`.
+- **Not yet**: Overprint is stored but draws as without it; Dither and Anti-aliased are stored and change nothing
+  (the export dithers already); the Noise pattern is ours (Krita's scatter, seeded in the layer's pixels), not
+  Photoshop's; distances are to pixel centres, so a wide stroke's outline is faceted when zoomed far in (exports at
+  100% are right; sub-pixel seeds, Gustavson's, would fix it); gradient Method's Smooth and Stripes; the Global Light
+  dialog itself (the shadows' dials set it).
 
 ### L3: Bevel & Emboss and Satin
 

@@ -10,10 +10,12 @@
  * Fill set every selected layer; Blending Options… (the menu, the fx button, a double-click on a row past its name)
  * opens the Layer Style window. Every change is an undoable edit.
  */
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { cn } from "cn";
 import {
   PiArrowDown,
+  PiCaretDown,
+  PiCaretRight,
   PiArrowUp,
   PiChartLine,
   PiCircleHalfTilt,
@@ -32,6 +34,8 @@ import {
 import { createId } from "@shared/ids";
 import { blendingOf } from "@shared/photo/blending";
 import { addAdjustmentLayer, moveLayersTo, setLayerBlending, updateLayer } from "@shared/photo/edits";
+import { STYLE_LIST, styleDefinition } from "@shared/photo/style/definitions";
+import { setStyleEffect, setStyleEnabled } from "@shared/photo/style/style";
 import { ADJUSTMENTS, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import type { AdjustmentLayer, ImageLayer, PhotoLayer, PixelLayer } from "@shared/photo/types";
 import { ScrubNumber } from "@/components/scrub-number";
@@ -67,6 +71,9 @@ export function LayersPanel() {
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
   const [dropGap, setDropGap] = useState<number | null>(null);
+  /** Layers whose effects' list is folded (Photoshop's arrow beside the fx). */
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
+  const fold = (id: string) => setFolded((f) => (f.has(id) ? new Set([...f].filter((x) => x !== id)) : new Set([...f, id])));
   const selectedIndexes = layers.flatMap((l, i) => (selectedIds.includes(l.id) ? [i] : []));
   const activeId = usePhotoUi((s) => s.selectedLayerId);
   const index = layers.findIndex((l) => l.id === activeId);
@@ -139,7 +146,10 @@ export function LayersPanel() {
             }}
           >
             {[...layers].reverse().map((l, i) => (
-              <LayerRow key={l.id} layer={l} selected={selectedIds.includes(l.id)} onPress={press} dropAbove={dropGap === i} dropBelow={dropGap === layers.length && i === layers.length - 1} />
+              <Fragment key={l.id}>
+                <LayerRow layer={l} selected={selectedIds.includes(l.id)} onPress={press} dropAbove={dropGap === i} dropBelow={dropGap === layers.length && i === layers.length - 1} folded={folded.has(l.id)} onFold={() => fold(l.id)} />
+                {l.style && !folded.has(l.id) && <EffectRows layer={l} />}
+              </Fragment>
             ))}
             {layers.length === 0 && <li className="px-3 py-6 text-center text-xs text-muted-foreground">No layers: place an image.</li>}
           </ul>
@@ -153,11 +163,29 @@ export function LayersPanel() {
         <FooterButton label="New layer (⇧⌘N)" onClick={() => layerActions.newLayer()}>
           <PiStackPlus />
         </FooterButton>
-        <FooterButton label="Blending Options…" disabled={index < 0} onClick={() => layerActions.blendingOptions()}>
-          <span className="font-serif text-[13px] italic leading-none" aria-hidden>
-            fx
-          </span>
-        </FooterButton>
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label="Add a layer style" disabled={index < 0}>
+                  <span className="font-serif text-[13px] italic leading-none" aria-hidden>
+                    fx
+                  </span>
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Add a layer style</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="start" data-fx-menu>
+            <DropdownMenuItem onSelect={() => layerActions.blendingOptions()}>Blending Options…</DropdownMenuItem>
+            {layers[index]?.kind !== "adjustment" &&
+              STYLE_LIST.map((type) => (
+                <DropdownMenuItem key={type} onSelect={() => layerActions.blendingOptions(undefined, type)}>
+                  {styleDefinition(type)!.label}…
+                </DropdownMenuItem>
+              ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <FooterButton label="Add a mask (from the selection, if there is one)" disabled={index < 0} onClick={() => void layerActions.addMask()}>
           <PiSelectionBackground />
         </FooterButton>
@@ -272,6 +300,18 @@ function LayersMenu({ count }: { count: number }) {
       <ContextMenuItem disabled={!active} onSelect={() => layerActions.blendingOptions()}>
         Blending Options…
       </ContextMenuItem>
+      <ContextMenuItem disabled={!active} onSelect={layerActions.copyStyle}>
+        Copy Layer Style
+      </ContextMenuItem>
+      <ContextMenuItem disabled={count === 0 || !layerActions.canPasteStyle()} onSelect={layerActions.pasteStyle}>
+        Paste Layer Style
+      </ContextMenuItem>
+      <ContextMenuItem disabled={count === 0} onSelect={layerActions.clearStyle}>
+        Clear Layer Style
+      </ContextMenuItem>
+      {active?.style && (
+        <ContextMenuItem onSelect={() => layerActions.showEffects(!active.style!.enabled)}>{active.style.enabled ? "Hide All Effects" : "Show All Effects"}</ContextMenuItem>
+      )}
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => layerActions.newLayer()}>
         New Layer
@@ -355,9 +395,42 @@ interface RowProps {
   onPress: (e: React.PointerEvent<HTMLLIElement>, layer: PhotoLayer) => void;
   dropAbove: boolean;
   dropBelow: boolean;
+  folded: boolean;
+  onFold: () => void;
 }
 
-function LayerRow({ layer, selected, onPress, dropAbove, dropBelow }: RowProps) {
+/**
+ * A styled layer's effects under its row, as Photoshop's Layers panel lists them: "Effects" (its eye hides them
+ * all), then each, top of the drawing first, with its eye; a double-click opens its page.
+ */
+function EffectRows({ layer }: { layer: PhotoLayer }) {
+  const commit = usePhoto((s) => s.commit);
+  const style = layer.style!;
+  const eye = (on: boolean, label: string, toggle: () => void) => (
+    <button type="button" className="grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:text-foreground" aria-label={on ? `Hide ${label}` : `Show ${label}`} aria-pressed={on} onClick={toggle}>
+      {on ? <PiEye /> : <PiEyeSlash />}
+    </button>
+  );
+  return (
+    <>
+      <li className="flex h-6 items-center gap-1 pr-2 pl-2 text-xs" data-effects-of={layer.id}>
+        {eye(style.enabled, "all effects", () => commit((d) => setStyleEnabled(d, [layer.id], !style.enabled)))}
+        <span className={cn("pl-9", !style.enabled && "text-muted-foreground")}>Effects</span>
+      </li>
+      {[...style.effects].reverse().map((e) => {
+        const def = styleDefinition(e.type);
+        return (
+          <li key={e.id} className="flex h-6 items-center gap-1 pr-2 pl-2 text-xs" data-effect={e.id} onDoubleClick={() => layerActions.blendingOptions(layer.id, e.id)}>
+            {eye(e.enabled, def?.label ?? e.type, () => commit((d) => setStyleEffect(d, layer.id, e.id, { enabled: !e.enabled })))}
+            <span className={cn("truncate pl-12", (!e.enabled || !style.enabled) && "text-muted-foreground")}>{def?.label ?? `${e.type} (unavailable)`}</span>
+          </li>
+        );
+      })}
+    </>
+  );
+}
+
+function LayerRow({ layer, selected, onPress, dropAbove, dropBelow, folded, onFold }: RowProps) {
   const [renaming, setRenaming] = useState(false);
   // What the brush paints on the active layer is outlined (only one thumbnail of a layer can be).
   const target = usePhotoUi((s) => (s.selectedLayerId === layer.id ? s.target : null));
@@ -427,6 +500,12 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow }: RowProps) 
           </span>
           {layer.kind === "adjustment" && <AdjustmentSummary layer={layer} />}
         </span>
+      )}
+      {layer.style && (
+        <button type="button" className="flex shrink-0 items-center gap-0.5 rounded px-0.5 text-muted-foreground hover:text-foreground" aria-label={folded ? "Show the layer's effects" : "Fold the layer's effects"} aria-expanded={!folded} onPointerDown={(e) => e.stopPropagation()} onClick={onFold} data-fx>
+          <span className="font-serif text-[13px] italic leading-none">fx</span>
+          {folded ? <PiCaretRight className="size-3" /> : <PiCaretDown className="size-3" />}
+        </button>
       )}
       {layer.kind === "image" ? <ImageWarning layer={layer} /> : layer.kind === "adjustment" ? <AdjustmentWarning layer={layer} /> : null}
     </li>

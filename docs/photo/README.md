@@ -5,9 +5,10 @@ renderer, the helper and the blob store (F0); the photo suite itself (F1: new ph
 export, the assistant); layers and adjustments (F2: Exposure and Curves adjustment layers, the render plan, refined
 views, f32 composites for 16-bit sources); resources, selections, masks and the brush (F3: pixel layers, layer masks,
 the Rectangular Marquee, the round brush, the publication gate and collection). Results in
-[foundations-prototype.md](foundations-prototype.md#f3-results-2026-10-06). Layer Style's first phase (L1, Blending
-Options: Photoshop's 27 blend modes, Fill, channels, Blend If and its compositing, the mode menu's live preview, the
-Layer Style window) is built: [layer-style/README.md](layer-style/README.md). F4 (light: glow and the flare) is next.
+[foundations-prototype.md](foundations-prototype.md#f3-results-2026-10-06). Layer Style's first two phases are built
+(L1: Blending Options, Photoshop's 27 blend modes, Fill, channels, Blend If and its compositing, the mode menu's live
+preview, the Layer Style window; L2: Drop and Inner Shadow, Outer and Inner Glow, Color and Gradient Overlay, Stroke,
+contours, gradients, Global Light): [layer-style/README.md](layer-style/README.md). F4 (light: glow and the flare) is next.
 
 A Photoshop-style image editor with dependable layers, masks, painting and retouching, and a particularly strong set
 of editable light effects. The foundations are the application's first version, so the document, resource, colour
@@ -82,5 +83,7 @@ and **Unverified** (an open question). Théo's corrections override the referenc
 | A23 | The publication gate and collection are the platform's `SuiteBackend.checkSave` (409) and `opened` (when no tab has the project); collection keeps blobs newer than its start (2026-10-06, F3) | A suite says what its documents need; an upload racing a reopen is never collected | A checkpoint (F5) is a second root |
 | A24 | Document version 4: a layer's `blend`, `fill` and `blending` (channels, Blend If), absent at their defaults; the document's `compositing`, `photoshop` (encoded values, Photoshop's mixing: new photos) or `linear` (older ones) (2026-10-06, Layer Style L1) | Photoshop's look is its encoded mixing, measured in 27.11 (50% white over black is 128; a 35% shadow 83 over 128); older photos keep how they looked | Light effects (F4) add light in linear whatever the setting |
 | A25 | A `photoshop` plan composites encoded values (premultiplied, f32) and decodes once at the end; a blended layer is drawn alone and blended by a pass reading the composite below (2026-10-06, L1) | Normal stays the GPU's source-over, exactly Photoshop's mix; everything after the evaluator still sees linear light; f32 keeps unedited 8-bit exports exact | Memory: view-sized f32 buffers |
+| A26 | A layer's style is `{ enabled, effects }` of `EffectInstance`s in drawing order; the document's `globalLight` (2026-10-06, L2). F4's planned `effects` (Smart Filters: the glow) becomes `filters` | Photoshop's model: effects (fx) from the layer's coverage, distinct from filters on its pixels | — |
+| A27 | Effects' fields are made in the layer's own pixels (a pyramid level past 3072 px), kept by content and sizes, and sampled through the layer's transform (2026-10-06, L2) | Exact at every zoom with no view-sized apron; moving, zooming and recolouring never remake them | Memory: fields of very large layers |
 
 Progress, measurements and gates live in [foundations-prototype.md](foundations-prototype.md).

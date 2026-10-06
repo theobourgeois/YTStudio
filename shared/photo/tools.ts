@@ -5,6 +5,7 @@
 import { type Schema, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { BLEND_MODES } from "./blending.ts";
 import { ADJUSTMENTS } from "./effects/index.ts";
+import { STYLE_DEFINITIONS } from "./style/definitions.ts";
 
 const layer = str('A layer: its id (from get_photo) or its name ("Sky").');
 
@@ -15,6 +16,21 @@ export function describeAdjustments(): string {
       p.kind === "number" ? `${p.key} (${p.min} to ${p.max}${p.unit ? ` ${p.unit}` : ""}, default ${p.default}): ${p.description}` : `${p.key}: ${p.description}`,
     );
     return `${def.type}: ${def.description}\n  ${params.join("\n  ")}`;
+  }).join("\n");
+}
+
+/** Every layer effect and its parameters, for the model. */
+export function describeStyleEffects(): string {
+  return STYLE_DEFINITIONS.map((def) => {
+    const params = def.params.map((p) => {
+      if (p.kind === "number") return `${p.key} (${p.min} to ${p.max}${p.unit ? ` ${p.unit}` : ""}, default ${p.default})`;
+      if (p.kind === "choice") return `${p.key} (${p.options.map((o) => o.value).join(" | ")}, default ${p.default})`;
+      if (p.kind === "boolean") return `${p.key} (true | false, default ${p.default})`;
+      if (p.kind === "colour") return `${p.key} ("#rrggbb", default ${p.default})`;
+      if (p.kind === "blend") return `${p.key} (a blend mode, default ${p.default})`;
+      return `${p.key} (${p.kind})`;
+    });
+    return `${def.type}${def.max > 1 ? ` (up to ${def.max})` : ""}: ${def.description} ${params.join(", ")}`;
   }).join("\n");
 }
 
@@ -121,6 +137,42 @@ export const PHOTO_TOOLS = [
       },
       ["layers"],
     ),
+  }),
+  tool({
+    name: "set_layer_style",
+    title: "Set a layer's effects",
+    kind: "edit",
+    description: `Photoshop's layer effects (fx) on an image or pixel layer: add one, change it, hide it or remove it. They're drawn in a fixed order (drop shadows and the outer glow under the layer; overlays, inner glow, inner shadows and strokes over it). Sizes and distances are pixels, opacities and other shares percentages (0..100), angles degrees anticlockwise from 3 o'clock (where the light comes from: 120 throws a shadow down and right). With globalLight true (shadows' default) the angle is the document's Global Light (set_global_light). A contour is a preset name ("Cone", "Gaussian", "Ring"…) and a gradient { "colours": [{ "at": 0, "colour": "#ff0000" }, { "at": 1, "colour": "#0000ff" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 1 }], "method": "classic" }. The effects:\n${describeStyleEffects()}`,
+    inputSchema: obj(
+      {
+        layer,
+        add: oneOf(
+          STYLE_DEFINITIONS.map((d) => d.type),
+          "Add an effect of this type (with params over its defaults).",
+        ),
+        effect: str('The effect to change, hide or remove: its id (from get_photo), or its type when the layer has one ("drop-shadow").'),
+        params: { type: "object", description: "Parameters to set; the rest keep their value.", additionalProperties: true },
+        enabled: bool("Shown (true) or hidden (false)."),
+        remove: bool("Remove the effect."),
+        allEffects: bool("Show (true) or hide (false) all the layer's effects at once (the Layers panel's Effects eye)."),
+        clear: bool("Remove all its effects."),
+      },
+      ["layer"],
+    ),
+  }),
+  tool({
+    name: "set_global_light",
+    title: "Set the Global Light",
+    kind: "edit",
+    description: "The document's one light (Layer › Layer Style › Global Light): every shadow with globalLight follows its angle (degrees anticlockwise from 3 o'clock, -180 to 180) and altitude (0 to 90).",
+    inputSchema: obj({ angle: num("Degrees."), altitude: num("Degrees above the horizon.") }),
+  }),
+  tool({
+    name: "copy_layer_style",
+    title: "Copy a layer style",
+    kind: "edit",
+    description: "Copy Layer Style, then Paste: gives `to` layers the same effects and Blending Options as `from` (replacing theirs).",
+    inputSchema: obj({ from: str("The layer to copy from."), to: arr(layer, "The layers to paste onto.") }, ["from", "to"]),
   }),
   tool({
     name: "add_adjustment",

@@ -148,7 +148,7 @@ function PhotoDesktop() {
     <Desktop windows={usePhotoWindows} name="photo" label="Photo windows" overlay className="absolute inset-0 z-50">
       <FloatingPanels dock={usePhotoDock} panels={PANELS} windowId={panelWindow} />
       {exportOpen && <PhotoExportWindow />}
-      {layerStyle && <LayerStyleWindow key={layerStyle} layerId={layerStyle} />}
+      {layerStyle && <LayerStyleWindow key={layerStyle.layerId} layerId={layerStyle.layerId} page={layerStyle.page} />}
     </Desktop>
   );
 }

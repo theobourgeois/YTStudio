@@ -5,6 +5,7 @@
  * tools' pointer handling. The renderer
  * draws in device pixels; the overlay and the pointer are in CSS pixels; `geometry.ts` converts.
  */
+import { useStyleCanvasDrag } from "../layer-style/canvas-drag";
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 import { PiWarningCircle } from "react-icons/pi";
@@ -188,6 +189,21 @@ export function CanvasPanel() {
     const doc = usePhoto.getState().history?.doc.doc;
     if (!view || !doc) return;
     if (tool === "hand" || e.button === 1) return pan(e);
+    // The Layer Style window's page has a place on the canvas (a shadow, a gradient's centre): a drag moves it.
+    const styleDrag = useStyleCanvasDrag.getState().handler;
+    if (styleDrag && e.button === 0 && tool !== "zoom") {
+      const from = docPoint(e.clientX, e.clientY);
+      startPointerDrag(e, {
+        threshold: 1,
+        cursor: "move",
+        onMove: (ev) => {
+          const p = docPoint(ev.clientX, ev.clientY);
+          styleDrag(p.x - from.x, p.y - from.y, false);
+        },
+        onEnd: () => styleDrag(0, 0, true),
+      });
+      return;
+    }
     if (tool === "zoom") {
       const r = holderRef.current!.getBoundingClientRect();
       usePhotoUi.getState().setView(zoomAbout(view, (e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio, e.altKey ? 0.5 : 2));

@@ -37,8 +37,8 @@ interface PhotoUi {
   /** Null until the canvas has a size (then it fits). */
   view: View | null;
   exportOpen: boolean;
-  /** The Layer Style window's layer (Blending Options…), or null when it's closed. */
-  layerStyle: string | null;
+  /** The Layer Style window: its layer and the page it shows ("blending", or an effect's id), or null when it's closed. */
+  layerStyle: { layerId: string; page: string } | null;
   setTool: (tool: PhotoTool) => void;
   setTarget: (target: PaintTarget) => void;
   setPaintChoice: (layerId: string | null) => void;
@@ -52,7 +52,7 @@ interface PhotoUi {
   setMarquee: (marquee: Box | null) => void;
   setView: (view: View) => void;
   setExportOpen: (open: boolean) => void;
-  setLayerStyle: (layerId: string | null) => void;
+  setLayerStyle: (open: { layerId: string; page: string } | null) => void;
 }
 
 export const usePhotoUi = create<PhotoUi>((set) => ({

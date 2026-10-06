@@ -5,6 +5,10 @@
  */
 import { createId } from "@shared/ids";
 import { BLEND_IF_CHANNELS, BLEND_MODES, type BlendingPatch, compositingOf, describeBlending, isBlendMode, normalizeRange } from "@shared/photo/blending";
+import { contourPreset } from "@shared/photo/style/contours";
+import { styleDefinition } from "@shared/photo/style/definitions";
+import { gradientPreset } from "@shared/photo/style/gradients";
+import { addStyleEffect, describeStyle, globalLightOf, newStyleEffect, removeStyleEffect, setGlobalLight, setLayerStyle, setStyleEffect, setStyleEnabled } from "@shared/photo/style/style";
 import { addAdjustmentLayer, addImageLayer, addPixelLayer, findLayer, moveLayer, removeLayer, removeMask, resetEffect, setCanvas, setCompositing, setEffectParams, setLayerBlending, setMask, setTransform, updateLayer } from "@shared/photo/edits";
 import { ADJUSTMENTS, type EffectDefinition, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import { CURVE_CHANNELS, MAX_CURVE_POINTS } from "@shared/photo/effects/params";
@@ -75,6 +79,8 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
   const faded = !layer.visible || layer.opacity < 1 ? [`   ${layer.visible ? "" : "hidden, "}opacity ${round(layer.opacity)}`] : [];
   const blending = describeBlending(layer);
   if (blending) faded.push(`   blending: ${blending}`);
+  const style = describeStyle(layer);
+  if (style) faded.push(`   effects (top first): ${style}`);
   const mask = layer.mask ? [`   mask: ${layer.mask.surface ? "painted (hides parts of it)" : "reveals everything (nothing painted on it yet)"}`] : [];
   if (layer.kind === "adjustment") return [`${index}. ${layer.id} "${layer.name}": adjustment layer (changes everything below it)`, `   ${describeAdjustment(layer)}`, ...mask, ...faded].join("\n");
   const size = sizeOf(layer, assets);
@@ -232,6 +238,78 @@ export const setLayerBlendingTool: PhotoEdit = (doc, input) => {
     return `"${l.name}": ${describeBlending(l) ?? "Normal"}, opacity ${round(l.opacity)}`;
   });
   return { doc: next, layerId: ids[0], text: next === doc ? `Nothing changed: ${lines.join("; ")}.` : `Blending: ${lines.join("; ")}.` };
+};
+
+/** A model's effect parameters, with contours and gradients by preset name allowed. */
+function effectParams(raw: unknown): Record<string, unknown> {
+  if (raw === undefined) return {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error('params is an object of parameters, e.g. { "size": 12, "opacity": 50 }.');
+  const out: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+  if (typeof out.contour === "string") {
+    const c = contourPreset(out.contour);
+    if (!c) throw new Error(`No contour "${out.contour}": Linear, Cone, Cone - Inverted, Cove - Deep, Cove - Shallow, Gaussian, Half Round, Ring, Ring - Double, Rolling Slope - Descending, Rounded Steps, Sawtooth 1.`);
+    out.contour = c;
+  }
+  if (typeof out.gradient === "string") {
+    const g = gradientPreset(out.gradient);
+    if (!g) throw new Error(`No gradient preset "${out.gradient}": give its stops instead.`);
+    out.gradient = g;
+  }
+  return out;
+}
+
+/** `set_layer_style`: a layer's effects added, changed, hidden or removed. */
+export const setLayerStyleTool: PhotoEdit = (doc, input) => {
+  const layer = findLayerRef(doc, input.layer);
+  if (layer.kind === "adjustment") throw new Error(`"${layer.name}" is an adjustment layer: it has Blending Options (set_layer_blending) but no effects. Give an image or pixel layer.`);
+  let next = doc;
+  const said: string[] = [];
+  if (input.clear === true) {
+    next = setLayerStyle(next, [layer.id], null, () => createId("fx"));
+    said.push("cleared its effects");
+  }
+  if (typeof input.add === "string") {
+    const def = styleDefinition(input.add);
+    if (!def) throw new Error(`No effect "${input.add}". The effects: ${["drop-shadow", "inner-shadow", "outer-glow", "inner-glow", "color-overlay", "gradient-overlay", "stroke"].join(", ")}.`);
+    const have = (findLayer(next, layer.id)!.style?.effects ?? []).filter((e) => e.type === def.type).length;
+    if (have >= def.max) throw new Error(`"${layer.name}" has ${have} ${def.label} already, the most it can have: change it with effect "${def.type}" instead.`);
+    const e = newStyleEffect(def.type, createId("fx"), effectParams(input.params))!;
+    next = addStyleEffect(next, layer.id, e);
+    said.push(`added ${def.label} ${e.id}`);
+  } else if (input.effect !== undefined) {
+    const effects = findLayer(next, layer.id)!.style?.effects ?? [];
+    const e = effects.find((x) => x.id === input.effect) ?? [...effects].reverse().find((x) => x.type === input.effect);
+    if (!e) throw new Error(`"${layer.name}" has no effect "${String(input.effect)}". Its effects: ${effects.map((x) => `${x.id} (${x.type})`).join(", ") || "none: add one with add"}.`);
+    if (input.remove === true) {
+      next = removeStyleEffect(next, layer.id, e.id);
+      said.push(`removed ${e.id}`);
+    } else {
+      next = setStyleEffect(next, layer.id, e.id, { enabled: typeof input.enabled === "boolean" ? input.enabled : undefined, params: input.params !== undefined ? effectParams(input.params) : undefined });
+      said.push(`changed ${e.id}`);
+    }
+  }
+  if (typeof input.allEffects === "boolean") {
+    next = setStyleEnabled(next, [layer.id], input.allEffects);
+    said.push(input.allEffects ? "showed its effects" : "hid its effects");
+  }
+  const after = findLayer(next, layer.id)!;
+  return { doc: next, layerId: layer.id, text: `"${after.name}": ${said.join(", ") || "nothing to do"}. Effects (top first): ${describeStyle(after) ?? "none"}.` };
+};
+
+/** `set_global_light`. */
+export const setGlobalLightTool: PhotoEdit = (doc, input) => {
+  const next = setGlobalLight(doc, { angle: num(input.angle), altitude: num(input.altitude) });
+  const g = globalLightOf(next);
+  return { doc: next, text: `Global Light: ${g.angle}°, altitude ${g.altitude}°.` };
+};
+
+/** `copy_layer_style`: one layer's effects and Blending Options onto others. */
+export const copyLayerStyleTool: PhotoEdit = (doc, input) => {
+  const from = findLayerRef(doc, input.from);
+  const to = (Array.isArray(input.to) ? input.to : [input.to]).map((r) => findLayerRef(doc, r));
+  let next = setLayerStyle(doc, to.filter((l) => l.kind !== "adjustment").map((l) => l.id), from.style ?? null, () => createId("fx"));
+  next = setLayerBlending(next, to.map((l) => l.id), { blend: from.blend ?? "normal", fill: from.fill ?? 1, channels: from.blending?.channels ?? { r: true, g: true, b: true }, blendIf: from.blending?.blendIf ?? null, interiorAsGroup: from.blending?.interiorAsGroup ?? false, maskHidesEffects: from.blending?.maskHidesEffects ?? false });
+  return { doc: next, layerId: to[0]?.id, text: `Pasted "${from.name}"'s layer style onto ${to.map((l) => `"${l.name}"`).join(", ")}.` };
 };
 
 /**

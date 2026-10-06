@@ -155,6 +155,14 @@ export function setLayerStyle(doc: PhotoProject, ids: readonly string[], style: 
   return mapLayers(doc, ids, (l) => withStyle(l, style ? { enabled: style.enabled, effects: style.effects.map((e) => ({ ...structuredClone(e), id: newId() })) } : undefined));
 }
 
+/** A layer's style as given (its effects keeping their ids, put in drawing order), or none. The same document when it's the same. */
+export function replaceStyle(doc: PhotoProject, layerId: string, style: LayerStyle | undefined): PhotoProject {
+  return mapLayers(doc, [layerId], (l) => {
+    const next = style && style.effects.length ? { enabled: style.enabled, effects: ordered(style.effects) } : undefined;
+    return JSON.stringify(next ?? null) === JSON.stringify(l.style ?? null) ? l : withStyle(l, next);
+  });
+}
+
 /** The document's Global Light (every effect with Use Global Light follows it). */
 export function setGlobalLight(doc: PhotoProject, patch: Partial<GlobalLight>): PhotoProject {
   const now = globalLightOf(doc);

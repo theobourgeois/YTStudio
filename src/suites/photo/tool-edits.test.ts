@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createPhotoProject } from "@shared/photo/project";
 import type { AdjustmentLayer, ImageLayer, PhotoProject } from "@shared/photo/types";
 import type { MediaAsset } from "@shared/types";
-import { addAdjustmentTool, addImageLayerTool, addPixelLayerTool, describePhoto, maskTool, mergeRequest, removeLayerTool, setCanvasTool, setEffectParamsTool, setLayerBlendingTool, setLayerTool, transformLayerTool } from "./tool-edits";
+import { addAdjustmentTool, addImageLayerTool, addPixelLayerTool, describePhoto, maskTool, mergeRequest, removeLayerTool, setCanvasTool, setEffectParamsTool, setGlobalLightTool, setLayerBlendingTool, setLayerStyleTool, setLayerTool, transformLayerTool } from "./tool-edits";
 
 const placeOf = (doc: PhotoProject, i = 0) => (doc.layers[i] as ImageLayer).transform;
 const effectOf = (doc: PhotoProject, i: number) => (doc.layers[i] as AdjustmentLayer).effect;
@@ -118,5 +118,26 @@ describe("the photo assistant's edits", () => {
     expect(text).toMatch(/pixel layer 1280×720 \(empty: nothing painted yet\)/);
     expect(text).toMatch(/mask: reveals everything/);
     expect(text).toMatch(/Selection \(marching ants\): x 10..40, y 20..60/);
+  });
+});
+
+describe("the assistant's layer styles", () => {
+  const empty = createPhotoProject("Thumb", { width: 1280, height: 720 });
+  it("adds, changes, hides and removes effects, by id or type, and says what's wrong", () => {
+    let doc = addImageLayerTool(empty, { media: "cat.png" }, env).doc;
+    doc = setLayerStyleTool(doc, { layer: "cat", add: "drop-shadow", params: { distance: 20, contour: "Cone" } }, env).doc;
+    const shadow = doc.layers[0].style!.effects[0];
+    expect(shadow.params).toMatchObject({ distance: 20, size: 7, opacity: 35, contour: { name: "Cone" } });
+    doc = setLayerStyleTool(doc, { layer: "cat", effect: "drop-shadow", params: { size: 30 } }, env).doc;
+    expect(doc.layers[0].style!.effects[0].params.size).toBe(30);
+    doc = setLayerStyleTool(doc, { layer: "cat", add: "stroke" }, env).doc;
+    expect(describePhoto(doc, env.assets, [])).toMatch(/effects \(top first\): fx_\w+ Stroke: 3 px outside/);
+    doc = setLayerStyleTool(doc, { layer: "cat", effect: shadow.id, enabled: false }, env).doc;
+    expect(doc.layers[0].style!.effects.find((e) => e.id === shadow.id)!.enabled).toBe(false);
+    doc = setLayerStyleTool(doc, { layer: "cat", effect: shadow.id, remove: true }, env).doc;
+    expect(doc.layers[0].style!.effects.map((e) => e.type)).toEqual(["stroke"]);
+    expect(() => setLayerStyleTool(doc, { layer: "cat", add: "outer-glow", params: { contour: "Wobble" } }, env)).toThrow(/Gaussian/);
+    expect(() => setLayerStyleTool(doc, { layer: "cat", effect: "satin" }, env)).toThrow(/stroke/);
+    expect(setGlobalLightTool(doc, { angle: 45 }, env).doc.globalLight).toEqual({ angle: 45, altitude: 30 });
   });
 });

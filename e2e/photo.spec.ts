@@ -1419,7 +1419,7 @@ test("blend modes, Fill, channels and Blend If draw as the reference composites 
   await page.mouse.dblclick(box.x + box.width - 8, box.y + box.height / 2);
   const dialog = page.locator("[data-layer-style]");
   await expect(dialog).toBeVisible();
-  await dialog.getByRole("checkbox", { name: "G" }).uncheck();
+  await dialog.getByRole("checkbox", { name: "G", exact: true }).uncheck();
   await expect.poll(async () => ((await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[1])) as { blending?: { channels?: { g: boolean } } }).blending?.channels?.g).toBe(false);
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toBeHidden();
@@ -1429,14 +1429,14 @@ test("blend modes, Fill, channels and Blend If draw as the reference composites 
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Blend mode" }).click();
   await page.locator('[data-blend-menu] [data-mode="luminosity"]').click();
-  await dialog.getByRole("checkbox", { name: "B" }).uncheck();
+  await dialog.getByRole("checkbox", { name: "B", exact: true }).uncheck();
   const black = dialog.locator('[data-blend-if="Underlying Layer"] [data-handle="black"]');
   const handle = (await black.boundingBox())!;
   await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
   await page.mouse.down();
   await page.mouse.move(handle.x + handle.width / 2 + 40, handle.y + handle.height / 2, { steps: 4 });
   await page.mouse.up();
-  await dialog.getByRole("button", { name: "OK" }).click();
+  await dialog.getByRole("button", { name: "OK", exact: true }).click();
   await expect(dialog).toBeHidden();
   const saved = await expect.poll(async () => (await savedPhoto(page, id)).layers[1].blend).toBe("luminosity").then(() => savedPhoto(page, id));
   expect(saved.layers[1].blending.channels).toEqual({ r: true, g: true, b: false });
@@ -1531,4 +1531,63 @@ test("layer effects draw as the reference does: shadows, glows, overlays and str
   expect(await made()).toBe(before);
   await check("its size changed", [{ ...shadow, params: { ...shadow.params, size: 30 } }]);
   expect(await made()).toBe(before + 1);
+
+  // The window: the fx menu's Drop Shadow adds one and shows its page; the canvas shows it while the window is open.
+  await set({ layer: { style: null, blend: "normal", opacity: 1, fill: 1, blending: null }, doc: { compositing: "photoshop" } });
+  const layerNow = () => page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[0]) as Promise<{ style?: { enabled: boolean; effects: { id: string; type: string; enabled: boolean; params: Record<string, unknown> }[] } | null }>;
+  await page.locator("[data-layer]").first().click();
+  await page.getByRole("button", { name: "Add a layer style" }).click();
+  await page.locator("[data-fx-menu]").getByRole("menuitem", { name: "Drop Shadow…" }).click();
+  const dialog = page.locator("[data-layer-style]");
+  await expect(dialog.locator('[data-page="drop-shadow"]')).toBeVisible();
+  await expect.poll(async () => (await layerNow()).style?.effects.map((e) => e.type)).toEqual(["drop-shadow"]);
+  // A drag on the canvas moves the shadow (Distance follows).
+  const canvas = (await page.getByLabel("Photo canvas").boundingBox())!;
+  // (By the canvas's corner: the window is over its middle.)
+  await page.mouse.move(canvas.x + 12, canvas.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(canvas.x + 72, canvas.y + 42, { steps: 5 });
+  await page.mouse.up();
+  // (The canvas is zoomed to 462%: 60 screen pixels are about 13 of the photo's.)
+  await expect.poll(async () => (await layerNow()).style?.effects[0]?.params.distance as number).toBeGreaterThan(10);
+  // Cancel puts it all back.
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(async () => (await layerNow()).style ?? null).toBeNull();
+
+  // Blending Options from the Layers menu, then Stroke from the list (ticked by clicking it), its Size typed, OK: one
+  // undo step.
+  await page.locator("[data-layer]").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Blending Options…" }).click();
+  await dialog.locator('[data-style-row="stroke"]').getByRole("button", { name: "Stroke" }).click();
+  await expect(dialog.locator('[data-page="stroke"]')).toBeVisible();
+  await dialog.getByRole("spinbutton", { name: "Size" }).click();
+  await page.keyboard.type("12");
+  await page.keyboard.press("Enter");
+  await dialog.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const saved = await expect.poll(async () => (await savedPhoto(page, id)).layers[0].style?.effects?.[0]?.params?.size).toBe(12).then(() => savedPhoto(page, id));
+  expect(saved.layers[0].style.effects.map((e: { type: string }) => e.type)).toEqual(["stroke"]);
+  // The Layers panel lists it under the layer: its eye hides it.
+  await expect(page.locator("[data-fx]")).toBeVisible();
+  await page.locator("[data-effect]").getByRole("button", { name: "Hide Stroke" }).click();
+  await expect.poll(async () => (await layerNow()).style?.effects[0]?.enabled).toBe(false);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await layerNow()).style?.effects[0]?.enabled).toBe(true);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await layerNow()).style ?? null).toBeNull();
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(async () => (await layerNow()).style?.effects.length).toBe(1);
+
+  // Copy Layer Style, then Paste onto a copy of the layer that has none.
+  await page.locator("[data-layer]").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Copy Layer Style" }).click();
+  await page.keyboard.press("ControlOrMeta+j");
+  await expect(page.locator("[data-layer]")).toHaveCount(2);
+  await page.locator("[data-layer]").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Clear Layer Style" }).click();
+  await expect.poll(async () => ((await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[1])) as { style?: unknown }).style ?? null).toBeNull();
+  await page.locator("[data-layer]").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Paste Layer Style" }).click();
+  await expect.poll(async () => ((await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers[1])) as { style?: { effects: { type: string }[] } }).style?.effects[0]?.type).toBe("stroke");
 });
