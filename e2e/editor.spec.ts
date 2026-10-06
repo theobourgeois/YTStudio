@@ -1689,6 +1689,151 @@ test("adds a visualizer that moves with the song, and edits what it listens to",
   await expect.poll(async () => (await visualizer())?.effects.find((e) => e.type === "audio-bars")?.params.source).toMatch(/^t:/);
 });
 
+test("writes a shader: compiled as it's typed, its errors on their lines, its parameters in Properties", async ({ page }) => {
+  await openLatest(page);
+  await newVideo(page);
+  type Fx = { id: string; type: string; params: Record<string, unknown>; shader?: { code: string; dialect: string } };
+  const shaderOf = async () => ((await savedProject(page)).clips as { effects: Fx[] }[]).flatMap((c) => c.effects).find((e) => e.type === "shader");
+
+  // A solid, and the Shader effect from the Effects tab: its starting code.
+  await page.getByRole("button", { name: "New layer" }).click();
+  await page.getByRole("menuitem", { name: /Solid/ }).click();
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+  // The new solid is selected.
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.getByRole("tab", { name: "Effects", exact: true }).click();
+  await page.getByRole("searchbox", { name: "Search effects" }).fill("shader");
+  const card = page.locator("[data-effect-type]").filter({ hasText: "Shader" }).first();
+  await card.hover();
+  await card.getByRole("button", { name: "Add Shader" }).click();
+  await expect.poll(async () => (await shaderOf())?.shader?.dialect).toBe("native");
+
+  // Properties: its declared parameters, and Edit code opens the editor.
+  await page.getByRole("tab", { name: "Properties", exact: true }).click();
+  const section = page.getByRole("region", { name: "Shader" });
+  await expect(section.getByText("Amount", { exact: true })).toBeVisible();
+  await section.getByRole("button", { name: "Edit code" }).click();
+  const win = page.locator("[data-shader-window]");
+  await expect(win).toBeVisible();
+  await expect(win.locator("[data-shader-status]")).toHaveAttribute("data-shader-status", "ok");
+
+  // Code that doesn't compile: its error on its line, the clip drawn without it.
+  const write = async (code: string) => {
+    await win.locator("[data-shader-code]").click();
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.insertText(code);
+  };
+  await write("vec4 effect(vec2 uv) {\n  return vec4(oops);\n}\n");
+  await expect(win.locator("[data-shader-problems]")).toContainText("Line 2: 'oops': undeclared identifier");
+  await expect(win.locator("[data-shader-status]")).toHaveAttribute("data-shader-status", "problems");
+  await expect(section.locator("[data-shader-broken]")).toBeVisible();
+
+  // Fixed: a red frame with a parameter of its own, shown in Properties and drawn on the Program monitor.
+  await write('// @name "Red"\n// @param glow number 0 1 0.75 "Glow"\nvec4 effect(vec2 uv) {\n  return vec4(glow, 0.0, 0.0, 1.0);\n}\n');
+  await expect(win.locator("[data-shader-status]")).toHaveAttribute("data-shader-status", "ok");
+  const red = page.getByRole("region", { name: "Red" });
+  await expect(red.getByText("Glow", { exact: true })).toBeVisible();
+  await expect(red.locator("[data-shader-broken]")).toHaveCount(0);
+  await expect.poll(async () => (await shaderOf())?.params).toEqual({ glow: 0.75 });
+  await expect.poll(async () => (await monitorPixel(page, 0.5, 0.5))[0]).toBeGreaterThan(170);
+  expect((await monitorPixel(page, 0.5, 0.5))[1]).toBeLessThan(20);
+
+  // An example in another dialect, one undo step away.
+  await win.getByRole("button", { name: "Examples" }).click();
+  await page.getByRole("menuitem", { name: /Shadertoy: new shader/ }).click();
+  await expect.poll(async () => (await shaderOf())?.shader?.dialect).toBe("shadertoy");
+  await expect(win.locator("[data-shader-code]")).toContainText("mainImage");
+  await page.screenshot({ path: "/tmp/shader.png" });
+  // Esc closes the editor (its keys are its own); the editor's undo takes the example back.
+  await page.keyboard.press("Escape");
+  await expect(win).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await shaderOf())?.shader?.code).toContain("@param glow");
+  await page.getByRole("region", { name: "Red" }).getByRole("button", { name: "Edit code" }).click();
+  await expect(win.locator("[data-shader-code]")).toContainText("@param glow");
+  await page.keyboard.press("Escape");
+
+  // A shader that loses the GPU (simulated): it's turned off, the user is told, and the preview comes back.
+  const lose = (restore: boolean) =>
+    page.evaluate((r) => {
+      // A lost context gives no extensions: the one that lost it restores it.
+      const w = window as unknown as { loser?: WEBGL_lose_context };
+      w.loser ??= document.querySelector<HTMLCanvasElement>("[data-slot=preview-canvas]")!.getContext("webgl2")!.getExtension("WEBGL_lose_context")!;
+      if (r) w.loser.restoreContext();
+      else w.loser.loseContext();
+    }, restore);
+  await lose(false);
+  await expect(page.getByText(/"Red" stopped the graphics card/)).toBeVisible();
+  await expect.poll(async () => ((await savedProject(page)).clips as { effects: (Fx & { enabled: boolean })[] }[]).flatMap((c) => c.effects).find((e) => e.type === "shader")?.enabled).toBe(false);
+  await lose(true);
+  await expect.poll(async () => (await monitorPixel(page, 0.5, 0.5))[0]).toBeLessThan(20);
+});
+
+test("a simulation shows the same frame seeked to or stepped to, and a 3D scene draws on the monitor", async ({ page }) => {
+  await openLatest(page);
+  await newVideo(page);
+  type Fx = { type: string; params: Record<string, unknown> };
+  const effectsOf = async () => ((await savedProject(page)).clips as { effects: Fx[] }[]).map((c) => c.effects.map((e) => e.type));
+  /** Add an effect from the Effects tab to the selected clip. */
+  const addFromTab = async (search: string, label: string) => {
+    await page.getByRole("tab", { name: "Effects", exact: true }).click();
+    await page.getByRole("searchbox", { name: "Search effects" }).fill(search);
+    const card = page.locator("[data-effect-type]").filter({ hasText: label }).first();
+    await card.hover();
+    await card.getByRole("button", { name: `Add ${label}` }).click();
+  };
+
+  // A solid with rings moving on it, then Feedback (its picture carried from frame to frame).
+  await page.getByRole("button", { name: "New layer" }).click();
+  await page.getByRole("menuitem", { name: /Solid/ }).click();
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await addFromTab("radio waves", "Radio Waves");
+  await addFromTab("feedback", "Feedback");
+  await expect.poll(async () => (await effectsOf())[0]).toEqual(expect.arrayContaining(["radio-waves", "feedback"]));
+
+  const canvas = page.locator("[data-slot=preview-canvas]");
+  /** The monitor once its simulations are caught up: a few points across it. */
+  const settledPixels = async () => {
+    await expect(canvas).toHaveAttribute("data-simulation", "exact");
+    const points: number[] = [];
+    for (const [u, v] of [[0.3, 0.3], [0.5, 0.5], [0.7, 0.4], [0.4, 0.75], [0.62, 0.62]]) points.push(...(await monitorPixel(page, u, v)));
+    return points;
+  };
+  const ruler = (await page.locator("[data-timeline-ruler]").boundingBox())!;
+  await page.mouse.click(ruler.x + 1, ruler.y + ruler.height / 2);
+  // Seeked: two jumps of a second to frame 60, the simulation caught up from where it was.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("Shift+ArrowRight");
+  const seeked = await settledPixels();
+  expect(seeked.some((c) => c > 40)).toBe(true);
+  // Stepped: frame by frame from the start.
+  await page.keyboard.press("Home");
+  for (let i = 0; i < 60; i++) await page.keyboard.press("ArrowRight");
+  const stepped = await settledPixels();
+  expect(Math.max(...stepped.map((c, i) => Math.abs(c - seeked[i])))).toBeLessThanOrEqual(3);
+  await page.screenshot({ path: "/tmp/feedback.png" });
+
+  // A 3D scene: three.js loads the first time one's drawn, and the tesseract lights the black canvas.
+  await page.keyboard.press("Home");
+  await page.getByRole("button", { name: "New layer" }).click();
+  await page.getByRole("menuitem", { name: /Solid/ }).click();
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(2);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await addFromTab("tesseract", "Tesseract");
+  await expect.poll(async () => (await effectsOf()).some((types) => types.includes("tesseract"))).toBe(true);
+  await page.keyboard.press("Shift+ArrowRight");
+  const lit = async () => {
+    await expect(canvas).toHaveAttribute("data-simulation", "exact");
+    let on = 0;
+    for (let u = 0.1; u < 0.95; u += 0.1) for (let v = 0.1; v < 0.95; v += 0.1) if ((await monitorPixel(page, u, v)).some((c) => c > 50)) on++;
+    return on;
+  };
+  await expect.poll(lit, { timeout: 30_000 }).toBeGreaterThan(5);
+  await page.screenshot({ path: "/tmp/tesseract.png" });
+});
+
 test("pinching over the monitor scales the selected clip, as one undo step", async ({ page }) => {
   await openLatest(page);
   await newVideo(page);

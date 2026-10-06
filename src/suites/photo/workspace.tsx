@@ -5,15 +5,35 @@
  */
 import { type ReactNode, useEffect, useState } from "react";
 import { cn } from "cn";
-import { PiArrowCounterClockwise, PiArrowClockwise, PiArrowsLeftRight, PiCursor, PiEraser, PiExport, PiHand, PiImage, PiMagnet, PiMagnifyingGlass, PiPaintBrush, PiSelection } from "react-icons/pi";
+import {
+  PiArrowCounterClockwise,
+  PiArrowClockwise,
+  PiArrowsLeftRight,
+  PiCircleDashed,
+  PiCursor,
+  PiEraser,
+  PiExport,
+  PiHand,
+  PiImage,
+  PiLasso,
+  PiMagicWand,
+  PiMagnet,
+  PiMagnifyingGlass,
+  PiPaintBrush,
+  PiPaintBrushBroad,
+  PiPolygon,
+  PiSelection,
+} from "react-icons/pi";
 import { toast } from "sonner";
 import { moveLayersBy } from "@shared/photo/edits";
-import { allSelection } from "@shared/photo/selection";
 import { ColorSwatchPicker } from "@/components/color-picker";
 import { stepBrushSize, useBrush } from "./brush-options";
 import { useColours } from "./colours";
 import { editActions, hasPhotoClipboard } from "./edit-actions";
 import { PaintChoiceDialog, ToolOptions } from "./options-bar";
+import { FeatherDialog, SelectMenu, SubjectModelDialog, useFeather } from "./select-commands";
+import { selectActions, useSelectOptions } from "./selecting";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { AssistantButton } from "@/components/assistant/assistant-button";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { DockArea, FloatingPanels, type DockPanel } from "@/components/dock/dock-area";
@@ -40,8 +60,8 @@ import { LayersPanel } from "./panels/layers-panel";
 import { usePhotoPreferences } from "./preferences";
 import { PropertiesPanel } from "./panels/properties-panel";
 import { StylesPanel } from "./panels/styles-panel";
-import { currentDoc, currentSelection, flushPhotos, photoGesture, usePhoto } from "./store";
-import { type PhotoTool, useActiveTool, usePhotoUi } from "./ui";
+import { currentSelection, flushPhotos, photoGesture, usePhoto } from "./store";
+import { type PhotoTool, TOOL_GROUPS, type ToolGroup, useActiveTool, usePhotoUi } from "./ui";
 
 type PhotoPanel = "canvas" | "layers" | "properties" | "styles";
 type PhotoWindowId = "export" | "filters" | `panel:${string}`;
@@ -110,6 +130,8 @@ export default function PhotoWorkspace() {
       </div>
       <PhotoDesktop />
       <PaintChoiceDialog />
+      <FeatherDialog />
+      <SubjectModelDialog />
     </div>
   );
 }
@@ -179,6 +201,7 @@ function PhotoHeader() {
           <PiArrowClockwise />
         </Button>
       </div>
+      <SelectMenu />
       <FilterMenu />
       <ToolOptions />
       {tool === "move" && (
@@ -235,38 +258,80 @@ function SaveState() {
   );
 }
 
-const TOOLS: { tool: PhotoTool; label: string; key: string; Icon: typeof PiCursor }[] = [
-  { tool: "move", label: "Move", key: "V", Icon: PiCursor },
-  { tool: "marquee", label: "Rectangular Marquee", key: "M", Icon: PiSelection },
-  { tool: "brush", label: "Brush", key: "B", Icon: PiPaintBrush },
-  { tool: "eraser", label: "Eraser", key: "E", Icon: PiEraser },
-  { tool: "hand", label: "Hand", key: "H", Icon: PiHand },
-  { tool: "zoom", label: "Zoom", key: "Z", Icon: PiMagnifyingGlass },
-];
+/** Each tool's name, key and icon (a group's tools share their key: Shift + it steps through them). */
+const TOOL_INFO: Record<PhotoTool, { label: string; key: string; Icon: typeof PiCursor }> = {
+  move: { label: "Move", key: "V", Icon: PiCursor },
+  marquee: { label: "Rectangular Marquee", key: "M", Icon: PiSelection },
+  ellipse: { label: "Elliptical Marquee", key: "M", Icon: PiCircleDashed },
+  lasso: { label: "Lasso", key: "L", Icon: PiLasso },
+  polygonLasso: { label: "Polygonal Lasso", key: "L", Icon: PiPolygon },
+  quickSelect: { label: "Quick Selection", key: "W", Icon: PiPaintBrushBroad },
+  magicWand: { label: "Magic Wand", key: "W", Icon: PiMagicWand },
+  brush: { label: "Brush", key: "B", Icon: PiPaintBrush },
+  eraser: { label: "Eraser", key: "E", Icon: PiEraser },
+  hand: { label: "Hand", key: "H", Icon: PiHand },
+  zoom: { label: "Zoom", key: "Z", Icon: PiMagnifyingGlass },
+};
+
+/** The strip's places, top to bottom: a tool, or a group (showing the one of it used last). */
+const STRIP: (PhotoTool | ToolGroup)[] = ["move", "marquee", "lasso", "wand", "brush", "eraser", "hand", "zoom"];
+
+/** "marquee" in the strip is the Marquees' group. */
+const isGroup = (place: PhotoTool | ToolGroup): place is ToolGroup => Object.hasOwn(TOOL_GROUPS, place);
 
 function ToolStrip() {
   const active = useActiveTool();
+  const groupTools = usePhotoUi((s) => s.groupTools);
   return (
     <nav className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-line bg-surface-1 py-2" aria-label="Tools">
-      {TOOLS.map(({ tool, label, key, Icon }) => (
-        <Tooltip key={tool}>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={label}
-              aria-pressed={active === tool}
-              className={cn(active === tool && "bg-accent text-foreground")}
-              onClick={() => usePhotoUi.getState().setTool(tool)}
-            >
-              <Icon className="size-4.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {label} ({key})
-          </TooltipContent>
-        </Tooltip>
-      ))}
+      {STRIP.map((place) => {
+        const group = isGroup(place) ? place : null;
+        const tool = group ? groupTools[group] : (place as PhotoTool);
+        const { label, key, Icon } = TOOL_INFO[tool];
+        const pressed = group ? TOOL_GROUPS[group].includes(active) : active === tool;
+        const button = (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={label}
+            aria-pressed={pressed}
+            className={cn("relative", pressed && "bg-accent text-foreground")}
+            onClick={() => usePhotoUi.getState().setTool(tool)}
+            data-tool-button={tool}
+          >
+            <Icon className="size-4.5" />
+            {/* Photoshop's corner mark: more tools here (right-click). */}
+            {group && <span className="absolute right-0.5 bottom-0.5 size-0 border-t-[3px] border-l-[3px] border-t-transparent border-l-transparent border-r-[3px] border-b-[3px] border-r-muted-foreground border-b-muted-foreground" />}
+          </Button>
+        );
+        const tip = (
+          <Tooltip>
+            <TooltipTrigger asChild>{button}</TooltipTrigger>
+            <TooltipContent side="right">
+              {label} ({group ? `${key}, Shift+${key} for the next` : key})
+            </TooltipContent>
+          </Tooltip>
+        );
+        if (!group) return <div key={place}>{tip}</div>;
+        return (
+          <ContextMenu key={place}>
+            <ContextMenuTrigger asChild>
+              <div>{tip}</div>
+            </ContextMenuTrigger>
+            <ContextMenuContent className="w-52" data-tool-group={group}>
+              {TOOL_GROUPS[group].map((t) => {
+                const info = TOOL_INFO[t];
+                return (
+                  <ContextMenuItem key={t} onSelect={() => usePhotoUi.getState().setTool(t)} data-tool-item={t}>
+                    <info.Icon /> {info.label}
+                    <ContextMenuShortcut>{info.key}</ContextMenuShortcut>
+                  </ContextMenuItem>
+                );
+              })}
+            </ContextMenuContent>
+          </ContextMenu>
+        );
+      })}
       <div className="flex-1" />
       <ColourSwatches />
     </nav>
@@ -359,6 +424,12 @@ function usePhotoKeys(active: boolean) {
       switch (action.type) {
         case "tool":
           return ui.setTool(action.tool);
+        case "toolGroup":
+          return ui.pickGroup(action.group, action.cycle);
+        case "inverse":
+          return selectActions.inverse();
+        case "feather":
+          return currentSelection() ? useFeather.setState({ open: true }) : undefined;
         case "undo":
           return photo.undo();
         case "redo":
@@ -401,13 +472,13 @@ function usePhotoKeys(active: boolean) {
         // ⌘D lets go of the selection, as Photoshop's; with none, of the layers.
         case "deselect":
           return currentSelection() ? photo.select(null) : layerActions.deselect();
-        case "selectCanvas": {
-          const doc = currentDoc();
-          return doc && photo.select(allSelection(doc.canvas));
-        }
+        case "selectCanvas":
+          return selectActions.all();
         case "newLayer":
           return void layerActions.newLayer();
+        // Quick Selection's brush is its own.
         case "brushSize":
+          if (ui.tool === "quickSelect") return useSelectOptions.getState().set({ quickSize: stepBrushSize(useSelectOptions.getState().quickSize, action.direction) });
           return useBrush.getState().set({ size: stepBrushSize(useBrush.getState().size, action.direction) });
         case "brushHardness":
           return useBrush.getState().set({ hardness: Math.round((useBrush.getState().hardness + action.direction * 0.25) * 4) / 4 });

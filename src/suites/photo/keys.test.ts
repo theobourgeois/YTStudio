@@ -78,12 +78,21 @@ describe("layer keys (Photoshop's)", () => {
 
 describe("selection and brush keys (Photoshop's)", () => {
   it("picks the marquee and the brush, selects all, deselects, makes a layer", () => {
-    expect(resolvePhotoKey(press("m"), true)).toEqual({ type: "tool", tool: "marquee" });
+    expect(resolvePhotoKey(press("m"), true)).toEqual({ type: "toolGroup", group: "marquee", cycle: false });
     expect(resolvePhotoKey(press("B"), true)).toEqual({ type: "tool", tool: "brush" });
     expect(resolvePhotoKey(press("a", { metaKey: true }), true)).toEqual({ type: "selectCanvas" });
     expect(resolvePhotoKey(press("d", { metaKey: true }), true)).toEqual({ type: "deselect" });
     expect(resolvePhotoKey(press("n", { metaKey: true, shiftKey: true }), true)).toEqual({ type: "newLayer" });
     expect(resolvePhotoKey(press("n", { metaKey: true }), true)).toBeNull();
+  });
+
+  it("picks the selection tools' groups (Shift steps through one), inverts and feathers", () => {
+    expect(resolvePhotoKey(press("M", { shiftKey: true }), true)).toEqual({ type: "toolGroup", group: "marquee", cycle: true });
+    expect(resolvePhotoKey(press("l"), true)).toEqual({ type: "toolGroup", group: "lasso", cycle: false });
+    expect(resolvePhotoKey(press("W", { shiftKey: true }), true)).toEqual({ type: "toolGroup", group: "wand", cycle: true });
+    expect(resolvePhotoKey(press("i", { metaKey: true, shiftKey: true }), true)).toEqual({ type: "inverse" });
+    expect(resolvePhotoKey(press("i", { ctrlKey: true, shiftKey: true }), false)).toEqual({ type: "inverse" });
+    expect(resolvePhotoKey(press("F6", { shiftKey: true }), true)).toEqual({ type: "feather" });
   });
 
   it("sizes and hardens the brush with [ and ], and sets the colours with D and X", () => {

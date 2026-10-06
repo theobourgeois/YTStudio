@@ -993,6 +993,28 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     const strobeOut = path.join(dataDir, "exports", `${strobeJob.id}.mp4`);
     for (const t of [0.52, 1.52, 2.52]) expect(pixelAt(strobeOut, t, 360, 640)[0], `strobe at ${t}s`).toBeGreaterThan(150);
     for (const t of [0.3, 0.95, 2]) expect(pixelAt(strobeOut, t, 360, 640)[0], `strobe at ${t}s`).toBeLessThan(30);
+
+    // The user's own shader (V6): red on each kick, from its declared colour and the hits it hears.
+    const code = "// @hits kicks\n// @param tint color #ff0000\nvec4 effect(vec2 uv) {\n  float k = exp(-hitAge[0] / 0.08);\n  return vec4(tint * k, 1.0);\n}";
+    let shaded = projectWith([
+      { id: "shaded", assetId: "", trackId: "main", start: 0, in: 0, out: 3, effects: solidEffects({ color: "#000000" }) },
+      { ...clip("tone", "audio_1", 0, 0, 3), assetId: thumps.id },
+    ]);
+    shaded = addEffect(shaded, ["shaded"], "shader", undefined, { code, dialect: "native" }).project;
+    const shadedJob = await waitForExport(((await (await sendJson("POST", "/api/exports", { project: shaded, resolution: "720p" })).json()) as ExportJob).id);
+    expect(shadedJob.error).toBeUndefined();
+    const shadedOut = path.join(dataDir, "exports", `${shadedJob.id}.mp4`);
+    for (const t of [0.52, 1.52, 2.52]) {
+      const [r, g] = pixelAt(shadedOut, t, 360, 640);
+      expect([r > 150, g < 40], `shader at ${t}s`).toEqual([true, true]);
+    }
+    for (const t of [0.3, 0.95, 2]) expect(pixelAt(shadedOut, t, 360, 640)[0], `shader at ${t}s`).toBeLessThan(30);
+
+    // One that doesn't compile: the export refuses, naming it, its clip and the line.
+    const broken = addEffect(shaded, ["shaded"], "shader", undefined, { code: '// @name "Broken"\nvec4 effect(vec2 uv) {\n  return vec4(oops);\n}', dialect: "native" }).project;
+    const brokenJob = await waitForExport(((await (await sendJson("POST", "/api/exports", { project: broken, resolution: "720p" })).json()) as ExportJob).id);
+    expect(brokenJob.status).toBe("error");
+    expect(brokenJob.error).toMatch(/The shader "Broken" on a solid at 0\.0 s doesn't compile \(Line 3: 'oops': undeclared identifier\)/);
   });
 
   it("cancels queued and running exports", async () => {

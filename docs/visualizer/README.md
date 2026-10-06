@@ -3,7 +3,10 @@
 Status: plan first written 2026-10-06. **V1 (signals) and V2 (signals in expressions) are built** (2026-10-07; see
 "What V1 and V2 built" below). **V3 is built** (2026-10-07: links, custom signals, nests hearing where they're placed,
 the link popover, the assistant's tools, the Signals window, signal lanes, spectrograms). **V4 is built** (visualizer
-effects, New item › Visualizer); V5 (Make visualizer) or V6 (shaders) is next.
+effects, New item › Visualizer). **V5 is built** (Make visualizer: a song of the music suite made into a video
+project). **V6 is built** (2026-10-07: the Shader effect, its three dialects, the shader editor, `set_shader`; see
+"V6: Shaders" below). **V8 is built** (2026-10-07, before V7: simulations, vaudio's feedback and camera modes, its four
+3D scenes; see "V8: Simulations and 3D" below).
 [vaudio-port.md](vaudio-port.md) lists what comes over from Théo's earlier visualizer (`~/code/vaudio`) and where.
 
 A professional audio visualizer inside the video editor, not a suite of its own. Any clip, effect parameter or shader
@@ -290,7 +293,54 @@ any other. That needs an instance-aware lookup, `definitionOf(effect)`, where co
 - **Safety**: GLSL can't touch files or the network; it can hang the GPU (Chromium's watchdog loses the context).
   The compositor recovers from a lost context and turns off the last shader compiled, telling the user.
 
-### Simulations (stateful effects, V8)
+As built (V6): `shared/shader-code.ts` reads code (pure: declarations, the ISF header, the dialects' sources, compiler
+logs onto the user's lines; `shaderApi`, the examples); `definitionOf(effect)` in `effects.ts` (an instance's
+definition, cached per code: `shaderDefinition`); the preludes moved to `effect-prelude.ts` so the dialects build on
+them. Details that differ from the plan above:
+- **Lines**: the user's code follows `#line 1 1` (and each `@param` uniform `#line <its line> 1`), so ANGLE's log
+  (`ERROR: 1:12: ...`) names the user's own line; `compileProblems` reads it. Token pasting (`##`) doesn't work in
+  ANGLE, so ISF images and Shadertoy channels are structs (`_VzImage`, `_VzChannel`) with `texture`, `texelFetch`,
+  `textureLod`, `textureSize` overloads, and the ISF macros (`IMG_NORM_PIXEL`...) call functions on them.
+- **Dialect preludes** have none of our helpers (a Shadertoy's own `hash` or `noise` would clash) and our audio
+  functions renamed (`_vz_spectrum`); the compositor also sets `uResolution`, which they use. ISF writes straight
+  alpha (premultiplied for it); a Shadertoy is opaque. iChannel0 is the sound (512×2, the spectrum linear to 12 kHz
+  on row 0, the waveform on row 1), iChannel1 the clip's picture; `// @iChannel0 input|audio|none` changes them.
+  `iDate` is a fixed date (frames never depend on when they're drawn). Not supported: ISF's several PASSES, TARGETs,
+  IMPORTED images, vertex shaders; Shadertoy's Common and Buffer tabs.
+- **What it hears**: a native shader hears when it reads the sound (`spectrum`, `audioBass`, `hitAge`...; `@fall`,
+  `@history`, `@wave`, `@hits` shape the request), an ISF through `audio`/`audioFFT` inputs, a Shadertoy when it reads
+  an audio channel; then it gets a `source` parameter (Listens To) as visualizers do.
+- **Compile checks**: the tab (`src/lib/shader-compiler.ts`) compiles each new shader on a hidden context, cached by
+  key; `provideShaderCheck` leaves those that don't compile out of `effectPasses` (only that effect: the clip still
+  draws). Properties marks the effect and shows its first problem; the editor lists them and marks their lines. The
+  export compiles the plan's user shaders in its page before any frame (`GlSession.compile`) and refuses, naming the
+  shader and the clip (`RenderPlan.shaderUses`).
+- **Lost context**: the Program monitor's engine, on `webglcontextlost`, turns off (an undo step) the shader on now
+  that was first drawn most recently among those drawn in the last 20 s (the watchdog takes seconds), and says so
+  (`components/preview/shader-recovery.ts`). The compositor keeps the 24 most recently used user programs.
+- **Editing**: new code keeps the values, keyframes, expressions and links of the parameters it still declares as
+  the same kind (`setShaderCode`); a new Shader effect starts from its own code's defaults. The editor window
+  (`components/shader/`, CodeMirror 6 with C's grammar and the app's `--code-*` colours, lazy) applies typing after
+  180 ms and makes a burst one undo step (1.2 s); Dialect, Examples, a Reference (`shaderApi`), the declared
+  parameters, Save to Library (the clip, with its shader, as a Library item).
+
+### Simulations (stateful effects, V8, built)
+
+As built: `EffectShader.simulation` (`shared/effect-library/simulation.ts`). A simulation's output is its state, read
+back a frame later (`getState(uv)`, `hasState`, `simFrame`, `simStep` in its prelude), in half floats. Its pass
+(`EffectPass.simulation`) says its frame (`simulationFrame`: frames since the clip started, at the sequence's rate), a
+`version` (`simulationVersion`: a hash of the clip, the frame rate and where the sound is; a new one makes its states
+stale) and its `memory` when it forgets (a trail that fades under a level's step: replaying that long from anything
+gives the same frame, so a seek replays only that far). The compositor keeps each one's two newest states and a
+checkpoint every 30 frames (256 MB for all of them, least recently used let go); `simulationFrom` says where to step
+from and `advance` steps a layer without drawing it. The preview catches a clip up before drawing it (a few ms a draw
+playing, 40 paused; the rest on the next draws, `data-simulation` saying `catching-up`); the export draws in order
+and its plan adds `advance` layers for any frame it didn't draw (a nest's clip starting inside it, another frame
+rate). A video's earlier frames aren't decoded again: a video steps on the picture it shows now, close but not exact
+just after a seek. Effects: Feedback (vaudio's, per second), Motion Trace (difference, silhouette, edges), Freeze
+(hold, update on hits, blocks on hits), Slit-Scan and Echo Grid (the last two plain time effects).
+
+The plan as written:
 
 Some looks need the past: feedback tunnels (vaudio's zoom/rotate/hue echo), physics (leviathan's chain), 3D scenes
 that integrate. They're **simulations**: state at frame `f` is `step` applied `f − start` times from the clip's start,
@@ -301,7 +351,21 @@ pure inputs (generators, visualizers, text, solids) is then exact in the preview
 without decoding the frames before, so it's exact while playing and approximate just after a seek (shown). The
 existing time effects (Trails, Echo, Datamosh) can move onto this later and become exact as well.
 
-### 3D scenes (V8)
+### 3D scenes (V8, built)
+
+As built: `EffectShader.scene` (`shared/effect-library/scenes.ts`, the 3D Scenes category). What moves is stepped in
+TypeScript (`shared/scenes/`: each scene's `step` and `view`, vaudio's audio follower in `kit.ts`, `steppedState`
+keeping checkpoints per clip), so the export's plan in Node and the tab compute the same numbers; a scene's random
+(debris respawning, moths scattering) is seeded and part of its state. The renderer (`src/scenes/`, vaudio's scene
+files with their integrations taken out) only shows a state: one WebGL renderer for every scene, each clip's built
+once from its `build` (detail, palette), its lens fitted to the frame's shorter side. The compositor calls it through
+`setSceneRenderer` and binds the picture as `uScene`; the effect's GLSL adds the afterimage (a simulation, with its
+memory) and the Blend Mode. The tab loads three.js when a scene is first drawn (`src/scenes/loader.ts`); the export's
+page loads `/scene-runtime.js` (`server/scene-runtime.ts`: built by esbuild from a checkout, `dist/` in the packaged
+app, written by `pnpm build`). Leviathan swims five seconds before its clip starts, so it isn't born coiled around
+the lens. Pointer steering is gone (Perform will map controls).
+
+The plan as written:
 
 three.js worlds as a generator effect whose renderer isn't GLSL: a layer kind (`Placed.scene`) drawn by a scene
 runtime into its own canvas and uploaded as the layer's picture. The preview lazy-loads the runtime; the export page
@@ -384,9 +448,9 @@ Full control, at parity per milestone (a feature isn't done without its tools):
 | `define_signal`, `delete_signal` | edit | V3 |
 | `link_param` (set or clear links on clips' parameters) | edit | V3 |
 | `set_events` (add at times, beats or onsets; quantise; clear) | edit | V3 |
-| `set_shader` (code and dialect; compile-checked, the log returned on failure) | edit | V6 |
+| `set_shader` (code and dialect; compile-checked, the log returned on failure) (built) | edit | V6 |
 | `view_frames` with `from`/`to`/`count`, `at` beats, bars, drops or hits (with an `offset`), and `sheet` (one picture) (built) | look | V2 |
-| `make_visualizer` (music suite) | action | V5 |
+| `make_visualizer` (music suite) (built) | action | V5 |
 | `map_control` (Perform mappings) | edit | V7 |
 
 Compile checks stay synchronous inside edits through `EditEnv` (the tab passes a compiler; tests pass a fake), so
@@ -488,19 +552,58 @@ assistant tools. Gates are what must be true (measured) before the next mileston
   Spectrum and a Spectrogram over a song, 60.2 frames a second paused and playing, slowest frame 17 ms, no long tasks
   (the page's frame rate: the GPU's own time isn't measured).
 
-### V5: Make visualizer
+### V5: Make visualizer (built)
 
-- The platform handoff (`SongHandoff`, `createFromHandoff`, the route, `SuiteBackend.fromHandoff`).
-- Music: the window, rendering, notes, tempo, markers, roles. Video: `Project.tempo`, building the project, starting
-  looks (three presets binding by role).
-- `make_visualizer`; an e2e test that makes one from a fixture song (with the fake engine).
+**Built (2026-10-06):**
+- The platform's handoff (`shared/handoff.ts`: `SongHandoff`, the looks, the video's options, `guessRole`) and
+  `ProjectStore.createFromHandoff` (the files moved into the new package's media, then `SuiteBackend.fromHandoff`;
+  nothing left of it if anything fails). No `POST /api/projects/handoff`: a handoff's files are paths on the server,
+  so only the server makes one (the music job calls the store, wired in `app.ts`).
+- Music (`shared/music/visualizer.ts`, pure; `server/music/visualizer.ts`, `/api/music/visualizer`): the song played
+  once (the playlist, or the pattern shown when it's empty) rendered by the engine with stems and its tail (up to
+  8 s), as FLAC, every file down alike if the mix went over full scale; a stem for each mixer track a sounding
+  channel plays or sends into (muted and soloed-out tracks left out), each channel's audible notes in seconds
+  through the compiled tempo, every beat from the tempo map (`songSeconds`) on through the tail, markers from the
+  playlist's own and from where the set of patterns heard at a bar changes (two bars apart at least). Roles guessed
+  from track and channel names (a track's from its channels' when they agree).
+- The window (`src/suites/music/visualizer/`, the toolbar's film slate): the look, aspect ratio and frame rate
+  (remembered), each stem and channel on or off with its role to correct, a note of the channels that play straight
+  into the master (no stem is theirs); Make renders (Stop while it does), then the video opens in a tab.
+- Video (`shared/song-video.ts`): the mix on a "Mix" track, each stem on a muted track named after it, each
+  channel's notes an events signal with its role and colour, `Project.tempo` (the song's beats in its files' seconds,
+  for the clips playing them: `clipGrid` prefers it to the analysis, so `beat()`, `bar()`, `bpm()` are exact, follow a
+  moved or sped-up clip, and work before the signals are analysed; `bpm()` is the tempo between the beats either
+  side), the markers, and a starting look: **Pulse** (Circular Spectrum and a Waveform Ring punching on the kick, an
+  RGB split on the snare), **Bars** (Spectrum Bars, Hit Burst on the kick, a Glow with the bass), **Wave** (a
+  Waveform Ring breathing with the bass, a flash on the snare, sparks on the hats), or nothing. Each binds by role:
+  the role's notes first (exact hits), then its stem (its onsets, its level; a visualizer listens to the stem's
+  track), then the mix's band for it. A title of the song's name over a dark gradient.
+- `make_visualizer` (music, `action`: look, shape, stems, channels, roles; `open`); the video assistant's
+  instructions say what a song's video has.
+- Tests: `shared/music/visualizer.test.ts` (sources, mutes, notes in seconds, tempo clips, beats, markers),
+  `shared/song-video.test.ts` (the project, binding by role, every look surviving `normalizeProject` unchanged,
+  roles guessed), `audio-signals.test.ts` (an exact beat over the analysis's, moved, sped up, unloaded),
+  `server/music/visualizer.test.ts` (the whole path through the app with the stand-in engine and ffmpeg), e2e:
+  the window makes one that opens in a tab; the assistant makes one with a stem and a role given.
+- Not yet: looks as Library templates (they're built in, in `song-video.ts`); **Update from song** (`origin` is
+  kept on the media: `handoff:<song project id>:...`); a section's arrangement on the beat grid (sections still come
+  from the analysis, markers from the song).
 
-### V6: Shaders
+### V6: Shaders (built, 2026-10-07)
 
 - `definitionOf(effect)`, `Effect.shader`, declared parameters, the dialects, hashed keys, compile checks, recovery
-  from a lost context.
-- The shader editor window; Save to Library.
-- `set_shader`; `shader_api` in the catalogue; tests of the dialect adapters on known ISF and Shadertoy examples.
+  from a lost context (see "The Shader effect", as built).
+- The shader editor window (Properties › Edit code); Save to Library.
+- `set_shader` (compiled first through `EditEnv.compile`: the errors come back on the model's lines and nothing
+  changes; goes in a `batch`); `shader_api` in the catalogue (the dialects and the examples' code); `get_clips` shows
+  a shader's code, whether it compiles and its problems.
+- Tests: `shader-code.test.ts` (declarations, the ISF header, uniforms, what's heard, logs onto lines),
+  `shader-effect.test.ts` (definitions, edits keeping parameters, storage, paste, passes), `shader-edits.test.ts`;
+  `server/shaders.test.ts` compiles and draws known ISF and Shadertoy shaders (their own hash and noise, texelFetch
+  on the sound, IMG_PIXEL, texture2D, long and point2D inputs) and the examples in headless Chromium, and checks
+  errors land on the user's lines; the effect sheet draws the starting shader; e2e: a shader written in the editor
+  (an error on its line, then fixed: its parameter in Properties, drawn on the Program monitor), an example, undo,
+  and a lost context turning it off.
 
 ### V7: Perform
 
@@ -510,13 +613,22 @@ assistant tools. Gates are what must be true (measured) before the next mileston
 - Tests: recorded samples to keyframes (thinning error under the tolerance), events quantised to a grid; e2e
   performing with synthetic MIDI.
 
-### V8: Simulations and 3D
+### V8: Simulations and 3D (built, 2026-10-07)
 
 - The simulation contract (step, checkpoints, replay, budget), a Feedback effect (vaudio's), vaudio's camera modes
   (slit-scan, echo grid, freeze, difference) on video clips.
 - The scene runtime (bundle for the export page, lazy in the preview) and vaudio's scenes: tesseract and singularity
   first, then cathedral, then leviathan.
-- **Gate**: a simulated clip scrubbed to frame N in headless Chromium equals the export's frame N (within rounding).
+- **Gate** (met): a simulated clip scrubbed to frame N in headless Chromium equals the export's frame N (within rounding).
+
+What was built is above ("Simulations", "3D scenes"). Tests: `server/simulation.test.ts` is the gate (drawn by the
+export's compositor in headless Chromium, `GlSession.frames`: Feedback that never quite forgets and one that does,
+and the tesseract, reached in order, straight away through the plan's warm-ups, and by seeking about as the preview
+does, all within 2 levels); `shared/simulation.test.ts` (stepped states in any order, a clip's frames and versions,
+each scene's state the same reached in order or straight away); the effect sheet draws every simulation and scene
+frame by frame; e2e: Feedback on the monitor seeked to a frame and stepped to it, and a tesseract drawn there. The
+assistant adds them with `add_effect` and is told what they are. Not yet: the existing time effects (Trails, Echo,
+Datamosh) moved onto simulations; scenes in New item › Visualizer and in Make visualizer's looks.
 
 ### V9: Live output and shows (if wanted)
 
@@ -555,6 +667,7 @@ V10 doesn't depend on the others and can be built whenever it's wanted; V5 and V
 3. ~~**Auto-gain** by default~~: yes (Théo, 2026-10-07). A band signal's `autoGain` is on unless turned off.
 4. ~~**Nested sequences**~~: a nest hears the outer sequence's mix by default (Théo, 2026-10-07; see Signals).
 5. **3D scenes**: how important, against 2D visualizers and shaders? Which first?
-6. **The shader editor**: CodeMirror 6 (a dependency, syntax colours, inline errors), or a plain text field first?
+6. **The shader editor**: built with CodeMirror 6 (loaded with the window: line numbers, GLSL's colours, errors on
+   their lines, its own undo and search). Théo to confirm, or say if a plain field would do.
 7. **vaudio**: archived once ported, or kept as a separate toy?
 8. **The canvas is always black**: an alpha export makes it transparent only in the file. Fine?

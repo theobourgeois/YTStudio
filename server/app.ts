@@ -8,13 +8,15 @@ import { renderSongPreview } from "./music/project-preview.ts";
 import type { MusicProject } from "../shared/music/types.ts";
 import type { Project } from "../shared/types.ts";
 import path from "node:path";
+import { sceneRuntimeIn } from "./scene-runtime.ts";
 import express, { type ErrorRequestHandler, type Express, type Response } from "express";
 import type { HostWindow } from "../shared/music/engine.ts";
 import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
-import { PHOTO_HELPER, config } from "./config.ts";
+import { MODELS_DIR, PHOTO_HELPER, SUBJECT_MODEL, config } from "./config.ts";
+import { SubjectModel } from "./photo/models.ts";
 import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { listFonts } from "./fonts.ts";
@@ -24,7 +26,8 @@ import { migrateData } from "./migrate.ts";
 import { AudioEngine, type EngineOptions } from "./music/engine.ts";
 import { SampleBrowser } from "./music/browser.ts";
 import { type MusicExportOptions, MusicExports } from "./music/exports.ts";
-import { browserRoutes, engineRoutes, musicExportRoutes } from "./music/routes.ts";
+import { SongVisualizers } from "./music/visualizer.ts";
+import { browserRoutes, engineRoutes, musicExportRoutes, musicVisualizerRoutes } from "./music/routes.ts";
 import { mixerSetupRoutes } from "./music/mixer-setup.ts";
 import { PhotoHelper } from "./photo/helper.ts";
 import { PhotoLab } from "./photo/lab.ts";
@@ -161,6 +164,11 @@ export async function createApp({
   const engine = new AudioEngine(paths, { samplePath, adoptTake, projectDir: (id) => projects.dir(id), ...engineOptions });
   saveStates = () => engine.saveStates().catch(() => {});
   const musicExports = new MusicExports(paths, engine, { samplePath: engineOptions?.samplePath ?? samplePath, adopt: adoptTake, ...musicExportOptions });
+  // Make visualizer: a song handed over to the video suite as a project of its own.
+  const visualizers = new SongVisualizers(paths, engine, {
+    samplePath: engineOptions?.samplePath ?? samplePath,
+    handoff: (handoff, options) => projects.createFromHandoff("video", handoff, options),
+  });
 
   audioIntelligence = new AudioIntelligence({ root: path.join(paths.root, "audio-intelligence"), engine,
     projectDir: id => projects.dir(id), samplePath: engineOptions?.samplePath ?? samplePath,
@@ -223,8 +231,9 @@ export async function createApp({
   app.use("/api/engine", engineRoutes(engine));
   app.use("/api/music/audio", audioIntelligenceRoutes(audioIntelligence));
   app.use("/api/music/exports", musicExportRoutes(musicExports));
+  app.use("/api/music/visualizer", musicVisualizerRoutes(visualizers));
   app.use("/api/photo/lab", photoLabRoutes(photoLab));
-  app.use("/api/photo", photoRoutes(photo));
+  app.use("/api/photo", photoRoutes(photo, new SubjectModel(MODELS_DIR, SUBJECT_MODEL === "stand-in")));
   const mixerKeys = new ApiKeyStore(path.join(paths.root, "music-jev-settings.json"));
   await mixerKeys.load();
   app.use("/api/music/mixer-setup", mixerSetupRoutes({ engine, keys: mixerKeys, hasProject: (id) => projects.has(id), assets: (id) => library.list(id) }));
@@ -272,6 +281,8 @@ export async function createApp({
   });
 
   if (clientDir) {
+    // The export's page loads the 3D scenes' runtime from beside the built app (the packaged app's).
+    sceneRuntimeIn(clientDir);
     app.use(express.static(clientDir));
     // Any other page is the app (`/p/<id>`): its index.html, read once. (Streamed with sendFile it was a 404 from
     // inside the desktop app's archive, so a reload on a project there showed nothing.)
@@ -320,6 +331,7 @@ export async function createApp({
       bridge.shutdown();
       audioIntelligence.shutdown();
       musicExports.shutdown();
+      visualizers.shutdown();
       engine.shutdown();
       browser.close();
     },

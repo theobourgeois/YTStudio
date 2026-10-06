@@ -9,6 +9,7 @@ import {
   addImageLayerTool,
   addPixelLayerTool,
   describePhoto,
+  describeSelection,
   maskTool,
   mergeRequest,
   moveHandleTool,
@@ -139,7 +140,10 @@ describe("the photo assistant's edits", () => {
     const text = describePhoto(masked.doc, env.assets, [masked.doc.layers[1].id], { kind: "rect", x: 10, y: 20, width: 30, height: 40 });
     expect(text).toMatch(/pixel layer 1280×720 \(empty: nothing painted yet\)/);
     expect(text).toMatch(/mask: reveals everything/);
-    expect(text).toMatch(/Selection \(marching ants\): x 10..40, y 20..60/);
+    expect(text).toMatch(/Selection \(marching ants\): a rectangle, x 10..40, y 20..60/);
+    // Any other selection: its box and how much it covers.
+    const data = new Uint8Array(100).fill(255);
+    expect(describeSelection({ kind: "mask", x: 5, y: 5, width: 10, height: 10, data }, { width: 100, height: 100 })).toBe("a shape within x 5..15, y 5..15, covering 100 px (1% of the canvas)");
   });
 });
 

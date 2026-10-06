@@ -1,6 +1,8 @@
 import { hasMedia } from "../../shared/effects.ts";
+import { normalizeVisualizerOptions } from "../../shared/handoff.ts";
 import { normalizeProject } from "../../shared/normalize.ts";
 import { nestedSequence, sequenceView } from "../../shared/sequences.ts";
+import { videoFromSong } from "../../shared/song-video.ts";
 import { createDefaultProject, isOnVideoTrack, projectDuration } from "../../shared/timeline.ts";
 import type { Project } from "../../shared/types.ts";
 import { isObject } from "../storage.ts";
@@ -40,8 +42,11 @@ export const videoSuite: SuiteBackend<"video"> = {
     const subclips = doc.subclips?.map(copied);
     // Nested sequences' clips play the copies too (a clip of a sequence keeps its sequence's id).
     const sequences = doc.sequences?.map((seq) => ({ ...seq, clips: seq.clips.map(copied) }));
-    return { ...doc, clips: doc.clips.map(copied), ...(subclips && { subclips }), ...(sequences && { sequences }) };
+    // A song's beat is its files', and goes with their copies.
+    const tempo = doc.tempo && { ...doc.tempo, assetIds: doc.tempo.assetIds.map((id) => ids.get(id) ?? id) };
+    return { ...doc, clips: doc.clips.map(copied), ...(subclips && { subclips }), ...(sequences && { sequences }), ...(tempo && { tempo }) };
   },
+  fromHandoff: (handoff, media, options) => videoFromSong(handoff, media, normalizeVisualizerOptions(options)),
   assistant: {
     context: "the playhead and the selection at the moment they sent it. \"This clip\", \"these\", \"here\" refer to that selection and playhead",
     background: "the playhead is at 0 and nothing is selected, and focus does nothing",
@@ -101,6 +106,22 @@ anything a link can't say. define_signal makes the video's own signals (a kick f
 snare's crack, a vocal), named so links and expressions can use them; set_events places hits by hand or on beats. \
 A look inside a nested sequence hears the song of the video it's placed in. Check it at the hits with \
 view_frames \`at\`.
+- A video made from a song of the music suite (Make visualizer) has the song's mix on an audio track and each \
+mixer track's stem on a muted track named after it (silent, but its signals are there: a link or a visualizer \
+can listen to "the kick" stem alone); each channel's notes are an events signal named after the channel, with \
+its role (exact hits: prefer them to onsets); its beat is the song's own, exact (get_timeline says so), and its \
+arrangement is markers. Bind looks to those.
+- A look no effect makes (a tunnel, a fractal, a custom visualizer): write it with set_shader (read get_catalog \
+"shader_api" first), on a solid for a look of its own or on a clip to change its picture. Declare its knobs as \
+parameters so the user can tweak, keyframe and link them; it can read the sound itself (spectrum(), audioBass, \
+beatPhase...). If it doesn't compile you get the errors on your lines: fix and call again. Look at it with view_frames.
+- Looks that carry the picture from frame to frame (get_catalog "video_effects" "time"): Feedback (vaudio's trails \
+that zoom, turn and shift hue: put it after a generator or a visualizer on a solid, or on a clip), Motion Trace, \
+Freeze (holds, or updates only on hits), Slit-Scan, Echo Grid. They're simulations: a frame follows from every frame \
+of the clip before it, so a look's history matters (it builds up from the clip's start). Rates are per second.
+- 3D worlds (get_catalog "video_effects" "3D Scenes": Tesseract, Singularity, Cathedral, Leviathan) are effects on a \
+solid (or New item › Visualizer's solid): each reacts to the sound by itself (kicks by default: Hits, Listens To, \
+Reactivity, Speed), with its own camera; Colorize with Color A and B recolours it. Several at once are heavy.
 - After edits, check what you did with get_timeline or view_frames when it matters.`,
   },
 };

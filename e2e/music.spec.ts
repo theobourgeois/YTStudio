@@ -2557,6 +2557,81 @@ test("the assistant exports the song: the export window opens and lists what it 
   await expect(files).toContainText("Assisted export.mid");
 });
 
+test("Make visualizer: the toolbar's button makes a video of the song, which opens in a tab: the mix, the notes as hits, the exact beat, a look", async ({ page }) => {
+  const songId = await openNewSong(page, "Visualize me");
+  await addStarterKit(page);
+  for (const n of [1, 5, 9, 13]) await step(page, "Kick", n).click();
+  // Its title is the app's own tip, not the browser's (`TitleTips`), and the hint bar still names it.
+  const button = page.getByRole("button", { name: "Make visualizer", exact: true });
+  await button.hover();
+  await expect(page.getByRole("tooltip")).toHaveText(/^Make visualizer: a video of the song/);
+  await expect(button).not.toHaveAttribute("title");
+  await expect(page.getByTestId("hint-bar")).toContainText("Make visualizer: a video of the song");
+  await button.click();
+  const win = page.getByRole("region", { name: "Make visualizer" });
+  await expect(win).toBeVisible();
+  // Everything plays straight into the master: no stems, said why; the kick's notes, its role guessed.
+  await expect(win.getByRole("region", { name: "Stems" })).toContainText("No mixer track has a sound of its own");
+  await expect(win).toContainText("straight into the master");
+  await expect(win.getByTestId(/visualizer-choice-/)).toHaveCount(1);
+  await expect(win.getByRole("combobox", { name: "What Kick is" })).toContainText("Kick");
+  await win.getByRole("radio", { name: /^Bars/ }).click();
+  await win.getByRole("radio", { name: "1:1" }).click();
+  await win.getByRole("button", { name: "Make visualizer", exact: true }).click();
+
+  // The video opens in a tab of its own.
+  await expect(page.getByRole("button", { name: "Video settings", exact: true })).toHaveText("1:1 · 30 fps", { timeout: 30_000 });
+  await expect(page).not.toHaveURL(new RegExp(songId));
+  await expect(page.getByRole("tablist", { name: "Open projects" }).getByRole("tab", { name: "Visualize me" })).toHaveCount(2);
+  const videoId = new URL(page.url()).pathname.split("/").pop()!;
+  const video = await savedSong(page, videoId);
+  expect(video.name).toBe("Visualize me");
+  expect(video.settings.aspectRatio).toBe("1:1");
+  expect(video.tracks.filter((t: { kind: string }) => t.kind === "audio").map((t: { name: string }) => t.name)).toEqual(["Mix"]);
+  // A kick on every beat: its hits fall on the song's beat, exactly.
+  const beat = 60 / (await savedSong(page, songId)).settings.tempo;
+  expect(video.signals).toEqual([expect.objectContaining({ name: "Kick", role: "kick", kind: "events" })]);
+  expect(video.signals[0].events.map((e: { time: number }) => e.time)).toEqual([0, 1, 2, 3].map((k) => Math.round(k * beat * 1e4) / 1e4));
+  expect(video.tempo.beats[1]).toBeCloseTo(beat, 4);
+  expect(video.clips.some((c: { effects: { type: string }[] }) => c.effects.some((e) => e.type === "audio-bars"))).toBe(true);
+  // The song is still where it was, a tab away.
+  await page.goto(`/p/${songId}`);
+  await expect(page.locator('[data-suite="music"]')).toBeVisible();
+});
+
+test("the assistant makes a visualizer: a stem of the kick's insert, a channel's role given, the video among the user's projects", async ({ page }) => {
+  await openNewSong(page, "Assisted video");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_channel {"kit": "kick"}',
+      'call add_channel {"kit": "snare", "name": "Thing"}',
+      'call set_steps {"channel": "Kick", "steps": "x---x---x---x---"}',
+      'call set_steps {"channel": "Thing", "steps": "----x-------x---"}',
+      'call route_channels {"channels": ["Kick"], "track": 1}',
+      'call make_visualizer {"look": "wave", "roles": [{"ref": "Thing", "role": "snare"}]}',
+      'call make_visualizer {"look": "disco"}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("make_visualizer: ok, make_visualizer: failed", { timeout: 30_000 });
+  // It stays on the song; the video is on Home.
+  await expect(page.locator('[data-suite="music"]')).toBeVisible();
+  const projects: { id: string; suite: string; name: string }[] = await (await page.request.get("/api/projects")).json();
+  const made = projects.find((p) => p.suite === "video" && p.name === "Assisted video")!;
+  const video = await savedSong(page, made.id);
+  expect(video.tracks.filter((t: { kind: string }) => t.kind === "audio").map((t: { name: string; muted: boolean }) => [t.name, t.muted])).toEqual([
+    ["Mix", false],
+    ["Insert 1", true],
+  ]);
+  expect(video.signals.map((s: { name: string; role?: string }) => [s.name, s.role])).toEqual([
+    ["Kick", "kick"],
+    ["Thing", "snare"],
+  ]);
+});
+
 /** Where a value is on an automation clip's curve, on a playlist track (the Playlist's usual zoom, scrolled to its start). */
 async function curvePoint(page: Page, tick: number, value: number, track: number) {
   const box = (await page.getByTestId("playlist-grid").boundingBox())!;

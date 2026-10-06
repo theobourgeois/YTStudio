@@ -1,6 +1,6 @@
 import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import { addWindowListener, isElement, ownerDocument } from "@/lib/window-events";
-import { PiArrowUUpLeft, PiArrowUUpRight, PiExport, PiFolders, PiKeyboard, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
+import { PiArrowUUpLeft, PiArrowUUpRight, PiExport, PiFilmSlate, PiFolders, PiKeyboard, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
 import { lengthOf, setMainVolume, setTempo } from "@shared/music/edits";
@@ -40,6 +40,8 @@ import { positionNow } from "./playhead";
 import { openPlaylist } from "./playlist/actions";
 import { positionAt, positionText, splitTail, tempoText, timeText } from "./position";
 import { useSongExport } from "./export/store";
+import { useVisualizer, visualizerBusy } from "./visualizer/store";
+import { titleOf } from "@/components/ui/title-tips";
 import { COUNT_IN_BARS, useMusicPreferences } from "./preferences";
 import { useRecording } from "./recording";
 import { useMidi } from "./midi";
@@ -128,6 +130,7 @@ export function MusicToolbar() {
           if (id) useVocalMix.getState().show(id);
         }}>Vocal mix</Button>
         <ExportButton />
+        <VisualizerButton />
         <SettingsButton />
         <Groove className="mx-1.5 h-6 self-center" />
         <AssistantButton />
@@ -152,9 +155,10 @@ function HintBar() {
     if (!root) return;
     // What's under the pointer, in the page or in one of the editor's windows (native ones are windows of their own).
     const over = (e: Event) => {
-      const target = isElement(e.target) ? e.target.closest("[title], [aria-label]") : null;
+      // Its tip (a title, moved aside while the pointer is on it: `TitleTips`), else its name.
+      const target = isElement(e.target) ? e.target.closest("[title], [data-title], [aria-label]") : null;
       const ours = target && (root.contains(target) || target.closest("[data-window]"));
-      setHint(ours ? (target.getAttribute("title") ?? target.getAttribute("aria-label") ?? "") : "");
+      setHint(ours ? (titleOf(target) ?? target.getAttribute("aria-label") ?? "") : "");
     };
     const leave = () => setHint("");
     const stops = [addWindowListener("pointerover", over), addWindowListener("blur", leave)];
@@ -892,6 +896,23 @@ function Tip({ text, children }: { text: string; children: ReactNode }) {
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side="bottom">{text}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** Make visualizer: the song made into a video project (docs/visualizer/README.md). Lit while one is being made. */
+function VisualizerButton() {
+  const making = useVisualizer((s) => visualizerBusy(s.job));
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className={cn("text-muted-foreground hover:text-foreground", making && "text-brand")}
+      aria-label="Make visualizer"
+      title="Make visualizer: a video of the song, reacting to its stems, notes and beat"
+      onClick={() => useVisualizer.getState().open()}
+    >
+      <PiFilmSlate />
+    </Button>
   );
 }
 

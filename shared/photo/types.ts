@@ -316,7 +316,26 @@ export interface RectSelection {
   height: number;
 }
 
-export type PhotoSelection = RectSelection;
+/**
+ * Any other selection (docs/photo/selections.md): each pixel's coverage, 0..255 as Photoshop's 8-bit selection
+ * channel, over its box (whole pixels inside the canvas; nothing is selected outside it). The lasso, an ellipse,
+ * the magic wand, Quick Selection, Select Subject and every combination make one. Immutable: an edit makes another,
+ * so history compares them by identity.
+ */
+export interface MaskSelection {
+  kind: "mask";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** `width × height` coverages, row by row. */
+  data: Uint8Array;
+}
+
+export type PhotoSelection = RectSelection | MaskSelection;
+
+/** How a new selection meets the one there (Photoshop's options bar; Shift adds, Alt subtracts, both intersect). */
+export type SelectionMode = "new" | "add" | "subtract" | "intersect";
 
 /** What history holds: the document and the selection (only the document is saved). */
 export interface PhotoState {

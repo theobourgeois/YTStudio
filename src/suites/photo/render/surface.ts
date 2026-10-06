@@ -14,7 +14,7 @@ import { type BrushSettings, type Dab, DabSpacer, tilesUnder } from "@shared/pho
 import type { Size } from "@shared/photo/geometry.ts";
 import { fromHalf, toHalf } from "@shared/photo/half.ts";
 import { type Affine, apply, invert } from "@shared/photo/layers.ts";
-import { selectionBox } from "@shared/photo/selection.ts";
+import { selectionBox, selectionCoverage } from "@shared/photo/selection.ts";
 import { type SurfaceManifest, type TileEntry, constantRef, constantValues, emptySurface, withTiles } from "@shared/photo/surfaces.ts";
 import type { PhotoSelection, SurfaceId } from "@shared/photo/types.ts";
 import type { SurfaceUploads } from "../uploads.ts";
@@ -53,6 +53,8 @@ interface Draft {
    */
   paint: number | null;
   base: number | null;
+  /** A mask selection's coverage of the tile (worked out by the CPU), or null. */
+  cover: number | null;
 }
 
 const rightAngled = (m: Affine) => (m[1] === 0 && m[2] === 0) || (m[0] === 0 && m[3] === 0);
@@ -64,7 +66,7 @@ function packParams(tile: number, colour: readonly number[], place: SurfacePlace
   const u = new Uint32Array(data);
   f.set(colour, 0);
   u[4] = tile;
-  u[5] = selection ? 1 : 0;
+  u[5] = selection ? (selection.kind === "rect" ? 1 : 2) : 0;
   u[6] = erase ? 1 : 0;
   const m = place.matrix;
   f.set([m[0], m[1], m[2], m[3], m[4], m[5], rightAngled(m) ? 1 : 0, 0], 8);
@@ -89,7 +91,7 @@ export class SurfaceImage {
     this.onChange?.();
   }
   private drafts = new Map<string, Draft>();
-  private stroke: { spacer: DabSpacer; place: SurfacePlace; limited: boolean } | null = null;
+  private stroke: { spacer: DabSpacer; place: SurfacePlace; limited: boolean; selection: PhotoSelection | null } | null = null;
   /** Level-0 tiles listed by the manifest that aren't resident, being fetched. */
   private readonly fetching = new Set<string>();
   /** Parent tiles to build again (`level:tx:ty`): level 0 under them changed. */
@@ -426,7 +428,7 @@ export class SurfaceImage {
    */
   begin(brush: BrushSettings, colour: readonly number[], place: SurfacePlace, selection: PhotoSelection | null, erase = false) {
     if (this.stroke) this.cancel();
-    this.stroke = { spacer: new DabSpacer(brush), place, limited: selection !== null };
+    this.stroke = { spacer: new DabSpacer(brush), place, limited: selection !== null, selection };
     this.ctx.device.queue.writeBuffer(this.params, 0, packParams(this.ctx.tile, colour, place, selection, erase));
   }
 
@@ -450,7 +452,7 @@ export class SurfaceImage {
     const ty1 = Math.min(tilesY - 1, Math.floor(Math.max(...corners.map((p) => p.y)) / tile));
     if (tx1 < tx0 || ty1 < ty0) return null;
     // A stroke whose "paint" is the colour everywhere, shown through the selection's coverage (`limit`).
-    this.stroke = { spacer: new DabSpacer({ radius: 1, hardness: 1, strength: 1, spacing: 1 }), place, limited: true };
+    this.stroke = { spacer: new DabSpacer({ radius: 1, hardness: 1, strength: 1, spacing: 1 }), place, limited: true, selection };
     this.ctx.device.queue.writeBuffer(this.params, 0, packParams(tile, colour, place, selection));
     const { device } = this.ctx;
     const touched: { tx: number; ty: number }[] = [];
@@ -466,6 +468,7 @@ export class SurfaceImage {
         new Uint32Array(limits, j * 32, 1)[0] = d.paint!;
         new Int32Array(limits, j * 32 + 4, 2).set([d.tx, d.ty]);
         new Uint32Array(limits, j * 32 + 12, 1)[0] = d.base!;
+        new Uint32Array(limits, j * 32 + 20, 1)[0] = d.cover ?? 0;
       });
       device.queue.writeBuffer(this.limitJobs, 0, limits);
       const fill = device.createCommandEncoder({ label: "fill limit" });
@@ -511,7 +514,8 @@ export class SurfaceImage {
       return slot;
     };
     const limited = this.stroke?.limited ?? false;
-    draft = { tx, ty, slot: copy(), paint: limited ? copy() : null, base: limited ? copy() : null };
+    const selection = this.stroke?.selection;
+    draft = { tx, ty, slot: copy(), paint: limited ? copy() : null, base: limited ? copy() : null, cover: selection?.kind === "mask" ? this.coverSlot(selection, tx, ty) : null };
     this.drafts.set(key, draft);
     return draft;
   }
@@ -569,6 +573,7 @@ export class SurfaceImage {
           new Uint32Array(limits, j * 32, 1)[0] = d.paint!;
           new Int32Array(limits, j * 32 + 4, 2).set([d.tx, d.ty]);
           new Uint32Array(limits, j * 32 + 12, 1)[0] = d.base!;
+          new Uint32Array(limits, j * 32 + 20, 1)[0] = d.cover ?? 0;
         });
         device.queue.writeBuffer(this.limitJobs, 0, limits);
         const limit = encoder.beginComputePass();
@@ -597,6 +602,34 @@ export class SurfaceImage {
   private releaseWork(draft: Draft) {
     if (draft.paint !== null) this.ctx.atlas.release(draft.paint);
     if (draft.base !== null) this.ctx.atlas.release(draft.base);
+    if (draft.cover !== null) this.ctx.atlas.release(draft.cover);
+  }
+
+  /** A slot holding a mask selection's coverage of tile (tx, ty) of this surface (the CPU's: `selectionCoverage`). */
+  private coverSlot(selection: PhotoSelection, tx: number, ty: number): number {
+    const tile = this.ctx.tile;
+    const slot = this.ctx.atlas.acquire(`v${this.id}:${tx}:${ty}:${this.ctx.id()}`, true);
+    const c = selectionCoverage(selection, this.stroke!.place.matrix, tx * tile, ty * tile, tile, tile);
+    if (typeof c === "number") this.ctx.fillSlot(slot, [c, c, c, c]);
+    else this.writeCoverage(slot, c);
+    return slot;
+  }
+
+  /** A tile of coverage (one value a pixel) into a slot, in every channel. */
+  private writeCoverage(slot: number, values: Float32Array) {
+    const { texture, layer } = this.ctx.atlas.location(slot);
+    const tile = this.ctx.tile;
+    let data: ArrayBufferView<ArrayBuffer>;
+    if (this.ctx.format === "rgba32float") {
+      const out = new Float32Array(tile * tile * 4);
+      for (let i = 0; i < tile * tile; i++) out.fill(values[i], i * 4, i * 4 + 4);
+      data = out;
+    } else {
+      const out = new Uint16Array(tile * tile * 4);
+      for (let i = 0; i < tile * tile; i++) out.fill(toHalf(values[i]), i * 4, i * 4 + 4);
+      data = out;
+    }
+    this.ctx.device.queue.writeTexture({ texture, origin: [0, 0, layer] }, data, { bytesPerRow: this.ctx.rowBytes }, [tile, tile, 1]);
   }
 
   /** Drops the stroke: the shown tiles show again, and nothing changed. */
@@ -703,6 +736,7 @@ export class SurfaceImage {
    */
   async fillFromSelection(selection: PhotoSelection, place: SurfacePlace): Promise<SurfaceId> {
     if (this.stroke) this.cancel();
+    if (selection.kind === "mask") return this.fillFromMask(selection, place);
     const tile = this.ctx.tile;
     const box = selectionBox(selection);
     const { tilesX, tilesY } = this.image.levels[0];
@@ -741,12 +775,44 @@ export class SurfaceImage {
       pass.end();
       this.ctx.copyScratchToSlots(encoder, slots);
       device.queue.submit([encoder.finish()]);
-      batch.forEach((t, j) => drafts.push({ ...t, slot: slots[j], paint: null, base: null }));
+      batch.forEach((t, j) => drafts.push({ ...t, slot: slots[j], paint: null, base: null, cover: null }));
     }
     // A mask of 0 everywhere but where the selection is: the edges' tiles are hashed onto that.
     this.manifest = withTiles(emptySurface("r16f", tile, [0]), entries);
     const id = drafts.length ? (await this.commitDrafts(drafts)).id : await this.uploads.add(this.manifest, []);
     // Shown afresh from its manifest (its fill, its constant tiles, the edges by hash).
+    this.shown = null;
+    this.showing++;
+    await this.show(id);
+    return id;
+  }
+
+  /**
+   * `fillFromSelection` for a mask selection: each tile's coverage from the CPU (`selectionCoverage`), tiles wholly
+   * inside constant 1, those outside the fill (0), the rest written and stored.
+   */
+  private async fillFromMask(selection: PhotoSelection, place: SurfacePlace): Promise<SurfaceId> {
+    const tile = this.ctx.tile;
+    const { tilesX, tilesY } = this.image.levels[0];
+    const entries: TileEntry[] = [];
+    const drafts: Draft[] = [];
+    for (let ty = 0; ty < tilesY; ty++) {
+      for (let tx = 0; tx < tilesX; tx++) {
+        const c = selectionCoverage(selection, place.matrix, tx * tile, ty * tile, tile, tile);
+        if (c === 0) continue;
+        if (c === 1) {
+          entries.push([tx, ty, constantRef([1])]);
+          continue;
+        }
+        const slot = this.ctx.atlas.acquire(`d${this.id}:${tx}:${ty}:${this.ctx.id()}`, true);
+        if (typeof c === "number") this.ctx.fillSlot(slot, [c, c, c, c]);
+        else this.writeCoverage(slot, c);
+        drafts.push({ tx, ty, slot, paint: null, base: null, cover: null });
+      }
+    }
+    // A mask of 0 everywhere but where the selection is: the edges' tiles are hashed onto that.
+    this.manifest = withTiles(emptySurface("r16f", tile, [0]), entries);
+    const id = drafts.length ? (await this.commitDrafts(drafts)).id : await this.uploads.add(this.manifest, []);
     this.shown = null;
     this.showing++;
     await this.show(id);

@@ -2,17 +2,19 @@ import { useEffect, useState } from "react";
 import { cn } from "cn";
 import { Toaster } from "@/components/ui/sonner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { TitleTips } from "@/components/ui/title-tips";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { THEMES, applyTheme, useTheme, type ThemeId } from "@/stores/theme";
 import { isThemeId, themeInfo } from "@/themes";
 import { HOME_SECTIONS } from "@/components/home/gallery";
+import { SHADER_SECTIONS } from "@/components/shader/gallery";
 import { MUSIC_SECTIONS } from "@/suites/music/gallery";
 import { PHOTO_SECTIONS } from "@/suites/photo/gallery";
 import { PRIMITIVE_SECTIONS } from "./primitives";
 import type { GallerySection } from "./types";
 
 /** Every section, in order: the platform's primitives, then each suite's own controls. */
-export const SECTIONS: GallerySection[] = [...PRIMITIVE_SECTIONS, ...HOME_SECTIONS, ...MUSIC_SECTIONS, ...PHOTO_SECTIONS];
+export const SECTIONS: GallerySection[] = [...PRIMITIVE_SECTIONS, ...HOME_SECTIONS, ...SHADER_SECTIONS, ...MUSIC_SECTIONS, ...PHOTO_SECTIONS];
 
 /**
  * The component gallery (`/gallery`, in development): every UI primitive and suite control in the states
@@ -36,6 +38,7 @@ export default function Gallery() {
 
   return (
     <TooltipProvider delayDuration={200}>
+      <TitleTips />
       <div className="flex h-full bg-background text-foreground">
         {!only && (
           <nav className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-sidebar p-2" aria-label="Sections">

@@ -47,7 +47,7 @@ Changing adjustments must not apply their correction twice to pixels sampled ear
 | Documents | New from presets or an image; autosave, reopen, export | Crop, resize canvas, duplicate | Several open at once, interchange |
 | Layers | Placed image, pixel layer, adjustment, generator; visibility, opacity, order | Groups, locks, clipping | Embedded documents, layer styles |
 | Transforms | Move, scale, rotate, mirror; source preserved | Numeric fields, snapping, nondestructive crop | Perspective, warp, liquify |
-| Masks and selections | Layer mask, rectangle selection, round brush | Lasso, add/subtract, feather, mask properties | Colour range, edge refinement, subject selection |
+| Masks and selections | Layer mask, rectangle selection, round brush | Lasso, add/subtract, feather, mask properties; magic wand, Quick Selection, subject selection (built early: selections.md) | Colour range, edge refinement, Object Selection |
 | Adjustments | Exposure, curves | Levels, hue/saturation, colour balance, gradient map | Grading, RAW development |
 | Effects | Glow; flare with four element types | Presets, reorder, bypass | Halation, rays, bokeh, distortion, textures |
 | Painting | Round brush on masks and pixel layers | Opacity and flow, eraser, pressure | Textured tips, scatter, dynamics |

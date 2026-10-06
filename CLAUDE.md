@@ -32,7 +32,13 @@ B-spline) and glow-cache.ts its contributions from level 0, kept per glow; flare
 renderer's parts the suite doesn't use yet. Kernels and passes storing `rgba16float` must round first
 (`round_for_store`): Metal truncates on store (docs/photo/rendering.md). Pixel layers and masks are surfaces
 (`render/surface.ts`: tiles by hash, strokes on drafts); a saved photo only names pixels the server has (`uploads.ts`,
-`SuiteBackend.checkSave`). Light (docs/photo/f4-light.md): no pixel is brighter than its coverage (up to white), the
+`SuiteBackend.checkSave`). Selections (docs/photo/selections.md: the Marquees, Lassos, Magic Wand, Quick Selection, Select
+Subject, modes, Inverse, Feather, the canvas's right-click menu) are a rectangle or a `MaskSelection` (8-bit coverage
+over its box: `shared/photo/selection*.ts`, `magic-wand.ts`, `quick-select.ts` on `graph-cut.ts` and `gmm.ts`); the
+GPU gets a mask's coverage per tile from the CPU (`selectionCoverage`), keep rectangles' analytic path. The tools read
+the photo through `PhotoRenderer.samplePixels` (`selecting.ts` keeps it). Select Subject's model (IS-Net) is
+downloaded by the server into `MODELS_DIR` only when the user says yes, and run in the tab by ONNX Runtime Web
+(`subject-model.ts`); e2e sets `EDITOR_SUBJECT_MODEL=stand-in`. Light (docs/photo/f4-light.md): no pixel is brighter than its coverage (up to white), the
 output's `film` rolls light above white off at the end (`output.ts`), and a glow's or flare's WGSL mirrors its CPU
 reference in `shared/photo/reference/`: change both. Layer Style L1–L4 are built (docs/photo/layer-style/README.md:
 blend modes and compositing in render/blend.ts, effects (Bevel & Emboss, Satin, patterns too) in shared/photo/style/ and
@@ -78,6 +84,27 @@ video effects with `EffectShader.audio` (the Audio category, `shared/effect-libr
 it hears at its clip's moment (`EffectPass.audio`, read by `effectPasses` through `clipAudio`), bound by the compositor
 as `uSpectrum`/`uWave` textures and uniforms (`AUDIO_PRELUDE` in `effect-gl.ts`); a `source` parameter says what it
 listens to; New item › Visualizer is a solid drawing only its visualizer. Signals files (v2) keep a small waveform.
+**V5 is built**: Make visualizer (the music toolbar's film slate, `make_visualizer`) hands a song to the video suite
+through the platform (`shared/handoff.ts`, `ProjectStore.createFromHandoff`, `SuiteBackend.fromHandoff`): the music
+side renders the mix and stems and works out notes, beats and markers (`shared/music/visualizer.ts`,
+`server/music/visualizer.ts`), the video side builds the project with a starting look bound by role
+(`shared/song-video.ts`); `Project.tempo` is the song's exact beat, which `beat()` prefers to the analysis. **V6 is built**: the Shader effect (type `shader`, `Effect.shader`: the user's GLSL, ours, ISF or Shadertoy's, read by
+`shared/shader-code.ts`); its parameters are declared in its code, so **use `definitionOf(effect)` wherever an effect is
+at hand** (`effectDefinition(type)` gives the starting shader's). Keyed by a hash of the code (`fx:shader:<hash>`);
+the tab compiles each on a hidden context (`src/lib/shader-compiler.ts`, `provideShaderCheck`: one that doesn't compile
+isn't drawn), the export refuses one (`GlSession.compile`), and a lost GPU turns the likely one off
+(`preview/shader-recovery.ts`). The editor is `components/shader/` (CodeMirror 6); the assistant's `set_shader`.
+**V8 is built** (before V7): **simulations** (`EffectShader.simulation`, `shared/simulation.ts`): an effect whose output is
+its state, read back a frame later (`getState`), so frame `f` of a clip is the shader run `f + 1` times from its first
+frame. The compositor keeps two states and checkpoints per simulation (`simulationFrom`, `advance`); the preview catches
+a clip up before drawing it (time-boxed, `data-simulation`), the export draws in order and its plan adds `advance`
+layers for frames it skipped. A simulation's pass carries a `version` (the clip and its sound, hashed): keep anything
+that changes what it steps on in it. Feedback, Motion Trace, Freeze (`effect-library/simulation.ts`). **3D scenes**
+(`EffectShader.scene`: tesseract, singularity, cathedral, leviathan): their state is stepped in TypeScript
+(`shared/scenes/`, `steppedState`), the same in the tab and the export's plan; three.js only renders it (`src/scenes/`,
+lazily in the tab; the export's page loads `server/scene-runtime.ts`'s esbuild bundle, `dist/scene-runtime.js` when
+packaged). Change a scene's motion in `shared/scenes/<scene>.ts`, never in its renderer. `server/simulation.test.ts` is
+the gate: a frame the same in order, straight away and seeking.
 
 ## Commands
 
@@ -1177,6 +1204,9 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   theme (`.theme.theme-<id>`) sets only what differs and `derived.css` works out the rest (faces, accent
   buttons, steps, knobs). A value a canvas reads (`--piano-*`, `--meter-*`, `--brand`, `--line`) must be a plain
   colour, never `color-mix()`. `src/themes/themes.test.ts` fails any theme whose text or accent isn't readable.
+- Hover tips are the app's, never the browser's: a `title` anywhere (any suite, any window) shows as our tooltip
+  (`components/ui/title-tips.tsx` moves it to `data-title` while the pointer is on it), so a plain `title` is fine;
+  code that reads a control's tip uses `titleOf` (the music hint bar does), tests don't `getByTitle` a hovered one.
 - The component gallery (`/gallery` in `pnpm dev`, `src/gallery/`) shows every primitive and suite control in
   each state; `pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]` screenshots it and the app's screens
   into `ui-sheet/`. Add a section (`GallerySection`) when you add a control.

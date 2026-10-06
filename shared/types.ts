@@ -343,6 +343,20 @@ export interface Effect {
    * which sees the linked value. Only where an expression can be (numbers and points).
    */
   links?: Record<string, ParamLink>;
+  /**
+   * The Shader effect's own code (type "shader" only; absent: the starting shader). Its parameters
+   * are declared in it, so its definition is the instance's: `definitionOf` (`shared/shader-code.ts`).
+   */
+  shader?: ShaderCode;
+}
+
+/** Which GLSL a Shader effect's code is: ours (`effect(uv)`), the Interactive Shader Format, or Shadertoy's. */
+export type ShaderDialect = "native" | "isf" | "shadertoy";
+
+/** A Shader effect's code, up to 64 KB. */
+export interface ShaderCode {
+  code: string;
+  dialect: ShaderDialect;
 }
 
 // ---------------------------------------------------------------------------
@@ -443,6 +457,20 @@ export interface ParamLink {
 }
 
 /**
+ * A song's beat as its music project knew it (its tempo map), so nothing has to guess it: the clips
+ * playing its files (its mix and stems) take it, in their own seconds, instead of the beat analysis
+ * found in them, wherever they're moved, trimmed or sped up.
+ */
+export interface SongTempo {
+  /** The song's files, which all start on its first beat. */
+  assetIds: string[];
+  /** Beats in a bar (the first beat starts one). */
+  beatsPerBar: number;
+  /** Every beat, in the files' seconds, in order. */
+  beats: number[];
+}
+
+/**
  * Timeline rules:
  * - `tracks` is in display order: one or more video tracks, then zero or more
  *   audio tracks. The first video track is drawn on top of the ones below it.
@@ -461,6 +489,8 @@ export interface Project {
   subclips?: Subclip[];
   /** The video's own signals (`SignalDef`), for every sequence, in the order they were made. */
   signals?: SignalDef[];
+  /** A song's exact beat, handed over by the music suite (Make visualizer): what `beat()` hears in its files. */
+  tempo?: SongTempo;
   /**
    * Nested sequences (Premiere's nests, After Effects' precomps), in the order they were made.
    * The project's own tracks and clips are its main sequence. A clip plays a sequence by

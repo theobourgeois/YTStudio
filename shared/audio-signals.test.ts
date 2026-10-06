@@ -137,6 +137,31 @@ describe("signals on the timeline", () => {
     expect(beatAt(reader(p), null, 1).since).toBe(NEVER);
   });
 
+  it("hears a song's own beat (Make visualizer's tempo) over the analysis's, wherever its clip goes, speeding up as it does", () => {
+    // The song's beat, in its file: at 0.3 s, then every 0.4 s, then every 0.2 s from 1.9 s (it doubles), three to a bar.
+    const beats = [0.3, 0.7, 1.1, 1.5, 1.9, 2.1, 2.3, 2.5, 2.7];
+    const exact = project([songClip(), solid], { tempo: { assetIds: ["song"], beatsPerBar: 3, beats } });
+    // File 1.1 is at timeline 2.6.
+    const beat = beatAt(reader(exact), null, 2.6);
+    expect(beat.beat).toBeCloseTo(1, 5);
+    expect(beat.bpm).toBeCloseTo(150, 5);
+    expect(beat.since).toBeCloseTo(0, 5);
+    // Faster after the change: a beat every 0.2 s, so 300 BPM; bars from the song's first beat, three beats each.
+    expect(beatAt(reader(exact), null, 3.5).bpm).toBeCloseTo(300, 5);
+    // Downbeats at file 1.5 and 2.3: timeline 3.0 and 3.8.
+    expect(beatAt(reader(exact), null, 3.4).bar).toBeCloseTo(0.5, 5);
+    expect(beatAt(reader(exact), null, 3.8).bar).toBeCloseTo(1, 5);
+    // Moved and sped up, it keeps its own beat.
+    const moved = project([songClip({ start: 0, speed: 2 }), solid], { tempo: exact.tempo });
+    expect(beatAt(reader(moved), null, 0.3).since).toBeCloseTo(0, 5);
+    expect(beatAt(reader(moved), null, 0.3).bpm).toBeCloseTo(300, 5);
+    // Before its file's signals are even loaded.
+    expect(beatAt(createSignalReader(exact, new Map()), null, 2.6).bpm).toBeCloseTo(150, 5);
+    // Another file's clip isn't the song's: the analysis is still what it hears.
+    const other = project([songClip(), solid], { tempo: { assetIds: ["another"], beatsPerBar: 3, beats } });
+    expect(beatAt(reader(other), null, 3.0).bpm).toBe(120);
+  });
+
   it("names sources", () => {
     expect(resolveSource(p, undefined)).toEqual(MASTER);
     expect(resolveSource(p, "master")).toEqual(MASTER);

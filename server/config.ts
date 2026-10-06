@@ -43,6 +43,8 @@ export const OPENAI_API_KEY = process.env.OPENAI_API_KEY || null;
 export const GROQ_API_KEY = process.env.GROQ_API_KEY || null;
 /** Claude Code's command line tool, which runs the in-app assistant (default: on the PATH, else its usual homes). */
 export const CLAUDE = process.env.CLAUDE_PATH || null;
+/** "stand-in": Select Subject uses a stand-in for its model, which is never downloaded (the e2e tests). */
+export const SUBJECT_MODEL = process.env.EDITOR_SUBJECT_MODEL || null;
 /** "fake" swaps the local transcription engine for one that makes words up (the e2e tests). */
 export const TRANSCRIPTION_ENGINE = process.env.EDITOR_TRANSCRIPTION_ENGINE || null;
 /** Codex's command line tool, which can run the in-app assistant instead (default: on the PATH, else its usual homes). */

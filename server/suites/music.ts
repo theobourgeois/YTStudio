@@ -106,6 +106,8 @@ source bytes, recording family and crop. Hosted use needs both the dataset sourc
 per-song hearing permission; neither is implied by importing or displaying a reference.
 
 export_song renders the song to files (WAV, MP3, FLAC, OGG, M4A, MIDI; stems: a file per mixer track) in \
-seconds; the export window lists them for the user to download or show in Finder.`,
+seconds; the export window lists them for the user to download or show in Finder. make_visualizer makes a video \
+project of the song (a music video that reacts to it): its mix and stems, each channel's notes as hits, its exact \
+beat and a starting look. Give each stem and channel a role where its name doesn't say what it is.`,
   },
 };

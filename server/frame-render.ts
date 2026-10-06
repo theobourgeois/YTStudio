@@ -9,6 +9,7 @@
 import { once } from "node:events";
 import type { Readable } from "node:stream";
 import { type FramePacket, GlSession } from "./gl-browser.ts";
+import { compileProblems, problemText } from "../shared/shader-code.ts";
 import { spawnStreaming } from "./process.ts";
 import { type FrameLayer, type RenderPlan, type RenderSource, frameBytes, sourceFrameBytes } from "./render.ts";
 
@@ -150,6 +151,19 @@ class Decoder {
  * `encoderArgs`). `onFrame` is called after each frame is handed to the
  * encoder; resolves once the encoder has finished the file.
  */
+/** Refuse to start when a user's shader (the Shader effect) doesn't compile, naming where it's used. */
+async function checkShaders(session: GlSession, plan: RenderPlan): Promise<void> {
+  const user = Object.fromEntries(Object.entries(plan.shaders).filter(([key]) => key.startsWith("fx:shader:")));
+  if (!Object.keys(user).length) return;
+  const failed = await session.compile(user);
+  const [key, log] = Object.entries(failed)[0] ?? [];
+  if (!key) return;
+  const first = compileProblems(log)[0];
+  throw new Error(
+    `The shader ${plan.shaderUses[key] ?? ""} doesn't compile${first ? ` (${problemText(first)})` : ""}. Fix its code or turn it off, then export again.`,
+  );
+}
+
 export async function renderVideo(
   plan: RenderPlan,
   encoderArgv: string[],
@@ -159,6 +173,12 @@ export async function renderVideo(
   signal.throwIfAborted();
   const session = await GlSession.open();
   const processes: Spawned[] = [];
+  try {
+    await checkShaders(session, plan);
+  } catch (err) {
+    await session.close();
+    throw err;
+  }
   const kill = () => processes.forEach((p) => p.child.kill("SIGKILL"));
   signal.addEventListener("abort", kill, { once: true });
   try {
@@ -237,6 +257,8 @@ export async function renderVideo(
           } else if (layer.kind === "transition") {
             await send(layer.from?.key, layer.from?.interpolate);
             await send(layer.to?.key, layer.to?.interpolate);
+          } else if (layer.kind === "advance") {
+            await send(layer.picture.key, layer.picture.interpolate);
           } else {
             groups.add(layer.key);
             await sendAll(layer.layers);
@@ -262,7 +284,7 @@ export async function renderVideo(
       const packet = prepared.then(() => prepare(f));
       prepared = packet.catch(() => {});
       return packet;
-    }, plan.fonts);
+    }, plan.fonts, plan.scenes);
     if (written !== plan.frames) throw new Error("Some frames weren't drawn.");
     stdin.end();
     for (const decoder of running.values()) decoder.close();

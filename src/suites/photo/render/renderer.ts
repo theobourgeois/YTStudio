@@ -18,6 +18,7 @@ import type { BrushSettings } from "@shared/photo/brush.ts";
 import { type Affine, IDENTITY, apply, invert, layerMatrix, layerScale } from "@shared/photo/layers.ts";
 import type { TileSize } from "@shared/photo/lab.ts";
 import { DITHER_8BIT, type Highlights } from "@shared/photo/output.ts";
+import { type PixelSample, sampleSize } from "@shared/photo/pixel-sample.ts";
 import {
   type DrawNode,
   type PatternRef,
@@ -1071,6 +1072,46 @@ export class PhotoRenderer {
 
   /** A composite through the output transform into an image file (it destroys the texture). */
   private async encodePicture(texture: GPUTexture, w: number, h: number, type: "image/jpeg" | "image/png", highlights: Highlights = "clip"): Promise<Blob> {
+    const pixels = await this.quantize(texture, w, h, { under: "checker", dither: true, highlights });
+    const canvas = new OffscreenCanvas(w, h);
+    canvas.getContext("2d")!.putImageData(new ImageData(pixels, w, h), 0, 0);
+    return await canvas.convertToBlob({ type, quality: 0.85 });
+  }
+
+  /**
+   * The photo's pixels for the selection tools (docs/photo/selections.md): as it shows, or layer `layerId` alone (its
+   * pixels and filters, at full opacity, without its style or blending), at `scale`, as 8-bit sRGB with straight
+   * alpha through the output transform. Rendered in blocks the GPU holds.
+   */
+  async samplePixels(doc: PhotoProject, scale: number, layerId: string | null = null): Promise<PixelSample> {
+    await this.compositor.ready;
+    let source = doc;
+    const layer = layerId ? doc.layers.find((l) => l.id === layerId) : undefined;
+    if (layer) {
+      const plain = { ...layer, opacity: 1, visible: true };
+      delete plain.blend;
+      delete plain.fill;
+      delete plain.blending;
+      delete plain.style;
+      source = { ...doc, canvas: { ...doc.canvas, background: null }, layers: [plain] };
+    }
+    const { width, height } = sampleSize(doc.canvas, scale);
+    const data = new Uint8ClampedArray(width * height * 4);
+    const block = 2048;
+    for (let by = 0; by < height; by += block) {
+      for (let bx = 0; bx < width; bx += block) {
+        const w = Math.min(block, width - bx);
+        const h = Math.min(block, height - by);
+        const { texture } = await this.renderView(source, { zoom: scale, x: bx / scale, y: by / scale, width: w, height: h });
+        const pixels = await this.quantize(texture, w, h, { under: "none", dither: false, highlights: doc.output.highlights });
+        for (let row = 0; row < h; row++) data.set(pixels.subarray(row * w * 4, (row + 1) * w * 4), ((by + row) * width + bx) * 4);
+      }
+    }
+    return { width, height, data, scale };
+  }
+
+  /** A composite through the output transform into 8-bit RGBA (it destroys the texture). */
+  private async quantize(texture: GPUTexture, w: number, h: number, o: { under: "none" | "checker"; dither: boolean; highlights: Highlights }): Promise<Uint8ClampedArray<ArrayBuffer>> {
     const { device } = this;
     const out = device.createBuffer({ size: w * h * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
     const params = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -1078,10 +1119,10 @@ export class PhotoRenderer {
     try {
       const p = new ArrayBuffer(48);
       new Uint32Array(p, 0, 4).set([0, 0, w, h]);
-      new Float32Array(p, 16, 1)[0] = DITHER_8BIT;
-      new Uint32Array(p, 20, 1)[0] = 2;
+      new Float32Array(p, 16, 1)[0] = o.dither ? DITHER_8BIT : 0;
+      new Uint32Array(p, 20, 1)[0] = o.under === "checker" ? 2 : 0;
       new Float32Array(p, 24, 1)[0] = 8;
-      new Uint32Array(p, 28, 1)[0] = highlights === "film" ? 1 : 0;
+      new Uint32Array(p, 28, 1)[0] = o.highlights === "film" ? 1 : 0;
       device.queue.writeBuffer(params, 0, p);
       const encoder = device.createCommandEncoder({ label: "picture" });
       const pass = encoder.beginComputePass();
@@ -1094,9 +1135,7 @@ export class PhotoRenderer {
       await readback.mapAsync(GPUMapMode.READ);
       const pixels = new Uint8ClampedArray(readback.getMappedRange().slice(0));
       readback.unmap();
-      const canvas = new OffscreenCanvas(w, h);
-      canvas.getContext("2d")!.putImageData(new ImageData(pixels, w, h), 0, 0);
-      return await canvas.convertToBlob({ type, quality: 0.85 });
+      return pixels;
     } finally {
       texture.destroy();
       out.destroy();

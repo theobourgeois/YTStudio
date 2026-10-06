@@ -26,10 +26,21 @@ export const historyOf = <D>(doc: D): DocumentHistory<D> => ({ doc, past: [], fu
 export const canUndo = <D>(h: DocumentHistory<D>) => h.past.length > 0 && !h.gestureBase;
 export const canRedo = <D>(h: DocumentHistory<D>) => h.future.length > 0 && !h.gestureBase;
 
+/** Typed arrays (a photo's selection mask: megabytes) are never edited in place, so they're compared by identity. */
+const arrayIds = new WeakMap<object, number>();
+let nextArrayId = 0;
+const byIdentity = (_key: string, value: unknown) => {
+  if (!ArrayBuffer.isView(value)) return value;
+  let id = arrayIds.get(value);
+  if (id === undefined) arrayIds.set(value, (id = ++nextArrayId));
+  return `#array${id}`;
+};
+const sameContent = (a: unknown, b: unknown) => a === b || JSON.stringify(a, byIdentity) === JSON.stringify(b, byIdentity);
+
 /** Finish the gesture as one undo step (or as nothing, if it changed nothing). With an id, only if it's still that gesture. */
 export function endGesture<D>(h: DocumentHistory<D>, id?: number): DocumentHistory<D> {
   if (!h.gestureBase || (id !== undefined && id !== h.gestureId)) return h;
-  if (h.gestureBase === h.doc || JSON.stringify(h.gestureBase) === JSON.stringify(h.doc)) return { ...h, doc: h.gestureBase, gestureBase: null };
+  if (sameContent(h.gestureBase, h.doc)) return { ...h, doc: h.gestureBase, gestureBase: null };
   return { ...h, gestureBase: null, past: [...h.past, h.gestureBase].slice(-HISTORY_LIMIT), future: [] };
 }
 

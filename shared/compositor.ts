@@ -118,12 +118,38 @@ export interface EffectPass<S = Shader> {
   /** A visualizer's sound at this moment (see `EffectShader.audio`): bound as `uSpectrum`, `uWave` and its scalars. */
   audio?: AudioInputs;
   /**
+   * A simulation (see `EffectShader.simulation`): its state is kept under `id`, frame by frame of its
+   * clip; this is frame `frame` (0 is the clip's first). `version` says what its states were made from
+   * (the clip, the sound): a new one makes them stale. It reads its state at `frame - 1`: kept, or a
+   * checkpoint, or (when neither is there) the newest earlier one it has, even stale: exact only for a
+   * simulation whose `memory` (frames) that state is older than. `record: false` reads without keeping
+   * this frame (motion blur's in-between moments).
+   */
+  simulation?: { id: string; version: string; frame: number; fps: number; memory?: number; record?: false };
+  /** A 3D scene, rendered (by the compositor's `setSceneRenderer`) at the layer's size, bound as `uScene`. */
+  scene?: SceneDraw;
+  /**
    * Room this effect needs past the picture's frame (a fraction of its height on every side),
    * like After Effects' Grow Bounds: particles flying off a text, a glow spilling past it.
    * The layer is made that much bigger for every effect; `uFrame` says where the frame is in it.
    */
   grow?: number;
 }
+
+/**
+ * A 3D scene at a moment (see `shared/scenes/`): which one (`type`), the instance it is (a clip's effect,
+ * so its objects are built once), what it's built from (`build`: a seed, a level of detail; a change
+ * builds it again) and its state then, all plain values so it travels to the export's page.
+ */
+export interface SceneDraw {
+  type: string;
+  instance: string;
+  build: Record<string, number | string | boolean>;
+  state: Record<string, unknown>;
+}
+
+/** Renders a 3D scene into a picture of `width` x `height` px (null: it can't yet, e.g. still loading). */
+export type SceneRenderer = (scene: SceneDraw, width: number, height: number) => TexImageSource | null;
 
 /** What a visualizer asks for: rows of spectrum over `span` seconds, each falling over `fall`; a waveform `window` seconds long (0: none). */
 export interface AudioRequest {
@@ -429,6 +455,22 @@ export interface Compositor {
    * background, so drawing (and anything else) can go on meanwhile.
    */
   readYuv420Async(): Promise<Uint8Array<ArrayBuffer>>;
+  /**
+   * The first frame a simulation must be stepped from (`advance`) before frame `frame` of version
+   * `version` can be drawn exactly: `frame` itself when its state a frame before is kept (or it's the
+   * first), else the frame after the newest state or checkpoint it has before then (0 with none), but never
+   * before `frame - memory` (a simulation that forgets: replaying that long from anything gives the same).
+   */
+  simulationFrom(id: string, version: string, frame: number, memory?: number): number;
+  /**
+   * Run a layer's effects without drawing it, so its simulations step (up to the last of them): how a
+   * replay catches a simulation up to the frame being drawn.
+   */
+  advance(picture: Placed): void;
+  /** GPU memory simulations' checkpoints may take, in bytes (0: none are kept, as in the export). */
+  setCheckpointBudget(bytes: number): void;
+  /** What renders 3D scenes (`EffectPass.scene`); without one, a scene is transparent. */
+  setSceneRenderer(render: SceneRenderer | null): void;
   dispose(): void;
 }
 
@@ -845,13 +887,33 @@ void main() {
   const programs = new Map<string, ReturnType<typeof link>>();
   // Programs started by `prepareShader`, not yet checked.
   const compiling = new Map<string, Pending>();
+  // The user's own shaders (the Shader effect, keyed by their code's hash): a new one for every edit of
+  // the code, so only the most recently used are kept.
+  const USER_SHADERS = 24;
+  const userPrograms = new Set<string>();
   const shaderProgram = (shader: Shader) => {
     let entry = programs.get(shader.key);
-    if (entry) return entry;
+    const user = shader.key.startsWith("fx:shader:");
+    if (entry) {
+      if (user) {
+        userPrograms.delete(shader.key);
+        userPrograms.add(shader.key);
+      }
+      return entry;
+    }
     const pending = compiling.get(shader.key) ?? startLink(shader.vertex ?? QUAD_VS, shader.source);
     compiling.delete(shader.key);
     entry = finishLink(pending);
     programs.set(shader.key, entry);
+    if (user) {
+      userPrograms.add(shader.key);
+      for (const old of userPrograms) {
+        if (userPrograms.size <= USER_SHADERS) break;
+        gl.deleteProgram(programs.get(old)!.program);
+        programs.delete(old);
+        userPrograms.delete(old);
+      }
+    }
     return entry;
   };
 
@@ -1062,6 +1124,7 @@ void main() {
       if (u.type === "int") gl.uniform1i(l, u.value as number);
       else if (u.type === "vec2") gl.uniform2f(l, v[0], v[1]);
       else if (u.type === "vec3") gl.uniform3f(l, v[0], v[1], v[2]);
+      else if (u.type === "vec4") gl.uniform4f(l, v[0], v[1], v[2], v[3]);
       else gl.uniform1f(l, u.value as number);
     }
   };
@@ -1426,6 +1489,194 @@ void main() {
         copy(output);
       }
     }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Simulations (`EffectPass.simulation`): each one's state (its output) at its two newest frames, in half
+  // floats (8 bits would never fade a trail to black), and a checkpoint every CHECKPOINT_EVERY frames, all
+  // simulations' sharing a budget (the least recently used let go first).
+  // ---------------------------------------------------------------------------
+  const CHECKPOINT_EVERY = 30;
+  interface SimState {
+    target: Target;
+    w: number;
+    h: number;
+    /** The frame it holds (NaN: none), of `version`. */
+    frame: number;
+    version: string;
+  }
+  interface Simulation {
+    states: [SimState, SimState];
+    checkpoints: Map<number, SimState>;
+    version: string;
+    used: number;
+  }
+  const simulations = new Map<string, Simulation>();
+  let checkpointBudget = 256 * 1024 * 1024;
+  /** Every checkpoint's bytes, by `${id}\n${frame}`, least recently used first. */
+  const checkpointUse = new Map<string, number>();
+  const stateBytes = (w: number, h: number) => w * h * (floatTargets ? 8 : 4);
+  const newState = (): SimState => ({ target: target(), w: 0, h: 0, frame: NaN, version: "" });
+  const sizeState = (st: SimState, w: number, h: number) => {
+    if (st.w === w && st.h === h) return;
+    allocate(st.target, w, h, floatTargets);
+    st.w = w;
+    st.h = h;
+  };
+  const deleteState = (st: SimState) => {
+    gl.deleteTexture(st.target.tex);
+    gl.deleteFramebuffer(st.target.fbo);
+  };
+  const dropCheckpoint = (id: string, frame: number) => {
+    const sim = simulations.get(id);
+    const st = sim?.checkpoints.get(frame);
+    if (st) deleteState(st);
+    sim?.checkpoints.delete(frame);
+    checkpointUse.delete(`${id}\n${frame}`);
+  };
+  const dropCheckpoints = (id: string, sim: Simulation) => {
+    for (const frame of [...sim.checkpoints.keys()]) dropCheckpoint(id, frame);
+  };
+  /** Keep checkpoints within the budget, the least recently used let go first. */
+  const trimCheckpoints = () => {
+    let total = 0;
+    for (const b of checkpointUse.values()) total += b;
+    for (const [key, b] of checkpointUse) {
+      if (total <= checkpointBudget) break;
+      const at = key.lastIndexOf("\n");
+      dropCheckpoint(key.slice(0, at), Number(key.slice(at + 1)));
+      total -= b;
+    }
+  };
+  const deleteSimulation = (id: string, sim: Simulation) => {
+    dropCheckpoints(id, sim);
+    for (const st of sim.states) deleteState(st);
+    simulations.delete(id);
+  };
+  /** The simulation under `id`; a new version's makes its states stale and lets go of its checkpoints. */
+  const simulationFor = (info: NonNullable<EffectPass["simulation"]>): Simulation => {
+    let sim = simulations.get(info.id);
+    if (!sim) {
+      sim = { states: [newState(), newState()], checkpoints: new Map(), version: info.version, used: draws };
+      simulations.set(info.id, sim);
+    }
+    if (sim.version !== info.version) {
+      dropCheckpoints(info.id, sim);
+      sim.version = info.version;
+    }
+    sim.used = draws;
+    return sim;
+  };
+  /** Every state a simulation has of its version (kept, or checkpoints). */
+  const exactStates = (sim: Simulation): SimState[] => [
+    ...sim.states.filter((st) => st.version === sim.version && !Number.isNaN(st.frame)),
+    ...sim.checkpoints.values(),
+  ];
+  /** What a simulation's frame `frame` reads: its state a frame before, else the newest earlier one it has (even stale), else none. */
+  const stateBefore = (id: string, sim: Simulation, frame: number): SimState | null => {
+    if (frame <= 0) return null;
+    const exact = exactStates(sim).find((st) => st.frame === frame - 1);
+    if (exact) {
+      const key = `${id}\n${exact.frame}`;
+      const bytes = checkpointUse.get(key);
+      if (bytes !== undefined && sim.checkpoints.get(exact.frame) === exact) {
+        checkpointUse.delete(key);
+        checkpointUse.set(key, bytes);
+      }
+      return exact;
+    }
+    let best: SimState | null = null;
+    for (const st of [...sim.states, ...sim.checkpoints.values()]) {
+      if (Number.isNaN(st.frame) || st.frame >= frame) continue;
+      // Of two as old, the one of this version.
+      if (!best || st.frame > best.frame || (st.frame === best.frame && st.version === sim.version)) best = st;
+    }
+    return best;
+  };
+  // Where a simulation draws a frame it doesn't keep (motion blur's in-between moments).
+  const passingState = newState();
+
+  /** Draw a simulation's pass into its next state (from `input`, the layer so far), then copy that into `out` (the layer). */
+  const runSimulation = (
+    info: NonNullable<EffectPass["simulation"]>,
+    loc: (name: string) => WebGLUniformLocation | null,
+    w: number,
+    h: number,
+    input: WebGLTexture,
+    out: Target,
+  ) => {
+    const sim = simulationFor(info);
+    const before = stateBefore(info.id, sim, info.frame);
+    // Written into the state that isn't being read (the older of the two).
+    let st: SimState;
+    if (info.record === false) st = passingState;
+    else {
+      const [a, b] = sim.states;
+      st = before === a ? b : before === b ? a : Number.isNaN(a.frame) || (!Number.isNaN(b.frame) && a.frame < b.frame) ? a : b;
+    }
+    sizeState(st, w, h);
+    // (Allocating binds on unit 0: the input goes back there, and on 1 for `getInput`.)
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, input);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, input);
+    gl.activeTexture(gl.TEXTURE8);
+    gl.bindTexture(gl.TEXTURE_2D, before?.target.tex ?? null);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(loc("uState"), 8);
+    gl.uniform1i(loc("hasState"), before ? 1 : 0);
+    gl.uniform1i(loc("simFrame"), info.frame);
+    gl.uniform1f(loc("simStep"), 1 / Math.max(1, info.fps));
+    gl.bindFramebuffer(gl.FRAMEBUFFER, st.target.fbo);
+    gl.viewport(0, 0, w, h);
+    gl.uniform1i(loc("pass"), 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.activeTexture(gl.TEXTURE8);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.activeTexture(gl.TEXTURE0);
+    if (info.record !== false) {
+      st.frame = info.frame;
+      st.version = sim.version;
+      // A checkpoint now and then, to replay from after a seek.
+      if (checkpointBudget > 0 && info.frame > 0 && info.frame % CHECKPOINT_EVERY === 0 && !sim.checkpoints.has(info.frame)) {
+        const cp = newState();
+        sizeState(cp, w, h);
+        cp.frame = info.frame;
+        cp.version = sim.version;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, cp.target.fbo);
+        gl.viewport(0, 0, w, h);
+        copy(st.target.tex);
+        sim.checkpoints.set(info.frame, cp);
+        checkpointUse.set(`${info.id}\n${info.frame}`, stateBytes(w, h));
+        trimCheckpoints();
+      }
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
+    gl.viewport(0, 0, w, h);
+    copy(st.target.tex);
+  };
+
+  /** Scenes (`EffectPass.scene`): rendered by the page's renderer, uploaded here (unit 9). */
+  let sceneRenderer: SceneRenderer | null = null;
+  const sceneTex = texture();
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+  const bindScene = (loc: (name: string) => WebGLUniformLocation | null, scene: SceneDraw, w: number, h: number) => {
+    let picture: TexImageSource | null = null;
+    try {
+      picture = sceneRenderer?.(scene, w, h) ?? null;
+    } catch (err) {
+      console.error(`The 3D scene "${scene.type}" failed to render`, err);
+    }
+    gl.activeTexture(gl.TEXTURE9);
+    gl.bindTexture(gl.TEXTURE_2D, sceneTex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    if (picture) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, picture);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(loc("uScene"), 9);
   };
 
   // ---------------------------------------------------------------------------
@@ -1999,10 +2250,20 @@ void main() {
       gl.uniform1i(loc("uFlipY"), 0);
       gl.uniform1f(loc("ratio"), ratio);
       gl.uniform2f(loc("resolution"), w, h);
+      gl.uniform2f(loc("uResolution"), w, h);
       gl.uniform4f(loc("uFrame"), frameRect[0], frameRect[1], frameRect[2], frameRect[3]);
       setUniforms(loc, fx.uniforms);
       if (temporal) bindHistory(loc, temporal);
       if (fx.audio) bindAudio(loc, fx.audio);
+      if (fx.scene) bindScene(loc, fx.scene, w, h);
+      if (fx.simulation) {
+        // A simulation draws into its state, which becomes the layer.
+        const dst = [0, 1, 2].find((i) => i !== input)!;
+        runSimulation(fx.simulation, loc, w, h, set[input].tex, set[dst]);
+        if (fx.history && temporal) endHistory(fx.history, temporal, set[input].tex, set[dst].tex);
+        input = dst;
+        continue;
+      }
       const effectInput = input;
       // Every pass can read the effect's input (`getInput`); passes go back and forth between the other two layers.
       let src = input;
@@ -2053,7 +2314,12 @@ void main() {
     const edges = p.edges ?? 0;
     const samples = p.samples && p.samples.length > 1 ? p.samples : null;
     if (!samples) {
-      if (!(p.opacity > 0)) return;
+      if (!(p.opacity > 0)) {
+        // Unseen, a simulation still steps: what it shows next follows from this frame.
+        const last = p.effects?.findLastIndex((fx) => !!fx.simulation) ?? -1;
+        if (last >= 0 && source.kind !== "frame") prepare(source, p.affine, p.effects!.slice(0, last + 1), edges, p.aspect, p.masks);
+        return;
+      }
       const prepared = prepare(source, p.affine, p.effects, edges, p.aspect, p.masks);
       if (!prepared) return;
       bind(t);
@@ -2301,6 +2567,11 @@ void main() {
           deleteHistory(h);
           histories.delete(id);
         }
+        // Simulations too, but for their checkpoints, which the budget lets go of.
+        for (const [id, sim] of simulations) {
+          if (draws - sim.used <= 240 || sim.checkpoints.size) continue;
+          deleteSimulation(id, sim);
+        }
       }
       bind(frame);
       gl.disable(gl.BLEND);
@@ -2320,6 +2591,33 @@ void main() {
       clearTarget(sides[0]);
       drawLayer(sides[0], source, picture);
       blendInto(sides[0], mode, 1, false, matteMode);
+    },
+
+    simulationFrom(id, version, frame, memory) {
+      if (frame <= 0) return frame;
+      const sim = simulations.get(id);
+      const kept = sim && sim.version === version ? exactStates(sim) : [];
+      if (kept.some((st) => st.frame === frame - 1)) return frame;
+      let from = 0;
+      for (const st of kept) if (st.frame < frame) from = Math.max(from, st.frame + 1);
+      return memory !== undefined ? Math.max(from, frame - Math.max(1, Math.ceil(memory))) : from;
+    },
+
+    advance(picture) {
+      const source = sourceOf(picture);
+      const effects = picture.effects ?? [];
+      const last = effects.findLastIndex((fx) => !!fx.simulation);
+      if (!source || last < 0) return;
+      prepare(source, picture.affine, effects.slice(0, last + 1), picture.edges ?? 0, picture.aspect, picture.masks);
+    },
+
+    setCheckpointBudget(bytes) {
+      checkpointBudget = Math.max(0, bytes);
+      trimCheckpoints();
+    },
+
+    setSceneRenderer(render) {
+      sceneRenderer = render;
     },
 
     drawAdjustment(adjustment) {
@@ -2524,6 +2822,9 @@ void main() {
       maskTargets.clear();
       if (maskProgram) gl.deleteProgram(maskProgram.program);
       for (const h of histories.values()) deleteHistory(h);
+      for (const [id, sim] of [...simulations]) deleteSimulation(id, sim);
+      deleteState(passingState);
+      gl.deleteTexture(sceneTex);
       histories.clear();
       for (const t of flowTargets.values()) {
         for (const x of [t.cur, t.prev, t.a, t.b]) {
