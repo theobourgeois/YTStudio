@@ -2814,6 +2814,68 @@ test("Camera Raw CR3: the Color Mixer, Color Grading's wheels, Glow, Auto, the h
   await page.evaluate(() => localStorage.removeItem("photo.cameraRaw.presets"));
 });
 
+test("Properties develops a layer and edits its effects in place: Develop adds its Camera Raw filter on the first touch, Effects adds, edits and hides, each one undo step", async ({ page }) => {
+  await openNewPhoto(page, "Properties in place");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await page.locator("[data-layer]").first().click();
+  type Layer = { blend?: string; filters?: { type: string; enabled: boolean; params: Record<string, unknown> }[]; style?: { enabled: boolean; effects: { type: string; enabled: boolean; params: Record<string, unknown> }[] } };
+  const live = () =>
+    page.evaluate(() => {
+      const { history } = (window as unknown as { photoDebug: { photo: { getState(): { history: { past: unknown[]; doc: { doc: { layers: unknown[] } } } } } } }).photoDebug.photo.getState();
+      return { steps: history.past.length, layer: history.doc.doc.layers[0] as Layer };
+    });
+  const develop = page.locator('[data-fold-section="develop"]');
+  const effects = page.locator('[data-fold-section="effects"]');
+
+  // Develop: folded while the layer has none; the first change adds the filter, first, as one undo step.
+  await expect(develop).toHaveAttribute("data-open", "false");
+  await develop.getByRole("button", { name: "Develop" }).click();
+  const steps = (await live()).steps;
+  const exposure = develop.locator("[data-develop-sections]").getByLabel("Exposure", { exact: true });
+  await exposure.fill("0.5");
+  await exposure.press("Enter");
+  await expect.poll(async () => (await live()).layer.filters?.map((f) => [f.type, f.params.exposure])).toEqual([["camera-raw", 0.5]]);
+  expect((await live()).steps).toBe(steps + 1);
+  await exposure.blur();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await live()).layer.filters ?? []).toHaveLength(0);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(async () => (await live()).layer.filters ?? []).toHaveLength(1);
+  // Its eye turns it off; Reset takes it off.
+  await develop.getByRole("button", { name: "Turn Develop off" }).click();
+  await expect.poll(async () => (await live()).layer.filters?.[0].enabled).toBe(false);
+  await develop.getByRole("button", { name: "Reset Develop" }).click();
+  await expect.poll(async () => (await live()).layer.filters ?? []).toHaveLength(0);
+
+  // Blending: the mode menu sets the layer's mode.
+  await page.locator("[data-blending-properties]").getByRole("button", { name: "Blend mode" }).click();
+  await page.locator('[data-blend-menu] [data-mode="multiply"]').click();
+  await expect.poll(async () => (await live()).layer.blend).toBe("multiply");
+
+  // Effects: + adds a Drop Shadow, unfolded; a key on its slider is one step; its eye hides it; the bin deletes it.
+  await expect(effects).toHaveAttribute("data-open", "false");
+  await effects.getByRole("button", { name: "Effects" }).click();
+  await effects.getByRole("button", { name: "Add an effect" }).click();
+  await page.locator('[data-add-effect="drop-shadow"]').click();
+  await expect.poll(async () => (await live()).layer.style?.effects.map((e) => e.type)).toEqual(["drop-shadow"]);
+  const size = (await live()).layer.style!.effects[0].params.size as number;
+  const before = (await live()).steps;
+  await effects.locator('[data-style-param="size"]').getByRole("slider").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(async () => (await live()).layer.style?.effects[0].params.size).toBe(size + 1);
+  expect((await live()).steps).toBe(before + 1);
+  await effects.getByRole("button", { name: "Hide Drop Shadow" }).click();
+  await expect.poll(async () => (await live()).layer.style?.effects[0].enabled).toBe(false);
+  // While the Layer Style window has the layer, the window edits it.
+  await effects.getByRole("button", { name: "Open in Layer Style" }).click();
+  await expect(page.locator("[data-layer-style]")).toBeVisible();
+  await expect(effects).toContainText("Editing in the Layer Style window.");
+  await page.locator("[data-layer-style] [data-cancel]").click();
+  await effects.getByRole("button", { name: "Delete Drop Shadow" }).click();
+  await expect.poll(async () => (await live()).layer.style).toBeUndefined();
+});
+
 test("an export cancelled while it renders writes nothing and lets go of what the server was sent", async ({ page }) => {
   await openNewPhoto(page, "Cancelled export");
   // 48 MP: long enough to render that Cancel lands mid-way.

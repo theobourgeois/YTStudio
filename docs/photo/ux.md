@@ -51,6 +51,17 @@ as one of this computer's. Scale Effects… (the Layers menu) scales every effec
 Properties follows the selected layer, mask or effect. The tool options bar follows the active tool. These are
 different selections, kept apart.
 
+**Built: the layer's looks in place** (Figma's, Lightroom's and Lumetri's way, rather than Photoshop's dialogs). An
+image or pixel layer's Properties has, under its transform, **Blending** (the mode, previewed while hovered,
+Opacity and Fill; ↗ opens Blending Options), **Develop** and **Effects**. Develop is Camera Raw's sections with no
+filter to add first: the first change adds the layer's Camera Raw filter, first in its filters, in the same undo
+step; its header turns it off, Reset takes it off, ↗ opens it in the Camera Raw window (histogram, presets, the
+eyedropper). Effects is the layer's style as a list, top of the drawing first: + adds one (this computer's
+defaults), each has its eye and bin and unfolds to the same controls as the Layer Style window's page (Bevel's
+Contour and Texture behind their checkboxes); ↗ opens the window for Blend If, styles and the canvas drags. Each
+change is one undo step, a drag one too. Develop and Effects fold, remembered per section on this computer, and
+start open when they do something. While a window has the layer, its section says so instead of competing with it.
+
 First tools: Move/Transform, Rectangular Marquee, Brush, Hand, Zoom. Crop follows once off-canvas content and
 coordinates are proven. A tool that doesn't work yet isn't shown.
 

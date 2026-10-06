@@ -19,10 +19,8 @@ import { findLayer, setLayerBlending } from "@shared/photo/edits";
 import { type ParamSpec, specShows } from "@shared/photo/effects/params";
 import { shadowOffset } from "@shared/photo/reference/style";
 import { STYLE_LIST, styleDefinition } from "@shared/photo/style/definitions";
-import { addPattern, addStyleEffect, globalLightOf, moveStyleEffect, removePattern, removeStyleEffect, replaceStyle, setGlobalLight, setStyleEffect, stylePatterns } from "@shared/photo/style/style";
-import type { BlendIf, BlendMode, BlendRange, Contour, EffectInstance, EffectParamValue, GlobalLight, Gradient, LayerStyle, PhotoLayer, PhotoPattern, PhotoProject } from "@shared/photo/types";
-import { useShallow } from "zustand/react/shallow";
-import { ColorSwatchPicker } from "@/components/color-picker";
+import { addPattern, addStyleEffect, globalLightOf, moveStyleEffect, removePattern, removeStyleEffect, replaceStyle, setGlobalLight, setStyleEffect } from "@shared/photo/style/style";
+import type { BlendIf, BlendMode, BlendRange, EffectInstance, EffectParamValue, GlobalLight, LayerStyle, PhotoLayer, PhotoPattern, PhotoProject } from "@shared/photo/types";
 import { ScrubNumber } from "@/components/scrub-number";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -32,10 +30,7 @@ import { photoGesture, usePhoto } from "../store";
 import { usePhotoUi } from "../ui";
 import { BlendIfSlider } from "./blend-if-slider";
 import { useStyleCanvasDrag } from "./canvas-drag";
-import { AngleDial } from "./controls/angle-dial";
-import { ContourPicker } from "./controls/contour-picker";
-import { GradientPicker } from "./controls/gradient-picker";
-import { PatternPicker } from "./controls/pattern-picker";
+import { Check, StyleParam } from "./controls/style-param";
 import { NewStyleForm } from "./new-style";
 import { materialise, useStyles } from "./styles";
 import { BUILT_IN_STYLES, type StylePreset, presetStyle } from "@shared/photo/style/presets";
@@ -102,8 +97,6 @@ function editStyle(style: LayerStyle, edit: (doc: PhotoProject) => PhotoProject)
 
 /** A new effect of `type` at this computer's defaults. */
 const newEffect = (type: string): EffectInstance => ({ id: createId("fx"), type, version: styleDefinition(type)!.version, enabled: true, params: styleDefaults(type) });
-
-const NO_PATTERNS: PhotoPattern[] = [];
 
 const ENTRY_LABELS: Record<BlendIfEntry, string> = { gray: "Gray", red: "Red", green: "Green", blue: "Blue" };
 const ENTRY_COLOURS: Record<BlendIfEntry, string> = { gray: "#fff", red: "#f00", green: "#0f0", blue: "#00f" };
@@ -514,9 +507,6 @@ function EffectPage({
 }) {
   const def = styleDefinition(effect.type)!;
   const p = effect.params;
-  // The photo's patterns as the window shows it (its own added and deleted), and those its layers' effects read.
-  const patterns = usePhoto((s) => s.history?.doc.doc.patterns) ?? NO_PATTERNS;
-  const inUse = usePhoto(useShallow((s) => (s.history ? stylePatterns(s.history.doc.doc.layers) : [])));
   const sub = def.subPages?.find((s) => s.group === subPage);
   const groups: { name: string; specs: ParamSpec[] }[] = [];
   for (const spec of def.params) {
@@ -528,80 +518,7 @@ function EffectPage({
     if (g) g.specs.push(spec);
     else groups.push({ name, specs: [spec] });
   }
-  const control = (spec: ParamSpec) => {
-    const value = p[spec.key];
-    switch (spec.kind) {
-      case "number": {
-        const global = p.globalLight === true;
-        if (spec.key === "angle") return <AngleDial value={global ? globalLight.angle : (value as number)} onChange={(a) => (global ? onGlobalLight({ angle: a }) : onParams({ angle: a }))} />;
-        // Bevel's altitude is the Global Light's too.
-        const shown = spec.key === "altitude" && global ? globalLight.altitude : (value as number);
-        const change = (v: number) => (spec.key === "altitude" && global ? onGlobalLight({ altitude: v }) : onParams({ [spec.key]: v }));
-        return (
-          <span className="flex flex-1 items-center gap-2">
-            <Slider aria-label={`${spec.label} slider`} min={spec.min} max={spec.key === "distance" ? Math.max(200, shown) : spec.max} step={spec.step} value={[shown]} onValueChange={([v]) => change(v)} className="flex-1" />
-            <span className="w-16 rounded border border-line bg-surface-0 px-1">
-              <ScrubNumber label={spec.label} value={shown} display={{ min: spec.min, max: spec.max, step: spec.step, decimals: spec.decimals, unit: spec.unit }} onBegin={() => {}} onChange={change} onEnd={() => {}} />
-            </span>
-          </span>
-        );
-      }
-      case "choice":
-        return spec.radio ? (
-          <span className="flex gap-3" role="radiogroup" aria-label={spec.label}>
-            {spec.options.map((o) => (
-              <label key={o.value} className="flex items-center gap-1">
-                <input type="radio" name={`${effect.id}-${spec.key}`} checked={value === o.value} onChange={() => onParams({ [spec.key]: o.value })} className="accent-[var(--brand)]" />
-                {o.label}
-              </label>
-            ))}
-          </span>
-        ) : (
-          <select value={value as string} onChange={(e) => onParams({ [spec.key]: e.target.value })} className="h-7 rounded border border-line bg-surface-0 px-1.5" aria-label={spec.label}>
-            {spec.options.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        );
-      case "boolean":
-        return <Check label={spec.label} checked={value === true} onChange={(v) => onParams({ [spec.key]: v })} />;
-      case "colour":
-        return <ColorSwatchPicker value={value as string} label={spec.label} edit={{ begin: () => {}, set: (c) => onParams({ [spec.key]: c }), end: () => {} }} className="h-6 w-10" />;
-      case "blend":
-        return (
-          <BlendModeMenu
-            className="w-44"
-            value={value as BlendMode}
-            onPreview={onHoverMode}
-            onChoose={(mode) => {
-              onHoverMode(null);
-              onParams({ [spec.key]: mode });
-            }}
-          />
-        );
-      case "contour":
-        return <ContourPicker value={value as Contour} onChange={(c) => onParams({ [spec.key]: c })} />;
-      case "gradient":
-        return <GradientPicker value={value as Gradient} onChange={(g) => onParams({ [spec.key]: g })} />;
-      case "pattern": {
-        const keys = def.patterns?.find((k) => k.pattern === spec.key);
-        return (
-          <PatternPicker
-            value={value as string}
-            patterns={patterns}
-            inUse={inUse}
-            onChange={(id) => onParams({ [spec.key]: id })}
-            onSnap={keys ? () => onParams({ [keys.phaseX]: 0, [keys.phaseY]: 0 }) : undefined}
-            onDelete={onDeletePattern}
-          />
-        );
-      }
-      default:
-        return null;
-    }
-  };
+  const control = (spec: ParamSpec) => <StyleParam effect={effect} spec={spec} globalLight={globalLight} onParams={onParams} onGlobalLight={onGlobalLight} onHoverMode={onHoverMode} onDeletePattern={onDeletePattern} />;
   return (
     <>
       <h3 className="text-sm font-medium">{sub ? sub.label : def.label}</h3>
@@ -624,15 +541,6 @@ function EffectPage({
         </Button>
       </div>
     </>
-  );
-}
-
-function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return (
-    <label className="flex items-center gap-1.5">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="accent-[var(--brand)]" />
-      {label}
-    </label>
   );
 }
 

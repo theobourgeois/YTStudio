@@ -68,7 +68,7 @@ export function OnlinePanel() {
           value={tab}
           onValueChange={(v) => v && useOnline.getState().set({ tab: v as OnlineTab })}
           aria-label="What to search"
-          className="grid w-full grid-cols-3 rounded-md bg-muted p-0.5"
+          className="mb-1.5 grid w-full grid-cols-3 rounded-md bg-muted p-0.5"
         >
           {TABS.map(({ tab: t, label, Icon }) => (
             <ToggleGroupItem
