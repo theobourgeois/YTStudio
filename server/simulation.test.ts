@@ -82,8 +82,8 @@ describe.skipIf(!session)("simulations reach the same frame however it's reached
     expect(maxDiff(straight, ordered[N])).toBeLessThanOrEqual(2);
   });
 
-  it("a 3D scene (its state stepped in TypeScript, its afterimage on the GPU) is the same straight to a frame", async () => {
-    const p = project([["tesseract", { detail: 0.3 }]]);
+  it("a 3D scene (its camera and events stepped in TypeScript) is the same straight to a frame", async () => {
+    const p = project([["storm-sea", { weather: "storm" }]]);
     const N = 40;
     const { shaders, frames, alone } = plans(p, N);
     const ordered = await session!.frames({ ...SIZE, shaders, frames, order: frames.map((_, f) => f) });

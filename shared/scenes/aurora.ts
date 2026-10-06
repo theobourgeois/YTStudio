@@ -138,8 +138,7 @@ vec3 scene(vec2 uv) {
     // The mountains: dark, their snow catching the aurora's light from above, a rim along the ridge.
     float rim = exp(-(ridge - e) * 120.0);
     vec3 glow = curtainColor(0.1) * (0.04 + 0.06 * auSurge);
-    float snow = smoothstep(0.4, 0.7, vnoise3(vec3(atan(rd.x, rd.z) * 40.0, e * 90.0, 0.0)));
-    return vec3(0.002, 0.003, 0.006) + glow * (rim * 0.8 + snow * 0.25 * (e / ridge));
+    return vec3(0.002, 0.003, 0.006) + glow * (rim * 0.8 + 0.12 * (e / ridge));
   }
   // The ice: a mirror, slightly rough, with cracks and drifts of snow.
   float t = -ro.y / rd.y;

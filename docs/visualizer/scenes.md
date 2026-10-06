@@ -1,5 +1,11 @@
 # 3D scenes, second take
 
+**Built** (2026-10-07). As built, each scene differs from its plan below only in detail: Infinite Dive's levels are
+three Forms (Portals: a cage of rings; Lattice: shells cut by Menger crosses; Spires: a crystal geode), Ridgeline flies
+between its valley's floor and walls (higher in loud passages) and is lit side-on so its slopes model, Aurora's folds
+glow where a curtain turns edge-on. Each file in `shared/scenes/` is the whole scene: its parameters, its GLSL and its
+stepped state.
+
 The first 3D scenes (V8) were vaudio's three.js worlds, ported. Théo found them not good enough (2026-10-07) and asked
 for five new ones, planned properly: one a flight over mountains, one a fall into an infinite fractal that swoops
 around rather than going straight down, the rest free (nature, anything), all of them compelling.
