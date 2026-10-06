@@ -39,7 +39,8 @@ const read = async (file: string): Promise<unknown> => {
   }
 };
 const safeId = (value: unknown): string => { if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(value)) throw new HttpError(400, "Invalid record id."); return value; };
-interface RenderPlan { snapshotId: string; startTick: number; endTick: number; leadInTicks: number; tailSeconds: number }
+/** `stemTrackId`: also keep that mixer track's stem (after its fader, from the same pass) as an artifact of its own. */
+interface RenderPlan { snapshotId: string; startTick: number; endTick: number; leadInTicks: number; tailSeconds: number; stemTrackId?: string }
 interface HearingPlan { kind: "hear"; request: HearingRequest; providerIdentity: string; consentRevision: string; cacheEpoch: number }
 type Plan = HearingPlan | { kind: "render"; params: RenderPlan } | { kind: "analyse"; artifactId: string };
 interface StoredJob { job: AudioJob; plan: Plan }
@@ -270,7 +271,8 @@ export class AudioIntelligence {
     if (endTick <= startTick) throw new HttpError(400, "A passage must end after it starts.");
     const tailSeconds = input.tailSeconds === undefined ? 5 : input.tailSeconds;
     if (typeof tailSeconds !== "number" || !Number.isFinite(tailSeconds) || tailSeconds < 0 || tailSeconds > 10) throw new HttpError(400, "Tail must be 0 to 10 seconds.");
-    return { snapshotId: safeId(input.snapshotId), startTick, endTick, leadInTicks: tick(input.leadInTicks, 768), tailSeconds };
+    const stemTrackId = input.stemTrackId === undefined ? undefined : safeId(input.stemTrackId);
+    return { snapshotId: safeId(input.snapshotId), startTick, endTick, leadInTicks: tick(input.leadInTicks, 768), tailSeconds, ...(stemTrackId ? { stemTrackId } : {}) };
   }
   private parsePlan(input: unknown): Plan {
     if (!isObject(input)) throw new HttpError(400, "Invalid audio job plan.");
@@ -293,6 +295,8 @@ export class AudioIntelligence {
         const bundle = await this.snapshot(projectId, plan.params.snapshotId);
         if (bundle.snapshot.plugins.some(p => p.storage !== "document")) throw new HttpError(409, "Analysis renders currently support built-in processors only. Outside plugin state restoration isn't verified.");
         if (bundle.snapshot.media.some(m => m.sha256 === null)) throw new HttpError(409, "Snapshot has missing or unreadable media.");
+        const stemTrackId = plan.params.stemTrackId;
+        if (stemTrackId && !bundle.content.mixer?.tracks.some(t => t.id === stemTrackId)) throw new HttpError(400, "The stem's mixer track isn't in this snapshot.");
         const song = { ...createMusicProject(), ...bundle.content };
         const from = Math.max(0, plan.params.startTick - plan.params.leadInTicks);
         if (songSeconds(song, plan.params.endTick) - songSeconds(song, from) + plan.params.tailSeconds > 120) throw new HttpError(400, "Analysis renders are limited to 120 seconds including lead-in and tail.");
@@ -380,7 +384,7 @@ export class AudioIntelligence {
         const from = Math.max(0, params.startTick - params.leadInTicks);
         await this.change(id, { type: "progress", stage: "render", progress: 0 });
         let progress = 0;
-        const result = await this.options.engine.renderExport({ id, projectId, song, patternId: null, mode: "song", loop: { start: from, end: params.endTick }, resampling: "sinc", folder: temp, mix: true, stems: false, tail: params.tailSeconds > 0 ? "ring" : "cut", maxTail: params.tailSeconds, samplePath: (_project, media) => sources.get(media) ?? null }, (done, frames) => {
+        const result = await this.options.engine.renderExport({ id, projectId, song, patternId: null, mode: "song", loop: { start: from, end: params.endTick }, resampling: "sinc", folder: temp, mix: true, stems: !!params.stemTrackId, tail: params.tailSeconds > 0 ? "ring" : "cut", maxTail: params.tailSeconds, samplePath: (_project, media) => sources.get(media) ?? null }, (done, frames) => {
           const next = frames > 0 ? Math.min(0.99, done / frames) : 0;
           if (next >= progress + 0.1) { progress = next; void this.change(id, { type: "progress", stage: "render", progress: next }).catch(() => {}); }
         }, signal);
@@ -400,7 +404,20 @@ export class AudioIntelligence {
         signal.throwIfAborted();
         await this.storeArtifact(projectId, artifact, mix.file);
         signal.throwIfAborted();
-        await this.change(id, { type: "succeed", result: { artifactIds: [artifact.id], snapshotIds: [bundle.snapshot.id], evidenceIds: [] } });
+        const artifactIds = [artifact.id];
+        // A track that made no sound in the passage has no stem file: then there's no stem artifact either.
+        const stem = params.stemTrackId ? result.files.find(f => f.id === params.stemTrackId) : undefined;
+        if (stem) {
+          const stemAudio = await this.decode(stem.file), stemContent = await hashStream(stem.file);
+          if (stemAudio.channels[0].length !== result.frames) throw new Error("The stem's length does not match the mix.");
+          const { id: _mixId, schema: _schema, ...mixRecord } = artifact;
+          const stemArtifact = createArtifact({ ...mixRecord, contentSha256: stemContent.sha256, bytes: stemContent.bytes, role: "track-stem", tap: { kind: "track", id: params.stemTrackId! },
+            format: { ...artifact.format, sampleFormat: await this.sampleFormat(stem.file) }, createdAt: Date.now() });
+          await this.storeArtifact(projectId, stemArtifact, stem.file);
+          artifactIds.push(stemArtifact.id);
+        }
+        signal.throwIfAborted();
+        await this.change(id, { type: "succeed", result: { artifactIds, snapshotIds: [bundle.snapshot.id], evidenceIds: [] } });
       } else if (stored.plan.kind === "hear") {
         await this.executeHearing(stored.job, stored.plan, temp, signal);
       } else {
