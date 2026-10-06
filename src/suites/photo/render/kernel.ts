@@ -15,8 +15,11 @@ import { MATHS } from "./wgsl.ts";
 export interface FilterKernel {
   /** WGSL defining `struct Params` (at least one field) and `fn effect(p: vec2f, c: vec4f) -> vec4f`. */
   wgsl: string;
-  /** The uniform's bytes (up to 256, a multiple of 16) and the table, if it reads one, for these parameters on this canvas. */
-  pack: (params: Record<string, EffectParamValue>, canvas: { width: number; height: number }) => { uniform: ArrayBuffer; table?: Float32Array };
+  /**
+   * The uniform's bytes (up to 256, a multiple of 16) and the table, if it reads one, for these parameters on this
+   * canvas; a `tableKey` says the table is the same for every draw that gives it (kept on the GPU, not sent again).
+   */
+  pack: (params: Record<string, EffectParamValue>, canvas: { width: number; height: number }) => { uniform: ArrayBuffer; table?: Float32Array; tableKey?: string };
 }
 
 /** The header's bytes: where the target and its input are, Mix, the canvas. */

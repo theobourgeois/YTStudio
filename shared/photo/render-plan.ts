@@ -12,6 +12,9 @@ import { srgbToLinear } from "./colour.ts";
 import { activeFilters } from "./edits.ts";
 import { effectDefinition, isKernelFilter, unavailableReason } from "./effects/index.ts";
 import { GLOW_CACHED_FROM } from "./effects/glow.ts";
+import { CAMERA_RAW } from "./effects/camera-raw/index.ts";
+import type { CameraRawAnalysis } from "./effects/camera-raw/analysis.ts";
+import { ANALYSIS_PARAM, needsAnalysis } from "./effects/camera-raw/develop.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
 import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
 import { findPattern } from "./style/patterns.ts";
@@ -261,6 +264,32 @@ export function backgroundLight(hex: string | null): [number, number, number, nu
 export interface CompileOptions {
   /** Whether f32 composites can be used (the GPU blends f32): otherwise f16, said by the plan's format. */
   float32?: boolean;
+  /** Camera Raw's analyses (docs/photo/camera-raw.md, CR2): the renderer's, by what each one develops. */
+  cameraRaw?: CameraRawResolver;
+}
+
+/**
+ * What a Camera Raw needs analysed: the picture it develops, by its key (`inputKey`: the composite below an
+ * adjustment layer, or a layer's content and the filters before it), and where it is.
+ */
+export interface CameraRawNeed {
+  inputKey: string;
+  layerId: string;
+  /** The filter's id, or null for an adjustment layer. */
+  filterId: string | null;
+}
+
+/** A Camera Raw's analysis, or null while it isn't there yet (the plan then draws without its local sliders). */
+export type CameraRawResolver = (need: CameraRawNeed) => CameraRawAnalysis | null;
+
+/**
+ * A Camera Raw instance's parameters as drawn (its analysis handed in, when it reads one) and the key part saying
+ * which analysis: a plan drawn without it ("pending") is never taken for one drawn with it.
+ */
+function cameraRawParams(params: Record<string, EffectParamValue>, need: CameraRawNeed, resolve: CameraRawResolver | undefined): { params: Record<string, EffectParamValue>; key: string } {
+  if (!needsAnalysis(params)) return { params, key: "" };
+  const analysis = resolve?.(need) ?? null;
+  return analysis ? { params: { ...params, [ANALYSIS_PARAM]: analysis as unknown as EffectParamValue }, key: `|cr:${analysis.id}` } : { params, key: "|cr:pending" };
 }
 
 /** A layer's mask for the plan (`size`: the layer's own pixels), or null when it has none, or one that hides nothing. */
@@ -322,12 +351,16 @@ export function backgroundIn(hex: string | null, compositing: Compositing): [num
 const filterCommutesFrom = (f: FilterNode) => (f.type === "glow" ? GLOW_CACHED_FROM : effectDefinition(f.type)!.commutesWithReduction(f.params) ? 0 : Infinity);
 
 /** A layer's filters as the plan runs them: those on and usable, none while its "Filters" eye is off. */
-function filterNodes(layer: PhotoLayer, canvas: Size = { width: 0, height: 0 }): FilterNode[] {
+function filterNodes(layer: PhotoLayer, canvas: Size = { width: 0, height: 0 }, contentKey = "", resolve?: CameraRawResolver): FilterNode[] {
+  const before: string[] = [];
   return activeFilters(layer).flatMap((f) => {
     const def = effectDefinition(f.type)!;
     if (def.isIdentity(f.params)) return [];
     const where = isKernelFilter(def.type) ? `|${canvas.width}x${canvas.height}` : "";
-    return [{ id: f.id, type: def.type, version: def.version, params: f.params, reach: def.reach(f.params), canvas, key: hashKey(`${def.type}@${def.version}|${JSON.stringify(f.params)}${where}`) }];
+    const drawn = def.type === CAMERA_RAW.type ? cameraRawParams(f.params, { inputKey: `${contentKey}|${before.join(",")}`, layerId: layer.id, filterId: f.id }, resolve) : { params: f.params, key: "" };
+    const key = hashKey(`${def.type}@${def.version}|${JSON.stringify(f.params)}${where}${drawn.key}`);
+    before.push(key);
+    return [{ id: f.id, type: def.type, version: def.version, params: drawn.params, reach: def.reach(f.params), canvas, key }];
   });
 }
 
@@ -335,8 +368,8 @@ function filterNodes(layer: PhotoLayer, canvas: Size = { width: 0, height: 0 }):
 export const filtersReach = (layer: PhotoLayer): number => filterNodes(layer).reduce((sum, f) => sum + f.reach, 0);
 
 /** Its content's fields: filters, the content key they're keyed by, and from which level it commutes. */
-function contentFields(layer: PhotoLayer, canvas: Size, contentKey: string, contentCommutesFrom = 0): ContentFields & { filtersKey: string } {
-  const filters = filterNodes(layer, canvas);
+function contentFields(layer: PhotoLayer, canvas: Size, contentKey: string, contentCommutesFrom = 0, resolve?: CameraRawResolver): ContentFields & { filtersKey: string } {
+  const filters = filterNodes(layer, canvas, contentKey, resolve);
   return {
     filters,
     contentKey,
@@ -368,7 +401,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const size = { width: source.width, height: source.height };
       const t = layer.transform;
       const mask = maskOf(layer, size);
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`));
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`), 0, options.cameraRaw);
       const matrix = layerMatrix(t, size);
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
@@ -393,7 +426,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       // An empty one is still drawn: the stroke that paints its first pixels shows through it.
       const { size, transform: t } = layer;
       const mask = maskOf(layer, size);
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`));
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`), 0, options.cameraRaw);
       const matrix = layerMatrix(t, size);
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
@@ -425,7 +458,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const canvas = { width: doc.canvas.width, height: doc.canvas.height };
       const mask = maskOf(layer, canvas);
       const own = `${def.type}@${def.version}|${JSON.stringify(effect.params)}|${canvas.width}x${canvas.height}`;
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(own), def.commutesWithReduction(effect.params) ? 0 : Infinity);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(own), def.commutesWithReduction(effect.params) ? 0 : Infinity, options.cameraRaw);
       const space = layer.blendSpace === "linear" ? "linear" : "document";
       // Linear Dodge (Add) in linear light adds light, which commutes with reduction; other modes don't.
       const b = blending.blend;
@@ -450,17 +483,20 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
     }
     if (def.isIdentity(effect.params)) continue;
     const mask = maskOf(layer, { width: doc.canvas.width, height: doc.canvas.height });
+    // A Camera Raw adjustment's analysis is of everything below it: the plan's key so far.
+    const below = nodes.reduce((key, node) => hashKey(`${key}>${node.key}`), baseKey);
+    const drawn = def.type === CAMERA_RAW.type ? cameraRawParams(effect.params, { inputKey: below, layerId: layer.id, filterId: null }, options.cameraRaw) : { params: effect.params, key: "" };
     nodes.push({
       kind: "adjustment",
       layerId: layer.id,
       type: def.type,
       version: def.version,
-      params: effect.params,
+      params: drawn.params,
       opacity: blending.opacity,
       mask,
       blend: blending.blend,
       commutes: def.commutesWithReduction(effect.params) && !blending.blend,
-      key: hashKey(`${def.type}@${def.version}|${JSON.stringify(effect.params)}|${blending.opacity}${maskKey(mask)}${blending.key}|${doc.canvas.width}x${doc.canvas.height}`),
+      key: hashKey(`${def.type}@${def.version}|${JSON.stringify(effect.params)}|${blending.opacity}${maskKey(mask)}${blending.key}|${doc.canvas.width}x${doc.canvas.height}${drawn.key}`),
     });
   }
   const prefixKeys: string[] = [];
