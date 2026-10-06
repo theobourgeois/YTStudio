@@ -2,9 +2,10 @@
  * Export (ux.md, "Saving, progress and failure"): the photo as a PNG (transparency kept) or a JPEG (over the
  * background, or white), at its canvas size. In the desktop app the save dialog says where; a browser downloads it.
  * The file is replaced only once the new one is complete. Editing goes on meanwhile: what's exported is the photo
- * as it was when it started.
+ * as it was when it started. Cancel (or Esc) stops it while it renders, and nothing is written; once every band is
+ * rendered the file is being encoded, which finishes.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { errorMessage } from "@shared/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,14 @@ import { liveRenderer } from "./live";
 import { usePhoto, usePhotoDoc } from "./store";
 import { usePhotoUi } from "./ui";
 
-type Phase = { status: "idle" } | { status: "running"; progress: number } | { status: "done"; path: string; bytes: number } | { status: "failed"; error: string };
+type Phase =
+  | { status: "idle" }
+  | { status: "running"; progress: number }
+  | { status: "done"; path: string; bytes: number }
+  | { status: "cancelled" }
+  | { status: "failed"; error: string };
+
+const isAbort = (error: unknown) => error instanceof DOMException && error.name === "AbortError";
 
 const safeName = (name: string) => name.replace(/[^\w .,()'&+-]+/g, " ").trim() || "Photo";
 
@@ -29,6 +37,7 @@ export function PhotoExportWindow() {
   const [quality, setQuality] = useState(92);
   const [bits, setBits] = useState<8 | 16>(8);
   const [phase, setPhase] = useState<Phase>({ status: "idle" });
+  const running = useRef<AbortController | null>(null);
   const close = () => usePhotoUi.getState().setExportOpen(false);
   const extension = format === "jpeg" ? "jpg" : "png";
 
@@ -41,10 +50,12 @@ export function PhotoExportWindow() {
     const destination = chosen === undefined ? null : await chosen;
     if (chosen !== undefined && !destination) return;
     setPhase({ status: "running", progress: 0 });
+    const controller = new AbortController();
+    running.current = controller;
     try {
       const r = await renderer;
       await r.ready();
-      const result = await r.export(projectId, history.doc.doc, { name: fileName, format, bits, quality, destination }, (progress) => setPhase({ status: "running", progress }));
+      const result = await r.export(projectId, history.doc.doc, { name: fileName, format, bits, quality, destination }, (progress) => setPhase({ status: "running", progress }), controller.signal);
       setPhase({ status: "done", path: result.path, bytes: result.bytes });
       // A browser downloads what the server kept.
       if (!destination) {
@@ -54,13 +65,18 @@ export function PhotoExportWindow() {
         a.click();
       }
     } catch (error) {
-      setPhase({ status: "failed", error: errorMessage(error) });
+      setPhase(isAbort(error) ? { status: "cancelled" } : { status: "failed", error: errorMessage(error) });
+    } finally {
+      running.current = null;
     }
   };
 
   const busy = phase.status === "running";
+  // Every band rendered: the helper is encoding the file, which can't be stopped.
+  const encoding = busy && phase.progress >= 1;
+  const cancel = () => running.current?.abort();
   return (
-    <FloatingWindow id="export" title="Export" heading="Export photo" initial={initial} keepsKeys escapeCloses={!busy} onClose={close} className="w-[420px] max-w-full">
+    <FloatingWindow id="export" title="Export" heading="Export photo" initial={initial} keepsKeys escapeCloses={!encoding} onClose={busy ? cancel : close} className="w-[420px] max-w-full">
       <WindowBody>
         <WindowLead>
           {canvas.width} × {canvas.height} px, everything visible on the canvas.
@@ -96,7 +112,17 @@ export function PhotoExportWindow() {
             <span className="w-8 text-right tabular-nums">{quality}</span>
           </label>
         )}
-        {phase.status === "running" && <Progress value={phase.progress * 100} />}
+        {phase.status === "running" && (
+          <div className="flex flex-col gap-1.5" data-export-progress>
+            <Progress value={phase.progress * 100} />
+            <span className="text-xs text-muted-foreground">{encoding ? "Writing the file…" : `Rendering… ${Math.round(phase.progress * 100)}%`}</span>
+          </div>
+        )}
+        {phase.status === "cancelled" && (
+          <p className="text-sm text-muted-foreground" data-export-cancelled>
+            Export cancelled: nothing was written.
+          </p>
+        )}
         {phase.status === "done" && (
           <p className="text-sm" data-export-done>
             Saved {Math.round(phase.bytes / 1024)} KB to <span className="break-all text-muted-foreground">{phase.path}</span>
@@ -104,8 +130,8 @@ export function PhotoExportWindow() {
         )}
         {phase.status === "failed" && <p className="text-sm text-destructive">Couldn't export: {phase.error}</p>}
         <WindowFooter>
-          <Button variant="outline" onClick={close} disabled={busy}>
-            {phase.status === "done" ? "Close" : "Cancel"}
+          <Button variant="outline" onClick={busy ? cancel : close} disabled={encoding}>
+            {phase.status === "done" || phase.status === "cancelled" ? "Close" : "Cancel"}
           </Button>
           <Button onClick={() => void run()} disabled={busy || !name.trim()}>
             {busy ? "Exporting…" : "Export"}

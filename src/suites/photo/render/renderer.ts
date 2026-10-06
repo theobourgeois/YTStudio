@@ -887,14 +887,18 @@ export class PhotoRenderer {
 
   /**
    * Exports the document at its canvas size: PNG keeps transparency (8 or 16 bits), JPEG goes over the background
-   * (or white). The server encodes it into `destination` (the save dialog's), or keeps it to download.
+   * (or white). The server encodes it into `destination` (the save dialog's), or keeps it to download. `signal`
+   * cancels it between bands (an `AbortError`): the server lets go of what it was sent, and nothing is written.
+   * Once every band is sent (progress 1) the helper encodes, which can't be cancelled.
    */
   async export(
     projectId: string,
     doc: PhotoProject,
     request: { name: string; format: "png" | "jpeg"; bits?: 8 | 16; quality?: number; destination?: string | null; origin?: { x: number; y: number } },
     onProgress?: (fraction: number) => void,
+    signal?: AbortSignal,
   ) {
+    signal?.throwIfAborted();
     const bits = request.format === "png" && request.bits === 16 ? 16 : 8;
     const { id } = await photoApi.beginExport({
       projectId,
@@ -908,9 +912,11 @@ export class PhotoRenderer {
     });
     try {
       await this.renderBands(doc, { bits, under: request.format === "jpeg" ? "matte" : "none", matte: matteOf(doc), origin: request.origin }, async (from, rows, width) => {
+        signal?.throwIfAborted();
         await photoApi.exportRows(id, from, rows);
         onProgress?.((from + rows.length / (width * (bits === 16 ? 8 : 4))) / doc.canvas.height);
       });
+      signal?.throwIfAborted();
       return { id, ...(await photoApi.finishExport(id)) };
     } catch (error) {
       void photoApi.cancelExport(id).catch(() => {});

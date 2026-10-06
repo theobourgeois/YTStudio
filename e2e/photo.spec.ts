@@ -2071,3 +2071,29 @@ test("the Filter menu and the Filter Gallery apply every look, previewed on the 
   await page.getByRole("button", { name: "Close Filter Gallery" }).click();
   await expect(page.locator("[data-filter-gallery]")).toHaveCount(0);
 });
+
+test("an export cancelled while it renders writes nothing and lets go of what the server was sent", async ({ page }) => {
+  await openNewPhoto(page, "Cancelled export");
+  // 48 MP: long enough to render that Cancel lands mid-way.
+  await setPhoto(page, { width: 8000, height: 6000, background: "#334455" }, []);
+  const work = path.join("e2e", ".data", "exports", "photo");
+  const leftovers = async () => (await fs.readdir(work).catch(() => [] as string[])).filter((n) => n.startsWith("samples-"));
+  let downloaded = false;
+  page.on("download", () => (downloaded = true));
+  await page.locator("[data-photo-header]").getByRole("button", { name: "Export", exact: true }).click();
+  const window = page.locator("[data-window]").filter({ hasText: "Export photo" });
+  await window.getByRole("button", { name: "Export", exact: true }).click();
+  await expect(window.locator("[data-export-progress]")).toBeVisible();
+  await window.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(window.locator("[data-export-cancelled]")).toBeVisible();
+  await expect.poll(leftovers).toEqual([]);
+  expect(downloaded).toBe(false);
+  // Exported again, it goes through.
+  await setPhoto(page, { width: 400, height: 300, background: "#334455" }, []);
+  const download = page.waitForEvent("download");
+  await window.getByRole("button", { name: "Export", exact: true }).click();
+  await download;
+  await expect(window.locator("[data-export-done]")).toBeVisible();
+  expect(downloaded).toBe(true);
+  await window.getByRole("button", { name: "Close", exact: true }).click();
+});

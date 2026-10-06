@@ -23,11 +23,18 @@ export interface ExportJob {
   out: string;
   rows: Set<number>;
   owner: string | null;
+  /** When it was begun or last sent rows (ms): one quiet for `ABANDONED_MS` was left by a tab that's gone. */
+  touched: number;
 }
+
+/** An export sent nothing for this long is let go (its tab closed or crashed mid-render). */
+export const ABANDONED_MS = 10 * 60_000;
 
 export class PhotoExports {
   private readonly jobs = new Map<string, ExportJob>();
   private readonly done = new Map<string, { file: string; name: string; owner: string | null }>();
+  /** The files exports are writing now (from begin to the end of finish or cancel): one at a time each. */
+  private readonly writing = new Set<string>();
 
   constructor(
     readonly helper: PhotoHelper,
@@ -36,7 +43,9 @@ export class PhotoExports {
   ) {}
 
   /** Starts an export into `destination` (an absolute path, from the save dialog) or the export folder. */
-  async begin(request: ExportRequest, options: { destination?: string | null; owner?: string | null } = {}): Promise<string> {
+  async begin(request: ExportRequest, options: { destination?: string | null; owner?: string | null; now?: number } = {}): Promise<string> {
+    const now = options.now ?? Date.now();
+    for (const [id, job] of this.jobs) if (now - job.touched > ABANDONED_MS) await this.cancel(id);
     if (!EXPORT_NAME.test(request.name)) throw new HttpError(400, "Name the export like name.png or name.jpg.");
     if (!Number.isInteger(request.width) || !Number.isInteger(request.height) || request.width < 1 || request.height < 1) {
       throw new HttpError(400, "width and height must be positive integers.");
@@ -47,11 +56,13 @@ export class PhotoExports {
       if (!path.isAbsolute(options.destination)) throw new HttpError(400, "destination must be an absolute path.");
       out = options.destination;
     } else out = path.join(this.folder, `${randomBytes(6).toString("hex")}-${request.name}`);
+    if (this.writing.has(path.resolve(out))) throw new HttpError(409, `Another export is writing ${path.basename(out)} now: wait for it to finish, or choose another name.`);
     await fs.mkdir(this.folder, { recursive: true });
     const id = randomBytes(8).toString("hex");
     const samples = path.join(this.folder, `samples-${id}.raw`);
     await fs.writeFile(samples, "");
-    this.jobs.set(id, { request, samples, out, rows: new Set(), owner: options.owner ?? null });
+    this.jobs.set(id, { request, samples, out, rows: new Set(), owner: options.owner ?? null, touched: now });
+    this.writing.add(path.resolve(out));
     return id;
   }
 
@@ -76,6 +87,7 @@ export class PhotoExports {
       await handle.close();
     }
     for (let y = from; y < from + count; y++) job.rows.add(y);
+    job.touched = Date.now();
   }
 
   /** Encodes a finished export. */
@@ -103,13 +115,16 @@ export class PhotoExports {
       await fs.rm(job.samples, { force: true });
       // A helper killed mid-encode (and retried) leaves its half-written file beside the destination.
       await removeLeftovers(job.out).catch(() => {});
+      this.writing.delete(path.resolve(job.out));
     }
   }
 
   async cancel(id: string) {
     const job = this.jobs.get(id);
     this.jobs.delete(id);
-    if (job) await fs.rm(job.samples, { force: true });
+    if (!job) return;
+    this.writing.delete(path.resolve(job.out));
+    await fs.rm(job.samples, { force: true });
   }
 
   /** A finished export's file, to download or compare. */
