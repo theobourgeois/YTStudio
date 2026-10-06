@@ -782,7 +782,7 @@ export class PhotoRenderer {
    */
   async refine(plan: RenderPlan, view: View, target: GPUTexture, isCurrent: () => boolean = () => true): Promise<true | null> {
     await this.compositor.ready;
-    await this.glows.ensure(plan);
+    await this.glows.ensure(plan, isCurrent);
     if (!isCurrent() || this.destroyed) return null;
     const { device } = this;
     const rp = refinePlan(view, plan.canvas, REFINE_REGION);
@@ -916,17 +916,18 @@ export class PhotoRenderer {
    * The document as the screen would show it at `view` (a composite texture the caller destroys): evaluated at
    * the view's level, or refined when it needs to be (the assistant's pictures and covers are what's seen).
    */
-  async renderView(doc: PhotoProject, view: View, options: { refine?: boolean } = {}): Promise<{ texture: GPUTexture; plan: RenderPlan; refined: boolean }> {
+  async renderView(doc: PhotoProject, view: View, options: { refine?: boolean; quick?: boolean } = {}): Promise<{ texture: GPUTexture; plan: RenderPlan; refined: boolean }> {
     await this.compositor.ready;
     const { device } = this;
     const plan = this.planFor(doc);
     const width = Math.max(1, Math.round(view.width));
     const height = Math.max(1, Math.round(view.height));
     const at = { ...view, width, height };
-    await this.glows.ensure(plan);
+    // Quick: the view's own level, as the screen's first response (a thumbnail needs no full-resolution work).
+    if (!options.quick) await this.glows.ensure(plan);
     await this.ensurePatterns(plan);
     const target = compositeTexture(device, width, height, plan.format, "view");
-    const refine = options.refine ?? needsRefinement(plan, view.zoom);
+    const refine = !options.quick && (options.refine ?? needsRefinement(plan, view.zoom));
     if (refine && view.zoom < 1) {
       await this.refine(plan, at, target);
       return { texture: target, plan, refined: true };
@@ -944,12 +945,16 @@ export class PhotoRenderer {
     return { texture: target, plan, refined: false };
   }
 
-  /** The document as a picture `width` wide (Home's cover, the assistant's view, thumbnails), over the checkerboard. */
-  async picture(doc: PhotoProject, width: number, type: "image/jpeg" | "image/png" = "image/jpeg"): Promise<Blob> {
+  /**
+   * The document as a picture `width` wide (Home's cover, the assistant's view, thumbnails), over the checkerboard.
+   * `quick`: evaluated at its own level, never refined and building no glow's cache (the Layers thumbnails, redrawn
+   * while a slider is dragged): a preview, as the screen's first response is.
+   */
+  async picture(doc: PhotoProject, width: number, type: "image/jpeg" | "image/png" = "image/jpeg", options: { quick?: boolean } = {}): Promise<Blob> {
     const zoom = Math.min(1, width / doc.canvas.width);
     const w = Math.max(1, Math.round(doc.canvas.width * zoom));
     const h = Math.max(1, Math.round(doc.canvas.height * zoom));
-    const { texture } = await this.renderView(doc, { zoom, x: 0, y: 0, width: w, height: h });
+    const { texture } = await this.renderView(doc, { zoom, x: 0, y: 0, width: w, height: h }, { quick: options.quick });
     return this.encodePicture(texture, w, h, type, doc.output.highlights);
   }
 

@@ -60,7 +60,7 @@ export function useLayerThumbnail(layer: ContentLayer): string | null {
     ready && !!width && !!height,
     (renderer) => {
       const doc = usePhoto.getState().history?.doc.doc;
-      return doc ? renderer.picture(thumbnailDoc(doc, layer), SIZE) : Promise.resolve(null);
+      return doc ? renderer.picture(thumbnailDoc(doc, layer), SIZE, "image/jpeg", { quick: true }) : Promise.resolve(null);
     },
     [pixels, place, layer.filters, layer.filtersEnabled, width, height],
   );

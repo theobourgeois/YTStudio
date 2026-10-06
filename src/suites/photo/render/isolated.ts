@@ -23,13 +23,21 @@ import { ATLAS, IMAGE_STRUCTS, MASK_SAMPLE, MATHS, imageFunctions } from "./wgsl
 
 const USAGE = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST;
 
+/** Bytes of free scratch textures a pool keeps for reuse; past it, the least recently freed go. */
+const POOL_BUDGET = 256 * 1024 ** 2;
+
+const bytesOf = (t: GPUTexture) => t.width * t.height * (t.format === "rgba32float" ? 16 : 8);
+
 /**
  * Scratch textures by size and format, handed back to the pool once the GPU has done the work submitted after
  * they were taken (every evaluation is submitted in the task that made it, so a timeout's `onSubmittedWorkDone`
- * covers it).
+ * covers it). What's free is held to a byte budget: a radius dragged through many values asks for many sizes, and
+ * keeping each would fill the GPU's memory.
  */
 export class TexturePool {
+  /** Free textures by size and format, least recently freed first (a Map keeps insertion order). */
   private readonly free = new Map<string, GPUTexture[]>();
+  private freeBytes = 0;
   private pending: GPUTexture[] = [];
   private scheduled = false;
   private destroyed = false;
@@ -40,7 +48,9 @@ export class TexturePool {
   take(width: number, height: number, format: PlanFormat, label: string): GPUTexture {
     const w = Math.max(1, Math.ceil(width));
     const h = Math.max(1, Math.ceil(height));
-    const texture = this.free.get(`${w}x${h}|${format}`)?.pop() ?? this.device.createTexture({ label, size: [w, h], format, usage: USAGE });
+    const kept = this.free.get(`${w}x${h}|${format}`)?.pop();
+    if (kept) this.freeBytes -= bytesOf(kept);
+    const texture = kept ?? this.device.createTexture({ label, size: [w, h], format, usage: USAGE });
     this.pending.push(texture);
     if (!this.scheduled) {
       this.scheduled = true;
@@ -60,13 +70,25 @@ export class TexturePool {
     const list = this.free.get(key) ?? [];
     if (list.length >= 3) return t.destroy();
     list.push(t);
+    // Most recently freed last.
+    this.free.delete(key);
     this.free.set(key, list);
+    this.freeBytes += bytesOf(t);
+    for (const [k, old] of this.free) {
+      if (this.freeBytes <= POOL_BUDGET) break;
+      for (const o of old) {
+        this.freeBytes -= bytesOf(o);
+        o.destroy();
+      }
+      this.free.delete(k);
+    }
   }
 
   destroy() {
     this.destroyed = true;
     for (const list of this.free.values()) for (const t of list) t.destroy();
     this.free.clear();
+    this.freeBytes = 0;
   }
 }
 

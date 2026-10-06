@@ -64,11 +64,19 @@ export class GlowCaches {
   private readonly caches = new Map<string, GlowCache>();
   /** Cache keys by `node key # filter index`, for the evaluator's lookups. */
   private readonly keys = new Map<string, string>();
-  private readonly builds = new Map<string, { promise: Promise<GlowCache | null>; pins: number }>();
+  /** Builds under way, and who still wants each: a build stops between regions once none do. */
+  private readonly builds = new Map<string, { promise: Promise<GlowCache | null>; wanters: Set<() => boolean> }>();
   /** What the screen wants built. */
   private wanted = new Set<string>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
+  /** Builds started, finished and given up (the bench's). */
+  readonly stats = { started: 0, built: 0, abandoned: 0 };
+
+  /** How many builds are under way. */
+  get building() {
+    return this.builds.size;
+  }
 
   constructor(private readonly host: GlowHost) {}
 
@@ -136,27 +144,30 @@ export class GlowCaches {
 
   /**
    * Builds every glow of `plan` that isn't (in filter order: a later glow's content reads the earlier one's
-   * cache). `pin`: wanted however the screen changes meanwhile (an export, a refinement). Resolves with whether
-   * anything new was built.
+   * cache). `wanted`: whether the caller still wants it (an export always does; a refinement while it's current):
+   * a build goes on while anyone wants it, or the screen does, and stops between regions otherwise, so a slider
+   * dragged through many values never leaves builds running for the values it passed. `false` is the screen's own
+   * request. Resolves with whether anything new was built.
    */
-  async ensure(plan: RenderPlan, pin = true): Promise<boolean> {
+  async ensure(plan: RenderPlan, wanted: (() => boolean) | false = () => true): Promise<boolean> {
     let any = false;
     for (const g of this.glowsOf(plan)) {
       if (this.caches.has(g.key)) continue;
+      if (wanted && !wanted()) return any;
       let build = this.builds.get(g.key);
       if (!build) {
-        const entry = { promise: Promise.resolve<GlowCache | null>(null), pins: 0 };
-        entry.promise = this.build(plan, g, () => entry.pins > 0 || this.wanted.has(g.key)).finally(() => this.builds.delete(g.key));
+        const entry = { promise: Promise.resolve<GlowCache | null>(null), wanters: new Set<() => boolean>() };
+        entry.promise = this.build(plan, g, () => this.wanted.has(g.key) || [...entry.wanters].some((w) => w())).finally(() => this.builds.delete(g.key));
         this.builds.set(g.key, entry);
         build = entry;
       }
-      if (pin) build.pins++;
+      if (wanted) build.wanters.add(wanted);
       try {
         const cache = await build.promise;
         if (cache) any = true;
-        else if (pin) return any;
+        else if (wanted) return any;
       } finally {
-        if (pin) build.pins--;
+        if (wanted) build.wanters.delete(wanted);
       }
     }
     return any;
@@ -179,11 +190,13 @@ export class GlowCaches {
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
     });
     const region = Math.max(Math.min(BUILD_REGION, this.host.buildRegion()), s);
+    this.stats.started++;
     try {
       for (let y = g.extent.y0; y < g.extent.y1; y += region) {
         for (let x = g.extent.x0; x < g.extent.x1; x += region) {
           if (!wanted() || this.host.compositor() !== compositor) {
             levelTexture.destroy();
+            this.stats.abandoned++;
             return null;
           }
           const box = { x0: x, y0: y, x1: Math.min(x + region, g.extent.x1), y1: Math.min(y + region, g.extent.y1) };
@@ -225,6 +238,7 @@ export class GlowCaches {
       bytes: levelTexture.width * levelTexture.height * (format === "rgba16float" ? 8 : 16),
     };
     this.caches.set(g.key, cache);
+    this.stats.built++;
     this.trim();
     // Whoever asked for it (an export, a thumbnail), the screen may show it: it draws again.
     this.host.built();
