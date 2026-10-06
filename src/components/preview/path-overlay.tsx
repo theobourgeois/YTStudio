@@ -12,7 +12,7 @@
  * shape layer.
  */
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { MASK, SHAPE, addEffect, effectDefinition, isShapeClip, storedValuesAt } from "@shared/effects";
+import { MASK, SHAPE, addEffect, definitionOf, isShapeClip, storedValuesAt } from "@shared/effects";
 import { roundTime } from "@shared/math";
 import { isPath } from "@shared/params";
 import {
@@ -47,7 +47,7 @@ const DRAG_PX = 3;
 export function clipPaths(clip: Clip, time: number): { target: PathTarget; path: BezierPath }[] {
   const out: { target: PathTarget; path: BezierPath }[] = [];
   for (const effect of clip.effects) {
-    const def = effectDefinition(effect.type);
+    const def = definitionOf(effect);
     if (!def) continue;
     const values = storedValuesAt(def, effect, time);
     for (const spec of def.params) {

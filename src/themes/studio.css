@@ -64,6 +64,13 @@
   --ring: #2c67d0;
 
   --brand: #2c67d0;
+  /* The shader editor's code (CodeMirror's highlighting). */
+  --code-keyword: #8b3fc4;
+  --code-type: #1f6fb2;
+  --code-number: #b35a00;
+  --code-comment: #66717d;
+  --code-function: #0b7d6e;
+  --code-macro: #b0306a;
   --brand-foreground: #ffffff;
   --playhead: #e0414d;
   /* Gross Beat's envelopes and slots: time in the accent's blue, volume in orange (FL's green and orange, ours). */
@@ -369,6 +376,13 @@
   --ring: #6aacf0;
 
   --brand: #6aacf0;
+  /* The shader editor's code (CodeMirror's highlighting). */
+  --code-keyword: #c792ea;
+  --code-type: #82aaff;
+  --code-number: #f78c6c;
+  --code-comment: #8a95a3;
+  --code-function: #7fdbca;
+  --code-macro: #ff7eb6;
   --brand-foreground: #0d1117;
   --playhead: #ef4d55;
   --gross-time: #6aacf0;

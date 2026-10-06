@@ -13,7 +13,7 @@ import {
   TEXT,
   VIDEO_EFFECTS,
   VOLUME,
-  effectDefinition,
+  definitionOf,
   clipKind,
   CAMERA,
   MASK,
@@ -36,6 +36,8 @@ import { clipMarkers, sequenceMarkers } from "@shared/markers";
 import { getSequence, sequenceDuration } from "@shared/sequences";
 import { remapSegments } from "@shared/time-remap";
 import { isRemapped } from "@shared/effects";
+import { SHADER_EXAMPLES, problemText, shaderApi } from "@shared/shader-code";
+import { shaderProblems } from "@/lib/shader-compiler";
 import { pathText, range, secs, value } from "./input";
 
 export interface TimelineView {
@@ -130,7 +132,7 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
   }
   const fx: string[] = [];
   for (const effect of clip.effects) {
-    const def = effectDefinition(effect.type);
+    const def = definitionOf(effect);
     if (!def) continue;
     if (def.shader || def.stackable) {
       const summary = effectSummary(def, effect);
@@ -275,6 +277,7 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
         params: Object.fromEntries(Object.entries(e.params).map(([k, v]) => [k, round(v)])),
         ...(e.expressions && { expressions: e.expressions }),
         ...(e.links && { links: e.links }),
+        ...(e.shader && { shader: shaderDetail(e) }),
         ...(e.keyframes && {
           keyframes: Object.fromEntries(
             Object.entries(e.keyframes).map(([k, keys]) => [
@@ -368,7 +371,31 @@ function specLine(spec: ParamSpec): string {
 const matches = (query: string | undefined, ...fields: string[]) =>
   !query || fields.some((f) => f.toLowerCase().includes(query.toLowerCase()));
 
-export type CatalogKind = "video_effects" | "masks_and_shapes" | "text_animators" | "expressions" | "presets" | "transitions" | "clip_properties" | "caption_styles" | "fonts";
+export type CatalogKind =
+  | "video_effects"
+  | "masks_and_shapes"
+  | "text_animators"
+  | "expressions"
+  | "presets"
+  | "transitions"
+  | "clip_properties"
+  | "caption_styles"
+  | "shader_api"
+  | "fonts";
+
+/** A Shader effect for get_clips: its dialect, name, whether it compiles, and its code (to rewrite with set_shader). */
+function shaderDetail(effect: Effect) {
+  const def = definitionOf(effect)!;
+  const problems = shaderProblems(def);
+  return {
+    dialect: effect.shader!.dialect,
+    name: def.label,
+    compiles: problems.length === 0,
+    ...(problems.length && { problems: problems.map(problemText) }),
+    ...(def.shader?.parsed?.notes.length && { notes: def.shader.parsed.notes }),
+    code: effect.shader!.code,
+  };
+}
 
 /** What exists to use (see `get_catalog`). Fonts are passed in (they come from the server). */
 export function describeCatalog(kind: CatalogKind, query?: string, fonts: readonly FontFamily[] = []): string {
@@ -461,6 +488,17 @@ export function describeCatalog(kind: CatalogKind, query?: string, fonts: readon
         ...CAPTION_LENGTHS.map((l) => `  ${l.value}: ${l.hint}`),
         'Animations (spoken-* follow the speech word by word with a text animator; the others are a transition each caption appears with, and any transition type works; or "none"):',
         ...CAPTION_ANIMATIONS.map((a) => `  ${a.type} (${a.label}, ${a.duration}s)`),
+      ].join("\n");
+    case "shader_api":
+      return [
+        "Shaders (set_shader): your own GLSL as a Shader effect, compiled before it's used. Dialects:",
+        ...shaderApi(),
+        "Shaders are drawn at the preview's size and the export's: give sizes as fractions of the frame (uv, or aspect(uv) for square units), never in px.",
+        "Every frame is a pure function of its time and the sound then (there's no last frame to read): trails come from spectrumAgo, motion from time.",
+        "Examples (pass one's code as it is, or start from it):",
+        ...SHADER_EXAMPLES.filter((ex) => matches(query, ex.id, ex.label, ex.description, ex.shader.dialect)).map(
+          (ex) => `--- ${ex.id} (${ex.shader.dialect}): ${ex.description}\n${ex.shader.code.trimEnd()}`,
+        ),
       ].join("\n");
     case "fonts": {
       const found = fonts.filter((f) => matches(query, f.family));

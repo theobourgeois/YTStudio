@@ -3,6 +3,7 @@ import { ExportWindow } from "@/components/export/export-dialog";
 import { VideoSettingsWindow } from "@/components/header/settings-dialog";
 import { SaveToLibraryWindow } from "@/components/library/library-dialogs";
 import { SignalsWindow } from "@/components/signals/signals-window";
+import { ShaderWindow } from "@/components/shader/shader-window";
 import { FloatingPanels } from "@/components/dock/dock-area";
 import { Desktop } from "@/components/windows/floating-window";
 import { panelWindow, useVideoDock } from "@/stores/video-dock";
@@ -24,6 +25,7 @@ export function VideoDesktop() {
       <AutoCaptionsWindow />
       <SaveToLibraryWindow />
       <SignalsWindow />
+      <ShaderWindow />
     </Desktop>
   );
 }

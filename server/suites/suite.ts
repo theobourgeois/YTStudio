@@ -1,3 +1,4 @@
+import type { HandoffMedia, SongHandoff } from "../../shared/handoff.ts";
 import type { SuiteDocument, SuiteId } from "../../shared/suites.ts";
 import type { MediaAsset, SuiteSummaries } from "../../shared/types.ts";
 
@@ -38,6 +39,11 @@ export interface SuiteBackend<S extends SuiteId> {
    */
   normalize(doc: unknown, media: Record<string, MediaAsset>): SuiteDocument<S>;
   stats(doc: SuiteDocument<S>): DocStats<S>;
+  /**
+   * A new document made of what another suite handed over (`shared/handoff.ts`: a song made into a
+   * visualizer), its files already the project's `media`, with the user's `options` (untrusted).
+   */
+  fromHandoff?(handoff: SongHandoff, media: HandoffMedia<MediaAsset>, options: unknown): SuiteDocument<S>;
   /** The document with its media ids replaced (a duplicated project has its own copies of the media). */
   remapMedia(doc: SuiteDocument<S>, ids: ReadonlyMap<string, string>): SuiteDocument<S>;
   /**

@@ -25,7 +25,7 @@ import { pruneParents, sanitizeParent } from "./parenting.ts";
 import { normalizeSubclips } from "./subclips.ts";
 import { sanitizeTransition } from "./transitions.ts";
 import { canNestIn, getSequence, isSequenceId, sequenceView, writeSequence } from "./sequences.ts";
-import type { Clip, MediaAsset, Project, ProjectSettings, Sequence, Track, TrackKind } from "./types.ts";
+import type { Clip, MediaAsset, Project, ProjectSettings, Sequence, SongTempo, Track, TrackKind } from "./types.ts";
 
 /** Clips saved before effects existed kept their volume and framing on the clip. */
 type LegacyClip = { volume?: unknown; fit?: unknown };
@@ -69,6 +69,7 @@ export function normalizeProject(input: Project, assets?: Assets): Project {
   const subclips = normalizeSubclips(input?.subclips, assets);
   const markers = normalizeMarkers(input?.markers, 0);
   const signals = normalizeSignalDefs(input?.signals);
+  const tempo = normalizeSongTempo(input?.tempo);
   const project: Project = {
     version: 1,
     name: typeof input?.name === "string" && input.name ? input.name : base.name,
@@ -78,9 +79,28 @@ export function normalizeProject(input: Project, assets?: Assets): Project {
     ...(markers.length > 0 && { markers }),
     ...(subclips.length > 0 && { subclips }),
     ...(signals.length > 0 && { signals }),
+    ...(tempo && { tempo }),
     ...(sequences.length > 0 && { sequences }),
   };
   return withoutLoops(project);
+}
+
+/** Beats a song's tempo keeps at most (an hour at 300 BPM). */
+export const MAX_SONG_BEATS = 18_000;
+
+/** A song's beat (`Project.tempo`) from untrusted storage, or undefined if it isn't one. */
+export function normalizeSongTempo(raw: unknown): SongTempo | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const v = raw as Partial<Record<keyof SongTempo, unknown>>;
+  const assetIds = Array.isArray(v.assetIds) ? [...new Set(v.assetIds.filter((id): id is string => typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id)))].slice(0, 64) : [];
+  const beats: number[] = [];
+  for (const t of Array.isArray(v.beats) ? v.beats.slice(0, MAX_SONG_BEATS) : []) {
+    // In order, a millisecond apart at least.
+    if (isFiniteNumber(t) && t >= 0 && (!beats.length || t > beats[beats.length - 1] + 0.001)) beats.push(Math.round(t * 1e4) / 1e4);
+  }
+  if (!assetIds.length || beats.length < 2) return undefined;
+  const beatsPerBar = isFiniteNumber(v.beatsPerBar) ? clamp(Math.round(v.beatsPerBar), 1, 32) : 4;
+  return { assetIds, beatsPerBar, beats };
 }
 
 type Assets = Record<string, Pick<MediaAsset, "kind" | "duration" | "hasVideo" | "hasAudio">>;

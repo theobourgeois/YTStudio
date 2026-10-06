@@ -92,6 +92,8 @@ interface PageApi {
   check(job: CheckJob): CheckResult[];
   effects(job: EffectJob): { sheet: string; results: EffectResult[] };
   layers(job: LayersJob): { sheet: string; results: LayersResult[] };
+  /** Compile fragment shaders by key: the logs of those that don't. */
+  compile(sources: Record<string, string>): Record<string, string>;
 }
 
 /** What the page needs for its next frame. */
@@ -366,6 +368,17 @@ function pageScript(): string {
           }
         });
       },
+      compile(sources) {
+        const failed: Record<string, string> = {};
+        for (const [key, source] of Object.entries(sources)) {
+          const s = gl.createShader(gl.FRAGMENT_SHADER)!;
+          gl.shaderSource(s, source);
+          gl.compileShader(s);
+          if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) failed[key] = gl.getShaderInfoLog(s) || "It doesn't compile.";
+          gl.deleteShader(s);
+        }
+        return failed;
+      },
       effects(job) {
         const { width: cw, height: ch } = job.cell;
         compositor.resize(cw, ch);
@@ -600,6 +613,11 @@ export class GlSession {
   async effects(job: EffectJob): Promise<{ sheet: Buffer; results: EffectResult[] }> {
     const { sheet, results } = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.effects(j), job);
     return { sheet: Buffer.from(sheet.slice(sheet.indexOf(",") + 1), "base64"), results };
+  }
+
+  /** Compile fragment shaders (by key) as the export's page does: the logs of those that don't. */
+  async compile(sources: Record<string, string>): Promise<Record<string, string>> {
+    return this.page.evaluate((s) => (globalThis as unknown as PageGlobals).compositor.compile(s), sources);
   }
 
   async close() {

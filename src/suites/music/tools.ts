@@ -17,14 +17,16 @@ import { PRO_C_PLUGIN } from "@shared/music/pro-c-presets";
 import { PANMAN_PLUGIN } from "@shared/music/panman-presets";
 import { PITCH_WHEEL_PLUGIN } from "@shared/music/pitch-wheel-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
-import { getMixerTrack, pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
+import { getMixerTrack, pasteTrackState, setEffect, trackName, trackState } from "@shared/music/mixer";
+import { visualizerSources } from "@shared/music/visualizer";
+import { VISUALIZER_ASPECTS, VISUALIZER_FPS, VISUALIZER_LOOKS, type VisualizerOptions } from "@shared/handoff";
 import { EXPORT_FORMATS, type ExportFormat, type ExportSettings } from "@shared/music/export";
 import type { PluginPresets } from "@shared/music/engine";
 import type { MusicToolName } from "@shared/music/tools";
 import { KIT_SOUNDS } from "@shared/music/tools";
 import type { MusicProject } from "@shared/music/types";
 import { type ToolResult, textResult } from "@shared/tool-spec";
-import type { MediaAsset } from "@shared/types";
+import type { AspectRatio, MediaAsset, SignalRole } from "@shared/types";
 import { api } from "@/lib/api";
 import { FILE_MANAGER, keyLabel } from "@/lib/key-labels";
 import type { ToolRunContext } from "../types";
@@ -64,6 +66,7 @@ import { midiTarget, useMidi } from "./midi";
 import { bounceClips } from "./playlist/bounce";
 import { inputChoices, inputKey, useInputs } from "./inputs";
 import { findEffect, inputText } from "./mixer/tool-edits";
+import { useVisualizer } from "./visualizer/store";
 import { COUNT_IN_BARS, countInBars, useMusicPreferences } from "./preferences";
 import { addAudioClips, clipContext } from "@shared/music/playlist";
 import {
@@ -891,6 +894,51 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           ? `The mix peaks ${job.peakDb.toFixed(1)} dB over full scale (too hot): every file was turned down ${(-job.gainDb).toFixed(1)} dB so it doesn't clip. Suggest bringing the master or the loudest channels down.`
           : `The mix peaks ${job.peakDb.toFixed(1)} dB over full scale, so the files clip. Suggest bringing the master or the loudest channels down.`,
       );
+    if (job.missing.length) lines.push(`Not heard (their plugin or sample couldn't be loaded): ${job.missing.join(", ")}.`);
+    return textResult(lines.join("\n"));
+  },
+  async make_visualizer(input, ctx) {
+    const target = await targetOf(ctx);
+    // The engine has the open song's plugins: only it can be rendered.
+    requireOpen(target, "Making a visualizer");
+    const store = useVisualizer.getState();
+    const video: Partial<VisualizerOptions> = {};
+    if (input.look !== undefined) {
+      if (!VISUALIZER_LOOKS.some((l) => l.id === input.look)) throw new Error(`"look" must be one of: ${VISUALIZER_LOOKS.map((l) => l.id).join(", ")}.`);
+      video.look = input.look as VisualizerOptions["look"];
+    }
+    if (input.aspectRatio !== undefined) {
+      if (!VISUALIZER_ASPECTS.includes(input.aspectRatio as AspectRatio)) throw new Error(`"aspectRatio" must be one of: ${VISUALIZER_ASPECTS.join(", ")}.`);
+      video.aspectRatio = input.aspectRatio as AspectRatio;
+    }
+    if (input.fps !== undefined) {
+      if (!(VISUALIZER_FPS as readonly unknown[]).includes(input.fps)) throw new Error(`"fps" must be ${VISUALIZER_FPS.join(" or ")}.`);
+      video.fps = input.fps as number;
+    }
+    const song = target.song;
+    const sources = visualizerSources(song, target.patternId);
+    const stems = input.stems === undefined ? undefined : (input.stems as unknown[]).map((ref) => findTrack(song, ref).id);
+    const unknownStem = stems?.find((id) => !sources.stems.some((s) => s.trackId === id));
+    if (unknownStem)
+      throw new Error(`Mixer track "${trackName(song, unknownStem)}" has no sound of its own to make a stem of. The tracks with sound: ${sources.stems.map((s) => s.name).join(", ") || "none"}.`);
+    const channels = input.channels === undefined ? undefined : (input.channels as unknown[]).map((ref) => findChannel(song, ref).id);
+    const roles: Record<string, SignalRole | "none"> = {};
+    for (const entry of (input.roles as { ref: unknown; role: SignalRole | "none" }[] | undefined) ?? []) {
+      const id = song.channels.find((c) => c.id === entry.ref || c.name.toLowerCase() === String(entry.ref).trim().toLowerCase())?.id ?? findTrack(song, entry.ref).id;
+      roles[id] = entry.role;
+    }
+    if (Object.keys(video).length) store.setVideo(video);
+    const job = await store.run({ ...(stems && { stems }), ...(channels && { channels }), roles }, input.open === true);
+    if (job.state === "failed") throw new Error(`Making the visualizer failed: ${job.error ?? "no reason given"}.`);
+    if (job.state === "aborted" || !job.project) return textResult("Making the visualizer was stopped before it finished.");
+    const chosen = { ...store.choiceFor(sources), ...(stems && { stems }), ...(channels && { channels }) };
+    const lines = [
+      `Made the video ${job.project.id} "${job.project.name}" (${useVisualizer.getState().video.look} look, ${useVisualizer.getState().video.aspectRatio}): the mix, ` +
+        `${chosen.stems.length} stem${chosen.stems.length === 1 ? "" : "s"} (${sources.stems.filter((s) => chosen.stems.includes(s.trackId)).map((s) => s.name).join(", ") || "none"}), ` +
+        `the notes of ${chosen.channels.length} channel${chosen.channels.length === 1 ? "" : "s"} as hits, its exact beat and its arrangement as markers.`,
+      input.open === true ? "It's open in the editor now." : "It's among the user's projects, on Home; they can open it from there.",
+    ];
+    if (sources.direct.length) lines.push(`No stem of their own (they play straight into the master): ${sources.direct.join(", ")}.`);
     if (job.missing.length) lines.push(`Not heard (their plugin or sample couldn't be loaded): ${job.missing.join(", ")}.`);
     return textResult(lines.join("\n"));
   },
