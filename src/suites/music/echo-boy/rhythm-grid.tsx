@@ -12,7 +12,7 @@ const HEIGHT = 76;
 /**
  * Rhythm Echo's editor (`docs/soundtoys/echoboy-manual.md`, Editing taps): its taps as bars, left to
  * right in time, their height their level; the "One" (a tap on beat one) yellow. A click adds a tap on
- * the nearest grid line; a tap dragged moves on the grid (⌘ or ⇧: off it, its place and level read out)
+ * the nearest grid line; a tap dragged moves on the grid (Ctrl, ⌘ or ⇧: off it, its place and level read out)
  * and up and down; ⌥-click or right-click deletes one; a click on the left edge puts the One back. Taps
  * past what the delay holds at this tempo are grey and silent. Bars show each tap's level, and inside it,
  * brighter, what Shape makes it.
@@ -62,7 +62,7 @@ export function RhythmGrid({ effectId, eb }: { effectId: string; eb: EchoBoy }) 
           if (index === null) {
             // The left edge: the One back; elsewhere, a tap.
             if (x <= EDGE) commit((taps) => addTap(taps, 0, 1));
-            else commit((taps) => addTap(taps, placeBeat(box, x, r.grid, e.metaKey || e.shiftKey), yLevel(box, y)));
+            else commit((taps) => addTap(taps, placeBeat(box, x, r.grid, e.metaKey || e.ctrlKey || e.shiftKey), yLevel(box, y)));
             return;
           }
           const base = r.taps;
@@ -72,7 +72,7 @@ export function RhythmGrid({ effectId, eb }: { effectId: string; eb: EchoBoy }) 
             onStart: () => gesture.begin(),
             onMove: (ev) => {
               const p = local(ev);
-              const free = ev.metaKey || ev.shiftKey;
+              const free = ev.metaKey || ev.ctrlKey || ev.shiftKey;
               const beat = placeBeat(box, p.x, r.grid, free);
               const level = yLevel(box, p.y);
               gesture.apply((s) => updateRhythm(s, effectId, (rr) => editTaps(rr, moveTap(base, index, beat, level))));

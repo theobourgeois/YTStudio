@@ -37,7 +37,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { useSourceStates } from "../live";
-import { usePhoto, usePhotoDoc } from "../store";
+import { usePhoto, usePhotoDoc, useSelection } from "../store";
+import { editActions } from "../edit-actions";
 import { layerActions } from "../layer-actions";
 import { clickLayer } from "../selection";
 import { usePhotoUi } from "../ui";
@@ -207,6 +208,7 @@ function LayersMenu({ count }: { count: number }) {
   const total = usePhotoDoc((d) => d.layers.length);
   const activeId = usePhotoUi((s) => s.selectedLayerId);
   const active = usePhotoDoc((d) => d.layers.find((l) => l.id === activeId));
+  const selection = useSelection();
   const mod = MAC ? "⌘" : "Ctrl+";
   const alt = MAC ? "⌥" : "Alt+";
   return (
@@ -218,6 +220,14 @@ function LayersMenu({ count }: { count: number }) {
       {active && !active.mask && <ContextMenuItem onSelect={() => void layerActions.addMask()}>Add Layer Mask</ContextMenuItem>}
       {active?.mask && <ContextMenuItem onSelect={() => layerActions.deleteMask()}>Delete Layer Mask</ContextMenuItem>}
       {active?.kind === "image" && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Convert to Pixels</ContextMenuItem>}
+      <ContextMenuItem disabled={!selection || !active || active.kind === "adjustment"} onSelect={() => void editActions.layerVia(false)}>
+        Layer via Copy
+        <ContextMenuShortcut>{mod}J</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem disabled={!selection || active?.kind !== "pixel"} onSelect={() => void editActions.layerVia(true)}>
+        Layer via Cut
+        <ContextMenuShortcut>⇧{mod}J</ContextMenuShortcut>
+      </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem disabled={count === 0} onSelect={layerActions.duplicate}>
         {count > 1 ? "Duplicate Layers" : "Duplicate Layer"}

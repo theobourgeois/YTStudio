@@ -11,7 +11,7 @@ export interface FontChoice {
 }
 
 const SANS_FALLBACK = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
-const MONO_FALLBACK = 'ui-monospace, "SF Mono", Menlo, monospace';
+const MONO_FALLBACK = 'ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, monospace';
 
 /** The interface's font (Tailwind's `font-sans`). The first is the default (`@theme` in `index.css`). */
 export const FONTS: FontChoice[] = [

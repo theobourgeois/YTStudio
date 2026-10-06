@@ -8,6 +8,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFileDrop, useFilesDragged } from "@/hooks/use-file-drop";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { FILE_MANAGER } from "@/lib/key-labels";
 import { useLayout } from "@/stores/layout";
 import { tabsVisible } from "@/stores/project-tabs";
 import { projectSuite, useProjects } from "@/stores/projects";
@@ -200,7 +201,7 @@ function ProjectTab({ id, selected, strip }: { id: string; selected: boolean; st
           Close other tabs
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => void useProjects.getState().reveal(id)}>Show in Finder</ContextMenuItem>
+        <ContextMenuItem onSelect={() => void useProjects.getState().reveal(id)}>Show in {FILE_MANAGER}</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );

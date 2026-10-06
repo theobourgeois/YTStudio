@@ -42,9 +42,13 @@ FL's Audio tab. ⌘, opens it on the tab of the app you're in. Like FL's, it flo
 stopping it (a song keeps playing, the timeline can be clicked), is dragged, resized and maximised as any
 window (`docs/windows.md`), and keys pressed in it are its own (Space doesn't play).
 
-- **Audio** is what the engine can change: the output device, the buffer length and the sample rate,
-  with the latency the device reports. No input device, auto close, ASIO panel or the underrun options
-  yet.
+- **Audio** is what the engine can change: the **driver** (on Windows ASIO, Windows Audio shared,
+  exclusive or low latency, DirectSound), the output and input devices, the buffer length and the sample
+  rate, with the latency the device reports. On Windows the engine starts on an audio interface's own
+  ASIO driver when one is installed and none was chosen (never a generic one: FL Studio ASIO, ASIO4ALL),
+  at 256 samples; an ASIO driver is one device both ways, its inputs with it. **ASIO panel** is FL's
+  Show ASIO panel. A **Recording offset** (Ableton's Driver Error Compensation; FL has none) moves takes
+  by what a driver doesn't report. No auto close or the underrun options yet.
 - The engine's state, a test tone, the plugin scan and the plugin bench sit below it (FL keeps plugin
   folders and scanning in the Plugin manager, a window of its own; we have no Plugin manager yet).
 - Themes and the interface's fonts are the app's (General), not the music editor's: the same themes

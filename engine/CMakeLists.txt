@@ -60,4 +60,20 @@ target_link_libraries(
   PRIVATE juce::juce_audio_utils juce::juce_audio_processors juce::juce_audio_devices juce::juce_dsp signalsmith-stretch
   PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
+# ASIO on Windows: what FL Studio and every DAW there play through. Windows' own audio (WASAPI's shared
+# mode) mixes every app's sound through its engine, which adds latency nobody reports (takes recorded
+# late), resamples, runs the system's "enhancements", and clocks a USB interface's input and output
+# apart (crackles while recording). An interface's ASIO driver talks to it directly. Steinberg's SDK
+# (GPLv3 or their licence) is fetched, not kept here; JUCE only needs its headers.
+if(WIN32)
+  FetchContent_Declare(
+    asiosdk
+    URL https://download.steinberg.net/sdk_downloads/ASIO-SDK_2.3.4_2025-10-15.zip
+    URL_HASH SHA256=d5ebf0c20dd2c5f43771fd0c1418f4b361bf52434ee670097cfa6b3a335e2eca
+    DOWNLOAD_EXTRACT_TIMESTAMP ON)
+  FetchContent_MakeAvailable(asiosdk)
+  target_include_directories(VaudioEngine PRIVATE ${asiosdk_SOURCE_DIR}/common)
+  target_compile_definitions(VaudioEngine PRIVATE JUCE_ASIO=1)
+endif()
+
 add_subdirectory(test-plugin)

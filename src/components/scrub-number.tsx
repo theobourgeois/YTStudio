@@ -1,6 +1,36 @@
+/**
+ * Premiere's "scrubby" numbers, for every suite: a value dragged sideways, clicked to type, stepped with the arrows,
+ * and how a number is shown and read back (its range, step, decimals and unit).
+ */
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { cn } from "cn";
-import { type NumberDisplay, formatShown, parseShown, roundShown } from "./display";
+
+/** How a number is shown and edited: its range, step and decimals in the units shown, and the unit. */
+export interface NumberDisplay {
+  min: number;
+  max: number;
+  step: number;
+  decimals: number;
+  unit?: string;
+}
+
+/** Round to the shown decimals (and never show "-0"). */
+export function roundShown(value: number, decimals: number): number {
+  const f = 10 ** decimals;
+  return Math.round(value * f) / f + 0;
+}
+
+export function formatShown(value: number, decimals: number): string {
+  return roundShown(value, decimals).toFixed(decimals);
+}
+
+/** Parse typed text (a plain number, commas allowed as decimal point); null when it isn't one. */
+export function parseShown(text: string): number | null {
+  const cleaned = text.trim().replace(/,/g, ".").replace(/[^\d.+\-eE]/g, "");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
 
 /** Pixels the pointer must travel before a press becomes a scrub. */
 const SCRUB_THRESHOLD = 3;

@@ -7,15 +7,14 @@
  */
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
-import { PiImage, PiWarningCircle } from "react-icons/pi";
+import { PiWarningCircle } from "react-icons/pi";
 import { createId } from "@shared/ids";
 import { duplicateLayers } from "@shared/photo/edits";
 import { srgbToLinear } from "@shared/photo/colour";
 import { fitView, panBy, viewToDoc, zoomAbout } from "@shared/photo/geometry";
 import { contains } from "@shared/photo/layers";
 import { rectSelection } from "@shared/photo/selection";
-import { CANVAS_PRESETS, type LayerTransform, type PhotoLayer, type PhotoProject, type PlacedLayer, isPlaced } from "@shared/photo/types";
-import { Button } from "@/components/ui/button";
+import { type LayerTransform, type PhotoLayer, type PhotoProject, type PlacedLayer, isPlaced } from "@shared/photo/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { liveRenderer, useRenderState } from "../live";
 import { usePhotoPreferences } from "../preferences";
@@ -41,6 +40,18 @@ import { type Box, type Guide, snapTargets } from "./snap";
 /** The driver of the canvas on screen (the bench and the keys reach it here). */
 let driver: CanvasDriver | null = null;
 export const canvasDriver = () => driver;
+
+/** The canvas's box on the page while it's shown (where things dropped on it land). */
+let stage: HTMLDivElement | null = null;
+
+/** The document point under a point of the page, or null when it isn't over the canvas. */
+export function canvasPointAt(clientX: number, clientY: number): { x: number; y: number } | null {
+  const view = usePhotoUi.getState().view;
+  if (!stage || !view) return null;
+  const r = stage.getBoundingClientRect();
+  if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null;
+  return viewToDoc(view, (clientX - r.left) * devicePixelRatio, (clientY - r.top) * devicePixelRatio);
+}
 
 /**
  * An element's background as linear light: painted into a 1×1 canvas so any colour syntax a theme uses (hex,
@@ -79,7 +90,8 @@ export function CanvasPanel() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [renderer, setRenderer] = useState<PhotoRenderer | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  const empty = usePhotoDoc((d) => d.layers.length === 0);
+  const canvasWidth = usePhotoDoc((d) => d.canvas.width);
+  const canvasHeight = usePhotoDoc((d) => d.canvas.height);
   const tool = useActiveTool();
 
   // The open photo's renderer, drawing on this canvas while it's shown.
@@ -118,6 +130,7 @@ export function CanvasPanel() {
   // The canvas follows its box, in device pixels; the first size fits the document.
   useEffect(() => {
     const holder = holderRef.current!;
+    stage = holder;
     const resize = () => {
       const r = holder.getBoundingClientRect();
       const width = Math.max(1, Math.round(r.width * devicePixelRatio));
@@ -131,8 +144,20 @@ export function CanvasPanel() {
     const observer = new ResizeObserver(resize);
     observer.observe(holder);
     resize();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (stage === holder) stage = null;
+    };
   }, []);
+
+  // A canvas of another size (an image opened as it, a preset, undone) is fitted again.
+  const sized = useRef(`${canvasWidth}x${canvasHeight}`);
+  useEffect(() => {
+    const key = `${canvasWidth}x${canvasHeight}`;
+    if (sized.current === key) return;
+    sized.current = key;
+    fitToCanvas();
+  }, [canvasWidth, canvasHeight]);
 
   // The wheel pans; with ⌘/Ctrl (a trackpad's pinch) or Alt it zooms about the pointer.
   useEffect(() => {
@@ -169,7 +194,7 @@ export function CanvasPanel() {
       return;
     }
     if (tool === "marquee") return selectRect(e);
-    if (tool === "brush") return paint(e);
+    if (tool === "brush" || tool === "eraser") return paint(e, tool === "eraser");
     // Move: with Auto-select (⌘ for the opposite), the layer under the pointer is picked first, as Photoshop's;
     // Shift adds it to the selection (or takes it out). A press on nothing (outside the selected layers' box)
     // selects nothing, or draws a marquee that selects the layers it touches. The drag moves the selected images.
@@ -301,11 +326,11 @@ export function CanvasPanel() {
   };
 
   /**
-   * The Brush: paints the active layer's target (its pixels or its mask) along the pointer, limited by the
-   * selection, as one undo step when it's let go; Escape drops it. An image asks first (a new paint layer, or
-   * convert it to pixels); an adjustment paints its mask, given one.
+   * The Brush and the Eraser (`erase`): paint the active layer's target (its pixels or its mask) along the pointer,
+   * limited by the selection, as one undo step when it's let go; Escape drops it. An image asks first (a new paint
+   * layer, or convert it to pixels); an adjustment paints its mask, given one.
    */
-  const paint = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const paint = (e: ReactPointerEvent<HTMLDivElement>, erase: boolean) => {
     const doc = usePhoto.getState().history!.doc.doc;
     const ui = usePhotoUi.getState();
     if (!renderer) return;
@@ -316,7 +341,7 @@ export function CanvasPanel() {
       usePhoto.getState().commit((d) => setMask(d, target.layerId, null));
       ui.setTarget("mask");
     }
-    const stroke = new StrokeController(renderer, target.layerId, target.part, currentSelection());
+    const stroke = new StrokeController(renderer, target.layerId, target.part, currentSelection(), erase);
     stroke.add([docPoint(e.clientX, e.clientY)]);
     startPointerDrag(e, {
       threshold: 0,
@@ -357,7 +382,7 @@ export function CanvasPanel() {
         ref={holderRef}
         className={cn(
           "relative min-h-0 flex-1 overflow-hidden touch-none",
-          tool === "hand" ? "cursor-grab" : tool === "zoom" ? "cursor-zoom-in" : tool === "marquee" ? "cursor-crosshair" : tool === "brush" ? "cursor-none" : "cursor-default",
+          tool === "hand" ? "cursor-grab" : tool === "zoom" ? "cursor-zoom-in" : tool === "marquee" ? "cursor-crosshair" : tool === "brush" || tool === "eraser" ? "cursor-none" : "cursor-default",
         )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -373,7 +398,7 @@ export function CanvasPanel() {
         {renderer && <SnapGuides />}
         {renderer && <Marquee />}
         {renderer && <SelectionAnts />}
-        {renderer && tool === "brush" && <BrushCursor />}
+        {renderer && (tool === "brush" || tool === "eraser") && <BrushCursor />}
         {failure && (
           <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-white/80">
             <div className="flex max-w-sm flex-col items-center gap-2">
@@ -382,7 +407,6 @@ export function CanvasPanel() {
             </div>
           </div>
         )}
-        {empty && !failure && <StartCard />}
       </div>
       <StatusBar renderer={renderer} />
     </div>
@@ -613,55 +637,6 @@ function SnapGuides() {
         ),
       )}
     </svg>
-  );
-}
-
-/** An empty photo: open an image as the canvas, or pick a size (ux.md, "New photo"). */
-function StartCard() {
-  const input = useRef<HTMLInputElement>(null);
-  const canvas = usePhotoDoc((d) => d.canvas);
-  const choose = (width: number, height: number) =>
-    usePhoto.getState().commit((d) => (d.canvas.width === width && d.canvas.height === height ? d : { ...d, canvas: { ...d.canvas, width, height } }));
-  return (
-    <div className="absolute inset-0 grid place-items-center p-6">
-      <div className="floating flex w-96 flex-col gap-3 rounded-lg bg-surface-1 p-4 text-sm" data-start-card onPointerDown={(e) => e.stopPropagation()}>
-        <p className="font-medium">Start with an image, or a size</p>
-        <Button size="sm" onClick={() => input.current?.click()}>
-          <PiImage /> Open an image…
-        </Button>
-        <input
-          ref={input}
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          className="hidden"
-          data-start-input
-          onChange={(e) => {
-            const files = [...(e.target.files ?? [])];
-            e.target.value = "";
-            void usePhoto.getState().placeFiles(files, { asCanvas: true }).then(() => fitToCanvas());
-          }}
-        />
-        <div className="grid grid-cols-2 gap-1.5">
-          {CANVAS_PRESETS.map((p) => (
-            <Button
-              key={p.id}
-              size="sm"
-              className="justify-between"
-              variant={canvas.width === p.width && canvas.height === p.height ? "secondary" : "outline"}
-              onClick={() => {
-                choose(p.width, p.height);
-                requestAnimationFrame(fitToCanvas);
-              }}
-            >
-              {p.label}
-              <span className="text-[11px] text-muted-foreground tabular-nums">
-                {p.width}×{p.height}
-              </span>
-            </Button>
-          ))}
-        </div>
-      </div>
-    </div>
   );
 }
 

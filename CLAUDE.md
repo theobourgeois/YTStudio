@@ -244,7 +244,9 @@ electron/          The desktop app (Vaudio). main.ts: runs the server (electron/
                      window of ours under it (the main window's toolbar shows hover while a panel is in use).
                      gl-window.ts: the export's compositor page in a hidden window (`setGlPageOpener`), so no Playwright.
                      shell-path.ts: the login shell's PATH (Finder-launched apps get a bare one). preload.ts only marks
-                     the page (`html.desktop`: drag regions, room for the window buttons in src/index.css).
+                     the page (`html.desktop`: drag regions, room for the window buttons in src/index.css). On
+                     Windows the window has no system title bar or menu bar: its buttons are the system's, drawn over
+                     the page's top-right corner (`titleBarOverlay`), in the colours preload.ts reads off the bar there.
                      scripts/desktop.ts bundles it with esbuild: the packaged app ships no node_modules.
 src/
   suites/            Each suite in the tab (ClientSuite): open/close its store, its Workspace, Home card line, the
@@ -368,6 +370,8 @@ extension** (Node ESM through tsx).
   `ProjectSummary` is a union on `suite`: common fields plus the suite's own (`SuiteSummaries`).
   A suite's preferences for new projects, kept in the tab (music's default tempo), go with it as `options`
   (`ClientSuite.newProjectOptions` → `SuiteBackend.withOptions`, applied to a copy of the starting point too).
+  A suite can ask first (`ClientSuite.NewProject`, photo's New photo window): New opens it on the app's desktop
+  (`useProjects.choosing`) and its choices become the `options`; closing it makes nothing.
 - Everything suite-agnostic goes through the registries, keyed by `SuiteId` so TypeScript insists on every suite:
   `SUITES` + `SuiteDocuments` (`shared/suites.ts`), `SUITE_TOOLS` (`shared/suite-tools.ts`), `suiteBackend`
   (`server/suites/`) and `clientSuite` (`src/suites/`). Don't branch on a suite id anywhere else.
@@ -852,8 +856,16 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   they hide with the main window and move with it. The engine says when one of its windows is used (`EngineEvent`
   "editorFocus", and "foreground": the engine became the app in front) and raises one on request (`raiseEditor`;
   a request's parameters are flattened into the message with `id` and `cmd`, so a parameter can't be called `id`);
-  `electron/stacking.ts` keeps the order of all of them and puts it back after the app was away.
-- Keep it portable (Windows is planned): only JUCE's APIs, no macOS calls of our own, paths from the server.
+  `electron/stacking.ts` keeps the order of all of them and puts it back after the app was away. **On Windows**
+  there are no levels: the desktop app sends its main window's HWND (`HostWindow.handle`), and plugin windows
+  become that window's owned windows (`setWindowOwner` in `MacWindow.cpp`, the engine's one platform file): above
+  it, not above other programs, minimised with it, no taskbar button (`EditorWindow::getDesktopWindowStyleFlags`).
+- Keep it portable (it runs on Windows too): only JUCE's APIs, no macOS calls of our own, paths from the server.
+  On Windows it's built with ASIO (Steinberg's SDK, fetched by CMake) and, until a device is chosen in
+  Settings (`vaudioChosen` in its `device.xml`), opens an audio interface's own ASIO driver (`openDefaultDevice`):
+  Windows' shared audio underreports its latency (takes land late) and clocks a USB interface's input apart
+  from its output (crackles). Windows' drivers count the buffer in their output latency, Core Audio's
+  doesn't (`outputLatency`).
 - It's an app bundle (plugin windows need one) with no Dock icon, shipped in the desktop app's resources.
   The desktop app isn't signed, so loading other people's plugins needs nothing; once it's signed with the
   hardened runtime, the engine needs the `com.apple.security.cs.disable-library-validation` entitlement.

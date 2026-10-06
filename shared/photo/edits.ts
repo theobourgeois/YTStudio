@@ -282,22 +282,31 @@ export function setCanvas(doc: PhotoProject, patch: Partial<PhotoCanvas>, anchor
   return { ...doc, canvas: { width, height, background }, layers };
 }
 
+export interface NewPixelLayer {
+  id: string;
+  name?: string;
+  /** Its pixels (a paste's, a Layer via Copy's); a new layer has none. */
+  surface?: SurfaceId | null;
+  size?: { width: number; height: number };
+  transform?: LayerTransform;
+}
+
 /**
- * A new, empty pixel layer (Photoshop's New Layer, ⇧⌘N): the canvas's size at 100% over it, right above `above`
- * (an id), or on top.
+ * A new pixel layer right above `above` (an id), or on top: empty, the canvas's size at 100% over it (Photoshop's
+ * New Layer, ⇧⌘N), or with pixels of its own where they're given (a paste).
  */
-export function addPixelLayer(doc: PhotoProject, layer: { id: string; name?: string }, above?: string | null): PhotoProject {
+export function addPixelLayer(doc: PhotoProject, layer: NewPixelLayer, above?: string | null): PhotoProject {
   if (findLayer(doc, layer.id)) return doc;
-  const { width, height } = doc.canvas;
+  const { width, height } = layer.size ?? doc.canvas;
   const added: PixelLayer = {
     id: layer.id,
     kind: "pixel",
     name: layer.name?.trim() || nextLayerName(doc),
     visible: true,
     opacity: 1,
-    surface: null,
+    surface: layer.surface ?? null,
     size: { width, height },
-    transform: { x: width / 2, y: height / 2, scaleX: 1, scaleY: 1, rotation: 0 },
+    transform: layer.transform ?? { x: width / 2, y: height / 2, scaleX: 1, scaleY: 1, rotation: 0 },
   };
   const layers = [...doc.layers];
   const at = above ? layers.findIndex((l) => l.id === above) : -1;

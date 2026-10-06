@@ -51,8 +51,8 @@ export function useProjectShortcuts() {
         e.stopPropagation();
         const { openId, closeTab } = useProjects.getState();
         if (!e.repeat && openId) void closeTab(openId);
-      } else if ((e.code === "BracketRight" || e.code === "BracketLeft") && e.shiftKey && e.metaKey) {
-        // Chrome's and Safari's keys for the next and previous tab.
+      } else if ((e.code === "BracketRight" || e.code === "BracketLeft") && e.shiftKey && (e.metaKey || (MOD !== "⌘" && e.ctrlKey))) {
+        // Chrome's and Safari's keys for the next and previous tab (Ctrl+Shift+[ / ] off a Mac).
         e.preventDefault();
         e.stopPropagation();
         void useProjects.getState().cycleTab(e.code === "BracketRight" ? 1 : -1);

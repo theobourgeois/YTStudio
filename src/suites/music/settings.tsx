@@ -6,6 +6,9 @@ import { STRETCH_MODES } from "@shared/music/types";
 import { SettingsGroup, SettingsRow } from "@/components/settings/settings-ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { IS_MAC } from "@/lib/key-labels";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { HearingSettings, HearingCapabilities } from "@shared/music/audio-intelligence/hearing";
 import { request } from "@/lib/api";
 import { useMusic } from "./store";
@@ -139,10 +142,45 @@ function DeviceSettings() {
   // Core Audio offers every size in steps of 32: the powers of two are the ones anyone picks.
   const bufferSizes = devices.bufferSizes.filter((size) => (size & (size - 1)) === 0 || size === status.bufferSize);
   const bufferMs = status.sampleRate > 0 ? (status.bufferSize / status.sampleRate) * 1000 : 0;
+  // ASIO's driver is one device both ways (FL's Device list): its inputs come with it.
+  const oneDevice = devices.separateInputs === false;
+  const inputs = oneDevice ? (devices.output ? [devices.output] : []) : devices.inputs;
+  const types = devices.types ?? [];
+  const showControlPanel = () => void musicApi.deviceControlPanel().catch((err) => setError(errorMessage(err)));
   return (
     <>
     <SettingsGroup title="Audio" description="Where the sound goes, and what's recorded. The engine plays through these devices whichever song is open." data-testid="device-settings">
-      <SettingsRow title="Output device">
+      {types.length > 1 && (
+        <SettingsRow
+          title="Driver"
+          description={
+            devices.type === "ASIO"
+              ? "ASIO talks to your audio interface directly, as FL Studio does: the lowest latency, and recordings that land on the beat."
+              : types.includes("ASIO")
+                ? <span className="text-amber-600 dark:text-amber-400">Windows' shared audio adds latency it doesn't report and can crackle while recording: choose ASIO for an audio interface.</span>
+                : "How the engine reaches the sound card."
+          }
+        >
+          <Select value={devices.type ?? ""} onValueChange={(type) => void change({ type })}>
+            <SelectTrigger size="sm" className="w-64" aria-label="Audio driver">
+              <SelectValue placeholder="Driver" />
+            </SelectTrigger>
+            <SelectContent>
+              {types.map((type) => (
+                <SelectItem key={type} value={type}>
+                  {driverLabel(type)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </SettingsRow>
+      )}
+      <SettingsRow title={oneDevice ? "Device" : "Output device"}>
+        {devices.controlPanel && (
+          <Button size="sm" variant="outline" onClick={showControlPanel}>
+            {devices.type === "ASIO" ? "ASIO panel" : "Device panel"}
+          </Button>
+        )}
         <Select value={devices.output ?? ""} onValueChange={(output) => void change({ output })}>
           <SelectTrigger size="sm" className="w-64" aria-label="Output device">
             <SelectValue placeholder="No output device" />
@@ -163,11 +201,11 @@ function DeviceSettings() {
           !devices.inputs ? (
             <span className="text-destructive">The audio engine is older than the app and can't record: run `pnpm engine:build`, then restart `pnpm dev`.</span>
           ) : microphone === "denied" || microphone === "restricted" ? (
-            <span className="text-destructive">Vaudio can't hear your microphone: allow it in System Settings → Privacy &amp; Security → Microphone, then choose the input again.</span>
+            <span className="text-destructive">Vaudio can't hear your microphone: allow it in {IS_MAC ? "System Settings → Privacy & Security → Microphone" : "Windows Settings → Privacy & security → Microphone"}, then choose the input again.</span>
           ) : devices.input ? (
             `What mixer tracks record (their Input, in the Mixer): ${status.inputChannels ?? 0} input${status.inputChannels === 1 ? "" : "s"}, ${(status.inputLatencyMs ?? 0).toFixed(0)} ms late as the device reports it.`
           ) : (
-            "To record: an audio interface, or the Mac's microphone (with headphones, so the song isn't recorded too)."
+            "To record: an audio interface, or the computer's microphone (with headphones, so the song isn't recorded too)."
           )
         }
       >
@@ -177,7 +215,7 @@ function DeviceSettings() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="none">No input</SelectItem>
-            {(devices.inputs ?? []).map((name) => (
+            {(inputs ?? []).map((name) => (
               <SelectItem key={name} value={name}>
                 {name}
               </SelectItem>
@@ -216,10 +254,58 @@ function DeviceSettings() {
           </SelectContent>
         </Select>
       </SettingsRow>
+      {devices.recordOffsetMs !== undefined && (
+        <SettingsRow
+          title="Recording offset"
+          description={`Takes land where the driver's latency says (${((status.inputLatencyMs ?? 0) + status.outputLatencyMs).toFixed(0)} ms there and back). If they still sit late, move them earlier by this much; negative moves them later.`}
+        >
+          <RecordOffsetInput value={devices.recordOffsetMs} onChange={(recordOffsetMs) => void change({ recordOffsetMs })} />
+        </SettingsRow>
+      )}
       {error && <p className="px-4 py-2 text-xs text-destructive">{error}</p>}
     </SettingsGroup>
     <MidiSettings devices={devices} change={change} />
     </>
+  );
+}
+
+/** What each kind of driver is called here (JUCE's names say little of what they mean on Windows). */
+function driverLabel(type: string): string {
+  const labels: Record<string, string> = {
+    ASIO: "ASIO (recommended)",
+    "Windows Audio": "Windows Audio (shared)",
+    "Windows Audio (Exclusive Mode)": "Windows Audio (exclusive)",
+    "Windows Audio (Low Latency Mode)": "Windows Audio (low latency)",
+    DirectSound: "DirectSound (legacy)",
+  };
+  return labels[type] ?? type;
+}
+
+/** The recording offset in ms, kept as typed until it's left or Enter is pressed. */
+function RecordOffsetInput({ value, onChange }: { value: number; onChange: (ms: number) => void }) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  const commit = () => {
+    const ms = Math.round(Number(text));
+    if (Number.isFinite(ms) && ms !== value) onChange(Math.max(-500, Math.min(500, ms)));
+    else setText(String(value));
+  };
+  return (
+    <div className="flex items-center gap-1.5">
+      <Input
+        type="number"
+        step={1}
+        min={-500}
+        max={500}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => event.key === "Enter" && commit()}
+        className="h-7 w-20 text-right tabular-nums"
+        aria-label="Recording offset in milliseconds"
+      />
+      <span className="text-xs text-muted-foreground">ms</span>
+    </div>
   );
 }
 

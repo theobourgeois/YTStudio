@@ -4,6 +4,7 @@ import path from "node:path";
 import type { WaveformData } from "../shared/types.ts";
 import { FFMPEG } from "./config.ts";
 import { FFMPEG_QUIET } from "./ffmpeg.ts";
+import { pcmPeaks, readPcmHeader } from "./pcm.ts";
 import { run } from "./process.ts";
 import { createLimiter } from "./queue.ts";
 import { writeJson } from "./storage.ts";
@@ -112,8 +113,27 @@ export async function makeFilmstrip(
   return { count, width, height };
 }
 
-/** Decode the first audio stream to mono PCM and write normalised peak buckets. */
+/**
+ * Write normalised peak buckets of the first audio stream, mono. WAV and AIFF are read here (no ffmpeg to
+ * start: half a second on Windows); everything else is decoded by ffmpeg.
+ */
 export async function makeWaveform(src: string, out: string, signal?: AbortSignal): Promise<void> {
+  const pcm = await readPcmHeader(src);
+  const peaks = pcm ? await pcmPeaks(src, pcm, PEAKS_PER_SECOND, signal) : await ffmpegPeaks(src, signal);
+  await writeJson(out, waveformData(peaks));
+}
+
+/** Peak buckets as the client reads them: scaled so the loudest is 1, to three decimals. */
+function waveformData(peaks: number[]): WaveformData {
+  const max = peaks.reduce((m, p) => Math.max(m, p), 0);
+  return {
+    peaksPerSecond: PEAKS_PER_SECOND,
+    peaks: peaks.map((p) => (max > 0 ? Math.round((p / max) * 1000) / 1000 : 0)),
+  };
+}
+
+/** Decode to mono PCM with ffmpeg, and take each bucket's peak (any format; `makeWaveform` reads PCM itself). */
+export async function ffmpegPeaks(src: string, signal?: AbortSignal): Promise<number[]> {
   const bucketSize = WAVEFORM_SAMPLE_RATE / PEAKS_PER_SECOND;
   const peaks: number[] = [];
   let peak = 0;
@@ -142,13 +162,7 @@ export async function makeWaveform(src: string, out: string, signal?: AbortSigna
     { signal, onStdout },
   );
   if (inBucket > 0) peaks.push(peak);
-
-  const max = peaks.reduce((m, p) => Math.max(m, p), 0);
-  const data: WaveformData = {
-    peaksPerSecond: PEAKS_PER_SECOND,
-    peaks: peaks.map((p) => (max > 0 ? Math.round((p / max) * 1000) / 1000 : 0)),
-  };
-  await writeJson(out, data);
+  return peaks;
 }
 
 /** Most memory (bytes) one piece's frames may take while ffmpeg reverses them. */

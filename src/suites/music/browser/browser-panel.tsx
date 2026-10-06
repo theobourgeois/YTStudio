@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { droppedPath, isDesktop } from "@/lib/desktop";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { FILE_MANAGER, IS_MAC, keyLabel } from "@/lib/key-labels";
 import { useTransport } from "../transport";
 import { openInNewChannels, samplerToSendTo, sendToSelectedChannel, showInFinder } from "./actions";
 import { BROWSER_DRAG_TYPE, type BrowserDrag, setCarriedPaths } from "./drops";
@@ -106,7 +107,7 @@ export function BrowserPanel() {
         <BrowserMenu onAddFolder={() => setAddOpen(true)} />
         <h2 className="truncate text-xs font-medium">Browser</h2>
         <div className="ml-auto flex items-center gap-1">
-          <Button variant="ghost" size="icon-xs" aria-label="Read the folders again" title="Read the folders again (Ctrl+R)" className="text-muted-foreground hover:text-foreground" onClick={() => void useBrowser.getState().rescan()}>
+          <Button variant="ghost" size="icon-xs" aria-label="Read the folders again" title={IS_MAC ? "Read the folders again (⌃R)" : "Read the folders again"} className="text-muted-foreground hover:text-foreground" onClick={() => void useBrowser.getState().rescan()}>
             <PiArrowClockwise />
           </Button>
           <button
@@ -168,8 +169,8 @@ function AddFolderDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogTitle>Add a folder</DialogTitle>
-        <DialogDescription>Its full path. In the desktop app, you can drop folders from Finder onto the Browser instead.</DialogDescription>
-        <Input autoFocus placeholder="/Users/you/Music/Samples" value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} aria-label="Folder path" />
+        <DialogDescription>Its full path. In the desktop app, you can drop folders from {FILE_MANAGER} onto the Browser instead.</DialogDescription>
+        <Input autoFocus placeholder={IS_MAC ? "/Users/you/Music/Samples" : "C:\\Users\\you\\Music\\Samples"} value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} aria-label="Folder path" />
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
@@ -217,7 +218,7 @@ function SearchBox({ inputRef, listRef }: { inputRef: React.RefObject<HTMLInputE
           ref={inputRef}
           type="search"
           value={query}
-          placeholder="Search (⌘F)"
+          placeholder={keyLabel("Search (⌘F)")}
           aria-label="Search the Browser"
           spellCheck={false}
           className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
@@ -411,7 +412,7 @@ function EmptyState({ onAddFolder }: { onAddFolder: () => void }) {
   return (
     <div className="absolute inset-x-0 top-6 flex flex-col items-center gap-2 px-6 text-center text-muted-foreground">
       <PiFolderSimpleDashed className="size-8 opacity-60" />
-      <p className="text-xs leading-relaxed">{isDesktop ? "Drop your sample folders here from Finder." : "Add your sample folders to browse and search them."}</p>
+      <p className="text-xs leading-relaxed">{isDesktop ? `Drop your sample folders here from ${FILE_MANAGER}.` : "Add your sample folders to browse and search them."}</p>
       <Button size="sm" variant="outline" className="h-6 text-xs" onClick={onAddFolder}>
         Add a folder by its path…
       </Button>
@@ -588,7 +589,7 @@ function RowMenu({ row }: { row: ItemRow }) {
           {row.section !== "tree" && <ContextMenuItem onSelect={() => store.reveal(item.path, false)}>Show in its folder</ContextMenuItem>}
         </>
       )}
-      <ContextMenuItem onSelect={() => showInFinder(item.path)}>Show in Finder</ContextMenuItem>
+      <ContextMenuItem onSelect={() => showInFinder(item.path)}>Show in {FILE_MANAGER}</ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => void store.setFavourite(item.path, !row.favourite)}>{row.favourite ? "Remove from favourites" : "Add to favourites"}</ContextMenuItem>
       {row.root && (

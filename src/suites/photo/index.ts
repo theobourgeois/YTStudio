@@ -2,13 +2,12 @@ import { lazy } from "react";
 import { PiImageSquare } from "react-icons/pi";
 import type { ClientSuite } from "../types";
 import { photoContext, photoLabel } from "./context";
+import { isImage } from "./media";
 import { newPhotoOptions } from "./preferences";
 import { discardPhoto, flushPhotos, usePhoto } from "./store";
 import { runPhotoTool } from "./tools";
 import { usePhotoUi } from "./ui";
 
-/** An image file, by its type or its name: what the photo editor opens. */
-const isImage = (file: File) => file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name);
 
 /** The photo suite (a Photoshop-style editor, docs/photo/): a canvas of layers drawn with WebGPU. */
 export const photoSuite: ClientSuite<"photo"> = {
@@ -52,4 +51,6 @@ export const photoSuite: ClientSuite<"photo"> = {
     await usePhoto.getState().placeFiles(files, { asCanvas: true });
   },
   newProjectOptions: newPhotoOptions,
+  // New asks first, as Photoshop's New Document: a size (a preset or typed in) and a background, or an image.
+  NewProject: lazy(() => import("./new-photo-window")),
 };

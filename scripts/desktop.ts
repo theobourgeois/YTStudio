@@ -150,17 +150,35 @@ async function dev() {
     });
     electron = child;
   };
+  // Changes close together (the main process and the preload are two bundles) make one restart, and a
+  // restart waiting for the old app to quit launches the latest bundles itself. Two at once would race
+  // for the single-instance lock: the loser quits, and its exit ended the session.
+  let waiting = false;
+  let soon: ReturnType<typeof setTimeout> | undefined;
   const restart = () => {
-    const old = electron;
-    electron = null;
-    if (!old || old.exitCode !== null) return launch();
-    old.once("exit", launch);
-    stopProcess(old);
+    clearTimeout(soon);
+    soon = setTimeout(() => {
+      if (waiting) return;
+      const old = electron;
+      electron = null;
+      if (!old || old.exitCode !== null) return launch();
+      waiting = true;
+      old.once("exit", () => {
+        waiting = false;
+        if (!stopping) launch();
+      });
+      stopProcess(old);
+    }, 250);
   };
 
+  // Watching builds each bundle once first: that isn't a change.
   let first = true;
+  let initial = 0;
+  let watching!: () => void;
+  const watched = new Promise<void>((resolve) => (watching = resolve));
+  const builds = bundles(outdir);
   const contexts = await Promise.all(
-    bundles(outdir).map((options) =>
+    builds.map((options) =>
       context({
         ...options,
         plugins: [
@@ -168,7 +186,11 @@ async function dev() {
             name: "restart-electron",
             setup(b) {
               b.onEnd((result) => {
-                if (first || result.errors.length) return;
+                if (first) {
+                  if (++initial === builds.length) watching();
+                  return;
+                }
+                if (result.errors.length) return;
                 console.log("[desktop] main process changed, restarting");
                 restart();
               });
@@ -178,11 +200,11 @@ async function dev() {
       }),
     ),
   );
-  await Promise.all(contexts.map((c) => c.rebuild()));
+  await Promise.all(contexts.map((c) => c.watch()));
+  await watched;
   first = false;
   await waitFor(`http://localhost:${web}/`);
   launch();
-  await Promise.all(contexts.map((c) => c.watch()));
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.on(signal, () => stop());
   vite.on("exit", (code) => {
     if (!stopping) stop(code ?? 1);

@@ -144,6 +144,29 @@ export const PHOTO_TOOLS = [
     inputSchema: obj({ layer, from: oneOf(["selection", "empty"], "What it starts as (default empty: reveals everything)."), remove: bool("Delete the layer's mask instead.") }, ["layer"]),
   }),
   tool({
+    name: "layer_via_copy",
+    title: "Copy the selection to a new layer",
+    kind: "edit",
+    description:
+      "Photoshop's Layer via Copy (⌘J) and Layer via Cut (⇧⌘J, cut: true): what a layer shows inside the current selection (select_rect first) becomes a new pixel layer right above it, where it was; cutting also clears it from the layer (painted pixels only: a placed image can be copied, not cut). Undoable. The photo must be open in the editor.",
+    inputSchema: obj({ layer, cut: bool("Also clear it from the layer.") }, ["layer"]),
+  }),
+  tool({
+    name: "fill_selection",
+    title: "Fill the selection",
+    kind: "edit",
+    description:
+      "Fills the current selection (the whole layer without one) on a pixel layer, or on a layer's mask, with a colour: the foreground or background colour, a colour like #ff8800, or clear (transparent on pixels; on a mask, the background colour, as Photoshop's Delete). On a mask, a colour's grey is what's filled: black hides, white reveals. A placed image can't be filled (it's kept whole). Undoable. The photo must be open in the editor.",
+    inputSchema: obj(
+      {
+        layer,
+        with: str('"foreground", "background", "clear", or a colour "#rrggbb".'),
+        target: oneOf(["content", "mask"], "The layer's pixels (default) or its mask."),
+      },
+      ["layer", "with"],
+    ),
+  }),
+  tool({
     name: "add_pixel_layer",
     title: "Add a pixel layer",
     kind: "edit",

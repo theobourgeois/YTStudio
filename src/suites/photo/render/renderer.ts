@@ -903,12 +903,12 @@ export class PhotoRenderer {
    * own), `colour` premultiplied linear light (a mask's: its value in every channel), limited by `selection`. False
    * when that surface isn't on the GPU yet.
    */
-  beginStroke(layerId: string, part: SurfacePart, brush: BrushSettings, colour: readonly number[], selection: PhotoSelection | null): boolean {
+  beginStroke(layerId: string, part: SurfacePart, brush: BrushSettings, colour: readonly number[], selection: PhotoSelection | null, erase = false): boolean {
     this.cancelStroke();
     const surface = this.surfaceOf(layerId, part);
     const place = this.placeOf(layerId, part);
     if (!surface || !place) return false;
-    surface.begin({ ...brush, radius: brush.radius / place.scale }, colour, { matrix: place.matrix }, selection);
+    surface.begin({ ...brush, radius: brush.radius / place.scale }, colour, { matrix: place.matrix }, selection, erase);
     this.stroke = { key: `${layerId}:${part}`, surface, toSurface: invert(place.matrix), scale: place.scale };
     return true;
   }
@@ -943,6 +943,21 @@ export class PhotoRenderer {
     return result;
   }
 
+  /**
+   * Fills what `selection` covers of a layer's pixels or mask with `colour` (premultiplied; transparent clears), as
+   * a new surface the caller commits. Null when that surface isn't on the GPU, or the selection misses it.
+   */
+  async fillSelection(layerId: string, part: SurfacePart, colour: readonly number[], selection: PhotoSelection): Promise<SurfaceId | null> {
+    this.cancelStroke();
+    const surface = this.surfaceOf(layerId, part);
+    const place = this.placeOf(layerId, part);
+    if (!surface || !place) return null;
+    const entry = this.surfaces.get(`${layerId}:${part}`);
+    const id = await surface.fillSelection(colour, selection, { matrix: place.matrix });
+    if (id && entry) entry.wanted = id;
+    return id;
+  }
+
   /** The size and place of a layer's mask, as the document has it now. */
   private maskShape(doc: PhotoProject, layerId: string): { size: { width: number; height: number }; matrix: Affine; bits: 8 | 16 } | null {
     const layer = doc.layers.find((l) => l.id === layerId);
@@ -960,14 +975,22 @@ export class PhotoRenderer {
    * coverage of each of the layer's pixels, as a new surface (uploaded as a stroke is). Resolves with its id.
    */
   async maskFromSelection(doc: PhotoProject, layerId: string, selection: PhotoSelection): Promise<SurfaceId> {
+    const { surface, id } = await this.selectionMask(doc, layerId, selection);
+    surface.destroy();
+    return id;
+  }
+
+  /** A mask for a layer from a selection, on the GPU (the caller destroys it), and its id. */
+  private async selectionMask(doc: PhotoProject, layerId: string, selection: PhotoSelection): Promise<{ surface: SurfaceImage; id: SurfaceId }> {
     const shape = this.maskShape(doc, layerId);
     if (!shape || !this.uploads) throw new Error("That layer has no pixels on the GPU to make a mask for.");
     const ctx = await this.contextFor(shape.bits);
     const surface = new SurfaceImage(ctx, shape.size, "mask", this.uploads);
     try {
-      return await surface.fillFromSelection(selection, { matrix: shape.matrix });
-    } finally {
+      return { surface, id: await surface.fillFromSelection(selection, { matrix: shape.matrix }) };
+    } catch (error) {
       surface.destroy();
+      throw error;
     }
   }
 
@@ -976,16 +999,41 @@ export class PhotoRenderer {
    * the box around it, into tiles of a new pixel surface (uploaded as a stroke is). Resolves with the surface (null:
    * nothing showed) and the pixel layer's size and place.
    */
-  async rasterize(doc: PhotoProject, layerId: string): Promise<{ surface: SurfaceId | null; size: { width: number; height: number }; transform: LayerTransform }> {
+  async rasterize(
+    doc: PhotoProject,
+    layerId: string,
+    options: { selection?: PhotoSelection | null } = {},
+  ): Promise<{ surface: SurfaceId | null; size: { width: number; height: number }; transform: LayerTransform }> {
     await this.compositor.ready;
-    const layer = doc.layers.find((l) => l.id === layerId);
+    let layer = doc.layers.find((l) => l.id === layerId);
+    // What a selection covers alone (a copy): the layer seen through a mask of the selection, inside its box.
+    let cutout: { surface: SurfaceImage; id: SurfaceId } | null = null;
+    if (layer && options.selection) {
+      cutout = await this.selectionMask(doc, layerId, options.selection);
+      layer = { ...layer, mask: { surface: cutout.id } };
+    }
+    try {
+      return await this.rasterizeLayer(doc, layer, options.selection ?? null, cutout?.surface ?? null);
+    } finally {
+      cutout?.surface.destroy();
+    }
+  }
+
+  private async rasterizeLayer(
+    doc: PhotoProject,
+    layer: PhotoProject["layers"][number] | undefined,
+    selection: PhotoSelection | null,
+    cutout: SurfaceImage | null,
+  ): Promise<{ surface: SurfaceId | null; size: { width: number; height: number }; transform: LayerTransform }> {
+    const layerId = layer?.id ?? "";
     const shape = layer && layer.kind !== "adjustment" ? (layer.kind === "pixel" ? layer.size : this.maskShape(doc, layerId)?.size) : null;
     if (!layer || layer.kind === "adjustment" || !shape || !this.uploads) throw new Error("Only an image or pixel layer can be made pixels.");
     const corners = [apply(layerMatrix(layer.transform, shape), 0, 0), apply(layerMatrix(layer.transform, shape), shape.width, 0), apply(layerMatrix(layer.transform, shape), 0, shape.height), apply(layerMatrix(layer.transform, shape), shape.width, shape.height)];
-    const x0 = Math.floor(Math.min(...corners.map((p) => p.x)) + 1e-6);
-    const y0 = Math.floor(Math.min(...corners.map((p) => p.y)) + 1e-6);
-    const width = Math.max(1, Math.min(30_000, Math.ceil(Math.max(...corners.map((p) => p.x)) - 1e-6) - x0));
-    const height = Math.max(1, Math.min(30_000, Math.ceil(Math.max(...corners.map((p) => p.y)) - 1e-6) - y0));
+    const s = selection;
+    const x0 = Math.floor(Math.max(Math.min(...corners.map((p) => p.x)), s ? s.x : -Infinity) + 1e-6);
+    const y0 = Math.floor(Math.max(Math.min(...corners.map((p) => p.y)), s ? s.y : -Infinity) + 1e-6);
+    const width = Math.max(1, Math.min(30_000, Math.ceil(Math.min(Math.max(...corners.map((p) => p.x)), s ? s.x + s.width : Infinity) - 1e-6) - x0));
+    const height = Math.max(1, Math.min(30_000, Math.ceil(Math.min(Math.max(...corners.map((p) => p.y)), s ? s.y + s.height : Infinity) - 1e-6) - y0));
     // The layer alone, opaque (its opacity stays the layer's), in an f16 composite: the surface's own format.
     const alone: PhotoProject = { ...doc, canvas: { width, height, background: null }, layers: [{ ...layer, opacity: 1, visible: true }] };
     const plan = compileRender(alone, this.facts(), { float32: false });
@@ -994,6 +1042,16 @@ export class PhotoRenderer {
     const work: WorkPair = { a: compositeTexture(device, tile, tile, "rgba16float", "rasterize a"), b: compositeTexture(device, tile, tile, "rgba16float", "rasterize b") };
     const tilesX = Math.ceil(width / tile);
     const tilesY = Math.ceil(height / tile);
+    // The layer's own pixels, through the selection's mask when it's a copy (not the mask the layer has).
+    const sources: PlanSources = cutout
+      ? {
+          draw: (node) => {
+            const drawn = this.planSources.draw({ ...node, mask: null });
+            return drawn && { ...drawn, mask: cutout };
+          },
+          mask: this.planSources.mask,
+        }
+      : this.planSources;
     const entries: [number, number, string][] = [];
     try {
       for (let ty = 0; ty < tilesY; ty++) {
@@ -1002,7 +1060,7 @@ export class PhotoRenderer {
           await this.ensurePlanVisible(plan, region);
           const readback = device.createBuffer({ size: tile * tile * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
           const encoder = device.createCommandEncoder({ label: "rasterize" });
-          const composite = this.compositor.evaluate(encoder, plan, region, "final", this.planSources, work);
+          const composite = this.compositor.evaluate(encoder, plan, region, "final", sources, work);
           encoder.copyTextureToBuffer({ texture: composite }, { buffer: readback, bytesPerRow: tile * 8 }, [tile, tile]);
           device.queue.submit([encoder.finish()]);
           await readback.mapAsync(GPUMapMode.READ);

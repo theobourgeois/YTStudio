@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { useMusic } from "../store";
+import { wheelScroll } from "../wheel";
 import { patternPositionNow } from "../playhead";
 import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
@@ -544,8 +545,7 @@ function PianoBody() {
       const x = e.clientX - box.getBoundingClientRect().left;
       if (e.ctrlKey || e.metaKey) return piano.setView(zoomAt(view, x, view.pxPerTick * wheelZoomFactor(e.deltaY, e.deltaMode)));
       if (e.altKey) return wheelVelocity(e, box);
-      const sideways = e.shiftKey ? e.deltaY : e.deltaX;
-      const down = e.shiftKey ? 0 : e.deltaY;
+      const { x: sideways, y: down } = wheelScroll(e);
       piano.setView({
         ...view,
         scrollTick: Math.max(0, view.scrollTick + sideways / view.pxPerTick),

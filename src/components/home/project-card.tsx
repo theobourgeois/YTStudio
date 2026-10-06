@@ -35,6 +35,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "cn";
+import { FILE_MANAGER } from "@/lib/key-labels";
 import { useAssistant } from "@/stores/assistant";
 import { lastTouched, useProjects } from "@/stores/projects";
 import { clientSuite, describeProject } from "@/suites";
@@ -45,7 +46,11 @@ import { TrashProjectDialog } from "./trash-project-dialog";
 /** Where a project is, shortly: its folder, with the home folder as ~ ("~/Documents/Vaudio"). */
 export function folderOf(path: string): string {
   const parent = path.replace(/[/\\][^/\\]*$/, "") || "/";
-  return parent.replace(/^\/Users\/[^/]+(?=\/|$)/, "~").replace(/^\/home\/[^/]+(?=\/|$)/, "~");
+  return parent
+    .replace(/^\/Users\/[^/]+(?=\/|$)/, "~")
+    .replace(/^\/home\/[^/]+(?=\/|$)/, "~")
+    // Windows: C:\Users\name\Documents\Vaudio is ~\Documents\Vaudio.
+    .replace(/^[A-Za-z]:[/\\]Users[/\\][^/\\]+(?=[/\\]|$)/i, "~");
 }
 
 interface ProjectCardProps {
@@ -316,7 +321,7 @@ function MenuItems({ Item, Separator, missing, onOpen, onRename, onDuplicate, on
       </Item>
       <Item onSelect={onReveal}>
         <PiMagnifyingGlass />
-        Show in Finder
+        Show in {FILE_MANAGER}
       </Item>
       <Item onSelect={onSaveTemplate}>
         <PiPushPin />

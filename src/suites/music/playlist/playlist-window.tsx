@@ -32,6 +32,7 @@ import { liveTakes, useRecording } from "../recording";
 import { liveTakeTracks } from "@shared/music/recording";
 import { trackName as mixerTrackName } from "@shared/music/mixer";
 import { useMusic } from "../store";
+import { wheelScroll } from "../wheel";
 import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
@@ -533,8 +534,7 @@ function PlaylistBody() {
         return playlist.setView(zoomAt(view, e.clientX - rect.left, Math.min(MAX_PX_PER_TICK, Math.max(min, view.pxPerTick * wheelZoomFactor(e.deltaY, e.deltaMode))), min));
       }
       const p = playlistContext();
-      const sideways = e.shiftKey ? e.deltaY : e.deltaX;
-      const down = e.shiftKey ? 0 : e.deltaY;
+      const { x: sideways, y: down } = wheelScroll(e);
       playlist.setView(scrollViewBy(view, sideways, down, p ? p.layout[p.layout.length - 1] : 0));
     };
     box.addEventListener("wheel", onWheel, { passive: false });

@@ -3,13 +3,16 @@
  * the tool's options, export, the assistant), the tool strip, the docked panels (the canvas, Layers, Properties:
  * Photoshop's are docked too), and its windows. Its keys are `keys.ts`'s.
  */
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { cn } from "cn";
-import { PiArrowCounterClockwise, PiArrowClockwise, PiCursor, PiExport, PiHand, PiMagnet, PiMagnifyingGlass, PiPaintBrush, PiSelection } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiArrowClockwise, PiArrowsLeftRight, PiCursor, PiEraser, PiExport, PiHand, PiImage, PiMagnet, PiMagnifyingGlass, PiPaintBrush, PiSelection } from "react-icons/pi";
 import { toast } from "sonner";
 import { moveLayersBy } from "@shared/photo/edits";
 import { allSelection } from "@shared/photo/selection";
+import { ColorSwatchPicker } from "@/components/color-picker";
 import { stepBrushSize, useBrush } from "./brush-options";
+import { useColours } from "./colours";
+import { editActions, hasPhotoClipboard } from "./edit-actions";
 import { PaintChoiceDialog, ToolOptions } from "./options-bar";
 import { AssistantButton } from "@/components/assistant/assistant-button";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
@@ -22,12 +25,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Desktop, keptByWindow } from "@/components/windows/floating-window";
 import { createWindows } from "@/components/windows/store";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
+import { useFileDrop } from "@/hooks/use-file-drop";
 import { api } from "@/lib/api";
-import { CanvasPanel, actualPixels, fitToCanvas, zoomBy } from "./canvas/canvas-panel";
+import { CanvasPanel, actualPixels, canvasPointAt, fitToCanvas, zoomBy } from "./canvas/canvas-panel";
 import { PhotoExportWindow } from "./export-window";
 import { resolvePhotoKey } from "./keys";
 import { layerActions, selectedInOrder } from "./layer-actions";
 import { liveRenderer } from "./live";
+import { isImage } from "./media";
 import { LayersPanel } from "./panels/layers-panel";
 import { usePhotoPreferences } from "./preferences";
 import { PropertiesPanel } from "./panels/properties-panel";
@@ -92,12 +97,45 @@ export default function PhotoWorkspace() {
     <div key={projectId} className="relative flex min-h-0 flex-1 flex-col" data-suite="photo">
       <PhotoHeader />
       <div className="flex min-h-0 flex-1">
-        <ToolStrip />
-        <DockArea dock={usePhotoDock} panels={PANELS} />
+        <ImageDrop>
+          <ToolStrip />
+          <DockArea dock={usePhotoDock} panels={PANELS} />
+        </ImageDrop>
         <AssistantPanel suite="photo" />
       </div>
       <PhotoDesktop />
       <PaintChoiceDialog />
+    </div>
+  );
+}
+
+/**
+ * Images dragged in from Finder (or anywhere) become layers on top, as Photoshop places a file dragged into a
+ * document: centred where they're dropped on the canvas (elsewhere, on its middle), fitted in it, and selected.
+ */
+function ImageDrop({ children }: { children: ReactNode }) {
+  const { active, handlers } = useFileDrop((files, e) => {
+    const images = files.filter(isImage);
+    if (images.length === 0) {
+      toast.error(files.length === 1 ? `${files[0].name} isn't an image` : "Those aren't images", { description: "PNG, JPEG and WebP files can be placed." });
+      return;
+    }
+    const at = canvasPointAt(e.clientX, e.clientY) ?? undefined;
+    void usePhoto
+      .getState()
+      .placeFiles(images, { at })
+      .then((ids) => ids.length && usePhotoUi.getState().setSelection(ids));
+  });
+  return (
+    <div className="relative flex min-w-0 flex-1" {...handlers} data-image-drop={active || undefined}>
+      {children}
+      {active && (
+        <div className="pointer-events-none absolute inset-1 z-40 grid place-items-center rounded-md border-2 border-dashed border-brand bg-brand/8">
+          <span className="floating flex items-center gap-2 rounded-md bg-surface-1 px-3 py-2 text-sm font-medium">
+            <PiImage className="size-4.5 text-brand" /> Drop to place as layers
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -116,15 +154,12 @@ function PhotoHeader() {
   const name = usePhoto((s) => s.history!.doc.doc.name);
   const canUndo = usePhoto((s) => (s.history?.past.length ?? 0) > 0);
   const canRedo = usePhoto((s) => (s.history?.future.length ?? 0) > 0);
-  const saving = usePhoto((s) => s.saving);
   const tool = useActiveTool();
   const snap = usePhotoPreferences((s) => s.snap);
   return (
     <header data-titlebar="header" className="flex h-13 shrink-0 items-center gap-2 border-b border-line bg-surface-1 px-3" data-photo-header>
       <ProjectName name={name} onRename={(n) => usePhoto.getState().rename(n)} />
-      <span className="text-xs text-muted-foreground" data-save-state>
-        {saving ? "Saving…" : "Saved"}
-      </span>
+      <SaveState />
       <div className="mx-2 flex items-center gap-0.5">
         <Button variant="ghost" size="icon-sm" aria-label="Undo" disabled={!canUndo} onClick={() => usePhoto.getState().undo()}>
           <PiArrowCounterClockwise />
@@ -166,10 +201,33 @@ function PhotoHeader() {
   );
 }
 
+/** A save quicker than this never says "Saving…" (autosave runs after every edit: the word would flicker). */
+const SAVING_SHOWN_AFTER_MS = 500;
+
+/**
+ * Whether the photo is saved, in a box of its own width so the header never moves: "Saving…" only once a save has
+ * taken a moment.
+ */
+function SaveState() {
+  const saving = usePhoto((s) => s.saving);
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!saving) return setSlow(false);
+    const timer = setTimeout(() => setSlow(true), SAVING_SHOWN_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [saving]);
+  return (
+    <span className="w-14 shrink-0 text-xs text-muted-foreground" data-save-state={saving ? "saving" : "saved"}>
+      {slow ? "Saving…" : "Saved"}
+    </span>
+  );
+}
+
 const TOOLS: { tool: PhotoTool; label: string; key: string; Icon: typeof PiCursor }[] = [
   { tool: "move", label: "Move", key: "V", Icon: PiCursor },
   { tool: "marquee", label: "Rectangular Marquee", key: "M", Icon: PiSelection },
   { tool: "brush", label: "Brush", key: "B", Icon: PiPaintBrush },
+  { tool: "eraser", label: "Eraser", key: "E", Icon: PiEraser },
   { tool: "hand", label: "Hand", key: "H", Icon: PiHand },
   { tool: "zoom", label: "Zoom", key: "Z", Icon: PiMagnifyingGlass },
 ];
@@ -197,7 +255,46 @@ function ToolStrip() {
           </TooltipContent>
         </Tooltip>
       ))}
+      <div className="flex-1" />
+      <ColourSwatches />
     </nav>
+  );
+}
+
+/**
+ * The colours every tool uses (Photoshop's swatches at the foot of its tool strip): the foreground over the
+ * background, each opening the colour picker; the arrows swap them (X), the small pair makes them black and white (D).
+ */
+function ColourSwatches() {
+  const foreground = useColours((s) => s.foreground);
+  const background = useColours((s) => s.background);
+  const edit = (which: "foreground" | "background") => ({ begin: () => {}, set: (hex: string) => useColours.getState().set({ [which]: hex }), end: () => {} });
+  return (
+    <div className="flex flex-col items-center gap-1 pb-1" data-colours>
+      <div className="relative size-9">
+        <ColorSwatchPicker value={background} label="Background colour" side="right" edit={edit("background")} className="absolute right-0 bottom-0 size-5.5" />
+        <ColorSwatchPicker value={foreground} label="Foreground colour" side="right" edit={edit("foreground")} className="absolute top-0 left-0 size-5.5" />
+      </div>
+      <div className="flex items-center gap-0.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" aria-label="Black and white (D)" className="relative size-4 rounded-sm" onClick={() => useColours.getState().reset()}>
+              <span className="absolute top-0 left-0 size-2.5 rounded-[2px] border border-line bg-black" />
+              <span className="absolute right-0 bottom-0 size-2.5 rounded-[2px] border border-line bg-white" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Black and white (D)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" aria-label="Swap colours (X)" className="grid size-4 place-items-center text-muted-foreground hover:text-foreground" onClick={() => useColours.getState().swap()}>
+              <PiArrowsLeftRight className="size-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Swap colours (X)</TooltipContent>
+        </Tooltip>
+      </div>
+    </div>
   );
 }
 
@@ -262,9 +359,13 @@ function usePhotoKeys(active: boolean) {
           return zoomBy(action.factor);
         case "nudge":
           return nudge(action.dx, action.dy);
+        // Delete clears the selection's pixels (Photoshop's); with no selection it deletes the layers.
         case "delete":
+          if (currentSelection() && ui.selectedLayerId) return void editActions.fill(null);
           return layerActions.delete();
+        // ⌘J with a selection is Layer via Copy; without one it duplicates the layers.
         case "duplicate":
+          if (currentSelection() && ui.selectedLayerId) return void editActions.layerVia(false);
           return layerActions.duplicate();
         case "merge":
           return void layerActions.merge();
@@ -297,22 +398,44 @@ function usePhotoKeys(active: boolean) {
         case "brushHardness":
           return useBrush.getState().set({ hardness: Math.round((useBrush.getState().hardness + action.direction * 0.25) * 4) / 4 });
         case "defaultColours":
-          return useBrush.getState().resetColours();
+          return useColours.getState().reset();
         case "swapColours":
-          return useBrush.getState().swapColours();
+          return useColours.getState().swap();
+        case "copy":
+          return void editActions.copy();
+        case "cut":
+          return void editActions.cut();
+        case "layerViaCut":
+          return void editActions.layerVia(true);
+        case "fill":
+          return void editActions.fill(useColours.getState()[action.colour]);
       }
     };
     const up = (e: KeyboardEvent) => {
       if (e.key === " ") usePhotoUi.getState().setSpaceHand(false);
     };
     const blur = () => usePhotoUi.getState().setSpaceHand(false);
+    // ⌘V: images copied elsewhere are placed (Photoshop pastes them as layers); else what ⌘C or ⌘X put aside.
+    const paste = (e: ClipboardEvent) => {
+      if (isTyping(e.target) || keptByWindow(e.target)) return;
+      const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+      if (files.length) {
+        e.preventDefault();
+        void usePhoto.getState().placeFiles(files).then((ids) => ids.length && usePhotoUi.getState().select(ids.at(-1)!));
+      } else if (hasPhotoClipboard()) {
+        e.preventDefault();
+        void editActions.paste();
+      }
+    };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     window.addEventListener("blur", blur);
+    window.addEventListener("paste", paste);
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
       window.removeEventListener("blur", blur);
+      window.removeEventListener("paste", paste);
     };
   }, [active]);
 }

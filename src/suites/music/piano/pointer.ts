@@ -203,7 +203,8 @@ const noteAt = (notes: readonly Note[], view: PianoView, x: number, y: number) =
 
 /** The last press, to tell a second one soon after on the same spot: a double-click. (Pointer events don't count clicks.) */
 let lastPress = { at: 0, x: 0, y: 0, target: null as EventTarget | null };
-const DOUBLE_MS = 400;
+/** Windows' default double-click time (a Mac's is about the same). */
+const DOUBLE_MS = 500;
 
 /** Whether this press is the second of a double-click on the same element. */
 function isDouble(e: Press): boolean {
