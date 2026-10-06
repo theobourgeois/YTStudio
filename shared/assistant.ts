@@ -521,6 +521,17 @@ export function describeToolCall(rawName: string, input: unknown): string {
     }
     case "get_layout":
       return f("time") === undefined ? "Measure the canvas" : `Measure the canvas at ${seconds(f("time"))}`;
+    case "link_param": {
+      const link = f("link");
+      const signal = link && typeof link === "object" ? (link as Record<string, unknown>).signal : undefined;
+      return link === null ? `Unlink ${String(f("param") ?? "a property")}` : `Link ${String(f("param") ?? "a property")} to ${typeof signal === "string" ? `"${signal}"` : "a signal"}`;
+    }
+    case "define_signal":
+      return f("signal") ? `Change the signal "${String(f("name") ?? f("signal"))}"` : `Make the signal "${String(f("name") ?? "")}"`;
+    case "delete_signal":
+      return `Delete ${count(list(f("signals")).length, "signal")}`;
+    case "set_events":
+      return `Place hits on "${String(f("signal") ?? "")}"`;
     case "set_expression":
       return f("expression") === null ? `Remove the expression on ${String(f("param") ?? "a property")}` : `Put an expression on ${String(f("param") ?? "a property")}`;
     case "mark_beats":

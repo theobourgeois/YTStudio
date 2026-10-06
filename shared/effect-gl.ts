@@ -9,7 +9,7 @@
 import type { EffectPass, Shader } from "./compositor.ts";
 import { particleSources } from "./particles.ts";
 import { timelineTime } from "./timeline.ts";
-import { type EffectDefinition, effectDefinition, effectValuesAt, hasExpressions } from "./effects.ts";
+import { type EffectDefinition, effectDefinition, effectValuesAt, isComputed } from "./effects.ts";
 import type { ParamSpec } from "./params.ts";
 import { GLSL_HELPERS, type UniformSpec, type UniformValue, paramUniforms, uniformDeclarations } from "./transition-gl.ts";
 import type { Clip, ParamValues } from "./types.ts";
@@ -236,10 +236,10 @@ export function effectsChange(clip: Clip, a: number, b: number): boolean {
     const def = effect.enabled ? effectDefinition(effect.type) : undefined;
     if (!def?.shader) continue;
     if (def.shader.animated) return true;
-    if (!effect.keyframes && !hasExpressions(effect)) continue;
+    if (!effect.keyframes && !isComputed(effect)) continue;
     const va = effectValuesAt(def, effect, a, clip);
     const vb = effectValuesAt(def, effect, b, clip);
-    if (Object.keys({ ...effect.keyframes, ...effect.expressions }).some((key) => JSON.stringify(va[key]) !== JSON.stringify(vb[key]))) return true;
+    if (Object.keys({ ...effect.keyframes, ...effect.expressions, ...effect.links }).some((key) => JSON.stringify(va[key]) !== JSON.stringify(vb[key]))) return true;
   }
   return false;
 }

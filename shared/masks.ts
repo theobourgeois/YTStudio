@@ -5,7 +5,7 @@
  * high, so they scale with the clip.
  */
 import { type MaskShape, maskModeIndex } from "./compositor.ts";
-import { MASK, addEffect, effectValuesAt, hasExpressions, maskEffects } from "./effects.ts";
+import { MASK, addEffect, effectValuesAt, isComputed, maskEffects } from "./effects.ts";
 import { type BezierPath, ellipsePath, rectPath, toSvgPathData } from "./path.ts";
 import type { Clip, ParamValues, Project } from "./types.ts";
 
@@ -37,7 +37,7 @@ export function masksAt(clip: Pick<Clip, "id" | "effects">, time: number): MaskS
 export function masksChange(clip: Pick<Clip, "id" | "effects">, a: number, b: number): boolean {
   if (a === b) return false;
   return maskEffects(clip).some(
-    (e) => e.enabled && (!!e.keyframes || hasExpressions(e)) && JSON.stringify(effectValuesAt(MASK, e, a, clip)) !== JSON.stringify(effectValuesAt(MASK, e, b, clip)),
+    (e) => e.enabled && (!!e.keyframes || isComputed(e)) && JSON.stringify(effectValuesAt(MASK, e, a, clip)) !== JSON.stringify(effectValuesAt(MASK, e, b, clip)),
   );
 }
 

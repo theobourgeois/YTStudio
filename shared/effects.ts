@@ -42,11 +42,12 @@ import { TEXT_ANIMATOR } from "./effect-library/text-animator.ts";
 import { BLEND_MODES } from "./compositor.ts";
 import { type ExprValue, type SignalScope, expressionError, expressionValue, evaluateExpression, parseExpression } from "./expressions.ts";
 import { keyframeValue, sanitizeKeyframes, setKeyframe } from "./keyframes.ts";
+import { applyLink, normalizeLink } from "./links.ts";
 // (A cycle with this file, which is fine: neither uses the other until a function is called.)
 import { type TextAnimation, animatorReach, textAnimationsAt } from "./text-animators.ts";
 import { tidy } from "./math.ts";
 import { PERCENT, PIXELS, type ParamSpec, defaultParams, sameValue, sanitizeParams, sanitizeValue } from "./params.ts";
-import type { Clip, Effect, FitMode, Keyframe, ParamValue, ParamValues, Project, Vec2 } from "./types.ts";
+import type { Clip, Effect, FitMode, Keyframe, ParamLink, ParamValue, ParamValues, Project, Vec2 } from "./types.ts";
 
 /**
  * What a clip shows: media (video, image or sound), text, a solid colour, or
@@ -506,6 +507,12 @@ function sanitizeEffect(def: EffectDefinition, raw: Partial<Effect> | undefined,
     if (typeof source === "string" && source.trim() && source.length <= MAX_EXPRESSION && canExpress(def, spec)) expressions[spec.key] = source;
   }
   if (Object.keys(expressions).length) effect.expressions = expressions;
+  const links: Record<string, ParamLink> = {};
+  for (const spec of def.params) {
+    const link = raw?.links?.[spec.key] && canExpress(def, spec) ? normalizeLink(raw.links[spec.key], spec.kind === "vec2") : undefined;
+    if (link) links[spec.key] = link;
+  }
+  if (Object.keys(links).length) effect.links = links;
   return effect;
 }
 
@@ -672,6 +679,26 @@ export function provideSignalScopes(provide: (clipId: string, fps: number) => Si
   signalScopes = provide;
 }
 
+/**
+ * What a link's signal reads on a clip at its source time `time` (0..1, after the link's response),
+ * provided by `audio-signals.ts` as `signalScopes` is.
+ */
+let linkReader: ((clipId: string, link: ParamLink, time: number, fps: number) => number) | null = null;
+
+/** Called once by `audio-signals.ts`: links can then move parameters. */
+export function provideLinks(read: (clipId: string, link: ParamLink, time: number, fps: number) => number): void {
+  linkReader = read;
+}
+
+/** A parameter's value at `time` moved by its link (as it is without one, or where signals can't be read). */
+function linkedValue(effect: Effect, spec: ParamSpec, value: ParamValue, time: number, clip: Pick<Clip, "id"> | undefined, fps: number): ParamValue {
+  const link = effect.links?.[spec.key];
+  if (!link || !clip || !linkReader || (typeof value !== "number" && !Array.isArray(value))) return value;
+  const s = linkReader(clip.id, link, time, fps);
+  if (!(s !== 0)) return value;
+  return sanitizeValue(spec, applyLink(value as number | number[], link, s)) ?? value;
+}
+
 /** Properties being worked out for an expression's `prop()`, to stop two that read each other. */
 const reading = new Set<string>();
 
@@ -684,7 +711,8 @@ const reading = new Set<string>();
 function expressionScope(def: EffectDefinition, effect: Effect, key: string, time: number, clip: Pick<Clip, "id" | "effects"> | undefined, fps: number) {
   const spec = paramSpec(def, key)!;
   const keys = effect.keyframes?.[key];
-  const own = (t: number) => (keys?.length ? keyframeValue(keys, t) : (effect.params[key] ?? spec.default)) as number | number[];
+  // What it is without the expression: keyframed or static, then moved by its link.
+  const own = (t: number) => linkedValue(effect, spec, keys?.length ? keyframeValue(keys, t) : (effect.params[key] ?? spec.default), t, clip, fps) as number | number[];
   return {
     time,
     fps,
@@ -709,11 +737,18 @@ function expressionScope(def: EffectDefinition, effect: Effect, key: string, tim
 
 /**
  * The values an effect draws with at source time `time`: its stored values (`storedValuesAt`)
- * with its expressions run over them. `clip` is the clip it's on, for expressions that read
- * its other properties. An expression that fails leaves its property as it is without it.
+ * moved by its links, then with its expressions run over them. `clip` is the clip it's on, for
+ * links and expressions that read its sound or its other properties. An expression that fails
+ * leaves its property as it is without it.
  */
 export function effectValuesAt(def: EffectDefinition, effect: Effect, time: number, clip?: Pick<Clip, "id" | "effects">, fps = frameRate): ParamValues {
   const values = storedValuesAt(def, effect, time);
+  if (effect.links && clip) {
+    for (const key of Object.keys(effect.links)) {
+      const spec = paramSpec(def, key);
+      if (spec && canExpress(def, spec)) values[key] = linkedValue(effect, spec, values[key], time, clip, fps);
+    }
+  }
   if (!effect.expressions) return values;
   for (const [key, source] of Object.entries(effect.expressions)) {
     const spec = paramSpec(def, key);
@@ -754,8 +789,14 @@ export function expressionProblem(def: EffectDefinition, effect: Effect, key: st
   }
 }
 
-/** Whether an effect has an expression on any of its parameters (its values can then change at every frame). */
+/** Whether an effect has an expression on any of its parameters. */
 export const hasExpressions = (effect: Pick<Effect, "expressions">) => !!effect.expressions && Object.keys(effect.expressions).length > 0;
+
+/** Whether an effect has a link on any of its parameters. */
+export const hasLinks = (effect: Pick<Effect, "links">) => !!effect.links && Object.keys(effect.links).length > 0;
+
+/** Whether an effect's values are worked out at every frame (an expression or a link), not only keyframed. */
+export const isComputed = (effect: Pick<Effect, "expressions" | "links">) => hasExpressions(effect) || hasLinks(effect);
 
 /**
  * The values an effect applies at source time `time`: its keyframed or static
@@ -955,9 +996,28 @@ export function volumeAt(clip: Clip, time: number): number {
   return valuesAt(VOLUME, findEffect(clip, VOLUME.type), time).level as number;
 }
 
-/** Whether any parameter of the clip is animated (by keyframes, or by an expression). */
+/** Whether any parameter of the clip is animated (by keyframes, an expression or a link). */
 export function hasKeyframes(clip: Clip): boolean {
-  return clip.effects.some((e) => (e.keyframes && Object.keys(e.keyframes).length > 0) || hasExpressions(e));
+  return clip.effects.some((e) => (e.keyframes && Object.keys(e.keyframes).length > 0) || isComputed(e));
+}
+
+/**
+ * Link a parameter to a signal (or with null, unlink it). The same project when nothing changes;
+ * a parameter that can't have one (see `canExpress`) is left alone.
+ */
+export function setLink(project: Project, clipId: ClipIds, effectId: string, key: string, link: ParamLink | null): Project {
+  return updateEffect(project, clipId, effectId, (effect, def) => {
+    const spec = paramSpec(def, key);
+    if (!spec || !canExpress(def, spec)) return effect;
+    const clean = link ? normalizeLink(link, spec.kind === "vec2") ?? null : null;
+    if (JSON.stringify(effect.links?.[key] ?? null) === JSON.stringify(clean)) return effect;
+    const { [key]: _, ...others } = effect.links ?? {};
+    const links = clean ? { ...others, [key]: clean } : others;
+    const next: Effect = { ...effect };
+    if (Object.keys(links).length) next.links = links;
+    else delete next.links;
+    return next;
+  });
 }
 
 /**

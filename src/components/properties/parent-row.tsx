@@ -41,7 +41,7 @@ export const ParentRow = memo(function ParentRow({ clip }: { clip: Clip }) {
   const setParent = (id: string | null) => useEditor.getState().setParent(selectedOr(clip.id), id);
 
   return (
-    <div className="grid min-h-8 grid-cols-[1.25rem_5.5rem_minmax(0,1fr)_auto_1.25rem] items-center gap-x-1 pr-1 pl-1.5" data-param="parent">
+    <div className="grid min-h-8 grid-cols-[2.5rem_5.5rem_minmax(0,1fr)_auto_1.25rem] items-center gap-x-1 pr-1 pl-1.5" data-param="parent">
       <PickWhip clipId={clip.id} />
       <span className="truncate text-xs text-muted-foreground">Parent</span>
       <Select value={parentId ?? NONE} onValueChange={(v) => setParent(v === NONE ? null : v)} open={open} onOpenChange={setOpen}>

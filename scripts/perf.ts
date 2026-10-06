@@ -6,7 +6,11 @@
  * zooming to fit. Long tasks are main-thread work over 50 ms (what feels like lag).
  *
  *   pnpm tsx scripts/perf.ts [clips=1500] [--profile <scenario>]
+ *   pnpm tsx scripts/perf.ts --links [clips=300]
  *
+ * `--links` is the visualizer's gate instead (V3, docs/visualizer/README.md): a song and `clips`
+ * solids on ten tracks, each with its scale linked to the bass and its opacity to the kicks, played
+ * for 4 s: how many frames a second the preview draws, and the long tasks.
  * `--profile drag` (any part of a scenario's name) samples that scenario with
  * the JS profiler and prints where the time went, by component and by function.
  * The app runs in dev mode (like `pnpm dev`), so React's development build counts.
@@ -16,8 +20,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { type CDPSession, chromium } from "@playwright/test";
-import { textEffects } from "../shared/effects.ts";
-import type { Clip, Project, ProjectSummary } from "../shared/types.ts";
+import { defaultEffects, solidEffects, textEffects } from "../shared/effects.ts";
+import type { Clip, MediaAsset, Project, ProjectSummary } from "../shared/types.ts";
 
 const WEB_PORT = "5330";
 const SERVER_PORT = "5331";
@@ -25,7 +29,8 @@ const SERVER_PORT = "5331";
 const args = process.argv.slice(2);
 const profileIndex = args.indexOf("--profile");
 const profileName = profileIndex >= 0 ? args[profileIndex + 1] : null;
-const count = Number(args.find((a, i) => /^\d+$/.test(a) && i !== profileIndex + 1) ?? 1500);
+const links = args.includes("--links");
+const count = Number(args.find((a, i) => /^\d+$/.test(a) && i !== profileIndex + 1) ?? (links ? 300 : 1500));
 
 const root = path.resolve(import.meta.dirname, "..");
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "editor-perf-"));
@@ -63,8 +68,10 @@ const api = `http://127.0.0.1:${SERVER_PORT}/api`;
 await waitFor(`${api}/health`);
 await waitFor(`http://localhost:${WEB_PORT}`);
 
-// One caption a second: 0.8 s of text, then a gap.
 const json = { "content-type": "application/json" };
+if (links) await linkedPlayback();
+
+// One caption a second: 0.8 s of text, then a gap.
 const summary: ProjectSummary = await (await fetch(`${api}/projects`, { method: "POST", headers: json, body: "{}" })).json();
 const project: Project = await (await fetch(`${api}/projects/${summary.id}`)).json();
 const id = (i: number) => `clip_${String(i).padStart(6, "0")}`;
@@ -201,6 +208,102 @@ console.log(`\n${count} captions\n`);
 for (const [name, value] of results) console.log(`${name.padEnd(34)} ${value}`);
 await browser.close();
 process.exit(0);
+
+/** The visualizer's gate: `count` linked solids over a song, played; frames drawn a second. Exits. */
+async function linkedPlayback(): Promise<never> {
+  const summary: ProjectSummary = await (await fetch(`${api}/projects`, { method: "POST", headers: json, body: "{}" })).json();
+  const song: MediaAsset = await (
+    await fetch(`${api}/media?projectId=${summary.id}&name=music-20s.mp3`, {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: fs.readFileSync(path.join(root, "samples", "music-20s.mp3")),
+    })
+  ).json();
+  // Its signals first (the preview waits for nothing then).
+  for (let i = 0; i < 240; i++) {
+    const asset: MediaAsset = await (await fetch(`${api}/media/${song.id}`)).json();
+    if (asset.signals?.status === "ready") break;
+    if (i === 0) await fetch(`${api}/media/${song.id}/signals`, { method: "POST" });
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  let project: Project = await (await fetch(`${api}/projects/${summary.id}`)).json();
+  const tracks = Array.from({ length: 10 }, (_, k) => ({ id: `v${k}`, kind: "video" as const, name: `Video ${k + 1}`, muted: false }));
+  const audio = { id: "a1", kind: "audio" as const, name: "Music", muted: false };
+  const perTrack = Math.ceil(count / tracks.length);
+  const length = 20 / perTrack;
+  const response = { threshold: 0, curve: 1, attack: 0.01, release: 0.12, invert: false };
+  project = {
+    ...project,
+    tracks: [...tracks, audio],
+    clips: [
+      { id: "song", assetId: song.id, trackId: "a1", start: 0, in: 0, out: 20, effects: defaultEffects() },
+      ...Array.from({ length: count }, (_, i): Clip => ({
+        id: `solid_${i}`,
+        assetId: "",
+        trackId: tracks[i % tracks.length].id,
+        start: Math.floor(i / tracks.length) * length,
+        in: 0,
+        out: length,
+        effects: solidEffects({ color: "#ff3366" }).map((e) =>
+          e.type === "motion"
+            ? { ...e, params: { ...e.params, scale: 0.2 }, links: { scale: { signal: { name: "bass" }, mode: "add", amount: 0.3, response } } }
+            : e.type === "opacity"
+              ? { ...e, params: { ...e.params, opacity: 0.4 }, links: { opacity: { signal: { name: "onsetLow" }, mode: "add", amount: 0.6, response, hit: { attack: 0, hold: 0, decay: 0.25 } } } }
+              : e,
+        ),
+      })),
+    ],
+  };
+  const saved = await fetch(`${api}/projects/${summary.id}`, { method: "PUT", headers: json, body: JSON.stringify(project) });
+  if (!saved.ok) throw new Error(`Saving the project failed: ${await saved.text()}`);
+
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.addInitScript(() => {
+    const w = window as unknown as { __longTasks: number };
+    w.__longTasks = 0;
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) w.__longTasks += e.duration;
+    }).observe({ type: "longtask" });
+  });
+  await page.goto(`http://localhost:${WEB_PORT}/p/${summary.id}`);
+  await page.locator("[data-clip-id]").first().waitFor({ timeout: 120_000 });
+  await page.waitForTimeout(2000);
+  // Frames the Program monitor draws while playing (each preview draw is a frame).
+  // As text: tsx would wrap a function's inner names in a helper the page doesn't have.
+  const measure = (): Promise<{ fps: number; worst: number; long: number }> =>
+    page.evaluate(`new Promise((done) => {
+      window.__longTasks = 0;
+      let frames = 0, worst = 0, last = performance.now();
+      const start = last;
+      const tick = (now) => {
+        frames++;
+        worst = Math.max(worst, now - last);
+        last = now;
+        if (now - start < 4000) requestAnimationFrame(tick);
+        else done({ fps: frames / ((performance.now() - start) / 1000), worst, long: window.__longTasks });
+      };
+      requestAnimationFrame(tick);
+    })`);
+  await page.locator("body").click({ position: { x: 720, y: 20 } });
+  const idle = await measure();
+  await page.keyboard.press("Space");
+  const playing = await measure();
+  await page.keyboard.press("Space");
+  // Again from the start: what's left is drawing, not the followers being worked out the first time.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Space");
+  const again = await measure();
+  await page.keyboard.press("Space");
+  console.log(`\n${count} solids linked to the sound (scale to the bass, opacity to the kicks), ${tracks.length} tracks\n`);
+  const line = (name: string, m: { fps: number; worst: number; long: number }) =>
+    console.log(`${name.padEnd(12)} ${m.fps.toFixed(1)} frames a second, slowest frame ${m.worst.toFixed(0)} ms, long tasks ${m.long.toFixed(0)} ms`);
+  line("paused", idle);
+  line("play 4 s", playing);
+  line("play again", again);
+  await browser.close();
+  process.exit(0);
+}
 
 async function startProfile(session: CDPSession) {
   await session.send("Profiler.enable");

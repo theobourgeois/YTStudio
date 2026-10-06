@@ -10,13 +10,16 @@
  * percentile of a level reads 1), so a quiet song reacts as much as a loud one; Volume still counts.
  */
 import { ExpressionError, type SignalScope } from "./expressions.ts";
-import { hasMedia, isRemapped, provideSignalScopes, volumeAt } from "./effects.ts";
-import { DB_SCALARS, type Hit, ONSET_SCALARS, type OnsetName, type ScalarName, type SignalData } from "./signals/format.ts";
+import { TIME_REMAP, VOLUME, findEffect, hasLinks, hasMedia, isRemapped, provideLinks, provideSignalScopes, volumeAt } from "./effects.ts";
+import { BEAT_SIGNALS, DEFAULT_HIT, findSignal, follow, hitLevel, hitSpan, isHitSignal, shapeValue } from "./links.ts";
+import { DB_SCALARS, type Hit, ONSET_SCALARS, type OnsetName, SIGNAL_RATE, type ScalarName, type SignalData } from "./signals/format.ts";
 import { bandEnergyAt, bandReferenceEnergy, dbPower, powerDb, scalarAt, scalarMax } from "./signals/sample.ts";
 import { isNestedClip, sequenceView } from "./sequences.ts";
 import { mediaTime } from "./time-remap.ts";
 import { clipDuration, clipEnd, clipSpeed, sourceTime, timelineTime, trackClips } from "./timeline.ts";
-import type { Clip, MusicSection, Project, Track } from "./types.ts";
+import type { Clip, HitShape, MusicSection, ParamLink, Project, SignalDef, SignalRef, SignalSource, Track } from "./types.ts";
+
+export type { SignalSource };
 
 /** Loaded signals by media id. */
 export type SignalStore = ReadonlyMap<string, SignalData>;
@@ -26,9 +29,6 @@ export interface SignalReader {
   readonly document: Project;
   readonly store: SignalStore;
 }
-
-/** What a signal is read from, in a sequence. */
-export type SignalSource = { kind: "master" } | { kind: "track"; trackId: string } | { kind: "clip"; clipId: string };
 
 export const MASTER: SignalSource = { kind: "master" };
 
@@ -207,8 +207,15 @@ export function signalValue(reader: SignalReader, sequenceId: string | null, sou
   return weight > 0 ? sum / weight : 0;
 }
 
-/** The energy between two frequencies of `source` at `t`, 0..1 (against the files' own loud parts there). */
-export function bandValue(reader: SignalReader, sequenceId: string | null, source: SignalSource, low: number, high: number, t: number): number {
+/** dB under full scale at which an absolute level (a band signal without auto-gain) reads 0. */
+export const ABSOLUTE_RANGE_DB = 60;
+
+/**
+ * The energy between two frequencies of `source` at `t`, 0..1: against the files' own loud parts
+ * there (auto-gain), or with `absolute` against full scale (`ABSOLUTE_RANGE_DB` under it is 0).
+ * `gainDb` is added first.
+ */
+export function bandValue(reader: SignalReader, sequenceId: string | null, source: SignalSource, low: number, high: number, t: number, absolute = false, gainDb = 0): number {
   const sounds: Sounding[] = [];
   soundsAt(reader, viewOf(reader, sequenceId), source, t, 1, sounds);
   let energy = 0;
@@ -217,7 +224,9 @@ export function bandValue(reader: SignalReader, sequenceId: string | null, sourc
     energy += s.gain * s.gain * bandEnergyAt(s.data, low, high, s.time);
     reference += bandReferenceEnergy(s.data, low, high);
   }
-  return fromDb(energy, reference);
+  if (gainDb) energy *= 10 ** (gainDb / 10);
+  if (!absolute) return fromDb(energy, reference);
+  return energy > 0 ? Math.min(1, Math.max(0, 1 + powerDb(energy) / ABSOLUTE_RANGE_DB)) : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -384,6 +393,406 @@ export function beatAt(reader: SignalReader, sequenceId: string | null, t: numbe
 }
 
 // ---------------------------------------------------------------------------
+// Hearing: a nested sequence hears the mix of the sequence it's placed in
+// ---------------------------------------------------------------------------
+
+/**
+ * What "the mix" is for clips of sequence `from`: the mix of `sequenceId` (the outermost sequence
+ * drawn), at `at(t)` when `from`'s time is `t`. So a look made in a nest reacts to the song of the
+ * video it's placed in, wherever it's placed (docs/visualizer/README.md). Tracks, clips and "self"
+ * are still the nest's own.
+ */
+export interface Hearing {
+  from: string | null;
+  sequenceId: string | null;
+  at(t: number): number;
+}
+
+const ownHearing = (id: string | null): Hearing => ({ from: id, sequenceId: id, at: (t) => t });
+
+/** Inside `clip`, a nested clip of a sequence heard as `outer`. */
+const insideOf = (outer: Hearing, clip: Clip): Hearing => ({ from: clip.assetId, sequenceId: outer.sequenceId, at: (t) => outer.at(timelineTime(clip, t)) });
+
+/** The hearing of the nest being drawn now (the preview's and the export's levels say: `withHearing`). */
+let drawing: Hearing | null = null;
+
+/** Work out values with nested clips hearing as `hearing` says (null: as nothing is drawing). */
+export function withHearing<T>(hearing: Hearing | null, work: () => T): T {
+  const before = drawing;
+  drawing = hearing;
+  try {
+    return work();
+  } finally {
+    drawing = before;
+  }
+}
+
+const usedHearings = new WeakMap<Project, Map<string | null, Hearing>>();
+
+/** How sequence `id` hears when nothing is drawing it: where it's first used (in the main sequence first), else itself. */
+function defaultHearing(document: Project, id: string | null, depth = 0): Hearing {
+  if (id === null || depth > 8) return ownHearing(id);
+  let map = usedHearings.get(document);
+  if (!map) usedHearings.set(document, (map = new Map()));
+  const known = map.get(id);
+  if (known) return known;
+  let hearing = ownHearing(id);
+  const main = document.clips.find((c) => c.assetId === id);
+  if (main) hearing = insideOf(ownHearing(null), main);
+  else {
+    for (const seq of document.sequences ?? []) {
+      const use = seq.id !== id && seq.clips.find((c) => c.assetId === id);
+      if (use) {
+        hearing = insideOf(defaultHearing(document, seq.id, depth + 1), use);
+        break;
+      }
+    }
+  }
+  map.set(id, hearing);
+  return hearing;
+}
+
+/** How clips of sequence `sequenceId` hear the mix. */
+export function hearingFor(reader: SignalReader, sequenceId: string | null): Hearing {
+  return drawing && drawing.from === sequenceId ? drawing : defaultHearing(reader.document, sequenceId);
+}
+
+/** The hearing inside nested clip `clip`, drawn where `outer` is heard (null: where nothing says). */
+export function nestedHearing(clip: Clip, outer: Hearing | null): Hearing | null {
+  const reader = currentSignalReader();
+  const found = reader && findClip(reader.document, clip.id);
+  if (!reader || !found) return null;
+  return insideOf(outer && outer.from === found.sequenceId ? outer : defaultHearing(reader.document, found.sequenceId), clip);
+}
+
+/** Where a source of sequence `sequenceId` is read at its time `t`: the mix where it's heard, anything else where it is. */
+function heard(reader: SignalReader, sequenceId: string | null, source: SignalSource, t: number): { sequenceId: string | null; t: number } {
+  if (source.kind !== "master") return { sequenceId, t };
+  const h = hearingFor(reader, sequenceId);
+  return { sequenceId: h.sequenceId, t: h.at(t) };
+}
+
+const trackSequences = new WeakMap<Project, Map<string, string | null>>();
+
+/** The sequence a track is in (null: the main one), or undefined when there's no such track. */
+function trackSequence(document: Project, trackId: string): string | null | undefined {
+  let map = trackSequences.get(document);
+  if (!map) {
+    map = new Map();
+    for (const t of document.tracks) map.set(t.id, null);
+    for (const seq of document.sequences ?? []) for (const t of seq.tracks) map.set(t.id, seq.id);
+    trackSequences.set(document, map);
+  }
+  return map.get(trackId);
+}
+
+/**
+ * Where a custom signal's source is read, from a clip of `sequenceId` at its time `t`: the mix where
+ * it's heard; a track or clip in its own sequence (at the clip's time when it's the clip's sequence,
+ * else where the mix is heard).
+ */
+function placeSource(reader: SignalReader, sequenceId: string | null, source: SignalSource, t: number): { sequenceId: string | null; t: number } {
+  const h = hearingFor(reader, sequenceId);
+  const home = source.kind === "master" ? h.sequenceId : source.kind === "track" ? trackSequence(reader.document, source.trackId) : findClip(reader.document, source.clipId)?.sequenceId;
+  if (home === undefined) return { sequenceId, t };
+  return home === sequenceId && source.kind !== "master" ? { sequenceId, t } : { sequenceId: home, t: h.at(t) };
+}
+
+// ---------------------------------------------------------------------------
+// Series: signals with an attack and a release, worked out at 200 a second
+// ---------------------------------------------------------------------------
+
+const RATE = SIGNAL_RATE;
+const STEP = 1 / RATE;
+
+/**
+ * A signal shaped (threshold, curve) and followed (attack, release) at `SIGNAL_RATE`, in blocks.
+ * Each block starts its follower eight time constants before it (from silence at 0), so a value
+ * never depends on what was read before it: scrubbing, playing and exporting agree (to within a
+ * ten-thousandth of what following from the start would give).
+ */
+class Series {
+  private readonly blocks = new Map<number, { values: Float32Array; hits: Hit[] }>();
+  private readonly size: number;
+  private readonly warm: number;
+
+  constructor(
+    private readonly raw: (t: number) => number,
+    private readonly shape: { threshold: number; curve: number; attack: number; release: number },
+    private readonly findsHits = false,
+  ) {
+    this.warm = Math.ceil(Math.min(60, 8 * Math.max(shape.attack, shape.release)) * RATE);
+    this.size = Math.max(RATE, this.warm);
+  }
+
+  private shaped(i: number) {
+    return i < 0 ? 0 : shapeValue(this.raw(i * STEP), this.shape.threshold, this.shape.curve);
+  }
+
+  private block(k: number) {
+    let block = this.blocks.get(k);
+    if (block) return block;
+    const { attack, release } = this.shape;
+    const start = k * this.size;
+    const from = Math.max(0, start - this.warm);
+    let v = from === 0 ? 0 : this.shaped(from);
+    for (let i = from; i < start; i++) v = follow(v, this.shaped(i), attack, release, STEP);
+    const values = new Float32Array(this.size);
+    const hits: Hit[] = [];
+    let before = this.findsHits ? this.shaped(start - 1) : 0;
+    for (let j = 0; j < this.size; j++) {
+      const x = this.shaped(start + j);
+      v = follow(v, x, attack, release, STEP);
+      values[j] = v;
+      // A hit where it rises out of silence, as hard as its highest in the next 40 ms.
+      if (this.findsHits && before <= 0 && x > 0) {
+        let peak = x;
+        for (let n = 1; n <= 8; n++) peak = Math.max(peak, this.shaped(start + j + n));
+        hits.push([(start + j) * STEP, peak]);
+      }
+      before = x;
+    }
+    if (this.blocks.size > 2048) this.blocks.clear();
+    this.blocks.set(k, (block = { values, hits }));
+    return block;
+  }
+
+  private sample(i: number): number {
+    if (i < 0) return 0;
+    const k = Math.floor(i / this.size);
+    return this.block(k).values[i - k * this.size];
+  }
+
+  /** Its value at `t` (between two samples, the line between them). */
+  at(t: number): number {
+    if (!(t >= 0)) return 0;
+    const x = t * RATE;
+    const i = Math.floor(x);
+    const a = this.sample(i);
+    return a + (this.sample(i + 1) - a) * (x - i);
+  }
+
+  /** Its hits between two times, in order. */
+  hits(from: number, to: number): Hit[] {
+    if (!(to >= 0)) return [];
+    const out: Hit[] = [];
+    const first = Math.floor(Math.max(0, from) * RATE / this.size);
+    const last = Math.floor(to * RATE / this.size);
+    for (let k = first; k <= last; k++) for (const h of this.block(k).hits) if (h[0] >= from && h[0] <= to) out.push(h);
+    return out;
+  }
+}
+
+/** What changes what a video sounds like: its sounds' clips (where, which part, how loud) and its tracks' mutes. */
+const soundPrints = new WeakMap<Project, string>();
+function soundPrint(document: Project): string {
+  let print = soundPrints.get(document);
+  if (print !== undefined) return print;
+  const parts: string[] = [];
+  for (const view of [document, ...(document.sequences ?? [])]) {
+    parts.push("id" in view ? String(view.id) : "", view.tracks.map((t) => `${t.id}${t.muted ? "-" : "+"}`).join(","));
+    for (const c of view.clips) {
+      if (!hasMedia(c)) continue;
+      parts.push(JSON.stringify([c.id, c.trackId, c.assetId, c.start, c.in, c.out, c.speed, c.reversed, findEffect(c, VOLUME.type), findEffect(c, TIME_REMAP.type)]));
+    }
+  }
+  soundPrints.set(document, (print = parts.join("|")));
+  return print;
+}
+
+const seriesCache = new WeakMap<SignalStore, { print: string; map: Map<string, Series> }[]>();
+
+/** The series under `key` for this video's sound (made by `make` the first time). */
+function seriesFor(reader: SignalReader, key: string, make: () => Series): Series {
+  const print = soundPrint(reader.document);
+  let list = seriesCache.get(reader.store);
+  if (!list) seriesCache.set(reader.store, (list = []));
+  let entry = list.find((e) => e.print === print);
+  if (!entry) {
+    list.unshift((entry = { print, map: new Map() }));
+    list.length = Math.min(list.length, 3);
+  }
+  let series = entry.map.get(key);
+  if (!series) {
+    if (entry.map.size > 512) entry.map.clear();
+    entry.map.set(key, (series = make()));
+  }
+  return series;
+}
+
+const sourceKey = (source: SignalSource) => (source.kind === "master" ? "master" : source.kind === "track" ? `t:${source.trackId}` : `c:${source.clipId}`);
+
+/** A band signal's series (its own shaping, and its hits when it has them), read on sequence `sequenceId`. */
+function bandSeries(reader: SignalReader, def: Extract<SignalDef, { kind: "band" }>, sequenceId: string | null): Series {
+  const { source, low, high, autoGain, gain, threshold, curve, attack, release, onsets } = def;
+  const key = `band|${sequenceId}|${sourceKey(source)}|${low}|${high}|${autoGain}|${gain}|${threshold}|${curve}|${attack}|${release}|${onsets}`;
+  return seriesFor(reader, key, () => new Series((t) => bandValue(reader, sequenceId, source, low, high, t, !autoGain, gain), { threshold, curve, attack, release }, onsets));
+}
+
+/** A hit list's level at `t` with `shape`: the highest of the hits still sounding, each times its velocity. */
+function hitsLevel(hits: readonly Hit[], t: number, shape: HitShape): number {
+  const span = hitSpan(shape);
+  let best = 0;
+  for (let i = lastHit(hits, t); i >= 0 && hits[i][0] >= t - span; i--) best = Math.max(best, hits[i][1] * hitLevel(t - hits[i][0], shape));
+  return best;
+}
+
+/** An events signal's level at `t`: each event held as long as it lasts (a note's length), else as `shape` says. */
+function eventsLevel(def: Extract<SignalDef, { kind: "events" }>, t: number, shape: HitShape): number {
+  const events = def.events;
+  let lo = 0;
+  let hi = events.length - 1;
+  let i = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (events[mid].time <= t + 1e-9) {
+      i = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  let best = 0;
+  const reach = hitSpan(shape) + longestEvent(def);
+  for (; i >= 0 && events[i].time >= t - reach; i--) {
+    const e = events[i];
+    best = Math.max(best, e.velocity * hitLevel(t - e.time, { ...shape, hold: Math.max(shape.hold, e.length ?? 0) }));
+  }
+  return best;
+}
+
+const longest = new WeakMap<SignalDef, number>();
+/** How long an events signal's longest event is held. */
+function longestEvent(def: Extract<SignalDef, { kind: "events" }>): number {
+  let n = longest.get(def);
+  if (n === undefined) longest.set(def, (n = def.events.reduce((m, e) => Math.max(m, e.length ?? 0), 0)));
+  return n;
+}
+
+/** A curve signal's value at `t` (straight lines between its points, held past its ends). */
+function curveLevel(def: Extract<SignalDef, { kind: "curve" }>, t: number): number {
+  const p = def.points;
+  if (!p.length) return 0;
+  const i = lastAt(p.length, (k) => p[k].time, t);
+  if (i < 0) return p[0].value;
+  if (i >= p.length - 1) return p[i].value;
+  const [a, b] = [p[i], p[i + 1]];
+  return b.time > a.time ? a.value + ((b.value - a.value) * (t - a.time)) / (b.time - a.time) : b.value;
+}
+
+/** The custom signal a reference names, if it's one (by id, or a built-in name that's a custom one's). */
+function customOf(reader: SignalReader, ref: SignalRef): SignalDef | undefined {
+  return "id" in ref ? reader.document.signals?.find((d) => d.id === ref.id) : undefined;
+}
+
+/**
+ * A custom signal's value from a clip of `sequenceId` at its timeline time `t`, 0..1 (an events
+ * signal's hits shaped by `shape`).
+ */
+export function customSignalLevel(reader: SignalReader, def: SignalDef, sequenceId: string | null, t: number, shape: HitShape = DEFAULT_HIT): number {
+  if (def.kind === "band") {
+    const where = placeSource(reader, sequenceId, def.source, t);
+    return bandSeries(reader, def, where.sequenceId).at(where.t);
+  }
+  const at = hearingFor(reader, sequenceId).at(t);
+  return def.kind === "events" ? eventsLevel(def, at, shape) : curveLevel(def, at);
+}
+
+/** A custom signal's hits (events, or a band's onsets) around a clip's time `t`, on the timeline they're on, and where `t` is there. */
+function customHits(reader: SignalReader, def: SignalDef, sequenceId: string | null, t: number, span: number): { hits: Hit[]; t: number } | null {
+  if (def.kind === "events") return { hits: hitsOfEvents(def), t: hearingFor(reader, sequenceId).at(t) };
+  if (def.kind === "band" && def.onsets) {
+    const where = placeSource(reader, sequenceId, def.source, t);
+    return { hits: bandSeries(reader, def, where.sequenceId).hits(where.t - span, where.t), t: where.t };
+  }
+  return null;
+}
+
+/** A custom signal's hits between two times of the main timeline (events, or a band's onsets; none for others). */
+export function customSignalHits(reader: SignalReader, def: SignalDef, from: number, to: number): Hit[] {
+  if (def.kind === "events") return hitsOfEvents(def).filter(([t]) => t >= from && t <= to);
+  if (def.kind !== "band" || !def.onsets) return [];
+  const where = placeSource(reader, null, def.source, 0);
+  return bandSeries(reader, def, where.sequenceId).hits(from, to);
+}
+
+const eventHits = new WeakMap<SignalDef, Hit[]>();
+/** An events signal's hits as `Hit`s (kept per signal). */
+function hitsOfEvents(def: Extract<SignalDef, { kind: "events" }>): Hit[] {
+  let hits = eventHits.get(def);
+  if (!hits) eventHits.set(def, (hits = def.events.map((e) => [e.time, e.velocity] as Hit)));
+  return hits;
+}
+
+/** A built-in hit signal's hits (onsets, the beat) of `source`, and where `t` is on their timeline. */
+function builtInHits(reader: SignalReader, sequenceId: string | null, name: string, source: SignalSource, t: number): { hits: readonly Hit[]; t: number } {
+  const where = heard(reader, sequenceId, source, t);
+  if ((BEAT_SIGNALS as readonly string[]).includes(name)) {
+    const grid = beatGridAt(reader, where.sequenceId, where.t);
+    const times = !grid ? [] : name === "beat" ? grid.beats : grid.downbeats;
+    return { hits: beatHits(times), t: where.t };
+  }
+  return { hits: sourceHits(reader, where.sequenceId, source, name as OnsetName), t: where.t };
+}
+
+const beatHitCache = new WeakMap<readonly number[], Hit[]>();
+function beatHits(times: readonly number[]): Hit[] {
+  let hits = beatHitCache.get(times);
+  if (!hits) beatHitCache.set(times, (hits = times.map((time) => [time, 1] as Hit)));
+  return hits;
+}
+
+/**
+ * What a link's signal reads from a clip of `sequenceId` at its timeline time `t`: 0..1 after the
+ * link's response (threshold, curve, attack and release, invert). Hits (onsets with a hit shape,
+ * the beat, events) make the shape each time; everything else is followed at 200 a second.
+ */
+export function linkLevel(reader: SignalReader, sequenceId: string | null, link: Pick<ParamLink, "signal" | "response" | "hit">, t: number): number {
+  const { signal: ref, response: r } = link;
+  const custom = customOf(reader, ref);
+  if ("id" in ref && !custom) return 0;
+  let level: number;
+  if (custom && (custom.kind === "events" || (custom.kind === "band" && custom.onsets && link.hit))) {
+    const shape = link.hit ?? DEFAULT_HIT;
+    if (custom.kind === "events") level = eventsLevel(custom, hearingFor(reader, sequenceId).at(t), shape);
+    else {
+      const found = customHits(reader, custom, sequenceId, t, hitSpan(shape));
+      level = found ? hitsLevel(found.hits, found.t, shape) : 0;
+    }
+    level = shapeValue(level, r.threshold, r.curve);
+  } else if (!custom && "name" in ref && isHitSignal(ref.name) && (link.hit || (BEAT_SIGNALS as readonly string[]).includes(ref.name))) {
+    const { hits, t: at } = builtInHits(reader, sequenceId, ref.name, ref.source ?? MASTER, t);
+    level = shapeValue(hitsLevel(hits, at, link.hit ?? DEFAULT_HIT), r.threshold, r.curve);
+  } else {
+    const shape = { threshold: r.threshold, curve: r.curve, attack: r.attack, release: r.release };
+    const shapeKey = `${r.threshold}|${r.curve}|${r.attack}|${r.release}`;
+    if (custom) {
+      // On the timeline the custom signal is read on (where its source is heard).
+      const home = custom.kind === "band" ? placeSource(reader, sequenceId, custom.source, t) : { sequenceId: hearingFor(reader, sequenceId).sequenceId, t: hearingFor(reader, sequenceId).at(t) };
+      const key = `link|${home.sequenceId}|${custom.id}|${JSON.stringify(custom)}|${shapeKey}`;
+      const own = custom.kind === "band" ? bandSeries(reader, custom, home.sequenceId) : null;
+      const series = seriesFor(reader, key, () => new Series((x) => (own ? own.at(x) : custom.kind === "curve" ? curveLevel(custom, x) : 0), shape));
+      level = series.at(home.t);
+    } else {
+      const name = (ref as { name: string }).name as ScalarName;
+      const source = ("name" in ref && ref.source) || MASTER;
+      const where = heard(reader, sequenceId, source, t);
+      const key = `link|${where.sequenceId}|${sourceKey(source)}|${name}|${shapeKey}`;
+      level = seriesFor(reader, key, () => new Series((x) => signalValue(reader, where.sequenceId, source, name, x, STEP), shape)).at(where.t);
+    }
+  }
+  return r.invert ? 1 - level : level;
+}
+
+/** A link on a clip at its source time `time` (what `effects.ts` asks; 0 where signals can't be read). */
+function readLink(clipId: string, link: ParamLink, time: number): number {
+  const reader = currentSignalReader();
+  const found = reader && findClip(reader.document, clipId);
+  if (!reader || !found) return 0;
+  return linkLevel(reader, found.sequenceId, link, timelineTime(found.clip, time));
+}
+
+provideLinks(readLink);
+
+// ---------------------------------------------------------------------------
 // Naming sources, and what an expression sees
 // ---------------------------------------------------------------------------
 
@@ -422,21 +831,46 @@ export function signalScope(clipId: string, fps: number): SignalScope | undefine
   const view = viewOf(reader, sequenceId);
   const frame = fps > 0 ? 1 / fps : 0;
   const at = (t: number) => timelineTime(clip, t);
+  const custom = (name: string, fn: string) => {
+    const def = findSignal(reader.document, name);
+    if (def) return def;
+    const names = (reader.document.signals ?? []).map((d) => `"${d.name}"`);
+    throw new ExpressionError(`${fn}(): there's no signal "${name}". ${names.length ? `This video's signals: ${names.join(", ")}` : "This video has no signals of its own yet"}`);
+  };
   return {
     audio(name, source, t) {
       checkName(name, "audio");
-      return signalValue(reader, sequenceId, resolveSource(view, source, clip), name, at(t), frame);
+      const src = resolveSource(view, source, clip);
+      const where = heard(reader, sequenceId, src, at(t));
+      return signalValue(reader, where.sequenceId, src, name, where.t, frame);
     },
     band(low, high, source, t) {
-      return bandValue(reader, sequenceId, resolveSource(view, source, clip), Math.min(low, high), Math.max(low, high), at(t));
+      const src = resolveSource(view, source, clip);
+      const where = heard(reader, sequenceId, src, at(t));
+      return bandValue(reader, where.sequenceId, src, Math.min(low, high), Math.max(low, high), where.t);
     },
     hits(name, source, t) {
-      if (!isOnsetName(name)) throw new ExpressionError(`There are no hits called "${name}": use ${ONSET_SCALARS.map((n) => `"${n}"`).join(", ")}`);
-      const hits = sourceHits(reader, sequenceId, resolveSource(view, source, clip), name);
-      const i = lastHit(hits, at(t));
-      return i < 0 ? { since: NEVER, count: 0, velocity: 0 } : { since: at(t) - hits[i][0], count: i + 1, velocity: hits[i][1] };
+      let found: { hits: readonly Hit[]; t: number } | null;
+      if (isOnsetName(name)) found = builtInHits(reader, sequenceId, name, resolveSource(view, source, clip), at(t));
+      else {
+        const def = findSignal(reader.document, name);
+        if (!def) {
+          const own = (reader.document.signals ?? []).filter((d) => d.kind === "events" || (d.kind === "band" && d.onsets)).map((d) => `"${d.name}"`);
+          throw new ExpressionError(`There are no hits called "${name}": use ${[...ONSET_SCALARS.map((n) => `"${n}"`), ...own].join(", ")}`);
+        }
+        // A band's onsets are found as far back as needed to count them.
+        found = customHits(reader, def, sequenceId, at(t), Infinity);
+        if (!found) throw new ExpressionError(`"${def.name}" has no hits: it's a ${def.kind} signal${def.kind === "band" ? " without onsets" : ""}`);
+      }
+      const { hits, t: when } = found;
+      const i = lastHit(hits, when);
+      return i < 0 ? { since: NEVER, count: 0, velocity: 0 } : { since: when - hits[i][0], count: i + 1, velocity: hits[i][1] };
     },
-    beat: (t) => beatAt(reader, sequenceId, at(t)),
+    beat(t) {
+      const h = hearingFor(reader, sequenceId);
+      return beatAt(reader, h.sequenceId, h.at(at(t)));
+    },
+    signal: (name, t) => customSignalLevel(reader, custom(name, "signal"), sequenceId, at(t)),
   };
 }
 
@@ -455,14 +889,29 @@ export function signalAssets(document: Project, hasAudio: (assetId: string) => b
 }
 
 /** The expression functions that read the sound. */
-const SOUND_CALL = /\b(audio|audioAt|band|sinceHit|hitCount|hitVelocity|beat|bar|beatPhase|sinceBeat|bpm|section|sinceDrop)\s*\(/;
+const SOUND_CALL = /\b(audio|audioAt|band|sinceHit|hitCount|hitVelocity|beat|bar|beatPhase|sinceBeat|bpm|section|sinceDrop|signal|signalAt)\s*\(/;
+
+const uses = new WeakMap<Project, boolean>();
 
 /** Whether anything in a video reacts to sound (so the export needs its files' signals). */
 export function usesSignals(document: Project): boolean {
-  for (const clip of [...document.clips, ...(document.sequences ?? []).flatMap((s) => s.clips)]) {
+  let known = uses.get(document);
+  if (known !== undefined) return known;
+  known = false;
+  search: for (const clip of [...document.clips, ...(document.sequences ?? []).flatMap((s) => s.clips)]) {
     for (const effect of clip.effects) {
-      for (const source of Object.values(effect.expressions ?? {})) if (SOUND_CALL.test(source)) return true;
+      if (hasLinks(effect)) {
+        known = true;
+        break search;
+      }
+      for (const source of Object.values(effect.expressions ?? {})) {
+        if (SOUND_CALL.test(source)) {
+          known = true;
+          break search;
+        }
+      }
     }
   }
-  return false;
+  uses.set(document, known);
+  return known;
 }

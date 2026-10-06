@@ -16,7 +16,7 @@ import { clipMarkers } from "@shared/markers";
 import { errorMessage } from "@shared/errors";
 import { templateFromClips, templateFromSubclip } from "@shared/library";
 import { clamp } from "@shared/math";
-import { getSequence } from "@shared/sequences";
+import { getSequence, writeSequence } from "@shared/sequences";
 import { getSubclip } from "@shared/subclips";
 import { placeTemplate } from "@shared/library";
 import { clipEnd, getClip, projectDuration, timelineTime, outputSize } from "@shared/timeline";
@@ -117,14 +117,22 @@ function finishEdit(doc: ToolDoc, before: Project, ctx: ToolContext) {
   return changes;
 }
 
+/** Edits that place things on the sound or say what they do to it: they're given its signals. */
+const HEARING_EDITS = new Set<string>(["link_param", "define_signal", "set_events"]);
+const hears = (name: string, input: Input) =>
+  HEARING_EDITS.has(name) || (name === "batch" && Array.isArray(input.steps) && input.steps.some((s) => HEARING_EDITS.has((s as Input | null)?.tool as string)));
+
 /** An edit tool: its pure edit, committed as one undo step. */
 const edit =
   (name: keyof typeof EDITS): Handler =>
   async (input, ctx) => {
     const doc = await ctx.doc();
+    // The sound first (it may need analysing), then the edit on the video as it is then.
+    const store = hears(name, input) ? (await readerFor(doc, ctx)).store : null;
     if (doc.isOpen) await gesturesSettled(ctx.signal);
     const before = doc.project;
-    const out = EDITS[name](before, input, { assets: byId(doc.assets), playhead: doc.playhead, sequenceId: doc.sequenceId });
+    const signals = store && { store, document: (view: Project) => writeSequence(doc.document, doc.sequenceId, view) };
+    const out = EDITS[name](before, input, { assets: byId(doc.assets), playhead: doc.playhead, sequenceId: doc.sequenceId, ...(signals && { signals }) });
     doc.commit(out.project);
     if (out.rename) doc.rename(out.rename);
     return textResult(out.text, finishEdit(doc, before, ctx));
@@ -442,6 +450,10 @@ const TOOLS: Record<VideoToolName, Handler> = {
   set_markers: edit("set_markers"),
   cut_to_markers: edit("cut_to_markers"),
   set_expression: edit("set_expression"),
+  link_param: edit("link_param"),
+  define_signal: edit("define_signal"),
+  delete_signal: edit("delete_signal"),
+  set_events: edit("set_events"),
   nest_clips: edit("nest_clips"),
   break_apart: edit("break_apart"),
   edit_sequence: edit("edit_sequence"),

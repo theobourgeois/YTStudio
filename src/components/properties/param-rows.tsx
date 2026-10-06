@@ -3,7 +3,7 @@
  * `ParamSpec`s (effects, transitions) gets a panel for free.
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { PiArrowCounterClockwise, PiBezierCurve, PiFunction } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiBezierCurve, PiFunction, PiLinkSimple, PiLinkSimpleBreak } from "react-icons/pi";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import type { BezierPath } from "@shared/path";
 import type { ParamValue, ParamValues, Project, Vec2 } from "@shared/types";
@@ -66,9 +66,11 @@ interface ParamRowProps {
   owner?: { clipId: string; effectId: string };
   /** The property can have an expression: whether it has one, and adding or removing it (its name's menu). */
   expression?: { on: boolean; toggle: () => void };
+  /** The property can follow a signal: its link button (beside the stopwatch), and its name's menu items. */
+  link?: { button: ReactNode; on: boolean; open: () => void; unlink: () => void };
 }
 
-export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator, owner, expression }: ParamRowProps) {
+export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator, owner, expression, link }: ParamRowProps) {
   const value = values[spec.key];
   const label = spec.labelFor?.(values) ?? spec.label;
   const disabled = spec.disabledFor?.(values) ?? false;
@@ -114,11 +116,16 @@ export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator,
     <div
       className={cn(
         "grid min-h-8 items-center gap-x-1 pr-1",
-        animatable ? "grid-cols-[1.25rem_5.5rem_minmax(0,1fr)_auto_1.25rem] pl-1.5" : "grid-cols-[6.5rem_minmax(0,1fr)_1.25rem] pl-3",
+        animatable ? `${ANIMATED_ROW} pl-1.5` : "grid-cols-[6.5rem_minmax(0,1fr)_1.25rem] pl-3",
       )}
       data-param={spec.key}
     >
-      {animatable && (animation ?? <span />)}
+      {animatable && (
+        <div className="flex items-center">
+          {animation ?? <span className="size-5" />}
+          {link?.button ?? <span className="size-5" />}
+        </div>
+      )}
       {expression ? (
         <ContextMenu>
           <ContextMenuTrigger asChild>
@@ -134,6 +141,16 @@ export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator,
             <ContextMenuItem onSelect={expression.toggle}>
               <PiFunction /> {expression.on ? "Remove expression" : "Add expression"}
             </ContextMenuItem>
+            {link && (
+              <ContextMenuItem onSelect={link.open}>
+                <PiLinkSimple /> {link.on ? "Edit link" : "Link to signal"}
+              </ContextMenuItem>
+            )}
+            {link?.on && (
+              <ContextMenuItem onSelect={link.unlink}>
+                <PiLinkSimpleBreak /> Unlink
+              </ContextMenuItem>
+            )}
             <ContextMenuItem disabled={!changed || disabled} onSelect={edit.reset}>
               <PiArrowCounterClockwise /> Reset {label}
             </ContextMenuItem>
@@ -150,6 +167,9 @@ export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator,
     </div>
   );
 }
+
+/** The columns of an animatable property's row: stopwatch and link, name, control, navigator, reset. */
+export const ANIMATED_ROW = "grid-cols-[2.5rem_5.5rem_minmax(0,1fr)_auto_1.25rem]";
 
 export function ResetButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (

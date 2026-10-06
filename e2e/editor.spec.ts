@@ -1558,6 +1558,48 @@ test("marks a song's beats on its clip and cuts a clip to them", async ({ page }
   expect(await page.locator("[data-beat]").count()).toBeGreaterThan(8);
 });
 
+test("links a clip's scale to the song's bass, then to its kicks, and unlinks it", async ({ page }) => {
+  await openLatest(page);
+  await newVideo(page);
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles([FILES[0], FILES[3]]);
+  await expect(page.locator("[draggable=true]").filter({ hasText: "music-20s" }).first()).toBeVisible();
+  await dragAsset(page, "music-20s", await timeX(page, 0.05), await laneY(page, "Audio 1"));
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+  await dragAsset(page, "vertical-1080x1920", await timeX(page, 0.05), await laneY(page, "Video 1"));
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(2);
+  const [video] = await timelineClips(page);
+  await page.mouse.click(video.x + 30, video.y + video.h / 2);
+  await page.getByRole("tab", { name: "Properties", exact: true }).click();
+  type Linked = { id: string; effects: (FullEffect & { links?: Record<string, { signal: { name?: string }; mode: string; amount: unknown; hit?: object }> })[] };
+  const link = async () => ((await savedProject(page)).clips as Linked[]).find((c) => c.id === video.id)?.effects.find((e) => e.type === "motion")?.links?.scale;
+
+  // The link button by Scale's stopwatch links it to the bass at once (a fifth more at full) and opens its popover.
+  const motion = page.getByRole("region", { name: "Motion" });
+  await motion.getByRole("button", { name: "Link Scale to a signal" }).click();
+  await expect.poll(link).toMatchObject({ signal: { name: "bass" }, mode: "add", amount: 0.2 });
+  const popover = page.locator("[data-link-popover=scale]");
+  await expect(popover).toBeVisible();
+  // Its meter reads the song once it's analysed.
+  await expect(popover.locator("[data-link-value]")).toContainText("Now", { timeout: 60_000 });
+
+  // Kicks: hits, each a punch.
+  await popover.getByRole("combobox", { name: "Scale: signal" }).click();
+  await page.getByRole("option", { name: "Kicks" }).click();
+  await expect.poll(link).toMatchObject({ signal: { name: "onsetLow" }, hit: { decay: 0.25 } });
+  await popover.getByRole("radio", { name: "multiply" }).click();
+  await expect.poll(link).toMatchObject({ mode: "multiply", amount: 0.3 });
+  // One undo takes the mode back; Unlink takes the link away.
+  await page.keyboard.press("Escape");
+  await expect(popover).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(link).toMatchObject({ mode: "add" });
+  await expect(motion.getByRole("button", { name: "Link Scale to a signal" })).toHaveAttribute("aria-pressed", "true");
+  await motion.getByRole("button", { name: "Link Scale to a signal" }).click();
+  await page.locator("[data-link-popover=scale]").getByRole("button", { name: "Unlink" }).click();
+  await expect.poll(link).toBeUndefined();
+});
+
 test("pinching over the monitor scales the selected clip, as one undo step", async ({ page }) => {
   await openLatest(page);
   await newVideo(page);

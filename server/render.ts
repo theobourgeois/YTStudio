@@ -31,7 +31,7 @@
  * - Colour: videos are decoded as YUV and turned into RGB by the compositor
  *   with their own YCbCr matrix; the output is BT.709, tagged as such.
  */
-import { type SignalStore, createSignalReader, withSignals } from "../shared/audio-signals.ts";
+import { type Hearing, type SignalStore, createSignalReader, nestedHearing, withHearing, withSignals } from "../shared/audio-signals.ts";
 import { type Adjustment, type Affine, type EffectPass, type Placed, matteIndex } from "../shared/compositor.ts";
 import { effectPasses, effectShader } from "../shared/effect-gl.ts";
 import { type Camera3D } from "../shared/camera.ts";
@@ -322,13 +322,13 @@ export function planRender(
     times: [number, number][];
   }
   const seen = new Map<string, Seen>();
-  const see = (f: number, level: Level, path: string, shown: Shown | null, depth: number) => {
+  const see = (f: number, level: Level, path: string, shown: Shown | null, depth: number, hearing: Hearing | null) => {
     if (!shown) return;
     if (isNestedClip(shown.clip)) {
       const T = innerTime(shown);
       const seq = nestedSequence(project, shown.clip);
       if (T === null || !seq || depth > 16 || !(opacityAt(shown.clip, shown.time) > 0)) return;
-      visit(f, levelOf(seq.id), `${path}${shown.clip.id}/`, T, depth + 1);
+      visit(f, levelOf(seq.id), `${path}${shown.clip.id}/`, T, depth + 1, nestedHearing(shown.clip, hearing));
       return;
     }
     const drawn = draw(level, shown);
@@ -348,19 +348,19 @@ export function planRender(
   const shaders: Record<string, string> = {};
   // What expressions hear (here and in `layersOf`).
   const signals = createSignalReader(project, opts.signals ?? new Map());
-  const visit = (f: number, level: Level, path: string, t: number, depth: number) =>
-    // Expressions are told this sequence's frame rate (here and in `layersOf`).
-    withSignals(signals, () => atFrameRate(level.view.settings.fps, () => {
+  const visit = (f: number, level: Level, path: string, t: number, depth: number, hearing: Hearing | null) =>
+    // Expressions are told this sequence's frame rate, and a nest hears where it's placed (here and in `layersOf`).
+    withSignals(signals, () => withHearing(hearing, () => atFrameRate(level.view.settings.fps, () => {
       for (const shot of shotsAt(level, t)) {
-        if (shot.kind === "clip") see(f, level, path, shot.shown, depth);
+        if (shot.kind === "clip") see(f, level, path, shot.shown, depth, hearing);
         else {
-          see(f, level, path, shot.from, depth);
-          see(f, level, path, shot.to, depth);
+          see(f, level, path, shot.from, depth, hearing);
+          see(f, level, path, shot.to, depth, hearing);
           const shader = transitionShader(shot.window.def);
           shaders[shader.key] = shader.source;
         }
       }
-    }));
+    })));
   // Every video effect a visible clip has on, whenever it's shown.
   for (const clip of everyClip) {
     for (const pass of effectPasses(clip, clip.in)) {
@@ -375,7 +375,7 @@ export function planRender(
     const blur = effectShader(effectDefinition("gaussian-blur")!);
     if (blur) shaders[blur.key] = blur.source;
   }
-  for (let f = 0; f < frames; f++) visit(f, top, "", frameTime(f, F), 0);
+  for (let f = 0; f < frames; f++) visit(f, top, "", frameTime(f, F), 0, null);
 
   /** A natively decoded picture's runs: stretches of its frames where its media time only goes one way. */
   interface Run {
@@ -477,16 +477,16 @@ export function planRender(
     fonts: [...new Set(Object.values(texts).flatMap((layouts) => layouts.map((l) => l.layout.font)))],
     needsReversed: [...needsReversed],
     frame(f) {
-      return layersOf(top, "", frameTime(f, F), f, 0);
+      return layersOf(top, "", frameTime(f, F), f, 0, null);
     },
   };
 
   /** A level's layers at its time `t` (output frame `f`), bottom first: groups (nested sequences) before what uses them. */
-  function layersOf(level: Level, path: string, t: number, f: number, depth: number): FrameLayer[] {
-    return withSignals(signals, () => atFrameRate(level.view.settings.fps, () => levelLayers(level, path, t, f, depth)));
+  function layersOf(level: Level, path: string, t: number, f: number, depth: number, hearing: Hearing | null): FrameLayer[] {
+    return withSignals(signals, () => withHearing(hearing, () => atFrameRate(level.view.settings.fps, () => levelLayers(level, path, t, f, depth, hearing))));
   }
 
-  function levelLayers(level: Level, path: string, t: number, f: number, depth: number): FrameLayer[] {
+  function levelLayers(level: Level, path: string, t: number, f: number, depth: number, hearing: Hearing | null): FrameLayer[] {
     const { canvas, camera, layerOptions } = level;
     const groups: FrameLayer[] = [];
     const canvasAffineOf = (clip: Clip) => canvasAffine(clip, canvas, camera, parentAt(level.view, clip, canvas));
@@ -528,7 +528,7 @@ export function planRender(
         if (!seq || T === null || depth > 16) return null;
         const inner = levelOf(seq.id);
         const key = `g:${path}${clip.id}`;
-        groups.push({ kind: "group", key, ...inner.canvas, layers: layersOf(inner, `${path}${clip.id}/`, T, f, depth + 1) });
+        groups.push({ kind: "group", key, ...inner.canvas, layers: layersOf(inner, `${path}${clip.id}/`, T, f, depth + 1, nestedHearing(clip, hearing)) });
         const layer = clipLayer(clip, time, where, layerOptions);
         return layer && { ...byKey(layer), key };
       }

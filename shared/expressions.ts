@@ -48,6 +48,8 @@ export interface SignalScope {
   band(low: number, high: number, source: string | number | undefined, t: number): number;
   hits(name: string, source: string | number | undefined, t: number): { since: number; count: number; velocity: number };
   beat(t: number): { beat: number; bar: number; since: number; bpm: number; section: number; sinceDrop: number };
+  /** One of the video's own signals by name (or id), 0..1. */
+  signal(name: string, t: number): number;
 }
 
 /** A parsed expression: parse once, evaluate every frame. */
@@ -1118,9 +1120,31 @@ const SOUND_GLOBALS: Global[] = [
     },
   },
   {
+    name: "signal",
+    signature: "signal(name)",
+    description:
+      'One of the video\'s own signals now, by name, 0..1 (made in the Signals window or by the assistant: a band of a sound with its own attack and release, hits, or a curve): value + signal("Kick") * 40.',
+    call: (r, args, pos) => {
+      arity(args, 1, 1, "signal(name)", pos);
+      const name = nameArg(args, 0, "signal", pos);
+      return hear(r, pos, (s) => s.signal(name, r.time), 0);
+    },
+  },
+  {
+    name: "signalAt",
+    signature: "signalAt(name, t)",
+    description: "One of the video's own signals at another time on the clip's clock (as `time`).",
+    call: (r, args, pos) => {
+      arity(args, 2, 2, "signalAt(name, t)", pos);
+      const name = nameArg(args, 0, "signalAt", pos);
+      const t = numArg(args, 1, "signalAt", "t", pos);
+      return hear(r, pos, (s) => s.signal(name, t), 0);
+    },
+  },
+  {
     name: "sinceHit",
     signature: 'sinceHit(name = "onset", source)',
-    description: `Seconds since the sound's last hit: "onset" (any), "onsetLow" (kicks), "onsetMid", "onsetHigh" (hats). Very large before the first. Pair it with envelope().`,
+    description: `Seconds since the sound's last hit: "onset" (any), "onsetLow" (kicks), "onsetMid", "onsetHigh" (hats), or one of the video's own signals with hits (events, or a band with onsets) by name. Very large before the first. Pair it with envelope().`,
     call: (r, args, pos) => hitsOf("sinceHit")(r, args, pos).since,
   },
   {

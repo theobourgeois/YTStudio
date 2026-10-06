@@ -10,7 +10,7 @@
  */
 import type { Affine, VectorDrawing, VectorOp, VectorPaint } from "./compositor.ts";
 import { MERGE_PATHS, OFFSET_PATHS, REPEATER, ROUND_CORNERS, SHAPE, TRIM_PATHS, WIGGLE_PATHS, ZIG_ZAG } from "./effect-library/shape.ts";
-import { effectDefinition, effectValuesAt, hasExpressions } from "./effects.ts";
+import { effectDefinition, effectValuesAt, isComputed } from "./effects.ts";
 import {
   type BezierPath,
   type LineJoin,
@@ -314,7 +314,7 @@ export function shapesChange(clip: Clip, a: number, b: number): boolean {
     const def = effectDefinition(e.type);
     if (def?.stackable !== "shape" || !e.enabled) return false;
     if (def === WIGGLE_PATHS && (e.params.speed as number) > 0 && (e.params.size as number) > 0) return true;
-    return (!!e.keyframes || hasExpressions(e)) && JSON.stringify(effectValuesAt(def, e, a, clip)) !== JSON.stringify(effectValuesAt(def, e, b, clip));
+    return (!!e.keyframes || isComputed(e)) && JSON.stringify(effectValuesAt(def, e, a, clip)) !== JSON.stringify(effectValuesAt(def, e, b, clip));
   });
 }
 
