@@ -465,6 +465,12 @@ export type ProjectSummary = {
 
 export type SuiteProjectSummary<S extends SuiteId> = Extract<ProjectSummary, { suite: S }>;
 
+/**
+ * The header of `GET /api/projects/:id` that says what the check on opening changed (the photo suite's: pixels
+ * were missing, so an earlier version opened), URI-encoded. Absent when the document opened as it was saved.
+ */
+export const PROJECT_NOTICE_HEADER = "X-Project-Notice";
+
 export interface CreateProjectRequest {
   name?: string;
   /** Which app it's for (default: video). */
@@ -898,8 +904,11 @@ export interface ToolCallProgressRequest {
 //                                        the recents (a copy of one already open gets ids of its own)
 //   GET    /api/projects/location       -> ProjectLocation;  PUT body: { path } -> ProjectLocation
 //   GET    /api/projects/:id            -> SuiteDocument (its suite's; a video's normalized against its media)
-//                                        422 if its project.json is damaged (kept aside, never replaced)
-//   PUT    /api/projects/:id  body: SuiteDocument -> ProjectSummary (bumps updatedAt; 422 while it's damaged)
+//                                        422 if its project.json is damaged (kept aside, never replaced); after
+//                                        its suite's check on opening, which may open (and save) another
+//                                        version, saying why in PROJECT_NOTICE_HEADER
+//   PUT    /api/projects/:id  body: SuiteDocument -> ProjectSummary (bumps updatedAt; 422 while it's damaged;
+//                                        409 if a photo names pixels the package hasn't got; 507 if the disk is full)
 //   PUT    /api/projects/:id/cover  body: JPEG or PNG bytes (≤ 4 MB) -> 204: the picture a tab drew of it for
 //                                        its card (`thumbnail`, when it has no media poster); 413 too big,
 //                                        415 not a JPEG or PNG
