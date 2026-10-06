@@ -343,6 +343,20 @@ export class ProjectStore {
   /** A tab opened the project: it's the latest, and its package stays put until it's closed. */
   async opened(id: string): Promise<ProjectSummary> {
     const entry = this.entry(id);
+    const backend = suiteBackend(entry.meta.suite);
+    if (backend.opened && !this.open.has(id)) {
+      // Before the tab writes anything into the package (it hasn't the project yet): it never races the suite.
+      try {
+        await this.writes(async () => {
+          const current = this.entry(id);
+          const doc = await this.readDoc(current);
+          // A damaged document names nothing reliably: nothing is tidied after it.
+          if (doc && !this.entry(id).damaged) await backend.opened!(doc as never, current.dir);
+        });
+      } catch (error) {
+        console.warn(`[projects] ${entry.meta.suite} couldn't tidy ${entry.dir} on opening: ${errorMessage(error)}`);
+      }
+    }
     this.open.add(id);
     this.entries.set(id, { ...entry, openedAt: this.now() });
     await this.saveRecents();
@@ -515,6 +529,7 @@ export class ProjectStore {
       const entry = this.entry(id);
       // A damaged document is never written over: refused until it's mended (read again: maybe it is now).
       if (entry.damaged) await this.readDoc(entry);
+      await suiteBackend(meta.suite).checkSave?.(doc as never, entry.dir);
       await this.write(id, doc);
       // Renamed while no tab has it open (the assistant working on it in the background).
       if (!this.open.has(id)) await this.followName(id);

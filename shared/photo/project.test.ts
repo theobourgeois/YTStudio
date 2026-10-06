@@ -12,7 +12,7 @@ const image = (id: string, width = 400, height = 200) => ({ id, mediaId: `media_
 describe("photo documents", () => {
   it("starts as a white 9:16 canvas with no layers, or with the tab's choices", () => {
     const doc = createPhotoProject("Cover");
-    expect(doc).toMatchObject({ version: 2, name: "Cover", canvas: { width: 1080, height: 1920, background: "#ffffff" }, layers: [] });
+    expect(doc).toMatchObject({ version: 3, name: "Cover", canvas: { width: 1080, height: 1920, background: "#ffffff" }, layers: [] });
     expect(withPhotoOptions(doc, { width: 1280, height: 720, background: null }).canvas).toEqual({ width: 1280, height: 720, background: null });
     expect(withPhotoOptions(doc, { width: -3, height: "big", background: "red" })).toEqual(doc);
   });
@@ -41,7 +41,7 @@ describe("photo documents", () => {
 
   it("refuses what isn't a photo, or a newer one", () => {
     expect(() => normalizePhotoProject("nope")).toThrow(/Not a photo/);
-    expect(() => normalizePhotoProject({ version: 3 })).toThrow(/newer version/);
+    expect(() => normalizePhotoProject({ version: 4 })).toThrow(/newer version/);
   });
 });
 

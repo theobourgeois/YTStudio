@@ -9,6 +9,7 @@ import path from "node:path";
 import type { CompareResult, ExportRequest, SourceLayout, TileSize } from "../../shared/photo/lab.ts";
 import type { MediaAsset } from "../../shared/types.ts";
 import { HttpError } from "../storage.ts";
+import { BlobStore } from "./blobs.ts";
 import { PhotoExports } from "./exports.ts";
 import type { PhotoHelper } from "./helper.ts";
 import { SourceDecoder } from "./sources.ts";
@@ -75,6 +76,11 @@ export class PhotoService {
     return `${await this.base(projectId, mediaId, tile)}.preview`;
   }
 
+  /** A project's pixels: its surfaces' tiles and manifests, in its package (`photo/resources`). */
+  blobs(projectId: string): BlobStore {
+    return new BlobStore(resourcesOf(this.options.projectDir(projectId)));
+  }
+
   beginExport(start: ExportStart): Promise<string> {
     this.options.projectDir(start.projectId);
     const { projectId, destination, ...request } = start;
@@ -100,3 +106,6 @@ export class PhotoService {
     return this.helper.request<CompareResult>("compare", { a: done.file, b: this.source(projectId, mediaId) });
   }
 }
+
+/** Where a package keeps its authored pixels (never rebuildable, copied with the package). */
+export const resourcesOf = (packageDir: string) => path.join(packageDir, "photo", "resources");

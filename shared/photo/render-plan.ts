@@ -11,7 +11,7 @@ import { srgbToLinear } from "./colour.ts";
 import { effectDefinition, unavailableReason } from "./effects/index.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
 import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
-import type { EffectParamValue, LayerTransform, PhotoProject } from "./types.ts";
+import type { EffectParamValue, LayerTransform, PhotoLayer, PhotoProject, SurfaceId } from "./types.ts";
 
 /** The composite's precision follows its sources (rendering.md, "Storage formats"): f32 once any is 16-bit. */
 export type PlanFormat = "rgba16float" | "rgba32float";
@@ -30,6 +30,16 @@ export interface Rect {
   y1: number;
 }
 
+/**
+ * A layer's mask as the plan draws it: coverage in the layer's own pixels (an adjustment's: the document's),
+ * multiplying what the layer adds. A mask that reveals everything (no surface yet) isn't one.
+ */
+export interface MaskRef {
+  surface: SurfaceId;
+  /** Its pixels: the layer's (an adjustment's: the canvas). */
+  size: Size;
+}
+
 /** A placed image: its source resampled through its transform, composited source-over at its opacity. */
 export interface ImageNode {
   kind: "image";
@@ -40,7 +50,22 @@ export interface ImageNode {
   /** Layer pixels → document pixels. */
   matrix: Affine;
   opacity: number;
+  mask: MaskRef | null;
   /** Resampling and normal compositing commute with reduction (within tolerance at transparent overlaps). */
+  commutes: true;
+  key: string;
+}
+
+/** Painted pixels (a pixel layer's surface), placed and composited as an image is. Empty (null) draws nothing. */
+export interface PixelNode {
+  kind: "pixel";
+  layerId: string;
+  surface: SurfaceId | null;
+  transform: LayerTransform;
+  size: Size;
+  matrix: Affine;
+  opacity: number;
+  mask: MaskRef | null;
   commutes: true;
   key: string;
 }
@@ -53,11 +78,18 @@ export interface AdjustmentNode {
   version: number;
   params: Record<string, EffectParamValue>;
   opacity: number;
+  /** Where it applies: coverage in document pixels. */
+  mask: MaskRef | null;
   commutes: boolean;
   key: string;
 }
 
-export type PlanNode = ImageNode | AdjustmentNode;
+export type PlanNode = ImageNode | PixelNode | AdjustmentNode;
+
+/** A node that draws pixels of its own (an image's or a pixel layer's), as the compositor's layer pass does. */
+export type DrawNode = ImageNode | PixelNode;
+
+export const isDrawNode = (node: PlanNode): node is DrawNode => node.kind !== "adjustment";
 
 export interface RenderPlan {
   canvas: Size;
@@ -105,6 +137,13 @@ export interface CompileOptions {
 }
 
 /** The plan for `doc`, given what's known of its media (a layer whose media isn't known is skipped as missing). */
+/** A layer's mask for the plan (`size`: the layer's own pixels), or null when it has none, or one that hides nothing. */
+function maskOf(layer: PhotoLayer, size: Size): MaskRef | null {
+  return layer.mask?.surface ? { surface: layer.mask.surface, size } : null;
+}
+
+const maskKey = (mask: MaskRef | null) => (mask ? `|mask:${mask.surface}` : "");
+
 export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, SourceFacts>, options: CompileOptions = {}): RenderPlan {
   const background = backgroundLight(doc.canvas.background);
   const baseKey = hashKey(`base|${background.join(",")}`);
@@ -122,6 +161,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       if (source.bits === 16) sixteen = true;
       const size = { width: source.width, height: source.height };
       const t = layer.transform;
+      const mask = maskOf(layer, size);
       nodes.push({
         kind: "image",
         layerId: layer.id,
@@ -130,8 +170,27 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         size,
         matrix: layerMatrix(t, size),
         opacity: layer.opacity,
+        mask,
         commutes: true,
-        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${layer.opacity}`),
+        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${layer.opacity}${maskKey(mask)}`),
+      });
+      continue;
+    }
+    if (layer.kind === "pixel") {
+      // An empty one is still drawn: the stroke that paints its first pixels shows through it.
+      const { size, transform: t } = layer;
+      const mask = maskOf(layer, size);
+      nodes.push({
+        kind: "pixel",
+        layerId: layer.id,
+        surface: layer.surface,
+        transform: t,
+        size,
+        matrix: layerMatrix(t, size),
+        opacity: layer.opacity,
+        mask,
+        commutes: true,
+        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${layer.opacity}${maskKey(mask)}`),
       });
       continue;
     }
@@ -143,6 +202,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       continue;
     }
     if (def.isIdentity(effect.params)) continue;
+    const mask = maskOf(layer, { width: doc.canvas.width, height: doc.canvas.height });
     nodes.push({
       kind: "adjustment",
       layerId: layer.id,
@@ -150,8 +210,9 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       version: def.version,
       params: effect.params,
       opacity: layer.opacity,
+      mask,
       commutes: def.commutesWithReduction(effect.params),
-      key: hashKey(`${def.type}@${def.version}|${JSON.stringify(effect.params)}|${layer.opacity}`),
+      key: hashKey(`${def.type}@${def.version}|${JSON.stringify(effect.params)}|${layer.opacity}${maskKey(mask)}|${doc.canvas.width}x${doc.canvas.height}`),
     });
   }
   const prefixKeys: string[] = [];

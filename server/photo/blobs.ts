@@ -82,6 +82,49 @@ export class BlobStore {
     return true;
   }
 
+  async hasManifest(hash: string): Promise<boolean> {
+    return isHash(hash) && exists(this.manifestPath(hash));
+  }
+
+  /**
+   * Deletes every blob nothing reachable from `roots` (manifest ids) needs: what's left after edits that were undone
+   * or overwritten (docs/photo/architecture.md, "Garbage"). Marks first, then deletes, so a crash midway loses
+   * nothing reachable; a root that's missing keeps nothing (and is reported). Blobs written since `since` (ms) are
+   * kept whatever they are: they may be an upload in progress whose document hasn't been saved yet.
+   */
+  async collect(roots: readonly string[], since = Date.now()): Promise<{ tiles: number; manifests: number; missing: string[] }> {
+    const manifests = new Set<string>();
+    const tiles = new Set<string>();
+    const missing: string[] = [];
+    for (const root of roots) {
+      if (!isHash(root) || manifests.has(root)) continue;
+      try {
+        const manifest = await this.getManifest(root);
+        manifests.add(root);
+        for (const tile of tileHashes(manifest)) tiles.add(tile);
+      } catch {
+        missing.push(root);
+      }
+    }
+    const sweep = async (kind: "tiles" | "manifests", keep: Set<string>) => {
+      let deleted = 0;
+      const dir = path.join(this.root, kind);
+      for (const shard of await list(dir)) {
+        for (const name of await list(path.join(dir, shard))) {
+          const hash = name.replace(/\.json$/, "");
+          if (keep.has(hash) || name.endsWith(".tmp")) continue;
+          const file = path.join(dir, shard, name);
+          const stat = await fs.stat(file).catch(() => null);
+          if (!stat || stat.mtimeMs >= since) continue;
+          await fs.rm(file, { force: true });
+          deleted++;
+        }
+      }
+      return deleted;
+    };
+    return { manifests: await sweep("manifests", manifests), tiles: await sweep("tiles", tiles), missing };
+  }
+
   async getManifest(hash: string): Promise<SurfaceManifest> {
     BlobStore.checkHash(hash);
     try {
@@ -90,6 +133,14 @@ export class BlobStore {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new HttpError(404, `No manifest ${hash}.`);
       throw error;
     }
+  }
+}
+
+async function list(dir: string): Promise<string[]> {
+  try {
+    return await fs.readdir(dir);
+  } catch {
+    return [];
   }
 }
 
