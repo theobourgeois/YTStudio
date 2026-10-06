@@ -5,7 +5,8 @@ Status: plan first written 2026-10-06. **V1 (signals) and V2 (signals in express
 the link popover, the assistant's tools, the Signals window, signal lanes, spectrograms). **V4 is built** (visualizer
 effects, New item › Visualizer). **V5 is built** (Make visualizer: a song of the music suite made into a video
 project). **V6 is built** (2026-10-07: the Shader effect, its three dialects, the shader editor, `set_shader`; see
-"V6: Shaders" below).
+"V6: Shaders" below). **V8 is built** (2026-10-07, before V7: simulations, vaudio's feedback and camera modes, its four
+3D scenes; see "V8: Simulations and 3D" below).
 [vaudio-port.md](vaudio-port.md) lists what comes over from Théo's earlier visualizer (`~/code/vaudio`) and where.
 
 A professional audio visualizer inside the video editor, not a suite of its own. Any clip, effect parameter or shader
@@ -323,7 +324,23 @@ them. Details that differ from the plan above:
   180 ms and makes a burst one undo step (1.2 s); Dialect, Examples, a Reference (`shaderApi`), the declared
   parameters, Save to Library (the clip, with its shader, as a Library item).
 
-### Simulations (stateful effects, V8)
+### Simulations (stateful effects, V8, built)
+
+As built: `EffectShader.simulation` (`shared/effect-library/simulation.ts`). A simulation's output is its state, read
+back a frame later (`getState(uv)`, `hasState`, `simFrame`, `simStep` in its prelude), in half floats. Its pass
+(`EffectPass.simulation`) says its frame (`simulationFrame`: frames since the clip started, at the sequence's rate), a
+`version` (`simulationVersion`: a hash of the clip, the frame rate and where the sound is; a new one makes its states
+stale) and its `memory` when it forgets (a trail that fades under a level's step: replaying that long from anything
+gives the same frame, so a seek replays only that far). The compositor keeps each one's two newest states and a
+checkpoint every 30 frames (256 MB for all of them, least recently used let go); `simulationFrom` says where to step
+from and `advance` steps a layer without drawing it. The preview catches a clip up before drawing it (a few ms a draw
+playing, 40 paused; the rest on the next draws, `data-simulation` saying `catching-up`); the export draws in order
+and its plan adds `advance` layers for any frame it didn't draw (a nest's clip starting inside it, another frame
+rate). A video's earlier frames aren't decoded again: a video steps on the picture it shows now, close but not exact
+just after a seek. Effects: Feedback (vaudio's, per second), Motion Trace (difference, silhouette, edges), Freeze
+(hold, update on hits, blocks on hits), Slit-Scan and Echo Grid (the last two plain time effects).
+
+The plan as written:
 
 Some looks need the past: feedback tunnels (vaudio's zoom/rotate/hue echo), physics (leviathan's chain), 3D scenes
 that integrate. They're **simulations**: state at frame `f` is `step` applied `f − start` times from the clip's start,
@@ -334,7 +351,21 @@ pure inputs (generators, visualizers, text, solids) is then exact in the preview
 without decoding the frames before, so it's exact while playing and approximate just after a seek (shown). The
 existing time effects (Trails, Echo, Datamosh) can move onto this later and become exact as well.
 
-### 3D scenes (V8)
+### 3D scenes (V8, built)
+
+As built: `EffectShader.scene` (`shared/effect-library/scenes.ts`, the 3D Scenes category). What moves is stepped in
+TypeScript (`shared/scenes/`: each scene's `step` and `view`, vaudio's audio follower in `kit.ts`, `steppedState`
+keeping checkpoints per clip), so the export's plan in Node and the tab compute the same numbers; a scene's random
+(debris respawning, moths scattering) is seeded and part of its state. The renderer (`src/scenes/`, vaudio's scene
+files with their integrations taken out) only shows a state: one WebGL renderer for every scene, each clip's built
+once from its `build` (detail, palette), its lens fitted to the frame's shorter side. The compositor calls it through
+`setSceneRenderer` and binds the picture as `uScene`; the effect's GLSL adds the afterimage (a simulation, with its
+memory) and the Blend Mode. The tab loads three.js when a scene is first drawn (`src/scenes/loader.ts`); the export's
+page loads `/scene-runtime.js` (`server/scene-runtime.ts`: built by esbuild from a checkout, `dist/` in the packaged
+app, written by `pnpm build`). Leviathan swims five seconds before its clip starts, so it isn't born coiled around
+the lens. Pointer steering is gone (Perform will map controls).
+
+The plan as written:
 
 three.js worlds as a generator effect whose renderer isn't GLSL: a layer kind (`Placed.scene`) drawn by a scene
 runtime into its own canvas and uploaded as the layer's picture. The preview lazy-loads the runtime; the export page
@@ -582,13 +613,22 @@ assistant tools. Gates are what must be true (measured) before the next mileston
 - Tests: recorded samples to keyframes (thinning error under the tolerance), events quantised to a grid; e2e
   performing with synthetic MIDI.
 
-### V8: Simulations and 3D
+### V8: Simulations and 3D (built, 2026-10-07)
 
 - The simulation contract (step, checkpoints, replay, budget), a Feedback effect (vaudio's), vaudio's camera modes
   (slit-scan, echo grid, freeze, difference) on video clips.
 - The scene runtime (bundle for the export page, lazy in the preview) and vaudio's scenes: tesseract and singularity
   first, then cathedral, then leviathan.
-- **Gate**: a simulated clip scrubbed to frame N in headless Chromium equals the export's frame N (within rounding).
+- **Gate** (met): a simulated clip scrubbed to frame N in headless Chromium equals the export's frame N (within rounding).
+
+What was built is above ("Simulations", "3D scenes"). Tests: `server/simulation.test.ts` is the gate (drawn by the
+export's compositor in headless Chromium, `GlSession.frames`: Feedback that never quite forgets and one that does,
+and the tesseract, reached in order, straight away through the plan's warm-ups, and by seeking about as the preview
+does, all within 2 levels); `shared/simulation.test.ts` (stepped states in any order, a clip's frames and versions,
+each scene's state the same reached in order or straight away); the effect sheet draws every simulation and scene
+frame by frame; e2e: Feedback on the monitor seeked to a frame and stepped to it, and a tesseract drawn there. The
+assistant adds them with `add_effect` and is told what they are. Not yet: the existing time effects (Trails, Echo,
+Datamosh) moved onto simulations; scenes in New item › Visualizer and in Make visualizer's looks.
 
 ### V9: Live output and shows (if wanted)
 

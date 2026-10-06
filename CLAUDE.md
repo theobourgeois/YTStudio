@@ -81,6 +81,17 @@ at hand** (`effectDefinition(type)` gives the starting shader's). Keyed by a has
 the tab compiles each on a hidden context (`src/lib/shader-compiler.ts`, `provideShaderCheck`: one that doesn't compile
 isn't drawn), the export refuses one (`GlSession.compile`), and a lost GPU turns the likely one off
 (`preview/shader-recovery.ts`). The editor is `components/shader/` (CodeMirror 6); the assistant's `set_shader`.
+**V8 is built** (before V7): **simulations** (`EffectShader.simulation`, `shared/simulation.ts`): an effect whose output is
+its state, read back a frame later (`getState`), so frame `f` of a clip is the shader run `f + 1` times from its first
+frame. The compositor keeps two states and checkpoints per simulation (`simulationFrom`, `advance`); the preview catches
+a clip up before drawing it (time-boxed, `data-simulation`), the export draws in order and its plan adds `advance`
+layers for frames it skipped. A simulation's pass carries a `version` (the clip and its sound, hashed): keep anything
+that changes what it steps on in it. Feedback, Motion Trace, Freeze (`effect-library/simulation.ts`). **3D scenes**
+(`EffectShader.scene`: tesseract, singularity, cathedral, leviathan): their state is stepped in TypeScript
+(`shared/scenes/`, `steppedState`), the same in the tab and the export's plan; three.js only renders it (`src/scenes/`,
+lazily in the tab; the export's page loads `server/scene-runtime.ts`'s esbuild bundle, `dist/scene-runtime.js` when
+packaged). Change a scene's motion in `shared/scenes/<scene>.ts`, never in its renderer. `server/simulation.test.ts` is
+the gate: a frame the same in order, straight away and seeking.
 
 ## Commands
 
