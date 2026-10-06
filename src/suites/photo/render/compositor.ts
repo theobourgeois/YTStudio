@@ -312,7 +312,8 @@ interface Pipelines {
   sample: Record<PlanFormat, GPURenderPipeline>;
   present: GPURenderPipeline;
   quantize8: GPUComputePipeline;
-  quantize16: GPUComputePipeline;
+  /** Null until it has compiled (`ready`). */
+  quantize16: GPUComputePipeline | null;
 }
 
 export class Compositor {
@@ -330,6 +331,9 @@ export class Compositor {
     readonly ctx: RenderContext,
     readonly layouts: { layer: GPUBindGroupLayout; texture: GPUBindGroupLayout; textureUniform: GPUBindGroupLayout; params: GPUBindGroupLayout; quantize: GPUBindGroupLayout },
     pipelines: Pipelines,
+    private readonly formats: readonly PlanFormat[],
+    /** Resolves when every pipeline has compiled (the first picture's are there from the start). */
+    readonly ready: Promise<void>,
   ) {
     this.pipelines = pipelines;
     const { device } = ctx;
@@ -399,10 +403,19 @@ export class Compositor {
     const reduce = {} as Record<PlanFormat, GPURenderPipeline>;
     const sample = {} as Record<PlanFormat, GPURenderPipeline>;
     const adjustment = new Map<string, GPURenderPipeline>();
-    const waits: Promise<unknown>[] = [];
+    // What a first picture needs is compiled before the compositor is ready; the rest (f32 composites, adjustments,
+    // refinement, 16-bit exports) compiles meanwhile, and `ready` says when it has.
+    const [first, present, quantize8] = await Promise.all([
+      render("layer rgba16float", LAYER, [ctx.kernels.atlasLayout, ctx.kernels.imageLayout, layerGroup], "rgba16float", true),
+      render("present", PRESENT, [textureUniform], canvasFormat),
+      compute("quantize 8", QUANTIZE(8)),
+    ]);
+    layer.rgba16float = first;
+    const pipelines: Pipelines = { layer, adjustment, reduce, sample, present, quantize8, quantize16: null };
+    const rest: Promise<unknown>[] = [compute("quantize 16", QUANTIZE(16)).then((p) => (pipelines.quantize16 = p))];
     for (const format of formats) {
-      waits.push(
-        render(`layer ${format}`, LAYER, [ctx.kernels.atlasLayout, ctx.kernels.imageLayout, layerGroup], format, true).then((p) => (layer[format] = p)),
+      if (format !== "rgba16float") rest.push(render(`layer ${format}`, LAYER, [ctx.kernels.atlasLayout, ctx.kernels.imageLayout, layerGroup], format, true).then((p) => (layer[format] = p)));
+      rest.push(
         render(`reduce ${format}`, REDUCE(format), [textureUniform], format).then((p) => (reduce[format] = p)),
         render(`sample ${format}`, SAMPLE(format), [textureUniform], format).then((p) => (sample[format] = p)),
         ...Object.entries(ADJUSTMENT_KERNELS).map(([type, kernel]) =>
@@ -410,21 +423,15 @@ export class Compositor {
         ),
       );
     }
-    const [present, quantize8, quantize16] = await Promise.all([
-      render("present", PRESENT, [textureUniform], canvasFormat),
-      compute("quantize 8", QUANTIZE(8)),
-      compute("quantize 16", QUANTIZE(16)),
-      ...waits,
-    ]);
-    return new Compositor(ctx, { layer: layerGroup, texture, textureUniform, params, quantize }, {
-      layer,
-      adjustment,
-      reduce,
-      sample,
-      present: present as GPURenderPipeline,
-      quantize8: quantize8 as GPUComputePipeline,
-      quantize16: quantize16 as GPUComputePipeline,
-    });
+    return new Compositor(ctx, { layer: layerGroup, texture, textureUniform, params, quantize }, pipelines, formats, Promise.all(rest).then(() => {}));
+  }
+
+  /** Whether every pipeline `plan` needs has compiled (and, to refine it, the reduction's). */
+  canEvaluate(plan: RenderPlan, refine = false): boolean {
+    const p = this.pipelines;
+    if (!p.layer[plan.format]) return false;
+    if (refine && (!p.reduce[plan.format] || !p.sample[plan.format])) return false;
+    return plan.nodes.every((n) => n.kind !== "adjustment" || p.adjustment.has(`${n.type}:${plan.format}`));
   }
 
   /** Compilation errors of the compositor's modules (empty when they compile), for checks. */
@@ -448,8 +455,9 @@ export class Compositor {
     return errors;
   }
 
+  /** Whether composites can be of this format (f32 needs the device's `float32-blendable`). */
   supports(format: PlanFormat) {
-    return format in this.pipelines.layer;
+    return this.formats.includes(format);
   }
 
   private groupFor(source: SourceImage) {

@@ -75,6 +75,10 @@ export interface Presented {
   key: string;
   current: string;
   refined: boolean;
+  /** When it was drawn (`performance.now()`), its quality, and whether any image's pixels were on the GPU for it. */
+  at: number;
+  quality: Quality;
+  drawn: boolean;
 }
 
 /** A pseudo-view of a layer's own pixels covering what `view` shows of it, for fetching its evicted tiles. */
@@ -234,6 +238,7 @@ export class PhotoRenderer {
       });
       if (this.sources.get(source.mediaId) !== source) return;
       this.setSourceState(source, { state: "ready" });
+      if ([...this.sources.values()].every((s) => s.state.state !== "loading")) this.loadedAt = performance.now();
       this.changed();
     } catch (error) {
       if (this.sources.get(source.mediaId) !== source) return;
@@ -252,6 +257,9 @@ export class PhotoRenderer {
     source.state = state;
     this.onSourceState?.(source.mediaId, state);
   }
+
+  /** When the last image the document shows finished loading (`performance.now()`), for the bench. */
+  loadedAt: number | null = null;
 
   /** Resolves when every image the document shows has loaded (or failed). */
   async ready(): Promise<void> {
@@ -363,6 +371,14 @@ export class PhotoRenderer {
     }
     const doc = this.doc;
     const plan = this.planFor(doc);
+    // Pipelines past the first picture's are still compiling: the frame comes once they have.
+    if (!this.compositor.canEvaluate(plan)) {
+      const compositor = this.compositor;
+      void compositor.ready.then(() => {
+        if (this.compositor === compositor) this.onChange?.();
+      });
+      return null;
+    }
     const screen = this.screenFor(width, height, plan.format);
     const { device } = this;
     const at: View = { ...view, width, height };
@@ -412,7 +428,15 @@ export class PhotoRenderer {
     this.compositor.present(encoder, composite, screen.uniform, screen.context.getCurrentTexture());
     device.queue.submit([encoder.finish()]);
     screen.last = composite;
-    this.presented.push({ revision: this.revision, key: refined ? screen.refinedKey!.slice(0, screen.refinedKey!.indexOf("|")) : plan.key, current: plan.key, refined });
+    this.presented.push({
+      revision: this.revision,
+      key: refined ? screen.refinedKey!.slice(0, screen.refinedKey!.indexOf("|")) : plan.key,
+      current: plan.key,
+      refined,
+      at: started,
+      quality,
+      drawn: plan.nodes.some((n) => n.kind === "image" && this.drawOf(n) !== null),
+    });
     if (this.presented.length > 600) this.presented.splice(0, 300);
 
     // Refining: wanted for this view once it's been still a moment, and all its images are in.
@@ -424,14 +448,19 @@ export class PhotoRenderer {
     } else if (refined) this.setRefineState("refined");
     else {
       this.setRefineState("refining");
-      if (quality === "final" && this.settledSources(plan)) {
+      if (quality === "final" && this.settledSources(plan) && this.compositor.canEvaluate(plan, true)) {
         if (!this.refiner.isRunning(refineKey)) this.refiner.want(null);
         this.refineTimer = setTimeout(() => {
           this.refineTimer = null;
           const s = this.screen;
           if (!s || s !== screen) return;
           // Wanted only while this screen is the one shown: a resized screen's textures are gone.
-          this.refiner.want(refineKey, (isCurrent) => this.refine(plan, at, s.pending, () => isCurrent() && this.screen === s));
+          this.refiner.want(refineKey, (isCurrent) =>
+            this.refine(plan, at, s.pending, () => isCurrent() && this.screen === s).catch((error: unknown) => {
+              console.error("[photo] refining the view failed", error);
+              return null;
+            }),
+          );
         }, REFINE_DELAY_MS);
       } else this.refiner.want(null);
     }
@@ -450,6 +479,7 @@ export class PhotoRenderer {
    * Gives up (null) as soon as it isn't wanted any more.
    */
   async refine(plan: RenderPlan, view: View, target: GPUTexture, isCurrent: () => boolean = () => true): Promise<true | null> {
+    await this.compositor.ready;
     const { device } = this;
     const rp = refinePlan(view, plan.canvas, REFINE_REGION);
     const s = 2 ** rp.level;
@@ -511,6 +541,7 @@ export class PhotoRenderer {
     options: { bits?: 8 | 16; under: "none" | "matte" | "checker"; matte?: [number, number, number]; dither?: boolean },
     onBand: (from: number, rows: Uint8Array, width: number) => Promise<void> | void,
   ) {
+    await this.compositor.ready;
     const { device } = this;
     const bits = options.bits ?? 8;
     const bytesPerPixel = bits === 16 ? 8 : 4;
@@ -542,7 +573,7 @@ export class PhotoRenderer {
           const encoder = device.createCommandEncoder({ label: "region" });
           const composite = this.compositor.evaluate(encoder, plan, view, "final", this.drawOf, work);
           const pass = encoder.beginComputePass();
-          pass.setPipeline(bits === 16 ? this.compositor.pipelines.quantize16 : this.compositor.pipelines.quantize8);
+          pass.setPipeline(bits === 16 ? this.compositor.pipelines.quantize16! : this.compositor.pipelines.quantize8);
           pass.setBindGroup(0, groupFor(composite));
           pass.dispatchWorkgroups(Math.ceil(cols / 16), Math.ceil(rows / 16));
           pass.end();
@@ -571,6 +602,7 @@ export class PhotoRenderer {
    * the view's level, or refined when it needs to be (the assistant's pictures and covers are what's seen).
    */
   async renderView(doc: PhotoProject, view: View, options: { refine?: boolean } = {}): Promise<{ texture: GPUTexture; plan: RenderPlan; refined: boolean }> {
+    await this.compositor.ready;
     const { device } = this;
     const plan = this.planFor(doc);
     const width = Math.max(1, Math.round(view.width));

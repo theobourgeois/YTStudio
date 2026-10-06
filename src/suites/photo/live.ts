@@ -88,4 +88,6 @@ export async function withRenderer<T>(projectId: string, doc: PhotoProject, asse
  */
 if (import.meta.env.DEV && typeof window !== "undefined") {
   (window as unknown as { photoDebug: unknown }).photoDebug = { renderer: () => liveRenderer(), photo: usePhoto, ui: usePhotoUi, renderState: useRenderState };
+  // `scripts/photo-bench.ts`'s scenarios, loaded only when asked for.
+  (window as unknown as { photoBench: unknown }).photoBench = { load: () => import("./bench") };
 }
