@@ -31,6 +31,10 @@ renderer's parts the suite doesn't use yet. Kernels and passes storing `rgba16fl
 (`render/surface.ts`: tiles by hash, strokes on drafts); a saved photo only names pixels the server has (`uploads.ts`,
 `SuiteBackend.checkSave`). F4 is next.
 
+The planned **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite)
+is planned in [`docs/visualizer/README.md`](docs/visualizer/README.md): signals, links, audio shaders, Perform, its
+milestones V1–V10. Nothing is built yet.
+
 ## Commands
 
 ```bash
