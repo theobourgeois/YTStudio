@@ -5,6 +5,7 @@
  */
 import { addFilter, addGeneratorLayer, findLayer } from "@shared/photo/edits";
 import { type FilterEntry, entryParams, filterEntry } from "@shared/photo/effects/catalog";
+import { validateParams } from "@shared/photo/effects/index";
 import { type EffectParamValue, type PhotoProject, hasContent } from "@shared/photo/types";
 
 /** Fixed ids for what a preview adds: never the document's (theirs are random). */
@@ -24,8 +25,8 @@ export function canApply(doc: PhotoProject, entry: FilterEntry, layerId: string 
   return !!layer && hasContent(layer);
 }
 
-/** A look's starting settings for this photo: its preset's, sized to the canvas. */
-export const startingPreview = (entry: FilterEntry, doc: PhotoProject): FilterPreview => ({ key: entry.key, params: entryParams(entry, doc.canvas) });
+/** A look's starting settings for this photo: every parameter, its preset's sized to the canvas, the rest their defaults. */
+export const startingPreview = (entry: FilterEntry, doc: PhotoProject): FilterPreview => ({ key: entry.key, params: validateParams(entry.def, entryParams(entry, doc.canvas)).params });
 
 /** The photo with `preview` applied as Apply would, with `ids` (the preview's fixed ones by default); null when it can't be. */
 export function withLook(doc: PhotoProject, preview: FilterPreview, layerId: string | null, ids = { filter: PREVIEW_FILTER, layer: PREVIEW_LAYER }): PhotoProject | null {

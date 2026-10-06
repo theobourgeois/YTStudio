@@ -10,6 +10,7 @@ import { type Page, expect, test } from "@playwright/test";
 import sharp from "sharp";
 import { levelForScale } from "../shared/photo/geometry.ts";
 import { hexToLinear, linearToSrgb, srgbToLinear } from "../shared/photo/colour.ts";
+import { FILTER_ENTRIES } from "../shared/photo/effects/catalog.ts";
 import { flarePreset, flareShape } from "../shared/photo/effects/flare.ts";
 import type { GlowParams } from "../shared/photo/effects/glow.ts";
 import { flareLight } from "../shared/photo/reference/flare.ts";
@@ -1952,7 +1953,7 @@ test("a glow viewed from its cached levels is level 0 reduced, and refines betwe
   expect(atQuarter).toBeLessThan(0.05);
 });
 
-type DocWindow = { photoDebug: { photo: { getState(): { history: { doc: { doc: { layers: { id: string; kind: string; filters?: { id: string; enabled: boolean; params: Record<string, unknown> }[]; effect?: { params: Record<string, unknown> }; mask?: unknown }[] } } } } } } };
+type DocWindow = { photoDebug: { photo: { getState(): { history: { doc: { doc: { layers: { id: string; kind: string; filters?: { id: string; type: string; enabled: boolean; params: Record<string, unknown> }[]; effect?: { params: Record<string, unknown> }; mask?: unknown }[] } } } } } } };
 const docLayers = (page: Page) => page.evaluate(() => (window as unknown as DocWindow).photoDebug.photo.getState().history.doc.doc.layers);
 const SHOTS = process.env.PHOTO_SHOTS;
 
@@ -2096,7 +2097,7 @@ test("reordering, bypassing, masking, undoing and reopening keep every setting o
   expect(await renderDigest(page, view)).toBe(look);
 });
 
-test("the Filter menu and the Filter Gallery apply every look, previewed on the photo; Last Filter adds the last one again", async ({ page }) => {
+test("the Filter menu applies a look; the Filter Gallery previews one on the photo and applies it; Last Filter adds the last one again", async ({ page }) => {
   await openNewPhoto(page, "Filters");
   await openImage(page, PHOTO);
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
@@ -2121,38 +2122,85 @@ test("the Filter menu and the Filter Gallery apply every look, previewed on the 
   await page.getByRole("menuitem", { name: /^Last Filter: Glow/ }).click();
   await expect.poll(async () => (await filtersOf()).map((f) => f.params.radius)).toEqual([77, 77]);
 
-  // The gallery: a card for every look, each previewed on this photo (once the last menu has gone).
+  // The gallery: a card for every look, each a picture of it on the sample scene (once the last menu has gone).
   await expect(page.getByRole("menu")).toHaveCount(0);
-  await page.locator("[data-filter-menu]").click();
-  await page.getByRole("menuitem", { name: "Filter Gallery…" }).click();
+  const openGallery = async () => {
+    await page.locator("[data-filter-menu]").click();
+    await page.getByRole("menuitem", { name: "Filter Gallery…" }).click();
+    await expect(page.locator("[data-filter-gallery]")).toBeVisible();
+  };
+  await openGallery();
   const cards = page.locator("[data-filter-card]");
-  await expect(cards).toHaveCount(8);
-  await expect(page.locator('[data-filter-card][data-preview="ready"]')).toHaveCount(8, { timeout: 30_000 });
-  // The previews differ from one another (each is its look on this photo).
-  const sources = await page.locator("[data-filter-card] img").evaluateAll((imgs) => imgs.map((i) => (i as HTMLImageElement).src));
-  expect(new Set(sources).size).toBe(8);
+  await expect(cards).toHaveCount(FILTER_ENTRIES.length);
+  // Every card's picture is there (the lazy ones loaded as they're scrolled to).
+  for (const entry of FILTER_ENTRIES) {
+    const ok = await page.request.get(`/photo-filters/${entry.key.replace("/", "--")}.jpg`);
+    expect(ok.ok(), entry.key).toBe(true);
+    expect(ok.headers()["content-type"], entry.key).toContain("image/jpeg");
+  }
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "filter-gallery.png") });
 
-  // Searched, then a click: Lens Flare's Anamorphic, a new layer with its streak.
+  // A click previews a look on the canvas: the renderer shows it, the document doesn't have it.
+  const shownFilters = () =>
+    page.evaluate(async (id) => ((await (window as unknown as DebugWindow).photoDebug.renderer()) as unknown as { doc: { layers: { id: string; filters?: { type: string; params: Record<string, unknown> }[] }[] } }).doc.layers.find((l) => l.id === id)?.filters ?? [], photo.id);
+  const before = (await filtersOf()).length;
+  await page.locator('[data-filter-card="glow/bloom"]').click();
+  await expect(page.locator('[data-filter-card="glow/bloom"]')).toHaveAttribute("data-picked", "true");
+  await expect(page.locator('[data-filter-settings="glow/bloom"]')).toBeVisible();
+  await expect.poll(async () => (await shownFilters()).length).toBe(before + 1);
+  expect((await filtersOf()).length).toBe(before);
+  // Its settings change the preview, not the document.
+  const previewRadius = page.locator('[data-filter-settings="glow/bloom"] [data-param="radius"]').getByRole("textbox");
+  await previewRadius.fill("33");
+  await previewRadius.press("Enter");
+  await expect.poll(async () => (await shownFilters()).at(-1)?.params.radius).toBe(33);
+  expect((await filtersOf()).length).toBe(before);
+  // Cancel: as it was.
+  await page.locator("[data-filter-cancel]").click();
+  await expect.poll(async () => (await shownFilters()).length).toBe(before);
+  await expect(page.locator("[data-filter-card][data-picked]")).toHaveCount(0);
+  // Picked again and changed, then Apply: one undo step with those settings, and the gallery closes.
+  await page.locator('[data-filter-card="glow/neon"]').click();
+  const neonRadius = page.locator('[data-filter-settings="glow/neon"] [data-param="radius"]').getByRole("textbox");
+  await neonRadius.fill("41");
+  await neonRadius.press("Enter");
+  await page.locator("[data-filter-apply]").click();
+  await expect(page.locator("[data-filter-gallery]")).toHaveCount(0);
+  await expect.poll(async () => (await filtersOf()).length).toBe(before + 1);
+  expect((await filtersOf()).at(-1)!.params).toMatchObject({ radius: 41, threshold: 60, knee: 15 });
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  await expect.poll(async () => (await filtersOf()).length).toBe(before);
+
+  // Searched, picked, then Enter: Lens Flare's Anamorphic, a new layer with its streak.
+  await openGallery();
   await page.getByRole("textbox", { name: "Search filters" }).fill("streak");
   await expect(cards).toHaveCount(1);
   await page.locator('[data-filter-card="lens-flare/anamorphic"]').click();
+  expect((await docLayers(page)).filter((l) => l.kind === "generator").length).toBe(0);
+  await page.locator('[data-filter-card="lens-flare/anamorphic"]').press("Enter");
   await expect.poll(async () => (await docLayers(page)).filter((l) => l.kind === "generator").length).toBe(1);
   const flare = (await docLayers(page)).find((l) => l.kind === "generator")!;
   expect((flare.effect!.params.elements as { type: string }[]).some((e) => e.type === "streak")).toBe(true);
-  await page.getByRole("textbox", { name: "Search filters" }).fill("");
-  await expect(cards).toHaveCount(8);
+
+  // A double-click applies a kernel filter straight away (a gradient map on the photo).
+  await page.locator(`[data-layer="${photo.id}"]`).click();
+  await openGallery();
+  await page.locator('[data-filter-card="gradient-map/purple-haze"]').dblclick();
+  await expect(page.locator("[data-filter-gallery]")).toHaveCount(0);
+  await expect.poll(async () => (await filtersOf()).at(-1)?.type).toBe("gradient-map");
+  await expect(page.locator('[data-filter-properties="gradient-map"] [data-gradient-picker]')).toBeVisible();
 
   // On an adjustment layer, filters can't go (said so on their cards); generators still can.
   await page.getByRole("button", { name: "New adjustment layer" }).click();
   await page.getByRole("menuitem", { name: /Exposure/ }).click();
+  await openGallery();
   await expect(page.locator('[data-filter-card="glow/bloom"]')).toHaveAttribute("aria-disabled", "true");
   await expect(page.locator('[data-filter-card="lens-flare/classic"]')).not.toHaveAttribute("aria-disabled", "true");
-  const before = (await filtersOf()).length;
   await page.locator('[data-filter-card="glow/bloom"]').click({ force: true });
-  expect((await filtersOf()).length).toBe(before);
+  await expect(page.locator("[data-filter-card][data-picked]")).toHaveCount(0);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "filter-gallery-adjustment.png") });
-  await page.getByRole("button", { name: "Close Filter Gallery" }).click();
+  // Escape with nothing picked closes it.
+  await page.getByRole("textbox", { name: "Search filters" }).press("Escape");
   await expect(page.locator("[data-filter-gallery]")).toHaveCount(0);
 });
 
