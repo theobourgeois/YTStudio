@@ -129,6 +129,17 @@ pulse, underwater beats, Cinema 4D's fields of pillars). The five each take a pl
 city, a gas, under the sea, and something abstract that is plainly an equaliser. Same rules as above: raymarched GLSL,
 state stepped in TypeScript, portrait first, a full 1080x1920 frame in about the first five's time.
 
+**Built** (2026-10-06), each iterated against renders and revised until it held up; every one draws a 1080x1920 frame
+in 270–410 ms. Where they differ from their plans: Event Horizon's lens zooms for portrait and its camera swings
+between edge-on and overhead every ~22 s, its knots glowing in 3D along the bent ray; Neon City walks its lots one by
+one, its equaliser on the faces turned to the camera (LED-meter caps), with billboards, flying traffic, searchlights
+and supertalls added; Nebula's light comes from young clusters in great cavities ahead, so near clouds stand in
+silhouette; Abyss's jellies keep places in a group they're pulled back to (in three layers of depth, two of them sea
+nettles) rather than wrapping in a box; Monoliths is a canyon: the bands mirrored about a corridor the camera flies
+down (heard later the further out), its rings washes of light up the pillars, its camera in the canyon, over the
+tops, and now and then risen over the field. Neon City, Nebula and Monoliths repeat their worlds over a long period
+and wrap the camera in TypeScript, so a long song never runs out of float precision.
+
 ### 6. Event Horizon: a black hole
 
 Gargantua: a black disc ringed by a thin photon ring, its accretion disk lensed up over the top and under the bottom,
