@@ -8,6 +8,7 @@ import {
   PiMagnifyingGlass,
   PiPause,
   PiPlay,
+  PiStop,
   PiPlus,
   PiScissors,
   PiSpeakerHigh,
@@ -457,6 +458,10 @@ function Menus() {
           </TooltipTrigger>
           <TooltipContent side="right">Play (Space)</TooltipContent>
         </Tooltip>
+        {/* A plain title gets the same tip (`TitleTips`): hover it. */}
+        <Button variant="ghost" size="icon" aria-label="Stop" title="Stop (a title: hover for the same tip)">
+          <PiStop />
+        </Button>
       </div>
       <ContextMenu>
         <ContextMenuTrigger asChild>

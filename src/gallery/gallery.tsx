@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { cn } from "cn";
 import { Toaster } from "@/components/ui/sonner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { TitleTips } from "@/components/ui/title-tips";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { THEMES, applyTheme, useTheme, type ThemeId } from "@/stores/theme";
 import { isThemeId, themeInfo } from "@/themes";
@@ -37,6 +38,7 @@ export default function Gallery() {
 
   return (
     <TooltipProvider delayDuration={200}>
+      <TitleTips />
       <div className="flex h-full bg-background text-foreground">
         {!only && (
           <nav className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-sidebar p-2" aria-label="Sections">

@@ -2561,7 +2561,13 @@ test("Make visualizer: the toolbar's button makes a video of the song, which ope
   const songId = await openNewSong(page, "Visualize me");
   await addStarterKit(page);
   for (const n of [1, 5, 9, 13]) await step(page, "Kick", n).click();
-  await page.getByRole("button", { name: "Make visualizer", exact: true }).click();
+  // Its title is the app's own tip, not the browser's (`TitleTips`), and the hint bar still names it.
+  const button = page.getByRole("button", { name: "Make visualizer", exact: true });
+  await button.hover();
+  await expect(page.getByRole("tooltip")).toHaveText(/^Make visualizer: a video of the song/);
+  await expect(button).not.toHaveAttribute("title");
+  await expect(page.getByTestId("hint-bar")).toContainText("Make visualizer: a video of the song");
+  await button.click();
   const win = page.getByRole("region", { name: "Make visualizer" });
   await expect(win).toBeVisible();
   // Everything plays straight into the master: no stems, said why; the kick's notes, its role guessed.
