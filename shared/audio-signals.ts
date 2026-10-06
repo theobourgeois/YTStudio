@@ -10,7 +10,7 @@
  * percentile of a level reads 1), so a quiet song reacts as much as a loud one; Volume still counts.
  */
 import { ExpressionError, type SignalScope } from "./expressions.ts";
-import { TIME_REMAP, VOLUME, findEffect, hasLinks, hasMedia, isRemapped, provideLinks, provideSignalScopes, volumeAt } from "./effects.ts";
+import { TIME_REMAP, VOLUME, effectDefinition, findEffect, hasLinks, hasMedia, isRemapped, provideLinks, provideSignalScopes, volumeAt } from "./effects.ts";
 import { BEAT_SIGNALS, DEFAULT_HIT, findSignal, follow, hitLevel, hitSpan, isHitSignal, shapeValue } from "./links.ts";
 import { BAND_COUNT, DB_SCALARS, type Hit, ONSET_SCALARS, type OnsetName, SIGNAL_RATE, type ScalarName, type SignalData, byteDb } from "./signals/format.ts";
 import { bandEnergyAt, bandReferenceEnergy, dbPower, powerDb, scalarAt, scalarMax } from "./signals/sample.ts";
@@ -1127,14 +1127,15 @@ const SOUND_CALL = /\b(audio|audioAt|band|sinceHit|hitCount|hitVelocity|beat|bar
 
 const uses = new WeakMap<Project, boolean>();
 
-/** Whether anything in a video reacts to sound (so the export needs its files' signals). */
+/** Whether anything in a video reacts to sound (an expression, a link, a visualizer), so the export needs its files' signals. */
 export function usesSignals(document: Project): boolean {
   let known = uses.get(document);
   if (known !== undefined) return known;
   known = false;
   search: for (const clip of [...document.clips, ...(document.sequences ?? []).flatMap((s) => s.clips)]) {
     for (const effect of clip.effects) {
-      if (hasLinks(effect)) {
+      // A link, or a visualizer.
+      if (hasLinks(effect) || (effect.enabled && effectDefinition(effect.type)?.shader?.audio)) {
         known = true;
         break search;
       }

@@ -338,6 +338,8 @@ describe("what a visualizer hears", () => {
     expect(passes).toHaveLength(1);
     expect(Math.max(...passes[0].audio!.spectrum.slice(0, 30))).toBeGreaterThan(0.7);
     expect(bars.find((e) => e.type === "audio-bars")?.params.blendMode).toBe("replace");
+    // The export reads the sound for it.
+    expect(usesSignals(project([clip]))).toBe(true);
     // Without a reader, silence (cards get made-up sound instead).
     expect(Math.max(...effectPasses(clip, 2.27, 30)[0].audio!.spectrum)).toBe(0);
   });
