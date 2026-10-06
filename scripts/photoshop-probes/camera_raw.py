@@ -145,6 +145,17 @@ def grating(width=768):
         img[i * band:(i + 1) * band] = (128 + 20 * np.sin(2 * np.pi * x / period))[None, :, None]
     return np.clip(np.round(img), 0, 255).astype(np.uint8)
 
+def glow_targets():
+    """CR3: a white disc on black (how far the glow spreads, its profile, its colour) and a ramp on black (which
+    tones it takes: Range)."""
+    h, w = 512, 768
+    y, x = np.mgrid[0:h, 0:w]
+    disc = np.zeros((h, w, 3), np.uint8)
+    disc[(x - w // 2) ** 2 + (y - h // 2) ** 2 < 40 ** 2] = 255
+    ramp = np.zeros((h, w, 3), np.uint8)
+    ramp[200:312, 128:640] = np.repeat(np.arange(256), 2)[None, :, None]
+    return {"glow-disc": disc, "glow-ramp": ramp}
+
 def images():
     paths = {}
     def put(name, arr):
@@ -164,6 +175,8 @@ def images():
     put("edge", edge(1024))
     put("edge-big", edge(2048))
     put("grating", grating(768))
+    for k, v in glow_targets().items():
+        put(k, v)
     put("grating-big", np.asarray(Image.fromarray(grating(768)).resize((1536, 1536), Image.NEAREST)))
     return paths
 
@@ -290,6 +303,14 @@ def jobs():
         add("effects", "glow-bloom50-%s%d-scene" % (k[4:].lower(), v), "scene", None, {"Glow": 50, "GlowStyle": 1, k: v})
     for k, v in (("SharpenAmount", 150), ("LuminanceNoiseReduction", 100), ("ColorNoiseReduction", 100)):
         add("detail", "%s%d-scene" % (k.lower(), v), "scene", {k: v})
+    # CR3: Glow on a disc and a ramp, by style, amount, range, spread and warmth (GlowStyle: 0 Diffusion, 1 Bloom, 2 Halation).
+    for img in ("glow-disc", "glow-ramp"):
+        add("glow", "identity-" + img, img)
+        for style, n in (("diffusion", 0), ("bloom", 1), ("halation", 2)):
+            for amount in (50, 100):
+                add("glow", "glow-%s%d-%s" % (style, amount, img), img, None, {"Glow": amount, "GlowStyle": n})
+            for k, v in (("GlowRange", 0), ("GlowRange", 100), ("GlowSpread", 0), ("GlowSpread", 100), ("GlowWarmth", -100), ("GlowWarmth", 100)):
+                add("glow", "glow-%s100-%s%d-%s" % (style, k[4:].lower(), v, img), img, None, {"Glow": 100, "GlowStyle": n, k: v})
     # Order: pairs that don't commute.
     add("order", "exposure+1-contrast+50", "chart", {"Exposure2012": 1, "Contrast2012": 50})
     add("order", "saturation+50-shadowsgrade", "chart", {"Saturation": 50, "SplitToningShadowHue": 220, "SplitToningShadowSaturation": 100})
@@ -318,6 +339,23 @@ def jobs():
             for v in (-100, -50, 50, 100):
                 add("gratings", "%s%+d-%s" % (short, v, img), img, {k: v})
     return j
+
+
+# ---- Auto (CR3) ----
+
+AUTO_KEYS = {"Ex12": "Exposure2012", "Cr12": "Contrast2012", "Hi12": "Highlights2012", "Sh12": "Shadows2012", "Wh12": "Whites2012",
+             "Bk12": "Blacks2012", "Vibr": "Vibrance", "Strt": "Saturation", "CrTx": "Texture", "Cl12": "Clarity2012", "Dhze": "Dehaze"}
+
+def auto_settings(image_path):
+    """Camera Raw's Auto on a picture: the settings it chooses (read back from what the filter returns)."""
+    code = """(function(){ var doc = openDoc(%s); var d = new ActionDescriptor(); d.putBoolean(cTID('AuTn'), true);
+var r = executeAction(sTID('Adobe Camera Raw Filter'), d, DialogModes.NO); var out = [];
+for (var i = 0; i < r.count; i++) { var k = r.getKey(i); var id = app.typeIDToCharID(k); var t = r.getType(k);
+  if (t == DescValueType.INTEGERTYPE) out.push(id + '=' + r.getInteger(k)); else if (t == DescValueType.DOUBLETYPE) out.push(id + '=' + r.getDouble(k)); }
+closeDoc(doc); __result = out.join(','); })();""" % js(image_path)
+    out = run_jsx("var __result = '';\n" + code + "\nreturn __result;")
+    got = dict(kv.split("=") for kv in out.split(",") if kv)
+    return {AUTO_KEYS[k]: float(v) for k, v in got.items() if k in AUTO_KEYS}
 
 
 # ---- fixtures -------------------------------------------------------------------------------------------------
@@ -365,6 +403,90 @@ def fixtures():
         f.write('\n },\n "local": {\n' + ",\n".join("  %s: %s" % (json.dumps(k), json.dumps(v, separators=(",", ":"))) for k, v in local.items()))
         f.write("\n }\n}\n")
     print(path, os.path.getsize(path))
+
+
+# ---- CR3's fits: the Color Mixer and Color Grading, from the fixtures' chart runs ----
+
+def _fx():
+    return json.load(open(os.path.join(ROOT, "shared", "photo", "reference", "camera-raw-fixtures.json")))
+
+_M_S = np.array([[0.4360747, 0.3850649, 0.1430804], [0.2225045, 0.7168786, 0.0606169], [0.0139322, 0.0971045, 0.7141733]])
+_M_P = np.array([[0.7976749, 0.1351917, 0.0313534], [0.2880402, 0.7118741, 0.0000857], [0, 0, 0.8252100]])
+_S2P = np.linalg.inv(_M_P) @ _M_S
+_P2S = np.linalg.inv(_S2P)
+
+def _lin(v):
+    v = np.asarray(v, float) / 255
+    return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
+
+def _enc(l):
+    l = np.clip(l, 0, None)
+    return 255 * np.where(l <= 0.0031308, 12.92 * l, 1.055 * np.minimum(l, 1e9) ** (1 / 2.4) - 0.055)
+
+MIXER_CENTRES = (0, 30, 60, 120, 180, 240, 270, 300)
+
+def mixer_fits():
+    """Each band's strength at ±100: hue (degrees), saturation (scale), luminance (HSL lightness), least squares."""
+    import colorsys
+    from scipy.optimize import least_squares
+    fx = _fx()
+    P0 = np.array(fx["patchInputs"], float)
+    E = np.clip(_enc(_lin(P0) @ _S2P.T) / 255, 0, 1)
+    hsv = np.array([colorsys.rgb_to_hsv(*e) for e in E]); hls = np.array([colorsys.rgb_to_hls(*e) for e in E])
+    h0 = hsv[:, 0] * 360
+    W = np.zeros((len(h0), 8))
+    for j, hv in enumerate(h0):
+        for i in range(8):
+            a = MIXER_CENTRES[i]; b = MIXER_CENTRES[(i + 1) % 8] + (360 if i == 7 else 0); x = hv if hv >= a else hv + 360
+            if a <= x < b:
+                t = (x - a) / (b - a); W[j, i] += 1 - t; W[j, (i + 1) % 8] += t
+    back = lambda rgb: np.clip(_enc(_lin(np.clip(rgb, 0, 1) * 255) @ _P2S.T), 0, 255)
+    def apply(kind, band, amt, k):
+        w = W[:, band]
+        if kind == "luminance":
+            L = np.clip(hls[:, 1] + w * amt * k * hls[:, 2] * 0.5, 0, 1)
+            return back(np.array([colorsys.hls_to_rgb(a, b, c) for a, b, c in zip(hls[:, 0], L, hls[:, 2])]))
+        h, sat = h0.copy(), hsv[:, 1].copy()
+        if kind == "hue": h = (h + w * amt * k) % 360
+        else: sat = np.clip(sat * (1 + w * amt * k), 0, 1)
+        return back(np.array([colorsys.hsv_to_rgb(a / 360, b, c) for a, b, c in zip(h, sat, hsv[:, 2])]))
+    out = {}
+    for kind in ("hue", "saturation", "luminance"):
+        out[kind] = {}
+        for b, c in enumerate(COLOURS):
+            ks = []
+            for sgn in (-1, 1):
+                M = np.array(fx["runs"]["%s-%s%+d" % (kind, c.lower(), sgn * 100)]["patches"], float)
+                start = 30 if kind == "hue" else 0.5
+                r = least_squares(lambda k: (apply(kind, b, sgn, k[0]) - M).ravel(), [start])
+                ks.append(float(r.x[0]))
+            # A side that doesn't fit (no move found) takes the other's.
+            if kind == "hue" and min(ks) < 2: ks = [max(ks), max(ks)]
+            out[kind][c] = ks
+    return out
+
+_M1 = np.array([[0.4122214708, 0.5363325363, 0.0514459929], [0.2119034982, 0.6806995451, 0.1073969566], [0.0883024619, 0.2817188376, 0.6299787005]])
+_M2 = np.array([[0.2104542553, 0.7936177850, -0.0040720468], [1.9779984951, -2.4285922050, 0.4505937099], [0.0259040371, 0.7827717662, -0.8086757660]])
+
+def _oklab(P):
+    return np.cbrt(_lin(P) @ _M1.T) @ _M2.T
+
+def grading_masks():
+    """Each wheel's tint (OKLab a/b distance at full saturation, along hue 0's direction) and Luminance (OKLab L at ±100), by tone."""
+    import colorsys
+    fx = _fx()
+    L = np.array(fx["rampLevels"], float); G = np.repeat(L[:, None], 3, 1)
+    lab0 = _oklab(G)
+    red = _oklab((np.array(colorsys.hsv_to_rgb(0, 1, 1)) * 255)[None])[0][1:]
+    d = red / np.hypot(*red)
+    out = {"levels": list(lab0[:, 0])}
+    for wheel in ("shadows", "midtones", "highlights", "global"):
+        R = np.array(fx["runs"]["grade-%s-h0-s100" % wheel]["ramp"], float)
+        out[wheel] = {"tint": list((_oklab(R) - lab0)[:, 1:] @ d)}
+        for l in (-100, 100):
+            R = np.array(fx["runs"]["grade-%s-l%+d" % (wheel, l)]["ramp"], float)
+            out[wheel]["lum%+d" % l] = list((_oklab(R) - lab0)[:, 0])
+    return out
 
 
 # ---- the measured tables the definition ships ------------------------------------------------------------------
@@ -457,6 +579,27 @@ def tables():
     for k, by in wb.items():
         lines.append("  %s: { %s }," % (k, ", ".join("\"%d\": %s" % (s, arr(v, 4)) for s, v in by.items())))
     lines.append("};")
+    mixer, grading = mixer_fits(), grading_masks()
+    lines.append("")
+    lines.append("/**")
+    lines.append(" * The Color Mixer's strength per band (Red … Magenta), at −100 and +100 (CR3, fitted to CR0's runs): hue degrees turned")
+    lines.append(" * on HSV of encoded ProPhoto, saturation's scale, HSL lightness's shift, each weighted by the band's share of the hue.")
+    lines.append(" */")
+    lines.append("export const MIXER_STRENGTH: Record<\"hue\" | \"saturation\" | \"luminance\", [number, number][]> = {")
+    for kind in ("hue", "saturation", "luminance"):
+        lines.append("  %s: [%s]," % (kind, ", ".join("[%.3f, %.3f]" % tuple(mixer[kind][c]) for c in COLOURS)))
+    lines.append("};")
+    lines.append("")
+    lines.append("/**")
+    lines.append(" * Color Grading (CR3, from CR0's runs, at Camera Raw's legacy Blending 100): for each wheel, at OKLab lightness `GRADING_LEVELS`,")
+    lines.append(" * how far a full-saturation tint moves the colour (OKLab a/b distance), and the lightness its Luminance at −100 and +100 adds.")
+    lines.append(" */")
+    lines.append("export const GRADING_LEVELS = " + arr(grading["levels"], 4) + ";")
+    lines.append("export const GRADING_MASKS: Record<\"shadows\" | \"midtones\" | \"highlights\" | \"global\", { tint: number[]; darker: number[]; lighter: number[] }> = {")
+    for wheel in ("shadows", "midtones", "highlights", "global"):
+        g = grading[wheel]
+        lines.append("  %s: { tint: %s, darker: %s, lighter: %s }," % (wheel, arr(g["tint"], 4), arr(g["lum-100"], 4), arr(g["lum+100"], 4)))
+    lines.append("};")
     path = os.path.join(ROOT, "shared", "photo", "effects", "camera-raw", "measured.ts")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     open(path, "w").write("\n".join(lines) + "\n")
@@ -478,4 +621,4 @@ elif __name__ == "__main__":
 else:
     IMAGES = {k: os.path.join(DIR, "in-" + k + ".png") for k in
               ("chart", "loc-plain", "loc-dark", "loc-bright", "loc-mixed", "scene", "scene-small", "edge", "edge-big", "grating", "grating-big",
-               "bg-split", *["bg-%d" % g for g in BACKGROUNDS], *["flat-%d" % g for g in FLATS])}
+               "bg-split", *["bg-%d" % g for g in BACKGROUNDS], *["flat-%d" % g for g in FLATS], "glow-disc", "glow-ramp")}

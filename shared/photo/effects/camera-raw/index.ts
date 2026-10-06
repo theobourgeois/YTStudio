@@ -6,9 +6,9 @@ import type { EffectParamValue } from "../../types.ts";
 import type { EffectDefinition } from "../index.ts";
 import { isIdentityCurveSet } from "../curve-math.ts";
 import type { CurveSet } from "../../types.ts";
-import { CAMERA_RAW_PARAMS, CAMERA_RAW_SECTIONS, type CameraRawSection } from "./params.ts";
+import { CAMERA_RAW_PARAMS, CAMERA_RAW_SECTIONS, type CameraRawSection, GRADING_WHEELS, MIXER_COLOURS } from "./params.ts";
 
-export { CAMERA_RAW_PARAMS, CAMERA_RAW_SECTIONS, type CameraRawSection, sectionParams } from "./params.ts";
+export { CAMERA_RAW_PARAMS, CAMERA_RAW_SECTIONS, type CameraRawSection, GRADING_WHEELS, type GradingWheel, MIXER_COLOURS, sectionParams } from "./params.ts";
 
 /** Whether a parameter is at its default. */
 const atDefault = (key: string, value: EffectParamValue | undefined) => {
@@ -24,8 +24,10 @@ export function changedSections(params: Record<string, EffectParamValue>): Camer
   const shows: Record<CameraRawSection, boolean> = {
     light: ["exposure", "contrast", "highlights", "shadows", "whites", "blacks"].some(live),
     color: ["temperature", "tint", "vibrance", "saturation", "treatment"].some(live),
-    effects: ["texture", "clarity", "dehaze", "vignette", "grain"].some(live),
+    effects: ["texture", "clarity", "dehaze", "vignette", "grain", "glow"].some(live),
     curve: ["curveHighlights", "curveLights", "curveDarks", "curveShadows", "pointCurve"].some(live),
+    mixer: MIXER_COLOURS.some((c) => live(`hue${c}`) || live(`saturation${c}`) || live(`luminance${c}`)),
+    grading: GRADING_WHEELS.some((w) => live(`${w}Saturation`) || live(`${w}Luminance`)),
   };
   return CAMERA_RAW_SECTIONS.map((s) => s.id).filter((id) => shows[id]);
 }
@@ -40,7 +42,7 @@ export const CAMERA_RAW: EffectDefinition = {
   kernel: true,
   label: "Camera Raw",
   description:
-    "Photoshop's Camera Raw Filter, one effect with sections, its sliders on Adobe's names and ranges (and measured to behave like Camera Raw 18.7's): Light (exposure in stops, contrast, highlights, shadows, whites, blacks), Color (temperature, tint, vibrance, saturation, treatment color or bw), Effects (texture, clarity, dehaze, vignette with midpoint, roundness, feather, highlights and style; grain with size and roughness), Curve (the parametric curve's highlights, lights, darks, shadows and its three splits; pointCurve, a set of point curves). A filter on a layer, or a Camera Raw adjustment layer over everything below.",
+    "Photoshop's Camera Raw Filter, one effect with sections, its sliders on Adobe's names and ranges (and measured to behave like Camera Raw 18.7's): Light (exposure in stops, contrast, highlights, shadows, whites, blacks), Color (temperature, tint, vibrance, saturation, treatment color or bw), Effects (texture, clarity, dehaze; glow with glowRange, glowSpread, glowWarmth and glowStyle diffusion, bloom or halation; vignette with midpoint, roundness, feather, highlights and style; grain with size and roughness), Curve (the parametric curve's highlights, lights, darks, shadows and its three splits; pointCurve, a set of point curves), Color Mixer (hue<Colour>, saturation<Colour>, luminance<Colour> for Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta), Color Grading (shadows, midtones, highlights and global: <wheel>Hue in degrees 0 red, 120 green, 240 blue; <wheel>Saturation 0–100; <wheel>Luminance; gradingBlending, gradingBalance). A filter on a layer, or a Camera Raw adjustment layer over everything below.",
   params: CAMERA_RAW_PARAMS,
   region: "pointwise",
   reach: () => 0,
