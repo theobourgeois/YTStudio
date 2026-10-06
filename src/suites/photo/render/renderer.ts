@@ -282,7 +282,8 @@ export class PhotoRenderer {
 
   /** Follows the document: loads the images it shows (in the background), lets go of those it no longer does. */
   setDocument(projectId: string, doc: PhotoProject, assets: readonly MediaAsset[]) {
-    if (doc !== this.doc) this.revision++;
+    const changed = doc !== this.doc;
+    if (changed) this.revision++;
     this.projectId = projectId;
     this.doc = doc;
     if (assets.length !== this.assets.size || assets.some((a) => this.assets.get(a.id) !== a)) this.assets = new Map(assets.map((a) => [a.id, a]));
@@ -304,6 +305,8 @@ export class PhotoRenderer {
       if (!this.assets.has(mediaId)) this.setSourceState(source, { state: "missing" });
       else void this.load(projectId, source);
     }
+    // The screen draws what it's shown: a document the store doesn't hold (the Filter Gallery's preview) too.
+    if (changed) this.onChange?.();
   }
 
   /**

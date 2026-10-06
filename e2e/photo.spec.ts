@@ -2143,9 +2143,32 @@ test("the Filter menu applies a look; the Filter Gallery previews one on the pho
   // A click previews a look on the canvas: the renderer shows it, the document doesn't have it.
   const shownFilters = () =>
     page.evaluate(async (id) => ((await (window as unknown as DebugWindow).photoDebug.renderer()) as unknown as { doc: { layers: { id: string; filters?: { type: string; params: Record<string, unknown> }[] }[] } }).doc.layers.find((l) => l.id === id)?.filters ?? [], photo.id);
+  // What the canvas shows, settled (its refinement and glow caches done), as a digest.
+  const screenNow = () =>
+    page.evaluate(async () => {
+      const r = await (window as unknown as DebugWindow).photoDebug.renderer();
+      const s = (await (r as unknown as { readScreen(): Promise<{ data: Float32Array } | null> }).readScreen())!;
+      return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new Float32Array(s.data)))].map((x) => x.toString(16).padStart(2, "0")).join("");
+    });
+  const settled = async () => {
+    await expect.poll(() => refineState(page), { timeout: 20_000 }).toMatch(/none|refined/);
+    return screenNow();
+  };
+  const plain = await settled();
   const before = (await filtersOf()).length;
   await page.locator('[data-filter-card="glow/bloom"]').click();
   await expect(page.locator('[data-filter-card="glow/bloom"]')).toHaveAttribute("data-picked", "true");
+  // The canvas shows it, without anything else happening (no edit, no pan).
+  await expect.poll(screenNow, { timeout: 10_000 }).not.toBe(plain);
+  const bloom = await settled();
+  // Another look replaces it on the canvas.
+  await page.locator('[data-filter-card="gradient-map/purple-haze"]').click();
+  await expect.poll(screenNow, { timeout: 10_000 }).not.toBe(bloom);
+  expect(await settled()).not.toBe(plain);
+  // Cancel: the canvas as it was.
+  await page.locator("[data-filter-cancel]").click();
+  await expect.poll(screenNow, { timeout: 10_000 }).toBe(plain);
+  await page.locator('[data-filter-card="glow/bloom"]').click();
   await expect(page.locator('[data-filter-settings="glow/bloom"]')).toBeVisible();
   await expect.poll(async () => (await shownFilters()).length).toBe(before + 1);
   expect((await filtersOf()).length).toBe(before);
