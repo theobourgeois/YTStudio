@@ -1,11 +1,9 @@
 /**
  * The photo suite's measured scenarios (docs/photo/foundations-prototype.md, "Performance targets"), run in the
  * real workspace on real projects: `scripts/photo-bench.ts` opens the app and drives them through
- * `window.photoBench` (development only, installed by `live.ts`). Each returns plain JSON. The renderer's parts that
- * the suite doesn't use yet (strokes, the blur's seams, P3 patches, f16 rounding, 16-bit precision) are still
- * measured by the lab (`lab/bench.ts`) until the suite has them.
+ * `window.photoBench` (development only, installed by `live.ts`). Each returns plain JSON.
  */
-import { addAdjustmentLayer, setEffectParams } from "@shared/photo/edits";
+import { addAdjustmentLayer, setEffectParams, setMask } from "@shared/photo/edits";
 import { type View, fitView, zoomAbout } from "@shared/photo/geometry";
 import { identityCurveSet } from "@shared/photo/effects/params";
 import { useProjects } from "@/stores/projects";
@@ -13,7 +11,8 @@ import { canvasDriver } from "./canvas/canvas-panel";
 import { liveRenderer } from "./live";
 import { usePhotoPreferences } from "./preferences";
 import type { Presented } from "./render/renderer";
-import { photoGesture, usePhoto } from "./store";
+import { commitSurface } from "./paint-target";
+import { currentDoc, photoGesture, usePhoto } from "./store";
 import { usePhotoUi } from "./ui";
 
 export interface Percentiles {
@@ -230,9 +229,82 @@ export async function budgetWalk(budgetMB = 256, stops = 16) {
   }
 }
 
-export type BenchStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk"; label?: string; budgetMB?: number };
+/**
+ * F3's painting targets on the open photo, at fit: a mask stroke drawn a segment a frame (each frame timed from the
+ * samples given to the GPU finishing the frame that shows them: the first visible dab and every one after), its end
+ * committed to history, and undo and redo of it (the command to the GPU finishing the frame that shows it).
+ */
+export async function paintMask(frames = 90, undos = 10) {
+  const d = driver();
+  const r = await renderer();
+  const doc = currentDoc()!;
+  usePhotoUi.getState().setView(fitView(doc.canvas, usePhotoUi.getState().view!.width, usePhotoUi.getState().view!.height));
+  const layerId = doc.layers[0].id;
+  usePhoto.getState().commit((d) => setMask(d, layerId, null));
+  const brush = { radius: Math.max(20, doc.canvas.width / 60), hardness: 0.6, strength: 1, spacing: 0.1 };
+  await until(() => r.beginStroke(layerId, "mask", brush, [0, 0, 0, 1], null), 10_000);
+  const gpuDone = () => r.device.queue.onSubmittedWorkDone();
+  const dab: number[] = [];
+  const w = doc.canvas.width;
+  const h = doc.canvas.height;
+  for (let i = 0; i <= frames; i++) {
+    await nextFrame();
+    // A wave across the photo, a few samples a frame (as a pointer gives them).
+    const at = (k: number) => ({ x: w * (0.1 + (0.8 * k) / frames), y: h * (0.5 + 0.3 * Math.sin((k / frames) * Math.PI * 4)) });
+    const started = performance.now();
+    r.strokeTo([0.25, 0.5, 0.75, 1].map((f) => at(i - 1 + f)));
+    d.draw("final");
+    await gpuDone();
+    dab.push(performance.now() - started);
+  }
+  const ending = performance.now();
+  const result = await r.endStroke();
+  if (!result) throw new Error("The stroke painted nothing.");
+  usePhoto.getState().commit(commitSurface(layerId, "mask", result.id));
+  const commitMs = performance.now() - ending;
+  // Undo and redo: until the screen shows it, drawn and done.
+  const shown = async (command: () => void) => {
+    await nextFrame();
+    await gpuDone();
+    const started = performance.now();
+    command();
+    const revision = r.revision;
+    await until(() => r.revision !== revision && r.presented.find((f) => f.at >= started && f.revision === r.revision), 10_000);
+    await gpuDone();
+    return performance.now() - started;
+  };
+  const undo: number[] = [];
+  const redo: number[] = [];
+  for (let i = 0; i < undos; i++) {
+    undo.push(await shown(() => usePhoto.getState().undo()));
+    redo.push(await shown(() => usePhoto.getState().redo()));
+  }
+  // F0's measure of a stroke's end: about 20 tiles (a brush of 60 px along 1500 px of the photo).
+  await until(() => r.beginStroke(layerId, "mask", { radius: 30, hardness: 0.6, strength: 1, spacing: 0.1 }, [0, 0, 0, 1], null), 10_000);
+  r.strokeTo(Array.from({ length: 300 }, (_, k) => ({ x: w * 0.2 + k * 5, y: h * 0.3 + 40 * Math.sin(k / 20) })));
+  d.draw("final");
+  await gpuDone();
+  const small = performance.now();
+  const twenty = await r.endStroke();
+  if (twenty) usePhoto.getState().commit(commitSurface(layerId, "mask", twenty.id));
+  const smallMs = performance.now() - small;
+  // Leave the photo as it was (the strokes and the mask undone).
+  usePhoto.getState().undo();
+  usePhoto.getState().undo();
+  usePhoto.getState().undo();
+  return {
+    dab: percentiles(dab),
+    firstDabMs: round(dab[0]),
+    long: { tiles: result.tiles, commitMs: round(commitMs), readbackMs: round(result.readbackMs), hashMs: round(result.hashMs) },
+    stroke: { tiles: twenty?.tiles ?? 0, commitMs: round(smallMs), readbackMs: round(twenty?.readbackMs ?? 0), hashMs: round(twenty?.hashMs ?? 0) },
+    undo: percentiles(undo),
+    redo: percentiles(redo),
+  };
+}
 
-const TASKS = { reopen, panZoom, adjustExposure, adjustCurves, exportPng, deviceLoss, budgetWalk } as const;
+export type BenchStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk" | "paintMask"; label?: string; budgetMB?: number };
+
+const TASKS = { reopen, panZoom, adjustExposure, adjustCurves, exportPng, deviceLoss, budgetWalk, paintMask } as const;
 
 /** Runs steps in order, collecting each result (an error is recorded and the plan goes on). */
 export async function runPlan(steps: BenchStep[]) {

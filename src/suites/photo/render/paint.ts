@@ -1,5 +1,5 @@
 /**
- * A paint surface: an `rgba16f` surface the brush paints (docs/photo/architecture.md, "Edits, gestures and
+ * The lab's paint surface (F0; the suite's is `surface.ts`): an `rgba16f` surface the brush paints (docs/photo/architecture.md, "Edits, gestures and
  * strokes"). While a stroke lasts, the tiles it touches are *drafts*, copies of the committed tiles made on first
  * touch, and the view draws through them. At pointer up the drafts are read back, hashed in a Worker, and a new
  * manifest becomes the committed state at once (one undo step); uploading follows in the background. Undo and
@@ -86,7 +86,8 @@ export class PaintSurface {
     this.manifest = emptySurface("rgba16f", ctx.tile, [0, 0, 0, 0]);
     this.jobs = ctx.device.createBuffer({ size: BATCH * 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.dabs = ctx.device.createBuffer({ size: 4096 * 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-    this.params = ctx.device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    // The stamp kernel's parameters (`kernels.ts`, `Params`: 80 bytes): the lab paints at the document's pixels, unselected.
+    this.params = ctx.device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.stampGroup = this.makeStampGroup();
     // Committed tiles evicted from the atlas are fetched again by hash when needed (`ensureResident`).
     this.stopListening = ctx.atlas.onEvict((key, slot) => {
@@ -129,9 +130,10 @@ export class PaintSurface {
   begin(brush: BrushSettings, colour: readonly [number, number, number, number]) {
     if (this.spacer) this.cancel();
     this.spacer = new DabSpacer(brush);
-    const params = new ArrayBuffer(32);
+    const params = new ArrayBuffer(80);
     new Float32Array(params, 0, 4).set(colour);
-    new Uint32Array(params, 16, 1).set([this.ctx.tile]);
+    new Uint32Array(params, 16, 2).set([this.ctx.tile, 0]);
+    new Float32Array(params, 32, 8).set([1, 0, 0, 1, 0, 0, 1, 0]);
     this.ctx.device.queue.writeBuffer(this.params, 0, params);
   }
 
