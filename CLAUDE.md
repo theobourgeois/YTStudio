@@ -32,7 +32,13 @@ B-spline) and glow-cache.ts its contributions from level 0, kept per glow; flare
 renderer's parts the suite doesn't use yet. Kernels and passes storing `rgba16float` must round first
 (`round_for_store`): Metal truncates on store (docs/photo/rendering.md). Pixel layers and masks are surfaces
 (`render/surface.ts`: tiles by hash, strokes on drafts); a saved photo only names pixels the server has (`uploads.ts`,
-`SuiteBackend.checkSave`). Light (docs/photo/f4-light.md): no pixel is brighter than its coverage (up to white), the
+`SuiteBackend.checkSave`). Selections (docs/photo/selections.md: the Marquees, Lassos, Magic Wand, Quick Selection, Select
+Subject, modes, Inverse, Feather, the canvas's right-click menu) are a rectangle or a `MaskSelection` (8-bit coverage
+over its box: `shared/photo/selection*.ts`, `magic-wand.ts`, `quick-select.ts` on `graph-cut.ts` and `gmm.ts`); the
+GPU gets a mask's coverage per tile from the CPU (`selectionCoverage`), keep rectangles' analytic path. The tools read
+the photo through `PhotoRenderer.samplePixels` (`selecting.ts` keeps it). Select Subject's model (IS-Net) is
+downloaded by the server into `MODELS_DIR` only when the user says yes, and run in the tab by ONNX Runtime Web
+(`subject-model.ts`); e2e sets `EDITOR_SUBJECT_MODEL=stand-in`. Light (docs/photo/f4-light.md): no pixel is brighter than its coverage (up to white), the
 output's `film` rolls light above white off at the end (`output.ts`), and a glow's or flare's WGSL mirrors its CPU
 reference in `shared/photo/reference/`: change both. Layer Style L1–L4 are built (docs/photo/layer-style/README.md:
 blend modes and compositing in render/blend.ts, effects (Bevel & Emboss, Satin, patterns too) in shared/photo/style/ and
