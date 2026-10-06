@@ -5,6 +5,7 @@
 import { type Schema, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { BLEND_MODES } from "./blending.ts";
 import { ADJUSTMENTS, EFFECTS, type EffectKind, FILTERS, GENERATORS } from "./effects/index.ts";
+import { FILTER_ENTRIES, describePresets } from "./effects/catalog.ts";
 import { FLARE_PRESETS } from "./effects/flare.ts";
 import type { ElementParamSpec, ParamSpec } from "./effects/params.ts";
 import { STYLE_DEFINITIONS } from "./style/definitions.ts";
@@ -227,7 +228,7 @@ export const PHOTO_TOOLS = [
     name: "add_filter",
     title: "Add a filter",
     kind: "edit",
-    description: `Adds a filter (Photoshop's Smart Filter) to an image, pixel or generator layer: it works on that layer's own pixels, in linear light, before its mask, after its other filters, and is kept editable (set_filter, remove_filter). The filters:\n${describeEffects("filter")}`,
+    description: `Adds a filter (Photoshop's Smart Filter) to an image, pixel or generator layer: it works on that layer's own pixels, in linear light, before its mask, after its other filters, and is kept editable (set_filter, remove_filter). A preset is a named look (the Filter Gallery's), its sizes scaled to the canvas; params given are set on top of it. The filters:\n${describeEffects("filter")}\n${describePresets("filter")}`,
     inputSchema: obj(
       {
         layer,
@@ -235,7 +236,11 @@ export const PHOTO_TOOLS = [
           FILTERS.map((d) => d.type),
           "Which filter.",
         ),
-        params: { type: "object", description: "Parameters other than the defaults (see above).", additionalProperties: true },
+        preset: oneOf(
+          [...new Set(FILTER_ENTRIES.filter((e) => e.def.kind === "filter").map((e) => e.preset.id))],
+          "A named look of that filter (default: its plain defaults).",
+        ),
+        params: { type: "object", description: "Parameters other than the defaults (or the preset's): see above.", additionalProperties: true },
       },
       ["layer", "type"],
     ),

@@ -4,6 +4,7 @@
  * suite doesn't reach into the platform's stores: app.ts hands it what it needs (a project's folder, an image's
  * file).
  */
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { CompareResult, ExportRequest, SourceLayout, TileSize } from "../../shared/photo/lab.ts";
@@ -46,6 +47,7 @@ export class PhotoService {
   private source(projectId: string, mediaId: string): string {
     const file = this.options.sourcePath(projectId, mediaId);
     if (!file) throw new HttpError(404, `The project has no image ${mediaId}.`);
+    if (!existsSync(file)) throw new HttpError(404, `The image ${path.basename(file)} is missing from the project's package (media/${mediaId}): its layer shows as missing until the file is put back.`);
     return file;
   }
 

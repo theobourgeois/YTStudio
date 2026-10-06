@@ -97,8 +97,10 @@ export const usePhoto = create<PhotoStore>((set, get) => ({
     const token = ++openToken;
     set({ projectId, history: null, assets: [], loading: true, loadError: null, savedAt: null, saving: false });
     try {
-      const [doc, assets] = await Promise.all([api.getDocument("photo", projectId), api.listMedia(projectId)]);
+      const [{ doc, notice }, assets] = await Promise.all([api.loadDocument("photo", projectId), api.listMedia(projectId)]);
       if (token !== openToken) return;
+      // Pixels it named were missing: an earlier version, or this one with them emptied, opened instead.
+      if (notice) toast.warning(`“${doc.name}” didn't open as it was saved`, { description: notice, duration: 30_000, closeButton: true });
       set({ history: historyOf<PhotoState>({ doc, selection: null }), assets, loading: false, savedAt: Date.now() });
     } catch (err) {
       if (token === openToken) set({ loading: false, loadError: errorMessage(err) });

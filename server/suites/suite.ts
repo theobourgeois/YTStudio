@@ -46,6 +46,17 @@ export interface SuiteBackend<S extends SuiteId> {
    */
   checkSave?(doc: SuiteDocument<S>, dir: string): Promise<void>;
   /**
+   * A save passed `checkSave` and is about to replace the saved document in `dir`: what the suite keeps of the one
+   * replaced (the photo suite's recovery checkpoint).
+   */
+  keepPrevious?(dir: string): Promise<void>;
+  /**
+   * The check on opening (`GET /api/projects/:id`): null when the saved document can be shown as it is; otherwise
+   * the document to open instead, which the platform saves, and what to tell the user (the photo suite's: pixels it
+   * names are missing from the package).
+   */
+  check?(doc: SuiteDocument<S>, dir: string): Promise<{ doc: SuiteDocument<S>; notice: string } | null>;
+  /**
    * A tab opened the project and no tab had it open: what the suite does with its package then (the photo suite
    * collects the pixels nothing saved names any more).
    */

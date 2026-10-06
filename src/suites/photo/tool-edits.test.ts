@@ -191,6 +191,14 @@ describe("the assistant's light", () => {
     expect(() => addFilterTool(adjusted, { layer: "Exposure", type: "glow" }, env)).toThrow(/adjustment layer: filters work on a layer's own pixels/);
   });
 
+  it("adds a filter as one of its presets, sized for the canvas, with params on top", () => {
+    const doc = withSky();
+    const diagonal = Math.hypot(doc.canvas.width, doc.canvas.height);
+    const r = addFilterTool(doc, { layer: "sky", type: "glow", preset: "neon", params: { intensity: 2 } }, env);
+    expect(imageOf(r.doc).filters![0].params).toMatchObject({ radius: Math.round(0.015 * diagonal), threshold: 60, knee: 15, intensity: 2 });
+    expect(() => addFilterTool(doc, { layer: "sky", type: "glow", preset: "sparkly" }, env)).toThrow(/Its presets: bloom, soft-haze, neon, dreamy, halation/);
+  });
+
   it("adds a lens flare where it's told, moves its handles, changes it and its blend", () => {
     const r = addGeneratorTool(withSky(), { preset: "anamorphic", source: [900, 200], params: { intensity: 1 } }, env);
     let doc = r.doc;

@@ -59,6 +59,13 @@ describe("layer keys (Photoshop's)", () => {
     expect(resolvePhotoKey(alt("a", "KeyA", { ctrlKey: true }), false)).toEqual({ type: "selectAll" });
   });
 
+  it("Last Filter is Photoshop's ⌃⌘F, Ctrl+Alt+F elsewhere", () => {
+    expect(resolvePhotoKey({ ...press("f", { metaKey: true, ctrlKey: true }), code: "KeyF" }, true)).toEqual({ type: "lastFilter" });
+    expect(resolvePhotoKey({ ...press("f", { ctrlKey: true, altKey: true }), code: "KeyF" }, false)).toEqual({ type: "lastFilter" });
+    expect(resolvePhotoKey(press("f", { metaKey: true }), true)).toBeNull();
+    expect(resolvePhotoKey(press("f", { metaKey: true, ctrlKey: true, shiftKey: true }), true)).toBeNull();
+  });
+
   it("merge and arrange with ⌘, leaving ⇧⌘[ / ⇧⌘] to the app's tabs and ⇧⌘E to Export", () => {
     expect(resolvePhotoKey(press("e", { metaKey: true }), true)).toEqual({ type: "merge" });
     expect(resolvePhotoKey(press("e", { metaKey: true, shiftKey: true }), true)).toEqual({ type: "export" });

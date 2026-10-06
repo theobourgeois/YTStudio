@@ -44,8 +44,16 @@ export interface GlowHost {
   compositor: () => Compositor;
   device: () => GPUDevice;
   sources: PlanSources;
-  /** Fetches what a level-0 region of the plan needs. */
-  ensureVisible: (plan: RenderPlan, view: View) => Promise<unknown>;
+  /**
+   * Fetches what a level-0 region of the plan needs, then runs `draw` (synchronous: it encodes and submits) the
+   * moment it's all resident, so nothing it reads is evicted in between.
+   */
+  whenResident: <T>(plan: RenderPlan, view: View, draw: () => T) => Promise<T>;
+  /**
+   * The side of the level-0 regions a cache is built in (a power of two): `BUILD_REGION`, or smaller when the GPU
+   * budget couldn't hold one's tiles at once.
+   */
+  buildRegion: () => number;
   /** Whether every image and surface the plan reads has loaded (only then is a cache final). */
   settled: (plan: RenderPlan) => boolean;
   /** A cache was built (by any caller): the screen draws again. */
@@ -170,7 +178,7 @@ export class GlowCaches {
       format,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
     });
-    const region = Math.max(BUILD_REGION, s);
+    const region = Math.max(Math.min(BUILD_REGION, this.host.buildRegion()), s);
     try {
       for (let y = g.extent.y0; y < g.extent.y1; y += region) {
         for (let x = g.extent.x0; x < g.extent.x1; x += region) {
@@ -179,23 +187,27 @@ export class GlowCaches {
             return null;
           }
           const box = { x0: x, y0: y, x1: Math.min(x + region, g.extent.x1), y1: Math.min(y + region, g.extent.y1) };
-          await this.host.ensureVisible(plan, { zoom: 1, x: box.x0, y: box.y0, width: box.x1 - box.x0, height: box.y1 - box.y0 });
-          if (this.host.compositor() !== compositor) return null;
-          const encoder = device.createCommandEncoder({ label: "glow cache" });
-          let level = isolation.contribution(encoder, g.node, g.index, box, 0, "final", this.host.sources, format);
-          if (!level) {
+          // Only the glowing layer's own content is read.
+          const drawn = await this.host.whenResident({ ...plan, nodes: [g.node] }, { zoom: 1, x: box.x0, y: box.y0, width: box.x1 - box.x0, height: box.y1 - box.y0 }, () => {
+            if (this.host.compositor() !== compositor) return false;
+            const encoder = device.createCommandEncoder({ label: "glow cache" });
+            let level = isolation.contribution(encoder, g.node, g.index, box, 0, "final", this.host.sources, format);
+            if (!level) return false;
+            let size = { width: box.x1 - box.x0, height: box.y1 - box.y0 };
+            for (let k = 1; k <= from; k++) {
+              const next = isolation.pool.take(Math.ceil(size.width / 2), Math.ceil(size.height / 2), format, "glow cache reduce");
+              compositor.reduce(encoder, format, level, size, next);
+              size = { width: Math.ceil(size.width / 2), height: Math.ceil(size.height / 2) };
+              level = next;
+            }
+            encoder.copyTextureToTexture({ texture: level }, { texture: levelTexture, origin: [(x - g.extent.x0) / s, (y - g.extent.y0) / s] }, [size.width, size.height]);
+            device.queue.submit([encoder.finish()]);
+            return true;
+          });
+          if (!drawn) {
             levelTexture.destroy();
             return null;
           }
-          let size = { width: box.x1 - box.x0, height: box.y1 - box.y0 };
-          for (let k = 1; k <= from; k++) {
-            const next = isolation.pool.take(Math.ceil(size.width / 2), Math.ceil(size.height / 2), format, "glow cache reduce");
-            compositor.reduce(encoder, format, level, size, next);
-            size = { width: Math.ceil(size.width / 2), height: Math.ceil(size.height / 2) };
-            level = next;
-          }
-          encoder.copyTextureToTexture({ texture: level }, { texture: levelTexture, origin: [(x - g.extent.x0) / s, (y - g.extent.y0) / s] }, [size.width, size.height]);
-          device.queue.submit([encoder.finish()]);
           // Let frames through between regions.
           await device.queue.onSubmittedWorkDone();
         }

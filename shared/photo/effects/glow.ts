@@ -14,7 +14,7 @@
  */
 import { hexToLinear } from "../colour.ts";
 import type { EffectParamValue } from "../types.ts";
-import type { ColourParam, NumberParam, ParamSpec } from "./params.ts";
+import type { ColourParam, EffectPreset, NumberParam, ParamSpec } from "./params.ts";
 
 /** How many octaves. */
 export const GLOW_OCTAVES = 6;
@@ -187,4 +187,24 @@ export const GLOW_PARAMS: readonly ParamSpec[] = [
   tint,
   number("tintAmount", "Tint Amount", "%", 0, 100, 1, 0, 0, "How much the glow takes the tint's colour instead of the light's own."),
   number("mix", "Mix", "%", 0, 100, 1, 0, 100, "How much of the glow is added: 0 adds none."),
+];
+
+/** A radius as a fraction of the canvas's diagonal, in whole document pixels within the parameter's range. */
+const radiusFor = (fraction: number, { width, height }: { width: number; height: number }) => Math.max(1, Math.min(4000, Math.round(fraction * Math.hypot(width, height))));
+
+/** A preset: its radius a fraction of the diagonal, the rest as given (the definition's defaults otherwise). */
+const glowPreset = (id: string, label: string, description: string, radius: number, rest: Partial<Omit<GlowParams, "radius">> = {}): EffectPreset => ({
+  id,
+  label,
+  description,
+  params: (canvas) => ({ radius: radiusFor(radius, canvas), ...rest }),
+});
+
+/** The glow's looks, as the Filter menu and the Filter Gallery offer them (the first is the plain bloom). */
+export const GLOW_PRESETS: readonly EffectPreset[] = [
+  glowPreset("bloom", "Bloom", "The brightest parts bloom softly: the plain glow.", 0.04),
+  glowPreset("soft-haze", "Soft Haze", "A wide, low haze of light over the whole picture.", 0.2, { intensity: -1.2, threshold: 40, knee: 70 }),
+  glowPreset("neon", "Neon", "A tight, bright glow hugging lights and signs.", 0.015, { intensity: 0.8, threshold: 60, knee: 15 }),
+  glowPreset("dreamy", "Dreamy", "Soft pink light from the midtones up: a dream sequence.", 0.1, { intensity: -0.6, threshold: 25, knee: 90, tint: "#ffd6ec", tintAmount: 35 }),
+  glowPreset("halation", "Halation", "Film's red-orange fringe around highlights.", 0.012, { intensity: 0.3, threshold: 55, knee: 40, tint: "#ff4a1c", tintAmount: 85 }),
 ];

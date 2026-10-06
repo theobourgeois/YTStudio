@@ -43,6 +43,7 @@ import type {
   WebDownloadProgress,
   WebMediaKind,
 } from "@shared/types";
+import { PROJECT_NOTICE_HEADER } from "@shared/types";
 
 export class ApiRequestError extends Error {
   constructor(
@@ -96,6 +97,12 @@ export const api = {
   getProject: (id: string) => request<Project>(`/api/projects/${id}`),
   /** Any suite's document (`suite` says which, for its type). */
   getDocument: <S extends SuiteId>(_suite: S, id: string) => request<SuiteDocument<S>>(`/api/projects/${id}`),
+  /** A document to open, and what the server's check on opening changed, if anything (`PROJECT_NOTICE_HEADER`). */
+  loadDocument: async <S extends SuiteId>(_suite: S, id: string): Promise<{ doc: SuiteDocument<S>; notice: string | null }> => {
+    const res = await send(`/api/projects/${id}`);
+    const notice = res.headers.get(PROJECT_NOTICE_HEADER);
+    return { doc: (await res.json()) as SuiteDocument<S>, notice: notice && decodeURIComponent(notice) };
+  },
   /** Save any suite's document. Returns the refreshed summary. */
   saveDocument: <S extends SuiteId>(_suite: S, id: string, doc: SuiteDocument<S>, keepalive = false) =>
     request<ProjectSummary>(`/api/projects/${id}`, { method: "PUT", body: JSON.stringify(doc), keepalive }),

@@ -11,7 +11,7 @@ import type { MediaLibrary } from "./media.ts";
 import { PROJECT_EXTENSION, fileName, isInside, moveToTrash, movePath, namedAfter, packageName, samePath, uniquePackage } from "./packages.ts";
 import { run } from "./process.ts";
 import { createLimiter } from "./queue.ts";
-import { type DataPaths, HttpError, MAX_NAME_LENGTH, isObject, isValidId, parseName, readJson, writeJson } from "./storage.ts";
+import { type DataPaths, HttpError, MAX_NAME_LENGTH, isObject, isValidId, parseName, readJson, writeJson, writeJsonDurably } from "./storage.ts";
 import { type DocStats, suiteBackend } from "./suites/index.ts";
 
 /** `<package>/meta.json`: which project it is and what kind. Written after `project.json`, so it marks a committed one. */
@@ -275,6 +275,24 @@ export class ProjectStore {
     return this.readDoc(this.entry(id));
   }
 
+  /**
+   * The document a tab opens, after its suite's check on opening (`SuiteBackend.check`): one that can't be shown
+   * as it was saved is replaced (and saved), and `notice` says why.
+   */
+  async openDoc(id: string): Promise<{ doc: SuiteDocument; notice?: string }> {
+    const backend = suiteBackend(this.entry(id).meta.suite);
+    if (!backend.check) return { doc: await this.get(id) };
+    return this.writes(async () => {
+      const entry = this.entry(id);
+      const doc = await this.readDoc(entry);
+      const fixed = await backend.check!(doc as never, entry.dir);
+      if (!fixed) return { doc };
+      await this.write(id, fixed.doc);
+      console.warn(`[projects] ${entry.dir} was opened as it could be: ${fixed.notice}`);
+      return { doc: fixed.doc, notice: fixed.notice };
+    });
+  }
+
   /** Where new projects go, and where they would by default. */
   getLocation(): ProjectLocation {
     return { path: this.location, default: this.defaultLocation };
@@ -417,8 +435,8 @@ export class ProjectStore {
     const meta: ProjectMeta = { id, suite, createdAt, updatedAt: createdAt };
     await this.writes(async () => {
       await fs.mkdir(path.join(dir, "media"), { recursive: true });
-      await writeJson(path.join(dir, DOC_FILE), doc);
-      await writeJson(path.join(dir, META_FILE), meta);
+      await writeJsonDurably(path.join(dir, DOC_FILE), doc);
+      await writeJsonDurably(path.join(dir, META_FILE), meta);
       const cover = await findCover(dir);
       this.pending.delete(id);
       this.entries.set(id, { meta, stats: this.statsOf(suite, this.normalize(id, suite, doc)), dir, openedAt: createdAt, template, ...(cover && { cover }) });
@@ -529,7 +547,9 @@ export class ProjectStore {
       const entry = this.entry(id);
       // A damaged document is never written over: refused until it's mended (read again: maybe it is now).
       if (entry.damaged) await this.readDoc(entry);
-      await suiteBackend(meta.suite).checkSave?.(doc as never, entry.dir);
+      const backend = suiteBackend(meta.suite);
+      await backend.checkSave?.(doc as never, entry.dir);
+      await backend.keepPrevious?.(entry.dir);
       await this.write(id, doc);
       // Renamed while no tab has it open (the assistant working on it in the background).
       if (!this.open.has(id)) await this.followName(id);
@@ -639,7 +659,7 @@ export class ProjectStore {
       // The folder's name, as Finder shows it, is the document's (written only into a healthy one).
       if (doc && "saved" in read && !template && follow === "folder" && typeof read.saved.name === "string" && !namedAfter(dir, read.saved.name)) {
         const name = packageName(dir).slice(0, MAX_NAME_LENGTH);
-        await writeJson(path.join(dir, DOC_FILE), { ...read.saved, name });
+        await writeJsonDurably(path.join(dir, DOC_FILE), { ...read.saved, name });
         doc = { ...doc, name };
       }
       const damaged = "damaged" in read ? await this.damage(dir, read) : undefined;
@@ -672,12 +692,12 @@ export class ProjectStore {
     if ("damaged" in read) throw new HttpError(422, await this.damage(dir, read));
     const doc = "doc" in read ? read.doc : backend.create(packageName(dir));
     for (const [old, next] of ids) {
-      await writeJson(path.join(mediaDir, old, META_FILE), this.library.renamed(assets[old], next, id));
+      await writeJsonDurably(path.join(mediaDir, old, META_FILE), this.library.renamed(assets[old], next, id));
       await fs.rename(path.join(mediaDir, old), path.join(mediaDir, next));
     }
-    await writeJson(path.join(dir, DOC_FILE), backend.remapMedia(doc as never, ids));
+    await writeJsonDurably(path.join(dir, DOC_FILE), backend.remapMedia(doc as never, ids));
     const next = { ...meta, id };
-    await writeJson(path.join(dir, META_FILE), next);
+    await writeJsonDurably(path.join(dir, META_FILE), next);
     return next;
   }
 
@@ -716,8 +736,8 @@ export class ProjectStore {
   private async write(id: string, doc: SuiteDocument) {
     const current = this.entry(id);
     const meta: ProjectMeta = { ...current.meta, updatedAt: this.now() };
-    await writeJson(path.join(current.dir, DOC_FILE), doc);
-    await writeJson(path.join(current.dir, META_FILE), meta);
+    await writeJsonDurably(path.join(current.dir, DOC_FILE), doc);
+    await writeJsonDurably(path.join(current.dir, META_FILE), meta);
     this.entries.set(id, { ...current, meta, stats: this.statsOf(meta.suite, doc) });
   }
 

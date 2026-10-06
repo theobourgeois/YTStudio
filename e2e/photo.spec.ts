@@ -1707,7 +1707,13 @@ test("a glow is its CPU reference, the same tiled as whole, and keeps light abov
   await paint(page, "lit", "content", line(20, 200, 300, 190), { radius: 4, hardness: 1, colour: [0.3, 0.3, 0.3, 1] });
   const whole: ViewBox = { zoom: 1, x: 0, y: 0, width: W, height: H };
   const content = await renderRegion(page, whole);
+  // A new photo mixes as Photoshop does, in encoded values: light above white survives its Normal, and its Linear
+  // Dodge (Add) too (F4's gate, in "photoshop" compositing).
+  expect(await page.evaluate(() => (window as unknown as LightWindow).photoDebug.photo.getState().history.doc.doc)).toMatchObject({ compositing: "photoshop" });
   expect(maxOf(content)).toBeGreaterThan(2);
+  await patchLayer(page, "lit", { blend: "linear-dodge" });
+  expect(maxOf(await renderRegion(page, whole))).toBeGreaterThan(2);
+  await patchLayer(page, "lit", { blend: undefined });
 
   await patchLayer(page, "lit", { filters: [glowFilter("g1")] });
   const glowing = await renderRegion(page, whole);
@@ -2004,4 +2010,215 @@ test("reordering, bypassing, masking, undoing and reopening keep every setting o
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
   expect(await docLayers(page)).toEqual(doc);
   expect(await renderDigest(page, view)).toBe(look);
+});
+
+test("the Filter menu and the Filter Gallery apply every look, previewed on the photo; Last Filter adds the last one again", async ({ page }) => {
+  await openNewPhoto(page, "Filters");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const [photo] = await docLayers(page);
+  await page.locator(`[data-layer="${photo.id}"]`).click();
+  const filtersOf = async () => (await docLayers(page)).find((l) => l.id === photo.id)!.filters ?? [];
+
+  // Filter › Light › Glow › Neon: the look's settings, its radius sized for this canvas.
+  await page.locator("[data-filter-menu]").click();
+  await page.getByRole("menuitem", { name: "Glow" }).hover();
+  await page.locator('[data-filter-item="glow/neon"]').click();
+  await expect.poll(async () => (await filtersOf())[0]?.params).toMatchObject({ radius: Math.round(0.015 * Math.hypot(1600, 1200)), threshold: 60, knee: 15, intensity: 0.8 });
+  await expect(page.locator('[data-filter-properties="glow"]')).toBeVisible();
+
+  // Changed in Properties, then Last Filter: the same filter again, as it is now.
+  const radius = page.locator('[data-filter-properties="glow"] [data-param="radius"]').getByRole("textbox");
+  await radius.fill("77");
+  await radius.press("Enter");
+  await expect.poll(async () => (await filtersOf())[0].params.radius).toBe(77);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.locator("[data-filter-menu]").click();
+  await page.getByRole("menuitem", { name: /^Last Filter: Glow/ }).click();
+  await expect.poll(async () => (await filtersOf()).map((f) => f.params.radius)).toEqual([77, 77]);
+
+  // The gallery: a card for every look, each previewed on this photo (once the last menu has gone).
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.locator("[data-filter-menu]").click();
+  await page.getByRole("menuitem", { name: "Filter Gallery…" }).click();
+  const cards = page.locator("[data-filter-card]");
+  await expect(cards).toHaveCount(8);
+  await expect(page.locator('[data-filter-card][data-preview="ready"]')).toHaveCount(8, { timeout: 30_000 });
+  // The previews differ from one another (each is its look on this photo).
+  const sources = await page.locator("[data-filter-card] img").evaluateAll((imgs) => imgs.map((i) => (i as HTMLImageElement).src));
+  expect(new Set(sources).size).toBe(8);
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "filter-gallery.png") });
+
+  // Searched, then a click: Lens Flare's Anamorphic, a new layer with its streak.
+  await page.getByRole("textbox", { name: "Search filters" }).fill("streak");
+  await expect(cards).toHaveCount(1);
+  await page.locator('[data-filter-card="lens-flare/anamorphic"]').click();
+  await expect.poll(async () => (await docLayers(page)).filter((l) => l.kind === "generator").length).toBe(1);
+  const flare = (await docLayers(page)).find((l) => l.kind === "generator")!;
+  expect((flare.effect!.params.elements as { type: string }[]).some((e) => e.type === "streak")).toBe(true);
+  await page.getByRole("textbox", { name: "Search filters" }).fill("");
+  await expect(cards).toHaveCount(8);
+
+  // On an adjustment layer, filters can't go (said so on their cards); generators still can.
+  await page.getByRole("button", { name: "New adjustment layer" }).click();
+  await page.getByRole("menuitem", { name: /Exposure/ }).click();
+  await expect(page.locator('[data-filter-card="glow/bloom"]')).toHaveAttribute("aria-disabled", "true");
+  await expect(page.locator('[data-filter-card="lens-flare/classic"]')).not.toHaveAttribute("aria-disabled", "true");
+  const before = (await filtersOf()).length;
+  await page.locator('[data-filter-card="glow/bloom"]').click({ force: true });
+  expect((await filtersOf()).length).toBe(before);
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "filter-gallery-adjustment.png") });
+  await page.getByRole("button", { name: "Close Filter Gallery" }).click();
+  await expect(page.locator("[data-filter-gallery]")).toHaveCount(0);
+});
+
+test("an export cancelled while it renders writes nothing and lets go of what the server was sent", async ({ page }) => {
+  await openNewPhoto(page, "Cancelled export");
+  // 48 MP: long enough to render that Cancel lands mid-way.
+  await setPhoto(page, { width: 8000, height: 6000, background: "#334455" }, []);
+  const work = path.join("e2e", ".data", "exports", "photo");
+  const leftovers = async () => (await fs.readdir(work).catch(() => [] as string[])).filter((n) => n.startsWith("samples-"));
+  let downloaded = false;
+  page.on("download", () => (downloaded = true));
+  await page.locator("[data-photo-header]").getByRole("button", { name: "Export", exact: true }).click();
+  const window = page.locator("[data-window]").filter({ hasText: "Export photo" });
+  await window.getByRole("button", { name: "Export", exact: true }).click();
+  await expect(window.locator("[data-export-progress]")).toBeVisible();
+  await window.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(window.locator("[data-export-cancelled]")).toBeVisible();
+  await expect.poll(leftovers).toEqual([]);
+  expect(downloaded).toBe(false);
+  // Exported again, it goes through.
+  await setPhoto(page, { width: 400, height: 300, background: "#334455" }, []);
+  const download = page.waitForEvent("download");
+  await window.getByRole("button", { name: "Export", exact: true }).click();
+  await download;
+  await expect(window.locator("[data-export-done]")).toBeVisible();
+  expect(downloaded).toBe(true);
+  await window.getByRole("button", { name: "Close", exact: true }).click();
+});
+
+test("the GPU lost mid-stroke: that stroke isn't kept and the user is told; the photo is drawn again and painting goes on", async ({ page }) => {
+  await openNewPhoto(page, "Device loss");
+  await setPhoto(page, { width: 600, height: 400, background: "#ffffff" }, [pixelLayer("paint", 600, 400)]);
+  await page.evaluate(() => (window as unknown as { photoDebug: { ui: { getState(): { select(id: string): void } } } }).photoDebug.ui.getState().select("paint"));
+  await page.keyboard.press("b");
+  const surface = async () => ((await docLayers(page)).find((l) => l.id === "paint") as unknown as { surface: string | null }).surface;
+  const view: ViewBox = { zoom: 0.5, x: 0, y: 0, width: 300, height: 200 };
+  const before = await renderDigest(page, view);
+  const recoveries = () => page.evaluate(async () => ((await (window as unknown as DebugWindow).photoDebug.renderer()) as unknown as { recoveries: number }).recoveries);
+  const recovered = await recoveries();
+
+  // A stroke begun, the device lost halfway, then finished.
+  const from = await screenOf(page, 100, 200);
+  const to = await screenOf(page, 500, 200);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move((from.x + to.x) / 2, from.y, { steps: 6 });
+  await page.evaluate(async () => {
+    const r = (await (window as unknown as DebugWindow).photoDebug.renderer()) as unknown as { simulateLoss(): Promise<void> };
+    await r.simulateLoss();
+  });
+  await page.mouse.move(to.x, to.y, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.getByText("The GPU stopped mid-stroke")).toBeVisible();
+  expect(await surface()).toBeNull();
+  expect(await recoveries()).toBe(recovered + 1);
+  // Drawn again, as it was.
+  expect(await renderDigest(page, view)).toBe(before);
+
+  // The next stroke paints and is kept.
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(surface).not.toBeNull();
+  expect(await renderDigest(page, view)).not.toBe(before);
+});
+
+test("effects from a newer app (or of a type this one doesn't know) are kept as they are, said to be unavailable, and draw nothing", async ({ page }) => {
+  const id = await openNewPhoto(page, "From the future");
+  const future = (type: string, version: number, extra: Record<string, unknown> = {}) => ({ id: `${type}_future`, type, version, enabled: true, params: { tomorrow: [1, 2, 3], ...extra } });
+  const lit = { ...pixelLayer("lit", 300, 200), filters: [future("glow", 99, { radius: 40 }), future("sparkle", 1)], style: { enabled: true, effects: [future("drop-shadow", 42)] } };
+  const adjustment = { id: "adj", kind: "adjustment", name: "Future exposure", visible: true, opacity: 1, effect: future("exposure", 9, { exposure: 2 }) };
+  const generator = { id: "gen", kind: "generator", name: "Future flare", visible: true, opacity: 1, effect: future("lens-flare", 7), blend: "linear-dodge", blendSpace: "linear" };
+  await setPhoto(page, { width: 300, height: 200, background: "#406080" }, [lit, adjustment, generator]);
+  await paint(page, "lit", "content", line(40, 100, 260, 100), { radius: 12, hardness: 1, colour: [1, 0.6, 0.2, 1] });
+  const layers = await docLayers(page);
+
+  // Each is said to be unavailable where it's shown.
+  await expect(page.getByLabel("Filter unavailable")).toHaveCount(2);
+  await expect(page.getByLabel("Adjustment unavailable")).toHaveCount(1);
+  await page.locator('[data-layer="lit"]').click();
+  await expect(page.locator('[data-effect="drop-shadow_future"] [data-unavailable]')).toHaveText("Drop Shadow (unavailable)");
+
+  // It draws exactly what it would without them.
+  const view: ViewBox = { zoom: 1, x: 0, y: 0, width: 300, height: 200 };
+  const shown = await renderDigest(page, view);
+  await patchLayer(page, "lit", { filters: [], style: null });
+  await page.evaluate(() =>
+    (window as unknown as LightWindow).photoDebug.photo.getState().commit((d) => ({ ...(d as object), layers: (d as { layers: { id: string }[] }).layers.filter((l) => l.id === "lit") })),
+  );
+  expect(await renderDigest(page, view)).toBe(shown);
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => docLayers(page)).toEqual(layers);
+
+  // Saved and reopened byte for byte: an older app never drops or repairs what a newer one wrote.
+  await expect.poll(async () => (await savedPhoto(page, id)).layers).toEqual(layers);
+  await page.reload();
+  await expect(page.getByLabel("Filter unavailable")).toHaveCount(2);
+  expect(await docLayers(page)).toEqual(layers);
+});
+
+/** A SHA-256 of the photo rendered at full size through the export's own path (16 bits, undithered). */
+const exportDigest = (page: Page) =>
+  page.evaluate(async () => {
+    const { photoDebug } = window as unknown as LightWindow & { photoDebug: { renderer(): Promise<{ renderBands(doc: unknown, options: unknown, onBand: (from: number, rows: Uint8Array) => void): Promise<unknown> }> } };
+    const r = await photoDebug.renderer();
+    const bands: Uint8Array[] = [];
+    await r.renderBands(photoDebug.photo.getState().history.doc.doc, { bits: 16, under: "none", dither: false }, (_from, rows) => void bands.push(rows.slice()));
+    const all = new Uint8Array(bands.reduce((n, b) => n + b.length, 0));
+    bands.reduce((at, b) => (all.set(b, at), at + b.length), 0);
+    return [...new Uint8Array(await crypto.subtle.digest("SHA-256", all))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  });
+
+/** Opens the photo again with a GPU budget of `mb` (the bench's hook). */
+const reopenWithBudget = (page: Page, mb: number) =>
+  page.evaluate(async (mb) => {
+    const bench = (await (window as unknown as { photoBench: { load(): Promise<{ setBudget(mb: number): Promise<unknown> }> } }).photoBench.load());
+    await bench.setBudget(mb);
+  }, mb);
+
+test("a tight GPU budget draws and exports exactly what a generous one does, evicting tiles as it goes", async ({ page }) => {
+  await openNewPhoto(page, "Budget");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const [image] = await docLayers(page);
+  // An image with a mask and a wide glow, under a painted layer: every kind of tile the atlas holds.
+  await page.evaluate(
+    (layer) => (window as unknown as LightWindow).photoDebug.photo.getState().commit((d) => ({ ...(d as object), layers: [...(d as { layers: unknown[] }).layers, layer] })),
+    pixelLayer("paint", 1600, 1200),
+  );
+  await paint(page, "paint", "content", line(100, 100, 1500, 1100), { radius: 80, hardness: 0.7, colour: [1, 0.2, 0.1, 1] });
+  await patchLayer(page, image.id, { filters: [glowFilter("g1", { radius: 300 })], mask: { surface: null } });
+  await paint(page, image.id, "mask", line(1500, 100, 100, 1100), { radius: 120, colour: [0, 0, 0, 1] });
+  const view: ViewBox = { zoom: 1, x: 500, y: 300, width: 600, height: 500 };
+  const generous = { exported: await exportDigest(page), shown: await renderDigest(page, view) };
+
+  // 48 MB holds 96 tiles of half floats: a region's tiles, but far fewer than the photo's layers have, so tiles
+  // come and go (the image's, its mask's, the painted layer's). A smaller budget can't hold one region: that's an
+  // error saying so (below), never wrong pixels.
+  await reopenWithBudget(page, 48);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  expect(await exportDigest(page)).toBe(generous.exported);
+  expect(await renderDigest(page, view)).toBe(generous.shown);
+  const evictions = await page.evaluate(async () => ((await (window as unknown as DebugWindow).photoDebug.renderer()) as unknown as { evictions: number }).evictions);
+  expect(evictions).toBeGreaterThan(0);
+
+  // Too small for one region: the export says so.
+  await reopenWithBudget(page, 24);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await expect(exportDigest(page)).rejects.toThrow(/needs more GPU memory for one region than Settings › Photo allows \(24 MB\)/);
+  await reopenWithBudget(page, 2048);
 });

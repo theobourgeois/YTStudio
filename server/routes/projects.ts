@@ -1,6 +1,7 @@
 import type { ProjectPreviews, PreviewInputs } from "../project-previews.ts";
 import { HttpError, isObject } from "../storage.ts";
 import { Router, json, raw } from "express";
+import { PROJECT_NOTICE_HEADER } from "../../shared/types.ts";
 import { MAX_COVER_BYTES, type ProjectStore } from "../projects.ts";
 
 /** `/api/projects`: the recents, each project's document and its package. `onRemove` cleans up after a deleted one. */
@@ -64,7 +65,10 @@ export function projectRoutes(projects: ProjectStore, previews: ProjectPreviews,
   });
   router.get("/:id", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
-    res.json(await projects.get(req.params.id));
+    const { doc, notice } = await projects.openDoc(req.params.id);
+    // What the check on opening changed (headers are Latin-1: encoded).
+    if (notice) res.setHeader(PROJECT_NOTICE_HEADER, encodeURIComponent(notice));
+    res.json(doc);
   });
   router.put("/:id", async (req, res) => {
     res.json(await projects.save(req.params.id, req.body));

@@ -41,6 +41,13 @@ interface PhotoUi {
   /** Null until the canvas has a size (then it fits). */
   view: View | null;
   exportOpen: boolean;
+  /** The Filter Gallery window (every filter's looks, previewed on the photo). */
+  filterGalleryOpen: boolean;
+  /**
+   * The filter added last (Photoshop's Filter › Last Filter, ⌃⌘F, adds it again): its type and the filter it made,
+   * whose settings are what's added again (it may have been changed since; its first ones if it's gone).
+   */
+  lastFilter: { type: string; layerId: string; filterId: string; params: Record<string, unknown> } | null;
   /** The Layer Style window: its layer and the page it shows ("blending", or an effect's id), or null when it's closed. */
   layerStyle: { layerId: string; page: string } | null;
   setTool: (tool: PhotoTool) => void;
@@ -59,6 +66,8 @@ interface PhotoUi {
   setMarquee: (marquee: Box | null) => void;
   setView: (view: View) => void;
   setExportOpen: (open: boolean) => void;
+  setFilterGalleryOpen: (open: boolean) => void;
+  setLastFilter: (last: PhotoUi["lastFilter"]) => void;
   setLayerStyle: (open: { layerId: string; page: string } | null) => void;
 }
 
@@ -76,6 +85,8 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   marquee: null,
   view: null,
   exportOpen: false,
+  filterGalleryOpen: false,
+  lastFilter: null,
   layerStyle: null,
   setTool: (tool) => set({ tool }),
   setTarget: (target) => set({ target }),
@@ -96,6 +107,8 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   setMarquee: (marquee) => set({ marquee }),
   setView: (view) => set({ view }),
   setExportOpen: (exportOpen) => set({ exportOpen }),
+  setFilterGalleryOpen: (filterGalleryOpen) => set({ filterGalleryOpen }),
+  setLastFilter: (lastFilter) => set({ lastFilter }),
   setLayerStyle: (layerStyle) => set({ layerStyle }),
 }));
 
@@ -112,7 +125,7 @@ export const useActiveTool = () => usePhotoUi((s) => (s.spaceHand ? "hand" : s.t
 // Another photo: a fresh view, nothing selected, its windows closed.
 usePhoto.subscribe((state, prev) => {
   if (state.projectId !== prev.projectId)
-    usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, selectedFilterId: null, selectedElementId: null, guides: [], marquee: null, view: null, exportOpen: false, layerStyle: null, spaceHand: false, target: "content", paintChoice: null });
+    usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, selectedFilterId: null, selectedElementId: null, guides: [], marquee: null, view: null, exportOpen: false, filterGalleryOpen: false, lastFilter: null, layerStyle: null, spaceHand: false, target: "content", paintChoice: null });
   // Selected layers that are gone (undone, deleted) are no longer selected.
   const { selectedLayerIds, selectedLayerId } = usePhotoUi.getState();
   if (!state.history || selectedLayerIds.length === 0 || state.history.doc.doc.layers === prev.history?.doc.doc.layers) return;

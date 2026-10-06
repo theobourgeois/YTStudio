@@ -121,6 +121,12 @@ Never change video rendering to make photo work.
 
 ## Presets and extensibility
 
+**As built (F5)**: a filter's or generator's built-in looks are `presets` in its definition, with its `category`
+(`effects/index.ts`): each a label, a description and its parameters for a canvas (sizes as fractions of the
+diagonal). The catalogue (`effects/catalog.ts`) lists them for the Filter menu, the Filter Gallery, the Layers menus
+and the assistant (`add_filter`'s `preset`). Glow's: Bloom, Soft Haze, Neon, Dreamy, Halation; Lens Flare's:
+Classic, Anamorphic, Subtle. Applying one adds an instance with its values: nothing refers back to the preset.
+
 Presets are versioned data referencing definitions and assets the preset owns. Applying one copies it into an
 instance, so updating a preset never rewrites existing projects. Previewing a preset doesn't touch history; applying
 it is one step. User shaders, third-party binary plugins and executable preset code are deferred: no plugin API until

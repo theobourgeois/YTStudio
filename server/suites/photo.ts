@@ -3,6 +3,7 @@ import path from "node:path";
 import { createPhotoProject, normalizePhotoProject, withPhotoOptions } from "../../shared/photo/project.ts";
 import { documentSurfaces } from "../../shared/photo/surfaces.ts";
 import { BlobStore } from "../photo/blobs.ts";
+import { checkOnOpen, keepCheckpoint, recoverySurfaces } from "../photo/recovery.ts";
 import { resourcesOf } from "../photo/service.ts";
 import { HttpError } from "../storage.ts";
 import type { SuiteBackend } from "./suite.ts";
@@ -26,10 +27,13 @@ export const photoSuite: SuiteBackend<"photo"> = {
     for (const id of documentSurfaces(doc)) if (!(await blobs.hasManifest(id))) missing.push(id);
     if (missing.length) throw new HttpError(409, `The photo names pixels the project hasn't got yet: upload these surfaces first: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? ` and ${missing.length - 3} more` : ""}.`);
   },
-  // Pixels only a closed tab's history named go when the project is next opened.
+  // The document a save replaces is the recovery checkpoint; opening falls back to it when pixels are missing.
+  keepPrevious: (dir) => keepCheckpoint(dir),
+  check: (doc, dir) => checkOnOpen(doc, dir),
+  // Pixels only a closed tab's history named go when the project is next opened (the recovery documents' stay).
   async opened(doc, dir) {
     if (!existsSync(path.join(dir, "project.json"))) return;
-    const result = await new BlobStore(resourcesOf(dir)).collect(documentSurfaces(doc));
+    const result = await new BlobStore(resourcesOf(dir)).collect([...documentSurfaces(doc), ...(await recoverySurfaces(dir))]);
     if (result.missing.length) console.warn(`[photo] ${dir} names surfaces it hasn't got: ${result.missing.join(", ")}`);
   },
   assistant: {

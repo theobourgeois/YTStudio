@@ -37,7 +37,7 @@ import type { MediaAsset } from "@shared/types";
 import { photoApi } from "../api.ts";
 import type { SurfacePart } from "../paint-target.ts";
 import { type SurfaceUploads, uploadsFor } from "../uploads.ts";
-import type { AtlasFormat } from "./atlas.ts";
+import { type AtlasFormat, AtlasFullError } from "./atlas.ts";
 import { planFields } from "./style.ts";
 import { COMPOSITE_FORMATS, Compositor, type Drawable, type EvaluatorStats, type LayerDraw, type PlanSources, type Quality, type WorkPair, compositeTexture, needsPass } from "./compositor.ts";
 import { RenderContext } from "./context.ts";
@@ -73,6 +73,24 @@ interface Source {
 }
 
 export type { SurfacePart };
+
+/**
+ * The side of a glow cache's build regions for a GPU budget: a power of two whose tiles (and a tile around them)
+ * take at most a quarter of the f32 atlas the budget allows, from a tile up (2048 at every budget Settings offers).
+ */
+export function glowBuildRegion(budgetBytes: number): number {
+  const tiles = budgetBytes / (TILE * TILE * 16) / 4;
+  const side = Math.max(1, Math.floor(Math.sqrt(tiles)) - 2) * TILE;
+  return 2 ** Math.max(Math.log2(TILE), Math.min(11, Math.floor(Math.log2(side))));
+}
+
+/** How many passes in a row `ensurePlanVisible` fetches before deciding a view needs more than the budget holds. */
+const MAX_RESIDENCY_PASSES = 3;
+/** How many times it waits (4 ms each) for tiles another render is fetching. */
+const MAX_RESIDENCY_WAITS = 2500;
+
+/** What a view needs resident: a surface's tiles over a region of its pixels (null: all), or an image's for a view. */
+type ResidencyNeed = { image?: undefined; surface: SurfaceImage; region: { x: number; y: number; width: number; height: number } | null } | { image: SourceImage; view: View; surface?: undefined };
 
 /** A layer's surface on the GPU, and what it's made for (a different size or atlas makes a new one). */
 interface LayerSurface {
@@ -184,6 +202,8 @@ export class PhotoRenderer {
   private destroyed = false;
   private recovering: Promise<void> | null = null;
   recoveries = 0;
+  /** Strokes lost with the device (counted: a stroke's controller tells the user its stroke wasn't kept). */
+  lostStrokes = 0;
 
   /** Each glow's contributions over its layer, from level-0 renders (`glow-cache.ts`). */
   readonly glows: GlowCaches;
@@ -193,7 +213,8 @@ export class PhotoRenderer {
       compositor: () => this.compositor,
       device: () => this.device,
       sources: this.planSources,
-      ensureVisible: (plan, view) => this.ensurePlanVisible(plan, view),
+      whenResident: (plan, view, draw) => this.whenResident(plan, view, draw),
+      buildRegion: () => glowBuildRegion(this.budgetBytes),
       settled: (plan) => this.settledSources(plan),
       built: () => this.changed(),
     });
@@ -240,6 +261,11 @@ export class PhotoRenderer {
 
   /** The screen's counted work (image draws, adjustment passes, resumes from kept composites): pictures' isn't. */
   readonly stats: EvaluatorStats = { imageDraws: 0, adjustmentPasses: 0, blendPasses: 0, stylePasses: 0, resumed: 0 };
+
+  /** Tiles evicted from the atlases to stay within the budget, since this device started (the budget tests'). */
+  get evictions(): number {
+    return [...this.contexts.values()].reduce((n, ctx) => n + ctx.atlas.evictions, 0);
+  }
 
   /** What each image is doing (the Layers panel shows missing and failed ones). */
   sourceState(mediaId: string): SourceState {
@@ -455,9 +481,81 @@ export class PhotoRenderer {
     return doc ? this.ensurePlanVisible(this.planFor(doc), view) : 0;
   }
 
+  /**
+   * Fetches what `view` needs at full resolution, until it's all resident at once: each pass marks what's there as
+   * just used before fetching the rest, so the atlas evicts other tiles; a pass that fetches nothing and finds it all
+   * there is the end (one waits a moment while another render fetches some of the same tiles). A view needing more
+   * than the budget holds never gets there: that's an error, never wrong pixels. Callers that draw at once check
+   * `planResident` again first, with no await between it and drawing (`whenResident`).
+   */
   private async ensurePlanVisible(plan: RenderPlan, view: View) {
     let fetched = 0;
-    for (const s of this.surfaces.values()) if (s.image) fetched += await s.image.ensureResident();
+    for (let fetching = 0, waiting = 0; ; ) {
+      const needs = this.planNeeds(plan, view);
+      let now = 0;
+      for (const need of needs) now += need.image ? await need.image.ensureVisible(need.view) : await need.surface.ensureResident(need.region);
+      fetched += now;
+      if (now) {
+        if (++fetching > MAX_RESIDENCY_PASSES) {
+          throw new AtlasFullError(`This photo needs more GPU memory for one region than Settings › Photo allows (${Math.round(this.budgetBytes / 1024 ** 2)} MB): choose more there.`);
+        }
+        continue;
+      }
+      fetching = 0;
+      if (this.planResident(plan, view)) break;
+      // Some are being fetched by another render: wait for them.
+      if (++waiting > MAX_RESIDENCY_WAITS) throw new Error("The photo's tiles took too long to arrive.");
+      await new Promise((r) => setTimeout(r, 4));
+    }
+    if (fetched) this.residency++;
+    return fetched;
+  }
+
+  /**
+   * Makes what `view` needs resident, then runs `draw` (synchronous: it encodes and submits) the moment it all is,
+   * with nothing awaited between the check and the drawing, so no other render can evict a tile it reads.
+   */
+  private async whenResident<T>(plan: RenderPlan, view: View, draw: () => T): Promise<T> {
+    for (;;) {
+      await this.ensurePlanVisible(plan, view);
+      if (this.planResident(plan, view)) return draw();
+    }
+  }
+
+  /** Whether every tile `view` needs at full resolution is resident now. */
+  private planResident(plan: RenderPlan, view: View): boolean {
+    return this.planNeeds(plan, view).every((need) => (need.image ? need.image.residentFor(need.view) : need.surface.residentOver(need.region)));
+  }
+
+  /**
+   * The tiles `view` needs at full resolution: each surface's under it (its pixels: the layer's matrix takes them to
+   * the document; all of them when it's shown at a reduced level, whose tiles are made from them, or when its style's
+   * fields are made from all of it), and each image's level-0 tiles under it (all of them for a style's fields).
+   */
+  private planNeeds(plan: RenderPlan, view: View): ResidencyNeed[] {
+    const needs: ResidencyNeed[] = [];
+    const doc = { width: plan.canvas.width, height: plan.canvas.height };
+    const surface = (layerId: string, part: SurfacePart, matrix: Affine, scale: number, size: { width: number; height: number }, whole = false) => {
+      const image = this.surfaceOf(layerId, part);
+      if (!image) return;
+      if (whole || levelForScale(view.zoom * scale, image.image.levels.length) !== 0) return void needs.push({ surface: image, region: null });
+      const local = layerView(view, matrix, scale, size);
+      if (local) needs.push({ surface: image, region: { x: local.x, y: local.y, width: local.width / local.zoom, height: local.height / local.zoom } });
+    };
+    for (const node of plan.nodes) {
+      if (node.kind === "pixel") {
+        const scale = layerScale(node.transform);
+        const levels = this.surfaceOf(node.layerId, "content")?.image.levels.length ?? 1;
+        surface(node.layerId, "content", node.matrix, scale, node.size, !!node.style && planFields(node, levels).level === 0);
+        if (node.mask) surface(node.layerId, "mask", node.matrix, scale, node.size);
+      } else if (node.kind === "image") {
+        const image = this.sources.get(node.mediaId)?.image;
+        if (node.mask && image) surface(node.layerId, "mask", layerMatrix(node.transform, image.layout), layerScale(node.transform), image.layout);
+      } else if (node.mask) {
+        // An adjustment's or a generator's mask is in document pixels.
+        surface(node.layerId, "mask", IDENTITY, 1, doc);
+      }
+    }
     for (const node of plan.nodes) {
       if (node.kind !== "image") continue;
       const image = this.sources.get(node.mediaId)?.image;
@@ -465,16 +563,14 @@ export class PhotoRenderer {
       // A styled image's fields are made from all of it, at their level: level 0's tiles are fetched (the rest are
       // always there).
       if (node.style && planFields(node, image.image.levels.length).level === 0) {
-        fetched += await image.ensureVisible({ x: 0, y: 0, width: image.layout.width, height: image.layout.height, zoom: 1 });
+        needs.push({ image, view: { x: 0, y: 0, width: image.layout.width, height: image.layout.height, zoom: 1 } });
       }
-      const matrix = layerMatrix(node.transform, image.layout);
       const scale = layerScale(node.transform);
       if (levelForScale(view.zoom * scale, image.image.levels.length) !== 0) continue;
-      const local = layerView(view, matrix, scale, image.layout);
-      if (local) fetched += await image.ensureVisible({ ...local, zoom: Math.max(1, local.zoom) });
+      const local = layerView(view, layerMatrix(node.transform, image.layout), scale, image.layout);
+      if (local) needs.push({ image, view: { ...local, zoom: Math.max(1, local.zoom) } });
     }
-    if (fetched) this.residency++;
-    return fetched;
+    return needs;
   }
 
   // --- the screen ---
@@ -666,25 +762,28 @@ export class PhotoRenderer {
         const width = tile.doc.x1 - tile.doc.x0;
         const height = tile.doc.y1 - tile.doc.y0;
         const region: View = { zoom: 1, x: tile.doc.x0, y: tile.doc.y0, width, height };
-        await this.ensurePlanVisible(plan, region);
-        if (!isCurrent() || this.destroyed) return null;
-        const encoder = device.createCommandEncoder({ label: "refine" });
-        let current = this.compositor.evaluate(encoder, plan, region, "final", this.planSources, work);
-        let size = { width, height };
-        for (const next of levels) {
-          this.compositor.reduce(encoder, plan.format, current, size, next);
-          size = { width: Math.ceil(size.width / 2), height: Math.ceil(size.height / 2) };
-          current = next;
-        }
-        this.compositor.sample(
-          encoder,
-          plan.format,
-          current,
-          { view, inv: 1 / s, origin: { x: tile.level.x0, y: tile.level.y0 }, size: { width: tile.level.x1 - tile.level.x0, height: tile.level.y1 - tile.level.y0 }, stretch: rp.stretch },
-          target,
-          tile.view,
-        );
-        device.queue.submit([encoder.finish()]);
+        const drawn = await this.whenResident(plan, region, () => {
+          if (!isCurrent() || this.destroyed) return false;
+          const encoder = device.createCommandEncoder({ label: "refine" });
+          let current = this.compositor.evaluate(encoder, plan, region, "final", this.planSources, work);
+          let size = { width, height };
+          for (const next of levels) {
+            this.compositor.reduce(encoder, plan.format, current, size, next);
+            size = { width: Math.ceil(size.width / 2), height: Math.ceil(size.height / 2) };
+            current = next;
+          }
+          this.compositor.sample(
+            encoder,
+            plan.format,
+            current,
+            { view, inv: 1 / s, origin: { x: tile.level.x0, y: tile.level.y0 }, size: { width: tile.level.x1 - tile.level.x0, height: tile.level.y1 - tile.level.y0 }, stretch: rp.stretch },
+            target,
+            tile.view,
+          );
+          device.queue.submit([encoder.finish()]);
+          return true;
+        });
+        if (!drawn) return null;
         // Let frames through between tiles, and see whether it's still wanted.
         await device.queue.onSubmittedWorkDone();
       }
@@ -730,25 +829,27 @@ export class PhotoRenderer {
         for (let x = 0; x < width; x += REGION) {
           const cols = Math.min(REGION, width - x);
           const view: View = { zoom: 1, x: ox + x, y: oy + y, width: cols, height: rows };
-          await this.ensurePlanVisible(plan, view);
-          const p = new ArrayBuffer(48);
-          new Uint32Array(p, 0, 4).set([ox + x, oy + y, cols, rows]);
-          new Float32Array(p, 16, 1)[0] = options.dither === false ? 0 : DITHER_8BIT;
-          new Uint32Array(p, 20, 1)[0] = options.under === "matte" ? 1 : options.under === "checker" ? 2 : 0;
-          new Float32Array(p, 24, 1)[0] = 8;
-          new Uint32Array(p, 28, 1)[0] = doc.output.highlights === "film" ? 1 : 0;
-          new Float32Array(p, 32, 4).set([...matte, 1]);
-          device.queue.writeBuffer(params, 0, p);
-          const readback = device.createBuffer({ size: cols * rows * bytesPerPixel, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-          const encoder = device.createCommandEncoder({ label: "region" });
-          const composite = this.compositor.evaluate(encoder, plan, view, "final", this.planSources, work);
-          const pass = encoder.beginComputePass();
-          pass.setPipeline(bits === 16 ? this.compositor.pipelines.quantize16! : this.compositor.pipelines.quantize8);
-          pass.setBindGroup(0, groupFor(composite));
-          pass.dispatchWorkgroups(Math.ceil(cols / 16), Math.ceil(rows / 16));
-          pass.end();
-          encoder.copyBufferToBuffer(out, 0, readback, 0, cols * rows * bytesPerPixel);
-          device.queue.submit([encoder.finish()]);
+          const readback = await this.whenResident(plan, view, () => {
+            const p = new ArrayBuffer(48);
+            new Uint32Array(p, 0, 4).set([ox + x, oy + y, cols, rows]);
+            new Float32Array(p, 16, 1)[0] = options.dither === false ? 0 : DITHER_8BIT;
+            new Uint32Array(p, 20, 1)[0] = options.under === "matte" ? 1 : options.under === "checker" ? 2 : 0;
+            new Float32Array(p, 24, 1)[0] = 8;
+            new Uint32Array(p, 28, 1)[0] = doc.output.highlights === "film" ? 1 : 0;
+            new Float32Array(p, 32, 4).set([...matte, 1]);
+            device.queue.writeBuffer(params, 0, p);
+            const readback = device.createBuffer({ size: cols * rows * bytesPerPixel, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+            const encoder = device.createCommandEncoder({ label: "region" });
+            const composite = this.compositor.evaluate(encoder, plan, view, "final", this.planSources, work);
+            const pass = encoder.beginComputePass();
+            pass.setPipeline(bits === 16 ? this.compositor.pipelines.quantize16! : this.compositor.pipelines.quantize8);
+            pass.setBindGroup(0, groupFor(composite));
+            pass.dispatchWorkgroups(Math.ceil(cols / 16), Math.ceil(rows / 16));
+            pass.end();
+            encoder.copyBufferToBuffer(out, 0, readback, 0, cols * rows * bytesPerPixel);
+            device.queue.submit([encoder.finish()]);
+            return readback;
+          });
           await readback.mapAsync(GPUMapMode.READ);
           const data = new Uint8Array(readback.getMappedRange());
           const rowBytes = cols * bytesPerPixel;
@@ -785,12 +886,13 @@ export class PhotoRenderer {
       await this.refine(plan, at, target);
       return { texture: target, plan, refined: true };
     }
-    await this.ensurePlanVisible(plan, at);
     const work: WorkPair = { a: compositeTexture(device, width, height, plan.format, "view a"), b: compositeTexture(device, width, height, plan.format, "view b") };
-    const encoder = device.createCommandEncoder({ label: "view" });
-    const composite = this.compositor.evaluate(encoder, plan, at, "final", this.planSources, work);
-    encoder.copyTextureToTexture({ texture: composite }, { texture: target }, [width, height]);
-    device.queue.submit([encoder.finish()]);
+    await this.whenResident(plan, at, () => {
+      const encoder = device.createCommandEncoder({ label: "view" });
+      const composite = this.compositor.evaluate(encoder, plan, at, "final", this.planSources, work);
+      encoder.copyTextureToTexture({ texture: composite }, { texture: target }, [width, height]);
+      device.queue.submit([encoder.finish()]);
+    });
     await device.queue.onSubmittedWorkDone();
     work.a.destroy();
     work.b.destroy();
@@ -887,14 +989,18 @@ export class PhotoRenderer {
 
   /**
    * Exports the document at its canvas size: PNG keeps transparency (8 or 16 bits), JPEG goes over the background
-   * (or white). The server encodes it into `destination` (the save dialog's), or keeps it to download.
+   * (or white). The server encodes it into `destination` (the save dialog's), or keeps it to download. `signal`
+   * cancels it between bands (an `AbortError`): the server lets go of what it was sent, and nothing is written.
+   * Once every band is sent (progress 1) the helper encodes, which can't be cancelled.
    */
   async export(
     projectId: string,
     doc: PhotoProject,
     request: { name: string; format: "png" | "jpeg"; bits?: 8 | 16; quality?: number; destination?: string | null; origin?: { x: number; y: number } },
     onProgress?: (fraction: number) => void,
+    signal?: AbortSignal,
   ) {
+    signal?.throwIfAborted();
     const bits = request.format === "png" && request.bits === 16 ? 16 : 8;
     const { id } = await photoApi.beginExport({
       projectId,
@@ -908,9 +1014,11 @@ export class PhotoRenderer {
     });
     try {
       await this.renderBands(doc, { bits, under: request.format === "jpeg" ? "matte" : "none", matte: matteOf(doc), origin: request.origin }, async (from, rows, width) => {
+        signal?.throwIfAborted();
         await photoApi.exportRows(id, from, rows);
         onProgress?.((from + rows.length / (width * (bits === 16 ? 8 : 4))) / doc.canvas.height);
       });
+      signal?.throwIfAborted();
       return { id, ...(await photoApi.finishExport(id)) };
     } catch (error) {
       void photoApi.cancelExport(id).catch(() => {});
@@ -1103,12 +1211,14 @@ export class PhotoRenderer {
       for (let ty = 0; ty < tilesY; ty++) {
         for (let tx = 0; tx < tilesX; tx++) {
           const region: View = { zoom: 1, x: x0 + tx * tile, y: y0 + ty * tile, width: tile, height: tile };
-          await this.ensurePlanVisible(plan, region);
-          const readback = device.createBuffer({ size: tile * tile * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-          const encoder = device.createCommandEncoder({ label: "rasterize" });
-          const composite = this.compositor.evaluate(encoder, plan, region, "final", sources, work);
-          encoder.copyTextureToBuffer({ texture: composite }, { buffer: readback, bytesPerRow: tile * 8 }, [tile, tile]);
-          device.queue.submit([encoder.finish()]);
+          const readback = await this.whenResident(plan, region, () => {
+            const readback = device.createBuffer({ size: tile * tile * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+            const encoder = device.createCommandEncoder({ label: "rasterize" });
+            const composite = this.compositor.evaluate(encoder, plan, region, "final", sources, work);
+            encoder.copyTextureToBuffer({ texture: composite }, { buffer: readback, bytesPerRow: tile * 8 }, [tile, tile]);
+            device.queue.submit([encoder.finish()]);
+            return readback;
+          });
           await readback.mapAsync(GPUMapMode.READ);
           const bytes = readback.getMappedRange().slice(0);
           readback.unmap();
@@ -1194,6 +1304,7 @@ export class PhotoRenderer {
   private recover(): Promise<void> {
     this.recovering ??= (async () => {
       // A stroke in progress is lost with the device (its drafts were on it); committed ones are the Worker's and the server's.
+      if (this.stroke) this.lostStrokes++;
       this.stroke = null;
       for (const s of this.surfaces.values()) s.image?.destroy();
       this.surfaces.clear();
