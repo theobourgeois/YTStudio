@@ -3,7 +3,7 @@
  * returns the same document when nothing changes, so a no-op makes no undo step and no save.
  */
 import { type BlendingPatch, patchBlending } from "./blending.ts";
-import { type EffectDefinition, effectDefinition, newEffect, unavailableReason } from "./effects/index.ts";
+import { type EffectDefinition, effectDefinition, newEffect, unavailableReason, usableAs } from "./effects/index.ts";
 import { flarePreset } from "./effects/flare.ts";
 import { type ElementsParam, newElement, sameValue, sanitizeParam } from "./effects/params.ts";
 import type { Size } from "./geometry.ts";
@@ -310,7 +310,7 @@ export interface NewFilter {
 /** A filter on a layer with content, applied after its others (the top of its list). A wrong type changes nothing. */
 export function addFilter(doc: PhotoProject, layerId: string, filter: NewFilter): PhotoProject {
   const def = effectDefinition(filter.type);
-  if (def?.kind !== "filter" || doc.layers.some((l) => filtersOf(l).some((f) => f.id === filter.id))) return doc;
+  if (!def || !usableAs(def, "filter") || doc.layers.some((l) => filtersOf(l).some((f) => f.id === filter.id))) return doc;
   let effect = newEffect(def, filter.id);
   if (filter.params) effect = { ...effect, params: patchParams(def, effect.params, filter.params) };
   return mapFilters(doc, layerId, (filters) => [...filters, effect]);
@@ -386,7 +386,7 @@ export interface NewGeneratorLayer {
  */
 export function addGeneratorLayer(doc: PhotoProject, layer: NewGeneratorLayer, above?: string | null): PhotoProject {
   const def = effectDefinition(layer.type);
-  if (def?.kind !== "generator" || findLayer(doc, layer.id)) return doc;
+  if (!def || !usableAs(def, "generator") || findLayer(doc, layer.id)) return doc;
   let effect = newEffect(def, `${layer.id}_fx`);
   const { width, height } = doc.canvas;
   const start: Record<string, unknown> = def.type === "lens-flare" ? { source: [Math.round(width * 0.3), Math.round(height * 0.34)], elements: flarePreset(layer.preset ?? "classic", width, height) } : {};
@@ -476,7 +476,7 @@ export interface NewAdjustmentLayer {
  */
 export function addAdjustmentLayer(doc: PhotoProject, layer: NewAdjustmentLayer, above?: string | null): PhotoProject {
   const def = effectDefinition(layer.type);
-  if (def?.kind !== "adjustment" || findLayer(doc, layer.id)) return doc;
+  if (!def || !usableAs(def, "adjustment") || findLayer(doc, layer.id)) return doc;
   let effect = newEffect(def, `${layer.id}_fx`);
   if (layer.params) effect = { ...effect, params: patchParams(def, effect.params, layer.params) };
   const added: AdjustmentLayer = { id: layer.id, kind: "adjustment", name: layer.name?.trim() || def.label, visible: true, opacity: 1, effect };

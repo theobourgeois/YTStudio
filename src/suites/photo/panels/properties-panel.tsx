@@ -22,6 +22,7 @@ import { layerActions } from "../layer-actions";
 import { usePhotoUi } from "../ui";
 import { CurvesEditor } from "./curves-editor";
 import { FilterProperties, GeneratorProperties } from "./light";
+import { CameraRawProperties } from "../camera-raw/properties";
 import { NumberField, ParamSlider } from "./fields";
 
 export function PropertiesPanel() {
@@ -35,7 +36,13 @@ export function PropertiesPanel() {
       {count > 1 ? (
         <SeveralProperties count={count} />
       ) : layer && filter && hasContent(layer) ? (
-        <FilterProperties layer={layer} filterId={filter.id} />
+        filter.type === "camera-raw" && !unavailableReason(filter, "filter") ? (
+          <Section title={`Camera Raw · ${layer.name}`}>
+            <CameraRawProperties layerId={layer.id} filterId={filter.id} />
+          </Section>
+        ) : (
+          <FilterProperties layer={layer} filterId={filter.id} />
+        )
       ) : layer && isPlaced(layer) ? (
         <LayerProperties layer={layer} />
       ) : layer?.kind === "generator" ? (
@@ -77,6 +84,17 @@ function AdjustmentProperties({ layer }: { layer: AdjustmentLayer }) {
   const commit = usePhoto((s) => s.commit);
   const def = effectDefinition(layer.effect.type);
   const reason = unavailableReason(layer.effect);
+  if (def?.type === "camera-raw" && !reason)
+    return (
+      <>
+        <Section title={layer.name}>
+          <CameraRawProperties layerId={layer.id} filterId={null} />
+        </Section>
+        <Section title="Opacity">
+          <OpacitySlider layer={layer} />
+        </Section>
+      </>
+    );
   return (
     <>
       <Section title={layer.name}>

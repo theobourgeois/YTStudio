@@ -41,6 +41,7 @@ import { addAdjustmentLayer, moveFilter, moveLayersTo, setFilter, setFiltersEnab
 import { STYLE_LIST, styleDefinition } from "@shared/photo/style/definitions";
 import { setStyleEffect, setStyleEnabled } from "@shared/photo/style/style";
 import { ADJUSTMENTS, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
+import { cameraRawActions } from "../camera-raw/actions";
 import { type AdjustmentLayer, type ContentLayer, type GeneratorLayer, type ImageLayer, type PhotoLayer, type PixelLayer, hasContent } from "@shared/photo/types";
 import { ScrubNumber } from "@/components/scrub-number";
 import { Button } from "@/components/ui/button";
@@ -223,7 +224,7 @@ export function LayersPanel() {
             {ADJUSTMENTS.map((def) => {
               const Icon = ADJUSTMENT_ICONS[def.type] ?? PiCircleHalfTilt;
               return (
-                <DropdownMenuItem key={def.type} onSelect={() => addAdjustment(def.type)}>
+                <DropdownMenuItem key={def.type} onSelect={() => (def.type === "camera-raw" ? cameraRawActions.adjustmentLayer() : addAdjustment(def.type))}>
                   <Icon /> {def.label}…
                 </DropdownMenuItem>
               );
@@ -488,6 +489,8 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow, folded, onFo
         const name = e.currentTarget.querySelector("[data-layer-name]")?.getBoundingClientRect();
         const onName = name && e.clientX >= name.left - 2 && e.clientX <= name.right + 2 && e.clientY >= name.top - 2 && e.clientY <= name.bottom + 2;
         if (onName) setRenaming(true);
+        // A Camera Raw adjustment layer opens in its window (Photoshop's adjustment layers open their settings).
+        else if (layer.kind === "adjustment" && layer.effect.type === "camera-raw") cameraRawActions.edit(layer.id, null);
         else layerActions.blendingOptions(layer.id);
       }}
       data-layer={layer.id}
@@ -606,6 +609,7 @@ function FilterRows({ layer }: { layer: ContentLayer }) {
             className={cn("flex h-6 cursor-default items-center gap-1.5 pr-2 pl-14 text-xs", f.id === selectedId ? "bg-accent" : "hover:bg-surface-2", (!f.enabled || !on) && "text-muted-foreground")}
             onPointerDown={(e) => press(e, f.id)}
             onContextMenu={() => usePhotoUi.getState().selectFilter(layer.id, f.id)}
+            onDoubleClick={() => f.type === "camera-raw" && !reason && cameraRawActions.edit(layer.id, f.id)}
             data-filter={f.id}
             data-filter-of={layer.id}
             aria-selected={f.id === selectedId}

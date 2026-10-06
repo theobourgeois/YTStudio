@@ -11,6 +11,7 @@ import type { CurveSet, EffectElement, EffectInstance, EffectParamValue } from "
 import { KERNEL_FILTERS } from "./filters/index.ts";
 import { FLARE_PARAMS, FLARE_PRESETS, flarePreset } from "./flare.ts";
 import { GLOW_PARAMS, GLOW_PRESETS, glowReach } from "./glow.ts";
+import { CAMERA_RAW } from "./camera-raw/index.ts";
 import { isIdentityCurve, isIdentityCurveSet } from "./curve-math.ts";
 import { CURVE_CHANNELS, type CurveChannel, type CurvesParam, type EffectPreset, type NumberParam, type ParamSpec, defaultParams, identityCurveSet, sanitizeParam } from "./params.ts";
 
@@ -58,7 +59,12 @@ export interface EffectDefinition {
   presets?: readonly EffectPreset[];
   /** A kernel filter (`kernel.ts`): a function of the point and its content nearby, evaluated by the generic kernel pass. */
   kernel?: true;
+  /** Every kind it can be used as, when more than its `kind` (Camera Raw: a filter and an adjustment layer). */
+  kinds?: readonly EffectKind[];
 }
+
+/** Whether a definition can be used as `kind` (its `kind`, or one of its `kinds`). */
+export const usableAs = (def: EffectDefinition, kind: EffectKind) => (def.kinds ?? [def.kind]).includes(kind);
 
 const exposureParams: NumberParam[] = [
   { kind: "number", key: "exposure", label: "Exposure", unit: "stops", min: -20, max: 20, step: 0.01, decimals: 2, default: 0, description: "Stops of light: each one doubles (or, negative, halves) it. Moves the highlights most." },
@@ -159,7 +165,7 @@ const FLARE: EffectDefinition = {
   },
 };
 
-export const EFFECTS: readonly EffectDefinition[] = [EXPOSURE, CURVES, GLOW, FLARE, ...KERNEL_FILTERS];
+export const EFFECTS: readonly EffectDefinition[] = [EXPOSURE, CURVES, CAMERA_RAW, GLOW, FLARE, ...KERNEL_FILTERS];
 
 export const effectDefinition = (type: string): EffectDefinition | undefined => EFFECTS.find((d) => d.type === type);
 
@@ -167,11 +173,11 @@ export const effectDefinition = (type: string): EffectDefinition | undefined => 
 export const isKernelFilter = (type: string) => effectDefinition(type)?.kernel === true;
 
 /** The adjustments the user can add, in the order menus list them. */
-export const ADJUSTMENTS = EFFECTS.filter((d) => d.kind === "adjustment");
+export const ADJUSTMENTS = EFFECTS.filter((d) => usableAs(d, "adjustment"));
 /** The filters (Smart Filters: on a layer's own pixels). */
-export const FILTERS = EFFECTS.filter((d) => d.kind === "filter");
+export const FILTERS = EFFECTS.filter((d) => usableAs(d, "filter"));
 /** What makes a generator layer's content. */
-export const GENERATORS = EFFECTS.filter((d) => d.kind === "generator");
+export const GENERATORS = EFFECTS.filter((d) => usableAs(d, "generator"));
 
 const KIND_NAMES: Record<EffectKind, string> = { adjustment: "an adjustment", filter: "a filter", generator: "a generator" };
 
@@ -180,7 +186,7 @@ export function unavailableReason(effect: EffectInstance, kind?: EffectKind): st
   const def = effectDefinition(effect.type);
   if (!def) return `"${effect.type}" isn't an effect this version of the app knows.`;
   if (effect.version > def.version) return `This ${def.label} was made by a newer version of the app.`;
-  if (kind && def.kind !== kind) return `${def.label} isn't ${KIND_NAMES[kind]}.`;
+  if (kind && !usableAs(def, kind)) return `${def.label} isn't ${KIND_NAMES[kind]}.`;
   return null;
 }
 

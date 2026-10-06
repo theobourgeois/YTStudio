@@ -13,7 +13,11 @@
  * `public/photo-filters/<type>--<preset>.jpg`: the Filter Gallery's cards. `--port N` runs Vite on N and the server
  * on N + 1 (default 5344), so several can run at once.
  *
- *   pnpm tsx scripts/photo-sheet.ts [glow|flare|film|<filter type> ...] [--out photo-sheet.png] [--thumbnails] [--port 5344]
+ * `camera-raw` renders Camera Raw's looks (docs/photo/camera-raw.md) as a filter and as an adjustment layer: the filter
+ * on the GPU is its CPU reference (`shared/photo/reference/camera-raw.ts`), and the adjustment over the photo alone
+ * is the filter on it.
+ *
+ *   pnpm tsx scripts/photo-sheet.ts [glow|flare|film|camera-raw|<filter type> ...] [--out photo-sheet.png] [--thumbnails] [--port 5344]
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -22,9 +26,9 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 import sharp, { type OverlayOptions } from "sharp";
 import { linearToSrgb } from "../shared/photo/colour.ts";
-import { addFilter, addGeneratorLayer } from "../shared/photo/edits.ts";
+import { addAdjustmentLayer, addFilter, addGeneratorLayer, setEffectParams } from "../shared/photo/edits.ts";
 import { FILTER_ENTRIES, entryParams } from "../shared/photo/effects/catalog.ts";
-import { isKernelFilter, validateParams } from "../shared/photo/effects/index.ts";
+import { effectDefinition, isKernelFilter, validateParams } from "../shared/photo/effects/index.ts";
 import { applyKernel } from "../shared/photo/reference/kernel.ts";
 import { KERNEL_REFERENCES } from "../shared/photo/reference/filters/index.ts";
 import { sceneSvg } from "./photo-filter-scene.ts";
@@ -239,6 +243,44 @@ for (const e of FILTER_ENTRIES.filter((e) => isKernelFilter(e.def.type) && shows
     console.log(line);
     if (p99 > 5e-3 || over > 0.01) failures.push(`GPU ≠ reference: ${line}`);
   }
+}
+
+// Camera Raw: a few looks as a filter on the photo, then as an adjustment layer over it.
+if (shows("camera-raw")) {
+  const def = effectDefinition("camera-raw")!;
+  const LOOKS: [string, Record<string, unknown>][] = [
+    ["light", { exposure: 0.7, contrast: 40, whites: 30, blacks: -35 }],
+    ["warm faded", { temperature: 35, tint: 10, vibrance: 40, saturation: -20, curveShadows: 40, curveHighlights: -30 }],
+    ["cool b&w", { temperature: -40, treatment: "bw", contrast: 60 }],
+    ["curves", { pointCurve: { rgb: [[0, 30], [70, 60], [190, 205], [255, 240]], red: [[0, 0], [128, 150], [255, 255]], green: [[0, 0], [255, 255]], blue: [[0, 20], [255, 235]] } }],
+    ["vignette grain", { vignette: -60, vignetteFeather: 70, grain: 60, grainRoughness: 80 }],
+    ["darken", { exposure: -1.5, saturation: 60, vignette: 40, vignetteStyle: "color" }],
+  ];
+  const sc = SCENES[1];
+  const cells = [];
+  const doc = { ...sc.doc, canvas: { ...sc.doc.canvas, background: null } };
+  for (const [name, raw] of LOOKS) {
+    const params = validateParams(def, raw).params;
+    const filtered = addFilter(doc, sc.layer, { id: "sheet_cr", type: "camera-raw", params });
+    cells.push({ label: `camera raw ${name}`, data: await call<number[]>("renderDoc", filtered, view), s: 1 as number | "clip" });
+    // The filter on the GPU is its reference.
+    const [x0, y0, W, H] = [180, 140, 160, 120];
+    const plain = await call<number[]>("renderDoc", doc, { zoom: 1, x: x0, y: y0, width: W, height: H });
+    const gpu = await call<number[]>("renderDoc", filtered, { zoom: 1, x: x0, y: y0, width: W, height: H });
+    const expected = applyKernel(KERNEL_REFERENCES["camera-raw"], { width: W, height: H, data: Float64Array.from(plain) }, params, doc.canvas, { x: x0, y: y0 });
+    const diffs = gpu.map((v, i) => Math.abs(v - expected.data[i])).sort((a, b) => a - b);
+    const p99 = diffs[Math.floor(diffs.length * 0.99)];
+    const line = `camera-raw ${name} (filter): p99 ${p99.toExponential(2)}, worst ${diffs[diffs.length - 1].toExponential(2)}`;
+    console.log(line);
+    if (p99 > 5e-3) failures.push(`GPU ≠ reference: ${line}`);
+    // The adjustment layer over the photo alone draws what the filter on it does.
+    const adjusted = setEffectParams(addAdjustmentLayer(doc, { id: "sheet_cr_layer", type: "camera-raw" }, null), "sheet_cr_layer", params);
+    const adj = await call<number[]>("renderDoc", adjusted, { zoom: 1, x: x0, y: y0, width: W, height: H });
+    const worst = adj.reduce((w, v, i) => Math.max(w, Math.abs(v - gpu[i])), 0);
+    console.log(`camera-raw ${name} (adjustment vs filter): worst ${worst.toExponential(2)}`);
+    if (worst > 2e-2) failures.push(`camera-raw ${name}: the adjustment layer differs from the filter by ${worst}`);
+  }
+  rows.push({ label: "camera raw", cells });
 }
 
 // The Filter Gallery's cards: every look on the sample scene.
