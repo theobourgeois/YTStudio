@@ -4,7 +4,7 @@ import { DEFAULT_SUITE, SUITE_IDS, type SuiteId, suiteNoun } from "@shared/suite
 import type { ProjectLocation, ProjectSummary, ProjectTemplates } from "@shared/types";
 import { errorMessage } from "@shared/errors";
 import { api } from "@/lib/api";
-import { chooseProjectFile, noteOpenedProject } from "@/lib/desktop";
+import { chooseProjectFile, droppedPath, noteOpenedProject } from "@/lib/desktop";
 import { projectIdFromUrl, setUrlProject } from "@/lib/route";
 import { clientSuite } from "@/suites";
 import { onProjectSaved } from "./autosave";
@@ -55,6 +55,11 @@ interface ProjectsState {
   create: (options?: { suite?: SuiteId; files?: File[]; blank?: boolean }) => Promise<void>;
   /** Open a package from anywhere on this computer (its folder, or a file in it). */
   openFile: (path: string) => Promise<void>;
+  /**
+   * Files dropped to start something (on Home, or on the tabs): a project's package opens; other files start a
+   * project of the first suite that takes them (images a photo, footage a video...). False when none does.
+   */
+  startWith: (files: File[]) => boolean;
   /**
    * Pick a package to open: the system's dialog in the desktop app (starting in `folder`, else where new
    * projects go), else `fallback` (a browser asks for a path).
@@ -266,6 +271,22 @@ export const useProjects = create<ProjectsState>((set, get) => {
       }
       upsert(summary);
       await get().open(summary.id);
+    },
+
+    startWith(files) {
+      const packages = files.map(droppedPath).filter((p) => /\.vaudio\/?$/i.test(p));
+      if (packages.length) {
+        void get().openFile(packages[0]);
+        return true;
+      }
+      for (const suite of SUITE_IDS) {
+        const taken = clientSuite(suite).startsWith?.(files) ?? [];
+        if (taken.length) {
+          void get().create({ suite, files: taken });
+          return true;
+        }
+      }
+      return false;
     },
 
     async chooseAndOpen(fallback, folder) {

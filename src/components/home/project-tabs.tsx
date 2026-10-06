@@ -1,11 +1,12 @@
 import { type MouseEvent, type PointerEvent, useRef } from "react";
-import { PiHouse, PiPlus, PiX } from "react-icons/pi";
+import { PiFilePlus, PiHouse, PiPlus, PiX } from "react-icons/pi";
 import { DEFAULT_SUITE } from "@shared/suites";
 import { cn } from "cn";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useFileDrop, useFilesDragged } from "@/hooks/use-file-drop";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { useLayout } from "@/stores/layout";
 import { tabsVisible } from "@/stores/project-tabs";
@@ -34,19 +35,26 @@ export function useTabsShown(): boolean {
  * The open projects as tabs along the top of the window, Photoshop's way: click one to switch (the project
  * you leave is saved first), drag to reorder, × or middle-click to close (the project stays on disk), + for
  * a new one. The Home screen is the house at the left. It's a title bar in the desktop app (the window's
- * buttons sit at its left, as the Home button did).
+ * buttons sit at its left, as the Home button did). Files dropped on it start a new project, as on Home (an image
+ * a photo named after it, footage a video).
  */
 export function ProjectTabs() {
   const ids = useTabIds();
   const openId = useProjects((s) => s.openId);
   const strip = useRef<HTMLDivElement>(null);
+  const drop = useFileDrop((files) => void useProjects.getState().startWith(files));
+  // While files are dragged over the window, the title bar takes drops rather than moving the window.
+  const filesDragged = useFilesDragged();
 
   return (
     <div
       data-titlebar="tabs"
       role="tablist"
       aria-label="Open projects"
-      className="flex h-10 shrink-0 items-end gap-1 border-b border-line bg-surface-0 px-2 pb-1 select-none"
+      className={cn("flex h-10 shrink-0 items-end gap-1 border-b border-line bg-surface-0 px-2 pb-1 select-none", drop.active && "bg-brand/10")}
+      style={filesDragged ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined}
+      data-file-drop={drop.active || undefined}
+      {...drop.handlers}
     >
       <Tooltip>
         <TooltipTrigger asChild>
@@ -74,6 +82,11 @@ export function ProjectTabs() {
         {ids.map((id) => (
           <ProjectTab key={id} id={id} selected={id === openId} strip={strip} />
         ))}
+        {drop.active && (
+          <div className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-dashed border-brand px-2 text-[13px] font-medium text-brand" data-drop-tab>
+            <PiFilePlus className="size-4" /> New project
+          </div>
+        )}
       </div>
 
       <Tooltip>
