@@ -82,7 +82,7 @@ type DebugWindow = {
       readFloat(texture: unknown, width: number, height: number): Promise<Float32Array>;
       readScreen(): Promise<{ data: Float32Array; width: number; height: number; refined: boolean } | null>;
     }>;
-    photo: { getState(): { history: { doc: { layers: { id: string; kind: string; effect?: { params: Record<string, unknown> } }[] } }; commit(fn: (doc: unknown) => unknown): void } };
+    photo: { getState(): { history: { doc: { doc: { layers: { id: string; kind: string; effect?: { params: Record<string, unknown> } }[] } } }; commit(fn: (doc: unknown) => unknown): void } };
     ui: { getState(): { view: ViewBox } };
     renderState: { getState(): { refine: string } };
   };
@@ -97,7 +97,7 @@ async function renderRegion(page: Page, view: ViewBox, options: { hide?: string[
     async ({ view, hide, refine }) => {
       const { photoDebug } = window as unknown as DebugWindow;
       const r = await photoDebug.renderer();
-      const doc = photoDebug.photo.getState().history.doc;
+      const doc = photoDebug.photo.getState().history.doc.doc;
       const shown = { ...doc, layers: doc.layers.map((l) => (hide.includes(l.id) ? { ...l, visible: false } : l)) };
       const { texture } = await r.renderView(shown, view, { refine });
       const data = await r.readFloat(texture, view.width, view.height);
@@ -495,7 +495,7 @@ test("rapid edits never show a stale refinement", async ({ page }) => {
     // What's shown now against a fresh refinement of the document as it is.
     const view = photoDebug.ui.getState().view;
     const screen = (await r.readScreen())!;
-    const { texture } = await r.renderView(photoDebug.photo.getState().history.doc, { ...view, width: screen.width, height: screen.height }, { refine: true });
+    const { texture } = await r.renderView(photoDebug.photo.getState().history.doc.doc, { ...view, width: screen.width, height: screen.height }, { refine: true });
     const fresh = await r.readFloat(texture, screen.width, screen.height);
     texture.destroy();
     let worst = 0;
@@ -866,4 +866,282 @@ test("files dropped on the tabs start a new project, named after the image", asy
   // Saved under that name.
   const id = new URL(page.url()).pathname.split("/").pop()!;
   await expect.poll(async () => (await savedPhoto(page, id)).name).toBe("sticker-800");
+});
+
+// --- F3: resources, selections, masks and the brush ---
+
+type PaintWindow = {
+  photoDebug: {
+    paint(layerId: string, part: "content" | "mask", points: { x: number; y: number }[], options?: { radius?: number; hardness?: number; strength?: number; colour?: number[]; cancel?: boolean }): Promise<{ id: string; tiles: number; commitMs: number } | null>;
+    renderer(): Promise<{
+      readSurfaceTile(layerId: string, part: "content" | "mask", tx: number, ty: number): Promise<{ shown: string | null; data: Float32Array | null }>;
+      readScreen(): Promise<{ data: Float32Array } | null>;
+    }>;
+    ui: { getState(): { setView(view: ViewBox): void; view: ViewBox } };
+  };
+};
+
+/** Samples along a line, every few pixels (as a pointer gives them). */
+const line = (x0: number, y0: number, x1: number, y1: number, step = 3) => {
+  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step));
+  return Array.from({ length: n + 1 }, (_, i) => ({ x: x0 + ((x1 - x0) * i) / n, y: y0 + ((y1 - y0) * i) / n }));
+};
+
+const paint = (page: Page, layerId: string, part: "content" | "mask", points: { x: number; y: number }[], options: { radius?: number; hardness?: number; colour?: number[]; cancel?: boolean } = {}) =>
+  page.evaluate(({ layerId, part, points, options }) => (window as unknown as PaintWindow).photoDebug.paint(layerId, part, points, options), { layerId, part, points, options });
+
+/**
+ * A surface's level-0 tiles as the GPU holds them: a SHA-256 of each one's floats (null where it shows its fill),
+ * and, optionally, the value of some of its texels (`at`: [tx, ty, x, y, channel]).
+ */
+const surfaceTiles = (page: Page, layerId: string, part: "content" | "mask", tiles: [number, number][], at: [number, number, number, number, number][] = []) =>
+  page.evaluate(
+    async ({ layerId, part, tiles, at }) => {
+      const r = await (window as unknown as PaintWindow).photoDebug.renderer();
+      const hex = (b: ArrayBuffer) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
+      const digests: (string | null)[] = [];
+      let shown: string | null = null;
+      for (const [tx, ty] of tiles) {
+        const t = await r.readSurfaceTile(layerId, part, tx, ty);
+        shown = t.shown;
+        digests.push(t.data ? hex(await crypto.subtle.digest("SHA-256", new Float32Array(t.data))) : null);
+      }
+      const values: (number | null)[] = [];
+      for (const [tx, ty, x, y, c] of at) {
+        const t = await r.readSurfaceTile(layerId, part, tx, ty);
+        values.push(t.data ? t.data[(y * 256 + x) * 4 + c] : null);
+      }
+      return { shown, digests, values };
+    },
+    { layerId, part, tiles, at },
+  );
+
+const screenDigest = (page: Page) =>
+  page.evaluate(async () => {
+    const s = (await (await (window as unknown as PaintWindow).photoDebug.renderer()).readScreen())!;
+    return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new Float32Array(s.data)))].map((x) => x.toString(16).padStart(2, "0")).join("");
+  });
+
+let paintingId = "";
+let paintPhoto = "";
+
+test("a mask stroke across tiles is undone and redone exactly; a cancelled one changes nothing; a small one shares every other tile", async ({ page }) => {
+  paintingId = await openNewPhoto(page, "Painting");
+  await page.locator("[data-start-input]").setInputFiles(PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  paintPhoto = (await expect.poll(async () => (await savedPhoto(page, paintingId)).layers.length).toBe(1).then(() => savedPhoto(page, paintingId))).layers[0].id;
+  // A mask from the Layers panel's button (no selection: it reveals everything), targeted at once.
+  await page.locator(`[data-layer="${paintPhoto}"]`).click();
+  await page.getByRole("button", { name: /Add a mask/ }).click();
+  await expect(page.locator('[data-thumb="mask"][data-targeted]')).toBeVisible();
+  await expect.poll(async () => (await savedPhoto(page, paintingId)).layers[0].mask).toEqual({ surface: null });
+
+  // Across the tile edges at x = 256 and 512 (tile row 1).
+  const crossed: [number, number][] = [[0, 1], [1, 1], [2, 1]];
+  const first = (await paint(page, paintPhoto, "mask", line(150, 300, 650, 300), { radius: 40 }))!;
+  expect(first.tiles).toBeGreaterThanOrEqual(3);
+  // The F3 target: a stroke's end is committed within 30 ms (the bench measures it properly).
+  expect(first.commitMs).toBeLessThan(500);
+  await expect.poll(async () => (await savedPhoto(page, paintingId)).layers[0].mask.surface).toBe(first.id);
+  const painted = await surfaceTiles(page, paintPhoto, "mask", crossed, [[1, 1, 44, 44, 0], [1, 1, 44, 200, 0]]);
+  expect(painted.shown).toBe(first.id);
+  expect(painted.digests.every((d) => d !== null)).toBe(true);
+  // Black hides: under the stroke the mask is 0, away from it 1.
+  expect(painted.values[0]).toBe(0);
+  expect(painted.values[1]).toBe(1);
+  const screen = await screenDigest(page);
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, paintingId)).layers[0].mask.surface).toBeNull();
+  await expect.poll(async () => (await surfaceTiles(page, paintPhoto, "mask", crossed)).digests).toEqual([null, null, null]);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(async () => (await savedPhoto(page, paintingId)).layers[0].mask.surface).toBe(first.id);
+  await expect.poll(async () => (await surfaceTiles(page, paintPhoto, "mask", crossed)).digests).toEqual(painted.digests);
+  await expect.poll(() => screenDigest(page)).toBe(screen);
+
+  // A cancelled stroke: nothing in the document, nothing on the screen.
+  await paint(page, paintPhoto, "mask", line(100, 900, 1500, 900), { radius: 60, cancel: true });
+  await page.waitForTimeout(300);
+  expect((await savedPhoto(page, paintingId)).layers[0].mask.surface).toBe(first.id);
+  await expect.poll(() => screenDigest(page)).toBe(screen);
+
+  // A small dab in another tile: every tile the first stroke made keeps its hash.
+  const small = (await paint(page, paintPhoto, "mask", [{ x: 900, y: 900 }], { radius: 8 }))!;
+  expect(small.tiles).toBe(1);
+  const manifest = async (id: string) => (await page.request.get(`/api/photo/projects/${paintingId}/manifests/${id}`)).json();
+  await expect.poll(async () => (await page.request.get(`/api/photo/projects/${paintingId}/manifests/${small.id}`)).status()).toBe(200);
+  const [a, b] = [await manifest(first.id), await manifest(small.id)];
+  const others = (b.tiles as [number, number, string][]).filter(([x, y]) => !(x === 3 && y === 3));
+  expect(others).toEqual(a.tiles);
+  expect(b.tiles).toHaveLength(a.tiles.length + 1);
+});
+
+test("the server keeps every tile once, refuses a photo naming pixels it hasn't got, and collects what only history named", async ({ page }) => {
+  await page.goto(`/p/${paintingId}`);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const saved = await savedPhoto(page, paintingId);
+  const base = `/api/photo/projects/${paintingId}`;
+  // A duplicate upload is a no-op that succeeds.
+  const manifest = await (await page.request.get(`${base}/manifests/${saved.layers[0].mask.surface}`)).json();
+  const hash = (manifest.tiles as [number, number, string][]).find(([, , ref]) => !ref.startsWith("c:"))![2];
+  const bytes = await (await page.request.get(`${base}/blobs/${hash}`)).body();
+  const again = await page.request.put(`${base}/blobs/${hash}`, { data: bytes, headers: { "Content-Type": "application/octet-stream" } });
+  expect(again.status()).toBe(200);
+  expect(await again.json()).toEqual({ stored: false });
+  // A document naming a surface the server hasn't got is refused, and the saved one stays.
+  const refused = await page.request.put(`/api/projects/${paintingId}`, { data: { ...saved, layers: [{ ...saved.layers[0], mask: { surface: "f".repeat(64) } }] } });
+  expect(refused.status()).toBe(409);
+  expect((await savedPhoto(page, paintingId)).layers[0].mask.surface).toBe(saved.layers[0].mask.surface);
+
+  // Two strokes: the first's manifest only history names once the second is saved.
+  const one = (await paint(page, paintPhoto, "mask", line(1100, 200, 1300, 200), { radius: 20 }))!;
+  const two = (await paint(page, paintPhoto, "mask", line(1100, 260, 1300, 260), { radius: 20 }))!;
+  await expect.poll(async () => (await savedPhoto(page, paintingId)).layers[0].mask.surface).toBe(two.id);
+  expect((await page.request.get(`${base}/manifests/${one.id}`)).status()).toBe(200);
+  // Closed (Home), then opened again: collected, the saved one kept.
+  const closed = page.waitForResponse((r) => r.url().endsWith(`/api/projects/${paintingId}/closed`));
+  await page.keyboard.press("ControlOrMeta+Shift+h");
+  await expect(page.getByRole("main", { name: "Home" })).toBeVisible();
+  await closed;
+  await page.goto(`/p/${paintingId}`);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await expect.poll(async () => (await page.request.get(`${base}/manifests/${one.id}`)).status()).toBe(404);
+  expect((await page.request.get(`${base}/manifests/${two.id}`)).status()).toBe(200);
+  // And the photo still shows its mask: the tiles it needs are there.
+  await expect.poll(async () => (await surfaceTiles(page, paintPhoto, "mask", [[4, 0]])).shown).toBe(two.id);
+});
+
+test("the same samples paint the same pixels at every zoom and pixel density", async ({ page, browser }) => {
+  await page.goto(`/p/${paintingId}`);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const strokeOn = async (p: Page) => {
+    const before = (await savedPhoto(p, paintingId)).layers.length;
+    await p.keyboard.press("ControlOrMeta+Shift+n");
+    const id = await expect.poll(async () => (await savedPhoto(p, paintingId)).layers.length).toBe(before + 1).then(async () => (await savedPhoto(p, paintingId)).layers.at(-1).id);
+    return (await paint(p, id, "content", line(220, 240, 700, 610, 2.5), { radius: 23.5, hardness: 0.35, colour: [0.2, 0.05, 0.6, 1] }))!.id;
+  };
+  const atFit = await strokeOn(page);
+  await page.evaluate(() => {
+    const ui = (window as unknown as PaintWindow).photoDebug.ui.getState();
+    ui.setView({ ...ui.view, zoom: 2, x: 300, y: 300 });
+  });
+  const zoomed = await strokeOn(page);
+  expect(zoomed).toBe(atFit);
+  // Another page at twice the pixel density.
+  const dense = await browser.newContext({ deviceScaleFactor: 2, baseURL: new URL(page.url()).origin });
+  const other = await dense.newPage();
+  await other.goto(`/p/${paintingId}`);
+  await expect(other.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  expect(await strokeOn(other)).toBe(atFit);
+  await dense.close();
+});
+
+test("a marquee limits the brush fractionally and makes a mask; an image asks before it's painted", async ({ page }) => {
+  const id = await openNewPhoto(page, "Masked");
+  await page.locator("[data-start-input]").setInputFiles(PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const photo = (await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(1).then(() => savedPhoto(page, id))).layers[0].id;
+
+  // The Rectangular Marquee: a drag selects whole pixels, one undo step; the ants show it.
+  await page.keyboard.press("m");
+  const a = await screenOf(page, 200, 150);
+  const b = await screenOf(page, 800, 600);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x, b.y, { steps: 6 });
+  await page.mouse.up();
+  const ants = page.locator("[data-selection]");
+  await expect(ants).toBeVisible();
+  const [sx, sy, sw, sh] = (await ants.getAttribute("data-selection"))!.split(",").map(Number);
+  expect([sx, sy, sw, sh].every(Number.isInteger)).toBe(true);
+  expect(Math.abs(sx - 200) + Math.abs(sy - 150) + Math.abs(sx + sw - 800) + Math.abs(sy + sh - 600)).toBeLessThan(12);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(ants).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(ants).toBeVisible();
+
+  // The brush on a placed image asks first: a new paint layer, not pixels silently.
+  await page.locator(`[data-layer="${photo}"]`).click();
+  await page.keyboard.press("b");
+  const centre = await screenOf(page, 500, 400);
+  await page.mouse.click(centre.x, centre.y);
+  const choice = page.locator("[data-paint-choice]");
+  await expect(choice).toBeVisible();
+  await choice.getByRole("button", { name: "New paint layer" }).click();
+  const withLayer = await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(2).then(() => savedPhoto(page, id));
+  expect(withLayer.layers[0].kind).toBe("image");
+  const layer = withLayer.layers[1];
+  expect(layer).toMatchObject({ kind: "pixel", name: "Layer 1", surface: null });
+
+  // The selection limits paint by how much of each pixel it covers: a fractional edge (x = 300.5) paints half.
+  await page.evaluate(() => {
+    const photo = (window as unknown as { photoDebug: { photo: { getState(): { select(s: unknown): void } } } }).photoDebug.photo;
+    photo.getState().select({ kind: "rect", x: 300.5, y: 0, width: 400, height: 1200 });
+  });
+  await paint(page, layer.id, "content", line(200, 120, 800, 120), { radius: 30, colour: [1, 0, 0, 1] });
+  // Tile (1, 0): x 256..511. Pixel 299 is outside, 300 half inside, 301 inside; alpha is channel 3.
+  const at = await surfaceTiles(page, layer.id, "content", [], [[1, 0, 43, 120, 3], [1, 0, 44, 120, 3], [1, 0, 45, 120, 3]]);
+  expect(at.values[0]).toBe(0);
+  expect(at.values[1]).toBeCloseTo(0.5, 3);
+  expect(at.values[2]).toBe(1);
+
+  // A mask from the selection (the Layers panel's button): the photo shows only inside it.
+  await page.locator(`[data-layer="${photo}"]`).click();
+  await page.getByRole("button", { name: /Add a mask/ }).click();
+  const masked = await expect.poll(async () => (await savedPhoto(page, id)).layers[0].mask?.surface ?? null).not.toBeNull().then(() => savedPhoto(page, id));
+  const mask = masked.layers[0].mask.surface;
+  // The selection is x 300.5..700.5 now: tile (2, 1) straddles its edge, tile (0, 1) is wholly outside (the mask's
+  // fill, 0: nothing stored).
+  const values = await surfaceTiles(page, photo, "mask", [], [[2, 1, 100, 100, 0], [2, 1, 200, 100, 0], [1, 1, 44, 100, 0]]);
+  expect(values.values).toEqual([1, 0, 0.5]);
+  const manifest = await (await page.request.get(`/api/photo/projects/${id}/manifests/${mask}`)).json();
+  expect(manifest.fill).toEqual([0]);
+  expect((manifest.tiles as [number, number, string][]).some(([x, y]) => x === 0 && y === 1)).toBe(false);
+  // The canvas shows the photo inside it, and the checkerboard (transparency's light greys) outside.
+  const inside = await canvasPixel(page, { width: 1600, height: 1200 }, 500, 400);
+  const outside = await canvasPixel(page, { width: 1600, height: 1200 }, 1300, 1000);
+  expect(near(inside, await filePixel(PHOTO, 500, 400), 16)).toBe(true);
+  expect(Math.max(...outside) - Math.min(...outside)).toBeLessThanOrEqual(3);
+  expect([184, 231].some((grey) => Math.abs(outside[0] - grey) <= 4)).toBe(true);
+
+  // Painting the mask with the mouse (white reveals): one undo step.
+  await page.keyboard.press("x");
+  await page.keyboard.press("ControlOrMeta+d");
+  const p0 = await screenOf(page, 1200, 900);
+  const p1 = await screenOf(page, 1400, 900);
+  await page.mouse.move(p0.x, p0.y);
+  await page.mouse.down();
+  await page.mouse.move(p1.x, p1.y, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0].mask.surface).not.toBe(mask);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0].mask.surface).toBe(mask);
+});
+
+test("the assistant selects, masks and adds a pixel layer", async ({ page }) => {
+  await page.goto(`/p/${paintingId}`);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_pixel_layer {"name": "Glaze"}',
+      'call select_rect {"x": 100, "y": 100, "width": 300, "height": 200}',
+      'call add_mask {"layer": "Glaze", "from": "selection"}',
+      'call add_mask {"layer": "Glaze", "from": "selection"}',
+      'call select_rect {"none": true}',
+      'call add_mask {"layer": "photo 1600x1200", "remove": true}',
+      "call get_photo",
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("get_photo: ok", { timeout: 30_000 });
+  const doc = await expect.poll(async () => (await savedPhoto(page, paintingId)).layers.find((l: { name: string }) => l.name === "Glaze")?.mask?.surface ?? null).not.toBeNull().then(() => savedPhoto(page, paintingId));
+  const glaze = doc.layers.find((l: { name: string }) => l.name === "Glaze");
+  expect(glaze.kind).toBe("pixel");
+  expect(doc.layers[0].mask).toBeUndefined();
+  await expect(page.locator("[data-selection]")).toHaveCount(0);
+  const values = await surfaceTiles(page, glaze.id, "mask", [], [[0, 0, 150, 150, 0], [0, 0, 50, 50, 0]]);
+  expect(values.values).toEqual([1, 0]);
 });

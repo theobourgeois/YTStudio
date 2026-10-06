@@ -37,7 +37,14 @@ export interface SurfacePlace {
 interface Draft {
   tx: number;
   ty: number;
+  /** What the view shows. */
   slot: number;
+  /**
+   * With a selection: the stroke painted without limit, and the tile as it was before the stroke; what's shown is
+   * the two mixed by the selection's coverage (`limit`).
+   */
+  paint: number | null;
+  base: number | null;
 }
 
 const rightAngled = (m: Affine) => (m[1] === 0 && m[2] === 0) || (m[0] === 0 && m[3] === 0);
@@ -66,7 +73,7 @@ export class SurfaceImage {
   /** Bumped whenever what it shows changes (a stroke's dabs, tiles arriving): the screen's kept composites go. */
   onChange: (() => void) | null = null;
   private drafts = new Map<string, Draft>();
-  private stroke: { spacer: DabSpacer; place: SurfacePlace } | null = null;
+  private stroke: { spacer: DabSpacer; place: SurfacePlace; limited: boolean } | null = null;
   /** Level-0 tiles listed by the manifest that aren't resident, being fetched. */
   private readonly fetching = new Set<string>();
   /** Parent tiles to build again (`level:tx:ty`): level 0 under them changed. */
@@ -75,6 +82,9 @@ export class SurfaceImage {
   private dabs: GPUBuffer;
   private readonly params: GPUBuffer;
   private stampGroup: GPUBindGroup;
+  private limitGroup: GPUBindGroup;
+  /** The limit pass's jobs (its own: a stamp's and a limit's jobs go in one submission). */
+  private readonly limitJobs: GPUBuffer;
   private readonly fillGroup: GPUBindGroup;
   private readonly reduceJobs: GPUBuffer;
   private readonly reduceGroup: GPUBindGroup;
@@ -100,7 +110,9 @@ export class SurfaceImage {
     this.jobs = device.createBuffer({ size: BATCH * 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.dabs = device.createBuffer({ size: 1024 * 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.params = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.stampGroup = this.makeStampGroup();
+    this.limitJobs = device.createBuffer({ size: BATCH * 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.stampGroup = this.makeStampGroup(this.jobs);
+    this.limitGroup = this.makeStampGroup(this.limitJobs);
     this.fillGroup = device.createBindGroup({
       layout: ctx.kernels.maskFill.getBindGroupLayout(0),
       entries: [
@@ -157,11 +169,11 @@ export class SurfaceImage {
     return this.kind === "mask" ? [values[0], values[0], values[0], values[0]] : [values[0], values[1], values[2], values[3]];
   }
 
-  private makeStampGroup() {
+  private makeStampGroup(jobs: GPUBuffer) {
     return this.ctx.device.createBindGroup({
       layout: this.ctx.kernels.stamp.getBindGroupLayout(1),
       entries: [
-        { binding: 0, resource: { buffer: this.jobs } },
+        { binding: 0, resource: { buffer: jobs } },
         { binding: 1, resource: { buffer: this.dabs } },
         { binding: 2, resource: this.ctx.scratchView },
         { binding: 3, resource: { buffer: this.params } },
@@ -373,7 +385,7 @@ export class SurfaceImage {
    */
   begin(brush: BrushSettings, colour: readonly number[], place: SurfacePlace, selection: PhotoSelection | null) {
     if (this.stroke) this.cancel();
-    this.stroke = { spacer: new DabSpacer(brush), place };
+    this.stroke = { spacer: new DabSpacer(brush), place, limited: selection !== null };
     this.ctx.device.queue.writeBuffer(this.params, 0, packParams(this.ctx.tile, colour, place, selection));
   }
 
@@ -388,11 +400,15 @@ export class SurfaceImage {
     const key = `${tx},${ty}`;
     let draft = this.drafts.get(key);
     if (draft) return draft;
-    const slot = this.ctx.atlas.acquire(`d${this.id}:${tx}:${ty}:${this.ctx.id()}`, true);
-    const shown = this.image.slotOf(0, tx, ty);
-    if (shown !== null) this.ctx.copySlot(encoder, shown, slot);
-    else this.ctx.fillSlot(slot, this.gpuValue(this.shownValue(tx, ty)));
-    draft = { tx, ty, slot };
+    const copy = () => {
+      const slot = this.ctx.atlas.acquire(`d${this.id}:${tx}:${ty}:${this.ctx.id()}`, true);
+      const shown = this.image.slotOf(0, tx, ty);
+      if (shown !== null) this.ctx.copySlot(encoder, shown, slot);
+      else this.ctx.fillSlot(slot, this.gpuValue(this.shownValue(tx, ty)));
+      return slot;
+    };
+    const limited = this.stroke?.limited ?? false;
+    draft = { tx, ty, slot: copy(), paint: limited ? copy() : null, base: limited ? copy() : null };
     this.drafts.set(key, draft);
     return draft;
   }
@@ -415,7 +431,8 @@ export class SurfaceImage {
     if (dabs.length * 32 > this.dabs.size) {
       this.dabs.destroy();
       this.dabs = device.createBuffer({ size: dabs.length * 64, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-      this.stampGroup = this.makeStampGroup();
+      this.stampGroup = this.makeStampGroup(this.jobs);
+      this.limitGroup = this.makeStampGroup(this.limitJobs);
     }
     const dabData = new Float32Array(dabs.length * 8);
     dabs.forEach((d, i) => dabData.set([d.x, d.y, d.radius, d.hardness, d.strength], i * 8));
@@ -424,23 +441,44 @@ export class SurfaceImage {
       const batch = touched.slice(i, i + BATCH);
       const encoder = device.createCommandEncoder({ label: "stamp" });
       const drafts = batch.map((t) => this.draftFor(t.tx, t.ty, encoder));
+      // With a selection the dabs go on the unlimited paint, and what's shown is mixed from it (`limit`).
+      const limited = drafts[0].paint !== null;
       const jobs = new ArrayBuffer(batch.length * 32);
       drafts.forEach((d, j) => {
-        new Uint32Array(jobs, j * 32, 1)[0] = d.slot;
+        new Uint32Array(jobs, j * 32, 1)[0] = d.paint ?? d.slot;
         new Int32Array(jobs, j * 32 + 4, 2).set([d.tx, d.ty]);
         new Uint32Array(jobs, j * 32 + 12, 2).set([0, dabs.length]);
       });
       device.queue.writeBuffer(this.jobs, 0, jobs);
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(this.ctx.kernels.stamp);
-      pass.setBindGroup(0, this.ctx.atlasBindGroup());
-      pass.setBindGroup(1, this.stampGroup);
-      pass.dispatchWorkgroups(this.ctx.tile / 16, this.ctx.tile / 16, batch.length);
-      pass.end();
+      const stamp = encoder.beginComputePass();
+      stamp.setPipeline(this.ctx.kernels.stamp);
+      stamp.setBindGroup(0, this.ctx.atlasBindGroup());
+      stamp.setBindGroup(1, this.stampGroup);
+      stamp.dispatchWorkgroups(this.ctx.tile / 16, this.ctx.tile / 16, batch.length);
+      stamp.end();
       this.ctx.copyScratchToSlots(
         encoder,
-        drafts.map((d) => d.slot),
+        drafts.map((d) => d.paint ?? d.slot),
       );
+      if (limited) {
+        const limits = new ArrayBuffer(batch.length * 32);
+        drafts.forEach((d, j) => {
+          new Uint32Array(limits, j * 32, 1)[0] = d.paint!;
+          new Int32Array(limits, j * 32 + 4, 2).set([d.tx, d.ty]);
+          new Uint32Array(limits, j * 32 + 12, 1)[0] = d.base!;
+        });
+        device.queue.writeBuffer(this.limitJobs, 0, limits);
+        const limit = encoder.beginComputePass();
+        limit.setPipeline(this.ctx.kernels.limit);
+        limit.setBindGroup(0, this.ctx.atlasBindGroup());
+        limit.setBindGroup(1, this.limitGroup);
+        limit.dispatchWorkgroups(this.ctx.tile / 16, this.ctx.tile / 16, batch.length);
+        limit.end();
+        this.ctx.copyScratchToSlots(
+          encoder,
+          drafts.map((d) => d.slot),
+        );
+      }
       device.queue.submit([encoder.finish()]);
       for (const d of drafts) {
         this.image.setSlot(0, d.tx, d.ty, d.slot);
@@ -452,9 +490,18 @@ export class SurfaceImage {
     this.onChange?.();
   }
 
+  /** A draft's working copies, let go (the stroke ended or was dropped). */
+  private releaseWork(draft: Draft) {
+    if (draft.paint !== null) this.ctx.atlas.release(draft.paint);
+    if (draft.base !== null) this.ctx.atlas.release(draft.base);
+  }
+
   /** Drops the stroke: the shown tiles show again, and nothing changed. */
   cancel() {
-    for (const draft of this.drafts.values()) this.ctx.atlas.release(draft.slot);
+    for (const draft of this.drafts.values()) {
+      this.ctx.atlas.release(draft.slot);
+      this.releaseWork(draft);
+    }
     const touched = [...this.drafts.values()];
     this.drafts.clear();
     this.stroke = null;
@@ -477,6 +524,7 @@ export class SurfaceImage {
     const drafts = [...this.drafts.values()];
     this.stroke = null;
     this.drafts = new Map();
+    for (const d of drafts) this.releaseWork(d);
     if (!drafts.length) return null;
     return this.commitDrafts(drafts);
   }
@@ -590,7 +638,7 @@ export class SurfaceImage {
       pass.end();
       this.ctx.copyScratchToSlots(encoder, slots);
       device.queue.submit([encoder.finish()]);
-      batch.forEach((t, j) => drafts.push({ ...t, slot: slots[j] }));
+      batch.forEach((t, j) => drafts.push({ ...t, slot: slots[j], paint: null, base: null }));
     }
     // A mask of 0 everywhere but where the selection is: the edges' tiles are hashed onto that.
     this.manifest = withTiles(emptySurface("r16f", tile, [0]), entries);
@@ -605,7 +653,10 @@ export class SurfaceImage {
   destroy() {
     this.destroyed = true;
     this.stopListening();
-    for (const draft of this.drafts.values()) this.ctx.atlas.release(draft.slot);
+    for (const draft of this.drafts.values()) {
+      this.ctx.atlas.release(draft.slot);
+      this.releaseWork(draft);
+    }
     for (let level = 1; level < this.image.levels.length; level++) {
       const l = this.image.levels[level];
       for (let ty = 0; ty < l.tilesY; ty++) {
@@ -617,6 +668,7 @@ export class SurfaceImage {
     }
     this.image.destroy();
     this.jobs.destroy();
+    this.limitJobs.destroy();
     this.dabs.destroy();
     this.params.destroy();
     this.reduceJobs.destroy();

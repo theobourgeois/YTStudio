@@ -6,7 +6,7 @@
  * - `reduce`: a level's tile from four of the level below, a 2×2 box in linear premultiplied light.
  * - `blur`: a Gaussian through the page table (crossing tiles), and the same on one plain texture, so F0 can
  *   compare tiled against monolithic.
- * - `stamp`: brush dabs into draft tiles, limited by the selection.
+ * - `stamp`: brush dabs into draft tiles; `limit`: the selection capping a stroke's result.
  * - `maskFill`: a mask's tiles from a selection.
  * - `quantize`: the output transform to 8-bit RGBA (exports, the round-trip check).
  * - `view`: what the canvas shows (render pipeline).
@@ -247,16 +247,39 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   if (g.x >= tile || g.y >= tile) { return; }
   let job = jobs[g.z];
   var c = loadSlot(job.slot, vec2i(g.xy));
-  let pixel = vec2i(job.tx * i32(tile) + i32(g.x), job.ty * i32(tile) + i32(g.y));
-  let p = vec2f(pixel) + 0.5;
-  // The selection limits the paint by how much of this pixel it covers.
-  let limit = selection_coverage(pixel);
+  let p = vec2f(f32(job.tx * i32(tile) + i32(g.x)), f32(job.ty * i32(tile) + i32(g.y))) + 0.5;
   for (var i = 0u; i < job.count; i++) {
     let d = dabs[job.first + i];
-    let k = coverage(d, distance(p, vec2f(d.x, d.y))) * limit;
+    let k = coverage(d, distance(p, vec2f(d.x, d.y)));
     c = params.colour * k + c * (1.0 - params.colour.a * k);
   }
   textureStore(out, vec2i(g.xy), i32(g.z), round_for_store(c));
+}
+`;
+
+/**
+ * The selection limiting a stroke (Photoshop's: it caps the stroke's result, not each dab, so a pixel half inside
+ * gets half of whatever the stroke paints there): each pixel is what was there before the stroke (`first`: its
+ * slot) mixed towards the stroke painted without limit (`slot`) by how much the selection covers it.
+ */
+const LIMIT = (format: StorageFormat) => /* wgsl */ `
+${ROUND_FOR_STORE(format)}
+${ATLAS}
+${SELECTION}
+@group(1) @binding(0) var<storage, read> jobs: array<Job>;
+@group(1) @binding(1) var<storage, read> dabs: array<Dab>;
+@group(1) @binding(2) var out: texture_storage_2d_array<${format}, write>;
+@group(1) @binding(3) var<uniform> params: Params;
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) g: vec3u) {
+  let tile = params.tile;
+  if (g.x >= tile || g.y >= tile) { return; }
+  let job = jobs[g.z];
+  let before = loadSlot(job.first, vec2i(g.xy));
+  let painted = loadSlot(job.slot, vec2i(g.xy));
+  let k = selection_coverage(vec2i(job.tx * i32(tile) + i32(g.x), job.ty * i32(tile) + i32(g.y)));
+  textureStore(out, vec2i(g.xy), i32(g.z), round_for_store(mix(before, painted, k)));
 }
 `;
 
@@ -440,6 +463,7 @@ export class Kernels {
   blurTiled!: GPUComputePipeline;
   blurMono!: GPUComputePipeline;
   stamp!: GPUComputePipeline;
+  limit!: GPUComputePipeline;
   maskFill!: GPUComputePipeline;
   quantize!: GPUComputePipeline;
   view!: GPURenderPipeline;
@@ -477,6 +501,7 @@ export class Kernels {
       });
 
     const jobsOut = bgl(device, "jobs+out", [readOnly(0), storageArray(1)]);
+    const stampLayout = bgl(device, "stamp", [readOnly(0), readOnly(1), storageArray(2), uniform(3)]);
     const viewModule = device.createShaderModule({ label: "view", code: VIEW });
     this.ready = Promise.all([
       compute("convert", CONVERT(format), [bgl(device, "convert", [readOnly(0), readOnly(1), uniform(2), readOnly(3), storageArray(4)])]).then((p) => (this.convert = p)),
@@ -489,7 +514,8 @@ export class Kernels {
           uniform(2),
         ]),
       ]).then((p) => (this.blurMono = p)),
-      compute("stamp", STAMP(format), [this.atlasLayout, bgl(device, "stamp", [readOnly(0), readOnly(1), storageArray(2), uniform(3)])]).then((p) => (this.stamp = p)),
+      compute("stamp", STAMP(format), [this.atlasLayout, stampLayout]).then((p) => (this.stamp = p)),
+      compute("limit", LIMIT(format), [this.atlasLayout, stampLayout]).then((p) => (this.limit = p)),
       compute("mask fill", MASK_FILL(format), [bgl(device, "mask fill", [readOnly(0), storageArray(1), uniform(2)])]).then((p) => (this.maskFill = p)),
       compute("quantize", QUANTIZE, [
         this.atlasLayout,
@@ -526,6 +552,7 @@ export class Kernels {
       ["blur tiled", BLUR_TILED(format)],
       ["blur mono", BLUR_MONO],
       ["stamp", STAMP(format)],
+      ["limit", LIMIT(format)],
       ["mask fill", MASK_FILL(format)],
       ["quantize", QUANTIZE],
       ["view", VIEW],

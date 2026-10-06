@@ -10,6 +10,7 @@ import { budgetBytes } from "./preferences";
 import { create } from "zustand";
 import { PhotoRenderer, type RefineState, type SourceState } from "./render/renderer";
 import { usePhoto } from "./store";
+import { commitSurface } from "./paint-target";
 import { usePhotoUi } from "./ui";
 
 let open: { projectId: string; renderer: Promise<PhotoRenderer> } | null = null;
@@ -87,7 +88,33 @@ export async function withRenderer<T>(projectId: string, doc: PhotoProject, asse
  * numbers (`readScreen`, `stats`, `presented`) for the gates no screenshot can check.
  */
 if (import.meta.env.DEV && typeof window !== "undefined") {
-  (window as unknown as { photoDebug: unknown }).photoDebug = { renderer: () => liveRenderer(), photo: usePhoto, ui: usePhotoUi, renderState: useRenderState };
+  (window as unknown as { photoDebug: unknown }).photoDebug = {
+    renderer: () => liveRenderer(),
+    photo: usePhoto,
+    ui: usePhotoUi,
+    renderState: useRenderState,
+    /**
+     * A stroke from these samples (document pixels) on a layer's pixels or mask, committed as the brush's is (one
+     * undo step), or dropped (`cancel`): the gates paint exactly the same samples at different views.
+     */
+    async paint(layerId: string, part: "content" | "mask", points: { x: number; y: number }[], options: { radius?: number; hardness?: number; strength?: number; colour?: number[]; cancel?: boolean } = {}) {
+      const renderer = await liveRenderer()!;
+      for (let i = 0; i < 200 && !renderer.beginStroke(layerId, part, { radius: options.radius ?? 30, hardness: options.hardness ?? 0.8, strength: options.strength ?? 1, spacing: 0.1 }, options.colour ?? [0, 0, 0, 1], usePhoto.getState().history?.doc.selection ?? null); i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      if (!renderer.stroking) throw new Error(`Layer ${layerId}'s ${part} isn't on the GPU.`);
+      renderer.strokeTo(points);
+      if (options.cancel) {
+        renderer.cancelStroke();
+        return null;
+      }
+      const started = performance.now();
+      const result = await renderer.endStroke();
+      if (!result) return null;
+      usePhoto.getState().commit(commitSurface(layerId, part, result.id));
+      return { ...result, commitMs: performance.now() - started };
+    },
+  };
   // `scripts/photo-bench.ts`'s scenarios, loaded only when asked for.
   (window as unknown as { photoBench: unknown }).photoBench = { load: () => import("./bench") };
 }

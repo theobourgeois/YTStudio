@@ -1039,6 +1039,31 @@ export class PhotoRenderer {
     return out;
   }
 
+  /**
+   * A layer's surface's level-0 tile as the GPU holds it, as floats (its RGBA; a mask's value in every channel), or
+   * null when it shows no slot there (its fill, or not resident): the checks compare strokes by it.
+   */
+  async readSurfaceTile(layerId: string, part: SurfacePart, tx: number, ty: number): Promise<{ shown: SurfaceId | null; data: Float32Array | null }> {
+    const surface = this.surfaceOf(layerId, part);
+    if (!surface) return { shown: null, data: null };
+    await surface.ensureResident();
+    const slot = surface.image.slotOf(0, tx, ty);
+    if (slot === null) return { shown: surface.shown, data: null };
+    const { ctx } = surface;
+    const { texture, layer } = ctx.atlas.location(slot);
+    const tile = ctx.tile;
+    const buffer = this.device.createBuffer({ size: ctx.atlas.tileBytes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const encoder = this.device.createCommandEncoder();
+    encoder.copyTextureToBuffer({ texture, origin: [0, 0, layer] }, { buffer, bytesPerRow: ctx.rowBytes }, [tile, tile, 1]);
+    this.device.queue.submit([encoder.finish()]);
+    await buffer.mapAsync(GPUMapMode.READ);
+    const mapped = buffer.getMappedRange();
+    const data = ctx.format === "rgba16float" ? Float32Array.from(new Uint16Array(mapped), fromHalf) : new Float32Array(mapped.slice(0));
+    buffer.unmap();
+    buffer.destroy();
+    return { shown: surface.shown, data };
+  }
+
   /** What the screen last showed, as floats (before the output transform), and whether it was refined. */
   async readScreen(): Promise<{ data: Float32Array; width: number; height: number; refined: boolean } | null> {
     const screen = this.screen;
