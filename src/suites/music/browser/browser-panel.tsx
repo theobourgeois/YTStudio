@@ -6,6 +6,7 @@ import {
   PiFolderFill,
   PiFolderOpenFill,
   PiFolderSimpleDashed,
+  PiGlobe,
   PiMagnifyingGlass,
   PiSpeakerHighFill,
   PiSpeakerLowFill,
@@ -36,8 +37,10 @@ import { useTransport } from "../transport";
 import { openInNewChannels, samplerToSendTo, sendToSelectedChannel, showInFinder } from "./actions";
 import { BROWSER_DRAG_TYPE, type BrowserDrag, setCarriedPaths } from "./drops";
 import { resolveBrowserKey } from "./keys";
-import { useBrowser } from "./store";
-import { type ItemRow, type Row, arrowAction, isItem, nameOf, resultRows, rowRange, step, treeRows } from "./tree";
+import { displayName, isOnline } from "./online";
+import { OnlineTab } from "./online-tab";
+import { type BrowserTab, useBrowser } from "./store";
+import { type ItemRow, type Row, arrowAction, isItem, resultRows, rowRange, step, treeRows } from "./tree";
 import { type Peaks, PEAK_COLUMNS, loadPeaks, waveformStops } from "./waveform";
 
 
@@ -53,6 +56,7 @@ export function BrowserPanel() {
   const open = useBrowser((s) => s.open);
   const width = useBrowser((s) => s.width);
   const loaded = useBrowser((s) => s.state !== null);
+  const tab = useBrowser((s) => s.tab);
   const [dropping, setDropping] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const search = useRef<HTMLInputElement>(null);
@@ -121,8 +125,21 @@ export function BrowserPanel() {
           </button>
         </div>
       </header>
-      <SearchBox inputRef={search} listRef={list} />
-      <RowList listRef={list} searchRef={search} onAddFolder={() => setAddOpen(true)} />
+      <div role="tablist" aria-label="Browser tabs" className="flex h-6 shrink-0 items-stretch gap-1 border-b border-line px-1.5">
+        <TabButton tab="files" label="Files">
+          <PiFolderFill />
+        </TabButton>
+        <TabButton tab="online" label="Online">
+          <PiGlobe />
+        </TabButton>
+      </div>
+      {tab === "files" && (
+        <>
+          <SearchBox inputRef={search} listRef={list} />
+          <RowList listRef={list} searchRef={search} onAddFolder={() => setAddOpen(true)} />
+        </>
+      )}
+      <OnlineTab shown={tab === "online"} />
       <PreviewBar />
       <WidthHandle />
       {dropping && (
@@ -132,6 +149,26 @@ export function BrowserPanel() {
       )}
       <AddFolderDialog open={addOpen} onOpenChange={setAddOpen} />
     </aside>
+  );
+}
+
+/** One of the Browser's tabs, as the Picker's are: lit when it's the one shown. */
+function TabButton({ tab, label, children }: { tab: BrowserTab; label: string; children: React.ReactNode }) {
+  const selected = useBrowser((s) => s.tab === tab);
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={selected}
+      className={cn(
+        "-mb-px flex items-center gap-1 border-b-2 px-1.5 text-[11px] font-medium [&_svg]:size-3",
+        selected ? "border-brand text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+      )}
+      onClick={() => useBrowser.getState().setTab(tab)}
+    >
+      {children}
+      {label}
+    </button>
   );
 }
 
@@ -607,11 +644,13 @@ function RowMenu({ row }: { row: ItemRow }) {
 
 // --- Preview -----------------------------------------------------------------------------------------
 
-/** The selected file (or the one playing): its waveform, where the preview is in it, and the preview's volume. */
+/** The selected file or online clip (or the one playing): its waveform, where the preview is in it, and the preview's volume. */
 function PreviewBar() {
   const path = useBrowser((s) => {
+    const playing = s.previewing?.path ?? null;
+    if (s.tab === "online") return s.onlineSelected ?? (playing && isOnline(playing) ? playing : null);
     const row = visibleRows().find((r) => r.key === s.cursor);
-    return isItem(row) && row.item.kind === "file" ? row.item.path : (s.previewing?.path ?? null);
+    return isItem(row) && row.item.kind === "file" ? row.item.path : playing;
   });
   const volume = useBrowser((s) => s.volume);
   const [peaks, setPeaks] = useState<{ path: string; peaks: Peaks | null; error?: string } | null>(null);
@@ -629,14 +668,15 @@ function PreviewBar() {
   }, [path]);
 
   const shown = peaks?.path === path ? peaks : null;
-  const name = path ? nameOf(path) : "";
+  const name = path ? displayName(path) : "";
   return (
     <div className="shrink-0 border-t border-line bg-surface-1 px-2 pt-1.5 pb-2" data-testid="browser-preview">
       <div className="mb-1 flex h-4 items-center gap-1.5 text-[11px]">
-        <span className="min-w-0 flex-1 truncate">{name || <span className="text-muted-foreground">No file selected</span>}</span>
+        <span className="min-w-0 flex-1 truncate" title={name}>{name || <span className="text-muted-foreground">No file selected</span>}</span>
         {shown?.peaks && <span className="shrink-0 text-muted-foreground tabular-nums">{formatSeconds(shown.peaks.duration)}</span>}
       </div>
-      <Waveform path={path} peaks={shown?.peaks ?? null} note={shown?.error} />
+      {/* An online clip's sound is fetched for it: the first time, downloaded. */}
+      <Waveform path={path} peaks={shown?.peaks ?? null} note={shown?.error ?? (path && !shown && isOnline(path) ? "Downloading…" : undefined)} />
       <div className="mt-1.5 flex items-center gap-2">
         <PiSpeakerLowFill className="size-3 shrink-0 text-muted-foreground" />
         <Slider className="flex-1" min={0} max={1} step={0.01} value={[volume]} onValueChange={([v]) => useBrowser.getState().setVolume(v)} aria-label="Preview volume" />

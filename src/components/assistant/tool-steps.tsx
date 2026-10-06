@@ -93,6 +93,7 @@ const ICONS: Record<string, IconType> = {
   get_catalog: PiMagnifyingGlass,
   get_library: PiBooks,
   search_online: PiGlobe,
+  search_online_audio: PiGlobe,
   add_clips: PiPlus,
   add_text: PiTextT,
   add_layer: PiStack,

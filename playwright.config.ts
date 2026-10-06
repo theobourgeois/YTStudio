@@ -34,7 +34,7 @@ export default defineConfig({
   webServer: [
     {
       command: "tsx scripts/e2e-server.ts",
-      // Stand-ins for the transcription engine, Claude Code and Codex: the tests don't need whisper.cpp, an API key or a login.
+      // Stand-ins for the transcription engine, Claude Code and Codex (and yt-dlp, below): the tests don't need whisper.cpp, an API key or a login.
       env: {
         // Never spend a real provider key loaded from local .env in browser tests.
         GEMINI_API_KEY: "e2e-not-a-real-key",
@@ -45,6 +45,8 @@ export default defineConfig({
         CODEX_PATH: path.resolve(import.meta.dirname, "e2e/fake-codex.mjs"),
         // And for the music suite's audio engine: no sound, no plugins of this computer.
         EDITOR_ENGINE_PATH: path.resolve(import.meta.dirname, "server/music/fake-engine.mjs"),
+        // And for online media (the video editor's Online panel, the music Browser's Online tab): never the web.
+        YTDLP_PATH: path.resolve(import.meta.dirname, "e2e/fake-ytdlp.mjs"),
         // And for the photo suite's Select Subject: no 88 MB model download.
         EDITOR_SUBJECT_MODEL: "stand-in",
       },

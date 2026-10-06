@@ -31,6 +31,11 @@ const BASE_ARGS = ["--ignore-config", "--no-warnings"];
 const VIDEO_FORMAT_ARGS = ["-f", "bv*+ba/b", "-S", "res:1080,vcodec:h264,acodec:aac", "--merge-output-format", "mp4"];
 /** The best audio-only stream (AAC in MP4 when there is one), else the audio of the best file. */
 const AUDIO_FORMAT_ARGS = ["-f", "bestaudio[ext=m4a]/bestaudio/best", "-x"];
+/**
+ * Audio the cache keeps as it came: what the page and the music suite's audio engine both read. Anything
+ * else (Opus, WebM: the engine reads neither) is made a WAV first, so a song's sample plays like any other.
+ */
+const READ_EVERYWHERE = /\.(m4a|mp3|wav)$/i;
 
 /**
  * Progress on stdout, next to the downloaded file's path: each stream's size before
@@ -248,7 +253,11 @@ export class WebMediaLibrary {
   async load(): Promise<void> {
     for (const entry of await fs.readdir(this.paths.music, { withFileTypes: true })) {
       const key = path.parse(entry.name).name;
-      if (entry.isFile() && CACHE_KEY_RE.test(key)) this.cachedAudio.set(key, path.join(this.paths.music, entry.name));
+      if (!entry.isFile() || !CACHE_KEY_RE.test(key)) continue;
+      const file = path.join(this.paths.music, entry.name);
+      // Kept by an older version as it came: downloaded again when it's next wanted.
+      if (!READ_EVERYWHERE.test(entry.name)) await fs.rm(file, { force: true });
+      else this.cachedAudio.set(key, file);
     }
   }
 
@@ -267,7 +276,7 @@ export class WebMediaLibrary {
   }
 
   /** Look up a pasted link: title, uploader, duration... (nothing is downloaded). */
-  async resolve(rawUrl: unknown, signal: AbortSignal): Promise<WebClip> {
+  async resolve(rawUrl: unknown, signal: AbortSignal | null): Promise<WebClip> {
     const link = parseLink(rawUrl);
     try {
       const out = await run(this.ytdlp, [...BASE_ARGS, "--no-playlist", "-J", "--", link.url], {
@@ -296,7 +305,8 @@ export class WebMediaLibrary {
       pending = this.limit(async () => {
         const dir = this.paths.tmpFile(".ytdl");
         try {
-          const file = await this.download(url, key, "audio", dir);
+          let file = await this.download(url, key, "audio", dir);
+          if (!READ_EVERYWHERE.test(file)) file = await toWav(file, path.join(dir, `${key}.wav`));
           const dest = path.join(this.paths.music, `${key}${path.extname(file)}`);
           await fs.rename(file, dest);
           this.cachedAudio.set(key, dest);
@@ -317,18 +327,25 @@ export class WebMediaLibrary {
     return this.running.get(progressKey(kind, key))?.get() ?? { status: "waiting", progress: null };
   }
 
-  /** Add a link's audio or video to a project's media (downloading it if needed). */
+  /**
+   * Add a link's audio or video to a project's media (downloading it if needed). A project that has it
+   * already gets the copy it has: trying the same link again doesn't fill its folder.
+   */
   async import(body: unknown, projectExists: (projectId: string) => boolean): Promise<MediaAsset> {
     const req = body as Partial<ImportWebMediaRequest> | null;
     if (!req || typeof req.projectId !== "string" || (req.kind !== "audio" && req.kind !== "video")) {
-      throw new HttpError(400, "Expected { projectId, url, title, kind: 'audio' | 'video' }.");
+      throw new HttpError(400, "Expected { projectId, url, kind: 'audio' | 'video', title? }.");
     }
     const { projectId, kind } = req;
     const link = parseLink(req.url);
     const exists = () => projectExists(projectId);
     if (!exists()) throw new HttpError(404, "Project not found");
+    const origin = `web:${kind}:${link.key}`;
+    const known = this.library.list(projectId).find((a) => a.origin === origin);
+    if (known) return known;
     // Titles like "AC/DC - Thunderstruck" aren't paths.
-    const title = (text(req.title) ?? "Download").replace(/[\\/]/g, "-").slice(0, 150);
+    const named = text(req.title) ?? (await this.resolve(link.url, null).then((clip) => clip.title, () => undefined));
+    const title = (named ?? "Download").replace(/[\\/]/g, "-").slice(0, 150);
 
     if (kind === "audio") {
       const source = await this.audio(link.url);
@@ -336,7 +353,7 @@ export class WebMediaLibrary {
       const tmp = this.paths.tmpFile(ext);
       try {
         await fs.copyFile(source, tmp);
-        return await this.library.add(tmp, `${title}${ext}`, projectId, exists);
+        return await this.library.add(tmp, `${title}${ext}`, projectId, exists, origin);
       } finally {
         await fs.rm(tmp, { force: true });
       }
@@ -345,7 +362,7 @@ export class WebMediaLibrary {
     const dir = this.paths.tmpFile(".ytdl");
     try {
       const file = await this.limit(() => this.download(link.url, link.key, "video", dir));
-      return await this.library.add(file, `${title}${path.extname(file)}`, projectId, exists);
+      return await this.library.add(file, `${title}${path.extname(file)}`, projectId, exists, origin);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
@@ -408,3 +425,13 @@ export class WebMediaLibrary {
 }
 
 const progressKey = (kind: WebMediaKind, key: string) => `${kind} ${key}`;
+
+/** A sound file as a 16-bit WAV at `out` (its own rate and channels). */
+async function toWav(file: string, out: string): Promise<string> {
+  try {
+    await run(FFMPEG, ["-hide_banner", "-loglevel", "error", "-y", "-i", file, "-vn", "-c:a", "pcm_s16le", out], { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS.audio) });
+    return out;
+  } catch (err) {
+    throw new HttpError(502, `The download couldn't be converted: ${errorMessage(err)}`);
+  }
+}

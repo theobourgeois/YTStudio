@@ -5,6 +5,7 @@ import { request } from "@/lib/api";
  * applied to the open song as one undo step, or to a song that isn't open by loading and saving it.
  */
 import { createId } from "@shared/ids";
+import { formatDuration } from "@shared/format";
 import { addModulatorTool, describeModulators, linkModulatorEdit, removeModulatorTool, updateModulatorTool } from "./modulation/tool-edits";
 import { AUTO_TUNE_PLUGIN } from "@shared/music/auto-tune-presets";
 import { ECHO_BOY_PLUGIN } from "@shared/music/echo-boy-presets";
@@ -99,8 +100,8 @@ import { describeOtt, updateOttTool } from "./ott/tool-edits";
 import { addVocalCompressionTool, describeProC, findProCRef, setProCBandsTool, setProCSidechainTool, updateProCTool } from "./pro-c/tool-edits";
 import { addVocalReverbTool, describeReverb, setReverbDecayTool, updateReverbTool } from "./reverb/tool-edits";
 import { describePanMan, findPan, setPanPatternTool, updatePanManTool } from "./panman/tool-edits";
+import { displayName, previewRequest, rememberClips, requestFor } from "./browser/online";
 import { useBrowser } from "./browser/store";
-import { nameOf } from "./browser/tree";
 import {
   addMixerTrackTool,
   effectToTrackTool,
@@ -686,30 +687,48 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const [result, state] = await Promise.all([musicApi.searchBrowser(query, limit), musicApi.browser()]);
     return textResult(describeSearch(query, result, state));
   },
+  async search_online_audio(input, ctx) {
+    const query = typeof input.query === "string" ? input.query.trim() : "";
+    if (!query) throw new Error('"query" must be what to look for ("amen break").');
+    const limit = typeof input.limit === "number" ? Math.max(1, Math.min(15, Math.round(input.limit))) : 8;
+    ctx.progress(null, "Searching");
+    const clips = (await api.searchWeb(query, ctx.signal)).slice(0, limit);
+    // Named by their titles when they're brought in.
+    rememberClips(clips);
+    if (!clips.length) return textResult(`Nothing found for "${query}".`);
+    return textResult(
+      [
+        `Results for "${query}":`,
+        ...clips.map((c, i) => `${i + 1}. "${c.title}" by ${c.channel}${c.verified ? " ✓ verified" : ""} · ${c.duration ? formatDuration(c.duration) : "length unknown"} · ${c.site} · ${c.url}`),
+        "Play one to the user with preview_sample { url }; put it in the song with load_sample { urls: [url] } (a channel) or add_audio_clip { urls: [url], track, bar } (the playlist).",
+      ].join("\n"),
+    );
+  },
   async preview_sample(input) {
     if (input.stop === true) {
       useBrowser.getState().stopPreview();
       await musicApi.engine("stopPreview", {});
       return textResult("Stopped the preview.");
     }
-    if (typeof input.path !== "string" || !input.path) throw new Error('"path" must be a file\'s full path, from search_samples or list_samples.');
+    const sample = typeof input.url === "string" && input.url ? input.url : typeof input.path === "string" && input.path ? input.path : null;
+    if (!sample) throw new Error('Give "path" (a file\'s full path, from search_samples or list_samples) or "url" (an online clip\'s, from search_online_audio).');
     const start = typeof input.start === "number" && input.start > 0 ? input.start : 0;
     const id = `assistant-${Date.now()}`;
-    await musicApi.previewFile({ path: input.path, start, id });
+    await musicApi.previewFile(previewRequest(sample, start, id));
     // The Browser shows it playing, as if the user had clicked it.
-    useBrowser.setState({ previewing: { path: input.path, id } });
-    return textResult(`Playing ${nameOf(input.path)} to the user${start ? ` from ${start}s` : ""}. You can't hear it: ask them what they think.`);
+    useBrowser.setState({ previewing: { path: sample, id } });
+    return textResult(`Playing ${displayName(sample)} to the user${start ? ` from ${start}s` : ""}. You can't hear it: ask them what they think.`);
   },
   async load_sample(input, ctx) {
     const target = await targetOf(ctx);
-    const paths = Array.isArray(input.paths) ? input.paths.filter((p): p is string => typeof p === "string" && p.length > 0) : [];
-    if (!paths.length) throw new Error('"paths" must be a list of files\' full paths, from search_samples or list_samples.');
+    const paths = [...strings(input.paths), ...strings(input.urls)];
+    if (!paths.length) throw new Error('Give "paths" (files\' full paths, from search_samples or list_samples) or "urls" (online clips\', from search_online_audio).');
     const toChannel = input.channel !== undefined && input.channel !== null && input.channel !== "";
     // Checked before any file is copied: a channel that isn't there, or can't take a sample.
     if (toChannel) sampleChannel(target.song, input.channel);
     const assets: MediaAsset[] = [];
     for (const path of toChannel ? paths.slice(0, 1) : paths) {
-      const asset = await musicApi.useBrowserFile({ projectId: target.projectId, path });
+      const asset = await musicApi.useBrowserFile(requestFor(target.projectId, path));
       if (!asset.hasAudio) throw new Error(`${asset.name} has no sound.`);
       assets.push(asset);
     }
@@ -1023,13 +1042,12 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
       if (!asset) throw new Error(`There's no audio file "${input.mediaId}" in the project. Its audio files: ${target.assets.filter((a) => a.hasAudio).map((a) => `${a.name} (${a.id})`).join(", ") || "none"}.`);
       assets.push(asset);
     }
-    const paths = Array.isArray(input.paths) ? input.paths.filter((p): p is string => typeof p === "string" && p.length > 0) : [];
-    for (const path of paths) {
-      const asset = await musicApi.useBrowserFile({ projectId: target.projectId, path });
+    for (const path of [...strings(input.paths), ...strings(input.urls)]) {
+      const asset = await musicApi.useBrowserFile(requestFor(target.projectId, path));
       if (!asset.hasAudio) throw new Error(`${asset.name} has no sound.`);
       assets.push(asset);
     }
-    if (!assets.length) throw new Error('Give the files: "paths" (the Browser\'s, from search_samples) or a "mediaId".');
+    if (!assets.length) throw new Error('Give the files: "paths" (the Browser\'s, from search_samples), "urls" (online clips\', from search_online_audio) or a "mediaId".');
     if (target.open && useMusic.getState().projectId === target.projectId) {
       const known = new Set(useMusic.getState().assets.map((a) => a.id));
       const added = assets.filter((a) => !known.has(a.id));
@@ -1045,6 +1063,9 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(`Added ${assets.length} audio clip${assets.length === 1 ? "" : "s"} (clip ${made.join(", ")}) from bar ${bar} on track ${track}: ${assets.map((a) => a.name).join(", ")}. Each has a channel of its own in the rack's Audio group; read get_playlist.`);
   },
 };
+
+/** A list of non-empty strings from a tool's input (anything else in it left out). */
+const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v.length > 0) : []);
 
 export async function runMusicTool(name: string, input: Input, ctx: ToolRunContext): Promise<ToolResult> {
   const handler = (TOOLS as Record<string, ((input: Input, ctx: ToolRunContext) => Promise<ToolResult>) | undefined>)[name];

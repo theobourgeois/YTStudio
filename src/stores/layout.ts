@@ -3,10 +3,10 @@ import { create } from "zustand";
 const KEYFRAMES_KEY = "editor-keyframes-open";
 
 /**
- * Where the Media tab's files come from: this video's own media, the Library shared by every
- * video, or online. One tab with a switch, like CapCut's Media panel, so the tab strip stays short.
+ * Where the Media tab's files come from: this video's own media, or the Library shared by every
+ * video. One tab with a switch, like CapCut's Media panel (online media is a panel of its own).
  */
-export type MediaSource = "project" | "library" | "online";
+export type MediaSource = "project" | "library";
 
 /**
  * What the Effects tab browses: video effects (added to clips), presets (ready-made moves, looks

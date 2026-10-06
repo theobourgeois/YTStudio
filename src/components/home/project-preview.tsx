@@ -1,34 +1,41 @@
-import { useEffect, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { create } from "zustand";
-import { PiPlayFill, PiPauseFill, PiCircleNotch, PiArrowClockwise, PiSpeakerHigh, PiSpeakerSlash } from "react-icons/pi";
+import { PiSpeakerHigh, PiSpeakerSlash } from "react-icons/pi";
 import type { ProjectPreview, ProjectSummary } from "@shared/types";
-import { formatDuration } from "@shared/format";
 import { errorMessage } from "@shared/errors";
+import { clamp } from "@shared/math";
 import { api, ApiRequestError } from "@/lib/api";
+import { startPointerDrag } from "@/lib/pointer-drag";
 import { clientSuite } from "@/suites";
 import { useProjects } from "@/stores/projects";
 import { cn } from "cn";
 
 let currentMedia: HTMLMediaElement | null = null;
 
+/** How long the pointer rests on a card before its preview starts. */
+const HOVER_MS = 250;
+
 /** One preview owns playback, including its intent while the renderer is still preparing it. */
 const usePreviewPlayer = create<{ id: string | null; select: (id: string | null) => void }>((set) => ({
   id: null, select: (id) => { currentMedia?.pause(); set({ id }); },
 }));
 
+/**
+ * A Home card's picture. A suite with a `preview` plays it while the pointer rests on the card, muted
+ * (as a video site's thumbnails do): a button unmutes it, and the line along its bottom is where it's
+ * got to, scrubbed by pressing it (which unmutes it too).
+ */
 export function ProjectPreviewPicture({ project }: { project: ProjectSummary }) {
-  const { icon: Icon, tint } = clientSuite(project.suite);
+  const { icon: Icon, tint, preview: plays } = clientSuite(project.suite);
   const container = useRef<HTMLDivElement>(null);
   const media = useRef<HTMLMediaElement | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const isVideo = project.suite === "video";
   const [muted, setMuted] = useState(true);
   const [visible, setVisible] = useState(false);
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
   const [retry, setRetry] = useState(0);
   const [time, setTime] = useState(0);
   const [loaded, setLoaded] = useState(false);
-  const [playing, setPlaying] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
   const active = usePreviewPlayer((s) => s.id === project.id);
   const select = usePreviewPlayer.getState().select;
@@ -83,13 +90,26 @@ export function ProjectPreviewPicture({ project }: { project: ProjectSummary }) 
     if (currentMedia !== element) currentMedia?.pause();
     currentMedia = element;
     let disposed = false;
-    void element.play().catch((err: unknown) => {
+    void element.play().catch(() => {
       if (disposed) return;
       select(null);
-      setPlayError(err instanceof DOMException && err.name === "NotAllowedError" ? "Press play to start the preview." : "Playback failed. Try again.");
+      setPlayError("Playback failed. Try again.");
     });
     return () => { disposed = true; element.pause(); };
   }, [active, loaded, preview?.src, preview?.state, select]);
+
+  // Where it's got to, every frame while it plays: `timeupdate` comes only a few times a second.
+  useEffect(() => {
+    if (!active) return;
+    let frame = 0;
+    const tick = () => {
+      frame = requestAnimationFrame(tick);
+      const element = media.current;
+      if (element && !element.paused) setTime(element.currentTime);
+    };
+    tick();
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
 
   useEffect(() => () => {
     clearTimeout(hoverTimer.current);
@@ -99,118 +119,121 @@ export function ProjectPreviewPicture({ project }: { project: ProjectSummary }) 
   const busy = !preview || preview.state === "queued" || preview.state === "rendering";
   const failed = preview?.state === "error";
   const empty = preview?.state === "empty";
+  const ready = !!plays && preview?.state === "ready";
   const progress = preview?.duration ? Math.min(1, time / preview.duration) : 0;
   const poster = preview?.poster ?? project.thumbnail;
-  const waveform = project.suite === "music" && !!preview?.peaks?.length;
-  const toggle = () => {
-    setPlayError(null);
-    if (failed) { setRetry((n) => n + 1); select(project.id); return; }
-    if (active) { select(null); return; }
+  const waveform = plays === "sound" && !!preview?.peaks?.length;
+
+  /** Hear it (or not): set on the element at once, inside the press, so the browser lets it sound. */
+  const setSound = (on: boolean) => {
+    if (media.current) media.current.muted = !on;
+    setMuted(!on);
+  };
+  const seek = (fraction: number) => {
     const element = media.current;
-    select(project.id);
-    setLoaded(true);
-    if (element && loaded && preview?.state === "ready") {
-      if (element.ended) element.currentTime = 0;
-      // Call in the click handler as well, retaining the browser's user activation.
-      void element.play().catch(() => setPlayError("Playback failed. Try again."));
-    }
+    const at = fraction * (preview?.duration ?? 0);
+    setTime(at);
+    if (element && element.readyState >= 1) element.currentTime = at;
   };
   const events = {
     onLoadedMetadata: () => { if (media.current) media.current.currentTime = time; },
-    onTimeUpdate: () => setTime(media.current?.currentTime ?? 0),
-    onPlay: () => setPlaying(true),
-    onPause: () => setPlaying(false),
-    onEnded: () => select(null),
     onError: () => { select(null); setPlayError("Playback failed. Try again."); },
   };
 
   return (
-    <div ref={container}
+    <div ref={container} className="relative"
       onPointerEnter={(e) => {
-        if (!isVideo || e.pointerType !== "mouse" || empty || failed || active) return;
+        if (!plays || e.pointerType !== "mouse" || empty || active) return;
         clearTimeout(hoverTimer.current);
-        setMuted(true);
         hoverTimer.current = setTimeout(() => {
           setPlayError(null);
+          // A preview that failed is made again.
+          if (failed) setRetry((n) => n + 1);
           select(project.id);
-        }, 250);
+        }, HOVER_MS);
       }}
       onPointerLeave={(e) => {
         clearTimeout(hoverTimer.current);
-        if (!isVideo || e.pointerType !== "mouse") return;
+        if (!plays || e.pointerType !== "mouse") return;
         if (usePreviewPlayer.getState().id === project.id) select(null);
-        setMuted(true);
+        setSound(false);
         setTime(0);
         if (media.current && media.current.readyState >= 1) media.current.currentTime = 0;
-      }}
-      className={cn("relative grid aspect-[16/10] place-items-center overflow-hidden", poster ? "bg-black" : tint)}>
-      {poster ? (
-        <>
-          <img src={poster} alt="" loading="lazy" draggable={false} className="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-md" />
-          <img src={poster} alt="" loading="lazy" draggable={false} className="relative h-full object-contain" />
-        </>
-      ) : (
-        <>
-          <span aria-hidden className="absolute inset-0 bg-[linear-gradient(to_right,currentColor_1px,transparent_1px),linear-gradient(to_bottom,currentColor_1px,transparent_1px)] [background-size:22px_22px] opacity-[0.07]" />
-          {waveform ? <Waveform peaks={preview!.peaks!} progress={progress} /> : (
-            <span className="raised relative grid size-14 place-items-center rounded-md"><Icon className="size-8" /></span>
-          )}
-        </>
+      }}>
+      <div className={cn("relative grid aspect-[16/10] place-items-center overflow-hidden", poster ? "bg-black" : tint)}>
+        {poster ? (
+          <>
+            <img src={poster} alt="" loading="lazy" draggable={false} className="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-md" />
+            <img src={poster} alt="" loading="lazy" draggable={false} className="relative h-full object-contain" />
+          </>
+        ) : (
+          <>
+            <span aria-hidden className="absolute inset-0 bg-[linear-gradient(to_right,currentColor_1px,transparent_1px),linear-gradient(to_bottom,currentColor_1px,transparent_1px)] [background-size:22px_22px] opacity-[0.07]" />
+            {waveform ? <Waveform peaks={preview!.peaks!} progress={active ? progress : 0} /> : (
+              <span className="raised relative grid size-14 place-items-center rounded-md"><Icon className="size-8" /></span>
+            )}
+          </>
+        )}
+        {ready && plays === "video" && (
+          <video ref={(node) => { media.current = node; }} src={loaded ? preview.src : undefined} preload="none" playsInline muted={muted} loop
+            className={cn("absolute inset-0 size-full object-contain", !active && "invisible")} {...events} />
+        )}
+        {ready && plays === "sound" && (
+          <audio ref={(node) => { media.current = node; }} src={loaded ? preview.src : undefined} preload="none" muted={muted} loop {...events} />
+        )}
+        {active && ready && (
+          <button type="button" aria-label={`${muted ? "Unmute" : "Mute"} preview of ${project.name}`}
+            title={muted ? "Unmute" : "Mute"}
+            className="absolute right-2 bottom-3 grid size-7 place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm hover:bg-black/80"
+            onClick={(e) => { e.stopPropagation(); setSound(muted); }} onKeyDown={(e) => e.stopPropagation()}>
+            {muted ? <PiSpeakerSlash className="size-3.5" /> : <PiSpeakerHigh className="size-3.5" />}
+          </button>
+        )}
+        {/* A suite with nothing to play (a photo's) has its picture, or its icon: neither is an empty timeline. */}
+        {((plays && empty && !poster) || (plays && active && (busy || failed)) || playError) && (
+          <span className="pointer-events-none absolute right-2 bottom-2 left-2 truncate text-center text-[10px] text-current opacity-80"
+            title={playError ?? preview?.error}>
+            {playError ?? (empty ? `Empty ${plays === "sound" ? "song" : "timeline"}` : failed ? "Preview unavailable" : "Preparing preview…")}
+          </span>
+        )}
+      </div>
+      {active && ready && (
+        <Scrubber label={`Seek preview of ${project.name}`} progress={progress} onSeek={(fraction) => { seek(fraction); setSound(true); }} />
       )}
-      {preview?.state === "ready" && project.suite === "video" && (
-        <video ref={(node) => { media.current = node; }} src={loaded ? preview.src : undefined} preload="none" playsInline muted={muted} loop
-          className={cn("absolute inset-0 size-full object-contain", !active && "invisible")} {...events} />
-      )}
-      {preview?.state === "ready" && project.suite === "music" && (
-        <audio ref={(node) => { media.current = node; }} src={loaded ? preview.src : undefined} preload="none" {...events} />
-      )}
-      {!empty && (
-        <button type="button" aria-label={`${failed ? "Retry" : active ? "Pause" : "Play"} preview of ${project.name}`}
-          title={failed ? preview.error : "Preview the first 30 seconds"}
-          onClick={(e) => { e.stopPropagation(); toggle(); }}
-          onKeyDown={(e) => e.stopPropagation()}
-          className={cn("absolute grid size-11 place-items-center rounded-full border border-white/25 bg-black/65 text-white shadow-lg backdrop-blur-sm transition hover:scale-105 hover:bg-black/80 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white",
-            !waveform && !poster && "translate-x-10 translate-y-8",
-            isVideo && !failed && "pointer-events-none opacity-0 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
-            !isVideo && playing && "opacity-0 group-hover/card:opacity-100 focus-visible:opacity-100")}
-        >
-          {failed ? <PiArrowClockwise className="size-5" /> : active && busy ? <PiCircleNotch className="size-5 animate-spin" /> : active ? <PiPauseFill className="size-5" /> : <PiPlayFill className="ml-0.5 size-5" />}
-        </button>
-      )}
-      {isVideo && active && preview?.state === "ready" && (
-        <button type="button" aria-label={`${muted ? "Unmute" : "Mute"} preview of ${project.name}`}
-          title={muted ? "Unmute preview" : "Mute preview"}
-          className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-full border border-white/25 bg-black/65 text-white backdrop-blur-sm hover:bg-black/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (media.current) media.current.muted = !muted;
-            setMuted(!muted);
-          }} onKeyDown={(e) => e.stopPropagation()}>
-          {muted ? <PiSpeakerSlash className="size-4" /> : <PiSpeakerHigh className="size-4" />}
-        </button>
-      )}
-      {!isVideo && preview?.state === "ready" && (
-        <div className="absolute right-2 bottom-2 left-2 flex items-center gap-2 rounded bg-black/65 px-2 py-1 text-[10px] text-white backdrop-blur-sm"
-          onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-          <span className="shrink-0 tabular-nums">{active || time > 0 ? formatDuration(time) : "Preview"}</span>
-          <input type="range" aria-label={`Seek preview of ${project.name}`} min={0} max={preview.duration ?? 0} step={0.1} value={time}
-            className="h-1 min-w-0 flex-1 cursor-pointer accent-white"
-            onChange={(e) => {
-              const next = Number(e.target.value);
-              setTime(next);
-              const element = media.current;
-              if (element && element.readyState >= 1) element.currentTime = next;
-            }} />
-          <span className="tabular-nums">{formatDuration(preview.duration ?? 0)}</span>
-        </div>
-      )}
-      {/* A still (a photo's cover) has nothing to play: its picture is all there is, not an empty project. */}
-      {((empty && !poster) || busy || failed || playError) && (
-        <span className="pointer-events-none absolute right-2 bottom-2 left-2 truncate text-center text-[10px] text-current opacity-80"
-          title={playError ?? preview?.error}>
-          {playError ?? (empty ? `Empty ${project.suite === "music" ? "song" : "timeline"}` : failed ? "Preview unavailable · retry" : "Preparing preview…")}
-        </span>
-      )}
+    </div>
+  );
+}
+
+/**
+ * The line along the bottom of a playing card: how far it's got. On hover it thickens and shows its knob;
+ * pressed and dragged, it scrubs. Outside the picture's clipping, so the knob can sit over the card's edge.
+ */
+function Scrubber({ label, progress, onSeek }: { label: string; progress: number; onSeek: (fraction: number) => void }) {
+  const [held, setHeld] = useState(false);
+  const fractionAt = (element: Element, x: number) => {
+    const box = element.getBoundingClientRect();
+    return box.width > 0 ? clamp((x - box.left) / box.width, 0, 1) : 0;
+  };
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const element = e.currentTarget;
+    onSeek(fractionAt(element, e.clientX));
+    const done = () => setHeld(false);
+    if (startPointerDrag(e, { threshold: 0, onMove: (ev) => onSeek(fractionAt(element, ev.clientX)), onEnd: done, onCancel: done, onClick: done })) setHeld(true);
+  };
+  return (
+    <div role="slider" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}
+      data-held={held || undefined}
+      className="group/seek absolute inset-x-0 bottom-0 z-10 h-3 cursor-pointer"
+      onPointerDown={onPointerDown}
+      // The card opens on a click: one here only scrubs.
+      onClick={(e) => e.stopPropagation()}>
+      <div className="absolute inset-x-0 bottom-0 h-0.5 bg-white/25 transition-[height] duration-100 group-hover/seek:h-1 group-data-[held]/seek:h-1">
+        <div className="h-full bg-brand" style={{ width: `${progress * 100}%` }} />
+      </div>
+      <span aria-hidden className="absolute bottom-0.5 size-2.5 -translate-x-1/2 translate-y-1/2 rounded-full bg-white opacity-0 shadow-sm transition-opacity duration-100 group-hover/seek:opacity-100 group-data-[held]/seek:opacity-100"
+        style={{ left: `${progress * 100}%` }} />
     </div>
   );
 }

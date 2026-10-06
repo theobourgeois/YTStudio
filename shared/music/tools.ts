@@ -1674,25 +1674,43 @@ export const MUSIC_TOOLS = [
     inputSchema: obj({ query: str("What to look for."), limit: int("At most this many results (default 30, up to 200).") }, ["query"]),
   }),
   tool({
+    name: "search_online_audio",
+    title: "Search online",
+    kind: "look",
+    timeout: 120,
+    description:
+      "Search YouTube (the Browser's Online tab) for a song, a sample, a loop or a sound: title, channel, length, whether the channel is " +
+      "verified (usually the official upload), and its URL. A URL from here, or one the user pastes (YouTube, SoundCloud, TikTok and any " +
+      "site yt-dlp reads), goes to preview_sample (`url`), load_sample or add_audio_clip (`urls`): its sound is downloaded then.",
+    inputSchema: obj(
+      {
+        query: str('What to look for, e.g. "amen break" or "Blinding Lights The Weeknd".'),
+        limit: int("Most results (default 8, at most 15).", { minimum: 1, maximum: 15 }),
+      },
+      ["query"],
+    ),
+  }),
+  tool({
     name: "preview_sample",
     title: "Play a sample",
     kind: "action",
     description:
-      "Play one of the Browser's audio files to the user once, outside the song (it cuts off the last preview). You can't hear it: ask the user. " +
-      'With `stop`, stop the preview instead.',
-    inputSchema: obj({ path: str("The file's full path (from search_samples or list_samples)."), start: num("Seconds into the file to start from (default 0)."), stop: bool("Stop the preview playing.") }),
+      "Play one of the Browser's audio files, or an online clip's sound, to the user once, outside the song (it cuts off the last preview). " +
+      "You can't hear it: ask the user. With `stop`, stop the preview instead.",
+    inputSchema: obj({ path: str("The file's full path (from search_samples or list_samples)."), url: str("Or an online clip's URL (from search_online_audio, or the user's)."), start: num("Seconds into the file to start from (default 0)."), stop: bool("Stop the preview playing.") }),
   }),
   tool({
     name: "load_sample",
     title: "Load a sample",
     kind: "action",
     description:
-      "Put the user's audio files (the Browser's, by full path) into the song: as the sample of an existing sampler channel (`channel`: its " +
-      "sample is replaced, its steps and notes stay), or as new channels, one per file, at the end of the rack. The file is copied into the " +
-      "project the first time; using it again reuses the copy.",
+      "Put the user's audio files (the Browser's, by full path) or online clips' sound (`urls`) into the song: as the sample of an existing " +
+      "sampler channel (`channel`: its sample is replaced, its steps and notes stay), or as new channels, one per file, at the end of the " +
+      "rack. The file is copied into the project the first time (an online clip's downloaded); using it again reuses the copy.",
     inputSchema: obj(
       {
         paths: arr(str("A file's full path."), "The files (from search_samples or list_samples). With `channel`, only the first is used."),
+        urls: arr(str("URL"), "Online clips (from search_online_audio, or links the user gives), after the files."),
         channel: str('A sampler channel to give the first file to: its id or its name ("Kick"). Default: new channels.'),
         name: str("A new channel's name (default: the file's name). Only for a single new channel."),
       },
@@ -1922,11 +1940,12 @@ export const MUSIC_TOOLS = [
     description:
       "Put audio files on the playlist as audio clips (FL's): a vocal, a loop, a whole song. Each gets a channel of its own (in the rack's " +
       "Audio group, routed to a mixer track like any channel) and a clip as long as the file, streamed from disk when it plays. Files from " +
-      "the Browser (by full path), or already in the project (`mediaId`). Several are placed on the tracks below each other, or one after " +
+      "the Browser (by full path), online clips' sound (`urls`), or already in the project (`mediaId`). Several are placed on the tracks below each other, or one after " +
       "another on one track (`after`).",
     inputSchema: obj(
       {
         paths: arr(str("A file's full path."), "The Browser's files (from search_samples or list_samples)."),
+        urls: arr(str("URL"), "Online clips (from search_online_audio, or links the user gives), after the files."),
         mediaId: str("An audio file already in the project (from get_song)."),
         track: playlistTrack,
         bar: num("Where it starts: a bar, 1 for the first."),

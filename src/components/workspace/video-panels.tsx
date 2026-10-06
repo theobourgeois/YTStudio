@@ -1,5 +1,5 @@
 import { type DragEvent, useEffect, useMemo, useRef, type ReactNode } from "react";
-import { PiBooks, PiFileArrowUp, PiFilmStrip, PiGlobe, PiIntersect, PiMagicWand, PiSparkle } from "react-icons/pi";
+import { PiBooks, PiFileArrowUp, PiFilmStrip, PiIntersect, PiMagicWand, PiSparkle } from "react-icons/pi";
 import { CaptionsPanel } from "@/components/captions/captions-panel";
 import type { DockPanel } from "@/components/dock/dock-area";
 import { PresetsPanel } from "@/components/effects/presets-panel";
@@ -28,7 +28,6 @@ import { type VideoPanel, showEffects, showMedia } from "@/stores/video-dock";
 const SOURCES: { id: MediaSource; label: string; icon: ReactNode; badge?: () => ReactNode; springFor?: DragKind[] }[] = [
   { id: "project", label: "This video", icon: <PiFilmStrip />, badge: () => <MediaCount />, springFor: ["files"] },
   { id: "library", label: "Library", icon: <PiBooks />, springFor: ["files", "assets"] },
-  { id: "online", label: "Online", icon: <PiGlobe /> },
 ];
 
 /** The Effects panel's kinds, switched at its top (hidden while there's only one). */
@@ -48,8 +47,9 @@ const springsFor = (kinds: DragKind[]) => (e: DragEvent) => {
  * its id in `VideoPanel` and `VIDEO_PANELS`, then an entry here.
  */
 export const VIDEO_PANEL_DEFS: Record<VideoPanel, DockPanel> = {
-  // Kept mounted behind other tabs: the Online source keeps its search and its preview player.
   media: { title: "Media", render: (shown) => <MediaPanel shown={shown} />, keepMounted: true, minWidth: 280, minHeight: 200, springs: springsFor(["files"]) },
+  // YouTube's search and links from other sites. Kept mounted behind other tabs: it keeps its search and its preview player.
+  online: { title: "Online", render: (shown) => <OnlinePanel active={shown} />, keepMounted: true, minWidth: 280, minHeight: 200 },
   // Premiere's Effects panel: video effects, presets and transitions.
   effects: { title: "Effects", render: () => <EffectsPanel />, minWidth: 280, minHeight: 200 },
   captions: { title: "Captions", render: () => <CaptionsPanel />, minWidth: 280, minHeight: 200 },
@@ -82,7 +82,7 @@ export function useVideoPanelMins(): Partial<Record<VideoPanel, { width: number 
 }
 
 /**
- * Media: the project's, the Library shared by every project, or online. Files dropped on it are
+ * Media: the project's, or the Library shared by every project. Files dropped on it are
  * imported: into the Library when it's showing (into the folder under the pointer, keeping dropped
  * folders), otherwise into the project.
  */
@@ -117,8 +117,6 @@ function MediaPanel({ shown }: { shown: boolean }) {
       )}
       {shown && source === "project" && <MediaBin />}
       {shown && source === "library" && <LibraryPanel />}
-      {/* Always mounted: it keeps its search results and preview player while hidden. */}
-      <OnlinePanel active={shown && source === "online"} />
       {drop.active && (
         <div className="pointer-events-none absolute inset-1.5 z-10 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-brand bg-brand/10 text-brand backdrop-blur-[2px]">
           <PiFileArrowUp className="size-6" />

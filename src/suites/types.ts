@@ -60,6 +60,8 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
   icon: IconType;
   /** Classes for its icon's tile (background and colour), on the Home screen and in the New project picker. */
   tint: string;
+  /** What its Home card plays while the pointer is on it: a video, or a sound over its waveform. None: its picture is all there is. */
+  preview?: "video" | "sound";
   /**
    * Load a project into the suite's store. `useProjects` closes the previous project's suite first, and
    * calls `open` again with another id to switch (the suite drops a load that's been overtaken).

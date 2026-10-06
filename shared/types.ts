@@ -848,8 +848,8 @@ export interface WebDownloadProgress {
 export interface ImportWebMediaRequest {
   projectId: string;
   url: string;
-  /** Display name for the imported media. */
-  title: string;
+  /** Display name for the imported media (default: the link's own title). */
+  title?: string;
   kind: WebMediaKind;
 }
 
@@ -1147,9 +1147,9 @@ export interface ToolCallProgressRequest {
 //   GET    /api/browser/list?path=      -> BrowserItem[] (a folder's subfolders and audio files)
 //   GET    /api/browser/search?q=&limit= -> BrowserSearchResult
 //   GET    /api/browser/file?path=      -> the audio file (only inside the Browser's folders)
-//   POST   /api/browser/use  body: UseBrowserFileRequest -> MediaAsset (the project's copy of the file, made once)
+//   POST   /api/browser/use  body: UseBrowserFileRequest -> MediaAsset (the project's copy of the file or online clip, made once)
 //   POST   /api/browser/reveal  body: { path } -> 204 (shows it in Finder)
-//   POST   /api/browser/preview  body: PreviewFileRequest -> EngineStatus (hear it; POST /api/engine/stopPreview stops it)
+//   POST   /api/browser/preview  body: PreviewFileRequest -> EngineStatus (hear a file or an online clip; POST /api/engine/stopPreview stops it)
 //   GET    /api/engine/devices          -> EngineDevices (the output and input devices and their options)
 //   POST   /api/engine/devices  body: SetDeviceRequest -> EngineDevices
 //   POST   /api/engine/:command  body: EngineCommands[command] -> EngineStatus (starts the engine if needed)

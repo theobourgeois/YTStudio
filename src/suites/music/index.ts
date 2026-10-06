@@ -11,6 +11,7 @@ export const musicSuite: ClientSuite<"music"> = {
   id: "music",
   icon: PiWaveform,
   tint: "bg-violet-500/12 text-violet-600 dark:text-violet-400",
+  preview: "sound",
   open: (projectId) => useMusic.getState().open(projectId),
   close: () => useMusic.getState().close(),
   flush: () => flushSongs(),

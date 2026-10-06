@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import type { BrowserSearchResult, BrowserState } from "@shared/music/browser";
 import { musicApi } from "../api";
+import { previewRequest } from "./online";
 import { type FolderContents, foldersToReveal, nameOf } from "./tree";
 
 /**
@@ -10,9 +11,13 @@ import { type FolderContents, foldersToReveal, nameOf } from "./tree";
  * Its folders and favourites are the server's (`/api/browser`); what's open, its width and the
  * preview's volume are this computer's (localStorage); what's selected and previewing is the tab's.
  */
+/** The Browser's tabs: the user's folders, or online clips (YouTube's search, a pasted link). */
+export type BrowserTab = "files" | "online";
+
 interface BrowserStoreState {
   open: boolean;
   width: number;
+  tab: BrowserTab;
   /** The preview's volume, 0..1. */
   volume: number;
   /** The server's: the folders added and the favourites. Null until it's said. */
@@ -27,14 +32,20 @@ interface BrowserStoreState {
   /** Selected rows (by row key: `tree.ts`), and the one the arrows move from (Shift+click's anchor too). */
   selected: readonly string[];
   cursor: string | null;
-  /** The file being previewed, and the name the engine knows the preview by. */
+  /** The file being previewed (its path, or an online clip's URL), and the name the engine knows the preview by. */
   previewing: { path: string; id: string } | null;
+  /** The Online tab's search (or link), and the clip selected there (its URL). */
+  onlineQuery: string;
+  onlineSelected: string | null;
   /** A row to scroll into view once it's drawn (after a jump to a favourite). */
   scrollTo: string | null;
 
   load: () => Promise<void>;
   setOpen: (open: boolean) => void;
   setWidth: (width: number) => void;
+  setTab: (tab: BrowserTab) => void;
+  setOnlineQuery: (query: string) => void;
+  selectOnline: (url: string | null) => void;
   setVolume: (volume: number) => void;
   toggleFolder: (path: string) => void;
   expand: (path: string) => void;
@@ -63,18 +74,20 @@ const DEFAULT_WIDTH = 280;
 interface Saved {
   open: boolean;
   width: number;
+  tab: BrowserTab;
   volume: number;
   expanded: string[];
 }
 
 function readSaved(): Saved {
-  const fallback: Saved = { open: true, width: DEFAULT_WIDTH, volume: 0.8, expanded: [] };
+  const fallback: Saved = { open: true, width: DEFAULT_WIDTH, tab: "files", volume: 0.8, expanded: [] };
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as Partial<Saved> | null;
     if (!raw || typeof raw !== "object") return fallback;
     return {
       open: typeof raw.open === "boolean" ? raw.open : fallback.open,
       width: typeof raw.width === "number" ? clampWidth(raw.width) : fallback.width,
+      tab: raw.tab === "online" ? "online" : fallback.tab,
       volume: typeof raw.volume === "number" ? Math.max(0, Math.min(1, raw.volume)) : fallback.volume,
       expanded: Array.isArray(raw.expanded) ? raw.expanded.filter((p): p is string => typeof p === "string").slice(0, 500) : [],
     };
@@ -93,9 +106,9 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useBrowser = create<BrowserStoreState>((set, get) => {
   function save() {
-    const { open, width, volume, expanded } = get();
+    const { open, width, tab, volume, expanded } = get();
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ open, width, volume, expanded: [...expanded] } satisfies Saved));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ open, width, tab, volume, expanded: [...expanded] } satisfies Saved));
     } catch {
       // Private mode, or full: it's only where the Browser was left.
     }
@@ -125,6 +138,7 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
   return {
     open: saved?.open ?? true,
     width: saved?.width ?? DEFAULT_WIDTH,
+    tab: saved?.tab ?? "files",
     volume: saved?.volume ?? 0.8,
     state: null,
     expanded: new Set(saved?.expanded ?? []),
@@ -135,6 +149,8 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
     cursor: null,
     previewing: null,
     scrollTo: null,
+    onlineQuery: "",
+    onlineSelected: null,
 
     async load() {
       try {
@@ -157,6 +173,12 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
       set({ width: clampWidth(width) });
       save();
     },
+    setTab(tab) {
+      set({ tab });
+      save();
+    },
+    setOnlineQuery: (onlineQuery) => set({ onlineQuery }),
+    selectOnline: (onlineSelected) => set({ onlineSelected }),
     setVolume(volume) {
       set({ volume: Math.max(0, Math.min(1, volume)) });
       save();
@@ -246,7 +268,7 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
     preview(path, start = 0) {
       const id = `preview-${++previews}`;
       set({ previewing: { path, id } });
-      musicApi.previewFile({ path, start, id }).catch((err) => {
+      musicApi.previewFile(previewRequest(path, start, id)).catch((err) => {
         if (get().previewing?.id === id) set({ previewing: null });
         failed("Couldn't play the file", err);
       });

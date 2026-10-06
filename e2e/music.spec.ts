@@ -1873,6 +1873,74 @@ test("the Browser's files go into the song: dragged onto the rack or a channel, 
   await expect(page.getByTestId("piano-roll")).toHaveAttribute("data-channel-name", "Break");
 });
 
+test("the Browser's Online tab: YouTube searched, a result heard and dragged into the song, a pasted link sent to the selected channel", async ({ page }) => {
+  const id = await openNewSong(page, "From online", { browser: true });
+  const browser = page.getByRole("complementary", { name: "Browser" });
+  const names = async () => (await savedSong(page, id)).channels.map((c: { name: string }) => c.name);
+  await browser.getByRole("tab", { name: "Online" }).click();
+  const search = browser.getByRole("searchbox", { name: "Search YouTube or paste a link" });
+  const results = browser.getByRole("listbox", { name: "Online results" });
+  const result = (name: string) => results.getByRole("option", { name, exact: true });
+  await search.fill("amen");
+  await expect(result("Amen Break")).toBeVisible();
+  await expect(result("Vocal Chop")).toBeVisible();
+
+  // Pressed, it plays (its sound downloaded first), and its waveform shows below.
+  await result("Amen Break").click();
+  await expect(result("Amen Break")).toHaveAttribute("data-playing", "true");
+  await expect(browser.getByTestId("browser-preview")).toContainText("Amen Break");
+  await expect(browser.getByTestId("browser-waveform")).toHaveAttribute("data-loaded", "true");
+
+  // Dragged onto the rack: a channel named after it (the new song's empty sampler makes way for it).
+  await result("Vocal Chop").dragTo(page.getByTestId("channel-rack"));
+  await expect.poll(names).toEqual(["Vocal Chop"]);
+  // Its + opens it in another channel; the project keeps one copy of its sound.
+  await result("Vocal Chop").hover();
+  await browser.getByRole("button", { name: "Open Vocal Chop in a new channel" }).click();
+  await expect.poll(names).toEqual(["Vocal Chop", "Vocal Chop"]);
+  const media = await (await page.request.get(`/api/media?projectId=${id}`)).json();
+  expect(media.map((m: { name: string }) => m.name)).toEqual(["Vocal Chop.wav"]);
+
+  // A pasted link is looked up; Enter sends it to the selected channel, as a file's does.
+  await page.getByRole("button", { name: "Select Vocal Chop" }).first().click();
+  await search.fill("https://soundcloud.com/someone/pasted-sound");
+  await expect(result("Pasted Sound")).toBeVisible();
+  await search.press("ArrowDown");
+  await expect(result("Pasted Sound")).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Enter");
+  await expect.poll(names).toEqual(["Pasted Sound", "Vocal Chop"]);
+
+  // The Files tab is as it was; the Online tab keeps its results meanwhile.
+  await browser.getByRole("tab", { name: "Files" }).click();
+  await expect(browser.getByTestId("browser-list")).toBeVisible();
+  await browser.getByRole("tab", { name: "Online" }).click();
+  await expect(result("Pasted Sound")).toBeVisible();
+});
+
+test("the assistant searches online and samples a result: heard, then a channel and an audio clip", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted online", { browser: true });
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  const amen = "https://www.youtube.com/watch?v=amenbreak01";
+  await composer.fill(
+    [
+      'call search_online_audio {"query": "amen break"}',
+      `call preview_sample {"url": "${amen}"}`,
+      `call load_sample {"urls": ["${amen}"]}`,
+      `call add_audio_clip {"urls": ["${amen}"], "track": 1, "bar": 1}`,
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_audio_clip: ok", { timeout: 30_000 });
+  for (const tool of ["search_online_audio", "preview_sample", "load_sample"]) await expect(panel).toContainText(`${tool}: ok`);
+  // Saved a moment later, by the autosave.
+  await expect.poll(async () => (await savedSong(page, id)).channels.map((c: { name: string }) => c.name)).toEqual(["Amen Break", "Amen Break"]);
+  expect((await savedSong(page, id)).playlist.clips).toHaveLength(1);
+  const media = await (await page.request.get(`/api/media?projectId=${id}`)).json();
+  expect(media.map((m: { name: string }) => m.name)).toEqual(["Amen Break.wav"]);
+});
+
 test("the assistant finds the user's samples, plays one to them and puts them in the song", async ({ page }) => {
   const id = await openNewSong(page, "Assisted samples", { browser: true });
   const folder = path.resolve("e2e/.data/My Samples");

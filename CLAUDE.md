@@ -432,10 +432,10 @@ src/
                      or beside it, lines that resize, each group's menu: float, workspaces, Reset layout; a panel's
                      `header` in its group's tab strip, as the Timeline's sequence tabs;
                      `FloatingPanels` on a desktop).
-  components/workspace/video-panels.tsx   The video editor's panels (`VIDEO_PANEL_DEFS`): Media (This video | Library
-                     | Online, `MediaSource`), Effects (Video effects | Presets | Transitions, `EffectKind`, `KINDS`),
-                     Captions, Properties, Program, Timeline. Laid out by `stores/video-dock.ts` (the default, Théo's: Media,
-                     Effects and Captions as tabs on the left, the monitor, Properties on the right, the timeline
+  components/workspace/video-panels.tsx   The video editor's panels (`VIDEO_PANEL_DEFS`): Media (This video | Library,
+                     `MediaSource`), Online (YouTube and pasted links), Effects (Video effects | Presets | Transitions,
+                     `EffectKind`, `KINDS`), Captions, Properties, Program, Timeline. Laid out by `stores/video-dock.ts`
+                     (the default, Théo's: Media, Online, Effects and Captions as tabs on the left, the monitor, Properties on the right, the timeline
                      below; `VIDEO_WORKSPACES`). Effects and effect presets dropped on Properties go on its clips
                      (`properties/properties-drop.tsx`). Show one with
                      `showPanel` (also `showMedia`, `showEffects`), never by assuming where it is: it may be in any
@@ -662,14 +662,19 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   (`ClipPlayer`): streams are made ahead on the message thread, each for a play (`generation`) and a pass
   round the loop, and started on their sample; keep that when adding to it. `playhead.ts` says where the
   shown pattern is inside the song, for the rack's lights and the Piano roll's playhead.
-- **The Browser** (`docs/fl-studio/browser.md`, Alt+F8): the user's own sample folders, global, not the
+- **The Browser** (`docs/fl-studio/browser.md`, Alt+F8): the user's own sample folders (its Files tab), global, not the
   song's (`data/browser.json`, `server/music/browser.ts`; the tab's open folders and width are localStorage).
   The server reads nothing outside the folders added. It's a panel kept on the desktop's left
   (`browser/browser-panel.tsx`), outside the `Desktop`, so the windows keep to the room beside it; e2e
   tests that measure windows open songs with it closed. A file reaches a song as project media through
   `POST /api/browser/use` (copied once, by `origin`); a drag of its files carries their paths
   (`BROWSER_DRAG_TYPE`), and every drop target goes through `browser/drops.ts`, which takes Finder's files
-  too. Previews are the engine's `FilePreview` (streamed), not the song's.
+  too. Previews are the engine's `FilePreview` (streamed), not the song's. Its **Online** tab (`browser/online-tab.tsx`)
+  searches YouTube or takes a pasted link (the platform's `server/web-media.ts`, yt-dlp): wherever the Browser hands
+  a sample round it's a string, a file's path or a clip's URL (`browser/online.ts`), and `/api/browser/use` and
+  `/preview` take either (`url`), so a clip is dragged, sent and previewed as a file is. The download is kept in a
+  format the engine reads (else made a WAV) and copied into the project once (`MediaAsset.origin`). e2e plays
+  yt-dlp with `e2e/fake-ytdlp.mjs`.
 - The starter kit (`public/kit/`, made by `scripts/make-kit.ts`) becomes ordinary project media when it's added.
 - **Exporting** (`docs/fl-studio/export.md`, ⌘R / ⌘⇧R; `src/suites/music/export/`): the save dialog
   (`chooseSaveFile`, the desktop app's; a browser downloads instead), then the window, then
@@ -1193,7 +1198,7 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   go to the model: say what's wrong and what to do (which ids exist, which values are allowed).
 - **A video editor panel**: its id in `VideoPanel` and `VIDEO_PANELS` (`stores/video-dock.ts`, where the default
   layout puts it; saved layouts get it in their first group) and its entry in `VIDEO_PANEL_DEFS`
-  (`workspace/video-panels.tsx`). Keep the panels few: a new place to find media is a `MediaSource` (and
+  (`workspace/video-panels.tsx`). Keep the panels few: a new place to find media is a `MediaSource` (Online is a panel of its own, Théo's call) (and
   `SOURCES`), and a new kind of effect (video, audio) is an `EffectKind` (and `KINDS`), not a panel.
 - **A clip kind (like text) or a track kind**: there's no registry yet. Clip kinds are branched on in
   `preview/engine.ts` (`kindOf` and each kind's slots), `preview/stage.tsx`, `preview/placement.ts`,

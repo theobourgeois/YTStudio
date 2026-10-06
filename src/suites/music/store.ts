@@ -11,6 +11,7 @@ import { createAutosaver } from "@/lib/autosaver";
 import { DocumentGesture, type DocumentHistory, commit, historyOf, redo, rewrite, undo } from "@/lib/document-history";
 import { useProjects } from "@/stores/projects";
 import { musicApi } from "./api";
+import { displayName, isOnline, requestFor } from "./browser/online";
 import { useTransport } from "./transport";
 import { type DraftPattern, draftAsPattern, editWithDraft, stepPattern } from "./patterns";
 
@@ -59,7 +60,7 @@ interface MusicState {
   addStarterKit: () => Promise<void>;
   /** Give a channel another sample. */
   replaceSample: (channelId: string, file: File) => Promise<void>;
-  /** The Browser's files (by path) as new channels, at the end of the rack or before channel `at`. Returns their ids. */
+  /** The Browser's files (by path, or its online clips by URL) as new channels, at the end of the rack or before channel `at`. Returns their ids. */
   addBrowserSamples: (paths: string[], at?: number) => Promise<string[]>;
   /**
    * Give a channel one of the Browser's files. `swap`: trying samples one after another (Shift+Up/Down),
@@ -109,7 +110,7 @@ export const useMusic = create<MusicState>((set, get) => {
     return get().projectId === projectId ? added : [];
   }
 
-  /** The Browser's files as the open project's media (copied the first time); the ones that fail are reported and left out. */
+  /** The Browser's files (and online clips) as the open project's media (copied the first time); the ones that fail are reported and left out. */
   async function fromBrowser(paths: string[]): Promise<MediaAsset[]> {
     const { projectId } = get();
     if (!projectId) return [];
@@ -121,11 +122,13 @@ export const useMusic = create<MusicState>((set, get) => {
       while (next < unique.length) {
         const path = unique[next++];
         try {
-          const asset = await musicApi.useBrowserFile({ projectId, path });
+          // An online clip's sound is downloaded first, if it wasn't previewed: a few seconds.
+          const downloading = isOnline(path) ? toast.loading(`Downloading “${displayName(path)}”…`) : null;
+          const asset = await musicApi.useBrowserFile(requestFor(projectId, path)).finally(() => downloading !== null && toast.dismiss(downloading));
           if (!asset.hasAudio) throw new Error("it has no sound");
           byPath.set(path, asset);
         } catch (err) {
-          toast.error(`Couldn't add ${path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1)}`, { description: errorMessage(err) });
+          toast.error(`Couldn't add ${displayName(path)}`, { description: errorMessage(err) });
         }
       }
     };
