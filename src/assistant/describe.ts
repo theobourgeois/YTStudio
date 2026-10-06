@@ -358,6 +358,8 @@ function specLine(spec: ParamSpec): string {
       return `${spec.key}: font family (see get_catalog "fonts"), default ${d}`;
     case "fontStyle":
       return `${spec.key}: one of the font's styles, default ${d}`;
+    case "source":
+      return `${spec.key}: what it listens to: "master" (the mix), "self" (the clip's own sound) or "t:<audio track id>", default ${d}`;
     default:
       return `${spec.key}: text, default ${d}`;
   }

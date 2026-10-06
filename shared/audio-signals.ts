@@ -17,6 +17,7 @@ import { bandEnergyAt, bandReferenceEnergy, dbPower, powerDb, scalarAt, scalarMa
 import { isNestedClip, sequenceView } from "./sequences.ts";
 import { mediaTime } from "./time-remap.ts";
 import { clipDuration, clipEnd, clipSpeed, sourceTime, timelineTime, trackClips } from "./timeline.ts";
+import { type AudioInputs, type AudioRequest, MAX_AUDIO_HITS } from "./compositor.ts";
 import type { Clip, HitShape, MusicSection, ParamLink, Project, SignalDef, SignalRef, SignalSource, Track } from "./types.ts";
 
 export type { SignalSource };
@@ -811,6 +812,198 @@ function readLink(clipId: string, link: ParamLink, time: number): number {
 }
 
 provideLinks(readLink);
+
+// ---------------------------------------------------------------------------
+// What a visualizer hears (`EffectShader.audio`)
+// ---------------------------------------------------------------------------
+
+/** dB under a band's loud parts at which a visualizer's spectrum reads 0. */
+export const SPECTRUM_RANGE_DB = 30;
+/** Points of the waveform a visualizer gets (left and right each). */
+export const WAVE_POINTS = 512;
+/** Most rows of spectrum history. */
+export const MAX_SPECTRUM_ROWS = 64;
+/** How far apart the moments a falling spectrum looks back over are (seconds). */
+const FALL_STEP = 0.01;
+
+
+/** A visualizer's source parameter ("master", "self", "t:<track id>") as a source, for a clip. */
+export function visualizerSource(value: unknown, clipId: string): SignalSource {
+  if (value === "self") return { kind: "clip", clipId };
+  if (typeof value === "string" && value.startsWith("t:")) return { kind: "track", trackId: value.slice(2) };
+  return MASTER;
+}
+
+/** The 96 bands of what sounds in `sounds`, 0..1 against their loud parts, into `out` (taking the higher of each). */
+function bandsInto(sounds: Sounding[], out: Float64Array, weight: number): void {
+  if (!sounds.length) return;
+  const energy = new Float64Array(BAND_COUNT);
+  const reference = new Float64Array(BAND_COUNT);
+  for (const s of sounds) {
+    const frame = Math.round(s.time * s.data.header.rate);
+    const inside = frame >= 0 && frame < s.data.header.frames;
+    for (let b = 0; b < BAND_COUNT; b++) {
+      if (inside) energy[b] += s.gain * s.gain * dbPower(byteDb(s.data.bands[frame * BAND_COUNT + b]));
+      reference[b] += dbPower(s.data.header.bandReference[b]);
+    }
+  }
+  for (let b = 0; b < BAND_COUNT; b++) {
+    if (!(energy[b] > 0 && reference[b] > 0)) continue;
+    const v = Math.min(1, Math.max(0, 1 + (powerDb(energy[b]) - powerDb(reference[b])) / SPECTRUM_RANGE_DB));
+    out[b] = Math.max(out[b], v * weight);
+  }
+}
+
+const round3 = (v: number) => Math.round(v * 1000) / 1000;
+
+/**
+ * What a visualizer on a clip of `sequenceId` hears from `source` at its timeline time `t`: the spectrum
+ * now and before it, the waveform around now, levels, hits and the beat (see `AudioInputs`). The mix is
+ * heard where the clip's sequence is (a nest hears the video it's placed in).
+ */
+export function audioInputs(reader: SignalReader, sequenceId: string | null, source: SignalSource, t: number, request: AudioRequest, fps: number): AudioInputs {
+  const where = heard(reader, sequenceId, source, t);
+  const view = viewOf(reader, where.sequenceId);
+  const at = (time: number) => {
+    const sounds: Sounding[] = [];
+    soundsAt(reader, view, source, time, 1, sounds);
+    return sounds;
+  };
+  // The spectrum: each row the highest of the last `fall` seconds, falling away in a straight line.
+  const rows = Math.max(1, Math.min(MAX_SPECTRUM_ROWS, Math.round(request.rows)));
+  const span = rows > 1 ? Math.max(0, request.span) : 0;
+  const spectrum: number[] = [];
+  const steps = request.fall > 0 ? Math.ceil(request.fall / FALL_STEP) : 0;
+  for (let r = 0; r < rows; r++) {
+    const time = where.t - (rows > 1 ? (span * r) / (rows - 1) : 0);
+    const row = new Float64Array(BAND_COUNT);
+    for (let k = 0; k <= steps; k++) bandsInto(at(time - k * FALL_STEP), row, steps ? 1 - (k * FALL_STEP) / request.fall : 1);
+    for (let b = 0; b < BAND_COUNT; b++) spectrum.push(round3(row[b]));
+  }
+  // The waveform: the sounds' samples summed (a mixdown, as they'd be heard), centred on now.
+  const wave = new Array<number>(request.window > 0 ? WAVE_POINTS * 2 : 0).fill(0);
+  if (request.window > 0) {
+    for (const s of at(where.t)) {
+      const { waveRate, waveSamples } = s.data.header;
+      const rate = clipSpeed(s.clip) * (s.clip.reversed ? -1 : 1);
+      for (let i = 0; i < WAVE_POINTS; i++) {
+        const x = (s.time + (i / (WAVE_POINTS - 1) - 0.5) * request.window * rate) * waveRate;
+        const j = Math.floor(x);
+        if (j < 0 || j + 1 >= waveSamples) continue;
+        const f = x - j;
+        for (let c = 0; c < 2; c++) {
+          const a = s.data.wave[j * 2 + c];
+          const b = s.data.wave[(j + 1) * 2 + c];
+          wave[i * 2 + c] += ((a + (b - a) * f) / 127) * s.gain;
+        }
+      }
+    }
+    for (let i = 0; i < wave.length; i++) wave[i] = round3(Math.max(-1, Math.min(1, wave[i])));
+  }
+  const frame = fps > 0 ? 1 / fps : 0;
+  const value = (name: ScalarName) => round3(signalValue(reader, where.sequenceId, source, name, where.t, frame));
+  const onsets = sourceHits(reader, where.sequenceId, source, "onset");
+  const last = lastHit(onsets, where.t);
+  const chosen = request.hits && request.hits !== "onset" ? sourceHits(reader, where.sequenceId, source, request.hits) : onsets;
+  const hits: [number, number][] = [];
+  for (let i = lastHit(chosen, where.t); i >= 0 && hits.length < MAX_AUDIO_HITS; i--) hits.push([round3(where.t - chosen[i][0]), round3(chosen[i][1])]);
+  const beat = beatAt(reader, where.sequenceId, where.t);
+  return {
+    spectrum,
+    rows,
+    span,
+    wave,
+    hits,
+    scalars: {
+      level: value("level"),
+      bass: value("bass"),
+      mid: value("mid"),
+      high: value("air"),
+      onset: value("onset"),
+      beat: round3(beat.beat),
+      beatPhase: round3(beat.beat - Math.floor(beat.beat)),
+      sinceBeat: round3(Math.min(NEVER, beat.since)),
+      sinceOnset: round3(last < 0 ? NEVER : where.t - onsets[last][0]),
+      bpm: round3(beat.bpm),
+    },
+  };
+}
+
+/** Silence, as a visualizer hears it where nothing can be read. */
+export function silentAudio(request: AudioRequest): AudioInputs {
+  const rows = Math.max(1, Math.min(MAX_SPECTRUM_ROWS, Math.round(request.rows)));
+  return {
+    spectrum: new Array<number>(rows * BAND_COUNT).fill(0),
+    rows,
+    span: rows > 1 ? request.span : 0,
+    wave: new Array<number>(request.window > 0 ? WAVE_POINTS * 2 : 0).fill(0),
+    hits: [],
+    scalars: { level: 0, bass: 0, mid: 0, high: 0, onset: 0, beat: 0, beatPhase: 0, sinceBeat: NEVER, sinceOnset: NEVER, bpm: 0 },
+  };
+}
+
+/**
+ * A visualizer on a clip at its source time `time`, from its source parameter (what `effect-gl.ts`
+ * asks; silence where signals can't be read).
+ */
+export function clipAudio(clipId: string, time: number, sourceValue: unknown, request: AudioRequest, fps: number): AudioInputs {
+  const reader = currentSignalReader();
+  const found = reader && findClip(reader.document, clipId);
+  if (!reader || !found) return silentAudio(request);
+  return audioInputs(reader, found.sequenceId, visualizerSource(sourceValue, clipId), timelineTime(found.clip, time), request, fps);
+}
+
+/**
+ * Made-up sound for effect cards and sheets, where no song plays: a beat at 120 BPM, a pink-ish spectrum
+ * that pumps on it, and a chord's waveform, all a pure function of `t`.
+ */
+export function demoAudio(t: number, request: AudioRequest): AudioInputs {
+  const rows = Math.max(1, Math.min(MAX_SPECTRUM_ROWS, Math.round(request.rows)));
+  const span = rows > 1 ? request.span : 0;
+  const pump = (time: number) => Math.exp(-((((time % 0.5) + 0.5) % 0.5) / 0.12));
+  const spectrum: number[] = [];
+  for (let r = 0; r < rows; r++) {
+    const time = t - (rows > 1 ? (span * r) / (rows - 1) : 0);
+    const p = pump(time);
+    for (let b = 0; b < BAND_COUNT; b++) {
+      const x = b / (BAND_COUNT - 1);
+      const shape = 0.85 - 0.45 * x + 0.12 * Math.sin(x * 23 + time * 3) + 0.08 * Math.sin(x * 61 - time * 7);
+      const kick = x < 0.25 ? 0.35 * p * (1 - x / 0.25) : 0;
+      spectrum.push(round3(Math.min(1, Math.max(0, shape * (0.65 + 0.35 * p) + kick))));
+    }
+  }
+  const wave: number[] = [];
+  if (request.window > 0) {
+    for (let i = 0; i < WAVE_POINTS; i++) {
+      const time = t + (i / (WAVE_POINTS - 1) - 0.5) * request.window;
+      const v = 0.5 * Math.sin(2 * Math.PI * 110 * time) + 0.25 * Math.sin(2 * Math.PI * 165 * time + 1) + 0.15 * Math.sin(2 * Math.PI * 220 * time);
+      wave.push(round3(v), round3(0.5 * Math.sin(2 * Math.PI * 110 * time + 0.6) + 0.3 * Math.sin(2 * Math.PI * 277 * time)));
+    }
+  }
+  const beat = Math.max(0, t * 2);
+  const since = ((t % 0.5) + 0.5) % 0.5;
+  const hits: [number, number][] = [];
+  for (let k = 0; k < MAX_AUDIO_HITS && since + k * 0.5 <= t; k++) hits.push([round3(since + k * 0.5), k % 2 ? 0.7 : 1]);
+  return {
+    spectrum,
+    rows,
+    span,
+    wave,
+    hits,
+    scalars: {
+      level: round3(0.6 + 0.35 * pump(t)),
+      bass: round3(0.5 + 0.5 * pump(t)),
+      mid: round3(0.55 + 0.2 * Math.sin(t * 2)),
+      high: round3(0.4 + 0.3 * Math.sin(t * 5) ** 2),
+      onset: round3(pump(t) > 0.85 ? 1 : 0),
+      beat: round3(beat),
+      beatPhase: round3(beat - Math.floor(beat)),
+      sinceBeat: round3(((t % 0.5) + 0.5) % 0.5),
+      sinceOnset: round3(((t % 0.5) + 0.5) % 0.5),
+      bpm: 120,
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Naming sources, and what an expression sees

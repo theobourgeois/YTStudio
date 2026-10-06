@@ -36,10 +36,11 @@ import { KEYING_EFFECTS } from "./effect-library/keying.ts";
 import { SHAKE_EFFECTS } from "./effect-library/shake.ts";
 import { TIME_EFFECTS } from "./effect-library/time.ts";
 import { PARTICLE_EFFECTS } from "./effect-library/particles.ts";
+import { AUDIO_EFFECTS } from "./effect-library/audio.ts";
 import { MASK } from "./effect-library/mask.ts";
 import { SHAPE, SHAPE_EFFECTS } from "./effect-library/shape.ts";
 import { TEXT_ANIMATOR } from "./effect-library/text-animator.ts";
-import { BLEND_MODES } from "./compositor.ts";
+import { type AudioRequest, BLEND_MODES } from "./compositor.ts";
 import { type ExprValue, type SignalScope, expressionError, expressionValue, evaluateExpression, parseExpression } from "./expressions.ts";
 import { keyframeValue, sanitizeKeyframes, setKeyframe } from "./keyframes.ts";
 import { applyLink, normalizeLink } from "./links.ts";
@@ -86,7 +87,7 @@ export interface EffectDefinition {
 }
 
 /** Categories of video effects, in the order the Effects tab's filter shows them. */
-export const EFFECT_TAGS = ["color", "blur", "light", "stylize", "distort", "camera", "time", "glitch", "generate", "keying"] as const;
+export const EFFECT_TAGS = ["color", "blur", "light", "stylize", "distort", "camera", "time", "glitch", "generate", "keying", "audio"] as const;
 
 export type EffectTag = (typeof EFFECT_TAGS)[number];
 
@@ -101,6 +102,7 @@ export const EFFECT_TAG_LABELS: Record<EffectTag, string> = {
   glitch: "Glitch",
   generate: "Generate",
   keying: "Keying",
+  audio: "Audio",
 };
 
 export interface EffectShader {
@@ -141,6 +143,12 @@ export interface EffectShader {
    * Positions then go through `frameUv`.
    */
   grow?: (values: ParamValues) => number;
+  /**
+   * A visualizer: it hears its `source` parameter's sound (a `source` spec), as much of it as `request`
+   * asks for these values, through `uSpectrum`, `uWave` and the audio scalars (see `AUDIO_PRELUDE` in
+   * `effect-gl.ts`). Cards and sheets get made-up sound (`demoAudio`).
+   */
+  audio?: { request: (values: ParamValues) => AudioRequest };
 }
 
 // ---------------------------------------------------------------------------
@@ -470,6 +478,7 @@ export const VIDEO_EFFECTS: readonly EffectDefinition[] = [
   ...GENERATE_EFFECTS,
   ...PARTICLE_EFFECTS,
   ...KEYING_EFFECTS,
+  ...AUDIO_EFFECTS,
 ];
 
 /** Every effect definition; built-in ones in the order they're listed (and applied). */
@@ -540,6 +549,20 @@ export function solidEffects(params: ParamValues = {}): Effect[] {
 /** A new shape layer's effects: the built-in ones, then one Shape (with `params` over the defaults). */
 export function shapeEffects(params: ParamValues = {}): Effect[] {
   return [...defaultEffects(), sanitizeEffect(SHAPE, { params }, SHAPE.type)];
+}
+
+/** The visualizer a new Visualizer layer draws: Spectrum Bars, listening to the mix. */
+export const DEFAULT_VISUALIZER = "audio-bars";
+
+/**
+ * A new visualizer's effects: a black solid's, then `visualizer` (an Audio effect) drawing alone over
+ * what's below (Blend Mode Replace: the solid itself doesn't show), with `params` over its defaults.
+ */
+export function visualizerEffects(visualizer = DEFAULT_VISUALIZER, params: ParamValues = {}): Effect[] {
+  const def = byType.get(visualizer);
+  const effects = solidEffects({ color: "#000000" });
+  if (!def?.shader?.audio) return effects;
+  return [...effects, sanitizeEffect(def, { params: { blendMode: "replace", ...params } }, def.type)];
 }
 
 /** A new camera's effects: the built-in ones, then Camera (with `params` over the defaults). */
