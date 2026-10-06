@@ -120,7 +120,11 @@ tool handlers are `tools.ts`, the panels' pure helpers `panels/curve-points.ts` 
 (`PhotoState`, the document and the selection, is in `types.ts`; the selection's maths in `selection.ts`); a surface
 on the GPU is `render/surface.ts` (tiles by hash, its pyramid, strokes on drafts), its uploads and the publication
 gate's tab side `uploads.ts`, what a brush press paints `paint-target.ts` and the stroke `painting.ts`; there's no
-`tools/` folder (each tool's pointer handling is in `canvas/canvas-panel.tsx`, its options in `options-bar.tsx`).
+`tools/` folder (each tool's pointer handling is in `canvas/canvas-panel.tsx`, its options in `options-bar.tsx`). As built in
+F4: the glow's and the flare's definitions are `shared/photo/effects/glow.ts` and `flare.ts` (their CPU references
+in `reference/`), isolated layers' evaluation `render/isolated.ts`, the glow's passes `render/glow.ts` and its cache
+`render/glow-cache.ts`, the flare's pass `render/flare.ts`; Properties for light is `panels/light.tsx` (any
+parameter from its spec: `panels/params.tsx`), the flare's handles `canvas/generator-handles.tsx`.
 
 Register the folders in `server/architecture.test.ts`'s `SUITE_FOLDERS` **in the first commit**: until then the test
 counts photo files as the video zone and lets them import video code silently.
@@ -138,7 +142,7 @@ interface PhotoProject extends DocumentBase {        // { version, name }
   layers: PhotoLayer[];                               // bottom to top
 }
 
-type PhotoLayer = ImageLayer | AdjustmentLayer;        // F3 adds pixel layers and masks, F4 generators
+type PhotoLayer = ImageLayer | AdjustmentLayer;        // F3 adds pixel layers and masks, F4 generator layers
 
 interface ImageLayer {
   id: string; name: string; visible: boolean; opacity: number;   // opacity 0..1
@@ -176,7 +180,21 @@ interface PixelLayer {
 // Every layer may have mask?: { surface: SurfaceId | null }: coverage in the layer's own pixels (an adjustment's:
 // the document's), r16f, fill 1; null reveals everything.
 
-// Planned (F4), as proposed: blend, effects (EffectInstance[]), GeneratorLayer.
+// Version 5 (F4): filters and generator layers; `output.highlights` is film by default (older photos: clip).
+interface Filtered {
+  filters?: EffectInstance[];                          // Photoshop's Smart Filters (glow): first applied first
+  filtersEnabled?: false;                              // the "Filters" row's eye: all bypassed, each keeping its own
+}
+interface ImageLayer extends Filtered { … }            // and PixelLayer
+interface GeneratorLayer extends Filtered {
+  id: string; name: string; visible: boolean; opacity: number;
+  kind: "generator";
+  effect: EffectInstance;                              // kind "generator": a Lens Flare; its handles are points in it
+  blend?: "normal" | "linear-dodge";                   // Layer Style's L1 brings every mode to every layer
+  blendSpace?: "linear";                               // a new flare: linear-dodge in linear light
+}
+// Parameter values add points ([x, y], or null: the canvas's centre), colours ("#rrggbb"), choices, booleans and
+// element lists ({ id, type, enabled, … }: a flare's). Version 4 is Layer Style's blending (L1).
 ```
 
 Rules, each enforced by `normalizePhotoProject` and tested:

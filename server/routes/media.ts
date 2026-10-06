@@ -85,6 +85,9 @@ export function mediaRoutes(library: MediaLibrary, projects: ProjectStore): Rout
   router.post("/:id/reversed", async (req, res) => {
     res.json(await library.reverse(req.params.id));
   });
+  router.post("/:id/signals", async (req, res) => {
+    res.json(await library.analyseSignals(req.params.id));
+  });
   router.delete("/:id", async (req, res) => {
     await library.remove(req.params.id);
     res.sendStatus(204);

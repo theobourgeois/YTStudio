@@ -44,8 +44,9 @@ image layer is a picture placed whole: moving, scaling and rotating it resamples
 smaller and bigger again never loses quality. Coordinates are canvas pixels from the top-left corner; a layer's \
 position is its centre, its scale a factor of its own size (1 = 100%), its rotation degrees clockwise. An \
 adjustment layer (Exposure, Curves) changes everything below it without changing any image: hide it, fade it with \
-its opacity, or change its settings at any time. A pixel layer holds what the user paints. Any layer can have a \
-mask: black hides the layer, white reveals it (on an adjustment, where it applies). The selection (marching ants) \
+its opacity, or change its settings at any time. A pixel layer holds what the user paints. A generator layer \
+makes its own content (a Lens Flare). Any layer can have a mask: black hides the layer, white reveals it (on an \
+adjustment, where it applies). The selection (marching ants) \
 limits the user's brush and can become a mask.
 
 Start with get_photo, and look with view_photo before and after you change how it looks: you can't see the \
@@ -58,6 +59,14 @@ as in Photoshop (a gentle S, [[0, 0], [64, 52], [192, 205], [255, 255]], adds co
 rectangle (or all, or none); add_mask gives a layer a mask, from the selection (it shows only there) or empty, or \
 removes one; add_pixel_layer adds an empty layer for the user to paint on (you can't paint strokes); \
 layer_via_copy copies (or cuts) what the selection covers of a layer into a new layer; fill_selection fills it with \
-a colour or clears it. merge_layers merges layers into one image. export_photo writes a PNG (8 or 16 bits) or JPEG.`,
+a colour or clears it. merge_layers merges layers into one image. export_photo writes a PNG (8 or 16 bits) or JPEG.
+
+Light: add_filter puts a glow (a filter, Photoshop's Smart Filter, on a layer's own pixels) on an image, pixel or \
+generator layer: its bright parts bloom, spreading up to its radius (in canvas pixels) past the layer's edges; \
+set_filter changes, bypasses or reorders a layer's filters, remove_filter removes one. add_generator adds a Lens \
+Flare layer (a source glow, a halo, ghosts, a streak: elements on the line from its source through the optical \
+centre) that adds its light to what's below; move_handle moves its source (where the light is) or optical centre, \
+and set_effect_params changes its intensity, colour or elements. Light can be brighter than white: set_canvas's \
+highlights decide how it leaves the photo (film rolls it towards white, the default; clip clips it).`,
   },
 };

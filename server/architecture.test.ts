@@ -56,12 +56,18 @@ const PLATFORM = [
   "server/transcription/settings.ts",
   // Music analysis (tempo, beats): the video editor's beat sync and the music suite's Detect tempo.
   "server/beats.ts",
+  // Signals (what a sound does over time, docs/visualizer/): their format, analysis and reading, and the
+  // server's job that makes them for every file with sound.
+  "shared/signals/",
+  "server/signals.ts",
   // Project media, every suite's (video's clips, music's samples, photo's sources): the store, its probe,
   // posters, filmstrips and waveforms, ffmpeg's looks into a file, and `/api/media`.
   "shared/media.ts",
   "server/media.ts",
   "server/probe.ts",
   "server/derivatives.ts",
+  // Uncompressed audio read without ffmpeg, for the probe and the waveforms.
+  "server/pcm.ts",
   "server/ffmpeg.ts",
   "server/media-analysis.ts",
   "server/routes/media.ts",

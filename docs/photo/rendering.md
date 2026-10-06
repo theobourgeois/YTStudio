@@ -98,7 +98,7 @@ rebuildable and never saved.
 | Operation | Domain | Contract |
 | --- | --- | --- |
 | Exposure | Linear RGB | Unassociated: × `2^stops`, + offset, then the gamma correction's power (1 / gamma, mirrored below 0); alpha unchanged (research/adjustments.md) |
-| Glow, flare (adding light) | Linear RGB | Energy is kept through every pass; nothing clamped |
+| Glow, flare (adding light) | Linear RGB | Energy is kept through every pass; nothing clamped. Light gets coverage `max(r, g, b)` where its layer had none, and a glowing layer's pixel is never brighter than its coverage (up to white), so a straight-alpha file of it composites over any backdrop as it does here (F4) |
 | Blur, resampling | Premultiplied linear RGBA | No dark or coloured fringes at transparent edges |
 | Curves | sRGB-encoded unassociated RGB | Each channel's own curve, then the composite. Identity is exact (left out of the plan; an untouched channel is never re-encoded). Outside [0, 1] values pass through unchanged (a documented kink at the ends); HDR curves are a later, separate definition |
 | Normal compositing | Premultiplied linear RGBA | Source-over; a mask scales colour and alpha alike |
@@ -114,17 +114,21 @@ Every displayed or exported pixel leaves through one versioned transform. It's a
 the export, and nothing else maps light to display:
 
 1. Composite over transparent (PNG), or over the matte colour in linear light (JPEG).
-2. **Highlights**: `output.highlights` in the document. `clip` clips each channel to 1. `film` (the default) is
-   identity on [0, 1] and rolls light above 1 towards white, hue-preserving, continuous and monotonic: the look the
-   video suite's lighting effects get from their `burn`, but done once at output instead of per effect. Effects
-   never apply their own tone curves. The exact curve is fixed in F4 with fixtures; values in [0, 1] are untouched
-   either way, so ordinary photos are unaffected.
+2. **Highlights**: `output.highlights` in the document. `clip` clips each channel to 1. `film` (the default for
+   new photos; photos made before version 5 open as `clip`, as they were always drawn) is identity on [0, 1] and
+   rolls light above 1 towards white, hue-preserving, continuous and monotonic: the look the video suite's lighting
+   effects get from their `burn`, but done once at output instead of per effect. Effects never apply their own tone
+   curves. As built (F4, `shared/photo/output.ts` `filmHighlights`, WGSL `film_highlights`): for unpremultiplied
+   colour with largest channel m > 1, `c' = (c / m)·(1 − w) + w` with `w = 1 − m^(−s)`, `s` = 1 (one stop over
+   white is halfway to white); the largest channel stays at 1 and the others rise towards it. Values in [0, 1] are
+   untouched either way, so ordinary photos are unaffected and the 8-bit round trip stays bit for bit.
 3. Out-of-gamut (negative) components: clipped per channel for SDR sRGB output. Wide-gamut output is a later milestone.
 4. Encode with the sRGB transfer curve, unpremultiplied for formats that store straight alpha.
 5. **Quantise.** For 8 bits: rectangular dither of ±0.375 of a step, deterministic per document pixel (a hash of
    its coordinates, the same u32 arithmetic in WGSL and `shared/photo/output.ts`). That breaks up gradient banding
    in glows and skies, yet leaves exact 8-bit levels exact: ½ − 0.375 leaves 0.125, above the 0.092 worst f16 error.
-   For 16 bits: no dither.
+   For 16 bits: no dither. A pixel whose alpha is stored as 0 keeps no colour (a faint light's unpremultiplied
+   colour would be its full brightness).
 
 The view uses the same transform into an `srgb` canvas (`bgra8unorm`, the adapter's preferred format), with the
 checkerboard drawn under transparent pixels by the presenter: it's UI, never image content. Chromium then
@@ -212,6 +216,38 @@ stale result is never shown as current: every request carries the view and docum
 Large glows use a pyramid with one global alignment (phase fixed in document pixels), so a tile and its neighbour
 agree and the view and the export agree. Procedural noise (grain, flare dust) uses document coordinates and a saved
 seed. Tile boundaries are tested for seams for every kernel that reads neighbours.
+
+### Light (as built, F4)
+
+- **Isolated layers.** A layer with filters, and a generator, is evaluated alone (`render/isolated.ts`): its content
+  on the target's grid (a layer drawn without its mask, or a generator's), its filters run on it in linear light,
+  then a composite pass blends it over what's below through its opacity and mask (Normal source-over, or a flare's
+  Linear Dodge: `backdrop + light` on premultiplied colour in linear light). Layer Style's L1 replaces the composite
+  with its blend pass.
+- **The glow's octaves live on the document's grids.** Each octave is a texture of its level's grid (an origin and a
+  spacing of 2^k document pixels), and the apply pass reads every octave at each target pixel's document point,
+  by its B-spline (or by Mitchell for an octave read at a coarser level than its own, finer than the view's
+  pixels, as a refinement samples). So the screen, export regions and refinements never share a pixel grid and
+  still agree: tiled regions far smaller than the radius give the same pixels as one region (measured: under 1e-5).
+- **Fine octaves** (levels below `GLOW_CACHED_FROM`, 2) are made per evaluation from one render of the content on a
+  document-aligned grid around the target, grown by their reach (tens of pixels), reduced level by level: exact at
+  level 0. **Coarse octaves** come from the glow's cache (`render/glow-cache.ts`): the contributions over the
+  layer's extent (its box grown by the filters before it, within the canvas grown by the glow's reach), from
+  level-0 renders in 2048-pixel regions reduced to level 2 (or coarser for an extent over 4096 pixels there), kept
+  per glow by its content key, threshold, knee and extent. Radius, intensity, tint and mix never rebuild it; the
+  blurred octaves are kept per σ (a radius drag re-blurs small textures). Until it's built (the screen builds it
+  150 ms after the plan is still; exports, refinements and pictures await it) coarse octaves are rendered at their
+  own level: a preview, and "Refining…" says so.
+- **Levels.** A node commutes from a level (`commutesFrom`): a glow from its cache's, so at fit on a large photo it
+  needs no refinement; between 25% and 100% it refines, as Curves does. Measured on a 1024 × 768 photo: 0.0008 of
+  level 0 reduced, refined at 50%; 0.022 at 25% from the cache.
+- **The flare** is closed form at each pixel (`render/flare.ts`, mirroring `shared/photo/reference/flare.ts`), its
+  thin features widened by the target pixel's footprint (never thinner than about half a pixel) and dimmed to keep
+  their energy, so a reduced view is level 0 reduced within 0.031 (measured, at the ghosts' rims) and it never
+  refines.
+- **Pyramids of small images stop early.** A source or surface's pyramid ends at the first level that fits in one
+  tile, so a 512 × 384 layer at 25% reads level 1 with Mitchell stretched to 2, which differs from level 0 box-reduced
+  twice by up to 0.15 at a tiny, very bright dab (measured, F4). Larger images have the level and match.
 
 ## Export
 

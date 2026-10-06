@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { addAdjustmentLayer, addImageLayer, setEffectParams, updateLayer } from "./edits.ts";
+import { addAdjustmentLayer, addFilter, addGeneratorLayer, addImageLayer, moveLayersBy, setEffectParams, setFilter, setFiltersEnabled, updateLayer } from "./edits.ts";
+import { GLOW_CACHED_FROM, glowReach } from "./effects/glow.ts";
 import { identityCurveSet } from "./effects/params.ts";
 import { fitView } from "./geometry.ts";
 import { createPhotoProject } from "./project.ts";
 import { boxReduce, sampleMitchell } from "./reference/reduce.ts";
-import { type SourceFacts, compileRender, inputRegion, keyBelow, needsRefinement, refinePlan } from "./render-plan.ts";
+import { type SourceFacts, compileRender, inputRegion, isContentNode, isIsolated, keyBelow, needsRefinement, refinePlan } from "./render-plan.ts";
 
 const image = (id: string, width = 400, height = 200) => ({ id, mediaId: `m_${id}`, name: id, size: { width, height } });
 const sources = new Map<string, SourceFacts>([
@@ -108,5 +109,65 @@ describe("the reduction references", () => {
     const big = { width: 16, height: 16, data: new Float64Array(16 * 16 * 4).fill(0.25) };
     const s = sampleMitchell(big, 8, 8, 1.5);
     expect(s[0]).toBeCloseTo(0.25, 12);
+  });
+});
+
+describe("filters and generators in the plan (version 5)", () => {
+  const glowing = () => addFilter(doc(), "a", { id: "g", type: "glow", params: { radius: 100 } });
+
+  it("keys a filtered layer by its filters, and its content apart from them, its opacity and its mask", () => {
+    const plain = compileRender(doc(), sources).nodes[0];
+    const glow = compileRender(glowing(), sources).nodes[0];
+    if (!isContentNode(plain) || !isContentNode(glow)) throw new Error("not content");
+    expect(glow.key).not.toBe(plain.key);
+    expect(glow.contentKey).toBe(plain.contentKey);
+    expect(glow.filters.map((f) => [f.id, f.type])).toEqual([["g", "glow"]]);
+    expect(glow.filters[0].reach).toBe(glowReach(100));
+    expect(isIsolated(glow)).toBe(true);
+    expect(isIsolated(plain)).toBe(false);
+    const faded = compileRender(updateLayer(glowing(), "a", { opacity: 0.5 }), sources).nodes[0];
+    expect(isContentNode(faded) && faded.contentKey).toBe(glow.contentKey);
+    // Bypassed (or the Filters eye off), or a glow that adds nothing: the layer draws plainly again.
+    expect(compileRender(setFilter(glowing(), "a", "g", { enabled: false }), sources).nodes[0].key).toBe(plain.key);
+    expect(compileRender(setFiltersEnabled(glowing(), "a", false), sources).nodes[0].key).toBe(plain.key);
+    expect(compileRender(setFilter(glowing(), "a", "g", { params: { mix: 0 } }), sources).nodes[0].key).toBe(plain.key);
+  });
+
+  it("refines a glow only between its cached levels and 100%", () => {
+    const plan = compileRender(glowing(), sources);
+    expect(plan.commutes).toBe(false);
+    expect(plan.commutesFrom).toBe(GLOW_CACHED_FROM);
+    expect(needsRefinement(plan, 0.6)).toBe(true);
+    expect(needsRefinement(plan, 0.3)).toBe(true);
+    expect(needsRefinement(plan, 0.2)).toBe(false);
+    expect(needsRefinement(plan, 1)).toBe(false);
+    // Curves never commutes, whatever the level.
+    const curves = addAdjustmentLayer(glowing(), { id: "cu", type: "curves", params: { curves: { ...identityCurveSet(), rgb: [[0, 0], [128, 150], [255, 255]] } } });
+    expect(needsRefinement(compileRender(curves, sources), 0.05)).toBe(true);
+  });
+
+  it("grows a filtered layer's input region by its reach", () => {
+    const node = compileRender(glowing(), sources).nodes[0];
+    const reach = glowReach(100);
+    // Image a covers document x 200..600 (centred on 800 × 600 at its own size): a region just past its right edge still reads it.
+    expect(inputRegion(node, { x0: 600 + reach - 1, y0: 250, x1: 620 + reach, y1: 260 })).not.toBeNull();
+    expect(inputRegion(compileRender(doc(), sources).nodes[0], { x0: 600 + reach - 1, y0: 250, x1: 620 + reach, y1: 260 })).toBeNull();
+  });
+
+  it("compiles a flare as a generator node that commutes, adding in linear light", () => {
+    const d = addGeneratorLayer(doc(), { id: "fl", type: "lens-flare" });
+    const plan = compileRender(d, sources);
+    const node = plan.nodes[2];
+    expect(node.kind).toBe("generator");
+    if (node.kind !== "generator") return;
+    expect(node).toMatchObject({ type: "lens-flare", blend: "linear-dodge", space: "linear", canvas: { width: 800, height: 600 }, commutes: true });
+    expect(plan.commutes).toBe(true);
+    expect(isIsolated(node)).toBe(true);
+    expect(inputRegion(node, { x0: 0, y0: 0, x1: 10, y1: 10 })).toEqual({ x0: 0, y0: 0, x1: 10, y1: 10 });
+    // Its key follows its handle and the canvas (its centre follows the canvas's).
+    const moved = compileRender(moveLayersBy(d, ["fl"], 5, 0), sources).nodes[2];
+    expect(moved.key).not.toBe(node.key);
+    const unknown = { ...d, layers: d.layers.map((l) => (l.kind === "generator" ? { ...l, effect: { ...l.effect, version: 9 } } : l)) };
+    expect(compileRender(unknown, sources).skipped).toEqual([{ layerId: "fl", reason: "unavailable" }]);
   });
 });

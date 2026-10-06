@@ -9,7 +9,7 @@ import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, use
 import { cn } from "cn";
 import { PiWarningCircle } from "react-icons/pi";
 import { createId } from "@shared/ids";
-import { duplicateLayers } from "@shared/photo/edits";
+import { duplicateLayers, moveLayersBy } from "@shared/photo/edits";
 import { srgbToLinear } from "@shared/photo/colour";
 import { fitView, panBy, viewToDoc, zoomAbout } from "@shared/photo/geometry";
 import { contains } from "@shared/photo/layers";
@@ -34,12 +34,25 @@ import { useActiveTool, usePhotoUi } from "../ui";
 import { CanvasDriver } from "./driver";
 import { resizeCursor, rotateCursor } from "./cursors";
 import { type Frame, frameOf, touches } from "./frame";
+import { activeGenerator, GeneratorHandles } from "./generator-handles";
 import { HANDLES, type Handle, type SnapContext, handlePoint, movedWithSnap, outline, rotated, scaledWithSnap } from "./handles";
 import { type Box, type Guide, snapTargets } from "./snap";
 
 /** The driver of the canvas on screen (the bench and the keys reach it here). */
 let driver: CanvasDriver | null = null;
 export const canvasDriver = () => driver;
+
+/** The canvas's box on the page while it's shown (where things dropped on it land). */
+let stage: HTMLDivElement | null = null;
+
+/** The document point under a point of the page, or null when it isn't over the canvas. */
+export function canvasPointAt(clientX: number, clientY: number): { x: number; y: number } | null {
+  const view = usePhotoUi.getState().view;
+  if (!stage || !view) return null;
+  const r = stage.getBoundingClientRect();
+  if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null;
+  return viewToDoc(view, (clientX - r.left) * devicePixelRatio, (clientY - r.top) * devicePixelRatio);
+}
 
 /**
  * An element's background as linear light: painted into a 1×1 canvas so any colour syntax a theme uses (hex,
@@ -118,6 +131,7 @@ export function CanvasPanel() {
   // The canvas follows its box, in device pixels; the first size fits the document.
   useEffect(() => {
     const holder = holderRef.current!;
+    stage = holder;
     const resize = () => {
       const r = holder.getBoundingClientRect();
       const width = Math.max(1, Math.round(r.width * devicePixelRatio));
@@ -131,7 +145,10 @@ export function CanvasPanel() {
     const observer = new ResizeObserver(resize);
     observer.observe(holder);
     resize();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (stage === holder) stage = null;
+    };
   }, []);
 
   // A canvas of another size (an image opened as it, a preset, undone) is fitted again.
@@ -197,7 +214,10 @@ export function CanvasPanel() {
       if (!next.ids.includes(hit.id)) return;
     } else if (hit && !ui.selectedLayerIds.includes(hit.id)) ui.select(hit.id);
     else if (hit) pickedOfSeveral = hit.id;
-    else if (!hit && picking) {
+    else if (!hit && activeGenerator()) {
+      // A generator's content is everywhere: a drag where no layer is moves its handles together.
+      return moveGenerators(e, ui.selectedLayerIds);
+    } else if (!hit && picking) {
       const current = frameOf(doc.layers, ui.selectedLayerIds, sized);
       if (!current || !contains(current.t, current.size, at.x, at.y)) return marquee(e, at);
     }
@@ -238,6 +258,23 @@ export function CanvasPanel() {
       onClick: () => {
         if (pickedOfSeveral) usePhotoUi.getState().select(pickedOfSeveral);
       },
+    });
+  };
+
+  /** The Move tool on generators: their handles moved together by the drag, one undo step (Escape cancels). */
+  const moveGenerators = (e: ReactPointerEvent<HTMLDivElement>, ids: readonly string[]) => {
+    const base = usePhoto.getState().history!.doc.doc;
+    const gesture = photoGesture();
+    startPointerDrag(e, {
+      threshold: 2,
+      cursor: "move",
+      onStart: () => gesture.begin(),
+      onMove: (_ev, travel) => {
+        const z = usePhotoUi.getState().view!.zoom;
+        gesture.apply(() => moveLayersBy(base, ids, (travel.x * devicePixelRatio) / z, (travel.y * devicePixelRatio) / z));
+      },
+      onEnd: () => gesture.end(),
+      onCancel: () => gesture.cancel(),
     });
   };
 
@@ -379,6 +416,7 @@ export function CanvasPanel() {
         <canvas ref={canvasRef} className="absolute inset-0 size-full" aria-label="Photo canvas" />
         {renderer && tool === "move" && <HoverOutline />}
         {renderer && tool === "move" && <TransformOverlay docPoint={docPoint} />}
+        {renderer && tool === "move" && <GeneratorHandles docPoint={docPoint} snap={(ev) => snapContext(usePhoto.getState().history!.doc.doc, [], ev)} />}
         {renderer && <SnapGuides />}
         {renderer && <Marquee />}
         {renderer && <SelectionAnts />}

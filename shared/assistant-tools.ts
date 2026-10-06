@@ -66,14 +66,23 @@ export const VIDEO_TOOLS = [
     description:
       "Pictures of the edited video (the Program monitor, with every effect, text and transition) at timeline " +
       "times. Moves the playhead, so the user sees what you're looking at. Use it to check framing, text and " +
-      "the look after edits.",
-    inputSchema: obj(
-      {
-        times: arr(time("A moment."), "Up to 8 timeline times.", { minItems: 1, maxItems: 8 }),
-        width: int("Width of each picture in px (default 480, at most 960).", { minimum: 64, maximum: 960 }),
-      },
-      ["times"],
-    ),
+      "the look after edits. Give `times`, or `count` frames spread over `from`..`to`, or `at` the song's " +
+      "beats, bars, drops or hits (e.g. at: \"onsetLow\", offset: 0.03 to see a picture react just after each " +
+      "kick). `sheet` puts them in one picture (a contact sheet), cheaper for many frames.",
+    inputSchema: obj({
+      times: arr(time("A moment."), "Up to 16 timeline times.", { minItems: 1, maxItems: 16 }),
+      from: num("Start of a stretch (timeline seconds) to take frames from (default 0).", { minimum: 0 }),
+      to: num("End of the stretch (default the end)."),
+      count: int("How many frames from the stretch (default 8, at most 16): evenly spread, or the first of `at`.", { minimum: 1, maximum: 16 }),
+      at: oneOf(
+        ["beats", "bars", "drops", "onset", "onsetLow", "onsetMid", "onsetHigh"],
+        "Take frames at these moments of the sound in the stretch (hits: onsetLow kicks, onsetHigh hats).",
+      ),
+      offset: num("Seconds added to each `at` moment (e.g. 0.03 to see the reaction).", { minimum: -1, maximum: 1 }),
+      source: str('With `at` hits: what to listen to: "master" (default), a track\'s name or a clip id.'),
+      sheet: bool("One picture with every frame in a grid, each labelled (default: true for more than 4 frames)."),
+      width: int("Width of each picture in px (default 480, or 240 in a sheet; at most 960).", { minimum: 64, maximum: 960 }),
+    }),
   }),
   tool({
     name: "get_layout",
@@ -158,6 +167,48 @@ export const VIDEO_TOOLS = [
       assetId: str("Or a media file with sound (answers in source times)."),
       from: num("Media files: start of the range, source seconds.", { minimum: 0 }),
       to: num("Media files: end of the range, source seconds."),
+    }),
+  }),
+  tool({
+    name: "get_signals",
+    title: "Listen to the sound",
+    kind: "look",
+    timeout: 600,
+    description:
+      "What the sound does over time, for making pictures react to it (expressions' audio(), sinceHit(), " +
+      "beat()...): which files sound where, the song's beat, bars, sections and drops, every hit (onsetLow: " +
+      "kicks, onsetMid: snares and notes, onsetHigh: hats) with how hard, the level's shape, and if asked " +
+      "signals' values every `step` seconds. Timeline seconds; values 0..1 against the file's own loud parts. " +
+      "Files are analysed first if they aren't yet. Look at the shape of a song with plot_signals.",
+    inputSchema: obj({
+      source: str('What to listen to: "master" (everything heard, default), a track\'s name or id, or a clip id.'),
+      from: num("Start, timeline seconds (default 0).", { minimum: 0 }),
+      to: num("End (default the end of the sequence)."),
+      signals: arr(
+        oneOf(["level", "peak", "sub", "bass", "lowMid", "mid", "upperMid", "presence", "air", "onset", "onsetLow", "onsetMid", "onsetHigh", "width", "balance", "brightness"], "A signal."),
+        "Signals to list values of (default none: the summary alone).",
+      ),
+      step: num("Seconds between values (default: about 100 values over the stretch).", { minimum: 0.01 }),
+    }),
+  }),
+  tool({
+    name: "plot_signals",
+    title: "Plot the sound",
+    kind: "look",
+    timeout: 600,
+    description:
+      "A picture of signals over a stretch, a lane each, with the bars, drops and hits marked: the quickest " +
+      "way to see a song's shape (where it builds, drops, goes quiet) and where its kicks and hats fall.",
+    inputSchema: obj({
+      source: str('What to listen to: "master" (default), a track\'s name or id, or a clip id.'),
+      signals: arr(
+        oneOf(["level", "peak", "sub", "bass", "lowMid", "mid", "upperMid", "presence", "air", "onset", "onsetLow", "onsetMid", "onsetHigh", "width", "balance", "brightness"], "A signal."),
+        'Lanes, top to bottom (default "level", "bass", "onsetLow", "onsetHigh").',
+        { maxItems: 6 },
+      ),
+      from: num("Start, timeline seconds (default 0).", { minimum: 0 }),
+      to: num("End (default the end of the sequence)."),
+      width: int("Width in px (default 960).", { minimum: 320, maximum: 1600 }),
     }),
   }),
   tool({

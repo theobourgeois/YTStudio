@@ -1,6 +1,6 @@
 /**
- * F0's GPU checks (docs/photo/foundations-prototype.md): reading level-0 pixels back, the tiled blur against the
- * same blur on one plain texture, and the export path (quantise every tile with the output transform, then let the
+ * F0's GPU checks (docs/photo/foundations-prototype.md): reading level-0 pixels back (the blur's seam check went
+ * with F4: the glow's own tests cover tiles), and the export path (quantise every tile with the output transform, then let the
  * server encode it). Kept beside the renderer because F1's export and tests use the same pieces.
  */
 import { fromHalf } from "@shared/photo/half.ts";
@@ -47,124 +47,6 @@ export async function readLevel0(ctx: RenderContext, image: VirtualImage): Promi
     buffer.destroy();
   }
   return out;
-}
-
-export interface BlurComparison {
-  width: number;
-  height: number;
-  /** Largest difference between the tiled and the monolithic blur, any channel. */
-  maxDifference: number;
-  /** Largest difference along the tile boundaries (where seams would be). */
-  maxAtSeams: number;
-  tiledMs: number;
-  monoMs: number;
-}
-
-/** Blurs level 0 of `source` tile by tile through its page table, and as one texture, and compares them. */
-export async function compareBlur(ctx: RenderContext, source: SourceImage, sigma: number): Promise<BlurComparison> {
-  const { device } = ctx;
-  const { width, height, tilesX, tilesY } = source.image.levels[0];
-  if (ctx.format !== "rgba16float") throw new Error("The blur check runs on rgba16float atlases.");
-  const radius = Math.ceil(3 * sigma);
-  const params = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  const p = new ArrayBuffer(16);
-  new Float32Array(p, 0, 1)[0] = sigma;
-  new Int32Array(p, 4, 1)[0] = radius;
-  new Uint32Array(p, 8, 1)[0] = ctx.tile;
-  device.queue.writeBuffer(params, 0, p);
-
-  // Tiled: every level-0 tile, reading its neighbours through the page table.
-  const blurred = new VirtualImage(device, source.layout, ctx.tile, [0, 0, 0, 0], false, PENDING, "blurred");
-  const jobs = device.createBuffer({ size: BATCH * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  const group = device.createBindGroup({
-    layout: ctx.kernels.blurTiled.getBindGroupLayout(2),
-    entries: [
-      { binding: 0, resource: { buffer: jobs } },
-      { binding: 1, resource: ctx.scratchView },
-      { binding: 2, resource: { buffer: params } },
-    ],
-  });
-  const tiles: { tx: number; ty: number }[] = [];
-  for (let ty = 0; ty < tilesY; ty++) for (let tx = 0; tx < tilesX; tx++) tiles.push({ tx, ty });
-  const tiledStart = performance.now();
-  for (let i = 0; i < tiles.length; i += BATCH) {
-    const batch = tiles.slice(i, i + BATCH);
-    device.queue.writeBuffer(jobs, 0, new Uint32Array(batch.flatMap((t) => [t.tx, t.ty, 0, 0])));
-    const slots = batch.map((t) => ctx.atlas.acquire(`blur${blurred.size.width}:${ctx.id()}:${t.tx}:${t.ty}`, true));
-    const encoder = device.createCommandEncoder({ label: "blur tiled" });
-    const pass = encoder.beginComputePass();
-    pass.setPipeline(ctx.kernels.blurTiled);
-    pass.setBindGroup(0, ctx.atlasBindGroup());
-    pass.setBindGroup(1, ctx.imageBindGroup(source.image));
-    pass.setBindGroup(2, group);
-    pass.dispatchWorkgroups(ctx.tile / 16, ctx.tile / 16, batch.length);
-    pass.end();
-    ctx.copyScratchToSlots(encoder, slots);
-    device.queue.submit([encoder.finish()]);
-    batch.forEach((t, j) => blurred.setSlot(0, t.tx, t.ty, slots[j]));
-  }
-  blurred.flush();
-  await device.queue.onSubmittedWorkDone();
-  const tiledMs = performance.now() - tiledStart;
-  const tiled = await readLevel0(ctx, blurred);
-
-  // Monolithic: the same source pixels in one texture, blurred by the same arithmetic.
-  const input = device.createTexture({ size: [width, height], format: "rgba16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
-  const output = device.createTexture({ size: [width, height], format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC });
-  const encoder = device.createCommandEncoder({ label: "blur mono" });
-  for (let ty = 0; ty < tilesY; ty++) {
-    for (let tx = 0; tx < tilesX; tx++) {
-      const slot = source.image.slotOf(0, tx, ty);
-      if (slot === null) throw new Error("The source isn't fully loaded.");
-      const { texture, layer } = ctx.atlas.location(slot);
-      const w = Math.min(ctx.tile, width - tx * ctx.tile);
-      const h = Math.min(ctx.tile, height - ty * ctx.tile);
-      encoder.copyTextureToTexture({ texture, origin: [0, 0, layer] }, { texture: input, origin: [tx * ctx.tile, ty * ctx.tile] }, [w, h, 1]);
-    }
-  }
-  const monoGroup = device.createBindGroup({
-    layout: ctx.kernels.blurMono.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: input.createView() },
-      { binding: 1, resource: output.createView() },
-      { binding: 2, resource: { buffer: params } },
-    ],
-  });
-  const monoStart = performance.now();
-  const pass = encoder.beginComputePass();
-  pass.setPipeline(ctx.kernels.blurMono);
-  pass.setBindGroup(0, monoGroup);
-  pass.dispatchWorkgroups(Math.ceil(width / 16), Math.ceil(height / 16));
-  pass.end();
-  const rowBytes = Math.ceil((width * 8) / 256) * 256;
-  const readback = device.createBuffer({ size: rowBytes * height, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-  encoder.copyTextureToBuffer({ texture: output }, { buffer: readback, bytesPerRow: rowBytes }, [width, height]);
-  device.queue.submit([encoder.finish()]);
-  await readback.mapAsync(GPUMapMode.READ);
-  const monoMs = performance.now() - monoStart;
-  const mono = new Uint16Array(readback.getMappedRange());
-  let maxDifference = 0;
-  let maxAtSeams = 0;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const seam = x % ctx.tile <= 1 || x % ctx.tile >= ctx.tile - 2 || y % ctx.tile <= 1 || y % ctx.tile >= ctx.tile - 2;
-      for (let c = 0; c < 4; c++) {
-        const d = Math.abs(tiled[(y * width + x) * 4 + c] - fromHalf(mono[(y * rowBytes) / 2 + x * 4 + c]));
-        if (d > maxDifference) maxDifference = d;
-        if (seam && d > maxAtSeams) maxAtSeams = d;
-      }
-    }
-  }
-  readback.unmap();
-  for (const t of tiles) {
-    const slot = blurred.slotOf(0, t.tx, t.ty);
-    if (slot !== null) ctx.atlas.release(slot);
-  }
-  for (const resource of [readback, params, jobs]) resource.destroy();
-  input.destroy();
-  output.destroy();
-  blurred.destroy();
-  return { width, height, maxDifference, maxAtSeams, tiledMs, monoMs };
 }
 
 export interface Quantized {

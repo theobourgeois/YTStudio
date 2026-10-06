@@ -173,7 +173,7 @@ describe("adjustment layers", () => {
       },
       (p) => problems.push(p),
     );
-    expect(doc.version).toBe(3);
+    expect(doc.version).toBe(5);
     expect(doc.layers.map((l) => l.id)).toEqual(["e", "f", "g"]);
     expect(adjustment(doc, "e").effect.params).toEqual({ exposure: 0, offset: 0.5, gamma: 1 });
     expect(adjustment(doc, "f").effect).toEqual({ id: "f_fx", type: "glimmer", version: 3, enabled: true, params: { shine: [1, 2] } });
