@@ -7,15 +7,18 @@ import {
   resolveSource,
   signalValue,
   sourceHits,
+  nestedHearing,
   usesSignals,
+  withHearing,
   withSignals,
 } from "./audio-signals.ts";
-import { VOLUME, expressionProblem, opacityAt, setExpression, solidEffects } from "./effects.ts";
+import { VOLUME, expressionProblem, opacityAt, setExpression, setLink, setParams, solidEffects } from "./effects.ts";
+import { allClips } from "./sequences.ts";
 import { defaultEffects } from "./effects.ts";
 import { SignalAnalyser } from "./signals/analyse.ts";
 import type { SignalData } from "./signals/format.ts";
 import { MAIN_TRACK_ID, createDefaultProject } from "./timeline.ts";
-import type { Clip, MusicAnalysis, Project } from "./types.ts";
+import type { Clip, MusicAnalysis, ParamLink, Project, SignalDef } from "./types.ts";
 import { OPACITY } from "./effects.ts";
 
 const RATE = 48_000;
@@ -172,5 +175,109 @@ describe("expressions that react to sound", () => {
     const clip = bad.clips.find((c) => c.id === "solid")!;
     const problem = withSignals(reader(bad), () => expressionProblem(OPACITY, clip.effects.find((e) => e.type === "opacity")!, "opacity", 2.27, clip));
     expect(problem).toMatch(/no signal "kick". Signals: level, peak/);
+  });
+});
+
+describe("links: parameters that follow a signal", () => {
+  const response = { threshold: 0, curve: 1, attack: 0, release: 0, invert: false };
+  /** The solid at opacity 0, linked to add `link`'s signal. */
+  const linked = (link: Partial<ParamLink>, over: Partial<Project> = {}, clips: Clip[] = [songClip(), solid]) =>
+    setLink(
+      setParams(project(clips, over), "solid", OPACITY.type, { opacity: 0 }, 0),
+      "solid",
+      OPACITY.type,
+      "opacity",
+      { signal: { name: "bass" }, mode: "add", amount: 1, response, ...link },
+    );
+  const opacity = (p: Project, t: number, clipId = "solid") => withSignals(reader(p), () => opacityAt(allClips(p).find((c) => c.id === clipId)!, t));
+
+  it("moves with the sound, and says the video uses signals", () => {
+    const p = linked({});
+    expect(opacity(p, 2.27)).toBeCloseTo(signalValue(reader(p), null, MASTER, "bass", 2.27), 1);
+    expect(opacity(p, 1)).toBe(0);
+    expect(usesSignals(p)).toBe(true);
+  });
+
+  it("falls in its release, and the value doesn't depend on what was read before", () => {
+    const slow = linked({ response: { ...response, release: 0.5 } });
+    const fast = linked({});
+    // Between kicks the bass has gone, but a slow release still holds some.
+    expect(opacity(slow, 2.7)).toBeGreaterThan(opacity(fast, 2.7) + 0.2);
+    const cold = opacity(linked({ response: { ...response, release: 0.5 } }), 5.1);
+    for (let t = 0; t < 5.1; t += 0.05) opacity(slow, t);
+    expect(opacity(slow, 5.1)).toBeCloseTo(cold, 4);
+  });
+
+  it("punches on each kick with a hit shape, and pulses on the beat", () => {
+    const punch = linked({ signal: { name: "onsetLow" }, hit: { attack: 0, hold: 0, decay: 0.2 } });
+    expect(opacity(punch, 2.26)).toBeGreaterThan(0.9);
+    expect(opacity(punch, 2.36)).toBeCloseTo(0.5, 1);
+    expect(opacity(punch, 2.5)).toBe(0);
+    const beat = linked({ signal: { name: "beat" }, hit: { attack: 0, hold: 0, decay: 0.1 } });
+    // Beats at 2.25, 2.75...
+    expect(opacity(beat, 2.3)).toBeCloseTo(0.5, 5);
+    expect(opacity(beat, 2.5)).toBe(0);
+  });
+
+  it("inverts, and multiplies or maps", () => {
+    expect(opacity(linked({ response: { ...response, invert: true } }), 1)).toBe(1);
+    const p = setParams(linked({ mode: "map", to: 0.2 }), "solid", OPACITY.type, { opacity: 1 }, 0);
+    expect(opacity(p, 1)).toBe(1);
+    expect(opacity(p, 2.27)).toBeLessThan(0.4);
+  });
+
+  it("follows the video's own signals: hits, bands with onsets, curves", () => {
+    const events: SignalDef = { id: "sig_k", name: "Kick", color: "#ffffff", kind: "events", events: [{ time: 1, velocity: 0.8 }] };
+    const band: SignalDef = { id: "sig_b", name: "Thump", color: "#ffffff", kind: "band", source: MASTER, low: 40, high: 120, gain: 0, threshold: 0.5, attack: 0, release: 0.05, curve: 1, autoGain: true, onsets: true };
+    const curve: SignalDef = { id: "sig_c", name: "Ramp", color: "#ffffff", kind: "curve", points: [{ time: 0, value: 0 }, { time: 4, value: 1 }] };
+    const p = (def: SignalDef, link: Partial<ParamLink> = {}) => linked({ signal: { id: def.id }, ...link }, { signals: [events, band, curve] });
+    expect(opacity(p(events), 1.1)).toBeCloseTo(0.8 * (1 - 0.095 / 0.25), 5);
+    expect(opacity(p(events), 0.9)).toBe(0);
+    expect(opacity(p(band), 2.27)).toBeGreaterThan(0.3);
+    expect(opacity(p(band), 2.6)).toBeLessThan(0.02);
+    // The band's onsets: where it rises out of silence, on each kick (2.25, 2.75, 3.25, 3.75).
+    const counted = (source: string, t: number) => opacity(setExpression(p(band), "solid", OPACITY.type, "opacity", source), t);
+    expect(counted('hitCount("Thump") / 10', 3.9)).toBeCloseTo(0.4, 5);
+    expect(counted('sinceHit("Thump")', 2.3)).toBeGreaterThan(0.02);
+    expect(counted('sinceHit("Thump")', 2.3)).toBeLessThan(0.06);
+    expect(opacity(p(band, { hit: { attack: 0, hold: 0, decay: 0.2 } }), 2.28)).toBeGreaterThan(0.3);
+    expect(opacity(p(curve), 2)).toBeCloseTo(0.5, 5);
+    // A link to a signal that was deleted moves nothing.
+    expect(opacity(linked({ signal: { id: "gone" } }), 2.27)).toBe(0);
+  });
+
+  it("reads the video's own signals in expressions", () => {
+    const events: SignalDef = { id: "sig_k", name: "Kick", color: "#ffffff", kind: "events", events: [{ time: 1, velocity: 1 }, { time: 2, velocity: 1 }] };
+    const p = (source: string) => setExpression(project([solid], { signals: [events] }), "solid", OPACITY.type, "opacity", source);
+    expect(opacity(p('sinceHit("Kick")'), 2.5)).toBeCloseTo(0.5, 5);
+    expect(opacity(p('hitCount("kick") / 10'), 2.5)).toBeCloseTo(0.2, 5);
+    expect(opacity(p('signal("Kick")'), 1.05)).toBeCloseTo(1 - 0.045 / 0.25, 5);
+    const clip = p('signal("Snare")').clips[0];
+    const problem = withSignals(reader(p('signal("Snare")')), () => expressionProblem(OPACITY, clip.effects.find((e) => e.type === "opacity")!, "opacity", 1, clip));
+    expect(problem).toMatch(/no signal "Snare". This video's signals: "Kick"/);
+  });
+
+  it("hears the song of the video a nest is placed in, wherever it's placed", () => {
+    // A look (a solid linked to the bass) in a nest of its own, placed at 1 s and at 3 s over the song.
+    const look = setLink(
+      setParams(project([solid]), "solid", OPACITY.type, { opacity: 0 }, 0),
+      "solid",
+      OPACITY.type,
+      "opacity",
+      { signal: { name: "bass" }, mode: "add", amount: 1, response },
+    );
+    const seq = { id: "seq_look", name: "Look", settings: base.settings, tracks: look.tracks, clips: look.clips };
+    const use = (id: string, start: number): Clip => ({ id, assetId: "seq_look", trackId: MAIN_TRACK_ID, start, in: 0, out: 2, effects: defaultEffects() });
+    const outer = project([use("first", 0.5), use("second", 2.5), songClip()], { sequences: [seq] });
+    const r = reader(outer);
+    const lookSolid = look.clips[0];
+    // Drawn nowhere in particular, it hears where it's first used: its 1.77 is the song's 2.27 (a kick).
+    expect(withSignals(r, () => opacityAt(lookSolid, 1.77))).toBeGreaterThan(0.8);
+    // Drawn in its second use, its 1.77 is the song's 4.27 (also a kick), its 0.0 the song's 2.5 (none).
+    const second = outer.clips.find((c) => c.id === "second")!;
+    const inSecond = (t: number) => withSignals(r, () => withHearing(nestedHearing(second, null), () => opacityAt(lookSolid, t)));
+    expect(inSecond(1.77)).toBeGreaterThan(0.8);
+    expect(inSecond(0.2)).toBeLessThan(0.2);
+    expect(withSignals(r, () => opacityAt(lookSolid, 0.2))).toBe(0);
   });
 });
