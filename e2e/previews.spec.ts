@@ -4,7 +4,7 @@ import { defaultEffects } from "../shared/effects.ts";
 import type { MusicProject } from "../shared/music/types.ts";
 import type { Project } from "../shared/types.ts";
 
-test("home cards render saved projects, play one at a time, seek, and reuse cached previews", async ({ page }) => {
+test("home cards render saved projects, play on hover one at a time, scrub, and reuse cached previews", async ({ page }) => {
   const create = async (suite: "music" | "video", name: string) => {
     const response = await page.request.post("/api/projects", { data: { suite, name, blank: true } });
     expect(response.ok()).toBe(true);
@@ -37,42 +37,51 @@ test("home cards render saved projects, play one at a time, seek, and reuse cach
   const videoCard = page.locator(`[data-project-id="${video.id}"]`);
   await expect(songCard.getByRole("img", { name: "Song preview waveform" })).toBeVisible({ timeout: 60_000 });
   await expect(videoCard.locator("video")).toHaveCount(1, { timeout: 60_000 });
-  await expect(videoCard.getByRole("slider")).toHaveCount(0);
-  await expect(videoCard.getByRole("button", { name: "Unmute preview of Preview video" })).toHaveCount(0);
+  // Nothing to press until the pointer rests on a card.
+  await expect(page.getByRole("slider")).toHaveCount(0);
+  await expect(songCard.getByRole("button", { name: /preview of/ })).toHaveCount(0);
   await expect(songCard.locator("audio")).not.toHaveAttribute("src");
   await expect(videoCard.locator("video")).not.toHaveAttribute("src");
 
-  await songCard.getByRole("button", { name: "Play preview of Preview song", exact: true }).click();
-  await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => !e.paused && e.currentTime > 0)).toBe(true);
+  // Resting on the song's card plays it, muted; its button unmutes it, and the card stays closed.
+  await songCard.getByRole("img", { name: "Song preview waveform" }).hover();
+  await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => !e.paused && e.currentTime > 0 && e.muted)).toBe(true);
+  await songCard.getByRole("button", { name: "Unmute preview of Preview song" }).click();
+  await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => e.muted)).toBe(false);
   await expect(page).toHaveURL(/\/$/);
-  await songCard.getByRole("button", { name: "Pause preview of Preview song", exact: true }).click();
-  const pausedAt = await songCard.locator("audio").evaluate((e: HTMLAudioElement) => e.currentTime);
-  await songCard.getByRole("button", { name: "Play preview of Preview song", exact: true }).click();
-  await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => e.currentTime)).toBeGreaterThan(pausedAt);
 
+  // The line along its bottom scrubs it.
+  const seekAt = async (card: typeof songCard, name: string, fraction: number) => {
+    const box = (await card.getByRole("slider", { name: `Seek preview of ${name}` }).boundingBox())!;
+    await page.mouse.click(box.x + box.width * fraction, box.y + box.height / 2);
+  };
+  await seekAt(songCard, "Preview song", 0.75);
+  await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => e.currentTime / e.duration)).toBeGreaterThan(0.7);
+  await expect(page).toHaveURL(/\/$/);
+
+  // Then the video's: one plays at a time, muted until it's scrubbed.
   await videoCard.locator("video").hover({ force: true });
   await expect.poll(() => videoCard.locator("video").evaluate((e: HTMLVideoElement) => !e.paused && e.currentTime > 0)).toBe(true);
   await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => e.paused)).toBe(true);
   expect(await videoCard.locator("video").evaluate((e: HTMLVideoElement) => e.muted)).toBe(true);
   expect(await videoCard.locator("video").evaluate((e: HTMLVideoElement) => e.duration)).toBeCloseTo(3, 0);
-  await videoCard.getByRole("button", { name: "Unmute preview of Preview video" }).click();
+  await seekAt(videoCard, "Preview video", 0.5);
   await expect.poll(() => videoCard.locator("video").evaluate((e: HTMLVideoElement) => e.muted)).toBe(false);
   await expect(page).toHaveURL(/\/$/);
   await page.getByRole("heading", { name: "Recent", exact: true }).hover();
   await expect.poll(() => videoCard.locator("video").evaluate((e: HTMLVideoElement) => e.paused && e.muted && e.currentTime === 0)).toBe(true);
   await expect(videoCard.getByRole("button", { name: "Unmute preview of Preview video" })).toHaveCount(0);
+  await expect(page.getByRole("slider")).toHaveCount(0);
   await videoCard.locator("video").hover({ force: true });
   await expect.poll(() => videoCard.locator("video").evaluate((e: HTMLVideoElement) => !e.paused && e.muted)).toBe(true);
   await page.getByRole("heading", { name: "Recent", exact: true }).hover();
-  const songSeek = songCard.getByRole("slider", { name: "Seek preview of Preview song" });
-  await songSeek.fill("0.5");
-  await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => e.currentTime)).toBeGreaterThanOrEqual(0.5);
 
   const cached = await (await page.request.get(`/api/projects/${song.id}/preview`)).json();
   await page.reload();
   await expect(songCard.getByRole("img", { name: "Song preview waveform" })).toBeVisible();
   expect(await (await page.request.get(`/api/projects/${song.id}/preview`)).json()).toEqual(cached);
-  await songCard.getByRole("button", { name: "Play preview of Preview song", exact: true }).click();
+  await songCard.getByRole("img", { name: "Song preview waveform" }).hover();
+  await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => !e.paused)).toBe(true);
   await songCard.getByText("Preview song", { exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/p/${song.id}$`));
   await expect(page.locator("audio")).toHaveCount(0);
