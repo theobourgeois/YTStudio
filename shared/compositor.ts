@@ -126,8 +126,6 @@ export interface EffectPass<S = Shader> {
    * this frame (motion blur's in-between moments).
    */
   simulation?: { id: string; version: string; frame: number; fps: number; memory?: number; record?: false };
-  /** A 3D scene, rendered (by the compositor's `setSceneRenderer`) at the layer's size, bound as `uScene`. */
-  scene?: SceneDraw;
   /**
    * Room this effect needs past the picture's frame (a fraction of its height on every side),
    * like After Effects' Grow Bounds: particles flying off a text, a glow spilling past it.
@@ -135,21 +133,6 @@ export interface EffectPass<S = Shader> {
    */
   grow?: number;
 }
-
-/**
- * A 3D scene at a moment (see `shared/scenes/`): which one (`type`), the instance it is (a clip's effect,
- * so its objects are built once), what it's built from (`build`: a seed, a level of detail; a change
- * builds it again) and its state then, all plain values so it travels to the export's page.
- */
-export interface SceneDraw {
-  type: string;
-  instance: string;
-  build: Record<string, number | string | boolean>;
-  state: Record<string, unknown>;
-}
-
-/** Renders a 3D scene into a picture of `width` x `height` px (null: it can't yet, e.g. still loading). */
-export type SceneRenderer = (scene: SceneDraw, width: number, height: number) => TexImageSource | null;
 
 /** What a visualizer asks for: rows of spectrum over `span` seconds, each falling over `fall`; a waveform `window` seconds long (0: none). */
 export interface AudioRequest {
@@ -474,8 +457,6 @@ export interface Compositor {
   advance(picture: Placed): void;
   /** GPU memory simulations' checkpoints may take, in bytes (0: none are kept, as in the export). */
   setCheckpointBudget(bytes: number): void;
-  /** What renders 3D scenes (`EffectPass.scene`); without one, a scene is transparent. */
-  setSceneRenderer(render: SceneRenderer | null): void;
   dispose(): void;
 }
 
@@ -1663,29 +1644,6 @@ void main() {
     copy(st.target.tex);
   };
 
-  /** Scenes (`EffectPass.scene`): rendered by the page's renderer, uploaded here (unit 9). */
-  let sceneRenderer: SceneRenderer | null = null;
-  const sceneTex = texture();
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
-  const bindScene = (loc: (name: string) => WebGLUniformLocation | null, scene: SceneDraw, w: number, h: number) => {
-    let picture: TexImageSource | null = null;
-    try {
-      picture = sceneRenderer?.(scene, w, h) ?? null;
-    } catch (err) {
-      console.error(`The 3D scene "${scene.type}" failed to render`, err);
-    }
-    gl.activeTexture(gl.TEXTURE9);
-    gl.bindTexture(gl.TEXTURE_2D, sceneTex);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-    if (picture) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, picture);
-    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.uniform1i(loc("uScene"), 9);
-  };
-
   // ---------------------------------------------------------------------------
   // Masks and vector drawings: drawn with the browser's 2D canvas (the export's page has
   // one too), then uploaded. The last few are kept, so a still shape isn't drawn again.
@@ -2262,7 +2220,6 @@ void main() {
       setUniforms(loc, fx.uniforms);
       if (temporal) bindHistory(loc, temporal);
       if (fx.audio) bindAudio(loc, fx.audio);
-      if (fx.scene) bindScene(loc, fx.scene, w, h);
       if (fx.simulation) {
         // A simulation draws into its state, which becomes the layer.
         const dst = [0, 1, 2].find((i) => i !== input)!;
@@ -2675,10 +2632,6 @@ void main() {
       trimCheckpoints();
     },
 
-    setSceneRenderer(render) {
-      sceneRenderer = render;
-    },
-
     drawAdjustment(adjustment) {
       // Opacity mixes the adjusted frame with the one below; each moment is drawn whole.
       const whole = { ...adjustment, opacity: 1, samples: adjustment.samples?.map((s) => ({ ...s, opacity: 1 })) };
@@ -2855,7 +2808,6 @@ void main() {
       for (const h of histories.values()) deleteHistory(h);
       for (const [id, sim] of [...simulations]) deleteSimulation(id, sim);
       deleteState(passingState);
-      gl.deleteTexture(sceneTex);
       histories.clear();
       for (const t of flowTargets.values()) {
         for (const x of [t.cur, t.prev, t.a, t.b]) {

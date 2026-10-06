@@ -100,11 +100,12 @@ frame. The compositor keeps two states and checkpoints per simulation (`simulati
 a clip up before drawing it (time-boxed, `data-simulation`), the export draws in order and its plan adds `advance`
 layers for frames it skipped. A simulation's pass carries a `version` (the clip and its sound, hashed): keep anything
 that changes what it steps on in it. Feedback, Motion Trace, Freeze (`effect-library/simulation.ts`). **3D scenes**
-(`EffectShader.scene`: tesseract, singularity, cathedral, leviathan): their state is stepped in TypeScript
-(`shared/scenes/`, `steppedState`), the same in the tab and the export's plan; three.js only renders it (`src/scenes/`,
-lazily in the tab; the export's page loads `server/scene-runtime.ts`'s esbuild bundle, `dist/scene-runtime.js` when
-packaged). Change a scene's motion in `shared/scenes/<scene>.ts`, never in its renderer. `server/simulation.test.ts` is
-the gate: a frame the same in order, straight away and seeking.
+(`EffectShader.scene`, docs/visualizer/scenes.md: Ridgeline, Infinite Dive, Aurora, Storm Sea, Ferrofluid) are raymarched
+GLSL: each `shared/scenes/<scene>.ts` holds its GLSL, its parameters and its state, stepped in TypeScript
+(`steppedState`), the same in the tab and the export's plan, handed to the GLSL as uniforms (`SCENE_GLSL` in
+`effect-library/scenes.ts` gives the camera ray, noise, the tonemap). Ridgeline's terrain is mirrored in float32 TS
+(`ridgeHeight`) so the camera never flies into it: change both. `scripts/scene-sheet.ts` renders them to look at;
+`server/simulation.test.ts` is the gate: a frame the same in order, straight away and seeking.
 
 ## Commands
 

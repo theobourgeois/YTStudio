@@ -6,7 +6,7 @@
  * effect over it in order, then places the result where Motion puts it, like
  * Premiere draws standard effects before Motion and Opacity.
  */
-import type { AudioInputs, EffectPass, SceneDraw, Shader } from "./compositor.ts";
+import type { AudioInputs, EffectPass, Shader } from "./compositor.ts";
 import { clipScene, demoScene } from "./scenes/index.ts";
 import { simulationFrame, simulationVersion } from "./simulation.ts";
 import { clipAudio, demoAudio } from "./audio-signals.ts";
@@ -40,8 +40,8 @@ export function effectShader(def: EffectDefinition): Shader | null {
       const { vertex, fragment } = particleSources(uniformDeclarations(def.params.filter(isUniformSpec)), def.shader.particles.glsl);
       shader = { key, source: fragment, vertex, base: effectFragmentSource({ params: def.params, glsl: def.shader.glsl, audio: def.shader.audio }) };
     } else {
-      const { glsl, history, simulation, scene, audio } = def.shader;
-      shader = { key, source: effectFragmentSource({ params: def.params, glsl, history, simulation, scene, audio }) };
+      const { glsl, history, simulation, audio } = def.shader;
+      shader = { key, source: effectFragmentSource({ params: def.params, glsl, history, simulation, audio }) };
     }
     shaders.set(def.type, shader);
   }
@@ -67,8 +67,8 @@ export function effectUniforms(def: EffectDefinition, values: ParamValues, time:
  * earlier frames under `instance` (a clip's effect: see `EffectPass.history`), only
  * recording new ones when `record` (not for motion blur's in-between moments); so does a
  * simulation, its states made from `version` (see `simulationVersion`). A visualizer
- * hears `audio` (made-up sound when none is given: cards, sheets), and a 3D scene is drawn
- * as `scene` says (stepped through made-up sound and these values when not given).
+ * hears `audio` (made-up sound when none is given: cards, sheets), and a 3D scene's state is
+ * `scene`, uniforms its GLSL declares (stepped through made-up sound and these values when not given).
  */
 export function effectPass(
   def: EffectDefinition,
@@ -80,7 +80,7 @@ export function effectPass(
   clipTime = time,
   audio?: AudioInputs,
   version = "",
-  scene?: SceneDraw | null,
+  scene?: UniformValue[] | null,
 ): EffectPass | null {
   const shader = effectShader(def);
   if (!shader) return null;
@@ -92,8 +92,8 @@ export function effectPass(
   if (grow > 0) pass.grow = grow;
   const sceneType = def.shader?.scene;
   if (sceneType) {
-    const drawn = scene !== undefined ? scene : demoScene(sceneType, values, instance ?? "card", Math.round(clipTime * fps), fps);
-    if (drawn) pass.scene = drawn;
+    const state = scene !== undefined ? scene : demoScene(sceneType, values, instance ?? "card", Math.round(clipTime * fps), fps);
+    if (state) pass.uniforms.push(...state);
   }
   const simulation = def.shader?.simulation;
   if (simulation && instance) {

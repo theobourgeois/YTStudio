@@ -124,7 +124,9 @@ export function selectionCoverage(s: PhotoSelection, matrix: Affine, x0: number,
   let uniform = true;
   for (let v = 0; v < height; v++) {
     for (let u = 0; u < width; u++) {
-      const c = layerPixelCoverage(s, matrix, x0 + u, y0 + v, samples);
+      // A sum of small boxes lands a hair off 0 or 1: whole is whole (the GPU then stores no tile for it).
+      const raw = layerPixelCoverage(s, matrix, x0 + u, y0 + v, samples);
+      const c = raw > 1 - 1e-6 ? 1 : raw < 1e-6 ? 0 : raw;
       out[v * width + u] = c;
       if (first < 0) first = c;
       else if (c !== first) uniform = false;

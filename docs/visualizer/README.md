@@ -6,8 +6,8 @@ the link popover, the assistant's tools, the Signals window, signal lanes, spect
 effects, New item › Visualizer). **V5 is built** (Make visualizer: a song of the music suite made into a video
 project). **V6 is built** (2026-10-07: the Shader effect, its three dialects, the shader editor, `set_shader`; see
 "V6: Shaders" below). **V8 is built** (2026-10-07, before V7: simulations, vaudio's feedback and camera modes, its four
-3D scenes; see "V8: Simulations and 3D" below). **V10 is built** (2026-10-06: ProRes, HEVC, PNG sequences,
-transparency, a quality; see "Export (V10)").
+3D scenes, since replaced by five raymarched ones: [scenes.md](scenes.md); see "V8: Simulations and 3D" below). **V10
+is built** (2026-10-06: ProRes, HEVC, PNG sequences, transparency, a quality; see "Export (V10)").
 [vaudio-port.md](vaudio-port.md) lists what comes over from Théo's earlier visualizer (`~/code/vaudio`) and where.
 
 A professional audio visualizer inside the video editor, not a suite of its own. Any clip, effect parameter or shader
@@ -352,27 +352,13 @@ pure inputs (generators, visualizers, text, solids) is then exact in the preview
 without decoding the frames before, so it's exact while playing and approximate just after a seek (shown). The
 existing time effects (Trails, Echo, Datamosh) can move onto this later and become exact as well.
 
-### 3D scenes (V8, built)
+### 3D scenes (V8, built; second take)
 
-As built: `EffectShader.scene` (`shared/effect-library/scenes.ts`, the 3D Scenes category). What moves is stepped in
-TypeScript (`shared/scenes/`: each scene's `step` and `view`, vaudio's audio follower in `kit.ts`, `steppedState`
-keeping checkpoints per clip), so the export's plan in Node and the tab compute the same numbers; a scene's random
-(debris respawning, moths scattering) is seeded and part of its state. The renderer (`src/scenes/`, vaudio's scene
-files with their integrations taken out) only shows a state: one WebGL renderer for every scene, each clip's built
-once from its `build` (detail, palette), its lens fitted to the frame's shorter side. The compositor calls it through
-`setSceneRenderer` and binds the picture as `uScene`; the effect's GLSL adds the afterimage (a simulation, with its
-memory) and the Blend Mode. The tab loads three.js when a scene is first drawn (`src/scenes/loader.ts`); the export's
-page loads `/scene-runtime.js` (`server/scene-runtime.ts`: built by esbuild from a checkout, `dist/` in the packaged
-app, written by `pnpm build`). Leviathan swims five seconds before its clip starts, so it isn't born coiled around
-the lens. Pointer steering is gone (Perform will map controls).
-
-The plan as written:
-
-three.js worlds as a generator effect whose renderer isn't GLSL: a layer kind (`Placed.scene`) drawn by a scene
-runtime into its own canvas and uploaded as the layer's picture. The preview lazy-loads the runtime; the export page
-gets it as a prebuilt bundle (esbuild IIFE, served by `gl-browser.ts`; the page only has `toString()`'d functions
-today). Scenes are rewritten as simulations over signals (see the port for each one's state). Built-in scenes only:
-no user JavaScript.
+The first take was vaudio's four three.js scenes, ported; Théo found them not good enough (2026-10-07). They were
+replaced by five raymarched GLSL worlds, planned and built in [scenes.md](scenes.md): Ridgeline, Infinite Dive,
+Aurora, Storm Sea, Ferrofluid. `EffectShader.scene` names a scene of `shared/scenes/`, whose state (the camera, events
+set off by hits) is stepped in TypeScript (`steppedState`, checkpointed) and reaches its GLSL as uniforms: the same
+numbers in the tab and the export's plan, drawn by the one compositor. No three.js, no second renderer.
 
 ### Perform (V7)
 
@@ -676,10 +662,10 @@ assistant tools. Gates are what must be true (measured) before the next mileston
 
 What was built is above ("Simulations", "3D scenes"). Tests: `server/simulation.test.ts` is the gate (drawn by the
 export's compositor in headless Chromium, `GlSession.frames`: Feedback that never quite forgets and one that does,
-and the tesseract, reached in order, straight away through the plan's warm-ups, and by seeking about as the preview
+and a 3D scene, reached in order, straight away through the plan's warm-ups, and by seeking about as the preview
 does, all within 2 levels); `shared/simulation.test.ts` (stepped states in any order, a clip's frames and versions,
 each scene's state the same reached in order or straight away); the effect sheet draws every simulation and scene
-frame by frame; e2e: Feedback on the monitor seeked to a frame and stepped to it, and a tesseract drawn there. The
+frame by frame; e2e: Feedback on the monitor seeked to a frame and stepped to it, and a 3D scene drawn there. The
 assistant adds them with `add_effect` and is told what they are. Not yet: the existing time effects (Trails, Echo,
 Datamosh) moved onto simulations; scenes in New item › Visualizer and in Make visualizer's looks.
 

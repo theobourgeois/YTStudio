@@ -4,7 +4,7 @@
  * layers through these (rendering.md, "Coordinates, units and bounds").
  */
 import type { Size } from "./geometry.ts";
-import type { LayerTransform } from "./types.ts";
+import type { LayerTransform, PhotoLayer } from "./types.ts";
 
 /** A 2D affine map: (x, y) → (a·x + c·y + e, b·x + d·y + f), the canvas convention. */
 export type Affine = readonly [a: number, b: number, c: number, d: number, e: number, f: number];
@@ -84,4 +84,26 @@ export function transformedBy(t: LayerTransform, size: Size, m: Affine): LayerTr
   if (Math.abs(a * c + b * d) > 1e-9 * Math.max(1, scaleX * Math.abs(scaleY))) return null;
   const centre = apply(compose(m, layerMatrix(t, size)), size.width / 2, size.height / 2);
   return { x: centre.x, y: centre.y, scaleX, scaleY, rotation: rotation === -180 ? 180 : rotation };
+}
+
+/**
+ * The layer an edit with the selection acts on when none is active (Photoshop always has one): the topmost visible
+ * layer with content whose box meets `box` (a generator's content is everywhere); null when there's none.
+ * `sizeOf` says a placed layer's size (null: not known yet).
+ */
+export function layerUnder(
+  layers: readonly PhotoLayer[],
+  box: { x0: number; y0: number; x1: number; y1: number },
+  sizeOf: (layer: PhotoLayer) => Size | null,
+): string | null {
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const l = layers[i];
+    if (!l.visible || l.kind === "adjustment") continue;
+    if (l.kind === "generator") return l.id;
+    const size = sizeOf(l);
+    if (!size) continue;
+    const b = bounds(l.transform, size);
+    if (b.x0 < box.x1 && b.x1 > box.x0 && b.y0 < box.y1 && b.y1 > box.y0) return l.id;
+  }
+  return null;
 }

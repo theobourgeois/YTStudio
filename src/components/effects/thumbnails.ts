@@ -8,7 +8,6 @@
  * so opening the tab never waits on ~50 compiles. Posters (the still frame) are drawn
  * a few per frame and kept, so reopening the tab only copies pixels.
  */
-import { lazySceneRenderer, scenesReady } from "@/scenes/loader";
 import { type Compositor, IDENTITY, type Shader, createCompositor } from "@shared/compositor";
 import { effectPass, effectPasses } from "@shared/effect-gl";
 import { canvasAffine, clipLayer } from "@shared/layers";
@@ -44,8 +43,6 @@ function getThumbnailer(): Promise<Thumbnailer | null> {
     if (!gl) return null;
     const compositor = createCompositor(gl);
     compositor.resize(width, height);
-    // 3D scenes' cards wait for their runtime (`Thumb.ready`).
-    compositor.setSceneRenderer(lazySceneRenderer(() => {}));
     const scene = (which: 0 | 1, letter: boolean) => {
       const c = document.createElement("canvas");
       c.width = width;
@@ -69,8 +66,6 @@ export interface Thumb {
   shaders: Shader[];
   /** The moment its poster shows. */
   posterAt: number;
-  /** Whether it can be drawn yet (a 3D scene's runtime loads first: asking starts it). */
-  ready?(): boolean;
   render(compositor: Compositor, at: number): void;
 }
 
@@ -108,7 +103,6 @@ export function effectThumb(def: EffectDefinition): Thumb {
       key: `effect:${def.type}`,
       shaders: [first.shader],
       posterAt: 0.6,
-      ...(def.shader?.scene && { ready: scenesReady }),
       render: stepped
         ? // A time effect (or a simulation, a scene) needs a moving picture and the frames before: the sunset drifting, a third of a second of them.
           (compositor, time) => {
@@ -194,7 +188,6 @@ async function drawPosters() {
   const started = performance.now();
   for (const [key, { thumb, targets }] of waiting) {
     if (performance.now() - started > POSTER_BUDGET_MS) break;
-    if (thumb.ready && !thumb.ready()) continue;
     if (!thumb.shaders.every((shader) => t.compositor.prepareShader(shader))) continue;
     waiting.delete(key);
     if (!render(t, thumb, thumb.posterAt)) continue;
@@ -212,7 +205,7 @@ async function drawPosters() {
  */
 export async function drawThumbnail(thumb: Thumb, at: number, target: HTMLCanvasElement, before?: number): Promise<void> {
   const t = await getThumbnailer();
-  if (!t || (thumb.ready && !thumb.ready()) || !thumb.shaders.every((shader) => t.compositor.prepareShader(shader))) return;
+  if (!t || !thumb.shaders.every((shader) => t.compositor.prepareShader(shader))) return;
   if (!render(t, thumb, at)) return;
   copyInto(t.canvas, target);
   if (before === undefined) return;
