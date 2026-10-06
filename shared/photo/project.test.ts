@@ -12,7 +12,7 @@ const image = (id: string, width = 400, height = 200) => ({ id, mediaId: `media_
 describe("photo documents", () => {
   it("starts as a white 9:16 canvas with no layers, or with the tab's choices", () => {
     const doc = createPhotoProject("Cover");
-    expect(doc).toMatchObject({ version: 3, name: "Cover", canvas: { width: 1080, height: 1920, background: "#ffffff" }, layers: [] });
+    expect(doc).toMatchObject({ version: 5, name: "Cover", canvas: { width: 1080, height: 1920, background: "#ffffff" }, layers: [] });
     expect(withPhotoOptions(doc, { width: 1280, height: 720, background: null }).canvas).toEqual({ width: 1280, height: 720, background: null });
     expect(withPhotoOptions(doc, { width: -3, height: "big", background: "red" })).toEqual(doc);
   });
@@ -32,7 +32,7 @@ describe("photo documents", () => {
     });
     expect(doc.name).toBe("Untitled");
     expect(doc.canvas).toEqual({ width: 1080, height: 1920, background: "#abcdef" });
-    expect(doc.output.highlights).toBe("film");
+    expect(doc.output.highlights).toBe("clip"); // no version: drawn clipped, as photos before version 5 were
     expect(doc.layers).toHaveLength(2);
     expect(doc.layers[0]).toMatchObject({ id: "a", name: "Kept", opacity: 1, visible: true, transform: { x: 540, y: 960, scaleX: MIN_SCALE, scaleY: -2, rotation: 180 } });
     expect(doc.layers[1].id).not.toBe("a");
@@ -41,7 +41,7 @@ describe("photo documents", () => {
 
   it("refuses what isn't a photo, or a newer one", () => {
     expect(() => normalizePhotoProject("nope")).toThrow(/Not a photo/);
-    expect(() => normalizePhotoProject({ version: 4 })).toThrow(/newer version/);
+    expect(() => normalizePhotoProject({ version: 6 })).toThrow(/newer version/);
   });
 });
 
@@ -119,5 +119,16 @@ describe("layer geometry", () => {
     expect(bounds(t, size)).toEqual({ x0: 0, y0: 0, x1: 400, y1: 200 });
     expect(contains(t, size, 10, 10)).toBe(true);
     expect(contains(t, size, 410, 10)).toBe(false);
+  });
+});
+
+describe("highlights (version 5)", () => {
+  it("keeps older photos clipped, as they were drawn, and new ones film", () => {
+    expect(createPhotoProject("New").output.highlights).toBe("film");
+    expect(normalizePhotoProject({ version: 3, output: { highlights: "film" } }).output.highlights).toBe("clip");
+    expect(normalizePhotoProject({ layers: [] }).output.highlights).toBe("clip");
+    expect(normalizePhotoProject({ version: 5, output: { highlights: "film" } }).output.highlights).toBe("film");
+    expect(normalizePhotoProject({ version: 5, output: { highlights: "clip" } }).output.highlights).toBe("clip");
+    expect(normalizePhotoProject({ version: 5, output: {} }).output.highlights).toBe("film");
   });
 });

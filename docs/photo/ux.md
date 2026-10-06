@@ -194,8 +194,14 @@ Built in F3:
 
 - **Adding**: exposure and curves are adjustment layers, made from the Layers panel's half-filled circle (above the
   selected layer, as Photoshop's), shown in Layers with their icon and settings in a few words, edited in
-  Properties (sliders with fields; Curves' graph, research/adjustments.md). Glow goes on a layer's effects. A flare
-  is a generator layer with a source handle on the canvas.
+  Properties (sliders with fields; Curves' graph, research/adjustments.md). **Built (F4)**: the same menu's "Light"
+  heading adds a Glow to the selected layer (also the Layers menu's Add Glow Filter) and a Lens Flare as a new layer.
+  A layer's filters are listed under it as Photoshop's Smart Filters (a "Filters" row whose eye bypasses all, then
+  each with its eye, the last applied on top, dragged to reorder); a click shows one in Properties, Delete removes
+  it. A flare's Properties has its handles, intensity, colour, blend (Add in linear light, or Normal), a preset menu
+  and its elements (an eye each, + to add, dragged to reorder, the selected one's parameters below). Its source and
+  optical centre are handles on the canvas with the Move tool (snapping; Escape cancels), and a Move drag where no
+  layer is moves both. Folding a layer's filters away is still to come.
 - **Undo**: a slider drag or a handle drag is one undo step.
 - **Bypass and remove**: bypass keeps the settings; remove is undoable.
 - **Presets**: preview without touching history, then apply in one step.

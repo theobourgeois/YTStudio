@@ -103,7 +103,7 @@ describe("merging", () => {
     expect(err(planMerge(updateLayer(doc, "a", { visible: false }), "down", ["b"], sizeOf))).toMatch(/hidden/);
     expect(err(planMerge(doc, "selected", ["a", "b"], () => null))).toMatch(/no image/);
     const adjusted = addAdjustmentLayer(addAdjustmentLayer(doc, { id: "x", type: "exposure" }, "a"), { id: "y", type: "curves" }, "x");
-    expect(err(planMerge(adjusted, "selected", ["x", "y"], sizeOf))).toMatch(/needs an image or pixel layer/);
+    expect(err(planMerge(adjusted, "selected", ["x", "y"], sizeOf))).toMatch(/needs an image, pixel or generator layer/);
     expect(err(planMerge(adjusted, "down", ["b"], sizeOf))).toMatch(/adjustment layer/);
   });
 

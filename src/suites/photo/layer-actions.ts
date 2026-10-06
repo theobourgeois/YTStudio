@@ -5,7 +5,9 @@
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import { createId } from "@shared/ids";
-import { addPixelLayer, arrangeLayers, duplicateLayers, findLayer, removeLayers, removeMask, replaceLayer, setMask, shiftLayers } from "@shared/photo/edits";
+import { addFilter, addGeneratorLayer, addPixelLayer, arrangeLayers, duplicateLayers, findLayer, removeFilter, removeLayers, removeMask, replaceLayer, setMask, shiftLayers } from "@shared/photo/edits";
+import { effectDefinition } from "@shared/photo/effects/index";
+import { hasContent } from "@shared/photo/types";
 import { liveRenderer } from "./live";
 import { mergeLayers } from "./merge";
 import { type LayerSelection, allLayers, edgeLayer, inStackOrder, stepLayer } from "./selection";
@@ -21,9 +23,41 @@ const current = (): LayerSelection => ({ ids: usePhotoUi.getState().selectedLaye
 const apply = (sel: LayerSelection) => usePhotoUi.getState().setSelection(sel.ids, sel.active);
 
 export const layerActions = {
+  /** Delete: the filter shown in Properties, when one is; else the selected layers. */
   delete() {
+    const { selectedFilterId, selectedLayerId } = usePhotoUi.getState();
+    if (selectedFilterId && selectedLayerId) {
+      usePhoto.getState().commit((d) => removeFilter(d, selectedLayerId, selectedFilterId));
+      usePhotoUi.getState().selectFilter(selectedLayerId, null);
+      return;
+    }
     const ids = selectedInOrder();
     if (ids.length) usePhoto.getState().commit((d) => removeLayers(d, ids));
+  },
+
+  /**
+   * A filter (Photoshop's Smart Filter: the glow) on the active layer, applied after its others, shown in Properties.
+   * An adjustment has no pixels of its own: it says so.
+   */
+  addFilter(type: string, layerId: string | null = usePhotoUi.getState().selectedLayerId) {
+    const doc = currentDoc();
+    const layer = doc && layerId ? findLayer(doc, layerId) : undefined;
+    const def = effectDefinition(type);
+    if (!doc || !layer || !def) return void toast.error(`Select a layer to add ${def?.label ?? "a filter"} to.`);
+    if (!hasContent(layer)) return void toast.error(`"${layer.name}" is an adjustment layer: ${def.label} works on a layer's own pixels.`);
+    const id = createId("fx");
+    usePhoto.getState().commit((d) => addFilter(d, layer.id, { id, type }));
+    usePhotoUi.getState().selectFilter(layer.id, id);
+    return id;
+  },
+
+  /** A new Lens Flare above the active layer (or on top), selected, its handles on the canvas. */
+  addFlare(preset = "classic") {
+    const id = createId("layer");
+    usePhoto.getState().commit((d) => addGeneratorLayer(d, { id, type: "lens-flare", preset }, usePhotoUi.getState().selectedLayerId));
+    usePhotoUi.getState().select(id);
+    usePhotoUi.getState().setTool("move");
+    return id;
   },
   /** ⌘J: a copy of each above it, the copies selected. */
   duplicate() {
@@ -86,11 +120,14 @@ export const layerActions = {
     usePhotoUi.getState().setTarget("content");
   },
 
-  /** An image layer as pixels (Photoshop's Rasterize): its transform and mask baked in, in its place. */
+  /**
+   * An image or generator layer as pixels (Photoshop's Rasterize): its transform, filters and mask baked in, in its
+   * place (a generator's over the canvas).
+   */
   async convertToPixels(layerId: string) {
     const doc = currentDoc();
     const layer = doc ? findLayer(doc, layerId) : undefined;
-    if (!doc || layer?.kind !== "image") return;
+    if (!doc || (layer?.kind !== "image" && layer?.kind !== "generator")) return;
     try {
       const renderer = await liveRenderer();
       if (!renderer) return;
@@ -101,7 +138,7 @@ export const layerActions = {
         return replaceLayer(d, layerId, { id: layerId, kind: "pixel", name: now.name, visible: now.visible, opacity: now.opacity, ...pixels });
       });
       usePhotoUi.getState().setTarget("content");
-      toast.success(`"${layer.name}" is pixels now`, { description: "Its place and mask are part of them: scaling it now resamples these pixels." });
+      toast.success(`"${layer.name}" is pixels now`, { description: "Its place, filters and mask are part of them: scaling it now resamples these pixels." });
     } catch (error) {
       toast.error("Couldn't convert it to pixels", { description: errorMessage(error) });
     }

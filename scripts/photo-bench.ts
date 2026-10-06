@@ -2,14 +2,15 @@
  * The photo suite's bench (docs/photo/foundations-prototype.md, "Performance targets"): starts its own server and
  * Vite (ports 5340/5341, a throwaway data dir), makes photo projects of the fixtures (`scripts/photo-fixtures.ts`),
  * and runs the suite's scenarios in the real workspace (`src/suites/photo/bench.ts`): cold opens, pan and zoom,
- * adjustment drags and their refinement, export, device loss, a tight budget. In headless Chrome and in an
+ * adjustment drags and their refinement, a radius-1000 glow and a flare's handle drag, export, device loss, a
+ * tight budget. In headless Chrome and in an
  * Electron hidden window. Prints a summary and writes everything as JSON.
  *
  *   pnpm tsx scripts/photo-bench.ts [--runner chrome|electron] [--quick] [--out file.json]
  *   pnpm tsx scripts/photo-bench.ts --lab [--tiles 256,512] [--quick]
  *
  * `--lab` runs F0's lab instead (`photo-lab.html`, `src/suites/photo/lab/`): the renderer's parts the suite doesn't
- * use yet (strokes, the blur's seams, P3, f16 rounding, 16-bit precision), at both tile sizes. `--quick` skips the
+ * use yet (strokes, P3, f16 rounding, 16-bit precision), at both tile sizes. `--quick` skips the
  * 100 MP image (and the lab's 48 MP export). `--shots dir` saves screenshots of the lab's canvas instead.
  */
 import { type ChildProcess, spawn } from "node:child_process";
@@ -29,7 +30,7 @@ type PlanStep =
 type LabWindow = { photoLab?: { ready: Promise<void>; bench: { runPlan(steps: PlanStep[]): Promise<unknown> } } };
 
 /** A step of the suite's `runPlan` (src/suites/photo/bench.ts `BenchStep`). */
-type SuiteStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk" | "paintMask"; label?: string; budgetMB?: number };
+type SuiteStep = { open: string } | { run: "reopen" | "panZoom" | "adjustExposure" | "adjustCurves" | "exportPng" | "deviceLoss" | "budgetWalk" | "paintMask" | "glow" | "flare"; label?: string; budgetMB?: number };
 
 /** What the app puts on `window` in development (src/suites/photo/live.ts). */
 type SuiteWindow = { photoBench?: { load(): Promise<{ runPlan(steps: SuiteStep[]): Promise<unknown> }> } };
@@ -97,8 +98,6 @@ function plan(tile: 256 | 512): PlanStep[] {
     { run: "stroke" },
     { run: "deviceLoss" },
     ...(quick ? [] : [{ run: "roundTrip", label: "roundTrip 48MP" } as PlanStep]),
-    { open: "blur-detail.png" },
-    { run: "blur" },
     { open: "p3-patches.png" },
     { run: "p3" },
     { open: "alpha-gradient.png" },
@@ -188,7 +187,7 @@ await waitFor(`${api}/helper`);
 await waitFor(lab ? pageUrl : appUrl);
 
 if (lab) {
-  const names = ["noise-48mp.jpg", "blur-detail.png", "p3-patches.png", "alpha-gradient.png", "ramp-8bit.png", "orientation-6.jpg", "ramp-16bit.png", ...(quick ? [] : ["noise-100mp.jpg"])];
+  const names = ["noise-48mp.jpg", "p3-patches.png", "alpha-gradient.png", "ramp-8bit.png", "orientation-6.jpg", "ramp-16bit.png", ...(quick ? [] : ["noise-100mp.jpg"])];
   for (const name of names) {
     const res = await fetch(`${api}/sources?name=${name}`, { method: "POST", body: fs.readFileSync(path.join(FIXTURES, name)) });
     if (!res.ok) throw new Error(`Uploading ${name}: ${res.status} ${await res.text()}`);
@@ -204,7 +203,7 @@ async function photoProject(name: string): Promise<string> {
   if (!uploaded.ok) throw new Error(`Uploading ${name}: ${uploaded.status} ${await uploaded.text()}`);
   const media = (await uploaded.json()) as { id: string; width: number; height: number };
   const doc = {
-    version: 3,
+    version: 5,
     name,
     canvas: { width: media.width, height: media.height, background: null },
     output: { highlights: "film" },
@@ -226,6 +225,8 @@ async function suitePlan(): Promise<SuiteStep[]> {
     { run: "adjustExposure" },
     { run: "adjustCurves" },
     { run: "paintMask" },
+    { run: "glow" },
+    { run: "flare" },
     { run: "exportPng", label: "exportPng 48MP" },
     { run: "deviceLoss" },
     // F0's budgets: the 48 MP image in 256 MB, the 100 MP one in 1 GB (its levels above level 0 alone are ~270 MB).

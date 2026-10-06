@@ -23,6 +23,8 @@ import { usePhoto } from "./store";
 import {
   type PhotoEdit,
   addAdjustmentTool,
+  addFilterTool,
+  addGeneratorTool,
   addImageLayerTool,
   addPixelLayerTool,
   findLayerRef,
@@ -31,9 +33,12 @@ import {
   describeMedia,
   describePhoto,
   mergeRequest,
+  moveHandleTool,
+  removeFilterTool,
   removeLayerTool,
   setCanvasTool,
   setEffectParamsTool,
+  setFilterTool,
   setLayerTool,
   transformLayerTool,
 } from "./tool-edits";
@@ -102,6 +107,11 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
   set_layer: edit(setLayerTool),
   add_adjustment: edit(addAdjustmentTool),
   set_effect_params: edit(setEffectParamsTool),
+  add_filter: edit(addFilterTool),
+  set_filter: edit(setFilterTool),
+  remove_filter: edit(removeFilterTool),
+  add_generator: edit(addGeneratorTool),
+  move_handle: edit(moveHandleTool),
   async merge_layers(input, ctx) {
     const target = await targetOf(ctx);
     const { kind, ids } = mergeRequest(target.doc, input);

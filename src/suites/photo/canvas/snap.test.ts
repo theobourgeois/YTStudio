@@ -3,7 +3,7 @@ import { bounds } from "@shared/photo/layers";
 import { isDefaultName, projectNameOf } from "../media";
 import { resizeCursor } from "./cursors";
 import { movedWithSnap, scaledWithSnap } from "./handles";
-import { guidesOf, snapMove, snapResize, snapTargets } from "./snap";
+import { guidesOf, snapMove, snapResize, snapPoint, snapTargets } from "./snap";
 
 const canvas = { width: 1000, height: 800 };
 // Another layer at x 600..800, y 100..300.
@@ -90,5 +90,14 @@ describe("a photo's name", () => {
     expect(isDefaultName("Cover")).toBe(false);
     expect(projectNameOf("Screenshot 2026-10-05 at 8.57.28 PM.png")).toBe("Screenshot 2026-10-05 at 8.57.28 PM");
     expect(projectNameOf("holiday.final.JPG")).toBe("holiday.final");
+  });
+});
+
+describe("snapPoint", () => {
+  it("snaps a handle to the canvas's centre and edges within the threshold, on each axis alone", () => {
+    const targets = snapTargets({ width: 1000, height: 800 }, []);
+    expect(snapPoint({ x: 503, y: 300 }, targets, 5)).toEqual({ x: 500, y: 300, guides: [{ axis: "x", at: 500, from: 0, to: 800 }] });
+    expect(snapPoint({ x: 2, y: 797 }, targets, 5)).toMatchObject({ x: 0, y: 800 });
+    expect(snapPoint({ x: 300, y: 300 }, targets, 5)).toEqual({ x: 300, y: 300, guides: [] });
   });
 });

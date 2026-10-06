@@ -30,6 +30,10 @@ interface PhotoUi {
   selectedLayerId: string | null;
   /** The layer the Move tool would pick under the pointer (outlined, as Photoshop's hover). */
   hoveredLayerId: string | null;
+  /** A filter of the active layer that Properties shows instead of the layer (clicked in Layers), or null. */
+  selectedFilterId: string | null;
+  /** A generator's element that Properties shows (clicked in its list), or null. */
+  selectedElementId: string | null;
   /** Smart guides shown while a layer is moved or resized onto something. */
   guides: Guide[];
   /** The marquee being drawn on the canvas (document pixels), selecting the layers it touches. */
@@ -46,6 +50,9 @@ interface PhotoUi {
   /** These layers; `active` (default: the last) is the one acted on alone. */
   setSelection: (layerIds: readonly string[], active?: string | null) => void;
   hover: (layerId: string | null) => void;
+  /** A filter of a layer: that layer alone selected, and the filter shown in Properties. */
+  selectFilter: (layerId: string, filterId: string | null) => void;
+  selectElement: (elementId: string | null) => void;
   setGuides: (guides: Guide[]) => void;
   setMarquee: (marquee: Box | null) => void;
   setView: (view: View) => void;
@@ -60,6 +67,8 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   selectedLayerIds: [],
   selectedLayerId: null,
   hoveredLayerId: null,
+  selectedFilterId: null,
+  selectedElementId: null,
   guides: [],
   marquee: null,
   view: null,
@@ -69,12 +78,15 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   setPaintChoice: (paintChoice) => set({ paintChoice }),
   setSpaceHand: (spaceHand) => set({ spaceHand }),
   // Another active layer is targeted by its content first (its mask's thumbnail targets the mask).
-  select: (layerId) => set((s) => ({ ...selectionOf(layerId ? [layerId] : []), target: layerId === s.selectedLayerId ? s.target : "content" })),
+  select: (layerId) => set((s) => ({ ...selectionOf(layerId ? [layerId] : []), target: layerId === s.selectedLayerId ? s.target : "content", selectedFilterId: null, selectedElementId: layerId === s.selectedLayerId ? s.selectedElementId : null })),
   setSelection: (layerIds, active) =>
     set((s) => {
       const next = selectionOf(layerIds, active);
-      return { ...next, target: next.selectedLayerId === s.selectedLayerId ? s.target : "content" };
+      const same = next.selectedLayerId === s.selectedLayerId;
+      return { ...next, target: same ? s.target : "content", selectedFilterId: same ? s.selectedFilterId : null, selectedElementId: same ? s.selectedElementId : null };
     }),
+  selectFilter: (layerId, filterId) => set((s) => ({ ...selectionOf([layerId]), target: layerId === s.selectedLayerId ? s.target : "content", selectedFilterId: filterId, selectedElementId: null })),
+  selectElement: (selectedElementId) => set({ selectedElementId }),
   hover: (hoveredLayerId) => set((s) => (s.hoveredLayerId === hoveredLayerId ? s : { hoveredLayerId })),
   setGuides: (guides) => set((s) => (s.guides.length === 0 && guides.length === 0 ? s : { guides })),
   setMarquee: (marquee) => set({ marquee }),
@@ -94,7 +106,8 @@ export const useActiveTool = () => usePhotoUi((s) => (s.spaceHand ? "hand" : s.t
 
 // Another photo: a fresh view, nothing selected, its windows closed.
 usePhoto.subscribe((state, prev) => {
-  if (state.projectId !== prev.projectId) usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, guides: [], marquee: null, view: null, exportOpen: false, spaceHand: false, target: "content", paintChoice: null });
+  if (state.projectId !== prev.projectId)
+    usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, selectedFilterId: null, selectedElementId: null, guides: [], marquee: null, view: null, exportOpen: false, spaceHand: false, target: "content", paintChoice: null });
   // Selected layers that are gone (undone, deleted) are no longer selected.
   const { selectedLayerIds, selectedLayerId } = usePhotoUi.getState();
   if (!state.history || selectedLayerIds.length === 0 || state.history.doc.doc.layers === prev.history?.doc.doc.layers) return;

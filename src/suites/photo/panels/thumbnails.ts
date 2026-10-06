@@ -4,7 +4,7 @@
  * reveals), rendered by the same renderer as everything else, a moment after they last changed.
  */
 import { useEffect, useState } from "react";
-import type { PhotoLayer, PhotoProject, PlacedLayer } from "@shared/photo/types";
+import type { ContentLayer, PhotoLayer, PhotoProject } from "@shared/photo/types";
 import { type PhotoRenderer } from "../render/renderer";
 import { liveRenderer, useSourceStates } from "../live";
 import { usePhoto } from "../store";
@@ -13,8 +13,8 @@ import { usePhoto } from "../store";
 const SIZE = 72;
 const DELAY_MS = 250;
 
-/** One layer alone on the canvas, shown, over transparency, without its mask. */
-export function thumbnailDoc(doc: PhotoProject, layer: PlacedLayer): PhotoProject {
+/** One layer alone on the canvas, shown, over transparency, without its mask (with its filters). */
+export function thumbnailDoc(doc: PhotoProject, layer: ContentLayer): PhotoProject {
   const { mask: _mask, ...alone } = layer;
   return { ...doc, canvas: { ...doc.canvas, background: null }, layers: [{ ...alone, visible: true, opacity: 1 } as PhotoLayer] };
 }
@@ -49,19 +49,20 @@ function useRendered(ready: boolean, render: (renderer: PhotoRenderer) => Promis
 }
 
 /** An object URL of the layer's thumbnail, or null until it's rendered (or while its image loads). */
-export function useLayerThumbnail(layer: PlacedLayer): string | null {
+export function useLayerThumbnail(layer: ContentLayer): string | null {
   const width = usePhoto((s) => s.history?.doc.doc.canvas.width);
   const height = usePhoto((s) => s.history?.doc.doc.canvas.height);
-  const ready = useSourceStates((s) => layer.kind === "pixel" || s.states[layer.mediaId]?.state === "ready");
-  // Its place and pixels are what it looks like; its name, visibility and opacity aren't (Photoshop's neither).
-  const pixels = layer.kind === "image" ? layer.mediaId : layer.surface;
+  const ready = useSourceStates((s) => layer.kind !== "image" || s.states[layer.mediaId]?.state === "ready");
+  // Its place, pixels and filters are what it looks like; its name, visibility and opacity aren't (Photoshop's neither).
+  const pixels = layer.kind === "image" ? layer.mediaId : layer.kind === "pixel" ? layer.surface : layer.effect;
+  const place = layer.kind === "generator" ? null : layer.transform;
   return useRendered(
     ready && !!width && !!height,
     (renderer) => {
       const doc = usePhoto.getState().history?.doc.doc;
       return doc ? renderer.picture(thumbnailDoc(doc, layer), SIZE) : Promise.resolve(null);
     },
-    [pixels, layer.transform, width, height],
+    [pixels, place, layer.filters, layer.filtersEnabled, width, height],
   );
 }
 

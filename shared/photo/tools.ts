@@ -3,19 +3,41 @@
  * edits in `tool-edits.ts`). Whatever the user can do, the assistant can: add a tool with each feature.
  */
 import { type Schema, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
-import { ADJUSTMENTS } from "./effects/index.ts";
+import { ADJUSTMENTS, EFFECTS, type EffectKind, FILTERS, GENERATORS } from "./effects/index.ts";
+import { FLARE_PRESETS } from "./effects/flare.ts";
+import type { ElementParamSpec, ParamSpec } from "./effects/params.ts";
 
 const layer = str('A layer: its id (from get_photo) or its name ("Sky").');
 
-/** Every adjustment and its parameters, for the model: names, units, ranges, defaults. */
-export function describeAdjustments(): string {
-  return ADJUSTMENTS.map((def) => {
-    const params = def.params.map((p) =>
-      p.kind === "number" ? `${p.key} (${p.min} to ${p.max}${p.unit ? ` ${p.unit}` : ""}, default ${p.default}): ${p.description}` : `${p.key}: ${p.description}`,
-    );
-    return `${def.type}: ${def.description}\n  ${params.join("\n  ")}`;
-  }).join("\n");
+/** A parameter for the model: its range, unit and default, and what it does. */
+function paramLine(p: ParamSpec | ElementParamSpec, indent: string): string {
+  switch (p.kind) {
+    case "number":
+      return `${p.key} (${p.min} to ${p.max}${p.unit ? ` ${p.unit}` : ""}, default ${p.default}): ${p.description}`;
+    case "colour":
+      return `${p.key} (a colour "#rrggbb", default ${p.default}): ${p.description}`;
+    case "choice":
+      return `${p.key} (${p.options.map((o) => o.value).join(" | ")}, default ${p.default}): ${p.description}`;
+    case "boolean":
+      return `${p.key} (true or false, default ${p.default}): ${p.description}`;
+    case "point":
+      return `${p.key} ([x, y] in canvas pixels${p.nullable ? ", or null: the canvas's centre" : ""}): ${p.description}`;
+    case "elements":
+      return `${p.key} (a list of up to ${p.max}): ${p.description}\n${p.types.map((t) => `${indent}  ${t.type}: ${t.description}\n${t.params.map((q) => `${indent}    ${paramLine(q, indent + "    ")}`).join("\n")}`).join("\n")}`;
+    default:
+      return `${p.key}: ${p.description}`;
+  }
 }
+
+/** Every effect of a kind and its parameters, for the model: names, units, ranges, defaults. */
+export function describeEffects(kind: EffectKind): string {
+  return EFFECTS.filter((d) => d.kind === kind)
+    .map((def) => `${def.type}: ${def.description}\n  ${def.params.map((p) => paramLine(p, "  ")).join("\n  ")}`)
+    .join("\n");
+}
+
+/** Every adjustment and its parameters. */
+export const describeAdjustments = () => describeEffects("adjustment");
 
 /** An adjustment's parameters: any of its definition's (see describeAdjustments). */
 const adjustmentParams: Schema = {
@@ -31,7 +53,7 @@ export const PHOTO_TOOLS = [
     title: "Read the photo",
     kind: "look",
     description:
-      "The photo open in the editor as text: its canvas (size in pixels, background), and its layers from the top down, each with its id, name, visibility and opacity; an image layer's image and where it is (centre, scale, rotation, and its box on the canvas); an adjustment layer's settings. Start here.",
+      "The photo open in the editor as text: its canvas (size in pixels, background, highlights), and its layers from the top down, each with its id, name, visibility and opacity; an image layer's image and where it is (centre, scale, rotation, and its box on the canvas); an adjustment layer's settings; a generator's (a flare's handles and elements); each layer's filters. Start here.",
     inputSchema: obj({}),
   }),
   tool({
@@ -83,7 +105,7 @@ export const PHOTO_TOOLS = [
     name: "set_layer",
     title: "Change a layer",
     kind: "edit",
-    description: "Renames a layer, shows or hides it, sets its opacity (an adjustment's opacity fades its effect), or moves it in the stack. Give only what changes.",
+    description: "Renames a layer, shows or hides it, sets its opacity (an adjustment's opacity fades its effect), moves it in the stack, or sets a generator's blend. Give only what changes.",
     inputSchema: obj(
       {
         layer,
@@ -91,6 +113,7 @@ export const PHOTO_TOOLS = [
         visible: bool("Shown or hidden."),
         opacity: num("0 to 1."),
         order: int("Its place in the stack: 0 is the bottom; a big number puts it on top."),
+        blend: oneOf(["add", "normal"], "A generator layer's blend: add (Linear Dodge in linear light: its light adds to what's below) or normal."),
       },
       ["layer"],
     ),
@@ -115,10 +138,91 @@ export const PHOTO_TOOLS = [
   }),
   tool({
     name: "set_effect_params",
-    title: "Change an adjustment",
+    title: "Change an adjustment or a generator",
     kind: "edit",
-    description: "Sets an adjustment layer's parameters (see add_adjustment for each one's), or puts them back to their defaults with reset. A curve given replaces that curve; the others stay.",
+    description:
+      "Sets an adjustment layer's parameters (see add_adjustment for each one's) or a generator layer's (a Lens Flare's: see add_generator), or puts them back to their defaults with reset (a flare keeps its handles and elements). A curve given replaces that curve; a flare's elements given replace its list (keep an element's id to keep it); the others stay. A layer's filters are set_filter's.",
     inputSchema: obj({ layer, params: adjustmentParams, reset: bool("Back to its defaults first.") }, ["layer"]),
+  }),
+  tool({
+    name: "add_filter",
+    title: "Add a filter",
+    kind: "edit",
+    description: `Adds a filter (Photoshop's Smart Filter) to an image, pixel or generator layer: it works on that layer's own pixels, in linear light, before its mask, after its other filters, and is kept editable (set_filter, remove_filter). The filters:\n${describeEffects("filter")}`,
+    inputSchema: obj(
+      {
+        layer,
+        type: oneOf(
+          FILTERS.map((d) => d.type),
+          "Which filter.",
+        ),
+        params: { type: "object", description: "Parameters other than the defaults (see above).", additionalProperties: true },
+      },
+      ["layer", "type"],
+    ),
+  }),
+  tool({
+    name: "set_filter",
+    title: "Change a filter",
+    kind: "edit",
+    description:
+      "Changes a filter of a layer (from get_photo: its id, or its number in the layer's list, 1 being applied first): its parameters (the rest keep their value), bypassed or on (enabled), its place in the list (order: 1 applies first), or back to its defaults (reset). all_enabled bypasses or turns on every filter of the layer at once, each keeping its own setting.",
+    inputSchema: obj(
+      {
+        layer,
+        filter: str("The filter: its id, or its number in the layer's list (1: applied first)."),
+        params: { type: "object", description: "Parameters to set (see add_filter).", additionalProperties: true },
+        enabled: bool("On (true) or bypassed (false), keeping its settings."),
+        order: int("Its place in the layer's list: 1 is applied first."),
+        reset: bool("Back to its defaults first."),
+        all_enabled: bool("Every filter of the layer bypassed (false) or on (true) together."),
+      },
+      ["layer", "filter"],
+    ),
+  }),
+  tool({
+    name: "remove_filter",
+    title: "Remove a filter",
+    kind: "edit",
+    description: "Removes a filter from a layer (undoable).",
+    inputSchema: obj({ layer, filter: str("The filter: its id, or its number in the layer's list (1: applied first).") }, ["layer", "filter"]),
+  }),
+  tool({
+    name: "add_generator",
+    title: "Add a lens flare",
+    kind: "edit",
+    description: `Adds a generator layer: content it makes itself, live (move its handles with move_handle, change it with set_effect_params). A new Lens Flare adds its light to what's below in linear light (set_layer's blend: add), with the preset's elements sized for this canvas. Presets: ${FLARE_PRESETS.map((p) => p.id).join(", ")}. The generators:\n${describeEffects("generator")}`,
+    inputSchema: obj({
+      type: oneOf(
+        GENERATORS.map((d) => d.type),
+        "Which generator (default lens-flare).",
+      ),
+      preset: oneOf(
+        FLARE_PRESETS.map((p) => p.id),
+        "A flare's starting elements (default classic).",
+      ),
+      source: arr({ type: "number" }, "Where the light is: [x, y] in canvas pixels (default: the upper left third)."),
+      params: { type: "object", description: "Other parameters (see above).", additionalProperties: true },
+      above: str("The layer to put it right above (id or name); default: the top."),
+      name: str("Its name (default: the generator's)."),
+    }),
+  }),
+  tool({
+    name: "move_handle",
+    title: "Move a flare's handle",
+    kind: "edit",
+    description:
+      "Moves a generator's handle (a Lens Flare's source, where its light is, or its optical centre, which its ghosts line up through) to a point of the canvas, in canvas pixels; follow_canvas: true puts the optical centre back on the canvas's centre (following it).",
+    inputSchema: obj(
+      {
+        layer,
+        handle: oneOf(["source", "centre"], "Which handle."),
+        x: num("Canvas pixels from the left."),
+        y: num("Canvas pixels from the top."),
+        follow_canvas: bool("The optical centre on the canvas's centre (it follows the canvas)."),
+      },
+      ["layer", "handle"],
+    ),
   }),
   tool({
     name: "select_rect",
@@ -197,12 +301,13 @@ export const PHOTO_TOOLS = [
     title: "Resize the canvas",
     kind: "edit",
     description:
-      "Changes the canvas: its size in pixels (layers keep their place, measured from the top-left corner, or from the centre with anchor: centre) and its background (a colour like #ffffff, or none for transparent). Common sizes: 1080×1920 story/reel, 1080×1350 portrait post, 1080×1080 square, 1280×720 thumbnail.",
+      "Changes the canvas: its size in pixels (layers keep their place, measured from the top-left corner, or from the centre with anchor: centre), its background (a colour like #ffffff, or none for transparent) and its highlights (film or clip). Common sizes: 1080×1920 story/reel, 1080×1350 portrait post, 1080×1080 square, 1280×720 thumbnail.",
     inputSchema: obj({
       width: int("Width in pixels."),
       height: int("Height in pixels."),
       background: str('A colour "#rrggbb", or "none" for transparent.'),
       anchor: oneOf(["top-left", "centre"], "What stays put when the size changes (default top-left)."),
+      highlights: oneOf(["film", "clip"], "How light brighter than white leaves the photo: film rolls it towards white (glows and flares bloom), clip clips each channel."),
     }),
   }),
   tool({

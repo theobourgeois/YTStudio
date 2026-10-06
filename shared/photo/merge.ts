@@ -7,7 +7,8 @@
 import { findLayer } from "./edits.ts";
 import type { Size } from "./geometry.ts";
 import { bounds } from "./layers.ts";
-import { type ImageLayer, MAX_CANVAS_SIDE, type PhotoLayer, type PhotoProject, type PlacedLayer, isPlaced } from "./types.ts";
+import { filtersReach } from "./render-plan.ts";
+import { type ImageLayer, MAX_CANVAS_SIDE, type PhotoLayer, type PhotoProject, type PlacedLayer, hasContent, isPlaced } from "./types.ts";
 
 /** Merge Down (one layer into the one below it), Merge Layers (those selected) or Merge Visible (every visible one). */
 export type MergeKind = "down" | "selected" | "visible";
@@ -51,16 +52,22 @@ export function planMerge(doc: PhotoProject, kind: MergeKind, selected: readonly
     layers = doc.layers.filter((l) => wanted.has(l.id) && l.visible);
     if (layers.length < 2) return { error: kind === "visible" ? "There's only one visible layer: nothing to merge." : "Select two or more visible layers to merge." };
   }
-  const images = layers.filter(isPlaced);
-  if (images.length === 0) return { error: "Merging needs an image or pixel layer: adjustments alone have no pixels to merge into." };
+  const contents = layers.filter(hasContent);
+  if (contents.length === 0) return { error: "Merging needs an image, pixel or generator layer: adjustments alone have no pixels to merge into." };
   let x0 = Infinity;
   let y0 = Infinity;
   let x1 = -Infinity;
   let y1 = -Infinity;
-  for (const l of images) {
-    const size = sizeOf(l);
-    if (!size) return { error: `"${l.name}" has no image (it's missing or unreadable), so it can't be merged.` };
-    const b = bounds(l.transform, size);
+  for (const l of contents) {
+    let b = { x0: 0, y0: 0, x1: doc.canvas.width, y1: doc.canvas.height };
+    if (isPlaced(l)) {
+      const size = sizeOf(l);
+      if (!size) return { error: `"${l.name}" has no image (it's missing or unreadable), so it can't be merged.` };
+      // A glow spreads past its layer: the merged image keeps it.
+      const reach = filtersReach(l);
+      const box = bounds(l.transform, size);
+      b = { x0: box.x0 - reach, y0: box.y0 - reach, x1: box.x1 + reach, y1: box.y1 + reach };
+    }
     x0 = Math.min(x0, b.x0);
     y0 = Math.min(y0, b.y0);
     x1 = Math.max(x1, b.x1);
@@ -79,7 +86,7 @@ export function planMerge(doc: PhotoProject, kind: MergeKind, selected: readonly
     y1 = Math.min(doc.canvas.height, y1);
   }
   if (x1 <= x0 || y1 <= y0) return { error: "The merged layers are all off the canvas: nothing would show." };
-  const drawn = layers.slice(layers.findIndex(isPlaced));
+  const drawn = layers.slice(layers.findIndex(hasContent));
   return {
     ids: layers.map((l) => l.id),
     doc: { ...doc, canvas: { width: x1 - x0, height: y1 - y0, background: null }, layers: drawn },

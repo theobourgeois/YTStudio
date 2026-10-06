@@ -63,13 +63,13 @@ describe("pixel layers and masks (version 3)", () => {
       },
       (p) => problems.push(p),
     );
-    expect(d.version).toBe(3);
+    expect(d.version).toBe(5);
     expect(d.layers[0]).toMatchObject({ name: "Layer", surface: H("d"), size: { width: 100, height: 50 }, transform: { x: 50, y: 25 }, mask: { surface: H("e") } });
     expect(d.layers[1]).toMatchObject({ surface: null, size: { width: 800, height: 600 }, mask: { surface: null } });
     expect("mask" in d.layers[2]).toBe(false);
     expect(problems).toHaveLength(2);
     expect(normalizePhotoProject(d)).toEqual(d);
-    expect(normalizePhotoProject({ version: 2, layers: [] }).version).toBe(3);
+    expect(normalizePhotoProject({ version: 2, layers: [] }).version).toBe(5);
   });
 
   it("plans pixel layers (empty ones too) and masks, keyed by their surfaces", () => {

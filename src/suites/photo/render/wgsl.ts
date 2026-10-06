@@ -109,13 +109,27 @@ fn dither_at(x: u32, y: u32, amplitude: f32) -> f32 {
   return f32(hash2(x, y) >> 8u) / 16777216.0 * 2.0 * amplitude - amplitude;
 }
 
-// Unpremultiplied, clipped to [0, 1] (SDR sRGB), encoded: shared/photo/output.ts's encodePixel.
-fn encode_pixel(c: vec4f) -> vec4f {
+// shared/photo/output.ts's filmHighlights (FILM_STRENGTH 1): identity within [0, 1]; above, the largest channel stays
+// at 1 and the colour mixes towards white by 1 − 1/m.
+fn film_highlights(c: vec3f) -> vec3f {
+  let m = max(c.r, max(c.g, c.b));
+  if (!(m > 1.0)) { return c; }
+  let w = 1.0 - 1.0 / m;
+  return c * ((1.0 - w) / m) + vec3f(w);
+}
+
+// Unpremultiplied, highlights rolled off (film) or clipped, negatives clipped (SDR sRGB), encoded: shared/photo/output.ts's
+// encodePixel.
+fn encode_pixel_with(c: vec4f, film: bool) -> vec4f {
   let a = clamp(c.a, 0.0, 1.0);
   var rgb = vec3f(0.0);
-  if (a > 0.0) { rgb = clamp(c.rgb / a, vec3f(0.0), vec3f(1.0)); }
+  if (a > 0.0) { rgb = c.rgb / a; }
+  if (film) { rgb = film_highlights(rgb); }
+  rgb = clamp(rgb, vec3f(0.0), vec3f(1.0));
   return vec4f(linear_to_srgb(rgb.r), linear_to_srgb(rgb.g), linear_to_srgb(rgb.b), a);
 }
+
+fn encode_pixel(c: vec4f) -> vec4f { return encode_pixel_with(c, false); }
 
 // The full-screen triangle every pass over a whole target draws.
 fn full_screen(i: u32) -> vec4f {
