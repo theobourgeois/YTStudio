@@ -687,7 +687,7 @@ function customOf(reader: SignalReader, ref: SignalRef): SignalDef | undefined {
  * A custom signal's value from a clip of `sequenceId` at its timeline time `t`, 0..1 (an events
  * signal's hits shaped by `shape`).
  */
-function customLevel(reader: SignalReader, def: SignalDef, sequenceId: string | null, t: number, shape: HitShape = DEFAULT_HIT): number {
+export function customSignalLevel(reader: SignalReader, def: SignalDef, sequenceId: string | null, t: number, shape: HitShape = DEFAULT_HIT): number {
   if (def.kind === "band") {
     const where = placeSource(reader, sequenceId, def.source, t);
     return bandSeries(reader, def, where.sequenceId).at(where.t);
@@ -704,6 +704,14 @@ function customHits(reader: SignalReader, def: SignalDef, sequenceId: string | n
     return { hits: bandSeries(reader, def, where.sequenceId).hits(where.t - span, where.t), t: where.t };
   }
   return null;
+}
+
+/** A custom signal's hits between two times of the main timeline (events, or a band's onsets; none for others). */
+export function customSignalHits(reader: SignalReader, def: SignalDef, from: number, to: number): Hit[] {
+  if (def.kind === "events") return hitsOfEvents(def).filter(([t]) => t >= from && t <= to);
+  if (def.kind !== "band" || !def.onsets) return [];
+  const where = placeSource(reader, null, def.source, 0);
+  return bandSeries(reader, def, where.sequenceId).hits(from, to);
 }
 
 const eventHits = new WeakMap<SignalDef, Hit[]>();
@@ -862,7 +870,7 @@ export function signalScope(clipId: string, fps: number): SignalScope | undefine
       const h = hearingFor(reader, sequenceId);
       return beatAt(reader, h.sequenceId, h.at(at(t)));
     },
-    signal: (name, t) => customLevel(reader, custom(name, "signal"), sequenceId, at(t)),
+    signal: (name, t) => customSignalLevel(reader, custom(name, "signal"), sequenceId, at(t)),
   };
 }
 

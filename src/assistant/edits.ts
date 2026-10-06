@@ -40,7 +40,6 @@ import {
 import {
   APPEARANCE,
   EFFECTS,
-  type EffectDefinition,
   CAMERA,
   MOTION,
   SHAPE,
@@ -133,7 +132,7 @@ import {
   storedTransition,
 } from "@shared/transition-windows";
 import { ALIGNMENT_SPEC, DURATION_SPEC, transitionDefinition } from "@shared/transitions";
-import type { AspectRatio, Clip, Easing, Effect, Keyframe, MediaAsset, ParamValues, Project, Track } from "@shared/types";
+import type { AspectRatio, Clip, Easing, Keyframe, MediaAsset, ParamValues, Project, Track } from "@shared/types";
 import {
   type Input,
   PATH_FORMAT,
@@ -153,6 +152,9 @@ import {
   strings,
   value,
 } from "./input";
+import { clipOf, effectOf } from "./lookup";
+import { defineSignalTool, deleteSignalTool, linkParamTool, setEventsTool } from "./signal-edits";
+import type { SignalStore } from "@shared/audio-signals";
 
 export interface EditEnv {
   /** The video's media, and its nested sequences as media. */
@@ -160,6 +162,11 @@ export interface EditEnv {
   playhead: number;
   /** The nested sequence the project is a view of (null or absent: the main one). */
   sequenceId?: string | null;
+  /**
+   * The video's sounds, for edits that place things on them or say what they do (links, events): its
+   * files' signals, and the whole video with an edited view put back in it.
+   */
+  signals?: { store: SignalStore; document(view: Project): Project };
 }
 
 export interface EditOutcome {
@@ -175,11 +182,6 @@ type EditHandler = (project: Project, input: Input, env: EditEnv) => EditOutcome
 // Helpers
 // ---------------------------------------------------------------------------
 
-function clipOf(project: Project, id: string): Clip {
-  const clip = getClip(project, id);
-  if (!clip) throw new ToolError(`There's no clip "${id}". Call get_timeline for the current clip ids.`);
-  return clip;
-}
 
 function trackOf(project: Project, id: string): Track {
   const track = getTrack(project, id);
@@ -194,15 +196,6 @@ function place(project: Project, clip: Clip, env: EditEnv): string {
   return `${clip.id} "${clipName(clip, env.assets[clip.assetId])}" on ${trackName(project, clip.trackId)} at ${range(clip.start, clipEnd(clip))}`;
 }
 
-/** One of a clip's effects, by id (or by type when that's unambiguous). */
-function effectOf(clip: Clip, id: string): { effect: Effect; def: EffectDefinition } {
-  const effect = clip.effects.find((e) => e.id === id) ?? clip.effects.find((e) => e.type === id);
-  const def = effect && effectDefinition(effect.type);
-  if (!effect || !def) {
-    throw new ToolError(`Clip ${clip.id} has no effect "${id}". Its effects: ${clip.effects.map((e) => e.id).join(", ")}.`);
-  }
-  return { effect, def };
-}
 
 function expected(spec: ParamSpec): string {
   switch (spec.kind) {
@@ -1261,6 +1254,10 @@ export const EDITS: Record<EditToolName, EditHandler> = {
   set_markers: setMarkersTool,
   cut_to_markers: cutToMarkersTool,
   set_expression: setExpressionTool,
+  link_param: linkParamTool,
+  define_signal: defineSignalTool,
+  delete_signal: deleteSignalTool,
+  set_events: setEventsTool,
   nest_clips: nestClipsTool,
   break_apart: breakApartTool,
   edit_sequence: editSequenceTool,

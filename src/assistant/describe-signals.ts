@@ -8,11 +8,14 @@ import {
   type SignalReader,
   type SignalSource,
   beatGridAt,
+  customSignalHits,
+  customSignalLevel,
   isOnsetName,
   isSignalName,
   signalValue,
   sourceHits,
 } from "@shared/audio-signals";
+import { findSignal } from "@shared/links";
 import { hasMedia } from "@shared/effects";
 import { ONSET_SCALARS } from "@shared/signals/format";
 import { isNestedClip, sequenceView } from "@shared/sequences";
@@ -46,9 +49,7 @@ export const sequenceLength = (reader: SignalReader, sequenceId: string | null) 
 /** get_signals' answer. */
 export function describeSignals(reader: SignalReader, sequenceId: string | null, query: SignalQuery): string {
   const view = sequenceView(reader.document, sequenceId);
-  for (const name of query.signals) {
-    if (!isSignalName(name)) throw new ToolError(`There's no signal "${name}". Signals: ${BUILT_IN_SIGNALS.map((s) => s.name).join(", ")}.`);
-  }
+  const read = signalReadersOf(reader, sequenceId, query.source, query.signals);
   const { from, to } = query;
   const lines = [`${query.label}, ${range(from, to)}s (timeline seconds; values 0..1, 1 as loud as the file's own loud parts):`];
 
@@ -103,6 +104,20 @@ export function describeSignals(reader: SignalReader, sequenceId: string | null,
     lines.push(`  ${name} (${ONSET_LABELS[name]}): ${hits.length}${shown.length ? `: ${shown.join(", ")}${hits.length > MAX_HITS ? ", …" : ""}` : ""}`);
   }
 
+  // The video's own signals: how often each is on, and their hits here.
+  const own = reader.document.signals ?? [];
+  if (own.length) {
+    lines.push("The video's own signals (define_signal; values in `signals` by name):");
+    for (const def of own) {
+      const hits = customSignalHits(reader, def, from, to);
+      const has = def.kind === "events" || (def.kind === "band" && def.onsets);
+      let on = 0;
+      const n = 200;
+      for (let i = 0; i < n; i++) if (customSignalLevel(reader, def, sequenceId, from + ((to - from) * (i + 0.5)) / n) > 0.5) on++;
+      lines.push(`  "${def.name}" (${def.id}, ${def.kind}${def.role ? `, ${def.role}` : ""}): over 0.5 ${Math.round((on / n) * 100)}% of the time${has ? `; ${hits.length} hits${hits.length ? `: ${list(hits.map(([t]) => t))}` : ""}` : ""}`);
+    }
+  }
+
   // An overview of the loudness, two numbers a second at most.
   const overview = Math.max(0.5, (to - from) / 60);
   const levels: string[] = [];
@@ -117,7 +132,7 @@ export function describeSignals(reader: SignalReader, sequenceId: string | null,
     lines.push(["t", ...query.signals].join("\t"));
     for (let i = 0; i < rows; i++) {
       const t = from + i * step;
-      lines.push([secs(t), ...query.signals.map((name) => two(signalValue(reader, sequenceId, query.source, name as never, t, isOnsetName(name) ? step : 0)))].join("\t"));
+      lines.push([secs(t), ...read.map((at) => two(at(t, step)))].join("\t"));
     }
   }
   return lines.join("\n");
@@ -146,4 +161,19 @@ export function eventTimes(reader: SignalReader, sequenceId: string | null, sour
   }
   if (isOnsetName(kind)) return sourceHits(reader, sequenceId, source, kind).map(([t]) => t).filter(inside);
   throw new ToolError(`\`at\` must be "beats", "bars", "drops" or a kind of hit: ${ONSET_SCALARS.map((n) => `"${n}"`).join(", ")}.`);
+}
+
+/**
+ * How to read each of `names` over time (a built-in signal of `source`, or one of the video's own by
+ * name), or a message saying which exist. `step` is how far apart values are read (an onset is its
+ * strongest since the one before).
+ */
+export function signalReadersOf(reader: SignalReader, sequenceId: string | null, source: SignalSource, names: string[]): ((t: number, step: number) => number)[] {
+  return names.map((name) => {
+    if (isSignalName(name)) return (t: number, step: number) => signalValue(reader, sequenceId, source, name, t, isOnsetName(name) ? step : 0);
+    const def = findSignal(reader.document, name);
+    if (def) return (t: number) => customSignalLevel(reader, def, sequenceId, t);
+    const own = (reader.document.signals ?? []).map((d) => `"${d.name}"`);
+    throw new ToolError(`There's no signal "${name}". Signals: ${BUILT_IN_SIGNALS.map((s) => s.name).join(", ")}${own.length ? `; the video's own: ${own.join(", ")}` : ""}.`);
+  });
 }
