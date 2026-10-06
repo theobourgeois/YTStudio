@@ -2113,6 +2113,19 @@ test("split by channel turns a beat into a pattern per channel, each on its own 
     ]);
   // Dropped in, they're selected.
   await expect(page.getByTestId("playlist")).toHaveAttribute("data-selected", "3");
+  // ⌘+click on a clip selects it alone; ⌘+drag starting on a clip is still a rectangle.
+  const first = await playlistPoint(page, 4 * BAR_TICKS + 40, 1);
+  const last = await playlistPoint(page, 4 * BAR_TICKS + 80, 3);
+  const middle = await playlistPoint(page, 4 * BAR_TICKS + 40, 2);
+  await page.keyboard.down("ControlOrMeta");
+  await page.mouse.click(middle.x, middle.y);
+  await expect(page.getByTestId("playlist")).toHaveAttribute("data-selected", "1");
+  await page.mouse.move(first.x, first.y);
+  await page.mouse.down();
+  await page.mouse.move(last.x, last.y, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.up("ControlOrMeta");
+  await expect(page.getByTestId("playlist")).toHaveAttribute("data-selected", "3");
   // A press away from the Picker's items lets go of them (the clip source alone stays marked).
   await picker.getByRole("tab", { name: /Patterns/ }).click();
   await expect(picker.locator("[data-picker-item][aria-pressed=true]")).toHaveCount(1);
