@@ -123,3 +123,23 @@ export function guidesOf(box: Box, targets: SnapTargets, which: { x: number[]; y
   const on = (points: number[], lines: SnapLine[]) => points.flatMap((point) => lines.filter((line) => Math.abs(line.at - point) < 1e-6).map((line) => ({ point, line })));
   return [...guidesFor("x", on(which.x, targets.x), box), ...guidesFor("y", on(which.y, targets.y), box)];
 }
+
+/**
+ * A point dragged (a generator's handle) snapped on each axis to the nearest line within `threshold`, and the
+ * guides of the lines it's then on (drawn through the point and the line's own span).
+ */
+export function snapPoint(p: { x: number; y: number }, targets: SnapTargets, threshold: number): { x: number; y: number; guides: Guide[] } {
+  const guides: Guide[] = [];
+  const nearest = (v: number, lines: readonly SnapLine[]) => {
+    let best: SnapLine | null = null;
+    for (const line of lines) if (Math.abs(line.at - v) <= threshold && (!best || Math.abs(line.at - v) < Math.abs(best.at - v))) best = line;
+    return best;
+  };
+  const sx = nearest(p.x, targets.x);
+  const sy = nearest(p.y, targets.y);
+  const x = sx ? sx.at : p.x;
+  const y = sy ? sy.at : p.y;
+  if (sx) guides.push({ axis: "x", at: sx.at, from: Math.min(sx.from, y), to: Math.max(sx.to, y) });
+  if (sy) guides.push({ axis: "y", at: sy.at, from: Math.min(sy.from, x), to: Math.max(sy.to, x) });
+  return { x, y, guides };
+}

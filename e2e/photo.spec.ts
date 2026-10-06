@@ -1493,3 +1493,147 @@ test("a glow viewed from its cached levels is level 0 reduced, and refines betwe
   expect(atHalf).toBeLessThan(4e-3);
   expect(atQuarter).toBeLessThan(0.05);
 });
+
+type DocWindow = { photoDebug: { photo: { getState(): { history: { doc: { doc: { layers: { id: string; kind: string; filters?: { id: string; enabled: boolean; params: Record<string, unknown> }[]; effect?: { params: Record<string, unknown> }; mask?: unknown }[] } } } } } } };
+const docLayers = (page: Page) => page.evaluate(() => (window as unknown as DocWindow).photoDebug.photo.getState().history.doc.doc.layers);
+const SHOTS = process.env.PHOTO_SHOTS;
+
+let lightId = "";
+
+test("glow and Lens Flare are added from Layers and edited in Properties; the flare's handle lands on the same document point at every zoom", async ({ page }) => {
+  lightId = await openNewPhoto(page, "Light");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const [photo] = await docLayers(page);
+  await page.locator(`[data-layer="${photo.id}"]`).click();
+
+  // Glow: a filter on the selected layer, listed under it, shown in Properties.
+  await page.getByRole("button", { name: "New adjustment layer" }).click();
+  await page.getByRole("menuitem", { name: /Glow/ }).click();
+  await expect(page.locator("[data-filter]")).toHaveCount(1);
+  await expect(page.locator('[data-filter-properties="glow"]')).toBeVisible();
+  const radius = page.locator('[data-filter-properties="glow"] [data-param="radius"]').getByRole("textbox");
+  await radius.fill("240");
+  await radius.press("Enter");
+  await expect.poll(async () => (await docLayers(page))[0].filters?.[0].params.radius).toBe(240);
+  // Its eye bypasses it, keeping its settings.
+  await page.locator("[data-filter]").getByRole("button", { name: /Bypass/ }).click();
+  await expect.poll(async () => (await docLayers(page))[0].filters?.[0]).toMatchObject({ enabled: false, params: { radius: 240 } });
+  await page.locator("[data-filter]").getByRole("button", { name: /Turn .* on/ }).click();
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "glow.png") });
+
+  // Lens Flare: a layer above, its handles on the canvas.
+  await page.getByRole("button", { name: "New adjustment layer" }).click();
+  await page.getByRole("menuitem", { name: "Lens Flare" }).click();
+  await expect(page.locator('[data-kind="generator"]')).toHaveCount(1);
+  await expect(page.locator('[data-generator-properties="lens-flare"]')).toBeVisible();
+  await expect(page.locator('[data-handle="source"]')).toBeVisible();
+  const flareId = (await docLayers(page))[1].id;
+  // An element added from the list's menu is shown, selected, in Properties.
+  const before = Number(await page.locator("[data-elements]").getAttribute("data-elements"));
+  await page.getByRole("button", { name: "Add an element" }).click();
+  await page.getByRole("menuitem", { name: "Anamorphic streak" }).click();
+  await expect(page.locator("[data-elements]")).toHaveAttribute("data-elements", String(before + 1));
+  await expect(page.locator('[data-element-properties="streak"]')).toBeVisible();
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "flare.png") });
+
+  // The source handle dragged to document point (430, 310) at a third, at 100% and at 250%: the same point each time.
+  const sourceOf = async () => (await docLayers(page)).find((l) => l.id === flareId)!.effect!.params.source as number[];
+  for (const zoom of [1 / 3, 1, 2.5]) {
+    await page.evaluate(
+      ({ zoom }) => {
+        const ui = (window as unknown as PaintWindow).photoDebug.ui.getState();
+        const view = ui.view;
+        // Centred on the point, so it's on screen.
+        ui.setView({ ...view, zoom, x: 430 - view.width / zoom / 2, y: 310 - view.height / zoom / 2 });
+      },
+      { zoom },
+    );
+    // Away first, so each drag moves it.
+    const handle = page.locator('[data-handle="source"]');
+    const from = (await handle.boundingBox())!;
+    const to = await screenOf(page, 430, 310);
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + 40, to.y + 30, { steps: 3 });
+    await page.mouse.move(to.x, to.y, { steps: 3 });
+    await page.mouse.up();
+    const [x, y] = await sourceOf();
+    expect(Math.abs(x - 430), `x at ${zoom}`).toBeLessThan(0.75 / zoom + 0.01);
+    expect(Math.abs(y - 310), `y at ${zoom}`).toBeLessThan(0.75 / zoom + 0.01);
+  }
+  // A drag is one undo step, and Escape cancels one.
+  const at = await sourceOf();
+  const handle = (await page.locator('[data-handle="source"]').boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 80, handle.y + 60, { steps: 4 });
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  expect(await sourceOf()).toEqual(at);
+  // Saved as it is (the next test reopens it).
+  await expect.poll(async () => (await savedPhoto(page, lightId)).layers.find((l: { id: string }) => l.id === flareId)?.effect.params.source).toEqual(at);
+});
+
+/** A SHA-256 of the open photo rendered at a fixed view: whether two states look the same, to the bit. */
+const renderDigest = (page: Page, view: ViewBox) =>
+  page.evaluate(async (view) => {
+    const { photoDebug } = window as unknown as DebugWindow;
+    const r = await photoDebug.renderer();
+    const { texture } = await r.renderView(photoDebug.photo.getState().history.doc.doc, view, { refine: true });
+    const data = await r.readFloat(texture, view.width, view.height);
+    texture.destroy();
+    return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new Float32Array(data)))].map((x) => x.toString(16).padStart(2, "0")).join("");
+  }, view);
+
+test("reordering, bypassing, masking, undoing and reopening keep every setting of the light", async ({ page }) => {
+  await page.goto(`/p/${lightId}`);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const photo = (await docLayers(page)).find((l) => l.kind === "image")!;
+  // A second glow, from the Layers menu, tinted.
+  await page.locator(`[data-layer="${photo.id}"]`).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Add Glow Filter" }).click();
+  await expect(page.locator(`[data-filter-of="${photo.id}"]`)).toHaveCount(2);
+  const amount = page.locator('[data-filter-properties="glow"] [data-param="tintAmount"]').getByRole("textbox");
+  await amount.fill("60");
+  await amount.press("Enter");
+  const filters = async () => (await docLayers(page)).find((l) => l.id === photo.id)!.filters!;
+  await expect.poll(async () => (await filters())[1].params.tintAmount).toBe(60);
+  const [first, second] = (await filters()).map((f) => f.id);
+
+  // Dragged below the first (the list shows the last applied on top): it applies first now.
+  const top = (await page.locator(`[data-filter="${second}"]`).boundingBox())!;
+  const below = (await page.locator(`[data-filter="${first}"]`).boundingBox())!;
+  // (By its name: its eye is at its left.)
+  await page.mouse.move(top.x + 150, top.y + top.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(below.x + 150, below.y + below.height - 2, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await filters()).map((f) => f.id)).toEqual([second, first]);
+
+  // The Filters row's eye bypasses both, each keeping its own; a mask from the footer, painted.
+  await page.locator(`[data-filters="${photo.id}"]`).getByRole("button", { name: "Bypass every filter" }).click();
+  await expect.poll(async () => (await docLayers(page)).find((l) => l.id === photo.id)).toMatchObject({ filtersEnabled: false });
+  await page.locator(`[data-filters="${photo.id}"]`).getByRole("button", { name: "Turn the filters on" }).click();
+  await page.locator(`[data-layer="${photo.id}"]`).click();
+  await page.getByRole("button", { name: /Add a mask/ }).click();
+  await paint(page, photo.id, "mask", line(200, 200, 900, 700), { radius: 60, colour: [0, 0, 0, 1] });
+  await expect.poll(async () => typeof (await docLayers(page)).find((l) => l.id === photo.id)!.mask).toBe("object");
+
+  // Undone and redone: the same.
+  const view: ViewBox = { zoom: 0.25, x: 0, y: 0, width: 400, height: 300 };
+  const doc = await docLayers(page);
+  const look = await renderDigest(page, view);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => await docLayers(page)).not.toEqual(doc);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(async () => await docLayers(page)).toEqual(doc);
+  expect(await renderDigest(page, view)).toBe(look);
+
+  // Reopened: every setting, and the same pixels.
+  await expect.poll(async () => (await savedPhoto(page, lightId)).layers).toEqual(doc);
+  await page.reload();
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  expect(await docLayers(page)).toEqual(doc);
+  expect(await renderDigest(page, view)).toBe(look);
+});

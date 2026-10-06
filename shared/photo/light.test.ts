@@ -1,16 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   activeFilters,
+  addElement,
   addFilter,
   addGeneratorLayer,
   addImageLayer,
   duplicateLayer,
   filtersOf,
   handlePoint,
+  moveElement,
   moveFilter,
   moveLayersBy,
+  removeElement,
   removeFilter,
   setEffectParams,
+  setElement,
   setFilter,
   setFiltersEnabled,
   setGeneratorBlend,
@@ -149,5 +153,28 @@ describe("generator layers (version 5)", () => {
     expect((g.effect.params.elements as EffectElement[]).map((e) => [e.id, e.size])).toEqual([["e1", 0.1]]);
     expect(unavailableReason((n.layers[1] as GeneratorLayer).effect, "generator")).toMatch(/isn't a generator/);
     expect(problems.join("\n")).toMatch(/without an effect/);
+  });
+});
+
+describe("a flare's elements", () => {
+  const doc = () => addGeneratorLayer(withImage(), { id: "fl", type: "lens-flare", preset: "subtle" });
+  const elements = (d: PhotoProject) => flare(d).effect.params.elements as EffectElement[];
+
+  it("are added at their defaults, set, hidden, reordered and removed, keeping their ids", () => {
+    const before = elements(doc()).map((e) => e.id);
+    let d = addElement(doc(), "fl", "elements", "streak", "s1", { size: 900 });
+    expect(elements(d).map((e) => e.id)).toEqual([...before, "s1"]);
+    expect(elements(d).at(-1)).toMatchObject({ id: "s1", type: "streak", enabled: true, size: 900, thickness: 3 });
+    expect(addElement(d, "fl", "elements", "streak", "s1")).toBe(d);
+    expect(addElement(d, "fl", "elements", "sparkle", "x")).toBe(d);
+    d = setElement(d, "fl", "elements", "s1", { angle: 400, enabled: false, id: "hijack" });
+    expect(elements(d).at(-1)).toMatchObject({ id: "s1", angle: 180, enabled: false });
+    expect(setElement(d, "fl", "elements", "s1", { angle: 180 })).toBe(d);
+    d = moveElement(d, "fl", "elements", "s1", 0);
+    expect(elements(d)[0].id).toBe("s1");
+    expect(moveElement(d, "fl", "elements", "s1", 0)).toBe(d);
+    d = removeElement(d, "fl", "elements", "s1");
+    expect(elements(d).map((e) => e.id)).toEqual(before);
+    expect(removeElement(d, "fl", "elements", "s1")).toBe(d);
   });
 });

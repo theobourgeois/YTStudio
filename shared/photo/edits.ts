@@ -4,13 +4,14 @@
  */
 import { type EffectDefinition, effectDefinition, newEffect, unavailableReason } from "./effects/index.ts";
 import { flarePreset } from "./effects/flare.ts";
-import { sameValue, sanitizeParam } from "./effects/params.ts";
+import { type ElementsParam, newElement, sameValue, sanitizeParam } from "./effects/params.ts";
 import type { Size } from "./geometry.ts";
 import { MIN_SCALE, isColour, wrapDegrees } from "./project.ts";
 import {
   type AdjustmentLayer,
   type ContentLayer,
   type DocPoint,
+  type EffectElement,
   type EffectInstance,
   type EffectParamValue,
   type GeneratorBlend,
@@ -370,6 +371,58 @@ export function addGeneratorLayer(doc: PhotoProject, layer: NewGeneratorLayer, a
   const at = above ? layers.findIndex((l) => l.id === above) : -1;
   layers.splice(at >= 0 ? at + 1 : layers.length, 0, added);
   return { ...doc, layers };
+}
+
+// --- elements (a flare's): an `elements` parameter of a generator's own effect ---
+
+/** A generator's elements under `key`, or null when it has none there (or can't be changed). */
+function elementsOf(doc: PhotoProject, layerId: string, key: string): { layer: GeneratorLayer; spec: ElementsParam; list: EffectElement[] } | null {
+  const layer = findLayer(doc, layerId);
+  if (layer?.kind !== "generator" || unavailableReason(layer.effect, "generator")) return null;
+  const spec = effectDefinition(layer.effect.type)?.params.find((p) => p.key === key);
+  const list = layer.effect.params[key];
+  return spec?.kind === "elements" && Array.isArray(list) ? { layer, spec, list: list as EffectElement[] } : null;
+}
+
+/** The list replaced, checked by its spec (ids kept), as one edit. */
+const withElements = (doc: PhotoProject, layerId: string, key: string, list: EffectElement[]) => setEffectParams(doc, layerId, { [key]: list });
+
+/** A new element of `type` (at its defaults, `values` over them) on top of the list. */
+export function addElement(doc: PhotoProject, layerId: string, key: string, type: string, id: string, values: Record<string, unknown> = {}): PhotoProject {
+  const found = elementsOf(doc, layerId, key);
+  const t = found?.spec.types.find((x) => x.type === type);
+  if (!found || !t || found.list.some((e) => e.id === id) || found.list.length >= found.spec.max) return doc;
+  return withElements(doc, layerId, key, [...found.list, { ...newElement(t, id), ...values, id, type } as EffectElement]);
+}
+
+/** Some of an element's own parameters (and whether it's shown), each checked by its type's spec. */
+export function setElement(doc: PhotoProject, layerId: string, key: string, elementId: string, patch: Record<string, unknown>): PhotoProject {
+  const found = elementsOf(doc, layerId, key);
+  const i = found ? found.list.findIndex((e) => e.id === elementId) : -1;
+  if (!found || i < 0) return doc;
+  const list = [...found.list];
+  const { id: _, type: __, ...rest } = patch;
+  list[i] = { ...list[i], ...rest } as EffectElement;
+  return withElements(doc, layerId, key, list);
+}
+
+export function removeElement(doc: PhotoProject, layerId: string, key: string, elementId: string): PhotoProject {
+  const found = elementsOf(doc, layerId, key);
+  if (!found || !found.list.some((e) => e.id === elementId)) return doc;
+  return withElements(doc, layerId, key, found.list.filter((e) => e.id !== elementId));
+}
+
+/** Moves an element to `index` (0 is the first drawn), clamped. */
+export function moveElement(doc: PhotoProject, layerId: string, key: string, elementId: string, index: number): PhotoProject {
+  const found = elementsOf(doc, layerId, key);
+  const from = found ? found.list.findIndex((e) => e.id === elementId) : -1;
+  if (!found || from < 0) return doc;
+  const to = Math.max(0, Math.min(found.list.length - 1, Math.round(index)));
+  if (to === from) return doc;
+  const list = [...found.list];
+  const [moved] = list.splice(from, 1);
+  list.splice(to, 0, moved);
+  return withElements(doc, layerId, key, list);
 }
 
 /** A generator's blend: how its content mixes with what's below (Normal, or Linear Dodge's Add). */
