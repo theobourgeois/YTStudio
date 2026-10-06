@@ -5,6 +5,9 @@ import { atFrameRate, clipKind, definitionOf, isRemapped, lookAt, motionAt, soli
 import { nestedSequence, sequenceDuration, sequenceSize, sequenceView } from "@shared/sequences";
 import { mediaTime, remapSpeed } from "@shared/time-remap";
 import { type Compositor, type Placed, createCompositor, matteIndex } from "@shared/compositor";
+import { effectPasses } from "@shared/effect-gl";
+import { frameSourceTime } from "@shared/simulation";
+import { lazySceneRenderer } from "@/scenes/loader";
 import { PREVIEW_SAMPLES, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "@shared/layers";
 import { parentAt } from "@shared/parenting";
 import { type Shown, type TransitionPlan, planTrack, planTransition } from "@shared/scene";
@@ -86,8 +89,18 @@ interface PlanStatus {
   unsettled: boolean;
 }
 
-/** Whether a clip has a time effect on (see `EffectShader.history`). */
-const hasTimeEffects = (clip: Clip) => clip.effects.some((e) => e.enabled && !!definitionOf(e)?.shader?.history);
+/** Whether a clip has a time effect on (see `EffectShader.history`), or a simulation or 3D scene, which step from frame to frame. */
+const hasTimeEffects = (clip: Clip) =>
+  clip.effects.some((e) => {
+    const shader = e.enabled ? definitionOf(e)?.shader : undefined;
+    return !!(shader?.history || shader?.simulation || shader?.scene);
+  });
+
+/**
+ * How long a draw may spend catching simulations up to the frame shown (stepping them from their newest
+ * checkpoint), playing and paused: what's left is done by the next draws, the frame meanwhile close.
+ */
+const CATCH_UP_MS = { playing: 8, paused: 40 };
 
 /** Nested sequences deeper than this aren't drawn (a guard; loops are never saved). */
 const MAX_NESTING = 8;
@@ -190,6 +203,9 @@ export class PreviewEngine {
   private windowsOf: Project | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private compositor: Compositor | null = null;
+  /** When this draw stops catching simulations up, and whether it caught them all up. */
+  private catchUpUntil = 0;
+  private caughtUp = true;
   /** What each stored picture was made from (to know when it has to be uploaded again). */
   private uploaded = new Map<string, string>();
   /** Time-interpolated videos' frames: how many the slot had shown, and the media times of the newest two. */
@@ -298,6 +314,8 @@ export class PreviewEngine {
       preserveDrawingBuffer: true,
     });
     this.compositor = gl && !gl.isContextLost() ? createCompositor(gl) : null;
+    // 3D scenes load the first time one is drawn, then the frame is drawn again.
+    this.compositor?.setSceneRenderer(lazySceneRenderer(() => this.requestDraw()));
     if (!gl) console.warn("WebGL 2 isn't available, so the preview can't be drawn.");
     this.uploaded.clear();
     this.nestFrames.clear();
@@ -639,10 +657,16 @@ export class PreviewEngine {
     const dpr = Math.min(2, window.devicePixelRatio || 1) * this.resolution;
     compositor.resize(this.size.width * dpr, this.size.height * dpr);
     compositor.clear();
+    this.catchUpUntil = performance.now() + (this.source.get().playing ? CATCH_UP_MS.playing : CATCH_UP_MS.paused);
+    this.caughtUp = true;
     const count = this.drawLayers(compositor, project, layers, this.size, dpr);
     compositor.present();
     const state = count.transitions ? "transition" : layers.length ? "clips" : "empty";
     if (canvas.dataset.drawn !== state) canvas.dataset.drawn = state;
+    // A simulation not caught up yet shows a close frame, and goes on catching up on the next draw.
+    const simulation = this.caughtUp ? "exact" : "catching-up";
+    if (canvas.dataset.simulation !== simulation) canvas.dataset.simulation = simulation;
+    if (!this.caughtUp) this.requestDraw();
   }
 
   /**
@@ -666,7 +690,46 @@ export class PreviewEngine {
         camera,
         parentAt(project, clip, size),
       );
+    /** What the compositor draws itself (text, a solid, a shape layer) as a layer, at source time `time`. */
+    const generated = (clip: Clip, time: number): Placed | null => {
+      const layer = clipLayer(clip, time, affineAt(clip), options);
+      if (!layer) return null;
+      if (clipKind(clip) === "shape") return { ...layer, key: "", vector: shapeDrawingAt(clip, time, outputSize(project.settings.aspectRatio, "1080p")) };
+      if (clipKind(clip) === "text") {
+        // Laid out here (the tab knows the fonts), drawn by the compositor at the size it's shown.
+        const { text } = placeOnCanvas(project, clip, undefined, size, time);
+        return text && { ...layer, key: "", text: textDrawing(textStyleAt(clip, time), text, textUnit(size, project.settings.aspectRatio)) };
+      }
+      return { ...layer, key: "", solid: { color: solidColorAt(clip, time), ...pixels } };
+    };
+    /**
+     * Step a clip's simulations up to the frame it shows, from the newest state the compositor has of them
+     * (see `simulationFrom`), for as long as this draw may. What the compositor draws itself is stepped
+     * exactly; a video or a nested sequence steps on the picture it shows now (its earlier frames aren't
+     * at hand), close to what it was.
+     */
+    const catchUp = (picture: Picture, own: Placed) => {
+      const sims = own.effects?.flatMap((fx) => (fx.simulation ? [fx.simulation] : [])) ?? [];
+      if (!sims.length) return;
+      const { frame, fps } = sims[0];
+      const from = Math.min(...sims.map((sim) => compositor.simulationFrom(sim.id, sim.version, frame, sim.memory)));
+      const { clip } = picture.shown;
+      for (let k = from; k < frame; k++) {
+        if (performance.now() > this.catchUpUntil) {
+          this.caughtUp = false;
+          return;
+        }
+        const time = frameSourceTime(clip, k, fps);
+        const step = picture.source === null && !picture.nest ? generated(clip, time) : { ...own, effects: effectPasses(clip, time, fps), samples: undefined };
+        if (step) compositor.advance(step);
+      }
+    };
     const placed = (picture: Picture | null): Placed | null => {
+      const own = placedNow(picture);
+      if (own && picture) catchUp(picture, own);
+      return own;
+    };
+    const placedNow = (picture: Picture | null): Placed | null => {
       if (!picture) return null;
       const { clip, time } = picture.shown;
       if (picture.nest) {
@@ -699,17 +762,7 @@ export class PreviewEngine {
         const layer = clipLayer(clip, time, affineAt(clip), options);
         return layer && { ...layer, key };
       }
-      if (picture.source === null) {
-        const layer = clipLayer(clip, time, affineAt(clip), options);
-        if (!layer) return null;
-        if (clipKind(clip) === "shape") return { ...layer, key: "", vector: shapeDrawingAt(clip, time, outputSize(project.settings.aspectRatio, "1080p")) };
-        if (clipKind(clip) === "text") {
-          // Laid out here (the tab knows the fonts), drawn by the compositor at the size it's shown.
-          const { text } = placeOnCanvas(project, clip, undefined, size, time);
-          return text && { ...layer, key: "", text: textDrawing(textStyleAt(clip, time), text, textUnit(size, project.settings.aspectRatio)) };
-        }
-        return { ...layer, key: "", solid: { color: solidColorAt(clip, time), ...pixels } };
-      }
+      if (picture.source === null) return generated(clip, time);
       if (!this.upload(compositor, picture)) return null;
       const layer = clipLayer(clip, time, affineAt(clip), options);
       if (!layer) return null;

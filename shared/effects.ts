@@ -37,6 +37,8 @@ import { SHAKE_EFFECTS } from "./effect-library/shake.ts";
 import { TIME_EFFECTS } from "./effect-library/time.ts";
 import { PARTICLE_EFFECTS } from "./effect-library/particles.ts";
 import { AUDIO_EFFECTS } from "./effect-library/audio.ts";
+import { SIMULATION_EFFECTS } from "./effect-library/simulation.ts";
+import { SCENE_EFFECTS } from "./effect-library/scenes.ts";
 import { MASK } from "./effect-library/mask.ts";
 import { SHAPE, SHAPE_EFFECTS } from "./effect-library/shape.ts";
 import { TEXT_ANIMATOR } from "./effect-library/text-animator.ts";
@@ -89,7 +91,7 @@ export interface EffectDefinition {
 }
 
 /** Categories of video effects, in the order the Effects tab's filter shows them. */
-export const EFFECT_TAGS = ["color", "blur", "light", "stylize", "distort", "camera", "time", "glitch", "generate", "keying", "audio"] as const;
+export const EFFECT_TAGS = ["color", "blur", "light", "stylize", "distort", "camera", "time", "glitch", "generate", "keying", "audio", "scene"] as const;
 
 export type EffectTag = (typeof EFFECT_TAGS)[number];
 
@@ -105,6 +107,7 @@ export const EFFECT_TAG_LABELS: Record<EffectTag, string> = {
   generate: "Generate",
   keying: "Keying",
   audio: "Audio",
+  scene: "3D Scenes",
 };
 
 export interface EffectShader {
@@ -131,6 +134,21 @@ export interface EffectShader {
    * which draws every frame in order; paused on a frame, the preview only has that frame.
    */
   history?: { reach: (values: ParamValues, fps: number) => number; feedback?: boolean; flow?: boolean };
+  /**
+   * A simulation (V8): its output is its state, which it reads back a frame later (`getState`), so what it
+   * shows at frame `f` of its clip is the shader run `f + 1` times from nothing, at the sequence's frame step
+   * (`simFrame`, `simStep`). The export draws in order; the preview keeps checkpoints and replays from the
+   * nearest one when it seeks, so a simulation fed by pure inputs (generators, visualizers, text, solids)
+   * shows the same frame however it's reached. `memory`: how many seconds back anything still shows, for
+   * these values (a trail that fades), when that's finite: a seek then replays only that long. Single pass.
+   */
+  simulation?: { memory?: (values: ParamValues, fps: number) => number | null };
+  /**
+   * A 3D scene (V8, `shared/scenes/`): its state is stepped in TypeScript from its clip's first frame (the
+   * same numbers in the preview and the export), rendered by three.js (`src/scenes/`) at the layer's size,
+   * and handed to `glsl` as `getScene(uv)` to put over the clip's picture.
+   */
+  scene?: string;
   /**
    * A particle effect (see `particles.ts`): `glsl` (its `effect(uv)`) draws the layer under
    * the particles (as it is, faded, dissolving...), and `particles.glsl` defines
@@ -540,11 +558,13 @@ export const VIDEO_EFFECTS: readonly EffectDefinition[] = [
   ...MOTION_EFFECTS,
   ...SHAKE_EFFECTS,
   ...TIME_EFFECTS,
+  ...SIMULATION_EFFECTS,
   ...GLITCH_EFFECTS,
   ...GENERATE_EFFECTS,
   ...PARTICLE_EFFECTS,
   ...KEYING_EFFECTS,
   ...AUDIO_EFFECTS,
+  ...SCENE_EFFECTS,
   SHADER,
 ];
 

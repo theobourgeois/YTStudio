@@ -14,12 +14,13 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Browser } from "playwright-core";
-import { type Adjustment, type EffectPass, IDENTITY, type Placed, type Shader, createCompositor } from "../shared/compositor.ts";
+import { type Adjustment, type EffectPass, IDENTITY, type Placed, type SceneRenderer, type Shader, createCompositor } from "../shared/compositor.ts";
 import { errorMessage } from "../shared/errors.ts";
 import type { UniformValue } from "../shared/transition-gl.ts";
 import { drawSampleScene } from "../shared/transition-samples.ts";
 import { CHROMIUM } from "./config.ts";
 import type { FrameLayer, PlacedRef } from "./render.ts";
+import { sceneRuntime } from "./scene-runtime.ts";
 
 // On a Mac, headless Chromium can draw with the GPU (Metal); elsewhere it falls back to SwiftShader.
 const ARGS = [
@@ -94,6 +95,8 @@ interface PageApi {
   layers(job: LayersJob): { sheet: string; results: LayersResult[] };
   /** Compile fragment shaders by key: the logs of those that don't. */
   compile(sources: Record<string, string>): Record<string, string>;
+  /** Load the 3D scenes' runtime (`/scene-runtime.js`) and render scenes with it from now on. */
+  loadScenes(): Promise<void>;
 }
 
 /** What the page needs for its next frame. */
@@ -182,6 +185,8 @@ export interface EffectResult {
 /** The page's globals: its API, and the functions inlined into it. */
 interface PageGlobals {
   compositor: PageApi;
+  /** The 3D scenes' runtime, once loaded (`src/scenes/page.ts`). */
+  vaudioScenes?: { createSceneRenderer(): SceneRenderer };
   createCompositor: typeof createCompositor;
   drawSampleScene: typeof drawSampleScene;
   IDENTITY: typeof IDENTITY;
@@ -225,8 +230,23 @@ function pageScript(): string {
     };
 
     const api: PageApi = {
+      async loadScenes() {
+        const globals = globalThis as unknown as PageGlobals;
+        if (!globals.vaudioScenes) {
+          await new Promise<void>((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = "/scene-runtime.js";
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error("The 3D scenes' runtime didn't load."));
+            document.head.append(script);
+          });
+        }
+        compositor.setSceneRenderer(globals.vaudioScenes!.createSceneRenderer());
+      },
       async composite(job) {
         compositor.resize(job.width, job.height);
+        // Frames are drawn in order: a simulation always has its frame before, so keeps no checkpoints.
+        compositor.setCheckpointBudget(0);
         // Texts are drawn here, in the user's fonts: have them ready before the first frame.
         await Promise.all(job.fonts.map((font) => document.fonts.load(font).catch(() => [])));
         const shaders: Record<string, string> = {};
@@ -284,7 +304,8 @@ function pageScript(): string {
                 compositor.beginGroup(layer.width, layer.height);
                 drawLayers(layer.layers);
                 compositor.endGroup(layer.key);
-              } else compositor.drawTransition(shader(layer.shader), layer.uniforms, layer.progress, placed(layer.from), placed(layer.to));
+              } else if (layer.kind === "advance") compositor.advance(placed(layer.picture)!);
+              else compositor.drawTransition(shader(layer.shader), layer.uniforms, layer.progress, placed(layer.from), placed(layer.to));
             }
           };
           drawLayers(head.layers);
@@ -507,9 +528,13 @@ export type FrameExchange = (finished: { frame: number; data: Buffer } | null) =
  */
 const LANES = 3;
 
+/** Whether a job draws a 3D scene (an effect pass with a `scene`). */
+const drawsScenes = (job: unknown) => JSON.stringify(job).includes('"scene":{');
+
 /** One headless page with the compositor. Close it when done. */
 export class GlSession {
   private exchange: FrameExchange | null = null;
+  private scenes = false;
   /** Why compositing stopped (the page only sees a message). */
   private failure: unknown = null;
 
@@ -525,6 +550,11 @@ export class GlSession {
       if (req.method === "GET" && req.url === "/") {
         res.setHeader("Content-Type", "text/html");
         res.end(`<!doctype html><meta charset="utf-8"><script>${script}</script>`);
+      } else if (req.method === "GET" && req.url === "/scene-runtime.js") {
+        sceneRuntime().then(
+          (code) => res.writeHead(200, { "Content-Type": "text/javascript" }).end(code),
+          (err) => res.writeHead(500, { "Content-Type": "text/plain" }).end(errorMessage(err)),
+        );
       } else if (req.method === "POST" && req.url?.startsWith("/exchange")) {
         const chunks: Buffer[] = [];
         req.on("data", (c: Buffer) => chunks.push(c));
@@ -555,10 +585,11 @@ export class GlSession {
    * says there are no more. They're drawn in order, but finished frames may
    * come back out of order.
    */
-  async composite(size: { width: number; height: number }, exchange: FrameExchange, fonts: string[] = []): Promise<void> {
+  async composite(size: { width: number; height: number }, exchange: FrameExchange, fonts: string[] = [], scenes = false): Promise<void> {
     this.exchange = exchange;
     this.failure = null;
     try {
+      if (scenes) await this.loadScenes();
       const job = { ...size, lanes: LANES, fonts };
       await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.composite(j), job);
     } catch (err) {
@@ -605,14 +636,23 @@ export class GlSession {
 
   /** Draw stacks of layers over the sample scenes (see `LayersJob`): a PNG contact sheet, and the first/last frame checks. */
   async layers(job: LayersJob): Promise<{ sheet: Buffer; results: LayersResult[] }> {
+    if (drawsScenes(job)) await this.loadScenes();
     const { sheet, results } = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.layers(j), job);
     return { sheet: Buffer.from(sheet.slice(sheet.indexOf(",") + 1), "base64"), results };
   }
 
   /** Run effects over the plain sample picture: a PNG contact sheet, and how much each changed it. */
   async effects(job: EffectJob): Promise<{ sheet: Buffer; results: EffectResult[] }> {
+    if (drawsScenes(job)) await this.loadScenes();
     const { sheet, results } = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.effects(j), job);
     return { sheet: Buffer.from(sheet.slice(sheet.indexOf(",") + 1), "base64"), results };
+  }
+
+  /** Have the page render 3D scenes (loading three.js and the scenes: a second or so the first time). */
+  async loadScenes(): Promise<void> {
+    if (this.scenes) return;
+    await this.page.evaluate(() => (globalThis as unknown as PageGlobals).compositor.loadScenes(), null);
+    this.scenes = true;
   }
 
   /** Compile fragment shaders (by key) as the export's page does: the logs of those that don't. */
