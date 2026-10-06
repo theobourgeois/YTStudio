@@ -665,7 +665,10 @@ test("handles' pointers show the way they pull, turned with the layer, and a rot
   await expect(handle("0,1")).toHaveAttribute("data-cursor", "nesw-resize");
   await expect(handle("0.5,0")).toHaveAttribute("data-cursor", "ns-resize");
   await expect(handle("1,0.5")).toHaveAttribute("data-cursor", "ew-resize");
-  expect(await page.locator('[data-rotate-zone="1,1"]').evaluate((e) => (e as SVGElement).style.cursor)).toMatch(/^url\(/);
+  const rotateCursor = (h: string) => page.locator(`[data-rotate-zone="${h}"]`).evaluate((e) => (e as SVGElement).style.cursor);
+  expect(await rotateCursor("1,1")).toMatch(/^url\(/);
+  // Each corner's curved arrow bows around that corner.
+  expect(new Set(await Promise.all(["0,0", "1,0", "1,1", "0,1"].map(rotateCursor))).size).toBe(4);
   // Turned a right angle: the bottom-right corner now pulls down-left, the top edge sideways.
   const angle = page.getByRole("textbox", { name: "Angle" });
   await angle.fill("90");
