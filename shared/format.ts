@@ -47,6 +47,13 @@ export function formatElapsed(ms: number): string {
   return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
 }
 
+/** A file's size: "840 KB", "12.4 MB", "3.1 GB" (decimal units, as Finder says them). */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1e6) return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
+  if (bytes < 1e9) return `${(bytes / 1e6).toFixed(1)} MB`;
+  return `${(bytes / 1e9).toFixed(1)} GB`;
+}
+
 /** "2×", "0.5×", "1.25×": a playback speed, to two decimals at most. */
 export function formatSpeed(speed: number): string {
   return `${Math.round(speed * 100) / 100}×`;
