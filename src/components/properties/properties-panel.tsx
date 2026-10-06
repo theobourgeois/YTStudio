@@ -34,6 +34,7 @@ import {
   PiVideoCamera,
   PiTextT,
   PiTrash,
+  PiWarningCircle,
 } from "react-icons/pi";
 import { keyframeTime } from "@shared/animation";
 import type { Clip, Effect, MediaAsset, ParamValues, Project } from "@shared/types";
@@ -41,7 +42,7 @@ import {
   type ClipKind,
   type ClipTraits,
   type EffectDefinition,
-  effectDefinition,
+  definitionOf,
   addEffect,
   canExpress,
   clipKind,
@@ -79,6 +80,7 @@ import { SpeedControl, commitSpeed, useRetimableSelection } from "@/components/t
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { layoutText } from "@/lib/text-render";
 import { cn } from "cn";
+import { ShaderRow, useShaderBroken } from "@/components/shader/shader-row";
 import { useEditor } from "@/stores/editor";
 import { graphId, useLayout } from "@/stores/layout";
 import { usePathEditing } from "@/stores/path-editing";
@@ -130,7 +132,7 @@ export function PropertiesPanel() {
 
   const editTime = keyframeTime(clip, playhead, fps);
   const sections = clip.effects.flatMap((effect) => {
-    const def = effectDefinition(effect.type);
+    const def = definitionOf(effect);
     return def && def.appliesTo(traits) ? [{ effect, def }] : [];
   });
   // Speed and Time Remapping: clips that play media (a nested sequence's too).
@@ -393,6 +395,7 @@ export const EffectSection = memo(function EffectSection({
   const editor = useParamEditors(to.apply, (key) => to.reset([key]));
   const params = def.params.filter((p) => (p.appliesTo?.(traits) ?? true) && !hide.includes(p.key) && !p.hiddenFor?.(values));
   const changed = params.some((p) => !sameValue(effect.params[p.key], p.default)) || !!effect.keyframes;
+  const broken = useShaderBroken(def);
   const toggle = () => {
     if (open === defaultOpen) toggled.add(collapseKey);
     else toggled.delete(collapseKey);
@@ -413,6 +416,7 @@ export const EffectSection = memo(function EffectSection({
             <span className={cn("truncate", !effect.enabled && "text-muted-foreground line-through decoration-muted-foreground/60")}>
               {sectionLabel}
             </span>
+            {broken && <PiWarningCircle className="size-3.5 shrink-0 text-destructive" aria-label="Doesn't compile" data-shader-broken />}
           </button>
           {changed && (
             <ResetButton
@@ -445,6 +449,11 @@ export const EffectSection = memo(function EffectSection({
       </PanelRow>
       {open && (
         <div className={cn(!effect.enabled && "[&_[data-param]]:opacity-60")}>
+          {def.shader?.parsed && (
+            <PanelRow lanes={lanes}>
+              <ShaderRow clipId={clipId} effect={effect} def={def} />
+            </PanelRow>
+          )}
           {def.shader?.history && (
             <PanelRow lanes={lanes}>
               <p className="flex items-center gap-2 px-3 pb-1.5 text-[11px] leading-snug text-muted-foreground" data-time-effect-note>
@@ -590,7 +599,7 @@ function EffectMenu({ clipId, effectId, label }: { clipId: string; effectId: str
       const ids = clip ? effectPeers(clip, effectId) : [];
       const effect = clip?.effects.find((e) => e.id === effectId);
       // A shape layer keeps its last shape.
-      const kept = !!effect && !!effectDefinition(effect.type)?.alwaysOn && clip!.effects.filter((e) => e.type === effect.type).length < 2;
+      const kept = !!effect && !!definitionOf(effect)?.alwaysOn && clip!.effects.filter((e) => e.type === effect.type).length < 2;
       return [ids[0] === effectId, ids.at(-1) === effectId, kept];
     }),
   );
