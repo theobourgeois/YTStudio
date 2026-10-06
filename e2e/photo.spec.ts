@@ -22,6 +22,7 @@ import { CONTOUR_PRESETS } from "../shared/photo/style/contours.ts";
 import { type PatternImage, builtInPatternLevels, patternFromLinear, patternMips } from "../shared/photo/style/patterns.ts";
 import { newStyleEffect } from "../shared/photo/style/style.ts";
 import { glowReference } from "../shared/photo/reference/glow.ts";
+import { cameraRawReference } from "../shared/photo/reference/camera-raw.ts";
 import { boxReduce, sampleMitchell } from "../shared/photo/reference/reduce.ts";
 
 test.describe.configure({ mode: "serial" });
@@ -2480,6 +2481,112 @@ test("the Filter menu applies a look; the Filter Gallery previews one on the pho
   // Escape with nothing picked closes it.
   await page.getByRole("textbox", { name: "Search filters" }).press("Escape");
   await expect(page.locator("[data-filter-gallery]")).toHaveCount(0);
+});
+
+test("Camera Raw: ⇧⌘A develops a layer in its window (one undo step, Cancel leaves nothing); an adjustment layer develops everything below", async ({ page }) => {
+  const id = await openNewPhoto(page, "Camera Raw");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await page.locator("[data-layer]").first().click();
+  const layerId = (await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(1).then(() => savedPhoto(page, id)).then((d) => d.layers[0].id)) as string;
+  const live = () =>
+    page.evaluate(() => {
+      const { history } = (window as unknown as { photoDebug: { photo: { getState(): { history: { past: unknown[]; doc: { doc: { layers: { kind: string; filters?: { type: string; params: Record<string, unknown> }[]; effect?: { type: string; params: Record<string, unknown> } }[] } } } } } } }).photoDebug.photo.getState();
+      return { steps: history.past.length, layers: history.doc.doc.layers };
+    });
+  const window_ = page.locator("[data-camera-raw-window]");
+  const steps = (await live()).steps;
+
+  // ⇧⌘A: the window, beside the canvas, on a new Camera Raw filter that shows on the canvas while it's open.
+  await page.keyboard.press("ControlOrMeta+Shift+A");
+  await expect(window_).toHaveAttribute("data-camera-raw-window", "filter");
+  await window_.getByLabel("Exposure", { exact: true }).fill("1");
+  await window_.getByLabel("Exposure", { exact: true }).press("Enter");
+  await window_.getByLabel("Temperature", { exact: true }).fill("30");
+  await window_.getByLabel("Temperature", { exact: true }).press("Enter");
+  await expect.poll(async () => (await live()).layers[0].filters?.[0]?.params.exposure).toBe(1);
+  expect((await live()).layers[0].filters![0].params.temperature).toBe(30);
+
+  // The GPU's develop is the CPU reference's, on the layer as it was.
+  const region = { zoom: 1, x: 760, y: 560, width: 24, height: 24 };
+  const pixels = (hideFilters: boolean) =>
+    page.evaluate(
+      async ({ region, hideFilters }) => {
+        const { photoDebug } = window as unknown as DebugWindow;
+        const r = await photoDebug.renderer();
+        const doc = photoDebug.photo.getState().history.doc.doc;
+        const shown = { ...doc, layers: doc.layers.map((l) => (hideFilters ? { ...l, filters: [] } : l)) };
+        const { texture } = await r.renderView(shown, region);
+        const data = await r.readFloat(texture, region.width, region.height);
+        texture.destroy();
+        return Array.from(data);
+      },
+      { region, hideFilters },
+    );
+  const plain = await pixels(true);
+  const developed = await pixels(false);
+  const doc = (await live()).layers[0];
+  const develop = cameraRawReference(doc.filters![0].params as never, { width: 1600, height: 1200 });
+  for (let y = 0; y < 24; y += 5) {
+    for (let x = 0; x < 24; x += 5) {
+      const expected = develop([region.x + x + 0.5, region.y + y + 0.5], pixelAt(plain, 24, x, y), { canvas: { width: 1600, height: 1200 }, src: () => [0, 0, 0, 0], px: 1 });
+      expect(close(pixelAt(developed, 24, x, y), expected, 2e-3)).toBe(true);
+    }
+  }
+  expect(pixelAt(developed, 24, 5, 5)[0]).toBeGreaterThan(pixelAt(plain, 24, 5, 5)[0]);
+
+  // Cancel (Escape): nothing was made, and no undo step.
+  await page.keyboard.press("Escape");
+  await expect(window_).toHaveCount(0);
+  expect((await live()).layers[0].filters ?? []).toHaveLength(0);
+  expect((await live()).steps).toBe(steps);
+
+  // OK: one undo step that adds the filter with everything set.
+  await page.getByRole("button", { name: "Filter" }).click();
+  await page.locator("[data-camera-raw-item]").click();
+  await window_.getByLabel("Contrast", { exact: true }).fill("40");
+  await window_.getByLabel("Contrast", { exact: true }).press("Enter");
+  await window_.getByRole("button", { name: "B&W" }).click();
+  await window_.getByRole("button", { name: "OK" }).click();
+  await expect(window_).toHaveCount(0);
+  const saved = await expect.poll(async () => (await savedPhoto(page, id)).layers[0].filters?.length ?? 0).toBe(1).then(() => savedPhoto(page, id));
+  expect(saved.layers[0].filters[0]).toMatchObject({ type: "camera-raw", params: { contrast: 40, treatment: "bw" } });
+  expect((await live()).steps).toBe(steps + 1);
+  // Properties shows its sections; the Layers row reopens the window.
+  await expect(page.locator('[data-camera-raw-properties="filter"]')).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0].filters?.length ?? 0).toBe(0);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0].filters?.length ?? 0).toBe(1);
+  await page.locator(`[data-filter-of="${layerId}"]`).dblclick();
+  await expect(window_).toBeVisible();
+  // Preview off (P) shows the layer without it; Cancel leaves it as it was.
+  await window_.getByLabel("Saturation", { exact: true }).fill("50");
+  await window_.getByLabel("Saturation", { exact: true }).press("Enter");
+  await window_.locator("[data-camera-raw-sections]").click({ position: { x: 4, y: 4 } });
+  await page.keyboard.press("p");
+  await expect(window_.getByRole("checkbox", { name: "Preview" })).not.toBeChecked();
+  await window_.getByRole("button", { name: "Cancel" }).click();
+  expect((await live()).layers[0].filters![0].params.saturation).toBe(0);
+
+  // An adjustment layer: everything below, developed (Saturation −100: grey), then touched in Properties.
+  await page.getByRole("button", { name: "New adjustment layer" }).click();
+  await page.getByRole("menuitem", { name: /Camera Raw/ }).click();
+  await expect(window_).toHaveAttribute("data-camera-raw-window", "adjustment");
+  await window_.getByLabel("Saturation", { exact: true }).fill("-100");
+  await window_.getByLabel("Saturation", { exact: true }).press("Enter");
+  await window_.getByRole("button", { name: "OK" }).click();
+  const two = await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(2).then(() => savedPhoto(page, id));
+  expect(two.layers[1]).toMatchObject({ kind: "adjustment", effect: { type: "camera-raw", params: { saturation: -100 } } });
+  const [r, g, b] = pixelAt(await renderRegion(page, region), 24, 12, 12);
+  expect(Math.abs(r - g)).toBeLessThan(2e-3);
+  expect(Math.abs(b - g)).toBeLessThan(2e-3);
+  const properties = page.locator('[data-camera-raw-properties="adjustment"]');
+  await properties.getByLabel("Exposure", { exact: true }).fill("-0.5");
+  await properties.getByLabel("Exposure", { exact: true }).press("Enter");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[1].effect.params.exposure).toBe(-0.5);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[1].effect.params.exposure).toBe(0);
 });
 
 test("an export cancelled while it renders writes nothing and lets go of what the server was sent", async ({ page }) => {

@@ -263,3 +263,22 @@ describe("the assistant's patterns and Scale Effects", () => {
     expect(() => scaleLayerEffectsTool(doc, { layers: ["cat"], scale: 0 }, env)).toThrow(/1 to 1000/);
   });
 });
+
+describe("the assistant's Camera Raw", () => {
+  it("adds Camera Raw as a filter and as an adjustment layer, with any of its settings, checked strictly", () => {
+    let doc = addImageLayerTool(createPhotoProject("Develop", { width: 1280, height: 720 }), { media: "sky.jpg" }, env).doc;
+    const added = addFilterTool(doc, { layer: "sky", type: "camera-raw", params: { exposure: 1.2, temperature: 25, treatment: "bw", pointCurve: { rgb: [[0, 20], [255, 255]] } } }, env);
+    doc = added.doc;
+    const filter = (doc.layers[0] as ImageLayer).filters![0];
+    expect(filter.type).toBe("camera-raw");
+    expect(filter.params).toMatchObject({ exposure: 1.2, temperature: 25, treatment: "bw", contrast: 0 });
+    expect((filter.params.pointCurve as { rgb: number[][] }).rgb).toEqual([[0, 20], [255, 255]]);
+    expect(added.text).toMatch(/Camera Raw: exposure 1\.2, temperature 25, treatment bw, rgb \[\[0, 20\], \[255, 255\]\].* \(everything else at its default\)/);
+    expect(() => setFilterTool(doc, { layer: "sky", filter: filter.id, params: { exposure: 9 } }, env)).toThrow(/from -5 to 5/);
+    expect(() => setFilterTool(doc, { layer: "sky", filter: filter.id, params: { treatment: "sepia" } }, env)).toThrow(/color, bw/);
+    doc = addAdjustmentTool(doc, { type: "camera-raw", params: { saturation: -100 } }, env).doc;
+    expect(effectOf(doc, 1)).toMatchObject({ type: "camera-raw", params: { saturation: -100 } });
+    doc = setEffectParamsTool(doc, { layer: (doc.layers[1] as AdjustmentLayer).id, params: { vignette: -40, grain: 30 } }, env).doc;
+    expect(effectOf(doc, 1).params).toMatchObject({ saturation: -100, vignette: -40, grain: 30 });
+  });
+});
