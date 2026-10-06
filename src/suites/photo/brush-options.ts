@@ -1,7 +1,6 @@
 /**
- * The Brush's options and the colours it paints with (Photoshop's options bar and its foreground / background
- * swatches), kept in this browser as Photoshop keeps them across documents. Pure helpers turn them into what a
- * stroke needs.
+ * The Brush's and the Eraser's options (Photoshop's options bar), kept in this browser as Photoshop keeps them
+ * across documents. The colours are every tool's (`colours.ts`). Pure helpers turn them into what a stroke needs.
  */
 import { create } from "zustand";
 import type { BrushSettings } from "@shared/photo/brush";
@@ -20,12 +19,9 @@ export interface BrushOptions {
   hardness: number;
   /** 0..1: how much a dab covers at its centre (Photoshop's Opacity, for one dab: Flow waits for its equations). */
   strength: number;
-  /** "#rrggbb": what the brush paints (on a mask, its grey: black hides, white reveals). */
-  foreground: string;
-  background: string;
 }
 
-const DEFAULTS: BrushOptions = { size: 60, hardness: 0.8, strength: 1, foreground: "#000000", background: "#ffffff" };
+const DEFAULTS: BrushOptions = { size: 60, hardness: 0.8, strength: 1 };
 
 function load(): BrushOptions {
   try {
@@ -36,35 +32,25 @@ function load(): BrushOptions {
   }
 }
 
-const hex = (v: unknown, fallback: string) => (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : fallback);
 const unit = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : fallback);
 
 export function sanitizeBrush(o: Partial<BrushOptions>): BrushOptions {
   const size = typeof o.size === "number" && Number.isFinite(o.size) ? Math.max(MIN_BRUSH, Math.min(MAX_BRUSH, Math.round(o.size))) : DEFAULTS.size;
-  return { size, hardness: unit(o.hardness, DEFAULTS.hardness), strength: unit(o.strength, DEFAULTS.strength), foreground: hex(o.foreground, DEFAULTS.foreground), background: hex(o.background, DEFAULTS.background) };
+  return { size, hardness: unit(o.hardness, DEFAULTS.hardness), strength: unit(o.strength, DEFAULTS.strength) };
 }
 
 interface BrushStore extends BrushOptions {
   set: (patch: Partial<BrushOptions>) => void;
-  /** D: black and white (Photoshop's default colours). */
-  resetColours: () => void;
-  /** X: the two swapped. */
-  swapColours: () => void;
 }
 
 export const useBrush = create<BrushStore>((set, get) => {
   const save = (patch: Partial<BrushOptions>) => {
-    const { size, hardness, strength, foreground, background } = get();
-    const next = sanitizeBrush({ size, hardness, strength, foreground, background, ...patch });
+    const { size, hardness, strength } = get();
+    const next = sanitizeBrush({ size, hardness, strength, ...patch });
     storage.setItem(KEY, JSON.stringify(next));
     set(next);
   };
-  return {
-    ...load(),
-    set: save,
-    resetColours: () => save({ foreground: "#000000", background: "#ffffff" }),
-    swapColours: () => save({ foreground: get().background, background: get().foreground }),
-  };
+  return { ...load(), set: save };
 });
 
 /**

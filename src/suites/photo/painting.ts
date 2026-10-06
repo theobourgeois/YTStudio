@@ -6,6 +6,7 @@
  */
 import type { PhotoSelection, SurfaceId } from "@shared/photo/types";
 import { brushSettings, strokeColour, useBrush } from "./brush-options";
+import { useColours } from "./colours";
 import { type SurfacePart, commitSurface } from "./paint-target";
 import type { PhotoRenderer } from "./render/renderer";
 import { usePhoto } from "./store";
@@ -25,14 +26,18 @@ export class StrokeController {
     readonly layerId: string,
     readonly part: SurfacePart,
     private readonly selection: PhotoSelection | null,
+    /** The Eraser: painted pixels go transparent; a mask is painted the background colour (Photoshop's). */
+    private readonly erase = false,
   ) {
     this.tryBegin();
   }
 
   private tryBegin() {
     if (this.begun || this.ended) return;
-    const o = useBrush.getState();
-    this.begun = this.renderer.beginStroke(this.layerId, this.part, brushSettings(o), strokeColour(o.foreground, this.part === "mask" ? "mask" : "pixels"), this.selection);
+    const { foreground, background } = useColours.getState();
+    const onMask = this.part === "mask";
+    const colour = strokeColour(this.erase ? background : foreground, onMask ? "mask" : "pixels");
+    this.begun = this.renderer.beginStroke(this.layerId, this.part, brushSettings(useBrush.getState()), colour, this.selection, this.erase && !onMask);
     if (this.begun) {
       this.renderer.strokeTo(this.pending);
       this.pending = [];

@@ -1,10 +1,9 @@
 /**
- * The tool options bar (ux.md, "Workspace": it follows the active tool), in the header: the Brush's size, hardness
- * and strength and the colours it paints (Photoshop's swatches: D for black and white, X to swap), and what the
+ * The tool options bar (ux.md, "Workspace": it follows the active tool), in the header: the Brush's and the
+ * Eraser's size, hardness and strength (the colours are every tool's, at the foot of the tool strip), and what the
  * Rectangular Marquee has selected. And the question a brush asks over an image layer (ux.md: never rasterised
  * silently).
  */
-import { PiArrowsLeftRight } from "react-icons/pi";
 import { findLayer } from "@shared/photo/edits";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,80 +15,44 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { type NumberDisplay, ScrubNumber } from "@/components/scrub-number";
 import { MAX_BRUSH, MIN_BRUSH, useBrush } from "./brush-options";
 import { layerActions } from "./layer-actions";
-import { NumberField } from "./panels/fields";
 import { usePhoto, usePhotoDoc, useSelection } from "./store";
 import { useActiveTool, usePhotoUi } from "./ui";
 
 export function ToolOptions() {
   const tool = useActiveTool();
-  if (tool === "brush") return <BrushOptionsBar />;
+  if (tool === "brush" || tool === "eraser") return <BrushOptionsBar />;
   if (tool === "marquee") return <MarqueeOptionsBar />;
   return null;
 }
 
-const percent = (v: number) => Math.round(v * 100);
+const SIZE = { min: MIN_BRUSH, max: MAX_BRUSH, step: 1, decimals: 0, unit: "px" };
+const PERCENT = { min: 0, max: 100, step: 1, decimals: 0, unit: "%" };
 
+/** The Brush's and the Eraser's options: numbers dragged sideways (Shift ×10, Alt ×0.1), clicked to type. */
 export function BrushOptionsBar() {
   const size = useBrush((s) => s.size);
   const hardness = useBrush((s) => s.hardness);
   const strength = useBrush((s) => s.strength);
   const set = useBrush((s) => s.set);
   return (
-    <div className="flex items-center gap-2 text-xs" data-tool-options="brush">
-      <Labelled label="Size">
-        <NumberField label="Size" hideLabel value={size} suffix="px" onCommit={(v) => set({ size: Math.max(MIN_BRUSH, Math.min(MAX_BRUSH, v)) })} />
-      </Labelled>
-      <Labelled label="Hardness">
-        <NumberField label="Hardness" hideLabel value={percent(hardness)} suffix="%" onCommit={(v) => set({ hardness: v / 100 })} />
-      </Labelled>
-      <Labelled label="Strength">
-        <NumberField label="Strength" hideLabel value={percent(strength)} suffix="%" onCommit={(v) => set({ strength: v / 100 })} />
-      </Labelled>
-      <ColourSwatches />
+    <div className="flex items-center gap-3 text-xs" data-tool-options="brush">
+      <Scrub label="Size" value={size} display={SIZE} onChange={(v) => set({ size: v })} />
+      <Scrub label="Hardness" value={Math.round(hardness * 100)} display={PERCENT} onChange={(v) => set({ hardness: v / 100 })} />
+      <Scrub label="Strength" value={Math.round(strength * 100)} display={PERCENT} onChange={(v) => set({ strength: v / 100 })} />
     </div>
   );
 }
 
-function Labelled({ label, children }: { label: string; children: React.ReactNode }) {
+/** A labelled scrubby number: an option of a tool (this browser's, not the photo's: no undo step). */
+function Scrub({ label, value, display, onChange }: { label: string; value: number; display: NumberDisplay; onChange: (v: number) => void }) {
   return (
-    <span className="flex items-center gap-1">
+    <span className="flex items-center gap-0.5" data-option={label}>
       <span className="text-muted-foreground">{label}</span>
-      <span className="w-16">{children}</span>
+      <ScrubNumber label={label} value={value} display={display} onBegin={() => {}} onChange={onChange} onEnd={() => {}} />
     </span>
-  );
-}
-
-/** The foreground over the background, Photoshop's way; a click picks one, the arrows swap them (X). */
-function ColourSwatches() {
-  const foreground = useBrush((s) => s.foreground);
-  const background = useBrush((s) => s.background);
-  const set = useBrush((s) => s.set);
-  return (
-    <span className="flex items-center gap-1">
-      <span className="relative h-7 w-9">
-        <Swatch label="Background colour" colour={background} className="right-0 bottom-0" onPick={(c) => set({ background: c })} />
-        <Swatch label="Foreground colour (what the brush paints; on a mask black hides, white reveals)" colour={foreground} className="top-0 left-0" onPick={(c) => set({ foreground: c })} />
-      </span>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label="Swap colours (X)" onClick={() => useBrush.getState().swapColours()}>
-            <PiArrowsLeftRight />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Swap colours (X); D for black and white</TooltipContent>
-      </Tooltip>
-    </span>
-  );
-}
-
-function Swatch({ label, colour, className, onPick }: { label: string; colour: string; className: string; onPick: (c: string) => void }) {
-  return (
-    <label className={`absolute size-5 cursor-pointer rounded-sm border border-line shadow-sm ${className}`} style={{ background: colour }} title={label}>
-      <input type="color" aria-label={label} value={colour} onChange={(e) => onPick(e.target.value)} className="sr-only" />
-    </label>
   );
 }
 

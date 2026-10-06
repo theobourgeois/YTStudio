@@ -56,7 +56,8 @@ deletes; set_canvas resizes the canvas or changes its background (thumbnails are
 it) and set_effect_params changes one: Exposure is in stops of light; Curves' points are [input, output] on 0..255 \
 as in Photoshop (a gentle S, [[0, 0], [64, 52], [192, 205], [255, 255]], adds contrast). select_rect selects a \
 rectangle (or all, or none); add_mask gives a layer a mask, from the selection (it shows only there) or empty, or \
-removes one; add_pixel_layer adds an empty layer for the user to paint on (you can't paint strokes). merge_layers \
-merges layers into one image. export_photo writes a PNG (8 or 16 bits) or JPEG.`,
+removes one; add_pixel_layer adds an empty layer for the user to paint on (you can't paint strokes); \
+layer_via_copy copies (or cuts) what the selection covers of a layer into a new layer; fill_selection fills it with \
+a colour or clears it. merge_layers merges layers into one image. export_photo writes a PNG (8 or 16 bits) or JPEG.`,
   },
 };

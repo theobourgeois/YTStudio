@@ -37,7 +37,14 @@ export type PhotoKeyAction =
   | { type: "brushHardness"; direction: 1 | -1 }
   /** D: black and white; X: swapped. */
   | { type: "defaultColours" }
-  | { type: "swapColours" };
+  | { type: "swapColours" }
+  /** ⌘C / ⌘X: the active layer's pixels inside the selection put aside (⌘V pastes them: the page's paste event). */
+  | { type: "copy" }
+  | { type: "cut" }
+  /** ⇧⌘J: Layer via Cut (⌘J with a selection is Layer via Copy, the "duplicate" key). */
+  | { type: "layerViaCut" }
+  /** ⌥⌫ / ⌘⌫: fill the selection with the foreground / background colour. */
+  | { type: "fill"; colour: "foreground" | "background" };
 
 export interface KeyPress {
   key: string;
@@ -55,6 +62,9 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
   const code = e.code ?? "";
   const is = (k: string, c: string) => code === c || (!code && key === k);
   if (mod && e.altKey && !e.shiftKey && is("a", "KeyA")) return { type: "selectAll" };
+  const erasing = key === "Backspace" || key === "Delete";
+  if (erasing && e.altKey && !mod && !e.shiftKey) return { type: "fill", colour: "foreground" };
+  if (erasing && mod && !e.altKey && !e.shiftKey) return { type: "fill", colour: "background" };
   // Photoshop's Layers keys with ⌥ and no ⌘: through the stack.
   if (e.altKey && !mod && !(mac ? e.ctrlKey : e.metaKey)) {
     if (is("]", "BracketRight")) return { type: "step", direction: 1, add: e.shiftKey };
@@ -70,7 +80,9 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
     if (key === "1") return { type: "actual" };
     if (key === "=" || key === "+") return { type: "zoom", factor: 2 };
     if (key === "-") return { type: "zoom", factor: 0.5 };
-    if (key === "j" && !e.shiftKey) return { type: "duplicate" };
+    if (key === "j") return e.shiftKey ? { type: "layerViaCut" } : { type: "duplicate" };
+    if (key === "c" && !e.shiftKey) return { type: "copy" };
+    if (key === "x" && !e.shiftKey) return { type: "cut" };
     if (key === "e" && !e.shiftKey) return { type: "merge" };
     // ⇧⌘[ / ⇧⌘] are the app's (tab switching), so Bring to Front and Send to Back are the Layers menu's alone.
     if (!e.shiftKey && is("]", "BracketRight")) return { type: "shift", direction: 1 };
@@ -93,6 +105,8 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
       return { type: "tool", tool: "marquee" };
     case "b":
       return { type: "tool", tool: "brush" };
+    case "e":
+      return { type: "tool", tool: "eraser" };
     case "d":
       return { type: "defaultColours" };
     case "x":

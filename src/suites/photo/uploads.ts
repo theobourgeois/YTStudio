@@ -152,6 +152,23 @@ export class SurfaceUploads {
     return res.arrayBuffer();
   }
 
+  /**
+   * A surface of another project, made this one's too (a layer copied in one photo and pasted in another): its
+   * tiles and manifest uploaded here, then known here.
+   */
+  async importFrom(source: SurfaceUploads, id: SurfaceId): Promise<void> {
+    if (source === this || this.manifests.has(id)) return;
+    const manifest = await source.manifest(id);
+    const tiles = [...new Set(manifest.tiles.map((e) => e[2]).filter((ref) => !ref.startsWith("c:")))];
+    for (const hash of tiles) {
+      const res = await fetch(`${this.base}/blobs/${hash}`, { method: "PUT", body: await source.tile(hash), headers: { "Content-Type": "application/octet-stream" } });
+      if (!res.ok) throw new Error(`Couldn't copy a tile (${res.status}): ${await res.text()}`);
+    }
+    const res = await fetch(`${this.base}/manifests/${id}`, { method: "PUT", body: canonicalJson(manifest), headers: { "Content-Type": "application/json" } });
+    if (!res.ok) throw new Error(`Couldn't copy the pixels (${res.status}): ${await res.text()}`);
+    this.manifests.set(id, manifest);
+  }
+
   destroy() {
     this.worker.terminate();
   }

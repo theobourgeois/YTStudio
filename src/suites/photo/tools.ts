@@ -16,6 +16,8 @@ import { api } from "@/lib/api";
 import type { ToolRunContext } from "../types";
 import { withRenderer } from "./live";
 import { planWith, renderMerge } from "./merge";
+import { useColours } from "./colours";
+import { editActions } from "./edit-actions";
 import { currentSelection } from "./store";
 import { usePhoto } from "./store";
 import {
@@ -161,6 +163,32 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     usePhotoUi.getState().select(layer.id);
     usePhotoUi.getState().setTarget("mask");
     return textResult(`Gave "${layer.name}" a mask from the selection: it shows only inside x ${selection.x}..${selection.x + selection.width}, y ${selection.y}..${selection.y + selection.height}.`, { added: [], changed: [layer.id], removed: 0 });
+  },
+  async layer_via_copy(input, ctx) {
+    const target = await targetOf(ctx);
+    if (!target.open) throw new Error("Open the photo in the editor first: copying pixels needs it on the GPU, and the selection is the open photo's.");
+    if (!currentSelection()) throw new Error("There's no selection: select_rect first.");
+    const layer = findLayerRef(target.doc, input.layer);
+    const id = await editActions.layerVia(input.cut === true, layer.id);
+    if (!id) throw new Error(`Nothing was copied from "${layer.name}": ${layer.kind === "adjustment" ? "an adjustment layer has no pixels" : input.cut === true && layer.kind === "image" ? "a placed image can't be cut (copy it, or ask the user to convert it to pixels)" : "the selection is empty there"}.`);
+    return textResult(`${input.cut === true ? "Cut" : "Copied"} the selection of "${layer.name}" to a new layer ${id} above it.`, { added: [id], changed: input.cut === true ? [layer.id] : [], removed: 0 });
+  },
+  async fill_selection(input, ctx) {
+    const target = await targetOf(ctx);
+    if (!target.open) throw new Error("Open the photo in the editor first: filling needs it on the GPU.");
+    const layer = findLayerRef(target.doc, input.layer);
+    const spec = String(input.with ?? "").trim().toLowerCase();
+    const colours = useColours.getState();
+    const colour = spec === "foreground" ? colours.foreground : spec === "background" ? colours.background : spec === "clear" ? null : /^#[0-9a-f]{6}$/.test(spec) ? spec : undefined;
+    if (colour === undefined) throw new Error('with must be "foreground", "background", "clear" or a colour like "#ff8800".');
+    if (layer.kind === "image" && input.target !== "mask") throw new Error(`"${layer.name}" is a placed image, kept whole: fill a pixel layer above it (add_pixel_layer) or its mask (target: mask).`);
+    if (input.target === "mask" && !layer.mask) throw new Error(`"${layer.name}" has no mask: add one with add_mask.`);
+    const before = usePhoto.getState().history?.doc.doc;
+    usePhotoUi.getState().select(layer.id);
+    usePhotoUi.getState().setTarget(input.target === "mask" ? "mask" : "content");
+    await editActions.fill(colour, layer.id);
+    if (usePhoto.getState().history?.doc.doc === before) throw new Error("Nothing changed: the selection misses that layer.");
+    return textResult(`Filled the ${currentSelection() ? "selection" : "whole layer"} on "${layer.name}"${input.target === "mask" ? "'s mask" : ""} with ${colour ?? "nothing (cleared)"}.`, { added: [], changed: [layer.id], removed: 0 });
   },
   remove_layer: edit(removeLayerTool),
   set_canvas: edit(setCanvasTool),

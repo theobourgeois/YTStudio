@@ -109,6 +109,7 @@ const PLATFORM = [
   "src/components/ui/",
   "src/gallery/",
   "src/components/color-picker.tsx",
+  "src/components/scrub-number.tsx",
   "src/components/home/",
   "src/components/assistant/",
   "src/components/header/header.tsx",
