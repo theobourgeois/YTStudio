@@ -18,7 +18,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { layerActions } from "../layer-actions";
-import { usePhoto, usePhotoDoc } from "../store";
+import { usePhoto } from "../store";
 import { usePhotoUi } from "../ui";
 import { ParamField } from "./params";
 
@@ -82,7 +82,7 @@ export function FilterProperties({ layer, filterId }: { layer: ContentLayer; fil
 /** A generator layer: its parameters (but its elements), its preset, how it blends, then its elements. */
 export function GeneratorProperties({ layer }: { layer: GeneratorLayer }) {
   const commit = usePhoto((s) => s.commit);
-  const canvas = usePhotoDoc((d) => d.canvas);
+  const canvas = usePhoto((s) => s.history?.doc.doc.canvas) ?? { width: 1080, height: 1920 };
   const def = effectDefinition(layer.effect.type);
   const reason = unavailableReason(layer.effect, "generator");
   if (!def || reason) {

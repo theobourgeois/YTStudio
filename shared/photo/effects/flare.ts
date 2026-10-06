@@ -28,8 +28,8 @@ const colour = (key: string, label: string, def: string, description: string): C
 /** What every element has: where it is, how big and bright, its colour. */
 const common = (position: number, size: number, intensity: number): ElementParamSpec[] => [
   num("position", "Position", "", -3, 3, 0.01, 2, position, "Where it sits on the line from the light (1) through the optical centre (0); negative goes past the centre."),
-  num("offset", "Offset", "px", -20000, 20000, 1, 0, 0, "How far to the side of that line, in document pixels."),
-  num("size", "Size", "px", 0.1, 20000, 1, 1, size, "Its size in document pixels: a glow's radius, a halo's, a ghost's, half a streak's length."),
+  num("offset", "Offset", "px", -10000, 10000, 1, 0, 0, "How far to the side of that line, in document pixels."),
+  num("size", "Size", "px", 0.1, 10000, 1, 1, size, "Its size in document pixels: a glow's radius, a halo's, a ghost's, half a streak's length."),
   num("intensity", "Intensity", "stops", -10, 10, 0.01, 2, intensity, "How bright it is, in stops (0: its brightest point is white); each one doubles it."),
   colour("tint", "Tint", "#ffffff", "Its colour (multiplying the light's)."),
 ];
@@ -76,7 +76,7 @@ export const FLARE_ELEMENT_TYPES: readonly ElementType[] = [
     params: [
       ...common(1, 1200, 0),
       num("angle", "Angle", "°", -180, 180, 1, 0, 0, "Its direction: 0 is horizontal."),
-      num("thickness", "Thickness", "px", 0.1, 2000, 0.1, 1, 3, "Its core's thickness, in document pixels."),
+      num("thickness", "Thickness", "px", 0.1, 500, 0.1, 1, 3, "Its core's thickness, in document pixels."),
       num("haze", "Haze", "%", 0, 100, 1, 0, 25, "A wider, dimmer haze around the core."),
     ],
   },

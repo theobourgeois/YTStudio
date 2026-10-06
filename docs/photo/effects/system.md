@@ -54,6 +54,16 @@ Adding an adjustment: a definition, a kernel, a reference and a test of each aga
 assistant's catalogue (`describeAdjustments`), validation and the render plan follow. Behaviour and what's
 unverified: [research/adjustments.md](../research/adjustments.md).
 
+**As built (F4):** `EffectKind` is `"adjustment" | "filter" | "generator"`; a definition says its `reach` (document
+pixels) and region rule. The glow is a filter (Photoshop's Smart Filter: `filters` on a layer, applied in linear
+light before its mask), defined in `glow.ts` (version 1: six octaves of σ = radius·2^−j / 2, weights 0.8^j, each on
+the coarsest level keeping 1.5 texels, read by a cubic B-spline) with its CPU reference in
+`reference/glow.ts`. The Lens Flare is a generator (`flare.ts`): elements (source glow, halo, ghost, anamorphic
+streak), presets (Classic: the video editor's arrangement; Anamorphic; Subtle) sized by the canvas's diagonal, its
+reference in `reference/flare.ts`. Light's alpha: `max(r, g, b)` where there was none, and no pixel brighter than
+its coverage (up to white). Properties renders any parameter from its spec (`panels/params.tsx`), the flare's
+elements as a list (`panels/light.tsx`).
+
 ## Glow: the first layer effect
 
 Input is premultiplied linear RGBA. Steps:

@@ -11,7 +11,7 @@ import { ColorSwatchPicker } from "@/components/color-picker";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { photoGesture, usePhotoDoc } from "../store";
+import { photoGesture, usePhoto } from "../store";
 import { NumberField, ParamSlider } from "./fields";
 
 /** How a parameter's new value changes the document. */
@@ -32,7 +32,8 @@ const round = (n: number) => Math.round(n * 100) / 100;
 
 export function ParamField({ spec, value, edit }: { spec: ParamSpec; value: EffectParamValue | undefined; edit: ParamEdit }) {
   const [gesture] = useState(() => photoGesture());
-  const centre = usePhotoDoc((d) => [d.canvas.width / 2, d.canvas.height / 2].join(","));
+  // (Outside an open photo, the gallery's, a 1080 × 1920 canvas.)
+  const centre = usePhoto((s) => [(s.history?.doc.doc.canvas.width ?? 1080) / 2, (s.history?.doc.doc.canvas.height ?? 1920) / 2].join(","));
   switch (spec.kind) {
     case "number":
       return <ParamSlider spec={spec} value={value as number} edit={(v) => edit(v)} />;
