@@ -5,10 +5,15 @@
  * transparency) and renders each with every look of the catalogue (each filter's and generator's presets: the Filter
  * Gallery's) through the app's own renderer. Checks:
  * every pipeline compiles; each effect changes the picture; nothing is NaN; regions far smaller than a glow give the
- * same pixels as one. Writes a contact sheet, with a row comparing the output's `film` strengths (s = ½, 1, 2) and
- * `clip` on the same light, encoded here from the renderer's floats.
+ * same pixels as one; every kernel filter's look (`shared/photo/effects/kernel.ts`) is its CPU reference
+ * (`shared/photo/reference/filters/`). Writes a contact sheet, with a row comparing the output's `film` strengths
+ * (s = ½, 1, 2) and `clip` on the same light, encoded here from the renderer's floats.
  *
- *   pnpm tsx scripts/photo-sheet.ts [glow|flare|film ...] [--out photo-sheet.png]
+ * `--thumbnails` also renders every look on the gallery's sample scene (`photo-filter-scene.ts`) into
+ * `public/photo-filters/<type>--<preset>.jpg`: the Filter Gallery's cards. `--port N` runs Vite on N and the server
+ * on N + 1 (default 5344), so several can run at once.
+ *
+ *   pnpm tsx scripts/photo-sheet.ts [glow|flare|film|<filter type> ...] [--out photo-sheet.png] [--thumbnails] [--port 5344]
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -19,21 +24,28 @@ import sharp, { type OverlayOptions } from "sharp";
 import { linearToSrgb } from "../shared/photo/colour.ts";
 import { addFilter, addGeneratorLayer } from "../shared/photo/edits.ts";
 import { FILTER_ENTRIES, entryParams } from "../shared/photo/effects/catalog.ts";
+import { isKernelFilter, validateParams } from "../shared/photo/effects/index.ts";
+import { applyKernel } from "../shared/photo/reference/kernel.ts";
+import { KERNEL_REFERENCES } from "../shared/photo/reference/filters/index.ts";
+import { sceneSvg } from "./photo-filter-scene.ts";
 import type { View } from "../shared/photo/geometry.ts";
 import { filmHighlights } from "../shared/photo/output.ts";
 import type { PhotoProject } from "../shared/photo/types.ts";
 
-const WEB_PORT = "5344";
-const SERVER_PORT = "5345";
+const args = process.argv.slice(2);
+const option = (name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
+const port = Number(option("--port") ?? 5344);
+const WEB_PORT = String(port);
+const SERVER_PORT = String(port + 1);
 const ROOT = path.resolve(import.meta.dirname, "..");
 const SAMPLE = path.join(ROOT, "samples", "photo-1600x1200.jpg");
+const THUMBNAILS = path.join(ROOT, "public", "photo-filters");
 const CELL = { width: 320, height: 240 };
 const LABEL = 22;
 
-const args = process.argv.slice(2);
-const outIndex = args.indexOf("--out");
-const outFile = path.resolve(outIndex >= 0 ? args[outIndex + 1] : "photo-sheet.png");
-const wanted = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--out");
+const outFile = path.resolve(option("--out") ?? "photo-sheet.png");
+const thumbnails = args.includes("--thumbnails");
+const wanted = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--out" && args[i - 1] !== "--port");
 const shows = (tag: string) => wanted.length === 0 || wanted.includes(tag);
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "photo-sheet-"));
@@ -79,9 +91,12 @@ await waitFor(`http://localhost:${WEB_PORT}/`);
 
 const created = (await (await fetch(`${server}/api/projects`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ suite: "photo", name: "Sheet" }) })).json()) as { id: string };
 const media = (await (await fetch(`${server}/api/media?projectId=${created.id}&name=photo.jpg`, { method: "POST", body: fs.readFileSync(SAMPLE) })).json()) as { id: string };
+// The gallery's scene too, before the photo opens (its media are what the renderer knows).
+const sceneMedia = thumbnails ? ((await (await fetch(`${server}/api/media?projectId=${created.id}&name=scene.png`, { method: "POST", body: await sharp(Buffer.from(sceneSvg())).png().toBuffer() })).json()) as { id: string }) : null;
 
 type Bench = {
   sheetSetup(projectId: string, mediaId: string): Promise<PhotoProject>;
+  showDoc(doc: PhotoProject): Promise<void>;
   renderDoc(doc: PhotoProject, view: View): Promise<number[]>;
   compileErrors(): Promise<string[]>;
 };
@@ -193,6 +208,61 @@ if (shows("glow")) {
   }
   console.log(`tiled vs whole (glow r120, 200-pixel regions): worst ${worst.toExponential(2)}`);
   if (worst > 1e-5) failures.push(`glow r120: tiled differs from whole by ${worst}`);
+}
+
+// Kernel filters: each look on the GPU is its CPU reference, on the photo and on the cut-out's soft edges. The
+// reference reads the content (the scene without the filter) over the region grown by the filter's reach.
+for (const e of FILTER_ENTRIES.filter((e) => isKernelFilter(e.def.type) && shows(tagOf(e.def.type)))) {
+  const reference = KERNEL_REFERENCES[e.def.type];
+  if (!reference) {
+    failures.push(`${e.key}: no CPU reference`);
+    continue;
+  }
+  for (const [sc, x0, y0] of [[SCENES[1], 230, 170], [SCENES[2], 300, 230]] as const) {
+    const params = entryParams(e, sc.doc.canvas);
+    // Its settings as the filter holds them (the preset's, its defaults for the rest).
+    const full = validateParams(e.def, params).params;
+    const R = Math.ceil(e.def.reach(full)) + 2;
+    const W = 128;
+    const H = 96;
+    const plain = await call<number[]>("renderDoc", { ...sc.doc, canvas: { ...sc.doc.canvas, background: null } }, { zoom: 1, x: x0 - R, y: y0 - R, width: W + 2 * R, height: H + 2 * R });
+    const filtered = await call<number[]>("renderDoc", addFilter({ ...sc.doc, canvas: { ...sc.doc.canvas, background: null } }, sc.layer, { id: "sheet_kernel", type: e.def.type, params }), { zoom: 1, x: x0, y: y0, width: W, height: H });
+    const expected = applyKernel(reference, { width: W + 2 * R, height: H + 2 * R, data: Float64Array.from(plain) }, full, sc.doc.canvas, { x: x0 - R, y: y0 - R });
+    const diffs: number[] = [];
+    for (let j = 0; j < H; j++)
+      for (let i = 0; i < W; i++)
+        for (let c = 0; c < 4; c++) diffs.push(Math.abs(filtered[(j * W + i) * 4 + c] - expected.data[((j + R) * (W + 2 * R) + i + R) * 4 + c]));
+    diffs.sort((a, b) => a - b);
+    const p99 = diffs[Math.floor(diffs.length * 0.99)];
+    const over = diffs.filter((d) => d > 0.02).length / diffs.length;
+    const line = `${e.key} on ${sc.name}: p99 ${p99.toExponential(2)}, ${(over * 100).toFixed(2)}% over 0.02, worst ${diffs[diffs.length - 1].toExponential(2)}`;
+    console.log(line);
+    if (p99 > 5e-3 || over > 0.01) failures.push(`GPU ≠ reference: ${line}`);
+  }
+}
+
+// The Filter Gallery's cards: every look on the sample scene.
+if (sceneMedia) {
+  const doc: PhotoProject = {
+    ...base,
+    canvas: { width: 800, height: 600, background: "#000000" },
+    layers: [{ id: "scene", kind: "image", name: "scene", visible: true, opacity: 1, mediaId: sceneMedia.id, transform: { x: 400, y: 300, scaleX: 1, scaleY: 1, rotation: 0 } }],
+  };
+  // Shown, so its image loads.
+  await call("showDoc", doc);
+  fs.mkdirSync(THUMBNAILS, { recursive: true });
+  const cardView: View = { zoom: CELL.width / 800, x: 0, y: 0, ...CELL };
+  for (const e of FILTER_ENTRIES.filter((e) => shows(tagOf(e.def.type)))) {
+    const params = entryParams(e, doc.canvas);
+    const shown =
+      e.def.kind === "filter"
+        ? addFilter(doc, "scene", { id: "card_filter", type: e.def.type, params })
+        : addGeneratorLayer(doc, { id: "card_generator", type: e.def.type, params: { ...params, source: [300, 290] } });
+    const data = await call<number[]>("renderDoc", shown, cardView);
+    const raw = encode(data, CELL.width, CELL.height, 1);
+    await sharp(raw, { raw: { width: CELL.width, height: CELL.height, channels: 4 } }).jpeg({ quality: 82, mozjpeg: true }).toFile(path.join(THUMBNAILS, `${e.key.replace("/", "--")}.jpg`));
+  }
+  console.log(`Wrote the gallery's cards into ${path.relative(ROOT, THUMBNAILS)}/`);
 }
 
 // The output's highlights: the same light through each film strength, and clipped.
