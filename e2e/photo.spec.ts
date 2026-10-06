@@ -1243,6 +1243,237 @@ test("the assistant selects, masks and adds a pixel layer", async ({ page }) => 
   expect(values.values).toEqual([1, 0]);
 });
 
+// --- Selection tools (docs/photo/selections.md) ---
+
+/** A 1600 × 1200 picture with known shapes: an orange disc (centre 500, 600; radius 250) and a green square (x 1100..1400, y 300..600) on blue. */
+async function shapesPicture(): Promise<string> {
+  const width = 1600;
+  const height = 1200;
+  const data = Buffer.alloc(width * height * 3);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const disc = Math.hypot(x + 0.5 - 500, y + 0.5 - 600) < 250;
+      const square = x >= 1100 && x < 1400 && y >= 300 && y < 600;
+      data.set(disc ? [235, 140, 40] : square ? [40, 190, 80] : [40, 70, 200], (y * width + x) * 3);
+    }
+  }
+  const file = path.join(os.tmpdir(), `vaudio-shapes-${process.pid}.png`);
+  await sharp(data, { raw: { width, height, channels: 3 } }).png().toFile(file);
+  return file;
+}
+
+const DISC = Math.PI * 250 * 250;
+const SQUARE = 300 * 300;
+
+type SelectionWindow = { photoDebug: { photo: { getState(): { history: { doc: { selection: { kind: string; x: number; y: number; width: number; height: number; data?: Uint8Array } | null } } } } } };
+
+/** The open photo's selection: its kind, box and how many pixels it covers. */
+const selectionNow = (page: Page) =>
+  page.evaluate(() => {
+    const s = (window as unknown as SelectionWindow).photoDebug.photo.getState().history.doc.selection;
+    if (!s) return null;
+    let area = s.width * s.height;
+    if (s.data) {
+      area = 0;
+      for (const v of s.data) area += v;
+      area /= 255;
+    }
+    return { kind: s.kind, x: s.x, y: s.y, width: s.width, height: s.height, area };
+  });
+
+const within = (value: number, expected: number, share: number) => Math.abs(value - expected) <= expected * share;
+
+let shapesId = "";
+
+test("the selection tools: Magic Wand, Lassos, Elliptical Marquee, Quick Selection, Select Subject; modes, Inverse, Feather and the right-click menu", async ({ page }) => {
+  shapesId = await openNewPhoto(page, "Shapes");
+  await openImage(page, await shapesPicture());
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const photo = (await expect.poll(async () => (await savedPhoto(page, shapesId)).layers.length).toBe(1).then(() => savedPhoto(page, shapesId))).layers[0].id;
+  const holder = page.locator("[data-tool]");
+  const at = (x: number, y: number) => screenOf(page, x, y);
+  const click = async (x: number, y: number, modifiers: ("Shift" | "Alt")[] = []) => {
+    const p = await at(x, y);
+    for (const m of modifiers) await page.keyboard.down(m);
+    await page.mouse.click(p.x, p.y);
+    for (const m of modifiers) await page.keyboard.up(m);
+  };
+  const drag = async (points: [number, number][], modifiers: ("Shift" | "Alt")[] = []) => {
+    const first = await at(...points[0]);
+    for (const m of modifiers) await page.keyboard.down(m);
+    await page.mouse.move(first.x, first.y);
+    await page.mouse.down();
+    for (const q of points.slice(1)) {
+      const p = await at(...q);
+      await page.mouse.move(p.x, p.y, { steps: 8 });
+    }
+    await page.mouse.up();
+    for (const m of modifiers) await page.keyboard.up(m);
+  };
+  const area = async () => (await selectionNow(page))?.area ?? 0;
+
+  // W is Quick Selection; Shift+W steps to the Magic Wand (Photoshop's group).
+  await page.keyboard.press("w");
+  await expect(holder).toHaveAttribute("data-tool", "quickSelect");
+  await page.keyboard.press("Shift+W");
+  await expect(holder).toHaveAttribute("data-tool", "magicWand");
+  await expect(page.locator('[data-tool-options-for="magicWand"]')).toBeVisible();
+
+  // A click selects the square's colour, joined to it: a mask of exactly the square.
+  await click(1250, 450);
+  await expect.poll(() => selectionNow(page)).toMatchObject({ kind: "mask", x: 1100, y: 300, width: 300, height: 300 });
+  expect(within(await area(), SQUARE, 0.01)).toBe(true);
+  await expect(page.locator('[data-selection-kind="mask"]')).toBeVisible();
+  // Shift adds the disc.
+  await click(500, 600, ["Shift"]);
+  await expect.poll(area).toBeGreaterThan(SQUARE * 2);
+  expect(within(await area(), SQUARE + DISC, 0.01)).toBe(true);
+  // ⇧⌘I: the inverse, over the canvas; undone and redone as a step.
+  await page.keyboard.press("ControlOrMeta+Shift+i");
+  await expect.poll(() => selectionNow(page)).toMatchObject({ x: 0, y: 0, width: 1600, height: 1200 });
+  expect(within(await area(), 1600 * 1200 - SQUARE - DISC, 0.01)).toBe(true);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(area).toBeLessThan(400_000);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(area).toBeGreaterThan(1_000_000);
+  // The right-click menu: Select Inverse turns it back.
+  const middle = await at(800, 1000);
+  await page.mouse.click(middle.x, middle.y, { button: "right" });
+  const menu = page.locator('[data-selection-menu="selection"]');
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: /Select Inverse/ }).click();
+  await expect.poll(area).toBeLessThan(400_000);
+  // Alt takes the square away again: the disc alone.
+  await click(1250, 450, ["Alt"]);
+  await expect.poll(area).toBeLessThan(DISC * 1.02);
+  expect(within(await area(), DISC, 0.01)).toBe(true);
+
+  // A mask selection limits a fill (⌥⌫) on a new layer by its coverage, and makes a mask (the right-click menu).
+  await page.keyboard.press("ControlOrMeta+Shift+n");
+  await expect.poll(async () => (await savedPhoto(page, shapesId)).layers.length).toBe(2);
+  const fillLayer = (await savedPhoto(page, shapesId)).layers[1].id;
+  await page.keyboard.press("Alt+Backspace");
+  const alphaAt = async (layerId: string, x: number, y: number) => (await surfaceTiles(page, layerId, "content", [], [[Math.floor(x / 256), Math.floor(y / 256), x % 256, y % 256, 3]])).values[0] ?? 0;
+  await expect.poll(() => alphaAt(fillLayer, 500, 600)).toBe(1);
+  expect(await alphaAt(fillLayer, 1250, 450)).toBe(0);
+  expect(await alphaAt(fillLayer, 500, 300)).toBe(0);
+  await page.locator(`[data-layer="${photo}"]`).click();
+  await page.mouse.click(middle.x, middle.y, { button: "right" });
+  await menu.getByRole("menuitem", { name: "Mask from Selection" }).click();
+  await expect.poll(async () => (await savedPhoto(page, shapesId)).layers[0].mask?.surface ?? null).not.toBeNull();
+  const maskValues = await surfaceTiles(page, photo, "mask", [], [[1, 2, 500 - 256, 600 - 512, 0], [4, 1, 1250 - 1024, 450 - 256, 0]]);
+  expect(maskValues.values[0]).toBe(1);
+  expect(maskValues.values[1] ?? 0).toBe(0);
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.keyboard.press("ControlOrMeta+d");
+  await expect(page.locator("[data-selection]")).toHaveCount(0);
+
+  // The Lasso (L): the outline drawn, closed back to where it began.
+  await page.keyboard.press("l");
+  await expect(holder).toHaveAttribute("data-tool", "lasso");
+  await drag([[200, 200], [600, 200], [400, 500], [205, 205]]);
+  await expect.poll(() => selectionNow(page)).toMatchObject({ kind: "mask" });
+  const lassoed = (await selectionNow(page))!;
+  expect(Math.abs(lassoed.x - 200) + Math.abs(lassoed.y - 200) + Math.abs(lassoed.x + lassoed.width - 600) + Math.abs(lassoed.y + lassoed.height - 500)).toBeLessThan(12);
+  expect(within(lassoed.area, (400 * 300) / 2, 0.04)).toBe(true);
+
+  // The Polygonal Lasso (Shift+L): corners clicked, Backspace takes the last back, Enter closes it; Escape drops one.
+  await page.keyboard.press("Shift+L");
+  await expect(holder).toHaveAttribute("data-tool", "polygonLasso");
+  for (const [x, y] of [[900, 800], [1300, 800], [1300, 1100], [900, 1100], [1000, 1000]] as [number, number][]) {
+    await click(x, y);
+    await page.waitForTimeout(60);
+  }
+  await expect(page.locator('[data-selection-draft="path"]')).toBeVisible();
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await selectionNow(page))?.x ?? 0).toBeGreaterThan(890);
+  const polygonal = (await selectionNow(page))!;
+  expect(Math.abs(polygonal.x - 900) + Math.abs(polygonal.y - 800) + Math.abs(polygonal.x + polygonal.width - 1300) + Math.abs(polygonal.y + polygonal.height - 1100)).toBeLessThanOrEqual(8);
+  expect(within(await area(), 400 * 300, 0.01)).toBe(true);
+  await click(100, 100);
+  await click(300, 100);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("[data-selection-draft]")).toHaveCount(0);
+  expect(within(await area(), 400 * 300, 0.01)).toBe(true);
+
+  // The Elliptical Marquee (Shift+M), Shift held from the press: added.
+  await page.keyboard.press("m");
+  await page.keyboard.press("Shift+M");
+  await expect(holder).toHaveAttribute("data-tool", "ellipse");
+  await drag([[100, 700], [500, 1100]], ["Shift"]);
+  await expect.poll(area).toBeGreaterThan(400 * 300 + 100_000);
+  expect(within(await area(), 400 * 300 + Math.PI * 200 * 200, 0.01)).toBe(true);
+
+  // Quick Selection: a short stroke inside the disc grows to its edge. Its mode is Add afterwards (Photoshop's).
+  await page.keyboard.press("ControlOrMeta+d");
+  await page.keyboard.press("w");
+  await page.keyboard.press("Shift+W");
+  await expect(holder).toHaveAttribute("data-tool", "quickSelect");
+  await page.locator('[data-select-mode="new"]').click();
+  await drag([[460, 600], [540, 600]]);
+  await expect.poll(area, { timeout: 15_000 }).toBeGreaterThan(DISC * 0.9);
+  const grown = (await selectionNow(page))!;
+  expect(within(grown.area, DISC, 0.04)).toBe(true);
+  expect(Math.abs(grown.x - 250) + Math.abs(grown.y - 350) + Math.abs(grown.x + grown.width - 750) + Math.abs(grown.y + grown.height - 850)).toBeLessThan(24);
+  await expect(page.locator('[data-select-mode="add"]')).toHaveAttribute("aria-pressed", "true");
+  await page.locator('[data-select-mode="new"]').click();
+
+  // Select › Subject (the tests' stand-in for the model: what's unlike the border): the disc and the square.
+  await page.keyboard.press("ControlOrMeta+d");
+  await page.locator("[data-select-menu]").click();
+  await page.getByRole("menuitem", { name: "Subject" }).click();
+  await expect.poll(area, { timeout: 15_000 }).toBeGreaterThan(SQUARE + DISC * 0.9);
+  expect(within(await area(), SQUARE + DISC, 0.03)).toBe(true);
+  // Feather… (⇧F6): the edge softened past where it was.
+  const before = (await selectionNow(page))!;
+  await page.keyboard.press("Shift+F6");
+  await page.locator("[data-feather-radius]").fill("12");
+  await page.locator("[data-feather-dialog]").getByRole("button", { name: "OK" }).click();
+  await expect(page.locator("[data-feather-dialog]")).toHaveCount(0);
+  await expect.poll(async () => (await selectionNow(page))!.x).toBeLessThan(before.x);
+  expect(within(await area(), before.area, 0.01)).toBe(true);
+
+  // With nothing selected the menu offers Select All.
+  await page.keyboard.press("ControlOrMeta+d");
+  await expect(page.locator("[data-selection]")).toHaveCount(0);
+  await page.mouse.click(middle.x, middle.y, { button: "right" });
+  await expect(page.locator('[data-selection-menu="none"]')).toBeVisible();
+  await page.getByRole("menuitem", { name: /Select All/ }).click();
+  await expect.poll(() => selectionNow(page)).toMatchObject({ kind: "rect", x: 0, y: 0, width: 1600, height: 1200 });
+  await page.keyboard.press("ControlOrMeta+d");
+});
+
+test("the assistant selects with the wand, a lasso, Quick Selection and the subject, inverts, and looks at the selection", async ({ page }) => {
+  await page.goto(`/p/${shapesId}`);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call select_magic_wand {"x": 1250, "y": 450}',
+      'call select_polygon {"points": [[100, 100], [300, 100], [300, 200], [100, 200]], "mode": "add"}',
+      'call select_quick {"strokes": [[[480, 600], [520, 600]]], "size": 20}',
+      'call view_photo {"width": 256, "show_selection": true}',
+      'call modify_selection {"action": "invert"}',
+      'call modify_selection {"action": "invert"}',
+      "call get_photo",
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("get_photo: ok", { timeout: 30_000 });
+  // The square, the rectangle and the disc.
+  await expect.poll(async () => (await selectionNow(page))?.area ?? 0).toBeGreaterThan(SQUARE + 200 * 100 + DISC * 0.9);
+  expect(within((await selectionNow(page))!.area, SQUARE + 200 * 100 + DISC, 0.04)).toBe(true);
+  await composer.fill(['call select_subject {"mode": "intersect"}', 'call select_rect {"x": 1000, "y": 200, "width": 500, "height": 500, "mode": "intersect"}', "call get_photo"].join("\n"));
+  await composer.press("Enter");
+  await expect(panel.getByText("get_photo: ok")).toHaveCount(2, { timeout: 30_000 });
+  // The subject met with the selection, then with a box around the square: the square alone.
+  await expect.poll(async () => (await selectionNow(page))?.area ?? 0).toBeLessThan(SQUARE * 1.05);
+  expect(within((await selectionNow(page))!.area, SQUARE, 0.04)).toBe(true);
+});
+
 // --- Edit commands, the eraser, options and colours ---
 
 test("copy, cut and paste make layers; fills, Delete and the eraser change pixels; options drag; the header keeps still", async ({ page }) => {

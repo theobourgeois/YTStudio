@@ -41,6 +41,7 @@ import { openPlaylist } from "./playlist/actions";
 import { positionAt, positionText, splitTail, tempoText, timeText } from "./position";
 import { useSongExport } from "./export/store";
 import { useVisualizer, visualizerBusy } from "./visualizer/store";
+import { titleOf } from "@/components/ui/title-tips";
 import { COUNT_IN_BARS, useMusicPreferences } from "./preferences";
 import { useRecording } from "./recording";
 import { useMidi } from "./midi";
@@ -154,9 +155,10 @@ function HintBar() {
     if (!root) return;
     // What's under the pointer, in the page or in one of the editor's windows (native ones are windows of their own).
     const over = (e: Event) => {
-      const target = isElement(e.target) ? e.target.closest("[title], [aria-label]") : null;
+      // Its tip (a title, moved aside while the pointer is on it: `TitleTips`), else its name.
+      const target = isElement(e.target) ? e.target.closest("[title], [data-title], [aria-label]") : null;
       const ours = target && (root.contains(target) || target.closest("[data-window]"));
-      setHint(ours ? (target.getAttribute("title") ?? target.getAttribute("aria-label") ?? "") : "");
+      setHint(ours ? (titleOf(target) ?? target.getAttribute("aria-label") ?? "") : "");
     };
     const leave = () => setHint("");
     const stops = [addWindowListener("pointerover", over), addWindowListener("blur", leave)];

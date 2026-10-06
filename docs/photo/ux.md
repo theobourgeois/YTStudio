@@ -105,7 +105,9 @@ Photo's own `keys.ts`, pure and tested, as music's is. Its listener skips text f
 | Key | Proposed |
 | --- | --- |
 | Space held | Hand, back to the previous tool on release |
-| V / M / B / E / H / Z | Move / Rectangular Marquee / Brush / Eraser / Hand / Zoom (built) |
+| V / B / E / H / Z | Move / Brush / Eraser / Hand / Zoom (built) |
+| M / L / W | The Marquees (Rectangular, Elliptical), the Lassos (Lasso, Polygonal), Quick Selection and the Magic Wand: the group's tool; ⇧ steps through the group (built, selections.md) |
+| ⇧⌘I / ⇧F6 | Select › Inverse / Feather (built) |
 | ⌘Z / ⇧⌘Z | Undo / redo |
 | ⌘0 / ⌘1 | Fit / 100% (the File menu's ⌘1 "New Video" only acts on Home: its accelerator isn't registered) |
 | ⌘+ / ⌘− | Zoom in / out, centred on the pointer when it's over the canvas |
@@ -197,6 +199,9 @@ Built in F3:
   half). No selection means everything; an empty selection means nothing. Selection changes are undo steps
   (Photoshop's way). The Rectangular Marquee (M) drags whole pixels, clipped to the canvas (⇧ a square, ⌥ from its
   centre); a click deselects; the marching ants show under every tool, and the options bar says its size.
+- **More selection tools** (selections.md): the Elliptical Marquee, the Lassos, the Magic Wand, Quick Selection and
+  Select Subject, each meeting the selection by the options bar's mode (Shift adds, Alt subtracts, both intersect);
+  the Select menu (All, Deselect, Inverse, Subject, Feather) and the canvas's right-click menu.
 - **Masks**: Layers' Add a mask button (and the Layers menu) gives the active layer a mask: from the selection when
   there is one (that coverage in the layer's own pixels, following the layer from then on), else revealing
   everything. Its thumbnail sits beside the layer's; clicking either targets what the brush paints (outlined).
