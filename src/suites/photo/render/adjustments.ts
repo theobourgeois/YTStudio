@@ -9,20 +9,24 @@
 import { CURVE_TABLE_SIZE, curveTable, identityChannels } from "@shared/photo/effects/curve-math.ts";
 import type { CurveSet, EffectParamValue } from "@shared/photo/types.ts";
 import { BLEND, BLEND_STRUCT } from "./blend.ts";
+import { CAMERA_RAW_ADJUSTMENT } from "./camera-raw.ts";
 import { ROUND_FOR_STORE, type StorageFormat } from "./kernels.ts";
 import { MATHS } from "./wgsl.ts";
 
 export interface AdjustmentKernel {
-  /** WGSL defining `struct Params` (opacity first) and `fn adjust(c: vec4f) -> vec4f` on premultiplied light. */
+  /**
+   * WGSL defining `struct Params` (opacity first) and `fn adjust(c: vec4f, doc: vec2f) -> vec4f` on premultiplied
+   * light at document point `doc`.
+   */
   wgsl: string;
-  /** The uniform's bytes (up to 256) and the table, if it reads one, for these parameters. */
-  pack: (params: Record<string, EffectParamValue>, opacity: number) => { uniform: ArrayBuffer; table?: Float32Array };
+  /** The uniform's bytes (up to 256) and the table, if it reads one, for these parameters on this canvas. */
+  pack: (params: Record<string, EffectParamValue>, opacity: number, canvas: { width: number; height: number }) => { uniform: ArrayBuffer; table?: Float32Array };
 }
 
 const EXPOSURE: AdjustmentKernel = {
   wgsl: /* wgsl */ `
 struct Params { opacity: f32, gain: f32, offset: f32, power: f32, shaped: u32, p0: u32, p1: u32, p2: u32 }
-fn adjust(c: vec4f) -> vec4f {
+fn adjust(c: vec4f, doc: vec2f) -> vec4f {
   if (c.a <= 0.0) { return c; }
   if (params.shaped == 0u) {
     // Linear in premultiplied light: × 2^stops, + offset × alpha.
@@ -56,7 +60,7 @@ fn curve(ch: u32, c: f32, a: f32, identity: u32) -> f32 {
   if (v < 0.0 || v > 1.0) { return c; }
   return srgb_to_linear(lookup(ch, linear_to_srgb(v))) * a;
 }
-fn adjust(c: vec4f) -> vec4f {
+fn adjust(c: vec4f, doc: vec2f) -> vec4f {
   if (c.a <= 0.0) { return c; }
   return vec4f(curve(0u, c.r, c.a, params.idR), curve(1u, c.g, c.a, params.idG), curve(2u, c.b, c.a, params.idB), c.a);
 }`,
@@ -69,12 +73,12 @@ fn adjust(c: vec4f) -> vec4f {
   },
 };
 
-export const ADJUSTMENT_KERNELS: Record<string, AdjustmentKernel> = { exposure: EXPOSURE, curves: CURVES };
+export const ADJUSTMENT_KERNELS: Record<string, AdjustmentKernel> = { exposure: EXPOSURE, curves: CURVES, "camera-raw": CAMERA_RAW_ADJUSTMENT };
 
 /**
  * The whole shader for an adjustment writing a target of `format`. `mask` is the compositor's WGSL for groups 2
- * and 3 (the adjustment's mask, in document pixels, and its blending), defining `adjustment_mask(pos)` and
- * `adjustment_blend()`. Kernels work on linear light: in an encoded composite ("photoshop") the pixel is decoded
+ * and 3 (the adjustment's mask, in document pixels, and its blending), defining `adjustment_mask(pos)`,
+ * `adjustment_doc(pos)` (a pixel's document point) and `adjustment_blend()`. Kernels work on linear light: in an encoded composite ("photoshop") the pixel is decoded
  * for them and their result encoded again, then blended with what was there by the layer's mode.
  */
 export function adjustmentShader(kernel: AdjustmentKernel, format: StorageFormat, mask: string): string {
@@ -95,7 +99,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let c = textureLoad(below, vec2i(pos.xy), 0);
   let p = adjustment_blend();
   let encoded = p.encoded == 1u;
-  var adjusted = adjust(select(c, premult_decode(c), encoded));
+  var adjusted = adjust(select(c, premult_decode(c), encoded), adjustment_doc(pos.xy));
   if (encoded) { adjusted = premult_encode(adjusted); }
   // Its mode, opacity, Blend If and mask say how much it changes this pixel, and how.
   return round_for_store(composite_adjustment(p, c, adjusted, adjustment_mask(pos.xy)));

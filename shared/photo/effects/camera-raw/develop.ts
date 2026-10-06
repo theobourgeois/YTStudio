@@ -141,8 +141,8 @@ const VIBRANCE_PIVOT = [0.628, 0.694, 0.694, 0.73, 0.768] as const;
 export const GREY_WEIGHTS: Rgb = [0.248, 0.673, 0.079];
 /** The vignette's falloff (fitted to CR0's runs on grey): Midpoint and Feather move its centre and width. */
 /** The grey CR0's vignette runs were measured on (an 8-bit code). */
-const VIGNETTE_GREY = 118;
-const VIGNETTE = { centre: [0.4537, 0.9449], width: [0.0357, 0.9708], darken: 1.5134, lighten: 1.0689, exponent: 1.962 } as const;
+export const VIGNETTE_GREY = 118;
+export const VIGNETTE = { centre: [0.4537, 0.9449], width: [0.0357, 0.9708], darken: 1.5134, lighten: 1.0689, exponent: 1.962 } as const;
 
 /** The develop's numbers besides its table, in the order the GPU's uniform holds them. */
 export interface DevelopSettings {

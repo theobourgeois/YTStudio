@@ -435,8 +435,9 @@ ${imageFunctions("mask", 3)}
 ${MASK_SAMPLE}
 struct MaskParams { origin: vec2f, zoom: f32, level: u32, on: u32, p0: u32, p1: u32, p2: u32, blend: BlendParams }
 @group(3) @binding(2) var<uniform> maskp: MaskParams;
+fn adjustment_doc(pos: vec2f) -> vec2f { return maskp.origin + pos / maskp.zoom; }
 fn adjustment_mask(pos: vec2f) -> f32 {
-  let doc = maskp.origin + pos / maskp.zoom;
+  let doc = adjustment_doc(pos);
   return mask_at(maskp.on == 1u, maskp.level, doc * exp2(-f32(maskp.level)));
 }
 fn adjustment_blend() -> BlendParams { return maskp.blend; }
@@ -705,16 +706,18 @@ export class Compositor {
     return entry.group;
   }
 
-  private paramsFor(node: AdjustmentNode) {
-    let entry = this.adjustmentParams.get(node.key);
+  private paramsFor(node: AdjustmentNode, canvas: { width: number; height: number }) {
+    // The canvas is in the key: an adjustment placing things on it (Camera Raw's vignette) depends on its size.
+    const key = `${node.key}@${canvas.width}x${canvas.height}`;
+    let entry = this.adjustmentParams.get(key);
     if (entry) {
       // Most recently used last, so the oldest go first.
-      this.adjustmentParams.delete(node.key);
-      this.adjustmentParams.set(node.key, entry);
+      this.adjustmentParams.delete(key);
+      this.adjustmentParams.set(key, entry);
       return entry;
     }
     const { device } = this.ctx;
-    const packed = ADJUSTMENT_KERNELS[node.type].pack(node.params, node.opacity);
+    const packed = ADJUSTMENT_KERNELS[node.type].pack(node.params, node.opacity, canvas);
     const uniform = device.createBuffer({ label: `${node.type} params`, size: Math.max(16, packed.uniform.byteLength), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     device.queue.writeBuffer(uniform, 0, packed.uniform);
     let table: GPUBuffer | null = null;
@@ -730,7 +733,7 @@ export class Compositor {
       ],
     });
     entry = { uniform, table, group };
-    this.adjustmentParams.set(node.key, entry);
+    this.adjustmentParams.set(key, entry);
     while (this.adjustmentParams.size > 48) {
       const [oldest, old] = this.adjustmentParams.entries().next().value!;
       this.adjustmentParams.delete(oldest);
@@ -1069,7 +1072,7 @@ export class Compositor {
       const pass = encoder.beginRenderPass({ colorAttachments: [{ view: next.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
       pass.setPipeline(this.pipelines.adjustment.get(`${node.type}:${format}`)!);
       pass.setBindGroup(0, device.createBindGroup({ layout: this.layouts.texture, entries: [{ binding: 0, resource: current.createView() }] }));
-      pass.setBindGroup(1, this.paramsFor(node).group);
+      pass.setBindGroup(1, this.paramsFor(node, plan.canvas).group);
       const m = maskSlot.get(i)!;
       const maskCtx = m.mask?.ctx ?? this.ctx;
       const maskImage = m.mask?.image ?? this.ctx.emptyImage;
