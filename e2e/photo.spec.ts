@@ -2563,7 +2563,7 @@ test("Camera Raw: ⇧⌘A develops a layer in its window (one undo step, Cancel 
   // Preview off (P) shows the layer without it; Cancel leaves it as it was.
   await window_.getByLabel("Saturation", { exact: true }).fill("50");
   await window_.getByLabel("Saturation", { exact: true }).press("Enter");
-  await window_.locator("[data-camera-raw-sections]").click({ position: { x: 4, y: 4 } });
+  await window_.getByText("Edit", { exact: true }).click();
   await page.keyboard.press("p");
   await expect(window_.getByRole("checkbox", { name: "Preview" })).not.toBeChecked();
   await window_.getByRole("button", { name: "Cancel" }).click();
@@ -2585,6 +2585,8 @@ test("Camera Raw: ⇧⌘A develops a layer in its window (one undo step, Cancel 
   await properties.getByLabel("Exposure", { exact: true }).fill("-0.5");
   await properties.getByLabel("Exposure", { exact: true }).press("Enter");
   await expect.poll(async () => (await savedPhoto(page, id)).layers[1].effect.params.exposure).toBe(-0.5);
+  // (Out of the field: there ⌘Z is the text's own.)
+  await properties.getByLabel("Exposure", { exact: true }).blur();
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => (await savedPhoto(page, id)).layers[1].effect.params.exposure).toBe(0);
 });

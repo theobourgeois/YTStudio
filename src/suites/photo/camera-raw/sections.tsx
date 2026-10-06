@@ -177,10 +177,18 @@ export function CameraRawSlider({ spec, value, sink }: { spec: NumberParam; valu
             setTyped(null);
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-            if (e.key === "Escape") {
+            // Enter sets what's typed and stays (the window's Enter is OK only outside its fields).
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.stopPropagation();
+              if (typed !== null && typed.trim() !== "" && Number.isFinite(Number(typed))) set(Number(typed));
               setTyped(null);
-              e.currentTarget.blur();
+              e.currentTarget.select();
+            }
+            // Escape drops what's typed; with nothing typed it's the window's (Cancel).
+            if (e.key === "Escape" && typed !== null) {
+              e.stopPropagation();
+              setTyped(null);
             }
             if (e.key === "ArrowUp" || e.key === "ArrowDown") {
               e.preventDefault();
@@ -202,10 +210,10 @@ export function CameraRawSlider({ spec, value, sink }: { spec: NumberParam; valu
         onValueChange={([v]) => sink.apply({ [spec.key]: v })}
         onValueCommit={() => sink.end()}
       >
-        <SliderPrimitive.Track className="sunken relative h-1 grow overflow-hidden rounded-full" style={TRACKS[spec.key] ? { background: TRACKS[spec.key] } : undefined}>
+        <SliderPrimitive.Track className={`sunken relative grow overflow-hidden rounded-full ${TRACKS[spec.key] ? "h-1.5" : "h-1"}`} style={TRACKS[spec.key] ? { background: TRACKS[spec.key] } : undefined}>
           {!TRACKS[spec.key] && <span className="absolute inset-y-0 bg-brand" style={{ left: `${Math.min(from, to)}%`, width: `${Math.abs(to - from)}%` }} />}
         </SliderPrimitive.Track>
-        <SliderPrimitive.Thumb aria-label={spec.label} className="raised block size-3 rounded-full outline-none hover:raised-hover" onDoubleClick={reset} />
+        <SliderPrimitive.Thumb aria-label={`${spec.label} slider`} className="raised block size-3 rounded-full outline-none hover:raised-hover" onDoubleClick={reset} />
       </SliderPrimitive.Root>
     </div>
   );

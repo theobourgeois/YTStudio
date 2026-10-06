@@ -23,12 +23,16 @@ import { cameraRawEdit, cameraRawOf, cameraRawParams } from "./actions";
 import { useCanvasPick } from "./canvas-pick";
 import { CameraRawSections, type CameraRawSink } from "./sections";
 
-/** Where it opens: along the photo desktop's right edge, as tall as there's room for. */
+/** Where it opens: inside the canvas's right edge (not over the docked panels), as tall as the canvas. */
 function besideTheCanvas() {
   const desk = document.querySelector('[data-desktop="photo"]')?.getBoundingClientRect();
+  const canvas = document.querySelector("[data-photo-canvas]")?.getBoundingClientRect();
   const width = 340;
   if (!desk) return { x: 200, y: 40, width, height: 640 };
-  return { x: Math.max(0, Math.round(desk.width - width - 16)), y: 12, width, height: Math.max(360, Math.round(desk.height - 24)) };
+  const right = canvas ? canvas.right - desk.left : desk.width;
+  const top = canvas ? Math.max(0, canvas.top - desk.top) : 0;
+  const height = canvas ? canvas.height : desk.height;
+  return { x: Math.max(0, Math.round(right - width - 12)), y: Math.round(top + 12), width, height: Math.max(360, Math.round(height - 24)) };
 }
 
 /** The parameters with a section's own back at their defaults (what its eye shows). */
@@ -116,6 +120,23 @@ export function CameraRawWindow({ target }: { target: CameraRawTarget }) {
     session.gesture.apply(cameraRawEdit(target, shown));
   }, [draft, preview, hidden, session, target]);
 
+  // Its keys, wherever in the window the focus is (the window itself, once something plain is clicked): Enter is
+  // OK and P is Preview, outside its fields.
+  const body = useRef<HTMLDivElement>(null);
+  const keys = useRef({ ok: () => {}, preview: () => {} });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const win = body.current?.closest("[data-window]");
+      const target = e.target as Element | null;
+      if (!win || !target || !win.contains(target)) return;
+      if (target.closest("input, select, textarea, button, [role=slider], [role=menuitem], [contenteditable]")) return;
+      if (e.key === "Enter") keys.current.ok();
+      else if ((e.key === "p" || e.key === "P") && !e.metaKey && !e.ctrlKey && !e.altKey) keys.current.preview();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // ⌥ turns Cancel into Reset, as Photoshop's.
   useEffect(() => {
     const keys = (e: KeyboardEvent) => setAlt(e.altKey);
@@ -171,6 +192,7 @@ export function CameraRawWindow({ target }: { target: CameraRawTarget }) {
     close();
   };
   const reset = () => setDraft(session.base);
+  keys.current = { ok, preview: () => setPreview((p) => !p) };
 
   return (
     <FloatingWindow
@@ -182,15 +204,7 @@ export function CameraRawWindow({ target }: { target: CameraRawTarget }) {
       escapeCloses
       onClose={cancel}
     >
-      <div
-        className="flex h-full min-h-0 flex-col text-sm"
-        data-camera-raw-window={target.filterId ? "filter" : "adjustment"}
-        onKeyDown={(e) => {
-          const typing = (e.target as Element).closest("input, select, textarea, [role=slider], [role=menuitem], [contenteditable]");
-          if (e.key === "Enter" && !typing) ok();
-          if ((e.key === "p" || e.key === "P") && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) setPreview((p) => !p);
-        }}
-      >
+      <div ref={body} className="flex h-full min-h-0 flex-col text-sm" data-camera-raw-window={target.filterId ? "filter" : "adjustment"}>
         <div className="flex items-center gap-1 border-b border-line px-3 py-2">
           <span className="flex-1 text-[13px] font-semibold">Edit</span>
           <Button
