@@ -7,6 +7,7 @@ import { hasMedia, isTextClip } from "../shared/effects.ts";
 import { sanitizeTextLayout } from "../shared/text-drawing.ts";
 import type { ExportJob, ExportRequest, ExportResolution, Project, TextLayoutAt } from "../shared/types.ts";
 import { errorMessage } from "../shared/errors.ts";
+import { exportFormat, exportSettings } from "../shared/export-formats.ts";
 import { normalizeProject } from "../shared/normalize.ts";
 import { allClips, isNestedClip } from "../shared/sequences.ts";
 import { FFMPEG } from "./config.ts";
@@ -48,7 +49,7 @@ function parseLayouts(raw: unknown): TextLayoutAt[] | null {
 function cleanFileName(raw: unknown, fallback: string): string {
   const name = String(raw ?? "")
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ")
-    .replace(/\.mp4$/i, "")
+    .replace(/\.(mp4|mov|zip)$/i, "")
     .replace(/\s+/g, " ")
     .replace(/^[\s.]+|[\s.]+$/g, "")
     .slice(0, 120);
@@ -77,6 +78,8 @@ export class ExportManager {
     if (!EXPORT_RESOLUTIONS.includes(req.resolution as ExportResolution)) {
       throw new HttpError(400, `Resolution must be one of ${EXPORT_RESOLUTIONS.join(", ")}.`);
     }
+    const settings = exportSettings(req);
+    if ("error" in settings) throw new HttpError(400, settings.error);
     if (!(await ffmpegVersion())) throw new HttpError(503, "ffmpeg isn't installed, so exporting is unavailable.");
 
     const assets = this.library.byId();
@@ -122,6 +125,8 @@ export class ExportManager {
       downloadUrl: null,
       url: null,
       fileName: cleanFileName(req.fileName, cleanFileName(project.name, "export")),
+      ...settings,
+      extension: exportFormat(settings.format).extension,
     };
     const state: JobState = { job, project, texts, preview, controller: new AbortController() };
     this.jobs.set(job.id, state);

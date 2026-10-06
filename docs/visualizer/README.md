@@ -6,7 +6,8 @@ the link popover, the assistant's tools, the Signals window, signal lanes, spect
 effects, New item › Visualizer). **V5 is built** (Make visualizer: a song of the music suite made into a video
 project). **V6 is built** (2026-10-07: the Shader effect, its three dialects, the shader editor, `set_shader`; see
 "V6: Shaders" below). **V8 is built** (2026-10-07, before V7: simulations, vaudio's feedback and camera modes, its four
-3D scenes; see "V8: Simulations and 3D" below).
+3D scenes; see "V8: Simulations and 3D" below). **V10 is being built** (2026-10-06: ProRes, HEVC, PNG sequences,
+transparency, a quality; see "Export (V10)").
 [vaudio-port.md](vaudio-port.md) lists what comes over from Théo's earlier visualizer (`~/code/vaudio`) and where.
 
 A professional audio visualizer inside the video editor, not a suite of its own. Any clip, effect parameter or shader
