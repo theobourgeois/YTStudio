@@ -416,7 +416,8 @@ export class MediaLibrary {
       await fs.cp(source.dir(asset.id), dir, {
         recursive: true,
         mode: fsConstants.COPYFILE_FICLONE,
-        filter: (file) => path.basename(file) !== "meta.json",
+        // Not the metadata, nor a file still being written (signals being analysed write `*.tmp`, then rename it).
+        filter: (file) => path.basename(file) !== "meta.json" && !file.endsWith(".tmp"),
       });
       // Still being generated: start over here rather than copy half a filmstrip.
       const processing = asset.status === "processing";
