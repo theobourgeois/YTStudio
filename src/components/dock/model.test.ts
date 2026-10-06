@@ -210,6 +210,24 @@ describe("normalizeLayout", () => {
     expect(layout.root!.type === "split" && layout.root!.sizes).toEqual([1, 1]);
   });
 
+  it("puts a panel it doesn't have beside its home panel", () => {
+    const raw = {
+      root: {
+        type: "split",
+        direction: "row",
+        sizes: [1, 1],
+        children: [
+          { type: "group", id: "a", panels: ["media", "effects"], active: "media" },
+          { type: "group", id: "b", panels: ["program", "timeline"], active: "program" },
+        ],
+      },
+      floating: [],
+    };
+    const layout = normalizeLayout(raw, PANELS, editing(), { properties: "timeline" });
+    expect(shape(layout.root)).toEqual({ row: [["media", "effects"], ["program", "timeline", "properties"]] });
+    expect(groupOf(layout, "properties")!.active).toBe("program");
+  });
+
   it("falls back for anything that isn't a layout", () => {
     const fallback = editing();
     expect(normalizeLayout(null, PANELS, fallback)).toBe(fallback);

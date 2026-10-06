@@ -74,6 +74,11 @@ develops (`analysis.ts`: guided-filter grids, haze, statistics, from a coarse re
 Its Color Mixer and Color Grading are `colour.ts` (Grading in stops of linear ProPhoto, as Camera Raw's), Glow reads a
 grid made from the analysis (`glowGrid`); the GPU's table carries them after the curves. Its presets are
 `presets.ts` (the window's Presets tab, `add_filter`/`add_adjustment`'s `preset`), Auto is `auto.ts`.
+The **Online panel** (docs/photo/online.md; a tab beside Properties) searches Iconify's icons, Bing's images and
+Openverse's photos, or reads a pasted link, and places a result as a layer: the server searches and downloads
+(`server/photo/online.ts`; Iconify limits requests, so icons' shapes are fetched a set at a time and kept, never one
+by one), the helper's `prepare` makes anything that isn't PNG, JPEG or WebP a PNG; e2e sets
+`EDITOR_ONLINE_ASSETS=stand-in` (`online-stand-in.ts`).
 
 The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is
 planned in [`docs/visualizer/README.md`](docs/visualizer/README.md): signals, links, audio shaders, Perform, its

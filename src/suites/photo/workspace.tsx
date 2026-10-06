@@ -3,7 +3,7 @@
  * the tool's options, export, the assistant), the tool strip, the docked panels (the canvas, Layers, Properties:
  * Photoshop's are docked too), and its windows. Its keys are `keys.ts`'s.
  */
-import { type ReactNode, useEffect, useState } from "react";
+import { type DragEvent, type ReactNode, useEffect, useState } from "react";
 import { cn } from "cn";
 import {
   PiArrowCounterClockwise,
@@ -61,11 +61,13 @@ import { isImage } from "./media";
 import { LayersPanel } from "./panels/layers-panel";
 import { usePhotoPreferences } from "./preferences";
 import { PropertiesPanel } from "./panels/properties-panel";
+import { OnlinePanel } from "./online/online-panel";
+import { getOnlineDragData, isOnlineDrag, placeOnline } from "./online/online";
 import { StylesPanel } from "./panels/styles-panel";
 import { currentSelection, flushPhotos, photoGesture, usePhoto } from "./store";
 import { type PhotoTool, TOOL_GROUPS, type ToolGroup, useActiveTool, usePhotoUi } from "./ui";
 
-type PhotoPanel = "canvas" | "layers" | "properties" | "styles";
+type PhotoPanel = "canvas" | "layers" | "properties" | "styles" | "online";
 type PhotoWindowId = "export" | "filters" | `panel:${string}`;
 
 const usePhotoWindows = createWindows<PhotoWindowId>();
@@ -87,7 +89,8 @@ const defaultLayout = (): DockLayout<PhotoPanel> => ({
         sizes: [380, 420],
         children: [
           { type: "group", id: "layers", panels: ["layers"], active: "layers" },
-          { type: "group", id: "properties", panels: ["properties", "styles"], active: "properties" },
+          // Online sits with Properties, as Photoshop's Libraries does.
+          { type: "group", id: "properties", panels: ["properties", "styles", "online"], active: "properties" },
         ],
       },
     ],
@@ -97,8 +100,9 @@ const defaultLayout = (): DockLayout<PhotoPanel> => ({
 
 const usePhotoDock = createDock<PhotoPanel, PhotoWindowId>({
   key: "editor-photo-layout",
-  panels: ["canvas", "layers", "properties", "styles"],
+  panels: ["canvas", "layers", "properties", "styles", "online"],
   initial: defaultLayout,
+  homes: { online: "properties" },
   windows: usePhotoWindows,
   windowId: panelWindow,
 });
@@ -108,6 +112,7 @@ const PANELS: Record<PhotoPanel, DockPanel> = {
   layers: { title: "Layers", render: () => <LayersPanel />, minWidth: 220, minHeight: 140 },
   properties: { title: "Properties", render: () => <PropertiesPanel />, minWidth: 220, minHeight: 160 },
   styles: { title: "Styles", render: () => <StylesPanel />, minWidth: 180, minHeight: 120 },
+  online: { title: "Online", render: () => <OnlinePanel />, minWidth: 220, minHeight: 160 },
 };
 
 export default function PhotoWorkspace() {
@@ -141,6 +146,7 @@ export default function PhotoWorkspace() {
 /**
  * Images dragged in from Finder (or anywhere) become layers on top, as Photoshop places a file dragged into a
  * document: centred where they're dropped on the canvas (elsewhere, on its middle), fitted in it, and selected.
+ * A result dragged from the Online panel is placed the same way.
  */
 function ImageDrop({ children }: { children: ReactNode }) {
   const { active, handlers } = useFileDrop((files, e) => {
@@ -155,8 +161,21 @@ function ImageDrop({ children }: { children: ReactNode }) {
       .placeFiles(images, { at })
       .then((ids) => ids.length && usePhotoUi.getState().setSelection(ids));
   });
+  const online = {
+    onDragOver(e: DragEvent) {
+      if (!isOnlineDrag(e.dataTransfer)) return handlers.onDragOver(e);
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    onDrop(e: DragEvent) {
+      if (!isOnlineDrag(e.dataTransfer)) return handlers.onDrop(e);
+      e.preventDefault();
+      const result = getOnlineDragData(e.dataTransfer);
+      if (result) void placeOnline(result, { at: canvasPointAt(e.clientX, e.clientY) ?? undefined });
+    },
+  };
   return (
-    <div className="relative flex min-w-0 flex-1" {...handlers} data-image-drop={active || undefined}>
+    <div className="relative flex min-w-0 flex-1" {...handlers} {...online} data-image-drop={active || undefined}>
       {children}
       {active && (
         <div className="pointer-events-none absolute inset-1 z-40 grid place-items-center rounded-md border-2 border-dashed border-brand bg-brand/8">

@@ -33,12 +33,14 @@ interface DockOptions<P extends string, W extends string> {
   windows: WindowsStore<W>;
   /** A floating panel's window id. */
   windowId: (panel: P) => W;
+  /** Where a panel added since a layout was saved goes: beside this panel (`normalizeLayout`). */
+  homes?: Partial<Record<P, P>>;
 }
 
-export function createDock<P extends string, W extends string>({ key, panels, initial, windows, windowId }: DockOptions<P, W>): DockStore<P> {
+export function createDock<P extends string, W extends string>({ key, panels, initial, windows, windowId, homes }: DockOptions<P, W>): DockStore<P> {
   const load = (): DockLayout<P> => {
     try {
-      return normalizeLayout(JSON.parse(localStorage.getItem(key) ?? "null"), panels, initial());
+      return normalizeLayout(JSON.parse(localStorage.getItem(key) ?? "null"), panels, initial(), homes);
     } catch {
       return initial();
     }

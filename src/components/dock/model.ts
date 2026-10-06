@@ -239,10 +239,11 @@ export function zoneRect(rect: { x: number; y: number; width: number; height: nu
 
 /**
  * A layout from anything (a saved one, from an older version): unknown panels and repeats are dropped,
- * broken nodes too, and panels it doesn't have go into its first group, so every one of `panels` is
- * somewhere exactly once. Anything that isn't a layout at all gives `fallback`.
+ * broken nodes too, and panels it doesn't have go into the group of their `homes` panel (a panel added since,
+ * beside the one it belongs with), else its first group, so every one of `panels` is somewhere exactly once.
+ * Anything that isn't a layout at all gives `fallback`.
  */
-export function normalizeLayout<P extends string>(raw: unknown, panels: readonly P[], fallback: DockLayout<P>): DockLayout<P> {
+export function normalizeLayout<P extends string>(raw: unknown, panels: readonly P[], fallback: DockLayout<P>, homes: Partial<Record<P, P>> = {}): DockLayout<P> {
   if (!raw || typeof raw !== "object") return fallback;
   const seen = new Set<P>();
   const known = (p: unknown): p is P => typeof p === "string" && (panels as readonly string[]).includes(p) && !seen.has(p as P);
@@ -282,7 +283,13 @@ export function normalizeLayout<P extends string>(raw: unknown, panels: readonly
     floating.push({ panel, from: typeof from === "string" ? from : null });
   }
   if (!root && !floating.length) return fallback;
-  const missing = panels.filter((p) => !seen.has(p));
+  const missing: P[] = [];
+  for (const panel of panels.filter((p) => !seen.has(p))) {
+    const home = homes[panel];
+    const group = home ? groups(root).find((g) => g.panels.includes(home)) : undefined;
+    if (group) root = mapNode(root!, (n) => (n === group ? { ...group, panels: [...group.panels, panel] } : n));
+    else missing.push(panel);
+  }
   if (missing.length) {
     const first = groups(root)[0];
     if (first) root = mapNode(root!, (n) => (n === first ? { ...first, panels: [...first.panels, ...missing] } : n));

@@ -14,7 +14,7 @@ import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
-import { MODELS_DIR, PHOTO_HELPER, SUBJECT_MODEL, config } from "./config.ts";
+import { GALLERY_DL, MODELS_DIR, ONLINE_ASSETS, PHOTO_HELPER, SUBJECT_MODEL, config } from "./config.ts";
 import { SubjectModel } from "./photo/models.ts";
 import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
@@ -32,6 +32,8 @@ import { PhotoHelper } from "./photo/helper.ts";
 import { PhotoLab } from "./photo/lab.ts";
 import { photoLabRoutes, photoRoutes } from "./photo/routes.ts";
 import { PhotoService } from "./photo/service.ts";
+import { PhotoOnline } from "./photo/online.ts";
+import { standInFetch, standInThumb } from "./photo/online-stand-in.ts";
 import { ApiKeyStore } from "./transcription/settings.ts";
 import { ProjectStore } from "./projects.ts";
 import { assistantRoutes } from "./routes/assistant.ts";
@@ -205,6 +207,15 @@ export async function createApp({
     exportsFolder: path.join(paths.exports, "photo"),
     adoptImage: (projectId, file, name) => library.add(file, name, projectId, () => projects.has(projectId)),
   });
+  const standIn = ONLINE_ASSETS === "stand-in";
+  const photoOnline = new PhotoOnline(photoHelper, {
+    tmpFile: (suffix) => paths.tmpFile(suffix),
+    // A result placed again is the copy already in the project.
+    adopt: async (projectId, file, name, origin) =>
+      library.list(projectId).find((a) => a.origin === origin && a.kind === "image") ?? library.add(file, name, projectId, () => projects.has(projectId), origin),
+    galleryDl: standIn ? null : GALLERY_DL,
+    ...(standIn ? { fetch: standInFetch, thumb: standInThumb } : {}),
+  });
 
   const app = express();
   app.disable("x-powered-by");
@@ -232,7 +243,7 @@ export async function createApp({
   app.use("/api/music/exports", musicExportRoutes(musicExports));
   app.use("/api/music/visualizer", musicVisualizerRoutes(visualizers));
   app.use("/api/photo/lab", photoLabRoutes(photoLab));
-  app.use("/api/photo", photoRoutes(photo, new SubjectModel(MODELS_DIR, SUBJECT_MODEL === "stand-in")));
+  app.use("/api/photo", photoRoutes(photo, new SubjectModel(MODELS_DIR, SUBJECT_MODEL === "stand-in"), photoOnline));
   const mixerKeys = new ApiKeyStore(path.join(paths.root, "music-jev-settings.json"));
   await mixerKeys.load();
   app.use("/api/music/mixer-setup", mixerSetupRoutes({ engine, keys: mixerKeys, hasProject: (id) => projects.has(id), assets: (id) => library.list(id) }));

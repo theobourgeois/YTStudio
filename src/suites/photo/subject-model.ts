@@ -7,7 +7,7 @@
 import { create } from "zustand";
 import { request } from "@/lib/api";
 import { sampleScale } from "@shared/photo/pixel-sample";
-import { SUBJECT_MODEL, SUBJECT_SIDE, type SubjectModelStatus, standInProbabilities, subjectInput, subjectSelection } from "@shared/photo/subject";
+import { SUBJECT_MODEL, SUBJECT_SIDE, type SubjectModelStatus, cropSample, standInProbabilities, subjectInput, subjectSelection } from "@shared/photo/subject";
 import type { PhotoSelection, SelectionMode } from "@shared/photo/types";
 import { applySelection, photoSample, sampledLayer, useSelectOptions } from "./selecting";
 import { currentDoc, currentSelection } from "./store";
@@ -73,9 +73,10 @@ export class SubjectModelMissing extends Error {
 
 /**
  * Select › Subject: the model finds the photo's subject, which meets the selection there by `mode`. Throws
- * `SubjectModelMissing` while the model isn't here.
+ * `SubjectModelMissing` while the model isn't here. `layer` looks at that layer alone (the Online panel's Remove
+ * background), else what Sample All Layers says; `box` (document pixels) at that part of the photo alone.
  */
-export async function selectSubject(mode: SelectionMode): Promise<PhotoSelection | null> {
+export async function selectSubject(mode: SelectionMode, layer?: string, box?: { x: number; y: number; width: number; height: number }): Promise<PhotoSelection | null> {
   const doc = currentDoc();
   if (!doc) return null;
   const status = await subjectApi.status();
@@ -83,12 +84,15 @@ export async function selectSubject(mode: SelectionMode): Promise<PhotoSelection
   if (status.status !== "ready") throw new SubjectModelMissing(status);
   useSubjectModel.setState({ running: true });
   try {
-    const layerId = sampledLayer(doc, useSelectOptions.getState().sampleAll);
+    const layerId = layer ?? sampledLayer(doc, useSelectOptions.getState().sampleAll);
     // The model reads 1024 pixels a side: a sample at most twice that is plenty.
     const side = Math.max(doc.canvas.width, doc.canvas.height) * sampleScale(doc.canvas);
     const sample = await photoSample(doc, layerId, Math.max(0, Math.ceil(Math.log2(side / 2048))));
-    const probs = status.standIn ? standInProbabilities(sample) : await probabilities(subjectInput(sample));
-    const shape = subjectSelection(probs, SUBJECT_SIDE, sample, doc.canvas);
+    const part = box ? cropSample(sample, box) : null;
+    if (box && !part) return currentSelection();
+    const seen = part?.crop ?? sample;
+    const probs = status.standIn ? standInProbabilities(seen) : await probabilities(subjectInput(seen));
+    const shape = subjectSelection(probs, SUBJECT_SIDE, sample, doc.canvas, part?.at);
     if (currentDoc() !== doc) return currentSelection();
     applySelection(shape, mode);
     return currentSelection();
