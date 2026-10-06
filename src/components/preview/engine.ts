@@ -7,7 +7,7 @@ import { mediaTime, remapSpeed } from "@shared/time-remap";
 import { type Compositor, type Placed, createCompositor, matteIndex } from "@shared/compositor";
 import { effectPasses } from "@shared/effect-gl";
 import { frameSourceTime } from "@shared/simulation";
-import { lazySceneRenderer } from "@/scenes/loader";
+import { lazySceneRenderer, scenesReady } from "@/scenes/loader";
 import { PREVIEW_SAMPLES, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "@shared/layers";
 import { parentAt } from "@shared/parenting";
 import { type Shown, type TransitionPlan, planTrack, planTransition } from "@shared/scene";
@@ -709,6 +709,8 @@ export class PreviewEngine {
      * at hand), close to what it was.
      */
     const catchUp = (picture: Picture, own: Placed) => {
+      // A scene isn't drawn until three.js has loaded: the frame isn't what it will be yet.
+      if (own.effects?.some((fx) => fx.scene) && !scenesReady()) this.caughtUp = false;
       const sims = own.effects?.flatMap((fx) => (fx.simulation ? [fx.simulation] : [])) ?? [];
       if (!sims.length) return;
       const { frame, fps } = sims[0];
