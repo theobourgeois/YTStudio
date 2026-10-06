@@ -9,7 +9,7 @@ import { stepBlendMode } from "@shared/photo/blending";
 import { addFilter, addGeneratorLayer, addPixelLayer, arrangeLayers, duplicateLayers, findLayer, removeFilter, removeLayers, removeMask, replaceLayer, setLayerBlending, setMask, shiftLayers } from "@shared/photo/edits";
 import { entryParams, filterEntry } from "@shared/photo/effects/catalog";
 import { effectDefinition } from "@shared/photo/effects/index";
-import { type BlendMode, type BlendingOptions, type LayerStyle, type PhotoPattern, hasContent } from "@shared/photo/types";
+import { type BlendMode, type BlendingOptions, type EffectParamValue, type LayerStyle, type PhotoPattern, hasContent } from "@shared/photo/types";
 import { remapStylePatterns, setLayerStyle, setStyleEnabled, stylePatterns, withPatterns } from "@shared/photo/style/style";
 import { liveRenderer } from "./live";
 import { mergeLayers } from "./merge";
@@ -63,16 +63,17 @@ export const layerActions = {
 
   /**
    * A look from the Filter menu or the Filter Gallery (`FilterEntry.key`): a filter on the active layer, shown in
-   * Properties; or a generator, a new layer above it, selected.
+   * Properties; or a generator, a new layer above it, selected. With `params` (the gallery's settings), else its
+   * preset's for this canvas.
    */
-  applyFilter(key: string) {
+  applyFilter(key: string, params?: Record<string, EffectParamValue>) {
     const entry = filterEntry(key);
     const doc = currentDoc();
     if (!entry || !doc) return null;
-    const params = entryParams(entry, doc.canvas);
-    if (entry.def.kind === "filter") return layerActions.addFilter(entry.def.type, undefined, params) ?? null;
+    const settings = params ?? entryParams(entry, doc.canvas);
+    if (entry.def.kind === "filter") return layerActions.addFilter(entry.def.type, undefined, settings) ?? null;
     const id = createId("layer");
-    usePhoto.getState().commit((d) => addGeneratorLayer(d, { id, type: entry.def.type, params }, usePhotoUi.getState().selectedLayerId));
+    usePhoto.getState().commit((d) => addGeneratorLayer(d, { id, type: entry.def.type, params: settings }, usePhotoUi.getState().selectedLayerId));
     usePhotoUi.getState().select(id);
     usePhotoUi.getState().setTool("move");
     return id;

@@ -3,10 +3,12 @@
  * rule and whether it commutes with reduction (rendering.md, "The render plan"), and its CPU reference. Adding an
  * adjustment: a definition here, its GPU pass in `src/suites/photo/render/adjustments.ts`, a reference in
  * `../reference/`. Filters (glow: `glow.ts`) and generators (Lens Flare: `flare.ts`) have their own passes in
- * `src/suites/photo/render/`.
+ * `src/suites/photo/render/`; the stylised filters are kernel filters (`kernel.ts`, by category in `filters/`), which
+ * one generic pass evaluates.
  */
 import { curvesFor, exposurePixel, type Pixel } from "../reference/adjustments.ts";
 import type { CurveSet, EffectElement, EffectInstance, EffectParamValue } from "../types.ts";
+import { KERNEL_FILTERS } from "./filters/index.ts";
 import { FLARE_PARAMS, FLARE_PRESETS, flarePreset } from "./flare.ts";
 import { GLOW_PARAMS, GLOW_PRESETS, glowReach } from "./glow.ts";
 import { isIdentityCurve, isIdentityCurveSet } from "./curve-math.ts";
@@ -26,7 +28,7 @@ export type EffectKind = "adjustment" | "filter" | "generator";
  * Where the Filter menu and the Filter Gallery list a filter or a generator (Photoshop's Filter menu has Blur,
  * Distort, Render…). A new category is a name here; its filters say they're in it.
  */
-export const FILTER_CATEGORIES = ["Light"] as const;
+export const FILTER_CATEGORIES = ["Colour", "Light", "Stylize", "Glitch", "Film", "Distort"] as const;
 export type FilterCategory = (typeof FILTER_CATEGORIES)[number];
 
 export interface EffectDefinition {
@@ -54,6 +56,8 @@ export interface EffectDefinition {
   category?: FilterCategory;
   /** A filter's or generator's named looks (the first is its plain one): the Filter menu's and the gallery's entries. */
   presets?: readonly EffectPreset[];
+  /** A kernel filter (`kernel.ts`): a function of the point and its content nearby, evaluated by the generic kernel pass. */
+  kernel?: true;
 }
 
 const exposureParams: NumberParam[] = [
@@ -155,9 +159,12 @@ const FLARE: EffectDefinition = {
   },
 };
 
-export const EFFECTS: readonly EffectDefinition[] = [EXPOSURE, CURVES, GLOW, FLARE];
+export const EFFECTS: readonly EffectDefinition[] = [EXPOSURE, CURVES, GLOW, FLARE, ...KERNEL_FILTERS];
 
 export const effectDefinition = (type: string): EffectDefinition | undefined => EFFECTS.find((d) => d.type === type);
+
+/** Whether a filter type is evaluated as a kernel (`kernel.ts`). */
+export const isKernelFilter = (type: string) => effectDefinition(type)?.kernel === true;
 
 /** The adjustments the user can add, in the order menus list them. */
 export const ADJUSTMENTS = EFFECTS.filter((d) => d.kind === "adjustment");

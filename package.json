@@ -8,7 +8,7 @@
     "dev:web": "vite",
     "dev:server": "tsx watch --clear-screen=false server/index.ts",
     "dev:desktop": "tsx scripts/desktop.ts dev",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && tsx scripts/scene-runtime.ts",
     "start": "tsx scripts/start.ts",
     "build:desktop": "tsx scripts/desktop.ts build",
     "package:desktop": "tsx scripts/desktop.ts package",
@@ -53,6 +53,7 @@
     "remark-gfm": "^4.0.1",
     "sharp": "0.35.5",
     "sonner": "^2.0.8",
+    "three": "^0.185.1",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -62,6 +63,7 @@
     "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^6.1.1",
     "concurrently": "^10.0.5",
     "electron": "^44.5.0",

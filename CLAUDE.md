@@ -54,7 +54,14 @@ walkthrough in the packaged app): the server side (`server/photo/recovery.ts`: t
 Filter menu and Filter Gallery (`filters.tsx`, from the catalogue `shared/photo/effects/catalog.ts`: a filter's
 `category` and `presets` in its definition, so a new filter needs no UI of its own), export cancel, and tight GPU
 budgets: a full-resolution render draws a region only in the same task as the check that its tiles are all resident
-(`whenResident` in renderer.ts); keep it so, or an export can silently read evicted tiles.
+(`whenResident` in renderer.ts); keep it so, or an export can silently read evicted tiles. The stylised filters (Gradient Map, Color Grade,
+Halftone, Glitch, VHS, Film Grain…: docs/photo/effects/stylized-filters.md) are **kernel filters**
+(`shared/photo/effects/kernel.ts`): a definition, a CPU reference and a WGSL `effect(p, c)` each, by category in
+`effects/filters/`, `reference/filters/` and `render/filters/` (change both sides; `kernel.ts`'s prelude and the
+reference's helpers share names), run by one generic pass in isolated.ts on the content grown by the filter's reach.
+`scripts/photo-sheet.ts` holds every look's GPU result to its reference and, with `--thumbnails`, renders the Filter
+Gallery's cards into `public/photo-filters/` (run it after adding or changing a look). The gallery previews a look on
+the canvas without touching the document (`filterPreview` in ui.ts, `shownDoc` in filter-preview.ts) until Apply.
 
 The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is
 planned in [`docs/visualizer/README.md`](docs/visualizer/README.md): signals, links, audio shaders, Perform, its
@@ -87,6 +94,17 @@ at hand** (`effectDefinition(type)` gives the starting shader's). Keyed by a has
 the tab compiles each on a hidden context (`src/lib/shader-compiler.ts`, `provideShaderCheck`: one that doesn't compile
 isn't drawn), the export refuses one (`GlSession.compile`), and a lost GPU turns the likely one off
 (`preview/shader-recovery.ts`). The editor is `components/shader/` (CodeMirror 6); the assistant's `set_shader`.
+**V8 is built** (before V7): **simulations** (`EffectShader.simulation`, `shared/simulation.ts`): an effect whose output is
+its state, read back a frame later (`getState`), so frame `f` of a clip is the shader run `f + 1` times from its first
+frame. The compositor keeps two states and checkpoints per simulation (`simulationFrom`, `advance`); the preview catches
+a clip up before drawing it (time-boxed, `data-simulation`), the export draws in order and its plan adds `advance`
+layers for frames it skipped. A simulation's pass carries a `version` (the clip and its sound, hashed): keep anything
+that changes what it steps on in it. Feedback, Motion Trace, Freeze (`effect-library/simulation.ts`). **3D scenes**
+(`EffectShader.scene`: tesseract, singularity, cathedral, leviathan): their state is stepped in TypeScript
+(`shared/scenes/`, `steppedState`), the same in the tab and the export's plan; three.js only renders it (`src/scenes/`,
+lazily in the tab; the export's page loads `server/scene-runtime.ts`'s esbuild bundle, `dist/scene-runtime.js` when
+packaged). Change a scene's motion in `shared/scenes/<scene>.ts`, never in its renderer. `server/simulation.test.ts` is
+the gate: a frame the same in order, straight away and seeking.
 
 ## Commands
 
@@ -1186,6 +1204,9 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   theme (`.theme.theme-<id>`) sets only what differs and `derived.css` works out the rest (faces, accent
   buttons, steps, knobs). A value a canvas reads (`--piano-*`, `--meter-*`, `--brand`, `--line`) must be a plain
   colour, never `color-mix()`. `src/themes/themes.test.ts` fails any theme whose text or accent isn't readable.
+- Hover tips are the app's, never the browser's: a `title` anywhere (any suite, any window) shows as our tooltip
+  (`components/ui/title-tips.tsx` moves it to `data-title` while the pointer is on it), so a plain `title` is fine;
+  code that reads a control's tip uses `titleOf` (the music hint bar does), tests don't `getByTitle` a hovered one.
 - The component gallery (`/gallery` in `pnpm dev`, `src/gallery/`) shows every primitive and suite control in
   each state; `pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]` screenshots it and the app's screens
   into `ui-sheet/`. Add a section (`GallerySection`) when you add a control.

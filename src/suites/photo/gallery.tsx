@@ -158,16 +158,13 @@ function Light() {
   );
 }
 
-/** A stand-in for a rendered preview: a dark scene with a bright light, as an SVG. */
-const PREVIEW = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120"><defs><radialGradient id="g"><stop offset="0" stop-color="#fff"/><stop offset=".25" stop-color="#ffd9a8"/><stop offset="1" stop-color="#1b2140" stop-opacity="0"/></radialGradient></defs><rect width="160" height="120" fill="#1b2140"/><circle cx="96" cy="48" r="60" fill="url(#g)"/></svg>')}`;
-
-/** The Filter Gallery's cards: previewed, still rendering, and unavailable here (a filter on an adjustment layer). */
+/** The Filter Gallery's cards: one, the one picked, and one unavailable here (a filter on an adjustment layer). */
 function FilterCards() {
   return (
     <div className="grid w-[520px] grid-cols-3 gap-1">
-      <FilterCard entry={filterEntry("glow/bloom")!} preview={PREVIEW} onApply={() => {}} />
-      <FilterCard entry={filterEntry("lens-flare/anamorphic")!} preview={null} onApply={() => {}} />
-      <FilterCard entry={filterEntry("glow/halation")!} preview={PREVIEW} disabled reason="An adjustment layer: filters work on a layer's own pixels." onApply={() => {}} />
+      <FilterCard entry={filterEntry("glow/bloom")!} onPick={() => {}} onApply={() => {}} />
+      <FilterCard entry={filterEntry("lens-flare/anamorphic")!} picked onPick={() => {}} onApply={() => {}} />
+      <FilterCard entry={filterEntry("glow/halation")!} disabled reason="An adjustment layer: filters work on a layer's own pixels." onPick={() => {}} onApply={() => {}} />
     </div>
   );
 }
@@ -188,6 +185,6 @@ export const PHOTO_SECTIONS: GallerySection[] = [
       { name: "pattern-picker", click: "Pattern: Bricks. Choose a pattern" },
     ],
   },
-  { id: "photo-filters", title: "Photo: the Filter Gallery's cards (previewed on the photo, still rendering, unavailable on this layer)", source: "suites/photo/filters.tsx", render: () => <FilterCards /> },
+  { id: "photo-filters", title: "Photo: the Filter Gallery's cards (a look, the one picked, unavailable on this layer)", source: "suites/photo/filters.tsx", render: () => <FilterCards /> },
   { id: "photo-light", title: "Photo: a glow's parameters (from its specs), and a Lens Flare's Properties: its handles, blend, elements, a ghost's own", source: "suites/photo/panels/params.tsx, light.tsx", render: () => <Light /> },
 ];

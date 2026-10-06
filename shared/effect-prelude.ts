@@ -119,6 +119,23 @@ vec2 getFlow(vec2 uv) { return hasFlow ? texture(uFlow, uv).xy : vec2(0.0); }
 `;
 
 /**
+ * What a simulation (`EffectShader.simulation`) can also use: its state is its own output, kept from frame
+ * to frame of its clip (in half floats, so trails fade smoothly).
+ *
+ * - `getState(uv)`: its output a frame ago (transparent past the edges, and before its clip's first
+ *   frame: `hasState`).
+ * - `simFrame`: frames since its clip started (its first frame is 0), and `simStep`, the seconds a frame
+ *   lasts: rates are per second, a frame's step is `rate * simStep`, so it looks the same at any frame rate.
+ */
+const SIMULATION_PRELUDE = `
+uniform sampler2D uState;
+uniform bool hasState;
+uniform int simFrame;
+uniform float simStep;
+vec4 getState(vec2 uv) { return hasState && inside(uv) ? texture(uState, uv) : vec4(0.0); }
+`;
+
+/**
  * What a visualizer (`EffectShader.audio`) can also use, all at the clip's moment:
  *
  * - `spectrum(x)`: the sound's level at `x` along a log frequency axis (0 is 20 Hz, 1 is 20 kHz), 0..1
@@ -194,6 +211,11 @@ export const RESERVED_EFFECT_UNIFORMS = [
   "hasFeedback",
   "uFlow",
   "hasFlow",
+  "uState",
+  "hasState",
+  "simFrame",
+  "simStep",
+  "uScene",
 ];
 
 /** Names a visualizer's prelude adds (`AUDIO_PRELUDE`), which its parameters can't have. */
@@ -221,7 +243,20 @@ export const RESERVED_AUDIO_UNIFORMS = [
 export const isUniformSpec = (spec: ParamSpec): spec is UniformSpec =>
   spec.kind === "number" || spec.kind === "boolean" || spec.kind === "choice" || spec.kind === "vec2" || spec.kind === "color";
 
-/** The complete fragment shader of a video effect (a time effect's with its history helpers, a visualizer's with its sound). */
-export function effectFragmentSource(def: { params: readonly ParamSpec[]; glsl: string; history?: unknown; audio?: unknown }): string {
-  return `${PRELUDE}${def.history ? HISTORY_PRELUDE : ""}${def.audio ? AUDIO_PRELUDE : ""}\n${uniformDeclarations(def.params.filter(isUniformSpec))}\n${def.glsl}\n${MAIN}`;
+/**
+ * What a 3D scene's effect (`EffectShader.scene`) can also use: `getScene(uv)`, the scene as rendered at
+ * this moment (premultiplied), to put over (or mix with) the clip's picture.
+ */
+const SCENE_PRELUDE = `
+uniform sampler2D uScene;
+vec4 getScene(vec2 uv) { return texture(uScene, uv); }
+`;
+
+/**
+ * The complete fragment shader of a video effect (a time effect's with its history helpers, a
+ * simulation's with its state, a 3D scene's with its picture, a visualizer's with its sound).
+ */
+export function effectFragmentSource(def: { params: readonly ParamSpec[]; glsl: string; history?: unknown; simulation?: unknown; scene?: unknown; audio?: unknown }): string {
+  const extras = `${def.history ? HISTORY_PRELUDE : ""}${def.simulation ? SIMULATION_PRELUDE : ""}${def.scene ? SCENE_PRELUDE : ""}${def.audio ? AUDIO_PRELUDE : ""}`;
+  return `${PRELUDE}${extras}\n${uniformDeclarations(def.params.filter(isUniformSpec))}\n${def.glsl}\n${MAIN}`;
 }

@@ -12,6 +12,7 @@ import { ProjectTabs, useTabsShown } from "@/components/home/project-tabs";
 import { OpenProjectDialog } from "@/components/home/open-project-dialog";
 import { ProjectSearchDialog, useProjectShortcuts } from "@/components/home/project-search-dialog";
 import { Toaster } from "@/components/ui/sonner";
+import { TitleTips } from "@/components/ui/title-tips";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Desktop } from "@/components/windows/floating-window";
 import { Workspace } from "@/components/workspace/workspace";
@@ -82,6 +83,8 @@ export default function App() {
       <ProjectSearchDialog />
       <OpenProjectDialog />
       <Toaster position="bottom-right" />
+      {/* Every title in the app shown as one of these tooltips, not the browser's. */}
+      <TitleTips />
     </TooltipProvider>
   );
 }

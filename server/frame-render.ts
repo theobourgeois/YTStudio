@@ -257,6 +257,8 @@ export async function renderVideo(
           } else if (layer.kind === "transition") {
             await send(layer.from?.key, layer.from?.interpolate);
             await send(layer.to?.key, layer.to?.interpolate);
+          } else if (layer.kind === "advance") {
+            await send(layer.picture.key, layer.picture.interpolate);
           } else {
             groups.add(layer.key);
             await sendAll(layer.layers);
@@ -282,7 +284,7 @@ export async function renderVideo(
       const packet = prepared.then(() => prepare(f));
       prepared = packet.catch(() => {});
       return packet;
-    }, plan.fonts);
+    }, plan.fonts, plan.scenes);
     if (written !== plan.frames) throw new Error("Some frames weren't drawn.");
     stdin.end();
     for (const decoder of running.values()) decoder.close();

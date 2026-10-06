@@ -61,6 +61,7 @@ import { type Shown, sceneAt, transitionWindows } from "../shared/scene.ts";
 import { shapeDrawingAt } from "../shared/shapes.ts";
 import { allClips, getSequence, isNestedClip, nestedSequence, sequenceDuration, sequenceSize, sequenceView } from "../shared/sequences.ts";
 import { mediaTime } from "../shared/time-remap.ts";
+import { frameSourceTime } from "../shared/simulation.ts";
 import {
   END_GUARD,
   TEXT_SOURCE_RANGE,
@@ -153,7 +154,9 @@ export type FrameLayer =
       to: PlacedRef | null;
     }
   /** A nested sequence: `layers` drawn into a `width` x `height` picture `key` (see `Compositor.beginGroup`), for later layers to place. */
-  | { kind: "group"; key: string; width: number; height: number; layers: FrameLayer[] };
+  | { kind: "group"; key: string; width: number; height: number; layers: FrameLayer[] }
+  /** A simulation's earlier frame, stepped and not drawn (`Compositor.advance`): what it needs before the frame drawn next. */
+  | { kind: "advance"; picture: PlacedRef };
 
 export interface RenderPlan {
   width: number;
@@ -168,6 +171,8 @@ export interface RenderPlan {
   shaderUses: Record<string, string>;
   /** The CSS fonts its texts are drawn in, for the page to have ready before the first frame. */
   fonts: string[];
+  /** Whether it draws 3D scenes (the page loads their runtime first). */
+  scenes: boolean;
   /** What output frame `f` draws, bottom layer first. */
   frame(f: number): FrameLayer[];
   /**
@@ -472,6 +477,10 @@ export function planRender(
     runsOf.set(id, runs);
   }
 
+  /** Each simulation's newest frame drawn (`EffectPass.simulation`), and whether earlier ones are being planned. */
+  const simulated = new Map<string, number>();
+  let warming = false;
+
   return {
     width: W,
     height: H,
@@ -481,6 +490,7 @@ export function planRender(
     shaders,
     shaderUses,
     fonts: [...new Set(Object.values(texts).flatMap((layouts) => layouts.map((l) => l.layout.font)))],
+    scenes: everyClip.some((clip) => clip.effects.some((e) => e.enabled && !!definitionOf(e)?.shader?.scene)),
     needsReversed: [...needsReversed],
     frame(f) {
       return layersOf(top, "", frameTime(f, F), f, 0, null);
@@ -496,7 +506,45 @@ export function planRender(
     const { canvas, camera, layerOptions } = level;
     const groups: FrameLayer[] = [];
     const canvasAffineOf = (clip: Clip) => canvasAffine(clip, canvas, camera, parentAt(level.view, clip, canvas));
+    /** A clip's layer, after the earlier frames its simulations need stepped first (as `groups`, which come first). */
     const placed = (shown: Shown | null): PlacedRef | null => {
+      const picture = placedNow(shown);
+      if (picture && shown && !warming) groups.push(...warmUps(shown, picture));
+      return picture;
+    };
+    /**
+     * The frames a clip's simulations need stepped before this one: none when the frame before was drawn
+     * (the export draws in order), else from the newest one drawn (or the start, or as far back as they
+     * remember). A video's earlier frames aren't decoded again: they step on this frame's picture.
+     */
+    const warmUps = (shown: Shown, picture: PlacedRef): FrameLayer[] => {
+      const sims = (picture.effects ?? []).flatMap((fx) => (fx.simulation ? [fx.simulation] : []));
+      if (!sims.length) return [];
+      const { frame, fps } = sims[0];
+      let from = frame;
+      for (const sim of sims) {
+        const last = simulated.get(sim.id);
+        let start = last === undefined || last > frame ? 0 : last === frame ? frame : last + 1;
+        if (sim.memory !== undefined) start = Math.max(start, frame - sim.memory);
+        from = Math.min(from, start);
+        simulated.set(sim.id, frame);
+      }
+      const { clip } = shown;
+      const pure = clipKind(clip) !== "media";
+      const steps: FrameLayer[] = [];
+      warming = true;
+      try {
+        for (let k = Math.max(0, from); k < frame; k++) {
+          const time = frameSourceTime(clip, k, fps);
+          const step = pure ? placedNow({ ...shown, time }) : { ...picture, effects: byKey({ affine: picture.affine, opacity: 1, effects: effectPasses(clip, time, fps) }).effects, samples: undefined };
+          if (step) steps.push({ kind: "advance", picture: step });
+        }
+      } finally {
+        warming = false;
+      }
+      return steps;
+    };
+    const placedNow = (shown: Shown | null): PlacedRef | null => {
       if (!shown) return null;
       const { clip, time } = shown;
       if (clipKind(clip) === "solid") {

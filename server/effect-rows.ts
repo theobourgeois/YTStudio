@@ -8,10 +8,13 @@ import type { DrawOp, LayersJob } from "./gl-browser.ts";
 /** Moments (source seconds) each effect is drawn at with its card's values, so moving ones show a few states. */
 const MOMENTS = [0.37, 1.13, 2.05];
 
-/** Per effect: its defaults, then its card's values at a few moments. Time effects need `timeEffectRows`. */
+/** Whether an effect needs frames drawn in order: a time effect, a simulation or a 3D scene. */
+const stepped = (def: EffectDefinition) => !!(def.shader?.history || def.shader?.simulation || def.shader?.scene);
+
+/** Per effect: its defaults, then its card's values at a few moments. Time effects (and simulations) need `timeEffectRows`. */
 export function effectRows(defs: readonly EffectDefinition[]): { label: string; passes: EffectPass[] }[] {
   return defs
-    .filter((def) => !def.shader?.history)
+    .filter((def) => !stepped(def))
     .map((def) => {
       const defaults = defaultParams(def.params);
       const demo = { ...defaults, ...def.shader?.demo };
@@ -24,14 +27,14 @@ export function effectRows(defs: readonly EffectDefinition[]): { label: string; 
 const TIME_FRAMES = 12;
 
 /**
- * Rows for time effects (`EffectShader.history`), which need earlier frames of a moving
- * picture: sample scene "a" sliding across, frame after frame, under an adjustment layer
- * with the effect (at its card's values). Each row's last frame is compared with the same
- * frame without the effect.
+ * Rows for time effects (`EffectShader.history`), simulations and 3D scenes, which need earlier
+ * frames of a moving picture: sample scene "a" sliding across, frame after frame, under an
+ * adjustment layer with the effect (at its card's values). Each row's last frame is compared
+ * with the same frame without the effect.
  */
 export function timeEffectRows(defs: readonly EffectDefinition[]): LayersJob["rows"] {
   return defs
-    .filter((def) => def.shader?.history)
+    .filter(stepped)
     .map((def) => {
       const values = { ...defaultParams(def.params), ...def.shader?.demo };
       const picture = (f: number): DrawOp => {

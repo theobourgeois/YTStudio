@@ -31,6 +31,8 @@ function paramLine(p: ParamSpec | ElementParamSpec, indent: string): string {
       return `${p.key} ([x, y] in canvas pixels${p.nullable ? ", or null: the canvas's centre" : ""}): ${p.description}`;
     case "elements":
       return `${p.key} (a list of up to ${p.max}): ${p.description}\n${p.types.map((t) => `${indent}  ${t.type}: ${t.description}\n${t.params.map((q) => `${indent}    ${paramLine(q, indent + "    ")}`).join("\n")}`).join("\n")}`;
+    case "gradient":
+      return `${p.key} (a gradient { "name": "…", "colours": [{ "at": 0, "colour": "#000000" }, { "at": 1, "colour": "#ffffff" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 1 }], "method": "classic" | "linear" | "perceptual" }, default "${p.default.name}"): ${p.description}`;
     default:
       return `${p.key}: ${p.description}`;
   }

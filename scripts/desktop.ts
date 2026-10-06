@@ -67,7 +67,8 @@ function bundles(outdir: string): BuildOptions[] {
     target: "node24",
     sourcemap: "linked",
     // The desktop app draws exports in its own Chromium, so Playwright stays out (see server/gl-browser.ts).
-    external: ["electron", "playwright-core"],
+    // esbuild builds the 3D scenes' runtime from a checkout only (server/scene-runtime.ts).
+    external: ["electron", "playwright-core", "esbuild"],
     logLevel: "warning",
   };
   return [

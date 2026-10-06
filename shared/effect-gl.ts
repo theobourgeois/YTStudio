@@ -6,7 +6,9 @@
  * effect over it in order, then places the result where Motion puts it, like
  * Premiere draws standard effects before Motion and Opacity.
  */
-import type { AudioInputs, EffectPass, Shader } from "./compositor.ts";
+import type { AudioInputs, EffectPass, SceneDraw, Shader } from "./compositor.ts";
+import { clipScene, demoScene } from "./scenes/index.ts";
+import { simulationFrame, simulationVersion } from "./simulation.ts";
 import { clipAudio, demoAudio } from "./audio-signals.ts";
 import { particleSources } from "./particles.ts";
 import { timelineTime } from "./timeline.ts";
@@ -38,7 +40,8 @@ export function effectShader(def: EffectDefinition): Shader | null {
       const { vertex, fragment } = particleSources(uniformDeclarations(def.params.filter(isUniformSpec)), def.shader.particles.glsl);
       shader = { key, source: fragment, vertex, base: effectFragmentSource({ params: def.params, glsl: def.shader.glsl, audio: def.shader.audio }) };
     } else {
-      shader = { key, source: effectFragmentSource({ params: def.params, glsl: def.shader.glsl, history: def.shader.history, audio: def.shader.audio }) };
+      const { glsl, history, simulation, scene, audio } = def.shader;
+      shader = { key, source: effectFragmentSource({ params: def.params, glsl, history, simulation, scene, audio }) };
     }
     shaders.set(def.type, shader);
   }
@@ -62,8 +65,10 @@ export function effectUniforms(def: EffectDefinition, values: ParamValues, time:
 /**
  * The pass of one effect with these values, at source time `time`. A time effect keeps its
  * earlier frames under `instance` (a clip's effect: see `EffectPass.history`), only
- * recording new ones when `record` (not for motion blur's in-between moments). A visualizer
- * hears `audio` (made-up sound when none is given: cards, sheets).
+ * recording new ones when `record` (not for motion blur's in-between moments); so does a
+ * simulation, its states made from `version` (see `simulationVersion`). A visualizer
+ * hears `audio` (made-up sound when none is given: cards, sheets), and a 3D scene is drawn
+ * as `scene` says (stepped through made-up sound and these values when not given).
  */
 export function effectPass(
   def: EffectDefinition,
@@ -74,6 +79,8 @@ export function effectPass(
   record = true,
   clipTime = time,
   audio?: AudioInputs,
+  version = "",
+  scene?: SceneDraw | null,
 ): EffectPass | null {
   const shader = effectShader(def);
   if (!shader) return null;
@@ -83,6 +90,23 @@ export function effectPass(
   if (particles) pass.particles = { count: Math.max(0, Math.round(particles.count(values))), blend: particles.blend(values) };
   const grow = def.shader?.grow?.(values) ?? 0;
   if (grow > 0) pass.grow = grow;
+  const sceneType = def.shader?.scene;
+  if (sceneType) {
+    const drawn = scene !== undefined ? scene : demoScene(sceneType, values, instance ?? "card", Math.round(clipTime * fps), fps);
+    if (drawn) pass.scene = drawn;
+  }
+  const simulation = def.shader?.simulation;
+  if (simulation && instance) {
+    const memory = simulation.memory?.(values, fps);
+    pass.simulation = {
+      id: instance,
+      version,
+      frame: Math.max(0, Math.round(clipTime * fps)),
+      fps,
+      ...(memory !== undefined && memory !== null && Number.isFinite(memory) && { memory: Math.max(1, Math.ceil(memory * fps)) }),
+      ...(!record && { record: false }),
+    };
+  }
   const history = def.shader?.history;
   if (history && instance) {
     pass.history = {
@@ -140,6 +164,7 @@ export function drawable(def: EffectDefinition): boolean {
  */
 export function effectPasses(clip: Clip, time: number, fps = DEFAULT_FPS, record = true): EffectPass[] {
   const passes: EffectPass[] = [];
+  let version: string | undefined;
   for (const effect of clip.effects) {
     const def = effect.enabled ? definitionOf(effect) : undefined;
     const clipTime = timelineTime(clip, time) - clip.start;
@@ -147,7 +172,10 @@ export function effectPasses(clip: Clip, time: number, fps = DEFAULT_FPS, record
     const values = effectValuesAt(def, effect, time, clip);
     // A visualizer hears its source at this moment.
     const audio = def.shader.audio ? clipAudio(clip.id, time, values.source, def.shader.audio.request(values), fps) : undefined;
-    const pass = effectPass(def, values, time, fps, `${clip.id}/${effect.id}`, record, clipTime, audio);
+    // A simulation's states, and a scene's, follow from everything in the clip and what it hears.
+    if ((def.shader.simulation || def.shader.scene) && version === undefined) version = simulationVersion(clip, fps);
+    const scene = def.shader.scene ? clipScene(def, def.shader.scene, clip, effect, simulationFrame(clip, time, fps), fps, version!) : undefined;
+    const pass = effectPass(def, values, time, fps, `${clip.id}/${effect.id}`, record, clipTime, audio, version, scene);
     if (pass) passes.push(pass);
   }
   return passes;
