@@ -38,7 +38,12 @@ async function canvasPixel(page: Page, size: { width: number; height: number }, 
   const zoom = Math.min((box.width - 48) / size.width, (box.height - 48) / size.height);
   const left = box.x + box.width / 2 + (x - size.width / 2) * zoom;
   const top = box.y + box.height / 2 + (y - size.height / 2) * zoom;
-  const shot = await page.screenshot({ clip: { x: Math.floor(left), y: Math.floor(top), width: 1, height: 1 } });
+  return screenPixel(page, left, top);
+}
+
+/** The screen's pixel at (x, y) in CSS pixels of the page. */
+async function screenPixel(page: Page, x: number, y: number): Promise<number[]> {
+  const shot = await page.screenshot({ clip: { x: Math.floor(x), y: Math.floor(y), width: 1, height: 1 } });
   // A 1×1 PNG: decode it in the page.
   return page.evaluate(async (bytes) => {
     const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/png" }));
@@ -209,8 +214,9 @@ test("a second image is placed, transformed by its handles, and undone in one st
   await width.press("Enter");
   await expect.poll(async () => (await savedPhoto(page, photoId)).layers[1].transform).toEqual(sticker.transform);
 
-  // Arrow keys nudge (on the canvas, not in a field); a burst of them is one undo step.
-  await page.getByLabel("Photo canvas").click({ position: { x: 5, y: 5 } });
+  // Arrow keys nudge (on the canvas, not in a field); a burst of them is one undo step. (The canvas's middle is
+  // the selected sticker: a click there keeps it selected.)
+  await page.getByLabel("Photo canvas").click();
   for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Shift+ArrowDown");
   await expect.poll(async () => (await savedPhoto(page, photoId)).layers[1].transform).toMatchObject({ x: 803, y: 610 });
@@ -584,7 +590,13 @@ async function screenOf(page: Page, x: number, y: number) {
 
 const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
-test("clicking the canvas picks the layer under the pointer, outlined while it's hovered (Auto-Select)", async ({ page }) => {
+/** A point of the canvas panel off the photo (the pasteboard, inside the fit's margin), in page pixels. */
+async function pasteboardPoint(page: Page) {
+  const box = (await page.getByLabel("Photo canvas").boundingBox())!;
+  return { x: box.x + 8, y: box.y + 8 };
+}
+
+test("clicking the canvas picks the layer under the pointer, outlined while it's hovered (Auto-Select); a click on nothing selects nothing", async ({ page }) => {
   pickingId = await openNewPhoto(page, "Picking");
   await page.locator("[data-start-input]").setInputFiles(PHOTO);
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
@@ -608,9 +620,20 @@ test("clicking the canvas picks the layer under the pointer, outlined while it's
   await expect(page.locator(`[data-hover-outline="${photo}"]`)).toBeVisible();
   await page.mouse.click(corner.x, corner.y);
   await expect(row(photo)).toHaveAttribute("aria-selected", "true");
-  // Where there's no layer (the pasteboard), the selection stays.
-  const outside = await screenOf(page, -60, -60);
+  // Where there's no layer (the pasteboard), a click selects nothing (Photoshop's); the pasteboard is the theme's
+  // stage colour, not black.
+  const outside = await pasteboardPoint(page);
   await page.mouse.click(outside.x, outside.y);
+  await expect(row(photo)).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("[data-transform-overlay]")).toHaveCount(0);
+  const stage = await page.locator("[data-photo-canvas]").evaluate((e) => {
+    const c = document.createElement("canvas").getContext("2d")!;
+    c.fillStyle = getComputedStyle(e).backgroundColor;
+    c.fillRect(0, 0, 1, 1);
+    return Array.from(c.getImageData(0, 0, 1, 1).data.slice(0, 3));
+  });
+  expect(near(await screenPixel(page, outside.x + 2, outside.y + 2), stage, 2)).toBe(true);
+  await page.mouse.click(corner.x, corner.y);
   await expect(row(photo)).toHaveAttribute("aria-selected", "true");
   // ⌘ held does the opposite: the click doesn't pick.
   await page.keyboard.down(MOD_KEY);
@@ -711,6 +734,111 @@ test("moving and resizing snap to the canvas and other layers with guides; Contr
     const r = await sticker();
     return Math.round((r.x + 400 * r.scaleX) * 1e6) / 1e6;
   }).toBe(1600);
+});
+
+test("several layers are selected (Layers, Shift on the canvas, a marquee), moved together, arranged and merged", async ({ page }) => {
+  await page.goto(`/p/${pickingId}`);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(2);
+  const before = await savedPhoto(page, pickingId);
+  const [photo, sticker] = before.layers.map((l: { id: string }) => l.id);
+  const row = (id: string) => page.locator(`[data-layer="${id}"]`);
+  const selected = async (...ids: string[]) => {
+    for (const id of [photo, sticker]) await expect(row(id)).toHaveAttribute("aria-selected", String(ids.includes(id)));
+  };
+  // Dragging over rows never selects their text.
+  await expect(page.locator("[data-layers-panel]")).toHaveCSS("user-select", "none");
+
+  // In Layers: a click, ⌘-click adds; Properties says how many; a click below the rows selects nothing.
+  await row(photo).click();
+  await row(sticker).click({ modifiers: ["ControlOrMeta"] });
+  await selected(photo, sticker);
+  await expect(page.locator("[data-several-layers]")).toHaveAttribute("data-several-layers", "2");
+  await expect(page.locator('[data-transform-overlay][data-layers="2"]')).toBeVisible();
+  await expect(page.locator("[data-selected-outline]")).toHaveCount(2);
+  const list = (await page.locator('ul[aria-label="Layers"]').boundingBox())!;
+  await page.mouse.click(list.x + list.width / 2, list.y + list.height - 8);
+  await selected();
+  // Shift-click selects the run from the active row.
+  await row(sticker).click();
+  await row(photo).click({ modifiers: ["Shift"] });
+  await selected(photo, sticker);
+
+  // On the canvas: Shift-click adds the layer under the pointer, or takes it out.
+  const nothing = await pasteboardPoint(page);
+  await page.mouse.click(nothing.x, nothing.y);
+  await selected();
+  const corner = await screenOf(page, 100, 100);
+  const t = before.layers[1].transform;
+  const middle = await screenOf(page, t.x, t.y);
+  await page.mouse.click(corner.x, corner.y);
+  await page.keyboard.down("Shift");
+  await page.mouse.click(middle.x, middle.y);
+  await selected(photo, sticker);
+  await page.mouse.click(middle.x, middle.y);
+  await selected(photo);
+  await page.keyboard.up("Shift");
+  // A marquee from the pasteboard selects what it touches.
+  await page.mouse.click(nothing.x, nothing.y);
+  const marquee = async (to: { x: number; y: number }) => {
+    await page.mouse.move(nothing.x, nothing.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 6 });
+    await expect(page.locator("[data-marquee]")).toBeVisible();
+    await page.mouse.up();
+    await expect(page.locator("[data-marquee]")).toHaveCount(0);
+  };
+  await marquee(await screenOf(page, 20, 20));
+  await selected(photo);
+  await marquee(middle);
+  await selected(photo, sticker);
+
+  // Both move together, as one undo step.
+  const target = await screenOf(page, t.x + 40, t.y + 30);
+  await page.mouse.move(middle.x, middle.y);
+  await page.mouse.down();
+  await page.mouse.move(target.x, target.y, { steps: 8 });
+  await page.mouse.up();
+  const moved = await expect.poll(async () => (await savedPhoto(page, pickingId)).layers[0].transform.x).toBeGreaterThan(820).then(() => savedPhoto(page, pickingId));
+  const dx = moved.layers[0].transform.x - before.layers[0].transform.x;
+  expect(moved.layers[1].transform.x - t.x).toBeCloseTo(dx, 6);
+  expect(moved.layers[1].transform.y - t.y).toBeCloseTo(moved.layers[0].transform.y - before.layers[0].transform.y, 6);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, pickingId)).layers.map((l: { transform: unknown }) => l.transform)).toEqual(before.layers.map((l: { transform: unknown }) => l.transform));
+
+  // Photoshop's Layers keys: ⌥⌘A selects every layer, ⌥[ the one below, ⌘] brings it forward.
+  await page.mouse.click(nothing.x, nothing.y);
+  await page.keyboard.press("Alt+ControlOrMeta+KeyA");
+  await selected(photo, sticker);
+  await page.mouse.click(middle.x, middle.y);
+  await page.keyboard.press("Alt+BracketLeft");
+  await selected(photo);
+  await page.keyboard.press("ControlOrMeta+BracketRight");
+  await expect.poll(async () => (await savedPhoto(page, pickingId)).layers.map((l: { id: string }) => l.id)).toEqual([sticker, photo]);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, pickingId)).layers.map((l: { id: string }) => l.id)).toEqual([photo, sticker]);
+
+  // ⌘E merges them into one image layer that looks the same, named after the top one, as one undo step.
+  const points: [number, number][] = [[100, 100], [t.x, t.y], [t.x + 300, t.y - 200]];
+  const shown = async () => Promise.all(points.map(([x, y]) => canvasPixel(page, { width: 1600, height: 1200 }, x, y)));
+  const look = await shown();
+  await page.keyboard.press("Alt+ControlOrMeta+KeyA");
+  await page.keyboard.press("ControlOrMeta+e");
+  await expect(page.locator("[data-layer]")).toHaveCount(1);
+  const merged = await expect.poll(async () => (await savedPhoto(page, pickingId)).layers.length).toBe(1).then(() => savedPhoto(page, pickingId));
+  expect(merged.layers[0]).toMatchObject({ kind: "image", name: before.layers[1].name, transform: { x: 800, y: 600, scaleX: 1, scaleY: 1, rotation: 0 } });
+  expect([photo, sticker]).not.toContain(merged.layers[0].id);
+  await expect(page.locator(`[data-layer="${merged.layers[0].id}"]`)).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await expect.poll(async () => (await shown()).every((p, i) => near(p, look[i], 3))).toBe(true);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(page.locator("[data-layer]")).toHaveCount(2);
+
+  // The Layers menu: a right-click on a row; Merge Down takes the layer below's name.
+  await row(sticker).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Merge Down" }).click();
+  await expect.poll(async () => (await savedPhoto(page, pickingId)).layers.map((l: { name: string }) => l.name)).toEqual([before.layers[0].name]);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, pickingId)).layers.map((l: { id: string }) => l.id)).toEqual([photo, sticker]);
 });
 
 test("files dropped on the tabs start a new project, named after the image", async ({ page }) => {

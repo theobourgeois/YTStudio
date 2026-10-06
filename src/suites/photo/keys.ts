@@ -17,10 +17,22 @@ export type PhotoKeyAction =
   | { type: "export" }
   | { type: "snap" }
   | { type: "save" }
-  | { type: "deselect" };
+  | { type: "deselect" }
+  /** Every layer (⌥⌘A). */
+  | { type: "selectAll" }
+  /** The next layer up or down (⌥] / ⌥[), or added to the selection (with Shift). */
+  | { type: "step"; direction: 1 | -1; add: boolean }
+  /** The top or bottom layer (⌥. / ⌥,), or the selection run out to it (with Shift). */
+  | { type: "edge"; to: "top" | "bottom"; add: boolean }
+  /** The selected layers one place up or down (⌘] / ⌘[: Bring Forward, Send Backward). */
+  | { type: "shift"; direction: 1 | -1 }
+  /** Merge Down, or Merge Layers with several selected (⌘E). */
+  | { type: "merge" };
 
 export interface KeyPress {
   key: string;
+  /** The physical key: with ⌥, a Mac's `key` is another character ("“" for ⌥[), so those go by it. */
+  code?: string;
   metaKey: boolean;
   ctrlKey: boolean;
   shiftKey: boolean;
@@ -30,6 +42,16 @@ export interface KeyPress {
 export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | null {
   const mod = mac ? e.metaKey : e.ctrlKey;
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const code = e.code ?? "";
+  const is = (k: string, c: string) => code === c || (!code && key === k);
+  if (mod && e.altKey && !e.shiftKey && is("a", "KeyA")) return { type: "selectAll" };
+  // Photoshop's Layers keys with ⌥ and no ⌘: through the stack.
+  if (e.altKey && !mod && !(mac ? e.ctrlKey : e.metaKey)) {
+    if (is("]", "BracketRight")) return { type: "step", direction: 1, add: e.shiftKey };
+    if (is("[", "BracketLeft")) return { type: "step", direction: -1, add: e.shiftKey };
+    if (is(".", "Period")) return { type: "edge", to: "top", add: e.shiftKey };
+    if (is(",", "Comma")) return { type: "edge", to: "bottom", add: e.shiftKey };
+  }
   if (mod) {
     if (key === "z") return e.shiftKey ? { type: "redo" } : { type: "undo" };
     if (key === "y" && !mac) return { type: "redo" };
@@ -39,6 +61,10 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
     if (key === "=" || key === "+") return { type: "zoom", factor: 2 };
     if (key === "-") return { type: "zoom", factor: 0.5 };
     if (key === "j" && !e.shiftKey) return { type: "duplicate" };
+    if (key === "e" && !e.shiftKey) return { type: "merge" };
+    // ⇧⌘[ / ⇧⌘] are the app's (tab switching), so Bring to Front and Send to Back are the Layers menu's alone.
+    if (!e.shiftKey && is("]", "BracketRight")) return { type: "shift", direction: 1 };
+    if (!e.shiftKey && is("[", "BracketLeft")) return { type: "shift", direction: -1 };
     if (key === "e" && e.shiftKey) return { type: "export" };
     // Photoshop's View › Snap (⇧⌘;). Shift turns ";" into ":" on some layouts.
     if ((key === ";" || key === ":") && e.shiftKey) return { type: "snap" };

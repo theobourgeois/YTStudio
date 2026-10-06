@@ -7,8 +7,7 @@ import { useEffect, useState } from "react";
 import { cn } from "cn";
 import { PiArrowCounterClockwise, PiArrowClockwise, PiCursor, PiExport, PiHand, PiMagnet, PiMagnifyingGlass } from "react-icons/pi";
 import { toast } from "sonner";
-import { createId } from "@shared/ids";
-import { duplicateLayer, removeLayer, setTransform } from "@shared/photo/edits";
+import { moveLayersBy } from "@shared/photo/edits";
 import { AssistantButton } from "@/components/assistant/assistant-button";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { DockArea, FloatingPanels, type DockPanel } from "@/components/dock/dock-area";
@@ -22,9 +21,9 @@ import { createWindows } from "@/components/windows/store";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
 import { api } from "@/lib/api";
 import { CanvasPanel, actualPixels, fitToCanvas, zoomBy } from "./canvas/canvas-panel";
-import { moved } from "./canvas/handles";
 import { PhotoExportWindow } from "./export-window";
 import { resolvePhotoKey } from "./keys";
+import { layerActions, selectedInOrder } from "./layer-actions";
 import { liveRenderer } from "./live";
 import { LayersPanel } from "./panels/layers-panel";
 import { usePhotoPreferences } from "./preferences";
@@ -199,25 +198,25 @@ const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
 
 /** Arrow nudges a moment apart are one undo step (ux.md, "Gestures"). */
-let nudging: { gesture: ReturnType<typeof photoGesture>; timer: ReturnType<typeof setTimeout>; layerId: string } | null = null;
+let nudging: { gesture: ReturnType<typeof photoGesture>; timer: ReturnType<typeof setTimeout>; key: string } | null = null;
 
+/** Moves the selected images by (dx, dy), all of them together. */
 function nudge(dx: number, dy: number) {
-  const id = usePhotoUi.getState().selectedLayerId;
+  const ids = selectedInOrder();
   const doc = usePhoto.getState().history?.doc;
-  const layer = id ? doc?.layers.find((l) => l.id === id) : undefined;
-  if (layer?.kind !== "image") return;
-  if (!nudging || nudging.layerId !== layer.id) {
+  if (!doc || !doc.layers.some((l) => l.kind === "image" && ids.includes(l.id))) return;
+  const key = ids.join(" ");
+  if (!nudging || nudging.key !== key) {
     if (nudging) {
       clearTimeout(nudging.timer);
       nudging.gesture.end();
     }
     const gesture = photoGesture();
     gesture.begin();
-    nudging = { gesture, layerId: layer.id, timer: setTimeout(() => {}, 0) };
+    nudging = { gesture, key, timer: setTimeout(() => {}, 0) };
   }
   clearTimeout(nudging.timer);
-  const t = moved(layer.transform, dx, dy);
-  nudging.gesture.apply((d) => setTransform(d, layer.id, t));
+  nudging.gesture.apply((d) => moveLayersBy(d, ids, dx, dy));
   nudging.timer = setTimeout(() => {
     nudging?.gesture.end();
     nudging = null;
@@ -241,7 +240,6 @@ function usePhotoKeys(active: boolean) {
       e.preventDefault();
       const photo = usePhoto.getState();
       const ui = usePhotoUi.getState();
-      const selected = ui.selectedLayerId;
       switch (action.type) {
         case "tool":
           return ui.setTool(action.tool);
@@ -258,15 +256,19 @@ function usePhotoKeys(active: boolean) {
         case "nudge":
           return nudge(action.dx, action.dy);
         case "delete":
-          if (selected) photo.commit((d) => removeLayer(d, selected));
-          return;
+          return layerActions.delete();
         case "duplicate":
-          if (selected) {
-            const id = createId("layer");
-            photo.commit((d) => duplicateLayer(d, selected, id));
-            ui.select(id);
-          }
-          return;
+          return layerActions.duplicate();
+        case "merge":
+          return void layerActions.merge();
+        case "shift":
+          return layerActions.shift(action.direction);
+        case "selectAll":
+          return layerActions.selectAll();
+        case "step":
+          return layerActions.step(action.direction, action.add);
+        case "edge":
+          return layerActions.edge(action.to, action.add);
         case "export":
           return ui.setExportOpen(true);
         case "snap":
@@ -275,7 +277,7 @@ function usePhotoKeys(active: boolean) {
           void flushPhotos().then(() => toast.success("Saved"));
           return;
         case "deselect":
-          return ui.select(null);
+          return layerActions.deselect();
       }
     };
     const up = (e: KeyboardEvent) => {

@@ -1,5 +1,6 @@
 /** The photo suite's client for its own routes (`/api/photo/...`), on the platform's `request`. */
 import { request } from "@/lib/api";
+import type { MediaAsset } from "@shared/types";
 import type { CompareResult, ExportRequest, ExportResult, HelperStatus, SourceInfo, SourceLayout, TileSize } from "@shared/photo/lab.ts";
 
 export const LAB_BASE = "/api/photo/lab";
@@ -40,6 +41,8 @@ export const photoApi = {
   exportRows: (id: string, from: number, rows: Uint8Array) =>
     request<void>(`/api/photo/exports/${id}/rows?from=${from}`, { method: "PUT", body: rows as Uint8Array<ArrayBuffer>, headers: { "Content-Type": "application/octet-stream" } }),
   finishExport: (id: string) => request<PhotoExportResult>(`/api/photo/exports/${id}/finish`, { method: "POST" }),
+  /** A finished export (kept to download) made one of the project's images instead: a merge's render. */
+  adoptExport: (id: string, projectId: string) => request<MediaAsset>(`/api/photo/exports/${id}/adopt?projectId=${projectId}`, { method: "POST" }),
   cancelExport: (id: string) => request<void>(`/api/photo/exports/${id}`, { method: "DELETE" }),
   compare: (id: string, projectId: string, mediaId: string) =>
     request<CompareResult>(`/api/photo/exports/${id}/compare?projectId=${projectId}&mediaId=${mediaId}`),

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createPhotoProject } from "@shared/photo/project";
 import type { AdjustmentLayer, ImageLayer, PhotoProject } from "@shared/photo/types";
 import type { MediaAsset } from "@shared/types";
-import { addAdjustmentTool, addImageLayerTool, describePhoto, removeLayerTool, setCanvasTool, setEffectParamsTool, setLayerTool, transformLayerTool } from "./tool-edits";
+import { addAdjustmentTool, addImageLayerTool, describePhoto, mergeRequest, removeLayerTool, setCanvasTool, setEffectParamsTool, setLayerTool, transformLayerTool } from "./tool-edits";
 
 const placeOf = (doc: PhotoProject, i = 0) => (doc.layers[i] as ImageLayer).transform;
 const effectOf = (doc: PhotoProject, i: number) => (doc.layers[i] as AdjustmentLayer).effect;
@@ -37,7 +37,7 @@ describe("the photo assistant's edits", () => {
     doc = setLayerTool(doc, { layer: "cat", visible: false, order: 0, name: "Kitty" }, env).doc;
     expect(doc.layers.map((l) => l.name)).toEqual(["Kitty", "sky"]);
     expect(doc.layers[0].visible).toBe(false);
-    expect(describePhoto(doc, env.assets, null)).toMatch(/Layers, top first \(2\):\n1\. .* "sky"/);
+    expect(describePhoto(doc, env.assets, [])).toMatch(/Layers, top first \(2\):\n1\. .* "sky"/);
     doc = removeLayerTool(doc, { layer: "Kitty" }, env).doc;
     expect(doc.layers).toHaveLength(1);
     const canvas = setCanvasTool(doc, { width: 1080, height: 1920, background: "none", anchor: "centre" }, env);
@@ -53,7 +53,7 @@ describe("the photo assistant's edits", () => {
     expect(doc.layers.map((l) => l.kind)).toEqual(["image", "adjustment", "image"]);
     expect(effectOf(doc, 1).params).toEqual({ exposure: 1.5, offset: 0, gamma: 1 });
     expect(added.text).toMatch(/Exposure: exposure 1.5 stops, offset 0, gamma 1/);
-    expect(describePhoto(doc, env.assets, null)).toMatch(/adjustment layer .*\n {3}Exposure: exposure 1.5 stops/);
+    expect(describePhoto(doc, env.assets, [])).toMatch(/adjustment layer .*\n {3}Exposure: exposure 1.5 stops/);
     doc = setEffectParamsTool(doc, { layer: "Exposure", params: { gamma: 2 } }, env).doc;
     expect(effectOf(doc, 1).params).toMatchObject({ exposure: 1.5, gamma: 2 });
     doc = setEffectParamsTool(doc, { layer: "Exposure", reset: true }, env).doc;
@@ -71,5 +71,17 @@ describe("the photo assistant's edits", () => {
     const red = setEffectParamsTool(curves, { layer: "Curves", params: { curves: { red: [[0, 20], [255, 255]] } } }, env).doc;
     expect(effectOf(red, top).params.curves).toMatchObject({ rgb: [[0, 0], [128, 160], [255, 255]], red: [[0, 20], [255, 255]] });
     expect(() => setEffectParamsTool(curves, { layer: "Curves", params: { rgb: [[0, 0], [0, 255]] } }, env)).toThrow(/inputs increasing/);
+  });
+
+  it("says what merge_layers merges, and what to give when it can't", () => {
+    let doc = addImageLayerTool(empty, { media: "media_sky", name: "Sky" }, env).doc;
+    doc = addImageLayerTool(doc, { media: "media_cat", name: "Cat" }, env).doc;
+    const [sky, cat] = doc.layers.map((l) => l.id);
+    expect(mergeRequest(doc, { layers: ["Sky", "cat"] })).toEqual({ kind: "selected", ids: [sky, cat] });
+    expect(mergeRequest(doc, { layers: ["Cat"], down: true })).toEqual({ kind: "down", ids: [cat] });
+    expect(mergeRequest(doc, { visible: true })).toEqual({ kind: "visible", ids: [] });
+    expect(() => mergeRequest(doc, { layers: ["Cat"] })).toThrow(/two or more/);
+    expect(() => mergeRequest(doc, { layers: ["Cat", "Sky"], down: true })).toThrow(/exactly one/);
+    expect(() => mergeRequest(doc, { layers: ["Dog", "Sky"] })).toThrow(/The layers: .*Cat/);
   });
 });

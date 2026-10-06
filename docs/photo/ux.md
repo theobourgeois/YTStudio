@@ -79,12 +79,21 @@ Photo's own `keys.ts`, pure and tested, as music's is. Its listener skips text f
 | ⌘+ / ⌘− | Zoom in / out, centred on the pointer when it's over the canvas |
 | [ / ] | Brush size, with its value shown |
 | D / X | Default colours / swap (on a mask: white and black) |
-| ⌘A / ⌘D | Select all / deselect |
-| ⌘J | Duplicate layer |
-| Delete | Delete layer (or the selection's pixels, later) |
+| ⌘A / ⌘D | Select all / deselect (⌘D deselects layers until there are pixel selections; built for layers) |
+| ⌘J | Duplicate the selected layers (built) |
+| Delete | Delete the selected layers (or the selection's pixels, later; built for layers) |
+| ⌘E | Merge Down, or Merge Layers with several selected (built) |
+| ⌥⌘A | Select all layers (built) |
+| ⌥[ / ⌥] | Select the next layer down / up; with ⇧, add it to the selection (built) |
+| ⌥, / ⌥. | Select the bottom / top layer; with ⇧, the run out to it (built) |
+| ⌘[ / ⌘] | Send backward / bring forward (built) |
 | Enter / Escape | Commit / cancel a transform, a selection being made or a handle drag |
 | ⌘S | Save now (saving is automatic, as in every suite; this flushes and shows it) |
 | ⇧⌘; | Snap on or off (Photoshop's View › Snap; built) |
+
+Where we differ from Photoshop's keys: ⇧⌘E is Export here (Photoshop's Merge Visible: ours is in the Layers menu),
+and ⇧⌘[ / ⇧⌘] switch the app's tabs (Photoshop's Send to Back / Bring to Front: the Layers menu's). ⌘G (group)
+waits for groups.
 
 ## Gestures
 
@@ -94,7 +103,7 @@ Pointer capture keeps a gesture alive outside the canvas.
 - **Switching**: switching tool, target or project resolves the gesture first.
 - **Nudges**: arrow keys move by 1 px (⇧: 10). Repeated nudges within a moment are one undo step.
 - **Reordering**: a row of the Layers panel dragged between two others moves there (a line shows where), one undo
-  step. Layers' thumbnails are the layer as it's placed on the canvas, alone, rendered by the same renderer.
+  step; with several selected, they move together, in their order. Layers' thumbnails are the layer as it's placed on the canvas, alone, rendered by the same renderer.
 
 ## Transform and view
 
@@ -102,8 +111,30 @@ Pointer capture keeps a gesture alive outside the canvas.
   scales from the centre. Mirroring is allowed; a singular matrix isn't.
 - **Picking (Auto-Select, built)**: with Move, a click on the canvas picks the topmost layer under the pointer, and the
   layer a click would pick is outlined while the pointer is over it (Photoshop's). On by default; Settings › Photo turns
-  it off, and ⌘ (Ctrl) held does the opposite for that click. Where no layer is under the pointer the selection
-  stays (⌘D deselects).
+  it off, and ⌘ (Ctrl) held does the opposite for that click. A click where there's no layer selects nothing, and a
+  drag from there draws a marquee that selects the layers it touches; ⇧ adds (to either), and ⇧-click on a layer
+  adds it or takes it out. With Auto-Select off, a press anywhere moves the selection.
+
+## Selecting layers (built)
+
+Photoshop's: several layers can be selected, and what acts on a layer acts on all of them.
+- **Layers panel**: a click selects one, ⌘-click (Ctrl) adds or removes one, ⇧-click selects the run from the active
+  layer (⌘⇧ adds the run), a click below the rows selects none. Pressing one of several selected rows keeps them for
+  a drag; a click without one selects it alone. Rows never select their text.
+- **The active layer** is the last picked: Properties shows it, and a ⇧ range starts from it. With several selected,
+  Properties says how many and offers Merge.
+- **Moving and transforming several**: they move together (drag, arrows, ⌥-drag moves copies); their handles are one
+  box around them, which scales and turns them as one (each also outlined). Edges and ⇧ (free proportions) show
+  only when every one is at a right angle: stretching a turned layer one way would skew it.
+- **The Layers menu** (right-click a row; a row outside the selection is selected first): Duplicate, Delete, Merge
+  Down / Merge Layers, Merge Visible, Bring to Front, Bring Forward, Send Backward, Send to Back, Select All Layers,
+  Deselect Layers.
+- **Merging** (`shared/photo/merge.ts`): the layers merged are rendered alone, as an export is, into a new image of
+  the project (16 bits when one of them is), placed where the topmost was, at 100%, keeping what's past the canvas.
+  Merge Down takes the lower layer's name, the others the topmost's. Hidden layers are left as they are; an
+  adjustment changes only the merged layers below it, and one with no merged image below it goes. Merging an
+  adjustment layer alone into nothing, or into an adjustment below, is refused with the reason. One undo step; the
+  originals' images stay in the project.
 - **Pointers (built)**: each handle shows a double arrow along the way it pulls, turned with the layer (a corner of a
   layer turned 90° shows the other diagonal); just outside each corner a drag rotates, with a curved-arrow pointer,
   as Photoshop's.

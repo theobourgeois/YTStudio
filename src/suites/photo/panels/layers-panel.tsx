@@ -1,6 +1,7 @@
 /**
- * The Layers panel (ux.md, "Workspace"): the stack, top first; click selects, a drag reorders (one undo step), the
- * eye shows and hides, a double-click renames. Images show a thumbnail of themselves as they're placed on the
+ * The Layers panel (ux.md, "Workspace" and "Selecting layers"): the stack, top first; click selects (⌘ toggles,
+ * Shift selects a run, a click below the rows selects nothing), a drag reorders every selected row together (one
+ * undo step), the eye shows and hides, a double-click renames, a right-click is the Layers menu (merge, arrange). Images show a thumbnail of themselves as they're placed on the
  * canvas; adjustments their kind and settings. Missing images and adjustments this app can't run are said so. Its
  * footer places images, adds adjustment layers (above the selected layer, as Photoshop's does), duplicates, moves
  * and deletes. Every change is an undoable edit.
@@ -9,17 +10,19 @@ import { useRef, useState } from "react";
 import { cn } from "cn";
 import { PiArrowDown, PiArrowUp, PiChartLine, PiCircleHalfTilt, PiCopy, PiEye, PiEyeSlash, PiImage, PiPlus, PiSun, PiTrash, PiWarningCircle } from "react-icons/pi";
 import { createId } from "@shared/ids";
-import { addAdjustmentLayer, duplicateLayer, moveLayer, removeLayer, updateLayer } from "@shared/photo/edits";
+import { addAdjustmentLayer, moveLayersTo, updateLayer } from "@shared/photo/edits";
 import { ADJUSTMENTS, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import type { AdjustmentLayer, ImageLayer, PhotoLayer } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { useSourceStates } from "../live";
 import { usePhoto, usePhotoDoc } from "../store";
+import { layerActions } from "../layer-actions";
+import { clickLayer } from "../selection";
 import { usePhotoUi } from "../ui";
-import { dropIndex } from "./stack";
 import { useLayerThumbnail } from "./thumbnails";
 
 /** Each adjustment's icon (Photoshop's Adjustments panel has one per kind). */
@@ -32,18 +35,38 @@ export function addAdjustment(type: string) {
   usePhotoUi.getState().select(id);
 }
 
+const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
 export function LayersPanel() {
   const layers = usePhotoDoc((d) => d.layers);
-  const selected = usePhotoUi((s) => s.selectedLayerId);
+  const selectedIds = usePhotoUi((s) => s.selectedLayerIds);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
-  const commit = usePhoto((s) => s.commit);
-  const index = layers.findIndex((l) => l.id === selected);
   const [dropGap, setDropGap] = useState<number | null>(null);
+  const selectedIndexes = layers.flatMap((l, i) => (selectedIds.includes(l.id) ? [i] : []));
+  const none = selectedIndexes.length === 0;
 
-  /** A row's press: selects it, and a drag moves it in the stack (dropped between rows). */
+  /**
+   * A row's press: selects it (⌘ toggles, Shift selects the run from the active row), and a drag moves every
+   * selected row in the stack together (dropped between rows). Pressing one of several selected rows keeps them all
+   * for the drag; a click without one selects it alone.
+   */
   const press = (e: React.PointerEvent<HTMLLIElement>, layer: PhotoLayer) => {
-    usePhotoUi.getState().select(layer.id);
+    if (e.button === 2) {
+      // The menu acts on what's selected: a row outside it is selected first (Photoshop's).
+      if (!usePhotoUi.getState().selectedLayerIds.includes(layer.id)) usePhotoUi.getState().select(layer.id);
+      return;
+    }
+    const ui = usePhotoUi.getState();
+    const order = usePhoto.getState().history!.doc.layers.map((l) => l.id);
+    const mods = { toggle: MAC ? e.metaKey : e.ctrlKey, range: e.shiftKey };
+    const keepForDrag = !mods.toggle && !mods.range && ui.selectedLayerIds.includes(layer.id);
+    if (!keepForDrag) {
+      const next = clickLayer({ ids: ui.selectedLayerIds, active: ui.selectedLayerId }, order, layer.id, mods);
+      ui.setSelection(next.ids, next.active);
+    }
+    // Toggled off: nothing to drag.
+    if (!usePhotoUi.getState().selectedLayerIds.includes(layer.id)) return;
     const rows = () => [...(list.current?.querySelectorAll<HTMLElement>("[data-layer]") ?? [])];
     let gap: number | null = null;
     startPointerDrag(e, {
@@ -59,21 +82,40 @@ export function LayersPanel() {
         setDropGap(null);
         const doc = usePhoto.getState().history?.doc;
         if (gap === null || !doc) return;
-        const from = doc.layers.findIndex((l) => l.id === layer.id);
-        if (from >= 0) commit((d) => moveLayer(d, layer.id, dropIndex(d.layers.length, from, gap!)));
+        // The gap counts rows from the top; the edit counts layers below it.
+        const below = doc.layers.length - gap;
+        const ids = usePhotoUi.getState().selectedLayerIds;
+        usePhoto.getState().commit((d) => moveLayersTo(d, ids, below));
       },
       onCancel: () => setDropGap(null),
+      onClick: () => {
+        if (keepForDrag) usePhotoUi.getState().setSelection([layer.id]);
+      },
     });
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col text-sm" data-layers-panel>
-      <ul ref={list} className="relative min-h-0 flex-1 overflow-y-auto py-1" aria-label="Layers">
-        {[...layers].reverse().map((l, i) => (
-          <LayerRow key={l.id} layer={l} selected={l.id === selected} onPress={press} dropAbove={dropGap === i} dropBelow={dropGap === layers.length && i === layers.length - 1} />
-        ))}
-        {layers.length === 0 && <li className="px-3 py-6 text-center text-xs text-muted-foreground">No layers: place an image.</li>}
-      </ul>
+    <div className="flex min-h-0 flex-1 select-none flex-col text-sm" data-layers-panel>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <ul
+            ref={list}
+            className="relative min-h-0 flex-1 overflow-y-auto py-1"
+            aria-label="Layers"
+            aria-multiselectable
+            // A click on the panel below the rows selects no layer (Photoshop's).
+            onPointerDown={(e) => {
+              if (e.target === e.currentTarget && e.button === 0) layerActions.deselect();
+            }}
+          >
+            {[...layers].reverse().map((l, i) => (
+              <LayerRow key={l.id} layer={l} selected={selectedIds.includes(l.id)} onPress={press} dropAbove={dropGap === i} dropBelow={dropGap === layers.length && i === layers.length - 1} />
+            ))}
+            {layers.length === 0 && <li className="px-3 py-6 text-center text-xs text-muted-foreground">No layers: place an image.</li>}
+          </ul>
+        </ContextMenuTrigger>
+        <LayersMenu count={selectedIds.length} />
+      </ContextMenu>
       <div className="flex shrink-0 items-center gap-0.5 border-t border-line px-1.5 py-1">
         <FooterButton label="Place an image…" onClick={() => input.current?.click()}>
           <PiPlus />
@@ -114,29 +156,74 @@ export function LayersPanel() {
           </DropdownMenuContent>
         </DropdownMenu>
         <div className="flex-1" />
-        <FooterButton label="Move up" disabled={index < 0 || index === layers.length - 1} onClick={() => selected && commit((d) => moveLayer(d, selected, index + 1))}>
+        <FooterButton label="Move up (⌘])" disabled={none || selectedIndexes.every((i, k) => i === layers.length - selectedIndexes.length + k)} onClick={() => layerActions.shift(1)}>
           <PiArrowUp />
         </FooterButton>
-        <FooterButton label="Move down" disabled={index <= 0} onClick={() => selected && commit((d) => moveLayer(d, selected, index - 1))}>
+        <FooterButton label="Move down (⌘[)" disabled={none || selectedIndexes.every((i, k) => i === k)} onClick={() => layerActions.shift(-1)}>
           <PiArrowDown />
         </FooterButton>
-        <FooterButton
-          label="Duplicate (⌘J)"
-          disabled={index < 0}
-          onClick={() => {
-            if (!selected) return;
-            const id = createId("layer");
-            commit((d) => duplicateLayer(d, selected, id));
-            usePhotoUi.getState().select(id);
-          }}
-        >
+        <FooterButton label="Duplicate (⌘J)" disabled={none} onClick={layerActions.duplicate}>
           <PiCopy />
         </FooterButton>
-        <FooterButton label="Delete" disabled={index < 0} onClick={() => selected && commit((d) => removeLayer(d, selected))}>
+        <FooterButton label="Delete" disabled={none} onClick={layerActions.delete}>
           <PiTrash />
         </FooterButton>
       </div>
     </div>
+  );
+}
+
+/** The Layers menu (a right-click on the panel): Photoshop's Layer menu, on the selected layers. */
+function LayersMenu({ count }: { count: number }) {
+  const total = usePhotoDoc((d) => d.layers.length);
+  const mod = MAC ? "⌘" : "Ctrl+";
+  const alt = MAC ? "⌥" : "Alt+";
+  return (
+    <ContextMenuContent className="w-56" data-layers-menu>
+      <ContextMenuItem disabled={count === 0} onSelect={layerActions.duplicate}>
+        {count > 1 ? "Duplicate Layers" : "Duplicate Layer"}
+        <ContextMenuShortcut>{mod}J</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem disabled={count === 0} onSelect={layerActions.delete}>
+        {count > 1 ? "Delete Layers" : "Delete Layer"}
+        <ContextMenuShortcut>⌫</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled={count === 0} onSelect={() => void layerActions.merge()}>
+        {count > 1 ? "Merge Layers" : "Merge Down"}
+        <ContextMenuShortcut>{mod}E</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem disabled={total < 2} onSelect={() => void layerActions.mergeVisible()}>
+        Merge Visible
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled={count === 0} onSelect={() => layerActions.arrange("top")}>
+        Bring to Front
+      </ContextMenuItem>
+      <ContextMenuItem disabled={count === 0} onSelect={() => layerActions.shift(1)}>
+        Bring Forward
+        <ContextMenuShortcut>{mod}]</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem disabled={count === 0} onSelect={() => layerActions.shift(-1)}>
+        Send Backward
+        <ContextMenuShortcut>{mod}[</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem disabled={count === 0} onSelect={() => layerActions.arrange("bottom")}>
+        Send to Back
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled={total === 0} onSelect={layerActions.selectAll}>
+        Select All Layers
+        <ContextMenuShortcut>
+          {alt}
+          {mod}A
+        </ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem disabled={count === 0} onSelect={layerActions.deselect}>
+        Deselect Layers
+        <ContextMenuShortcut>{mod}D</ContextMenuShortcut>
+      </ContextMenuItem>
+    </ContextMenuContent>
   );
 }
 
