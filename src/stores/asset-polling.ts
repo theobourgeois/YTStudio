@@ -15,8 +15,8 @@ const DOWNLOAD_POLL_MS = 400;
 /** Stores with a poll loop running. */
 const polling = new WeakSet<object>();
 
-/** Still being made on the server: its filmstrip and waveform, or its reversed copy. */
-const isProcessing = (a: MediaAsset) => a.status === "processing" || a.reversed?.status === "processing";
+/** Still being made on the server: its filmstrip and waveform, its reversed copy or its signals. */
+const isProcessing = (a: MediaAsset) => a.status === "processing" || a.reversed?.status === "processing" || a.signals?.status === "processing";
 
 /**
  * Poll the store's processing assets (no-op when a poll loop is already running

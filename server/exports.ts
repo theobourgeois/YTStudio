@@ -1,3 +1,6 @@
+import { signalAssets, usesSignals } from "../shared/audio-signals.ts";
+import type { SignalData } from "../shared/signals/format.ts";
+import { readSignals } from "./signals.ts";
 import fs from "node:fs/promises";
 import { EXPORT_RESOLUTIONS, createId, outputSize, projectDuration, withoutAudioTracks } from "../shared/timeline.ts";
 import { hasMedia, isTextClip } from "../shared/effects.ts";
@@ -202,7 +205,15 @@ export class ExportManager {
         if (clip.reversed && asset && !asset.reversedPath) asset.reversedPath = await this.library.reversedPath(clip.assetId);
         if (signal.aborted) return;
       }
-      const opts = { width: job.width, height: job.height, fps: preview ? Math.min(15, project.settings.fps) : project.settings.fps, ffmpegPath: FFMPEG };
+      // What reacts to sound reads its files' signals (analysed now if they aren't yet).
+      const signals = new Map<string, SignalData>();
+      if (usesSignals(project)) {
+        for (const id of signalAssets(project, (id) => !!assets[id]?.hasAudio)) {
+          signals.set(id, await readSignals(await this.library.signalsPath(id)));
+          if (signal.aborted) return;
+        }
+      }
+      const opts = { width: job.width, height: job.height, fps: preview ? Math.min(15, project.settings.fps) : project.settings.fps, ffmpegPath: FFMPEG, signals };
       let plan = planRender(project, assets, opts, drawn);
       // Media shown backwards elsewhere (a remapped clip running back, a reversed nest) needs its reversed copy too.
       if (plan.needsReversed.length) {

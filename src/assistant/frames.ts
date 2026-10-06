@@ -4,6 +4,7 @@
  * isn't open drawn the same way offscreen, and frames of media files (drawn
  * by the server with ffmpeg).
  */
+import type { SignalReader } from "@shared/audio-signals";
 import type { ToolContent } from "@shared/tool-spec";
 import { aspectParts, videoTracks } from "@shared/timeline";
 import type { MediaAsset, Project } from "@shared/types";
@@ -80,6 +81,8 @@ export async function offscreenFrames(
   times: number[],
   width: number,
   signal: AbortSignal,
+  /** Its sounds' signals, for what reacts to them (see `readerFor`). */
+  signals: SignalReader | null = null,
 ): Promise<ToolContent[]> {
   const [a, b] = aspectParts(video.project.settings.aspectRatio);
   const size = { width, height: Math.round((width * b) / a) };
@@ -106,6 +109,7 @@ export async function offscreenFrames(
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    signals: () => signals,
   };
   const engine = new PreviewEngine(() => {}, source);
   const cleanups: (() => void)[] = [];

@@ -31,6 +31,15 @@ renderer's parts the suite doesn't use yet. Kernels and passes storing `rgba16fl
 (`render/surface.ts`: tiles by hash, strokes on drafts); a saved photo only names pixels the server has (`uploads.ts`,
 `SuiteBackend.checkSave`). F4 is next.
 
+The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is
+planned in [`docs/visualizer/README.md`](docs/visualizer/README.md): signals, links, audio shaders, Perform, its
+milestones V1–V10. **V1 and V2 are built**: every file with sound gets *signals* (`shared/signals/`, platform: the
+format, the pure analyser, reading at a time; `server/signals.ts` + `MediaLibrary.analyseSignals`, `MediaAsset.signals`),
+read on the timeline by `shared/audio-signals.ts` (video: a clip's, a track's or the mix's energies summed, hits, the
+beat; a `SignalReader` per video: the tab's is `stores/signals.ts`, the export's built in `ExportService`, used through
+`withSignals`), so expressions react to sound (`audio("bass")`, `sinceHit("onsetLow")`, `envelope`, `beat()`...) alike
+in the preview and the export. The assistant's `get_signals` and `plot_signals` are its ears. V3 is next.
+
 ## Commands
 
 ```bash

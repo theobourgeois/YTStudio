@@ -40,7 +40,7 @@ import { MASK } from "./effect-library/mask.ts";
 import { SHAPE, SHAPE_EFFECTS } from "./effect-library/shape.ts";
 import { TEXT_ANIMATOR } from "./effect-library/text-animator.ts";
 import { BLEND_MODES } from "./compositor.ts";
-import { type ExprValue, expressionError, expressionValue, evaluateExpression, parseExpression } from "./expressions.ts";
+import { type ExprValue, type SignalScope, expressionError, expressionValue, evaluateExpression, parseExpression } from "./expressions.ts";
 import { keyframeValue, sanitizeKeyframes, setKeyframe } from "./keyframes.ts";
 // (A cycle with this file, which is fine: neither uses the other until a function is called.)
 import { type TextAnimation, animatorReach, textAnimationsAt } from "./text-animators.ts";
@@ -664,6 +664,14 @@ function seedOf(text: string): number {
   return h >>> 0;
 }
 
+/** What an expression on a clip can read of the sound (`audio-signals.ts` provides it, so effects don't import it). */
+let signalScopes: ((clipId: string, fps: number) => SignalScope | undefined) | null = null;
+
+/** Called once by `audio-signals.ts`: expressions can then react to sound. */
+export function provideSignalScopes(provide: (clipId: string, fps: number) => SignalScope | undefined): void {
+  signalScopes = provide;
+}
+
 /** Properties being worked out for an expression's `prop()`, to stop two that read each other. */
 const reading = new Set<string>();
 
@@ -684,6 +692,7 @@ function expressionScope(def: EffectDefinition, effect: Effect, key: string, tim
     valueAtTime: own,
     keyTimes: keys?.map((k) => k.time) ?? [],
     seed: seedOf(`${clip?.id ?? ""}/${effect.id}/${key}`),
+    signals: clip ? signalScopes?.(clip.id, fps) : undefined,
     prop(path: string, t = time): ExprValue | undefined {
       const dot = path.indexOf(".");
       const other = clip?.effects.find((e) => e.id === path.slice(0, dot)) ?? clip?.effects.find((e) => e.type === path.slice(0, dot));

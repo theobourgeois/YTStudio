@@ -61,6 +61,7 @@ import { normalizeProject } from "@shared/normalize";
 import { type NewSubclip, addSubclips, getSubclip, removeSubclips, updateSubclip } from "@shared/subclips";
 import { api } from "@/lib/api";
 import { pollProcessingAssets, pollWebDownload, requestReversedCopies } from "./asset-polling";
+import { watchSignals } from "./signals";
 import { flushAutosave, startAutosave } from "./autosave";
 import { usePlayback } from "./playback";
 import { newLayerDuration } from "./video-preferences";
@@ -430,6 +431,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       usePlayback.getState().seek(0);
       startAutosave(useEditor);
       requestReversedCopies(useEditor);
+      watchSignals(useEditor);
       pollProcessingAssets(useEditor);
     } catch (err) {
       if (token !== openToken) return;

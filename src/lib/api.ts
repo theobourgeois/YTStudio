@@ -156,6 +156,8 @@ export const api = {
     request<SceneCuts>(`/api/media/${id}/scenes?threshold=${threshold}`, { signal }),
   /** Start making a media file's reversed copy (for clips played backwards), if it isn't made yet. */
   reverseMedia: (id: string) => request<MediaAsset>(`/api/media/${id}/reversed`, { method: "POST" }),
+  /** Start analysing a file's signals (if they aren't made yet): poll the asset until they're ready. */
+  analyseSignals: (id: string) => request<MediaAsset>(`/api/media/${id}/signals`, { method: "POST" }),
   deleteMedia: (id: string) => request<void>(`/api/media/${id}`, { method: "DELETE" }),
 
   /** Upload a file with progress (0..1). Resolves with the probed asset. */
