@@ -501,7 +501,8 @@ export function paramSpec(def: EffectDefinition, key: string): ParamSpec | undef
 // Validation
 // ---------------------------------------------------------------------------
 
-function sanitizeEffect(def: EffectDefinition, raw: Partial<Effect> | undefined, id: string): Effect {
+/** An effect of `def` with id `id` from untrusted (or partial) values, keyframes, expressions and links: the defaults where they're missing or wrong. */
+export function sanitizeEffect(def: EffectDefinition, raw: Partial<Effect> | undefined, id: string): Effect {
   const params = sanitizeParams(def.params, raw?.params);
   const keyframes: Record<string, Keyframe[]> = {};
   for (const spec of def.params) {

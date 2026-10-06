@@ -18,7 +18,7 @@ import { isNestedClip, sequenceView } from "./sequences.ts";
 import { mediaTime } from "./time-remap.ts";
 import { clipDuration, clipEnd, clipSpeed, sourceTime, timelineTime, trackClips } from "./timeline.ts";
 import { type AudioInputs, type AudioRequest, MAX_AUDIO_HITS } from "./compositor.ts";
-import type { Clip, HitShape, MusicSection, ParamLink, Project, SignalDef, SignalRef, SignalSource, Track } from "./types.ts";
+import type { Clip, HitShape, MusicSection, ParamLink, Project, SignalDef, SignalRef, SignalSource, SongTempo, Track } from "./types.ts";
 
 export type { SignalSource };
 
@@ -332,38 +332,57 @@ export const lastHit = (hits: readonly Hit[], t: number) => lastAt(hits.length, 
 export interface BeatGrid {
   /** The clip it's the beat of. */
   clipId: string;
+  /** Its tempo (on average, for a song whose tempo changes: `beatAt` says what it is where). */
   bpm: number;
+  /** From the song's own tempo map (`Project.tempo`), not found by analysis. */
+  exact?: true;
   beats: number[];
   downbeats: number[];
   sections: MusicSection[];
   drops: number[];
 }
 
-const gridCache = new WeakMap<SignalStore, WeakMap<Clip, BeatGrid | null>>();
+const gridCache = new WeakMap<SignalStore, WeakMap<SongTempo | typeof NO_TEMPO, WeakMap<Clip, BeatGrid | null>>>();
+const NO_TEMPO = {};
 
-/** A clip's beat, on the timeline (null when its file has none). */
+/** A song's downbeats among its beats: every `beatsPerBar`th from the first. */
+const downbeatsOf = (tempo: SongTempo) => tempo.beats.filter((_, i) => i % tempo.beatsPerBar === 0);
+
+/**
+ * A clip's beat, on the timeline (null when its file has none): a song's own (`Project.tempo`) when it
+ * plays one of its files, else the one its file's analysis found.
+ */
 function clipGrid(reader: SignalReader, clip: Clip): BeatGrid | null {
-  let byClip = gridCache.get(reader.store);
-  if (!byClip) gridCache.set(reader.store, (byClip = new WeakMap()));
+  const tempo = reader.document.tempo;
+  let byTempo = gridCache.get(reader.store);
+  if (!byTempo) gridCache.set(reader.store, (byTempo = new WeakMap()));
+  let byClip = byTempo.get(tempo ?? NO_TEMPO);
+  if (!byClip) byTempo.set(tempo ?? NO_TEMPO, (byClip = new WeakMap()));
   if (byClip.has(clip)) return byClip.get(clip)!;
-  const rhythm = isRemapped(clip) || isNestedClip(clip) ? null : reader.store.get(clip.assetId)?.header.rhythm;
+  const timed = !isRemapped(clip) && !isNestedClip(clip);
+  const rhythm = timed ? reader.store.get(clip.assetId)?.header.rhythm : null;
+  const song = timed && tempo?.assetIds.includes(clip.assetId) ? tempo : null;
   let grid: BeatGrid | null = null;
-  if (rhythm?.bpm) {
+  if (rhythm?.bpm || song) {
     const inside = (t: number) => t >= clip.in && t < clip.out;
     const place = (times: number[]) => times.filter(inside).map((t) => timelineTime(clip, t)).sort((a, b) => a - b);
+    const beats = song ? song.beats : rhythm!.beats;
+    const bpm = song ? (60 * (song.beats.length - 1)) / (song.beats[song.beats.length - 1] - song.beats[0]) : rhythm!.bpm!;
     grid = {
       clipId: clip.id,
-      bpm: rhythm.bpm * clipSpeed(clip),
-      beats: place(rhythm.beats),
-      downbeats: place(rhythm.downbeats),
-      sections: rhythm.sections
+      bpm: bpm * clipSpeed(clip),
+      ...(song && { exact: true as const }),
+      beats: place(beats),
+      downbeats: place(song ? downbeatsOf(song) : rhythm!.downbeats),
+      // The arrangement is still the analysis's (the song's markers are the sequence's).
+      sections: (rhythm?.sections ?? [])
         .filter((s) => s.end > clip.in && s.start < clip.out)
         .map((s) => {
           const [a, b] = [timelineTime(clip, Math.max(clip.in, s.start)), timelineTime(clip, Math.min(clip.out, s.end))];
           return { ...s, start: Math.min(a, b), end: Math.max(a, b) };
         })
         .sort((a, b) => a.start - b.start),
-      drops: place(rhythm.drops.map((d) => d.time)),
+      drops: place((rhythm?.drops ?? []).map((d) => d.time)),
     };
   }
   byClip.set(clip, grid);
@@ -403,11 +422,13 @@ export function beatAt(reader: SignalReader, sequenceId: string | null, t: numbe
   const beat = lastAt(grid.beats.length, (i) => grid.beats[i], t);
   const drop = lastAt(grid.drops.length, (i) => grid.drops[i], t);
   const section = lastAt(grid.sections.length, (i) => grid.sections[i].start, t);
+  // A song's own beat may speed up or slow down: its tempo is the one between the beats either side.
+  const period = grid.exact && grid.beats.length > 1 ? grid.beats[Math.min(Math.max(beat, 0) + 1, grid.beats.length - 1)] - grid.beats[Math.min(Math.max(beat, 0), grid.beats.length - 2)] : 0;
   return {
     beat: countAt(grid.beats, t),
     bar: grid.downbeats.length ? countAt(grid.downbeats, t) : countAt(grid.beats, t) / 4,
     since: beat < 0 ? NEVER : t - grid.beats[beat],
-    bpm: grid.bpm,
+    bpm: period > 0 ? 60 / period : grid.bpm,
     section: Math.max(0, section),
     sinceDrop: drop < 0 ? NEVER : t - grid.drops[drop],
   };

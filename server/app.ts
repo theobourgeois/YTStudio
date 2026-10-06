@@ -24,7 +24,8 @@ import { migrateData } from "./migrate.ts";
 import { AudioEngine, type EngineOptions } from "./music/engine.ts";
 import { SampleBrowser } from "./music/browser.ts";
 import { type MusicExportOptions, MusicExports } from "./music/exports.ts";
-import { browserRoutes, engineRoutes, musicExportRoutes } from "./music/routes.ts";
+import { SongVisualizers } from "./music/visualizer.ts";
+import { browserRoutes, engineRoutes, musicExportRoutes, musicVisualizerRoutes } from "./music/routes.ts";
 import { mixerSetupRoutes } from "./music/mixer-setup.ts";
 import { PhotoHelper } from "./photo/helper.ts";
 import { PhotoLab } from "./photo/lab.ts";
@@ -161,6 +162,11 @@ export async function createApp({
   const engine = new AudioEngine(paths, { samplePath, adoptTake, projectDir: (id) => projects.dir(id), ...engineOptions });
   saveStates = () => engine.saveStates().catch(() => {});
   const musicExports = new MusicExports(paths, engine, { samplePath: engineOptions?.samplePath ?? samplePath, adopt: adoptTake, ...musicExportOptions });
+  // Make visualizer: a song handed over to the video suite as a project of its own.
+  const visualizers = new SongVisualizers(paths, engine, {
+    samplePath: engineOptions?.samplePath ?? samplePath,
+    handoff: (handoff, options) => projects.createFromHandoff("video", handoff, options),
+  });
 
   audioIntelligence = new AudioIntelligence({ root: path.join(paths.root, "audio-intelligence"), engine,
     projectDir: id => projects.dir(id), samplePath: engineOptions?.samplePath ?? samplePath,
@@ -223,6 +229,7 @@ export async function createApp({
   app.use("/api/engine", engineRoutes(engine));
   app.use("/api/music/audio", audioIntelligenceRoutes(audioIntelligence));
   app.use("/api/music/exports", musicExportRoutes(musicExports));
+  app.use("/api/music/visualizer", musicVisualizerRoutes(visualizers));
   app.use("/api/photo/lab", photoLabRoutes(photoLab));
   app.use("/api/photo", photoRoutes(photo));
   const mixerKeys = new ApiKeyStore(path.join(paths.root, "music-jev-settings.json"));
@@ -320,6 +327,7 @@ export async function createApp({
       bridge.shutdown();
       audioIntelligence.shutdown();
       musicExports.shutdown();
+      visualizers.shutdown();
       engine.shutdown();
       browser.close();
     },
