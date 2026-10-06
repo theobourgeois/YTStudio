@@ -4,7 +4,8 @@ import { rand } from "../../reference/kernel.ts";
 import { defaultParams } from "../params.ts";
 import { developPixel, developSettings, developTable, keepingHue, neutralWhiteBalance, shiftCode } from "./develop.ts";
 import { CHART, fixtureRuns } from "./fixtures.ts";
-import { CAMERA_RAW, changedSections } from "./index.ts";
+import { validateParams } from "../index.ts";
+import { CAMERA_RAW, CAMERA_RAW_PRESETS, changedSections } from "./index.ts";
 import { CAMERA_RAW_PARAMS } from "./params.ts";
 
 /** A run developed by our maths: RMS against Camera Raw's own result, in 8-bit levels, over its ramp and its patches. */
@@ -143,5 +144,13 @@ describe("Camera Raw's develop", () => {
     const [r, g, b] = developPixel(cast, 0, 0, developTable(p), developSettings(p, { width: 10, height: 10 }), rand);
     expect(Math.abs(r - g) / g).toBeLessThan(0.08);
     expect(Math.abs(b - g) / g).toBeLessThan(0.08);
+  });
+});
+
+describe("Camera Raw's presets", () => {
+  it.each(CAMERA_RAW_PRESETS.map((p) => [p.id, p] as const))("%s is valid and changes the picture", (_id, preset) => {
+    const { params, problems } = validateParams(CAMERA_RAW, preset.params({ width: 1000, height: 800 }));
+    expect(problems).toEqual([]);
+    expect(CAMERA_RAW.isIdentity(params)).toBe(false);
   });
 });
