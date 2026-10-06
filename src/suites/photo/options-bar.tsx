@@ -6,12 +6,11 @@
  * brush asks over an image layer (ux.md: never rasterised silently).
  */
 import { cn } from "cn";
-import { PiIntersectSquare, PiSquare, PiSubtractSquare, PiUniteSquare, PiUserFocus } from "react-icons/pi";
+import { PiCheckSquareFill, PiIntersectSquare, PiSquare, PiSubtractSquare, PiUniteSquare, PiUserFocus } from "react-icons/pi";
 import { findLayer } from "@shared/photo/edits";
 import { SAMPLE_SIZES } from "@shared/photo/magic-wand";
 import type { SelectionMode } from "@shared/photo/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,7 +48,7 @@ export function BrushOptionsBar() {
   const strength = useBrush((s) => s.strength);
   const set = useBrush((s) => s.set);
   return (
-    <div className="flex items-center gap-3 text-xs" data-tool-options="brush">
+    <div className="flex shrink-0 items-center gap-3 text-xs whitespace-nowrap" data-tool-options="brush">
       <Scrub label="Size" value={size} display={SIZE} onChange={(v) => set({ size: v })} />
       <Scrub label="Hardness" value={Math.round(hardness * 100)} display={PERCENT} onChange={(v) => set({ hardness: v / 100 })} />
       <Scrub label="Strength" value={Math.round(strength * 100)} display={PERCENT} onChange={(v) => set({ strength: v / 100 })} />
@@ -89,7 +88,7 @@ function SelectionOptionsBar({ tool }: { tool: PhotoTool }) {
   // Quick Selection only adds and takes away.
   const modes = quick ? MODES.slice(0, 3) : MODES;
   return (
-    <div className="flex items-center gap-3 text-xs" data-tool-options="selection" data-tool-options-for={tool}>
+    <div className="flex shrink-0 items-center gap-3 text-xs whitespace-nowrap" data-tool-options="selection" data-tool-options-for={tool}>
       <div className="flex items-center" role="group" aria-label="Selection mode">
         {modes.map(({ mode, label, Icon }) => (
           <Tooltip key={mode}>
@@ -108,13 +107,13 @@ function SelectionOptionsBar({ tool }: { tool: PhotoTool }) {
         <span className="flex items-center gap-1" data-option="Sample Size">
           <span className="text-muted-foreground">Sample</span>
           <Select value={String(o.sampleSize)} onValueChange={(v) => set({ sampleSize: Number(v) })}>
-            <SelectTrigger size="sm" className="h-6 w-28 text-xs" aria-label="Sample size">
+            <SelectTrigger size="sm" className="h-6 w-24 text-xs" aria-label="Sample size">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {SAMPLE_SIZES.map((n) => (
                 <SelectItem key={n} value={String(n)}>
-                  {n === 1 ? "Point Sample" : `${n} by ${n} Average`}
+                  {n === 1 ? "Point" : `${n} × ${n} Average`}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -124,11 +123,11 @@ function SelectionOptionsBar({ tool }: { tool: PhotoTool }) {
       {wand && <Scrub label="Tolerance" value={o.tolerance} display={TOLERANCE} onChange={(v) => set({ tolerance: v })} />}
       {tool !== "marquee" && !quick && <Toggle label="Anti-alias" checked={o.antiAlias} onChange={(antiAlias) => set({ antiAlias })} />}
       {wand && <Toggle label="Contiguous" checked={o.contiguous} onChange={(contiguous) => set({ contiguous })} />}
-      {(wand || quick) && <Toggle label="Sample All Layers" checked={o.sampleAll} onChange={(sampleAll) => set({ sampleAll })} />}
+      {(wand || quick) && <Toggle label="All Layers" title="Sample All Layers: read the photo as it shows (else the active layer alone)" checked={o.sampleAll} onChange={(sampleAll) => set({ sampleAll })} />}
       {quick && <Toggle label="Auto-Enhance" checked={o.autoEnhance} onChange={(autoEnhance) => set({ autoEnhance })} />}
       {(wand || quick) && (
-        <Button size="sm" variant="outline" disabled={running} onClick={() => void runSelectSubject(o.mode)} data-select-subject-button>
-          <PiUserFocus /> Select Subject
+        <Button size="sm" variant="outline" disabled={running} onClick={() => void runSelectSubject(o.mode)} title="Select Subject" data-select-subject-button>
+          <PiUserFocus /> Subject
         </Button>
       )}
       {selection && (
@@ -140,13 +139,22 @@ function SelectionOptionsBar({ tool }: { tool: PhotoTool }) {
   );
 }
 
-/** An on/off option of a tool. */
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (on: boolean) => void }) {
+/** An on/off option of a tool: a checkbox, as Photoshop's options bar has (they're many, and the bar is narrow). */
+function Toggle({ label, title, checked, onChange }: { label: string; title?: string; checked: boolean; onChange: (on: boolean) => void }) {
   return (
-    <label className="flex items-center gap-1.5" data-option={label}>
-      <span className="text-muted-foreground">{label}</span>
-      <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
-    </label>
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={label}
+      title={title}
+      className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+      onClick={() => onChange(!checked)}
+      data-option={label}
+    >
+      {checked ? <PiCheckSquareFill className="size-4 text-brand" /> : <PiSquare className="size-4" />}
+      {label}
+    </button>
   );
 }
 
