@@ -356,7 +356,7 @@ existing time effects (Trails, Echo, Datamosh) can move onto this later and beco
 
 The first take was vaudio's four three.js scenes, ported; Théo found them not good enough (2026-10-07). They were
 replaced by five raymarched GLSL worlds, planned and built in [scenes.md](scenes.md): Ridgeline, Infinite Dive,
-Aurora, Storm Sea, Ferrofluid. `EffectShader.scene` names a scene of `shared/scenes/`, whose state (the camera, events
+Aurora, Storm Sea, Ferrofluid; five more followed (Event Horizon, Neon City, Nebula, Abyss, Monoliths). `EffectShader.scene` names a scene of `shared/scenes/`, whose state (the camera, events
 set off by hits) is stepped in TypeScript (`steppedState`, checkpointed) and reaches its GLSL as uniforms: the same
 numbers in the tab and the export's plan, drawn by the one compositor. No three.js, no second renderer.
 
