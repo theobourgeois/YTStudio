@@ -12,6 +12,8 @@ import { levelForScale } from "../shared/photo/geometry.ts";
 import { curvesFor, exposurePixel, type Pixel } from "../shared/photo/reference/adjustments.ts";
 import { BLEND_MODES, SPECIAL_FILL, blendSeed } from "../shared/photo/blending.ts";
 import { type BlendParams, type Rgba, compositePixel } from "../shared/photo/reference/blend.ts";
+import { renderStyled } from "../shared/photo/reference/style.ts";
+import { newStyleEffect } from "../shared/photo/style/style.ts";
 import { boxReduce, sampleMitchell } from "../shared/photo/reference/reduce.ts";
 
 test.describe.configure({ mode: "serial" });
@@ -1453,4 +1455,80 @@ test("blend modes, Fill, channels and Blend If draw as the reference composites 
   await composer.press("Enter");
   await expect(panel).toContainText("set_layer_blending: ok, set_layer_blending: failed", { timeout: 30_000 });
   await expect.poll(mode).toBe("screen");
+});
+
+test("layer effects draw as the reference does: shadows, glows, overlays and strokes, Precise and Softer, in either compositing", async ({ page }) => {
+  // A soft-edged disc in a 160 × 160 image with room around it: opened as the canvas, the layer is at 100%.
+  const file = path.join(os.tmpdir(), "photo-style-disc.png");
+  const disc = Buffer.alloc(160 * 160 * 4);
+  for (let y = 0; y < 160; y++)
+    for (let x = 0; x < 160; x++) {
+      const a = Math.min(1, Math.max(0, 42 - Math.hypot(x + 0.5 - 80, y + 0.5 - 76) + 0.5));
+      disc.set([230, 120, 40, Math.round(a * 255)], (y * 160 + x) * 4);
+    }
+  await sharp(disc, { raw: { width: 160, height: 160, channels: 4 } }).png().toFile(file);
+  const id = await openNewPhoto(page, "Effects");
+  await openImage(page, file);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  // Every shader compiles.
+  const errors = await page.evaluate(async () => {
+    const r = await (window as unknown as DebugWindow).photoDebug.renderer();
+    // The app's own module, as the dev server serves it.
+    const url = "/src/suites/photo/render/compositor.ts";
+    const { Compositor } = (await import(/* @vite-ignore */ url)) as { Compositor: { compileErrors(device: unknown): Promise<string[]> } };
+    return Compositor.compileErrors((r as unknown as { device: unknown }).device);
+  });
+  expect(errors).toEqual([]);
+  const layerId = await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(1).then(async () => (await savedPhoto(page, id)).layers[0].id as string);
+  const set = (patch: Record<string, unknown>) =>
+    page.evaluate(
+      ({ layerId, patch }) =>
+        (window as unknown as DebugWindow).photoDebug.photo.getState().commit((d: unknown) => {
+          const doc = d as { layers: Record<string, unknown>[] };
+          return { ...doc, ...(patch.doc as object), layers: doc.layers.map((l) => (l.id === layerId ? { ...l, ...(patch.layer as object) } : l)) };
+        }),
+      { layerId, patch },
+    );
+  const view = { zoom: 1, x: 0, y: 0, width: 160, height: 160 };
+  // The layer alone, over nothing: its own pixels.
+  await set({ doc: { canvas: { width: 160, height: 160, background: null } } });
+  const content = await renderRegion(page, view);
+  await set({ doc: { canvas: { width: 160, height: 160, background: "#5a7896" } } });
+  const backdrop = new Float32Array(160 * 160 * 4);
+  const bg = [0x5a, 0x78, 0x96].map((v) => (v / 255 <= 0.04045 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+  for (let i = 0; i < 160 * 160; i++) backdrop.set([...bg, 1], i * 4);
+  const fx = (type: string, params: Record<string, unknown> = {}) => newStyleEffect(type, `${type}_${Math.random().toString(36).slice(2, 8)}`, params)!;
+  const check = async (label: string, effects: ReturnType<typeof fx>[], layer: Record<string, unknown> = {}, compositing: "photoshop" | "linear" = "photoshop") => {
+    const style = { enabled: true, effects };
+    await set({ layer: { style, ...layer }, doc: { compositing } });
+    const got = await renderRegion(page, view);
+    const doc = (await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc)) as unknown as { layers: Parameters<typeof renderStyled>[0][] };
+    const want = renderStyled(doc.layers[0], { compositing }, { width: 160, height: 160, pixels: backdrop }, { width: 160, height: 160, pixels: new Float32Array(content) }, (e) => (e.params.globalLight === true ? 120 : (e.params.angle as number)), { x0: 0, y0: 0, x1: 160, y1: 160 });
+    let worst = 0;
+    let at = 0;
+    for (let i = 0; i < want.length; i++) {
+      const d = Math.abs(got[i] - want[i]);
+      if (d > worst) [worst, at] = [d, i];
+    }
+    expect(worst, `${label}: worst at pixel ${Math.floor(at / 4) % 160}, ${Math.floor(at / 640)} (${got[at]} vs ${want[at]})`).toBeLessThan(1e-3);
+  };
+  await check("a drop shadow", [fx("drop-shadow", { distance: 12, size: 18, spread: 20, opacity: 75 })]);
+  await check("a drop shadow at its own angle, not knocking out, under a 30% Fill", [fx("drop-shadow", { distance: 9, size: 6, angle: 30, globalLight: false, knocksOut: false })], { fill: 0.3 });
+  await check("an outer glow, Softer, a Cone contour, Range 60", [fx("outer-glow", { size: 20, opacity: 80, colour: "#ffe066", contour: { name: "Cone", points: [{ x: 0, y: 0 }, { x: 129, y: 255 }, { x: 255, y: 0 }] }, range: 60 })]);
+  await check("an outer glow, Precise, spread", [fx("outer-glow", { size: 16, technique: "precise", spread: 30, opacity: 100, mode: "normal" })]);
+  await check("a gradient outer glow", [fx("outer-glow", { size: 24, fill: "gradient", opacity: 100, gradient: { name: "t", method: "classic", colours: [{ at: 0, colour: "#ff0000" }, { at: 1, colour: "#0000ff" }], opacities: [{ at: 0, opacity: 1 }, { at: 1, opacity: 0.2 }] } })]);
+  await check("an inner glow from the centre, and an inner shadow", [fx("inner-glow", { size: 14, source: "center", choke: 20, opacity: 70 }), fx("inner-shadow", { distance: 6, size: 8, opacity: 60 })]);
+  await check("overlays: a multiplied colour, a radial gradient", [fx("gradient-overlay", { style: "radial", opacity: 60, angle: 45 }), fx("color-overlay", { colour: "#3366ff", mode: "multiply", opacity: 50 })]);
+  await check("strokes: outside, inside, centre and a shape burst", [fx("stroke", { size: 6, colour: "#ffffff" }), fx("stroke", { size: 4, position: "inside", colour: "#000000", opacity: 70 }), fx("stroke", { size: 5, position: "center", fill: "gradient", style: "shape-burst" })]);
+  await check("everything, the interior as a group, in Multiply at 60% opacity", [fx("drop-shadow", { distance: 8, size: 10 }), fx("outer-glow", { size: 12 }), fx("color-overlay", { mode: "screen", opacity: 40 }), fx("inner-glow", { size: 10 }), fx("stroke", { size: 3 })], { blend: "multiply", opacity: 0.6, blending: { interiorAsGroup: true } });
+  await check("in linear light", [fx("drop-shadow", { distance: 12, size: 18 }), fx("stroke", { size: 4, opacity: 60 })], {}, "linear");
+  // Changing an effect's colour makes no fields again; its size does.
+  const made = () => page.evaluate(async () => ((await (window as unknown as DebugWindow).photoDebug.renderer()) as unknown as { compositor: { styleFields: { made: number } } }).compositor.styleFields.made);
+  const shadow = fx("drop-shadow", { distance: 12, size: 18 });
+  await check("before", [shadow]);
+  const before = await made();
+  await check("its colour changed", [{ ...shadow, params: { ...shadow.params, colour: "#ff0000" } }]);
+  expect(await made()).toBe(before);
+  await check("its size changed", [{ ...shadow, params: { ...shadow.params, size: 30 } }]);
+  expect(await made()).toBe(before + 1);
 });

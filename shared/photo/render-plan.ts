@@ -12,7 +12,9 @@ import { srgbToLinear } from "./colour.ts";
 import { effectDefinition, unavailableReason } from "./effects/index.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
 import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
-import type { Compositing, EffectParamValue, LayerTransform, PhotoLayer, PhotoProject, SurfaceId } from "./types.ts";
+import { drawnEffects, effectAngle, styleReach } from "./style/style.ts";
+import type { Box } from "./style/gradients.ts";
+import type { Compositing, EffectInstance, EffectParamValue, LayerTransform, PhotoLayer, PhotoProject, SurfaceId } from "./types.ts";
 
 /** The composite's precision follows its sources (rendering.md, "Storage formats"): f32 once any is 16-bit. */
 export type PlanFormat = "rgba16float" | "rgba32float";
@@ -51,6 +53,23 @@ export interface NodeBlend extends LayerBlending {
   seed: number;
 }
 
+/**
+ * A layer's style as the plan draws it (docs/photo/layer-style/README.md, phase L2): its drawn effects in order,
+ * each one's light angle resolved (Global Light's or its own), the boxes its gradients are laid out on, and how far
+ * it reaches past the layer's pixels (document pixels).
+ */
+export interface NodeStyle {
+  effects: EffectInstance[];
+  /** By effect id: the angle its shadow falls from. */
+  angles: Record<string, number>;
+  /** The layer's bounds on the canvas (Align with Layer), and the canvas. */
+  layerBox: Box;
+  canvasBox: Box;
+  reach: number;
+  interiorAsGroup: boolean;
+  maskHidesEffects: boolean;
+}
+
 /** A placed image: its source resampled through its transform, composited at its opacity by its blending. */
 export interface ImageNode {
   kind: "image";
@@ -64,6 +83,8 @@ export interface ImageNode {
   opacity: number;
   mask: MaskRef | null;
   blend: NodeBlend | null;
+  /** Its layer effects; null when it has none drawn. */
+  style: NodeStyle | null;
   /** Resampling and Normal compositing commute with reduction (within tolerance at transparent overlaps); modes don't. */
   commutes: boolean;
   key: string;
@@ -80,6 +101,7 @@ export interface PixelNode {
   opacity: number;
   mask: MaskRef | null;
   blend: NodeBlend | null;
+  style: NodeStyle | null;
   commutes: boolean;
   key: string;
 }
@@ -165,11 +187,37 @@ function maskOf(layer: PhotoLayer, size: Size): MaskRef | null {
 
 const maskKey = (mask: MaskRef | null) => (mask ? `|mask:${mask.surface}` : "");
 
-/** A layer's blending for the plan, and the opacity it composites at (Fill folded in when it's plain Normal). */
+/**
+ * A layer's blending for the plan, and the opacity it composites at (Fill folded in when it's plain Normal). A layer
+ * with drawn effects always gets its blending (its pass composites it with them).
+ */
 function blendOf(layer: PhotoLayer): { blend: NodeBlend | null; opacity: number; key: string } {
   const b = blendingOf(layer);
-  if (isPlainBlending(layer)) return { blend: null, opacity: layer.opacity * b.fill, key: "" };
+  if (isPlainBlending(layer) && !drawnEffects(layer).length) return { blend: null, opacity: layer.opacity * b.fill, key: "" };
   return { blend: { ...b, seed: blendSeed(layer.id) }, opacity: layer.opacity, key: `|blend:${b.mode},${b.fill},${JSON.stringify(layer.blending ?? null)}${b.mode === "dissolve" ? `,${layer.id}` : ""}` };
+}
+
+/** The axis-aligned box a placed layer covers on the canvas. */
+function boundsOf(matrix: Affine, size: Size): Box {
+  const pts = [apply(matrix, 0, 0), apply(matrix, size.width, 0), apply(matrix, 0, size.height), apply(matrix, size.width, size.height)];
+  return { x0: Math.min(...pts.map((p) => p.x)), y0: Math.min(...pts.map((p) => p.y)), x1: Math.max(...pts.map((p) => p.x)), y1: Math.max(...pts.map((p) => p.y)) };
+}
+
+/** A placed layer's style for the plan, or null when it draws no effects; and its part of the node's key. */
+function styleOf(doc: PhotoProject, layer: PhotoLayer, matrix: Affine, size: Size): { style: NodeStyle | null; key: string } {
+  const effects = drawnEffects(layer);
+  if (!effects.length) return { style: null, key: "" };
+  const angles = Object.fromEntries(effects.map((e) => [e.id, effectAngle(doc, e)]));
+  const style: NodeStyle = {
+    effects,
+    angles,
+    layerBox: boundsOf(matrix, size),
+    canvasBox: { x0: 0, y0: 0, x1: doc.canvas.width, y1: doc.canvas.height },
+    reach: styleReach(layer),
+    interiorAsGroup: layer.blending?.interiorAsGroup === true,
+    maskHidesEffects: layer.blending?.maskHidesEffects === true,
+  };
+  return { style, key: `|style:${JSON.stringify(effects)}|${JSON.stringify(angles)}|${style.interiorAsGroup},${style.maskHidesEffects}` };
 }
 
 /** The canvas's background in the compositing's values: encoded for "photoshop", linear light otherwise. */
@@ -199,18 +247,21 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const size = { width: source.width, height: source.height };
       const t = layer.transform;
       const mask = maskOf(layer, size);
+      const matrix = layerMatrix(t, size);
+      const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
         kind: "image",
         layerId: layer.id,
         mediaId: layer.mediaId,
         transform: t,
         size,
-        matrix: layerMatrix(t, size),
+        matrix,
         opacity: blending.opacity,
         mask,
         blend: blending.blend,
+        style: styled.style,
         commutes: !blending.blend,
-        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}`),
+        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}`),
       });
       continue;
     }
@@ -218,18 +269,21 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       // An empty one is still drawn: the stroke that paints its first pixels shows through it.
       const { size, transform: t } = layer;
       const mask = maskOf(layer, size);
+      const matrix = layerMatrix(t, size);
+      const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
         kind: "pixel",
         layerId: layer.id,
         surface: layer.surface,
         transform: t,
         size,
-        matrix: layerMatrix(t, size),
+        matrix,
         opacity: blending.opacity,
         mask,
         blend: blending.blend,
+        style: styled.style,
         commutes: !blending.blend,
-        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}`),
+        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}`),
       });
       continue;
     }

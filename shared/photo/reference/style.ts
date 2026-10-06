@@ -195,7 +195,18 @@ function over(dst: Rgba, encoded: [number, number, number], alpha: number, mode:
   return compositePixel(dst, [lin[0] * alpha, lin[1] * alpha, lin[2] * alpha, alpha], params);
 }
 
-const lerp = (a: Rgba, b: Rgba, t: number): Rgba => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t];
+/**
+ * Mixing two premultiplied linear pixels by `t` in the compositing's values (encoded for "photoshop", as Photoshop
+ * mixes: the layer's coverage between its two worlds, its Opacity), back to premultiplied linear.
+ */
+function lerp(a: Rgba, b: Rgba, t: number, compositing: Compositing): Rgba {
+  if (compositing === "linear") return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t];
+  const enc = (p: Rgba): Rgba => (p[3] > 0 ? [linearToSrgb(p[0] / p[3]) * p[3], linearToSrgb(p[1] / p[3]) * p[3], linearToSrgb(p[2] / p[3]) * p[3], p[3]] : [0, 0, 0, 0]);
+  const ea = enc(a);
+  const eb = enc(b);
+  const m = ea.map((v, i) => v + (eb[i] - v) * t) as Rgba;
+  return m[3] > 0 ? [srgbToLinear(m[0] / m[3]) * m[3], srgbToLinear(m[1] / m[3]) * m[3], srgbToLinear(m[2] / m[3]) * m[3], m[3]] : [0, 0, 0, 0];
+}
 
 /** An effect's colour here: its own, or its gradient's at a position (reversed with Reverse). */
 function colourOf(e: EffectInstance, at: number): [number, number, number, number] {
@@ -240,11 +251,11 @@ export function styledPixel(ctx: StyleContext, p: StyledPixel): Rgba {
     inside = compositePixel(insideBase, straight, content);
     for (const e of interior) inside = draw(inside, e, interiorCover(e));
   }
-  let result = lerp(outside, inside, alpha);
+  let result = lerp(outside, inside, alpha, compositing);
   // The strokes, over it all.
   for (const e of effects) if (e.type === "stroke") result = draw(result, e, p.coverage[e.id] ?? 0);
   // Opacity, and a mask that hides the effects too.
-  result = lerp(p.backdrop, result, layer.opacity * p.mask);
+  result = lerp(p.backdrop, result, layer.opacity * p.mask, compositing);
   const channels = layer.blending?.channels;
   if (channels) [channels.r, channels.g, channels.b].forEach((keep, i) => !keep && (result[i] = p.backdrop[i]));
   return result;

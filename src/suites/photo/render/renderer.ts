@@ -38,6 +38,7 @@ import { photoApi } from "../api.ts";
 import type { SurfacePart } from "../paint-target.ts";
 import { type SurfaceUploads, uploadsFor } from "../uploads.ts";
 import type { AtlasFormat } from "./atlas.ts";
+import { planFields } from "./style.ts";
 import { COMPOSITE_FORMATS, Compositor, type Drawable, type EvaluatorStats, type LayerDraw, type PlanSources, type Quality, type WorkPair, compositeTexture, needsPass } from "./compositor.ts";
 import { RenderContext } from "./context.ts";
 import { type Gpu, createGpu } from "./gpu.ts";
@@ -226,7 +227,7 @@ export class PhotoRenderer {
   }
 
   /** The screen's counted work (image draws, adjustment passes, resumes from kept composites): pictures' isn't. */
-  readonly stats: EvaluatorStats = { imageDraws: 0, adjustmentPasses: 0, blendPasses: 0, resumed: 0 };
+  readonly stats: EvaluatorStats = { imageDraws: 0, adjustmentPasses: 0, blendPasses: 0, stylePasses: 0, resumed: 0 };
 
   /** What each image is doing (the Layers panel shows missing and failed ones). */
   sourceState(mediaId: string): SourceState {
@@ -416,6 +417,8 @@ export class PhotoRenderer {
       return { source: image, matrix: layerMatrix(node.transform, image.layout), transform: node.transform, opacity: node.opacity, mask };
     },
     mask: (node: AdjustmentNode): Drawable | null => this.surfaceOf(node.layerId, "mask"),
+    // A styled layer's fields follow its pixels and mask as they change (strokes, tiles arriving).
+    revision: (node: DrawNode) => `${this.residency}|${this.surfaceOf(node.layerId, "content")?.revision ?? ""}|${this.surfaceOf(node.layerId, "mask")?.revision ?? ""}`,
   };
 
   /** Whether every image the plan draws has loaded (or can't), and every surface shows its pixels: only then is a refinement final. */
@@ -444,6 +447,11 @@ export class PhotoRenderer {
       if (node.kind !== "image") continue;
       const image = this.sources.get(node.mediaId)?.image;
       if (!image) continue;
+      // A styled image's fields are made from all of it, at their level: level 0's tiles are fetched (the rest are
+      // always there).
+      if (node.style && planFields(node, image.image.levels.length).level === 0) {
+        fetched += await image.ensureVisible({ x: 0, y: 0, width: image.layout.width, height: image.layout.height, zoom: 1 });
+      }
       const matrix = layerMatrix(node.transform, image.layout);
       const scale = layerScale(node.transform);
       if (levelForScale(view.zoom * scale, image.image.levels.length) !== 0) continue;
@@ -793,7 +801,7 @@ export class PhotoRenderer {
       canvas: size,
       compositing: "linear",
       background: [0, 0, 0, 1],
-      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, blend: null, commutes: true, key: "mask" }],
+      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, blend: null, style: null, commutes: true, key: "mask" }],
       baseKey: "mask",
       prefixKeys: ["mask"],
       key: "mask",

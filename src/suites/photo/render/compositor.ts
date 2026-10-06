@@ -28,6 +28,7 @@ import type { AdjustmentNode, DrawNode, PlanFormat, PlanNode, RenderPlan } from 
 import type { LayerTransform } from "@shared/photo/types.ts";
 import { ADJUSTMENT_KERNELS, adjustmentShader } from "./adjustments.ts";
 import { BLEND, BLEND_PARAMS_SIZE, BLEND_STRUCT, packBlend } from "./blend.ts";
+import { STYLE_COMPOSITE, STYLE_UNIFORM_SIZE, StyleFields, packStyle, planFields } from "./style.ts";
 import type { RenderContext } from "./context.ts";
 import { ROUND_FOR_STORE } from "./kernels.ts";
 import type { VirtualImage } from "./image.ts";
@@ -62,6 +63,8 @@ export interface LayerDraw {
 export interface PlanSources {
   draw: (node: DrawNode) => LayerDraw | null;
   mask: (node: AdjustmentNode) => Drawable | null;
+  /** What a styled layer's fields are keyed by besides the plan: its pixels' and mask's changes (a stroke, tiles arriving). */
+  revision?: (node: DrawNode) => string;
 }
 
 /** Counted work, for the gate "re-renders only what depends on it". */
@@ -72,6 +75,8 @@ export interface EvaluatorStats {
   adjustmentPasses: number;
   /** Blend passes run (layers with a mode, Blend If or channels). */
   blendPasses: number;
+  /** Style passes run (layers with effects). */
+  stylePasses: number;
   /** Evaluations that started from a kept result below an adjustment. */
   resumed: number;
 }
@@ -353,6 +358,8 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 `;
 
 const UNIFORM_STRIDE = 256;
+/** A styled layer's composite uniform's slot (it's more than 256 bytes). */
+const STYLE_SLOT = 512;
 
 /** Whether a layer's pixel centres land exactly on the target's pixel centres (so it's read texel for texel). */
 export function alignedLayer(matrix: Affine, view: Pick<View, "x" | "y" | "zoom">): boolean {
@@ -388,7 +395,7 @@ export interface EvaluateOptions {
  * Whether a node runs as a pass of its own, reading the composite below (an adjustment, or a layer that blends by
  * more than Normal): the places an evaluation can resume from.
  */
-export const needsPass = (node: PlanNode) => node.kind === "adjustment" || node.blend !== null;
+export const needsPass = (node: PlanNode) => node.kind === "adjustment" || node.blend !== null || node.style !== null;
 
 const COMPOSITE_USAGE = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST;
 
@@ -418,6 +425,7 @@ const ADJUSTMENT_UNIFORM = 32 + BLEND_PARAMS_SIZE;
 interface Pipelines {
   layer: Record<PlanFormat, GPURenderPipeline>;
   blend: Record<PlanFormat, GPURenderPipeline>;
+  style: Record<PlanFormat, GPURenderPipeline>;
   decode: Record<PlanFormat, GPURenderPipeline>;
   adjustment: Map<string, GPURenderPipeline>;
   reduce: Record<PlanFormat, GPURenderPipeline>;
@@ -430,7 +438,15 @@ interface Pipelines {
 
 export class Compositor {
   readonly pipelines: Pipelines;
-  readonly stats: EvaluatorStats = { imageDraws: 0, adjustmentPasses: 0, blendPasses: 0, resumed: 0 };
+  readonly stats: EvaluatorStats = { imageDraws: 0, adjustmentPasses: 0, blendPasses: 0, stylePasses: 0, resumed: 0 };
+  /** Layers' effect fields, made and kept (render/style.ts). */
+  readonly styleFields: StyleFields;
+  /** Styled layers' composite uniforms for an evaluation (512 bytes a slot). */
+  private styleUniforms: GPUBuffer;
+  /** Each styled layer's effects and tables on the GPU, by its node's key and its fields' plan. */
+  private readonly styleData = new Map<string, { fx: GPUBuffer; tables: GPUBuffer; count: number }>();
+  /** A styled layer's mask drawn alone (Layer Mask Hides Effects), as big as the biggest view. */
+  private maskScratch: GPUTexture | null = null;
   private uniforms: GPUBuffer;
   /** Adjustments' masks' parameters for an evaluation, one slot each. */
   private maskUniforms: GPUBuffer;
@@ -456,6 +472,8 @@ export class Compositor {
       mask: GPUBindGroupLayout;
       twoTextures: GPUBindGroupLayout;
       blendUniform: GPUBindGroupLayout;
+      threeTextures: GPUBindGroupLayout;
+      styleData: GPUBindGroupLayout;
     },
     pipelines: Pipelines,
     private readonly formats: readonly PlanFormat[],
@@ -467,6 +485,8 @@ export class Compositor {
     this.uniforms = device.createBuffer({ size: UNIFORM_STRIDE * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.maskUniforms = device.createBuffer({ size: UNIFORM_STRIDE * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.blendUniforms = device.createBuffer({ size: UNIFORM_STRIDE * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.styleUniforms = device.createBuffer({ size: STYLE_SLOT * 8, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.styleFields = new StyleFields(device);
     this.sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
     this.blank = device.createTexture({ size: [1, 1], format: "rgba8unorm-srgb", usage: GPUTextureUsage.TEXTURE_BINDING });
     this.emptyTable = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE });
@@ -524,6 +544,15 @@ export class Compositor {
       ],
     });
     const blendUniform = device.createBindGroupLayout({ label: "blend", entries: [{ binding: 0, visibility: FRAG, buffer: { type: "uniform", hasDynamicOffset: true } }] });
+    const threeTextures = device.createBindGroupLayout({
+      label: "below + drawn + mask",
+      entries: [0, 1, 2].map((binding) => ({ binding, visibility: FRAG, texture: { sampleType: "unfilterable-float" as const } })),
+    });
+    const READ: GPUBufferBindingLayout = { type: "read-only-storage" };
+    const styleData = device.createBindGroupLayout({
+      label: "style data",
+      entries: [0, 1, 2].map((binding) => ({ binding, visibility: FRAG, buffer: READ })),
+    });
     const quantize = device.createBindGroupLayout({
       label: "quantize",
       entries: [
@@ -547,6 +576,7 @@ export class Compositor {
 
     const layer = {} as Record<PlanFormat, GPURenderPipeline>;
     const blendPipelines = {} as Record<PlanFormat, GPURenderPipeline>;
+    const stylePipelines = {} as Record<PlanFormat, GPURenderPipeline>;
     const decode = {} as Record<PlanFormat, GPURenderPipeline>;
     const reduce = {} as Record<PlanFormat, GPURenderPipeline>;
     const sample = {} as Record<PlanFormat, GPURenderPipeline>;
@@ -559,12 +589,13 @@ export class Compositor {
       compute("quantize 8", QUANTIZE(8)),
     ]);
     layer.rgba16float = first;
-    const pipelines: Pipelines = { layer, blend: blendPipelines, decode, adjustment, reduce, sample, present, quantize8, quantize16: null };
+    const pipelines: Pipelines = { layer, blend: blendPipelines, style: stylePipelines, decode, adjustment, reduce, sample, present, quantize8, quantize16: null };
     const rest: Promise<unknown>[] = [compute("quantize 16", QUANTIZE(16)).then((p) => (pipelines.quantize16 = p))];
     for (const format of formats) {
       if (format !== "rgba16float") rest.push(render(`layer ${format}`, LAYER, [ctx.kernels.atlasLayout, ctx.kernels.imageLayout, layerGroup, ctx.kernels.imageLayout], format, true).then((p) => (layer[format] = p)));
       rest.push(
         render(`blend ${format}`, BLEND_PASS(format), [twoTextures, blendUniform], format).then((p) => (blendPipelines[format] = p)),
+        render(`style ${format}`, STYLE_COMPOSITE(format), [threeTextures, blendUniform, styleData], format).then((p) => (stylePipelines[format] = p)),
         render(`decode ${format}`, DECODE(format), [texture], format).then((p) => (decode[format] = p)),
         render(`reduce ${format}`, REDUCE(format), [textureUniform], format).then((p) => (reduce[format] = p)),
         render(`sample ${format}`, SAMPLE(format), [textureUniform], format).then((p) => (sample[format] = p)),
@@ -573,7 +604,7 @@ export class Compositor {
         ),
       );
     }
-    return new Compositor(ctx, { layer: layerGroup, texture, textureUniform, params, quantize, mask, twoTextures, blendUniform }, pipelines, formats, Promise.all(rest).then(() => {}));
+    return new Compositor(ctx, { layer: layerGroup, texture, textureUniform, params, quantize, mask, twoTextures, blendUniform, threeTextures, styleData }, pipelines, formats, Promise.all(rest).then(() => {}));
   }
 
   /** Whether every pipeline `plan` needs has compiled (and, to refine it, the reduction's). */
@@ -583,6 +614,7 @@ export class Compositor {
     if (refine && (!p.reduce[plan.format] || !p.sample[plan.format])) return false;
     if (plan.compositing === "photoshop" && !p.decode[plan.format]) return false;
     if (plan.nodes.some((n) => n.kind !== "adjustment" && n.blend) && !p.blend[plan.format]) return false;
+    if (plan.nodes.some((n) => n.kind !== "adjustment" && n.style) && !p.style[plan.format]) return false;
     return plan.nodes.every((n) => n.kind !== "adjustment" || p.adjustment.has(`${n.type}:${plan.format}`));
   }
 
@@ -595,13 +627,14 @@ export class Compositor {
       ["quantize 16", QUANTIZE(16)],
       ...COMPOSITE_FORMATS.flatMap((f): [string, string][] => [
         [`blend ${f}`, BLEND_PASS(f)],
+        [`style ${f}`, STYLE_COMPOSITE(f)],
         [`decode ${f}`, DECODE(f)],
         [`reduce ${f}`, REDUCE(f)],
         [`sample ${f}`, SAMPLE(f)],
         ...Object.entries(ADJUSTMENT_KERNELS).map(([type, k]): [string, string] => [`${type} ${f}`, adjustmentShader(k, f, ADJUSTMENT_MASK)]),
       ]),
     ];
-    const errors: string[] = [];
+    const errors: string[] = await StyleFields.compileErrors(device);
     for (const [label, code] of modules) {
       const info = await device.createShaderModule({ label, code }).getCompilationInfo();
       for (const m of info.messages) if (m.type === "error") errors.push(`${label}:${m.lineNum}: ${m.message}`);
@@ -683,9 +716,11 @@ export class Compositor {
     const start = options.from?.index ?? 0;
     // Every layer this evaluation draws, its uniforms written once (one slot each); every adjustment's mask and
     // blending; every blended layer's blending.
-    const images: { index: number; draw: LayerDraw }[] = [];
+    // A styled layer whose mask hides its effects is drawn unmasked, and its mask drawn alone as a second image.
+    const images: { index: number; draw: LayerDraw; maskOnly?: true }[] = [];
     const masks: { index: number; node: AdjustmentNode; mask: Drawable | null }[] = [];
     const blends: { index: number; node: DrawNode }[] = [];
+    const styled: { index: number; node: DrawNode; draw: LayerDraw }[] = [];
     for (let i = start; i < plan.nodes.length; i++) {
       const node = plan.nodes[i];
       if (node.kind === "adjustment") {
@@ -694,6 +729,13 @@ export class Compositor {
       }
       const d = sources.draw(node);
       if (!d) continue;
+      if (node.style) {
+        const hides = node.style.maskHidesEffects && d.mask;
+        images.push({ index: i, draw: hides ? { ...d, mask: null } : d });
+        if (hides) images.push({ index: i, draw: { source: d.mask!, matrix: d.matrix, transform: d.transform, opacity: 1, mask: null }, maskOnly: true });
+        styled.push({ index: i, node, draw: d });
+        continue;
+      }
       images.push({ index: i, draw: d });
       if (node.blend) blends.push({ index: i, node });
     }
@@ -705,12 +747,13 @@ export class Compositor {
     this.uniforms = grow(this.uniforms, images.length);
     if (images.length) {
       const data = new ArrayBuffer(UNIFORM_STRIDE * images.length);
-      images.forEach(({ index, draw: l }, i) => {
+      images.forEach(({ index, draw: l, maskOnly }, i) => {
         const f = new Float32Array(data, i * UNIFORM_STRIDE, 20);
         const u = new Uint32Array(data, i * UNIFORM_STRIDE, 20);
         const inv = invert(l.matrix);
-        // A blended layer is drawn alone at full strength: its opacity is the blend pass's.
-        const opacity = plan.nodes[index].kind !== "adjustment" && (plan.nodes[index] as DrawNode).blend ? 1 : l.opacity;
+        // A blended or styled layer is drawn alone at full strength: its opacity is its pass's.
+        const node = plan.nodes[index] as DrawNode;
+        const opacity = node.blend || node.style ? 1 : l.opacity;
         f.set([inv[0], inv[2], inv[4], 0, inv[1], inv[3], inv[5], 0, view.x, view.y, view.zoom, opacity, l.source.width, l.source.height], 0);
         const scale = view.zoom * layerScale(l.transform);
         u[14] = levelForScale(scale, l.source.image.levels.length);
@@ -718,11 +761,13 @@ export class Compositor {
         f[16] = scale;
         u[17] = l.source.preview ? 1 : 0;
         u[18] = l.mask ? 1 : 0;
-        u[19] = encoded ? 1 : 0;
+        // A mask drawn alone is coverage, never encoded.
+        u[19] = encoded && !maskOnly ? 1 : 0;
       });
       device.queue.writeBuffer(this.uniforms, 0, data);
     }
-    const slotOf = new Map(images.map((im, slot) => [im.index, { slot, draw: im.draw }]));
+    const slotOf = new Map(images.flatMap((im, slot) => (im.maskOnly ? [] : [[im.index, { slot, draw: im.draw }] as const])));
+    const maskOnlySlot = new Map(images.flatMap((im, slot) => (im.maskOnly ? [[im.index, { slot, draw: im.draw }] as const] : [])));
     // Adjustments' masks (where each reads its mask, at the view's level of it) and their blending.
     this.maskUniforms = grow(this.maskUniforms, masks.length);
     if (masks.length) {
@@ -742,6 +787,45 @@ export class Compositor {
       device.queue.writeBuffer(this.blendUniforms, 0, data);
     }
     const blendSlot = new Map(blends.map((b, slot) => [b.index, slot]));
+    // Styled layers: their fields (made now if they aren't kept), effects and composite uniforms.
+    if (styled.length * STYLE_SLOT > this.styleUniforms.size) {
+      this.styleUniforms.destroy();
+      this.styleUniforms = device.createBuffer({ size: STYLE_SLOT * Math.ceil(styled.length * 1.5), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    }
+    const styleOf = new Map<number, { slot: number; fields: GPUBuffer; fx: GPUBuffer; tables: GPUBuffer }>();
+    if (styled.length) {
+      const data = new ArrayBuffer(STYLE_SLOT * styled.length);
+      styled.forEach(({ index, node, draw }, slot) => {
+        const fieldPlan = planFields(node, draw.source.image.levels.length);
+        const content = node.kind === "image" ? `${node.mediaId}` : `${node.surface}`;
+        const maskKey = node.style!.maskHidesEffects ? "" : `${node.mask?.surface ?? ""}`;
+        const key = `${content}|${maskKey}|${node.size.width}x${node.size.height}|${fieldPlan.key}|${sources.revision?.(node) ?? ""}`;
+        const set = this.styleFields.fields(encoder, fieldPlan, key, () => this.drawForFields(encoder, draw, node.style!.maskHidesEffects ? null : draw.mask, fieldPlan, format));
+        const dataKey = `${node.key}|${fieldPlan.key}`;
+        let gpu = this.styleData.get(dataKey);
+        const packed = packStyle(node, node.blend!, node.opacity, plan.compositing, fieldPlan, draw.matrix, view);
+        if (!gpu) {
+          const buffer = (bytes: ArrayBufferLike, label: string) => {
+            const b = device.createBuffer({ label, size: Math.max(16, bytes.byteLength), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+            device.queue.writeBuffer(b, 0, bytes);
+            return b;
+          };
+          gpu = { fx: buffer(packed.fx, "style effects"), tables: buffer(packed.tables.buffer, "style tables"), count: packed.count };
+          this.styleData.set(dataKey, gpu);
+          while (this.styleData.size > 32) {
+            const [oldest, old] = this.styleData.entries().next().value!;
+            this.styleData.delete(oldest);
+            void device.queue.onSubmittedWorkDone().then(() => {
+              old.fx.destroy();
+              old.tables.destroy();
+            });
+          }
+        }
+        new Uint8Array(data, slot * STYLE_SLOT, STYLE_UNIFORM_SIZE).set(new Uint8Array(packed.uniform));
+        styleOf.set(index, { slot, fields: set.buffer, fx: gpu.fx, tables: gpu.tables });
+      });
+      device.queue.writeBuffer(this.styleUniforms, 0, data);
+    }
 
     let current = work.a;
     let clear = true;
@@ -764,7 +848,7 @@ export class Compositor {
     let i = start;
     while (i < plan.nodes.length) {
       const node = plan.nodes[i];
-      if (node.kind !== "adjustment" && !node.blend) {
+      if (node.kind !== "adjustment" && !node.blend && !node.style) {
         // A run of plain layers: one pass, each blended over the last by the GPU.
         const pass = encoder.beginRenderPass({
           colorAttachments: [{ view: current.createView(), loadOp: clear ? "clear" : "load", storeOp: "store", clearValue: plan.background }],
@@ -782,6 +866,65 @@ export class Compositor {
       if (clear) {
         this.clear(encoder, current, plan.background);
         clear = false;
+      }
+      if (node.kind !== "adjustment" && node.style) {
+        const entry = slotOf.get(i);
+        const style = styleOf.get(i);
+        if (!entry || !style) {
+          i++;
+          continue;
+        }
+        options.beforeAdjustment?.(i, current, encoder);
+        // The layer alone (and its mask alone, when it hides the effects), then the style pass.
+        const scratch = this.scratchFor(format, view.width, view.height);
+        const alone = encoder.beginRenderPass({ colorAttachments: [{ view: scratch.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
+        alone.setPipeline(this.pipelines.layer[format]);
+        alone.setViewport(0, 0, view.width, view.height, 0, 1);
+        drawLayer(alone, entry);
+        alone.end();
+        let maskTexture = scratch;
+        const maskEntry = maskOnlySlot.get(i);
+        if (maskEntry) {
+          maskTexture = this.maskScratchFor(format, view.width, view.height);
+          const m = encoder.beginRenderPass({ colorAttachments: [{ view: maskTexture.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
+          m.setPipeline(this.pipelines.layer[format]);
+          m.setViewport(0, 0, view.width, view.height, 0, 1);
+          drawLayer(m, maskEntry);
+          m.end();
+        }
+        const next = current === work.a ? work.b : work.a;
+        const pass = encoder.beginRenderPass({ colorAttachments: [{ view: next.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
+        pass.setPipeline(this.pipelines.style[format]);
+        pass.setBindGroup(
+          0,
+          device.createBindGroup({
+            layout: this.layouts.threeTextures,
+            entries: [
+              { binding: 0, resource: current.createView() },
+              { binding: 1, resource: scratch.createView() },
+              { binding: 2, resource: maskTexture.createView() },
+            ],
+          }),
+        );
+        pass.setBindGroup(1, device.createBindGroup({ layout: this.layouts.blendUniform, entries: [{ binding: 0, resource: { buffer: this.styleUniforms, size: STYLE_UNIFORM_SIZE } }] }), [style.slot * STYLE_SLOT]);
+        pass.setBindGroup(
+          2,
+          device.createBindGroup({
+            layout: this.layouts.styleData,
+            entries: [
+              { binding: 0, resource: { buffer: style.fields } },
+              { binding: 1, resource: { buffer: style.fx } },
+              { binding: 2, resource: { buffer: style.tables } },
+            ],
+          }),
+        );
+        pass.setViewport(0, 0, view.width, view.height, 0, 1);
+        pass.draw(3);
+        pass.end();
+        this.stats.stylePasses++;
+        current = next;
+        i++;
+        continue;
       }
       if (node.kind !== "adjustment") {
         const entry = slotOf.get(i);
@@ -851,6 +994,61 @@ export class Compositor {
     pass.draw(3);
     pass.end();
     return linear;
+  }
+
+  /** The texture a styled layer's mask is drawn alone into (as large as the biggest view asked for). */
+  private maskScratchFor(format: PlanFormat, width: number, height: number): GPUTexture {
+    const s = this.maskScratch;
+    if (s && s.format === format && s.width >= width && s.height >= height) return s;
+    s?.destroy();
+    this.maskScratch = compositeTexture(this.ctx.device, Math.max(width, s?.width ?? 0), Math.max(height, s?.height ?? 0), format, "style mask");
+    return this.maskScratch;
+  }
+
+  /**
+   * A layer drawn alone in its own pixels (at its fields' level, with their pad around it): what its effects' fields
+   * are made from. A uniform buffer of its own: these are rare.
+   */
+  private drawForFields(encoder: GPUCommandEncoder, draw: LayerDraw, mask: Drawable | null, plan: { level: number; pad: number; width: number; height: number }, format: PlanFormat): GPUTexture {
+    const { device } = this.ctx;
+    const texture = compositeTexture(device, plan.width, plan.height, format, "style matte");
+    const s = 2 ** plan.level;
+    const view = { x: -plan.pad * s, y: -plan.pad * s, zoom: 1 / s, width: plan.width, height: plan.height };
+    const uniform = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const f = new Float32Array(20);
+    const u = new Uint32Array(f.buffer);
+    // In its own pixels: the identity place.
+    f.set([1, 0, 0, 0, 0, 1, 0, 0, view.x, view.y, view.zoom, 1, draw.source.width, draw.source.height], 0);
+    u[14] = levelForScale(view.zoom, draw.source.image.levels.length);
+    u[15] = alignedLayer([1, 0, 0, 1, 0, 0], view) ? 2 : 1;
+    f[16] = view.zoom;
+    u[17] = draw.source.preview ? 1 : 0;
+    u[18] = mask ? 1 : 0;
+    u[19] = 0;
+    device.queue.writeBuffer(uniform, 0, f);
+    const group = device.createBindGroup({
+      layout: this.layouts.layer,
+      entries: [
+        { binding: 0, resource: { buffer: uniform, size: 80 } },
+        { binding: 1, resource: (draw.source.preview ?? this.blank).createView() },
+        { binding: 2, resource: this.sampler },
+      ],
+    });
+    draw.source.image.flush();
+    mask?.image.flush();
+    const pass = encoder.beginRenderPass({ colorAttachments: [{ view: texture.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
+    pass.setPipeline(this.pipelines.layer[format]);
+    pass.setBindGroup(0, draw.source.ctx.atlasBindGroup());
+    pass.setBindGroup(1, draw.source.ctx.imageBindGroup(draw.source.image));
+    pass.setBindGroup(2, group, [0]);
+    pass.setBindGroup(3, draw.source.ctx.imageBindGroup(mask?.image ?? draw.source.ctx.emptyImage));
+    pass.draw(3);
+    pass.end();
+    void device.queue.onSubmittedWorkDone().then(() => {
+      texture.destroy();
+      uniform.destroy();
+    });
+    return texture;
   }
 
   /** The scratch texture a blended layer is drawn alone into (as large as the biggest view asked for). */
@@ -934,6 +1132,13 @@ export class Compositor {
     this.maskUniforms.destroy();
     this.blendUniforms.destroy();
     this.scratch?.destroy();
+    this.maskScratch?.destroy();
+    this.styleUniforms.destroy();
+    this.styleFields.destroy();
+    for (const d of this.styleData.values()) {
+      d.fx.destroy();
+      d.tables.destroy();
+    }
     this.blank.destroy();
     this.emptyTable.destroy();
     for (const p of this.adjustmentParams.values()) {
