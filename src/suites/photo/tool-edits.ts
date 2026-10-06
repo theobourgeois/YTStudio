@@ -8,7 +8,8 @@ import { BLEND_IF_CHANNELS, BLEND_MODES, type BlendingPatch, compositingOf, desc
 import { contourPreset } from "@shared/photo/style/contours";
 import { STYLE_LIST, styleDefinition } from "@shared/photo/style/definitions";
 import { gradientPreset } from "@shared/photo/style/gradients";
-import { addStyleEffect, describeStyle, globalLightOf, newStyleEffect, removeStyleEffect, setGlobalLight, setLayerStyle, setStyleEffect, setStyleEnabled } from "@shared/photo/style/style";
+import { addStyleEffect, describeStyle, globalLightOf, newStyleEffect, removePattern, removeStyleEffect, renamePattern, scaleStyle, setGlobalLight, setLayerStyle, setStyleEffect, setStyleEnabled, stylePatterns } from "@shared/photo/style/style";
+import { BUILT_IN_PATTERNS } from "@shared/photo/style/patterns";
 import {
   addAdjustmentLayer,
   addFilter,
@@ -197,6 +198,7 @@ export function describePhoto(doc: PhotoProject, assets: readonly MediaAsset[], 
     doc.layers.length ? `Layers, top first (${doc.layers.length}):` : "No layers yet.",
     ...[...doc.layers].reverse().map((l) => describeLayer(l, assets, doc.layers.indexOf(l))),
   ];
+  if (doc.patterns?.length) lines.push(`The photo's patterns: ${doc.patterns.map((p) => `${p.id} "${p.name}" ${p.size.width}×${p.size.height}`).join(", ")}.`);
   if (selected.length) lines.push(`Selected layers: ${selected.join(", ")}.`);
   if (selection) lines.push(`Selection (marching ants): x ${round(selection.x)}..${round(selection.x + selection.width)}, y ${round(selection.y)}..${round(selection.y + selection.height)}.`);
   return lines.join("\n");
@@ -334,8 +336,17 @@ export const setLayerBlendingTool: PhotoEdit = (doc, input) => {
   return { doc: next, layerId: ids[0], text: next === doc ? `Nothing changed: ${lines.join("; ")}.` : `Blending: ${lines.join("; ")}.` };
 };
 
-/** A model's effect parameters, with contours and gradients by preset name allowed. */
-function effectParams(raw: unknown): Record<string, unknown> {
+/** A pattern by id or name (the photo's, or built in), or what the model can give instead. */
+export function patternRef(doc: PhotoProject, ref: unknown): string {
+  const name = String(ref ?? "").trim();
+  const all = [...BUILT_IN_PATTERNS.map((p) => ({ id: p.id as string, name: p.name })), ...(doc.patterns ?? [])];
+  const found = all.find((p) => p.id === name) ?? all.find((p) => p.name.toLowerCase() === name.toLowerCase());
+  if (!found) throw new Error(`No pattern "${name}". The patterns: ${all.map((p) => `${p.id} "${p.name}"`).join(", ")} (define_pattern makes one from the photo).`);
+  return found.id;
+}
+
+/** A model's effect parameters, with contours and gradients by preset name allowed, and patterns by name. */
+function effectParams(raw: unknown, doc: PhotoProject): Record<string, unknown> {
   if (raw === undefined) return {};
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error('params is an object of parameters, e.g. { "size": 12, "opacity": 50 }.');
   const out: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
@@ -349,8 +360,34 @@ function effectParams(raw: unknown): Record<string, unknown> {
     if (!g) throw new Error(`No gradient preset "${out.gradient}": give its stops instead.`);
     out.gradient = g;
   }
+  for (const key of ["pattern", "texture"]) if (out[key] !== undefined) out[key] = patternRef(doc, out[key]);
   return out;
 }
+
+/** `set_pattern`: one of the photo's patterns renamed or deleted. */
+export const setPatternTool: PhotoEdit = (doc, input) => {
+  const id = patternRef(doc, input.pattern);
+  const pattern = doc.patterns?.find((p) => p.id === id);
+  if (!pattern) throw new Error(`"${String(input.pattern)}" is a built-in pattern: only the photo's own can be renamed or deleted.`);
+  if (input.remove === true) {
+    const next = removePattern(doc, id);
+    if (next === doc) throw new Error(`"${pattern.name}" is used by an effect (${doc.layers.filter((l) => stylePatterns([l]).includes(id)).map((l) => `"${l.name}"`).join(", ")}): change those effects' pattern first.`);
+    return { doc: next, text: `Deleted the pattern "${pattern.name}".` };
+  }
+  if (typeof input.name !== "string" || !input.name.trim()) throw new Error("Give name to rename it, or remove: true to delete it.");
+  const next = renamePattern(doc, id, input.name);
+  return { doc: next, text: `The pattern ${id} is "${next.patterns!.find((p) => p.id === id)!.name}".` };
+};
+
+/** `scale_layer_effects`: Scale Effects on layers. */
+export const scaleLayerEffectsTool: PhotoEdit = (doc, input) => {
+  const layers = (Array.isArray(input.layers) ? input.layers : [input.layers]).map((r) => findLayerRef(doc, r));
+  const scale = num(input.scale);
+  if (scale === undefined || scale < 1 || scale > 1000) throw new Error("scale is a percentage from 1 to 1000 (200 doubles every size, 50 halves it).");
+  const next = scaleStyle(doc, layers.map((l) => l.id), scale / 100);
+  const lines = layers.map((l) => `"${l.name}": ${describeStyle(findLayer(next, l.id)!) ?? "no effects"}`);
+  return { doc: next, layerId: layers[0]?.id, text: next === doc ? `Nothing changed (no effects with sizes): ${lines.join("; ")}.` : `Scaled their effects to ${scale}%. ${lines.join("; ")}.` };
+};
 
 /** `set_layer_style`: a layer's effects added, changed, hidden or removed. */
 export const setLayerStyleTool: PhotoEdit = (doc, input) => {
@@ -367,7 +404,7 @@ export const setLayerStyleTool: PhotoEdit = (doc, input) => {
     if (!def) throw new Error(`No effect "${input.add}". The effects: ${STYLE_LIST.join(", ")}.`);
     const have = (findLayer(next, layer.id)!.style?.effects ?? []).filter((e) => e.type === def.type).length;
     if (have >= def.max) throw new Error(`"${layer.name}" has ${have} ${def.label} already, the most it can have: change it with effect "${def.type}" instead.`);
-    const e = newStyleEffect(def.type, createId("fx"), effectParams(input.params))!;
+    const e = newStyleEffect(def.type, createId("fx"), effectParams(input.params, doc))!;
     next = addStyleEffect(next, layer.id, e);
     said.push(`added ${def.label} ${e.id}`);
   } else if (input.effect !== undefined) {
@@ -378,7 +415,7 @@ export const setLayerStyleTool: PhotoEdit = (doc, input) => {
       next = removeStyleEffect(next, layer.id, e.id);
       said.push(`removed ${e.id}`);
     } else {
-      next = setStyleEffect(next, layer.id, e.id, { enabled: typeof input.enabled === "boolean" ? input.enabled : undefined, params: input.params !== undefined ? effectParams(input.params) : undefined });
+      next = setStyleEffect(next, layer.id, e.id, { enabled: typeof input.enabled === "boolean" ? input.enabled : undefined, params: input.params !== undefined ? effectParams(input.params, doc) : undefined });
       said.push(`changed ${e.id}`);
     }
   }

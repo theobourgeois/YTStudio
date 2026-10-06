@@ -21,6 +21,8 @@ import {
   setLayerBlendingTool,
   setLayerStyleTool,
   setLayerTool,
+  setPatternTool,
+  scaleLayerEffectsTool,
   transformLayerTool,
 } from "./tool-edits";
 
@@ -220,5 +222,32 @@ describe("the assistant's light", () => {
     const doc = setCanvasTool(empty, { highlights: "clip" }, env).doc;
     expect(doc.output.highlights).toBe("clip");
     expect(() => setCanvasTool(empty, { highlights: "soft" }, env)).toThrow(/film/);
+  });
+});
+
+describe("the assistant's patterns and Scale Effects", () => {
+  const withCat = () => addImageLayerTool(createPhotoProject("P", { width: 400, height: 400 }), { media: "cat.png" }, env).doc;
+  const patterned = (): PhotoProject => ({ ...withCat(), patterns: [{ id: "pat_1", name: "Fur", surface: "f".repeat(64), size: { width: 32, height: 32 } }] });
+  it("takes patterns by id or name, the photo's or built in, and says which there are", () => {
+    let doc = setLayerStyleTool(patterned(), { layer: "cat", add: "pattern-overlay", params: { pattern: "fur", scale: 50 } }, env).doc;
+    expect(doc.layers[0].style!.effects[0].params).toMatchObject({ pattern: "pat_1", scale: 50 });
+    doc = setLayerStyleTool(doc, { layer: "cat", add: "bevel-emboss", params: { useTexture: true, texture: "Bricks" } }, env).doc;
+    expect(doc.layers[0].style!.effects[1].params.texture).toBe("builtin:bricks");
+    expect(() => setLayerStyleTool(doc, { layer: "cat", add: "stroke", params: { fill: "pattern", pattern: "Zebra" } }, env)).toThrow(/pat_1 "Fur"/);
+    expect(describePhoto(doc, env.assets, [])).toMatch(/patterns: pat_1 "Fur" 32×32/);
+  });
+  it("renames and deletes the photo's patterns, but not one in use", () => {
+    let doc = setPatternTool(patterned(), { pattern: "Fur", name: "Coat" }, env).doc;
+    expect(doc.patterns![0].name).toBe("Coat");
+    const used = setLayerStyleTool(doc, { layer: "cat", add: "pattern-overlay", params: { pattern: "pat_1" } }, env).doc;
+    expect(() => setPatternTool(used, { pattern: "pat_1", remove: true }, env)).toThrow(/used by an effect \("cat"\)/);
+    expect(setPatternTool(doc, { pattern: "pat_1", remove: true }, env).doc.patterns).toBeUndefined();
+    expect(() => setPatternTool(doc, { pattern: "Bricks", remove: true }, env)).toThrow(/built-in/);
+  });
+  it("scales every size of the layers' effects", () => {
+    let doc = setLayerStyleTool(withCat(), { layer: "cat", add: "drop-shadow", params: { distance: 10, size: 8 } }, env).doc;
+    doc = scaleLayerEffectsTool(doc, { layers: ["cat"], scale: 150 }, env).doc;
+    expect(doc.layers[0].style!.effects[0].params).toMatchObject({ distance: 15, size: 12 });
+    expect(() => scaleLayerEffectsTool(doc, { layers: ["cat"], scale: 0 }, env)).toThrow(/1 to 1000/);
   });
 });

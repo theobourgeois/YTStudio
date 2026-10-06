@@ -8,18 +8,19 @@ import { createId } from "@shared/ids";
 import { stepBlendMode } from "@shared/photo/blending";
 import { addFilter, addGeneratorLayer, addPixelLayer, arrangeLayers, duplicateLayers, findLayer, removeFilter, removeLayers, removeMask, replaceLayer, setLayerBlending, setMask, shiftLayers } from "@shared/photo/edits";
 import { effectDefinition } from "@shared/photo/effects/index";
-import { type BlendMode, type BlendingOptions, type LayerStyle, hasContent } from "@shared/photo/types";
-import { setLayerStyle, setStyleEnabled } from "@shared/photo/style/style";
+import { type BlendMode, type BlendingOptions, type LayerStyle, type PhotoPattern, hasContent } from "@shared/photo/types";
+import { remapStylePatterns, setLayerStyle, setStyleEnabled, stylePatterns, withPatterns } from "@shared/photo/style/style";
 import { liveRenderer } from "./live";
 import { mergeLayers } from "./merge";
 import { type LayerSelection, allLayers, edgeLayer, inStackOrder, stepLayer } from "./selection";
 import { currentDoc, currentSelection, usePhoto } from "./store";
 import { usePhotoUi } from "./ui";
+import { type SurfaceUploads, uploadsFor } from "./uploads";
 
 const order = () => usePhoto.getState().history?.doc.doc.layers.map((l) => l.id) ?? [];
 
 /** What Copy Layer Style kept (this tab's, as Photoshop's is the application's). */
-let copiedStyle: { style: LayerStyle | null; blend?: BlendMode; fill?: number; blending?: BlendingOptions } | null = null;
+let copiedStyle: { style: LayerStyle | null; blend?: BlendMode; fill?: number; blending?: BlendingOptions; patterns: PhotoPattern[]; uploads: SurfaceUploads } | null = null;
 
 /** The selected layers, bottom first. */
 export const selectedInOrder = () => inStackOrder(usePhotoUi.getState().selectedLayerIds, order());
@@ -110,18 +111,30 @@ export const layerActions = {
   /** Copy Layer Style: the active layer's style (and Blending Options), kept for Paste. */
   copyStyle: () => {
     const { selectedLayerId } = usePhotoUi.getState();
-    const layer = selectedLayerId ? findLayer(usePhoto.getState().history!.doc.doc, selectedLayerId) : undefined;
-    if (!layer) return;
-    copiedStyle = { style: layer.style ? structuredClone(layer.style) : null, blend: layer.blend, fill: layer.fill, blending: layer.blending ? structuredClone(layer.blending) : undefined };
+    const { projectId, history } = usePhoto.getState();
+    const doc = history!.doc.doc;
+    const layer = selectedLayerId ? findLayer(doc, selectedLayerId) : undefined;
+    if (!layer || !projectId) return;
+    // The photo's patterns it reads go with it (a paste in another photo brings them).
+    const used = stylePatterns([layer]);
+    const patterns = (doc.patterns ?? []).filter((p) => used.includes(p.id));
+    copiedStyle = { style: layer.style ? structuredClone(layer.style) : null, blend: layer.blend, fill: layer.fill, blending: layer.blending ? structuredClone(layer.blending) : undefined, patterns, uploads: uploadsFor(projectId) };
     toast.success(`Copied "${layer.name}"'s layer style`);
   },
-  /** Paste Layer Style onto every selected layer (one undo step). */
-  pasteStyle: () => {
+  /** Paste Layer Style onto every selected layer (one undo step), with the patterns it reads. */
+  pasteStyle: async () => {
     const ids = usePhotoUi.getState().selectedLayerIds;
     const copied = copiedStyle;
-    if (!copied || !ids.length) return;
+    const projectId = usePhoto.getState().projectId;
+    if (!copied || !ids.length || !projectId) return;
+    try {
+      for (const p of copied.patterns) await uploadsFor(projectId).importFrom(copied.uploads, p.surface);
+    } catch (error) {
+      return void toast.error("Couldn't paste the style's patterns", { description: error instanceof Error ? error.message : String(error) });
+    }
     usePhoto.getState().commit((d) => {
-      let next = setLayerStyle(d, ids.filter((id) => findLayer(d, id)?.kind !== "adjustment"), copied.style, () => createId("fx"));
+      const brought = withPatterns(d, copied.patterns, () => createId("pat"));
+      let next = setLayerStyle(brought.doc, ids.filter((id) => findLayer(d, id)?.kind !== "adjustment"), copied.style && remapStylePatterns(copied.style, brought.ids), () => createId("fx"));
       next = setLayerBlending(next, ids, { blend: copied.blend ?? "normal", fill: copied.fill ?? 1, channels: copied.blending?.channels ?? { r: true, g: true, b: true }, blendIf: copied.blending?.blendIf ?? null, interiorAsGroup: copied.blending?.interiorAsGroup ?? false, maskHidesEffects: copied.blending?.maskHidesEffects ?? false });
       return next;
     });

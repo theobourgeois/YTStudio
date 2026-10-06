@@ -30,6 +30,7 @@ import { api } from "@/lib/api";
 import { CanvasPanel, actualPixels, canvasPointAt, fitToCanvas, zoomBy } from "./canvas/canvas-panel";
 import { PhotoExportWindow } from "./export-window";
 import { LayerStyleWindow } from "./layer-style/layer-style-window";
+import { ScaleEffectsWindow } from "./layer-style/scale-effects-window";
 import { resolvePhotoKey } from "./keys";
 import { layerActions, selectedInOrder } from "./layer-actions";
 import { liveRenderer } from "./live";
@@ -37,10 +38,11 @@ import { isImage } from "./media";
 import { LayersPanel } from "./panels/layers-panel";
 import { usePhotoPreferences } from "./preferences";
 import { PropertiesPanel } from "./panels/properties-panel";
+import { StylesPanel } from "./panels/styles-panel";
 import { currentDoc, currentSelection, flushPhotos, photoGesture, usePhoto } from "./store";
 import { type PhotoTool, useActiveTool, usePhotoUi } from "./ui";
 
-type PhotoPanel = "canvas" | "layers" | "properties";
+type PhotoPanel = "canvas" | "layers" | "properties" | "styles";
 type PhotoWindowId = "export" | `panel:${string}`;
 
 const usePhotoWindows = createWindows<PhotoWindowId>();
@@ -62,7 +64,7 @@ const defaultLayout = (): DockLayout<PhotoPanel> => ({
         sizes: [380, 420],
         children: [
           { type: "group", id: "layers", panels: ["layers"], active: "layers" },
-          { type: "group", id: "properties", panels: ["properties"], active: "properties" },
+          { type: "group", id: "properties", panels: ["properties", "styles"], active: "properties" },
         ],
       },
     ],
@@ -72,7 +74,7 @@ const defaultLayout = (): DockLayout<PhotoPanel> => ({
 
 const usePhotoDock = createDock<PhotoPanel, PhotoWindowId>({
   key: "editor-photo-layout",
-  panels: ["canvas", "layers", "properties"],
+  panels: ["canvas", "layers", "properties", "styles"],
   initial: defaultLayout,
   windows: usePhotoWindows,
   windowId: panelWindow,
@@ -82,6 +84,7 @@ const PANELS: Record<PhotoPanel, DockPanel> = {
   canvas: { title: "Canvas", render: () => <CanvasPanel />, keepMounted: true, minWidth: 320, minHeight: 240 },
   layers: { title: "Layers", render: () => <LayersPanel />, minWidth: 220, minHeight: 140 },
   properties: { title: "Properties", render: () => <PropertiesPanel />, minWidth: 220, minHeight: 160 },
+  styles: { title: "Styles", render: () => <StylesPanel />, minWidth: 180, minHeight: 120 },
 };
 
 export default function PhotoWorkspace() {
@@ -144,11 +147,13 @@ function ImageDrop({ children }: { children: ReactNode }) {
 function PhotoDesktop() {
   const exportOpen = usePhotoUi((s) => s.exportOpen);
   const layerStyle = usePhotoUi((s) => s.layerStyle);
+  const scaleEffects = usePhotoUi((s) => s.scaleEffects);
   return (
     <Desktop windows={usePhotoWindows} name="photo" label="Photo windows" overlay className="absolute inset-0 z-50">
       <FloatingPanels dock={usePhotoDock} panels={PANELS} windowId={panelWindow} />
       {exportOpen && <PhotoExportWindow />}
       {layerStyle && <LayerStyleWindow key={layerStyle.layerId} layerId={layerStyle.layerId} page={layerStyle.page} />}
+      {scaleEffects && <ScaleEffectsWindow key={scaleEffects.join()} layerIds={scaleEffects} />}
     </Desktop>
   );
 }

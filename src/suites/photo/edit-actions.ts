@@ -13,7 +13,9 @@ import { errorMessage } from "@shared/errors";
 import { createId } from "@shared/ids";
 import { addPixelLayer, findLayer, setMask } from "@shared/photo/edits";
 import { allSelection } from "@shared/photo/selection";
-import type { LayerTransform, PhotoProject, PhotoSelection, SurfaceId } from "@shared/photo/types";
+import type { LayerTransform, PhotoPattern, PhotoProject, PhotoSelection, SurfaceId } from "@shared/photo/types";
+import { MAX_PATTERN_SIDE } from "@shared/photo/style/patterns";
+import { addPattern } from "@shared/photo/style/style";
 import { strokeColour } from "./brush-options";
 import { useColours } from "./colours";
 import { liveRenderer } from "./live";
@@ -81,7 +83,34 @@ function claimSystemClipboard() {
   void navigator.clipboard?.writeText("").catch(() => {});
 }
 
+/**
+ * Define Pattern (Photoshop's Edit › Define Pattern): what the layer shows inside the selection (all of it with
+ * none) made a pattern of the photo's, named `name` (else "Pattern n"). One undo step; the same pixels twice are one
+ * pattern. Returns its id, or the reason it can't.
+ */
+export async function definePattern(doc: PhotoProject, layerId: string, selection: PhotoSelection | null, name?: string): Promise<{ pattern: PhotoPattern } | { error: string }> {
+  const result = await copied(doc, layerId, selection);
+  if ("error" in result) return result;
+  const { width, height } = result.size;
+  if (width > MAX_PATTERN_SIDE || height > MAX_PATTERN_SIDE) return { error: `A pattern can be at most ${MAX_PATTERN_SIDE} × ${MAX_PATTERN_SIDE} pixels; that's ${width} × ${height}. Select a smaller part.` };
+  const pattern: PhotoPattern = { id: createId("pat"), name: name?.trim() || `Pattern ${(doc.patterns?.length ?? 0) + 1}`, surface: result.surface, size: { width, height } };
+  // The same pixels are the same pattern.
+  const { id } = addPattern(doc, pattern);
+  return { pattern: doc.patterns?.find((p) => p.id === id) ?? pattern };
+}
+
 export const editActions = {
+  /** Define Pattern from the active layer and the selection; says what it made. */
+  async definePattern(layerId: string | null = usePhotoUi.getState().selectedLayerId): Promise<string | null> {
+    const o = open();
+    if (!o || !layerId) return void toast.error("Select a layer to make a pattern from."), null;
+    const made = await definePattern(o.doc, layerId, currentSelection());
+    if ("error" in made) return void toast.error(made.error), null;
+    usePhoto.getState().commit((d) => addPattern(d, made.pattern).doc);
+    toast.success(`Defined “${made.pattern.name}”`, { description: "It's in every pattern picker: Pattern Overlay, a stroke's Pattern fill, Bevel's Texture." });
+    return made.pattern.id;
+  },
+
   /** ⌘C: what the active layer shows inside the selection, put aside to paste. */
   async copy(layerId: string | null = usePhotoUi.getState().selectedLayerId): Promise<boolean> {
     const o = open();

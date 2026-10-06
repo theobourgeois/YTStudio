@@ -6,10 +6,11 @@ assistant); layers and adjustments (F2: Exposure and Curves adjustment layers, t
 composites for 16-bit sources); resources, selections, masks and the brush (F3: pixel layers, layer masks, the
 Rectangular Marquee, the round brush, the publication gate and collection); light (F4: the glow as a filter, the
 Lens Flare as a generator layer, the `film` highlights; [f4-light.md](f4-light.md)). Results in
-[foundations-prototype.md](foundations-prototype.md#f4-results-2026-10-06). Layer Style's first three phases are built
+[foundations-prototype.md](foundations-prototype.md#f4-results-2026-10-06). Layer Style's four phases are built
 (L1: Blending Options, Photoshop's 27 blend modes, Fill, channels, Blend If and its compositing, the mode menu's live
 preview, the Layer Style window; L2: Drop and Inner Shadow, Outer and Inner Glow, Color and Gradient Overlay, Stroke,
-contours, gradients, Global Light; L3: Bevel & Emboss in every style and technique with its Contour page, Satin):
+contours, gradients, Global Light; L3: Bevel & Emboss in every style and technique with its Contour page, Satin; L4:
+patterns (Pattern Overlay, pattern strokes, Bevel's Texture, Define Pattern), Styles and Scale Effects):
 [layer-style/README.md](layer-style/README.md). F5 (harden) is next.
 
 A Photoshop-style image editor with dependable layers, masks, painting and retouching, and a particularly strong set
@@ -34,7 +35,7 @@ source's profile on the GPU without clipping, and leaves through one output tran
 4. [Rendering](rendering.md): colour, formats and precision, resampling, the output transform, tiles, the evaluator.
 5. [UX](ux.md): workspace, keys and interaction contracts for the first workflow.
 6. [Effects](effects/system.md): definitions, glow, the flare, porting from the video editor.
-   [Layer Style](layer-style/README.md): Blending Options and layer effects, researched and planned (L1–L3 built).
+   [Layer Style](layer-style/README.md): Blending Options and layer effects, researched and planned (L1–L4 built).
 7. [Foundations](foundations-prototype.md): milestones F0–F5, gates, targets, the evidence log.
    F4's detailed plan: [f4-light.md](f4-light.md).
 8. [Engine options](research/engine-options.md): why WebGPU in the page, measured; the fallbacks.
@@ -93,5 +94,6 @@ and **Unverified** (an open question). Théo's corrections override the referenc
 | A30 | A layer's style is `{ enabled, effects }` of `EffectInstance`s in drawing order; the document's `globalLight` (2026-10-06, L2). F4's `filters` (Smart Filters: the glow) stay apart | Photoshop's model: effects (fx) from the layer's coverage, distinct from filters on its pixels | — |
 | A31 | Effects' fields are made in the layer's own pixels (a pyramid level past 3072 px), kept by content and sizes, and sampled through the layer's transform (2026-10-06, L2) | Exact at every zoom with no view-sized apron; moving, zooming and recolouring never remake them | Memory: fields of very large layers |
 | A32 | Merging F4 and Layer Style: a layer with filters (and a generator with `blendSpace`) blends in linear light in a "photoshop" document too, unless it has layer effects; Linear Dodge is unbounded in linear light (Photoshop's encoded values stop at 1) (2026-10-06) | A27 (light adds physically): mixed in encoded values a glow's halo all but vanished (measured on the light sheet's night row); a flare keeps light above white | A glowing layer's own soft edges mix in linear light, not Photoshop's way |
+| A33 | Document version 6: the photo's patterns (`patterns`: a surface and a size each, in `documentSurfaces`); built-in patterns are code, never stored; styles (presets) are this computer's, carrying their patterns as PNGs (2026-10-06, Layer Style L4) | Photoshop keeps a file's patterns in the file; content-addressed surfaces make the same pixels one pattern; a style is a preference, not the photo's | Styles aren't synced between computers |
 
 Progress, measurements and gates live in [foundations-prototype.md](foundations-prototype.md).

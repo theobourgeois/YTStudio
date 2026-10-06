@@ -11,7 +11,7 @@
  * view's level at once and then **refined**: rendered at full resolution and reduced (`refine`), in the
  * background, and shown only if it's still what the screen should show (`LatestOnly`).
  */
-import { sourceTransform } from "@shared/photo/colour.ts";
+import { sourceTransform, srgbToLinear } from "@shared/photo/colour.ts";
 import { type View, levelForScale } from "@shared/photo/geometry.ts";
 import { fromHalf } from "@shared/photo/half.ts";
 import type { BrushSettings } from "@shared/photo/brush.ts";
@@ -20,6 +20,7 @@ import type { TileSize } from "@shared/photo/lab.ts";
 import { DITHER_8BIT, type Highlights } from "@shared/photo/output.ts";
 import {
   type DrawNode,
+  type PatternRef,
   type PlanFormat,
   type RenderPlan,
   type SourceFacts,
@@ -32,13 +33,14 @@ import {
   refinePlan,
 } from "@shared/photo/render-plan.ts";
 import { type SurfaceManifest, emptySurface, withTiles } from "@shared/photo/surfaces.ts";
-import { type LayerTransform, type PhotoProject, type PhotoSelection, type SurfaceId, isPlaced } from "@shared/photo/types.ts";
+import { type LayerStyle, type LayerTransform, PHOTO_VERSION, type PhotoLayer, type PhotoPattern, type PhotoProject, type PhotoSelection, type SurfaceId, isPlaced } from "@shared/photo/types.ts";
 import type { MediaAsset } from "@shared/types";
 import { photoApi } from "../api.ts";
 import type { SurfacePart } from "../paint-target.ts";
 import { type SurfaceUploads, uploadsFor } from "../uploads.ts";
 import type { AtlasFormat } from "./atlas.ts";
 import { planFields } from "./style.ts";
+import { readSurface, surfaceFromPixels } from "../surface-pixels.ts";
 import { COMPOSITE_FORMATS, Compositor, type Drawable, type EvaluatorStats, type LayerDraw, type PlanSources, type Quality, type WorkPair, compositeTexture, needsPass } from "./compositor.ts";
 import { RenderContext } from "./context.ts";
 import { GlowCaches } from "./glow-cache.ts";
@@ -46,6 +48,7 @@ import { type Gpu, createGpu } from "./gpu.ts";
 import { LatestOnly } from "./latest.ts";
 import { SourceImage } from "./source.ts";
 import { SurfaceImage, type SurfaceKind } from "./surface.ts";
+import { type PatternImage, builtInPatternLevels, patternFromLinear, patternMips } from "@shared/photo/style/patterns.ts";
 
 export { backgroundLight };
 
@@ -58,6 +61,9 @@ const REGION = 512;
 const REFINE_REGION = 2048;
 /** How long the view stays still before it's refined. */
 const REFINE_DELAY_MS = 150;
+/** A pattern's key among the loaded ones. */
+const patternKey = (ref: PatternRef) => ("builtin" in ref ? ref.builtin : `${ref.surface}|${ref.width}x${ref.height}`);
+
 /** Composites kept below adjustments on the screen. */
 const KEPT = 4;
 
@@ -157,6 +163,8 @@ export class PhotoRenderer {
   /** Pixel layers' pixels and masks, by `layerId:part`. */
   private readonly surfaces = new Map<string, LayerSurface>();
   private uploads: SurfaceUploads | null = null;
+  /** Document patterns' levels by surface and size (`patternOf`). */
+  private readonly patternLevels = new Map<string, { levels: PatternImage[] | null; failed: boolean; loaded: Promise<void> }>();
   private stroke: Stroke | null = null;
   private projectId: string | null = null;
   private doc: PhotoProject | null = null;
@@ -366,6 +374,38 @@ export class PhotoRenderer {
     }
   }
 
+  /**
+   * A pattern's levels for the style pass: a built-in one's, made by code; a document's, read once from its surface's
+   * tiles (null meanwhile: the screen draws again when it's in).
+   */
+  private patternOf(ref: PatternRef): PatternImage[] | null {
+    if ("builtin" in ref) return builtInPatternLevels(ref.builtin);
+    const key = patternKey(ref);
+    const kept = this.patternLevels.get(key);
+    if (kept) return kept.levels;
+    const uploads = this.uploads;
+    if (!uploads) return null;
+    const entry: { levels: PatternImage[] | null; failed: boolean; loaded: Promise<void> } = { levels: null, failed: false, loaded: Promise.resolve() };
+    this.patternLevels.set(key, entry);
+    entry.loaded = readSurface(uploads, ref.surface, ref.width, ref.height)
+      .then((linear) => {
+        if (this.patternLevels.get(key) !== entry || this.destroyed) return;
+        entry.levels = patternMips(patternFromLinear(ref.width, ref.height, linear));
+        this.changed();
+      })
+      .catch(() => {
+        entry.failed = true;
+        this.changed();
+      });
+    return null;
+  }
+
+  /** Waits until every pattern the plan's styles read is in (or failed): a view, an export or a picture shows them. */
+  private async ensurePatterns(plan: RenderPlan) {
+    const refs = plan.nodes.flatMap((n) => (isDrawNode(n) && n.style ? Object.values(n.style.patterns) : []));
+    for (const ref of refs) if (this.patternOf(ref) === null) await this.patternLevels.get(patternKey(ref))?.loaded;
+  }
+
   /** Tiles arrived or went: kept composites are out of date, and the screen draws again. */
   private changed() {
     this.residency++;
@@ -434,6 +474,7 @@ export class PhotoRenderer {
     glowCache: (node, index) => this.glows.lookup(node, index),
     // A styled layer's fields follow its pixels and mask as they change (strokes, tiles arriving).
     revision: (node: DrawNode) => `${this.residency}|${this.surfaceOf(node.layerId, "content")?.revision ?? ""}|${this.surfaceOf(node.layerId, "mask")?.revision ?? ""}`,
+    pattern: (ref) => this.patternOf(ref),
   };
 
   /** Whether every image the plan draws has loaded (or can't), and every surface shows its pixels: only then is a refinement final. */
@@ -446,7 +487,9 @@ export class PhotoRenderer {
       (n) =>
         (n.kind !== "image" || this.sources.get(n.mediaId)?.state.state !== "loading") &&
         (n.kind !== "pixel" || surfaceDone(n.layerId, "content")) &&
-        (!n.mask || surfaceDone(n.layerId, "mask")),
+        (!n.mask || surfaceDone(n.layerId, "mask")) &&
+        // A style's patterns are in (or failed), asked for now if they haven't been.
+        (!isDrawNode(n) || !n.style || Object.values(n.style.patterns).every((ref) => this.patternOf(ref) !== null || this.patternLevels.get(patternKey(ref))?.failed === true)),
     );
   }
 
@@ -712,6 +755,7 @@ export class PhotoRenderer {
     const bytesPerPixel = bits === 16 ? 8 : 4;
     const plan = this.planFor(doc);
     await this.glows.ensure(plan);
+    await this.ensurePatterns(plan);
     const width = doc.canvas.width;
     const height = doc.canvas.height;
     const work: WorkPair = { a: compositeTexture(device, REGION, REGION, plan.format, "region a"), b: compositeTexture(device, REGION, REGION, plan.format, "region b") };
@@ -779,6 +823,7 @@ export class PhotoRenderer {
     const height = Math.max(1, Math.round(view.height));
     const at = { ...view, width, height };
     await this.glows.ensure(plan);
+    await this.ensurePatterns(plan);
     const target = compositeTexture(device, width, height, plan.format, "view");
     const refine = options.refine ?? needsRefinement(plan, view.zoom);
     if (refine && view.zoom < 1) {
@@ -847,6 +892,71 @@ export class PhotoRenderer {
     work.a.destroy();
     work.b.destroy();
     return this.encodePicture(target, w, h, "image/png");
+  }
+
+  /**
+   * A style on a rounded square (the Styles panel's swatch, New Style's preview): the real compositor's picture of
+   * it, `size` pixels square, the photo's patterns available to it. Waits for patterns it reads to load.
+   */
+  async stylePicture(style: LayerStyle, blending: Pick<PhotoLayer, "blend" | "fill" | "blending">, patterns: PhotoPattern[], size = 64): Promise<Blob | null> {
+    await this.compositor.ready;
+    const shape = await this.swatchShape();
+    if (!shape) return null;
+    // Its tiles back in the atlas if the photo's drawing has since evicted them.
+    await shape.ensureResident();
+    for (let i = 0; i < 300 && !shape.settled; i++) await new Promise((r) => setTimeout(r, 10));
+    const side = shape.size.width;
+    const layer: PhotoLayer = { id: "swatch", kind: "pixel", name: "swatch", visible: true, opacity: 1, surface: shape.shown, size: shape.size, transform: { x: side / 2 + side * 0.25, y: side / 2 + side * 0.25, scaleX: 1, scaleY: 1, rotation: 0 }, ...blending, style };
+    const doc: PhotoProject = { version: PHOTO_VERSION, name: "swatch", canvas: { width: side * 1.5, height: side * 1.5, background: "#ffffff" }, compositing: "photoshop", output: { highlights: "film" }, patterns, layers: [layer] };
+    const plan = compileRender(doc, new Map());
+    const node = plan.nodes[0];
+    if (!node || !isDrawNode(node)) return null;
+    // Its patterns in first.
+    await this.ensurePatterns(plan);
+    const zoom = size / doc.canvas.width;
+    const w = size;
+    const h = size;
+    const { device } = this;
+    const work: WorkPair = { a: compositeTexture(device, w, h, plan.format, "swatch a"), b: compositeTexture(device, w, h, plan.format, "swatch b") };
+    const target = compositeTexture(device, w, h, plan.format, "swatch");
+    const encoder = device.createCommandEncoder({ label: "style picture" });
+    const sources: PlanSources = { draw: () => ({ source: shape, matrix: node.matrix, transform: node.transform, opacity: node.opacity, mask: null }), mask: () => null, pattern: (ref) => this.patternOf(ref), revision: () => "swatch" };
+    const composite = this.compositor.evaluate(encoder, plan, { zoom, x: 0, y: 0, width: w, height: h }, "final", sources, work);
+    encoder.copyTextureToTexture({ texture: composite }, { texture: target }, [w, h]);
+    device.queue.submit([encoder.finish()]);
+    await device.queue.onSubmittedWorkDone();
+    work.a.destroy();
+    work.b.destroy();
+    return this.encodePicture(target, w, h, "image/png", "film");
+  }
+
+  private swatch: Promise<SurfaceImage | null> | null = null;
+
+  /** The swatch's rounded square (a surface of this photo's, made once). */
+  private swatchShape(): Promise<SurfaceImage | null> {
+    this.swatch ??= (async () => {
+      const uploads = this.uploads;
+      if (!uploads) return null;
+      const side = 40;
+      const pixels = new Float32Array(side * side * 4);
+      const fill = srgbToLinear(0.72);
+      for (let y = 0; y < side; y++)
+        for (let x = 0; x < side; x++) {
+          // A rounded square: coverage of the corner circles, a pixel's width of edge.
+          const dx = Math.max(0, Math.abs(x + 0.5 - side / 2) - (side / 2 - 8));
+          const dy = Math.max(0, Math.abs(y + 0.5 - side / 2) - (side / 2 - 8));
+          const a = Math.min(1, Math.max(0, 8 - Math.hypot(dx, dy) + 0.5));
+          pixels.set([fill * a, fill * a, fill * a, a], (y * side + x) * 4);
+        }
+      const id = await surfaceFromPixels(uploads, side, side, pixels);
+      const ctx = await this.contextFor(8);
+      const image = new SurfaceImage(ctx, { width: side, height: side }, "pixels", uploads);
+      await image.show(id);
+      // (Showing starts fetching its tiles: wait until they're in.)
+      for (let i = 0; i < 300 && !image.settled; i++) await new Promise((r) => setTimeout(r, 10));
+      return image;
+    })().catch(() => null);
+    return this.swatch;
   }
 
   /** A composite through the output transform into an image file (it destroys the texture). */

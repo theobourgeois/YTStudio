@@ -19,6 +19,7 @@ import { BlendIfSlider } from "./layer-style/blend-if-slider";
 import { AngleDial } from "./layer-style/controls/angle-dial";
 import { ContourPicker } from "./layer-style/controls/contour-picker";
 import { GradientPicker } from "./layer-style/controls/gradient-picker";
+import { PatternPicker } from "./layer-style/controls/pattern-picker";
 import { BlendModeMenu } from "./panels/blend-mode-menu";
 import { ParamSlider } from "./panels/fields";
 import { GeneratorProperties } from "./panels/light";
@@ -98,6 +99,7 @@ function StyleControls() {
   const [angle, setAngle] = useState(120);
   const [contour, setContour] = useState<Contour>(CONTOUR_PRESETS[7]);
   const [gradient, setGradient] = useState<Gradient>(GRADIENT_PRESETS[1]);
+  const [pattern, setPattern] = useState("builtin:bricks");
   return (
     <div className="flex items-center gap-8 text-xs">
       <div className="flex items-center gap-2">
@@ -114,6 +116,10 @@ function StyleControls() {
         <span>Gradient:</span>
         <GradientPicker value={gradient} onChange={setGradient} />
         <span className="text-muted-foreground">{gradient.name}</span>
+      </div>
+      <div className="flex w-72 items-center gap-2">
+        <span>Pattern:</span>
+        <PatternPicker value={pattern} patterns={[]} onChange={setPattern} onSnap={() => {}} />
       </div>
     </div>
   );
@@ -156,13 +162,14 @@ export const PHOTO_SECTIONS: GallerySection[] = [
   { id: "photo-blending", title: "Photo: Blending Options' blend-mode menu (each mode previewed while hovered) and Blend If's bars (⌥-drag splits a handle)", source: "suites/photo/panels/blend-mode-menu.tsx, layer-style/blend-if-slider.tsx", render: () => <Blending /> },
   {
     id: "photo-style-controls",
-    title: "Photo: Layer Style's angle dial (drag in the circle, ⇧ snaps to 15°), contour picker (thumbnail: the Contour Editor; arrow: presets) and gradient picker (swatch: the Gradient Editor; arrow: presets)",
+    title: "Photo: Layer Style's angle dial (drag in the circle, ⇧ snaps to 15°), contour picker (thumbnail: the Contour Editor; arrow: presets), gradient picker (swatch: the Gradient Editor; arrow: presets) and pattern picker (the built-in patterns and the photo's own; Snap to Origin)",
     source: "suites/photo/layer-style/controls/",
     render: () => <StyleControls />,
     shots: [
       { name: "contour-presets", click: "Contour presets" },
       { name: "contour-editor", click: "Contour: Ring. Edit the contour" },
       { name: "gradient-editor", click: "Gradient: White, Transparent. Edit the gradient" },
+      { name: "pattern-picker", click: "Pattern: Bricks. Choose a pattern" },
     ],
   },
   { id: "photo-light", title: "Photo: a glow's parameters (from its specs), and a Lens Flare's Properties: its handles, blend, elements, a ghost's own", source: "suites/photo/panels/params.tsx, light.tsx", render: () => <Light /> },

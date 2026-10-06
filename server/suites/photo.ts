@@ -54,7 +54,10 @@ canvas otherwise. list_photo_media lists the project's images; add_image_layer p
 moves, scales (fit: contain or cover) and rotates; set_layer renames, hides, fades and reorders; \
 set_layer_blending sets blend modes (multiply, screen, overlay, soft-light, color, luminosity…), Fill and Blend If, \
 as Photoshop's Blending Options; set_layer_style adds and changes effects (drop and inner shadows, outer and inner \
-glows, colour and gradient overlays, strokes) and set_global_light moves the light shadows follow; remove_layer \
+glows, colour, gradient and pattern overlays, satin, strokes, Bevel & Emboss with its contour and texture) and \
+set_global_light moves the light shadows and bevels follow; apply_style applies a ready-made style (Photoshop's \
+Styles: Neon, Chrome, Glass…) and save_style keeps one; scale_layer_effects scales every effect's size at once; \
+define_pattern makes a pattern from what a layer shows in the selection, set_pattern renames or deletes one; remove_layer \
 deletes; set_canvas resizes the canvas or changes its background (thumbnails are often 1280×720, stories \
 1080×1920). add_adjustment adds an Exposure or Curves layer (above a given layer, so it only changes what's under \
 it) and set_effect_params changes one: Exposure is in stops of light; Curves' points are [input, output] on 0..255 \

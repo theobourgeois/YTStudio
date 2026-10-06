@@ -8,6 +8,8 @@ import { ADJUSTMENTS, EFFECTS, type EffectKind, FILTERS, GENERATORS } from "./ef
 import { FLARE_PRESETS } from "./effects/flare.ts";
 import type { ElementParamSpec, ParamSpec } from "./effects/params.ts";
 import { STYLE_DEFINITIONS } from "./style/definitions.ts";
+import { BUILT_IN_PATTERNS, MAX_PATTERN_SIDE } from "./style/patterns.ts";
+import { BUILT_IN_STYLES } from "./style/presets.ts";
 
 const layer = str('A layer: its id (from get_photo) or its name ("Sky").');
 
@@ -50,6 +52,7 @@ export function describeStyleEffects(): string {
       if (p.kind === "boolean") return `${p.key} (true | false, default ${p.default})`;
       if (p.kind === "colour") return `${p.key} ("#rrggbb", default ${p.default})`;
       if (p.kind === "blend") return `${p.key} (a blend mode, default ${p.default})`;
+      if (p.kind === "pattern") return `${p.key} (a pattern: id or name, default ${p.default})`;
       return `${p.key} (${p.kind})`;
     });
     return `${def.type}${def.max > 1 ? ` (up to ${def.max})` : ""}: ${def.description} ${params.join(", ")}`;
@@ -165,7 +168,7 @@ export const PHOTO_TOOLS = [
     name: "set_layer_style",
     title: "Set a layer's effects",
     kind: "edit",
-    description: `Photoshop's layer effects (fx) on an image or pixel layer: add one, change it, hide it or remove it. They're drawn in a fixed order (drop shadows and the outer glow under the layer; overlays, satin, inner glow, inner shadows and strokes over it; Bevel & Emboss over everything). Sizes and distances are pixels, opacities and other shares percentages (0..100), angles degrees anticlockwise from 3 o'clock (where the light comes from: 120 throws a shadow down and right). With globalLight true (the shadows' and the bevel's default) the angle (and a bevel's altitude) is the document's Global Light (set_global_light). A contour is a preset name ("Cone", "Gaussian", "Ring"…) and a gradient { "colours": [{ "at": 0, "colour": "#ff0000" }, { "at": 1, "colour": "#0000ff" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 1 }], "method": "classic" }. The effects:\n${describeStyleEffects()}`,
+    description: `Photoshop's layer effects (fx) on an image or pixel layer: add one, change it, hide it or remove it. They're drawn in a fixed order (drop shadows and the outer glow under the layer; overlays, satin, inner glow, inner shadows and strokes over it; Bevel & Emboss over everything). Sizes and distances are pixels, opacities and other shares percentages (0..100), angles degrees anticlockwise from 3 o'clock (where the light comes from: 120 throws a shadow down and right). With globalLight true (the shadows' and the bevel's default) the angle (and a bevel's altitude) is the document's Global Light (set_global_light). A contour is a preset name ("Cone", "Gaussian", "Ring"…) and a gradient { "colours": [{ "at": 0, "colour": "#ff0000" }, { "at": 1, "colour": "#0000ff" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 1 }], "method": "classic" }. A pattern (Pattern Overlay, a stroke's fill: "pattern", Bevel's texture with useTexture) is a pattern's id or name: the photo's own (get_photo lists them; define_pattern makes one) or a built-in one (${BUILT_IN_PATTERNS.map((p) => `${p.id} "${p.name}"`).join(", ")}); its offset (phase) is in pixels. The effects:\n${describeStyleEffects()}`,
     inputSchema: obj(
       {
         layer,
@@ -182,6 +185,41 @@ export const PHOTO_TOOLS = [
       },
       ["layer"],
     ),
+  }),
+  tool({
+    name: "define_pattern",
+    title: "Define a pattern",
+    kind: "action",
+    description: `Photoshop's Define Pattern: what a layer shows inside the selection (select_rect first; all of the layer without one) becomes a pattern of the photo's, up to ${MAX_PATTERN_SIDE} × ${MAX_PATTERN_SIDE} px, for Pattern Overlay, a pattern stroke or Bevel's texture (set_layer_style). The same pixels twice are one pattern. Needs the photo open in the editor.`,
+    inputSchema: obj({ layer, name: str("Its name (default Pattern 1, Pattern 2…).") }, ["layer"]),
+  }),
+  tool({
+    name: "set_pattern",
+    title: "Rename or delete a pattern",
+    kind: "edit",
+    description: "Renames one of the photo's patterns, or deletes it (only when no effect uses it).",
+    inputSchema: obj({ pattern: str("The pattern: its id or name."), name: str("A new name."), remove: bool("Delete it.") }, ["pattern"]),
+  }),
+  tool({
+    name: "apply_style",
+    title: "Apply a style",
+    kind: "action",
+    description: `Applies a style (Photoshop's Styles panel) to layers: their effects replaced by the style's, or with add: true its effects added to theirs; a style saved with Blending Options sets those too. One undo step. The built-in styles: ${BUILT_IN_STYLES.map((s) => `"${s.name}"`).join(", ")}; the user's own are named in get_photo.`,
+    inputSchema: obj({ layers: arr(layer, "The layers (ids or names)."), style: str("The style's name or id."), add: bool("Add its effects to the layers' own (Photoshop's ⇧-click) instead of replacing them.") }, ["layers", "style"]),
+  }),
+  tool({
+    name: "save_style",
+    title: "Save a style",
+    kind: "action",
+    description: "New Style…: keeps a layer's effects (and, with blending: true, its Blending Options) as a style of the user's, on this computer, to apply to other layers and photos (apply_style). The photo's patterns it uses go with it.",
+    inputSchema: obj({ layer, name: str("The style's name."), blending: bool("Include its Blending Options (mode, Fill, Blend If…)."), effects: bool("Include its effects (default true).") }, ["layer", "name"]),
+  }),
+  tool({
+    name: "scale_layer_effects",
+    title: "Scale layer effects",
+    kind: "edit",
+    description: "Scale Effects: every size and distance of the layers' effects (and their patterns' scales) multiplied by scale (a percentage: 200 doubles, 50 halves), the layers themselves unchanged. Within each value's range.",
+    inputSchema: obj({ layers: arr(layer, "The layers (ids or names)."), scale: num("Percent, 1 to 1000.") }, ["layers", "scale"]),
   }),
   tool({
     name: "set_global_light",

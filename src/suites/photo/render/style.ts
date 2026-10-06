@@ -15,8 +15,10 @@ import { CONTOUR_TABLE_SIZE, contourTable } from "@shared/photo/style/contours.t
 import { styleDefinition } from "@shared/photo/style/definitions.ts";
 import { GRADIENT_TABLE_SIZE, type GradientStyle, gradientLayout, gradientTable } from "@shared/photo/style/gradients.ts";
 import { bevelOptions, bevelWidth, chiselShape, satinOffset, shadowOffset, strokeEmbossBand } from "@shared/photo/reference/style.ts";
-import { type Affine, invert, layerScale } from "@shared/photo/layers.ts";
-import type { DrawNode, NodeBlend, PlanFormat } from "@shared/photo/render-plan.ts";
+import { type Affine, apply, invert, layerScale } from "@shared/photo/layers.ts";
+import type { DrawNode, NodeBlend, NodeStyle, PatternRef, PlanFormat } from "@shared/photo/render-plan.ts";
+import { specShows } from "@shared/photo/effects/params.ts";
+import { type PatternImage, placementOf, turn } from "@shared/photo/style/patterns.ts";
 import type { BlendMode, Compositing, Contour, EffectInstance, Gradient } from "@shared/photo/types.ts";
 import { ROUND_FOR_STORE } from "./kernels.ts";
 import { MATHS } from "./wgsl.ts";
@@ -25,7 +27,7 @@ import { MATHS } from "./wgsl.ts";
 export const MAX_FIELD_SIDE = 3072;
 
 /** The effects' kinds in the shaders: their place in the drawing order. */
-const KINDS = ["drop-shadow", "outer-glow", "gradient-overlay", "color-overlay", "satin", "inner-glow", "inner-shadow", "stroke", "bevel-emboss"];
+const KINDS = ["drop-shadow", "outer-glow", "pattern-overlay", "gradient-overlay", "color-overlay", "satin", "inner-glow", "inner-shadow", "stroke", "bevel-emboss"];
 const BEVEL_CODES: Record<string, number> = { "outer-bevel": 0, "inner-bevel": 1, emboss: 2, "pillow-emboss": 3, "stroke-emboss": 4 };
 const STYLE_CODES: Record<string, number> = { linear: 0, radial: 1, angle: 2, reflected: 3, diamond: 4, "shape-burst": 5 };
 const POSITION_CODES: Record<string, number> = { outside: 0, inside: 1, center: 2 };
@@ -410,8 +412,8 @@ export class StyleFields {
   }
 }
 
-/** One effect as the composite reads it (112 bytes). */
-const FX_SIZE = 112;
+/** One effect as the composite reads it (144 bytes). */
+const FX_SIZE = 144;
 /** The composite's uniform: the layer's place, the fields', flags, then its `BlendParams`. */
 export const STYLE_UNIFORM_SIZE = 96 + BLEND_PARAMS_SIZE;
 
@@ -425,13 +427,15 @@ ${BLEND}
 // mode, style its style (0 outer, 1 inner, 2 emboss, 3 pillow, 4 stroke), place its shadow's colour and opacity,
 // extra its light and slope scale.
 struct Fx {
-  kind: u32, mode: u32, field: i32, flags: u32,      // flags: 1 precise, 2 inner, 4 centre (Satin: invert), 8 gradient, 16 outer, 32 knocks out, 64 down, 128 half
+  kind: u32, mode: u32, field: i32, flags: u32,      // flags: 1 precise, 2 inner, 4 centre (Satin: invert), 8 gradient, 16 outer, 32 knocks out, 64 down, 128 half, 256 pattern
   colour: vec4f,                                      // straight, encoded
   opacity: f32, size: f32, spread: f32, range: f32,   // size in field pixels
   noise: f32, jitter: f32, contour: u32, gradient: i32,
   offset: vec2f, position: u32, style: u32,           // offset in document pixels; the stroke's position; a gradient's style
   place: vec4f,                                       // a gradient's centre and vector, document pixels
   extra: vec4f,                                       // a stroke's size and its band's start (document pixels)
+  pat0: vec4f,                                        // a pattern's start (origin + phase, document pixels), its turn's cosine and sine
+  pat1: vec4f,                                        // its scale, where it is in \`patterns\` (−1: none), a texture's depth and invert (1)
 }
 struct SU {
   inv0: vec4f, inv1: vec4f,
@@ -448,6 +452,7 @@ struct SU {
 @group(2) @binding(0) var<storage, read> fields: array<f32>;
 @group(2) @binding(1) var<storage, read> fxs: array<Fx>;
 @group(2) @binding(2) var<storage, read> tables: array<f32>;
+@group(2) @binding(3) var<storage, read> patterns: array<f32>;
 
 @vertex
 fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f { return full_screen(i); }
@@ -537,10 +542,55 @@ fn band(d: f32, size: f32, position: u32) -> f32 {
   if (position == 2u) { lo = -size / 2.0; hi = size / 2.0; }
   return clamp(hi - d + 0.5, 0.0, 1.0) * clamp(d - lo + 0.5, 0.0, 1.0);
 }
+// A pattern's texel at level L (wrapped): reference patterns.ts's layout in \`patterns\`: at \`base\`, the level
+// count, then each level's start, width and height; premultiplied encoded RGBA.
+fn pat_texel(base: u32, L: u32, x: i32, y: i32) -> vec4f {
+  let h = base + 1u + L * 3u;
+  let start = u32(patterns[h]);
+  let w = i32(patterns[h + 1u]);
+  let ht = i32(patterns[h + 2u]);
+  let xx = ((x % w) + w) % w;
+  let yy = ((y % ht) + ht) % ht;
+  let i = start + u32(yy * w + xx) * 4u;
+  return vec4f(patterns[i], patterns[i + 1u], patterns[i + 2u], patterns[i + 3u]);
+}
+// A pattern at a document point (reference patterns.ts's patternCoord and samplePattern): premultiplied encoded RGBA.
+fn pattern_at(fx: Fx, doc: vec2f) -> vec4f {
+  if (fx.pat1.y < 0.0) { return vec4f(0.0); }
+  let base = u32(fx.pat1.y);
+  let d = doc - fx.pat0.xy;
+  let scale = fx.pat1.x;
+  let u = round((fx.pat0.z * d.x - fx.pat0.w * d.y - 0.5) / scale * 4096.0) / 4096.0;
+  let v = round((fx.pat0.w * d.x + fx.pat0.z * d.y - 0.5) / scale * 4096.0) / 4096.0;
+  let levels = u32(patterns[base]);
+  let footprint = max(1.0, 1.0 / (scale * su.zoom));
+  let L = min(levels - 1u, u32(floor(log2(footprint) + 1e-6)));
+  let k = exp2(f32(L));
+  let x = u / k;
+  let y = v / k;
+  let x0 = floor(x);
+  let y0 = floor(y);
+  let t = vec2f(x - x0, y - y0);
+  let i = vec2i(i32(x0), i32(y0));
+  let top = mix(pat_texel(base, L, i.x, i.y), pat_texel(base, L, i.x + 1, i.y), t.x);
+  let bottom = mix(pat_texel(base, L, i.x, i.y + 1), pat_texel(base, L, i.x + 1, i.y + 1), t.x);
+  return mix(top, bottom, t.y);
+}
+// A pattern's colour here, straight (encoded) with its alpha.
+fn pattern_colour(fx: Fx, doc: vec2f) -> vec4f {
+  let p = pattern_at(fx, doc);
+  if (p.a <= 0.0) { return vec4f(0.0); }
+  return vec4f(p.rgb / p.a, p.a);
+}
+
 // What an effect paints here: its colour (straight, encoded) and alpha (coverage × its opacity).
 fn paint(fx: Fx, doc: vec2f) -> vec4f {
-  if (fx.kind == 3u) { return vec4f(fx.colour.rgb, fx.opacity); }
-  if (fx.kind == 4u) {
+  if (fx.kind == 4u) { return vec4f(fx.colour.rgb, fx.opacity); }
+  if (fx.kind == 2u) {
+    let p = pattern_colour(fx, doc);
+    return vec4f(p.rgb, p.a * fx.opacity);
+  }
+  if (fx.kind == 5u) {
     // Satin: the blurred shape through the contour at two opposite offsets, differenced.
     let a = contour(fx.contour, bil(fx.field, to_field(doc + fx.offset), 0.0));
     let c = contour(fx.contour, bil(fx.field, to_field(doc - fx.offset), 0.0));
@@ -548,13 +598,17 @@ fn paint(fx: Fx, doc: vec2f) -> vec4f {
     if ((fx.flags & 4u) != 0u) { m = 1.0 - m; }
     return vec4f(fx.colour.rgb, m * fx.opacity);
   }
-  if (fx.kind == 2u) {
+  if (fx.kind == 3u) {
     let g = gradient(fx.gradient, gradient_position(fx.style, fx.place, doc));
     return vec4f(g.rgb, g.a * fx.opacity);
   }
-  if (fx.kind == 7u) {
+  if (fx.kind == 8u) {
     let d = sd_at(to_field(doc)) * su.sdScale;
     let c = band(d, fx.extra.x, fx.position);
+    if ((fx.flags & 256u) != 0u) {
+      let p = pattern_colour(fx, doc);
+      return vec4f(p.rgb, c * p.a * fx.opacity);
+    }
     if ((fx.flags & 8u) != 0u) {
       var t = gradient_position(fx.style, fx.place, doc);
       if (fx.style == 5u) { t = clamp((d - fx.extra.y) / fx.extra.x, 0.0, 1.0); }
@@ -583,8 +637,14 @@ fn paint(fx: Fx, doc: vec2f) -> vec4f {
 }
 // A bevel's height a document pixel away, through its Contour when it's on.
 fn bevel_height(fx: Fx, doc: vec2f) -> f32 {
-  let h = bil(fx.field, to_field(doc), fx.spread);
-  if (fx.gradient >= 0) { return contour(u32(fx.gradient), h); }
+  var h = bil(fx.field, to_field(doc), fx.spread);
+  if (fx.gradient >= 0) { h = contour(u32(fx.gradient), h); }
+  // Its Texture (reference patterns.ts's textureHeight): Depth × (1 − luminance), or the luminance inverted.
+  if (fx.pat1.z != 0.0 && fx.pat1.y >= 0.0) {
+    let p = pattern_at(fx, doc);
+    let y = 0.299 * p.r + 0.587 * p.g + 0.114 * p.b;
+    h += fx.pat1.z * select(1.0 - y, y, fx.pat1.w > 0.5);
+  }
   return h;
 }
 // The light on a slope \`g\`: highlight and shadow (reference style.ts's bevelShade).
@@ -654,7 +714,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     var group = s;
     for (var i = 0u; i < su.count; i++) {
       let fx = fxs[i];
-      if (fx.kind < 2u || fx.kind > 6u) { continue; }
+      if (fx.kind < 2u || fx.kind > 7u) { continue; }
       let pnt = paint(fx, doc);
       group = over(group, pnt.rgb, pnt.a, fx.mode, doc);
     }
@@ -663,7 +723,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     inside = composite_pixel(lb, insideBase, s, doc);
     for (var i = 0u; i < su.count; i++) {
       let fx = fxs[i];
-      if (fx.kind < 2u || fx.kind > 6u) { continue; }
+      if (fx.kind < 2u || fx.kind > 7u) { continue; }
       let pnt = paint(fx, doc);
       inside = over(inside, pnt.rgb, pnt.a, fx.mode, doc);
     }
@@ -672,13 +732,13 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   // The strokes, over it all; then the bevel's highlight and shadow.
   for (var i = 0u; i < su.count; i++) {
     let fx = fxs[i];
-    if (fx.kind != 7u) { continue; }
+    if (fx.kind != 8u) { continue; }
     let pnt = paint(fx, doc);
     result = over(result, pnt.rgb, pnt.a, fx.mode, doc);
   }
   for (var i = 0u; i < su.count; i++) {
     let fx = fxs[i];
-    if (fx.kind != 8u) { continue; }
+    if (fx.kind != 9u) { continue; }
     let light = bevel(fx, doc, alpha);
     result = over(result, fx.colour.rgb, light.x * fx.opacity, fx.mode, doc);
     result = over(result, fx.place.rgb, light.y * fx.place.w, fx.position, doc);
@@ -695,10 +755,58 @@ const hexEncoded = (c: string): [number, number, number] => {
 };
 
 /** The composite's inputs for a styled layer: its uniform, its effects and their tables. */
-export function packStyle(node: DrawNode, blend: NodeBlend, opacity: number, compositing: Compositing, plan: FieldPlan, matrix: Affine, view: { x: number; y: number; zoom: number }) {
+/** A pattern's levels by its reference (null: not loaded yet, or missing: its effects draw without it). */
+export type PatternsOf = (ref: PatternRef) => readonly PatternImage[] | null;
+
+/**
+ * The patterns a style reads, laid out for the composite (`pat_texel`): each the level count, every level's start,
+ * width and height, then the levels' premultiplied encoded RGBA. Bases by pattern id (missing ones aren't there).
+ */
+function packPatterns(style: NodeStyle, patternsOf: PatternsOf): { data: Float32Array; bases: Map<string, number>; key: string } {
+  const present = Object.entries(style.patterns).flatMap(([id, ref]) => {
+    const levels = patternsOf(ref);
+    return levels ? [{ id, ref, levels }] : [];
+  });
+  const key = present.map(({ id, ref }) => `${id}=${JSON.stringify(ref)}`).join("|");
+  const kept = packedPatterns.get(key);
+  if (kept) return kept;
+  const parts: Float32Array[] = [];
+  const bases = new Map<string, number>();
+  let at = 0;
+  for (const { id, levels } of present) {
+    const header = new Float32Array(1 + 3 * levels.length);
+    header[0] = levels.length;
+    let start = at + header.length;
+    levels.forEach((l, i) => {
+      header.set([start, l.width, l.height], 1 + 3 * i);
+      start += l.data.length;
+    });
+    bases.set(id, at);
+    parts.push(header, ...levels.map((l) => l.data));
+    at = start;
+  }
+  const data = new Float32Array(Math.max(4, at));
+  let o = 0;
+  for (const part of parts) {
+    data.set(part, o);
+    o += part.length;
+  }
+  const packed = { data, bases, key };
+  packedPatterns.set(key, packed);
+  if (packedPatterns.size > 16) packedPatterns.delete(packedPatterns.keys().next().value!);
+  return packed;
+}
+
+/** Packed patterns by what's in them (a style's own, kept: packing copies their pixels). */
+const packedPatterns = new Map<string, { data: Float32Array; bases: Map<string, number>; key: string }>();
+
+export function packStyle(node: DrawNode, blend: NodeBlend, opacity: number, compositing: Compositing, plan: FieldPlan, matrix: Affine, view: { x: number; y: number; zoom: number }, patternsOf: PatternsOf = () => null) {
   const style = node.style!;
   const effects = style.effects.filter((e) => styleDefinition(e.type));
   const fx = new ArrayBuffer(Math.max(FX_SIZE, FX_SIZE * effects.length));
+  const patterns = packPatterns(style, patternsOf);
+  // A linked pattern starts at the layer's top-left.
+  const layerOrigin = apply(matrix, 0, 0);
   const contours: Float32Array[] = [];
   const gradients: Float32Array[] = [];
   const contourRow = (c: Contour) => contours.push(contourTable(c)) - 1;
@@ -710,6 +818,15 @@ export function packStyle(node: DrawNode, blend: NodeBlend, opacity: number, com
     const f = new Float32Array(fx, i * FX_SIZE, FX_SIZE / 4);
     const i32 = new Int32Array(fx, i * FX_SIZE, FX_SIZE / 4);
     const kind = KINDS.indexOf(e.type);
+    // Its pattern, if it reads one (the overlay's, a stroke's Pattern fill, Bevel's Texture): where it lies and starts.
+    const keys = styleDefinition(e.type)!.patterns?.find((k) => specShows(k, p));
+    f[33] = -1;
+    if (keys) {
+      const place = placementOf(p, keys, layerOrigin);
+      const [c, s] = turn(place.angle);
+      const texture = e.type === "bevel-emboss" ? (p.textureDepth as number) / 100 : 0;
+      f.set([place.origin.x + place.phase.x, place.origin.y + place.phase.y, c, s, place.scale, patterns.bases.get(p[keys.pattern] as string) ?? -1, texture, p.invertTexture === true ? 1 : 0], 28);
+    }
     if (e.type === "bevel-emboss") {
       const o = bevelOptions(e, band);
       const depth = (p.depth as number) / 100;
@@ -758,7 +875,8 @@ export function packStyle(node: DrawNode, blend: NodeBlend, opacity: number, com
       (p.source === "center" ? 4 : 0) |
       (gradientFill ? 8 : 0) |
       (e.type === "drop-shadow" || e.type === "outer-glow" ? 16 : 0) |
-      (e.type === "drop-shadow" && p.knocksOut !== false ? 32 : 0);
+      (e.type === "drop-shadow" && p.knocksOut !== false ? 32 : 0) |
+      (e.type === "stroke" && p.fill === "pattern" ? 256 : 0);
     f.set([...(p.colour ? hexEncoded(p.colour as string) : [0, 0, 0]), 1], 4);
     f[8] = (p.opacity as number) / 100;
     f[9] = ((p.size as number) ?? 0) / plan.scale;
@@ -797,7 +915,7 @@ export function packStyle(node: DrawNode, blend: NodeBlend, opacity: number, com
   u[17] = (style.interiorAsGroup ? 1 : 0) | (style.maskHidesEffects ? 2 : 0);
   u[18] = gradientBase;
   packBlend(blend, opacity, compositing, view, uniform, 96);
-  return { uniform, fx, tables, count: effects.length };
+  return { uniform, fx, tables, count: effects.length, patterns: patterns.data, patternKey: patterns.key };
 }
 
 export type { GradientStyle };

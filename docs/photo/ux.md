@@ -41,6 +41,13 @@ it. Bevel & Emboss (L3) heads the list with its Contour row under it (its own ch
 its Altitude follows Global Light as its Angle does.
 Copy / Paste / Clear Layer Style and Hide All Effects are in the Layers menu.
 
+Patterns and styles (built, L4): Define Pattern (the Layers menu) makes a pattern of what the active layer shows in
+the selection; every pattern control is a swatch that opens the built-in and the photo's patterns, with Snap to
+Origin beside it, and a drag on the canvas moves the pattern while its page shows. The Styles panel (a tab beside
+Properties) shows every style as a rendered swatch: hovering previews it on the selected layers, a click replaces
+their style, ⇧-click adds its effects; + (and the Layer Style window's New Style…) keeps the active layer's style
+as one of this computer's. Scale Effects… (the Layers menu) scales every effect's size at once.
+
 Properties follows the selected layer, mask or effect. The tool options bar follows the active tool. These are
 different selections, kept apart.
 
