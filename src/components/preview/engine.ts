@@ -1,7 +1,7 @@
 import { type Hearing, type SignalReader, currentSignalReader, nestedHearing, usesSignals, withHearing, withSignals } from "@shared/audio-signals";
 import { useSignals } from "@/stores/signals";
 import type { Clip, MediaAsset, Project } from "@shared/types";
-import { atFrameRate, clipKind, effectDefinition, isRemapped, lookAt, motionAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
+import { atFrameRate, clipKind, definitionOf, isRemapped, lookAt, motionAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
 import { nestedSequence, sequenceDuration, sequenceSize, sequenceView } from "@shared/sequences";
 import { mediaTime, remapSpeed } from "@shared/time-remap";
 import { type Compositor, type Placed, createCompositor, matteIndex } from "@shared/compositor";
@@ -19,6 +19,8 @@ import { useFonts } from "@/stores/fonts";
 import { usePlayback } from "@/stores/playback";
 import { ImageSlot, MediaSlot } from "./media-slot";
 import { placeOnCanvas } from "./placement";
+// Also has the user's shaders compiled before they're drawn (`provideShaderCheck`).
+import { recoverFromLostContext } from "./shader-recovery";
 import { type SlotIds, assignSlots } from "./sync";
 
 /**
@@ -85,7 +87,7 @@ interface PlanStatus {
 }
 
 /** Whether a clip has a time effect on (see `EffectShader.history`). */
-const hasTimeEffects = (clip: Clip) => clip.effects.some((e) => e.enabled && !!effectDefinition(e.type)?.shader?.history);
+const hasTimeEffects = (clip: Clip) => clip.effects.some((e) => e.enabled && !!definitionOf(e)?.shader?.history);
 
 /** Nested sequences deeper than this aren't drawn (a guard; loops are never saved). */
 const MAX_NESTING = 8;
@@ -209,6 +211,11 @@ export class PreviewEngine {
     private readonly source: PreviewSource = editorSource,
   ) {}
 
+  /** The Program monitor's engine (the open video's) turns off a shader that loses the GPU. */
+  private get recovers() {
+    return this.source === editorSource;
+  }
+
   start() {
     if (this.unsubscribe) return;
     const offSource = this.source.subscribe(this.update);
@@ -262,6 +269,8 @@ export class PreviewEngine {
     const lost = (e: Event) => {
       e.preventDefault(); // lets the context be restored
       this.releaseCompositor(false);
+      // The user's shader that hung the GPU, if one did: off before the context comes back.
+      if (this.recovers) recoverFromLostContext();
     };
     const restored = () => {
       this.createCompositor();
