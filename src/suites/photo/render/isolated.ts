@@ -428,7 +428,7 @@ export class Isolation {
     }
     return octaves.map((o) => {
       const { width, height } = sizeAt(o.at);
-      return { texture: this.blur(encoder, levels.get(o.at)!, width, height, o, format), origin: { x: box.x0, y: box.y0 }, spacing: 2 ** o.at, width, height, weight: o.weight };
+      return { texture: this.blur(encoder, levels.get(o.at)!, width, height, o, format), origin: { x: box.x0, y: box.y0 }, spacing: 2 ** o.at, width, height, weight: o.weight, mitchell: o.at > o.level };
     });
   }
 
@@ -442,7 +442,7 @@ export class Isolation {
     if (!c) return null;
     const width = (box.x1 - box.x0) / s;
     const height = (box.y1 - box.y0) / s;
-    return { texture: this.blur(encoder, c, width, height, o, format), origin: { x: box.x0, y: box.y0 }, spacing: s, width, height, weight: o.weight };
+    return { texture: this.blur(encoder, c, width, height, o, format), origin: { x: box.x0, y: box.y0 }, spacing: s, width, height, weight: o.weight, mitchell: o.at > o.level };
   }
 
   /** A coarse octave from its glow's cache: its level reduced and blurred once, then kept. */
@@ -470,7 +470,7 @@ export class Isolation {
         void device.queue.onSubmittedWorkDone().then(() => setTimeout(() => old.destroy(), 0));
       }
     }
-    return { texture: blurred, origin: cache.origin, spacing: 2 ** o.at, width: level.width, height: level.height, weight: o.weight };
+    return { texture: blurred, origin: cache.origin, spacing: 2 ** o.at, width: level.width, height: level.height, weight: o.weight, mitchell: o.at > o.level };
   }
 
   // --- compositing ---

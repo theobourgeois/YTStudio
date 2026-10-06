@@ -103,7 +103,7 @@ export const APPLY_OCTAVES = 6;
 export const APPLY = (format: StorageFormat) => /* wgsl */ `
 ${ROUND_FOR_STORE(format)}
 ${MATHS}
-struct Octave { origin: vec2f, inv: f32, weight: f32, size: vec2f, p0: f32, p1: f32 }
+struct Octave { origin: vec2f, inv: f32, weight: f32, size: vec2f, mitchell: f32, p1: f32 }
 struct Params { origin: vec2f, zoom: f32, count: u32, tint: vec4f, gain: f32, p0: f32, p1: f32, p2: f32, octaves: array<Octave, ${APPLY_OCTAVES}> }
 @group(0) @binding(0) var content: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
@@ -119,6 +119,13 @@ fn bspline(x: f32) -> f32 {
   return 0.0;
 }
 
+// An octave at its own level is read by its B-spline (the definition); one read at a coarser level, finer than the
+// view's pixels, by Mitchell, as a refinement samples level 0 reduced.
+fn kernel(x: f32, mitchellOn: f32) -> f32 {
+  if (mitchellOn > 0.5) { return mitchell(x); }
+  return bspline(x);
+}
+
 ${Array.from(
   { length: APPLY_OCTAVES },
   (_, n) => /* wgsl */ `
@@ -130,11 +137,11 @@ fn read${n}(p: vec2f) -> vec3f {
   for (var j = -1; j <= 2; j++) {
     let y = base.y + j;
     if (y < 0 || y >= i32(o.size.y)) { continue; }
-    let wy = bspline(u.y - f32(y));
+    let wy = kernel(u.y - f32(y), o.mitchell);
     for (var i = -1; i <= 2; i++) {
       let x = base.x + i;
       if (x < 0 || x >= i32(o.size.x)) { continue; }
-      sum += textureLoad(o${n}, vec2i(x, y), 0).rgb * (wy * bspline(u.x - f32(x)));
+      sum += textureLoad(o${n}, vec2i(x, y), 0).rgb * (wy * kernel(u.x - f32(x), o.mitchell));
     }
   }
   return sum * o.weight;
@@ -162,6 +169,8 @@ export interface OctaveRead {
   texture: GPUTexture;
   /** The document point at its texel (0, 0)'s top-left corner. */
   origin: { x: number; y: number };
+  /** Read by Mitchell rather than its B-spline: an octave read at a coarser level than its own. */
+  mitchell: boolean;
   /** Document pixels per texel (2^level). */
   spacing: number;
   width: number;
@@ -176,6 +185,6 @@ export function applyUniform(view: { x: number; y: number; zoom: number }, shape
   f.set([view.x, view.y, view.zoom]);
   new Uint32Array(data, 12, 1)[0] = reads.length;
   f.set([...shape.tint, shape.tintAmount, shape.gain], 4);
-  reads.forEach((r, i) => f.set([r.origin.x, r.origin.y, 1 / r.spacing, r.weight, r.width, r.height, 0, 0], 12 + i * 8));
+  reads.forEach((r, i) => f.set([r.origin.x, r.origin.y, 1 / r.spacing, r.weight, r.width, r.height, r.mitchell ? 1 : 0, 0], 12 + i * 8));
   return data;
 }

@@ -1465,3 +1465,31 @@ test("a glowing object on transparency exports correctly over black, white and s
     expect(worst, backdrop).toBeLessThanOrEqual(1);
   }
 });
+
+test("a glow viewed from its cached levels is level 0 reduced, and refines between them and 100%", async ({ page }) => {
+  await openNewPhoto(page, "Glow levels");
+  // Big enough that its pixels have a level 2 (a pyramid stops at a level that fits in one tile).
+  const W = 1024;
+  const H = 768;
+  await setPhoto(page, { width: W, height: H, background: "#101418" }, [pixelLayer("lit", W, H)]);
+  await paint(page, "lit", "content", [{ x: 300, y: 240 }], { radius: 8, hardness: 1, colour: [4, 3, 1, 1] });
+  await paint(page, "lit", "content", line(520, 500, 840, 600), { radius: 6, hardness: 0.8, colour: [1.2, 1.5, 2, 1] });
+  await patchLayer(page, "lit", { filters: [glowFilter("g", { radius: 120, threshold: 60 })] });
+  const full = await renderRegion(page, { zoom: 1, x: 0, y: 0, width: W, height: H });
+  const compare = (view: number[], level: number, width: number, height: number) => {
+    let image: { width: number; height: number; data: Float64Array | Float32Array } = { width: W, height: H, data: Float64Array.from(full) };
+    for (let k = 0; k < level; k++) image = boxReduce(image);
+    let worst = 0;
+    for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) worst = Math.max(worst, worstDifference(pixelAt(view, width, x, y), sampleMitchell(image, x + 0.5, y + 0.5, 1)));
+    return worst;
+  };
+  // A quarter: level 2, the glow's cached levels. Drawn at its own level, without refining.
+  const quarter = await renderRegion(page, { zoom: 0.25, x: 0, y: 0, width: W / 4, height: H / 4 });
+  const atQuarter = compare(quarter, 2, W / 4, H / 4);
+  // A half: level 1, finer than the cache: drawn at its level it's a preview, and refined it's level 0 reduced.
+  const half = await renderRegion(page, { zoom: 0.5, x: 0, y: 0, width: W / 2, height: H / 2 }, { refine: true });
+  const atHalf = compare(half, 1, W / 2, H / 2);
+  // Measured: 0.0008 refined at a half; 0.022 at a quarter, where octaves finer than the view are read at its level.
+  expect(atHalf).toBeLessThan(4e-3);
+  expect(atQuarter).toBeLessThan(0.05);
+});
