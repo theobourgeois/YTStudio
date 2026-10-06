@@ -101,12 +101,33 @@ rebuildable and never saved.
 | Glow, flare (adding light) | Linear RGB | Energy is kept through every pass; nothing clamped. Light gets coverage `max(r, g, b)` where its layer had none, and a glowing layer's pixel is never brighter than its coverage (up to white), so a straight-alpha file of it composites over any backdrop as it does here (F4) |
 | Blur, resampling | Premultiplied linear RGBA | No dark or coloured fringes at transparent edges |
 | Curves | sRGB-encoded unassociated RGB | Each channel's own curve, then the composite. Identity is exact (left out of the plan; an untouched channel is never re-encoded). Outside [0, 1] values pass through unchanged (a documented kink at the ends); HDR curves are a later, separate definition |
-| Normal compositing | Premultiplied linear RGBA | Source-over; a mask scales colour and alpha alike |
-| Other blend modes | Stated per mode | Not in the foundations. Each gets its domain and extended-range rule, with fixtures, before shipping |
+| Compositing (modes, opacity, Fill, soft edges) | The document's: `photoshop`, sRGB-encoded (premultiplied); `linear`, linear light | Photoshop's look (measured: layer-style/photoshop-measurements.md). Source-over for Normal; a mask scales colour and alpha alike. Pixels, sources and every other operation stay linear |
+| Blend modes | Encoded straight colour (in `linear` documents, linear) | `shared/photo/reference/blend.ts`, matched to Photoshop 27.11 within 0–2 levels (the component modes 7). A mode's result never leaves [0, 1] further than its inputs did: within sRGB it clips as Photoshop's does, light above white goes through Normal, Darken/Lighten, Multiply, Screen, Add, Difference and Subtract |
 | Coverage (masks, selections) | Scalar | No colour conversion, no transfer curve |
 
-Photoshop blends in its document's encoded space by default, so some modes will look different from it. A
-compatibility mode, if wanted, is a versioned document setting, never a hidden backend difference.
+Photoshop blends in its document's encoded space by default, and so does a `photoshop` document (version 4,
+the default for new photos; README.md, A24). Older photos, and those set to it, composite in linear light
+(`linear`): a versioned document setting, never a hidden backend difference.
+
+### Blending (as built, L1)
+
+- A `photoshop` plan's composite holds encoded values, premultiplied, in **f32** (when the device blends f32): an
+  8-bit sample's trip through f16 linear tiles and then an f16 encoded composite could leave its 8-bit level. Layers
+  are encoded as they're drawn, so Normal is still the GPU's own source-over (and exactly Photoshop's mix);
+  adjustments decode, adjust in linear light and encode again; and one pass decodes the result at the end, so
+  the screen, refinement, exports and Convert to Pixels all get linear light as before.
+- A layer with a mode, Blend If or excluded channels is drawn alone into a scratch buffer, then the blend pass
+  reads it and the composite below (`render/blend.ts`, the reference's steps). Plain Normal layers draw in runs, with
+  Fill folded into their opacity. The screen keeps composites below blended layers as it does below adjustments,
+  so hovering modes re-renders only from that layer up.
+- **Layer effects** (L2, layer-style/README.md): a styled layer is drawn alone, then a style pass composites it with
+  its effects. Their fields (a signed distance, Softer's blurs) are made in the layer's own pixels and kept by content
+  and sizes (`render/style.ts`); the pass samples them through the layer's transform, so they're exact at every zoom
+  and moving the layer never remakes them. A styled node doesn't commute with reduction: reduced views refine.
+  Bevels (L3) add a height field (Smooth: the tent of the coverage; a chisel: from the signed distance; then Soften's
+  box), lit in the pass from its slopes a document pixel either way; Satin reads a tent twice, offset either way.
+- Blend modes don't commute with reduction (a mode of averages isn't the average of the modes): reduced views of
+  a plan with one refine at level 0. Normal does, in either compositing (within tolerance at soft edges).
 
 ## The output transform
 

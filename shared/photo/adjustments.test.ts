@@ -6,7 +6,7 @@ import { ADJUSTMENTS, effectDefinition, newEffect, unavailableReason, validatePa
 import { IDENTITY_POINTS, identityCurveSet, sanitizePoints } from "./effects/params.ts";
 import { createPhotoProject, normalizePhotoProject } from "./project.ts";
 import { curvesFor, exposurePixel, fade } from "./reference/adjustments.ts";
-import type { AdjustmentLayer, CurveSet, PhotoProject } from "./types.ts";
+import { type AdjustmentLayer, type CurveSet, PHOTO_VERSION, type PhotoProject } from "./types.ts";
 
 const image = (id: string) => ({ id, mediaId: `media_${id}`, name: `Image ${id}`, size: { width: 400, height: 200 } });
 const adjustment = (doc: PhotoProject, id: string) => doc.layers.find((l) => l.id === id) as AdjustmentLayer;
@@ -173,7 +173,7 @@ describe("adjustment layers", () => {
       },
       (p) => problems.push(p),
     );
-    expect(doc.version).toBe(5);
+    expect(doc.version).toBe(PHOTO_VERSION);
     expect(doc.layers.map((l) => l.id)).toEqual(["e", "f", "g"]);
     expect(adjustment(doc, "e").effect.params).toEqual({ exposure: 0, offset: 0.5, gamma: 1 });
     expect(adjustment(doc, "f").effect).toEqual({ id: "f_fx", type: "glimmer", version: 3, enabled: true, params: { shine: [1, 2] } });

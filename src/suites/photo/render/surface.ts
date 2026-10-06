@@ -73,6 +73,13 @@ export class SurfaceImage {
   manifest: SurfaceManifest;
   /** Bumped whenever what it shows changes (a stroke's dabs, tiles arriving): the screen's kept composites go. */
   onChange: (() => void) | null = null;
+  /** Counts those changes: what's made from its pixels (a layer style's fields) is keyed by it. */
+  revision = 0;
+
+  private changed() {
+    this.revision++;
+    this.onChange?.();
+  }
   private drafts = new Map<string, Draft>();
   private stroke: { spacer: DabSpacer; place: SurfacePlace; limited: boolean } | null = null;
   /** Level-0 tiles listed by the manifest that aren't resident, being fetched. */
@@ -225,7 +232,7 @@ export class SurfaceImage {
     }
     this.image.flush();
     this.buildLevels();
-    this.onChange?.();
+    this.changed();
   }
 
   /** A listed tile's page entry: its slot when the atlas has it (a constant is filled now), else PENDING. */
@@ -277,7 +284,7 @@ export class SurfaceImage {
     if (this.destroyed) return 0;
     this.image.flush();
     this.buildLevels();
-    this.onChange?.();
+    this.changed();
     return missing.length;
   }
 
@@ -448,7 +455,7 @@ export class SurfaceImage {
     }
     this.image.flush();
     this.buildLevels();
-    this.onChange?.();
+    this.changed();
     const result = await this.end();
     return result?.id ?? null;
   }
@@ -551,7 +558,7 @@ export class SurfaceImage {
     }
     this.image.flush();
     this.buildLevels();
-    this.onChange?.();
+    this.changed();
   }
 
   /** A draft's working copies, let go (the stroke ended or was dropped). */
@@ -577,7 +584,7 @@ export class SurfaceImage {
     this.image.flush();
     this.buildLevels();
     void this.ensureResident().catch(() => {});
-    this.onChange?.();
+    this.changed();
   }
 
   /**

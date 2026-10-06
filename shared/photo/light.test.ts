@@ -148,7 +148,9 @@ describe("generator layers (version 5)", () => {
     );
     expect(n.layers.map((l) => l.id)).toEqual(["g", "i"]);
     const g = n.layers[0] as GeneratorLayer;
-    expect("blend" in g || "blendSpace" in g).toBe(false);
+    // Every layer has every blend mode (Layer Style); a space that isn't one goes.
+    expect(g.blend).toBe("dissolve");
+    expect("blendSpace" in g).toBe(false);
     expect(g.effect.params.source).toEqual([0, 0]);
     expect((g.effect.params.elements as EffectElement[]).map((e) => [e.id, e.size])).toEqual([["e1", 0.1]]);
     expect(unavailableReason((n.layers[1] as GeneratorLayer).effect, "generator")).toMatch(/isn't a generator/);

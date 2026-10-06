@@ -3,9 +3,11 @@
  * edits in `tool-edits.ts`). Whatever the user can do, the assistant can: add a tool with each feature.
  */
 import { type Schema, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
+import { BLEND_MODES } from "./blending.ts";
 import { ADJUSTMENTS, EFFECTS, type EffectKind, FILTERS, GENERATORS } from "./effects/index.ts";
 import { FLARE_PRESETS } from "./effects/flare.ts";
 import type { ElementParamSpec, ParamSpec } from "./effects/params.ts";
+import { STYLE_DEFINITIONS } from "./style/definitions.ts";
 
 const layer = str('A layer: its id (from get_photo) or its name ("Sky").');
 
@@ -38,6 +40,21 @@ export function describeEffects(kind: EffectKind): string {
 
 /** Every adjustment and its parameters. */
 export const describeAdjustments = () => describeEffects("adjustment");
+
+/** Every layer effect and its parameters, for the model. */
+export function describeStyleEffects(): string {
+  return STYLE_DEFINITIONS.map((def) => {
+    const params = def.params.map((p) => {
+      if (p.kind === "number") return `${p.key} (${p.min} to ${p.max}${p.unit ? ` ${p.unit}` : ""}, default ${p.default})`;
+      if (p.kind === "choice") return `${p.key} (${p.options.map((o) => o.value).join(" | ")}, default ${p.default})`;
+      if (p.kind === "boolean") return `${p.key} (true | false, default ${p.default})`;
+      if (p.kind === "colour") return `${p.key} ("#rrggbb", default ${p.default})`;
+      if (p.kind === "blend") return `${p.key} (a blend mode, default ${p.default})`;
+      return `${p.key} (${p.kind})`;
+    });
+    return `${def.type}${def.max > 1 ? ` (up to ${def.max})` : ""}: ${def.description} ${params.join(", ")}`;
+  }).join("\n");
+}
 
 /** An adjustment's parameters: any of its definition's (see describeAdjustments). */
 const adjustmentParams: Schema = {
@@ -117,6 +134,68 @@ export const PHOTO_TOOLS = [
       },
       ["layer"],
     ),
+  }),
+  tool({
+    name: "set_layer_blending",
+    title: "Set a layer's blending",
+    kind: "edit",
+    description:
+      "Photoshop's Blending Options on one or more layers: the blend mode (how the layer's colours mix with what's below: multiply darkens, screen lightens, overlay adds contrast, color/luminosity/hue/saturation take part of the colour…), Opacity, Fill (fades the layer but, in eight modes (color-burn, linear-burn, color-dodge, linear-dodge, vivid-light, linear-light, hard-mix, difference), works inside the mode and looks different from Opacity), the channels that blend, and Blend If: ranges on 0..255 that hide the layer where its own colour (layer) or the colour below it (underlying) is outside them, [black low, black high, white low, white high], a split handle (low < high) fading it in between. Give only what changes. An adjustment layer's mode blends its adjusted picture with the original (Curves in luminosity changes contrast without colour).",
+    inputSchema: obj(
+      {
+        layers: arr(layer, "The layers (ids or names)."),
+        mode: oneOf(
+          BLEND_MODES.map((m) => m.id),
+          "The blend mode.",
+        ),
+        opacity: num("0 to 1."),
+        fill: num("Fill, 0 to 1."),
+        channels: obj({ r: bool("Red blends."), g: bool("Green blends."), b: bool("Blue blends.") }),
+        blendIf: {
+          type: "object",
+          description:
+            'Blend If entries to set, by "gray", "red", "green" or "blue": { "layer": [0, 0, 255, 255], "underlying": [0, 40, 255, 255] } (a side left out keeps its range); null clears an entry, and blendIf: null clears all. E.g. { "gray": { "layer": [0, 0, 200, 240] } } fades out the layer\'s brightest parts.',
+          additionalProperties: true,
+        },
+      },
+      ["layers"],
+    ),
+  }),
+  tool({
+    name: "set_layer_style",
+    title: "Set a layer's effects",
+    kind: "edit",
+    description: `Photoshop's layer effects (fx) on an image or pixel layer: add one, change it, hide it or remove it. They're drawn in a fixed order (drop shadows and the outer glow under the layer; overlays, satin, inner glow, inner shadows and strokes over it; Bevel & Emboss over everything). Sizes and distances are pixels, opacities and other shares percentages (0..100), angles degrees anticlockwise from 3 o'clock (where the light comes from: 120 throws a shadow down and right). With globalLight true (the shadows' and the bevel's default) the angle (and a bevel's altitude) is the document's Global Light (set_global_light). A contour is a preset name ("Cone", "Gaussian", "Ring"…) and a gradient { "colours": [{ "at": 0, "colour": "#ff0000" }, { "at": 1, "colour": "#0000ff" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 1 }], "method": "classic" }. The effects:\n${describeStyleEffects()}`,
+    inputSchema: obj(
+      {
+        layer,
+        add: oneOf(
+          STYLE_DEFINITIONS.map((d) => d.type),
+          "Add an effect of this type (with params over its defaults).",
+        ),
+        effect: str('The effect to change, hide or remove: its id (from get_photo), or its type when the layer has one ("drop-shadow").'),
+        params: { type: "object", description: "Parameters to set; the rest keep their value.", additionalProperties: true },
+        enabled: bool("Shown (true) or hidden (false)."),
+        remove: bool("Remove the effect."),
+        allEffects: bool("Show (true) or hide (false) all the layer's effects at once (the Layers panel's Effects eye)."),
+        clear: bool("Remove all its effects."),
+      },
+      ["layer"],
+    ),
+  }),
+  tool({
+    name: "set_global_light",
+    title: "Set the Global Light",
+    kind: "edit",
+    description: "The document's one light (Layer › Layer Style › Global Light): every shadow with globalLight follows its angle (degrees anticlockwise from 3 o'clock, -180 to 180) and altitude (0 to 90).",
+    inputSchema: obj({ angle: num("Degrees."), altitude: num("Degrees above the horizon.") }),
+  }),
+  tool({
+    name: "copy_layer_style",
+    title: "Copy a layer style",
+    kind: "edit",
+    description: "Copy Layer Style, then Paste: gives `to` layers the same effects and Blending Options as `from` (replacing theirs).",
+    inputSchema: obj({ from: str("The layer to copy from."), to: arr(layer, "The layers to paste onto.") }, ["from", "to"]),
   }),
   tool({
     name: "add_adjustment",
@@ -301,12 +380,13 @@ export const PHOTO_TOOLS = [
     title: "Resize the canvas",
     kind: "edit",
     description:
-      "Changes the canvas: its size in pixels (layers keep their place, measured from the top-left corner, or from the centre with anchor: centre), its background (a colour like #ffffff, or none for transparent) and its highlights (film or clip). Common sizes: 1080×1920 story/reel, 1080×1350 portrait post, 1080×1080 square, 1280×720 thumbnail.",
+      "Changes the canvas: how its layers mix (compositing), its size in pixels (layers keep their place, measured from the top-left corner, or from the centre with anchor: centre), its background (a colour like #ffffff, or none for transparent) and its highlights (film or clip). Common sizes: 1080×1920 story/reel, 1080×1350 portrait post, 1080×1080 square, 1280×720 thumbnail.",
     inputSchema: obj({
       width: int("Width in pixels."),
       height: int("Height in pixels."),
       background: str('A colour "#rrggbb", or "none" for transparent.'),
       anchor: oneOf(["top-left", "centre"], "What stays put when the size changes (default top-left)."),
+      compositing: oneOf(["photoshop", "linear"], "How layers mix: photoshop (encoded values, as Photoshop: blend modes and opacity look as they do there; new photos) or linear (linear light, physically mixed)."),
       highlights: oneOf(["film", "clip"], "How light brighter than white leaves the photo: film rolls it towards white (glows and flares bloom), clip clips each channel."),
     }),
   }),

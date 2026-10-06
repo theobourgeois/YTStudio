@@ -180,6 +180,11 @@ interface PixelLayer {
 // Every layer may have mask?: { surface: SurfaceId | null }: coverage in the layer's own pixels (an adjustment's:
 // the document's), r16f, fill 1; null reveals everything.
 
+// Version 4 (L1): Blending Options on every layer, absent at their defaults (shared/photo/blending.ts):
+//   blend?: BlendMode (27 of Photoshop's), fill?: number, blending?: { channels?, blendIf? }
+// and the document's compositing?: "photoshop" | "linear" (absent: linear, as photos before it; new ones photoshop).
+// Then (L2): style?: { enabled, effects: EffectInstance[] } on image and pixel layers (Photoshop's fx, drawing
+// order; shared/photo/style/), and the document's globalLight?: { angle, altitude }.
 // Version 5 (F4): filters and generator layers; `output.highlights` is film by default (older photos: clip).
 interface Filtered {
   filters?: EffectInstance[];                          // Photoshop's Smart Filters (glow): first applied first
@@ -187,14 +192,13 @@ interface Filtered {
 }
 interface ImageLayer extends Filtered { … }            // and PixelLayer
 interface GeneratorLayer extends Filtered {
-  id: string; name: string; visible: boolean; opacity: number;
+  id: string; name: string; visible: boolean; opacity: number;  // and every layer's blending (version 4)
   kind: "generator";
   effect: EffectInstance;                              // kind "generator": a Lens Flare; its handles are points in it
-  blend?: "normal" | "linear-dodge";                   // Layer Style's L1 brings every mode to every layer
   blendSpace?: "linear";                               // a new flare: linear-dodge in linear light
 }
 // Parameter values add points ([x, y], or null: the canvas's centre), colours ("#rrggbb"), choices, booleans and
-// element lists ({ id, type, enabled, … }: a flare's). Version 4 is Layer Style's blending (L1).
+// element lists ({ id, type, enabled, … }: a flare's).
 ```
 
 Rules, each enforced by `normalizePhotoProject` and tested:

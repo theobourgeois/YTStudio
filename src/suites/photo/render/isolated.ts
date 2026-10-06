@@ -2,8 +2,8 @@
  * Layers evaluated alone before they join the stack (docs/photo/f4-light.md, "Evaluation"): a layer with filters,
  * and a generator. Its content (the layer drawn without its mask, or the generator's) is made on the target's grid,
  * its filters run on it in linear light, and the composite pass blends the result over what's below through the
- * layer's opacity and mask. (Layer Style's L1 brings the blend pass every mode uses; F4's two, Normal and Linear
- * Dodge in linear light, are fixed-function blends here until then.)
+ * layer's opacity and mask: by the GPU's own blending for Normal and light added in linear light (exact), otherwise
+ * `prepare`d (through its mask, in the values it blends in) for the compositor's blend or style pass (Layer Style).
  *
  * The glow needs its layer's contributions around what's shown. Its fine octaves (levels below
  * `GLOW_CACHED_FROM`) are made here from a render of the content on a document-aligned grid a little larger than
@@ -14,7 +14,7 @@
 import { GLOW_CACHED_FROM, type GlowShape, glowParamsOf, glowShape } from "@shared/photo/effects/glow.ts";
 import { type View, levelForScale } from "@shared/photo/geometry.ts";
 import { invert, layerScale } from "@shared/photo/layers.ts";
-import type { ContentNode, FilterNode, PlanFormat } from "@shared/photo/render-plan.ts";
+import { type ContentNode, type FilterNode, type PlanFormat, addsLight } from "@shared/photo/render-plan.ts";
 import type { Compositor, Drawable, LayerDraw, PlanSources, Quality } from "./compositor.ts";
 import { FLARE_SHADER, packFlare } from "./flare.ts";
 import { APPLY, APPLY_OCTAVES, BLUR, CONTRIBUTION, type OctaveRead, type PlacedOctave, applyUniform, blurUniform, placeOctaves, placedReach } from "./glow.ts";
@@ -115,7 +115,11 @@ export const glowCacheKey = (node: ContentNode, index: number, extent: Box) => {
     .join(",")}|${f.params.threshold}|${f.params.knee}|${extent.x0},${extent.y0},${extent.x1},${extent.y1}`;
 };
 
-/** The composite pass: an isolated layer's content over what's below, × opacity × its mask (layer or document pixels). */
+/**
+ * The composite pass: an isolated layer's content over what's below, × opacity × its mask (layer or document pixels);
+ * \`p0\` encodes the result (premultiplied, sRGB's curve extended past 1: blend.ts's premult_encode) for an encoded
+ * composite's blend pass.
+ */
 const COMPOSITE = (format: PlanFormat) => /* wgsl */ `
 ${ROUND_FOR_STORE(format)}
 ${ATLAS}
@@ -136,7 +140,18 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let doc = params.origin + pos.xy / params.zoom;
   let u = vec2f(dot(params.inv0.xy, doc) + params.inv0.z, dot(params.inv1.xy, doc) + params.inv1.z);
   let m = mask_at(params.hasMask == 1u, params.level, u * exp2(-f32(params.level)));
-  return round_for_store(c * (params.opacity * m));
+  var out = c * (params.opacity * m);
+  if (params.p0 == 1u && out.a > 0.0) {
+    let s = out.rgb / out.a;
+    out = vec4f(vec3f(enc(s.r), enc(s.g), enc(s.b)) * out.a, out.a);
+  }
+  return round_for_store(out);
+}
+fn enc(l: f32) -> f32 {
+  let a = abs(l);
+  var v = a * 12.92;
+  if (a > 0.0031308049535603713) { v = 1.055 * pow(a, 1.0 / 2.4) - 0.055; }
+  return select(v, -v, l < 0.0);
 }
 `;
 
@@ -250,8 +265,7 @@ export class Isolation {
   /** Whether everything `node` needs, in `format`, has compiled. */
   canEvaluate(node: ContentNode, format: PlanFormat): boolean {
     const p = this.pipelines;
-    const blend = node.kind === "generator" && node.blend === "linear-dodge" ? "add" : "normal";
-    if (!p.composite.has(`${blend}:${format}`)) return false;
+    if (!p.composite.has(`normal:${format}`) || !p.composite.has(`add:${format}`)) return false;
     if (node.kind === "generator" && !p.flare.has(format)) return false;
     return node.filters.length === 0 || (p.contribution.has(format) && p.blur.has(format) && p.apply.has(format));
   }
@@ -475,22 +489,33 @@ export class Isolation {
 
   // --- compositing ---
 
-  /** `content` (on `view`'s grid) over `target` through the node's opacity, mask and blend. */
+  /** `content` (on `view`'s grid) over `target` through the node's opacity, mask and blend (Normal, or Add). */
   composite(encoder: GPUCommandEncoder, node: ContentNode, content: GPUTexture, target: GPUTexture, view: View, mask: Drawable | null, draw: LayerDraw | null, format: PlanFormat) {
+    this.drawContent(encoder, content, target, view, mask, draw, format, { blend: addsLight(node.blend) ? "add" : "normal", opacity: node.opacity, clear: false, encode: false });
+  }
+
+  /**
+   * `content` through its layer's mask alone into `target` (cleared), encoded with `encode`: the layer drawn alone,
+   * for the compositor's blend or style pass (which applies its opacity and blending).
+   */
+  prepare(encoder: GPUCommandEncoder, content: GPUTexture, target: GPUTexture, view: View, mask: Drawable | null, draw: LayerDraw | null, format: PlanFormat, encode: boolean) {
+    this.drawContent(encoder, content, target, view, mask, draw, format, { blend: "normal", opacity: 1, clear: true, encode });
+  }
+
+  private drawContent(encoder: GPUCommandEncoder, content: GPUTexture, target: GPUTexture, view: View, mask: Drawable | null, draw: LayerDraw | null, format: PlanFormat, o: { blend: Blend; opacity: number; clear: boolean; encode: boolean }) {
     const { device } = this.compositor.ctx;
-    const blend: Blend = node.kind === "generator" && node.blend === "linear-dodge" ? "add" : "normal";
     // The mask's pixels: a placed layer's own (through its inverse matrix), a generator's the document's.
     const inv = draw ? invert(draw.matrix) : ([1, 0, 0, 1, 0, 0] as const);
     const scale = draw ? view.zoom * layerScale(draw.transform) : view.zoom;
     const u = new ArrayBuffer(64);
     const f = new Float32Array(u);
-    f.set([inv[0], inv[2], inv[4], 0, inv[1], inv[3], inv[5], 0, view.x, view.y, view.zoom, node.opacity]);
-    new Uint32Array(u, 48, 2).set([mask ? levelForScale(scale, mask.image.levels.length) : 0, mask ? 1 : 0]);
+    f.set([inv[0], inv[2], inv[4], 0, inv[1], inv[3], inv[5], 0, view.x, view.y, view.zoom, o.opacity]);
+    new Uint32Array(u, 48, 3).set([mask ? levelForScale(scale, mask.image.levels.length) : 0, mask ? 1 : 0, o.encode ? 1 : 0]);
     const ctx = mask?.ctx ?? this.compositor.ctx;
     const image = mask?.image ?? ctx.emptyImage;
     image.flush();
-    const pass = encoder.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: "load", storeOp: "store" }] });
-    pass.setPipeline(this.pipelines.composite.get(`${blend}:${format}`)!);
+    const pass = encoder.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: o.clear ? "clear" : "load", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
+    pass.setPipeline(this.pipelines.composite.get(`${o.blend}:${format}`)!);
     pass.setBindGroup(0, ctx.atlasBindGroup());
     pass.setBindGroup(1, ctx.imageBindGroup(image));
     pass.setBindGroup(2, device.createBindGroup({ layout: this.layouts.composite, entries: [{ binding: 0, resource: content.createView() }, { binding: 1, resource: { buffer: this.uniform(u, "composite") } }] }));

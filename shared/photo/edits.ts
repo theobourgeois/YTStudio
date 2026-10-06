@@ -2,6 +2,7 @@
  * Pure edits of a photo document, the only way it changes (the UI, keys and the assistant all use these). Each
  * returns the same document when nothing changes, so a no-op makes no undo step and no save.
  */
+import { type BlendingPatch, patchBlending } from "./blending.ts";
 import { type EffectDefinition, effectDefinition, newEffect, unavailableReason } from "./effects/index.ts";
 import { flarePreset } from "./effects/flare.ts";
 import { type ElementsParam, newElement, sameValue, sanitizeParam } from "./effects/params.ts";
@@ -9,12 +10,13 @@ import type { Size } from "./geometry.ts";
 import { MIN_SCALE, isColour, wrapDegrees } from "./project.ts";
 import {
   type AdjustmentLayer,
+  type Compositing,
   type ContentLayer,
   type DocPoint,
   type EffectElement,
   type EffectInstance,
   type EffectParamValue,
-  type GeneratorBlend,
+  type BlendMode,
   type GeneratorLayer,
   type ImageLayer,
   type LayerTransform,
@@ -117,6 +119,27 @@ export function updateLayer(doc: PhotoProject, id: string, patch: LayerPatch): P
   });
 }
 
+/**
+ * Blending Options on layers (one, or several selected: Photoshop's Layers panel sets them all): mode, Opacity, Fill,
+ * channels, Blend If. Only what `patch` names changes.
+ */
+export function setLayerBlending(doc: PhotoProject, ids: readonly string[], patch: BlendingPatch): PhotoProject {
+  const set = new Set(ids);
+  let changed = false;
+  const layers = doc.layers.map((l) => {
+    if (!set.has(l.id)) return l;
+    const next = patchBlending(l, patch);
+    if (next !== l) changed = true;
+    return next;
+  });
+  return changed ? { ...doc, layers } : doc;
+}
+
+/** How the document's layers mix: Photoshop's encoded values, or linear light. */
+export function setCompositing(doc: PhotoProject, compositing: Compositing): PhotoProject {
+  return (doc.compositing ?? "linear") === compositing ? doc : { ...doc, compositing };
+}
+
 export function removeLayer(doc: PhotoProject, id: string): PhotoProject {
   return findLayer(doc, id) ? { ...doc, layers: doc.layers.filter((l) => l.id !== id) } : doc;
 }
@@ -196,6 +219,8 @@ export function duplicateLayer(doc: PhotoProject, id: string, newId: string): Ph
       ? { ...from, id: newId, name: `${from.name} copy`, effect: { ...structuredClone(from.effect), id: `${newId}_fx` } }
       : { ...from, id: newId, name: `${from.name} copy` };
   if (hasContent(copy) && copy.filters) copy = { ...copy, filters: copy.filters.map((f, i) => ({ ...structuredClone(f), id: `${newId}_f${i + 1}` })) };
+  // Its layer effects are copies, with ids of their own.
+  if (from.style) copy = { ...copy, style: { ...from.style, effects: from.style.effects.map((e, i) => ({ ...structuredClone(e), id: `${newId}_fx${i + 1}` })) } };
   layers.splice(index + 1, 0, copy);
   return { ...doc, layers };
 }
@@ -426,7 +451,7 @@ export function moveElement(doc: PhotoProject, layerId: string, key: string, ele
 }
 
 /** A generator's blend: how its content mixes with what's below (Normal, or Linear Dodge's Add). */
-export function setGeneratorBlend(doc: PhotoProject, layerId: string, blend: GeneratorBlend, space?: "linear" | "document"): PhotoProject {
+export function setGeneratorBlend(doc: PhotoProject, layerId: string, blend: BlendMode, space?: "linear" | "document"): PhotoProject {
   return mapLayer(doc, layerId, (l) => {
     if (l.kind !== "generator") return l;
     const linear = space === undefined ? l.blendSpace === "linear" : space === "linear";

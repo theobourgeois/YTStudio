@@ -5,6 +5,8 @@
  * missing), a bad number goes back to its default, never a silent deletion of the user's work.
  */
 import { createId } from "../ids.ts";
+import { normalizeLayerBlending } from "./blending.ts";
+import { normalizeStyle } from "./style/style.ts";
 import { effectDefinition, validateParams } from "./effects/index.ts";
 import { isHash } from "./surfaces.ts";
 import {
@@ -12,7 +14,6 @@ import {
   CANVAS_PRESETS,
   type EffectInstance,
   type EffectParamValue,
-  type GeneratorBlend,
   type GeneratorLayer,
   type ImageLayer,
   type LayerMask,
@@ -33,6 +34,8 @@ export function createPhotoProject(name: string, canvas: Partial<PhotoCanvas> = 
     version: PHOTO_VERSION,
     name,
     canvas: { width: canvas.width ?? DEFAULT_PRESET.width, height: canvas.height ?? DEFAULT_PRESET.height, background: canvas.background === undefined ? "#ffffff" : canvas.background },
+    // New photos mix as Photoshop does (docs/photo/layer-style/README.md, decision 1).
+    compositing: "photoshop",
     output: { highlights: "film" },
     layers: [],
   };
@@ -153,7 +156,6 @@ function normalizeFilters(l: Record<string, unknown>, id: string, seen: Set<stri
 }
 
 const LAYER_NAMES: Record<string, string> = { image: "Image", pixel: "Layer", adjustment: "Adjustment", generator: "Lens Flare" };
-const GENERATOR_BLENDS = ["normal", "linear-dodge"] as const;
 
 function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, report: Report): PhotoLayer | null {
   if (!value || typeof value !== "object") return null;
@@ -163,7 +165,14 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
     visible: l.visible !== false,
     opacity: Math.max(0, Math.min(1, finite(l.opacity, 1))),
     ...normalizeMask(l.mask, id, report),
+    ...normalizeLayerBlending(l),
+    // Adjustment layers have Blending Options but no effects (Photoshop's); generator layers none yet either.
+    ...(l.kind === "image" || l.kind === "pixel" ? styleOf(l.style) : {}),
   });
+  const styleOf = (value: unknown) => {
+    const style = normalizeStyle(value, seen, () => createId("fx"), report);
+    return style ? { style } : {};
+  };
   if (l.kind === "image") {
     if (typeof l.mediaId !== "string" || !l.mediaId) return null;
     const id = uniqueId(l.id, "layer", seen);
@@ -201,7 +210,6 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
       kind: "generator",
       ...common(id),
       effect,
-      ...(GENERATOR_BLENDS.includes(l.blend as GeneratorBlend) && l.blend !== "normal" ? { blend: l.blend as GeneratorBlend } : {}),
       ...(l.blendSpace === "linear" ? { blendSpace: "linear" as const } : {}),
       ...normalizeFilters(l, id, seen, report),
     };
@@ -227,10 +235,19 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
 
 /**
  * Validates and repairs an untrusted document, and brings an older version up to this one (version 1 had image
- * layers only, version 2 added adjustments, version 3 pixel layers and masks: each is a valid version 5, its highlights
- * clipped as they were drawn). Throws only when it isn't a photo at all, or a newer version made
+ * layers only, version 2 added adjustments, version 3 pixel layers and masks, version 4 Layer Style's blending and
+ * effects: each is a valid version 5, compositing in linear light (before version 4) and its highlights clipped
+ * (before version 5) as it was drawn). Throws only when it isn't a photo at all, or a newer version made
  * it (opening it here would lose what this version doesn't know). What it repairs is told to `report`.
  */
+/** Global Light checked: kept when it's two finite numbers (the angle wrapped, the altitude on 0..90). */
+function globalLightOf(value: unknown): { globalLight?: { angle: number; altitude: number } } {
+  if (!value || typeof value !== "object") return {};
+  const g = value as Record<string, unknown>;
+  if (typeof g.angle !== "number" || typeof g.altitude !== "number" || !Number.isFinite(g.angle) || !Number.isFinite(g.altitude)) return {};
+  return { globalLight: { angle: wrapDegrees(g.angle), altitude: Math.max(0, Math.min(90, g.altitude)) } };
+}
+
 export function normalizePhotoProject(value: unknown, report: Report = () => {}): PhotoProject {
   if (!value || typeof value !== "object") throw new Error("Not a photo.");
   const d = value as Record<string, unknown>;
@@ -248,6 +265,8 @@ export function normalizePhotoProject(value: unknown, report: Report = () => {})
     version: PHOTO_VERSION,
     name: typeof d.name === "string" && d.name.trim() ? d.name.trim() : "Untitled",
     canvas,
+    ...(d.compositing === "photoshop" || d.compositing === "linear" ? { compositing: d.compositing } : {}),
+    ...globalLightOf(d.globalLight),
     // Before version 5 every photo was drawn clipped, whatever it said: it keeps that look (f4-light.md, D2).
     output: { highlights: o.highlights === "clip" || !(typeof d.version === "number" && d.version >= 5) ? "clip" : "film" },
     layers,

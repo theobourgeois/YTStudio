@@ -41,6 +41,8 @@ interface PhotoUi {
   /** Null until the canvas has a size (then it fits). */
   view: View | null;
   exportOpen: boolean;
+  /** The Layer Style window: its layer and the page it shows ("blending", or an effect's id), or null when it's closed. */
+  layerStyle: { layerId: string; page: string } | null;
   setTool: (tool: PhotoTool) => void;
   setTarget: (target: PaintTarget) => void;
   setPaintChoice: (layerId: string | null) => void;
@@ -57,6 +59,7 @@ interface PhotoUi {
   setMarquee: (marquee: Box | null) => void;
   setView: (view: View) => void;
   setExportOpen: (open: boolean) => void;
+  setLayerStyle: (open: { layerId: string; page: string } | null) => void;
 }
 
 export const usePhotoUi = create<PhotoUi>((set) => ({
@@ -73,6 +76,7 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   marquee: null,
   view: null,
   exportOpen: false,
+  layerStyle: null,
   setTool: (tool) => set({ tool }),
   setTarget: (target) => set({ target }),
   setPaintChoice: (paintChoice) => set({ paintChoice }),
@@ -92,6 +96,7 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   setMarquee: (marquee) => set({ marquee }),
   setView: (view) => set({ view }),
   setExportOpen: (exportOpen) => set({ exportOpen }),
+  setLayerStyle: (layerStyle) => set({ layerStyle }),
 }));
 
 /** A selection as the store keeps it: no repeats, and the active layer one of them (the last, by default). */
@@ -107,7 +112,7 @@ export const useActiveTool = () => usePhotoUi((s) => (s.spaceHand ? "hand" : s.t
 // Another photo: a fresh view, nothing selected, its windows closed.
 usePhoto.subscribe((state, prev) => {
   if (state.projectId !== prev.projectId)
-    usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, selectedFilterId: null, selectedElementId: null, guides: [], marquee: null, view: null, exportOpen: false, spaceHand: false, target: "content", paintChoice: null });
+    usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, selectedFilterId: null, selectedElementId: null, guides: [], marquee: null, view: null, exportOpen: false, layerStyle: null, spaceHand: false, target: "content", paintChoice: null });
   // Selected layers that are gone (undone, deleted) are no longer selected.
   const { selectedLayerIds, selectedLayerId } = usePhotoUi.getState();
   if (!state.history || selectedLayerIds.length === 0 || state.history.doc.doc.layers === prev.history?.doc.doc.layers) return;

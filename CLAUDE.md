@@ -34,10 +34,15 @@ renderer's parts the suite doesn't use yet. Kernels and passes storing `rgba16fl
 (`render/surface.ts`: tiles by hash, strokes on drafts); a saved photo only names pixels the server has (`uploads.ts`,
 `SuiteBackend.checkSave`). Light (docs/photo/f4-light.md): no pixel is brighter than its coverage (up to white), the
 output's `film` rolls light above white off at the end (`output.ts`), and a glow's or flare's WGSL mirrors its CPU
-reference in `shared/photo/reference/`: change both. F5 (harden) is in progress: its server side is built
-(`server/photo/recovery.ts`: the checkpoint and the check on open, `SuiteBackend.keepPrevious`/`check`; documents and
-blobs written with `writeFileDurably`; `faults.test.ts`). Layer Style's L1 (blend modes, `compositing`)
-replaces isolated.ts's composite with its blend pass.
+reference in `shared/photo/reference/`: change both. Layer Style L1–L3 are built (docs/photo/layer-style/README.md:
+blend modes and compositing in render/blend.ts, effects (Bevel & Emboss and Satin too) in shared/photo/style/ and
+render/style.ts, their fields made in the layer's pixels and kept; reference/blend.ts and reference/style.ts are held
+to Photoshop's own renders, `scripts/photoshop-probes/bevel-sheet.ts` shows the bevels beside them). A filtered or
+generator layer (isolated.ts) composites by the GPU's own blending when it's Normal or light added in linear light,
+otherwise through the blend or style pass (`fixedComposite`); light blends in linear light in a "photoshop" document
+too (`blendsInLinear`: a layer with filters, a flare with `blendSpace`). F5 (harden) is in progress: its server side
+is built (`server/photo/recovery.ts`: the checkpoint and the check on open, `SuiteBackend.keepPrevious`/`check`;
+documents and blobs written with `writeFileDurably`; `faults.test.ts`).
 
 The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is
 planned in [`docs/visualizer/README.md`](docs/visualizer/README.md): signals, links, audio shaders, Perform, its
@@ -74,6 +79,7 @@ pnpm tsx scripts/photo-fixtures.ts [--skip-large]   # the photo suite's test ima
 pnpm tsx scripts/photo-bench.ts [--runner chrome|electron] [--quick] [--lab [--tiles 256,512]] [--shots dir]   # the photo suite's targets, measured in the workspace (--lab: F0's lab)
 pnpm tsx scripts/select-mixparams.ts   # MixParams' reviewed reference subset into the gitignored data/ (docs/audio-intelligence/)
 python3 scripts/audit-cl1b.py <Dataset.zip> --out <report.json>   # CL 1B's layout, read statically: never unpickles
+python3 scripts/photoshop-probes/<probe>.py   # measure a real Photoshop (macOS, installed): docs/photo/layer-style/photoshop-measurements.md
 ```
 
 **Verify every change** with `pnpm typecheck && pnpm test`, and also `pnpm test:e2e` for anything the UI touches.

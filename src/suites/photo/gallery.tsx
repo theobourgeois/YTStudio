@@ -1,17 +1,25 @@
 /**
  * The photo suite's controls in the component gallery (`/gallery`): Properties' parameter sliders and the Curves
- * graph, as an adjustment shows them, a glow's parameters and a Lens Flare's Properties, and the Brush's options bar. Outside an open photo their edits go nowhere (the
- * brush's are this browser's): the gallery is for looking.
+ * graph, as an adjustment shows them, a glow's parameters and a Lens Flare's Properties, the Brush's options bar, and
+ * Blending Options' blend-mode menu and Blend If bars, and Layer Style's angle dial, contour and gradient pickers.
+ * Outside an open photo their edits go nowhere (the brush's are this browser's): the gallery is for looking.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { effectDefinition } from "@shared/photo/effects/index";
 import type { NumberParam } from "@shared/photo/effects/params";
 import { identityCurveSet } from "@shared/photo/effects/params";
 import { flarePreset } from "@shared/photo/effects/flare";
-import type { AdjustmentLayer, GeneratorLayer } from "@shared/photo/types";
+import { CONTOUR_PRESETS } from "@shared/photo/style/contours";
+import { GRADIENT_PRESETS } from "@shared/photo/style/gradients";
+import type { AdjustmentLayer, BlendMode, BlendRange, Contour, GeneratorLayer, Gradient } from "@shared/photo/types";
 import type { GallerySection } from "@/gallery/types";
 import { BrushOptionsBar } from "./options-bar";
 import { CurvesEditor } from "./panels/curves-editor";
+import { BlendIfSlider } from "./layer-style/blend-if-slider";
+import { AngleDial } from "./layer-style/controls/angle-dial";
+import { ContourPicker } from "./layer-style/controls/contour-picker";
+import { GradientPicker } from "./layer-style/controls/gradient-picker";
+import { BlendModeMenu } from "./panels/blend-mode-menu";
 import { ParamSlider } from "./panels/fields";
 import { GeneratorProperties } from "./panels/light";
 import { ParamField } from "./panels/params";
@@ -65,6 +73,52 @@ function Adjustments() {
   );
 }
 
+/** The blend-mode menu (hover a mode: it shows beside), a Blend If bar whole and one with split handles. */
+function Blending() {
+  const [mode, setMode] = useState<BlendMode>("multiply");
+  const [hovered, setHovered] = useState<BlendMode | null>(null);
+  const [whole, setWhole] = useState<BlendRange>([0, 0, 255, 255]);
+  const [split, setSplit] = useState<BlendRange>([45, 124, 205, 235]);
+  return (
+    <div className="flex items-start gap-8 text-sm">
+      <div className="flex w-52 flex-col gap-1">
+        <BlendModeMenu value={mode} onPreview={setHovered} onChoose={setMode} />
+        <span className="text-xs text-muted-foreground">Previewing: {hovered ?? "nothing"}</span>
+      </div>
+      <div className="flex flex-col gap-3">
+        <BlendIfSlider label="Current Layer" range={whole} colour="#fff" onChange={setWhole} />
+        <BlendIfSlider label="Underlying Layer" range={split} colour="#f00" onChange={setSplit} />
+      </div>
+    </div>
+  );
+}
+
+/** Layer Style's shared controls: the angle dial (and one disabled), the contour picker and the gradient picker. */
+function StyleControls() {
+  const [angle, setAngle] = useState(120);
+  const [contour, setContour] = useState<Contour>(CONTOUR_PRESETS[7]);
+  const [gradient, setGradient] = useState<Gradient>(GRADIENT_PRESETS[1]);
+  return (
+    <div className="flex items-center gap-8 text-xs">
+      <div className="flex items-center gap-2">
+        <span>Angle:</span>
+        <AngleDial value={angle} onChange={setAngle} />
+      </div>
+      <AngleDial value={-45} onChange={() => {}} disabled />
+      <div className="flex items-center gap-2">
+        <span>Contour:</span>
+        <ContourPicker value={contour} onChange={setContour} />
+        <span className="text-muted-foreground">{contour.name}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span>Gradient:</span>
+        <GradientPicker value={gradient} onChange={setGradient} />
+        <span className="text-muted-foreground">{gradient.name}</span>
+      </div>
+    </div>
+  );
+}
+
 /** Light: a glow's parameters (a filter's, from its specs: sliders and a colour), and a Lens Flare's Properties. */
 function Light() {
   const glow = effectDefinition("glow")!;
@@ -99,5 +153,17 @@ function Light() {
 export const PHOTO_SECTIONS: GallerySection[] = [
   { id: "photo-brush", title: "Photo: the Brush's and Eraser's options bar (size, hardness, strength: drag sideways, click to type)", source: "suites/photo/options-bar.tsx", render: () => <BrushOptionsBar /> },
   { id: "photo-adjustments", title: "Photo: an adjustment's sliders, and Curves (straight; an S with its channels' curves faint behind)", source: "suites/photo/panels/fields.tsx, curves-editor.tsx", render: () => <Adjustments /> },
+  { id: "photo-blending", title: "Photo: Blending Options' blend-mode menu (each mode previewed while hovered) and Blend If's bars (⌥-drag splits a handle)", source: "suites/photo/panels/blend-mode-menu.tsx, layer-style/blend-if-slider.tsx", render: () => <Blending /> },
+  {
+    id: "photo-style-controls",
+    title: "Photo: Layer Style's angle dial (drag in the circle, ⇧ snaps to 15°), contour picker (thumbnail: the Contour Editor; arrow: presets) and gradient picker (swatch: the Gradient Editor; arrow: presets)",
+    source: "suites/photo/layer-style/controls/",
+    render: () => <StyleControls />,
+    shots: [
+      { name: "contour-presets", click: "Contour presets" },
+      { name: "contour-editor", click: "Contour: Ring. Edit the contour" },
+      { name: "gradient-editor", click: "Gradient: White, Transparent. Edit the gradient" },
+    ],
+  },
   { id: "photo-light", title: "Photo: a glow's parameters (from its specs), and a Lens Flare's Properties: its handles, blend, elements, a ghost's own", source: "suites/photo/panels/params.tsx, light.tsx", render: () => <Light /> },
 ];
