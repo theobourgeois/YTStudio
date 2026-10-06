@@ -6,7 +6,7 @@ the link popover, the assistant's tools, the Signals window, signal lanes, spect
 effects, New item › Visualizer). **V5 is built** (Make visualizer: a song of the music suite made into a video
 project). **V6 is built** (2026-10-07: the Shader effect, its three dialects, the shader editor, `set_shader`; see
 "V6: Shaders" below). **V8 is built** (2026-10-07, before V7: simulations, vaudio's feedback and camera modes, its four
-3D scenes; see "V8: Simulations and 3D" below). **V10 is being built** (2026-10-06: ProRes, HEVC, PNG sequences,
+3D scenes; see "V8: Simulations and 3D" below). **V10 is built** (2026-10-06: ProRes, HEVC, PNG sequences,
 transparency, a quality; see "Export (V10)").
 [vaudio-port.md](vaudio-port.md) lists what comes over from Théo's earlier visualizer (`~/code/vaudio`) and where.
 
@@ -688,9 +688,12 @@ Datamosh) moved onto simulations; scenes in New item › Visualizer and in Make 
 - The output window, render-once-show-twice, display choice, Show mode's `live` source.
 - **Gate**: 1080p60 sustained with the Perform UI open.
 
-### V10: Professional export
+### V10: Professional export (built, 2026-10-06)
 
-- RGBA readback, ProRes 422 HQ and 4444 (alpha), HEVC, PNG sequences, a quality setting (see "Export (V10)" above).
+- RGBA readback, ProRes 422 HQ and 4444 (alpha), HEVC, PNG sequences, a quality setting (see "Export (V10)" above;
+  built as planned). Also: a download from a data folder under a dot-folder (`e2e/.data`) was refused by `send`; the
+  route allows it now. The format ids are types in `shared/types.ts` (the platform's, as `ExportRequest` is), so
+  `export-formats.ts` adds no layering debt.
 - Steps, a commit each: the formats as data and the request's fields; the compositor's RGBA readback and the
   page's transparent frames; the encoders and the formats this ffmpeg can make; the ZIP writer; the export service
   (files by extension, PNG sequences, refusals); the integration tests (the linked-parameter check first); the
@@ -698,7 +701,9 @@ Datamosh) moved onto simulations; scenes in New item › Visualizer and in Make 
 - Tests: `export-formats.test.ts`, `encoders.test.ts`, `zip.test.ts`; `integration.test.ts` (above); e2e: a
   transparent ProRes 4444 exported from the window, downloaded as a `.mov`.
 - **Gate**: a 1080×1920, 30 fps ProRes 4444 with alpha renders at least in real time for an edit of solids, text and
-  a visualizer (`scripts/perf.ts` doesn't cover exports: timed in the integration test's log).
+  a visualizer. **Measured** (2026-10-06, an M-series Mac, the dev server, from the export window): a Visualizer
+  layer (Spectrum Bars over a 20 s song), a shape, a text and a solid band on four tracks, 20 s in 9 s (2.2× real
+  time), 296 MB, transparent where nothing is drawn.
 
 V10 doesn't depend on the others and can be built whenever it's wanted; V5 and V6 don't depend on each other.
 

@@ -244,7 +244,9 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   assistant-tools.ts The video editor's tools for AI agents (MCP): names, input schemas, descriptions, kind (look/edit/action).
   assistant.ts       The assistant's chat: messages, ChatEvent + applyChatEvent (server and tab fold the same events),
                      describeToolCall (a step's label), TabEvent (what the tab's event stream carries).
-  math.ts, format.ts, errors.ts   clamp/EPS/roundTime, time formatting, errorMessage.
+  export-formats.ts  What an export can be (V10): H.264, HEVC, ProRes 422 HQ, ProRes 4444, PNG sequences, as data (container,
+                     encoder, readback, quality, alpha); `exportSettings` checks a request's format, quality and alpha.
+  math.ts, format.ts, errors.ts   clamp/EPS/roundTime, time and size formatting, errorMessage.
 server/
   index.ts → app.ts  Startup wiring; routes live in routes/<resource>.ts (one Router each).
   suites/            Each suite's server side (SuiteBackend): create/normalise/summarise its documents, what its
@@ -255,7 +257,9 @@ server/
   migrate.ts         Older data folders: data/project.json and data/projects + data/media become packages, on startup.
   media.ts, web-media.ts, exports.ts   Services behind the routes.
   library.ts         LibraryStore: library.json (folders, items) + its own MediaLibrary under data/library/media.
-  render.ts          Export plan (pure, unit-tested): planRender (decoders + per-frame layers), audioArgs, encoderArgs.
+  render.ts          Export plan (pure, unit-tested): planRender (decoders + per-frame layers), audioArgs.
+  encoders.ts        Each export format's encoder (`encoderArgs`), the formats this ffmpeg can make (`availableFormats`).
+  zip.ts             A stored ZIP of files on disk (ZIP64 when it's big): a PNG sequence's download.
   frame-render.ts + gl-browser.ts   Runs the plan: decoders -> headless Chromium compositor -> encoder.
   process.ts         run()/spawnStreaming(): the only way to start external programs (argv, never a shell).
   transcription/     Speech to timed words for Auto captions. service.ts (jobs, cache, time mapping), audio.ts
@@ -1260,6 +1264,9 @@ desktop app; e2e (a browser) tests the boxes in the page, and `pnpm test:desktop
   call and loops React for ever. Use a shared empty constant (`sequenceMarkers` does).
 - The export draws every frame in headless Chromium with `shared/compositor.ts`; ffmpeg only decodes (video as YUV
   4:2:0 at the size it's shown; the compositor converts with the source's matrix), mixes audio and encodes (BT.709).
+  Frames come back as YUV 4:2:0 (H.264, HEVC) or straight RGBA (ProRes, PNG: `readRgbaAsync`; ffmpeg converts with
+  BT.709's matrix said explicitly, as swscale takes RGB as BT.601). An export with `alpha` begins each frame
+  transparent instead of black: the canvas stays black everywhere else (a product decision).
   Everything animates exactly: Motion/Opacity per frame in `planRender`, volume as an ffmpeg expression of the same
   curve (`keyframeExpression`), and text drawn by the page itself at every frame (only its layout comes from the
   tab: one per change of its words, size or font, `TextLayoutAt.from`).
