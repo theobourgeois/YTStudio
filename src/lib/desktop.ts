@@ -2,6 +2,8 @@
  * What the desktop app (electron/) and the page share. The preload script sets `editorDesktopInfo`; the page
  * gives the app `editorDesktop`, which it calls before closing the window.
  */
+import { toast } from "sonner";
+import { errorMessage } from "@shared/errors";
 import { useProjects } from "@/stores/projects";
 import type { AppIconId } from "@shared/app-icons";
 
@@ -56,11 +58,15 @@ declare global {
       tabStrip?: (shown: boolean) => void;
       /** A project was opened: the system's recent documents (the Dock, File › Open Recent) list it. */
       projectOpened?: (path: string) => void;
+      /** An image the system handed the app (`editorDesktop.openImages`): its name, type and bytes. */
+      readHandedImage?: (path: string) => Promise<{ name: string; type?: string; data: Uint8Array }>;
     };
     editorDesktop?: {
       flush(): Promise<void>;
       /** Open a project's package (double-clicked in Finder, or picked from File › Open Recent). */
       openFile(path: string): Promise<void>;
+      /** Start a photo from images dropped on the Dock icon or opened with the app (several dropped at once: one photo). */
+      openImages(paths: string[]): Promise<void>;
       /** A menu command of the app's (`DesktopCommand`). */
       command(name: DesktopCommand): void;
     };
@@ -132,8 +138,26 @@ export function exposeDesktopHooks() {
   window.editorDesktop = {
     flush: () => useProjects.getState().flush(),
     openFile: (path) => useProjects.getState().openFile(path),
+    openImages,
     command: (name) => commands(name),
   };
+}
+
+/** Images handed to the app start something, as files dropped on Home do (`startWith`: images start a photo). */
+async function openImages(paths: string[]) {
+  const read = window.editorDesktopInfo?.readHandedImage;
+  if (!read || !paths.length) return;
+  let files: File[];
+  try {
+    files = await Promise.all(paths.map(async (path) => {
+      const { name, type, data } = await read(path);
+      return new File([data as Uint8Array<ArrayBuffer>], name, { type: type ?? "" });
+    }));
+  } catch (err) {
+    toast.error("Couldn't open that image", { description: errorMessage(err) });
+    return;
+  }
+  if (!useProjects.getState().startWith(files)) toast.error("Vaudio can't open that file");
 }
 
 /** Tell the desktop app whether the tab strip is showing (it keeps a Mac's window buttons level with the bar). */

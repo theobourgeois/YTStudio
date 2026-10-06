@@ -988,7 +988,9 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   data folder (a starting point, a test's) is deleted.
 - The desktop app declares the type (`fileAssociations`, a package Finder shows as one file), opens one
   double-clicked or launched with (`open-file`, argv) through `editorDesktop.openFile`, and lists opened ones in
-  File › Open Recent (`app.addRecentDocument`). Its File menu runs the page's `DesktopCommand`s.
+  File › Open Recent (`app.addRecentDocument`). Its File menu runs the page's `DesktopCommand`s. Images dropped on its
+  Dock icon (or Open With) start a photo (`IMAGE_TYPES`, an Alternate handler: Preview stays the default), read only
+  through `read-handed-image`, which serves no file the system didn't hand the app.
 
 ## Data model (shared/types.ts)
 

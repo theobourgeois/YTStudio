@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
   tabStrip: (shown: boolean) => ipcRenderer.send("tab-strip", shown),
   // A project was opened: the Dock's and File › Open Recent's recent documents list it.
   projectOpened: (path: string) => ipcRenderer.send("project-opened", path),
+  // An image dropped on the Dock icon (or opened with Vaudio), which the page starts a photo with.
+  readHandedImage: (path: string) => ipcRenderer.invoke("read-handed-image", path) as Promise<{ name: string; type?: string; data: Uint8Array }>,
   // The editor's windows, native ones (electron/panels.ts, src/components/windows/native/): the page opens each with
   // `window.open` and draws into it; this is what only the main process can do for them.
   panels: {
