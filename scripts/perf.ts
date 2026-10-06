@@ -270,32 +270,37 @@ async function linkedPlayback(): Promise<never> {
   await page.locator("[data-clip-id]").first().waitFor({ timeout: 120_000 });
   await page.waitForTimeout(2000);
   // Frames the Program monitor draws while playing (each preview draw is a frame).
-  const measure = () =>
-    page.evaluate(async () => {
-      const w = window as unknown as { __longTasks: number };
-      w.__longTasks = 0;
-      let frames = 0;
-      let worst = 0;
-      let last = performance.now();
+  // As text: tsx would wrap a function's inner names in a helper the page doesn't have.
+  const measure = (): Promise<{ fps: number; worst: number; long: number }> =>
+    page.evaluate(`new Promise((done) => {
+      window.__longTasks = 0;
+      let frames = 0, worst = 0, last = performance.now();
       const start = last;
-      await new Promise<void>((done) => {
-        const tick = (now: number) => {
-          frames++;
-          worst = Math.max(worst, now - last);
-          last = now;
-          if (now - start < 4000) requestAnimationFrame(tick);
-          else done();
-        };
-        requestAnimationFrame(tick);
-      });
-      return { fps: frames / ((performance.now() - start) / 1000), worst, long: w.__longTasks };
-    });
+      const tick = (now) => {
+        frames++;
+        worst = Math.max(worst, now - last);
+        last = now;
+        if (now - start < 4000) requestAnimationFrame(tick);
+        else done({ fps: frames / ((performance.now() - start) / 1000), worst, long: window.__longTasks });
+      };
+      requestAnimationFrame(tick);
+    })`);
   await page.locator("body").click({ position: { x: 720, y: 20 } });
+  const idle = await measure();
   await page.keyboard.press("Space");
   const playing = await measure();
   await page.keyboard.press("Space");
+  // Again from the start: what's left is drawing, not the followers being worked out the first time.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Space");
+  const again = await measure();
+  await page.keyboard.press("Space");
   console.log(`\n${count} solids linked to the sound (scale to the bass, opacity to the kicks), ${tracks.length} tracks\n`);
-  console.log(`play 4 s: ${playing.fps.toFixed(1)} frames a second, slowest frame ${playing.worst.toFixed(0)} ms, long tasks ${playing.long.toFixed(0)} ms`);
+  const line = (name: string, m: { fps: number; worst: number; long: number }) =>
+    console.log(`${name.padEnd(12)} ${m.fps.toFixed(1)} frames a second, slowest frame ${m.worst.toFixed(0)} ms, long tasks ${m.long.toFixed(0)} ms`);
+  line("paused", idle);
+  line("play 4 s", playing);
+  line("play again", again);
   await browser.close();
   process.exit(0);
 }

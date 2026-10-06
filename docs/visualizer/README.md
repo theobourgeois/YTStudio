@@ -444,7 +444,9 @@ assistant tools. Gates are what must be true (measured) before the next mileston
 the timeline's signal lanes (curves, editable events), the spectrogram on audio clips (from V1), the keyframe lanes'
 resulting curve.
 
-- **Gate**: a timeline with 300 linked clips plays at 60 fps (`scripts/perf.ts --links`).
+- **Gate**: a timeline with 300 linked clips plays at 60 fps (`scripts/perf.ts --links`). **Measured** (2026-10-07,
+  an M-series Mac, dev build): 300 solids on ten tracks over a 20 s song, each with scale linked to the bass and
+  opacity to the kicks: 60.2 frames a second paused and playing, slowest frame 17 ms, no long tasks.
 
 ### V4: Visualizer effects
 
