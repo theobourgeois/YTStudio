@@ -188,12 +188,38 @@ async function compare({ a, b }) {
   return { width: first.info.width, height: first.info.height, differing, maxDifference, underTransparent };
 }
 
+/** What the editor places as it is: anything else (SVG, GIF, AVIF, TIFF…) is made a PNG first. */
+const PLACEABLE = new Set(["png", "jpeg", "webp"]);
+const MAX_RENDERED_SIDE = 4096;
+
+/**
+ * A picture downloaded from the internet, made one the editor places (the Online panel): a PNG, JPEG or WebP of
+ * one frame stays as it is (`kept`); otherwise its first frame is written to `out` as a PNG. An SVG is drawn with
+ * its longer side `size` pixels (else at least 1024), sharp, not scaled up from its own few.
+ */
+async function prepare({ file, out, size }) {
+  const meta = await open(file).metadata();
+  if (meta.space === "cmyk" && meta.format === "jpeg") throw new Error("CMYK images aren't supported yet.");
+  if (PLACEABLE.has(meta.format) && !(meta.pages > 1)) return { format: meta.format, kept: true };
+  let density;
+  if (meta.format === "svg") {
+    const side = Math.max(meta.width ?? 0, meta.height ?? 0) || 1;
+    const target = Math.min(MAX_RENDERED_SIDE, size ?? Math.max(1024, side));
+    density = Math.max(1, Math.min(100_000, (72 * target) / side));
+  }
+  const image = open(file, density ? { density } : { pages: 1 }).autoOrient().toColourspace("srgb").png({ compressionLevel: 6 });
+  await writeAtomically(out, (tmp) => image.toFile(tmp));
+  const written = await sharp(out).metadata();
+  return { format: "png", kept: false, width: written.width, height: written.height };
+}
+
 const COMMANDS = {
   version: async () => ({ decoder: DECODER }),
   probe,
   decode,
   encode,
   compare,
+  prepare,
   // For the supervisor's tests: die mid-request, as a crash would.
   crash: async () => process.exit(70),
 };

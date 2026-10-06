@@ -70,7 +70,11 @@ sections are `src/suites/photo/camera-raw/` (⇧⌘A); its edits are absolute (`
 adds a new one and Cancel leaves nothing. Its local sliders and Contrast read an **analysis** of the picture it
 develops (`analysis.ts`: guided-filter grids, haze, statistics, from a coarse render), handed in by `compileRender`'s
 `cameraRaw` resolver by the input's key (its id, or "pending", in the node's key) and kept by
-`render/camera-raw-analysis.ts`: the screen builds missing ones in the background, `settledPlan` waits for them.
+`render/camera-raw-analysis.ts`: the screen builds missing ones in the background, `settledPlan` waits for them. The **Online panel** (docs/photo/online.md; a tab beside Properties) searches Iconify's icons, Bing's images and
+Openverse's photos, or reads a pasted link, and places a result as a layer: the server searches and downloads
+(`server/photo/online.ts`; Iconify limits requests, so icons' shapes are fetched a set at a time and kept, never one
+by one), the helper's `prepare` makes anything that isn't PNG, JPEG or WebP a PNG; e2e sets
+`EDITOR_ONLINE_ASSETS=stand-in` (`online-stand-in.ts`).
 
 The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is
 planned in [`docs/visualizer/README.md`](docs/visualizer/README.md): signals, links, audio shaders, Perform, its

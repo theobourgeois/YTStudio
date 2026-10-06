@@ -1,6 +1,7 @@
 /** The photo suite's client for its own routes (`/api/photo/...`), on the platform's `request`. */
 import { request } from "@/lib/api";
 import type { MediaAsset } from "@shared/types";
+import type { OnlinePlaceRequest, OnlineSearch, OnlineSource, WebFilter } from "@shared/photo/online";
 import type { CompareResult, ExportRequest, ExportResult, HelperStatus, SourceInfo, SourceLayout, TileSize } from "@shared/photo/lab.ts";
 
 export const LAB_BASE = "/api/photo/lab";
@@ -46,4 +47,10 @@ export const photoApi = {
   cancelExport: (id: string) => request<void>(`/api/photo/exports/${id}`, { method: "DELETE" }),
   compare: (id: string, projectId: string, mediaId: string) =>
     request<CompareResult>(`/api/photo/exports/${id}/compare?projectId=${projectId}&mediaId=${mediaId}`),
+  /** The Online panel: a page of `source`'s results for `query` (a link reads that page's pictures). */
+  searchOnline: (source: OnlineSource, query: string, page = 0, filter: WebFilter = "any", signal?: AbortSignal) =>
+    request<OnlineSearch>(`/api/photo/online/search?source=${source}&q=${encodeURIComponent(query)}&page=${page}&filter=${filter}`, { signal }),
+  /** A result downloaded into the project's media (the copy already there if it was placed before). */
+  placeOnline: (projectId: string, body: OnlinePlaceRequest) =>
+    request<MediaAsset>(`/api/photo/projects/${projectId}/online/place`, { method: "POST", body: JSON.stringify(body) }),
 };

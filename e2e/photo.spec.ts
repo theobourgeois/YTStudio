@@ -967,6 +967,65 @@ test("images dragged into a photo are placed as layers where they're dropped, an
   await expect(page.locator("[data-layer]")).toHaveCount(1);
 });
 
+// The Online panel (docs/photo/online.md), against the stand-in internet (EDITOR_ONLINE_ASSETS=stand-in).
+test("the Online panel finds icons, web pictures and a link's pictures, and places them by a click or a drag; the assistant too", async ({ page }) => {
+  const id = await openNewPhoto(page, "Online");
+  const media = async () => (await (await page.request.get(`/api/media?projectId=${id}`)).json()) as { id: string; name: string; width: number; height: number; origin?: string }[];
+  const layers = async () => (await savedPhoto(page, id)).layers as { name: string; mediaId: string; transform: { x: number; y: number; scaleX: number } }[];
+
+  // It's a tab beside Properties.
+  await page.getByRole("tab", { name: "Online" }).click();
+  const panel = page.locator("[data-online-panel]");
+  await panel.locator("[data-online-search]").fill("bell");
+  await expect(panel.locator("[data-online-result]")).toHaveCount(4);
+  // An icon is drawn at a quarter of the canvas's shorter side, in the foreground colour, centred.
+  await expect(panel.locator("[data-icon-size]")).toHaveValue("270");
+  await panel.locator('[data-online-result="mdi:bell"]').click();
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await expect(page.locator("[data-layer]")).toHaveAttribute("aria-selected", "true");
+  await expect.poll(async () => (await layers()).map((l) => l.name)).toEqual(["bell"]);
+  expect((await layers())[0].transform).toMatchObject({ x: 540, y: 960, scaleX: 1 });
+  expect(await media()).toMatchObject([{ name: "bell.png", width: 270, height: 270, origin: "online:icon:mdi:bell:270:#000000" }]);
+  // Placed again, it's the same image.
+  await panel.locator('[data-online-result="mdi:bell"]').click();
+  await expect.poll(async () => (await layers()).length).toBe(2);
+  expect(await media()).toHaveLength(1);
+
+  // The web, narrowed to transparent pictures: one whose original won't come is the search engine's copy.
+  await page.locator('[data-online-tab="web"]').click();
+  await panel.locator('[data-web-filter="transparent"]').click();
+  await expect(panel.locator('[data-online-results="web"] [data-online-result]')).toHaveCount(3);
+  await panel.locator("[data-online-result]").nth(1).click();
+  await expect.poll(async () => (await layers()).map((l) => l.name).at(-1)).toBe("bell picture 2");
+
+  // Dragged onto the canvas, it's placed where it's dropped.
+  const point = await screenOf(page, 300, 500);
+  const transfer = await page.evaluateHandle(() => new DataTransfer());
+  await panel.locator("[data-online-result]").first().dispatchEvent("dragstart", { dataTransfer: transfer });
+  const canvas = page.getByLabel("Photo canvas");
+  await canvas.dispatchEvent("dragover", { dataTransfer: transfer, clientX: point.x, clientY: point.y });
+  await canvas.dispatchEvent("drop", { dataTransfer: transfer, clientX: point.x, clientY: point.y });
+  await expect.poll(async () => (await layers()).map((l) => l.name).at(-1)).toBe("bell picture 1");
+  const dropped = (await layers()).at(-1)!.transform;
+  expect([Math.abs(dropped.x - 300) <= 3, Math.abs(dropped.y - 500) <= 3]).toEqual([true, true]);
+
+  // A link reads the pictures on its page.
+  await panel.locator("[data-online-search]").fill("https://pages.stand-in/gallery");
+  await expect(panel.locator("[data-online-result]")).toHaveCount(3);
+  await expect(panel.locator("[data-web-filter]")).toHaveCount(0);
+
+  // The assistant searches and places too: an icon of its size and colour, where it says.
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const chat = page.locator('[data-slot="assistant-panel"]');
+  const composer = chat.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(['call search_online_images {"query": "star"}', 'call place_online_image {"source": "icons", "id": "mdi:star", "size": 100, "colour": "#00ff00", "x": 200, "y": 300}'].join("\n"));
+  await composer.press("Enter");
+  await expect(chat).toContainText("place_online_image: ok", { timeout: 30_000 });
+  await expect.poll(async () => (await layers()).map((l) => l.name).at(-1)).toBe("star");
+  expect((await layers()).at(-1)!.transform).toMatchObject({ x: 200, y: 300 });
+  expect((await media()).find((m) => m.name === "star.png")).toMatchObject({ width: 100, height: 100, origin: "online:icon:mdi:star:100:#00ff00" });
+});
+
 // --- F3: resources, selections, masks and the brush ---
 
 type PaintWindow = {

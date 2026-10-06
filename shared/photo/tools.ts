@@ -108,6 +108,43 @@ export const PHOTO_TOOLS = [
     inputSchema: obj({ media: str("The image: its media id or its name."), name: str("The layer's name (default: the file's).") }, ["media"]),
   }),
   tool({
+    name: "search_online_images",
+    title: "Search online for pictures",
+    kind: "look",
+    description:
+      'The Online panel\'s search: pictures on the internet to place with place_online_image. source: icons (default; about 200,000 open-source icons from Iconify: Material, Phosphor, Tabler, Lucide, Font Awesome, emoji, brand logos; drawn as crisp vectors at any size and recoloured, so prefer them for any icon or symbol; search short English names: "bell", "heart", "arrow right"), web (a web image search, Bing\'s: anything, e.g. "red sports car png"; filter transparent finds cut-out PNGs), photos (Creative Commons photos from Openverse), or a link: a URL as the query reads the pictures on that page. Returns each result\'s id, title and size; look at what you placed with view_photo.',
+    inputSchema: obj(
+      {
+        query: str("What to find, or a link."),
+        source: oneOf(["icons", "web", "photos"], "Where to search (default icons)."),
+        filter: oneOf(["any", "transparent", "clipart", "line", "photo"], "web only: the kind of picture (transparent: only ones with a transparent background)."),
+        page: int("The page of results, from 0 (default 0)."),
+      },
+      ["query"],
+    ),
+  }),
+  tool({
+    name: "place_online_image",
+    title: "Place a picture from online",
+    kind: "edit",
+    description:
+      "Downloads one of search_online_images' results into the project and places it as a new layer on top, centred (or at x, y), at its own size or scaled down to fit, and selects it. An icon is drawn size pixels on its longer side in colour (default: the user's foreground colour; colourful icons keep their own). remove_background: true then masks it to its subject (Select Subject; the open photo only). Move or scale it after with transform_layer.",
+    inputSchema: obj(
+      {
+        source: oneOf(["icons", "web", "photos", "link"], "The result's source, as search_online_images gave it."),
+        id: str("The result's id, as search_online_images gave it (an icon's name like \"mdi:bell\", else the picture's URL)."),
+        title: str("The layer's name (default: the result's)."),
+        fallback: str("The result's fallback URL, if search_online_images gave one (used when the original won't download)."),
+        size: int("icons: its longer side in pixels, 16 to 4096 (default a quarter of the canvas's shorter side)."),
+        colour: str('icons: its colour, "#rrggbb".'),
+        x: num("The centre's x on the canvas in pixels (default the canvas's centre)."),
+        y: num("The centre's y on the canvas in pixels."),
+        remove_background: bool("Mask it to its subject after placing it (photos and web pictures)."),
+      },
+      ["source", "id"],
+    ),
+  }),
+  tool({
     name: "transform_layer",
     title: "Move, scale or rotate a layer",
     kind: "edit",

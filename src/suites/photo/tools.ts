@@ -5,7 +5,8 @@
  * the canvas.
  */
 import { createId } from "@shared/ids";
-import { setMask } from "@shared/photo/edits";
+import { addImageLayer, placement, setMask } from "@shared/photo/edits";
+import { ONLINE_SOURCES, type OnlinePlaceRequest, WEB_FILTERS, iconSizeFor, isLink, onlineLayerName } from "@shared/photo/online";
 import { mergedLayer, replaceWithMerged } from "@shared/photo/merge";
 import { dabsAlong } from "@shared/photo/quick-select";
 import { allSelection, boxCoverage, rectSelection } from "@shared/photo/selection";
@@ -56,6 +57,22 @@ import {
   transformLayerTool,
 } from "./tool-edits";
 import { usePhotoUi } from "./ui";
+import { imageLayerOf } from "./media";
+import { photoApi } from "./api";
+import { placeAsset, removeBackground } from "./online/online";
+
+/** How many of a search's results the model is told of at once. */
+const ONLINE_LISTED = 40;
+
+/** One of `options`, else `fallback` when it's missing (null: required), else a message saying what's allowed. */
+function oneOfOr<T extends string, F extends T | null>(value: unknown, options: readonly T[], fallback: F, key: string): T | Exclude<F, null> {
+  if (value === undefined || value === null || value === "") {
+    if (fallback === null) throw new Error(`${key} is required: ${options.join(", ")}.`);
+    return fallback as Exclude<F, null>;
+  }
+  if (typeof value === "string" && (options as readonly string[]).includes(value)) return value as T;
+  throw new Error(`${key} must be one of ${options.join(", ")}.`);
+}
 
 type Input = Record<string, unknown>;
 
@@ -119,6 +136,59 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     };
   },
   add_image_layer: edit(addImageLayerTool),
+  async search_online_images(input) {
+    const query = typeof input.query === "string" ? input.query.trim() : "";
+    if (!query) throw new Error('query is required: what to find ("bell"), or a link.');
+    const source = isLink(query) ? "link" : oneOfOr(input.source, ["icons", "web", "photos"] as const, "icons", "source");
+    const filter = oneOfOr(input.filter, WEB_FILTERS, "any", "filter");
+    const page = typeof input.page === "number" && input.page > 0 ? Math.floor(input.page) : 0;
+    const found = await photoApi.searchOnline(source, query, page, filter);
+    if (!found.results.length) return textResult(`Nothing found for "${query}"${source === "icons" ? " among the icons: try a shorter or more common name, or source web" : ""}.`);
+    const shown = found.results.slice(0, ONLINE_LISTED);
+    const lines = shown.map((r, i) => {
+      const facts = [r.set && `${r.set}${r.palette ? ", in its own colours" : ""}`, r.width && r.height && `${r.width}×${r.height}`, r.license, r.credit && `by ${r.credit}`].filter(Boolean).join(", ");
+      return `${i + 1}. "${r.title}"${facts ? ` (${facts})` : ""}: source ${r.source}, id "${r.id}"${r.fallback ? `, fallback "${r.fallback}"` : ""}`;
+    });
+    const more = found.next !== null ? `\nMore: page ${found.next}.` : "";
+    return textResult(`${found.results.length > shown.length ? `The first ${shown.length} of ${found.results.length}` : `${shown.length}`} result${shown.length === 1 ? "" : "s"} for "${query}" (${source}). Place one with place_online_image (its source and id${source === "icons" ? "" : ", and its fallback"}).\n${lines.join("\n")}${more}`);
+  },
+  async place_online_image(input, ctx) {
+    const target = await targetOf(ctx);
+    const source = oneOfOr(input.source, ONLINE_SOURCES, null, "source");
+    const id = typeof input.id === "string" ? input.id.trim() : "";
+    if (!id) throw new Error("id is required: a result's id from search_online_images.");
+    const title = typeof input.title === "string" && input.title.trim() ? input.title.trim() : "";
+    const request: OnlinePlaceRequest = { source, id, ...(title ? { title } : {}), ...(typeof input.fallback === "string" && input.fallback ? { fallback: input.fallback } : {}) };
+    if (source === "icons") {
+      request.size = typeof input.size === "number" ? Math.round(input.size) : iconSizeFor(target.doc.canvas);
+      request.colour = typeof input.colour === "string" && input.colour ? input.colour : useColours.getState().foreground;
+    }
+    const asset = await photoApi.placeOnline(target.projectId, request);
+    const name = onlineLayerName({ source, id, title });
+    const at = typeof input.x === "number" && typeof input.y === "number" ? { x: input.x, y: input.y } : undefined;
+    let layerId: string;
+    let doc: PhotoProject;
+    if (target.open && usePhoto.getState().projectId === target.projectId) {
+      const placed = placeAsset(asset, name, at);
+      if (!placed) throw new Error("The image couldn't be placed: is the photo still open?");
+      layerId = placed;
+      if (input.remove_background === true && !(await removeBackground(layerId))) {
+        throw new Error(`Placed "${name}" as layer ${layerId}, but its background couldn't be removed (Select Subject's model may need downloading: Select › Subject in the editor).`);
+      }
+      doc = currentDoc()!;
+    } else {
+      if (input.remove_background === true) throw new Error("remove_background needs the photo open in the editor: open it, or place without it.");
+      const layer = imageLayerOf(asset, name);
+      doc = addImageLayer(target.doc, layer, at ? { transform: { ...placement(target.doc.canvas, layer.size), x: Math.round(at.x), y: Math.round(at.y) } } : {});
+      await api.saveDocument("photo", target.projectId, doc);
+      layerId = layer.id;
+    }
+    const index = doc.layers.findIndex((l) => l.id === layerId);
+    return textResult(
+      `Placed "${name}" (${asset.width}×${asset.height} px) as layer ${layerId} on top${input.remove_background === true ? ", masked to its subject" : ""}.\n${describeLayer(doc.layers[index], [...target.assets, asset], index)}`,
+      { added: [], changed: [layerId], removed: 0 },
+    );
+  },
   transform_layer: edit(transformLayerTool),
   set_layer: edit(setLayerTool),
   set_layer_blending: edit(setLayerBlendingTool),

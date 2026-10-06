@@ -70,12 +70,39 @@ export function subjectInput(sample: PixelSample): Float32Array {
 /** Below this a pixel isn't the subject at all, above 1 − it wholly is: the model's haze is left out. */
 const CERTAIN = 0.02;
 
+/** A box of a sample, in its pixels. */
+export interface SampleBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The part of a sample inside `box` (document pixels, clipped to the sample), as a sample of its own and where it is
+ * in the sample's pixels, or null when nothing of it is in the sample. Select Subject on one layer looks at its box
+ * alone: the whole canvas shows the model a picture on blank space, whose subject is the picture.
+ */
+export function cropSample(sample: PixelSample, box: { x: number; y: number; width: number; height: number }): { crop: PixelSample; at: SampleBox } | null {
+  const x0 = Math.max(0, Math.floor(box.x * sample.scale));
+  const y0 = Math.max(0, Math.floor(box.y * sample.scale));
+  const x1 = Math.min(sample.width, Math.ceil((box.x + box.width) * sample.scale));
+  const y1 = Math.min(sample.height, Math.ceil((box.y + box.height) * sample.scale));
+  if (x1 <= x0 || y1 <= y0) return null;
+  const width = x1 - x0;
+  const height = y1 - y0;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) data.set(sample.data.subarray(((y0 + y) * sample.width + x0) * 4, ((y0 + y) * sample.width + x1) * 4), y * width * 4);
+  return { crop: { width, height, data, scale: sample.scale }, at: { x: x0, y: y0, width, height } };
+}
+
 /**
  * The model's answer (`side × side` probabilities) as a selection of the document: stretched back to the sample's
- * size, then to the document's.
+ * size (or to `box` of it, when the model looked at that part alone), then to the document's.
  */
-export function subjectSelection(probabilities: Float32Array, side: number, sample: { width: number; height: number; scale: number }, canvas: Size): MaskSelection | null {
-  const { width, height } = sample;
+export function subjectSelection(probabilities: Float32Array, side: number, sample: { width: number; height: number; scale: number }, canvas: Size, box?: SampleBox): MaskSelection | null {
+  const full = new Uint8Array(sample.width * sample.height);
+  const { x: bx, y: by, width, height } = box ?? { x: 0, y: 0, width: sample.width, height: sample.height };
   const values = new Uint8Array(width * height);
   const at = (x: number, y: number) => probabilities[Math.max(0, Math.min(side - 1, y)) * side + Math.max(0, Math.min(side - 1, x))];
   for (let y = 0; y < height; y++) {
@@ -90,7 +117,9 @@ export function subjectSelection(probabilities: Float32Array, side: number, samp
       values[y * width + x] = p < CERTAIN ? 0 : p > 1 - CERTAIN ? 255 : Math.round(p * 255);
     }
   }
-  return coverageToSelection(values, width, height, sample.scale, canvas);
+  if (!box) return coverageToSelection(values, width, height, sample.scale, canvas);
+  for (let y = 0; y < height; y++) full.set(values.subarray(y * width, (y + 1) * width), (by + y) * sample.width + bx);
+  return coverageToSelection(full, sample.width, sample.height, sample.scale, canvas);
 }
 
 /**

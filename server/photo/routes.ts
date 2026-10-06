@@ -5,6 +5,7 @@ import { HttpError } from "../storage.ts";
 import { MAX_TILE_BYTES } from "./blobs.ts";
 import type { PhotoLab } from "./lab.ts";
 import type { SubjectModel } from "./models.ts";
+import type { PhotoOnline } from "./online.ts";
 import type { ExportStart, PhotoService } from "./service.ts";
 
 const tileOf = (value: unknown): TileSize => {
@@ -103,7 +104,7 @@ export function photoLabRoutes(lab: PhotoLab): Router {
 }
 
 /** `/api/photo`: the photo suite's own routes (a project's decoded images, exports, Select Subject's model). */
-export function photoRoutes(photo: PhotoService, subject: SubjectModel): Router {
+export function photoRoutes(photo: PhotoService, subject: SubjectModel, online: PhotoOnline): Router {
   const router = Router();
   // Paths are the server's own (a data folder can be a dot-folder: e2e's is e2e/.data).
   const immutable = { headers: { "Cache-Control": "no-cache" }, dotfiles: "allow" as const };
@@ -178,6 +179,15 @@ export function photoRoutes(photo: PhotoService, subject: SubjectModel): Router 
   });
   router.get("/exports/:id/compare", async (req, res) => {
     res.json(await photo.compare(req.params.id, text(req.query.projectId), text(req.query.mediaId)));
+  });
+
+  // The Online panel (docs/photo/online.md): a search of one source, and a result downloaded into a project's media.
+  router.get("/online/search", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await online.search(req.query.source, req.query.q, req.query.page, req.query.filter));
+  });
+  router.post("/projects/:projectId/online/place", json(), async (req, res) => {
+    res.status(201).json(await online.place(req.params.projectId, req.body));
   });
 
   // Select Subject's model: whether it's here, its download (asked for by the user), the file.
