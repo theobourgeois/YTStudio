@@ -3,8 +3,9 @@
 Status: plan first written 2026-10-06. **V1 (signals) and V2 (signals in expressions) are built** (2026-10-07; see
 "What V1 and V2 built" below). **V3 is built** (2026-10-07: links, custom signals, nests hearing where they're placed,
 the link popover, the assistant's tools, the Signals window, signal lanes, spectrograms). **V4 is built** (visualizer
-effects, New item › Visualizer). **V5 is built** (Make visualizer: a song of the music suite made into a video project);
-V6 (shaders) is next.
+effects, New item › Visualizer). **V5 is built** (Make visualizer: a song of the music suite made into a video
+project). **V6 is built** (2026-10-07: the Shader effect, its three dialects, the shader editor, `set_shader`; see
+"V6: Shaders" below).
 [vaudio-port.md](vaudio-port.md) lists what comes over from Théo's earlier visualizer (`~/code/vaudio`) and where.
 
 A professional audio visualizer inside the video editor, not a suite of its own. Any clip, effect parameter or shader
@@ -291,6 +292,37 @@ any other. That needs an instance-aware lookup, `definitionOf(effect)`, where co
 - **Safety**: GLSL can't touch files or the network; it can hang the GPU (Chromium's watchdog loses the context).
   The compositor recovers from a lost context and turns off the last shader compiled, telling the user.
 
+As built (V6): `shared/shader-code.ts` reads code (pure: declarations, the ISF header, the dialects' sources, compiler
+logs onto the user's lines; `shaderApi`, the examples); `definitionOf(effect)` in `effects.ts` (an instance's
+definition, cached per code: `shaderDefinition`); the preludes moved to `effect-prelude.ts` so the dialects build on
+them. Details that differ from the plan above:
+- **Lines**: the user's code follows `#line 1 1` (and each `@param` uniform `#line <its line> 1`), so ANGLE's log
+  (`ERROR: 1:12: ...`) names the user's own line; `compileProblems` reads it. Token pasting (`##`) doesn't work in
+  ANGLE, so ISF images and Shadertoy channels are structs (`_VzImage`, `_VzChannel`) with `texture`, `texelFetch`,
+  `textureLod`, `textureSize` overloads, and the ISF macros (`IMG_NORM_PIXEL`...) call functions on them.
+- **Dialect preludes** have none of our helpers (a Shadertoy's own `hash` or `noise` would clash) and our audio
+  functions renamed (`_vz_spectrum`); the compositor also sets `uResolution`, which they use. ISF writes straight
+  alpha (premultiplied for it); a Shadertoy is opaque. iChannel0 is the sound (512×2, the spectrum linear to 12 kHz
+  on row 0, the waveform on row 1), iChannel1 the clip's picture; `// @iChannel0 input|audio|none` changes them.
+  `iDate` is a fixed date (frames never depend on when they're drawn). Not supported: ISF's several PASSES, TARGETs,
+  IMPORTED images, vertex shaders; Shadertoy's Common and Buffer tabs.
+- **What it hears**: a native shader hears when it reads the sound (`spectrum`, `audioBass`, `hitAge`...; `@fall`,
+  `@history`, `@wave`, `@hits` shape the request), an ISF through `audio`/`audioFFT` inputs, a Shadertoy when it reads
+  an audio channel; then it gets a `source` parameter (Listens To) as visualizers do.
+- **Compile checks**: the tab (`src/lib/shader-compiler.ts`) compiles each new shader on a hidden context, cached by
+  key; `provideShaderCheck` leaves those that don't compile out of `effectPasses` (only that effect: the clip still
+  draws). Properties marks the effect and shows its first problem; the editor lists them and marks their lines. The
+  export compiles the plan's user shaders in its page before any frame (`GlSession.compile`) and refuses, naming the
+  shader and the clip (`RenderPlan.shaderUses`).
+- **Lost context**: the Program monitor's engine, on `webglcontextlost`, turns off (an undo step) the shader on now
+  that was first drawn most recently among those drawn in the last 20 s (the watchdog takes seconds), and says so
+  (`components/preview/shader-recovery.ts`). The compositor keeps the 24 most recently used user programs.
+- **Editing**: new code keeps the values, keyframes, expressions and links of the parameters it still declares as
+  the same kind (`setShaderCode`); a new Shader effect starts from its own code's defaults. The editor window
+  (`components/shader/`, CodeMirror 6 with C's grammar and the app's `--code-*` colours, lazy) applies typing after
+  180 ms and makes a burst one undo step (1.2 s); Dialect, Examples, a Reference (`shaderApi`), the declared
+  parameters, Save to Library (the clip, with its shader, as a Library item).
+
 ### Simulations (stateful effects, V8)
 
 Some looks need the past: feedback tunnels (vaudio's zoom/rotate/hue echo), physics (leviathan's chain), 3D scenes
@@ -385,7 +417,7 @@ Full control, at parity per milestone (a feature isn't done without its tools):
 | `define_signal`, `delete_signal` | edit | V3 |
 | `link_param` (set or clear links on clips' parameters) | edit | V3 |
 | `set_events` (add at times, beats or onsets; quantise; clear) | edit | V3 |
-| `set_shader` (code and dialect; compile-checked, the log returned on failure) | edit | V6 |
+| `set_shader` (code and dialect; compile-checked, the log returned on failure) (built) | edit | V6 |
 | `view_frames` with `from`/`to`/`count`, `at` beats, bars, drops or hits (with an `offset`), and `sheet` (one picture) (built) | look | V2 |
 | `make_visualizer` (music suite) (built) | action | V5 |
 | `map_control` (Perform mappings) | edit | V7 |
@@ -526,12 +558,21 @@ assistant tools. Gates are what must be true (measured) before the next mileston
   kept on the media: `handoff:<song project id>:...`); a section's arrangement on the beat grid (sections still come
   from the analysis, markers from the song).
 
-### V6: Shaders
+### V6: Shaders (built, 2026-10-07)
 
 - `definitionOf(effect)`, `Effect.shader`, declared parameters, the dialects, hashed keys, compile checks, recovery
-  from a lost context.
-- The shader editor window; Save to Library.
-- `set_shader`; `shader_api` in the catalogue; tests of the dialect adapters on known ISF and Shadertoy examples.
+  from a lost context (see "The Shader effect", as built).
+- The shader editor window (Properties › Edit code); Save to Library.
+- `set_shader` (compiled first through `EditEnv.compile`: the errors come back on the model's lines and nothing
+  changes; goes in a `batch`); `shader_api` in the catalogue (the dialects and the examples' code); `get_clips` shows
+  a shader's code, whether it compiles and its problems.
+- Tests: `shader-code.test.ts` (declarations, the ISF header, uniforms, what's heard, logs onto lines),
+  `shader-effect.test.ts` (definitions, edits keeping parameters, storage, paste, passes), `shader-edits.test.ts`;
+  `server/shaders.test.ts` compiles and draws known ISF and Shadertoy shaders (their own hash and noise, texelFetch
+  on the sound, IMG_PIXEL, texture2D, long and point2D inputs) and the examples in headless Chromium, and checks
+  errors land on the user's lines; the effect sheet draws the starting shader; e2e: a shader written in the editor
+  (an error on its line, then fixed: its parameter in Properties, drawn on the Program monitor), an example, undo,
+  and a lost context turning it off.
 
 ### V7: Perform
 
@@ -586,6 +627,7 @@ V10 doesn't depend on the others and can be built whenever it's wanted; V5 and V
 3. ~~**Auto-gain** by default~~: yes (Théo, 2026-10-07). A band signal's `autoGain` is on unless turned off.
 4. ~~**Nested sequences**~~: a nest hears the outer sequence's mix by default (Théo, 2026-10-07; see Signals).
 5. **3D scenes**: how important, against 2D visualizers and shaders? Which first?
-6. **The shader editor**: CodeMirror 6 (a dependency, syntax colours, inline errors), or a plain text field first?
+6. **The shader editor**: built with CodeMirror 6 (loaded with the window: line numbers, GLSL's colours, errors on
+   their lines, its own undo and search). Théo to confirm, or say if a plain field would do.
 7. **vaudio**: archived once ported, or kept as a separate toy?
 8. **The canvas is always black**: an alpha export makes it transparent only in the file. Fine?

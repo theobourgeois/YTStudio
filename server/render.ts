@@ -39,6 +39,7 @@ import {
   VOLUME,
   atFrameRate,
   clipKind,
+  definitionOf,
   effectDefinition,
   findEffect,
   hasMedia,
@@ -163,6 +164,8 @@ export interface RenderPlan {
   sources: RenderSource[];
   /** Fragment shader sources by key. */
   shaders: Record<string, string>;
+  /** The user's shaders (the Shader effect's, keyed `fx:shader:...`): where each is first used, to say so if it won't compile. */
+  shaderUses: Record<string, string>;
   /** The CSS fonts its texts are drawn in, for the page to have ready before the first frame. */
   fonts: string[];
   /** What output frame `f` draws, bottom layer first. */
@@ -361,10 +364,12 @@ export function planRender(
         }
       }
     })));
+  const shaderUses: Record<string, string> = {};
   // Every video effect a visible clip has on, whenever it's shown.
   for (const clip of everyClip) {
     for (const pass of effectPasses(clip, clip.in)) {
       shaders[pass.shader.key] = pass.shader.source;
+      if (pass.shader.key.startsWith("fx:shader:")) shaderUses[pass.shader.key] ??= shaderUse(clip, pass.shader.key);
       // A particle effect's own vertex shader travels under its key and "#vs".
       if (pass.shader.vertex) shaders[`${pass.shader.key}#vs`] = pass.shader.vertex;
       if (pass.shader.base) shaders[`${pass.shader.key}#base`] = pass.shader.base;
@@ -474,6 +479,7 @@ export function planRender(
     frames,
     sources,
     shaders,
+    shaderUses,
     fonts: [...new Set(Object.values(texts).flatMap((layouts) => layouts.map((l) => l.layout.font)))],
     needsReversed: [...needsReversed],
     frame(f) {
@@ -599,6 +605,13 @@ export function planRender(
     const drawnLayers = sortByDepth(matted, (l) => (l.layer.kind === "picture" ? (l.layer.picture as { depth?: number }).depth : undefined)).map((l) => l.layer);
     return [...groups, ...drawnLayers];
   }
+}
+
+/** Where a user's shader is used, for an export that can't start: `"Tunnel" on a solid at 3.2 s`. */
+function shaderUse(clip: Clip, key: string): string {
+  const effect = clip.effects.find((e) => e.type === "shader" && definitionOf(e)?.shader?.key === key);
+  const kind = { media: "a clip", text: "a text", solid: "a solid", shape: "a shape layer", adjustment: "an adjustment layer", camera: "a camera", null: "a null object" }[clipKind(clip)];
+  return `"${(effect && definitionOf(effect)?.label) ?? "Shader"}" on ${kind} at ${clip.start.toFixed(1)} s`;
 }
 
 /** Whether a clip's picture comes from a source (its media): not text, a solid, a shape or an adjustment layer, which the compositor draws. */

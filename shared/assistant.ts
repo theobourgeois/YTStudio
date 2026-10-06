@@ -526,6 +526,8 @@ export function describeToolCall(rawName: string, input: unknown): string {
       const signal = link && typeof link === "object" ? (link as Record<string, unknown>).signal : undefined;
       return link === null ? `Unlink ${String(f("param") ?? "a property")}` : `Link ${String(f("param") ?? "a property")} to ${typeof signal === "string" ? `"${signal}"` : "a signal"}`;
     }
+    case "set_shader":
+      return f("effect") ? "Rewrite a shader" : `Write a ${f("dialect") === "shadertoy" ? "Shadertoy " : f("dialect") === "isf" ? "ISF " : ""}shader`;
     case "define_signal":
       return f("signal") ? `Change the signal "${String(f("name") ?? f("signal"))}"` : `Make the signal "${String(f("name") ?? "")}"`;
     case "delete_signal":

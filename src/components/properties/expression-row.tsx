@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { PiFunction, PiSpiral, PiX } from "react-icons/pi";
-import { type EffectDefinition, atFrameRate, canExpress, effectDefinition, effectValuesAt, expressionProblem, paramSpec, setExpression } from "@shared/effects";
+import { type EffectDefinition, atFrameRate, canExpress, definitionOf, effectValuesAt, expressionProblem, paramSpec, setExpression } from "@shared/effects";
 import type { NumberSpec, ParamSpec } from "@shared/params";
 import { getClip } from "@shared/timeline";
 import type { Clip, Effect } from "@shared/types";
@@ -188,7 +188,7 @@ function PickWhip({ clipId, onPick }: { clipId: string; onPick: (path: string) =
       const effectId = row?.closest<HTMLElement>("[data-effect-id]")?.dataset.effectId;
       const key = row?.dataset.param;
       const effect = effectId ? getClip(useEditor.getState().project, clipId)?.effects.find((fx) => fx.id === effectId) : undefined;
-      const def = effect && effectDefinition(effect.type);
+      const def = effect && definitionOf(effect);
       const spec = def && key ? paramSpec(def, key) : undefined;
       if (!row || !effect || !spec || !(canExpress(def!, spec) || spec.kind === "number" || spec.kind === "boolean")) return null;
       return { row, path: `${effect.id}.${spec.key}` };

@@ -111,6 +111,10 @@ mixer track's stem on a muted track named after it (silent, but its signals are 
 can listen to "the kick" stem alone); each channel's notes are an events signal named after the channel, with \
 its role (exact hits: prefer them to onsets); its beat is the song's own, exact (get_timeline says so), and its \
 arrangement is markers. Bind looks to those.
+- A look no effect makes (a tunnel, a fractal, a custom visualizer): write it with set_shader (read get_catalog \
+"shader_api" first), on a solid for a look of its own or on a clip to change its picture. Declare its knobs as \
+parameters so the user can tweak, keyframe and link them; it can read the sound itself (spectrum(), audioBass, \
+beatPhase...). If it doesn't compile you get the errors on your lines: fix and call again. Look at it with view_frames.
 - After edits, check what you did with get_timeline or view_frames when it matters.`,
   },
 };

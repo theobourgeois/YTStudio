@@ -154,7 +154,10 @@ import {
 } from "./input";
 import { clipOf, effectOf } from "./lookup";
 import { defineSignalTool, deleteSignalTool, linkParamTool, setEventsTool } from "./signal-edits";
+import { setShaderTool } from "./shader-edits";
 import type { SignalStore } from "@shared/audio-signals";
+import type { Shader } from "@shared/compositor";
+import type { ShaderProblem } from "@shared/shader-code";
 
 export interface EditEnv {
   /** The video's media, and its nested sequences as media. */
@@ -167,6 +170,8 @@ export interface EditEnv {
    * files' signals, and the whole video with an edited view put back in it.
    */
   signals?: { store: SignalStore; document(view: Project): Project };
+  /** Compiles a shader as the preview will (the tab's: `lib/shader-compiler.ts`): its problems, or null when it can't tell. */
+  compile?: (shader: Shader) => ShaderProblem[] | null;
 }
 
 export interface EditOutcome {
@@ -220,7 +225,7 @@ function expected(spec: ParamSpec): string {
  * Checked parameter values for `specs` (named `label` in messages), with a
  * note for each value that had to be clamped. `skip`: keys that aren't allowed here.
  */
-function checkParams(
+export function checkParams(
   specs: readonly ParamSpec[],
   raw: Input,
   label: string,
@@ -242,7 +247,7 @@ function checkParams(
   return { values, notes };
 }
 
-const withNotes = (text: string, notes: string[]) => (notes.length ? `${text} Note: ${[...new Set(notes)].join("; ")}.` : text);
+export const withNotes = (text: string, notes: string[]) => (notes.length ? `${text} Note: ${[...new Set(notes)].join("; ")}.` : text);
 
 /** Timeline time -> the clip's source time (unclamped). */
 const toSource = (clip: Clip, t: number) => tidy(sourceAt(clip, t));
@@ -1259,6 +1264,7 @@ export const EDITS: Record<EditToolName, EditHandler> = {
   cut_to_markers: cutToMarkersTool,
   set_expression: setExpressionTool,
   link_param: linkParamTool,
+  set_shader: setShaderTool,
   define_signal: defineSignalTool,
   delete_signal: deleteSignalTool,
   set_events: setEventsTool,

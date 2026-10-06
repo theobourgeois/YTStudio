@@ -8,7 +8,7 @@
  * Keyframes live in source time (`keyframes.ts`); helpers here convert to and
  * from the timeline. Edits return the same project when nothing changes.
  */
-import { TIME_REMAP, effectDefinition, paramSpec, storedValuesAt, updateEffect } from "./effects.ts";
+import { TIME_REMAP, definitionOf, paramSpec, storedValuesAt, updateEffect } from "./effects.ts";
 import { setTimeRemap } from "./time-remap.ts";
 import {
   DEFAULT_INFLUENCE,
@@ -39,7 +39,7 @@ export const sameRef = (a: KeyframeRef, b: KeyframeRef) =>
 
 /** Whether a parameter of a clip can be animated (a number or a point of a known effect). */
 export function canAnimate(effect: Effect, key: string): boolean {
-  const def = effectDefinition(effect.type);
+  const def = definitionOf(effect);
   const spec = def && paramSpec(def, key);
   return !!spec && isAnimatable(spec);
 }
@@ -116,7 +116,7 @@ function updateKeys(
 
 /** The value a parameter shows at source time `time` (keyframed or static). */
 function valueAt(effect: Effect, key: string, time: number) {
-  const def = effectDefinition(effect.type)!;
+  const def = definitionOf(effect)!;
   return storedValuesAt(def, effect, time)[key];
 }
 
@@ -309,7 +309,7 @@ export function setKeyframeSpatial(
 ): Project {
   return updateKeys(project, clipId, ref.effectId, ref.key, (keys, effect) => {
     const at = keyframeAt(keys, ref.time);
-    if (!at || !Array.isArray(at.value) || paramSpec(effectDefinition(effect.type)!, ref.key)?.kind !== "vec2") return null;
+    if (!at || !Array.isArray(at.value) || paramSpec(definitionOf(effect)!, ref.key)?.kind !== "vec2") return null;
     const next: Keyframe = { ...at };
     for (const side of ["in", "out"] as const) {
       const h = handles[side];
@@ -413,7 +413,7 @@ export function pasteKeyframes(
       ? clip.effects.find((e) => e.id === onto.effectId)
       : (clip.effects.find((e) => e.id === item.effectId && e.type === item.effectType) ?? clip.effects.find((e) => e.type === item.effectType));
     const key = onto?.key ?? item.key;
-    const def = effect && effectDefinition(effect.type);
+    const def = effect && definitionOf(effect);
     const spec = def && paramSpec(def, key);
     if (!effect || !spec || !isAnimatable(spec)) continue;
     const pasted: Keyframe[] = [];
