@@ -19,6 +19,13 @@ import type { WindowStack } from "./stacking.ts";
  */
 const ownedByMain = process.platform === "win32";
 
+/**
+ * Owned windows don't move with their owner, and the page placing them again after the main window moves (a
+ * message to the page, a render, a message back) left them trailing behind it. So on Windows the main process
+ * moves them itself, as the main window starts each move (`will-move`, before it's drawn there).
+ */
+const followsMain = ownedByMain;
+
 /** A panel's key in the stack of floating windows (stacking.ts). */
 export const panelKey = (name: string) => `panel:${name}`;
 
@@ -66,6 +73,10 @@ export class Panels {
   private state: FloatingState = { floating: false, visible: true };
   /** The page is being replaced: a window it opens has no one to draw it. */
   private navigating = false;
+  /** Where each panel was last put (never read back: at 125% a window's size read back and set again grows). */
+  private readonly placed = new Map<string, Rectangle>();
+  /** Where the main window's content was when the panels were last moved along with it. */
+  private followed: { x: number; y: number };
 
   /**
    * `stack` is told which panel is used (it has the focus) and which are new; `restack` puts every floating
@@ -80,6 +91,17 @@ export class Panels {
       if (!main.isDestroyed()) main.webContents.send("panels:content-bounds", main.getContentBounds());
     };
     for (const event of ["move", "resize", "enter-full-screen", "leave-full-screen", "maximize", "unmaximize"] as const) main.on(event as "move", send);
+    this.followed = main.getContentBounds();
+    if (followsMain) {
+      // Where its content will be: as far from where it is as the window's new place from its old one.
+      main.on("will-move", (_event, next) => {
+        const now = main.getBounds();
+        const content = main.getContentBounds();
+        this.follow({ x: content.x + next.x - now.x, y: content.y + next.y - now.y });
+      });
+      // Anything `will-move` didn't announce (a snap, a maximise) is caught up with once it's done.
+      for (const event of ["move", "resize", "maximize", "unmaximize"] as const) main.on(event as "move", () => this.follow(main.getContentBounds()));
+    }
     // A reload or another page: the windows of the old one have no one to draw them.
     main.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
       if (!isMainFrame || isInPlace) return;
@@ -103,6 +125,7 @@ export class Panels {
     win.on("closed", () => {
       this.windows.delete(name);
       this.shown.delete(name);
+      this.placed.delete(name);
       if (stacked) this.stack.drop(panelKey(name));
       if (!this.main.isDestroyed()) this.main.webContents.send("panels:closed", name);
     });
@@ -178,11 +201,34 @@ export class Panels {
     if (options.title) win.setTitle(options.title);
   }
 
-  /** Position and size at once: moving and then resizing from the page undoes the move (the resize starts from the old place). */
-  place(name: string, rect: Rectangle) {
+  /**
+   * Position and size at once: moving and then resizing from the page undoes the move (the resize starts from
+   * the old place). `basis` is where the main window's content was when the page worked `rect` out: a request
+   * that was on its way while the main window moved lands where the page meant, not where it was.
+   */
+  place(name: string, rect: Rectangle, basis?: { x: number; y: number }) {
     const win = this.windows.get(name);
     if (!win || win.isDestroyed()) return;
-    win.setBounds({ x: Math.round(rect.x), y: Math.round(rect.y), width: Math.max(1, Math.round(rect.width)), height: Math.max(1, Math.round(rect.height)) });
+    const dx = followsMain && basis ? this.followed.x - basis.x : 0;
+    const dy = followsMain && basis ? this.followed.y - basis.y : 0;
+    const bounds = { x: Math.round(rect.x + dx), y: Math.round(rect.y + dy), width: Math.max(1, Math.round(rect.width)), height: Math.max(1, Math.round(rect.height)) };
+    this.placed.set(name, bounds);
+    win.setBounds(bounds);
+  }
+
+  /** The main window's content is now at `content`: every panel goes along by as much as it moved. */
+  private follow(content: { x: number; y: number }) {
+    const dx = Math.round(content.x - this.followed.x);
+    const dy = Math.round(content.y - this.followed.y);
+    this.followed = { x: content.x, y: content.y };
+    if (dx === 0 && dy === 0) return;
+    for (const [name, win] of this.windows) {
+      if (win.isDestroyed()) continue;
+      const was = this.placed.get(name) ?? win.getBounds();
+      const bounds = { ...was, x: was.x + dx, y: was.y + dy };
+      this.placed.set(name, bounds);
+      win.setBounds(bounds);
+    }
   }
 
   hide(name: string) {
@@ -227,9 +273,11 @@ export function answerPanelRequests(current: () => { main: BrowserWindow; panels
   ipcMain.on("panels:configure", (event, name: unknown, options: unknown) => {
     if (typeof name === "string" && options && typeof options === "object") from(event.sender)?.panels.configure(name, options as Parameters<Panels["configure"]>[1]);
   });
-  ipcMain.on("panels:place", (event, name: unknown, rect: unknown) => {
+  ipcMain.on("panels:place", (event, name: unknown, rect: unknown, basis: unknown) => {
     const r = rect as Partial<Rectangle> | null;
-    if (typeof name === "string" && r && [r.x, r.y, r.width, r.height].every((v) => typeof v === "number" && Number.isFinite(v))) from(event.sender)?.panels.place(name, r as Rectangle);
+    const b = basis as Partial<Rectangle> | null | undefined;
+    const point = b && typeof b.x === "number" && typeof b.y === "number" && Number.isFinite(b.x) && Number.isFinite(b.y) ? { x: b.x, y: b.y } : undefined;
+    if (typeof name === "string" && r && [r.x, r.y, r.width, r.height].every((v) => typeof v === "number" && Number.isFinite(v))) from(event.sender)?.panels.place(name, r as Rectangle, point);
   });
   ipcMain.on("panels:hide", (event, name: unknown) => {
     if (typeof name === "string") from(event.sender)?.panels.hide(name);
