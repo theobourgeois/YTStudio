@@ -21,6 +21,14 @@ Acceptance: changing opacity preserves underlying pixels; moving a layer changes
 adjustment inside an isolated group cannot affect a lower layer outside it. When pass-through ships,
 an otherwise identical group produces the expected different scope.
 
+**Layers panel keys (Adobe's "Keys for the Layers panel"):** ⌥[ / ⌥] select the next layer down / up,
+⇧⌥[ / ⇧⌥] add it to the selection, ⌥, / ⌥. the bottom / top layer, ⌥⌘A all layers, ⌘E Merge Down (Merge Layers
+with several selected), ⇧⌘E Merge Visible, ⌘[ / ⌘] send backward / bring forward, ⇧⌘[ / ⇧⌘] send to back / bring
+to front, ⌘J layer via copy, ⌘G group. ⌘-click a row adds or removes it, ⇧-click selects the run. With the Move
+tool, ⇧-click adds the layer under the pointer, and with Auto-Select a drag from empty canvas selects the layers it
+touches. [Adobe: keys for the Layers panel](https://helpx.adobe.com/vn_en/photoshop-elements/desktop/keyboard-shortcuts/keys-layers-panel.html).
+Ours, and where they differ (the app's own ⇧⌘E and ⇧⌘[ ]), are in [ux.md](../ux.md), "Keys".
+
 ## Nondestructive sources, transforms and filters
 
 **Verified reference:** adjustment layers retain original pixel values; Smart Objects preserve content

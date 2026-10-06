@@ -5,7 +5,7 @@
  * value is one undo step; a slider or graph drag is one too.
  */
 import { useState } from "react";
-import { PiArrowCounterClockwise, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiWarningCircle } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiStack, PiWarningCircle } from "react-icons/pi";
 import { resetEffect, setCanvas, setEffectParams, setTransform, updateLayer } from "@shared/photo/edits";
 import { effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import { type AdjustmentLayer, CANVAS_PRESETS, type ImageLayer, type PhotoLayer } from "@shared/photo/types";
@@ -13,17 +13,34 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { fitted } from "../canvas/handles";
 import { photoGesture, useLayerSize, usePhoto, usePhotoDoc } from "../store";
+import { layerActions } from "../layer-actions";
 import { usePhotoUi } from "../ui";
 import { CurvesEditor } from "./curves-editor";
 import { NumberField, ParamSlider } from "./fields";
 
 export function PropertiesPanel() {
   const selected = usePhotoUi((s) => s.selectedLayerId);
+  const count = usePhotoUi((s) => s.selectedLayerIds.length);
   const layer = usePhotoDoc((d) => d.layers.find((l) => l.id === selected));
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 text-sm">
-      {layer?.kind === "image" ? <LayerProperties layer={layer} /> : layer?.kind === "adjustment" ? <AdjustmentProperties layer={layer} /> : <CanvasProperties />}
+      {count > 1 ? <SeveralProperties count={count} /> : layer?.kind === "image" ? <LayerProperties layer={layer} /> : layer?.kind === "adjustment" ? <AdjustmentProperties layer={layer} /> : <CanvasProperties />}
     </div>
+  );
+}
+
+/** Several layers selected: what can be done with them together (Photoshop's Properties says as little). */
+function SeveralProperties({ count }: { count: number }) {
+  const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
+  return (
+    <Section title={`${count} layers`}>
+      <p className="text-xs text-muted-foreground" data-several-layers={count}>
+        Drag on the canvas to move them together, or their box's handles to scale and turn them. {mod}E merges them into one, {mod}J duplicates them, Delete removes them.
+      </p>
+      <Button size="sm" variant="outline" className="self-start" onClick={() => void layerActions.merge()}>
+        <PiStack /> Merge layers
+      </Button>
+    </Section>
   );
 }
 

@@ -2,7 +2,7 @@
  * The photo suite's tools for AI agents (see `shared/tool-spec.ts`; handlers in `src/suites/photo/tools.ts`, their
  * edits in `tool-edits.ts`). Whatever the user can do, the assistant can: add a tool with each feature.
  */
-import { type Schema, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
+import { type Schema, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { ADJUSTMENTS } from "./effects/index.ts";
 
 const layer = str('A layer: its id (from get_photo) or its name ("Sky").');
@@ -119,6 +119,18 @@ export const PHOTO_TOOLS = [
     kind: "edit",
     description: "Sets an adjustment layer's parameters (see add_adjustment for each one's), or puts them back to their defaults with reset. A curve given replaces that curve; the others stay.",
     inputSchema: obj({ layer, params: adjustmentParams, reset: bool("Back to its defaults first.") }, ["layer"]),
+  }),
+  tool({
+    name: "merge_layers",
+    title: "Merge layers",
+    kind: "edit",
+    description:
+      "Merges layers into one image layer of what they show together (Photoshop's Merge Layers, Merge Down, Merge Visible), in the topmost one's place. Give `layers` (two or more), or one layer with down: true to merge it into the layer right below it (named after that one), or visible: true for every visible layer. Hidden layers are left as they are; an adjustment changes only the merged layers below it. What's past the canvas is kept. Undoable, but the result is pixels: the layers can't be transformed apart any more.",
+    inputSchema: obj({
+      layers: arr(str("A layer: id or name."), "The layers to merge (ids or names)."),
+      down: bool("Merge the one layer given into the layer below it."),
+      visible: bool("Merge every visible layer."),
+    }),
   }),
   tool({
     name: "remove_layer",

@@ -143,6 +143,9 @@ export function photoRoutes(photo: PhotoService): Router {
     const result = await photo.exports.finish(req.params.id);
     res.json({ ...result, download: `/api/photo/exports/${req.params.id}/file` });
   });
+  router.post("/exports/:id/adopt", async (req, res) => {
+    res.status(201).json(await photo.adoptExport(req.params.id, text(req.query.projectId)));
+  });
   router.delete("/exports/:id", async (req, res) => {
     await photo.exports.cancel(req.params.id);
     res.status(204).end();

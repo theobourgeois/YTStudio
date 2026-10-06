@@ -4,6 +4,8 @@
  * or to a photo that isn't open by loading and saving it. Pictures and exports render with the same compositor as
  * the canvas.
  */
+import { createId } from "@shared/ids";
+import { mergedLayer, replaceWithMerged } from "@shared/photo/merge";
 import type { PhotoToolName } from "@shared/photo/tools";
 import type { PhotoProject } from "@shared/photo/types";
 import { type ToolResult, textResult } from "@shared/tool-spec";
@@ -11,13 +13,16 @@ import type { MediaAsset } from "@shared/types";
 import { api } from "@/lib/api";
 import type { ToolRunContext } from "../types";
 import { withRenderer } from "./live";
+import { planWith, renderMerge } from "./merge";
 import { usePhoto } from "./store";
 import {
   type PhotoEdit,
   addAdjustmentTool,
   addImageLayerTool,
+  describeLayer,
   describeMedia,
   describePhoto,
+  mergeRequest,
   removeLayerTool,
   setCanvasTool,
   setEffectParamsTool,
@@ -68,7 +73,7 @@ const base64 = async (blob: Blob) => {
 const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promise<ToolResult>> = {
   async get_photo(_input, ctx) {
     const target = await targetOf(ctx);
-    return textResult(describePhoto(target.doc, target.assets, target.open ? usePhotoUi.getState().selectedLayerId : null));
+    return textResult(describePhoto(target.doc, target.assets, target.open ? usePhotoUi.getState().selectedLayerIds : []));
   },
   async list_photo_media(_input, ctx) {
     return textResult(describeMedia((await targetOf(ctx)).assets));
@@ -89,6 +94,36 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
   set_layer: edit(setLayerTool),
   add_adjustment: edit(addAdjustmentTool),
   set_effect_params: edit(setEffectParamsTool),
+  async merge_layers(input, ctx) {
+    const target = await targetOf(ctx);
+    const { kind, ids } = mergeRequest(target.doc, input);
+    const plan = planWith(target.doc, kind, ids, target.assets);
+    if ("error" in plan) throw new Error(plan.error);
+    ctx.progress(0, "Merging");
+    const asset = await renderMerge(target.projectId, target.doc, plan, target.assets);
+    const layer = mergedLayer(plan, createId("layer"), asset.id);
+    let doc: PhotoProject | null;
+    if (target.open && usePhoto.getState().projectId === target.projectId) {
+      usePhoto.setState((s) => ({ assets: [...s.assets, asset] }));
+      doc = replaceWithMerged(usePhoto.getState().history!.doc, target.doc, plan.ids, layer);
+      if (doc) {
+        const merged = doc;
+        usePhoto.getState().commit(() => merged);
+        usePhotoUi.getState().select(layer.id);
+      }
+    } else {
+      doc = replaceWithMerged(target.doc, target.doc, plan.ids, layer);
+      if (doc) await api.saveDocument("photo", target.projectId, doc);
+    }
+    if (!doc) throw new Error("The layers changed while they were being merged (the user edited them): nothing was merged. Read the photo again and retry.");
+    const names = target.doc.layers.filter((l) => plan.ids.includes(l.id)).map((l) => `"${l.name}"`);
+    const assets = [...target.assets, asset];
+    return textResult(`Merged ${names.join(", ")} into one image layer, ${plan.box.width}×${plan.box.height} px:\n${describeLayer(layer, assets, doc.layers.indexOf(layer))}`, {
+      added: [layer.id],
+      changed: [],
+      removed: plan.ids.length,
+    });
+  },
   remove_layer: edit(removeLayerTool),
   set_canvas: edit(setCanvasTool),
   async export_photo(input, ctx) {

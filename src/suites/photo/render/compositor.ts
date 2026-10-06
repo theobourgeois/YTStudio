@@ -153,7 +153,8 @@ fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f { return full_s
 @fragment
 fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let inside = pos.x >= present.canvas.x && pos.y >= present.canvas.y && pos.x < present.canvas.z && pos.y < present.canvas.w;
-  if (!inside) { return present.pasteboard; }
+  // The pasteboard is linear light, like everything else drawn here: encoded for the screen too.
+  if (!inside) { return vec4f(encode_pixel(vec4f(present.pasteboard.rgb, 1.0)).rgb, 1.0); }
   let c = textureLoad(accumulated, vec2i(pos.xy), 0);
   // The checkerboard under transparency is UI: light greys, in linear light.
   let cell = vec2u(floor((pos.xy - present.canvas.xy) / present.checker));

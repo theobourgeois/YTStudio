@@ -8,6 +8,7 @@ import { addAdjustmentLayer, addImageLayer, findLayer, moveLayer, removeLayer, r
 import { ADJUSTMENTS, type EffectDefinition, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import { CURVE_CHANNELS, MAX_CURVE_POINTS } from "@shared/photo/effects/params";
 import { bounds } from "@shared/photo/layers";
+import type { MergeKind } from "@shared/photo/merge";
 import { isColour } from "@shared/photo/project";
 import type { AdjustmentLayer, CurveSet, ImageLayer, LayerTransform, PhotoLayer, PhotoProject } from "@shared/photo/types";
 import type { MediaAsset } from "@shared/types";
@@ -86,13 +87,13 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
 }
 
 /** `get_photo`: the canvas and the layers, top down. */
-export function describePhoto(doc: PhotoProject, assets: readonly MediaAsset[], selected: string | null): string {
+export function describePhoto(doc: PhotoProject, assets: readonly MediaAsset[], selected: readonly string[]): string {
   const lines = [
     `"${doc.name}": canvas ${doc.canvas.width}×${doc.canvas.height} px, background ${doc.canvas.background ?? "transparent"}.`,
     doc.layers.length ? `Layers, top first (${doc.layers.length}):` : "No layers yet.",
     ...[...doc.layers].reverse().map((l) => describeLayer(l, assets, doc.layers.indexOf(l))),
   ];
-  if (selected) lines.push(`Selected: ${selected}.`);
+  if (selected.length) lines.push(`Selected: ${selected.join(", ")}.`);
   return lines.join("\n");
 }
 
@@ -101,6 +102,18 @@ export function describeMedia(assets: readonly MediaAsset[]): string {
   const images = assets.filter((a) => a.kind === "image");
   if (!images.length) return "The project has no images yet: the user can drop or place files into the editor.";
   return images.map((a) => `${a.id} "${a.name}" ${a.width}×${a.height}${a.image ? `, ${a.image.bits}-bit${a.image.hasAlpha ? ", transparent" : ""}` : ""}`).join("\n");
+}
+
+/** What `merge_layers` merges: its kind and the layers named (checked; the error says what to give). */
+export function mergeRequest(doc: PhotoProject, input: Input): { kind: MergeKind; ids: string[] } {
+  const ids = (Array.isArray(input.layers) ? input.layers : []).map((ref) => findLayerRef(doc, ref).id);
+  if (input.visible === true) return { kind: "visible", ids };
+  if (input.down === true) {
+    if (ids.length !== 1) throw new Error("down: true merges one layer into the layer right below it: give exactly one in layers.");
+    return { kind: "down", ids };
+  }
+  if (ids.length < 2) throw new Error("Give two or more layers to merge, one with down: true to merge it into the layer below, or visible: true.");
+  return { kind: "selected", ids };
 }
 
 export const addImageLayerTool: PhotoEdit = (doc, input, env) => {

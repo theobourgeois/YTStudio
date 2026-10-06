@@ -15,12 +15,12 @@ The planned **photo suite** is a Photoshop-style image editor with creative ligh
 Read [`docs/photo/README.md`](docs/photo/README.md) for its product, research and architecture (WebGPU in the
 page renders and paints; content-addressed tiles in the package; a helper process decodes files) and the
 foundations' milestones and gates. **F0, F1 and F2 are built**: the suite is registered (`SuiteId` `photo`), with
-`shared/photo/` (the document: types.ts, project.ts, edits.ts, layers.ts; image and adjustment layers; effects/:
+`shared/photo/` (the document: types.ts, project.ts, edits.ts, layers.ts; merge.ts plans merging layers; image and adjustment layers; effects/:
 the effect definitions (Exposure, Curves) and their parameter specs; render-plan.ts: `compileRender`, prefix keys,
 `refinePlan`; reference/: the CPU references the GPU is tested against; colour and ICC, geometry, half floats,
 surfaces, brush, the output transform; tools.ts), `server/photo/` (the helper process, the only code that parses
 image files, with sharp; decoded sources in each package's `photo/cache/`; banded exports; the blob store; the lab),
-`server/suites/photo.ts`, and `src/suites/photo/` (store.ts, ui.ts, keys.ts, workspace.tsx, panels/, canvas/,
+`server/suites/photo.ts`, and `src/suites/photo/` (store.ts, ui.ts (several layers can be selected: selection.ts), keys.ts, layer-actions.ts (the Layers commands), merge.ts, workspace.tsx, panels/, canvas/,
 tools.ts + tool-edits.ts, live.ts: the open photo's renderer (and, in development, `window.photoDebug` for e2e and
 `window.photoBench` for the bench); render/: the WebGPU renderer, its atlas, page tables,
 WGSL kernels and compositor.ts, the plan's evaluator, which draws the screen, exports, covers and the assistant's

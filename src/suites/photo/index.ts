@@ -43,7 +43,7 @@ export const photoSuite: ClientSuite<"photo"> = {
   },
   messageContext() {
     const { history } = usePhoto.getState();
-    return history ? photoContext(history.doc, usePhotoUi.getState().selectedLayerId) : null;
+    return history ? photoContext(history.doc, usePhotoUi.getState().selectedLayerIds) : null;
   },
   runTool: runPhotoTool,
   // Images dropped on Home on their own start a photo (video gives way to it: src/suites/video.ts).

@@ -37,6 +37,28 @@ describe("photo keys", () => {
   });
 });
 
+describe("layer keys (Photoshop's)", () => {
+  const alt = (key: string, code: string, mods: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }> = {}) => ({ ...press(key, { altKey: true, ...mods }), code });
+
+  it("select, step and run to the ends with ⌥, by the physical key (a Mac's ⌥ changes the character)", () => {
+    expect(resolvePhotoKey(alt("å", "KeyA", { metaKey: true }), true)).toEqual({ type: "selectAll" });
+    expect(resolvePhotoKey(alt("‘", "BracketRight"), true)).toEqual({ type: "step", direction: 1, add: false });
+    expect(resolvePhotoKey(alt("”", "BracketLeft", { shiftKey: true }), true)).toEqual({ type: "step", direction: -1, add: true });
+    expect(resolvePhotoKey(alt("≥", "Period"), true)).toEqual({ type: "edge", to: "top", add: false });
+    expect(resolvePhotoKey(alt("¯", "Comma", { shiftKey: true }), true)).toEqual({ type: "edge", to: "bottom", add: true });
+    expect(resolvePhotoKey(alt("a", "KeyA", { ctrlKey: true }), false)).toEqual({ type: "selectAll" });
+  });
+
+  it("merge and arrange with ⌘, leaving ⇧⌘[ / ⇧⌘] to the app's tabs and ⇧⌘E to Export", () => {
+    expect(resolvePhotoKey(press("e", { metaKey: true }), true)).toEqual({ type: "merge" });
+    expect(resolvePhotoKey(press("e", { metaKey: true, shiftKey: true }), true)).toEqual({ type: "export" });
+    expect(resolvePhotoKey({ ...press("]", { metaKey: true }), code: "BracketRight" }, true)).toEqual({ type: "shift", direction: 1 });
+    expect(resolvePhotoKey({ ...press("[", { metaKey: true }), code: "BracketLeft" }, true)).toEqual({ type: "shift", direction: -1 });
+    expect(resolvePhotoKey({ ...press("{", { metaKey: true, shiftKey: true }), code: "BracketLeft" }, true)).toBeNull();
+    expect(resolvePhotoKey(press("j", { metaKey: true }), true)).toEqual({ type: "duplicate" });
+  });
+});
+
 describe("transform handles", () => {
   const size = { width: 200, height: 100 };
   const t = { x: 500, y: 300, scaleX: 1, scaleY: 1, rotation: 0 };

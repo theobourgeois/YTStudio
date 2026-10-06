@@ -194,6 +194,7 @@ export async function createApp({
       return asset && asset.projectId === projectId && asset.kind === "image" ? library.sourcePath(asset) : null;
     },
     exportsFolder: path.join(paths.exports, "photo"),
+    adoptImage: (projectId, file, name) => library.add(file, name, projectId, () => projects.has(projectId)),
   });
 
   const app = express();
