@@ -59,6 +59,10 @@ empty canvas: nothing over it.
 **From an image**: the canvas takes the image's size and the image becomes the first layer. Images dropped alone on
 Home start a photo project; a mix with video or audio starts a video.
 
+**Into an open photo** (built): images dragged onto the editor (the canvas, Layers, Properties) are placed as layers
+on top, as Photoshop places a file dragged into a document: fitted in the canvas, centred where they're dropped on
+it (elsewhere, on its middle), and selected. The canvas keeps its size. Files that aren't images are turned away.
+
 ## Targeting
 
 - Click the content thumbnail to edit pixels or content; click the mask thumbnail to edit coverage. Changing the target

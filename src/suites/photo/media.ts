@@ -4,6 +4,9 @@ import type { NewImageLayer } from "@shared/photo/edits";
 import { DEFAULT_PROJECT_NAME } from "@shared/suites";
 import type { MediaAsset } from "@shared/types";
 
+/** An image file, by its type or its name: what the photo editor opens and places. */
+export const isImage = (file: File) => file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name);
+
 /** A layer's name from its file's: no extension, separators as spaces. */
 export const layerName = (fileName: string) => fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "Image";
 

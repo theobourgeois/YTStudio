@@ -3,9 +3,9 @@
  * the tool's options, export, the assistant), the tool strip, the docked panels (the canvas, Layers, Properties:
  * Photoshop's are docked too), and its windows. Its keys are `keys.ts`'s.
  */
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { cn } from "cn";
-import { PiArrowCounterClockwise, PiArrowClockwise, PiCursor, PiExport, PiHand, PiMagnet, PiMagnifyingGlass, PiPaintBrush, PiSelection } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiArrowClockwise, PiCursor, PiExport, PiHand, PiImage, PiMagnet, PiMagnifyingGlass, PiPaintBrush, PiSelection } from "react-icons/pi";
 import { toast } from "sonner";
 import { moveLayersBy } from "@shared/photo/edits";
 import { allSelection } from "@shared/photo/selection";
@@ -22,12 +22,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Desktop, keptByWindow } from "@/components/windows/floating-window";
 import { createWindows } from "@/components/windows/store";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
+import { useFileDrop } from "@/hooks/use-file-drop";
 import { api } from "@/lib/api";
-import { CanvasPanel, actualPixels, fitToCanvas, zoomBy } from "./canvas/canvas-panel";
+import { CanvasPanel, actualPixels, canvasPointAt, fitToCanvas, zoomBy } from "./canvas/canvas-panel";
 import { PhotoExportWindow } from "./export-window";
 import { resolvePhotoKey } from "./keys";
 import { layerActions, selectedInOrder } from "./layer-actions";
 import { liveRenderer } from "./live";
+import { isImage } from "./media";
 import { LayersPanel } from "./panels/layers-panel";
 import { usePhotoPreferences } from "./preferences";
 import { PropertiesPanel } from "./panels/properties-panel";
@@ -92,12 +94,45 @@ export default function PhotoWorkspace() {
     <div key={projectId} className="relative flex min-h-0 flex-1 flex-col" data-suite="photo">
       <PhotoHeader />
       <div className="flex min-h-0 flex-1">
-        <ToolStrip />
-        <DockArea dock={usePhotoDock} panels={PANELS} />
+        <ImageDrop>
+          <ToolStrip />
+          <DockArea dock={usePhotoDock} panels={PANELS} />
+        </ImageDrop>
         <AssistantPanel suite="photo" />
       </div>
       <PhotoDesktop />
       <PaintChoiceDialog />
+    </div>
+  );
+}
+
+/**
+ * Images dragged in from Finder (or anywhere) become layers on top, as Photoshop places a file dragged into a
+ * document: centred where they're dropped on the canvas (elsewhere, on its middle), fitted in it, and selected.
+ */
+function ImageDrop({ children }: { children: ReactNode }) {
+  const { active, handlers } = useFileDrop((files, e) => {
+    const images = files.filter(isImage);
+    if (images.length === 0) {
+      toast.error(files.length === 1 ? `${files[0].name} isn't an image` : "Those aren't images", { description: "PNG, JPEG and WebP files can be placed." });
+      return;
+    }
+    const at = canvasPointAt(e.clientX, e.clientY) ?? undefined;
+    void usePhoto
+      .getState()
+      .placeFiles(images, { at })
+      .then((ids) => ids.length && usePhotoUi.getState().setSelection(ids));
+  });
+  return (
+    <div className="relative flex min-w-0 flex-1" {...handlers} data-image-drop={active || undefined}>
+      {children}
+      {active && (
+        <div className="pointer-events-none absolute inset-1 z-40 grid place-items-center rounded-md border-2 border-dashed border-brand bg-brand/8">
+          <span className="floating flex items-center gap-2 rounded-md bg-surface-1 px-3 py-2 text-sm font-medium">
+            <PiImage className="size-4.5 text-brand" /> Drop to place as layers
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -41,6 +41,18 @@ import { type Box, type Guide, snapTargets } from "./snap";
 let driver: CanvasDriver | null = null;
 export const canvasDriver = () => driver;
 
+/** The canvas's box on the page while it's shown (where things dropped on it land). */
+let stage: HTMLDivElement | null = null;
+
+/** The document point under a point of the page, or null when it isn't over the canvas. */
+export function canvasPointAt(clientX: number, clientY: number): { x: number; y: number } | null {
+  const view = usePhotoUi.getState().view;
+  if (!stage || !view) return null;
+  const r = stage.getBoundingClientRect();
+  if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null;
+  return viewToDoc(view, (clientX - r.left) * devicePixelRatio, (clientY - r.top) * devicePixelRatio);
+}
+
 /**
  * An element's background as linear light: painted into a 1×1 canvas so any colour syntax a theme uses (hex,
  * oklch, color-mix) comes out as sRGB bytes.
@@ -118,6 +130,7 @@ export function CanvasPanel() {
   // The canvas follows its box, in device pixels; the first size fits the document.
   useEffect(() => {
     const holder = holderRef.current!;
+    stage = holder;
     const resize = () => {
       const r = holder.getBoundingClientRect();
       const width = Math.max(1, Math.round(r.width * devicePixelRatio));
@@ -131,7 +144,10 @@ export function CanvasPanel() {
     const observer = new ResizeObserver(resize);
     observer.observe(holder);
     resize();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (stage === holder) stage = null;
+    };
   }, []);
 
   // A canvas of another size (an image opened as it, a preset, undone) is fitted again.
