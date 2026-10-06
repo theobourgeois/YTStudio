@@ -124,7 +124,13 @@ with its own camera and reacting to the sound by itself (Hits, Listens To, React
 down a mountain valley; Style Dusk, Neon synthwave, Night), Infinite Dive (falling for ever into a self-similar \
 fractal, swooping; Form Portals, Lattice, Spires; Palette), Aurora (northern lights over a frozen lake, the curtains \
 hearing the spectrum), Storm Sea (a night sea, lightning on the hits; or Moonlit, Sunset), Ferrofluid (liquid metal \
-whose spikes are the spectrum, pulled up on kicks). They're heavy: one at a time, Quality lowers their cost.
+whose spikes are the spectrum, pulled up on kicks), Event Horizon (a black hole, its lensed disk's rings the \
+spectrum, a knot spiralling in on each hit; Disk Gargantua, Blue Giant, Ember), Neon City (a night flight down a \
+rain-soaked avenue whose lit windows are an equaliser, neon flashing on kicks; Palette Cyberpunk, Blade Runner, Tokyo, \
+Matrix), Nebula (a flight through a stellar nursery, each hit igniting a star; Palette Hubble, Natural, Cosmic), Abyss \
+(glowing jellyfish in the deep sea, their bells contracting on kicks; Glow Cyan, Magenta, Gold, Rainbow; Depth), \
+Monoliths (a canyon of black obelisks whose heights are the spectrum, rings of light on kicks; Style Obsidian, Marble, \
+Synth). They're heavy: one at a time, Quality lowers their cost.
 - After edits, check what you did with get_timeline or view_frames when it matters.`,
   },
 };
