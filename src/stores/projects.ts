@@ -32,6 +32,8 @@ interface ProjectsState {
   templates: ProjectTemplates;
   /** Where new projects are saved. */
   location: ProjectLocation | null;
+  /** A suite's New window, open (`ClientSuite.NewProject`): what's asked before its project is made. */
+  choosing: { suite: SuiteId; blank: boolean } | null;
 
   /** Load the list and open the project from the URL (or show the Home screen). */
   init: () => Promise<void>;
@@ -50,9 +52,12 @@ interface ProjectsState {
   toggleHome: () => Promise<void>;
   /**
    * Create a new project of a suite (video by default), from its starting point unless `blank`, open it,
-   * and optionally import files into it.
+   * and optionally import files into it. A suite with a New window asks first (unless there are files, or
+   * `options`: what was chosen in it).
    */
-  create: (options?: { suite?: SuiteId; files?: File[]; blank?: boolean }) => Promise<void>;
+  create: (options?: { suite?: SuiteId; files?: File[]; blank?: boolean; options?: unknown }) => Promise<void>;
+  /** Close a suite's New window, making nothing. */
+  cancelNew: () => void;
   /** Open a package from anywhere on this computer (its folder, or a file in it). */
   openFile: (path: string) => Promise<void>;
   /**
@@ -156,6 +161,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
     lastOpenId: null,
     templates: {},
     location: null,
+    choosing: null,
 
     async init() {
       if (initStarted) return;
@@ -246,10 +252,15 @@ export const useProjects = create<ProjectsState>((set, get) => {
       if (lastOpenId && projects.some((p) => p.id === lastOpenId && !p.missing)) await get().open(lastOpenId);
     },
 
-    async create({ suite = DEFAULT_SUITE, files, blank } = {}) {
+    async create({ suite = DEFAULT_SUITE, files, blank, options: chosen } = {}) {
+      if (!files?.length && chosen === undefined && clientSuite(suite).NewProject) {
+        set({ choosing: { suite, blank: !!blank } });
+        return;
+      }
+      set({ choosing: null });
       let summary: ProjectSummary;
       try {
-        const options = clientSuite(suite).newProjectOptions?.();
+        const options = chosen ?? clientSuite(suite).newProjectOptions?.();
         summary = await api.createProject({ suite, ...(blank && { blank }), ...(options !== undefined && { options }) });
       } catch (err) {
         failed(`Couldn't create a new ${suiteNoun(suite)}`, err);
@@ -259,6 +270,10 @@ export const useProjects = create<ProjectsState>((set, get) => {
       await get().open(summary.id);
       const { importFiles } = clientSuite(suite);
       if (files?.length && importFiles && get().openId === summary.id) await importFiles(files);
+    },
+
+    cancelNew() {
+      set({ choosing: null });
     },
 
     async openFile(path) {

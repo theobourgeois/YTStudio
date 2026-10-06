@@ -7,15 +7,14 @@
  */
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
-import { PiImage, PiWarningCircle } from "react-icons/pi";
+import { PiWarningCircle } from "react-icons/pi";
 import { createId } from "@shared/ids";
 import { duplicateLayers } from "@shared/photo/edits";
 import { srgbToLinear } from "@shared/photo/colour";
 import { fitView, panBy, viewToDoc, zoomAbout } from "@shared/photo/geometry";
 import { contains } from "@shared/photo/layers";
 import { rectSelection } from "@shared/photo/selection";
-import { CANVAS_PRESETS, type LayerTransform, type PhotoLayer, type PhotoProject, type PlacedLayer, isPlaced } from "@shared/photo/types";
-import { Button } from "@/components/ui/button";
+import { type LayerTransform, type PhotoLayer, type PhotoProject, type PlacedLayer, isPlaced } from "@shared/photo/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { liveRenderer, useRenderState } from "../live";
 import { usePhotoPreferences } from "../preferences";
@@ -79,7 +78,8 @@ export function CanvasPanel() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [renderer, setRenderer] = useState<PhotoRenderer | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  const empty = usePhotoDoc((d) => d.layers.length === 0);
+  const canvasWidth = usePhotoDoc((d) => d.canvas.width);
+  const canvasHeight = usePhotoDoc((d) => d.canvas.height);
   const tool = useActiveTool();
 
   // The open photo's renderer, drawing on this canvas while it's shown.
@@ -133,6 +133,15 @@ export function CanvasPanel() {
     resize();
     return () => observer.disconnect();
   }, []);
+
+  // A canvas of another size (an image opened as it, a preset, undone) is fitted again.
+  const sized = useRef(`${canvasWidth}x${canvasHeight}`);
+  useEffect(() => {
+    const key = `${canvasWidth}x${canvasHeight}`;
+    if (sized.current === key) return;
+    sized.current = key;
+    fitToCanvas();
+  }, [canvasWidth, canvasHeight]);
 
   // The wheel pans; with ⌘/Ctrl (a trackpad's pinch) or Alt it zooms about the pointer.
   useEffect(() => {
@@ -382,7 +391,6 @@ export function CanvasPanel() {
             </div>
           </div>
         )}
-        {empty && !failure && <StartCard />}
       </div>
       <StatusBar renderer={renderer} />
     </div>
@@ -613,55 +621,6 @@ function SnapGuides() {
         ),
       )}
     </svg>
-  );
-}
-
-/** An empty photo: open an image as the canvas, or pick a size (ux.md, "New photo"). */
-function StartCard() {
-  const input = useRef<HTMLInputElement>(null);
-  const canvas = usePhotoDoc((d) => d.canvas);
-  const choose = (width: number, height: number) =>
-    usePhoto.getState().commit((d) => (d.canvas.width === width && d.canvas.height === height ? d : { ...d, canvas: { ...d.canvas, width, height } }));
-  return (
-    <div className="absolute inset-0 grid place-items-center p-6">
-      <div className="floating flex w-96 flex-col gap-3 rounded-lg bg-surface-1 p-4 text-sm" data-start-card onPointerDown={(e) => e.stopPropagation()}>
-        <p className="font-medium">Start with an image, or a size</p>
-        <Button size="sm" onClick={() => input.current?.click()}>
-          <PiImage /> Open an image…
-        </Button>
-        <input
-          ref={input}
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          className="hidden"
-          data-start-input
-          onChange={(e) => {
-            const files = [...(e.target.files ?? [])];
-            e.target.value = "";
-            void usePhoto.getState().placeFiles(files, { asCanvas: true }).then(() => fitToCanvas());
-          }}
-        />
-        <div className="grid grid-cols-2 gap-1.5">
-          {CANVAS_PRESETS.map((p) => (
-            <Button
-              key={p.id}
-              size="sm"
-              className="justify-between"
-              variant={canvas.width === p.width && canvas.height === p.height ? "secondary" : "outline"}
-              onClick={() => {
-                choose(p.width, p.height);
-                requestAnimationFrame(fitToCanvas);
-              }}
-            >
-              {p.label}
-              <span className="text-[11px] text-muted-foreground tabular-nums">
-                {p.width}×{p.height}
-              </span>
-            </Button>
-          ))}
-        </div>
-      </div>
-    </div>
   );
 }
 

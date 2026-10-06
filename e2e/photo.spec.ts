@@ -20,6 +20,22 @@ const STICKER = path.join(SAMPLES, "sticker-800.png");
 
 const savedPhoto = async (page: Page, id: string) => (await page.request.get(`/api/projects/${id}`)).json();
 
+/** Opens an image as the empty photo's canvas (the canvas takes its size), as New's Open an image… does. */
+async function openImage(page: Page, file: string) {
+  await page.evaluate(() => {
+    const input = Object.assign(document.createElement("input"), { type: "file", hidden: true });
+    input.dataset.testOpenImage = "";
+    input.onchange = () => {
+      void (window as unknown as { photoDebug: { photo: { getState(): { placeFiles(files: File[], options: { asCanvas: boolean }): Promise<unknown> } } } }).photoDebug.photo
+        .getState()
+        .placeFiles([...input.files!], { asCanvas: true });
+      input.remove();
+    };
+    document.body.append(input);
+  });
+  await page.locator("[data-test-open-image]").setInputFiles(file);
+}
+
 async function openNewPhoto(page: Page, name: string): Promise<string> {
   const response = await page.request.post("/api/projects", { data: { suite: "photo", name } });
   expect(response.ok()).toBe(true);
@@ -137,22 +153,54 @@ async function exportAndCompare(page: Page, projectId: string, mediaId: string, 
 
 let photoId = "";
 
-test("a new photo from the New tile starts at a size, ready for an image", async ({ page }) => {
+test("New asks for a size first, as Photoshop's New Document: a preset, one typed in, or an image; closing it makes nothing", async ({ page }) => {
+  await page.goto("/");
+  const projects = async () => ((await (await page.request.get("/api/projects")).json()) as unknown[]).length;
+  const before = await projects();
+  await page.getByRole("button", { name: "New photo" }).click();
+  const window = page.locator('[data-window="new-project"]');
+  await expect(window).toBeVisible();
+  // Cancel (and Esc) make nothing.
+  await window.getByRole("button", { name: "Cancel" }).click();
+  await expect(window).toHaveCount(0);
+  await page.getByRole("button", { name: "New photo" }).click();
+  await page.keyboard.press("Escape");
+  await expect(window).toHaveCount(0);
+  expect(await projects()).toBe(before);
+
+  // A preset fills the size in; a size typed in is Custom; Landscape turns it.
+  await page.getByRole("button", { name: "New photo" }).click();
+  await window.getByRole("radio", { name: "Square 1000" }).click();
+  await expect(window.getByLabel("Width")).toHaveValue("1000");
+  await expect(window.getByRole("radio", { name: "Square 1000" })).toHaveAttribute("aria-checked", "true");
+  await window.getByLabel("Height").fill("640");
+  await expect(window.getByRole("radio", { name: "Custom" })).toHaveAttribute("aria-checked", "true");
+  await window.getByRole("radio", { name: "Portrait", exact: true }).click();
+  await expect(window.getByLabel("Width")).toHaveValue("640");
+  await expect(window.getByLabel("Height")).toHaveValue("1000");
+  await window.getByLabel("Height").fill("0");
+  await expect(window.getByRole("button", { name: "Create" })).toBeDisabled();
+  await window.getByLabel("Height").fill("900");
+  await window.getByRole("radio", { name: "Transparent" }).click();
+  await window.getByRole("button", { name: "Create" }).click();
+  await expect(window).toHaveCount(0);
+  await expect(page.locator('[data-suite="photo"]')).toBeVisible();
+  await expect(page.locator("[data-photo-status]")).toContainText("640 × 900 px");
+  const id = /\/p\/([^/?#]+)/.exec(page.url())![1];
+  expect((await savedPhoto(page, id)).canvas).toEqual({ width: 640, height: 900, background: null });
+
+  // Open an image…: the canvas is the image, named after it.
   await page.goto("/");
   await page.getByRole("button", { name: "New photo" }).click();
-  await expect(page.locator('[data-suite="photo"]')).toBeVisible();
-  await expect(page.locator("[data-start-card]")).toBeVisible();
-  await expect(page.locator("[data-photo-status]")).toContainText("1080 × 1920 px");
-  // A preset changes the canvas (undoably).
-  await page.locator("[data-start-card]").getByRole("button", { name: /Thumbnail/ }).click();
-  await expect(page.locator("[data-photo-status]")).toContainText("1280 × 720 px");
-  await page.keyboard.press("ControlOrMeta+z");
-  await expect(page.locator("[data-photo-status]")).toContainText("1080 × 1920 px");
+  await window.locator("[data-new-photo-input]").setInputFiles(PHOTO);
+  await expect(page.locator("[data-layer]")).toHaveCount(1);
+  await expect(page.locator("[data-photo-status]")).toContainText("1600 × 1200 px");
+  await expect(page.locator("[data-photo-header]")).toContainText("photo-1600x1200");
 });
 
 test("an image opens as the canvas, drawn by the GPU, and exports bit for bit", async ({ page }) => {
   photoId = await openNewPhoto(page, "Exact");
-  await page.locator("[data-start-input]").setInputFiles(PHOTO);
+  await openImage(page, PHOTO);
   await expect(page.locator("[data-layer]")).toHaveCount(1);
   await expect(page.locator("[data-photo-status]")).toContainText("1600 × 1200 px");
   const saved = await expect.poll(async () => (await savedPhoto(page, photoId)).layers.length).toBe(1).then(() => savedPhoto(page, photoId));
@@ -291,7 +339,7 @@ test("a duplicated photo keeps its images", async ({ page }) => {
 
 test("the assistant reads, arranges and looks at the photo", async ({ page }) => {
   const id = await openNewPhoto(page, "Assisted");
-  await page.locator("[data-start-input]").setInputFiles(PHOTO);
+  await openImage(page, PHOTO);
   await expect(page.locator("[data-layer]")).toHaveCount(1);
   await page.getByRole("button", { name: "Assistant" }).click();
   const panel = page.locator('[data-slot="assistant-panel"]');
@@ -318,7 +366,7 @@ let adjustedId = "";
 
 test("an Exposure layer brightens what's below: a slider drag is one undo step and re-renders only the adjustment", async ({ page }) => {
   adjustedId = await openNewPhoto(page, "Adjusted");
-  await page.locator("[data-start-input]").setInputFiles(PHOTO);
+  await openImage(page, PHOTO);
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
   // Its thumbnail is the layer as it's composited, rendered by the GPU.
   await expect(page.locator('[data-thumbnail="rendered"]')).toHaveCount(1);
@@ -545,7 +593,7 @@ test("a 16-bit photo keeps its precision through the composite and a 16-bit expo
   // sharp reads a Uint16Array's raw samples as 16-bit.
   await sharp(samples, { raw: { width, height, channels: 3 } }).toColourspace("rgb16").png().toFile(file);
   const id = await openNewPhoto(page, "Deep");
-  await page.locator("[data-start-input]").setInputFiles(file);
+  await openImage(page, file);
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
   const doc = await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(1).then(() => savedPhoto(page, id));
   const compared = await exportAndCompare(page, id, doc.layers[0].mediaId, 16);
@@ -598,7 +646,7 @@ async function pasteboardPoint(page: Page) {
 
 test("clicking the canvas picks the layer under the pointer, outlined while it's hovered (Auto-Select); a click on nothing selects nothing", async ({ page }) => {
   pickingId = await openNewPhoto(page, "Picking");
-  await page.locator("[data-start-input]").setInputFiles(PHOTO);
+  await openImage(page, PHOTO);
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
   await page.locator("[data-place-input]").setInputFiles(STICKER);
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(2);
@@ -930,7 +978,7 @@ let paintPhoto = "";
 
 test("a mask stroke across tiles is undone and redone exactly; a cancelled one changes nothing; a small one shares every other tile", async ({ page }) => {
   paintingId = await openNewPhoto(page, "Painting");
-  await page.locator("[data-start-input]").setInputFiles(PHOTO);
+  await openImage(page, PHOTO);
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
   paintPhoto = (await expect.poll(async () => (await savedPhoto(page, paintingId)).layers.length).toBe(1).then(() => savedPhoto(page, paintingId))).layers[0].id;
   // A mask from the Layers panel's button (no selection: it reveals everything), targeted at once.
@@ -1041,7 +1089,7 @@ test("the same samples paint the same pixels at every zoom and pixel density", a
 
 test("a marquee limits the brush fractionally and makes a mask; an image asks before it's painted", async ({ page }) => {
   const id = await openNewPhoto(page, "Masked");
-  await page.locator("[data-start-input]").setInputFiles(PHOTO);
+  await openImage(page, PHOTO);
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
   const photo = (await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(1).then(() => savedPhoto(page, id))).layers[0].id;
 

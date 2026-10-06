@@ -7,6 +7,7 @@ import { HomeButton } from "@/components/home/home-button";
 import { noteTabStrip } from "@/lib/desktop";
 import { useDesktopCommands } from "@/components/home/desktop-commands";
 import { NewProjectDialog } from "@/components/home/new-project-dialog";
+import { NewProjectWindow } from "@/components/home/new-project-window";
 import { ProjectTabs, useTabsShown } from "@/components/home/project-tabs";
 import { OpenProjectDialog } from "@/components/home/open-project-dialog";
 import { ProjectSearchDialog, useProjectShortcuts } from "@/components/home/project-search-dialog";
@@ -25,6 +26,7 @@ export default function App() {
   const loaded = useProjects((s) => s.loaded);
   const loadError = useProjects((s) => s.loadError);
   const settingsOpen = useSettings((s) => s.open);
+  const choosing = useProjects((s) => s.choosing !== null);
   const home = useProjects((s) => s.openId === null);
   const tabs = useTabsShown();
 
@@ -69,9 +71,10 @@ export default function App() {
         </div>
       )}
       {/* The app's own windows float over everything (but menus and dialogs, which are drawn after it). */}
-      {settingsOpen && (
+      {(settingsOpen || choosing) && (
         <Desktop windows={useAppWindows} name="app" label="Windows" overlay native className="fixed inset-0 z-50">
-          <SettingsWindow />
+          {settingsOpen && <SettingsWindow />}
+          <NewProjectWindow />
         </Desktop>
       )}
       <ShortcutsDialog />
