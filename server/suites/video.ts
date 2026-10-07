@@ -130,7 +130,14 @@ rain-soaked avenue whose lit windows are an equaliser, neon flashing on kicks; P
 Matrix), Nebula (a flight through a stellar nursery, each hit igniting a star; Palette Hubble, Natural, Cosmic), Abyss \
 (glowing jellyfish in the deep sea, their bells contracting on kicks; Glow Cyan, Magenta, Gold, Rainbow; Depth), \
 Monoliths (a canyon of black obelisks whose heights are the spectrum, rings of light on kicks; Style Obsidian, Marble, \
-Synth). They're heavy: one at a time, Quality lowers their cost.
+Synth), Cyberspace (a run down a circuit-board tunnel, its corners equalisers, a scan and a boost on each hit; Style \
+Tron, Matrix, Synthwave, Red Alert), Wormhole (a vortex of plasma whose rim is the spectrum, lightning on hits, \
+hyperspace jumps; Palette Stargate, Plasma, Inferno, Toxic; Jumps), Galaxy (a tour of a spiral galaxy, its arms the \
+spectrum, a supernova on each hit; Palette Hubble, Andromeda, Neon; Arms), Cosmic Web (a flight along the universe's \
+filaments, a pulse from a cluster on each hit; Style Cosmic, Neural: neurons firing, Dark Matter, Mono), Collider (a \
+particle collision on every kick in a detector whose calorimeter is the spectrum; Style Event Display, Neon, Bubble \
+Chamber, Mono). The last five are light on black: Blend Mode Screen or Add lays them over a clip. They're heavy: one at \
+a time, Quality lowers their cost.
 - After edits, check what you did with get_timeline or view_frames when it matters.`,
   },
 };

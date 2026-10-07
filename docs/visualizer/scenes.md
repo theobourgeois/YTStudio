@@ -231,6 +231,20 @@ muon chambers' octagon) and bubble-chamber photographs, and the visualizer loops
 cyber tunnels). Same rules as the ten: raymarched GLSL, state stepped in TypeScript, portrait first, a full 1080x1920
 frame in about their time (≤ ~450 ms), travel that goes on for ever repeats its world and wraps its camera in TS.
 
+**Built** (2026-10-06), each iterated against renders until it held up; a 1080x1920 frame draws in 285–400 ms.
+Where they differ from their plans: Cyberspace's walls are districts of circuitry (buses, chips whose dies hear a band,
+fields of vias and LEDs, rungs across the wall), its march steps to where the ray would leave a straight tunnel and
+bisects back at bends, it spins every eighth hit (every fourth at Spin 200%) and its corner rails are bars as long as
+their band; Wormhole's shell is drawn in thin slices between its radii (crisp, where jittered steps were grainy), its
+light at the far end placed in TS where the line of sight leaves the hollow, and it adds Lightning and Jumps (every 4
+or 8 bars, on drops, off); Galaxy has no bar and turns rigidly (a density wave: differential turning would wind the
+arms up over a song), defaults to three arms, and draws resolved stars and clusters cell by cell near the camera, its
+skim held high enough that the spiral reads in perspective; Cosmic Web walks the lattice's cells adding each
+filament's and cluster's light exactly from the ray's closest approach (no sphere tracing), joins nodes along 26
+directions, leaves the sheets out (they lifted the blacks) and spreads pulses as spheres; Collider has one ring of
+towers coloured as a level meter, a shock ring through the detector on each collision, a Field slider, and compacted
+proportions behind a long lens so the tracks get room in portrait.
+
 ### 11. Cyberspace: down the data highway
 
 Inside the machine, at speed: an endless square tunnel whose walls are circuit boards, traces carrying pulses of light,

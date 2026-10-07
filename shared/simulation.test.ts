@@ -6,6 +6,7 @@ import { demoScene, sceneSpec } from "./scenes/index.ts";
 import { CHECKPOINT_EVERY, frameSourceTime, simulationFrame, simulationVersion, steppedState } from "./simulation.ts";
 import { createDefaultProject, newLayerClip } from "./timeline.ts";
 import { ridgeHeight } from "./scenes/ridgeline.ts";
+import { CLEAR_OF_CLUSTERS, WEB_CELL, webNear } from "./scenes/cosmic-web.ts";
 import type { UniformValue } from "./transition-gl.ts";
 import type { Clip, Project } from "./types.ts";
 
@@ -86,7 +87,7 @@ describe("a clip's frames", () => {
 });
 
 describe("3D scenes", () => {
-  const SCENES = ["ridgeline", "infinite-dive", "aurora", "storm-sea", "ferrofluid", "event-horizon", "neon-city", "nebula", "abyss", "monoliths"];
+  const SCENES = ["ridgeline", "infinite-dive", "aurora", "storm-sea", "ferrofluid", "event-horizon", "neon-city", "nebula", "abyss", "monoliths", "cyberspace", "wormhole", "galaxy", "cosmic-web", "collider"];
   const uniform = (u: UniformValue[] | null, name: string) => u?.find((v) => v.name === name)?.value;
 
   it("each has a definition with a scene, and a state stepped in TypeScript", () => {
@@ -126,6 +127,23 @@ describe("3D scenes", () => {
     }
     // ...while its level keeps counting down.
     expect(uniform(demoScene("infinite-dive", { speed: 1, reactivity: 1 }, "dive", 3600, 30), "idLevel") as number).toBeGreaterThan(10);
+  });
+
+  it("Cosmic Web's camera flies beside its filaments and never through a cluster (TypeScript mirrors the web)", () => {
+    for (let f = 0; f <= 3600; f += 23) {
+      const pos = uniform(demoScene("cosmic-web", { speed: 1, reactivity: 1 }, "web", f, 30), "camPos") as number[];
+      const cell = pos.map((v) => Math.floor(v / WEB_CELL)) as [number, number, number];
+      const nearest = Math.min(...webNear(cell, 1).nodes.map((n) => Math.hypot(n[0] - pos[0], n[1] - pos[1], n[2] - pos[2])));
+      expect(nearest, `frame ${f}`).toBeGreaterThan(CLEAR_OF_CLUSTERS - 1e-3);
+    }
+  });
+
+  it("each hit starts a collision in Collider", () => {
+    const live = (f: number) =>
+      [0, 1, 2, 3].filter((k) => (uniform(demoScene("collider", { speed: 1, reactivity: 1 }, "collisions", f, 30), `coEv${k}`) as number[])[2] > 0).length;
+    // The made-up sound beats at 120 BPM from its first frame, so one starts at once and soon several overlap.
+    expect(live(0)).toBeGreaterThan(0);
+    expect(live(60)).toBeGreaterThan(1);
   });
 
   it("hits set things off in the state (Storm Sea's lightning)", () => {
