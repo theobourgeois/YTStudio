@@ -33,7 +33,9 @@ renderer's parts the suite doesn't use yet. Kernels and passes storing `rgba16fl
 (`round_for_store`): Metal truncates on store (docs/photo/rendering.md). Pixel layers and masks are surfaces
 (`render/surface.ts`: tiles by hash, strokes on drafts); a saved photo only names pixels the server has (`uploads.ts`,
 `SuiteBackend.checkSave`). Selections (docs/photo/selections.md: the Marquees, Lassos, Magic Wand, Quick Selection, Select
-Subject, Object Selection (painted over a thing: `object-select.ts`, Select Subject's model on that part alone), modes, Inverse, Feather, the canvas's right-click menu) are a rectangle or a `MaskSelection` (8-bit coverage
+Subject, Object Selection (painted over a thing: SAM 2.1 prompted by the stroke's points, `sam.ts` and `object-model.ts`, a
+second look at a small thing and the edge decided by colour, `sam-refine.ts` in `edge-worker.ts`; a model can be several
+files, `PhotoModelSpec.files`), modes, Inverse, Feather, the canvas's right-click menu) are a rectangle or a `MaskSelection` (8-bit coverage
 over its box: `shared/photo/selection*.ts`, `magic-wand.ts`, `quick-select.ts` on `graph-cut.ts` and `gmm.ts`); the
 GPU gets a mask's coverage per tile from the CPU (`selectionCoverage`), keep rectangles' analytic path. The tools read
 the photo through `PhotoRenderer.samplePixels` (`selecting.ts` keeps it). Select Subject's model (IS-Net) is
@@ -100,7 +102,7 @@ options, its press on the canvas, its overlay), registered in `toolbox/index.ts`
 `tool-groups.ts` (Photoshop's groups and keys). Text and shape layers are drawn by the browser's 2D canvas through one
 seam (`shared/photo/canvas-content.ts` → a `CanvasNode`, `render/canvas-content.ts`): a new kind of drawn layer is a
 case there. A raster's key says what it draws within a pixel, never which pixel (the Move tool drags these layers by
-whole pixels), so a move reuses the drawn raster: keep positions out of `CanvasRaster.key`. Only image and pixel layers crop (`isCroppable`). A placed image is never rasterised by these tools: the
+whole pixels), so a move reuses the drawn raster: keep positions out of `CanvasRaster.key`. Only image and pixel layers crop (`isCroppable`). **Flips and right-angle turns** (Edit › Transform, ⌘H / ⌥⌘H; Image › Image Rotation) are `shared/photo/orient.ts`: exact in a layer's five numbers, the canvas's document-pixel masks moved pixel for pixel (`surface-orient.ts`); `layerMatrix` is exact at right angles (`cosSin`), so a turned layer is still drawn texel for texel. **Skew, Distort and Perspective** (⌘T Free Transform, `free-transform.ts`): `LayerTransform.skew`/`.perspective` (version 8), the maths in `shared/photo/projective.ts` (`layerProjection`, `transformFromQuad`); `layerMatrix` is only the affine part, so anything that maps a layer's pixels in perspective goes through `layerPoint`/`pointInLayer`/`corners` or the node's `projection` (the GPU passes divide by w: `render/layer-map.ts`). Painting a layer in perspective is refused (`perspectiveRefusal`). A placed image is never rasterised by these tools: the
 Magic Eraser erases through its mask; the others ask (the paint-choice dialog). Every colour picker shown in the photo
 editor samples the canvas, as Photoshop's Color Picker does (`ColorSamplerContext`, provided by `colour-sampling.tsx`:
 a press on the canvas with one open goes to it, whatever the tool).

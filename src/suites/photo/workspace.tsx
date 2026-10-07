@@ -75,6 +75,8 @@ import { hueSaturationActions } from "./hue-saturation/actions";
 import { PhotoMenus } from "./menus";
 import { ScaleEffectsWindow } from "./layer-style/scale-effects-window";
 import { resolvePhotoKey } from "./keys";
+import { transformActions } from "./transform-actions";
+import { freeTransform, useFreeTransform } from "./free-transform";
 import { layerActions, selectedInOrder } from "./layer-actions";
 import { liveRenderer } from "./live";
 import { isImage } from "./media";
@@ -475,6 +477,11 @@ function usePhotoKeys(active: boolean) {
         usePhotoUi.getState().setSpaceHand(true);
         return;
       }
+      // Free Transform's Enter and Escape: commit or put back every drag of the session.
+      if (useFreeTransform.getState().session && (e.key === "Enter" || e.key === "Escape") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        return e.key === "Enter" ? freeTransform.commit() : freeTransform.cancel();
+      }
       const action = resolvePhotoKey(e, mac);
       if (!action) return;
       e.preventDefault();
@@ -569,6 +576,11 @@ function usePhotoKeys(active: boolean) {
           return void editActions.fill(useColours.getState()[action.colour]);
         case "contentAwareFill":
           return void runContentAwareFill();
+        case "orient":
+          return transformActions.layers(action.orientation);
+        case "freeTransform":
+          if (!freeTransform.start()) toast.message("Select a layer to transform.");
+          return;
       }
     };
     const up = (e: KeyboardEvent) => {

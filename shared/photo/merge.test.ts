@@ -45,7 +45,7 @@ describe("several layers at once", () => {
     expect(moveLayersBy(doc, ["a"], 0, 0)).toBe(doc);
   });
 
-  it("carries a layer by a map as one of several: turned and scaled exactly, refused when it would skew", () => {
+  it("carries a layer by a map as one of several: turned and scaled exactly, skewed when it must be", () => {
     const t = { x: 300, y: 200, scaleX: 0.5, scaleY: -0.5, rotation: 30 };
     const size = { width: 400, height: 200 };
     // About (500, 400): scaled 2× and turned 90°.
@@ -62,9 +62,15 @@ describe("several layers at once", () => {
       expect(apply(after, u, v).x).toBeCloseTo(want.x, 6);
       expect(apply(after, u, v).y).toBeCloseTo(want.y, 6);
     }
-    // Stretching one way: fine for a layer at a right angle, a skew for one at 30°.
-    expect(transformedBy({ ...t, rotation: 90 }, size, [2, 0, 0, 1, 0, 0])).not.toBeNull();
-    expect(transformedBy(t, size, [2, 0, 0, 1, 0, 0])).toBeNull();
+    // Stretching one way: plain for a layer at a right angle, a skew for one at 30° (every pixel still where it goes).
+    expect(transformedBy({ ...t, rotation: 90 }, size, [2, 0, 0, 1, 0, 0])!.skew).toBeUndefined();
+    const stretched = transformedBy(t, size, [2, 0, 0, 1, 0, 0])!;
+    expect(stretched.skew).not.toBeUndefined();
+    for (const [u, v] of [[0, 0], [400, 0], [123, 77]]) {
+      const want = apply([2, 0, 0, 1, 0, 0], apply(before, u, v).x, apply(before, u, v).y);
+      expect(apply(layerMatrix(stretched, size), u, v).x).toBeCloseTo(want.x, 6);
+      expect(apply(layerMatrix(stretched, size), u, v).y).toBeCloseTo(want.y, 6);
+    }
   });
 });
 

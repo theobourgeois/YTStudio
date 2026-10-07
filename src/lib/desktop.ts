@@ -4,6 +4,7 @@
  */
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
+import { addWindowListener } from "@/lib/window-events";
 import { useProjects } from "@/stores/projects";
 import type { AppIconId } from "@shared/app-icons";
 
@@ -54,6 +55,8 @@ declare global {
       chooseProject?: (defaultPath?: string) => Promise<string | null>;
       /** The system's dialog for a folder; null if cancelled. */
       chooseFolder?: (defaultPath?: string) => Promise<string | null>;
+      /** macOS's Hide (⌘H) or Hide Others (⌥⌘H), for those keys when the page didn't use them. */
+      hideApp?: (which: "app" | "others") => void;
       /** The tab strip shows (or not): a Mac's window buttons move to its middle. */
       tabStrip?: (shown: boolean) => void;
       /** A project was opened: the system's recent documents (the Dock, File › Open Recent) list it. */
@@ -141,6 +144,23 @@ export function exposeDesktopHooks() {
     openImages,
     command: (name) => commands(name),
   };
+  handBackHideKeys();
+}
+
+/**
+ * The desktop app's menu leaves ⌘H and ⌥⌘H to the page (the photo editor flips with them); a press nothing in the
+ * page used (`preventDefault`) still hides the app, or the others, as on any Mac.
+ */
+function handBackHideKeys() {
+  const hide = window.editorDesktopInfo?.hideApp;
+  if (!hide || window.editorDesktopInfo?.platform !== "darwin") return;
+  addWindowListener("keydown", (e) => {
+    if (e.code !== "KeyH" || !e.metaKey || e.ctrlKey || e.shiftKey || e.repeat) return;
+    // After every other listener has had it.
+    setTimeout(() => {
+      if (!e.defaultPrevented) hide(e.altKey ? "others" : "app");
+    });
+  });
 }
 
 /** Images handed to the app start something, as files dropped on Home do (`startWith`: images start a photo). */

@@ -147,7 +147,7 @@ test("the Rectangle tool draws shape layers: a drag, Shift for a square, Alt fro
   await expect(page.locator('[data-layer][data-kind="shape"]')).toHaveCount(2);
 
   const saved = await expect.poll(async () => (await savedPhoto(page, shapesId)).layers.length).toBe(2).then(() => savedPhoto(page, shapesId));
-  expect(saved.version).toBe(7);
+  expect(saved.version).toBe(8);
   expect(saved.layers[0]).toMatchObject({ kind: "shape", shape: { type: "rect" }, paint: { stroke: "#000000", fill: null } });
 });
 

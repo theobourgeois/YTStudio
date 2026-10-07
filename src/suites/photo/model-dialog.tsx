@@ -4,7 +4,7 @@
  */
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import { PHOTO_MODELS } from "@shared/photo/models";
+import { PHOTO_MODELS, modelSize } from "@shared/photo/models";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -45,7 +45,7 @@ export function ModelDialog() {
           <AlertDialogHeader>
             <AlertDialogTitle>Download {spec.command}'s model?</AlertDialogTitle>
             <AlertDialogDescription>
-              {spec.command} {spec.does} that runs on this computer. It's {Math.round(spec.size / 1e6)} MB, downloaded once from Hugging Face; nothing of your photos
+              {spec.command} {spec.does} that runs on this computer. It's {Math.round(modelSize(spec) / 1e6)} MB, downloaded once from Hugging Face; nothing of your photos
               leaves this computer.
               {error ? ` The last try failed: ${error}` : ""}
             </AlertDialogDescription>

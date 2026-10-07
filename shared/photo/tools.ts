@@ -4,6 +4,7 @@
  */
 import { type Schema, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { BLEND_MODES } from "./blending.ts";
+import { ORIENTATIONS } from "./orient.ts";
 import { ADJUSTMENTS, EFFECTS, type EffectDefinition, type EffectKind, FILTERS, GENERATORS } from "./effects/index.ts";
 import { APPLY_TO, MIX } from "./effects/kernel.ts";
 import { FILTER_ENTRIES, describePresets } from "./effects/catalog.ts";
@@ -179,7 +180,7 @@ export const PHOTO_TOOLS = [
     title: "Move, scale or rotate a layer",
     kind: "edit",
     description:
-      "Moves, scales or rotates a layer. Positions are the layer's centre in canvas pixels (0, 0 is the top-left corner). Scale is a factor of the image's own size (1 = 100%; negative mirrors); rotation is in degrees, clockwise. Give only what changes. `fit` scales and centres it to fit inside the canvas (contain) or to cover it (cover), keeping its proportions.",
+      "Moves, scales, rotates, skews or distorts a layer (Photoshop's Free Transform). Positions are the layer's centre in canvas pixels (0, 0 is the top-left corner). Scale is a factor of the image's own size (1 = 100%; negative mirrors); rotation is in degrees, clockwise; skew leans its vertical edges by degrees (positive: the bottom goes right). `corners` puts the layer's four corners on four canvas points (top-left, top-right, bottom-right, bottom-left), in perspective when they aren't a parallelogram: to place a picture onto a screen, a sign or a wall seen at an angle (images and pixel layers only; text and shapes can only skew). `perspective` [x, y] sets how much the far side shrinks (0 none; |x| + |y| < 1). Give only what changes. `fit` scales and centres it to fit inside the canvas (contain) or to cover it (cover), keeping its proportions.",
     inputSchema: obj(
       {
         layer,
@@ -191,9 +192,26 @@ export const PHOTO_TOOLS = [
         scaleX: num("Horizontal scale (negative mirrors)."),
         scaleY: num("Vertical scale (negative flips)."),
         rotation: num("Rotation in degrees, clockwise (absolute)."),
+        skew: num("Skew in degrees, -85 to 85 (absolute; 0 takes it off)."),
+        perspective: arr(num("A fraction."), "[x, y]: the perspective (absolute; [0, 0] takes it off).", { minItems: 2, maxItems: 2 }),
+        corners: arr(arr(num("A coordinate."), "[x, y]", { minItems: 2, maxItems: 2 }), "Four canvas points for the layer's corners: top-left, top-right, bottom-right, bottom-left (a convex shape). Overrides the rest.", { minItems: 4, maxItems: 4 }),
         fit: oneOf(["contain", "cover"], "Fit inside the canvas, or cover it."),
       },
       ["layer"],
+    ),
+  }),
+  tool({
+    name: "flip_rotate_layers",
+    title: "Flip or rotate layers",
+    kind: "edit",
+    description:
+      "Flips layers or turns them by right angles (Photoshop's Edit › Transform), together about the centre of the box around them, exactly (nothing is resampled; a flipped layer's scale goes negative). Generators (a Lens Flare) have their handles carried; adjustment layers have no place and are left as they are. To turn the whole picture, canvas and all, use flip_rotate_canvas. One undo step.",
+    inputSchema: obj(
+      {
+        layers: arr(layer, "The layers (ids or names)."),
+        operation: oneOf([...ORIENTATIONS], "flip-horizontal (mirrors left to right), flip-vertical (upside down, mirrored), rotate-90-cw, rotate-90-ccw or rotate-180."),
+      },
+      ["layers", "operation"],
     ),
   }),
   tool({
@@ -496,7 +514,7 @@ export const PHOTO_TOOLS = [
     title: "Object Selection",
     kind: "edit",
     description:
-      "Photoshop's Object Selection, as the user's red brush does it: strokes painted roughly over one thing (each a list of [x, y] canvas points; one point is a dab), and the segmentation model running on the user's computer selects that whole thing, soft at its edges, looking only around the strokes. Better than select_subject when the photo has several things or the subject isn't what stands out: paint over most of the one you mean (it may reach a little past the strokes; what they only brush past is left out). size is the brush's diameter in pixels (default 120). mode: new (default), add, subtract, intersect. It needs Select Subject's model downloaded once by the user; if it isn't, the error says so. Check with view_photo's show_selection.",
+      "Photoshop's Object Selection, as the user's red brush does it: strokes painted roughly over one thing (each a list of [x, y] canvas points; one point is a dab), and a prompted segmentation model running on the user's computer (SAM 2.1) selects that whole thing, the parts the strokes didn't reach too. Better than select_subject when the photo has several things or the subject isn't what stands out: paint along the middle of the one you mean (the strokes' points prompt it; a stroke across two things may get both). size is the brush's diameter in pixels (default 120). mode: new (default), add, subtract, intersect. It needs its model downloaded once by the user (Object Selection in the editor); if it isn't, the error says so. Check with view_photo's show_selection.",
     inputSchema: obj(
       {
         strokes: arr(arr(arr(num("A coordinate."), "[x, y]", { minItems: 2, maxItems: 2 }), "One stroke's points.", { minItems: 1 }), "The strokes, [[[x, y], …], …], canvas pixels.", { minItems: 1 }),
@@ -786,6 +804,14 @@ export const PHOTO_TOOLS = [
       ratio: str('Width to height, "4:5", "16:9", "1.5": the largest box of it, centred.'),
       to_selection: bool("Crop to the selection's bounds (the marching ants')."),
     }),
+  }),
+  tool({
+    name: "flip_rotate_canvas",
+    title: "Flip or rotate the canvas",
+    kind: "edit",
+    description:
+      "Flips or turns the whole canvas (Photoshop's Image › Image Rotation): a quarter turn swaps its width and height, and every layer, mask, handle and the selection goes with it, exactly (nothing is resampled). Use it for a sideways photo or a mirrored picture; flip_rotate_layers turns only some layers. One undo step.",
+    inputSchema: obj({ operation: oneOf([...ORIENTATIONS], "rotate-90-cw, rotate-90-ccw, rotate-180, flip-horizontal or flip-vertical.") }, ["operation"]),
   }),
   tool({
     name: "crop_layer",

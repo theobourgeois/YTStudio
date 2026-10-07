@@ -3,6 +3,7 @@
  * the editor's. Photoshop's where it has one; the app's own keys (⌘W, ⌘, …) are left alone.
  */
 import { blendModeForKey } from "@shared/photo/blending";
+import type { Orientation } from "@shared/photo/orient";
 import type { BlendMode } from "@shared/photo/types";
 import type { PhotoTool, ToolGroup } from "./tool-groups";
 
@@ -67,7 +68,11 @@ export type PhotoKeyAction =
   /** ⇧⌥ + a letter: the selected layers' blend mode (Photoshop's letters: M Multiply, S Screen, O Overlay…). */
   | { type: "blendMode"; mode: BlendMode }
   /** ⇧+ / ⇧−: the next or previous blend mode in the menu. */
-  | { type: "stepBlendMode"; direction: 1 | -1 };
+  | { type: "stepBlendMode"; direction: 1 | -1 }
+  /** ⌘H / ⌥⌘H: the selected layers flipped horizontally / vertically (Edit › Transform; Théo's keys, not Photoshop's). */
+  | { type: "orient"; orientation: Orientation }
+  /** ⌘T: Edit › Free Transform. */
+  | { type: "freeTransform" };
 
 /** Photoshop's letters for the tool groups. */
 const GROUP_KEYS: Record<string, ToolGroup> = { m: "marquee", l: "lasso", w: "wand", e: "eraser", g: "fill", o: "toning", u: "shape" };
@@ -89,6 +94,7 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
   const is = (k: string, c: string) => code === c || (!code && key === k);
   if (mod && e.altKey && !e.shiftKey && is("a", "KeyA")) return { type: "selectAll" };
   if (mod && e.shiftKey && !e.altKey && is("a", "KeyA")) return { type: "cameraRaw" };
+  if (mod && !e.shiftKey && !(mac ? e.ctrlKey : e.metaKey) && is("h", "KeyH")) return { type: "orient", orientation: e.altKey ? "flip-vertical" : "flip-horizontal" };
   if (mod && (mac ? e.ctrlKey && !e.altKey : e.altKey) && !e.shiftKey && is("f", "KeyF")) return { type: "lastFilter" };
   const erasing = key === "Backspace" || key === "Delete";
   if (erasing && e.altKey && !mod && !e.shiftKey) return { type: "fill", colour: "foreground" };
@@ -120,6 +126,7 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
     if (key === "x" && !e.shiftKey) return { type: "cut" };
     if (key === "e" && !e.shiftKey) return { type: "merge" };
     if (key === "u" && !e.shiftKey) return { type: "hueSaturation" };
+    if (key === "t" && !e.shiftKey) return { type: "freeTransform" };
     // ⇧⌘[ / ⇧⌘] are the app's (tab switching), so Bring to Front and Send to Back are the Layers menu's alone.
     if (!e.shiftKey && is("]", "BracketRight")) return { type: "shift", direction: 1 };
     if (!e.shiftKey && is("[", "BracketLeft")) return { type: "shift", direction: -1 };

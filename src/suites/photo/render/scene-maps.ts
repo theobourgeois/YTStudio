@@ -88,11 +88,12 @@ export function sceneInput(doc: PhotoProject, need: SceneNeed): PhotoProject | n
   const input = analysisInput(doc, need);
   const size = need.size;
   if (!input || !size) return input;
+  // Upright at 100%: no skew either (a layer in perspective has its maps made of the document instead).
   const natural = { x: size.width / 2, y: size.height / 2, scaleX: 1, scaleY: 1, rotation: 0 };
   return {
     ...input,
     canvas: { ...input.canvas, width: size.width, height: size.height, background: null },
-    layers: input.layers.map((l) => (l.id === need.layerId && "transform" in l ? { ...l, transform: { ...l.transform, ...natural } } : l)),
+    layers: input.layers.map((l) => (l.id === need.layerId && "transform" in l ? { ...l, transform: natural } : l)),
   } as PhotoProject;
 }
 

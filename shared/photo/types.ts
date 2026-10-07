@@ -14,7 +14,8 @@
 import type { DocumentBase } from "../suites.ts";
 
 /**
- * 7: text layers (the Type tool, docs/photo/tools/type.md: words and how they're set, laid out by the tab and drawn by
+ * 8: a layer's transform can be skewed and in perspective (`LayerTransform.skew`, `.perspective`: Edit › Transform's
+ * Skew, Distort and Perspective; absent when there's none), 7: text layers (the Type tool, docs/photo/tools/type.md: words and how they're set, laid out by the tab and drawn by
  * the browser's text engine), a layer's crop (image, pixel and text layers' `crop`: a rectangle of their own pixels,
  * everything outside it hidden; absent: none) and shape layers (docs/photo/tools/shapes.md: a rectangle, an ellipse,
  * a line or an arrow, placed by a transform and drawn from its geometry and paint, never stored as pixels), 6: the
@@ -24,7 +25,7 @@ import type { DocumentBase } from "../suites.ts";
  * adjustment layers. An older document is a valid newer one (compositing in linear light and its highlights
  * clipped, as it was drawn then); an older app refuses a newer one.
  */
-export const PHOTO_VERSION = 7;
+export const PHOTO_VERSION = 8;
 
 /**
  * A surface: the SHA-256 (lowercase hex) of its manifest's canonical JSON. The server has every manifest a saved
@@ -33,10 +34,11 @@ export const PHOTO_VERSION = 7;
 export type SurfaceId = string;
 
 /**
- * Where a layer is: its centre in document pixels, its scale (negative mirrors) and its rotation in degrees,
- * clockwise. Layer pixel (u, v) lands at centre + R(rotation) · S(scale) · ((u, v) − size / 2). Kept as these five
- * numbers rather than a matrix so that typing 100% gives exactly 100%; skew and perspective would bring a matrix,
- * by migration.
+ * Where a layer is: its centre in document pixels, its scale (negative mirrors), its rotation in degrees, clockwise,
+ * and (version 8) its skew and perspective. With q = (u, v) − size / 2, layer pixel (u, v) lands at
+ * centre + R(rotation) · K(skew) · S(scale) · q / w, w = 1 + perspective · (2q / size) (`shared/photo/projective.ts`).
+ * Kept as these numbers rather than a matrix so that typing 100% gives exactly 100%; any four corners give them back
+ * (`transformFromQuad`).
  */
 export interface LayerTransform {
   x: number;
@@ -44,6 +46,13 @@ export interface LayerTransform {
   scaleX: number;
   scaleY: number;
   rotation: number;
+  /** Degrees the layer's vertical edges lean (Photoshop's horizontal skew), in (−85, 85); absent: 0. */
+  skew?: number;
+  /**
+   * How much the far side shrinks, across and down: at the right edge w = 1 + perspective[0] (the right side drawn
+   * 1 / w as tall). |x| + |y| < 1, so no corner is past the horizon; absent: none. Image and pixel layers only.
+   */
+  perspective?: [number, number];
 }
 
 /**

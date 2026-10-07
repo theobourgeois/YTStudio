@@ -181,6 +181,7 @@ test("a drag makes paragraph text that wraps; a click on words edits them where 
 
   // Shift-click over it makes new text instead.
   await clickDoc(page, originOf(layer).x + 40, originOf(layer).y + 40, { shift: true });
+  await expect(page.locator("[data-type-field]")).toBeFocused();
   await page.keyboard.type("New");
   await page.keyboard.press("Escape");
   expect(await layers(page)).toHaveLength(2);

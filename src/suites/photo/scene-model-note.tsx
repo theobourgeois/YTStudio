@@ -6,7 +6,7 @@
 import { useEffect } from "react";
 import { PiCubeFocus, PiDownloadSimple } from "react-icons/pi";
 import type { EffectDefinition } from "@shared/photo/effects/index";
-import { PHOTO_MODELS } from "@shared/photo/models";
+import { PHOTO_MODELS, modelSize } from "@shared/photo/models";
 import type { EffectParamValue } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { liveRenderer } from "./live";
@@ -40,7 +40,7 @@ export function SceneModelNote({ def, params }: { def: EffectDefinition; params:
           <span className="flex-1">
             {status[m]!.status === "downloading"
               ? `The ${m} model is downloading (${Math.round((status[m]!.progress ?? 0) * 100)}%).`
-              : `This needs the ${m} model (${Math.round(PHOTO_MODELS[m].size / 1e6)} MB, downloaded once): it changes nothing until it's here.`}
+              : `This needs the ${m} model (${Math.round(modelSize(PHOTO_MODELS[m]) / 1e6)} MB, downloaded once): it changes nothing until it's here.`}
           </span>
           {status[m]!.status !== "downloading" && (
             <Button size="sm" variant="outline" onClick={() => askForSceneModel(m)}>

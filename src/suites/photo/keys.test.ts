@@ -38,6 +38,20 @@ describe("photo keys", () => {
     expect(resolvePhotoKey(press("=", { metaKey: true }), true)).toEqual({ type: "zoom", factor: 2 });
   });
 
+  it("flips the selected layers with ⌘H and ⌥⌘H (the physical key: ⌥H is \"˙\" on a Mac), leaving ⇧⌘H to Home", () => {
+    expect(resolvePhotoKey({ ...press("h", { metaKey: true }), code: "KeyH" }, true)).toEqual({ type: "orient", orientation: "flip-horizontal" });
+    expect(resolvePhotoKey({ ...press("˙", { metaKey: true, altKey: true }), code: "KeyH" }, true)).toEqual({ type: "orient", orientation: "flip-vertical" });
+    expect(resolvePhotoKey(press("h", { ctrlKey: true, altKey: true }), false)).toEqual({ type: "orient", orientation: "flip-vertical" });
+    expect(resolvePhotoKey({ ...press("H", { metaKey: true, shiftKey: true }), code: "KeyH" }, true)).toBeNull();
+    expect(resolvePhotoKey({ ...press("h", { metaKey: true, ctrlKey: true }), code: "KeyH" }, true)).toBeNull();
+  });
+
+  it("starts Free Transform with ⌘T (T alone is the Type tool)", () => {
+    expect(resolvePhotoKey(press("t", { metaKey: true }), true)).toEqual({ type: "freeTransform" });
+    expect(resolvePhotoKey(press("t", { ctrlKey: true }), false)).toEqual({ type: "freeTransform" });
+    expect(resolvePhotoKey(press("t"), true)).toEqual({ type: "tool", tool: "type" });
+  });
+
   it("nudges by 1, or 10 with Shift, and leaves the app's keys alone", () => {
     expect(resolvePhotoKey(press("ArrowLeft"), true)).toEqual({ type: "nudge", dx: -1, dy: 0 });
     expect(resolvePhotoKey(press("ArrowDown", { shiftKey: true }), true)).toEqual({ type: "nudge", dx: 0, dy: 10 });

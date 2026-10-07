@@ -44,7 +44,8 @@ import { EYEDROPPER_CURSOR, resizeCursor, rotateCursor } from "./cursors";
 import { SamplingRing, colourSwatch, colourTarget, startSampling, useColourTargets } from "../colour-sampling";
 import { type Frame, frameOf, touches } from "./frame";
 import { activeGenerator, GeneratorHandles } from "./generator-handles";
-import { HANDLES, type Handle, type SnapContext, handlePoint, movedWithSnap, outline, rotated, scaledWithSnap } from "./handles";
+import { HANDLES, type Handle, type SnapContext, dragMode, handlePoint, movedWithSnap, outline, reshaped, rotated, scaledWithSnap } from "./handles";
+import { sessionGesture, useFreeTransform } from "../free-transform";
 import { type Box, type Guide, snapTargets } from "./snap";
 
 /** The driver of the canvas on screen (the bench and the keys reach it here). */
@@ -281,13 +282,16 @@ export function CanvasPanel() {
       const kind = doc.layers.find((l) => l.id === id)?.kind;
       return kind === "text" || kind === "shape";
     });
-    const gesture = photoGesture();
+    // In Free Transform, moving is part of the session's one step.
+    const session = sessionGesture();
+    const gesture = session ?? photoGesture();
+    const before = usePhoto.getState().history!.doc.doc;
     const done = () => usePhotoUi.getState().setGuides([]);
     startPointerDrag(e, {
       threshold: 2,
       cursor: "move",
       onStart: () => {
-        gesture.begin();
+        if (!session) gesture.begin();
         // ⌥-drag moves copies, leaving the layers where they were (Photoshop's).
         if (!e.altKey || !frame) return;
         const copies = new Map(frame.ids.map((id) => [id, createId("layer")]));
@@ -311,11 +315,12 @@ export function CanvasPanel() {
       },
       onEnd: () => {
         done();
-        gesture.end();
+        if (!session) gesture.end();
       },
       onCancel: () => {
         done();
-        gesture.cancel();
+        if (session) gesture.apply(() => before);
+        else gesture.cancel();
       },
       onClick: () => {
         if (pickedOfSeveral) usePhotoUi.getState().select(pickedOfSeveral);
@@ -573,6 +578,7 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
   const ids = usePhotoUi((s) => s.selectedLayerIds);
   const layers = usePhotoDoc((d) => d.layers);
   const assets = usePhoto((s) => s.assets);
+  const mode0 = useFreeTransform((s) => s.session?.mode ?? null);
   const frame = useMemo(() => frameOf(layers, ids, (l) => sizeOf(l, assets)), [layers, ids, assets]);
   // While a handle is dragged, the box drawn is the dragged one (a turned box stays turned until it's let go).
   const [dragged, setDragged] = useState<{ t: LayerTransform; size: Frame["size"] } | null>(null);
@@ -590,7 +596,10 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
 
   const drag = (e: ReactPointerEvent<SVGElement>, transform: (p: { x: number; y: number }, ev: PointerEvent) => { t: LayerTransform; guides: Guide[] }, cursor: string) => {
     e.stopPropagation();
-    const gesture = photoGesture();
+    // In Free Transform a drag is part of the session's one step; else it's one of its own.
+    const session = sessionGesture();
+    const gesture = session ?? photoGesture();
+    const before = usePhoto.getState().history!.doc.doc;
     const f = frame;
     const done = () => {
       usePhotoUi.getState().setGuides([]);
@@ -599,7 +608,9 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
     startPointerDrag(e, {
       threshold: 0,
       cursor,
-      onStart: () => gesture.begin(),
+      onStart: () => {
+        if (!session) gesture.begin();
+      },
       onMove: (ev) => {
         const r = transform(docPoint(ev.clientX, ev.clientY), ev);
         usePhotoUi.getState().setGuides(r.guides);
@@ -608,11 +619,12 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
       },
       onEnd: () => {
         done();
-        gesture.end();
+        if (!session) gesture.end();
       },
       onCancel: () => {
         done();
-        gesture.cancel();
+        if (session) gesture.apply(() => before);
+        else gesture.cancel();
       },
     });
   };
@@ -630,6 +642,9 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
       e,
       (p, ev) => {
         const doc = usePhoto.getState().history!.doc.doc;
+        // ⌘ (Ctrl) distorts a corner and skews an edge, ⌘⌥⇧ a corner is perspective; Free Transform's mode otherwise.
+        const mode = dragMode(h, { mod: MAC ? ev.metaKey : ev.ctrlKey, alt: ev.altKey, shift: ev.shiftKey }, mode0);
+        if (mode !== "scale") return { t: reshaped(base, size, h, p, mode, frame.projective), guides: [] };
         return scaledWithSnap(base, size, h, p, { free: ev.shiftKey && frame.stretches, fromCentre: ev.altKey }, snapContext(doc, frame.ids, ev));
       },
       cursorOf(h),

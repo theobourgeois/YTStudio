@@ -159,11 +159,11 @@ describe("text layers", () => {
 });
 
 describe("normalising text layers", () => {
-  it("keeps a valid one as it is, at version 7", () => {
+  it("keeps a valid one as it is, at version 8", () => {
     const doc = addTextLayer(createPhotoProject("t"), makeTextLayer({ id: "t1", text: "Hi\nthere", font, colour: "#ff0000", align: "right", leading: 30, tracking: 50, at: { x: 1, y: 2 } }, frameText));
     const problems: string[] = [];
     const back = normalizePhotoProject(JSON.parse(JSON.stringify(doc)), (p) => problems.push(p));
-    expect(PHOTO_VERSION).toBe(7);
+    expect(PHOTO_VERSION).toBe(8);
     expect(back).toEqual(doc);
     expect(problems).toEqual([]);
   });

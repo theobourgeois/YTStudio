@@ -111,7 +111,12 @@ function boxPlacer(p: Extract<PlacedShape, { type: "rect" | "ellipse" }>): (q: P
   const a = (p.rotation * Math.PI) / 180;
   const cos = Math.cos(a);
   const sin = Math.sin(a);
-  return ([x, y]) => [p.cx + x * cos - y * sin, p.cy + x * sin + y * cos];
+  // Skewed, then turned (the layer's R · K): its vertical edges lean.
+  const k = p.skew ?? 0;
+  return ([px, y]) => {
+    const x = px + k * y;
+    return [p.cx + x * cos - y * sin, p.cy + x * sin + y * cos];
+  };
 }
 
 /** A path as polylines (each subpath; cubics in `steps` pieces). */
@@ -460,8 +465,10 @@ function boxOf(t: ShapeLayer["transform"], size: ShapeLayer["size"]): Box {
   const [c, s] = [Math.cos(a), Math.sin(a)];
   const hw = (size.width * Math.abs(t.scaleX)) / 2;
   const hh = (size.height * Math.abs(t.scaleY)) / 2;
-  const ex = Math.abs(c) * hw + Math.abs(s) * hh;
-  const ey = Math.abs(s) * hw + Math.abs(c) * hh;
+  // A skew leans the box: its corners' x move by k·y before the turn.
+  const k = t.skew ? Math.tan((t.skew * Math.PI) / 180) : 0;
+  const ex = Math.max(Math.abs(c * (hw + k * hh) - s * hh), Math.abs(c * (hw - k * hh) + s * hh));
+  const ey = Math.max(Math.abs(s * (hw + k * hh) + c * hh), Math.abs(s * (hw - k * hh) - c * hh));
   return { x0: t.x - ex, y0: t.y - ey, x1: t.x + ex, y1: t.y + ey };
 }
 

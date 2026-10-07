@@ -1,13 +1,37 @@
 /**
- * Photoshop's Edit menu, in the menu bar: undo, the clipboard, and what fills the selection (Content-Aware Fill first,
- * then the colours and Clear). Every item is a command the keys and the canvas's right-click menu run too.
+ * Photoshop's Edit menu, in the menu bar: undo, the clipboard, what fills the selection (Content-Aware Fill first,
+ * then the colours and Clear), and Transform's flips and turns of the selected layers. Every item is a command the
+ * keys and the canvas's right-click menu run too.
  */
-import { DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ORIENTATIONS, ORIENTATION_LABELS, type Orientation } from "@shared/photo/orient";
 import { useColours } from "./colours";
 import { runContentAwareFill, useContentAwareFill } from "./content-aware-fill";
 import { editActions, hasPhotoClipboard } from "./edit-actions";
 import { keys } from "./select-commands";
 import { usePhoto, useSelection } from "./store";
+import { transformActions } from "./transform-actions";
+import type { TransformMode } from "./canvas/handles";
+import { freeTransform } from "./free-transform";
+
+/** Edit › Transform's modes: Free Transform started in each (its options bar switches between them). */
+const TRANSFORM_MODES: [TransformMode, string][] = [
+  ["scale", "Scale"],
+  ["skew", "Skew"],
+  ["distort", "Distort"],
+  ["perspective", "Perspective"],
+];
+import { usePhotoUi } from "./ui";
+
+/** The flips' keys (Théo's; Photoshop leaves them unset). */
+const ORIENTATION_KEYS: Partial<Record<Orientation, string>> = { "flip-horizontal": keys("⌘H", "Ctrl+H"), "flip-vertical": keys("⌥⌘H", "Ctrl+Alt+H") };
 
 /** Read when the menu opens (what can be pasted isn't a store's). */
 export function EditMenuItems() {
@@ -15,6 +39,7 @@ export function EditMenuItems() {
   const canUndo = usePhoto((s) => (s.history?.past.length ?? 0) > 0);
   const canRedo = usePhoto((s) => (s.history?.future.length ?? 0) > 0);
   const filling = useContentAwareFill((s) => s.running);
+  const layers = usePhotoUi((s) => s.selectedLayerIds.length > 0);
   return (
     <>
       <DropdownMenuItem disabled={!canUndo} onSelect={() => usePhoto.getState().undo()}>
@@ -46,6 +71,32 @@ export function EditMenuItems() {
       <DropdownMenuItem disabled={!selection} onSelect={() => void editActions.fill(null)}>
         Clear <DropdownMenuShortcut>⌫</DropdownMenuShortcut>
       </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem disabled={!layers} onSelect={() => freeTransform.start()} data-free-transform-item>
+        Free Transform <DropdownMenuShortcut>{keys("⌘T", "Ctrl+T")}</DropdownMenuShortcut>
+      </DropdownMenuItem>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger disabled={!layers} data-transform-menu>
+          Transform
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-64">
+          {TRANSFORM_MODES.map(([mode, label]) => (
+            <DropdownMenuItem key={mode} onSelect={() => freeTransform.setMode(mode)} data-transform-mode-item={mode}>
+              {label}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          {ORIENTATIONS.map((o) => (
+            <div key={o}>
+              {o === "flip-horizontal" && <DropdownMenuSeparator />}
+              <DropdownMenuItem onSelect={() => transformActions.layers(o)} data-orient-layers={o}>
+                {ORIENTATION_LABELS[o]}
+                {ORIENTATION_KEYS[o] && <DropdownMenuShortcut>{ORIENTATION_KEYS[o]}</DropdownMenuShortcut>}
+              </DropdownMenuItem>
+            </div>
+          ))}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
     </>
   );
 }

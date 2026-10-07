@@ -58,7 +58,8 @@ limits the user's brush and can become a mask.
 
 Start with get_photo, and look with view_photo before and after you change how it looks: you can't see the \
 canvas otherwise. list_photo_media lists the project's images; add_image_layer places one; transform_layer \
-moves, scales (fit: contain or cover) and rotates; set_layer renames, hides, fades and reorders; \
+moves, scales (fit: contain or cover) and rotates; flip_rotate_layers flips layers or turns them by right angles and \
+flip_rotate_canvas the whole canvas (a sideways photo); set_layer renames, hides, fades and reorders; \
 set_layer_blending sets blend modes (multiply, screen, overlay, soft-light, color, luminosity…), Fill and Blend If, \
 as Photoshop's Blending Options; set_layer_style adds and changes effects (drop and inner shadows, outer and inner \
 glows, colour, gradient and pattern overlays, satin, strokes, Bevel & Emboss with its contour and texture) and \
@@ -71,7 +72,7 @@ it) and set_effect_params changes one: Exposure is in stops of light; Curves' po
 as in Photoshop (a gentle S, [[0, 0], [64, 52], [192, 205], [255, 255]], adds contrast). Selections: select_rect \
 selects a rectangle or an ellipse (or all, or none), select_polygon an outline (the lasso), select_magic_wand similar \
 colours, select_quick grows from strokes to an object's edges (Quick Selection), select_object selects the one thing \
-strokes paint roughly over (Object Selection: better than select_subject when there are several), select_subject finds \
+strokes paint roughly over (Object Selection, SAM 2.1: better than select_subject when there are several), select_subject finds \
 the main subject with a model; each can add to, subtract from or intersect the selection there (mode), and modify_selection inverts or \
 feathers it. Check one with view_photo's show_selection. add_mask gives a layer a mask, from the selection (it shows only there) or empty, or \
 removes one; add_pixel_layer adds an empty layer for the user to paint on (you can't paint strokes); \

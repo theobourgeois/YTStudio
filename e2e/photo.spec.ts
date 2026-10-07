@@ -268,7 +268,7 @@ test("a second image is placed, transformed by its handles, and undone in one st
   await expect.poll(async () => (await savedPhoto(page, photoId)).layers[1].transform.scaleX).toBe(1);
 
   // Numbers in Properties: 10% then 100% again is exactly where it was (the source is resampled, never the result).
-  const width = page.getByRole("textbox", { name: "W" });
+  const width = page.getByRole("textbox", { name: "W", exact: true });
   await width.fill("10");
   await width.press("Enter");
   await expect.poll(async () => (await savedPhoto(page, photoId)).layers[1].transform.scaleX).toBe(0.1);

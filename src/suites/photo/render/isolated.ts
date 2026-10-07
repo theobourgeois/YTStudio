@@ -13,9 +13,10 @@
  */
 import { GLOW_CACHED_FROM, type GlowShape, glowParamsOf, glowShape } from "@shared/photo/effects/glow.ts";
 import { type View, levelForScale } from "@shared/photo/geometry.ts";
-import { invert, layerScale } from "@shared/photo/layers.ts";
+import { layerScale } from "@shared/photo/layers.ts";
 import { type ContentNode, type FilterNode, type PlanFormat, addsLight } from "@shared/photo/render-plan.ts";
 import type { Compositor, Drawable, LayerDraw, PlanSources, Quality } from "./compositor.ts";
+import { inverseRows } from "./layer-map.ts";
 import { FLARE_SHADER, packFlare } from "./flare.ts";
 import { GRADIENT_FILL, gradientFillShape } from "@shared/photo/effects/gradient.ts";
 import { GRADIENT_FILL_SHADER, packGradientFill } from "./gradient.ts";
@@ -158,7 +159,7 @@ ${IMAGE_STRUCTS}
 ${MATHS}
 ${imageFunctions("mask", 1)}
 ${MASK_SAMPLE}
-struct Params { inv0: vec4f, inv1: vec4f, origin: vec2f, zoom: f32, opacity: f32, level: u32, hasMask: u32, p0: u32, p1: u32 }
+struct Params { inv0: vec4f, inv1: vec4f, origin: vec2f, zoom: f32, opacity: f32, level: u32, hasMask: u32, p0: u32, p1: u32, inv2: vec4f }
 @group(2) @binding(0) var content: texture_2d<f32>;
 @group(2) @binding(1) var<uniform> params: Params;
 
@@ -169,8 +170,10 @@ fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f { return full_s
 fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let c = textureLoad(content, vec2i(pos.xy), 0);
   let doc = params.origin + pos.xy / params.zoom;
-  let u = vec2f(dot(params.inv0.xy, doc) + params.inv0.z, dot(params.inv1.xy, doc) + params.inv1.z);
-  let m = mask_at(params.hasMask == 1u, params.level, u * exp2(-f32(params.level)));
+  // In perspective, divided by w (1 otherwise); past the horizon the layer has no pixel, so no mask either.
+  let w = dot(params.inv2.xy, doc) + params.inv2.z;
+  let u = vec2f(dot(params.inv0.xy, doc) + params.inv0.z, dot(params.inv1.xy, doc) + params.inv1.z) / max(w, 1e-12);
+  let m = select(0.0, mask_at(params.hasMask == 1u, params.level, u * exp2(-f32(params.level))), w > 0.0);
   var out = c * (params.opacity * m);
   if (params.p0 == 1u && out.a > 0.0) {
     let s = out.rgb / out.a;
@@ -673,11 +676,12 @@ export class Isolation {
   private drawContent(encoder: GPUCommandEncoder, content: GPUTexture, target: GPUTexture, view: View, mask: Drawable | null, draw: LayerDraw | null, format: PlanFormat, o: { blend: Blend; opacity: number; clear: boolean; encode: boolean }) {
     const { device } = this.compositor.ctx;
     // The mask's pixels: a placed layer's own (through its inverse matrix), a generator's the document's.
-    const inv = draw ? invert(draw.matrix) : ([1, 0, 0, 1, 0, 0] as const);
+    const inv = draw ? inverseRows(draw) : [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
     const scale = draw ? view.zoom * layerScale(draw.transform) : view.zoom;
-    const u = new ArrayBuffer(64);
+    const u = new ArrayBuffer(80);
     const f = new Float32Array(u);
-    f.set([inv[0], inv[2], inv[4], 0, inv[1], inv[3], inv[5], 0, view.x, view.y, view.zoom, o.opacity]);
+    f.set([...inv.slice(0, 8), view.x, view.y, view.zoom, o.opacity]);
+    f.set(inv.slice(8), 16);
     new Uint32Array(u, 48, 3).set([mask ? levelForScale(scale, mask.image.levels.length) : 0, mask ? 1 : 0, o.encode ? 1 : 0]);
     const ctx = mask?.ctx ?? this.compositor.ctx;
     const image = mask?.image ?? ctx.emptyImage;
