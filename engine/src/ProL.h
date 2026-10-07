@@ -8,13 +8,15 @@
 //
 // The main stage alone guarantees the ceiling (`Lookahead.h`); the bass stage and the release stage only lower
 // the gain. Oversampled, a sample-peak catch at the song's rate holds the ceiling after the downsampler; with
-// True Peak Limiting, two true peak passes do (`TruePeak.h`). A song's settings are parsed on the message
-// thread, which also makes a core (the oversampler and every buffer at its rate) for each factor the first
-// time it's used; the sound (`State`) is kept across songs by the effect's id. The audio thread never
-// allocates or waits here.
+// True Peak Limiting, two true peak passes do (`TruePeak.h`). Then come the meters (`Loudness.h`) and, last of
+// all, dither (`Dither.h`). A song's settings are parsed on the message thread, which also makes a core (the
+// oversampler and every buffer at its rate) for each factor the first time it's used; the sound (`State`) is
+// kept across songs by the effect's id. The audio thread never allocates or waits here.
 #pragma once
 
 #include "Clipper.h"
+#include "Dither.h"
+#include "Loudness.h"
 #include "Lookahead.h"
 #include "TruePeak.h"
 
@@ -85,6 +87,8 @@ struct Settings
     /** 0 off, 1 all it takes away, 2 the clip stage's share, 3 the limiter's. */
     int audition = 0;
     bool dcFilter = false, unityGain = false;
+    /** Dither at the very end: the bit depth (0: none) and the noise shaping (0 none, 1 Basic, 2 Optimized, 3 Weighted). */
+    int ditherBits = 0, ditherShaping = 0;
     /** The factor the core runs at: the clip stage clips at 4x at least. */
     int factor = 1;
     /** Host samples the clip stage's positions take (one fo sample each, rounded up to whole samples). */
@@ -122,8 +126,14 @@ public:
     /** Skipped this block (bypassed): it starts afresh when it's next run. Audio thread. */
     void skipped() { stale = true; }
 
-    /** `EngineProLState`: its latency and the reduction now. Message thread. */
-    juce::var describe() const;
+    // The tab's live controls (any thread) ------------------------------------------------------------------
+    /** Reset the loudness measurement and the maxima (taken by the audio thread at its next block). */
+    std::atomic<bool> resetRequest { false };
+    /** Pause the loudness measurement: Integrated, LRA and the maxima stop taking the sound in. */
+    std::atomic<bool> paused { false };
+
+    /** `EngineProLState`: its latency, its meters, and (`drain`: taken) the display's columns since the last drain. Message thread. */
+    juce::var describe (bool drain);
 
 private:
     /** Everything at the oversampled rate, for one factor. */
@@ -176,6 +186,36 @@ private:
     std::atomic<int> latencyNow { 0 };
 
     static constexpr int chunk = 512;
+
+    // The meters (pro-l.md §5.15): measured after the last stage, before Unity Gain, the slot's mix and dither.
+    LoudnessMeter loudness;
+    Dither dither;
+    int ditherFor = -1;
+    // Each song-rate sample of a chunk: the input's peak (after Gain), the clip stage's and the limiter's most
+    // reduction (dB) at the core's rate, and whether anything was clipped.
+    std::array<std::array<float, chunk>, 2> chunkInput {};
+    std::array<float, chunk> chunkClip {}, chunkLimit {};
+    std::array<bool, chunk> chunkClipped {};
+    /** A column of the display: 10 ms's peaks in and out (dB), most clip and limiter reduction (dB), M and S (LUFS). */
+    struct Column
+    {
+        float in = -120, out = -120, clip = 0, limit = 0, m = -120, s = -120;
+    };
+    static constexpr int columnRing = 256;
+    std::array<Column, columnRing> columns {};
+    std::atomic<int> columnsWritten { 0 };
+    int columnsRead = 0, columnSize = 480, columnFill = 0;
+    Column column;
+    // 100 ms windows (the last four: 400 ms): song-rate samples clipped, and within 0.5 dB of the ceiling.
+    int windowSize = 4800, windowFill = 0, windowIndex = 0;
+    std::array<int, 4> clippedWindows {}, denseWindows {};
+    double mostClip = 0, mostLimit = 0;
+    std::array<std::atomic<float>, 2> inPeak {}, outPeak {}, outTruePeak {};
+    std::atomic<float> clippedShare { 0 }, density { 0 }, maxClip { 0 }, maxLimit { 0 };
+    /** The clip stage's reduction of `x` (its curve's, without the anti-aliasing), for the chunk's sample `j`. */
+    void clipped (const ClipCurve&, double x, int j);
+    /** The meters' share of the chunk's sample `j`, as it leaves the last stage (`y`, before Unity Gain). */
+    void measure (int j, const float* y, double ceiling, bool held);
     Core& coreFor (int factor);
     void reset (const Settings&);
 };
@@ -188,8 +228,8 @@ public:
     std::shared_ptr<State> find (const juce::String& effectId) const;
     void keepOnly (const juce::StringArray& ids);
     void clear() { states.clear(); }
-    /** `{ <effect id>: State::describe() }`. */
-    juce::var describe() const;
+    /** `{ <effect id>: State::describe() }`; `drain` takes their display's columns (the transport event's). */
+    juce::var describe (bool drain) const;
 
 private:
     std::map<juce::String, std::shared_ptr<State>> states;

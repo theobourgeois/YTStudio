@@ -2,7 +2,8 @@
  * YT-L's sound (`docs/fabfilter/pro-l.md` §8.9): the real engine, offline, playing test signals through a YT-L on
  * the master, measured here in TypeScript (nothing shared with the engine): the ceiling by sample, by BS.1770's
  * meter and by an ideal reconstruction; the latency it reports; nothing touched under the ceiling; a held bass
- * note undistorted (Auto Hold); loudness that always rises with Gain; the release stage; linking; the slot's mix.
+ * note undistorted (Auto Hold); loudness that always rises with Gain; the release stage; linking; the slot's mix;
+ * the clip stage, mid/side and Audition; its meters held to EBU Tech 3341 and 3342; and its dither.
  *
  * The render isn't delay-compensated: what comes out is late by the YT-L's latency, which the tests read from
  * the engine's status.
@@ -218,9 +219,12 @@ describe.skipIf(!existsSync(ENGINE))("YT-L, offline", () => {
     await engine.render(frames, file);
     return readWav(file);
   }
-  /** A song at 120 BPM playing `sample` from its start, a YT-L on the master. */
-  function song(sample: string, patch: ProLPatch = {}): MusicProject {
-    let s = addChannels(createMusicProject("Loud", 120), [{ id: "chan_sig", name: "Signal", sampleId: sample }]);
+  /**
+   * A song playing `sample` from its start, a YT-L on the master. Its pattern is as long as a pattern can be (512
+   * steps: 64 seconds at 120 BPM, the tempo; longer signals play at 60).
+   */
+  function song(sample: string, patch: ProLPatch = {}, tempo = 120): MusicProject {
+    let s = addChannels(createMusicProject("Loud", tempo), [{ id: "chan_sig", name: "Signal", sampleId: sample }]);
     s = setSteps(s, P, "chan_sig", [0], true);
     s = { ...s, patterns: s.patterns.map((p) => (p.id === P ? { ...p, length: 16 * TICKS } : p)) };
     s = setEffect(s, MASTER_TRACK_ID, 0, PRO_L_PLUGIN, L);
@@ -240,6 +244,22 @@ describe.skipIf(!existsSync(ENGINE))("YT-L, offline", () => {
   async function latency() {
     const status = await engine.command("status", {});
     return status.transport?.limiters?.[L]?.latency ?? -1;
+  }
+  /** What the YT-L says now: its meters. */
+  async function meters() {
+    const status = await engine.command("status", {});
+    const state = status.transport?.limiters?.[L];
+    if (!state) throw new Error("The engine said nothing of the YT-L.");
+    return state;
+  }
+  /** A stereo 1 kHz sine at each level (dBFS) for each length (seconds), as a file: EBU Tech 3341's and 3342's signals. */
+  async function tones(name: string, parts: [level: number, seconds: number][]) {
+    const x = new Float32Array(Math.round(parts.reduce((t, [, seconds]) => t + seconds, 0) * RATE));
+    let at = 0;
+    for (const [level, seconds] of parts)
+      for (const end = at + Math.round(seconds * RATE); at < end; at++) x[at] = amp(level) * Math.sin((2 * Math.PI * 1000 * at) / RATE);
+    await writeWavChannels(path.join(dir, `${name}.wav`), both(x), RATE);
+    return x.length / RATE;
   }
 
   beforeAll(async () => {
@@ -477,5 +497,144 @@ describe.skipIf(!existsSync(ENGINE))("YT-L, offline", () => {
       power += want ** 2;
     }
     expect(10 * Math.log10(error / power)).toBeLessThan(-80);
+  });
+
+  it("measures loudness as EBU Tech 3341 says: Momentary, Short-term and Integrated, gated", async () => {
+    const cases: [string, [number, number][], number][] = [
+      ["1", [[-23, 20]], -23],
+      ["2", [[-33, 20]], -33],
+      ["3", [[-36, 10], [-23, 60], [-36, 10]], -23],
+      ["4", [[-72, 10], [-36, 10], [-23, 60], [-36, 10], [-72, 10]], -23],
+      ["5", [[-26, 20], [-20, 20.1], [-26, 20]], -23],
+    ];
+    for (const [test, parts, want] of cases) {
+      const seconds = await tones(`ebu${test}`, parts);
+      await played(song(`ebu${test}`, { output: 0 }, seconds > 60 ? 60 : 120), seconds - 0.2);
+      const { loudness } = await meters();
+      expect(Math.abs(loudness.integrated - want), `test ${test}: ${loudness.integrated}`).toBeLessThanOrEqual(0.1);
+      if (parts.length === 1) {
+        expect(Math.abs(loudness.momentary - want), `test ${test}`).toBeLessThanOrEqual(0.1);
+        expect(Math.abs(loudness.shortTerm - want), `test ${test}`).toBeLessThanOrEqual(0.1);
+        expect(Math.abs(loudness.maxMomentary - want), `test ${test}`).toBeLessThanOrEqual(0.1);
+      }
+    }
+  });
+
+  it("measures the loudness range as EBU Tech 3342 says", async () => {
+    const cases: [string, [number, number][], number][] = [
+      ["1", [[-20, 20], [-30, 20]], 10],
+      ["2", [[-20, 20], [-15, 20]], 5],
+      ["3", [[-40, 20], [-20, 20]], 20],
+      ["4", [[-50, 20], [-35, 20], [-20, 20], [-35, 20], [-50, 20]], 15],
+    ];
+    for (const [test, parts, want] of cases) {
+      const seconds = await tones(`lra${test}`, parts);
+      await played(song(`lra${test}`, { output: 0 }, seconds > 60 ? 60 : 120), seconds);
+      const { loudness } = await meters();
+      expect(Math.abs(loudness.range - want), `test ${test}: ${loudness.range}`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("reads true peaks as EBU Tech 3341 says, where the samples miss them", async () => {
+    // Tests 15–19: a sine at a fraction of the rate, its samples at a phase that misses its peak.
+    const cases: [number, number, number, number][] = [
+      [4, 0, 0.5, -6.02],
+      [4, 45, 0.5, -6.02],
+      [6, 60, 0.5, -6.02],
+      [8, 67.5, 0.5, -6.02],
+      [4, 45, Math.SQRT2, 3.01],
+    ];
+    for (const [divide, phase, amplitude, want] of cases) {
+      // (Faded in and out, so its ends ring no higher than it.)
+      const fade = (i: number) => Math.min(1, i / (0.05 * RATE), (2 * RATE - i) / (0.05 * RATE));
+      const x = Float32Array.from({ length: 2 * RATE }, (_, i) => Math.max(-1, Math.min(1, fade(i) * amplitude * Math.sin((2 * Math.PI * i) / divide + (phase * Math.PI) / 180))));
+      // (A file of its own: the engine keeps what it's read by path.)
+      const name = `peaks${divide}-${phase}-${amplitude.toFixed(2)}`;
+      await writeWavChannels(path.join(dir, `${name}.wav`), both(x), RATE);
+      await played(song(name, { output: 0 }), 2.1);
+      const { loudness } = await meters();
+      expect(loudness.maxTruePeak - want, `1/${divide} of the rate at ${phase}°`).toBeLessThanOrEqual(0.2);
+      expect(loudness.maxTruePeak - want, `1/${divide} of the rate at ${phase}°`).toBeGreaterThanOrEqual(-0.4);
+    }
+  });
+
+  it("measures only while it isn't paused, and starts again when reset", async () => {
+    await tones("steps", [[-20, 6], [-30, 12]]);
+    await engine.setSong({ projectId: PROJECT, song: song("steps", { output: 0 }), patternId: P, mode: "pattern" });
+    await engine.command("play", {});
+    await hear(6 * RATE);
+    expect(Math.abs((await meters()).loudness.integrated + 20)).toBeLessThanOrEqual(0.1);
+    // Paused through the quieter part: Integrated keeps what it had; Momentary carries on.
+    await engine.command("proL", { effect: L, pause: true });
+    await hear(5.5 * RATE);
+    let now = await meters();
+    expect(now.loudness.paused).toBe(true);
+    expect(Math.abs(now.loudness.integrated + 20)).toBeLessThanOrEqual(0.1);
+    expect(Math.abs(now.loudness.momentary + 30)).toBeLessThanOrEqual(0.1);
+    // Reset and carried on: only the quieter part counts.
+    await engine.command("proL", { effect: L, pause: false, reset: true });
+    await hear(6 * RATE);
+    now = await meters();
+    expect(Math.abs(now.loudness.integrated + 30)).toBeLessThanOrEqual(0.1);
+    expect(Math.abs(now.loudness.maxMomentary + 30)).toBeLessThanOrEqual(0.1);
+    expect(Math.abs(now.loudness.seconds - 6)).toBeLessThanOrEqual(0.2);
+    await expect(engine.command("proL", { effect: "fx_none", reset: true })).rejects.toThrow(/no such YT-L/);
+  });
+
+  it("says what it takes away: the clip stage's and the limiter's most, the share clipped, the peaks", async () => {
+    await played(song("drums", { style: "modern", output: -1, gain: 12, oversampling: 4, clip: true, clipShape: "hard", clipRange: 2 }), 2);
+    const now = await meters();
+    expect(now.maxClip).toBeGreaterThan(0.5);
+    expect(now.maxClip).toBeLessThan(13);
+    expect(now.maxReduction).toBeGreaterThan(0.5);
+    expect(now.clipped).toBeGreaterThan(0);
+    expect(now.density).toBeGreaterThan(0);
+    expect(Math.max(...now.input)).toBeGreaterThan(1);
+    expect(db(Math.max(...now.output))).toBeLessThanOrEqual(-1 + 1e-4);
+    expect(db(Math.max(...now.truePeak))).toBeGreaterThan(-1.5);
+  });
+
+  it("dithers to 16 bits: whole steps, TPDF's noise, and each noise shaping as Pro-L 2's", async () => {
+    const LSB = 1 / 32768;
+    await writeWavChannels(path.join(dir, "silence.wav"), both(new Float32Array(11 * RATE)), RATE);
+    const noiseOf = async (noiseShaping: "none" | "basic" | "optimized" | "weighted") =>
+      (await played(song("silence", { dither: 16, noiseShaping }), 10.5)).channels.map((x) => x.subarray(0.5 * RATE));
+    const flat = await noiseOf("none");
+    for (const x of flat) {
+      let power = 0;
+      for (const v of x) {
+        expect(Math.abs(v / LSB - Math.round(v / LSB))).toBeLessThan(1e-6);
+        power += v * v;
+      }
+      // Rounding (1/12 of a step squared) and TPDF's dither (1/6): a quarter of a step squared.
+      expect(power / x.length / LSB ** 2).toBeGreaterThan(0.25 * 0.95);
+      expect(power / x.length / LSB ** 2).toBeLessThan(0.25 * 1.05);
+    }
+    // Each shaping's noise per octave against flat TPDF's (dB), as Pro-L 2's (`pro-l-research.md` §2.7).
+    const BANDS = [63, 125, 250, 500, 2000, 4000, 8000, 12000, 16000, 20000];
+    const PRO_L_2: Record<"basic" | "optimized" | "weighted", number[]> = {
+      basic: [-6.75, -6.63, -6.02, -5.73, -6.72, -8.37, -3.93, 2.38, 5.77, 6.76],
+      optimized: [-11.98, -12.06, -11.4, -10.79, -10.98, -8.96, -4.95, -2.29, 11.69, 14.44],
+      weighted: [-12.19, -13.18, -11.74, -12.04, -17.32, -23.09, -3.34, -0.07, 19.3, 22.21],
+    };
+    const SIZE = 8192;
+    const bands = (x: Float32Array) => {
+      const sum = new Float64Array(SIZE / 2);
+      let count = 0;
+      for (let at = 0; at + SIZE <= x.length; at += SIZE / 2, count++) spectrum(x, at, SIZE).forEach((p, k) => (sum[k] += p));
+      return BANDS.map((b) => {
+        let total = 0, n = 0;
+        for (let k = 1; k < SIZE / 2; k++) {
+          const f = (k * RATE) / SIZE;
+          if (f > b / 1.41 && f < b * 1.41) (total += sum[k] / count), n++;
+        }
+        return total / n;
+      });
+    };
+    const base = bands(flat[0]);
+    for (const shaping of ["basic", "optimized", "weighted"] as const) {
+      const shaped = bands((await noiseOf(shaping))[0]);
+      BANDS.forEach((b, i) => expect(Math.abs(10 * Math.log10(shaped[i] / base[i]) - PRO_L_2[shaping][i]), `${shaping} at ${b} Hz`).toBeLessThanOrEqual(2));
+    }
   });
 });

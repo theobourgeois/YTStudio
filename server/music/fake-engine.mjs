@@ -665,6 +665,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (params.band) eqSolos.set(params.effect, params.band);
     else eqSolos.delete(params.effect);
   }
+  if (cmd === "proL" && !(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.proL))) return fail("The song playing has no such YT-L.");
   if (cmd === "compAudition" || cmd === "compMatch") {
     if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.proC))) return fail("The song playing has no such Pro-C.");
     if (cmd === "compMatch") compMatches.set(params.effect, { since: Date.now(), seconds: params.seconds, input: 0, output: 0, count: 0 });

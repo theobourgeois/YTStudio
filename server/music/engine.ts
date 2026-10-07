@@ -709,6 +709,10 @@ export class AudioEngine {
         const mode = body.mode === "key" || body.mode === "triggering" ? body.mode : "off";
         return { effect: body.effect, mode };
       }
+      case "proL": {
+        if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a YT-L\'s effect id.');
+        return { effect: body.effect, ...(body.reset === true && { reset: true }), ...(typeof body.pause === "boolean" && { pause: body.pause }) };
+      }
       case "compMatch": {
         if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a Pro-C\'s effect id.');
         return { effect: body.effect, seconds: isFiniteNumber(body.seconds) ? clamp(body.seconds, 1, 30) : 8 };

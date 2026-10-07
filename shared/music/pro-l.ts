@@ -91,6 +91,9 @@ export interface EngineProL {
   audition: ProLState["audition"];
   dcFilter: boolean;
   unityGain: boolean;
+  /** Dither at the very end: the bit depth (0: none) and its noise shaping. */
+  dither: number;
+  noiseShaping: ProLState["noiseShaping"];
 }
 
 /** What a YT-L is to the engine: its style's numbers, its knobs in the engine's units. */
@@ -122,6 +125,8 @@ export function engineProL(proL: ProLState): EngineProL {
     audition: proL.audition,
     dcFilter: proL.dcFilter,
     unityGain: proL.unityGain,
+    dither: proL.dither,
+    noiseShaping: proL.noiseShaping,
   };
 }
 
