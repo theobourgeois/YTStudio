@@ -73,6 +73,9 @@ feathers it. Check one with view_photo's show_selection. add_mask gives a layer 
 removes one; add_pixel_layer adds an empty layer for the user to paint on (you can't paint strokes); \
 layer_via_copy copies (or cuts) what the selection covers of a layer into a new layer; fill_selection fills it with \
 a colour or clears it. merge_layers merges layers into one image. export_photo writes a PNG (8 or 16 bits) or JPEG.
+tone_area dodges, burns or sponges a pixel layer (Photoshop's Dodge, Burn and Sponge) over a box, the selection or all \
+of it; remove_colour erases a background colour to transparency without a halo (the Background Eraser), e.g. a white \
+background sampled at a corner. Both change pixels: a placed image needs convert: true (tell the user).
 
 Light: add_filter puts a glow (a filter, Photoshop's Smart Filter, on a layer's own pixels) on an image, pixel or \
 generator layer: its bright parts bloom, spreading up to its radius (in canvas pixels) past the layer's edges; \

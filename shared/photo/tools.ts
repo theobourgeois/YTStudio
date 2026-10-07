@@ -557,6 +557,51 @@ export const PHOTO_TOOLS = [
     }),
   }),
   tool({
+    name: "tone_area",
+    title: "Dodge, burn or sponge",
+    kind: "edit",
+    description:
+      "Photoshop's Dodge (lighten), Burn (darken) and Sponge (saturation) tools, applied at once to a pixel layer's pixels (or its mask: target mask) over a box, else the current selection, else the whole layer, as one undo step: what a stroke of the user's brush there does. Dodge and Burn: range says which tones change most (shadows, midtones (default), highlights; e.g. burn highlights to recover a bright sky, dodge shadows to open up a face), exposure how much (1..100%, default 50; 10–30 is subtle, and calls add up), protect_tones (default true) keeps hues and avoids clipping. Sponge: mode desaturate (default) or saturate, flow how much (1..100, default 50), vibrance (default true) protects strong colours and never clips. Use box with feather (pixels) so the change blends in. A placed image or generated layer is kept whole: convert: true makes it pixels first (tell the user). Look with view_photo before and after. The photo must be open in the editor.",
+    inputSchema: obj(
+      {
+        layer,
+        tool: oneOf(["dodge", "burn", "sponge"], "dodge lightens, burn darkens, sponge changes saturation."),
+        range: oneOf(["shadows", "midtones", "highlights"], "Dodge and Burn: the tones changed most (default midtones)."),
+        exposure: num("Dodge and Burn: how much, 1..100 percent (default 50)."),
+        protect_tones: bool("Dodge and Burn: keep hues, don't clip (default true)."),
+        mode: oneOf(["desaturate", "saturate"], "Sponge: which way (default desaturate)."),
+        flow: num("Sponge: how much, 1..100 percent (default 50)."),
+        vibrance: bool("Sponge: change muted colours most, never clip (default true)."),
+        box: obj({ x: num("Left, canvas pixels."), y: num("Top."), width: num("Width."), height: num("Height.") }, ["x", "y", "width", "height"]),
+        feather: num("Soften the box's edge by this many pixels (0..250)."),
+        target: oneOf(["content", "mask"], "The layer's pixels (default) or its mask (dodge lightens it: reveals more)."),
+        convert: bool("Convert a placed image or generated layer to pixels first."),
+      },
+      ["layer", "tool"],
+    ),
+  }),
+  tool({
+    name: "remove_colour",
+    title: "Remove a colour (background eraser)",
+    kind: "edit",
+    description:
+      "Erases a colour from a pixel layer to transparency, as Photoshop's Background Eraser does: e.g. the white or green background around a subject. Give the colour (\"#rrggbb\") or a point on it to sample ([x, y], canvas pixels: e.g. a corner of the background). tolerance (0..100%, default 50) is how different a colour may be and still go; pixels near the limit go in part. limits: contiguous (default with a point: only what's joined to the point through that colour), discontiguous (that colour everywhere: holes, between hair; the default with only a colour), find_edges (contiguous, keeping the subject's outline sharp). protect: a \"#rrggbb\" never erased (Protect Foreground Color: the subject's colour when it's close to the background's). Soft edge pixels lose the background's colour, so no halo is left. Over a box, else the current selection, else the whole layer; one undo step. A placed image is kept whole: convert: true makes it pixels first (tell the user). Check with view_photo. The photo must be open in the editor.",
+    inputSchema: obj(
+      {
+        layer,
+        colour: str('The colour to erase, "#rrggbb".'),
+        point: arr(num("A coordinate."), "[x, y] in canvas pixels: sample the colour there (and flood from it).", { minItems: 2, maxItems: 2 }),
+        tolerance: num("0..100 percent (default 50)."),
+        limits: oneOf(["contiguous", "discontiguous", "find_edges"], "contiguous (default with a point), discontiguous (default with only a colour), find_edges."),
+        protect: str('A colour never erased, "#rrggbb".'),
+        box: obj({ x: num("Left, canvas pixels."), y: num("Top."), width: num("Width."), height: num("Height.") }, ["x", "y", "width", "height"]),
+        feather: num("Soften the box's edge by this many pixels (0..250)."),
+        convert: bool("Convert a placed image or generated layer to pixels first."),
+      },
+      ["layer"],
+    ),
+  }),
+  tool({
     name: "export_photo",
     title: "Export the photo",
     kind: "action",
