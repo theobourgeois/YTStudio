@@ -14,6 +14,7 @@
 // allocates or waits here.
 #pragma once
 
+#include "Clipper.h"
 #include "Lookahead.h"
 #include "TruePeak.h"
 
@@ -37,7 +38,10 @@ enum class Lane
     release,
     hold,
     linkTransients,
-    linkRelease
+    linkRelease,
+    sideFloor,
+    clipRange,
+    clipKnee
 };
 
 /** The slow stage (`EngineProL.releaseStage`): a follower of the demand, charged by Attack, let go by Release. */
@@ -71,7 +75,20 @@ struct Settings
     /** dB: Dynamic's transient emphasis, at most. */
     double emphasis = 0;
     double linkTransients = 0.75, linkRelease = 1;
+    /** Mid/side, side first: the side turned down to `sideFloor` (dB) before the mid moves. */
+    bool midSide = false;
+    double sideFloor = -6;
+    /** The clip stage: on, its gap to the limiter (dB), its curve and knee (dB), and whether it's after the limiter. */
+    bool clip = false, clipLast = false;
+    double clipRange = 1.5, clipKnee = 1.5;
+    ClipShape clipShape = ClipShape::smooth;
+    /** 0 off, 1 all it takes away, 2 the clip stage's share, 3 the limiter's. */
+    int audition = 0;
     bool dcFilter = false, unityGain = false;
+    /** The factor the core runs at: the clip stage clips at 4x at least. */
+    int factor = 1;
+    /** Host samples the clip stage's positions take (one fo sample each, rounded up to whole samples). */
+    int clipDelay = 0;
 
     /** Samples at the song's rate: the main delay (reserve and range), the last stage's, and the whole latency. */
     int delay = 0, lastStage = 0, latency = 0;
@@ -115,7 +132,10 @@ private:
         int factor = 1;
         std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
         int size = 1;
-        std::array<std::vector<float>, 2> audio, mainGain, bassGain, releaseGain;
+        std::array<std::vector<float>, 2> audio, pre, mainGain, bassGain, releaseGain;
+        std::array<ClipStage, 2> clipFirst, clipLast;
+        // What came out one fo sample ago (the post clip's input) and its source samples, for Audition.
+        std::array<double, 2> lastLimited {}, lastPre {}, lastAudio {};
         std::array<Stage, 2> main, bass;
         juce::int64 t = 0;
         // Per channel: the release stage's follower (dB) and how long since it was charged, how busy the

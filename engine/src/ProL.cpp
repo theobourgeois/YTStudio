@@ -110,14 +110,31 @@ std::shared_ptr<Settings> Settings::parse (const juce::var& json, State& state)
     s->linkRelease = number (json["linkRelease"], 1, 0, 1);
     s->dcFilter = (bool) json["dcFilter"];
     s->unityGain = (bool) json["unityGain"];
+    s->midSide = json["stereo"].toString() == "ms";
+    s->sideFloor = number (json["sideFloor"], -6, -18, 0);
+    if (const auto clip = json["clip"]; clip.isObject())
+    {
+        s->clip = true;
+        s->clipRange = number (clip["range"], 1.5, 0, 6);
+        s->clipKnee = number (clip["knee"], 1.5, 0, 6);
+        const auto shape = clip["shape"].toString();
+        s->clipShape = shape == "hard" ? ClipShape::hard : shape == "soft" ? ClipShape::soft : shape == "converter" ? ClipShape::converter : shape == "fl" ? ClipShape::fl : ClipShape::smooth;
+        s->clipLast = clip["order"].toString() == "last";
+    }
+    const auto audition = json["audition"].toString();
+    s->audition = audition == "all" ? 1 : audition == "clip" ? 2 : audition == "limiter" ? 3 : 0;
 
     s->delay = (int) std::lround ((s->reserve + s->range) * rate);
-    state.prepare (s->oversampling);
+    // The clip stage clips at 4x at least (its anti-aliasing is made for it); it and its partner position after
+    // the limiter are a sample each at that rate, rounded up to whole samples of the song's.
+    s->factor = s->clip && s->oversampling < 4 ? 4 : s->oversampling;
+    s->clipDelay = s->factor == 1 ? 2 : 1;
+    state.prepare (s->factor);
     s->lastStage = state.lastStageLatency (*s);
-    s->latency = s->delay + state.oversamplingLatency (s->oversampling) + s->lastStage;
-    // What the core is built for (its ramps' lengths, its delays): a change starts it afresh.
-    s->shape = (juce::String (s->oversampling) + "|" + juce::String (s->delay) + "|" + juce::String (std::lround (s->lookahead * 1e7)) + "|" + juce::String (s->layers) + "|"
-                + juce::String (std::lround (s->bass * 1e7)) + "|" + (s->truePeak ? "tp" : "-"))
+    s->latency = s->delay + s->clipDelay + state.oversamplingLatency (s->factor) + s->lastStage;
+    // What the core is built for (its ramps' lengths, its delays, its paths): a change starts it afresh.
+    s->shape = (juce::String (s->factor) + "|" + juce::String (s->delay) + "|" + juce::String (std::lround (s->lookahead * 1e7)) + "|" + juce::String (s->layers) + "|"
+                + juce::String (std::lround (s->bass * 1e7)) + "|" + (s->truePeak ? "tp" : "-") + (s->midSide ? "ms" : "lr") + (s->clip ? (s->clipLast ? "cl" : "cf") : "c-"))
                    .hashCode64();
     return s;
 }
@@ -135,6 +152,9 @@ void Settings::set (Lane lane, const float* v, int size)
         case Lane::hold: hold = x < 0 ? -1.0 : juce::jlimit (0.0, holdMost, x); break;
         case Lane::linkTransients: linkTransients = juce::jlimit (0.0, 1.0, x); break;
         case Lane::linkRelease: linkRelease = juce::jlimit (0.0, 1.0, x); break;
+        case Lane::sideFloor: sideFloor = juce::jlimit (-18.0, 0.0, x); break;
+        case Lane::clipRange: clipRange = juce::jlimit (0.0, 6.0, x); break;
+        case Lane::clipKnee: clipKnee = juce::jlimit (0.0, 6.0, x); break;
     }
 }
 
@@ -150,6 +170,9 @@ void Settings::get (Lane lane, float* v, int& size) const
         case Lane::hold: v[0] = (float) hold; break;
         case Lane::linkTransients: v[0] = (float) linkTransients; break;
         case Lane::linkRelease: v[0] = (float) linkRelease; break;
+        case Lane::sideFloor: v[0] = (float) sideFloor; break;
+        case Lane::clipRange: v[0] = (float) clipRange; break;
+        case Lane::clipKnee: v[0] = (float) clipKnee; break;
     }
 }
 
@@ -191,7 +214,7 @@ void State::prepare (int factor)
     const auto fo = rate * c->factor;
     const auto delayMost = (int) std::ceil ((reserveMost + rangeMost) * fo) + 8;
     c->size = powerOfTwoAtLeast (delayMost + 8);
-    for (auto* rings : { &c->audio, &c->mainGain, &c->bassGain, &c->releaseGain })
+    for (auto* rings : { &c->audio, &c->pre, &c->mainGain, &c->bassGain, &c->releaseGain })
         for (auto& ring : *rings)
             ring.assign ((size_t) c->size, 1.0f);
     const auto windowMost = (int) std::ceil ((reserveMost + rangeMost + holdMost) * fo) + 8;
@@ -212,7 +235,7 @@ int State::lastStageLatency (const Settings& s) const
 {
     if (s.truePeak)
         return passes[0].latency() + passes[1].latency();
-    return s.oversampling > 1 ? juce::jmax (1, (int) std::lround (catchAhead * rate)) : 0;
+    return s.factor > 1 ? juce::jmax (1, (int) std::lround (catchAhead * rate)) : 0;
 }
 
 State::Core& State::coreFor (int factor)
@@ -224,7 +247,7 @@ State::Core& State::coreFor (int factor)
 
 void State::reset (const Settings& s)
 {
-    core = &coreFor (s.oversampling);
+    core = &coreFor (s.factor);
     auto& c = *core;
     const auto fo = rate * c.factor;
     const auto delay = s.delay * c.factor;
@@ -233,6 +256,9 @@ void State::reset (const Settings& s)
     for (int ch = 0; ch < 2; ++ch)
     {
         std::fill (c.audio[(size_t) ch].begin(), c.audio[(size_t) ch].end(), 0.0f);
+        std::fill (c.pre[(size_t) ch].begin(), c.pre[(size_t) ch].end(), 0.0f);
+        c.clipFirst[(size_t) ch].reset();
+        c.clipLast[(size_t) ch].reset();
         for (auto* rings : { &c.mainGain, &c.bassGain, &c.releaseGain })
             std::fill ((*rings)[(size_t) ch].begin(), (*rings)[(size_t) ch].end(), 1.0f);
         c.main[(size_t) ch].reset (ahead + 1, s.layers);
@@ -241,6 +267,7 @@ void State::reset (const Settings& s)
         c.onsetFilter[(size_t) ch] = {};
     }
     c.follower = c.sinceOver = c.busy = c.fastEnv = c.slowEnv = c.boost = c.lastReduction = {};
+    c.lastLimited = c.lastPre = c.lastAudio = {};
     c.holdFilter = {};
     c.holdLast = c.holdEnv = 0;
     c.lastCross = 0;
@@ -276,14 +303,17 @@ void State::process (const Settings& s, float* left, float* right, int numSample
     const auto factor = c.factor;
     const auto fo = rate * factor;
     const auto mask = c.size - 1;
-    const auto delay = s.delay * factor;
+    // The main delay at the core's rate, padded so that it and the clip stage's two positions (a sample each)
+    // come to whole samples of the song's.
+    const auto delay = s.delay * factor + s.clipDelay * factor - 2;
     const auto ahead = juce::jlimit (1, juce::jmax (1, delay), (int) std::lround (s.lookahead * fo));
     const auto bassAhead = s.bass > 0 ? juce::jlimit (1, juce::jmax (1, delay), (int) std::lround (s.bass * fo)) : 0;
     const auto manualHold = s.hold >= 0 ? (int) std::lround (s.hold * fo) : -1;
     const auto autoMost = (int) std::lround (autoHoldMost * fo), holdMargin = (int) std::lround (0.0005 * fo);
     const auto osLatency = oversamplingLatency (factor);
-    const auto total = s.delay + osLatency + s.lastStage;
+    const auto total = s.delay + s.clipDelay + osLatency + s.lastStage;
     latencyNow.store (total, std::memory_order_relaxed);
+    const auto auditioning = s.audition != 0;
 
     // Coefficients: the glides (10 ms), the release stage's, how busy the transient stage is (100 ms), the
     // bass stage's release (30 ms), Dynamic's envelopes, Auto Hold's level (30 ms), the DC filter (1.5 Hz).
@@ -304,7 +334,13 @@ void State::process (const Settings& s, float* left, float* right, int numSample
     const auto catchMask = (int) catchRing[0].size() - 1;
     const auto dryLength = dryRing.getNumSamples();
     const auto fadeStep = 1.0 / (0.005 * rate);
+    const auto floorGain = fromDb (s.sideFloor);
+    const auto gap = fromDb (s.clipRange);
     double reduction = 0;
+    // The clip curves, made again only when the ceiling moves: before the limiter it sits `clipRange` over the
+    // ceiling; after it, at the ceiling (the limiter's then `clipRange` over).
+    ClipCurve first, last;
+    double curvesFor = -1;
 
     for (int start = 0; start < numSamples; start += chunk)
     {
@@ -349,14 +385,21 @@ void State::process (const Settings& s, float* left, float* right, int numSample
             count = m * factor;
         }
 
-        // The limiter, at the oversampled rate.
+        // The limiter, at the oversampled rate. In mid/side, "channels" 0 and 1 are the mid and the side.
         for (int i = 0; i < count; ++i)
         {
             const double ceiling = chunkCeiling[(size_t) (i / factor)];
-            const auto t = c.t;
-            double x[2] { a[0][i], a[1][i] }, over[2] {}, bassOver[2] {};
-            for (int ch = 0; ch < 2; ++ch)
+            if (ceiling != curvesFor)
             {
+                first.set (s.clipShape, ceiling * gap, s.clipKnee);
+                last.set (s.clipShape, ceiling, s.clipKnee);
+                curvesFor = ceiling;
+            }
+            // What the limiter holds to: the ceiling, or (the clip stage after it) the ceiling plus the gap.
+            const auto limit = s.clip && s.clipLast ? ceiling * gap : ceiling;
+            const auto t = c.t;
+            double x[2] { a[0][i], a[1][i] };
+            for (int ch = 0; ch < 2; ++ch)
                 if (s.emphasis > 0)
                 {
                     // Dynamic: an onset turned up before the limiter, as much as it's limiting. An onset is the sound
@@ -373,20 +416,54 @@ void State::process (const Settings& s, float* left, float* right, int numSample
                     c.boost[(size_t) ch] += (want - c.boost[(size_t) ch]) * boostGlide;
                     x[ch] *= fromDb (c.boost[(size_t) ch]);
                 }
+            if (s.midSide)
+            {
+                const auto mid = 0.5 * (x[0] + x[1]), side = 0.5 * (x[0] - x[1]);
+                x[0] = mid;
+                x[1] = side;
+            }
+            // The clip stage before the limiter (or, off or after it, a sample's delay): what went in, and what came out.
+            double over[2] {}, bassOver[2] {}, requirement[2] { 1, 1 };
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const auto previous = c.clipFirst[(size_t) ch].previousX;
+                x[ch] = c.clipFirst[(size_t) ch].process (first, x[ch], s.clip && ! s.clipLast);
+                c.pre[(size_t) ch][(size_t) (t & mask)] = (float) previous;
                 c.audio[(size_t) ch][(size_t) (t & mask)] = (float) x[ch];
                 const auto level = std::abs (x[ch]);
-                over[ch] = level > ceiling ? toDb (level / ceiling) : 0.0;
-                if (bassAhead > 0)
+                over[ch] = level > limit ? toDb (level / limit) : 0.0;
+                if (bassAhead > 0 && (ch == 0 || ! s.midSide))
                 {
                     const auto low = std::abs (run (lp, x[ch], c.bassFilter[(size_t) ch].data()));
-                    bassOver[ch] = low > ceiling ? toDb (low / ceiling) : 0.0;
+                    bassOver[ch] = low > limit ? toDb (low / limit) : 0.0;
+                }
+            }
+            if (s.midSide)
+            {
+                // Side first: the side turned down to its floor before the mid moves, so |L| and |R|, which are
+                // |mid| + |side| at most, stay under the ceiling (the guarantee holds for the pair: pro-l.md §5.3).
+                const auto am = std::abs (x[0]), as = std::abs (x[1]);
+                if (am + as > limit)
+                {
+                    if (as > 0 && am < limit && (limit - am) / as >= floorGain)
+                        requirement[1] = (limit - am) / as;
+                    else if (am > 1e-12)
+                    {
+                        requirement[1] = as > 0 ? juce::jmin (1.0, floorGain) : 1.0;
+                        requirement[0] = juce::jmax (0.0, (limit - requirement[1] * as) / am);
+                        if (requirement[0] <= 0)
+                            requirement[1] = juce::jmin (requirement[1], limit / as);
+                    }
+                    else
+                        requirement[1] = juce::jmin (1.0, limit / as);
                 }
             }
 
             // Auto Hold: half the period of the bass when it's loud enough to matter (the mid, low-passed).
             auto hold = manualHold;
             {
-                const auto low = run (lp, 0.5 * (x[0] + x[1]), c.holdFilter.data());
+                const auto mid = s.midSide ? x[0] : 0.5 * (x[0] + x[1]);
+                const auto low = run (lp, mid, c.holdFilter.data());
                 c.holdEnv = juce::jmax (std::abs (low), c.holdEnv * holdFall);
                 if ((low >= 0) != (c.holdLast >= 0))
                 {
@@ -396,14 +473,16 @@ void State::process (const Settings& s, float* left, float* right, int numSample
                 }
                 c.holdLast = low;
                 if (hold < 0)
-                    hold = c.holdEnv > 0.3 * ceiling ? juce::jmin (autoMost, juce::jmax (c.halfPeriod, c.previousHalf) + holdMargin) : 0;
+                    hold = c.holdEnv > 0.3 * limit ? juce::jmin (autoMost, juce::jmax (c.halfPeriod, c.previousHalf) + holdMargin) : 0;
             }
 
             const auto most = juce::jmax (over[0], over[1]), bassMost = juce::jmax (bassOver[0], bassOver[1]);
+            double limited[2] {};
             for (int ch = 0; ch < 2; ++ch)
             {
-                const auto transient = over[ch] + s.linkTransients * (most - over[ch]);
-                const auto slow = over[ch] + s.linkRelease * (most - over[ch]);
+                // What this channel's gain must come down by (dB): linked in left/right, side first in mid/side.
+                const auto transient = s.midSide ? -toDb (requirement[ch]) : over[ch] + s.linkTransients * (most - over[ch]);
+                const auto slow = s.midSide ? transient : over[ch] + s.linkRelease * (most - over[ch]);
 
                 // The release stage: a follower of the demand (dB), its gain kept for the sample it reacted to.
                 auto releaseGain = 1.0;
@@ -433,10 +512,10 @@ void State::process (const Settings& s, float* left, float* right, int numSample
                 c.busy[(size_t) ch] += ((gain < 0.944 ? 1.0 : 0.0) - c.busy[(size_t) ch]) * cBusy;
                 c.lastReduction[(size_t) ch] = -toDb (gain);
 
-                // The bass stage: the low end's demand, over a longer ramp.
-                if (bassAhead > 0)
+                // The bass stage: the low end's demand, over a longer ramp (the mid's alone in mid/side).
+                if (bassAhead > 0 && (ch == 0 || ! s.midSide))
                 {
-                    const auto low = bassOver[ch] + s.linkTransients * (bassMost - bassOver[ch]);
+                    const auto low = s.midSide ? bassOver[0] : bassOver[ch] + s.linkTransients * (bassMost - bassOver[ch]);
                     const auto ob = t - bassAhead;
                     const auto bassGain = c.bass[(size_t) ch].step (fromDb (-low), bassAhead, hold, 1, riseBass);
                     if (ob >= 0)
@@ -445,16 +524,41 @@ void State::process (const Settings& s, float* left, float* right, int numSample
 
                 // Out: the sample `delay` back, under the lower of the two gains.
                 const auto e = t - delay;
-                double y = 0;
                 if (e >= 0)
                 {
                     auto g = (double) c.mainGain[(size_t) ch][(size_t) (e & mask)];
-                    if (bassAhead > 0)
+                    if (bassAhead > 0 && (ch == 0 || ! s.midSide))
                         g = juce::jmin (g, (double) c.bassGain[(size_t) ch][(size_t) (e & mask)]);
-                    y = g * c.audio[(size_t) ch][(size_t) (e & mask)];
+                    limited[ch] = g * c.audio[(size_t) ch][(size_t) (e & mask)];
                     reduction = juce::jmax (reduction, -toDb (g));
                 }
+            }
+
+            // The clip stage after the limiter (or a sample's delay), then what's heard: the sound, or Audition's share.
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const auto e = t - delay;
+                const auto preNow = e >= 0 ? (double) c.pre[(size_t) ch][(size_t) (e & mask)] : 0.0;
+                const auto audioNow = e >= 0 ? (double) c.audio[(size_t) ch][(size_t) (e & mask)] : 0.0;
+                auto y = c.clipLast[(size_t) ch].process (last, limited[ch], s.clip && s.clipLast);
+                if (auditioning)
+                {
+                    // Lined up with `y`, which is a sample late: last sample's sources.
+                    const auto all = c.lastPre[(size_t) ch] - y;
+                    const auto clipped = s.clipLast ? c.lastLimited[(size_t) ch] - y : c.lastPre[(size_t) ch] - c.lastAudio[(size_t) ch];
+                    const auto limiterShare = s.clipLast ? c.lastAudio[(size_t) ch] - c.lastLimited[(size_t) ch] : c.lastAudio[(size_t) ch] - y;
+                    y = s.audition == 1 ? all : s.audition == 2 ? clipped : limiterShare;
+                }
+                c.lastPre[(size_t) ch] = preNow;
+                c.lastAudio[(size_t) ch] = audioNow;
+                c.lastLimited[(size_t) ch] = limited[ch];
                 a[ch][i] = (float) y;
+            }
+            if (s.midSide)
+            {
+                const auto mid = (double) a[0][i], side = (double) a[1][i];
+                a[0][i] = (float) (mid + side);
+                a[1][i] = (float) (mid - side);
             }
             ++c.t;
         }
@@ -462,13 +566,13 @@ void State::process (const Settings& s, float* left, float* right, int numSample
         if (factor > 1)
             c.oversampler->processSamplesDown (part);
 
-        // The last stage, Unity Gain, the slot's mix.
+        // The last stage, Unity Gain, the slot's mix (Audition: only the last stage's delay).
         for (int j = 0; j < m; ++j)
         {
             const auto i = start + j;
             const auto pos = (writeStart + j) % dryLength;
             float y[2] { chunkAudio.getSample (0, j), chunkAudio.getSample (1, j) };
-            const auto ceiling = (double) ceilingRing[(size_t) (((pos - s.delay - osLatency) % dryLength + dryLength) % dryLength)];
+            const auto ceiling = auditioning ? 1e9 : (double) ceilingRing[(size_t) (((pos - s.delay - s.clipDelay - osLatency) % dryLength + dryLength) % dryLength)];
             if (s.truePeak)
             {
                 const auto inner = ceiling * fromDb (-truePeakMargin);
@@ -488,11 +592,11 @@ void State::process (const Settings& s, float* left, float* right, int numSample
                 ++catchWrite;
             }
             fadeIn = juce::jmin (1.0, fadeIn + fadeStep);
-            const auto unity = s.unityGain ? fromDb (-gainNow) : 1.0;
+            const auto unity = s.unityGain && ! auditioning ? fromDb (-gainNow) : 1.0;
             for (int ch = 0; ch < 2; ++ch)
             {
                 auto out = y[ch] * unity * fadeIn;
-                if (mix < 1.0f)
+                if (mix < 1.0f && ! auditioning)
                     out = mix * out + (1.0f - mix) * dryRing.getSample (ch, ((pos - total) % dryLength + dryLength) % dryLength);
                 (ch == 0 ? left : right)[i] = (float) out;
             }

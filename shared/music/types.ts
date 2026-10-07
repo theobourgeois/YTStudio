@@ -455,6 +455,8 @@ export interface ProLState {
   noiseShaping: ProLNoiseShaping;
   dcFilter: boolean;
   unityGain: boolean;
+  /** What's heard: the sound, or what it takes away (all of it, the clip stage's share, the limiter's). */
+  audition: "off" | "all" | "clip" | "limiter";
 }
 
 export interface ProL extends ProLState {

@@ -156,6 +156,7 @@ export const DEFAULT_PRO_L_STATE: ProLState = {
   noiseShaping: "optimized",
   dcFilter: false,
   unityGain: false,
+  audition: "off",
 };
 export const DEFAULT_PRO_L: ProL = { ...DEFAULT_PRO_L_STATE, preset: "Default Setting" };
 
@@ -192,6 +193,7 @@ export function normalizeProLState(input: unknown): ProLState {
     noiseShaping: oneOf(PRO_L_NOISE_SHAPINGS, input.noiseShaping, d.noiseShaping),
     dcFilter: input.dcFilter === true,
     unityGain: input.unityGain === true,
+    audition: oneOf(["off", "all", "clip", "limiter"] as const, input.audition, "off"),
   };
 }
 
