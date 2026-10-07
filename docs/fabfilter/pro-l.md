@@ -810,6 +810,13 @@ of every peak and the clipper everything beyond: at 0 the clipper does all the p
 overshoot ("clip to 0, then limit"); at +3 dB the limiter takes a peak's body and the clipper its crack. **Default when
 switched on: +1.5 dB** (Orban keeps the final clip within 0.5–1 dB; iZotope ~0.5–0.8 dB; engineers 0–3 dB) **[ours]**.
 
+**Its order.** **Clip, then limit** (the default, above), or **limit, then clip**: the limiter's ceiling is then
+ceiling + Clip Range and the clipper sits *at* the ceiling, after the limiter (at the oversampled rate, before the
+downsampler and the last stage, so true peak still holds when it's on). That's FL Studio 2026's default master, the
+Emphasizer, measured: a limiter holding the level 1.07 dB over full scale, then a hard clip at 0 dBFS
+(`pro-l-research.md` §2.9), and Ernster's limiter → clipper chain. Clip Range is the gap between the two stages in
+either order **[ours]**.
+
 **Its shapes** (`Lc` the clip level; every curve odd-symmetric and exactly linear below its knee, so the stage is
 bit-exact under it):
 
@@ -819,7 +826,7 @@ bit-exact under it):
 | **Smooth** (default) | linear to `T = Lc − K`, then a C2 smoothstep knee `y = T + w(u − u³ + u⁴/2)`, `u = (|x| − T)/w`, `w = 2K`, flat at `Lc`; **Knee K 0–6 dB** (default 1.5) | −24 dB/octave | smooth and close to the ceiling, what the GedLee metric rewards; TDR's warning argues for a narrow default |
 | **Soft** | `Lc·v/√(1 + v²)`, `v = x/Lc` (no linear region) | exponential | saturation for colour (Ozone's Heavy, the Inflator's family) |
 | **Converter** | linear to `Lc − 6 dB`, the top 6 dB fitted into 3 (2:1 in dB), a C2 join to `Lc` | ≈ −24 dB/octave | Lavry's "soft saturation", StandardCLIP's Soft Clip Pro, KClip's Crisp |
-| **FL** (later) | FL Studio's soft clipper, once measured | | the sound trap beats are made through (§9) |
+| **FL** | Fruity Soft Clipper's, measured: linear to `T = Lc·10^(−K/20)`, then `y = Lc − (Lc − T)·e^(−(|x| − T)/(Lc − T))`; **Knee K** default **2.145 dB** (FL's own: T = 0.7812 of full scale) | −18 dB/octave (C1) | the sound trap beats are made through; FL runs it without oversampling, ours anti-aliased (identical on 808s: FL's aliasing there is −147 dB; cleaner on hats and snares) (`pro-l-research.md` §2.9) |
 
 Not offered: asymmetric, tape or tube curves. They make a DC that follows the envelope (heard as thump), so they're a
 colour, not a peak control.
@@ -1202,7 +1209,8 @@ loud); delivery settings only where a preset is about delivery ("—" leaves the
 | Master: Streaming −14 | Modern | 0.5 ms / 150 / 300 / Auto | off | L/R | −1.0 dBTP, 4x | −14 | Spotify, YouTube, TIDAL |
 | Master: Streaming Loud | Modern | 0.5 / 150 / 300 / Auto | +2 dB Smooth | L/R | **−2.0 dBTP**, 4x | −10 | louder than −14, headed for lossy |
 | Master: Chart Pop | Modern | 0.3 / 200 / 300 / Auto | +2 dB Smooth, knee 1.5 | L/R | −1.0 dBTP, 4x | −8 | pop (−8.3 LUFS is the 2024 norm) |
-| Master: Trap Loud | Punchy | 0.5 / 275 / 300 / Auto | +3 dB Smooth | L/R | −0.1 dBFS sample (TP shown), 4x | −6 | trap, rap: clip → limit |
+| Master: Trap Loud | Punchy | 0.5 / 275 / 300 / Auto | +3 dB FL | L/R | −0.1 dBFS sample (TP shown), 4x | −6 | trap, rap: clip → limit |
+| Master: FL (Emphasizer) | Punchy | 0.5 / 275 / 50 / Auto | **limit, then clip**: +1 dB Hard | L/R | −0.1 dBFS sample (TP shown), Off | −6 | FL 2026's default master, as measured: a limiter 1 dB over, a hard clip at the ceiling |
 | Master: Rage / Hyperpop | Aggressive | 0.1 / – / – / Auto | +1 dB Hard | L/R | −0.01 dBFS sample, 4x | −4 | Carti, Ken Carson, 100 gecs |
 | Master: Wide | Modern | 0.3 / 275 / 400 / Auto | +2 dB Smooth | **M/S, side floor −6** | −1.0 dBTP, 4x | −8 | wide hyperpop and pop choruses |
 | Master: Clean | Transparent | 1 ms / 150 / 500 / Auto | off | L/R | −1.0 dBTP, 4x | −12 | ballads, R&B, dynamic masters |
@@ -1214,7 +1222,7 @@ loud); delivery settings only where a preset is about delivery ("—" leaves the
 | Vocal: Peak Catcher | Punchy | 2 ms / 150 / 200 / Auto | off | L/R 100 / 100 % | — (TP off, Off) | — | after the vocal compressors |
 | Vocal: Spit | Spit | 0.05 ms / – / 3 ms / 0 | off | L/R 100 / 100 % | — (TP off, Off) | — | the L1 "spit and attitude", hit hard |
 | Vocal: Smooth | Safe | 5 ms / 0 / 300 / 20 ms | off | L/R 100 / 100 % | — (TP off, Off) | — | ballads, spoken word |
-| 808: Clip | Transparent | 0.5 / 275 / 100 / Auto | **0 dB Smooth** (the clipper does the work) | L/R 100 / 100 % | — (TP off, 4x) | — | an 808 or sub bus |
+| 808: Clip | Transparent | 0.5 / 275 / 100 / Auto | **0 dB FL** (the clipper does the work) | L/R 100 / 100 % | — (TP off, 4x) | — | an 808 or sub bus |
 | Drum Bus: Glue | Bus | 2 ms / 30 / 300 / 15 ms | off | L/R 100 / 100 % | — (TP off) | — | drum bus, a few dB |
 | Drum Bus: Crunch | Bus | 1 ms / 10 / 150 / 15 ms | +1 dB Soft | L/R 100 / 100 % | — (TP off) | — | clipped, crunchy drums |
 | Kick and Sub Ceiling | Transparent | 1 ms / 275 / 200 / Auto | off | L/R 100 / 100 % | — (TP off) | — | a maximum for kick and 808 |
@@ -1258,9 +1266,9 @@ Revised 2026-10-07 after the second round of research and the measurements, from
 | First | After the core | Later |
 | --- | --- | --- |
 | The nine styles; Gain, Output, Lookahead, Attack, Release, **Hold (Auto)**, both links | **Bass clip** in the clip stage | **Multiband**: 2 bands (an 808 band below ~120 Hz) then 3–4, a weighted projection of the band gains with a tonal-drift clamp, always followed by the wideband stages |
-| **The clip stage**: Clip Range, Hard / Smooth / Soft / Converter, knee, ADAA, the differential stage | **Clean** (Orban's distortion cancelling) | A masking-weighted **Smart clip** |
+| **The clip stage**: Clip Range, Hard / Smooth / Soft / Converter / **FL**, knee, **order** (clip then limit, or limit then clip), ADAA, the differential stage | **Clean** (Orban's distortion cancelling) | A masking-weighted **Smart clip** |
 | **Stereo: L/R or M/S side first** with the Side floor | An **HF limiter** (a dynamic high shelf) before the clip stage | An **upward / "inflate"** density stage before the limiter |
-| True Peak Limiting; oversampling Off to 32x | **Normalised listen**: the output turned to each platform's level (Spotify's rules, its Loud limiter) to hear it as listeners will | The **FL** clip curve, once measured |
+| True Peak Limiting; oversampling Off to 32x | **Normalised listen**: the output turned to each platform's level (Spotify's rules, its Loud limiter) to hear it as listeners will |  |
 | DC filter, Unity Gain, **Audition All / Clip / Limiter** | An **Analyze** render: the song's I, LRA, max true peak and gain reduction at the current settings, without playing it, and **Gain to target** (suggested, never silent; the assistant's too) | Stems through the master's limiter (§8.8) |
 | Dither (24 … 16 bits) with Basic, Optimized, Weighted (matched to Pro-L 2's measured curves) | **A codec check in the export**: encode with real encoders (Apple AAC 256 through `afconvert`, Opus, LAME), decode, report the decoded true peak, suggest a trim | Release-law options (dual peak/RMS, Release Shape) |
 | The display, peak labels, the loudness curve, **GR per stage** | **Per-platform targets** in the loudness panel, with what each will do to the master (turn down, turn up within headroom, Spotify Loud's limiter) | An **Approval / Master** pair in the export: the master rendered with and without its limiter |
@@ -1272,7 +1280,7 @@ Revised 2026-10-07 after the second round of research and the measurements, from
 
 | What | Pro-L 2 (measured where marked) | Ours |
 | --- | --- | --- |
-| Clipper | none (users put one before it) | a clip stage before the limiter: four shapes, ADAA, bit-exact below its knee, its own meters and delta |
+| Clipper | none (users put one before it) | a clip stage before or after the limiter: five shapes (one is FL Studio's, measured), ADAA, bit-exact below its knee, its own meters and delta |
 | Bass distortion | −21 dB THD on 40 Hz in Transparent / Allround (**measured**) | Auto Hold: none in any style but Spit |
 | Loudness against Gain | not monotonic in Modern, Aggressive, Bus (**measured**) | monotonic, tested |
 | True peak | holds by BS.1770's meter; +0.1 to +0.37 dB over by an ideal reconstruction (**measured**) | holds by both |
@@ -1297,7 +1305,7 @@ The same shape as Pro-Q and PanMan: the document and what it means in TypeScript
 // shared/music/types.ts
 export const PRO_L_STYLES = ["transparent", "punchy", "dynamic", "allround", "aggressive", "modern", "bus", "safe", "spit"] as const;
 export type ProLStyle = (typeof PRO_L_STYLES)[number];
-export const PRO_L_CLIP_SHAPES = ["hard", "smooth", "soft", "converter"] as const;
+export const PRO_L_CLIP_SHAPES = ["hard", "smooth", "soft", "converter", "fl"] as const;
 export type ProLClipShape = (typeof PRO_L_CLIP_SHAPES)[number];
 
 /** Pro-L's sound: what A/B swaps and presets set. Levels in dB, times in seconds, links 0..1. */
@@ -1316,7 +1324,8 @@ export interface ProLState {
   clip: boolean;
   clipRange: number;       // 0..6 dB above the ceiling
   clipShape: ProLClipShape;
-  clipKnee: number;        // 0..6 dB (Smooth)
+  clipKnee: number;        // 0..6 dB (Smooth, FL)
+  clipOrder: "first" | "last";   // clip then limit (default), or limit then clip at the ceiling (FL's Emphasizer)
   truePeak: boolean;
   oversampling: 1 | 2 | 4 | 8 | 16 | 32;
   dither: 0 | 16 | 18 | 20 | 22 | 24;   // 0: off
@@ -1468,6 +1477,7 @@ in `pro-l-research.md` §2.
 | 11 | **Program-dependent release** | The click alone, then a sustained 60 Hz overload | The recovery after the sustained one at least 3× slower |
 | 12 | **Hold** | A 1 kHz burst 6 dB over for 50 ms; Hold 0 / 20 ms | With 20 ms, the reduction stays within 0.1 dB of full for 20 ms after the burst |
 | 13 | **Clip stage** | A 1.25 kHz sine 12 dB into a Hard clip at 4x; a −20 dBFS sweep with the clip on | Worst alias ≤ −90 dBc; below the knee the residue is exactly 0 (bit-exact output, Off) |
+| 13b | **The FL shape** | The ramp of `fl_studio.py`'s test file through the clip stage alone (FL shape, its default knee, Clip Range 0, limiter at a ceiling 6 dB higher) | Within 0.001 of Fruity Soft Clipper's measured curve (`pro-l-research.md` §2.9) at every level |
 | 14 | **M/S keeps the centre** | A wide chord stack over a mono 808 | Side first: the M gain stays at 0 dB until the S gain reaches the floor; the ceiling holds (row 1) |
 | 15 | **Linking** | A peak in the left only, 6 dB over | 0 %: the right untouched; 100 %: the same reduction; 50 %: half in dB (± 0.5 dB) |
 | 16 | **Unity Gain** | Gain +6 dB | A tone under the ceiling comes out at the input's level within 0.01 dB |
@@ -1503,19 +1513,16 @@ blind, loudness-matched A/B on short loops with Théo deciding.
 ## 9. Open questions for Théo
 
 Answered on 2026-10-07: its name is **YT-L**; the default ceiling is **−0.1 dBFS sample peak** (§7.1); **multiband
-later**, as proposed (§7.2); **the clipper is off on a new YT-L**, one click to turn on (§7.1).
+later**, as proposed (§7.2); **the clipper is off on a new YT-L**, one click to turn on (§7.1); **an FL clip shape**:
+yes, measured on FL Studio 2026 (§5.7, `pro-l-research.md` §2.9), a choice among the shapes, not the default.
 
-1. **An FL Studio clip shape.** Trap beats are made through FL Studio's own soft clipper (Fruity Soft Clipper, and the
-   saturation in Fruity Limiter), and engineers buy plug-ins that copy its exact sound. If FL Studio is installed on
-   this Mac, I can measure that clipper the way I measured Pro-L 2 and add its curve as a shape, so YT-L's clipper can
-   sound exactly like the FL master the beat came from. Is FL Studio installed, and do you want that?
-2. **Delivery tools first or later?** The codec check in the export (Apple's AAC encoder is on every Mac),
+1. **Delivery tools first or later?** The codec check in the export (Apple's AAC encoder is on every Mac),
    per-platform previews and a normalised listen ("hear it as Spotify will") are proposed right after the core.
-3. **More measurements?** Waves L4, Ozone 12 and DMG Limitless have trials (Ozone and Waves need accounts), and TDR
+2. **More measurements?** Waves L4, Ozone 12 and DMG Limitless have trials (Ozone and Waves need accounts), and TDR
    Limiter 6 GE has a free edition.
-4. **Latency on vocals.** Spit is ~1 ms and Transparent 5 ms with oversampling off: enough to record through, or should
+3. **Latency on vocals.** Spit is ~1 ms and Transparent 5 ms with oversampling off: enough to record through, or should
    every style have a low-latency switch?
-5. **Earlier questions still open**: a limiter on new songs' master (FL Studio's template has one); Unity Gain and
+4. **Earlier questions still open**: a limiter on new songs' master (FL Studio's template has one); Unity Gain and
    Audition saved in the song or the tab's; FabFilter's dark look in every theme (proposed) or the app's; a Compact view.
 
 ---
