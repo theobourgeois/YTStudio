@@ -107,6 +107,8 @@ export interface CompositeJob {
   readback?: FrameReadback;
   /** Begin each frame transparent instead of the canvas's black (an export with alpha). */
   transparent?: boolean;
+  /** The first frame drawn (a render file's segment starts inside the sequence); absent: 0. */
+  first?: number;
 }
 
 /** What the page needs for its next frame. */
@@ -333,7 +335,7 @@ function pageScript(): string {
         await Promise.all(job.fonts.map((font) => document.fonts.load(font).catch(() => [])));
         const shaders: Record<string, string> = {};
         // Frames are drawn strictly in order: a lane whose packet arrives early waits for its turn.
-        let turn = 0;
+        let turn = job.first ?? 0;
         const waiting = new Map<number, () => void>();
         const myTurn = (frame: number) =>
           frame === turn ? Promise.resolve() : new Promise<void>((resolve) => waiting.set(frame, resolve));

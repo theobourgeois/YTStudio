@@ -79,6 +79,15 @@ describe("planRender", () => {
     expect(pictures(planRender(project([clip("vid", "main", 0, 0, 2)]), assets, opts).frame(0))[0].effects).toBeUndefined();
   });
 
+  it("plans only a range of frames when asked (a render file's segment): its sources start where it does", () => {
+    const p = project([clip("vid", "main", 0, 0, 1), clip("vid", "main", 1, 4, 6)]);
+    const plan = planRender(p, assets, { ...opts, range: { from: 45, to: 60 } });
+    // The second clip only: from its frame 15 (half a second in), for 15 frames.
+    expect(plan.sources.map((s) => [s.first, s.end])).toEqual([[45, 60]]);
+    expect(arg(plan.sources[0].argv, "-ss")).toBe("4.500000");
+    expect(pictures(plan.frame(50))).toHaveLength(1);
+  });
+
   it("decodes each visible clip once, for exactly the frames it's drawn in", () => {
     // Durations that aren't whole frames: 1.01 + 0.77 + 2.345 = 4.125s.
     const p = project([

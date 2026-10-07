@@ -105,6 +105,11 @@ export interface RenderOptions {
   ffmpegPath?: string;
   /** The media's signals, by id, for what reacts to sound (`audio()` in expressions): those it uses. */
   signals?: SignalStore;
+  /**
+   * Only output frames [from, to) are drawn (a preview render's segments, with their pre-roll): sources start
+   * where the range does. Absent: every frame.
+   */
+  range?: { from: number; to: number };
 }
 
 /** One clip's pictures: an ffmpeg writing raw frames to stdout. */
@@ -384,7 +389,8 @@ export function planRender(
     const blur = effectShader(effectDefinition("gaussian-blur")!);
     if (blur) shaders[blur.key] = blur.source;
   }
-  for (let f = 0; f < frames; f++) visit(f, top, "", frameTime(f, F), 0, null);
+  const [firstFrame, endFrame] = opts.range ? [Math.max(0, opts.range.from), Math.min(frames, opts.range.to)] : [0, frames];
+  for (let f = firstFrame; f < endFrame; f++) visit(f, top, "", frameTime(f, F), 0, null);
 
   /** A natively decoded picture's runs: stretches of its frames where its media time only goes one way. */
   interface Run {

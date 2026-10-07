@@ -790,6 +790,34 @@ export interface TextLayoutAt {
 
 export type ExportStatus = "queued" | "rendering" | "done" | "error" | "cancelled";
 
+/**
+ * Render a video's heavy segments to render files (Premiere's Render Effects In to Out, docs/render-files.md):
+ * the main sequence as the tab has it, with its texts laid out as an export's are.
+ */
+export interface RenderRequest {
+  project: Project;
+  texts?: Record<string, TextLayoutAt[]>;
+}
+
+/** A render of a video's segments: how far it is, and the segments' keys rendered so far. */
+export interface RenderJob {
+  id: string;
+  projectId: string;
+  status: ExportStatus;
+  /** 0..1 */
+  progress: number;
+  /** Segments it renders, and the keys of those done (their files are there). */
+  segments: number;
+  rendered: string[];
+  error?: string;
+}
+
+/** The render files a video has (by segment key), and its render running (or last finished), if any. */
+export interface RenderFilesState {
+  keys: string[];
+  job: RenderJob | null;
+}
+
 export interface ExportJob {
   id: string;
   status: ExportStatus;
@@ -1120,6 +1148,11 @@ export interface ToolCallProgressRequest {
 //   GET    /api/exports/:id             -> ExportJob
 //   DELETE /api/exports/:id             -> 204 (cancels if running)
 //   GET    /api/exports/:id/download    -> file (attachment)
+//   GET    /api/render-files/:projectId  -> RenderFilesState (the render files a video has, and its render running)
+//   POST   /api/render-files/:projectId  body: RenderRequest -> RenderJob (202; renders its heavy segments not rendered yet)
+//   DELETE /api/render-files/:projectId  -> RenderFilesState (Delete Render Files; cancels a render running)
+//   DELETE /api/render-files/jobs/:id    -> 204 (cancels a render)
+//   GET    /api/render-files/:projectId/:key.mp4 -> a segment's render file (range requests; shared/render-files.ts)
 //   GET    /api/transcription/engines   -> TranscriptionEngineInfo[]
 //   POST   /api/transcription/engines/:id/setup  body: SetUpEngineRequest -> TranscriptionEngineInfo
 //                                        (local: starts installing, poll the list; cloud: checks + saves the key)
