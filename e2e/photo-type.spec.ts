@@ -343,3 +343,68 @@ test("the assistant adds text, restyles it and reads it", async ({ page }) => {
   const o = originOf(layer);
   expect(darkPixels(await renderRegion(page, { x: Math.floor(o.x - 400), y: Math.floor(o.y - 140), width: 800, height: 180 }))).toBeGreaterThan(2000);
 });
+
+test("Move drags text by whole pixels and a double-click edits it; the font list previews; the Character panel", async ({ page }) => {
+  await openNewPhoto(page, "Type character");
+  await page.keyboard.press("t");
+  await clickDoc(page, 200, 500);
+  await page.keyboard.type("Hello");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("v");
+  const before = (await layers(page))[0];
+
+  // Dragged by the Move tool, it moves by whole document pixels (its raster is placed again, not drawn again).
+  const from = await screenAt(page, 260, 480);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 37.3, from.y + 21.7, { steps: 6 });
+  await page.mouse.up();
+  const moved = (await layers(page))[0];
+  const dx = moved.transform.x - before.transform.x;
+  const dy = moved.transform.y - before.transform.y;
+  expect(Math.abs(dx)).toBeGreaterThan(1);
+  expect(Math.abs(dx - Math.round(dx))).toBeLessThan(1e-9);
+  expect(Math.abs(dy - Math.round(dy))).toBeLessThan(1e-9);
+
+  // A double-click on its words with the Move tool edits them.
+  const o = originOf(moved);
+  await page.mouse.dblclick((await screenAt(page, o.x + 60, o.y - 20)).x, (await screenAt(page, o.x + 60, o.y - 20)).y);
+  const field = page.locator("[data-type-field]");
+  await expect(field).toBeFocused();
+  expect(await page.evaluate(() => (window as unknown as DebugWindow).photoDebug.ui.getState().tool)).toBe("type");
+  await page.keyboard.press("End");
+  await page.keyboard.type("!");
+  await page.keyboard.press("Escape");
+  await expect.poll(async () => (await layers(page))[0].text).toBe("Hello!");
+
+  // The family list shows the family hovered on the selected text, without changing it; closed, it's gone.
+  const textPreview = () => page.evaluate(() => ((window as unknown as DebugWindow).photoDebug.ui.getState() as unknown as { textPreview: { layerIds: string[]; patch: { font: { family: string } } } | null }).textPreview);
+  await page.locator('[data-tool-options="type"] [aria-label="Font family"]').click();
+  const options = page.locator('[data-font-list] [role="option"][aria-selected="false"]');
+  await expect(options.first()).toBeVisible();
+  const other = options.nth(1);
+  const family = (await other.textContent())!.replace(/\d+$/, "").trim();
+  await other.hover();
+  await expect.poll(async () => (await textPreview())?.patch.font.family).toBe(family);
+  expect((await textPreview())!.layerIds).toEqual([moved.id]);
+  expect((await layers(page))[0].font.family).toBe(before.font.family);
+  await page.keyboard.press("Escape");
+  await expect.poll(textPreview).toBeNull();
+  expect((await layers(page))[0].font.family).toBe(before.font.family);
+
+  // The Character panel: underline draws a bar under the baseline; horizontal scale widens the words.
+  const steps = await undoSteps(page);
+  const strip = { x: Math.floor(o.x), y: Math.floor(o.y + 3), width: 200, height: 14 };
+  expect(darkPixels(await renderRegion(page, strip))).toBeLessThan(20);
+  await page.locator('[data-tool-options="type"] [data-option="Character"]').click();
+  await page.locator('[data-character-popover] [data-text-style="underline"]').click();
+  await expect.poll(async () => (await layers(page))[0] as unknown as { underline?: boolean }).toMatchObject({ underline: true });
+  await expect.poll(async () => darkPixels(await renderRegion(page, strip))).toBeGreaterThan(300);
+  const narrow = (await layers(page))[0].size.width;
+  const horizontal = page.locator("[data-character-popover]").getByLabel("Horizontal");
+  await horizontal.fill("150");
+  await horizontal.press("Enter");
+  await expect.poll(async () => ((await layers(page))[0] as unknown as { horizontalScale?: number }).horizontalScale).toBe(1.5);
+  expect((await layers(page))[0].size.width).toBeGreaterThan(narrow * 1.3);
+  expect(await undoSteps(page)).toBe(steps + 2);
+});

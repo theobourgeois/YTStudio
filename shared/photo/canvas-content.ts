@@ -11,10 +11,14 @@
  */
 import { type Affine, apply, layerMatrix } from "./layers.ts";
 import { shapeOverhang } from "./shape-drawing.ts";
-import type { LayerTransform, PhotoLayer, PhotoProject, ShapeLayer, TextLayer } from "./types.ts";
+import { characterOf, textScale } from "./text.ts";
+import type { LayerTransform, PhotoLayer, PhotoProject, ShapeLayer, TextCharacter, TextLayer } from "./types.ts";
 
-/** A text layer's words and their setting (`TextLayer`'s), drawn from its origin in its layer pixels. */
-export interface TextContent {
+/**
+ * A text layer's words and their setting (`TextLayer`'s), drawn from its origin in its layer pixels. Its character
+ * settings are there only when set, so a text without them keys as it always did.
+ */
+export interface TextContent extends TextCharacter {
   kind: "text";
   text: string;
   font: TextLayer["font"];
@@ -70,7 +74,8 @@ export interface CanvasLayerFacts {
 export function canvasContentOf(layer: PhotoLayer): CanvasLayerFacts | null {
   if (layer.kind === "text") {
     const { text, font, colour, align, leading, tracking, box, origin } = layer;
-    return { content: { kind: "text", text, font, colour, align, leading, tracking, box, origin }, transform: layer.transform, size: layer.size, overhang: 0.25 * font.size };
+    const scale = textScale(layer);
+    return { content: { kind: "text", text, font, colour, align, leading, tracking, box, origin, ...characterOf(layer) }, transform: layer.transform, size: layer.size, overhang: 0.25 * font.size * Math.max(1, scale.x, scale.y) };
   }
   if (layer.kind === "shape") {
     const { id, shape, size, transform, paint } = layer;
