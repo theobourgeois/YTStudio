@@ -62,7 +62,7 @@ const shows = (tag: string) => wanted.length === 0 || wanted.includes(tag);
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "photo-sheet-"));
 const realModels = args.includes("--models");
-const env: NodeJS.ProcessEnv = { ...process.env, EDITOR_DATA_DIR: dataDir, EDITOR_SERVER_PORT: SERVER_PORT, EDITOR_WEB_PORT: WEB_PORT, ...(realModels ? {} : { EDITOR_SUBJECT_MODEL: "stand-in", EDITOR_DEPTH_MODEL: "stand-in" }) };
+const env: NodeJS.ProcessEnv = { ...process.env, EDITOR_DATA_DIR: dataDir, EDITOR_SERVER_PORT: SERVER_PORT, EDITOR_WEB_PORT: WEB_PORT, EDITOR_NO_HMR: "1", ...(realModels ? {} : { EDITOR_SUBJECT_MODEL: "stand-in", EDITOR_DEPTH_MODEL: "stand-in" }) };
 delete env.ELECTRON_RUN_AS_NODE;
 const children: ChildProcess[] = [];
 process.on("exit", () => {

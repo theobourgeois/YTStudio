@@ -235,31 +235,35 @@ export function guidedFilter(guide: Float64Array, p: Float64Array, width: number
 }
 
 /** The q quantile of `values` (sorted copy). */
-function quantile(values: Float32Array | Float64Array, q: number): number {
+function quantile(values: ArrayLike<number>, q: number): number {
   const sorted = Float64Array.from(values).sort();
   return sorted[Math.min(sorted.length - 1, Math.max(0, Math.round(q * (sorted.length - 1))))];
 }
 
 /**
  * The depth model's answer (`width` × `height` inverse depths) as the grid's depth map: read at its cells, its range
- * (the 2nd to the 98th percentile) made 0..1 with 1 the nearest, then given the picture's own edges (a guided filter
- * on its encoded luminance), so a blur or fog by depth stops at the subject's outline rather than a little past it.
+ * (the 2nd to the 98th percentile of what the picture covers: a cut-out's empty surroundings aren't scenery) made 0..1
+ * with 1 the nearest, then given the picture's own edges (a guided filter on its encoded luminance), so a blur or fog
+ * by depth stops at the subject's outline rather than a little past it.
  */
 export function depthMap(values: Float32Array, width: number, height: number, picture: PixelSample, grid: { width: number; height: number }): Float32Array {
   const raw = resampleToGrid(values, width, height, grid);
-  const lo = quantile(raw, 0.02);
-  const hi = quantile(raw, 0.98);
-  const span = Math.max(1e-6, hi - lo);
-  const depth = Float64Array.from(raw, (v) => Math.min(1, Math.max(0, (v - lo) / span)));
   const guide = new Float64Array(grid.width * grid.height);
+  const covered: number[] = [];
   for (let j = 0; j < grid.height; j++) {
     for (let i = 0; i < grid.width; i++) {
       const x = Math.min(picture.width - 1, Math.floor(((i + 0.5) * picture.width) / grid.width));
       const y = Math.min(picture.height - 1, Math.floor(((j + 0.5) * picture.height) / grid.height));
       const k = (y * picture.width + x) * 4;
       guide[j * grid.width + i] = (0.2126 * picture.data[k] + 0.7152 * picture.data[k + 1] + 0.0722 * picture.data[k + 2]) / 255;
+      if (picture.data[k + 3] >= 128) covered.push(raw[j * grid.width + i]);
     }
   }
+  const range = covered.length >= 16 ? covered : raw;
+  const lo = quantile(range, 0.02);
+  const hi = quantile(range, 0.98);
+  const span = Math.max(1e-6, hi - lo);
+  const depth = Float64Array.from(raw, (v) => Math.min(1, Math.max(0, (v - lo) / span)));
   const r = Math.max(2, Math.round(Math.max(grid.width, grid.height) / 192));
   const refined = guidedFilter(guide, depth, grid.width, grid.height, r, 4e-3);
   return Float32Array.from(refined, (v) => Math.min(1, Math.max(0, v)));
