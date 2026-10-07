@@ -280,4 +280,17 @@ test("shapes take blend modes and layer styles, and the assistant boxes and poin
   const edge = await pixelAt(page, 550, 200);
   expect(edge[0]).toBeGreaterThan(0.8);
   expect(edge[1]).toBeLessThan(0.1);
+  // Merged, away from the canvas's top-left: the image is what the shapes drew, where they drew it.
+  const arrow = await pixelAt(page, 390, 420);
+  expect((await pixelAt(page, 700, 300))[0]).toBeGreaterThan(0.8);
+  await page.locator("[data-layer]").first().click();
+  await page.keyboard.press("Alt+ControlOrMeta+KeyA");
+  await page.keyboard.press("ControlOrMeta+e");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers.map((l: { kind: string }) => l.kind)).toEqual(["image"]);
+  // The box's right edge is past the merged box's width from the document's top-left: drawn only if the shapes'
+  // rasters cover the region rendered rather than the canvas there.
+  await expect.poll(async () => (await pixelAt(page, 700, 300))[0]).toBeGreaterThan(0.8);
+  expect((await pixelAt(page, 700, 300))[1]).toBeLessThan(0.1);
+  const mergedArrow = await pixelAt(page, 390, 420);
+  for (let c = 0; c < 3; c++) expect(Math.abs(mergedArrow[c] - arrow[c])).toBeLessThan(0.05);
 });

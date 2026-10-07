@@ -217,4 +217,20 @@ describe("text in the render plan", () => {
     // Off the canvas by more than its reach: nothing to draw.
     expect(canvasRaster(doc, { ...facts, transform: { ...facts.transform, x: -5000 } }, 0, false, hashKey)).toBeNull();
   });
+
+  it("covers the region rendered when it isn't the canvas (a merge renders the box around its layers, where they are)", () => {
+    const layer = makeTextLayer({ id: "t1", text: "Hello", font, at: { x: 300, y: 250 } }, frameText);
+    // A merge's document: a canvas the size of its box, whose top-left is document point (280, 220).
+    const doc = createPhotoProject("t", { width: 120, height: 60 });
+    const facts = canvasContentOf(layer)!;
+    const region = { x0: 280, y0: 220, x1: 400, y1: 280 };
+    // Cut to the canvas alone, it would be off it: nothing drawn.
+    expect(canvasRaster(doc, facts, 0, false, hashKey)).toBeNull();
+    const free = canvasRaster(doc, facts, 0, false, hashKey, region)!;
+    expect(free.x).toBeGreaterThanOrEqual(278);
+    expect(free.x + free.width).toBeLessThanOrEqual(402);
+    // Masked: from the document's top-left (where its mask's pixels start) to the region's far corner.
+    const masked = canvasRaster(doc, facts, 0, true, hashKey, region)!;
+    expect([masked.x, masked.y, masked.width, masked.height]).toEqual([0, 0, 400, 280]);
+  });
 });

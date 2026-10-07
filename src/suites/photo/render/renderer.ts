@@ -29,6 +29,7 @@ import {
   backgroundLight,
   type CameraRawNeed,
   type CameraRawResolver,
+  type CompileOptions,
   compileRender,
   filtersReach,
   isDrawNode,
@@ -508,15 +509,15 @@ export class PhotoRenderer {
   }
 
   /** `doc`'s render plan with every Camera Raw analysis it reads in (built first): what's drawn for keeps. */
-  async settledPlan(doc: PhotoProject, float32 = this.compositor.supports("rgba32float")): Promise<RenderPlan> {
+  async settledPlan(doc: PhotoProject, float32 = this.compositor.supports("rgba32float"), region?: CompileOptions["region"]): Promise<RenderPlan> {
     // The open document's, when the screen's is complete.
     const c = this.compiled;
-    if (c && c.doc === doc && c.assets === this.assets && c.analyses === this.cameraRaw.generation && !c.pending && float32 === this.compositor.supports("rgba32float")) return c.plan;
-    return this.cameraRaw.settle(doc, (resolver) => this.compile(doc, resolver, float32));
+    if (!region && c && c.doc === doc && c.assets === this.assets && c.analyses === this.cameraRaw.generation && !c.pending && float32 === this.compositor.supports("rgba32float")) return c.plan;
+    return this.cameraRaw.settle(doc, (resolver) => this.compile(doc, resolver, float32, region));
   }
 
-  private compile(doc: PhotoProject, cameraRaw: CameraRawResolver, float32 = this.compositor.supports("rgba32float")): RenderPlan {
-    const plan = compileRender(doc, this.facts(), { float32, cameraRaw });
+  private compile(doc: PhotoProject, cameraRaw: CameraRawResolver, float32 = this.compositor.supports("rgba32float"), region?: CompileOptions["region"]): RenderPlan {
+    const plan = compileRender(doc, this.facts(), { float32, cameraRaw, region });
     // The glows' caches are found by node: say which this plan's are.
     this.glows.glowsOf(plan);
     return plan;
@@ -900,7 +901,9 @@ export class PhotoRenderer {
     const { device } = this;
     const bits = options.bits ?? 8;
     const bytesPerPixel = bits === 16 ? 8 : 4;
-    const plan = await this.settledPlan(doc);
+    // A render elsewhere than the canvas (a merge's box) says where, for what's drawn by the 2D canvas.
+    const o = options.origin;
+    const plan = await this.settledPlan(doc, undefined, o ? { x0: o.x, y0: o.y, x1: o.x + doc.canvas.width, y1: o.y + doc.canvas.height } : undefined);
     await this.glows.ensure(plan);
     await this.ensurePatterns(plan);
     const width = doc.canvas.width;

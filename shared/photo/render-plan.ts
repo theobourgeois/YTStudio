@@ -293,6 +293,11 @@ export interface CompileOptions {
   float32?: boolean;
   /** Camera Raw's analyses (docs/photo/camera-raw.md, CR2): the renderer's, by what each one develops. */
   cameraRaw?: CameraRawResolver;
+  /**
+   * The document pixels rendered, when they aren't the canvas's (a merge renders the box around its layers, where
+   * they are): what the canvas layers' rasters cover.
+   */
+  region?: { x0: number; y0: number; x1: number; y1: number };
 }
 
 /**
@@ -491,7 +496,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
     }
     const painted = canvasContentOf(layer);
     if (painted) {
-      const raster = canvasRaster(doc, painted, styleReach(layer) + filtersReach(layer), !!layer.mask?.surface, hashKey);
+      const raster = canvasRaster(doc, painted, styleReach(layer) + filtersReach(layer), !!layer.mask?.surface, hashKey, options.region);
       if (!raster) continue;
       const size = { width: raster.width, height: raster.height };
       const mask = maskOf(layer, { width: doc.canvas.width, height: doc.canvas.height });

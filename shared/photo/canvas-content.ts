@@ -84,21 +84,29 @@ const MAX_RASTER_SIDE = 16_384;
 
 /**
  * A canvas layer's raster: the whole document pixels its frame covers (and its overhang, two pixels more), cut to the
- * canvas grown by `reach` (what its effects and filters reach); the canvas itself when `masked` (such a layer's mask is
- * in document pixels, read at the raster's). Null when nothing of it can show. `hash` makes its key (the plan's).
+ * region rendered (the canvas, or a merge's box: `region`, in document pixels) grown by `reach` (what its effects and
+ * filters reach); from the document's top-left to the region's far corner when `masked` (such a layer's mask is in
+ * document pixels, read at the raster's). Null when nothing of it can show. `hash` makes its key (the plan's).
  */
-export function canvasRaster(doc: PhotoProject, facts: CanvasLayerFacts, reach: number, masked: boolean, hash: (text: string) => string): CanvasRaster | null {
+export function canvasRaster(
+  doc: PhotoProject,
+  facts: CanvasLayerFacts,
+  reach: number,
+  masked: boolean,
+  hash: (text: string) => string,
+  region: { x0: number; y0: number; x1: number; y1: number } = { x0: 0, y0: 0, x1: doc.canvas.width, y1: doc.canvas.height },
+): CanvasRaster | null {
   const m = layerMatrix(facts.transform, facts.size);
   const { width: W, height: H } = facts.size;
   const pts = [apply(m, 0, 0), apply(m, W, 0), apply(m, 0, H), apply(m, W, H)];
-  let [x0, y0, x1, y1] = [0, 0, doc.canvas.width, doc.canvas.height];
+  let [x0, y0, x1, y1] = [0, 0, Math.max(doc.canvas.width, Math.ceil(region.x1)), Math.max(doc.canvas.height, Math.ceil(region.y1))];
   if (!masked) {
     const r = Math.ceil(reach) + 2;
     const pad = 2 + Math.ceil(facts.overhang * Math.max(Math.abs(facts.transform.scaleX), Math.abs(facts.transform.scaleY)));
-    x0 = Math.max(-r, Math.floor(Math.min(...pts.map((p) => p.x))) - pad);
-    y0 = Math.max(-r, Math.floor(Math.min(...pts.map((p) => p.y))) - pad);
-    x1 = Math.min(doc.canvas.width + r, Math.ceil(Math.max(...pts.map((p) => p.x))) + pad);
-    y1 = Math.min(doc.canvas.height + r, Math.ceil(Math.max(...pts.map((p) => p.y))) + pad);
+    x0 = Math.max(Math.floor(region.x0) - r, Math.floor(Math.min(...pts.map((p) => p.x))) - pad);
+    y0 = Math.max(Math.floor(region.y0) - r, Math.floor(Math.min(...pts.map((p) => p.y))) - pad);
+    x1 = Math.min(Math.ceil(region.x1) + r, Math.ceil(Math.max(...pts.map((p) => p.x))) + pad);
+    y1 = Math.min(Math.ceil(region.y1) + r, Math.ceil(Math.max(...pts.map((p) => p.y))) + pad);
   }
   x1 = Math.min(x1, x0 + MAX_RASTER_SIDE);
   y1 = Math.min(y1, y0 + MAX_RASTER_SIDE);
