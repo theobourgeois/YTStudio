@@ -5,6 +5,8 @@
 import { HANDOFF_ROLES, VISUALIZER_ASPECTS, VISUALIZER_LOOKS } from "../handoff.ts";
 import { type ToolSpec, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { CHOP_PATTERNS } from "./chop.ts";
+import { CONVERT_KINDS } from "./convert.ts";
+import { STEMS } from "./stems.ts";
 import { EXPORT_FORMATS } from "./export.ts";
 import { ECHO_TOOL_CONTROL_NAMES } from "./echo-boy-presets.ts";
 import { OTT_TOOL_CONTROL_NAMES } from "./ott-presets.ts";
@@ -1863,6 +1865,49 @@ export const MUSIC_TOOLS = [
     kind: "look",
     description: "Listen to an audio clip's file and say its tempo (BPM, rounded so a loop is a whole number of beats), how sure, and how long it is. stretch_audio with that tempo puts it on the song's.",
     inputSchema: obj({ audio: str("An audio clip's channel: its id or its name.") }, ["audio"]),
+  }),
+  tool({
+    name: "extract_stems",
+    title: "Extract stems",
+    kind: "action",
+    timeout: 900,
+    description:
+      "Split an audio clip's file into stems (FL Studio's Extract stems from sample) with a separation model that runs on this computer (HTDemucs): " +
+      `${STEMS.join(", ")}. Other holds whatever isn't asked for, so the stems always add up to the file: vocals and other is an instrumental, a karaoke. ` +
+      "Give `clip` (an audio clip's id: its stems go on the free tracks below it, lined up with it, and it's muted unless `mute` is false) or " +
+      "`audio` (an audio clip's channel: its stems go under every clip of it). Each stem is a new audio clip channel (\"<name> - Vocals\") into the " +
+      "master: mixing it is left to the user. A split takes about a fifth of the file's length; one made the same way before is reused at once. " +
+      "Its model is downloaded once (136 MB) when the user first uses Extract stems; until then this fails, and the user should be asked to.",
+    inputSchema: obj({
+      clip: int("An audio clip's id (get_playlist)."),
+      audio: str("An audio clip's channel: its id or its name (instead of `clip`)."),
+      stems: arr(oneOf(STEMS, "A stem."), "The stems to make. Default: vocals, drums, bass and other."),
+      mute: bool("Mute the clips they came from (default true)."),
+    }),
+  }),
+  tool({
+    name: "convert_to_notes",
+    title: "Convert audio to notes",
+    kind: "action",
+    timeout: 180,
+    description:
+      "Hear the notes in an audio clip and write them as a pattern (FL Studio's Convert to score), on this computer. `kind`: melodic (any pitch: " +
+      "a melody, a bass line, chords; Spotify's Basic Pitch. It works best on one instrument, so extract_stems first for a full mix) or drums " +
+      "(kick, snare and hat hits, each on a sampler playing the starter kit's sound). The notes go in a new pattern on a new sampler channel (a " +
+      "plain tone: replace_channel puts any instrument on it), its clip under the audio clip and as long, in the song's time (the clip's stretch " +
+      "and the tempo taken into account). Give `clip` (an audio clip's id) or `audio` (a channel: its whole file; the pattern is made, not " +
+      "placed). Its model is downloaded once (230 KB) when the user first uses Convert to notes; until then melodic fails.",
+    inputSchema: obj({
+      clip: int("An audio clip's id (get_playlist)."),
+      audio: str("An audio clip's channel: its id or its name (instead of `clip`)."),
+      kind: oneOf(CONVERT_KINDS, "melodic (default) or drums."),
+      sensitivity: num("0..1: how readily a sound counts as a note or a hit. 0.5 (default) is the model's own; more finds quieter notes, and more noise."),
+      quantize: num("Starts and ends moved onto a grid this many steps wide (1 is a 16th, the default; 0.5 a 32nd, 4 a beat; 0: where they were heard)."),
+      snap_to_scale: bool("Pitches moved to the song's scale (it must have one)."),
+      shortest: num("Melodic: notes shorter than this many milliseconds are left out (default 128)."),
+      lowest: int("Melodic: the lowest MIDI note kept (default 21, A0)."),
+      highest: int("Melodic: the highest MIDI note kept (default 108, C8)."),
+    }),
   }),
   tool({
     name: "remove_clips",

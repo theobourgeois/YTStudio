@@ -34,6 +34,10 @@ import { NoteProperties } from "./piano/note-properties";
 import { PianoRoll } from "./piano/piano-roll";
 import { usePiano } from "./piano/store";
 import { TransposeWindow } from "./transpose-window";
+import { ConvertWindow } from "./convert/convert-window";
+import { useConvert } from "./convert/actions";
+import { StemsWindow } from "./stems/stems-window";
+import { useStems } from "./stems/actions";
 import { PluginManager } from "./plugin-manager";
 import { ExportWindow } from "./export/export-window";
 import { VisualizerWindow } from "./visualizer/visualizer-window";
@@ -128,6 +132,8 @@ function Windows() {
   const editingNote = usePiano((s) => s.editing);
   const chopping = usePiano((s) => s.chopping);
   const quantizing = usePiano((s) => s.quantizing);
+  const stemsOpen = useStems((s) => s.target !== null);
+  const convertOpen = useConvert((s) => s.target !== null);
   const openIds = useMusicUi((s) => s.openChannelIds);
   const channels = useSong((song) => song.channels);
   const automations = useSong((song) => song.automations);
@@ -167,6 +173,8 @@ function Windows() {
       {pianoOpen && editingNote !== null && <NoteProperties key={editingNote} />}
       {pianoOpen && chopping && <Chopper />}
       {pianoOpen && quantizing && <Quantizer />}
+      {stemsOpen && <StemsWindow />}
+      {convertOpen && <ConvertWindow />}
       {channels.map((channel, index) => (openIds.includes(channel.id) ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
       {automations.map((automation, index) => (openAutomations.includes(automation.id) ? <AutomationWindow key={automation.id} automation={automation} index={index} /> : null))}
       {chooserOpen && <AutomationChooser />}
@@ -217,6 +225,8 @@ function frontWindow(): WindowId | null {
     : id === "note" ? usePiano.getState().editing !== null
     : id === "chopper" ? usePiano.getState().chopping
     : id === "quantizer" ? usePiano.getState().quantizing
+    : id === "stems" ? useStems.getState().target !== null
+    : id === "to-notes" ? useConvert.getState().target !== null
     : id === "automate" ? useAutomationUi.getState().chooserOpen
     : id === "modulators" ? useModulationUi.getState().open
     : id.startsWith("automation:") ? useAutomationUi.getState().openIds.includes(id.slice("automation:".length))

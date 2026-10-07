@@ -32,6 +32,9 @@ about to touch before changing it, and correct it when you learn it's wrong.
   Théo, how it's built and where Vaudio differs.
 - [midi.md](midi.md): MIDI keyboards and the typing keyboard: which channel they play, recording notes
   into the song. Ends with what was decided with Théo, how it's built and where Vaudio differs.
+- [stems-and-notes.md](stems-and-notes.md): an audio clip's Extract stems and Convert to notes (FL's stem
+  separation and Edison's Convert to score), by models run on this computer. Ends with what was decided with
+  Théo, how it's built (and measured) and where Vaudio differs.
 - [gross-beat.md](gross-beat.md): Gross Beat, the time and volume effect (chops, repeats, half speed, tape
   stops, gates): its envelopes, slots, sync and options. Ends with what was chosen, where Vaudio differs
   and how it's built.

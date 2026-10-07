@@ -30,6 +30,10 @@ import type {
 } from "@shared/music/browser";
 import type { ExportSongRequest, MusicExportJob } from "@shared/music/export";
 import type { MakeVisualizerRequest, VisualizerJob } from "@shared/music/visualizer";
+import type { MusicModelName } from "@shared/music/models";
+import type { StemJob, StemRequest } from "@shared/music/stems";
+import type { HeardAudioJson } from "@shared/music/transcribe";
+import type { ModelStatus } from "@shared/models";
 import type { MediaAsset } from "@shared/types";
 import type { ChannelEvidence, MixerSetupRequest, MixerSetupResult } from "@shared/music/mixer-setup";
 import { request } from "@/lib/api";
@@ -93,6 +97,15 @@ export const musicApi = {
   startVisualizer: (body: MakeVisualizerRequest) => request<VisualizerJob>("/api/music/visualizer", { method: "POST", body: JSON.stringify(body) }),
   visualizerJob: (id: string) => request<VisualizerJob>(`/api/music/visualizer/${encodeURIComponent(id)}`),
   abortVisualizer: (id: string) => request<VisualizerJob>(`/api/music/visualizer/${encodeURIComponent(id)}/abort`, { method: "POST" }),
+  /** Extract stems' and Convert to notes' models: whether one is downloaded, and its download (once the user says yes). */
+  modelStatus: (name: MusicModelName) => request<ModelStatus>(`/api/music/models/${name}`),
+  setUpModel: (name: MusicModelName) => request<ModelStatus>(`/api/music/models/${name}/setup`, { method: "POST" }),
+  /** Extract stems: one of the song's files split on the server, a job polled until its stems are the project's media. */
+  startStems: (body: StemRequest) => request<StemJob>("/api/music/stems", { method: "POST", body: JSON.stringify(body) }),
+  stemJob: (id: string) => request<StemJob>(`/api/music/stems/${encodeURIComponent(id)}`),
+  cancelStems: (id: string) => request<StemJob>(`/api/music/stems/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  /** What Convert to notes hears in one of the song's files (`heardFromJson` reads it). */
+  hearNotes: (body: { projectId: string; sampleId: string }) => request<HeardAudioJson>("/api/music/notes", { method: "POST", body: JSON.stringify(body) }),
   /** Where a file an export kept on the server is downloaded from (a browser's export). */
   exportFileUrl: (id: string, name: string) => `/api/music/exports/${encodeURIComponent(id)}/files/${encodeURIComponent(name)}`,
   /** What the engine says on its own (where the song is, the meter). Returns how to stop listening. */

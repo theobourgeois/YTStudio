@@ -11,7 +11,7 @@
  * in the app's resources (`photoHelper`).
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { type BuildOptions, build, context } from "esbuild";
@@ -28,6 +28,8 @@ const ENGINE_APP = path.join(ROOT, "engine", "build", "VaudioEngine_artefacts", 
 const ELECTRON = createRequire(import.meta.url)("electron") as string;
 /** Where the photo helper is staged: shipped in the app's resources as `photo-helper/` (electron/main.ts). */
 const PHOTO_HELPER_STAGE = path.join(ROOT, "build", "photo-helper");
+/** Where the music suite's models' worker is staged: shipped as `music-worker/` (electron/main.ts). */
+const MUSIC_WORKER_STAGE = path.join(ROOT, "build", "music-worker");
 
 /**
  * The environment for Electron: without ELECTRON_RUN_AS_NODE, which terminals inside Electron apps (VS Code,
@@ -251,6 +253,49 @@ async function photoHelper() {
   writeFileSync(outfile, bundle.replace(from, JSON.stringify(`./${path.posix.join("native", addon, "index.cjs")}`)));
 }
 
+/**
+ * The music suite's models' worker (server/music/ml-worker.mjs: Extract stems, Convert to notes), bundled with ONNX
+ * Runtime's JavaScript into `ml-worker.mjs`, and its native binding and library for this platform beside it in
+ * `native/onnxruntime/` (the binding finds the library beside it: its rpath is its own folder). Node-API, so Electron
+ * runs it in Node mode as it is. ONNX Runtime is MIT.
+ */
+async function musicWorker() {
+  rmSync(MUSIC_WORKER_STAGE, { recursive: true, force: true });
+  let ortDir = path.dirname(createRequire(import.meta.url).resolve("onnxruntime-node"));
+  while (!existsSync(path.join(ortDir, "package.json"))) ortDir = path.dirname(ortDir);
+  const binaries = path.join(realpathSync(ortDir), "bin", "napi-v6", process.platform, process.arch);
+  if (!existsSync(path.join(binaries, "onnxruntime_binding.node"))) throw new Error(`ONNX Runtime has no binding for ${process.platform}-${process.arch}: run pnpm install.`);
+  const native = path.join(MUSIC_WORKER_STAGE, "native", "onnxruntime");
+  cpSync(binaries, native, { recursive: true, dereference: true });
+  // On a Mac the library is there twice (its versioned name too); the binding loads libonnxruntime.1.dylib.
+  for (const file of readdirSync(native)) if (/^libonnxruntime\.\d+\.\d+\.\d+\.dylib$/.test(file)) rmSync(path.join(native, file));
+  // The binding is required by a path of its own making (each platform's): it's this platform's, in native/.
+  const binding = "require(`../bin/napi-v6/${process.platform}/${process.arch}/onnxruntime_binding.node`)";
+  await build({
+    entryPoints: [path.join(ROOT, "server", "music", "ml-worker.mjs")],
+    outfile: path.join(MUSIC_WORKER_STAGE, "ml-worker.mjs"),
+    bundle: true,
+    platform: "node",
+    target: "node24",
+    format: "esm",
+    banner: { js: 'import { createRequire as __createRequire } from "node:module";\nconst require = __createRequire(import.meta.url);' },
+    logLevel: "warning",
+    plugins: [
+      {
+        name: "onnxruntime-binding",
+        setup(b) {
+          b.onLoad({ filter: /onnxruntime-node[\\/]dist[\\/]binding\.js$/ }, (args) => {
+            const source = readFileSync(args.path, "utf8");
+            if (source.split(binding).length !== 2) throw new Error(`Expected ONNX Runtime to load its binding with ${binding} once; its loader changed.`);
+            return { contents: source.replace(binding, 'require("./native/onnxruntime/onnxruntime_binding.node")'), loader: "js" };
+          });
+          b.onResolve({ filter: /\.node$/ }, (args) => ({ path: args.path, external: true }));
+        },
+      },
+    ],
+  });
+}
+
 async function pack(targets: "dir" | "installers") {
   if (!existsSync(ENGINE_APP)) throw new Error("Build the music engine first: pnpm engine:build");
   await run("pnpm", ["build"]);
@@ -258,6 +303,7 @@ async function pack(targets: "dir" | "installers") {
   mkdirSync(STAGE, { recursive: true });
   await Promise.all(bundles(STAGE).map((options) => build(options)));
   await photoHelper();
+  await musicWorker();
   cpSync(path.join(ROOT, "dist"), path.join(STAGE, "dist"), { recursive: true });
   // The app's own package.json: no dependencies, everything is in the bundle.
   writeFileSync(
@@ -282,7 +328,12 @@ async function pack(targets: "dir" | "installers") {
       npmRebuild: false,
       // electron/main.ts points the server at it (EDITOR_ENGINE_PATH).
       // And the photo helper (EDITOR_PHOTO_HELPER_PATH): outside the asar, since Node loads its native addon.
-      extraResources: [...(existsSync(ENGINE_APP) ? [{ from: ENGINE_APP, to: engineArtifactName() }] : []), { from: PHOTO_HELPER_STAGE, to: "photo-helper" }],
+      // And the music suite's models' worker (EDITOR_MUSIC_WORKER_PATH), with ONNX Runtime's native library beside it.
+      extraResources: [
+        ...(existsSync(ENGINE_APP) ? [{ from: ENGINE_APP, to: engineArtifactName() }] : []),
+        { from: PHOTO_HELPER_STAGE, to: "photo-helper" },
+        { from: MUSIC_WORKER_STAGE, to: "music-worker" },
+      ],
       // Not signed with an identity yet (that needs an Apple Developer ID): signed ad hoc once it's packed,
       // before the .dmg and .zip are made of it (unsigned, macOS kills it). macOS asks to confirm the first launch.
       afterPack: async (packed) => {
@@ -333,6 +384,7 @@ const command = process.argv[2];
 if (command === "dev") await dev();
 else if (command === "build") await pack("dir");
 else if (command === "package") await pack("installers");
+else if (command === "music-worker") await musicWorker();
 else {
   console.error("usage: tsx scripts/desktop.ts dev | build | package");
   process.exit(1);
