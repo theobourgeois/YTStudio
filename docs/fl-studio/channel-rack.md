@@ -121,9 +121,10 @@ than fit. The window's **height follows the number of channels**.
 
 ### Channel selector (10)
 
-- **Click**: select this channel only (or deselect it).
-- Ours (Théo): a selected channel's selector is outlined, and it lights up fully while the channel makes a
-  sound, so the rack shows what's playing. Its target is wider than the light, so it's easy to hit.
+- **Click**: select this channel only (or deselect it), as the button goes down.
+- Ours (Théo): a selected channel's selector is outlined, and it lights up fully, paler than the outline,
+  while the channel makes a sound, so the rack shows what's playing. Its target is wider than the light, so
+  it's easy to hit.
 - **Right-click**: add it to, or take it out of, the selection.
 - **Right-click and drag down** the selectors: select several.
 - **Double-click**: select all. Ours (Théo): a double-click opens the channel's Piano roll instead.
@@ -251,7 +252,8 @@ in `e2e/music.spec.ts`; the table is what's left. "With" names the phase that br
 
 **Same as FL Studio now**: the look of the rows (small knobs, a wide button with the name in the middle and the
 instrument's icon at its end, pushed in while its window is open and red when it has nothing to play; the
-thin selector; step keys in grey and red beats, dark when off and pale when on, in the theme's colours); left-click turns a step on and right-click off, both painting when dragged;
+thin selector; step keys in grey and red beats, spaced apart, dark when off and pale when on, in the theme's colours, a lamp
+along each one's top lit as the playhead passes); left-click turns a step on and right-click off, both painting when dragged;
 the rack's right edge is dragged to show more steps, and a pattern's length is Auto (the last bar with
 notes) unless its LCD sets one; the mute light, with Solo on its right-click menu, Ctrl/Alt+click, and
 the 1…0 and Ctrl+1…0 keys; knobs (drag, Ctrl for fine, Alt+click or middle-click to reset, a right-click
