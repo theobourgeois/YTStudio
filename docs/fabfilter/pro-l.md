@@ -1237,6 +1237,8 @@ Revised 2026-10-07 after the second round of research and the measurements, from
 - **Pro-L 2's window and workflow, plus what it lacks**: the display, the Gain strip, the Advanced panel, the meters and
   the loudness panel, the output panel; then the clip stage, Hold, M/S, per-stage meters and audition, delivery tools.
 - **Its look is FabFilter's, as Pro-Q's is** (`--eq-*` surfaces, `--lim-*` colours, plain colours for the canvases).
+- **The clipper is off on a new YT-L** (Théo, 2026-10-07): the limiter alone, the clip stage one click away (its
+  default Clip Range +1.5 dB once on).
 - **The default ceiling is −0.1 dBFS, sample peak** (Théo, 2026-10-07): where trap and hyperpop releases are
   finished (`pro-l-research.md` §1.6). True Peak Limiting is off by default, the true peak is always shown beside it,
   and the streaming and broadcast presets switch it on (−1 or −2 dBTP).
@@ -1501,22 +1503,19 @@ blind, loudness-matched A/B on short loops with Théo deciding.
 ## 9. Open questions for Théo
 
 Answered on 2026-10-07: its name is **YT-L**; the default ceiling is **−0.1 dBFS sample peak** (§7.1); **multiband
-later**, as proposed (§7.2).
+later**, as proposed (§7.2); **the clipper is off on a new YT-L**, one click to turn on (§7.1).
 
-1. **The clipper on a new YT-L.** The clipper shaves the very tips of the loudest peaks before the limiter sees them
-   (what StandardCLIP or KClip do in front of Pro-L 2). Should a freshly added YT-L have it **off** (the limiter alone,
-   one click to turn the clipper on) or **on**, already taking the top 1.5 dB of the biggest hits?
-2. **An FL Studio clip shape.** Trap beats are made through FL Studio's own soft clipper (Fruity Soft Clipper, and the
+1. **An FL Studio clip shape.** Trap beats are made through FL Studio's own soft clipper (Fruity Soft Clipper, and the
    saturation in Fruity Limiter), and engineers buy plug-ins that copy its exact sound. If FL Studio is installed on
    this Mac, I can measure that clipper the way I measured Pro-L 2 and add its curve as a shape, so YT-L's clipper can
    sound exactly like the FL master the beat came from. Is FL Studio installed, and do you want that?
-3. **Delivery tools first or later?** The codec check in the export (Apple's AAC encoder is on every Mac),
+2. **Delivery tools first or later?** The codec check in the export (Apple's AAC encoder is on every Mac),
    per-platform previews and a normalised listen ("hear it as Spotify will") are proposed right after the core.
-4. **More measurements?** Waves L4, Ozone 12 and DMG Limitless have trials (Ozone and Waves need accounts), and TDR
+3. **More measurements?** Waves L4, Ozone 12 and DMG Limitless have trials (Ozone and Waves need accounts), and TDR
    Limiter 6 GE has a free edition.
-5. **Latency on vocals.** Spit is ~1 ms and Transparent 5 ms with oversampling off: enough to record through, or should
+4. **Latency on vocals.** Spit is ~1 ms and Transparent 5 ms with oversampling off: enough to record through, or should
    every style have a low-latency switch?
-6. **Earlier questions still open**: a limiter on new songs' master (FL Studio's template has one); Unity Gain and
+5. **Earlier questions still open**: a limiter on new songs' master (FL Studio's template has one); Unity Gain and
    Audition saved in the song or the tab's; FabFilter's dark look in every theme (proposed) or the app's; a Compact view.
 
 ---
