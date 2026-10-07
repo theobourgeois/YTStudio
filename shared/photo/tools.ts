@@ -564,6 +564,52 @@ export const PHOTO_TOOLS = [
       "Exports the photo as a PNG (keeps transparency; 8 or 16 bits a channel) or a JPEG (over the background, or white), at its canvas size. 16 bits keeps a 16-bit source's precision. The file goes to the app's exports; the result says where.",
     inputSchema: obj({ format: oneOf(["png", "jpeg"], "png (default) or jpeg."), bits: oneOf(["8", "16"], "PNG's bits a channel (default 8)."), quality: int("JPEG quality, 1 to 100 (default 92).") }),
   }),
+  tool({
+    name: "bucket_fill",
+    title: "Fill an area (paint bucket)",
+    kind: "edit",
+    description:
+      "Photoshop's Paint Bucket: a click at (x, y) fills the area of similar colour around it (what the Magic Wand would select there: tolerance 0..255, default 32, each of red, green, blue and alpha within it of the colour clicked; contiguous, default true, only what's joined to the point) on a layer's pixels, limited by the selection. with: \"foreground\" (default), \"background\", a colour \"#rrggbb\", or \"pattern\" (then pattern: an id or name, built in or the photo's, tiled from the canvas's top-left at 100%). mode: a blend mode, or behind (paints only where the layer is transparent) or clear (makes it transparent); opacity 0..1 (default 1). all_layers (default false) decides by the photo as it shows, else by the layer alone: an empty pixel layer is all one colour (transparent), so on one use all_layers: true to fill the shape of what's below. anti_alias (default true) softens the edge. layer: a pixel layer (default the selected one); target: mask fills its mask with the colour's grey (black hides). A placed image can't be filled (it's kept whole): add_pixel_layer above it and fill that with all_layers: true. Undoable. The photo must be open in the editor.",
+    inputSchema: obj(
+      {
+        x: num("Canvas pixels from the left."),
+        y: num("Canvas pixels from the top."),
+        layer: str("The layer to fill: id or name (default the selected one)."),
+        target: oneOf(["content", "mask"], "Its pixels (default) or its mask."),
+        with: str('"foreground" (default), "background", a colour "#rrggbb", or "pattern".'),
+        pattern: str("with: pattern: the pattern's id or name."),
+        mode: oneOf(["normal", "dissolve", "behind", "clear", ...BLEND_MODES.slice(2).map((m) => m.id)], "How the fill mixes with what's there (default normal)."),
+        opacity: num("0 to 1 (default 1)."),
+        tolerance: int("0..255 (default 32).", { minimum: 0, maximum: 255 }),
+        contiguous: bool("Only what's joined to the point (default true)."),
+        anti_alias: bool("Soften the edge (default true)."),
+        all_layers: bool("Decide by the photo as it shows (default false: the layer alone)."),
+      },
+      ["x", "y"],
+    ),
+  }),
+  tool({
+    name: "magic_erase",
+    title: "Erase similar colour (magic eraser)",
+    kind: "edit",
+    description:
+      "Photoshop's Magic Eraser: a click at (x, y) erases the area of similar colour around it, e.g. a white background in one click at a corner of it (contiguous: false, or more clicks, for background the subject encloses). tolerance 0..255 (default 32; raise it for a background with shading or JPEG noise), contiguous (default true), anti_alias (default true), sample_all_layers (default false: decide by the layer alone), opacity 0..1 (default 1: erased fully). defringe (default true) also erases the share of the colour clicked from the edge's pixels, so no rim of the old background is left. On a pixel layer its pixels go transparent; on a placed image (or the mask targeted, or an adjustment) it hides them through the layer's mask, adding one if needed: nothing is rasterised, and add_mask with remove: true brings it all back. limited by the selection. layer: default the selected one. Undoable; check with view_photo. The photo must be open in the editor.",
+    inputSchema: obj(
+      {
+        x: num("Canvas pixels from the left."),
+        y: num("Canvas pixels from the top."),
+        layer: str("The layer to erase: id or name (default the selected one)."),
+        target: oneOf(["content", "mask"], "A pixel layer's pixels (default) or its mask."),
+        tolerance: int("0..255 (default 32).", { minimum: 0, maximum: 255 }),
+        contiguous: bool("Only what's joined to the point (default true)."),
+        anti_alias: bool("Soften the edge (default true)."),
+        sample_all_layers: bool("Decide by the photo as it shows (default false: the layer alone)."),
+        opacity: num("How much is erased, 0 to 1 (default 1)."),
+        defringe: bool("Take the colour clicked out of the edge too: no rim (default true)."),
+      },
+      ["x", "y"],
+    ),
+  }),
 ] as const;
 
 export type PhotoToolName = (typeof PHOTO_TOOLS)[number]["name"];
