@@ -5,8 +5,8 @@
  * its whole box).
  */
 import type { Size } from "@shared/photo/geometry";
-import { cropOf, croppedBounds } from "@shared/photo/crop";
-import { apply, invert, layerMatrix } from "@shared/photo/layers";
+import { cropOf, partBounds } from "@shared/photo/crop";
+import { layerPoint, pointInLayer } from "@shared/photo/layers";
 import { type SurfaceManifest, constantValues } from "@shared/photo/surfaces";
 import type { PlacedLayer, SurfaceId } from "@shared/photo/types";
 import { hitShape } from "@shared/photo/shape-drawing";
@@ -33,16 +33,16 @@ function paintedTiles(layer: PlacedLayer, manifest: (id: SurfaceId) => SurfaceMa
 export function contentBox(layer: PlacedLayer, size: Size, manifest: (id: SurfaceId) => SurfaceManifest | null, tile = 256): Box | null {
   const tiles = paintedTiles(layer, manifest);
   if (tiles === null) return null;
-  const m = layerMatrix(layer.transform, size);
+  const at = (u: number, v: number) => layerPoint(layer.transform, size, u, v);
   // Only what shows: inside its crop.
   const crop = cropOf(layer, size);
-  if (tiles === undefined) return croppedBounds(m, crop);
+  if (tiles === undefined) return partBounds(layer.transform, size, crop);
   const points = tiles.flatMap(({ tx, ty }) => {
     const x0 = Math.max(crop.x, tx * tile);
     const y0 = Math.max(crop.y, ty * tile);
     const x1 = Math.min(crop.x + crop.width, (tx + 1) * tile);
     const y1 = Math.min(crop.y + crop.height, (ty + 1) * tile);
-    return x1 > x0 && y1 > y0 ? [apply(m, x0, y0), apply(m, x1, y0), apply(m, x0, y1), apply(m, x1, y1)] : [];
+    return x1 > x0 && y1 > y0 ? [at(x0, y0), at(x1, y0), at(x0, y1), at(x1, y1)] : [];
   });
   if (!points.length) return null;
   return {
@@ -57,9 +57,9 @@ export function contentBox(layer: PlacedLayer, size: Size, manifest: (id: Surfac
 export function hitsContent(layer: PlacedLayer, size: Size, x: number, y: number, manifest: (id: SurfaceId) => SurfaceManifest | null, tile = 256, tolerance = 4): boolean {
   // A shape is where it draws (its stroke, within `tolerance` document pixels, or its fill): not its whole box.
   if (layer.kind === "shape") return hitShape(layer, x, y, tolerance);
-  const p = apply(invert(layerMatrix(layer.transform, size)), x, y);
+  const p = pointInLayer(layer.transform, size, x, y);
   const crop = cropOf(layer, size);
-  if (p.x < crop.x || p.y < crop.y || p.x > crop.x + crop.width || p.y > crop.y + crop.height) return false;
+  if (!p || p.x < crop.x || p.y < crop.y || p.x > crop.x + crop.width || p.y > crop.y + crop.height) return false;
   const tiles = paintedTiles(layer, manifest);
   if (tiles === null) return false;
   if (tiles === undefined) return true;

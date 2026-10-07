@@ -79,9 +79,26 @@ function normalizeScale(v: unknown): number {
   return Math.max(-1e4, Math.min(1e4, s));
 }
 
+/** The most a layer leans, in degrees (past it the layer is a sliver). */
+export const MAX_SKEW = 85;
+/** The most |perspective x| + |perspective y| may be: its nearest corner's w stays at least 1 − this. */
+export const MAX_PERSPECTIVE = 0.95;
+
+/** A skew kept to ±`MAX_SKEW`; 0 when it isn't a number. */
+export const normalizeSkew = (v: unknown) => Math.max(-MAX_SKEW, Math.min(MAX_SKEW, finite(v, 0)));
+
+/** A perspective kept short of the horizon (|x| + |y| ≤ `MAX_PERSPECTIVE`, scaled down to it); [0, 0] when it isn't one. */
+export function normalizePerspective(v: unknown): [number, number] {
+  if (!Array.isArray(v) || v.length !== 2) return [0, 0];
+  const p = [finite(v[0], 0), finite(v[1], 0)];
+  const sum = Math.abs(p[0]) + Math.abs(p[1]);
+  const k = sum > MAX_PERSPECTIVE ? MAX_PERSPECTIVE / sum : 1;
+  return [p[0] * k, p[1] * k];
+}
+
 export function normalizeTransform(value: unknown, fallback: { x: number; y: number }): LayerTransform {
   const t = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
-  return {
+  const out: LayerTransform = {
     x: Math.max(-1e6, Math.min(1e6, finite(t.x, fallback.x))),
     y: Math.max(-1e6, Math.min(1e6, finite(t.y, fallback.y))),
     scaleX: normalizeScale(t.scaleX),
@@ -89,6 +106,22 @@ export function normalizeTransform(value: unknown, fallback: { x: number; y: num
     // Kept in (-180, 180].
     rotation: wrapDegrees(finite(t.rotation, 0)),
   };
+  // Version 8's: written only when there is one.
+  const skew = normalizeSkew(t.skew);
+  if (skew) out.skew = skew;
+  const perspective = normalizePerspective(t.perspective);
+  if (perspective[0] || perspective[1]) out.perspective = perspective;
+  return out;
+}
+
+/**
+ * A transform without perspective: what text and shape layers hold (the browser's 2D canvas draws them, through an
+ * affine map only; they skew, as Photoshop's type does, but don't distort).
+ */
+export function withoutPerspective(t: LayerTransform): LayerTransform {
+  if (!t.perspective) return t;
+  const { perspective: _, ...rest } = t;
+  return rest;
 }
 
 export function wrapDegrees(d: number): number {
@@ -269,7 +302,7 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
       kind: "text",
       ...common(id),
       ...fields,
-      transform: normalizeTransform(l.transform, { x: canvas.width / 2, y: canvas.height / 2 }),
+      transform: withoutPerspective(normalizeTransform(l.transform, { x: canvas.width / 2, y: canvas.height / 2 })),
       ...normalizeFilters(l, id, seen, report),
     };
     return layer;

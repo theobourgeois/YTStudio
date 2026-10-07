@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addAdjustmentLayer, addFilter, addGeneratorLayer, addImageLayer, addPixelLayer, setMask } from "./edits.ts";
 import { fromHalf, toHalf } from "./half.ts";
-import { apply, layerMatrix } from "./layers.ts";
+import { layerMatrix, layerPoint } from "./layers.ts";
 import { ORIENTATIONS, type Orientation, canvasOrientationLabel, orientCanvas, orientLayers, orientPoint, orientSelection, orientTransform, orientedSize, pixelSource } from "./orient.ts";
 import { createPhotoProject } from "./project.ts";
 import { orientedManifest, orientedTile, planOrient } from "./surface-orient.ts";
@@ -11,7 +11,7 @@ import type { GeneratorLayer, ImageLayer, LayerTransform, MaskSelection, PhotoPr
 const H = "a".repeat(64);
 
 /** The document point a layer pixel lands on. */
-const at = (t: LayerTransform, size: { width: number; height: number }, u: number, v: number) => apply(layerMatrix(t, size), u, v);
+const at = (t: LayerTransform, size: { width: number; height: number }, u: number, v: number) => layerPoint(t, size, u, v);
 
 const close = (a: { x: number; y: number }, b: { x: number; y: number }) => {
   expect(a.x).toBeCloseTo(b.x, 9);
@@ -24,6 +24,7 @@ describe("flipping and turning a layer", () => {
     { x: 400, y: 300, scaleX: 1, scaleY: 1, rotation: 0 },
     { x: 120.5, y: -40, scaleX: 0.5, scaleY: 2, rotation: 30 },
     { x: 0, y: 0, scaleX: -1.25, scaleY: 0.75, rotation: -135 },
+    { x: 50, y: 60, scaleX: 1, scaleY: 1.5, rotation: 20, skew: 15, perspective: [0.2, -0.3] },
   ];
 
   it("carries every pixel by the map, about the given point", () => {

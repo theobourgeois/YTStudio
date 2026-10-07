@@ -4,7 +4,7 @@
  * (what the drawing, the handles, the hit test and the assistant read), and `withPlacedBox` / `withPlacedLine` make
  * a layer's geometry again from canvas numbers (the box's scale baked back in: its numbers stay its pixel size).
  */
-import { normalizeTransform, wrapDegrees } from "./project.ts";
+import { normalizeTransform, withoutPerspective, wrapDegrees } from "./project.ts";
 import { apply, layerMatrix } from "./layers.ts";
 import type { Arrowhead, DocPoint, LayerTransform, PhotoProject, ShapeGeometry, ShapeLayer, ShapePaint } from "./types.ts";
 
@@ -97,7 +97,7 @@ export function normalizeShapeFields(l: Record<string, unknown>): Pick<ShapeLaye
   const size = { width: clamp(finite(s.width, 100), MIN_SIDE, MAX_SIDE), height: clamp(finite(s.height, 100), MIN_SIDE, MAX_SIDE) };
   const shape = normalizeGeometry(l.shape, size);
   if (!shape) return null;
-  return { shape, size, transform: normalizeTransform(l.transform, { x: size.width / 2, y: size.height / 2 }), paint: normalizePaint(l.paint) };
+  return { shape, size, transform: withoutPerspective(normalizeTransform(l.transform, { x: size.width / 2, y: size.height / 2 })), paint: normalizePaint(l.paint) };
 }
 
 // --- where it is ---

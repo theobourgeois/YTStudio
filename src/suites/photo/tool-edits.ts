@@ -42,8 +42,8 @@ import { describeGradient, gradientInput } from "@shared/photo/effects/gradient"
 import type { Gradient } from "@shared/photo/types";
 import { ADJUSTMENTS, type EffectDefinition, type EffectKind, FILTERS, GENERATORS, effectDefinition, newEffect, unavailableReason, usableAs } from "@shared/photo/effects/index";
 import { CURVE_CHANNELS, type ElementParamSpec, MAX_CURVE_POINTS, type ParamSpec, sameValue } from "@shared/photo/effects/params";
-import { bounds, layerMatrix } from "@shared/photo/layers";
-import { type CropRect, canvasCropRect, cropFromDocBox, cropOf, croppedBounds, parseRatio, ratioBox, setLayerCrop } from "@shared/photo/crop";
+import { bounds } from "@shared/photo/layers";
+import { type CropRect, canvasCropRect, cropFromDocBox, cropOf, partBounds, parseRatio, ratioBox, setLayerCrop } from "@shared/photo/crop";
 import { selectionBox } from "@shared/photo/selection";
 import type { MergeKind } from "@shared/photo/merge";
 import { isColour } from "@shared/photo/project";
@@ -205,7 +205,7 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
   if (size) {
     // What shows of it: a cropped layer's box is its crop's.
     const crop = cropOf(layer, size);
-    const b = layer.crop ? croppedBounds(layerMatrix(t, size), crop) : bounds(t, size);
+    const b = layer.crop ? partBounds(t, size, crop) : bounds(t, size);
     parts.push(`   box on the canvas: x ${round(b.x0)}..${round(b.x1)}, y ${round(b.y0)}..${round(b.y1)}`);
     if (layer.crop) parts.push(`   cropped (crop_layer): shows its pixels x ${round(crop.x)}..${round(crop.x + crop.width)}, y ${round(crop.y)}..${round(crop.y + crop.height)} of ${size.width}×${size.height}; the rest is hidden, kept`);
   }

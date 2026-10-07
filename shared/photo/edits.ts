@@ -7,7 +7,7 @@ import { type EffectDefinition, effectDefinition, newEffect, unavailableReason, 
 import { flarePreset } from "./effects/flare.ts";
 import { type ElementsParam, newElement, sameValue, sanitizeParam } from "./effects/params.ts";
 import type { Size } from "./geometry.ts";
-import { MIN_SCALE, isColour, wrapDegrees } from "./project.ts";
+import { MIN_SCALE, isColour, normalizePerspective, normalizeSkew, wrapDegrees } from "./project.ts";
 import {
   type AdjustmentLayer,
   type Compositing,
@@ -86,12 +86,23 @@ export function fromImage(doc: PhotoProject, layer: NewImageLayer): PhotoProject
   return addImageLayer({ ...doc, canvas, layers: [] }, layer, { transform: { x: width / 2, y: height / 2, scaleX: 1, scaleY: 1, rotation: 0 } });
 }
 
-const sameTransform = (a: LayerTransform, b: LayerTransform) =>
-  a.x === b.x && a.y === b.y && a.scaleX === b.scaleX && a.scaleY === b.scaleY && a.rotation === b.rotation;
+export const sameTransform = (a: LayerTransform, b: LayerTransform) =>
+  a.x === b.x &&
+  a.y === b.y &&
+  a.scaleX === b.scaleX &&
+  a.scaleY === b.scaleY &&
+  a.rotation === b.rotation &&
+  (a.skew ?? 0) === (b.skew ?? 0) &&
+  (a.perspective?.[0] ?? 0) === (b.perspective?.[0] ?? 0) &&
+  (a.perspective?.[1] ?? 0) === (b.perspective?.[1] ?? 0);
+
+/** Whether a layer can be in perspective: an image's or a pixel layer's (text and shapes are drawn affine: they skew). */
+export const canDistort = (l: PhotoLayer) => l.kind === "image" || l.kind === "pixel";
 
 /**
- * Sets part of a placed layer's transform (an image's or a pixel layer's); a scale too close to 0 is held at the
- * smallest (it has to stay invertible). Adjustments have no place of their own: nothing changes.
+ * Sets part of a placed layer's transform; a scale too close to 0 is held at the smallest (it has to stay
+ * invertible), a skew and a perspective to what can be drawn (`skew: 0`, `perspective: [0, 0]` take them off; text
+ * and shapes take no perspective). Adjustments have no place of their own: nothing changes.
  */
 export function setTransform(doc: PhotoProject, id: string, patch: Partial<LayerTransform>): PhotoProject {
   return mapLayer(doc, id, (l) => {
@@ -100,6 +111,11 @@ export function setTransform(doc: PhotoProject, id: string, patch: Partial<Layer
     const clampScale = (s: number) => (Math.abs(s) < MIN_SCALE ? (s < 0 ? -MIN_SCALE : MIN_SCALE) : s);
     const next: LayerTransform = { x: t.x, y: t.y, scaleX: clampScale(t.scaleX), scaleY: clampScale(t.scaleY), rotation: wrapDegrees(t.rotation) };
     if (![next.x, next.y, next.scaleX, next.scaleY, next.rotation].every(Number.isFinite)) return l;
+    if (t.skew !== undefined && !Number.isFinite(t.skew)) return l;
+    const skew = normalizeSkew(t.skew);
+    if (skew) next.skew = skew;
+    const perspective = canDistort(l) ? normalizePerspective(t.perspective) : [0, 0];
+    if (perspective[0] || perspective[1]) next.perspective = [perspective[0], perspective[1]];
     return sameTransform(next, l.transform) ? l : { ...l, transform: next };
   });
 }

@@ -32,12 +32,12 @@ const close = (a: { x: number; y: number }, b: { x: number; y: number }) => {
 };
 
 describe("shape layers in the document", () => {
-  it("is version 7, and survives a save and a load as it was", () => {
-    expect(PHOTO_VERSION).toBe(7);
+  it("is version 8, and survives a save and a load as it was", () => {
+    expect(PHOTO_VERSION).toBe(8);
     const withShapes = addShapeLayer(addShapeLayer(doc, rect({ fill: "#ff0000", sloppiness: 1 })), arrow());
     const again = normalizePhotoProject(JSON.parse(JSON.stringify(withShapes)));
     expect(again.layers).toEqual(withShapes.layers);
-    expect(again.version).toBe(7);
+    expect(again.version).toBe(8);
   });
 
   it("repairs a shape's paint and box, and leaves out one with a shape it doesn't know", () => {
@@ -65,7 +65,7 @@ describe("shape layers in the document", () => {
     expect(shapeKind(u)).toBe("arrow");
     expect(problems.join(" ")).toMatch(/shape this app knows/);
     // A newer document is refused, as ever.
-    expect(() => normalizePhotoProject({ version: 8 })).toThrow(/newer/);
+    expect(() => normalizePhotoProject({ version: 9 })).toThrow(/newer/);
   });
 
   it("names shapes after their kind, and adds them above the active layer", () => {

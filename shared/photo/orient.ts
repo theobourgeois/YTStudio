@@ -5,10 +5,10 @@
  * height), and the canvas's pixels in document space (masks of adjustments, generators, text and shapes; the
  * selection) are moved pixel for pixel, never resampled. Pure.
  */
-import { type CropRect, cropOf, croppedBounds, maskInDocument } from "./crop.ts";
+import { type CropRect, cropOf, partBounds, maskInDocument } from "./crop.ts";
 import { effectDefinition, unavailableReason } from "./effects/index.ts";
 import type { Size } from "./geometry.ts";
-import { bounds, layerMatrix } from "./layers.ts";
+import { bounds } from "./layers.ts";
 import { wrapDegrees } from "./project.ts";
 import {
   type DocPoint,
@@ -80,21 +80,21 @@ export function orientPoint(o: Orientation, p: { x: number; y: number }, from: {
 }
 
 /**
- * A layer's transform carried by the map. Mirror · R(θ) = R(−θ) · Mirror, so a flip negates the angle and the scale
- * along its axis: the five numbers stay a plain place (a turned layer flipped is turned the other way, mirrored).
+ * A layer's transform carried by the map. Mirror · R(θ) · K(k) = R(−θ) · K(−k) · Mirror, so a flip negates the angle,
+ * the skew and the scale along its axis: the numbers stay a plain place (a turned layer flipped is turned the other
+ * way, mirrored). Its perspective is in its own pixels: the map doesn't change it.
  */
 export function orientTransform(t: LayerTransform, o: Orientation, from: { x: number; y: number }, to = from): LayerTransform {
   const { turn, mirror } = DIHEDRAL[o];
   const c = orientPoint(o, t, from, to);
   const angle = t.rotation + turn;
-  if (mirror === "none") return { x: c.x, y: c.y, scaleX: t.scaleX, scaleY: t.scaleY, rotation: wrapDegrees(angle) };
-  return {
-    x: c.x,
-    y: c.y,
-    scaleX: mirror === "x" ? -t.scaleX : t.scaleX,
-    scaleY: mirror === "y" ? -t.scaleY : t.scaleY,
-    rotation: wrapDegrees(-angle + 0),
-  };
+  const next: LayerTransform =
+    mirror === "none"
+      ? { x: c.x, y: c.y, scaleX: t.scaleX, scaleY: t.scaleY, rotation: wrapDegrees(angle) }
+      : { x: c.x, y: c.y, scaleX: mirror === "x" ? -t.scaleX : t.scaleX, scaleY: mirror === "y" ? -t.scaleY : t.scaleY, rotation: wrapDegrees(-angle + 0) };
+  if (t.skew) next.skew = mirror === "none" ? t.skew : -t.skew;
+  if (t.perspective) next.perspective = [t.perspective[0], t.perspective[1]];
+  return next;
 }
 
 /** A generator's or filter's document points through `f`, those of each `point` parameter (`handles`: only the ones drawn on the canvas). */
@@ -118,7 +118,7 @@ const pointMap = (o: Orientation, from: { x: number; y: number }, to = from) => 
 
 /** What a placed layer shows, in document pixels: its crop's box, or the layer's. */
 function shownBounds(layer: PlacedLayer, size: Size) {
-  return layer.crop ? croppedBounds(layerMatrix(layer.transform, size), cropOf(layer, size)) : bounds(layer.transform, size);
+  return layer.crop ? partBounds(layer.transform, size, cropOf(layer, size)) : bounds(layer.transform, size);
 }
 
 /**
