@@ -105,8 +105,8 @@ public:
     void setMeteredTracks (const juce::StringArray& trackIds);
 
     /**
-     * Run the song's plugins on these threads at once (the export's own sequencer; null: one after the
-     * other, as playback does). Only while `process` isn't running.
+     * Run the song's plugins on these threads at once (playback's real-time ones, or the export's; null:
+     * one after the other). Only while `process` isn't running.
      */
     void setWorkers (Workers* pool) { workers = pool; }
     /** A sequencer of the export's own: notes left sounding in the song's plugins end at its first block. */
@@ -282,18 +282,20 @@ private:
     /** A track's effects, fader and meter (`mixTracks`): its own buffers alone, so a stage's run at once. */
     void runTrack (size_t t, bool glide, int numSamples);
     /**
-     * Run `job (i)` for `i` in `[0, count)`: on the workers if there are some (the export), else in turn
-     * (playback: nothing is made, so nothing is allocated on the audio thread).
+     * Run `job (i)` for `i` in `[0, count)`: on the workers if there are some (playback's and the
+     * export's), else in turn. Nothing is allocated either way: it may be the audio thread.
      */
     template <typename Job>
     void each (int count, Job&& job)
     {
         if (workers != nullptr && count > 1)
-            workers->run (count, std::function<void (int)> (job));
+            workers->run (count, job);
         else
             for (int i = 0; i < count; ++i)
                 job (i);
     }
+    /** A cost measured again (high-resolution ticks), smoothed over a few blocks. */
+    static double lately (double cost, juce::int64 ticks) { return cost + 0.25 * ((double) ticks - cost); }
     /** A channel's track's two buffers, or nulls if it has none. */
     std::pair<float*, float*> trackAudio (int channel);
     void renderClick (float* left, float* right, int numSamples);

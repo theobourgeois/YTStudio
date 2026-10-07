@@ -267,6 +267,8 @@ struct Song
         bool monitor = false, armed = false;
         /** Automated: its gains glide from `from` to `gains` across each block. */
         bool automated = false;
+        /** The audio thread's: what its effects took lately (high-resolution ticks), so the costliest of a stage starts first. */
+        double cost = 0;
     };
 
     /**
@@ -424,6 +426,8 @@ struct Song
     juce::AudioBuffer<float> audio;
     /** Scratch too: the plugin channels a block plays (room for all of them is made when it's parsed). */
     std::vector<int> playingPlugins;
+    /** Scratch too: the order a run on the workers hands its plugins or tracks out in, the costliest first (room made likewise). */
+    std::vector<int> order;
     /** The channel pair in `audio` where the selected tracks' sound is added up (`Sequencer::setMeteredTracks`). */
     int selectionBuffer = 0;
     /** The longest block the song can play (a longer one plays silence). */

@@ -74,6 +74,8 @@ struct HostedPlugin
     };
     std::array<Pending, 128> pending;
     int numPending = 0;
+    /** What its blocks took lately (high-resolution ticks), so the costliest plugin starts first on the workers. */
+    double cost = 0;
 
     // Any thread's -------------------------------------------------------------
     /** Its parameters being touched in its window: the one held (automation leaves it alone), the last touched. */
