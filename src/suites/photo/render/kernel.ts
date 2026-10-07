@@ -10,7 +10,7 @@
  * the picture's scene maps (`shared/photo/scene.ts`: read with `scene_at(p)`; a placeholder reading 0 for others).
  */
 import type { EffectParamValue } from "@shared/photo/types.ts";
-import { SCENE_HEADER } from "@shared/photo/scene.ts";
+import { type Affine, IDENTITY, SCENE_HEADER } from "@shared/photo/scene.ts";
 import { ROUND_FOR_STORE, type StorageFormat } from "./kernels.ts";
 import { MATHS } from "./wgsl.ts";
 
@@ -24,13 +24,13 @@ export interface FilterKernel {
   pack: (params: Record<string, EffectParamValue>, canvas: { width: number; height: number }) => { uniform: ArrayBuffer; table?: Float32Array; tableKey?: string };
 }
 
-/** The header's bytes: where the target and its input are, Mix, the canvas, Apply To. */
-export const HEADER_BYTES = 48;
+/** The header's bytes: where the target and its input are, Mix, the canvas, Apply To, where the scene maps are read. */
+export const HEADER_BYTES = 80;
 
 /** WGSL every kernel can use (mirrored by `shared/photo/reference/kernel.ts`). */
 export const KERNEL_PRELUDE = /* wgsl */ `
 ${MATHS}
-struct Header { origin: vec2f, zoom: f32, mix: f32, inOrigin: vec2f, inSize: vec2f, canvas: vec2f, grow: f32, apply: f32 }
+struct Header { origin: vec2f, zoom: f32, mix: f32, inOrigin: vec2f, inSize: vec2f, canvas: vec2f, grow: f32, apply: f32, scene_m: vec4f, scene_t: vec2f, p1: vec2f }
 @group(0) @binding(0) var content_in: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> header: Header;
 @group(0) @binding(3) var<storage, read> table: array<f32>;
@@ -89,13 +89,17 @@ fn scene_cell(i: i32, j: i32) -> vec2f {
   let k = ${SCENE_HEADER}u + 2u * u32(j * i32(scene[0]) + i);
   return vec2f(scene[k], scene[k + 1u]);
 }
+// Where the scene maps are read for document point d: where it was when they were made (its layer has moved since).
+fn scene_point(d: vec2f) -> vec2f {
+  return vec2f(header.scene_m.x * d.x + header.scene_m.z * d.y + header.scene_t.x, header.scene_m.y * d.x + header.scene_m.w * d.y + header.scene_t.y);
+}
 // The picture's scene maps at a document point: (depth, 1 the nearest; subject, 0..1), bilinear between cell centres,
 // held at the grid's edge; 0 where the filter reads none.
 fn scene_at(d: vec2f) -> vec2f {
   if (scene[0] < 1.0) { return vec2f(0.0); }
   let w = i32(scene[0]);
   let h = i32(scene[1]);
-  let u = d / scene[2] - 0.5;
+  let u = scene_point(d) / scene[2] - 0.5;
   let fu = floor(u);
   let f = u - fu;
   let i0 = clamp(i32(fu.x), 0, w - 1);
@@ -138,9 +142,9 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 }
 
 /** The header for a target `view` and its input grown by `grow` of its pixels. */
-export function kernelHeader(view: { x: number; y: number; zoom: number; width: number; height: number }, grow: number, mix: number, canvas: { width: number; height: number }, apply = 0): ArrayBuffer {
+export function kernelHeader(view: { x: number; y: number; zoom: number; width: number; height: number }, grow: number, mix: number, canvas: { width: number; height: number }, apply = 0, place: Affine = IDENTITY): ArrayBuffer {
   const data = new ArrayBuffer(HEADER_BYTES);
-  new Float32Array(data).set([view.x, view.y, view.zoom, mix, view.x - grow / view.zoom, view.y - grow / view.zoom, view.width + 2 * grow, view.height + 2 * grow, canvas.width, canvas.height, grow, apply]);
+  new Float32Array(data).set([view.x, view.y, view.zoom, mix, view.x - grow / view.zoom, view.y - grow / view.zoom, view.width + 2 * grow, view.height + 2 * grow, canvas.width, canvas.height, grow, apply, ...place, 0, 0]);
   return data;
 }
 

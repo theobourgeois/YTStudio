@@ -23,8 +23,15 @@ export interface SceneReads {
  * wasn't asked for, or whose model isn't there, is null (it reads 0).
  */
 export interface SceneMaps {
-  /** Which picture and which maps: part of every plan key that reads them. */
+  /** Which picture, which maps and where they're placed: part of every plan key that reads them. */
   id: string;
+  /** Which grids (the floats the GPU is given; the same however they're placed): `id` when absent. */
+  data?: string;
+  /**
+   * Where the maps are read for a document point now: an affine to where that point was when they were made (its
+   * layer has moved, scaled or turned since). Absent: where they were made.
+   */
+  place?: Affine | null;
   width: number;
   height: number;
   spacing: number;
@@ -34,6 +41,38 @@ export interface SceneMaps {
 
 /** The parameter a filter's scene maps are handed in by (the plan's, never saved). */
 export const SCENE_PARAM = "__scene";
+
+/** `[a, b, c, d, e, f]`: x' = a·x + c·y + e, y' = b·x + d·y + f (layers.ts's). */
+export type Affine = readonly [number, number, number, number, number, number];
+
+/** The affine that changes nothing. */
+export const IDENTITY: Affine = [1, 0, 0, 1, 0, 0];
+
+/** The affine undoing `m`. */
+export function invertAffine(m: Affine): Affine {
+  const det = m[0] * m[3] - m[1] * m[2];
+  const a = m[3] / det;
+  const b = -m[1] / det;
+  const c = -m[2] / det;
+  const d = m[0] / det;
+  return [a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])];
+}
+
+/** `m` after `n`: a point through `n`, then `m`. */
+export const composeAffine = (m: Affine, n: Affine): Affine => [
+  m[0] * n[0] + m[2] * n[1],
+  m[1] * n[0] + m[3] * n[1],
+  m[0] * n[2] + m[2] * n[3],
+  m[1] * n[2] + m[3] * n[3],
+  m[0] * n[4] + m[2] * n[5] + m[4],
+  m[1] * n[4] + m[3] * n[5] + m[5],
+];
+
+/** Where `maps` are read for the document point (x, y) now (their `place`). */
+export function scenePoint(maps: SceneMaps, x: number, y: number): [number, number] {
+  const m = maps.place;
+  return m ? [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]] : [x, y];
+}
 
 /** A filter's scene maps from its drawn parameters (none while they're being made). */
 export const sceneOf = (params: Record<string, unknown>): SceneMaps | null => (params[SCENE_PARAM] as SceneMaps | undefined) ?? null;
@@ -54,11 +93,13 @@ export function sceneGrid(canvas: Size): { width: number; height: number; spacin
 }
 
 /**
- * The maps at a document point: [depth, subject], bilinear between cell centres, held at the grid's edge. WGSL's
- * `scene_at` (render/kernel.ts) does the same arithmetic on the same floats.
+ * The maps at a document point: [depth, subject], bilinear between cell centres, held at the grid's edge, read where
+ * the point was when they were made (`place`). WGSL's `scene_at` (render/kernel.ts) does the same arithmetic on the
+ * same floats.
  */
-export function sceneAt(maps: SceneMaps | null, x: number, y: number): [number, number] {
+export function sceneAt(maps: SceneMaps | null, px: number, py: number): [number, number] {
   if (!maps) return [0, 0];
+  const [x, y] = scenePoint(maps, px, py);
   const u = x / maps.spacing - 0.5;
   const v = y / maps.spacing - 0.5;
   const fu = Math.floor(u);

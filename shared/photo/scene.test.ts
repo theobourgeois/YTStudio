@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { addFilter, addImageLayer, setCompositing } from "./edits.ts";
+import { addFilter, addImageLayer, moveLayersBy, setCompositing } from "./edits.ts";
 import { createPhotoProject } from "./project.ts";
 import { applyKernel } from "./reference/kernel.ts";
 import { KERNEL_REFERENCES } from "./reference/filters/index.ts";
 import { type SceneNeed, type SourceFacts, compileRender, isContentNode } from "./render-plan.ts";
-import { DEPTH_SIDE, type SceneMaps, SCENE_HEADER, SCENE_PARAM, depthInput, depthInputSize, depthMap, guidedFilter, packScene, sceneAt, sceneGrid, sceneOf, sceneSpacing, standInDepth } from "./scene.ts";
+import { type Affine, DEPTH_SIDE, IDENTITY, type SceneMaps, composeAffine, invertAffine, SCENE_HEADER, SCENE_PARAM, depthInput, depthInputSize, depthMap, guidedFilter, packScene, sceneAt, sceneGrid, sceneOf, sceneSpacing, standInDepth } from "./scene.ts";
 
 const maps = (width: number, height: number, spacing: number, depth: (i: number, j: number) => number, subject: ((i: number, j: number) => number) | null = null): SceneMaps => ({
   id: "m",
@@ -117,5 +117,32 @@ describe("scene maps in the plan", () => {
       expect(background.data[k]).toBeCloseTo(right ? image.data[k] : all.data[k]);
     }
     expect(SCENE_PARAM).toBe("__scene");
+  });
+});
+
+describe("scene maps read through a move", () => {
+  it("reads where a point was when they were made", () => {
+    const m = maps(4, 2, 10, (i) => i / 3);
+    // The layer moved 10 px right since: the point 10 px right of where something was reads what was there.
+    const moved = { ...m, place: [1, 0, 0, 1, -10, 0] as const };
+    expect(sceneAt(moved, 25, 5)[0]).toBeCloseTo(sceneAt(m, 15, 5)[0]);
+    const turned: Affine = [0, 1, -1, 0, 3, 7];
+    const back = composeAffine(turned, invertAffine(turned));
+    back.forEach((v, i) => expect(v).toBeCloseTo(IDENTITY[i]));
+  });
+
+  it("a moved layer keeps its picture's key; only its placement changes", () => {
+    const sources = new Map<string, SourceFacts>([["m_a", { width: 400, height: 200, bits: 8 }]]);
+    const base = addFilter(
+      addImageLayer(setCompositing(createPhotoProject("P", { width: 800, height: 600 }), "linear"), { id: "a", mediaId: "m_a", name: "a", size: { width: 400, height: 200 } }),
+      "a",
+      { id: "f", type: "fog", params: {} },
+    );
+    const needs: SceneNeed[] = [];
+    compileRender(base, sources, { scene: (n) => (needs.push(n), null) });
+    compileRender(moveLayersBy(base, ["a"], 30, 10), sources, { scene: (n) => (needs.push(n), null) });
+    expect(needs[1].inputKey).toBe(needs[0].inputKey);
+    expect(needs[1].placement[4] - needs[0].placement[4]).toBeCloseTo(30);
+    expect(needs[1].placement[5] - needs[0].placement[5]).toBeCloseTo(10);
   });
 });

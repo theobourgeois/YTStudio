@@ -42,7 +42,7 @@ fn depth_at(d: vec2f) -> f32 {
   if (scene[0] < 1.0) { return 0.0; }
   let w = i32(scene[0]);
   let h = i32(scene[1]);
-  let u = d / scene[2] - 0.5;
+  let u = scene_point(d) / scene[2] - 0.5;
   let fu = floor(u);
   let t = u - fu;
   let i0 = clamp(i32(fu.x), 0, w - 1);
