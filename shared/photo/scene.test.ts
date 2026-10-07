@@ -146,3 +146,16 @@ describe("scene maps read through a move", () => {
     expect(needs[1].placement[5] - needs[0].placement[5]).toBeCloseTo(10);
   });
 });
+
+describe("scene maps kept on disk", () => {
+  it("round-trips a map to 16 bits, and refuses one of another grid", async () => {
+    const { encodeSceneMap, decodeSceneMap } = await import("./scene.ts");
+    const grid = { width: 3, height: 2, spacing: 4 };
+    const values = Float32Array.from([0, 0.25, 0.5, 0.75, 1, 0.123]);
+    const bytes = encodeSceneMap(grid, values);
+    const back = decodeSceneMap(bytes.slice().buffer, grid)!;
+    back.forEach((v, i) => expect(v).toBeCloseTo(values[i], 4));
+    expect(decodeSceneMap(bytes.slice().buffer, { ...grid, spacing: 8 })).toBeNull();
+    expect(decodeSceneMap(new ArrayBuffer(8), grid)).toBeNull();
+  });
+});

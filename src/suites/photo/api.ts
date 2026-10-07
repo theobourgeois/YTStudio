@@ -37,6 +37,13 @@ export const photoApi = {
     raw: `/api/photo/projects/${projectId}/media/${mediaId}/raw?tile=${tile}`,
     preview: `/api/photo/projects/${projectId}/media/${mediaId}/preview?tile=${tile}`,
   }),
+  /** A scene map kept in the package's cache (docs/photo/effects/scene-maps.md), or null. */
+  sceneMap: async (projectId: string, key: string): Promise<ArrayBuffer | null> => {
+    const res = await fetch(`/api/photo/projects/${projectId}/scene/${key}`);
+    return res.status === 200 ? res.arrayBuffer() : null;
+  },
+  putSceneMap: (projectId: string, key: string, data: Uint8Array) =>
+    request<void>(`/api/photo/projects/${projectId}/scene/${key}`, { method: "PUT", body: data as Uint8Array<ArrayBuffer>, headers: { "Content-Type": "application/octet-stream" } }),
   beginExport: (body: ExportRequest & { projectId: string; destination?: string | null }) =>
     request<{ id: string }>("/api/photo/exports", { method: "POST", body: JSON.stringify(body) }),
   exportRows: (id: string, from: number, rows: Uint8Array) =>

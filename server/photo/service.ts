@@ -9,7 +9,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { CompareResult, ExportRequest, SourceLayout, TileSize } from "../../shared/photo/lab.ts";
 import type { MediaAsset } from "../../shared/types.ts";
-import { HttpError } from "../storage.ts";
+import { HttpError, writeFileDurably } from "../storage.ts";
+
+/** A scene map's largest file: a 1024-cell grid of 16-bit values, and its header. */
+export const SCENE_MAP_BYTES = 4 * 1024 * 1024;
 import { BlobStore } from "./blobs.ts";
 import { PhotoExports } from "./exports.ts";
 import type { PhotoHelper } from "./helper.ts";
@@ -76,6 +79,23 @@ export class PhotoService {
   async previewFile(projectId: string, mediaId: string, tile: TileSize) {
     await this.layout(projectId, mediaId, tile);
     return `${await this.base(projectId, mediaId, tile)}.preview`;
+  }
+
+  /** Where a project's scene map `key` is kept (`photo/cache/scene/`, rebuildable: a copy of the package goes without). */
+  private sceneFile(projectId: string, key: string): string {
+    if (!/^[a-z0-9]{1,64}$/.test(key)) throw new HttpError(400, `A scene map's key is 1 to 64 lowercase letters and digits, not ${JSON.stringify(key)}.`);
+    return path.join(this.options.projectDir(projectId), "photo", "cache", "scene", `${key}.bin`);
+  }
+
+  /** A scene map the tab made before (docs/photo/effects/scene-maps.md), or null. */
+  async sceneMap(projectId: string, key: string): Promise<Buffer | null> {
+    return fs.readFile(this.sceneFile(projectId, key)).catch(() => null);
+  }
+
+  /** Keeps a scene map the tab made, so the photo opened again needn't run the model. */
+  async putSceneMap(projectId: string, key: string, data: unknown): Promise<void> {
+    if (!Buffer.isBuffer(data) || data.length < 16 || data.length > SCENE_MAP_BYTES) throw new HttpError(400, `A scene map is 16 bytes to ${SCENE_MAP_BYTES} bytes of binary.`);
+    await writeFileDurably(this.sceneFile(projectId, key), data);
   }
 
   /** A project's pixels: its surfaces' tiles and manifests, in its package (`photo/resources`). */

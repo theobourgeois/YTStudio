@@ -7,7 +7,7 @@ import type { PhotoLab } from "./lab.ts";
 import { isPhotoModelName, type PhotoModelName } from "../../shared/photo/models.ts";
 import type { PhotoModel } from "./models.ts";
 import type { PhotoOnline } from "./online.ts";
-import type { ExportStart, PhotoService } from "./service.ts";
+import { type ExportStart, type PhotoService, SCENE_MAP_BYTES } from "./service.ts";
 
 const tileOf = (value: unknown): TileSize => {
   const n = Number(value ?? 256);
@@ -133,6 +133,18 @@ export function photoRoutes(photo: PhotoService, models: Record<PhotoModelName, 
     const tile = await photo.blobs(req.params.projectId).getTile(req.params.hash);
     res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
     res.type("application/octet-stream").send(tile);
+  });
+  // Scene maps the tab made (docs/photo/effects/scene-maps.md), kept in the package's cache by their key.
+  router.get("/projects/:projectId/scene/:key", async (req, res) => {
+    const map = await photo.sceneMap(req.params.projectId, req.params.key);
+    res.setHeader("Cache-Control", "no-cache");
+    // None yet is the usual answer (the tab makes it), not an error.
+    if (!map) return void res.status(204).end();
+    res.type("application/octet-stream").send(map);
+  });
+  router.put("/projects/:projectId/scene/:key", raw({ type: () => true, limit: SCENE_MAP_BYTES }), async (req, res) => {
+    await photo.putSceneMap(req.params.projectId, req.params.key, req.body);
+    res.status(204).end();
   });
   router.put("/projects/:projectId/manifests/:hash", json({ limit: "8mb" }), async (req, res) => {
     const stored = await photo.blobs(req.params.projectId).putManifest(req.params.hash, req.body);

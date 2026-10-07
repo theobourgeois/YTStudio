@@ -36,13 +36,16 @@ tab (`src/suites/photo/models.ts`, ONNX Runtime Web on WebGPU, as every photo mo
   gives it the picture's edges, so a blur or fog by depth stops at the subject's outline (`depthMap`).
 - **Subject**: IS-Net's 1024 × 1024 answer, read at the grid's cells.
 
-Maps are kept by picture (its input key and canvas), up to 16, each map added when a filter first asks for it. The
-key says nothing of where the layer is: a layer moved, scaled or turned reads the maps it had through the move
-(`SceneMaps.place`, an affine from the document point now to where it was, in the kernel's header), and they're made
-again where it is once it has stayed there (`SETTLE_MS`); a filter whose picture changed (a stroke) is shown its last
-maps meanwhile. Model runs go one at a time (`runModel`): two at once on one ONNX Runtime session spun the page's
-thread for good, which is what froze the app when a layer with a depth filter was dragged (each step a new picture,
-a new run).
+An image's or a pixel layer's maps are made of **its own pixels**: the whole layer at its natural size, wherever it
+is (`SceneNeed.size`, `sceneInput`), on a grid of its pixels, and read through where it is now (`SceneMaps.place`, an
+affine from the document point to the layer's pixel, in the kernel's header), as its mask is. Moving, scaling or
+turning it never makes them again, and nothing off the canvas is missed. What draws itself on the document (text,
+shapes, generators) has maps of the document: read through a move at once, made again once it has stayed put
+(`SETTLE_MS`). A filter whose picture changed (a stroke) is shown its last maps while new ones are made. Maps are kept
+in memory by picture (up to 16) and **in the project's package** (`photo/cache/scene/<key>.bin`, 16-bit cells:
+`encodeSceneMap`; `/api/photo/projects/:id/scene/:key`), by what they're of and the model that made them, so the
+photo opened again reads them instead of running the models (the stand-ins' maps are never kept). Model runs go one
+at a time (`runModel`): two at once on one ONNX Runtime session spun the page's thread for good.
 
 The plan (`compileRender`'s `scene` resolver) hands a filter its maps in `SCENE_PARAM` and keys its node by their id;
 **until they're made the filter is left out** (its keys say nothing of it, so nothing drawn without it is reused).
