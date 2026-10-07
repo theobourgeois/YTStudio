@@ -17,7 +17,11 @@
  * on the GPU is its CPU reference (`shared/photo/reference/camera-raw.ts`), and the adjustment over the photo alone
  * is the filter on it. `hue-saturation` does the same for Hue/Saturation (docs/photo/hue-saturation.md).
  *
- *   pnpm tsx scripts/photo-sheet.ts [glow|flare|film|camera-raw|hue-saturation|<filter type> ...] [--out photo-sheet.png] [--thumbnails] [--port 5344]
+ * Filters that read their picture's scene maps (depth, subject: docs/photo/effects/scene-maps.md) get them from the
+ * models' stand-ins, unless `--models` says to use the real ones (downloaded first if they aren't here: thumbnails
+ * want them). The reference is given the maps the renderer drew with.
+ *
+ *   pnpm tsx scripts/photo-sheet.ts [glow|flare|film|camera-raw|hue-saturation|<filter type> ...] [--out photo-sheet.png] [--thumbnails] [--models] [--port 5344]
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -35,6 +39,10 @@ import { sceneSvg } from "./photo-filter-scene.ts";
 import type { View } from "../shared/photo/geometry.ts";
 import { filmHighlights } from "../shared/photo/output.ts";
 import type { PhotoProject } from "../shared/photo/types.ts";
+import type { SceneMaps } from "../shared/photo/scene.ts";
+
+/** Scene maps as the bench hands them over (plain arrays). */
+type SheetMaps = Omit<SceneMaps, "depth" | "subject"> & { depth: number[] | null; subject: number[] | null };
 
 const args = process.argv.slice(2);
 const option = (name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
@@ -53,7 +61,8 @@ const wanted = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--o
 const shows = (tag: string) => wanted.length === 0 || wanted.includes(tag);
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "photo-sheet-"));
-const env: NodeJS.ProcessEnv = { ...process.env, EDITOR_DATA_DIR: dataDir, EDITOR_SERVER_PORT: SERVER_PORT, EDITOR_WEB_PORT: WEB_PORT };
+const realModels = args.includes("--models");
+const env: NodeJS.ProcessEnv = { ...process.env, EDITOR_DATA_DIR: dataDir, EDITOR_SERVER_PORT: SERVER_PORT, EDITOR_WEB_PORT: WEB_PORT, EDITOR_NO_HMR: "1", ...(realModels ? {} : { EDITOR_PHOTO_MODELS: "stand-in" }) };
 delete env.ELECTRON_RUN_AS_NODE;
 const children: ChildProcess[] = [];
 process.on("exit", () => {
@@ -92,6 +101,17 @@ children.push(
 const server = `http://127.0.0.1:${SERVER_PORT}`;
 await waitFor(`${server}/api/health`);
 await waitFor(`http://localhost:${WEB_PORT}/`);
+if (realModels) {
+  for (const model of ["subject", "depth"]) {
+    await fetch(`${server}/api/photo/models/${model}/setup`, { method: "POST" });
+    for (;;) {
+      const status = (await (await fetch(`${server}/api/photo/models/${model}`)).json()) as { status: string; progress: number | null; error: string | null };
+      if (status.status === "ready") break;
+      if (status.status !== "downloading") throw new Error(`The ${model} model isn't here: ${status.error ?? status.status}`);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+}
 
 const created = (await (await fetch(`${server}/api/projects`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ suite: "photo", name: "Sheet" }) })).json()) as { id: string };
 const media = (await (await fetch(`${server}/api/media?projectId=${created.id}&name=photo.jpg`, { method: "POST", body: fs.readFileSync(SAMPLE) })).json()) as { id: string };
@@ -104,6 +124,7 @@ type Bench = {
   renderDoc(doc: PhotoProject, view: View): Promise<number[]>;
   compileErrors(): Promise<string[]>;
   cameraRawAnalysis(doc: PhotoProject, layerId: string, filterId: string | null): Promise<{ grid: number[]; colour: number[] } | null>;
+  sceneMaps(doc: PhotoProject, layerId: string, filterId: string): Promise<SheetMaps | null>;
 };
 type SheetWindow = { photoBench?: { load(): Promise<Bench> } };
 
@@ -217,7 +238,16 @@ if (shows("glow")) {
 
 // Kernel filters: each look on the GPU is its CPU reference, on the photo and on the cut-out's soft edges. The
 // reference reads the content (the scene without the filter) over the region grown by the filter's reach.
-for (const e of FILTER_ENTRIES.filter((e) => isKernelFilter(e.def.type) && shows(tagOf(e.def.type)))) {
+// Every kernel filter's looks, and Apply To (a look on the subject alone, another on the background alone).
+const applied = (key: string, applyTo: string) => {
+  const e = FILTER_ENTRIES.find((f) => f.key === key)!;
+  return { ...e, key: `${e.key} (${applyTo} only)`, preset: { ...e.preset, params: (c: { width: number; height: number }) => ({ ...e.preset.params(c), applyTo }) } };
+};
+const kernelLooks = [
+  ...FILTER_ENTRIES.filter((e) => isKernelFilter(e.def.type) && shows(tagOf(e.def.type))),
+  ...(shows("apply-to") ? [applied("posterize/screenprint", "subject"), applied("wind/blast", "background")] : []),
+];
+for (const e of kernelLooks) {
   const reference = KERNEL_REFERENCES[e.def.type];
   if (!reference) {
     failures.push(`${e.key}: no CPU reference`);
@@ -231,8 +261,19 @@ for (const e of FILTER_ENTRIES.filter((e) => isKernelFilter(e.def.type) && shows
     const W = 128;
     const H = 96;
     const plain = await call<number[]>("renderDoc", { ...sc.doc, canvas: { ...sc.doc.canvas, background: null } }, { zoom: 1, x: x0 - R, y: y0 - R, width: W + 2 * R, height: H + 2 * R });
-    const filtered = await call<number[]>("renderDoc", addFilter({ ...sc.doc, canvas: { ...sc.doc.canvas, background: null } }, sc.layer, { id: "sheet_kernel", type: e.def.type, params }), { zoom: 1, x: x0, y: y0, width: W, height: H });
-    const expected = applyKernel(reference, { width: W + 2 * R, height: H + 2 * R, data: Float64Array.from(plain) }, full, sc.doc.canvas, { x: x0 - R, y: y0 - R });
+    const doc = addFilter({ ...sc.doc, canvas: { ...sc.doc.canvas, background: null } }, sc.layer, { id: "sheet_kernel", type: e.def.type, params });
+    const filtered = await call<number[]>("renderDoc", doc, { zoom: 1, x: x0, y: y0, width: W, height: H });
+    // The scene maps it drew with, for one that reads them.
+    let maps: SceneMaps | null = null;
+    if (e.def.scene?.(full)) {
+      const m = await call<SheetMaps | null>("sceneMaps", doc, sc.layer, "sheet_kernel");
+      if (!m) {
+        failures.push(`${e.key} on ${sc.name}: its scene maps weren't made`);
+        continue;
+      }
+      maps = { ...m, depth: m.depth && Float32Array.from(m.depth), subject: m.subject && Float32Array.from(m.subject) };
+    }
+    const expected = applyKernel(reference, { width: W + 2 * R, height: H + 2 * R, data: Float64Array.from(plain) }, full, sc.doc.canvas, { x: x0 - R, y: y0 - R }, maps);
     const diffs: number[] = [];
     for (let j = 0; j < H; j++)
       for (let i = 0; i < W; i++)

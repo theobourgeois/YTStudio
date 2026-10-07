@@ -3,6 +3,7 @@ import { FILTER_ENTRIES, entryParams } from "../../effects/catalog.ts";
 import { isKernelFilter, validateParams } from "../../effects/index.ts";
 import type { FloatImage } from "../glow.ts";
 import { applyKernel } from "../kernel.ts";
+import { type SceneMaps, sceneGrid } from "../../scene.ts";
 import { KERNEL_REFERENCES } from "./index.ts";
 
 const CANVAS = { width: 96, height: 72 };
@@ -25,7 +26,30 @@ function picture(seed = 1): FloatImage {
   return { width, height, data };
 }
 
+/**
+ * The test picture's scene maps (docs/photo/effects/scene-maps.md): nearer lower down and on a soft ellipse, the
+ * subject, a little right of the middle.
+ */
+function testMaps(): SceneMaps {
+  const { width, height, spacing } = sceneGrid(CANVAS);
+  const subject = new Float32Array(width * height);
+  const depth = new Float32Array(width * height);
+  for (let j = 0; j < height; j++) {
+    for (let i = 0; i < width; i++) {
+      const x = ((i + 0.5) * spacing) / CANVAS.width;
+      const y = ((j + 0.5) * spacing) / CANVAS.height;
+      const s = Math.min(1, Math.max(0, (1 - Math.hypot((x - 0.55) / 0.22, (y - 0.5) / 0.35)) * 4));
+      subject[j * width + i] = s;
+      depth[j * width + i] = Math.min(1, 0.15 + 0.5 * y + 0.35 * s);
+    }
+  }
+  return { id: "test", width, height, spacing, depth, subject };
+}
+const MAPS = testMaps();
+
 const KERNEL_ENTRIES = FILTER_ENTRIES.filter((e) => isKernelFilter(e.def.type));
+/** The maps a filter gets with these settings: the test picture's when it reads any. */
+const mapsFor = (e: (typeof KERNEL_ENTRIES)[number], params: Record<string, unknown>) => (e.def.scene?.(params as never) ? MAPS : null);
 const full = (e: (typeof KERNEL_ENTRIES)[number], mix?: number) => validateParams(e.def, { ...entryParams(e, CANVAS), ...(mix === undefined ? {} : { mix }) }).params;
 
 describe("the kernel filters' references", () => {
@@ -38,9 +62,9 @@ describe("the kernel filters' references", () => {
   it.each(KERNEL_ENTRIES.map((e) => [e.key, e] as const))("%s: Mix 0 changes nothing; every value is finite; it changes the picture", (_key, e) => {
     const image = picture();
     const reference = KERNEL_REFERENCES[e.def.type];
-    const unchanged = applyKernel(reference, image, full(e, 0), CANVAS);
+    const unchanged = applyKernel(reference, image, full(e, 0), CANVAS, undefined, mapsFor(e, full(e, 0)));
     expect(Array.from(unchanged.data)).toEqual(Array.from(image.data));
-    const out = applyKernel(reference, image, full(e), CANVAS);
+    const out = applyKernel(reference, image, full(e), CANVAS, undefined, mapsFor(e, full(e)));
     expect(Array.from(out.data).every(Number.isFinite)).toBe(true);
     // Coverage stays a coverage.
     for (let i = 3; i < out.data.length; i += 4) expect(out.data[i]).toBeGreaterThanOrEqual(-1e-9);
@@ -54,9 +78,10 @@ describe("the kernel filters' references", () => {
     const reach = e.def.reach(params);
     const reference = KERNEL_REFERENCES[e.def.type];
     const image = picture();
-    const out = applyKernel(reference, image, params, CANVAS);
+    const maps = mapsFor(e, params);
+    const out = applyKernel(reference, image, params, CANVAS, undefined, maps);
     // The same again: nothing random but what's seeded.
-    expect(Array.from(applyKernel(reference, image, params, CANVAS).data)).toEqual(Array.from(out.data));
+    expect(Array.from(applyKernel(reference, image, params, CANVAS, undefined, maps).data)).toEqual(Array.from(out.data));
     // Everything farther than its reach (in either axis) from a probe pixel changed: the probe isn't.
     const probe = { x: 40, y: 30 };
     const changed = picture(99);
@@ -73,7 +98,7 @@ describe("the kernel filters' references", () => {
         const k = (y * CANVAS.width + x) * 4;
         changed.data.set(image.data.subarray(k, k + 4), k);
       }
-    const again = applyKernel(reference, changed, params, CANVAS);
+    const again = applyKernel(reference, changed, params, CANVAS, undefined, maps);
     const k = (probe.y * CANVAS.width + probe.x) * 4;
     expect(Array.from(again.data.subarray(k, k + 4))).toEqual(Array.from(out.data.subarray(k, k + 4)));
   });

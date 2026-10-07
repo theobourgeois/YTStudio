@@ -32,6 +32,7 @@ import { type FilterPreview, startingPreview } from "./filter-preview";
 import { layerActions } from "./layer-actions";
 import { cameraRawActions } from "./camera-raw/actions";
 import { ParamField } from "./panels/params";
+import { SceneModelNote } from "./scene-model-note";
 import { currentDoc, usePhotoDoc } from "./store";
 import { usePhotoUi } from "./ui";
 
@@ -159,6 +160,7 @@ function LookSettings({ entry, preview }: { entry: FilterEntry; preview: FilterP
   };
   return (
     <div className="flex flex-col gap-3" data-filter-settings={entry.key}>
+      <SceneModelNote def={entry.def} params={preview.params} />
       {entry.def.params
         .filter((spec) => specShows(spec, preview.params))
         .map((spec) => (

@@ -23,6 +23,8 @@ import { APPLY, APPLY_OCTAVES, BLUR, CONTRIBUTION, type OctaveRead, type PlacedO
 import { ROUND_FOR_STORE } from "./kernels.ts";
 import { FILTER_KERNELS } from "./filters/index.ts";
 import { type FilterKernel, kernelHeader, kernelShader } from "./kernel.ts";
+import { applyToCode } from "@shared/photo/effects/kernel.ts";
+import { type SceneMaps, packScene, sceneOf } from "@shared/photo/scene.ts";
 import { ATLAS, IMAGE_STRUCTS, MASK_SAMPLE, MATHS, imageFunctions } from "./wgsl.ts";
 
 const USAGE = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST;
@@ -222,6 +224,8 @@ export class Isolation {
   private readonly noTable: GPUBuffer;
   /** Tables kept by their key (Camera Raw's, with its analysis's grid), most recently used last. */
   private readonly tables = new Map<string, GPUBuffer>();
+  /** Scene maps on the GPU by their id (`shared/photo/scene.ts`), most recently used last. */
+  private readonly scenes = new Map<string, GPUBuffer>();
 
   private constructor(
     private readonly compositor: Compositor,
@@ -232,6 +236,7 @@ export class Isolation {
     this.pool = new TexturePool(device);
     this.sampler = device.createSampler();
     this.dummy = device.createTexture({ label: "no octave", size: [1, 1], format: "rgba16float", usage: GPUTextureUsage.TEXTURE_BINDING });
+    // Zeros: as a table, nothing; as scene maps, a grid of no cells (they read 0).
     this.noTable = device.createBuffer({ label: "no table", size: 16, usage: GPUBufferUsage.STORAGE });
     this.layouts = layouts;
   }
@@ -282,6 +287,7 @@ export class Isolation {
         { binding: 1, visibility: FRAG, buffer: { type: "uniform" } },
         { binding: 2, visibility: FRAG, buffer: { type: "uniform" } },
         { binding: 3, visibility: FRAG, buffer: { type: "read-only-storage" } },
+        { binding: 4, visibility: FRAG, buffer: { type: "read-only-storage" } },
       ],
     });
     const blendOf = (b: Blend): GPUBlendState => ({
@@ -422,14 +428,38 @@ export class Isolation {
       layout: this.layouts.kernel,
       entries: [
         { binding: 0, resource: source.createView() },
-        { binding: 1, resource: { buffer: this.uniform(kernelHeader(view, grow, ((f.params.mix as number | undefined) ?? 100) / 100, f.canvas), "kernel header") } },
+        { binding: 1, resource: { buffer: this.uniform(kernelHeader(view, grow, ((f.params.mix as number | undefined) ?? 100) / 100, f.canvas, applyToCode(f.params)), "kernel header") } },
         { binding: 2, resource: { buffer: this.uniform(packed.uniform, "kernel params") } },
         { binding: 3, resource: { buffer: table } },
+        { binding: 4, resource: { buffer: this.sceneBuffer(sceneOf(f.params)) } },
       ],
     });
     const out = this.pool.take(view.width, view.height, format, f.type);
     this.pass(encoder, out, this.pipelines.kernels.get(`${f.type}:${format}`)!, [group]);
     return out;
+  }
+
+  /** A filter's scene maps on the GPU (kept by their id), or the placeholder when it reads none. */
+  private sceneBuffer(maps: SceneMaps | null): GPUBuffer {
+    if (!maps) return this.noTable;
+    const kept = this.scenes.get(maps.id);
+    if (kept) {
+      // Most recently used last.
+      this.scenes.delete(maps.id);
+      this.scenes.set(maps.id, kept);
+      return kept;
+    }
+    const { device } = this.compositor.ctx;
+    const data = packScene(maps);
+    const buffer = device.createBuffer({ label: "scene maps", size: data.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(buffer, 0, data);
+    this.scenes.set(maps.id, buffer);
+    while (this.scenes.size > KEPT_TABLES) {
+      const [oldest, old] = this.scenes.entries().next().value!;
+      this.scenes.delete(oldest);
+      void device.queue.onSubmittedWorkDone().then(() => setTimeout(() => old.destroy(), 0));
+    }
+    return buffer;
   }
 
   /** A generator's content: a flare's elements at every target pixel. */

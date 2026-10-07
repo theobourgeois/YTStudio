@@ -9,6 +9,7 @@
  * None commutes with reduction (they're not linear, or draw patterns in document pixels): a reduced view shows them
  * evaluated at its own level first, then refined from level 0 as Curves is.
  */
+import type { SceneReads } from "../scene.ts";
 import type { EffectParamValue, Gradient } from "../types.ts";
 import type { EffectDefinition, FilterCategory } from "./index.ts";
 import type { BooleanParam, ChoiceParam, ColourParam, EffectPreset, GradientParam, NumberParam, ParamSpec, PointParam } from "./params.ts";
@@ -29,10 +30,33 @@ export interface KernelFilterSpec {
   presets: readonly EffectPreset[];
   /** Whether these settings leave the content as it is (besides Mix 0). */
   isIdentity?: (params: Record<string, EffectParamValue>) => boolean;
+  /** The scene maps it reads besides Apply To's (`../scene.ts`): its picture's depth, its subject. */
+  scene?: (params: Record<string, EffectParamValue>) => SceneReads | null;
 }
 
 /** Mix: how much of the filter's result replaces the content (Photoshop's Fade), last on every kernel filter. */
 export const MIX: NumberParam = { kind: "number", key: "mix", label: "Mix", unit: "%", min: 0, max: 100, step: 1, decimals: 0, default: 100, description: "How much of the filter's result is used: 0 leaves the layer as it was." };
+
+/**
+ * Apply To: where the filter changes the layer, by its subject (`../scene.ts`): everywhere, the subject alone (the
+ * background left as it was), or the background alone. Last but Mix on every kernel filter; applied by the pass.
+ */
+export const APPLY_TO: ChoiceParam = {
+  kind: "choice",
+  key: "applyTo",
+  label: "Apply To",
+  options: [
+    { value: "all", label: "Everything" },
+    { value: "subject", label: "Subject" },
+    { value: "background", label: "Background" },
+  ],
+  radio: true,
+  default: "all",
+  description: "Where the filter changes the layer: everywhere, only its subject (found by Select Subject's model), or only the background around the subject.",
+};
+
+/** Apply To as the pass reads it: 0 everywhere, 1 the subject, 2 the background. */
+export const applyToCode = (params: Record<string, EffectParamValue>) => (params.applyTo === "subject" ? 1 : params.applyTo === "background" ? 2 : 0);
 
 /** A filter definition from a kernel spec. */
 export function kernelFilter(spec: KernelFilterSpec): EffectDefinition {
@@ -43,7 +67,7 @@ export function kernelFilter(spec: KernelFilterSpec): EffectDefinition {
     kind: "filter",
     label: spec.label,
     description: spec.description,
-    params: [...spec.params, MIX],
+    params: [...spec.params, APPLY_TO, MIX],
     category: spec.category,
     presets: spec.presets,
     region: "neighbourhood",
@@ -53,8 +77,13 @@ export function kernelFilter(spec: KernelFilterSpec): EffectDefinition {
       return r > 0 ? Math.ceil(r) + 1 : 0;
     },
     isIdentity: (p) => p.mix === 0 || !!spec.isIdentity?.(p),
+    scene: (p) => {
+      const own = spec.scene?.(p) ?? null;
+      const subject = applyToCode(p) !== 0;
+      return own || subject ? { depth: !!own?.depth, subject: subject || !!own?.subject } : null;
+    },
     commutesWithReduction: () => false,
-    summary: (p) => `${spec.summary(p)}${p.mix !== 100 ? `, mix ${p.mix}%` : ""}`,
+    summary: (p) => `${spec.summary(p)}${applyToCode(p) === 1 ? ", subject only" : applyToCode(p) === 2 ? ", background only" : ""}${p.mix !== 100 ? `, mix ${p.mix}%` : ""}`,
   };
 }
 

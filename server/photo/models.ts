@@ -89,4 +89,5 @@ export class PhotoModel {
 export const photoModels = (modelsDir: string, standIn: boolean): Record<PhotoModelName, PhotoModel> => ({
   subject: new PhotoModel(modelsDir, standIn, PHOTO_MODELS.subject),
   fill: new PhotoModel(modelsDir, standIn, PHOTO_MODELS.fill),
+  depth: new PhotoModel(modelsDir, standIn, PHOTO_MODELS.depth),
 });

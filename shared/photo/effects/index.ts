@@ -9,6 +9,7 @@
  */
 import { curvesFor, exposurePixel, type Pixel } from "../reference/adjustments.ts";
 import type { CurveSet, EffectElement, EffectInstance, EffectParamValue, Gradient } from "../types.ts";
+import type { SceneReads } from "../scene.ts";
 import { KERNEL_FILTERS } from "./filters/index.ts";
 import { FLARE_PARAMS, FLARE_PRESETS, flarePreset } from "./flare.ts";
 import { GRADIENT_FILL, GRADIENT_FILL_PARAMS, GRADIENT_FILL_PRESETS, GRADIENT_TYPE_LABELS, gradientFillShape } from "./gradient.ts";
@@ -33,7 +34,7 @@ export type EffectKind = "adjustment" | "filter" | "generator";
  * Where the Filter menu and the Filter Gallery list a filter or a generator (Photoshop's Filter menu has Blur,
  * Distort, Render…). A new category is a name here; its filters say they're in it.
  */
-export const FILTER_CATEGORIES = ["Colour", "Light", "Stylize", "Pixelate", "Glitch", "Film", "Blur", "Distort"] as const;
+export const FILTER_CATEGORIES = ["Colour", "Light", "Depth", "Subject", "Stylize", "Pixelate", "Glitch", "Film", "Blur", "Distort"] as const;
 export type FilterCategory = (typeof FILTER_CATEGORIES)[number];
 
 export interface EffectDefinition {
@@ -63,6 +64,11 @@ export interface EffectDefinition {
   presets?: readonly EffectPreset[];
   /** A kernel filter (`kernel.ts`): a function of the point and its content nearby, evaluated by the generic kernel pass. */
   kernel?: true;
+  /**
+   * The scene maps it reads with these parameters (its picture's depth, its subject: `../scene.ts`), or null: the plan
+   * hands them in (`SCENE_PARAM`) once they're made, and leaves the filter out until then.
+   */
+  scene?: (params: Record<string, EffectParamValue>) => SceneReads | null;
   /** Every kind it can be used as, when more than its `kind` (Camera Raw: a filter and an adjustment layer). */
   kinds?: readonly EffectKind[];
 }

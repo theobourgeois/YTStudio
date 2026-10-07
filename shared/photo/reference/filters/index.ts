@@ -6,6 +6,10 @@ import { EDGES_REFERENCES } from "./edges.ts";
 import { GLITCH_REFERENCES } from "./glitch.ts";
 import { FILM_REFERENCES } from "./film.ts";
 import { DISTORT_REFERENCES } from "./distort.ts";
+import { DEPTH_REFERENCES } from "./depth.ts";
+import { FOCUS_REFERENCES } from "./focus.ts";
+import { ATMOSPHERE_REFERENCES } from "./atmosphere.ts";
+import { SUBJECT_REFERENCES } from "./subject.ts";
 import { WIND_REFERENCES } from "./wind.ts";
 import { WARP_REFERENCES } from "./warp.ts";
 import { GLASS_REFERENCES } from "./glass.ts";
@@ -19,4 +23,4 @@ import type { KernelReference } from "../kernel.ts";
 import { cameraRawReference } from "../camera-raw.ts";
 import { hueSaturationReference } from "../hue-saturation.ts";
 
-export const KERNEL_REFERENCES: Record<string, KernelReference> = { ...COLOUR_REFERENCES, ...LIGHT_REFERENCES, ...STYLIZE_REFERENCES, ...EDGES_REFERENCES, ...GLITCH_REFERENCES, ...FILM_REFERENCES, ...DISTORT_REFERENCES, ...WIND_REFERENCES, ...WARP_REFERENCES, ...GLASS_REFERENCES, ...SURFACE_REFERENCES, ...CELLS_REFERENCES, ...PAINT_REFERENCES, ...PRINT_REFERENCES, ...CRT_REFERENCES, ...EXTRUDE_REFERENCES, "camera-raw": cameraRawReference, "hue-saturation": hueSaturationReference };
+export const KERNEL_REFERENCES: Record<string, KernelReference> = { ...COLOUR_REFERENCES, ...LIGHT_REFERENCES, ...STYLIZE_REFERENCES, ...EDGES_REFERENCES, ...GLITCH_REFERENCES, ...FILM_REFERENCES, ...DISTORT_REFERENCES, ...DEPTH_REFERENCES, ...FOCUS_REFERENCES, ...ATMOSPHERE_REFERENCES, ...SUBJECT_REFERENCES, ...WIND_REFERENCES, ...WARP_REFERENCES, ...GLASS_REFERENCES, ...SURFACE_REFERENCES, ...CELLS_REFERENCES, ...PAINT_REFERENCES, ...PRINT_REFERENCES, ...CRT_REFERENCES, ...EXTRUDE_REFERENCES, "camera-raw": cameraRawReference, "hue-saturation": hueSaturationReference };

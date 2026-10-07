@@ -42,7 +42,9 @@ filter's settings beside them; OK applies. Ours (`src/suites/photo/filters.tsx`)
 ## The filters
 
 By category (the Filter menu's and the gallery's order). Sizes in presets are fractions of the canvas's diagonal,
-so a look is the same on any canvas. 35 filters with Glow and Lens Flare, 157 looks. The second batch (Holographic
+so a look is the same on any canvas. 46 filters with Glow and Lens Flare, 219 looks; the Depth and Subject
+categories, which read the picture's scene maps, are [scene-maps.md](scene-maps.md)'s, and every kernel filter has
+Apply To (subject / background) from there. The second batch (Holographic
 Foil, Wind, Chrome, Oil Paint, Risograph, ASCII, Extrude, the Pixelate cells, CRT, Motion Blur, the warps and the
 glasses, 2026-10-06) follows Photoshop's Filter menu where it has the filter, and the covers of the moment where it
 doesn't.

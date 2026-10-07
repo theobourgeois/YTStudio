@@ -21,6 +21,7 @@ import { layerActions } from "../layer-actions";
 import { usePhoto } from "../store";
 import { usePhotoUi } from "../ui";
 import { ParamField } from "./params";
+import { SceneModelNote } from "../scene-model-note";
 
 /** Each element type's icon. */
 const ELEMENT_ICONS: Record<string, typeof PiSun> = { glow: PiSun, halo: PiCircle, ghost: PiHexagon, streak: PiLineSegment };
@@ -60,6 +61,7 @@ export function FilterProperties({ layer, filterId }: { layer: ContentLayer; fil
         </p>
       ) : (
         <div className={cn("flex flex-col gap-3", !filter.enabled && "opacity-60")} data-filter-properties={filter.type}>
+          <SceneModelNote def={def} params={filter.params} />
           {def.params
             .filter((spec) => specShows(spec, filter.params))
             .map((spec) => (

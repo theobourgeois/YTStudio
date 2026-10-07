@@ -29,6 +29,8 @@ import {
   backgroundLight,
   type CameraRawNeed,
   type CameraRawResolver,
+  type SceneNeed,
+  type SceneResolver,
   type CompileOptions,
   compileRender,
   filtersReach,
@@ -50,7 +52,8 @@ import { COMPOSITE_FORMATS, Compositor, type Drawable, type EvaluatorStats, type
 import { RenderContext } from "./context.ts";
 import type { BrushEffect } from "./brush-effects.ts";
 import { GlowCaches } from "./glow-cache.ts";
-import { CameraRawAnalyses } from "./camera-raw-analysis.ts";
+import { type AnalysisHost, CameraRawAnalyses } from "./camera-raw-analysis.ts";
+import { SceneMapStore } from "./scene-maps.ts";
 import { type Gpu, createGpu } from "./gpu.ts";
 import { LatestOnly } from "./latest.ts";
 import { SourceImage } from "./source.ts";
@@ -198,7 +201,7 @@ export class PhotoRenderer {
   private projectId: string | null = null;
   private doc: PhotoProject | null = null;
   private assets = new Map<string, MediaAsset>();
-  private compiled: { doc: PhotoProject; assets: Map<string, MediaAsset>; analyses: number; plan: RenderPlan; pending: boolean } | null = null;
+  private compiled: { doc: PhotoProject; assets: Map<string, MediaAsset>; analyses: string; plan: RenderPlan; pending: boolean } | null = null;
   /** Bumped by every new document: what the screen's frames are stamped with. */
   revision = 0;
   /** Bumped whenever tiles arrive or go: kept composites made before then are out of date. */
@@ -227,10 +230,10 @@ export class PhotoRenderer {
   /** Each glow's contributions over its layer, from level-0 renders (`glow-cache.ts`). */
   readonly glows: GlowCaches;
 
-  /** Camera Raw's analyses, by what each develops (`camera-raw-analysis.ts`). */
-  readonly cameraRaw = new CameraRawAnalyses({
+  /** How analyses and scene maps are made: a picture rendered coarsely and read back, once what it shows is in. */
+  private readonly analysisHost: AnalysisHost = {
     settled: async (doc) => {
-      const plan = compileRender(doc, this.facts(), { cameraRaw: () => null });
+      const plan = compileRender(doc, this.facts(), { cameraRaw: () => null, scene: () => null });
       while (!this.destroyed && (this.recovering || !this.settledSources(plan))) await new Promise((r) => setTimeout(r, 20));
     },
     renderFloats: async (doc, view) => {
@@ -240,7 +243,18 @@ export class PhotoRenderer {
       return data;
     },
     built: () => this.changed(),
-  });
+  };
+
+  /** Camera Raw's analyses, by what each develops (`camera-raw-analysis.ts`). */
+  readonly cameraRaw = new CameraRawAnalyses(this.analysisHost);
+
+  /** Filters' scene maps (depth, subject), by the picture each is of (`scene-maps.ts`). */
+  readonly scene = new SceneMapStore(this.analysisHost);
+
+  /** What the analyses and maps the plans read are now: a plan compiled before they changed is compiled again. */
+  private analyses() {
+    return `${this.cameraRaw.generation}|${this.scene.generation}`;
+  }
 
   private constructor(readonly budgetBytes: number) {
     this.glows = new GlowCaches({
@@ -504,11 +518,12 @@ export class PhotoRenderer {
    * there yet is started, and the plan draws without it meanwhile (its keys say so).
    */
   planFor(doc: PhotoProject): RenderPlan {
-    if (this.compiled?.doc === doc && this.compiled.assets === this.assets && this.compiled.analyses === this.cameraRaw.generation) return this.compiled.plan;
-    const analyses = this.cameraRaw.generation;
+    if (this.compiled?.doc === doc && this.compiled.assets === this.assets && this.compiled.analyses === this.analyses()) return this.compiled.plan;
+    const analyses = this.analyses();
     const missing: CameraRawNeed[] = [];
-    const plan = this.compile(doc, this.cameraRaw.resolver(doc, { build: true, missing }));
-    if (doc === this.doc) this.compiled = { doc, assets: this.assets, analyses, plan, pending: missing.length > 0 };
+    const missingMaps: SceneNeed[] = [];
+    const plan = this.compile(doc, this.cameraRaw.resolver(doc, { build: true, missing }), this.scene.resolver(doc, { build: true, missing: missingMaps }));
+    if (doc === this.doc) this.compiled = { doc, assets: this.assets, analyses, plan, pending: missing.length + missingMaps.length > 0 };
     return plan;
   }
 
@@ -516,12 +531,21 @@ export class PhotoRenderer {
   async settledPlan(doc: PhotoProject, float32 = this.compositor.supports("rgba32float"), region?: CompileOptions["region"]): Promise<RenderPlan> {
     // The open document's, when the screen's is complete.
     const c = this.compiled;
-    if (!region && c && c.doc === doc && c.assets === this.assets && c.analyses === this.cameraRaw.generation && !c.pending && float32 === this.compositor.supports("rgba32float")) return c.plan;
-    return this.cameraRaw.settle(doc, (resolver) => this.compile(doc, resolver, float32, region));
+    if (!region && c && c.doc === doc && c.assets === this.assets && c.analyses === this.analyses() && !c.pending && float32 === this.compositor.supports("rgba32float")) return c.plan;
+    // Compiled until every analysis and map it reads is there (each built after what's below it), or can't be.
+    for (let round = 0; ; round++) {
+      const missing: CameraRawNeed[] = [];
+      const missingMaps: SceneNeed[] = [];
+      const plan = this.compile(doc, this.cameraRaw.resolver(doc, { missing }), this.scene.resolver(doc, { missing: missingMaps }), float32, region);
+      if ((!missing.length && !missingMaps.length) || round >= 8) return plan;
+      const built = await Promise.all([...missing.map((need) => this.cameraRaw.build(need, doc)), ...missingMaps.map((need) => this.scene.build(need, doc))]);
+      // Maps that can't be made (a model isn't here) leave their filters out: nothing to wait for.
+      if (built.every((b) => b === null)) return plan;
+    }
   }
 
-  private compile(doc: PhotoProject, cameraRaw: CameraRawResolver, float32 = this.compositor.supports("rgba32float"), region?: CompileOptions["region"]): RenderPlan {
-    const plan = compileRender(doc, this.facts(), { float32, cameraRaw, region });
+  private compile(doc: PhotoProject, cameraRaw: CameraRawResolver, scene: SceneResolver, float32 = this.compositor.supports("rgba32float"), region?: CompileOptions["region"]): RenderPlan {
+    const plan = compileRender(doc, this.facts(), { float32, cameraRaw, scene, region });
     // The glows' caches are found by node: say which this plan's are.
     this.glows.glowsOf(plan);
     return plan;

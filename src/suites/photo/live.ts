@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { budgetBytes } from "./preferences";
 import { create } from "zustand";
 import { PhotoRenderer, type RefineState, type SourceState } from "./render/renderer";
+import { useModels } from "./models";
 import { usePhoto } from "./store";
 import { commitSurface } from "./paint-target";
 import { shownDoc } from "./filter-preview";
@@ -39,6 +40,10 @@ export function liveRenderer(): Promise<PhotoRenderer> | null {
       };
       r.onRefineState = (refine) => {
         if (open?.renderer === renderer) useRenderState.setState({ refine });
+      };
+      // A filter needs a model that isn't downloaded: the workspace asks (ModelDialog), then the maps are built.
+      r.scene.onMissing = (model) => {
+        if (open?.renderer === renderer && !useModels.getState().asking) useModels.setState({ asking: { model, then: () => r.scene.retry() } });
       };
       r.setDocument(projectId, shown(history.doc.doc), assets);
     }, () => {});
