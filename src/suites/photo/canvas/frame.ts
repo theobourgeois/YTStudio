@@ -5,6 +5,7 @@
  */
 import type { Size } from "@shared/photo/geometry";
 import { setTransform } from "@shared/photo/edits";
+import { cropOf, croppedBounds, uncroppedTransform, visiblePlace } from "@shared/photo/crop";
 import { bounds, compose, invert, layerMatrix, transformedBy } from "@shared/photo/layers";
 import { type LayerTransform, type PhotoLayer, type PhotoProject, type PlacedLayer, isPlaced } from "@shared/photo/types";
 import type { Box } from "./snap";
@@ -35,9 +36,15 @@ export function frameOf(layers: readonly PhotoLayer[], ids: readonly string[], s
   if (images.length === 0) return null;
   if (images.length === 1) {
     const { layer, size } = images[0];
+    // A cropped layer's frame is what shows of it; the layer moves with it, so the crop stays where it is on it.
+    if (layer.crop) {
+      const crop = cropOf(layer, size);
+      const shown = visiblePlace(layer, size);
+      return { t: shown.t, size: shown.size, ids: [layer.id], stretches: true, place: (d, next) => setTransform(d, layer.id, uncroppedTransform(next, size, crop)) };
+    }
     return { t: layer.transform, size, ids: [layer.id], stretches: true, place: (d, next) => setTransform(d, layer.id, next) };
   }
-  const box = unionBox(images.map(({ layer, size }) => bounds(layer.transform, size)));
+  const box = unionBox(images.map(({ layer, size }) => (layer.crop ? croppedBounds(layerMatrix(layer.transform, size), cropOf(layer, size)) : bounds(layer.transform, size))));
   const size = { width: Math.max(box.x1 - box.x0, 1e-6), height: Math.max(box.y1 - box.y0, 1e-6) };
   const t: LayerTransform = { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2, scaleX: 1, scaleY: 1, rotation: 0 };
   const from = invert(layerMatrix(t, size));

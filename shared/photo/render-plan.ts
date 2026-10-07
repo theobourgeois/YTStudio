@@ -9,6 +9,7 @@
  */
 import { type LayerBlending, blendSeed, blendingOf, compositingOf, isPlainBlending } from "./blending.ts";
 import { srgbToLinear } from "./colour.ts";
+import { cropOf, isCropped } from "./crop.ts";
 import { activeFilters } from "./edits.ts";
 import { effectDefinition, isKernelFilter, unavailableReason } from "./effects/index.ts";
 import { GLOW_CACHED_FROM } from "./effects/glow.ts";
@@ -126,6 +127,8 @@ export interface ImageNode extends ContentFields {
   /** Resampling and Normal compositing commute with reduction (within tolerance at transparent overlaps); modes and filters may not. */
   commutes: boolean;
   key: string;
+  /** Its crop (docs/photo/tools/crop.md): what shows of its own pixels, the rest hidden before its filters; null: all. */
+  crop: Rect | null;
 }
 
 /** Painted pixels (a pixel layer's surface), placed and composited as an image is. Empty (null) draws nothing. */
@@ -142,6 +145,7 @@ export interface PixelNode extends ContentFields {
   style: NodeStyle | null;
   commutes: boolean;
   key: string;
+  crop: Rect | null;
 }
 
 /**
@@ -299,6 +303,16 @@ function maskOf(layer: PhotoLayer, size: Size): MaskRef | null {
 
 const maskKey = (mask: MaskRef | null) => (mask ? `|mask:${mask.surface}` : "");
 
+/** A placed layer's crop for the plan (inside its pixels), or null when it shows whole. */
+function cropRectOf(layer: PhotoLayer, size: Size): Rect | null {
+  if (!isCropped(layer, size)) return null;
+  const c = cropOf(layer, size);
+  return { x0: c.x, y0: c.y, x1: c.x + c.width, y1: c.y + c.height };
+}
+
+/** A crop's part of a node's keys (none when it shows whole, so uncropped layers keep the keys they had). */
+const cropKey = (crop: Rect | null) => (crop ? `|crop:${crop.x0},${crop.y0},${crop.x1},${crop.y1}` : "");
+
 /**
  * A layer's blending for the plan, and the opacity it composites at (Fill folded in when it's plain Normal). A layer
  * with drawn effects always gets its blending (its pass composites it with them).
@@ -309,9 +323,9 @@ function blendOf(layer: PhotoLayer): { blend: NodeBlend | null; opacity: number;
   return { blend: { ...b, seed: blendSeed(layer.id) }, opacity: layer.opacity, key: `|blend:${b.mode},${b.fill},${JSON.stringify(layer.blending ?? null)}${b.mode === "dissolve" ? `,${layer.id}` : ""}` };
 }
 
-/** The axis-aligned box a placed layer covers on the canvas. */
-function boundsOf(matrix: Affine, size: Size): Box {
-  const pts = [apply(matrix, 0, 0), apply(matrix, size.width, 0), apply(matrix, 0, size.height), apply(matrix, size.width, size.height)];
+/** The axis-aligned box a placed layer covers on the canvas (of `part` of its pixels: its crop's, by default all of them). */
+function boundsOf(matrix: Affine, size: Size, part: Rect = { x0: 0, y0: 0, x1: size.width, y1: size.height }): Box {
+  const pts = [apply(matrix, part.x0, part.y0), apply(matrix, part.x1, part.y0), apply(matrix, part.x0, part.y1), apply(matrix, part.x1, part.y1)];
   return { x0: Math.min(...pts.map((p) => p.x)), y0: Math.min(...pts.map((p) => p.y)), x1: Math.max(...pts.map((p) => p.x)), y1: Math.max(...pts.map((p) => p.y)) };
 }
 
@@ -331,7 +345,8 @@ function styleOf(doc: PhotoProject, layer: PhotoLayer, matrix: Affine, size: Siz
     angles,
     altitudes,
     patterns,
-    layerBox: boundsOf(matrix, size),
+    // What shows of it: a cropped layer's box is its crop's (Align with Layer lays out on what's seen).
+    layerBox: boundsOf(matrix, size, cropRectOf(layer, size) ?? undefined),
     canvasBox: { x0: 0, y0: 0, x1: doc.canvas.width, y1: doc.canvas.height },
     reach: styleReach(layer),
     interiorAsGroup: layer.blending?.interiorAsGroup === true,
@@ -401,7 +416,8 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const size = { width: source.width, height: source.height };
       const t = layer.transform;
       const mask = maskOf(layer, size);
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`), 0, options.cameraRaw);
+      const crop = cropRectOf(layer, size);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options.cameraRaw);
       const matrix = layerMatrix(t, size);
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
@@ -418,7 +434,8 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         ...content,
         commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
         commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
-        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}`),
+        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}${cropKey(crop)}`),
+        crop,
       });
       continue;
     }
@@ -426,7 +443,8 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       // An empty one is still drawn: the stroke that paints its first pixels shows through it.
       const { size, transform: t } = layer;
       const mask = maskOf(layer, size);
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`), 0, options.cameraRaw);
+      const crop = cropRectOf(layer, size);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options.cameraRaw);
       const matrix = layerMatrix(t, size);
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
@@ -443,7 +461,8 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         ...content,
         commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
         commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
-        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}`),
+        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}${cropKey(crop)}`),
+        crop,
       });
       continue;
     }
@@ -537,10 +556,13 @@ export function inputRegion(node: PlanNode, rect: Rect): Rect | null {
   if (node.kind === "generator") return rect;
   const inv = invert(node.matrix);
   const pts = [apply(inv, rect.x0, rect.y0), apply(inv, rect.x1, rect.y0), apply(inv, rect.x0, rect.y1), apply(inv, rect.x1, rect.y1)];
-  const x0 = Math.max(0, Math.min(...pts.map((p) => p.x)));
-  const y0 = Math.max(0, Math.min(...pts.map((p) => p.y)));
-  const x1 = Math.min(node.size.width, Math.max(...pts.map((p) => p.x)));
-  const y1 = Math.min(node.size.height, Math.max(...pts.map((p) => p.y)));
+  // Only what shows of it: inside its crop (and the few pixels past its edge that resampling reads).
+  const c = node.crop;
+  const limit = c ? { x0: Math.max(0, c.x0 - 4), y0: Math.max(0, c.y0 - 4), x1: Math.min(node.size.width, c.x1 + 4), y1: Math.min(node.size.height, c.y1 + 4) } : { x0: 0, y0: 0, x1: node.size.width, y1: node.size.height };
+  const x1 = Math.min(limit.x1, Math.max(...pts.map((p) => p.x)));
+  const y1 = Math.min(limit.y1, Math.max(...pts.map((p) => p.y)));
+  const x0 = Math.max(limit.x0, Math.min(...pts.map((p) => p.x)));
+  const y0 = Math.max(limit.y0, Math.min(...pts.map((p) => p.y)));
   return x1 > x0 && y1 > y0 ? { x0, y0, x1, y1 } : null;
 }
 
