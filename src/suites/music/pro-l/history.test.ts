@@ -19,9 +19,9 @@ const state = (columns: number): EngineProLState => ({
 });
 
 describe("YT-L's column history", () => {
-  it("adds columns on, times them evenly from an anchor, and counts how long it's filled", () => {
+  it("adds columns on and times them evenly from an anchor", () => {
     let h = mergeColumns(undefined, state(4), 1000);
-    expect(h).toMatchObject({ last: 4, filled: 0.04 });
+    expect(h.last).toBe(4);
     h = mergeColumns(h, state(4), 1040);
     expect(h.columns).toHaveLength(8);
     expect(h.last).toBe(8);

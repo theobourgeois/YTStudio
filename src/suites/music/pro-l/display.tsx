@@ -60,7 +60,10 @@ export function LevelDisplay({ effectId, proL, bypassed }: { effectId: string; p
       const { proL: p, range: r, zero: z, size: s, bypassed: off } = scene.current;
       const ctx = prepare(element, s.width, s.height);
       if (!ctx) return;
-      const seconds = displaySeconds(p.meter.display, Math.min(KEPT_SECONDS, history?.filled ?? 0));
+      // How long it's filled, at the moment drawn: from the oldest column's time, so it grows as smoothly as the
+      // columns scroll (counting the columns would move the newest one's place in steps, a burst at a time).
+      const filled = history?.columns.length ? Math.max(0, (head - columnAt(history, history.last - history.columns.length + 1)) / 1000) : 0;
+      const seconds = displaySeconds(p.meter.display, Math.min(KEPT_SECONDS, filled));
       drawLevel(
         ctx,
         {
@@ -73,7 +76,7 @@ export function LevelDisplay({ effectId, proL, bypassed }: { effectId: string; p
           zero: z,
           ceiling: p.output,
           seconds,
-          head: headFraction(p.meter.display, seconds, history?.filled ?? 0),
+          head: headFraction(p.meter.display, seconds, filled),
           now: head,
           loudness: p.meter.timeScale === "momentary" ? 4 : 5,
           target: p.meter.target,
