@@ -113,7 +113,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
  * through a layer at a right angle, 8 × 8 points across the pixel otherwise; 1 without a selection. A mask selection
  * (`hasSelection` 2) is handed over per tile, worked out by the CPU (`selectionCoverage`): the limit kernel reads it.
  */
-const SELECTION = /* wgsl */ `
+export const SELECTION = /* wgsl */ `
 struct Dab { x: f32, y: f32, radius: f32, hardness: f32, strength: f32, p0: f32, p1: f32, p2: f32 }
 struct Job { slot: u32, tx: i32, ty: i32, first: u32, count: u32, p0: u32, p1: u32, p2: u32 }
 // m0, m1: layer pixels → document (a, b, c, d; e, f, right-angled); sel: x, y, width, height; erase: the stroke

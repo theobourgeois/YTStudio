@@ -18,6 +18,7 @@ import { selectionBox, selectionCoverage } from "@shared/photo/selection.ts";
 import { type SurfaceManifest, type TileEntry, constantRef, constantValues, emptySurface, withTiles } from "@shared/photo/surfaces.ts";
 import type { PhotoSelection, SurfaceId } from "@shared/photo/types.ts";
 import type { SurfaceUploads } from "../uploads.ts";
+import { type BrushEffect, EffectPass } from "./brush-effects.ts";
 import { BATCH, type RenderContext } from "./context.ts";
 import { FILL, PENDING, VirtualImage } from "./image.ts";
 
@@ -55,6 +56,8 @@ interface Draft {
   base: number | null;
   /** A mask selection's coverage of the tile (worked out by the CPU), or null. */
   cover: number | null;
+  /** A stroke that reads its pixels (`brush-effects.ts`): its accumulation; `base` is then the tile before it. */
+  acc?: number | null;
 }
 
 const rightAngled = (m: Affine) => (m[1] === 0 && m[2] === 0) || (m[0] === 0 && m[3] === 0);
@@ -91,7 +94,7 @@ export class SurfaceImage {
     this.onChange?.();
   }
   private drafts = new Map<string, Draft>();
-  private stroke: { spacer: DabSpacer; place: SurfacePlace; limited: boolean; selection: PhotoSelection | null } | null = null;
+  private stroke: { spacer: DabSpacer; place: SurfacePlace; limited: boolean; selection: PhotoSelection | null; effect?: EffectPass } | null = null;
   /** Level-0 tiles listed by the manifest that aren't resident, being fetched. */
   private readonly fetching = new Set<string>();
   /** Parent tiles to build again (`level:tx:ty`): level 0 under them changed. */
@@ -524,6 +527,11 @@ export class SurfaceImage {
     };
     const limited = this.stroke?.limited ?? false;
     const selection = this.stroke?.selection;
+    if (this.stroke?.effect) {
+      draft = { tx, ty, slot: copy(), paint: null, base: copy(), acc: this.zeroSlot(tx, ty), cover: selection?.kind === "mask" ? this.coverSlot(selection, tx, ty) : null };
+      this.drafts.set(key, draft);
+      return draft;
+    }
     draft = { tx, ty, slot: copy(), paint: limited ? copy() : null, base: limited ? copy() : null, cover: selection?.kind === "mask" ? this.coverSlot(selection, tx, ty) : null };
     this.drafts.set(key, draft);
     return draft;
@@ -541,6 +549,7 @@ export class SurfaceImage {
   }
 
   private stampDabs(dabs: Dab[]) {
+    if (this.stroke?.effect) return this.stampEffect(dabs);
     const { device } = this.ctx;
     const touched = [...tilesUnder(dabs, this.ctx.tile).values()].filter((t) => this.inGrid(t));
     if (!touched.length) return;
@@ -612,6 +621,7 @@ export class SurfaceImage {
     if (draft.paint !== null) this.ctx.atlas.release(draft.paint);
     if (draft.base !== null) this.ctx.atlas.release(draft.base);
     if (draft.cover !== null) this.ctx.atlas.release(draft.cover);
+    if (draft.acc != null) this.ctx.atlas.release(draft.acc);
   }
 
   /** A slot holding a mask selection's coverage of tile (tx, ty) of this surface (the CPU's: `selectionCoverage`). */
@@ -649,6 +659,7 @@ export class SurfaceImage {
     }
     const touched = [...this.drafts.values()];
     this.drafts.clear();
+    this.stroke?.effect?.destroy();
     this.stroke = null;
     for (const d of touched) {
       const entry = this.manifest.tiles.find((e) => e[0] === d.tx && e[1] === d.ty);
@@ -667,6 +678,7 @@ export class SurfaceImage {
    */
   async end(): Promise<{ id: SurfaceId; tiles: number; readbackMs: number; hashMs: number } | null> {
     const drafts = [...this.drafts.values()];
+    this.stroke?.effect?.destroy();
     this.stroke = null;
     this.drafts = new Map();
     for (const d of drafts) this.releaseWork(d);
@@ -831,6 +843,268 @@ export class SurfaceImage {
     this.showing++;
     await this.show(id);
     return id;
+  }
+
+  // --- strokes that read their pixels (brush-effects.ts: Dodge, Burn, Sponge, the Background Eraser) ---
+
+  /**
+   * Starts a stroke that reads the pixels it changes, with `brush` in this surface's pixels, limited by `selection`.
+   * Its drafts keep the tile before the stroke (`base`) and the stroke's accumulation (`acc`); what's shown is the
+   * apply pass's (`EffectPass`). Toning's dabs come through `add` as the Brush's do (stamped into `acc`); the
+   * Background Eraser's accumulation is the CPU's (`effectDrafts`, `writeAccumulation`, then `applyEffect`).
+   */
+  beginEffect(brush: BrushSettings, effect: BrushEffect, place: SurfacePlace, selection: PhotoSelection | null) {
+    if (this.stroke) this.cancel();
+    this.stroke = { spacer: new DabSpacer(brush), place, limited: selection !== null, selection, effect: new EffectPass(this.ctx, effect) };
+    // The stamp adds white to the accumulation (source-over: A + k(1 − A)); the selection is the apply pass's.
+    this.ctx.device.queue.writeBuffer(this.params, 0, packParams(this.ctx.tile, [1, 1, 1, 1], place, selection));
+  }
+
+  /** Dabs at these points (this surface's pixels) whatever the spacing: Airbrush's, where the pointer rests. */
+  dabAt(points: readonly { x: number; y: number }[]) {
+    if (!this.stroke || !points.length) return;
+    const { radius, hardness, strength } = this.stroke.spacer.brush;
+    this.stampDabs(points.map((p) => ({ x: p.x, y: p.y, radius, hardness, strength })));
+  }
+
+  /** A slot of zeros: a new accumulation. */
+  private zeroSlot(tx: number, ty: number): number {
+    const slot = this.ctx.atlas.acquire(`e${this.id}:${tx}:${ty}:${this.ctx.id()}`, true);
+    this.ctx.fillSlot(slot, [0, 0, 0, 0]);
+    return slot;
+  }
+
+  /** Toning's dabs: stamped into each touched draft's accumulation, then the apply pass shows the result. */
+  private stampEffect(dabs: Dab[]) {
+    const effect = this.stroke!.effect!;
+    if (!effect.stamped) return;
+    const { device } = this.ctx;
+    const touched = [...tilesUnder(dabs, this.ctx.tile).values()].filter((t) => this.inGrid(t));
+    if (!touched.length) return;
+    if (dabs.length * 32 > this.dabs.size) {
+      this.dabs.destroy();
+      this.dabs = device.createBuffer({ size: dabs.length * 64, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this.stampGroup = this.makeStampGroup(this.jobs);
+      this.limitGroup = this.makeStampGroup(this.limitJobs);
+    }
+    const dabData = new Float32Array(dabs.length * 8);
+    dabs.forEach((d, i) => dabData.set([d.x, d.y, d.radius, d.hardness, d.strength], i * 8));
+    device.queue.writeBuffer(this.dabs, 0, dabData);
+    for (let i = 0; i < touched.length; i += BATCH) {
+      const batch = touched.slice(i, i + BATCH);
+      const encoder = device.createCommandEncoder({ label: "effect stamp" });
+      const drafts = batch.map((t) => this.draftFor(t.tx, t.ty, encoder));
+      const jobs = new ArrayBuffer(batch.length * 32);
+      drafts.forEach((d, j) => {
+        new Uint32Array(jobs, j * 32, 1)[0] = d.acc!;
+        new Int32Array(jobs, j * 32 + 4, 2).set([d.tx, d.ty]);
+        new Uint32Array(jobs, j * 32 + 12, 2).set([0, dabs.length]);
+      });
+      device.queue.writeBuffer(this.jobs, 0, jobs);
+      const stamp = encoder.beginComputePass();
+      stamp.setPipeline(this.ctx.kernels.stamp);
+      stamp.setBindGroup(0, this.ctx.atlasBindGroup());
+      stamp.setBindGroup(1, this.stampGroup);
+      stamp.dispatchWorkgroups(this.ctx.tile / 16, this.ctx.tile / 16, batch.length);
+      stamp.end();
+      this.ctx.copyScratchToSlots(
+        encoder,
+        drafts.map((d) => d.acc!),
+      );
+      this.encodeApply(encoder, drafts, effect);
+      device.queue.submit([encoder.finish()]);
+      this.showDrafts(drafts);
+    }
+    this.image.flush();
+    this.buildLevels();
+    this.changed();
+  }
+
+  /** The apply pass over drafts: each shown tile from its base and accumulation (and the selection). */
+  private encodeApply(encoder: GPUCommandEncoder, drafts: readonly Draft[], effect: EffectPass) {
+    const jobs = new ArrayBuffer(drafts.length * 32);
+    drafts.forEach((d, j) => {
+      new Uint32Array(jobs, j * 32, 1)[0] = d.base!;
+      new Int32Array(jobs, j * 32 + 4, 2).set([d.tx, d.ty]);
+      new Uint32Array(jobs, j * 32 + 12, 1)[0] = d.acc!;
+      new Uint32Array(jobs, j * 32 + 20, 1)[0] = d.cover ?? 0;
+    });
+    this.ctx.device.queue.writeBuffer(this.limitJobs, 0, jobs);
+    effect.encode(encoder, this.limitGroup, drafts.length);
+    this.ctx.copyScratchToSlots(
+      encoder,
+      drafts.map((d) => d.slot),
+    );
+  }
+
+  private showDrafts(drafts: readonly Draft[]) {
+    for (const d of drafts) {
+      this.image.setSlot(0, d.tx, d.ty, d.slot);
+      this.markParents(d.tx, d.ty);
+    }
+  }
+
+  /** Makes the effect stroke's drafts for these tiles (before the CPU writes their accumulation). */
+  effectDrafts(tiles: readonly { tx: number; ty: number }[]) {
+    if (!this.stroke?.effect) return;
+    const fresh = tiles.filter((t) => this.inGrid(t) && !this.drafts.has(`${t.tx},${t.ty}`));
+    for (let i = 0; i < fresh.length; i += BATCH) {
+      const encoder = this.ctx.device.createCommandEncoder({ label: "effect drafts" });
+      for (const t of fresh.slice(i, i + BATCH)) this.draftFor(t.tx, t.ty, encoder);
+      this.ctx.device.queue.submit([encoder.finish()]);
+    }
+  }
+
+  /**
+   * Writes part of a tile's accumulation (RGBA floats over the whole tile, row by row) into its draft: `rect` in the
+   * tile's own pixels. `effectDrafts` first.
+   */
+  writeAccumulation(tx: number, ty: number, data: Float32Array, rect: SurfaceRegion) {
+    const acc = this.drafts.get(`${tx},${ty}`)?.acc;
+    if (acc == null || rect.width <= 0 || rect.height <= 0) return;
+    const { texture, layer } = this.ctx.atlas.location(acc);
+    const tile = this.ctx.tile;
+    const half = this.ctx.format === "rgba16float";
+    const packed = half ? new Uint16Array(rect.width * rect.height * 4) : new Float32Array(rect.width * rect.height * 4);
+    for (let y = 0; y < rect.height; y++) {
+      const from = ((rect.y + y) * tile + rect.x) * 4;
+      const row = data.subarray(from, from + rect.width * 4);
+      if (half) for (let i = 0; i < row.length; i++) packed[y * rect.width * 4 + i] = toHalf(row[i]);
+      else packed.set(row, y * rect.width * 4);
+    }
+    this.ctx.device.queue.writeTexture({ texture, origin: [rect.x, rect.y, layer] }, packed, { bytesPerRow: rect.width * (half ? 8 : 16) }, [rect.width, rect.height, 1]);
+  }
+
+  /** Fills drafts' accumulations with a value (an effect applied wholly, wherever the selection lets it). */
+  fillAccumulation(tiles: readonly { tx: number; ty: number }[], value: number) {
+    for (const t of tiles) {
+      const acc = this.drafts.get(`${t.tx},${t.ty}`)?.acc;
+      if (acc != null) this.ctx.fillSlot(acc, [value, value, value, value]);
+    }
+  }
+
+  /** Runs the apply pass over these tiles' drafts (their accumulation changed). */
+  applyEffect(tiles: readonly { tx: number; ty: number }[]) {
+    const effect = this.stroke?.effect;
+    if (!effect) return;
+    const drafts = tiles.map((t) => this.drafts.get(`${t.tx},${t.ty}`)).filter((d): d is Draft => d?.acc != null);
+    for (let i = 0; i < drafts.length; i += BATCH) {
+      const batch = drafts.slice(i, i + BATCH);
+      const encoder = this.ctx.device.createCommandEncoder({ label: "effect apply" });
+      this.encodeApply(encoder, batch, effect);
+      this.ctx.device.queue.submit([encoder.finish()]);
+      this.showDrafts(batch);
+    }
+    this.image.flush();
+    this.buildLevels();
+    this.changed();
+  }
+
+  /**
+   * Tiles as they were before the stroke in progress (or as shown, with none), premultiplied RGBA floats a tile (a
+   * mask's value in every channel), for the CPU to read what it erases by. Tiles outside the surface are left out.
+   */
+  async readBase(tiles: readonly { tx: number; ty: number }[]): Promise<Map<string, Float32Array>> {
+    const inside = tiles.filter((t) => this.inGrid(t));
+    const out = new Map<string, Float32Array>();
+    if (!inside.length) return out;
+    const tile = this.ctx.tile;
+    const xs = inside.map((t) => t.tx);
+    const ys = inside.map((t) => t.ty);
+    const x0 = Math.min(...xs) * tile;
+    const y0 = Math.min(...ys) * tile;
+    const region = { x: x0, y: y0, width: (Math.max(...xs) + 1) * tile - x0, height: (Math.max(...ys) + 1) * tile - y0 };
+    // Tiles already being fetched (by `show`) aren't fetched again: wait for them too.
+    await this.ensureResident(region);
+    for (let i = 0; i < 1000 && !this.residentOver(region) && !this.destroyed; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      await this.ensureResident(region);
+    }
+    const slotted: { key: string; slot: number }[] = [];
+    for (const t of inside) {
+      const key = `${t.tx},${t.ty}`;
+      const slot = this.drafts.get(key)?.base ?? this.image.slotOf(0, t.tx, t.ty);
+      if (slot !== null) {
+        slotted.push({ key, slot });
+        continue;
+      }
+      // No slot: its fill (or a constant the manifest lists), in every pixel.
+      const value = this.gpuValue(this.shownValue(t.tx, t.ty));
+      const filled = new Float32Array(tile * tile * 4);
+      for (let i = 0; i < filled.length; i += 4) filled.set(value, i);
+      out.set(key, filled);
+    }
+    if (!slotted.length) return out;
+    const { device } = this.ctx;
+    const tileBytes = this.ctx.atlas.tileBytes;
+    const readback = device.createBuffer({ size: slotted.length * tileBytes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const encoder = device.createCommandEncoder({ label: "effect base readback" });
+    slotted.forEach(({ slot }, i) => {
+      const { texture, layer } = this.ctx.atlas.location(slot);
+      encoder.copyTextureToBuffer({ texture, origin: [0, 0, layer] }, { buffer: readback, offset: i * tileBytes, bytesPerRow: this.ctx.rowBytes }, [tile, tile, 1]);
+    });
+    device.queue.submit([encoder.finish()]);
+    await readback.mapAsync(GPUMapMode.READ);
+    const mapped = readback.getMappedRange();
+    const half = this.ctx.format === "rgba16float";
+    slotted.forEach(({ key }, i) => {
+      const at = i * tileBytes;
+      out.set(key, half ? Float32Array.from(new Uint16Array(mapped, at, tile * tile * 4), fromHalf) : new Float32Array(mapped.slice(at, at + tileBytes)));
+    });
+    readback.unmap();
+    readback.destroy();
+    return out;
+  }
+
+  /**
+   * The tiles an effect applied to what `selection` covers reaches (every tile with none); a pixel surface's empty
+   * tiles are left out (there's nothing there to change).
+   */
+  effectTiles(selection: PhotoSelection | null, place: SurfacePlace): { tx: number; ty: number }[] {
+    const tile = this.ctx.tile;
+    const { tilesX, tilesY } = this.image.levels[0];
+    let [tx0, ty0, tx1, ty1] = [0, 0, tilesX - 1, tilesY - 1];
+    if (selection) {
+      const box = selectionBox(selection);
+      const inv = invert(place.matrix);
+      const corners = [apply(inv, box.x0, box.y0), apply(inv, box.x1, box.y0), apply(inv, box.x0, box.y1), apply(inv, box.x1, box.y1)];
+      tx0 = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.x)) / tile));
+      ty0 = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.y)) / tile));
+      tx1 = Math.min(tilesX - 1, Math.floor(Math.max(...corners.map((p) => p.x)) / tile));
+      ty1 = Math.min(tilesY - 1, Math.floor(Math.max(...corners.map((p) => p.y)) / tile));
+    }
+    const listed = new Set(this.manifest.tiles.map((e) => `${e[0]},${e[1]}`));
+    const empty = this.kind === "pixels" && this.manifest.fill.every((v) => v === 0);
+    const out: { tx: number; ty: number }[] = [];
+    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) if (!empty || listed.has(`${tx},${ty}`)) out.push({ tx, ty });
+    return out;
+  }
+
+  /**
+   * Applies `effect` to what `selection` covers (all of the surface: null) in one go, as one new surface (the
+   * assistant's): its accumulation full everywhere, or what `accumulate` writes (the Background Eraser's, from the
+   * pixels: `readBase`, `effectDrafts`, `writeAccumulation`). Resolves with its id (null: nothing there to change).
+   */
+  async effectFill(effect: BrushEffect, selection: PhotoSelection | null, place: SurfacePlace, accumulate?: (tiles: { tx: number; ty: number }[]) => Promise<void>): Promise<SurfaceId | null> {
+    this.beginEffect({ radius: 1, hardness: 1, strength: 1, spacing: 1 }, effect, place, selection);
+    const tiles = this.effectTiles(selection, place);
+    if (!tiles.length) {
+      this.cancel();
+      return null;
+    }
+    try {
+      if (accumulate) await accumulate(tiles);
+      else {
+        this.effectDrafts(tiles);
+        this.fillAccumulation(tiles, 1);
+      }
+    } catch (error) {
+      this.cancel();
+      throw error;
+    }
+    this.applyEffect(tiles);
+    const result = await this.end();
+    return result?.id ?? null;
   }
 
   destroy() {

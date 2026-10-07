@@ -47,6 +47,7 @@ import { planFields } from "./style.ts";
 import { readSurface, surfaceFromPixels } from "../surface-pixels.ts";
 import { COMPOSITE_FORMATS, Compositor, type Drawable, type EvaluatorStats, type LayerDraw, type PlanSources, type Quality, type WorkPair, compositeTexture, needsPass } from "./compositor.ts";
 import { RenderContext } from "./context.ts";
+import type { BrushEffect } from "./brush-effects.ts";
 import { GlowCaches } from "./glow-cache.ts";
 import { CameraRawAnalyses } from "./camera-raw-analysis.ts";
 import { type Gpu, createGpu } from "./gpu.ts";
@@ -1286,6 +1287,65 @@ export class PhotoRenderer {
     if (!surface || !place) return null;
     const entry = this.surfaces.get(`${layerId}:${part}`);
     const id = await surface.fillSelection(colour, selection, { matrix: place.matrix });
+    if (id && entry) entry.wanted = id;
+    return id;
+  }
+
+  /**
+   * Starts a stroke that reads the pixels it changes (Dodge, Burn, Sponge, the Background Eraser: `brush-effects.ts`)
+   * on a layer's pixels or mask, as `beginStroke` does: `brush` in document pixels. False when that surface isn't on
+   * the GPU yet. Toning's samples go through `strokeTo`; the Background Eraser works on `strokeTarget`.
+   */
+  beginEffectStroke(layerId: string, part: SurfacePart, brush: BrushSettings, effect: BrushEffect, selection: PhotoSelection | null): boolean {
+    this.cancelStroke();
+    const surface = this.shownSurface(layerId, part);
+    const place = this.placeOf(layerId, part);
+    if (!surface || !place) return false;
+    surface.beginEffect({ ...brush, radius: brush.radius / place.scale }, effect, { matrix: place.matrix }, selection);
+    this.stroke = { key: `${layerId}:${part}`, surface, toSurface: invert(place.matrix), scale: place.scale };
+    return true;
+  }
+
+  /**
+   * A layer's surface only once it shows what the document says (a layer converted to pixels a moment ago is still
+   * fetching them): a stroke that reads its pixels must start from them, never from an empty surface.
+   */
+  private shownSurface(layerId: string, part: SurfacePart): SurfaceImage | null {
+    const s = this.surfaces.get(`${layerId}:${part}`);
+    return s?.image && s.failed === null && s.image.shown === s.wanted ? s.image : null;
+  }
+
+  /** Dabs at these points (document pixels) whatever the spacing: Airbrush's, where the pointer rests. */
+  strokeDab(points: readonly { x: number; y: number }[]) {
+    const s = this.stroke;
+    if (s) s.surface.dabAt(points.map((p) => apply(s.toSurface, p.x, p.y)));
+  }
+
+  /** The stroke in progress: its surface, and document pixels → its pixels and their scale. */
+  get strokeTarget(): { readonly surface: SurfaceImage; readonly toSurface: Affine; readonly scale: number } | null {
+    return this.stroke;
+  }
+
+  /**
+   * Applies `effect` to what `selection` covers of a layer's pixels or mask (all of it: null) at once, as a new
+   * surface the caller commits (the assistant's toning and colour removal; `accumulate` writes the Background
+   * Eraser's from the pixels). Null when nothing there changes; undefined while that surface isn't on the GPU (or doesn't
+   * show what the document says yet).
+   */
+  async applyEffect(
+    layerId: string,
+    part: SurfacePart,
+    effect: BrushEffect,
+    selection: PhotoSelection | null,
+    accumulate?: (surface: SurfaceImage, toSurface: Affine, tiles: { tx: number; ty: number }[]) => Promise<void>,
+  ): Promise<SurfaceId | null | undefined> {
+    this.cancelStroke();
+    const surface = this.shownSurface(layerId, part);
+    const place = this.placeOf(layerId, part);
+    if (!surface || !place) return undefined;
+    const entry = this.surfaces.get(`${layerId}:${part}`);
+    const toSurface = invert(place.matrix);
+    const id = await surface.effectFill(effect, selection, { matrix: place.matrix }, accumulate && ((tiles) => accumulate(surface, toSurface, tiles)));
     if (id && entry) entry.wanted = id;
     return id;
   }

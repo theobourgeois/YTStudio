@@ -40,6 +40,7 @@ import { stepBrushSize, useBrush } from "./brush-options";
 import { useColours } from "./colours";
 import { editActions, hasPhotoClipboard } from "./edit-actions";
 import { PaintChoiceDialog, ToolOptions } from "./options-bar";
+import { TOOLBOX } from "./toolbox";
 import { FeatherDialog, SelectMenu, SubjectModelDialog, useFeather } from "./select-commands";
 import { selectActions, useSelectOptions } from "./selecting";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -521,12 +522,18 @@ function usePhotoKeys(active: boolean) {
           return selectActions.all();
         case "newLayer":
           return void layerActions.newLayer();
-        // Quick Selection's brush is its own.
-        case "brushSize":
+        // Quick Selection's brush is its own, and so is a kit's that has one (Dodge, Burn, Sponge, the Background Eraser).
+        case "brushSize": {
           if (ui.tool === "quickSelect") return useSelectOptions.getState().set({ quickSize: stepBrushSize(useSelectOptions.getState().quickSize, action.direction) });
+          const own = TOOLBOX[ui.tool]?.brush;
+          if (own) return own.set({ size: stepBrushSize(own.get().size, action.direction) });
           return useBrush.getState().set({ size: stepBrushSize(useBrush.getState().size, action.direction) });
-        case "brushHardness":
+        }
+        case "brushHardness": {
+          const own = TOOLBOX[ui.tool]?.brush;
+          if (own) return own.set({ hardness: Math.round((own.get().hardness + action.direction * 0.25) * 4) / 4 });
           return useBrush.getState().set({ hardness: Math.round((useBrush.getState().hardness + action.direction * 0.25) * 4) / 4 });
+        }
         case "defaultColours":
           return useColours.getState().reset();
         case "swapColours":
