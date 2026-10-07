@@ -4,6 +4,7 @@
  */
 import { type Schema, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { BLEND_MODES } from "./blending.ts";
+import { ORIENTATIONS } from "./orient.ts";
 import { ADJUSTMENTS, EFFECTS, type EffectDefinition, type EffectKind, FILTERS, GENERATORS } from "./effects/index.ts";
 import { APPLY_TO, MIX } from "./effects/kernel.ts";
 import { FILTER_ENTRIES, describePresets } from "./effects/catalog.ts";
@@ -194,6 +195,20 @@ export const PHOTO_TOOLS = [
         fit: oneOf(["contain", "cover"], "Fit inside the canvas, or cover it."),
       },
       ["layer"],
+    ),
+  }),
+  tool({
+    name: "flip_rotate_layers",
+    title: "Flip or rotate layers",
+    kind: "edit",
+    description:
+      "Flips layers or turns them by right angles (Photoshop's Edit › Transform), together about the centre of the box around them, exactly (nothing is resampled; a flipped layer's scale goes negative). Generators (a Lens Flare) have their handles carried; adjustment layers have no place and are left as they are. To turn the whole picture, canvas and all, use flip_rotate_canvas. One undo step.",
+    inputSchema: obj(
+      {
+        layers: arr(layer, "The layers (ids or names)."),
+        operation: oneOf([...ORIENTATIONS], "flip-horizontal (mirrors left to right), flip-vertical (upside down, mirrored), rotate-90-cw, rotate-90-ccw or rotate-180."),
+      },
+      ["layers", "operation"],
     ),
   }),
   tool({
@@ -786,6 +801,14 @@ export const PHOTO_TOOLS = [
       ratio: str('Width to height, "4:5", "16:9", "1.5": the largest box of it, centred.'),
       to_selection: bool("Crop to the selection's bounds (the marching ants')."),
     }),
+  }),
+  tool({
+    name: "flip_rotate_canvas",
+    title: "Flip or rotate the canvas",
+    kind: "edit",
+    description:
+      "Flips or turns the whole canvas (Photoshop's Image › Image Rotation): a quarter turn swaps its width and height, and every layer, mask, handle and the selection goes with it, exactly (nothing is resampled). Use it for a sideways photo or a mirrored picture; flip_rotate_layers turns only some layers. One undo step.",
+    inputSchema: obj({ operation: oneOf([...ORIENTATIONS], "rotate-90-cw, rotate-90-ccw, rotate-180, flip-horizontal or flip-vertical.") }, ["operation"]),
   }),
   tool({
     name: "crop_layer",

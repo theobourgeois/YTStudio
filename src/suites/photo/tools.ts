@@ -59,7 +59,10 @@ import {
   transformLayerTool,
   canvasCropOf,
   cropLayerTool,
+  flipRotateLayersTool,
 } from "./tool-edits";
+import { ORIENTATIONS, canvasOrientationLabel, isOrientation, orientCanvas } from "@shared/photo/orient";
+import { orientedMasks } from "./transform-actions";
 import { cropCanvas, documentMasks } from "@shared/photo/crop";
 import { uploadsFor } from "./uploads";
 import { shiftSurfaces } from "./toolbox/crop-masks";
@@ -494,6 +497,26 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(text);
   },
   crop_layer: edit(cropLayerTool),
+  flip_rotate_layers: edit(flipRotateLayersTool),
+  async flip_rotate_canvas(input, ctx) {
+    const o = input.operation;
+    if (!isOrientation(o)) throw new Error(`operation must be one of ${ORIENTATIONS.join(", ")}.`);
+    const target = await targetOf(ctx);
+    // Masks in document pixels go with the canvas (pixel for pixel), uploaded as a stroke's tiles are.
+    const uploads = uploadsFor(target.projectId);
+    const masks = await orientedMasks(uploads, target.doc, o);
+    let next: PhotoProject;
+    if (target.open && usePhoto.getState().projectId === target.projectId) {
+      if (currentDoc() !== target.doc) throw new Error("The photo changed while it was being turned (the user edited it): nothing changed. Read it again and retry.");
+      usePhoto.getState().commitState((state) => orientCanvas(state, o, masks));
+      next = currentDoc()!;
+    } else {
+      next = orientCanvas({ doc: target.doc, selection: null }, o, masks).doc;
+      await uploads.ready(next);
+      await api.saveDocument("photo", target.projectId, next);
+    }
+    return textResult(`Image Rotation › ${canvasOrientationLabel(o)}: the canvas is ${next.canvas.width}×${next.canvas.height}; every layer, mask and handle went with it.`);
+  },
   async paint_gradient(input, ctx) {
     const target = await targetOf(ctx);
     if (!target.open) throw new Error("Open the photo in the editor first: painting needs it on the GPU.");

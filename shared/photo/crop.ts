@@ -147,7 +147,7 @@ export function canvasCropRect(r: CropRect): CropRect | null {
 }
 
 /** Whether a layer's mask is in document pixels: an adjustment's, a generator's, and a 2D-canvas layer's (text, shapes). */
-const maskInDocument = (l: PhotoLayer) => !isPlaced(l) || l.kind === "text" || l.kind === "shape";
+export const maskInDocument = (l: PhotoLayer) => !isPlaced(l) || l.kind === "text" || l.kind === "shape";
 
 /** The masks a canvas crop must move (those in document pixels: `maskInDocument`), once each. */
 export function documentMasks(doc: PhotoProject): SurfaceId[] {

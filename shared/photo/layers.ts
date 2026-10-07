@@ -11,11 +11,23 @@ export type Affine = readonly [a: number, b: number, c: number, d: number, e: nu
 
 export const IDENTITY: Affine = [1, 0, 0, 1, 0, 0];
 
+/**
+ * cos and sin of an angle in degrees, exact at right angles (Math.cos of 90° is 6e-17, not 0): a layer turned a
+ * quarter keeps a matrix of 0s and ±1s, so it's drawn texel for texel (`alignedLayer`).
+ */
+export function cosSin(degrees: number): [cos: number, sin: number] {
+  const quarter = degrees / 90;
+  if (Number.isInteger(quarter)) {
+    const k = ((quarter % 4) + 4) % 4;
+    return [[1, 0, -1, 0][k], [0, 1, 0, -1][k]];
+  }
+  const r = (degrees * Math.PI) / 180;
+  return [Math.cos(r), Math.sin(r)];
+}
+
 /** Layer pixels (u, v), origin at the source's top-left edge, to document pixels. */
 export function layerMatrix(t: LayerTransform, size: Size): Affine {
-  const r = (t.rotation * Math.PI) / 180;
-  const cos = Math.cos(r);
-  const sin = Math.sin(r);
+  const [cos, sin] = cosSin(t.rotation);
   const a = cos * t.scaleX;
   const b = sin * t.scaleX;
   const c = -sin * t.scaleY;

@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
   // Projects are files (`.vaudio` packages): the Mac's Open dialog for one, and its folder picker (where new ones go).
   chooseProject: (defaultPath?: string) => ipcRenderer.invoke("choose-project", { defaultPath }) as Promise<string | null>,
   chooseFolder: (defaultPath?: string) => ipcRenderer.invoke("choose-folder", { defaultPath }) as Promise<string | null>,
+  // ⌘H or ⌥⌘H that the page didn't use: macOS's Hide or Hide Others (the menu leaves those keys to the page).
+  hideApp: (which: "app" | "others") => ipcRenderer.send("hide-app", which),
   // The tab strip is showing (or not): the window buttons move to its middle, or back to the header's.
   tabStrip: (shown: boolean) => ipcRenderer.send("tab-strip", shown),
   // A project was opened: the Dock's and File › Open Recent's recent documents list it.

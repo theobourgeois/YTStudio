@@ -78,6 +78,7 @@ import { EditMenu } from "./edit-menu";
 import { ImageMenu } from "./image-menu";
 import { ScaleEffectsWindow } from "./layer-style/scale-effects-window";
 import { resolvePhotoKey } from "./keys";
+import { transformActions } from "./transform-actions";
 import { layerActions, selectedInOrder } from "./layer-actions";
 import { liveRenderer } from "./live";
 import { isImage } from "./media";
@@ -580,6 +581,8 @@ function usePhotoKeys(active: boolean) {
           return void editActions.fill(useColours.getState()[action.colour]);
         case "contentAwareFill":
           return void runContentAwareFill();
+        case "orient":
+          return transformActions.layers(action.orientation);
       }
     };
     const up = (e: KeyboardEvent) => {
