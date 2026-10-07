@@ -258,7 +258,8 @@ export interface Gradient {
   name: string;
   colours: GradientColourStop[];
   opacities: GradientOpacityStop[];
-  method: "classic" | "linear" | "perceptual";
+  /** Also Photoshop's Smooth and Stripes (the Gradient tool's Method: docs/photo/tools/gradient.md). */
+  method: "classic" | "linear" | "perceptual" | "smooth" | "stripes";
 }
 
 /** A parameter's value: what the definitions' specs allow (`shared/photo/effects/params.ts`). */

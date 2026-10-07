@@ -66,6 +66,9 @@ import { imageLayerOf } from "./media";
 import { photoApi } from "./api";
 import { placeAsset, removeBackground } from "./online/online";
 import { floodTools } from "./toolbox/flood-tools";
+import { describeGradient } from "@shared/photo/effects/gradient";
+import { paintGradient } from "./toolbox/gradient-actions";
+import { gradientPaintRequest } from "./toolbox/gradient-request";
 
 /** How many of a search's results the model is told of at once. */
 const ONLINE_LISTED = 40;
@@ -445,6 +448,15 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(text);
   },
   crop_layer: edit(cropLayerTool),
+  async paint_gradient(input, ctx) {
+    const target = await targetOf(ctx);
+    if (!target.open) throw new Error("Open the photo in the editor first: painting needs it on the GPU.");
+    const request = gradientPaintRequest(target.doc, input, useColours.getState());
+    const selection = currentSelection();
+    const surface = await paintGradient(request, selection);
+    if (!surface) throw new Error(`Nothing was painted on "${request.name}": ${selection ? "the selection misses it" : "its pixels weren't ready: try again"}.`);
+    return textResult(`Painted a ${request.shape.style} gradient ${describeGradient(request.shape.gradient)} from (${request.shape.start.join(", ")}) to (${request.shape.end.join(", ")}) on "${request.name}"${request.part === "mask" ? "'s mask" : ""}${selection ? ", within the selection" : ""}.`, { added: [], changed: [request.layerId], removed: 0 });
+  },
 };
 
 export async function runPhotoTool(name: string, input: Input, ctx: ToolRunContext): Promise<ToolResult> {

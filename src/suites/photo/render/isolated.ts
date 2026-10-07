@@ -17,6 +17,8 @@ import { invert, layerScale } from "@shared/photo/layers.ts";
 import { type ContentNode, type FilterNode, type PlanFormat, addsLight } from "@shared/photo/render-plan.ts";
 import type { Compositor, Drawable, LayerDraw, PlanSources, Quality } from "./compositor.ts";
 import { FLARE_SHADER, packFlare } from "./flare.ts";
+import { GRADIENT_FILL, gradientFillShape } from "@shared/photo/effects/gradient.ts";
+import { GRADIENT_FILL_SHADER, packGradientFill } from "./gradient.ts";
 import { APPLY, APPLY_OCTAVES, BLUR, CONTRIBUTION, type OctaveRead, type PlacedOctave, applyUniform, blurUniform, placeOctaves, placedReach } from "./glow.ts";
 import { ROUND_FOR_STORE } from "./kernels.ts";
 import { FILTER_KERNELS } from "./filters/index.ts";
@@ -189,6 +191,8 @@ interface Pipelines {
   /** Kernel filters', by `type:format`. */
   kernels: Map<string, GPURenderPipeline>;
   flare: Map<PlanFormat, GPURenderPipeline>;
+  /** The Gradient Fill's (the flare's layout: a uniform and a storage buffer). */
+  gradient: Map<PlanFormat, GPURenderPipeline>;
   contribution: Map<PlanFormat, GPURenderPipeline>;
   blur: Map<PlanFormat, GPURenderPipeline>;
   apply: Map<PlanFormat, GPURenderPipeline>;
@@ -211,6 +215,8 @@ export class Isolation {
   private readonly sampler: GPUSampler;
   private readonly dummy: GPUTexture;
   private readonly flares = new Map<string, { buffer: GPUBuffer; count: number }>();
+  /** Gradient Fills' tables, by content key. */
+  private readonly gradients = new Map<string, GPUBuffer>();
   private readonly layouts: { composite: GPUBindGroupLayout; flare: GPUBindGroupLayout; textureUniform: GPUBindGroupLayout; apply: GPUBindGroupLayout; kernel: GPUBindGroupLayout };
   /** A placeholder for kernels that read no table. */
   private readonly noTable: GPUBuffer;
@@ -235,6 +241,7 @@ export class Isolation {
     return formats.flatMap((f): [string, string][] => [
       [`composite ${f}`, COMPOSITE(f)],
       [`flare ${f}`, FLARE_SHADER(f)],
+      [`gradient fill ${f}`, GRADIENT_FILL_SHADER(f)],
       [`contribution ${f}`, CONTRIBUTION(f)],
       [`blur ${f}`, BLUR(f)],
       [`apply ${f}`, APPLY(f)],
@@ -291,12 +298,13 @@ export class Isolation {
         primitive: { topology: "triangle-list" },
       });
     };
-    const pipelines: Pipelines = { composite: new Map(), kernels: new Map(), flare: new Map(), contribution: new Map(), blur: new Map(), apply: new Map() };
+    const pipelines: Pipelines = { composite: new Map(), kernels: new Map(), flare: new Map(), gradient: new Map(), contribution: new Map(), blur: new Map(), apply: new Map() };
     const work: Promise<unknown>[] = [];
     for (const f of formats) {
       for (const b of ["normal", "add"] as const) work.push(render(`composite ${b} ${f}`, COMPOSITE(f), [kernels.atlasLayout, kernels.imageLayout, composite], f, blendOf(b)).then((p) => pipelines.composite.set(`${b}:${f}`, p)));
       work.push(
         render(`flare ${f}`, FLARE_SHADER(f), [flare], f).then((p) => pipelines.flare.set(f, p)),
+        render(`gradient fill ${f}`, GRADIENT_FILL_SHADER(f), [flare], f).then((p) => pipelines.gradient.set(f, p)),
         render(`contribution ${f}`, CONTRIBUTION(f), [textureUniform], f).then((p) => pipelines.contribution.set(f, p)),
         render(`blur ${f}`, BLUR(f), [textureUniform], f).then((p) => pipelines.blur.set(f, p)),
         render(`apply ${f}`, APPLY(f), [apply], f).then((p) => pipelines.apply.set(f, p)),
@@ -317,7 +325,7 @@ export class Isolation {
   canEvaluate(node: ContentNode, format: PlanFormat): boolean {
     const p = this.pipelines;
     if (!p.composite.has(`normal:${format}`) || !p.composite.has(`add:${format}`)) return false;
-    if (node.kind === "generator" && !p.flare.has(format)) return false;
+    if (node.kind === "generator" && !(node.type === GRADIENT_FILL ? p.gradient : p.flare).has(format)) return false;
     return node.filters.every((f) => (FILTER_KERNELS[f.type] ? p.kernels.has(`${f.type}:${format}`) : p.contribution.has(format) && p.blur.has(format) && p.apply.has(format)));
   }
 
@@ -426,6 +434,7 @@ export class Isolation {
 
   /** A generator's content: a flare's elements at every target pixel. */
   private generate(encoder: GPUCommandEncoder, node: Extract<ContentNode, { kind: "generator" }>, view: View, target: GPUTexture, format: PlanFormat) {
+    if (node.type === GRADIENT_FILL) return this.gradientFill(encoder, node, view, target, format);
     const { device } = this.compositor.ctx;
     let packed = this.flares.get(node.contentKey);
     if (!packed) {
@@ -451,6 +460,31 @@ export class Isolation {
       ],
     });
     this.pass(encoder, target, this.pipelines.flare.get(format)!, [group], { width: view.width, height: view.height });
+  }
+
+  /** A Gradient Fill's content: its gradient at every target pixel (render/gradient.ts). */
+  private gradientFill(encoder: GPUCommandEncoder, node: Extract<ContentNode, { kind: "generator" }>, view: View, target: GPUTexture, format: PlanFormat) {
+    const { device } = this.compositor.ctx;
+    const { uniform, table } = packGradientFill(gradientFillShape(node.params), view);
+    let buffer = this.gradients.get(node.contentKey);
+    if (!buffer) {
+      buffer = device.createBuffer({ label: "gradient table", size: table.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      device.queue.writeBuffer(buffer, 0, table);
+      this.gradients.set(node.contentKey, buffer);
+      if (this.gradients.size > 16) {
+        const [oldest, old] = this.gradients.entries().next().value!;
+        this.gradients.delete(oldest);
+        void device.queue.onSubmittedWorkDone().then(() => setTimeout(() => old.destroy(), 0));
+      }
+    }
+    const group = device.createBindGroup({
+      layout: this.layouts.flare,
+      entries: [
+        { binding: 0, resource: { buffer: this.uniform(uniform, "gradient fill params") } },
+        { binding: 1, resource: { buffer } },
+      ],
+    });
+    this.pass(encoder, target, this.pipelines.gradient.get(format)!, [group], { width: view.width, height: view.height });
   }
 
   // --- the glow ---
@@ -633,6 +667,8 @@ export class Isolation {
     for (const t of this.dummies.values()) t.destroy();
     for (const f of this.flares.values()) f.buffer.destroy();
     this.flares.clear();
+    for (const b of this.gradients.values()) b.destroy();
+    this.gradients.clear();
     void this.sampler;
   }
 }
