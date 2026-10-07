@@ -19,6 +19,7 @@ import { type Size, fittedSize } from "@shared/transform";
 import { useEditor } from "@/stores/editor";
 import { useFonts } from "@/stores/fonts";
 import { usePlayback } from "@/stores/playback";
+import { SETTLE_MS, nextAdaptiveLevel } from "./adaptive";
 import { ImageSlot, MediaSlot } from "./media-slot";
 import { placeOnCanvas } from "./placement";
 // Also has the user's shaders compiled before they're drawn (`provideShaderCheck`).
@@ -86,7 +87,20 @@ interface Level {
 interface PlanStatus {
   offline: boolean;
   unsettled: boolean;
+  /** Something shown carries pictures on the GPU from frame to frame (see `carriesState`): drawn at one size. */
+  stateful: boolean;
 }
+
+/**
+ * Whether a clip has an effect that keeps pictures from frame to frame on the GPU (a time effect's earlier
+ * frames, a simulation's state): what it shows depends on the size its earlier frames were drawn at, so it
+ * isn't drawn at fewer pixels while moving (`adaptive.ts`). (A 3D scene steps in TypeScript: it can be.)
+ */
+const carriesState = (clip: Clip) =>
+  clip.effects.some((e) => {
+    const shader = e.enabled ? definitionOf(e)?.shader : undefined;
+    return !!(shader?.history || shader?.simulation);
+  });
 
 /** Whether a clip has a time effect on (see `EffectShader.history`), or a simulation or 3D scene, which step from frame to frame. */
 const hasTimeEffects = (clip: Clip) =>
@@ -103,6 +117,20 @@ const CATCH_UP_MS = { playing: 8, paused: 40 };
 
 /** Nested sequences deeper than this aren't drawn (a guard; loops are never saved). */
 const MAX_NESTING = 8;
+
+/**
+ * Frames the GPU may have queued: two, as a swap chain has, so the next is made while the last is drawn,
+ * and no more, so the newest time is never far behind (see `PreviewEngine.inFlight`).
+ */
+const MAX_IN_FLIGHT = 2;
+
+/** A frame sent to the GPU (see `PreviewEngine.inFlight`). */
+interface Flight {
+  sync: WebGLSync;
+  sentAt: number;
+  level: number;
+  query: WebGLQuery | null;
+}
 
 /** GPU memory nested sequences' kept frames may take (bytes). */
 const NEST_CACHE_BYTES = 384 * 1024 * 1024;
@@ -187,6 +215,9 @@ type Layer =
  *   hundreds of pieces doesn't load its file hundreds of times.)
  * - Frames are drawn on every clock tick while playing, and otherwise when
  *   anything changes, including a video presenting a new frame after a seek.
+ *   No more than two are ever queued on the GPU (a heavy edit scrubbed shows
+ *   the newest time it can, never a backlog), and the Program monitor draws
+ *   moving frames at fewer pixels when they're heavy (`adaptive.ts`).
  */
 export class PreviewEngine {
   private layers = new Map<string, VideoLayer>();
@@ -220,10 +251,28 @@ export class PreviewEngine {
   private nestFrames = new Map<string, number>();
   /** Bumped when what's drawn can change without the project changing (media updated, fonts found). */
   private contentVersion = 0;
+  /**
+   * The frames the GPU is drawing, oldest first: a fence it signals when each is done, when it was sent
+   * and at what adaptive level. At most `MAX_IN_FLIGHT`: a frame asked for meanwhile (`waiting`) is drawn
+   * when one is done, at the newest time, so a scrub never queues up more work than the GPU can do.
+   */
+  private inFlight: Flight[] = [];
+  /** The GPU's own timer (Chromium's), for what a frame cost; without it, the fence's wait says roughly. */
+  private timer: { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null = null;
+  private waiting = false;
+  private watchQueued = false;
+  private lastFinished = 0;
+  /** The adaptive level moving frames are drawn at, and when the picture last changed (see `FRAME_BUDGET_MS`). */
+  private adaptive = 1;
+  private movedAt = -Infinity;
+  private lastShown: { project: Project; time: number } | null = null;
+  private settleTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly onStatusChange: (status: { offline: boolean; noWebGl: boolean }) => void,
     private readonly source: PreviewSource = editorSource,
+    /** Draw moving frames at fewer pixels when they're heavy (the Program monitor; not the assistant's pictures). */
+    private readonly adaptiveResolution = false,
   ) {}
 
   /** The Program monitor's engine (the open video's) turns off a shader that loses the GPU. */
@@ -258,6 +307,8 @@ export class PreviewEngine {
   stop() {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    if (this.settleTimer !== null) clearTimeout(this.settleTimer);
+    this.settleTimer = null;
     for (const layer of this.layers.values()) for (const slot of layer.videos) slot?.pause();
     for (const layer of this.audio.values()) for (const slot of layer.slots) slot?.pause();
   }
@@ -313,6 +364,7 @@ export class PreviewEngine {
       preserveDrawingBuffer: true,
     });
     this.compositor = gl && !gl.isContextLost() ? createCompositor(gl) : null;
+    this.timer = this.adaptiveResolution ? (gl?.getExtension("EXT_disjoint_timer_query_webgl2") ?? null) : null;
     if (!gl) console.warn("WebGL 2 isn't available, so the preview can't be drawn.");
     this.uploaded.clear();
     this.nestFrames.clear();
@@ -320,6 +372,8 @@ export class PreviewEngine {
   }
 
   private releaseCompositor(dispose: boolean) {
+    for (const flight of this.inFlight) this.forget(flight);
+    this.inFlight = [];
     if (dispose && !this.compositor?.gl.isContextLost()) this.compositor?.dispose();
     this.compositor = null;
     this.uploaded.clear();
@@ -405,16 +459,20 @@ export class PreviewEngine {
   private update = () => {
     if (!this.unsubscribe) return;
     const { project, assets, time, playing } = this.source.get();
+    if (project !== this.lastShown?.project || time !== this.lastShown.time) {
+      this.lastShown = { project, time };
+      this.movedAt = performance.now();
+    }
     this.indexAssets(assets);
     if (project !== this.windowsOf) {
       this.windowsOf = project;
       this.windows.clear();
     }
-    const status = { offline: false, unsettled: false };
+    const status = { offline: false, unsettled: false, stateful: false };
     // Expressions hear the source's sound (the open video's unless it says otherwise).
     withSignals(this.source.signals?.() ?? null, () => {
       const layers = this.planLevel({ view: project, prefix: "", time, playing, rate: 1, muted: false, gain: 1, canvas: this.size, depth: 0, hearing: null }, status);
-      this.draw(project, layers);
+      this.draw(project, layers, status.stateful);
     });
     if (status.offline !== this.offline) {
       this.offline = status.offline;
@@ -471,14 +529,16 @@ export class PreviewEngine {
         if (kindOf(side.clip) !== "sequence") return;
         const nest = this.nestLevel(level, trackId, side, muted);
         if (!nest) return;
-        const inner: PlanStatus = { offline: false, unsettled: false };
+        const inner: PlanStatus = { offline: false, unsettled: false, stateful: false };
         const layers = depth < MAX_NESTING ? this.planLevel(nest, inner) : [];
         status.offline ||= inner.offline;
         status.unsettled ||= inner.unsettled;
+        status.stateful ||= inner.stateful;
         pictures.set(side.clip.id, { key: `nest:${slotId}:${i}`, source: null, shown: side, nest: { layers, level: nest, settled: !inner.unsettled } });
       });
       // Time effects remember earlier frames: what they show isn't the time's alone.
       if (shown.some((side) => hasTimeEffects(side.clip))) status.unsettled = true;
+      if (shown.some((side) => carriesState(side.clip))) status.stateful = true;
 
       if (layer) {
         const ids = (want: ClipKind) => {
@@ -646,23 +706,51 @@ export class PreviewEngine {
   }
 
   /** Composite the tracks' layers onto the canvas. */
-  private draw(project: Project, layers: Layer[]) {
+  private draw(project: Project, layers: Layer[], stateful: boolean) {
     const compositor = this.compositor;
     const canvas = this.canvas;
     if (!compositor || !canvas || !(this.size.width > 0 && this.size.height > 0)) return;
-    if (compositor.gl.isContextLost()) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1) * this.resolution;
+    const gl = compositor.gl;
+    if (gl.isContextLost()) return;
+    // The GPU still drawing the last frames: this one waits for one of them (and is then drawn as it is by then).
+    // Meanwhile the monitor shows an earlier moment: catching up, as a simulation stepping to its frame is.
+    if (this.inFlight.length >= MAX_IN_FLIGHT) {
+      this.waiting = true;
+      setData(canvas, "frame", "draft");
+      setData(canvas, "simulation", "catching-up");
+      return;
+    }
+    const playing = this.source.get().playing;
+    const now = performance.now();
+    const moving = playing || now - this.movedAt < SETTLE_MS;
+    const level = this.adaptiveResolution && moving && !stateful ? this.adaptive : 1;
+    const dpr = Math.min(2, window.devicePixelRatio || 1) * this.resolution * level;
+    const query = this.timer && gl.createQuery();
+    if (query) gl.beginQuery(this.timer!.TIME_ELAPSED_EXT, query);
     compositor.resize(this.size.width * dpr, this.size.height * dpr);
     compositor.clear();
-    this.catchUpUntil = performance.now() + (this.source.get().playing ? CATCH_UP_MS.playing : CATCH_UP_MS.paused);
+    this.catchUpUntil = now + (playing ? CATCH_UP_MS.playing : CATCH_UP_MS.paused);
     this.caughtUp = true;
-    const count = this.drawLayers(compositor, project, layers, this.size, dpr);
-    compositor.present();
+    let count: { transitions: number };
+    try {
+      count = this.drawLayers(compositor, project, layers, this.size, dpr);
+      compositor.present();
+    } finally {
+      if (query) gl.endQuery(this.timer!.TIME_ELAPSED_EXT);
+    }
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    gl.flush();
+    if (sync) {
+      this.inFlight.push({ sync, sentAt: performance.now(), level, query });
+      this.watchGpu();
+    } else if (query) gl.deleteQuery(query);
+    // A frame drawn at fewer pixels is drawn again in full once the picture holds still.
+    if (level < 1 && !playing) this.settleLater();
+    setData(canvas, "frame", level < 1 ? "draft" : "final");
     const state = count.transitions ? "transition" : layers.length ? "clips" : "empty";
     if (canvas.dataset.drawn !== state) canvas.dataset.drawn = state;
     // A simulation not caught up yet shows a close frame, and goes on catching up on the next draw.
-    const simulation = this.caughtUp ? "exact" : "catching-up";
-    if (canvas.dataset.simulation !== simulation) canvas.dataset.simulation = simulation;
+    setData(canvas, "simulation", this.caughtUp ? "exact" : "catching-up");
     if (!this.caughtUp) this.requestDraw();
   }
 
@@ -828,6 +916,62 @@ export class PreviewEngine {
     return { transitions };
   }
 
+  /** Check on the frames in flight once an animation frame (a fence's status only changes between tasks). */
+  private watchGpu() {
+    if (this.watchQueued) return;
+    this.watchQueued = true;
+    requestAnimationFrame(() => {
+      this.watchQueued = false;
+      const gl = this.compositor?.gl;
+      if (!gl || gl.isContextLost()) {
+        this.inFlight = [];
+        return;
+      }
+      // Frames finish in order.
+      while (this.inFlight.length && gl.getSyncParameter(this.inFlight[0].sync, gl.SYNC_STATUS) === gl.SIGNALED) this.finished(gl, this.inFlight.shift()!);
+      if (this.inFlight.length) this.watchGpu();
+      if (this.waiting && this.inFlight.length < MAX_IN_FLIGHT) {
+        this.waiting = false;
+        this.update();
+      }
+    });
+  }
+
+  /** A frame the GPU has drawn: what it cost says what level the next moving frames are drawn at. */
+  private finished(gl: WebGL2RenderingContext, flight: Flight) {
+    // What it cost: the GPU's timer, else the wait since it could start (up to a frame more than the work: about half off).
+    const now = performance.now();
+    let cost = Math.max(0, now - Math.max(flight.sentAt, this.lastFinished) - 8);
+    this.lastFinished = now;
+    const { query, level } = flight;
+    if (query && this.timer && gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE) && !gl.getParameter(this.timer.GPU_DISJOINT_EXT)) {
+      cost = gl.getQueryParameter(query, gl.QUERY_RESULT) / 1e6;
+    }
+    this.forget(flight);
+    this.adaptive = nextAdaptiveLevel(this.adaptive, level, cost);
+  }
+
+  /** Let go of a frame's fence and timer. */
+  private forget({ sync, query }: Flight) {
+    const gl = this.compositor?.gl;
+    if (!gl || gl.isContextLost()) return;
+    gl.deleteSync(sync);
+    if (query) gl.deleteQuery(query);
+  }
+
+  /** Draw again when the picture has held still for `SETTLE_MS` (in full, see `draw`). */
+  private settleLater() {
+    if (this.settleTimer !== null) clearTimeout(this.settleTimer);
+    this.settleTimer = setTimeout(
+      () => {
+        this.settleTimer = null;
+        if (performance.now() - this.movedAt < SETTLE_MS) this.settleLater();
+        else this.update();
+      },
+      Math.max(0, this.movedAt + SETTLE_MS - performance.now()) + 1,
+    );
+  }
+
   /** Remember a nested sequence's frame, letting go of the least recently shown past the budget. */
   private keepNestFrame(compositor: Compositor, key: string, bytes: number) {
     this.nestFrames.set(key, bytes);
@@ -955,6 +1099,11 @@ const MAX_PLAYBACK_RATE = 16;
 
 const withId = (ids: SlotIds, index: 0 | 1, id: string | null): SlotIds =>
   index === 0 ? [id, ids[1]] : [ids[0], id];
+
+/** Set a data attribute only when it changes. */
+function setData(el: HTMLElement, key: string, value: string) {
+  if (el.dataset[key] !== value) el.dataset[key] = value;
+}
 
 /** Mark the media element that's on screen (for debugging and tests; the elements themselves are hidden). */
 function setShown(el: HTMLElement, shown: boolean) {

@@ -60,7 +60,8 @@ export const usePlayback = create<PlaybackState>((set, get) => {
       const t = Math.min(Math.max(0, time), get().duration);
       anchorTime = t;
       anchorWall = performance.now();
-      set({ time: t });
+      // A scrub held past an end seeks to the same time on every move: nothing to draw again.
+      if (t !== get().time) set({ time: t });
     },
     setDuration(duration) {
       set({ duration });
