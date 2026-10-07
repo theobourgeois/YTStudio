@@ -13,6 +13,8 @@ import { SURFACE_FILTERS } from "./surface.ts";
 import { CELLS_FILTERS } from "./cells.ts";
 import { PAINT_FILTERS } from "./paint.ts";
 import { PRINT_FILTERS } from "./print.ts";
+import { CRT_FILTERS } from "./crt.ts";
+import { EXTRUDE_FILTERS } from "./extrude.ts";
 import type { EffectDefinition } from "../index.ts";
 
-export const KERNEL_FILTERS: EffectDefinition[] = [...COLOUR_FILTERS, ...LIGHT_FILTERS, ...STYLIZE_FILTERS, ...EDGES_FILTERS, ...GLITCH_FILTERS, ...FILM_FILTERS, ...DISTORT_FILTERS, ...WIND_FILTERS, ...WARP_FILTERS, ...GLASS_FILTERS, ...SURFACE_FILTERS, ...CELLS_FILTERS, ...PAINT_FILTERS, ...PRINT_FILTERS];
+export const KERNEL_FILTERS: EffectDefinition[] = [...COLOUR_FILTERS, ...LIGHT_FILTERS, ...STYLIZE_FILTERS, ...EDGES_FILTERS, ...GLITCH_FILTERS, ...FILM_FILTERS, ...DISTORT_FILTERS, ...WIND_FILTERS, ...WARP_FILTERS, ...GLASS_FILTERS, ...SURFACE_FILTERS, ...CELLS_FILTERS, ...PAINT_FILTERS, ...PRINT_FILTERS, ...CRT_FILTERS, ...EXTRUDE_FILTERS];
