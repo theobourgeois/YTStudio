@@ -186,6 +186,44 @@
   --comp-handle-top: #6d6c73;
   --comp-handle-bottom: #3a3940;
   /*
+   * YT-L's look (`src/suites/music/pro-l/`): FabFilter Pro-L's night-blue display in every theme: the input after
+   * Gain a pale fill, the output a deep blue one with a light line, the limiter's reduction red and the clip
+   * stage's orange from the top, the loudness pale under the target, amber near it, red over; the knobs' arcs
+   * sky blue. Its canvases read these: plain colours. (Its knobs are Pro-C's, their `--comp-*` set to these.)
+   */
+  --lim-bg-top: #121722;
+  --lim-bg-bottom: #1c2331;
+  --lim-bar: #0c1018;
+  --lim-bottom-bar: #151b26;
+  --lim-panel: #1d2432;
+  --lim-panel-edge: #333c4e;
+  --lim-section: #141a25;
+  --lim-grid: #222a39;
+  --lim-grid-strong: #36405a;
+  --lim-label: #8792a8;
+  --lim-text: #d8dde8;
+  --lim-input: #4a5568;
+  --lim-output: #2e5fae;
+  --lim-output-line: #b9d3ff;
+  --lim-reduction: #ff4f58;
+  --lim-clip: #ff9f40;
+  --lim-ceiling: #9aa9c4;
+  --lim-loud-low: #c8d4e8;
+  --lim-loud-near: #ffb84d;
+  --lim-loud-over: #ff5a5a;
+  --lim-target: #ff9f40;
+  --lim-meter: #57c27a;
+  --lim-meter-hot: #ffb84d;
+  --lim-arc: #6cc4ff;
+  --lim-knob: #252d3c;
+  --lim-knob-light: #3a4458;
+  --lim-knob-dark: #161b25;
+  --lim-knob-edge: #4b566d;
+  --lim-button-top: #3a4458;
+  --lim-button-bottom: #252d3c;
+  --lim-handle-top: #66718a;
+  --lim-handle-bottom: #39425a;
+  /*
    * The Reverb's look (`src/suites/music/reverb/`): a night-blue display in every theme, as a plugin's
    * window keeps its own: the decay curve and the knobs' arcs cyan, the mode's natural curve a dim teal
    * under it, the Post EQ amber, the tail's spectrum a soft teal behind, the early taps lilac, the duck red.

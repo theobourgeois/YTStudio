@@ -10,6 +10,7 @@ import { PRO_Q_PLUGIN, isProQ } from "@shared/music/pro-q-presets";
 import { OTT_PLUGIN, isOtt } from "@shared/music/ott-presets";
 import { REVERB_PLUGIN, isReverb } from "@shared/music/reverb-presets";
 import { PRO_C_PLUGIN, isProC } from "@shared/music/pro-c-presets";
+import { PRO_L_PLUGIN, isProL } from "@shared/music/pro-l-presets";
 import { PANMAN_PLUGIN, isPanMan } from "@shared/music/panman-presets";
 import { PITCH_WHEEL_PLUGIN, isPitchWheel } from "@shared/music/pitch-wheel-presets";
 import { moveEffect, moveEffectTo, setEffect, trackName, updateEffect, updateMixerTrack } from "@shared/music/mixer";
@@ -43,6 +44,8 @@ import { useOttUi } from "../ott/store";
 import { openReverb, toggleReverb } from "../reverb/actions";
 import { useVerbUi } from "../reverb/store";
 import { openProC, toggleProC } from "../pro-c/actions";
+import { openProL, toggleProL } from "../pro-l/actions";
+import { useLimUi } from "../pro-l/store";
 import { useCompUi } from "../pro-c/store";
 import { useEqUi } from "../pro-q/store";
 import { openPanMan, togglePanMan } from "../panman/actions";
@@ -105,6 +108,7 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
     if (isProQ(plugin)) openProQ(id);
     if (isOtt(plugin)) openOtt(id);
     if (isProC(plugin)) openProC(id);
+    if (isProL(plugin)) openProL(id);
     if (isPanMan(plugin)) openPanMan(id);
     if (isPitchWheel(plugin)) openPitchWheel(id);
     if (isReverb(plugin)) openReverb(id);
@@ -258,7 +262,7 @@ function SlotMenuItems({ menu, trackId, slot, effect, openPicker }: { menu: Menu
   const takes = takesKey(effect, hasInput);
   return (
     <>
-      <Item onSelect={() => (effect.grossBeat ? openGrossBeat(effect.id) : effect.echoBoy ? openEchoBoy(effect.id) : effect.autoTune ? openAutoTune(effect.id) : effect.proQ ? openProQ(effect.id) : effect.panMan ? openPanMan(effect.id) : effect.pitchWheel ? openPitchWheel(effect.id) : effect.ott ? openOtt(effect.id) : effect.proC ? openProC(effect.id) : effect.reverb ? openReverb(effect.id) : useTransport.getState().showEffect(effect.id, true))}>Open its window</Item>
+      <Item onSelect={() => (effect.grossBeat ? openGrossBeat(effect.id) : effect.echoBoy ? openEchoBoy(effect.id) : effect.autoTune ? openAutoTune(effect.id) : effect.proQ ? openProQ(effect.id) : effect.panMan ? openPanMan(effect.id) : effect.pitchWheel ? openPitchWheel(effect.id) : effect.ott ? openOtt(effect.id) : effect.proC ? openProC(effect.id) : effect.proL ? openProL(effect.id) : effect.reverb ? openReverb(effect.id) : useTransport.getState().showEffect(effect.id, true))}>Open its window</Item>
       <Item onSelect={openPicker}>Replace…</Item>
       <Item onSelect={() => commit((song) => updateEffect(song, trackId, slot, { enabled: !effect.enabled }))}>{effect.enabled ? "Bypass" : "Enable"}</Item>
       {takes ? (
@@ -324,6 +328,7 @@ function EffectName({ effect }: { effect: MixerEffect }) {
   if (effect.proQ) return <ProQName effect={effect} />;
   if (effect.ott) return <OttName effect={effect} />;
   if (effect.proC) return <ProCName effect={effect} />;
+  if (effect.proL) return <ProLName effect={effect} />;
   if (effect.panMan) return <PanManName effect={effect} />;
   if (effect.pitchWheel) return <PitchWheelName effect={effect} />;
   if (effect.reverb) return <ReverbName effect={effect} />;
@@ -356,6 +361,10 @@ function ReverbName({ effect }: { effect: MixerEffect }) {
 
 function ProCName({ effect }: { effect: MixerEffect }) {
   return <BuiltInName effect={effect} open={useCompUi((s) => s.openIds.includes(effect.id))} onToggle={() => toggleProC(effect.id)} />;
+}
+
+function ProLName({ effect }: { effect: MixerEffect }) {
+  return <BuiltInName effect={effect} open={useLimUi((s) => s.openIds.includes(effect.id))} onToggle={() => toggleProL(effect.id)} />;
 }
 
 /** One of ours' name (Gross Beat, EchoBoy, Auto-Tune, PanMan, Pitch Wheel, OTT, Pro-C): always ready; a click opens its window (or closes it). */
@@ -608,7 +617,7 @@ function InputOptions({ trackId }: { trackId: string }) {
   );
 }
 
-/** Ours, before the plugins: Pro-Q, Pro-C, Reverb, OTT, Gross Beat, EchoBoy, Auto-Tune, PanMan, Pitch Wheel. */
+/** Ours, before the plugins: Pro-Q, Pro-C, YT-L, Reverb, OTT, Gross Beat, EchoBoy, Auto-Tune, PanMan, Pitch Wheel. */
 const BUILT_IN = "Built in";
 const PANMAN_ITEM: PickerItem = { id: PANMAN_PLUGIN.id, name: PANMAN_PLUGIN.name, detail: "Auto-panning: LFO, rhythms, random, on the hits", group: BUILT_IN, plugin: null };
 const GROSS_BEAT_ITEM: PickerItem = { id: GROSS_BEAT_PLUGIN.id, name: GROSS_BEAT_PLUGIN.name, detail: "Chops, repeats, half speed, gates", group: BUILT_IN, plugin: null };
@@ -617,17 +626,18 @@ const AUTO_TUNE_ITEM: PickerItem = { id: AUTO_TUNE_PLUGIN.id, name: AUTO_TUNE_PL
 const PRO_Q_ITEM: PickerItem = { id: PRO_Q_PLUGIN.id, name: PRO_Q_PLUGIN.name, detail: "Equalizer: 24 bands, dynamic, linear phase", group: BUILT_IN, plugin: null };
 const OTT_ITEM: PickerItem = { id: OTT_PLUGIN.id, name: OTT_PLUGIN.name, detail: "Multiband upward and downward compressor", group: BUILT_IN, plugin: null };
 const PRO_C_ITEM: PickerItem = { id: PRO_C_PLUGIN.id, name: PRO_C_PLUGIN.name, detail: "Compressor: versatile styles, vintage character, vocals first", group: BUILT_IN, plugin: null };
+const PRO_L_ITEM: PickerItem = { id: PRO_L_PLUGIN.id, name: PRO_L_PLUGIN.name, detail: "Limiter: loud, clean masters, a clipper inside", group: BUILT_IN, plugin: null };
 const REVERB_ITEM: PickerItem = { id: REVERB_PLUGIN.id, name: REVERB_PLUGIN.name, detail: "Reverb: plates, halls and rooms for vocals", group: BUILT_IN, plugin: null };
 const PITCH_WHEEL_ITEM: PickerItem = { id: PITCH_WHEEL_PLUGIN.id, name: PITCH_WHEEL_PLUGIN.name, detail: "Pitch and formants by hand, swings, harmonies from notes", group: BUILT_IN, plugin: null };
 /** Ours, by their picker item's id. */
-const BUILT_INS = [GROSS_BEAT_PLUGIN, ECHO_BOY_PLUGIN, AUTO_TUNE_PLUGIN, PRO_Q_PLUGIN, PANMAN_PLUGIN, PITCH_WHEEL_PLUGIN, OTT_PLUGIN, PRO_C_PLUGIN, REVERB_PLUGIN];
+const BUILT_INS = [GROSS_BEAT_PLUGIN, ECHO_BOY_PLUGIN, AUTO_TUNE_PLUGIN, PRO_Q_PLUGIN, PANMAN_PLUGIN, PITCH_WHEEL_PLUGIN, OTT_PLUGIN, PRO_C_PLUGIN, PRO_L_PLUGIN, REVERB_PLUGIN];
 
 /** The effects to choose from: the big picker, ours first, then the plugins by kind. */
 function EffectPicker({ onChoose, onMore }: { onChoose: (plugin: PluginRef) => void; onMore: () => void }) {
   const { plugins, error } = usePluginList("effect", true);
   const starred = usePluginFavourites((s) => s.starred);
   const shown = useMemo(() => starredPlugins(plugins ?? [], starred), [plugins, starred]);
-  const items = useMemo(() => [PRO_Q_ITEM, PRO_C_ITEM, REVERB_ITEM, OTT_ITEM, GROSS_BEAT_ITEM, ECHO_BOY_ITEM, AUTO_TUNE_ITEM, PANMAN_ITEM, PITCH_WHEEL_ITEM, ...shown.map(pickerItem)], [shown]);
+  const items = useMemo(() => [PRO_Q_ITEM, PRO_C_ITEM, PRO_L_ITEM, REVERB_ITEM, OTT_ITEM, GROSS_BEAT_ITEM, ECHO_BOY_ITEM, AUTO_TUNE_ITEM, PANMAN_ITEM, PITCH_WHEEL_ITEM, ...shown.map(pickerItem)], [shown]);
   return (
     <PluginPicker
       noun="effect"
