@@ -142,6 +142,7 @@ Photo's own `keys.ts`, pure and tested, as music's is. Its listener skips text f
 | ⌘S | Save now (saving is automatic, as in every suite; this flushes and shows it) |
 | ⇧⌘; | Snap on or off (Photoshop's View › Snap; built) |
 | ⌘H / ⌥⌘H | Flip the selected layers horizontally / vertically (Edit › Transform; built) |
+| ⌘T | Free Transform: Enter commits, Escape cancels; ⌘ / ⌘⌥⇧ on handles skew, distort, perspective (built) |
 
 Where we differ from Photoshop's keys: ⇧⌘E is Export here (Photoshop's Merge Visible: ours is in the Layers menu),
 and ⇧⌘[ / ⇧⌘] switch the app's tabs (Photoshop's Send to Back / Bring to Front: the Layers menu's). ⌘H and ⌥⌘H
@@ -207,6 +208,17 @@ Photoshop's: several layers can be selected, and what acts on a layer acts on al
   Rotation turns or flips the whole canvas: its sides swap on a quarter turn, every layer, point and the selection go
   with it, and the masks in document pixels (adjustments', generators', text's and shapes') are moved pixel for pixel
   (`surface-orient.ts`), as a canvas crop shifts them. Angles inside effects' settings stay, as in Photoshop.
+- **Skew, Distort and Perspective (built, `shared/photo/projective.ts`)**: a layer's place also has a skew (its
+  vertical edges lean, Photoshop's horizontal skew) and a perspective (how much its far side shrinks, across and down),
+  so any four corners place it (`transformFromQuad`). On the Move tool's handles, ⌘ (Ctrl) on a corner distorts it,
+  on an edge skews it, and ⌘⌥⇧ on a corner puts it in perspective (it and its neighbour move apart or together along
+  their edge). **Free Transform** (⌘T, Edit › Free Transform; Edit › Transform's Scale, Skew, Distort and Perspective
+  start it in that mode) makes every drag one session, one undo step at Enter (or the options bar's tick), all put
+  back by Escape; its options bar switches the mode and edits X, Y, W, H, the angle and the skew; selecting another
+  layer or tool commits it. Several layers stretch, skew and distort together (each carried by its corners). Text and
+  shapes skew but don't distort (the 2D canvas draws them affine). The GPU draws a layer in perspective through its
+  homography, widening Mitchell on its far side. Not yet: painting or filling a layer in perspective (or its mask),
+  and cropping it with its own frame (the Crop tool crops the canvas): it says so; Convert to Pixels first.
 - **100% means one image pixel per device pixel**, so on a Retina display the image looks half its CSS size. The zoom
   readout says this, and DPR changes, window resizes and fractional zooms are tested.
 - **Zoom limits**: the smallest zoom fits any document; the largest shows pixel edges.

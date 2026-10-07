@@ -1,10 +1,11 @@
 /**
  * The photo suite's flips and turns: Edit › Transform on the selected layers (⌘H, ⌥⌘H, the menu, Properties'
  * buttons), Image › Image Rotation on the whole canvas (masks in document pixels moved pixel for pixel), and the
- * assistant's. Its own photos, as `photo.spec.ts`'s; run alone with `pnpm test:e2e photo-transform`.
+ * assistant's. Then Free Transform (⌘T): Skew, Distort and Perspective, drawn by the GPU in perspective. Its own photos, as `photo.spec.ts`'s; run alone with `pnpm test:e2e photo-transform`.
  */
 import path from "node:path";
 import { type Page, expect, test } from "@playwright/test";
+import { invertHomography, layerProjection, project, quadOf } from "../shared/photo/projective.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -169,4 +170,113 @@ test("the assistant flips layers and turns the canvas", async ({ page }) => {
   expect(doc.canvas).toMatchObject({ width: 1200, height: 1600 });
   // Flipped upside down, then the canvas turned anticlockwise.
   expect(doc.layers[0].transform).toEqual({ x: 600, y: 800, scaleX: 1, scaleY: -1, rotation: -90 });
+});
+
+type Placed = { x: number; y: number; scaleX: number; scaleY: number; rotation: number; skew?: number; perspective?: [number, number] };
+
+/** The open photo's first layer's place as the editor has it now (a Free Transform session isn't saved until it ends). */
+const livePlace = (page: Page) =>
+  page.evaluate(() => (window as unknown as { photoDebug: { photo: { getState(): { history: { doc: { doc: { layers: { transform: unknown }[] } } } } } } }).photoDebug.photo.getState().history.doc.doc.layers[0].transform as Placed);
+
+/** A handle's centre on the page. */
+async function handleAt(page: Page, which: string) {
+  const b = (await page.locator(`[data-handle="${which}"]`).boundingBox())!;
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+}
+
+/** Drags from a page point by (dx, dy) in steps, with keys held. */
+async function dragBy(page: Page, from: { x: number; y: number }, dx: number, dy: number, keys: string[] = []) {
+  for (const k of keys) await page.keyboard.down(k);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + dx / 2, from.y + dy / 2, { steps: 4 });
+  await page.mouse.move(from.x + dx, from.y + dy, { steps: 4 });
+  await page.mouse.up();
+  for (const k of keys.reverse()) await page.keyboard.up(k);
+}
+
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
+test("Free Transform (⌘T): ⌘-drag distorts a corner, Escape puts it back; Perspective, committed by Enter in one step, is drawn in perspective", async ({ page }) => {
+  const id = await openNewPhoto(page, "Distorted");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0]?.transform).toBeTruthy();
+  const half: Placed = { x: 800, y: 600, scaleX: 0.5, scaleY: 0.5, rotation: 0 };
+  await page.evaluate((t) => {
+    const { photo } = (window as unknown as DebugWindow).photoDebug;
+    photo.getState().commit((d) => ({ ...d, layers: d.layers.map((l) => ({ ...l, transform: t })) }));
+  }, half);
+  await page.locator("[data-layer]").first().click();
+  // The picture upright at 50% around its centre: what perspective must show, point for point.
+  const around = { zoom: 1, x: 650, y: 450, width: 300, height: 300 };
+  const upright = await renderRegion(page, around);
+
+  await page.keyboard.press("ControlOrMeta+t");
+  await expect(page.locator('[data-tool-options="move"]')).toHaveAttribute("data-free-transform", "scale");
+  await dragBy(page, await handleAt(page, "1,0"), 60, -40, [MOD]);
+  expect((await livePlace(page)).perspective).toBeDefined();
+  await page.keyboard.press("Escape");
+  await expect(page.locator('[data-tool-options="move"]')).not.toHaveAttribute("data-free-transform", /.*/);
+  expect(await livePlace(page)).toEqual(half);
+
+  // Perspective from the options bar: the top-right corner pulled up pulls the bottom-right down; Enter commits.
+  await page.locator('[data-transform-mode="perspective"]').click();
+  await expect(page.locator('[data-tool-options="move"]')).toHaveAttribute("data-free-transform", "perspective");
+  await dragBy(page, await handleAt(page, "1,0"), 0, -50);
+  await page.keyboard.press("Enter");
+  const t = await expect.poll(async () => (await savedPhoto(page, id)).layers[0].transform.perspective).toBeDefined().then(async () => (await savedPhoto(page, id)).layers[0].transform as Placed);
+  const [tl, tr, br, bl] = quadOf(t, { width: 1600, height: 1200 });
+  expect(tl.x).toBeCloseTo(400, 3);
+  expect(tl.y).toBeCloseTo(300, 3);
+  expect(bl.y).toBeCloseTo(900, 3);
+  expect(tr.y).toBeLessThan(290);
+  expect(tr.y + br.y).toBeCloseTo(1200, 3);
+
+  // Drawn in perspective: just above the new top edge is empty, just under it is the picture (at both ends); and
+  // each point near the middle shows the picture's pixel the layer's map takes there.
+  const topEdgeAt = (x: number) => tl.y + ((tr.y - tl.y) * (x - tl.x)) / (tr.x - tl.x);
+  const alphaAt = async (x: number, y: number) => (await renderRegion(page, { zoom: 1, x: Math.floor(x), y: Math.floor(y), width: 1, height: 1 }))[3];
+  expect(await alphaAt(1150, topEdgeAt(1150) + 4)).toBeGreaterThan(0.99);
+  expect(await alphaAt(1150, topEdgeAt(1150) - 4)).toBeLessThan(0.01);
+  expect(await alphaAt(500, topEdgeAt(500) - 4)).toBeLessThan(0.01);
+  expect(await alphaAt(500, topEdgeAt(500) + 4)).toBeGreaterThan(0.99);
+  const inv = invertHomography(layerProjection(t, { width: 1600, height: 1200 }));
+  const shown = await renderRegion(page, { zoom: 1, x: 760, y: 560, width: 80, height: 80 });
+  let total = 0;
+  let count = 0;
+  for (let y = 0; y < 80; y += 8) {
+    for (let x = 0; x < 80; x += 8) {
+      const u = project(inv, 760 + x + 0.5, 560 + y + 0.5)!;
+      // Where that source pixel was drawn upright (the layer at 50% centred on 800, 600), in `around`.
+      const ux = Math.round(400 + u.x / 2 - 0.5 - around.x);
+      const uy = Math.round(300 + u.y / 2 - 0.5 - around.y);
+      for (let c = 0; c < 3; c++) total += Math.abs(shown[(y * 80 + x) * 4 + c] - upright[(uy * around.width + ux) * 4 + c]);
+      count += 3;
+    }
+  }
+  expect(total / count).toBeLessThan(0.03);
+
+  // One undo step for the whole session.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0].transform).toEqual(half);
+});
+
+test("the assistant puts a layer on four corners and skews one", async ({ page }) => {
+  const id = await openNewPhoto(page, "Assisted distort");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const layer = (await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(1).then(() => savedPhoto(page, id))).layers[0];
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill([`call transform_layer {"layer": "${layer.id}", "corners": [[200, 150], [1400, 300], [1350, 1000], [250, 1100]]}`, "call get_photo"].join("\n"));
+  await composer.press("Enter");
+  await expect(panel).toContainText("get_photo: ok", { timeout: 30_000 });
+  const t = await expect.poll(async () => (await savedPhoto(page, id)).layers[0].transform.perspective).toBeDefined().then(async () => (await savedPhoto(page, id)).layers[0].transform as Placed);
+  const q = quadOf(t, { width: 1600, height: 1200 });
+  [[200, 150], [1400, 300], [1350, 1000], [250, 1100]].forEach(([x, y], i) => {
+    expect(q[i].x).toBeCloseTo(x, 3);
+    expect(q[i].y).toBeCloseTo(y, 3);
+  });
 });
