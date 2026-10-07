@@ -18,7 +18,19 @@
  */
 import fs from "node:fs";
 import os from "node:os";
-import ort from "onnxruntime-node";
+
+/** ONNX Runtime, loaded once a job has been read (`loadRuntime`), so a missing install says what to do. */
+let ort;
+
+/** ONNX Runtime's native build, or an error saying how to get it (a checkout that hasn't run `pnpm install` since it came). */
+async function loadRuntime() {
+  try {
+    return (await import("onnxruntime-node")).default;
+  } catch (error) {
+    if (error?.code === "ERR_MODULE_NOT_FOUND") throw new Error("ONNX Runtime (onnxruntime-node) isn't installed: run pnpm install, then try again.");
+    throw new Error(`ONNX Runtime couldn't be loaded: ${String(error?.message ?? error).split("\n")[0]}`);
+  }
+}
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 
@@ -220,6 +232,7 @@ try {
   const job = JSON.parse(process.argv[2] ?? "{}");
   const command = COMMANDS[job.cmd];
   if (!command) throw new Error(`Unknown job "${job.cmd}"`);
+  ort = await loadRuntime();
   send({ done: true, ...(await command(job)) });
   process.exit(0);
 } catch (error) {
