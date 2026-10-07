@@ -6,7 +6,8 @@
  */
 import { findLayer } from "./edits.ts";
 import type { Size } from "./geometry.ts";
-import { bounds } from "./layers.ts";
+import { cropOf, croppedBounds } from "./crop.ts";
+import { bounds, layerMatrix } from "./layers.ts";
 import { filtersReach } from "./render-plan.ts";
 import { type ImageLayer, MAX_CANVAS_SIDE, type PhotoLayer, type PhotoProject, type PlacedLayer, hasContent, isPlaced } from "./types.ts";
 
@@ -65,7 +66,8 @@ export function planMerge(doc: PhotoProject, kind: MergeKind, selected: readonly
       if (!size) return { error: `"${l.name}" has no image (it's missing or unreadable), so it can't be merged.` };
       // A glow spreads past its layer: the merged image keeps it.
       const reach = filtersReach(l);
-      const box = bounds(l.transform, size);
+      // What shows of it (inside its crop).
+      const box = l.crop ? croppedBounds(layerMatrix(l.transform, size), cropOf(l, size)) : bounds(l.transform, size);
       b = { x0: box.x0 - reach, y0: box.y0 - reach, x1: box.x1 + reach, y1: box.y1 + reach };
     }
     x0 = Math.min(x0, b.x0);

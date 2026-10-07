@@ -525,13 +525,13 @@ export class PhotoRenderer {
       if (node.kind === "pixel") {
         const pixels = this.surfaceOf(node.layerId, "content");
         if (!pixels) return null;
-        return { source: pixels, matrix: node.matrix, transform: node.transform, opacity: node.opacity, mask };
+        return { source: pixels, matrix: node.matrix, transform: node.transform, opacity: node.opacity, mask, crop: node.crop };
       }
       const image = this.sources.get(node.mediaId)?.image;
       if (!image) return null;
       // A mask lives in its source's atlas (a 16-bit source's is f32): one made for another isn't drawn with it.
       if (mask && mask.ctx !== image.ctx) return null;
-      return { source: image, matrix: layerMatrix(node.transform, image.layout), transform: node.transform, opacity: node.opacity, mask };
+      return { source: image, matrix: layerMatrix(node.transform, image.layout), transform: node.transform, opacity: node.opacity, mask, crop: node.crop };
     },
     mask: (node: { layerId: string }): Drawable | null => this.surfaceOf(node.layerId, "mask"),
     glowCache: (node, index) => this.glows.lookup(node, index),
@@ -1012,7 +1012,7 @@ export class PhotoRenderer {
       canvas: size,
       compositing: "linear",
       background: [0, 0, 0, 1],
-      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, blend: null, style: null, filters: [], contentKey: "mask", commutesFrom: 0, commutes: true, key: "mask" }],
+      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, blend: null, style: null, filters: [], contentKey: "mask", commutesFrom: 0, commutes: true, key: "mask", crop: null }],
       baseKey: "mask",
       prefixKeys: ["mask"],
       key: "mask",

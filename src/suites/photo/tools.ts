@@ -55,7 +55,12 @@ import {
   setFilterTool,
   setLayerTool,
   transformLayerTool,
+  canvasCropOf,
+  cropLayerTool,
 } from "./tool-edits";
+import { cropCanvas, documentMasks } from "@shared/photo/crop";
+import { uploadsFor } from "./uploads";
+import { shiftSurfaces } from "./toolbox/crop-masks";
 import { usePhotoUi } from "./ui";
 import { imageLayerOf } from "./media";
 import { photoApi } from "./api";
@@ -422,6 +427,24 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     if (!target.open) throw new Error("Open the photo in the editor first: the Magic Eraser reads its pixels on the GPU.");
     return floodTools.magic_erase(input, target.doc, usePhotoUi.getState().selectedLayerId);
   },
+  async crop_canvas(input, ctx) {
+    const target = await targetOf(ctx);
+    const { box, text } = canvasCropOf(target.doc, input, target.open ? currentSelection() : null);
+    // Masks in document pixels move with the canvas (whole pixels, exactly), uploaded as a stroke's tiles are.
+    const masks = box.x || box.y ? documentMasks(target.doc) : [];
+    const uploads = uploadsFor(target.projectId);
+    const moved = masks.length ? await shiftSurfaces(uploads, masks, -box.x, -box.y, { width: box.width, height: box.height }) : new Map<string, string>();
+    if (target.open && usePhoto.getState().projectId === target.projectId) {
+      if (currentDoc() !== target.doc) throw new Error("The photo changed while it was being cropped (the user edited it): nothing was cropped. Read it again and retry.");
+      usePhoto.getState().commitState((state) => cropCanvas(state, box, moved));
+    } else {
+      const next = cropCanvas({ doc: target.doc, selection: null }, box, moved).doc;
+      await uploads.ready(next);
+      await api.saveDocument("photo", target.projectId, next);
+    }
+    return textResult(text);
+  },
+  crop_layer: edit(cropLayerTool),
 };
 
 export async function runPhotoTool(name: string, input: Input, ctx: ToolRunContext): Promise<ToolResult> {

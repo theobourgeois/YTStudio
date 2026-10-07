@@ -14,13 +14,14 @@
 import type { DocumentBase } from "../suites.ts";
 
 /**
- * 6: the document's patterns (Layer Style L4: Pattern Overlay, pattern strokes, Bevel's Texture), 5: light (F4:
+ * 7: a layer's crop (image and pixel layers' `crop`: a rectangle of their own pixels, everything outside it hidden;
+ * absent: none), 6: the document's patterns (Layer Style L4: Pattern Overlay, pattern strokes, Bevel's Texture), 5: light (F4:
  * filters, generator layers, the `film` highlights by default), 4: Layer Style (Blending Options and
  * compositing, then layer styles and Global Light: fields absent at their defaults), 3: pixel layers and masks, 2:
  * adjustment layers. An older document is a valid newer one (compositing in linear light and its highlights
  * clipped, as it was drawn then); an older app refuses a newer one.
  */
-export const PHOTO_VERSION = 6;
+export const PHOTO_VERSION = 7;
 
 /**
  * A surface: the SHA-256 (lowercase hex) of its manifest's canonical JSON. The server has every manifest a saved
@@ -162,8 +163,27 @@ interface Filtered {
   filtersEnabled?: false;
 }
 
+/**
+ * A layer's crop (version 7, the Crop tool with a layer selected: docs/photo/tools/crop.md): a rectangle of its own
+ * pixels (an image's source pixels, a pixel layer's), x right and y down from its top-left edge. Everything of the
+ * layer outside it is hidden, before its filters, mask and style; its pixels are kept, so the crop can be widened
+ * again. Inside the layer and never empty (`normalizeCrop`).
+ */
+export interface LayerCrop {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** What a layer with pixels of its own and a place carries from version 7. */
+interface Croppable {
+  /** Absent: the whole layer shows. */
+  crop?: LayerCrop;
+}
+
 /** A source image placed on the canvas, kept whole (Photoshop's embedded Smart Object, for this). */
-export interface ImageLayer extends LayerBase, Filtered {
+export interface ImageLayer extends LayerBase, Filtered, Croppable {
   kind: "image";
   /** The project media it shows. */
   mediaId: string;
@@ -267,7 +287,7 @@ export interface AdjustmentLayer extends LayerBase {
  * Painted pixels (Photoshop's pixel layer): an `rgba16f` surface of `size` pixels, transparent where nothing is
  * painted (null: nothing yet), placed by its transform like an image (a new one covers the canvas at 100%).
  */
-export interface PixelLayer extends LayerBase, Filtered {
+export interface PixelLayer extends LayerBase, Filtered, Croppable {
   kind: "pixel";
   surface: SurfaceId | null;
   /** Its pixels: the surface's extent. */
