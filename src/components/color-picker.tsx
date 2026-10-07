@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { PiEyedropper } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
@@ -13,6 +13,24 @@ export interface ColorEdit {
   set: (hex: string) => void;
   end: () => void;
 }
+
+/** A picker as somewhere outside it sees it: its edit, and the colour it shows now. */
+export interface ColorTarget {
+  edit: ColorEdit;
+  value: () => string;
+}
+
+/**
+ * Somewhere outside the picker it can take colours from, as Photoshop's Color Picker samples the image under the
+ * pointer (the photo editor's canvas): every picker shown inside its provider is `claim`ed while it's shown (the
+ * last one shown is the one sampled into), and a press there sets its colour. `hint` says so under the picker.
+ */
+export interface ColorSampler {
+  claim: (target: ColorTarget) => () => void;
+  hint?: string;
+}
+
+export const ColorSamplerContext = createContext<ColorSampler | null>(null);
 
 /** A few colours to start from, and the ones picked lately (this browser's). */
 const PRESETS = ["#ffffff", "#000000", "#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#00c7be", "#0a84ff", "#5e5ce6", "#bf5af2", "#ff2d55", "#8e8e93"];
@@ -90,6 +108,19 @@ export function ColorPicker({ value, edit }: { value: string; edit: ColorEdit })
     setHsv((current) => (hsvToHex(current) === value ? current : keepHue(hexToHsv(value), current)));
   }, [value]);
   const [recent] = useState(readRecent);
+  const sampler = useContext(ColorSamplerContext);
+  const latest = useRef({ edit, value });
+  useEffect(() => {
+    latest.current = { edit, value };
+  });
+  useEffect(
+    () =>
+      sampler?.claim({
+        edit: { begin: () => latest.current.edit.begin(), set: (hex) => latest.current.edit.set(hex), end: () => latest.current.edit.end() },
+        value: () => latest.current.value,
+      }),
+    [sampler],
+  );
 
   const show = (next: Hsv) => {
     setHsv(next);
@@ -113,6 +144,11 @@ export function ColorPicker({ value, edit }: { value: string; edit: ColorEdit })
       <ColorFields value={value} onSet={setOnce} />
       <Swatches label="Colours" colors={PRESETS} value={value} onPick={setOnce} />
       {recent.length > 0 && <Swatches label="Recent" colors={recent} value={value} onPick={setOnce} />}
+      {sampler?.hint && (
+        <p className="flex items-center gap-1 text-[10px] text-muted-foreground" data-color-sampler-hint>
+          <PiEyedropper className="size-3 shrink-0" /> {sampler.hint}
+        </p>
+      )}
     </div>
   );
 }

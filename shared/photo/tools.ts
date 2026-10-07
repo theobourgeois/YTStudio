@@ -113,6 +113,23 @@ export const PHOTO_TOOLS = [
     }),
   }),
   tool({
+    name: "sample_colour",
+    title: "Pick a colour (eyedropper)",
+    kind: "action",
+    description:
+      "Photoshop's Eyedropper: the colour at (x, y) on the open photo, as #rrggbb. sample_all_layers (default true) reads the photo as it shows; false reads the selected layer alone. sample_size averages over a square (1, 3, 5, 11, 31, 51 or 101 px; default 1). set: foreground or background also makes it the user's foreground or background colour (what the brush, fills, text and shapes use).",
+    inputSchema: obj(
+      {
+        x: num("Canvas pixels from the left."),
+        y: num("Canvas pixels from the top."),
+        sample_all_layers: bool("Read the photo as it shows (default true), else the selected layer."),
+        sample_size: int("The square averaged at the point, px: 1, 3, 5, 11, 31, 51 or 101 (default 1)."),
+        set: oneOf(["foreground", "background"], "Also make it the foreground or background colour."),
+      },
+      ["x", "y"],
+    ),
+  }),
+  tool({
     name: "add_image_layer",
     title: "Place an image",
     kind: "edit",

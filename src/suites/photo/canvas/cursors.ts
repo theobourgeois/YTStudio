@@ -35,3 +35,10 @@ export function rotateCursor(angle: number): string {
   }
   return cursor;
 }
+
+/** A pipette's outline (white with a dark edge), its tip at the bottom-left: the Eyedropper's pointer. */
+const EYEDROPPER_PATHS = `<path d="M3.5 20.5l1.2-3.6L13.6 8l2.4 2.4-8.9 8.9z M14.4 5.6l1.8-1.8a2.1 2.1 0 0 1 3 3l-1.8 1.8 M12.8 4.6l6.6 6.6"/>`;
+const EYEDROPPER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><g stroke="#111" stroke-width="3.6">${EYEDROPPER_PATHS}</g><g stroke="#fff" stroke-width="1.6">${EYEDROPPER_PATHS}</g></g></svg>`;
+
+/** The Eyedropper's pointer (Photoshop's pipette), its point at the tip; a crosshair where SVG cursors aren't drawn. */
+export const EYEDROPPER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(EYEDROPPER_SVG)}") 3 21, crosshair`;

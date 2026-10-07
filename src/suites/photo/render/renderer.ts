@@ -1160,16 +1160,7 @@ export class PhotoRenderer {
    */
   async samplePixels(doc: PhotoProject, scale: number, layerId: string | null = null): Promise<PixelSample> {
     await this.compositor.ready;
-    let source = doc;
-    const layer = layerId ? doc.layers.find((l) => l.id === layerId) : undefined;
-    if (layer) {
-      const plain = { ...layer, opacity: 1, visible: true };
-      delete plain.blend;
-      delete plain.fill;
-      delete plain.blending;
-      delete plain.style;
-      source = { ...doc, canvas: { ...doc.canvas, background: null }, layers: [plain] };
-    }
+    const source = layerAlone(doc, layerId);
     const { width, height } = sampleSize(doc.canvas, scale);
     const data = new Uint8ClampedArray(width * height * 4);
     const block = 2048;
@@ -1187,10 +1178,11 @@ export class PhotoRenderer {
 
   /**
    * What `doc` shows over `view` (document pixels from its x, y at its zoom: a refined reduction below 1) as 8-bit
-   * sRGB with straight alpha through the output transform, undithered: what Content-Aware Fill's model reads.
+   * sRGB with straight alpha through the output transform, undithered: what Content-Aware Fill's model reads, and
+   * the Eyedropper. With `layerId`, that layer alone, as `samplePixels` reads it.
    */
-  async sampleView(doc: PhotoProject, view: View): Promise<PixelSample> {
-    const { texture } = await this.renderView(doc, view, { refine: view.zoom < 1 });
+  async sampleView(doc: PhotoProject, view: View, layerId: string | null = null): Promise<PixelSample> {
+    const { texture } = await this.renderView(layerAlone(doc, layerId), view, { refine: view.zoom < 1 });
     const width = Math.max(1, Math.round(view.width));
     const height = Math.max(1, Math.round(view.height));
     const data = await this.quantize(texture, width, height, { under: "none", dither: false, highlights: doc.output.highlights });
@@ -1678,4 +1670,16 @@ export class PhotoRenderer {
 function matteOf(doc: PhotoProject): [number, number, number] {
   const [r, g, b, a] = backgroundLight(doc.canvas.background);
   return a ? [r, g, b] : [1, 1, 1];
+}
+
+/** Layer `layerId` alone (its pixels and filters, at full opacity, without its style or blending), or `doc` when null. */
+function layerAlone(doc: PhotoProject, layerId: string | null): PhotoProject {
+  const layer = layerId ? doc.layers.find((l) => l.id === layerId) : undefined;
+  if (!layer) return doc;
+  const plain = { ...layer, opacity: 1, visible: true };
+  delete plain.blend;
+  delete plain.fill;
+  delete plain.blending;
+  delete plain.style;
+  return { ...doc, canvas: { ...doc.canvas, background: null }, layers: [plain] };
 }

@@ -40,7 +40,8 @@ import { isSelectionTool, useActiveTool, usePhotoUi } from "../ui";
 import { TOOLBOX } from "../toolbox";
 import { editTextAt } from "../toolbox/type-tool";
 import { CanvasDriver } from "./driver";
-import { resizeCursor, rotateCursor } from "./cursors";
+import { EYEDROPPER_CURSOR, resizeCursor, rotateCursor } from "./cursors";
+import { SamplingRing, colourSwatch, colourTarget, startSampling, useColourTargets } from "../colour-sampling";
 import { type Frame, frameOf, touches } from "./frame";
 import { activeGenerator, GeneratorHandles } from "./generator-handles";
 import { HANDLES, type Handle, type SnapContext, handlePoint, movedWithSnap, outline, rotated, scaledWithSnap } from "./handles";
@@ -195,6 +196,9 @@ export function CanvasPanel() {
   };
 
   const picking = useCanvasPick((s) => s.handler !== null);
+  const sampling = useColourTargets((s) => s.targets.length > 0);
+  // An open colour picker's eyedropper, or a tool's own pointer.
+  const pointer = picking ? undefined : sampling ? EYEDROPPER_CURSOR : kit?.pointer;
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     const { view } = usePhotoUi.getState();
     const doc = usePhoto.getState().history?.doc.doc;
@@ -208,6 +212,13 @@ export function CanvasPanel() {
       const p = docPoint(e.clientX, e.clientY);
       pick(p.x, p.y);
       return;
+    }
+    // A colour picker is open (the swatches', a layer style's, a shape's…): the canvas is its eyedropper, as in
+    // Photoshop's Color Picker. The press stops here, so the picker's popover doesn't take it for a click away.
+    const colour = colourTarget();
+    if (colour && e.button === 0) {
+      e.stopPropagation();
+      return startSampling(e, docPoint, colour);
     }
     // The Layer Style window's page has a place on the canvas (a shadow, a gradient's centre): a drag moves it.
     const styleDrag = useStyleCanvasDrag.getState().handler;
@@ -234,6 +245,8 @@ export function CanvasPanel() {
     if (tool === "polygonLasso") return polygonClick(e, docPoint);
     if (tool === "magicWand") return void wandClick(e, docPoint);
     if (tool === "quickSelect") return quickSelect(e, docPoint);
+    // Alt with the Brush is the Eyedropper for the moment, as Photoshop's: the foreground colour from the photo.
+    if (tool === "brush" && e.altKey) return startSampling(e, docPoint, colourSwatch("foreground"));
     if (tool === "brush" || tool === "eraser") return paint(e, tool === "eraser");
     if (kit) return kit.press?.(e, docPoint);
     // Move: with Auto-select (⌘ for the opposite), the layer under the pointer is picked first, as Photoshop's;
@@ -445,6 +458,7 @@ export function CanvasPanel() {
                     ? "cursor-crosshair"
                     : "cursor-default",
         )}
+        style={pointer ? { cursor: pointer } : undefined}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onDoubleClick={onDoubleClick}
@@ -462,9 +476,10 @@ export function CanvasPanel() {
         {renderer && <SnapGuides />}
         {renderer && <Marquee />}
         {renderer && <SelectionAnts />}
-        {renderer && (tool === "brush" || tool === "eraser") && <BrushCursor />}
-        {renderer && tool === "quickSelect" && <QuickCursor />}
+        {renderer && !sampling && (tool === "brush" || tool === "eraser") && <BrushCursor />}
+        {renderer && !sampling && tool === "quickSelect" && <QuickCursor />}
         {renderer && kit?.Overlay && <kit.Overlay docPoint={docPoint} />}
+        {renderer && <SamplingRing />}
         {failure && (
           <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-white/80">
             <div className="flex max-w-sm flex-col items-center gap-2">

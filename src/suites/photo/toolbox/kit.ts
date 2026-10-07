@@ -20,6 +20,8 @@ export interface ToolKit {
   Overlay?: ComponentType<{ docPoint: DocPointOf }>;
   /** The canvas's cursor class while it's the tool (Tailwind's `cursor-*`); absent: a crosshair. */
   cursor?: string;
+  /** A CSS cursor of its own (an SVG's, as the Eyedropper's pipette), over `cursor`. */
+  pointer?: string;
   /** The tool's own brush, when it has one: `[` and `]` step its size, with ⇧ its hardness (`workspace.tsx`). */
   brush?: { get: () => { size: number; hardness: number }; set: (patch: { size?: number; hardness?: number }) => void };
 }

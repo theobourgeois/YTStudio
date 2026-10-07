@@ -68,6 +68,7 @@ import { addShapeTool, setShapeTool } from "./shape-tool-edits";
 import { photoApi } from "./api";
 import { placeAsset, removeBackground } from "./online/online";
 import { floodTools } from "./toolbox/flood-tools";
+import { sampleColourAt } from "./colour-sampling";
 import { describeGradient } from "@shared/photo/effects/gradient";
 import { paintGradient } from "./toolbox/gradient-actions";
 import { gradientPaintRequest } from "./toolbox/gradient-request";
@@ -319,6 +320,19 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     const mode = selectionMode(input.mode);
     applySelection(feathered(shape, input.feather, doc), mode);
     return selectionResult(mode);
+  },
+  async sample_colour(input) {
+    const doc = currentDoc();
+    if (!doc) throw new Error("No photo is open in the editor: the eyedropper reads the open one.");
+    const at = { x: n(input.x, "x"), y: n(input.y, "y") };
+    if (at.x < 0 || at.y < 0 || at.x >= doc.canvas.width || at.y >= doc.canvas.height) throw new Error(`(${at.x}, ${at.y}) is off the canvas (${doc.canvas.width}×${doc.canvas.height} px).`);
+    const sizes = [1, 3, 5, 11, 31, 51, 101];
+    if (input.sample_size !== undefined && !sizes.includes(input.sample_size as number)) throw new Error(`sample_size must be one of ${sizes.join(", ")}.`);
+    const set = input.set === undefined ? null : oneOfOr(input.set, ["foreground", "background"] as const, null, "set");
+    const hex = await sampleColourAt(at, { sampleSize: (input.sample_size as number | undefined) ?? 1, sampleAll: input.sample_all_layers !== false });
+    if (!hex) return textResult(`(${at.x}, ${at.y}) is transparent there: no colour to pick.`);
+    if (set) useColours.getState().set({ [set]: hex });
+    return textResult(`The colour at (${at.x}, ${at.y}) is ${hex}.${set ? ` It's the ${set} colour now.` : ""}`);
   },
   async select_magic_wand(input) {
     const doc = openDoc();

@@ -17,6 +17,7 @@ import {
   PiDropHalf,
   PiEraser,
   PiEraserFill,
+  PiEyedropper,
   PiFlame,
   PiGradient,
   PiExport,
@@ -39,12 +40,13 @@ import {
 } from "react-icons/pi";
 import { toast } from "sonner";
 import { moveLayersBy } from "@shared/photo/edits";
-import { ColorSwatchPicker } from "@/components/color-picker";
+import { ColorSamplerContext, ColorSwatchPicker } from "@/components/color-picker";
 import { stepBrushSize, useBrush } from "./brush-options";
 import { useColours } from "./colours";
 import { editActions, hasPhotoClipboard } from "./edit-actions";
 import { PaintChoiceDialog, ToolOptions } from "./options-bar";
 import { TOOLBOX } from "./toolbox";
+import { photoColourSampler } from "./colour-sampling";
 import { FeatherDialog, SelectMenu, useFeather } from "./select-commands";
 import { ModelDialog } from "./model-dialog";
 import { runContentAwareFill } from "./content-aware-fill";
@@ -145,21 +147,24 @@ export default function PhotoWorkspace() {
   if (!projectId || !loaded) {
     return <PlainWorkspace>{loadError ? <WorkspaceError noun="photo" error={loadError} /> : <WorkspaceLoading />}</PlainWorkspace>;
   }
+  // Every colour picker shown in the photo editor samples the canvas, as Photoshop's Color Picker does.
   return (
-    <div key={projectId} className="relative flex min-h-0 flex-1 flex-col" data-suite="photo">
-      <PhotoHeader />
-      <div className="flex min-h-0 flex-1">
-        <ImageDrop>
-          <ToolStrip />
-          <DockArea dock={usePhotoDock} panels={PANELS} />
-        </ImageDrop>
-        <AssistantPanel suite="photo" />
+    <ColorSamplerContext.Provider value={photoColourSampler}>
+      <div key={projectId} className="relative flex min-h-0 flex-1 flex-col" data-suite="photo">
+        <PhotoHeader />
+        <div className="flex min-h-0 flex-1">
+          <ImageDrop>
+            <ToolStrip />
+            <DockArea dock={usePhotoDock} panels={PANELS} />
+          </ImageDrop>
+          <AssistantPanel suite="photo" />
+        </div>
+        <PhotoDesktop />
+        <PaintChoiceDialog />
+        <FeatherDialog />
+        <ModelDialog />
       </div>
-      <PhotoDesktop />
-      <PaintChoiceDialog />
-      <FeatherDialog />
-      <ModelDialog />
-    </div>
+    </ColorSamplerContext.Provider>
   );
 }
 
@@ -317,6 +322,7 @@ const TOOL_INFO: Record<PhotoTool, { label: string; key: string; Icon: typeof Pi
   quickSelect: { label: "Quick Selection", key: "W", Icon: PiPaintBrushBroad },
   magicWand: { label: "Magic Wand", key: "W", Icon: PiMagicWand },
   crop: { label: "Crop", key: "C", Icon: PiCrop },
+  eyedropper: { label: "Eyedropper", key: "I", Icon: PiEyedropper },
   brush: { label: "Brush", key: "B", Icon: PiPaintBrush },
   eraser: { label: "Eraser", key: "E", Icon: PiEraser },
   backgroundEraser: { label: "Background Eraser", key: "E", Icon: PiEraserFill },
@@ -336,7 +342,7 @@ const TOOL_INFO: Record<PhotoTool, { label: string; key: string; Icon: typeof Pi
 };
 
 /** The strip's places, top to bottom: a tool, or a group (showing the one of it used last). */
-const STRIP: (PhotoTool | ToolGroup)[] = ["move", "marquee", "lasso", "wand", "crop", "brush", "eraser", "fill", "toning", "type", "shape", "hand", "zoom"];
+const STRIP: (PhotoTool | ToolGroup)[] = ["move", "marquee", "lasso", "wand", "crop", "eyedropper", "brush", "eraser", "fill", "toning", "type", "shape", "hand", "zoom"];
 
 /** "marquee" in the strip is the Marquees' group. */
 const isGroup = (place: PhotoTool | ToolGroup): place is ToolGroup => Object.hasOwn(TOOL_GROUPS, place);
