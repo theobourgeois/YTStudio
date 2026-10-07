@@ -7,6 +7,7 @@
  */
 import type { Size } from "./geometry.ts";
 import { type PixelSample, coverageToSelection } from "./pixel-sample.ts";
+import type { PhotoModelStatus } from "./models.ts";
 import type { MaskSelection } from "./types.ts";
 
 /** The model's side: it reads and answers 1024 × 1024. */
@@ -24,16 +25,7 @@ export const SUBJECT_MODEL = {
 };
 
 /** Whether the model is here (`/api/photo/models/subject`). */
-export interface SubjectModelStatus {
-  status: "ready" | "missing" | "downloading" | "error";
-  /** 0..1 while downloading. */
-  progress: number | null;
-  /** Bytes to download. */
-  size: number;
-  error: string | null;
-  /** The tests' stand-in (EDITOR_SUBJECT_MODEL=stand-in): no model, `standInProbabilities` instead. */
-  standIn: boolean;
-}
+export type SubjectModelStatus = PhotoModelStatus;
 
 /** A sample's colour at (x, y) read between pixels, over white where it's transparent, 0..255. */
 function colourAt(s: PixelSample, x: number, y: number, c: number): number {

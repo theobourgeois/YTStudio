@@ -43,8 +43,8 @@ export const OPENAI_API_KEY = process.env.OPENAI_API_KEY || null;
 export const GROQ_API_KEY = process.env.GROQ_API_KEY || null;
 /** Claude Code's command line tool, which runs the in-app assistant (default: on the PATH, else its usual homes). */
 export const CLAUDE = process.env.CLAUDE_PATH || null;
-/** "stand-in": Select Subject uses a stand-in for its model, which is never downloaded (the e2e tests). */
-export const SUBJECT_MODEL = process.env.EDITOR_SUBJECT_MODEL || null;
+/** "stand-in": the photo models (Select Subject's, Content-Aware Fill's) are stood in for, never downloaded (the e2e tests). */
+export const PHOTO_MODELS = process.env.EDITOR_PHOTO_MODELS || null;
 /** "stand-in": the photo suite's Online panel searches a made-up internet (the e2e tests: `online-stand-in.ts`). */
 export const ONLINE_ASSETS = process.env.EDITOR_ONLINE_ASSETS || null;
 /** gallery-dl, which reads the pictures of a link pasted into the photo suite's Online panel (optional). */

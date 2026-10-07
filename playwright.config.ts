@@ -48,7 +48,7 @@ export default defineConfig({
         // And for online media (the video editor's Online panel, the music Browser's Online tab): never the web.
         YTDLP_PATH: path.resolve(import.meta.dirname, "e2e/fake-ytdlp.mjs"),
         // And for the photo suite's Select Subject: no 88 MB model download.
-        EDITOR_SUBJECT_MODEL: "stand-in",
+        EDITOR_PHOTO_MODELS: "stand-in",
         EDITOR_ONLINE_ASSETS: "stand-in",
       },
       url: `http://127.0.0.1:${SERVER_PORT}/api/health`,

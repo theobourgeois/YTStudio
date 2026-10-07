@@ -121,6 +121,8 @@ describe("Edit keys (Photoshop's)", () => {
     expect(resolvePhotoKey(press("J", { metaKey: true, shiftKey: true }), true)).toEqual({ type: "layerViaCut" });
     expect(resolvePhotoKey(press("Backspace", { altKey: true }), true)).toEqual({ type: "fill", colour: "foreground" });
     expect(resolvePhotoKey(press("Backspace", { metaKey: true }), true)).toEqual({ type: "fill", colour: "background" });
+    expect(resolvePhotoKey(press("Backspace", { shiftKey: true }), true)).toEqual({ type: "contentAwareFill" });
+    expect(resolvePhotoKey(press("Delete", { shiftKey: true }), false)).toEqual({ type: "contentAwareFill" });
     expect(resolvePhotoKey(press("Backspace"), true)).toEqual({ type: "delete" });
     expect(resolvePhotoKey(press("e"), true)).toEqual({ type: "toolGroup", group: "eraser", cycle: false });
     expect(resolvePhotoKey(press("G", { shiftKey: true }), true)).toEqual({ type: "toolGroup", group: "fill", cycle: true });

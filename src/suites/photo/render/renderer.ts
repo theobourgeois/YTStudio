@@ -1161,6 +1161,18 @@ export class PhotoRenderer {
     return { width, height, data, scale };
   }
 
+  /**
+   * What `doc` shows over `view` (document pixels from its x, y at its zoom: a refined reduction below 1) as 8-bit
+   * sRGB with straight alpha through the output transform, undithered: what Content-Aware Fill's model reads.
+   */
+  async sampleView(doc: PhotoProject, view: View): Promise<PixelSample> {
+    const { texture } = await this.renderView(doc, view, { refine: view.zoom < 1 });
+    const width = Math.max(1, Math.round(view.width));
+    const height = Math.max(1, Math.round(view.height));
+    const data = await this.quantize(texture, width, height, { under: "none", dither: false, highlights: doc.output.highlights });
+    return { width, height, data, scale: view.zoom };
+  }
+
   /** A composite through the output transform into 8-bit RGBA (it destroys the texture). */
   private async quantize(texture: GPUTexture, w: number, h: number, o: { under: "none" | "checker"; dither: boolean; highlights: Highlights }): Promise<Uint8ClampedArray<ArrayBuffer>> {
     const { device } = this;
