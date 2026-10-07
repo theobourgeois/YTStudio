@@ -230,7 +230,7 @@ export const layerActions = {
   async convertToPixels(layerId: string) {
     const doc = currentDoc();
     const layer = doc ? findLayer(doc, layerId) : undefined;
-    if (!doc || (layer?.kind !== "image" && layer?.kind !== "generator")) return;
+    if (!doc || (layer?.kind !== "image" && layer?.kind !== "generator" && layer?.kind !== "shape")) return;
     try {
       const renderer = await liveRenderer();
       if (!renderer) return;

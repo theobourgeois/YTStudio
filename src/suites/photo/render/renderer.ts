@@ -53,6 +53,8 @@ import { type Gpu, createGpu } from "./gpu.ts";
 import { LatestOnly } from "./latest.ts";
 import { SourceImage } from "./source.ts";
 import { SurfaceImage, type SurfaceKind } from "./surface.ts";
+import { shapeStore, shapeTiles } from "./shape-raster.ts";
+import { shapeRaster } from "@shared/photo/shape-drawing.ts";
 import { type PatternImage, builtInPatternLevels, patternFromLinear, patternMips } from "@shared/photo/style/patterns.ts";
 
 export { backgroundLight };
@@ -331,15 +333,17 @@ export class PhotoRenderer {
    * says. A surface whose size or atlas changed is made afresh; one no layer has any more goes.
    */
   private syncSurfaces(doc: PhotoProject) {
-    const wanted = new Map<string, { kind: SurfaceKind; size: { width: number; height: number }; bits: 8 | 16; id: SurfaceId | null }>();
+    const wanted = new Map<string, { kind: SurfaceKind; size: { width: number; height: number }; bits: 8 | 16; id: SurfaceId | null; store?: SurfaceUploads }>();
     for (const l of doc.layers) {
       if (l.kind === "pixel") wanted.set(`${l.id}:content`, { kind: "pixels", size: l.size, bits: 8, id: l.surface });
+      // A shape layer's pixels are made here from its geometry (shape-raster.ts), never fetched; its mask is in its surface's pixels.
+      if (l.kind === "shape") wanted.set(`${l.id}:content`, { kind: "pixels", bits: 8, ...shapeTiles.register(l), store: shapeStore });
       if (!l.mask) continue;
       if (l.kind === "image") {
         const asset = this.assets.get(l.mediaId);
         if (!asset?.width || !asset.height) continue;
         wanted.set(`${l.id}:mask`, { kind: "mask", size: { width: asset.width, height: asset.height }, bits: asset.image?.bits === 16 ? 16 : 8, id: l.mask.surface });
-      } else wanted.set(`${l.id}:mask`, { kind: "mask", size: l.kind === "pixel" ? l.size : doc.canvas, bits: 8, id: l.mask.surface });
+      } else wanted.set(`${l.id}:mask`, { kind: "mask", size: l.kind === "pixel" ? l.size : l.kind === "shape" ? shapeRaster(l).size : doc.canvas, bits: 8, id: l.mask.surface });
     }
     for (const [key, s] of this.surfaces) {
       if (wanted.has(key)) continue;
@@ -348,7 +352,7 @@ export class PhotoRenderer {
       this.surfaces.delete(key);
     }
     for (const [key, want] of wanted) {
-      const shape = `${want.kind}|${want.size.width}x${want.size.height}|${want.bits}`;
+      const shape = `${want.kind}|${want.size.width}x${want.size.height}|${want.bits}${want.store ? "|drawn" : ""}`;
       let s = this.surfaces.get(key);
       if (s && s.shape !== shape) {
         if (this.stroke?.key === key) this.stroke = null;
@@ -360,7 +364,7 @@ export class PhotoRenderer {
         this.surfaces.set(key, made);
         void this.contextFor(want.bits).then((ctx) => {
           if (this.surfaces.get(key) !== made || this.destroyed) return;
-          const image = new SurfaceImage(ctx, want.size, want.kind, this.uploads!);
+          const image = new SurfaceImage(ctx, want.size, want.kind, want.store ?? this.uploads!);
           image.onChange = () => this.changed();
           made.image = image;
           void this.showSurface(made);
@@ -1222,8 +1226,8 @@ export class PhotoRenderer {
   private placeOf(layerId: string, part: SurfacePart): { matrix: Affine; scale: number } | null {
     const layer = this.doc?.layers.find((l) => l.id === layerId);
     if (!layer) return null;
-    // An adjustment's or a generator's pixels (its mask's) are the document's.
-    if (!isPlaced(layer)) return { matrix: IDENTITY, scale: 1 };
+    // An adjustment's or a generator's pixels (its mask's) are the document's; a shape's too (its surface's).
+    if (!isPlaced(layer) || layer.kind === "shape") return { matrix: IDENTITY, scale: 1 };
     const surface = this.surfaceOf(layerId, part);
     const size = layer.kind === "pixel" ? layer.size : surface?.size;
     if (!size) return null;
@@ -1294,6 +1298,8 @@ export class PhotoRenderer {
   private maskShape(doc: PhotoProject, layerId: string): { size: { width: number; height: number }; matrix: Affine; bits: 8 | 16 } | null {
     const layer = doc.layers.find((l) => l.id === layerId);
     if (!layer) return null;
+    // A shape's mask is in its surface's pixels: the document's, from its top-left corner.
+    if (layer.kind === "shape") return { size: shapeRaster(layer).size, matrix: IDENTITY, bits: 8 };
     if (!isPlaced(layer)) return { size: doc.canvas, matrix: IDENTITY, bits: 8 };
     if (layer.kind === "pixel") return { size: layer.size, matrix: layerMatrix(layer.transform, layer.size), bits: 8 };
     const asset = this.assets.get(layer.mediaId);
@@ -1361,7 +1367,13 @@ export class PhotoRenderer {
     if (!shape) throw new Error("That image isn't loaded yet.");
     const matrix = layer.kind === "generator" ? IDENTITY : layerMatrix(layer.transform, shape);
     const reach = layer.kind === "generator" ? 0 : filtersReach(layer);
-    const corners = [apply(matrix, 0, 0), apply(matrix, shape.width, 0), apply(matrix, 0, shape.height), apply(matrix, shape.width, shape.height)];
+    let corners = [apply(matrix, 0, 0), apply(matrix, shape.width, 0), apply(matrix, 0, shape.height), apply(matrix, shape.width, shape.height)];
+    // A shape layer's pixels are what it draws: the box around that, not its surface's.
+    const drawn = layer.kind === "shape" ? shapeRaster(layer).bounds : null;
+    if (layer.kind === "shape") {
+      if (!drawn) throw new Error("That shape draws nothing (no stroke or fill): there are no pixels to make.");
+      corners = [{ x: drawn.x0, y: drawn.y0 }, { x: drawn.x1, y: drawn.y1 }];
+    }
     const s = selection;
     const x0 = Math.floor(Math.max(Math.min(...corners.map((p) => p.x)) - reach, s ? s.x : -Infinity) + 1e-6);
     const y0 = Math.floor(Math.max(Math.min(...corners.map((p) => p.y)) - reach, s ? s.y : -Infinity) + 1e-6);

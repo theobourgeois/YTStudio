@@ -523,7 +523,7 @@ function layerAt(doc: PhotoProject, x: number, y: number): PhotoLayer | undefine
   for (let i = doc.layers.length - 1; i >= 0; i--) {
     const l = doc.layers[i];
     const size = sizeOf(l, assets);
-    if (isPlaced(l) && l.visible && size && hitsContent(l, size, x, y, knownManifest)) return l;
+    if (isPlaced(l) && l.visible && size && hitsContent(l, size, x, y, knownManifest, 256, (6 * devicePixelRatio) / (usePhotoUi.getState().view?.zoom ?? 1))) return l;
   }
   return undefined;
 }
@@ -667,7 +667,7 @@ function HoverOutline() {
   const found = usePhotoDoc((d) => d.layers.find((l) => l.id === hovered));
   const layer = found && isPlaced(found) && !selected ? found : undefined;
   const imageSize = useLayerSize(layer?.kind === "image" ? layer.mediaId : undefined);
-  const size = layer?.kind === "pixel" ? layer.size : imageSize;
+  const size = layer?.kind === "pixel" || layer?.kind === "shape" ? layer.size : imageSize;
   if (!view || !layer || !size) return null;
   const dpr = devicePixelRatio;
   const points = outline(layer.transform, size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);

@@ -18,6 +18,7 @@ import { ANALYSIS_PARAM, needsAnalysis } from "./effects/camera-raw/develop.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
 import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
 import { findPattern } from "./style/patterns.ts";
+import { shapeRaster } from "./shape-drawing.ts";
 import { drawnEffects, effectAltitude, effectAngle, stylePatterns, styleReach } from "./style/style.ts";
 import type { Box } from "./style/gradients.ts";
 import type { Compositing, EffectInstance, EffectParamValue, LayerTransform, PhotoLayer, PhotoProject, SurfaceId } from "./types.ts";
@@ -444,6 +445,36 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
         commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
         key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}`),
+      });
+      continue;
+    }
+    if (layer.kind === "shape") {
+      // A shape layer (docs/photo/tools/shapes.md) is drawn as painted pixels are: a surface the renderer makes from
+      // its geometry (`shape:<key>`, never stored), the document's pixels from its top-left corner (its mask's too).
+      const raster = shapeRaster(layer);
+      const size = raster.size;
+      const t: LayerTransform = { x: size.width / 2, y: size.height / 2, scaleX: 1, scaleY: 1, rotation: 0 };
+      const mask = maskOf(layer, size);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`shape|${raster.key}|${size.width}x${size.height}`), 0, options.cameraRaw);
+      const matrix = layerMatrix(t, size);
+      const styled = styleOf(doc, layer, matrix, size);
+      // Its effects' boxes (Align with Layer) are the shape's, not its surface's.
+      if (styled.style && raster.bounds) styled.style.layerBox = raster.bounds;
+      nodes.push({
+        kind: "pixel",
+        layerId: layer.id,
+        surface: `shape:${raster.key}`,
+        transform: t,
+        size,
+        matrix,
+        opacity: blending.opacity,
+        mask,
+        blend: blending.blend,
+        style: styled.style,
+        ...content,
+        commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
+        commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
+        key: hashKey(`shape|${raster.key}|${size.width}x${size.height}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}`),
       });
       continue;
     }

@@ -54,7 +54,7 @@ export function useLayerThumbnail(layer: ContentLayer): string | null {
   const height = usePhoto((s) => s.history?.doc.doc.canvas.height);
   const ready = useSourceStates((s) => layer.kind !== "image" || s.states[layer.mediaId]?.state === "ready");
   // Its place, pixels and filters are what it looks like; its name, visibility and opacity aren't (Photoshop's neither).
-  const pixels = layer.kind === "image" ? layer.mediaId : layer.kind === "pixel" ? layer.surface : layer.effect;
+  const pixels = layer.kind === "image" ? layer.mediaId : layer.kind === "pixel" ? layer.surface : layer.kind === "shape" ? layer.shape : layer.effect;
   const place = layer.kind === "generator" ? null : layer.transform;
   return useRendered(
     ready && !!width && !!height,

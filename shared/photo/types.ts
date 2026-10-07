@@ -8,19 +8,20 @@
  * version 2, adjustment layers (exposure, curves: they change what's below them); from version 3, pixel layers
  * (painted pixels) and every layer's mask; from version 4, Blending Options (a layer's blend mode, Fill, channels and
  * Blend If), the document's compositing, layer styles and Global Light; from version 5, filters and generator layers
- * (F4: light). Other kinds arrive with their renderers, through versioned migrations
- * (`normalizePhotoProject`).
+ * (F4: light); from version 7, shape layers (docs/photo/tools/shapes.md). Other kinds arrive with their renderers,
+ * through versioned migrations (`normalizePhotoProject`).
  */
 import type { DocumentBase } from "../suites.ts";
 
 /**
- * 6: the document's patterns (Layer Style L4: Pattern Overlay, pattern strokes, Bevel's Texture), 5: light (F4:
+ * 7: shape layers (docs/photo/tools/shapes.md: a rectangle, an ellipse, a line or an arrow, placed by a transform and
+ * drawn from its geometry and style, never stored as pixels), 6: the document's patterns (Layer Style L4: Pattern Overlay, pattern strokes, Bevel's Texture), 5: light (F4:
  * filters, generator layers, the `film` highlights by default), 4: Layer Style (Blending Options and
  * compositing, then layer styles and Global Light: fields absent at their defaults), 3: pixel layers and masks, 2:
  * adjustment layers. An older document is a valid newer one (compositing in linear light and its highlights
  * clipped, as it was drawn then); an older app refuses a newer one.
  */
-export const PHOTO_VERSION = 6;
+export const PHOTO_VERSION = 7;
 
 /**
  * A surface: the SHA-256 (lowercase hex) of its manifest's canonical JSON. The server has every manifest a saved
@@ -291,15 +292,59 @@ export interface GeneratorLayer extends LayerBase, Filtered {
   blendSpace?: "linear";
 }
 
-export type PhotoLayer = ImageLayer | PixelLayer | AdjustmentLayer | GeneratorLayer;
+/** What ends a line (docs/photo/tools/shapes.md): nothing, an open arrow, a filled triangle, a dot, a bar or a diamond. */
+export type Arrowhead = "none" | "arrow" | "triangle" | "circle" | "bar" | "diamond";
+
+/**
+ * A shape layer's geometry (version 7), in its own box (`ShapeLayer.size`, its own pixels): a rectangle filling it
+ * (`radius`: its corners', in document pixels, kept whatever the transform's scale), an ellipse inscribed in it, or
+ * a line from `from` to `to` (its own pixels), bowed by `bend` (how far its middle is from the straight line, its own
+ * pixels, to the left going from `from` to `to`), with a head at each end. An arrow is a line with heads.
+ */
+export type ShapeGeometry =
+  | { type: "rect"; radius: number }
+  | { type: "ellipse" }
+  | { type: "line"; from: DocPoint; to: DocPoint; bend: number; startHead: Arrowhead; endHead: Arrowhead };
+
+/**
+ * How a shape is painted: its fill and stroke ("#rrggbb", or null for none), the stroke's width in document pixels
+ * (the transform never scales it), dashes, where it sits on a closed outline, caps and corners; and Excalidraw's
+ * sloppiness (0: precise; 1, 2: drawn by hand, rough.js's way, seeded by the layer's id) with its fill style.
+ */
+export interface ShapePaint {
+  fill: string | null;
+  stroke: string | null;
+  strokeWidth: number;
+  dash: "solid" | "dashed" | "dotted";
+  align: "inside" | "centre" | "outside";
+  cap: "butt" | "round" | "square";
+  join: "miter" | "round" | "bevel";
+  sloppiness: 0 | 1 | 2;
+  fillStyle: "solid" | "hachure" | "cross-hatch";
+}
+
+/**
+ * A shape layer (version 7, docs/photo/tools/shapes.md): a vector, placed like an image (its box of `size` own pixels
+ * by its transform) and drawn from its geometry at document resolution wherever it's rendered. Its mask is in
+ * document pixels, as an adjustment's is.
+ */
+export interface ShapeLayer extends LayerBase, Filtered {
+  kind: "shape";
+  shape: ShapeGeometry;
+  size: { width: number; height: number };
+  transform: LayerTransform;
+  paint: ShapePaint;
+}
+
+export type PhotoLayer = ImageLayer | PixelLayer | AdjustmentLayer | GeneratorLayer | ShapeLayer;
 
 /** A layer with pixels of its own and a place on the canvas: what the Move tool moves. */
-export type PlacedLayer = ImageLayer | PixelLayer;
+export type PlacedLayer = ImageLayer | PixelLayer | ShapeLayer;
 
-export const isPlaced = (layer: PhotoLayer): layer is PlacedLayer => layer.kind === "image" || layer.kind === "pixel";
+export const isPlaced = (layer: PhotoLayer): layer is PlacedLayer => layer.kind === "image" || layer.kind === "pixel" || layer.kind === "shape";
 
 /** A layer with content of its own (pixels, or made by a generator): one that can carry filters. */
-export type ContentLayer = ImageLayer | PixelLayer | GeneratorLayer;
+export type ContentLayer = ImageLayer | PixelLayer | GeneratorLayer | ShapeLayer;
 
 export const hasContent = (layer: PhotoLayer): layer is ContentLayer => layer.kind !== "adjustment";
 

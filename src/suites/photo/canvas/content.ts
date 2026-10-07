@@ -8,6 +8,7 @@ import type { Size } from "@shared/photo/geometry";
 import { apply, bounds, invert, layerMatrix } from "@shared/photo/layers";
 import { type SurfaceManifest, constantValues } from "@shared/photo/surfaces";
 import type { PlacedLayer, SurfaceId } from "@shared/photo/types";
+import { hitShape } from "@shared/photo/shape-drawing";
 import type { Box } from "./snap";
 
 /** Whether a manifest's tile shows nothing (no entry and a clear fill, or a clear constant). */
@@ -49,7 +50,9 @@ export function contentBox(layer: PlacedLayer, size: Size, manifest: (id: Surfac
 }
 
 /** Whether document point (x, y) is on something the layer shows (a pixel layer: a painted tile). */
-export function hitsContent(layer: PlacedLayer, size: Size, x: number, y: number, manifest: (id: SurfaceId) => SurfaceManifest | null, tile = 256): boolean {
+export function hitsContent(layer: PlacedLayer, size: Size, x: number, y: number, manifest: (id: SurfaceId) => SurfaceManifest | null, tile = 256, tolerance = 4): boolean {
+  // A shape is where it draws (its stroke, within `tolerance` document pixels, or its fill): not its whole box.
+  if (layer.kind === "shape") return hitShape(layer, x, y, tolerance);
   const p = apply(invert(layerMatrix(layer.transform, size)), x, y);
   if (p.x < 0 || p.y < 0 || p.x > size.width || p.y > size.height) return false;
   const tiles = paintedTiles(layer, manifest);

@@ -61,6 +61,7 @@ import {
   isPlaced,
 } from "@shared/photo/types";
 import { selectedArea } from "@shared/photo/selection";
+import { describeShapeLines } from "@shared/photo/shape-describe";
 import type { MediaAsset } from "@shared/types";
 import { fitted } from "./canvas/handles";
 import { imageLayerOf } from "./media";
@@ -85,7 +86,7 @@ const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : u
 
 /** A placed layer's size in its own pixels: an image's source (null while it's missing), a pixel layer's (null for adjustments). */
 export const sizeOf = (layer: PhotoLayer, assets: readonly MediaAsset[]): { width: number; height: number } | null => {
-  if (layer.kind === "pixel") return layer.size;
+  if (layer.kind === "pixel" || layer.kind === "shape") return layer.size;
   if (layer.kind !== "image") return null;
   const a = assets.find((x) => x.id === layer.mediaId);
   return a?.width && a.height ? { width: a.width, height: a.height } : null;
@@ -176,6 +177,7 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
   if (layer.kind === "adjustment") return [`${index}. ${layer.id} "${layer.name}": adjustment layer (changes everything below it)`, `   ${describeAdjustment(layer)}`, ...mask, ...faded].join("\n");
   const filters = describeFilters(layer);
   if (layer.kind === "generator") return [`${index}. ${layer.id} "${layer.name}": generator layer`, `   ${describeGenerator(layer)}`, ...filters, ...mask, ...faded].join("\n");
+  if (layer.kind === "shape") return [`${index}. ${layer.id} "${layer.name}": shape layer (a vector: edit it with set_shape)`, ...describeShapeLines(layer), ...filters, ...mask, ...faded].join("\n");
   const size = sizeOf(layer, assets);
   const t = layer.transform;
   const asset = layer.kind === "image" ? assets.find((a) => a.id === layer.mediaId) : undefined;

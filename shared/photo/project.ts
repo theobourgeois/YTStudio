@@ -10,6 +10,7 @@ import { MAX_PATTERN_SIDE } from "./style/patterns.ts";
 import { normalizeStyle } from "./style/style.ts";
 import { effectDefinition, validateParams } from "./effects/index.ts";
 import { isHash } from "./surfaces.ts";
+import { normalizeShapeFields } from "./shapes.ts";
 import {
   type AdjustmentLayer,
   CANVAS_PRESETS,
@@ -26,6 +27,7 @@ import {
   type PhotoPattern,
   type PhotoProject,
   type PixelLayer,
+  type ShapeLayer,
   type SurfaceId,
 } from "./types.ts";
 
@@ -178,7 +180,7 @@ function normalizeFilters(l: Record<string, unknown>, id: string, seen: Set<stri
   return out;
 }
 
-const LAYER_NAMES: Record<string, string> = { image: "Image", pixel: "Layer", adjustment: "Adjustment", generator: "Lens Flare" };
+const LAYER_NAMES: Record<string, string> = { image: "Image", pixel: "Layer", adjustment: "Adjustment", generator: "Lens Flare", shape: "Shape" };
 
 function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, report: Report): PhotoLayer | null {
   if (!value || typeof value !== "object") return null;
@@ -190,7 +192,7 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
     ...normalizeMask(l.mask, id, report),
     ...normalizeLayerBlending(l),
     // Adjustment layers have Blending Options but no effects (Photoshop's); generator layers none yet either.
-    ...(l.kind === "image" || l.kind === "pixel" ? styleOf(l.style) : {}),
+    ...(l.kind === "image" || l.kind === "pixel" || l.kind === "shape" ? styleOf(l.style) : {}),
   });
   const styleOf = (value: unknown) => {
     const style = normalizeStyle(value, seen, () => createId("fx"), report);
@@ -251,6 +253,17 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
       transform: normalizeTransform(l.transform, { x: size.width / 2, y: size.height / 2 }),
       ...normalizeFilters(l, id, seen, report),
     };
+    return layer;
+  }
+  if (l.kind === "shape") {
+    // Version 7 (docs/photo/tools/shapes.md): a geometry this app doesn't know leaves the layer out, said so.
+    const id = uniqueId(l.id, "layer", seen);
+    const fields = normalizeShapeFields(l);
+    if (!fields) {
+      report(`Layer ${id}: a shape layer without a shape this app knows was left out.`);
+      return null;
+    }
+    const layer: ShapeLayer = { id, kind: "shape", ...common(id), ...fields, ...normalizeFilters(l, id, seen, report) };
     return layer;
   }
   return null;

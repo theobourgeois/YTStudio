@@ -57,6 +57,7 @@ import { clickLayer } from "../selection";
 import { usePhotoUi } from "../ui";
 import { BlendModeMenu, useBlendModePreview } from "./blend-mode-menu";
 import { useLayerThumbnail, useMaskThumbnail } from "./thumbnails";
+import { ShapeThumb } from "../toolbox/shapes/thumb";
 
 /** Each adjustment's icon (Photoshop's Adjustments panel has one per kind). */
 export const ADJUSTMENT_ICONS: Record<string, typeof PiSun> = { exposure: PiSun, curves: PiChartLine };
@@ -353,7 +354,7 @@ function LayersMenu({ count }: { count: number }) {
       {active?.mask && <ContextMenuItem onSelect={() => layerActions.deleteMask()}>Delete Layer Mask</ContextMenuItem>}
       {active && hasContent(active) && <ContextMenuItem onSelect={() => layerActions.addFilter("glow", active.id)}>Add Glow Filter</ContextMenuItem>}
       <ContextMenuItem onSelect={() => usePhotoUi.getState().setFilterGalleryOpen(true)}>Filter Gallery…</ContextMenuItem>
-      {(active?.kind === "image" || active?.kind === "generator") && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Convert to Pixels</ContextMenuItem>}
+      {(active?.kind === "image" || active?.kind === "generator" || active?.kind === "shape") && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Convert to Pixels</ContextMenuItem>}
       <ContextMenuItem disabled={!active || active.kind === "adjustment"} onSelect={() => void editActions.definePattern()}>
         Define Pattern
       </ContextMenuItem>
@@ -511,7 +512,7 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow, folded, onFo
         {layer.visible ? <PiEye /> : <PiEyeSlash />}
       </button>
       <span className={cn("shrink-0 rounded-sm ring-offset-1 ring-offset-surface-1", targeted("content") && layer.kind !== "adjustment" && "ring-1 ring-foreground/70")} data-thumb="content" data-targeted={targeted("content") || undefined}>
-        {layer.kind === "image" ? <ImageThumb layer={layer} /> : layer.kind === "pixel" ? <PixelThumb layer={layer} /> : layer.kind === "generator" ? <GeneratorThumb layer={layer} /> : <AdjustmentThumb layer={layer} />}
+        {layer.kind === "image" ? <ImageThumb layer={layer} /> : layer.kind === "pixel" ? <PixelThumb layer={layer} /> : layer.kind === "generator" ? <GeneratorThumb layer={layer} /> : layer.kind === "shape" ? <ShapeThumb layer={layer} /> : <AdjustmentThumb layer={layer} />}
       </span>
       {layer.mask && (
         <span className={cn("shrink-0 rounded-sm ring-offset-1 ring-offset-surface-1", targeted("mask") && "ring-1 ring-foreground/70")} data-thumb="mask" data-targeted={targeted("mask") || undefined} title="Layer mask: black hides, white reveals">
