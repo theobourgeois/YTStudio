@@ -69,6 +69,7 @@ import { floodTools } from "./toolbox/flood-tools";
 import { describeGradient } from "@shared/photo/effects/gradient";
 import { paintGradient } from "./toolbox/gradient-actions";
 import { gradientPaintRequest } from "./toolbox/gradient-request";
+import { removeColourTool, toneAreaTool } from "./toolbox/effect-tools";
 
 /** How many of a search's results the model is told of at once. */
 const ONLINE_LISTED = 40;
@@ -408,6 +409,8 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     if (usePhoto.getState().history?.doc.doc === before) throw new Error("Nothing changed: the selection misses that layer.");
     return textResult(`Filled the ${currentSelection() ? "selection" : "whole layer"} on "${layer.name}"${input.target === "mask" ? "'s mask" : ""} with ${colour ?? "nothing (cleared)"}.`, { added: [], changed: [layer.id], removed: 0 });
   },
+  tone_area: toneAreaTool,
+  remove_colour: removeColourTool,
   remove_layer: edit(removeLayerTool),
   set_canvas: edit(setCanvasTool),
   async export_photo(input, ctx) {

@@ -20,4 +20,6 @@ export interface ToolKit {
   Overlay?: ComponentType<{ docPoint: DocPointOf }>;
   /** The canvas's cursor class while it's the tool (Tailwind's `cursor-*`); absent: a crosshair. */
   cursor?: string;
+  /** The tool's own brush, when it has one: `[` and `]` step its size, with ⇧ its hardness (`workspace.tsx`). */
+  brush?: { get: () => { size: number; hardness: number }; set: (patch: { size?: number; hardness?: number }) => void };
 }
