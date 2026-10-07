@@ -37,6 +37,9 @@ const REGISTRIES = [
 const PLATFORM = [
   "shared/tool-spec.ts",
   "shared/ids.ts",
+  // Models run on this computer, downloaded when the user says yes (the photo suite's, the music suite's).
+  "shared/models.ts",
+  "server/models.ts",
   "shared/assistant.ts",
   "shared/math.ts",
   "shared/format.ts",
