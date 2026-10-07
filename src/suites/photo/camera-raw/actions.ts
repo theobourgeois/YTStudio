@@ -5,39 +5,22 @@
  */
 import { toast } from "sonner";
 import { createId } from "@shared/ids";
-import { addAdjustmentLayer, addFilter, findLayer, removeFilter, removeLayers, setEffectParams, setFilter } from "@shared/photo/edits";
-import { effectDefinition } from "@shared/photo/effects/index";
-import { defaultParams } from "@shared/photo/effects/params";
+import { findLayer } from "@shared/photo/edits";
 import { type EffectParamValue, type PhotoProject, hasContent } from "@shared/photo/types";
+import { targetEdit, targetEffect, targetParams } from "../effect-window";
 import { currentDoc } from "../store";
 import { type CameraRawTarget, usePhotoUi } from "../ui";
 
 export const CAMERA_RAW = "camera-raw";
 
 /** The Camera Raw instance a target names in `doc`, if it's there. */
-export function cameraRawOf(doc: PhotoProject, target: CameraRawTarget) {
-  const layer = findLayer(doc, target.layerId);
-  if (!layer) return null;
-  if (target.filterId === null) return layer.kind === "adjustment" && layer.effect.type === CAMERA_RAW ? layer.effect : null;
-  return hasContent(layer) ? (layer.filters?.find((f) => f.id === target.filterId && f.type === CAMERA_RAW) ?? null) : null;
-}
+export const cameraRawOf = (doc: PhotoProject, target: CameraRawTarget) => targetEffect(doc, target, CAMERA_RAW);
 
 /** The parameters a target has now (a new one's are the defaults). */
-export function cameraRawParams(doc: PhotoProject, target: CameraRawTarget): Record<string, EffectParamValue> {
-  return structuredClone(cameraRawOf(doc, target)?.params ?? defaultParams(effectDefinition(CAMERA_RAW)!.params));
-}
+export const cameraRawParams = (doc: PhotoProject, target: CameraRawTarget) => targetParams(doc, target, CAMERA_RAW);
 
 /** The document with the target at `params` (added if it isn't there), or, with `params` null, without a new one. */
-export const cameraRawEdit = (target: CameraRawTarget, params: Record<string, EffectParamValue> | null) => (doc: PhotoProject): PhotoProject => {
-  const there = cameraRawOf(doc, target) !== null;
-  if (target.filterId !== null) {
-    if (params === null) return there && target.adding ? removeFilter(doc, target.layerId, target.filterId) : doc;
-    return there ? setFilter(doc, target.layerId, target.filterId, { params }) : addFilter(doc, target.layerId, { id: target.filterId, type: CAMERA_RAW, params });
-  }
-  if (params === null) return there && target.adding ? removeLayers(doc, [target.layerId]) : doc;
-  const added = there ? doc : addAdjustmentLayer(doc, { id: target.layerId, type: CAMERA_RAW }, target.adding?.above ?? null);
-  return setEffectParams(added, target.layerId, params);
-};
+export const cameraRawEdit = (target: CameraRawTarget, params: Record<string, EffectParamValue> | null) => targetEdit(CAMERA_RAW, target, params);
 
 export const cameraRawActions = {
   /**

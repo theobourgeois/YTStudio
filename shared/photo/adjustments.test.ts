@@ -119,7 +119,7 @@ describe("effect definitions", () => {
   it("say when they're the identity and when they commute with reduction", () => {
     const exposure = effectDefinition("exposure")!;
     const curves = effectDefinition("curves")!;
-    expect(ADJUSTMENTS.map((d) => d.type)).toEqual(["exposure", "curves", "camera-raw"]);
+    expect(ADJUSTMENTS.map((d) => d.type)).toEqual(["exposure", "curves", "hue-saturation", "camera-raw"]);
     expect(exposure.isIdentity(newEffect(exposure, "e").params)).toBe(true);
     expect(curves.isIdentity(newEffect(curves, "c").params)).toBe(true);
     expect(exposure.commutesWithReduction({ exposure: 2, offset: 0.1, gamma: 1 })).toBe(true);
