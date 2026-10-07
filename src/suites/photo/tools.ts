@@ -55,11 +55,25 @@ import {
   setFilterTool,
   setLayerTool,
   transformLayerTool,
+  canvasCropOf,
+  cropLayerTool,
 } from "./tool-edits";
+import { cropCanvas, documentMasks } from "@shared/photo/crop";
+import { uploadsFor } from "./uploads";
+import { shiftSurfaces } from "./toolbox/crop-masks";
 import { usePhotoUi } from "./ui";
 import { imageLayerOf } from "./media";
+import { addShapeTool, setShapeTool } from "./shape-tool-edits";
 import { photoApi } from "./api";
 import { placeAsset, removeBackground } from "./online/online";
+import { floodTools } from "./toolbox/flood-tools";
+import { describeGradient } from "@shared/photo/effects/gradient";
+import { paintGradient } from "./toolbox/gradient-actions";
+import { gradientPaintRequest } from "./toolbox/gradient-request";
+import { removeColourTool, toneAreaTool } from "./toolbox/effect-tools";
+import { frameText } from "./text-measure";
+import { addTextLayerTool, setTextTool } from "./text-tool-edits";
+import { layerActions } from "./layer-actions";
 
 /** How many of a search's results the model is told of at once. */
 const ONLINE_LISTED = 40;
@@ -98,7 +112,7 @@ const edit =
   async (input: Input, ctx: ToolRunContext): Promise<ToolResult> => {
     const target = await targetOf(ctx);
     // An edit that can't be made throws here, before anything changes.
-    const result = run(target.doc, input, { assets: target.assets });
+    const result = run(target.doc, input, { assets: target.assets, frameText });
     if (target.open && usePhoto.getState().projectId === target.projectId) {
       usePhoto.getState().commit(() => result.doc);
       if (result.layerId) usePhotoUi.getState().select(result.layerId);
@@ -399,8 +413,22 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     if (usePhoto.getState().history?.doc.doc === before) throw new Error("Nothing changed: the selection misses that layer.");
     return textResult(`Filled the ${currentSelection() ? "selection" : "whole layer"} on "${layer.name}"${input.target === "mask" ? "'s mask" : ""} with ${colour ?? "nothing (cleared)"}.`, { added: [], changed: [layer.id], removed: 0 });
   },
+  tone_area: toneAreaTool,
+  remove_colour: removeColourTool,
   remove_layer: edit(removeLayerTool),
   set_canvas: edit(setCanvasTool),
+  add_text_layer: edit(addTextLayerTool),
+  set_text: edit(setTextTool),
+  async rasterize_type(input, ctx) {
+    const target = await targetOf(ctx);
+    const layer = findLayerRef(target.doc, input.layer);
+    if (layer.kind !== "text") throw new Error(`"${layer.name}" isn't a text layer: rasterize_type makes a text layer pixels.`);
+    if (!target.open) throw new Error("Rasterizing renders the words in the open editor tab: ask the user to open the photo.");
+    await layerActions.convertToPixels(layer.id);
+    const now = currentDoc()?.layers.find((l) => l.id === layer.id);
+    if (now?.kind !== "pixel") throw new Error(`"${layer.name}" couldn't be rasterized.`);
+    return textResult(`"${layer.name}" is a pixel layer now: its words can't be edited any more (undoable).\n${describeLayer(now, target.assets, currentDoc()!.layers.indexOf(now))}`, { added: [], changed: [layer.id], removed: 0 });
+  },
   async export_photo(input, ctx) {
     const target = await targetOf(ctx);
     const format = input.format === "jpeg" ? "jpeg" : "png";
@@ -411,6 +439,46 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     const result = await withRenderer(target.projectId, target.doc, target.assets, (r) => r.export(target.projectId, target.doc, { name, format, bits, quality }, (f) => ctx.progress(f, "Exporting"), ctx.signal));
     return textResult(`Exported ${name} (${target.doc.canvas.width}×${target.doc.canvas.height}, ${bits}-bit, ${Math.round(result.bytes / 1024)} KB) to ${result.path}.`);
   },
+  async bucket_fill(input, ctx) {
+    const target = await targetOf(ctx);
+    if (!target.open) throw new Error("Open the photo in the editor first: the Paint Bucket reads its pixels on the GPU.");
+    return floodTools.bucket_fill(input, target.doc, usePhotoUi.getState().selectedLayerId, useColours.getState());
+  },
+  async magic_erase(input, ctx) {
+    const target = await targetOf(ctx);
+    if (!target.open) throw new Error("Open the photo in the editor first: the Magic Eraser reads its pixels on the GPU.");
+    return floodTools.magic_erase(input, target.doc, usePhotoUi.getState().selectedLayerId);
+  },
+  async crop_canvas(input, ctx) {
+    const target = await targetOf(ctx);
+    const { box, text } = canvasCropOf(target.doc, input, target.open ? currentSelection() : null);
+    // Masks in document pixels move with the canvas (whole pixels, exactly), uploaded as a stroke's tiles are.
+    const masks = box.x || box.y ? documentMasks(target.doc) : [];
+    const uploads = uploadsFor(target.projectId);
+    const moved = masks.length ? await shiftSurfaces(uploads, masks, -box.x, -box.y, { width: box.width, height: box.height }) : new Map<string, string>();
+    if (target.open && usePhoto.getState().projectId === target.projectId) {
+      if (currentDoc() !== target.doc) throw new Error("The photo changed while it was being cropped (the user edited it): nothing was cropped. Read it again and retry.");
+      usePhoto.getState().commitState((state) => cropCanvas(state, box, moved));
+    } else {
+      const next = cropCanvas({ doc: target.doc, selection: null }, box, moved).doc;
+      await uploads.ready(next);
+      await api.saveDocument("photo", target.projectId, next);
+    }
+    return textResult(text);
+  },
+  crop_layer: edit(cropLayerTool),
+  async paint_gradient(input, ctx) {
+    const target = await targetOf(ctx);
+    if (!target.open) throw new Error("Open the photo in the editor first: painting needs it on the GPU.");
+    const request = gradientPaintRequest(target.doc, input, useColours.getState());
+    const selection = currentSelection();
+    const surface = await paintGradient(request, selection);
+    if (!surface) throw new Error(`Nothing was painted on "${request.name}": ${selection ? "the selection misses it" : "its pixels weren't ready: try again"}.`);
+    return textResult(`Painted a ${request.shape.style} gradient ${describeGradient(request.shape.gradient)} from (${request.shape.start.join(", ")}) to (${request.shape.end.join(", ")}) on "${request.name}"${request.part === "mask" ? "'s mask" : ""}${selection ? ", within the selection" : ""}.`, { added: [], changed: [request.layerId], removed: 0 });
+  },
+  // Shapes (docs/photo/tools/shapes.md): a new one is stroked in the user's foreground colour unless told otherwise.
+  add_shape: edit((doc, input, env) => addShapeTool(doc, input, { ...env, foreground: useColours.getState().foreground })),
+  set_shape: edit(setShapeTool),
 };
 
 export async function runPhotoTool(name: string, input: Input, ctx: ToolRunContext): Promise<ToolResult> {

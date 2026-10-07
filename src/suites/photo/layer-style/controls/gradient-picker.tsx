@@ -66,7 +66,8 @@ export function GradientStrip({ gradient, className, style }: { gradient: Gradie
   );
 }
 
-export function GradientPicker({ value, onChange, disabled }: { value: Gradient; onChange: (gradient: Gradient) => void; disabled?: boolean }) {
+/** `presets`: the arrow's list (the Layer Style's stock gradients by default; the Gradient tool's has its Basics first). */
+export function GradientPicker({ value, onChange, disabled, presets = GRADIENT_PRESETS }: { value: Gradient; onChange: (gradient: Gradient) => void; disabled?: boolean; presets?: readonly Gradient[] }) {
   const [editing, setEditing] = useState(false);
   return (
     <div className={cn("inline-flex shrink-0 overflow-hidden rounded-sm border border-line", disabled && "opacity-50")} data-gradient-picker>
@@ -91,7 +92,7 @@ export function GradientPicker({ value, onChange, disabled }: { value: Gradient;
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-52">
-          {GRADIENT_PRESETS.map((preset) => (
+          {presets.map((preset) => (
             <DropdownMenuItem key={preset.name} onSelect={() => onChange(preset)} className={cn(preset.name === value.name && "font-medium")}>
               <GradientStrip gradient={preset} className="h-4 w-14 shrink-0 rounded-[2px] border border-line" />
               {preset.name}
@@ -108,6 +109,8 @@ const METHODS: { value: Gradient["method"]; label: string }[] = [
   { value: "classic", label: "Classic" },
   { value: "linear", label: "Linear" },
   { value: "perceptual", label: "Perceptual" },
+  { value: "smooth", label: "Smooth" },
+  { value: "stripes", label: "Stripes" },
 ];
 const noop = () => {};
 

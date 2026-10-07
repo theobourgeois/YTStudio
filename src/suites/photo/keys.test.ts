@@ -118,7 +118,12 @@ describe("Edit keys (Photoshop's)", () => {
     expect(resolvePhotoKey(press("Backspace", { altKey: true }), true)).toEqual({ type: "fill", colour: "foreground" });
     expect(resolvePhotoKey(press("Backspace", { metaKey: true }), true)).toEqual({ type: "fill", colour: "background" });
     expect(resolvePhotoKey(press("Backspace"), true)).toEqual({ type: "delete" });
-    expect(resolvePhotoKey(press("e"), true)).toEqual({ type: "tool", tool: "eraser" });
+    expect(resolvePhotoKey(press("e"), true)).toEqual({ type: "toolGroup", group: "eraser", cycle: false });
+    expect(resolvePhotoKey(press("G", { shiftKey: true }), true)).toEqual({ type: "toolGroup", group: "fill", cycle: true });
+    expect(resolvePhotoKey(press("o"), true)).toEqual({ type: "toolGroup", group: "toning", cycle: false });
+    expect(resolvePhotoKey(press("c"), true)).toEqual({ type: "tool", tool: "crop" });
+    expect(resolvePhotoKey(press("U", { shiftKey: true }), true)).toEqual({ type: "toolGroup", group: "shape", cycle: true });
+    expect(resolvePhotoKey(press("t"), true)).toEqual({ type: "tool", tool: "type" });
     expect(resolvePhotoKey(press("c", { ctrlKey: true }), false)).toEqual({ type: "copy" });
   });
 });

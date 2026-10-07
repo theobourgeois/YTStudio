@@ -150,7 +150,7 @@ export function presetStyle(preset: StylePreset, newId: () => string = () => cre
  * to theirs (past a type's limit, not). Its Blending Options too when it has them. Adjustment layers get only those.
  */
 export function applyStylePreset(doc: PhotoProject, ids: readonly string[], preset: StylePreset, add: boolean, newId: () => string = () => createId("fx")): PhotoProject {
-  const styled = ids.filter((id) => doc.layers.find((l) => l.id === id && (l.kind === "image" || l.kind === "pixel")));
+  const styled = ids.filter((id) => doc.layers.find((l) => l.id === id && (l.kind === "image" || l.kind === "pixel" || l.kind === "shape")));
   let next = doc;
   if (add) {
     for (const id of styled) for (const e of presetStyle(preset, newId).effects) next = addStyleEffect(next, id, e);

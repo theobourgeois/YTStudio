@@ -116,6 +116,8 @@ const PLATFORM = [
   "src/lib/document-history.ts",
   "src/lib/autosaver.ts",
   "src/lib/color.ts",
+  // The fonts installed on this computer (the video editor's text, the photo suite's Type tool).
+  "src/stores/fonts.ts",
   "src/hooks/use-now.ts",
   "src/hooks/use-file-drop.ts",
   "src/lib/dnd.ts",

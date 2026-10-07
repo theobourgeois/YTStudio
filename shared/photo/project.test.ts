@@ -25,7 +25,7 @@ describe("photo documents", () => {
       layers: [
         { kind: "image", id: "a", mediaId: "m1", name: "Kept", opacity: 4, transform: { x: "x", scaleX: 0, scaleY: -2, rotation: 540 } },
         { kind: "image", id: "a", mediaId: "m2" },
-        { kind: "text", id: "t" },
+        { kind: "group", id: "t" },
         { kind: "image", id: "c" },
         null,
       ],

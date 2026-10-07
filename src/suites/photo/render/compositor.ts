@@ -58,7 +58,15 @@ export interface LayerDraw {
   transform: LayerTransform;
   opacity: number;
   mask: Drawable | null;
+  /** Its crop in its own pixels (docs/photo/tools/crop.md): what shows of it; absent or null, all of it. */
+  crop?: { x0: number; y0: number; x1: number; y1: number } | null;
 }
+
+/** The layer pass's uniform: 96 bytes (its `Layer`). */
+const LAYER_UNIFORM = 96;
+
+/** A layer's crop as the layer pass reads it (x0, y0, x1, y1 in its own pixels; none: everything). */
+const cropOfDraw = (l: LayerDraw): [number, number, number, number] => (l.crop ? [l.crop.x0, l.crop.y0, l.crop.x1, l.crop.y1] : [-1e9, -1e9, 1e9, 1e9]);
 
 /**
  * What an evaluation reads: each drawing node's pixels, each adjustment's or generator's mask (null while not on the
@@ -110,6 +118,7 @@ struct Layer {
   hasPreview: u32,
   hasMask: u32,
   encoded: u32,       // 1: write encoded values (a "photoshop" plan's composite)
+  crop: vec4f,        // what shows of it, in its own pixels: x0, y0, x1, y1
 }
 @group(2) @binding(0) var<uniform> layer: Layer;
 @group(2) @binding(1) var preview: texture_2d<f32>;
@@ -150,6 +159,15 @@ fn bicubic(level: u32, u: vec2f, s: f32) -> vec4f {
   return vec4f(c.rgb, clamp(c.a, 0.0, 1.0));
 }
 
+// How much of the layer shows at u (its crop): all inside, nothing outside, an edge a target pixel wide (exact, pixel
+// for pixel, when it's drawn texel for texel on whole pixels).
+fn crop_cover(u: vec2f) -> f32 {
+  let k = max(layer.scale, 1e-6);
+  let a = clamp((u - layer.crop.xy) * k + 0.5, vec2f(0.0), vec2f(1.0));
+  let b = clamp((layer.crop.zw - u) * k + 0.5, vec2f(0.0), vec2f(1.0));
+  return a.x * a.y * b.x * b.y;
+}
+
 // What the layer adds, in the composite's values: linear light, or encoded.
 fn out(c: vec4f, k: f32) -> vec4f {
   if (layer.encoded == 1u) { return premult_encode(c) * k; }
@@ -164,10 +182,12 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let reach = 4.0 * max(1.0, 1.0 / layer.scale) + 1.0;
   if (u.x < -reach || u.y < -reach || u.x > layer.size.x + reach || u.y > layer.size.y + reach) { discard; }
   let masked = layer.hasMask == 1u;
+  let shown = crop_cover(u);
+  if (shown <= 0.0) { discard; }
   if (layer.mode == 2u) {
     // Texel for texel: the source pixel under this one, exactly (and its mask's).
     let m = select(1.0, clamp(texel_mask(0u, i32(floor(u.x)), i32(floor(u.y))).r, 0.0, 1.0), masked);
-    return out(texel_src(0u, i32(floor(u.x)), i32(floor(u.y))), layer.opacity * m);
+    return out(texel_src(0u, i32(floor(u.x)), i32(floor(u.y))), layer.opacity * m * shown);
   }
   // The finest level at or coarser than the one wanted whose tile here is resident: the view refines as tiles arrive.
   var level = layer.level;
@@ -181,7 +201,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
       } else {
         c = bilinear(level, p);
       }
-      return out(c, layer.opacity * mask_at(masked, level, p));
+      return out(c, layer.opacity * mask_at(masked, level, p) * shown);
     }
     if (level + 1u >= img_src.levels) { break; }
     level += 1u;
@@ -189,7 +209,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   if (layer.hasPreview == 1u && u.x >= 0.0 && u.y >= 0.0 && u.x < layer.size.x && u.y < layer.size.y) {
     let p = textureSampleLevel(preview, previewSampler, u / layer.size, 0.0);
     let coarsest = img_mask.levels - 1u;
-    return out(vec4f(p.rgb * p.a, p.a), layer.opacity * mask_at(masked, coarsest, u * exp2(-f32(coarsest))));
+    return out(vec4f(p.rgb * p.a, p.a), layer.opacity * mask_at(masked, coarsest, u * exp2(-f32(coarsest))) * shown);
   }
   discard;
   return vec4f(0.0);
@@ -695,7 +715,7 @@ export class Compositor {
         group: this.ctx.device.createBindGroup({
           layout: this.layouts.layer,
           entries: [
-            { binding: 0, resource: { buffer: this.uniforms, size: 80 } },
+            { binding: 0, resource: { buffer: this.uniforms, size: LAYER_UNIFORM } },
             { binding: 1, resource: (source.preview ?? this.blank).createView() },
             { binding: 2, resource: this.sampler },
           ],
@@ -799,8 +819,8 @@ export class Compositor {
     if (images.length) {
       const data = new ArrayBuffer(UNIFORM_STRIDE * images.length);
       images.forEach(({ index, draw: l, maskOnly }, i) => {
-        const f = new Float32Array(data, i * UNIFORM_STRIDE, 20);
-        const u = new Uint32Array(data, i * UNIFORM_STRIDE, 20);
+        const f = new Float32Array(data, i * UNIFORM_STRIDE, LAYER_UNIFORM / 4);
+        const u = new Uint32Array(data, i * UNIFORM_STRIDE, LAYER_UNIFORM / 4);
         const inv = invert(l.matrix);
         // A blended or styled layer is drawn alone at full strength: its opacity is its pass's.
         const node = plan.nodes[index] as DrawNode;
@@ -814,6 +834,7 @@ export class Compositor {
         u[18] = l.mask ? 1 : 0;
         // A mask drawn alone is coverage, never encoded.
         u[19] = encoded && !maskOnly ? 1 : 0;
+        f.set(cropOfDraw(l), 20);
       });
       device.queue.writeBuffer(this.uniforms, 0, data);
     }
@@ -852,9 +873,10 @@ export class Compositor {
       const data = new ArrayBuffer(STYLE_SLOT * styled.length);
       styled.forEach(({ index, node, draw }, slot) => {
         const fieldPlan = planFields(node, draw.source.image.levels.length);
-        const content = node.kind === "image" ? `${node.mediaId}` : `${node.surface}`;
+        const content = node.kind === "image" ? `${node.mediaId}` : node.kind === "canvas" ? `canvas:${node.raster.key}` : `${node.surface}`;
         const maskKey = node.style!.maskHidesEffects ? "" : `${node.mask?.surface ?? ""}`;
-        const key = `${content}|${maskKey}|${node.size.width}x${node.size.height}|${fieldPlan.key}|${sources.revision?.(node) ?? ""}`;
+        const crop = node.crop ? `|crop:${node.crop.x0},${node.crop.y0},${node.crop.x1},${node.crop.y1}` : "";
+        const key = `${content}|${maskKey}|${node.size.width}x${node.size.height}|${fieldPlan.key}|${sources.revision?.(node) ?? ""}${crop}`;
         const set = this.styleFields.fields(encoder, fieldPlan, key, () => this.drawForFields(encoder, draw, node.style!.maskHidesEffects ? null : draw.mask, fieldPlan, format));
         const packed = packStyle(node, node.blend!, node.opacity, plan.compositing, fieldPlan, draw.matrix, view, sources.pattern);
         const dataKey = `${node.key}|${fieldPlan.key}|${packed.patternKey}`;
@@ -1136,8 +1158,8 @@ export class Compositor {
     const texture = compositeTexture(device, plan.width, plan.height, format, "style matte");
     const s = 2 ** plan.level;
     const view = { x: -plan.pad * s, y: -plan.pad * s, zoom: 1 / s, width: plan.width, height: plan.height };
-    const uniform = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    const f = new Float32Array(20);
+    const uniform = device.createBuffer({ size: LAYER_UNIFORM, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const f = new Float32Array(LAYER_UNIFORM / 4);
     const u = new Uint32Array(f.buffer);
     // In its own pixels: the identity place.
     f.set([1, 0, 0, 0, 0, 1, 0, 0, view.x, view.y, view.zoom, 1, draw.source.width, draw.source.height], 0);
@@ -1147,11 +1169,13 @@ export class Compositor {
     u[17] = draw.source.preview ? 1 : 0;
     u[18] = mask ? 1 : 0;
     u[19] = 0;
+    // In its own pixels, its crop is the identity place's too.
+    f.set(cropOfDraw(draw), 20);
     device.queue.writeBuffer(uniform, 0, f);
     const group = device.createBindGroup({
       layout: this.layouts.layer,
       entries: [
-        { binding: 0, resource: { buffer: uniform, size: 80 } },
+        { binding: 0, resource: { buffer: uniform, size: LAYER_UNIFORM } },
         { binding: 1, resource: (draw.source.preview ?? this.blank).createView() },
         { binding: 2, resource: this.sampler },
       ],
@@ -1188,7 +1212,7 @@ export class Compositor {
    */
   drawLayerAlone(encoder: GPUCommandEncoder, l: LayerDraw, view: View, quality: Quality, target: GPUTexture, format: PlanFormat) {
     const { device } = this.ctx;
-    const data = new ArrayBuffer(80);
+    const data = new ArrayBuffer(LAYER_UNIFORM);
     const f = new Float32Array(data);
     const u = new Uint32Array(data);
     const inv = invert(l.matrix);
@@ -1199,13 +1223,14 @@ export class Compositor {
     f[16] = scale;
     u[17] = l.source.preview ? 1 : 0;
     u[18] = l.mask ? 1 : 0;
-    const uniform = device.createBuffer({ label: "layer alone", size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    f.set(cropOfDraw(l), 20);
+    const uniform = device.createBuffer({ label: "layer alone", size: LAYER_UNIFORM, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     device.queue.writeBuffer(uniform, 0, data);
     void device.queue.onSubmittedWorkDone().then(() => setTimeout(() => uniform.destroy(), 0));
     const group = device.createBindGroup({
       layout: this.layouts.layer,
       entries: [
-        { binding: 0, resource: { buffer: uniform, size: 80 } },
+        { binding: 0, resource: { buffer: uniform, size: LAYER_UNIFORM } },
         { binding: 1, resource: (l.source.preview ?? this.blank).createView() },
         { binding: 2, resource: this.sampler },
       ],

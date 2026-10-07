@@ -15,6 +15,7 @@ import { duplicateLayers, moveLayersBy } from "@shared/photo/edits";
 import { srgbToLinear } from "@shared/photo/colour";
 import { fitView, panBy, viewToDoc, zoomAbout } from "@shared/photo/geometry";
 import { contains } from "@shared/photo/layers";
+import { visiblePlace } from "@shared/photo/crop";
 import { type LayerTransform, type PhotoLayer, type PhotoProject, type PlacedLayer, isPlaced } from "@shared/photo/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { liveRenderer, useRenderState } from "../live";
@@ -36,6 +37,7 @@ import { useSelectOptions } from "../selecting";
 import { contentBox, hitsContent } from "./content";
 import { sizeOf } from "../tool-edits";
 import { isSelectionTool, useActiveTool, usePhotoUi } from "../ui";
+import { TOOLBOX } from "../toolbox";
 import { CanvasDriver } from "./driver";
 import { resizeCursor, rotateCursor } from "./cursors";
 import { type Frame, frameOf, touches } from "./frame";
@@ -99,6 +101,7 @@ export function CanvasPanel() {
   const canvasWidth = usePhotoDoc((d) => d.canvas.width);
   const canvasHeight = usePhotoDoc((d) => d.canvas.height);
   const tool = useActiveTool();
+  const kit = TOOLBOX[tool];
   usePolygonKeys(tool === "polygonLasso");
 
   // The open photo's renderer, drawing on this canvas while it's shown.
@@ -231,6 +234,7 @@ export function CanvasPanel() {
     if (tool === "magicWand") return void wandClick(e, docPoint);
     if (tool === "quickSelect") return quickSelect(e, docPoint);
     if (tool === "brush" || tool === "eraser") return paint(e, tool === "eraser");
+    if (kit) return kit.press?.(e, docPoint);
     // Move: with Auto-select (⌘ for the opposite), the layer under the pointer is picked first, as Photoshop's;
     // Shift adds it to the selection (or takes it out). A press on nothing (outside the selected layers' box)
     // selects nothing, or draws a marquee that selects the layers it touches. The drag moves the selected images.
@@ -386,6 +390,7 @@ export function CanvasPanel() {
     const at = docPoint(e.clientX, e.clientY);
     useCanvasPointer.getState().set(at, e.altKey);
     if (tool === "polygonLasso") polygonHover(at);
+    if (kit?.hover && e.buttons === 0) kit.hover(e, docPoint);
     if (tool !== "move" || e.buttons !== 0) return;
     usePhotoUi.getState().hover(autoSelects(e) ? (layerAt(doc, at.x, at.y)?.id ?? null) : null);
   };
@@ -415,9 +420,11 @@ export function CanvasPanel() {
               ? "cursor-zoom-in"
               : tool === "brush" || tool === "eraser" || tool === "quickSelect"
                 ? "cursor-none"
-                : isSelectionTool(tool)
-                  ? "cursor-crosshair"
-                  : "cursor-default",
+                : kit
+                  ? (kit.cursor ?? "cursor-crosshair")
+                  : isSelectionTool(tool)
+                    ? "cursor-crosshair"
+                    : "cursor-default",
         )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -437,6 +444,7 @@ export function CanvasPanel() {
         {renderer && <SelectionAnts />}
         {renderer && (tool === "brush" || tool === "eraser") && <BrushCursor />}
         {renderer && tool === "quickSelect" && <QuickCursor />}
+        {renderer && kit?.Overlay && <kit.Overlay docPoint={docPoint} />}
         {failure && (
           <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-white/80">
             <div className="flex max-w-sm flex-col items-center gap-2">
@@ -516,7 +524,7 @@ function layerAt(doc: PhotoProject, x: number, y: number): PhotoLayer | undefine
   for (let i = doc.layers.length - 1; i >= 0; i--) {
     const l = doc.layers[i];
     const size = sizeOf(l, assets);
-    if (isPlaced(l) && l.visible && size && hitsContent(l, size, x, y, knownManifest)) return l;
+    if (isPlaced(l) && l.visible && size && hitsContent(l, size, x, y, knownManifest, 256, (6 * devicePixelRatio) / (usePhotoUi.getState().view?.zoom ?? 1))) return l;
   }
   return undefined;
 }
@@ -645,7 +653,8 @@ function SelectedOutlines({ ids }: { ids: readonly string[] }) {
       {layers.map((l) => {
         const size = ids.includes(l.id) ? sizeOf(l, assets) : null;
         if (!size || !isPlaced(l)) return null;
-        const points = outline(l.transform, size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);
+        const shown = visiblePlace(l, size);
+        const points = outline(shown.t, shown.size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);
         return <polygon key={l.id} points={points.join(" ")} fill="none" stroke="var(--brand)" strokeOpacity={0.6} strokeDasharray="3 3" strokeWidth={1} data-selected-outline={l.id} />;
       })}
     </>
@@ -660,10 +669,11 @@ function HoverOutline() {
   const found = usePhotoDoc((d) => d.layers.find((l) => l.id === hovered));
   const layer = found && isPlaced(found) && !selected ? found : undefined;
   const imageSize = useLayerSize(layer?.kind === "image" ? layer.mediaId : undefined);
-  const size = layer?.kind === "pixel" ? layer.size : imageSize;
+  const size = layer?.kind === "pixel" || layer?.kind === "text" || layer?.kind === "shape" ? layer.size : imageSize;
   if (!view || !layer || !size) return null;
   const dpr = devicePixelRatio;
-  const points = outline(layer.transform, size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);
+  const shown = visiblePlace(layer, size);
+  const points = outline(shown.t, shown.size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);
   return (
     <svg className="pointer-events-none absolute inset-0 size-full overflow-visible" data-hover-outline={layer.id}>
       <polygon points={points.join(" ")} fill="none" stroke="var(--brand)" strokeWidth={1.5} />

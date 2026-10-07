@@ -9,11 +9,19 @@ import {
   PiArrowCounterClockwise,
   PiArrowClockwise,
   PiArrowsLeftRight,
+  PiArrowUpRight,
+  PiCircle,
   PiCircleDashed,
+  PiCrop,
   PiCursor,
+  PiDropHalf,
   PiEraser,
+  PiEraserFill,
+  PiFlame,
+  PiGradient,
   PiExport,
   PiHand,
+  PiLineSegment,
   PiImage,
   PiLasso,
   PiMagicWand,
@@ -21,8 +29,13 @@ import {
   PiMagnifyingGlass,
   PiPaintBrush,
   PiPaintBrushBroad,
+  PiPaintBucket,
   PiPolygon,
+  PiRectangle,
   PiSelection,
+  PiSparkle,
+  PiSunDim,
+  PiTextT,
 } from "react-icons/pi";
 import { toast } from "sonner";
 import { moveLayersBy } from "@shared/photo/edits";
@@ -31,6 +44,7 @@ import { stepBrushSize, useBrush } from "./brush-options";
 import { useColours } from "./colours";
 import { editActions, hasPhotoClipboard } from "./edit-actions";
 import { PaintChoiceDialog, ToolOptions } from "./options-bar";
+import { TOOLBOX } from "./toolbox";
 import { FeatherDialog, SelectMenu, SubjectModelDialog, useFeather } from "./select-commands";
 import { selectActions, useSelectOptions } from "./selecting";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -292,14 +306,27 @@ const TOOL_INFO: Record<PhotoTool, { label: string; key: string; Icon: typeof Pi
   polygonLasso: { label: "Polygonal Lasso", key: "L", Icon: PiPolygon },
   quickSelect: { label: "Quick Selection", key: "W", Icon: PiPaintBrushBroad },
   magicWand: { label: "Magic Wand", key: "W", Icon: PiMagicWand },
+  crop: { label: "Crop", key: "C", Icon: PiCrop },
   brush: { label: "Brush", key: "B", Icon: PiPaintBrush },
   eraser: { label: "Eraser", key: "E", Icon: PiEraser },
+  backgroundEraser: { label: "Background Eraser", key: "E", Icon: PiEraserFill },
+  magicEraser: { label: "Magic Eraser", key: "E", Icon: PiSparkle },
+  gradient: { label: "Gradient", key: "G", Icon: PiGradient },
+  paintBucket: { label: "Paint Bucket", key: "G", Icon: PiPaintBucket },
+  dodge: { label: "Dodge", key: "O", Icon: PiSunDim },
+  burn: { label: "Burn", key: "O", Icon: PiFlame },
+  sponge: { label: "Sponge", key: "O", Icon: PiDropHalf },
+  type: { label: "Type", key: "T", Icon: PiTextT },
+  rectangleShape: { label: "Rectangle", key: "U", Icon: PiRectangle },
+  ellipseShape: { label: "Ellipse", key: "U", Icon: PiCircle },
+  lineShape: { label: "Line", key: "U", Icon: PiLineSegment },
+  arrowShape: { label: "Arrow", key: "U", Icon: PiArrowUpRight },
   hand: { label: "Hand", key: "H", Icon: PiHand },
   zoom: { label: "Zoom", key: "Z", Icon: PiMagnifyingGlass },
 };
 
 /** The strip's places, top to bottom: a tool, or a group (showing the one of it used last). */
-const STRIP: (PhotoTool | ToolGroup)[] = ["move", "marquee", "lasso", "wand", "brush", "eraser", "hand", "zoom"];
+const STRIP: (PhotoTool | ToolGroup)[] = ["move", "marquee", "lasso", "wand", "crop", "brush", "eraser", "fill", "toning", "type", "shape", "hand", "zoom"];
 
 /** "marquee" in the strip is the Marquees' group. */
 const isGroup = (place: PhotoTool | ToolGroup): place is ToolGroup => Object.hasOwn(TOOL_GROUPS, place);
@@ -503,12 +530,18 @@ function usePhotoKeys(active: boolean) {
           return selectActions.all();
         case "newLayer":
           return void layerActions.newLayer();
-        // Quick Selection's brush is its own.
-        case "brushSize":
+        // Quick Selection's brush is its own, and so is a kit's that has one (Dodge, Burn, Sponge, the Background Eraser).
+        case "brushSize": {
           if (ui.tool === "quickSelect") return useSelectOptions.getState().set({ quickSize: stepBrushSize(useSelectOptions.getState().quickSize, action.direction) });
+          const own = TOOLBOX[ui.tool]?.brush;
+          if (own) return own.set({ size: stepBrushSize(own.get().size, action.direction) });
           return useBrush.getState().set({ size: stepBrushSize(useBrush.getState().size, action.direction) });
-        case "brushHardness":
+        }
+        case "brushHardness": {
+          const own = TOOLBOX[ui.tool]?.brush;
+          if (own) return own.set({ hardness: Math.round((own.get().hardness + action.direction * 0.25) * 4) / 4 });
           return useBrush.getState().set({ hardness: Math.round((useBrush.getState().hardness + action.direction * 0.25) * 4) / 4 });
+        }
         case "defaultColours":
           return useColours.getState().reset();
         case "swapColours":

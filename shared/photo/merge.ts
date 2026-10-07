@@ -6,8 +6,10 @@
  */
 import { findLayer } from "./edits.ts";
 import type { Size } from "./geometry.ts";
-import { bounds } from "./layers.ts";
+import { cropOf, croppedBounds } from "./crop.ts";
+import { bounds, layerMatrix } from "./layers.ts";
 import { filtersReach } from "./render-plan.ts";
+import { shapeBounds } from "./shape-drawing.ts";
 import { type ImageLayer, MAX_CANVAS_SIDE, type PhotoLayer, type PhotoProject, type PlacedLayer, hasContent, isPlaced } from "./types.ts";
 
 /** Merge Down (one layer into the one below it), Merge Layers (those selected) or Merge Visible (every visible one). */
@@ -60,12 +62,18 @@ export function planMerge(doc: PhotoProject, kind: MergeKind, selected: readonly
   let y1 = -Infinity;
   for (const l of contents) {
     let b = { x0: 0, y0: 0, x1: doc.canvas.width, y1: doc.canvas.height };
-    if (isPlaced(l)) {
+    // A shape's pixels are what it draws (its stroke and heads reach past its box).
+    const drawn = l.kind === "shape" ? shapeBounds(l) : null;
+    if (drawn) {
+      const reach = filtersReach(l);
+      b = { x0: drawn.x0 - reach, y0: drawn.y0 - reach, x1: drawn.x1 + reach, y1: drawn.y1 + reach };
+    } else if (isPlaced(l)) {
       const size = sizeOf(l);
       if (!size) return { error: `"${l.name}" has no image (it's missing or unreadable), so it can't be merged.` };
       // A glow spreads past its layer: the merged image keeps it.
       const reach = filtersReach(l);
-      const box = bounds(l.transform, size);
+      // What shows of it (inside its crop).
+      const box = l.crop ? croppedBounds(layerMatrix(l.transform, size), cropOf(l, size)) : bounds(l.transform, size);
       b = { x0: box.x0 - reach, y0: box.y0 - reach, x1: box.x1 + reach, y1: box.y1 + reach };
     }
     x0 = Math.min(x0, b.x0);

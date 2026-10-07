@@ -30,12 +30,14 @@ import { runSelectSubject } from "./select-commands";
 import { type SelectOptions, useSelectOptions } from "./selecting";
 import { useSubjectModel } from "./subject-model";
 import { type PhotoTool, isSelectionTool, useActiveTool, usePhotoUi } from "./ui";
+import { TOOLBOX } from "./toolbox";
 
 export function ToolOptions() {
   const tool = useActiveTool();
   if (tool === "brush" || tool === "eraser") return <BrushOptionsBar />;
   if (isSelectionTool(tool)) return <SelectionOptionsBar tool={tool} />;
-  return null;
+  const Options = TOOLBOX[tool]?.Options;
+  return Options ? <Options /> : null;
 }
 
 const SIZE = { min: MIN_BRUSH, max: MAX_BRUSH, step: 1, decimals: 0, unit: "px" };
@@ -57,7 +59,7 @@ export function BrushOptionsBar() {
 }
 
 /** A labelled scrubby number: an option of a tool (this browser's, not the photo's: no undo step). */
-function Scrub({ label, value, display, onChange }: { label: string; value: number; display: NumberDisplay; onChange: (v: number) => void }) {
+export function Scrub({ label, value, display, onChange }: { label: string; value: number; display: NumberDisplay; onChange: (v: number) => void }) {
   return (
     <span className="flex items-center gap-0.5" data-option={label}>
       <span className="text-muted-foreground">{label}</span>
@@ -140,7 +142,7 @@ function SelectionOptionsBar({ tool }: { tool: PhotoTool }) {
 }
 
 /** An on/off option of a tool: a checkbox, as Photoshop's options bar has (they're many, and the bar is narrow). */
-function Toggle({ label, title, checked, onChange }: { label: string; title?: string; checked: boolean; onChange: (on: boolean) => void }) {
+export function Toggle({ label, title, checked, onChange }: { label: string; title?: string; checked: boolean; onChange: (on: boolean) => void }) {
   return (
     <button
       type="button"
@@ -162,6 +164,7 @@ function Toggle({ label, title, checked, onChange }: { label: string; title?: st
 export function PaintChoiceDialog() {
   const layerId = usePhotoUi((s) => s.paintChoice);
   const name = usePhotoDoc((d) => (layerId ? (findLayer(d, layerId)?.name ?? null) : null));
+  const text = usePhotoDoc((d) => (layerId ? findLayer(d, layerId)?.kind === "text" : false));
   const close = () => usePhotoUi.getState().setPaintChoice(null);
   return (
     <AlertDialog open={!!layerId && name !== null} onOpenChange={(open) => !open && close()}>
@@ -169,8 +172,9 @@ export function PaintChoiceDialog() {
         <AlertDialogHeader>
           <AlertDialogTitle>Paint on “{name}”?</AlertDialogTitle>
           <AlertDialogDescription>
-            It's a placed image, kept whole so it can be transformed without losing quality. Paint on a new layer above it, or convert it to pixels (its place
-            and mask become part of its pixels; scaling it later resamples them).
+            {text
+              ? "It's a text layer: its words stay editable. Paint on a new layer above it, or rasterize it (its words become pixels and can't be edited any more)."
+              : "It's a placed image, kept whole so it can be transformed without losing quality. Paint on a new layer above it, or convert it to pixels (its place and mask become part of its pixels; scaling it later resamples them)."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -182,7 +186,7 @@ export function PaintChoiceDialog() {
               if (layerId) void layerActions.convertToPixels(layerId);
             }}
           >
-            Convert to pixels
+            {text ? "Rasterize Type" : "Convert to pixels"}
           </Button>
           <Button
             onClick={() => {

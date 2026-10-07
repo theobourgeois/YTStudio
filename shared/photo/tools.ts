@@ -32,7 +32,7 @@ function paramLine(p: ParamSpec | ElementParamSpec, indent: string): string {
     case "elements":
       return `${p.key} (a list of up to ${p.max}): ${p.description}\n${p.types.map((t) => `${indent}  ${t.type}: ${t.description}\n${t.params.map((q) => `${indent}    ${paramLine(q, indent + "    ")}`).join("\n")}`).join("\n")}`;
     case "gradient":
-      return `${p.key} (a gradient { "name": "…", "colours": [{ "at": 0, "colour": "#000000" }, { "at": 1, "colour": "#ffffff" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 1 }], "method": "classic" | "linear" | "perceptual" }, default "${p.default.name}"): ${p.description}`;
+      return `${p.key} (a gradient { "name": "…", "colours": [{ "at": 0, "colour": "#000000" }, { "at": 1, "colour": "#ffffff" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 1 }], "method": "classic" | "linear" | "perceptual" | "smooth" | "stripes" }, default "${p.default.name}"): ${p.description}`;
     default:
       return `${p.key}: ${p.description}`;
   }
@@ -365,15 +365,15 @@ export const PHOTO_TOOLS = [
     name: "add_generator",
     title: "Add a lens flare",
     kind: "edit",
-    description: `Adds a generator layer: content it makes itself, live (move its handles with move_handle, change it with set_effect_params). A new Lens Flare adds its light to what's below in linear light (set_layer's blend: add), with the preset's elements sized for this canvas. Presets: ${FLARE_PRESETS.map((p) => p.id).join(", ")}. The generators:\n${describeEffects("generator")}`,
+    description: `Adds a generator layer: content it makes itself, live (move its handles with move_handle, change it with set_effect_params). A new Lens Flare adds its light to what's below in linear light (set_layer's blend: add), with the preset's elements sized for this canvas (presets: ${FLARE_PRESETS.map((p) => p.id).join(", ")}). A Gradient Fill (type gradient-fill) is the Gradient tool's live gradient, Photoshop's Gradient Fill layer: a gradient laid from start to end, e.g. { "type": "gradient-fill", "params": { "style": "radial", "start": [540, 960], "end": [540, 200], "gradient": { "colours": [{ "at": 0, "colour": "#ffd27a" }, { "at": 1, "colour": "#1a0f3a" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 1 }], "method": "perceptual" } } } (a stock gradient by name works too: "Copper"); fade a layer out with a gradient on its mask instead (paint_gradient). The generators:\n${describeEffects("generator")}\n${describePresets("generator")}`,
     inputSchema: obj({
       type: oneOf(
         GENERATORS.map((d) => d.type),
         "Which generator (default lens-flare).",
       ),
       preset: oneOf(
-        FLARE_PRESETS.map((p) => p.id),
-        "A flare's starting elements (default classic).",
+        [...new Set(GENERATORS.flatMap((d) => (d.presets ?? []).map((p) => p.id)))],
+        "Its starting look: a flare's elements (default classic), a Gradient Fill's stock gradient across the canvas (default black-white).",
       ),
       source: arr({ type: "number" }, "Where the light is: [x, y] in canvas pixels (default: the upper left third)."),
       params: { type: "object", description: "Other parameters (see above).", additionalProperties: true },
@@ -386,11 +386,11 @@ export const PHOTO_TOOLS = [
     title: "Move a flare's handle",
     kind: "edit",
     description:
-      "Moves a generator's handle (a Lens Flare's source, where its light is, or its optical centre, which its ghosts line up through) to a point of the canvas, in canvas pixels; follow_canvas: true puts the optical centre back on the canvas's centre (following it).",
+      "Moves a generator's handle (a Lens Flare's source, where its light is, or its optical centre, which its ghosts line up through; a Gradient Fill's start or end) to a point of the canvas, in canvas pixels; follow_canvas: true puts the optical centre back on the canvas's centre (following it).",
     inputSchema: obj(
       {
         layer,
-        handle: oneOf(["source", "centre"], "Which handle."),
+        handle: oneOf([...new Set(GENERATORS.flatMap((d) => d.params.filter((p) => p.kind === "point" && p.handle).map((p) => p.key)))], "Which handle."),
         x: num("Canvas pixels from the left."),
         y: num("Canvas pixels from the top."),
         follow_canvas: bool("The optical centre on the canvas's centre (it follows the canvas)."),
@@ -557,12 +557,286 @@ export const PHOTO_TOOLS = [
     }),
   }),
   tool({
+    name: "tone_area",
+    title: "Dodge, burn or sponge",
+    kind: "edit",
+    description:
+      "Photoshop's Dodge (lighten), Burn (darken) and Sponge (saturation) tools, applied at once to a pixel layer's pixels (or its mask: target mask) over a box, else the current selection, else the whole layer, as one undo step: what a stroke of the user's brush there does. Dodge and Burn: range says which tones change most (shadows, midtones (default), highlights; e.g. burn highlights to recover a bright sky, dodge shadows to open up a face), exposure how much (1..100%, default 50; 10–30 is subtle, and calls add up), protect_tones (default true) keeps hues and avoids clipping. Sponge: mode desaturate (default) or saturate, flow how much (1..100, default 50), vibrance (default true) protects strong colours and never clips. Use box with feather (pixels) so the change blends in. A placed image or generated layer is kept whole: convert: true makes it pixels first (tell the user). Look with view_photo before and after. The photo must be open in the editor.",
+    inputSchema: obj(
+      {
+        layer,
+        tool: oneOf(["dodge", "burn", "sponge"], "dodge lightens, burn darkens, sponge changes saturation."),
+        range: oneOf(["shadows", "midtones", "highlights"], "Dodge and Burn: the tones changed most (default midtones)."),
+        exposure: num("Dodge and Burn: how much, 1..100 percent (default 50)."),
+        protect_tones: bool("Dodge and Burn: keep hues, don't clip (default true)."),
+        mode: oneOf(["desaturate", "saturate"], "Sponge: which way (default desaturate)."),
+        flow: num("Sponge: how much, 1..100 percent (default 50)."),
+        vibrance: bool("Sponge: change muted colours most, never clip (default true)."),
+        box: obj({ x: num("Left, canvas pixels."), y: num("Top."), width: num("Width."), height: num("Height.") }, ["x", "y", "width", "height"]),
+        feather: num("Soften the box's edge by this many pixels (0..250)."),
+        target: oneOf(["content", "mask"], "The layer's pixels (default) or its mask (dodge lightens it: reveals more)."),
+        convert: bool("Convert a placed image or generated layer to pixels first."),
+      },
+      ["layer", "tool"],
+    ),
+  }),
+  tool({
+    name: "remove_colour",
+    title: "Remove a colour (background eraser)",
+    kind: "edit",
+    description:
+      "Erases a colour from a pixel layer to transparency, as Photoshop's Background Eraser does: e.g. the white or green background around a subject. Give the colour (\"#rrggbb\") or a point on it to sample ([x, y], canvas pixels: e.g. a corner of the background). tolerance (0..100%, default 50) is how different a colour may be and still go; pixels near the limit go in part. limits: contiguous (default with a point: only what's joined to the point through that colour), discontiguous (that colour everywhere: holes, between hair; the default with only a colour), find_edges (contiguous, keeping the subject's outline sharp). protect: a \"#rrggbb\" never erased (Protect Foreground Color: the subject's colour when it's close to the background's). Soft edge pixels lose the background's colour, so no halo is left. Over a box, else the current selection, else the whole layer; one undo step. A placed image is kept whole: convert: true makes it pixels first (tell the user). Check with view_photo. The photo must be open in the editor.",
+    inputSchema: obj(
+      {
+        layer,
+        colour: str('The colour to erase, "#rrggbb".'),
+        point: arr(num("A coordinate."), "[x, y] in canvas pixels: sample the colour there (and flood from it).", { minItems: 2, maxItems: 2 }),
+        tolerance: num("0..100 percent (default 50)."),
+        limits: oneOf(["contiguous", "discontiguous", "find_edges"], "contiguous (default with a point), discontiguous (default with only a colour), find_edges."),
+        protect: str('A colour never erased, "#rrggbb".'),
+        box: obj({ x: num("Left, canvas pixels."), y: num("Top."), width: num("Width."), height: num("Height.") }, ["x", "y", "width", "height"]),
+        feather: num("Soften the box's edge by this many pixels (0..250)."),
+        convert: bool("Convert a placed image or generated layer to pixels first."),
+      },
+      ["layer"],
+    ),
+  }),
+  tool({
+    name: "add_text_layer",
+    title: "Add text",
+    kind: "edit",
+    description:
+      'Adds a text layer (Photoshop\'s Type tool): words drawn in an installed font, editable afterwards. Point text (give x, y: the first line\'s baseline starts there, or is centred or ends there by align) never wraps: "\\n" breaks lines. Paragraph text (give box: { x, y, width, height }, its top-left and size) wraps in the box and hides what doesn\'t fit. Layer styles (set_layer_style: stroke, drop-shadow) and blend modes work on it as on any layer; transform_layer moves, scales and turns it. Goes above `above`, or on top.',
+    inputSchema: obj(
+      {
+        text: str('The words, "\\n" between lines.'),
+        x: num("Point text: where the first baseline starts (canvas pixels)."),
+        y: num("Point text: the first baseline's height (canvas pixels)."),
+        box: obj({ x: num("Left."), y: num("Top."), width: num("Width."), height: num("Height.") }),
+        font: str('An installed font family, e.g. "Helvetica Neue" (default Arial).'),
+        style: str('The family\'s style, e.g. "Bold", "Italic", "Bold Italic" (default Regular).'),
+        size: num("The font size in pixels (default 72)."),
+        colour: str('"#rrggbb" (default #000000).'),
+        align: oneOf(["left", "center", "right", "justify"], "Alignment (justify: paragraph text, its last line left)."),
+        leading: { description: 'Pixels between baselines, or "auto" (the default: 120% of the size).' },
+        tracking: num("Letter spacing in thousandths of an em (default 0)."),
+        name: str("The layer's name (default: its words, following them)."),
+        above: str("The layer to put it right above (id or name); default: the top."),
+      },
+      ["text"],
+    ),
+  }),
+  tool({
+    name: "set_text",
+    title: "Change text",
+    kind: "edit",
+    description:
+      'Changes a text layer\'s words or how they\'re set, the whole layer (one style per layer). Give any of text, font, style, size, colour, align, leading ("auto" or pixels), tracking, and box: { width, height } (makes it paragraph text in a box that size; its top-left stays) or "point" (point text again). What isn\'t given stays; the text\'s origin stays where it is on the canvas.',
+    inputSchema: obj(
+      {
+        layer,
+        text: str('The words, "\\n" between lines.'),
+        font: str("An installed font family."),
+        style: str('The family\'s style ("Bold", "Light Italic"…).'),
+        size: num("The font size in pixels."),
+        colour: str('"#rrggbb".'),
+        align: oneOf(["left", "center", "right", "justify"], "Alignment."),
+        leading: { description: 'Pixels between baselines, or "auto".' },
+        tracking: num("Letter spacing in thousandths of an em."),
+        box: { description: 'Paragraph text\'s box { width, height }, or "point" for point text.' },
+      },
+      ["layer"],
+    ),
+  }),
+  tool({
+    name: "rasterize_type",
+    title: "Rasterize text",
+    kind: "edit",
+    description: "Makes a text layer a pixel layer in its place (Photoshop's Rasterize Type): its words can't be edited after, but it can be painted. Its layer style stays a style. Only for the photo open in the editor.",
+    inputSchema: obj({ layer }, ["layer"]),
+  }),
+  tool({
     name: "export_photo",
     title: "Export the photo",
     kind: "action",
     description:
       "Exports the photo as a PNG (keeps transparency; 8 or 16 bits a channel) or a JPEG (over the background, or white), at its canvas size. 16 bits keeps a 16-bit source's precision. The file goes to the app's exports; the result says where.",
     inputSchema: obj({ format: oneOf(["png", "jpeg"], "png (default) or jpeg."), bits: oneOf(["8", "16"], "PNG's bits a channel (default 8)."), quality: int("JPEG quality, 1 to 100 (default 92).") }),
+  }),
+  tool({
+    name: "bucket_fill",
+    title: "Fill an area (paint bucket)",
+    kind: "edit",
+    description:
+      "Photoshop's Paint Bucket: a click at (x, y) fills the area of similar colour around it (what the Magic Wand would select there: tolerance 0..255, default 32, each of red, green, blue and alpha within it of the colour clicked; contiguous, default true, only what's joined to the point) on a layer's pixels, limited by the selection. with: \"foreground\" (default), \"background\", a colour \"#rrggbb\", or \"pattern\" (then pattern: an id or name, built in or the photo's, tiled from the canvas's top-left at 100%). mode: a blend mode, or behind (paints only where the layer is transparent) or clear (makes it transparent); opacity 0..1 (default 1). all_layers (default false) decides by the photo as it shows, else by the layer alone: an empty pixel layer is all one colour (transparent), so on one use all_layers: true to fill the shape of what's below. anti_alias (default true) softens the edge. layer: a pixel layer (default the selected one); target: mask fills its mask with the colour's grey (black hides). A placed image can't be filled (it's kept whole): add_pixel_layer above it and fill that with all_layers: true. Undoable. The photo must be open in the editor.",
+    inputSchema: obj(
+      {
+        x: num("Canvas pixels from the left."),
+        y: num("Canvas pixels from the top."),
+        layer: str("The layer to fill: id or name (default the selected one)."),
+        target: oneOf(["content", "mask"], "Its pixels (default) or its mask."),
+        with: str('"foreground" (default), "background", a colour "#rrggbb", or "pattern".'),
+        pattern: str("with: pattern: the pattern's id or name."),
+        mode: oneOf(["normal", "dissolve", "behind", "clear", ...BLEND_MODES.slice(2).map((m) => m.id)], "How the fill mixes with what's there (default normal)."),
+        opacity: num("0 to 1 (default 1)."),
+        tolerance: int("0..255 (default 32).", { minimum: 0, maximum: 255 }),
+        contiguous: bool("Only what's joined to the point (default true)."),
+        anti_alias: bool("Soften the edge (default true)."),
+        all_layers: bool("Decide by the photo as it shows (default false: the layer alone)."),
+      },
+      ["x", "y"],
+    ),
+  }),
+  tool({
+    name: "magic_erase",
+    title: "Erase similar colour (magic eraser)",
+    kind: "edit",
+    description:
+      "Photoshop's Magic Eraser: a click at (x, y) erases the area of similar colour around it, e.g. a white background in one click at a corner of it (contiguous: false, or more clicks, for background the subject encloses). tolerance 0..255 (default 32; raise it for a background with shading or JPEG noise), contiguous (default true), anti_alias (default true), sample_all_layers (default false: decide by the layer alone), opacity 0..1 (default 1: erased fully). defringe (default true) also erases the share of the colour clicked from the edge's pixels, so no rim of the old background is left. On a pixel layer its pixels go transparent; on a placed image (or the mask targeted, or an adjustment) it hides them through the layer's mask, adding one if needed: nothing is rasterised, and add_mask with remove: true brings it all back. limited by the selection. layer: default the selected one. Undoable; check with view_photo. The photo must be open in the editor.",
+    inputSchema: obj(
+      {
+        x: num("Canvas pixels from the left."),
+        y: num("Canvas pixels from the top."),
+        layer: str("The layer to erase: id or name (default the selected one)."),
+        target: oneOf(["content", "mask"], "A pixel layer's pixels (default) or its mask."),
+        tolerance: int("0..255 (default 32).", { minimum: 0, maximum: 255 }),
+        contiguous: bool("Only what's joined to the point (default true)."),
+        anti_alias: bool("Soften the edge (default true)."),
+        sample_all_layers: bool("Decide by the photo as it shows (default false: the layer alone)."),
+        opacity: num("How much is erased, 0 to 1 (default 1)."),
+        defringe: bool("Take the colour clicked out of the edge too: no rim (default true)."),
+      },
+      ["x", "y"],
+    ),
+  }),
+  tool({
+    name: "crop_canvas",
+    title: "Crop the canvas",
+    kind: "edit",
+    description:
+      "Crops the canvas (Photoshop's Crop tool): the canvas becomes the box and everything moves with it, nothing resampled or deleted (layers keep their pixels past the canvas, so a larger crop or moving them brings them back; Photoshop's with Delete Cropped Pixels off). Give a box in canvas pixels (x, y, width, height; whole pixels; it may go past the canvas to grow it), or a ratio (\"4:5\", \"9:16\", \"1:1\", \"16:9\") for the largest box of it centred on the canvas, or to_selection: true for the selection's bounds. Undoable in one step.",
+    inputSchema: obj({
+      x: int("Left edge, canvas pixels (negative grows the canvas leftwards)."),
+      y: int("Top edge, canvas pixels."),
+      width: int("Width in pixels."),
+      height: int("Height in pixels."),
+      ratio: str('Width to height, "4:5", "16:9", "1.5": the largest box of it, centred.'),
+      to_selection: bool("Crop to the selection's bounds (the marching ants')."),
+    }),
+  }),
+  tool({
+    name: "crop_layer",
+    title: "Crop a layer",
+    kind: "edit",
+    description:
+      "Crops one image or pixel layer, as Figma or Canva crop an image: what's outside the box is hidden (its pixels are kept: crop it again larger, or clear: true, to show them). The box is in canvas pixels (x, y, width, height), taken into the layer's own pixels (a turned layer's: the box around it there) and kept inside the layer; get_photo says a layer's crop. Its filters, mask and effects follow the cropped edge.",
+    inputSchema: obj({
+      layer,
+      x: num("Left edge of what stays, canvas pixels."),
+      y: num("Top edge, canvas pixels."),
+      width: num("Width, canvas pixels."),
+      height: num("Height, canvas pixels."),
+      clear: bool("Take the crop off: the whole layer shows."),
+    }, ["layer"]),
+  }),
+  tool({
+    name: "paint_gradient",
+    title: "Paint a gradient",
+    kind: "edit",
+    description:
+      "Paints a gradient into a layer's pixels or its mask (Photoshop's Classic gradient: the pixels change; for a live, editable gradient layer use add_generator with type gradient-fill). Within the current selection when there is one. On a mask it goes in as greys, black hiding and white revealing: a black-to-white gradient on a layer's mask fades it out (add_mask first). A placed image can't be painted (it's kept whole): paint its mask, or a pixel layer above it. Undoable. The photo must be open in the editor.",
+    inputSchema: obj(
+      {
+        layer,
+        target: oneOf(["content", "mask"], "The layer's pixels (default) or its mask."),
+        start: arr({ type: "number" }, "Where the gradient starts (its first stop): [x, y] in canvas pixels."),
+        end: arr({ type: "number" }, "Where it ends (its last stop): [x, y] in canvas pixels. Past the ends it keeps the ends' colours."),
+        style: oneOf(["linear", "radial", "angle", "reflected", "diamond"], "Its type (default linear): linear from start to end; radial a circle around start; angle a sweep around start; reflected mirrored about start; diamond out to a corner at end."),
+        gradient: {
+          description:
+            'The gradient: "foreground-background" (the default) or "foreground-transparent" (from the colour swatches), a stock gradient by name ("Black, White", "Copper"…), or { "colours": [{ "at": 0, "colour": "#000000" }, { "at": 1, "colour": "#ffffff" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 0 }] }.',
+        },
+        method: oneOf(["perceptual", "linear", "classic", "smooth", "stripes"], "How it mixes between stops (default perceptual)."),
+        reverse: bool("Run it from its last stop to its first."),
+        dither: bool("A little noise so it never bands (default true)."),
+        mode: oneOf([...BLEND_MODES.map((m) => m.id), "behind", "clear"], "How it goes onto what's there (default normal): a blend mode, behind (only where the layer is transparent) or clear (takes the layer away)."),
+        opacity: num("0 to 100 (default 100)."),
+        transparency: bool("Use the gradient's opacity stops (default true; false: it's opaque)."),
+      },
+      ["layer", "start", "end"],
+    ),
+  }),
+  tool({
+    name: "add_shape",
+    title: "Add a shape",
+    kind: "edit",
+    description:
+      "Adds a shape layer (a vector, live: change it with set_shape, move it with transform_layer): a rectangle (rounded with radius) or an ellipse by its box, or a line or an arrow from one point to another, all in canvas pixels. To box something: a rectangle around it with no fill. To point at something: an arrow whose `to` is just outside it (the head's tip lands exactly on `to`). Strokes don't scale when the shape is resized. A new shape is stroked in the user's foreground colour, about a 150th of the canvas's shorter side thick, with no fill, unless told otherwise; pick a colour that stands out on the photo (look with view_photo). sloppiness draws it by hand, as Excalidraw does. It goes on top (or above `above`) and is selected.",
+    inputSchema: obj(
+      {
+        kind: oneOf(["rectangle", "ellipse", "line", "arrow"], "What to draw."),
+        x: num("A rectangle's or an ellipse's left edge, in canvas pixels."),
+        y: num("Its top edge."),
+        width: num("Its width in pixels."),
+        height: num("Its height in pixels."),
+        radius: num("A rectangle's corner radius in pixels (0: square corners)."),
+        rotation: num("A rectangle's or an ellipse's turn in degrees, clockwise about its centre."),
+        from: arr({ type: "number" }, "A line's or an arrow's start: [x, y] in canvas pixels."),
+        to: arr({ type: "number" }, "Its end: [x, y] (an arrow points here)."),
+        bend: num("Bows a line or arrow into a curve: how far its middle moves, in pixels, to the left going from `from` to `to` (negative: right). 0 (default) is straight."),
+        start_head: oneOf(["none", "arrow", "triangle", "circle", "bar", "diamond"], "What's at `from` (default none)."),
+        end_head: oneOf(["none", "arrow", "triangle", "circle", "bar", "diamond"], "What's at `to` (an arrow's default: arrow, open; triangle is filled)."),
+        stroke: str('The outline\'s colour "#rrggbb", or "none".'),
+        stroke_width: num("The outline's width in canvas pixels."),
+        dash: oneOf(["solid", "dashed", "dotted"], "The outline's style (default solid)."),
+        stroke_align: oneOf(["inside", "centre", "outside"], "Where a closed shape's outline sits on its edge (default centre)."),
+        cap: oneOf(["butt", "round", "square"], "Line ends (default round)."),
+        join: oneOf(["miter", "round", "bevel"], "Corners (default miter: sharp)."),
+        fill: str('A rectangle\'s or an ellipse\'s fill "#rrggbb", or "none" (default).'),
+        fill_style: oneOf(["solid", "hachure", "cross-hatch"], "How a hand-drawn shape is filled (default solid)."),
+        sloppiness: oneOf(["precise", "artist", "cartoonist"], "precise (default) or drawn by hand: artist, cartoonist (wobblier)."),
+        opacity: num("0 to 1 (default 1)."),
+        name: str('Its name (default its kind: "Arrow", "Rectangle 2"…).'),
+        above: str("The layer to put it right above (id or name); default: the top."),
+      },
+      ["kind"],
+    ),
+  }),
+  tool({
+    name: "set_shape",
+    title: "Change a shape",
+    kind: "edit",
+    description:
+      "Changes a shape layer (add_shape's options; whatever isn't given stays): a rectangle's or an ellipse's box (any of x, y, width, height), radius and rotation, or a line's or an arrow's ends (from, to), bend and heads; its stroke, fill, dash, alignment, caps, corners, sloppiness, opacity or name. kind turns a rectangle into an ellipse (and back), a line into an arrow (and back). Canvas pixels throughout.",
+    inputSchema: obj(
+      {
+        layer,
+        kind: oneOf(["rectangle", "ellipse", "line", "arrow"], "rectangle ↔ ellipse, line ↔ arrow."),
+        x: num("Left edge."),
+        y: num("Top edge."),
+        width: num("Width."),
+        height: num("Height."),
+        radius: num("A rectangle's corner radius."),
+        rotation: num("Degrees, clockwise."),
+        from: arr({ type: "number" }, "Start [x, y]."),
+        to: arr({ type: "number" }, "End [x, y]."),
+        bend: num("Bow, in pixels to the left (0: straight)."),
+        start_head: oneOf(["none", "arrow", "triangle", "circle", "bar", "diamond"], "Head at `from`."),
+        end_head: oneOf(["none", "arrow", "triangle", "circle", "bar", "diamond"], "Head at `to`."),
+        stroke: str('"#rrggbb" or "none".'),
+        stroke_width: num("Pixels."),
+        dash: oneOf(["solid", "dashed", "dotted"], "The outline's style."),
+        stroke_align: oneOf(["inside", "centre", "outside"], "A closed shape's outline on its edge."),
+        cap: oneOf(["butt", "round", "square"], "Line ends."),
+        join: oneOf(["miter", "round", "bevel"], "Corners."),
+        fill: str('"#rrggbb" or "none".'),
+        fill_style: oneOf(["solid", "hachure", "cross-hatch"], "A hand-drawn fill."),
+        sloppiness: oneOf(["precise", "artist", "cartoonist"], "Drawn by hand or not."),
+        opacity: num("0 to 1."),
+        name: str("A new name."),
+      },
+      ["layer"],
+    ),
   }),
 ] as const;
 

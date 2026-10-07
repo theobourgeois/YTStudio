@@ -9,6 +9,7 @@
  */
 import { type LayerBlending, blendSeed, blendingOf, compositingOf, isPlainBlending } from "./blending.ts";
 import { srgbToLinear } from "./colour.ts";
+import { cropOf, isCropped } from "./crop.ts";
 import { activeFilters } from "./edits.ts";
 import { effectDefinition, isKernelFilter, unavailableReason } from "./effects/index.ts";
 import { GLOW_CACHED_FROM } from "./effects/glow.ts";
@@ -17,6 +18,7 @@ import type { CameraRawAnalysis } from "./effects/camera-raw/analysis.ts";
 import { ANALYSIS_PARAM, needsAnalysis } from "./effects/camera-raw/develop.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
 import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
+import { type CanvasRaster, canvasContentOf, canvasRaster } from "./canvas-content.ts";
 import { findPattern } from "./style/patterns.ts";
 import { drawnEffects, effectAltitude, effectAngle, stylePatterns, styleReach } from "./style/style.ts";
 import type { Box } from "./style/gradients.ts";
@@ -126,6 +128,8 @@ export interface ImageNode extends ContentFields {
   /** Resampling and Normal compositing commute with reduction (within tolerance at transparent overlaps); modes and filters may not. */
   commutes: boolean;
   key: string;
+  /** Its crop (docs/photo/tools/crop.md): what shows of its own pixels, the rest hidden before its filters; null: all. */
+  crop: Rect | null;
 }
 
 /** Painted pixels (a pixel layer's surface), placed and composited as an image is. Empty (null) draws nothing. */
@@ -133,6 +137,29 @@ export interface PixelNode extends ContentFields {
   kind: "pixel";
   layerId: string;
   surface: SurfaceId | null;
+  transform: LayerTransform;
+  size: Size;
+  matrix: Affine;
+  opacity: number;
+  mask: MaskRef | null;
+  blend: NodeBlend | null;
+  style: NodeStyle | null;
+  commutes: boolean;
+  key: string;
+  crop: Rect | null;
+}
+
+/**
+ * A layer whose pixels the tab draws with a 2D canvas (`canvas-content.ts`: a text's words), in document pixels through
+ * its whole transform: its raster, placed by a whole-pixel offset, then drawn as a pixel layer's pixels are.
+ */
+export interface CanvasNode extends ContentFields {
+  kind: "canvas";
+  layerId: string;
+  /** Text isn't cropped (`isCroppable`): always null, so every drawn node reads a crop alike. */
+  crop: null;
+  raster: CanvasRaster;
+  /** The raster's place: a whole-pixel translation. */
   transform: LayerTransform;
   size: Size;
   matrix: Affine;
@@ -183,15 +210,15 @@ export interface AdjustmentNode {
   key: string;
 }
 
-export type PlanNode = ImageNode | PixelNode | GeneratorNode | AdjustmentNode;
+export type PlanNode = ImageNode | PixelNode | GeneratorNode | AdjustmentNode | CanvasNode;
 
-/** A node that draws pixels of its own (an image's or a pixel layer's), as the compositor's layer pass does. */
-export type DrawNode = ImageNode | PixelNode;
+/** A node that draws pixels of its own (an image's, a pixel layer's or a text's), as the compositor's layer pass does. */
+export type DrawNode = ImageNode | PixelNode | CanvasNode;
 
-export const isDrawNode = (node: PlanNode): node is DrawNode => node.kind === "image" || node.kind === "pixel";
+export const isDrawNode = (node: PlanNode): node is DrawNode => node.kind === "image" || node.kind === "pixel" || node.kind === "canvas";
 
 /** A node with content of its own: one that can have filters. */
-export type ContentNode = ImageNode | PixelNode | GeneratorNode;
+export type ContentNode = ImageNode | PixelNode | GeneratorNode | CanvasNode;
 
 export const isContentNode = (node: PlanNode): node is ContentNode => node.kind !== "adjustment";
 
@@ -203,7 +230,7 @@ export const isContentNode = (node: PlanNode): node is ContentNode => node.kind 
 export const addsLight = (b: NodeBlend | null) => !!b && b.mode === "linear-dodge" && b.fill === 1 && b.channels.r && b.channels.g && b.channels.b && !Object.values(b.blendIf).some(Boolean);
 
 /** A layer evaluated alone first: a generator, or a layer with filters. */
-export type IsolatedNode = GeneratorNode | ((ImageNode | PixelNode) & { filters: [FilterNode, ...FilterNode[]] });
+export type IsolatedNode = GeneratorNode | ((ImageNode | PixelNode | CanvasNode) & { filters: [FilterNode, ...FilterNode[]] });
 
 /**
  * Whether an isolated layer blends in linear light whatever the document's compositing: a generator told so
@@ -266,6 +293,11 @@ export interface CompileOptions {
   float32?: boolean;
   /** Camera Raw's analyses (docs/photo/camera-raw.md, CR2): the renderer's, by what each one develops. */
   cameraRaw?: CameraRawResolver;
+  /**
+   * The document pixels rendered, when they aren't the canvas's (a merge renders the box around its layers, where
+   * they are): what the canvas layers' rasters cover.
+   */
+  region?: { x0: number; y0: number; x1: number; y1: number };
 }
 
 /**
@@ -299,6 +331,16 @@ function maskOf(layer: PhotoLayer, size: Size): MaskRef | null {
 
 const maskKey = (mask: MaskRef | null) => (mask ? `|mask:${mask.surface}` : "");
 
+/** A placed layer's crop for the plan (inside its pixels), or null when it shows whole. */
+function cropRectOf(layer: PhotoLayer, size: Size): Rect | null {
+  if (!isCropped(layer, size)) return null;
+  const c = cropOf(layer, size);
+  return { x0: c.x, y0: c.y, x1: c.x + c.width, y1: c.y + c.height };
+}
+
+/** A crop's part of a node's keys (none when it shows whole, so uncropped layers keep the keys they had). */
+const cropKey = (crop: Rect | null) => (crop ? `|crop:${crop.x0},${crop.y0},${crop.x1},${crop.y1}` : "");
+
 /**
  * A layer's blending for the plan, and the opacity it composites at (Fill folded in when it's plain Normal). A layer
  * with drawn effects always gets its blending (its pass composites it with them).
@@ -309,9 +351,9 @@ function blendOf(layer: PhotoLayer): { blend: NodeBlend | null; opacity: number;
   return { blend: { ...b, seed: blendSeed(layer.id) }, opacity: layer.opacity, key: `|blend:${b.mode},${b.fill},${JSON.stringify(layer.blending ?? null)}${b.mode === "dissolve" ? `,${layer.id}` : ""}` };
 }
 
-/** The axis-aligned box a placed layer covers on the canvas. */
-function boundsOf(matrix: Affine, size: Size): Box {
-  const pts = [apply(matrix, 0, 0), apply(matrix, size.width, 0), apply(matrix, 0, size.height), apply(matrix, size.width, size.height)];
+/** The axis-aligned box a placed layer covers on the canvas (of `part` of its pixels: its crop's, by default all of them). */
+function boundsOf(matrix: Affine, size: Size, part: Rect = { x0: 0, y0: 0, x1: size.width, y1: size.height }): Box {
+  const pts = [apply(matrix, part.x0, part.y0), apply(matrix, part.x1, part.y0), apply(matrix, part.x0, part.y1), apply(matrix, part.x1, part.y1)];
   return { x0: Math.min(...pts.map((p) => p.x)), y0: Math.min(...pts.map((p) => p.y)), x1: Math.max(...pts.map((p) => p.x)), y1: Math.max(...pts.map((p) => p.y)) };
 }
 
@@ -331,7 +373,8 @@ function styleOf(doc: PhotoProject, layer: PhotoLayer, matrix: Affine, size: Siz
     angles,
     altitudes,
     patterns,
-    layerBox: boundsOf(matrix, size),
+    // What shows of it: a cropped layer's box is its crop's (Align with Layer lays out on what's seen).
+    layerBox: boundsOf(matrix, size, cropRectOf(layer, size) ?? undefined),
     canvasBox: { x0: 0, y0: 0, x1: doc.canvas.width, y1: doc.canvas.height },
     reach: styleReach(layer),
     interiorAsGroup: layer.blending?.interiorAsGroup === true,
@@ -401,7 +444,8 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const size = { width: source.width, height: source.height };
       const t = layer.transform;
       const mask = maskOf(layer, size);
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`), 0, options.cameraRaw);
+      const crop = cropRectOf(layer, size);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options.cameraRaw);
       const matrix = layerMatrix(t, size);
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
@@ -418,7 +462,8 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         ...content,
         commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
         commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
-        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}`),
+        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}${cropKey(crop)}`),
+        crop,
       });
       continue;
     }
@@ -426,7 +471,8 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       // An empty one is still drawn: the stroke that paints its first pixels shows through it.
       const { size, transform: t } = layer;
       const mask = maskOf(layer, size);
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}`), 0, options.cameraRaw);
+      const crop = cropRectOf(layer, size);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options.cameraRaw);
       const matrix = layerMatrix(t, size);
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
@@ -443,10 +489,40 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         ...content,
         commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
         commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
-        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}`),
+        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}${cropKey(crop)}`),
+        crop,
       });
       continue;
     }
+    const painted = canvasContentOf(layer);
+    if (painted) {
+      const raster = canvasRaster(doc, painted, styleReach(layer) + filtersReach(layer), !!layer.mask?.surface, hashKey, options.region);
+      if (!raster) continue;
+      const size = { width: raster.width, height: raster.height };
+      const mask = maskOf(layer, { width: doc.canvas.width, height: doc.canvas.height });
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`canvas|${raster.key}`), 0, options.cameraRaw);
+      // Its style's Align with Layer is the layer's frame, not the raster's box.
+      const styled = styleOf(doc, layer, layerMatrix(painted.transform, painted.size), painted.size);
+      nodes.push({
+        kind: "canvas",
+        crop: null,
+        layerId: layer.id,
+        raster,
+        transform: { x: raster.x + size.width / 2, y: raster.y + size.height / 2, scaleX: 1, scaleY: 1, rotation: 0 },
+        size,
+        matrix: [1, 0, 0, 1, raster.x, raster.y],
+        opacity: blending.opacity,
+        mask,
+        blend: blending.blend,
+        style: styled.style,
+        ...content,
+        commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
+        commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
+        key: hashKey(`canvas|${raster.key}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}`),
+      });
+      continue;
+    }
+    if (layer.kind === "text" || layer.kind === "shape") continue;
     const effect = layer.effect;
     if (!effect.enabled) continue;
     const def = effectDefinition(effect.type);
@@ -537,10 +613,13 @@ export function inputRegion(node: PlanNode, rect: Rect): Rect | null {
   if (node.kind === "generator") return rect;
   const inv = invert(node.matrix);
   const pts = [apply(inv, rect.x0, rect.y0), apply(inv, rect.x1, rect.y0), apply(inv, rect.x0, rect.y1), apply(inv, rect.x1, rect.y1)];
-  const x0 = Math.max(0, Math.min(...pts.map((p) => p.x)));
-  const y0 = Math.max(0, Math.min(...pts.map((p) => p.y)));
-  const x1 = Math.min(node.size.width, Math.max(...pts.map((p) => p.x)));
-  const y1 = Math.min(node.size.height, Math.max(...pts.map((p) => p.y)));
+  // Only what shows of it: inside its crop (and the few pixels past its edge that resampling reads).
+  const c = node.crop;
+  const limit = c ? { x0: Math.max(0, c.x0 - 4), y0: Math.max(0, c.y0 - 4), x1: Math.min(node.size.width, c.x1 + 4), y1: Math.min(node.size.height, c.y1 + 4) } : { x0: 0, y0: 0, x1: node.size.width, y1: node.size.height };
+  const x1 = Math.min(limit.x1, Math.max(...pts.map((p) => p.x)));
+  const y1 = Math.min(limit.y1, Math.max(...pts.map((p) => p.y)));
+  const x0 = Math.max(limit.x0, Math.min(...pts.map((p) => p.x)));
+  const y0 = Math.max(limit.y0, Math.min(...pts.map((p) => p.y)));
   return x1 > x0 && y1 > y0 ? { x0, y0, x1, y1 } : null;
 }
 

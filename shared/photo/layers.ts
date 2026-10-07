@@ -86,6 +86,11 @@ export function transformedBy(t: LayerTransform, size: Size, m: Affine): LayerTr
   return { x: centre.x, y: centre.y, scaleX, scaleY, rotation: rotation === -180 ? 180 : rotation };
 }
 
+/** Where the centre of a part of a layer's pixels (its crop) lands. */
+function cropCentre(t: LayerTransform, size: Size, c: { x: number; y: number; width: number; height: number }) {
+  return apply(layerMatrix(t, size), c.x + c.width / 2, c.y + c.height / 2);
+}
+
 /**
  * The layer an edit with the selection acts on when none is active (Photoshop always has one): the topmost visible
  * layer with content whose box meets `box` (a generator's content is everywhere); null when there's none.
@@ -102,7 +107,9 @@ export function layerUnder(
     if (l.kind === "generator") return l.id;
     const size = sizeOf(l);
     if (!size) continue;
-    const b = bounds(l.transform, size);
+    // What shows of it: inside its crop.
+    const c = l.crop;
+    const b = c ? bounds({ ...l.transform, ...cropCentre(l.transform, size, c) }, { width: c.width, height: c.height }) : bounds(l.transform, size);
     if (b.x0 < box.x1 && b.x1 > box.x0 && b.y0 < box.y1 && b.y1 > box.y0) return l.id;
   }
   return null;

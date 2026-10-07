@@ -5,9 +5,11 @@
  * its whole box).
  */
 import type { Size } from "@shared/photo/geometry";
-import { apply, bounds, invert, layerMatrix } from "@shared/photo/layers";
+import { cropOf, croppedBounds } from "@shared/photo/crop";
+import { apply, invert, layerMatrix } from "@shared/photo/layers";
 import { type SurfaceManifest, constantValues } from "@shared/photo/surfaces";
 import type { PlacedLayer, SurfaceId } from "@shared/photo/types";
+import { hitShape } from "@shared/photo/shape-drawing";
 import type { Box } from "./snap";
 
 /** Whether a manifest's tile shows nothing (no entry and a clear fill, or a clear constant). */
@@ -31,15 +33,18 @@ function paintedTiles(layer: PlacedLayer, manifest: (id: SurfaceId) => SurfaceMa
 export function contentBox(layer: PlacedLayer, size: Size, manifest: (id: SurfaceId) => SurfaceManifest | null, tile = 256): Box | null {
   const tiles = paintedTiles(layer, manifest);
   if (tiles === null) return null;
-  if (tiles === undefined) return bounds(layer.transform, size);
   const m = layerMatrix(layer.transform, size);
+  // Only what shows: inside its crop.
+  const crop = cropOf(layer, size);
+  if (tiles === undefined) return croppedBounds(m, crop);
   const points = tiles.flatMap(({ tx, ty }) => {
-    const x0 = tx * tile;
-    const y0 = ty * tile;
-    const x1 = Math.min(size.width, x0 + tile);
-    const y1 = Math.min(size.height, y0 + tile);
-    return [apply(m, x0, y0), apply(m, x1, y0), apply(m, x0, y1), apply(m, x1, y1)];
+    const x0 = Math.max(crop.x, tx * tile);
+    const y0 = Math.max(crop.y, ty * tile);
+    const x1 = Math.min(crop.x + crop.width, (tx + 1) * tile);
+    const y1 = Math.min(crop.y + crop.height, (ty + 1) * tile);
+    return x1 > x0 && y1 > y0 ? [apply(m, x0, y0), apply(m, x1, y0), apply(m, x0, y1), apply(m, x1, y1)] : [];
   });
+  if (!points.length) return null;
   return {
     x0: Math.min(...points.map((p) => p.x)),
     y0: Math.min(...points.map((p) => p.y)),
@@ -49,9 +54,12 @@ export function contentBox(layer: PlacedLayer, size: Size, manifest: (id: Surfac
 }
 
 /** Whether document point (x, y) is on something the layer shows (a pixel layer: a painted tile). */
-export function hitsContent(layer: PlacedLayer, size: Size, x: number, y: number, manifest: (id: SurfaceId) => SurfaceManifest | null, tile = 256): boolean {
+export function hitsContent(layer: PlacedLayer, size: Size, x: number, y: number, manifest: (id: SurfaceId) => SurfaceManifest | null, tile = 256, tolerance = 4): boolean {
+  // A shape is where it draws (its stroke, within `tolerance` document pixels, or its fill): not its whole box.
+  if (layer.kind === "shape") return hitShape(layer, x, y, tolerance);
   const p = apply(invert(layerMatrix(layer.transform, size)), x, y);
-  if (p.x < 0 || p.y < 0 || p.x > size.width || p.y > size.height) return false;
+  const crop = cropOf(layer, size);
+  if (p.x < crop.x || p.y < crop.y || p.x > crop.x + crop.width || p.y > crop.y + crop.height) return false;
   const tiles = paintedTiles(layer, manifest);
   if (tiles === null) return false;
   if (tiles === undefined) return true;

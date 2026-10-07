@@ -7,9 +7,10 @@
  * one generic pass evaluates.
  */
 import { curvesFor, exposurePixel, type Pixel } from "../reference/adjustments.ts";
-import type { CurveSet, EffectElement, EffectInstance, EffectParamValue } from "../types.ts";
+import type { CurveSet, EffectElement, EffectInstance, EffectParamValue, Gradient } from "../types.ts";
 import { KERNEL_FILTERS } from "./filters/index.ts";
 import { FLARE_PARAMS, FLARE_PRESETS, flarePreset } from "./flare.ts";
+import { GRADIENT_FILL, GRADIENT_FILL_PARAMS, GRADIENT_FILL_PRESETS, GRADIENT_TYPE_LABELS, gradientFillShape } from "./gradient.ts";
 import { GLOW_PARAMS, GLOW_PRESETS, glowReach } from "./glow.ts";
 import { CAMERA_RAW } from "./camera-raw/index.ts";
 import { isIdentityCurve, isIdentityCurveSet } from "./curve-math.ts";
@@ -165,7 +166,29 @@ const FLARE: EffectDefinition = {
   },
 };
 
-export const EFFECTS: readonly EffectDefinition[] = [EXPOSURE, CURVES, CAMERA_RAW, GLOW, FLARE, ...KERNEL_FILTERS];
+const GRADIENT_FILL_DEF: EffectDefinition = {
+  type: GRADIENT_FILL,
+  version: 1,
+  kind: "generator",
+  label: "Gradient Fill",
+  description:
+    "Photoshop's Gradient Fill layer, as the Gradient tool's drag makes it: a gradient (colour and opacity stops, a method) laid along the line from start to end (document pixels, handles on the canvas) as Linear, Radial, Angle, Reflected or Diamond, held at its ends' colours past them. Reverse runs it backwards; Dither adds noise under an 8-bit level. It blends as any layer does (Normal by default).",
+  params: GRADIENT_FILL_PARAMS,
+  category: "Colour",
+  presets: GRADIENT_FILL_PRESETS,
+  region: "pointwise",
+  reach: () => 0,
+  isIdentity: () => false,
+  // Sampled, not averaged: the seam of an Angle gradient, stripes' edges and Dither's noise differ from level 0 reduced.
+  commutesWithReduction: (p) => p.dither === false && p.style !== "angle" && (p.gradient as Gradient | undefined)?.method !== "stripes",
+  summary: (p) => {
+    const s = gradientFillShape(p);
+    const r = (v: number) => Math.round(v);
+    return `${GRADIENT_TYPE_LABELS[s.style]} ${s.gradient.name}${s.reverse ? ", reversed" : ""}, ${r(s.start[0])}, ${r(s.start[1])} → ${r(s.end[0])}, ${r(s.end[1])}`;
+  },
+};
+
+export const EFFECTS: readonly EffectDefinition[] = [EXPOSURE, CURVES, CAMERA_RAW, GLOW, FLARE, ...KERNEL_FILTERS, GRADIENT_FILL_DEF];
 
 export const effectDefinition = (type: string): EffectDefinition | undefined => EFFECTS.find((d) => d.type === type);
 

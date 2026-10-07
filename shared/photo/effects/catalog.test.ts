@@ -56,6 +56,7 @@ describe("the filter catalogue", () => {
     expect(effectPreset(effectDefinition("glow")!, "dreamy")?.label).toBe("Dreamy");
     expect(effectPreset(effectDefinition("glow")!, "classic")).toBeUndefined();
     expect(describePresets("filter")).toMatch(/^glow presets: bloom \(Bloom: .*\); soft-haze/m);
-    expect(describePresets("generator")).toMatch(/^lens-flare presets: classic/);
+    expect(describePresets("generator")).toMatch(/^lens-flare presets: classic/m);
+    expect(describePresets("generator")).toMatch(/^gradient-fill presets: black-white \(Black, White: /m);
   });
 });
