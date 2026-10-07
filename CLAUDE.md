@@ -84,7 +84,8 @@ Paint Bucket, Dodge/Burn/Sponge, Background and Magic Eraser) are each a `ToolKi
 options, its press on the canvas, its overlay), registered in `toolbox/index.ts` and placed in the strip by
 `tool-groups.ts` (Photoshop's groups and keys). Text and shape layers are drawn by the browser's 2D canvas through one
 seam (`shared/photo/canvas-content.ts` → a `CanvasNode`, `render/canvas-content.ts`): a new kind of drawn layer is a
-case there. Only image and pixel layers crop (`isCroppable`). A placed image is never rasterised by these tools: the
+case there. A raster's key says what it draws within a pixel, never which pixel (the Move tool drags these layers by
+whole pixels), so a move reuses the drawn raster: keep positions out of `CanvasRaster.key`. Only image and pixel layers crop (`isCroppable`). A placed image is never rasterised by these tools: the
 Magic Eraser erases through its mask; the others ask (the paint-choice dialog).
 
 The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is

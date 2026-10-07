@@ -112,5 +112,8 @@ export function canvasRaster(
   y1 = Math.min(y1, y0 + MAX_RASTER_SIDE);
   if (x1 <= x0 || y1 <= y0) return null;
   const matrix: Affine = [m[0], m[1], m[2], m[3], m[4] - x0, m[5] - y0];
-  return { content: facts.content, matrix, x: x0, y: y0, width: x1 - x0, height: y1 - y0, key: hash(`${JSON.stringify(facts.content)}|${matrix.join(",")}|${x1 - x0}x${y1 - y0}`) };
+  // Keyed by what its pixels are, not where: moved by whole pixels, a layer's raster is the one already drawn.
+  const content = facts.content;
+  const keyed = content.kind === "shape" ? { ...content, transform: { ...content.transform, x: content.transform.x - x0, y: content.transform.y - y0 } } : content;
+  return { content, matrix, x: x0, y: y0, width: x1 - x0, height: y1 - y0, key: hash(`${JSON.stringify(keyed)}|${matrix.join(",")}|${x1 - x0}x${y1 - y0}`) };
 }

@@ -263,6 +263,10 @@ export function CanvasPanel() {
     // Only images and pixel layers have a place to move (an adjustment changes everything below it).
     let frame = frameOf(doc.layers, usePhotoUi.getState().selectedLayerIds, sized);
     if (!frame) return;
+    const drawsOnCanvas = frame.ids.some((id) => {
+      const kind = doc.layers.find((l) => l.id === id)?.kind;
+      return kind === "text" || kind === "shape";
+    });
     const gesture = photoGesture();
     const done = () => usePhotoUi.getState().setGuides([]);
     startPointerDrag(e, {
@@ -282,7 +286,12 @@ export function CanvasPanel() {
         if (!frame) return;
         const f = frame;
         const z = usePhotoUi.getState().view!.zoom;
-        const r = movedWithSnap(f.t, f.size, (travel.x * devicePixelRatio) / z, (travel.y * devicePixelRatio) / z, ev.shiftKey, snapContext(doc, f.ids, ev));
+        let dx = (travel.x * devicePixelRatio) / z;
+        let dy = (travel.y * devicePixelRatio) / z;
+        // Text and shapes move by whole pixels, as Photoshop's layers do: their drawn raster is then the one already
+        // drawn, placed again, rather than drawn again at every step of the drag.
+        if (drawsOnCanvas) [dx, dy] = [Math.round(dx), Math.round(dy)];
+        const r = movedWithSnap(f.t, f.size, dx, dy, ev.shiftKey, snapContext(doc, f.ids, ev));
         usePhotoUi.getState().setGuides(r.guides);
         gesture.apply((d) => f.place(d, r.t));
       },
