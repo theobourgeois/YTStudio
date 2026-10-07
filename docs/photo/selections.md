@@ -150,6 +150,24 @@ mask moved between its three outputs and one was ragged.
   the next 91 ms). A model of several files is downloaded, checked and served file by file
   (`/api/photo/models/object/files/<file>`); the tab hands a graph its weights as external data, by the name the
   graph knows them by (`PhotoModelFile.location`).
+- **A second look** (`sam-refine.ts`, built 2026-10-07): the first answer is over the whole photo at 1024 × 1024, so a
+  thing gets as many of SAM's cells as it fills of the photo. When its box with a fifth more each way is under three
+  quarters of the photo's longer side (`zoomBox`; made square, as the encoder squeezes it), the encoder reads that
+  crop alone and the decoder is prompted by the stroke's points in it and the first answer's box (a reliable box, as
+  the stroke's own wasn't); of its masks the one kept is the best rated weighed by its overlap with the first answer
+  (`chooseRefined`), and none under a half (then the first stands). On the screenshot's flower pot (140 px of a
+  1240 px photo) its edge came out cleaner; on the cat (most of the photo) it's skipped.
+- **The edge** (`refineEdge`, in `edge-worker.ts` off the main thread): SAM's mask is read onto the photo's own pixels
+  at their finest (the samples' up to 4096 a side) and decided again in a band two of its cells either side of its
+  edge. Each band pixel's coverage is where its colour falls between the thing's colour and the background's near it
+  (the means of pixels known in and known out, past the band: Knockout's and the colour-line model's idea), kept to
+  SAM's where the two are alike; a colour guided filter (He, Sun and Tang; radius a cell, ε 10⁻⁴) takes out the noise;
+  it's steepened by 1.5 about a half; and colour has the last word only within half the band of SAM's edge, SAM's
+  answer coming back by the band's end. Tried first and dropped: the guided filter alone, guided by light or by colour,
+  only smeared SAM's edge where the thing is all one colour (a window must hold both to move it), and left a halo where
+  thing and background are alike in light. On a tabby against the sky (1795 × 2397) the sky's fringe along the back went
+  and the fur came in by strands; without the depth limit, pale fur tips the sky's colour became holes. It takes most
+  of a second at that size (measured 0.8 s in Chromium), hence the worker.
 - **Tests** use the stand-in in `object-select.ts` (above), as Select Subject's do.
 
 ## The assistant
@@ -169,9 +187,8 @@ is described by its box and how much it covers.
 - The Polygonal Lasso doesn't snap its sides to 45° with Shift, and Alt doesn't switch a Lasso drag to polygonal.
 - Select Subject has no cloud or "detailed" mode; hair is as fine as IS-Net at 1024 × 1024 gives.
 - Object Selection is painted, not a rectangle or a lasso, and has no Object Finder (Photoshop's hover that outlines
-  each thing before a click). Its edge is SAM's (a 256² mask over the photo), so hair and fur aren't picked out yet:
-  edge refinement in a band around the outline is next. It reads the whole photo at 1024 × 1024, so a small thing in
-  a big photo gets few of SAM's cells.
+  each thing before a click). Its edge is decided by colour, not a matting model: long hair across a busy background,
+  or a thing and background of one colour, keep SAM's edge (ViTMatte or the like would be the next step).
 
 ## Sources
 

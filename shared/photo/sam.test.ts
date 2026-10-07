@@ -30,7 +30,7 @@ describe("SAM", () => {
   });
 
   it("prompts with points spread along the stroke, at most six, in the square's pixels", () => {
-    const canvas = { width: 2048, height: 1024 };
+    const canvas = { x: 0, y: 0, width: 2048, height: 1024 };
     // A long stroke: six points from its middle outwards, the ends included.
     const long = samPoints([[{ x: 100, y: 500 }, { x: 1900, y: 500 }]], 40, canvas);
     expect(long).toHaveLength(6);
