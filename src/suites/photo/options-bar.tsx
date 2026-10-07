@@ -59,7 +59,7 @@ export function BrushOptionsBar() {
 }
 
 /** A labelled scrubby number: an option of a tool (this browser's, not the photo's: no undo step). */
-function Scrub({ label, value, display, onChange }: { label: string; value: number; display: NumberDisplay; onChange: (v: number) => void }) {
+export function Scrub({ label, value, display, onChange }: { label: string; value: number; display: NumberDisplay; onChange: (v: number) => void }) {
   return (
     <span className="flex items-center gap-0.5" data-option={label}>
       <span className="text-muted-foreground">{label}</span>
@@ -142,7 +142,7 @@ function SelectionOptionsBar({ tool }: { tool: PhotoTool }) {
 }
 
 /** An on/off option of a tool: a checkbox, as Photoshop's options bar has (they're many, and the bar is narrow). */
-function Toggle({ label, title, checked, onChange }: { label: string; title?: string; checked: boolean; onChange: (on: boolean) => void }) {
+export function Toggle({ label, title, checked, onChange }: { label: string; title?: string; checked: boolean; onChange: (on: boolean) => void }) {
   return (
     <button
       type="button"

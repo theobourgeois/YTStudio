@@ -67,7 +67,7 @@ export function magicWand(sample: PixelSample, at: { x: number; y: number }, opt
 }
 
 /** Only what's joined to `seed` through selected pixels (four ways), by scanlines. */
-function joined(amount: Uint8Array, width: number, height: number, seed: number): Uint8Array {
+export function joined(amount: Uint8Array, width: number, height: number, seed: number): Uint8Array {
   const out = new Uint8Array(amount.length);
   const stack = [seed];
   while (stack.length) {
