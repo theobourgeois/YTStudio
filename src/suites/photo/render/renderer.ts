@@ -229,6 +229,10 @@ export class PhotoRenderer {
 
   /** Camera Raw's analyses, by what each develops (`camera-raw-analysis.ts`). */
   readonly cameraRaw = new CameraRawAnalyses({
+    settled: async (doc) => {
+      const plan = compileRender(doc, this.facts(), { cameraRaw: () => null });
+      while (!this.destroyed && (this.recovering || !this.settledSources(plan))) await new Promise((r) => setTimeout(r, 20));
+    },
     renderFloats: async (doc, view) => {
       const { texture } = await this.renderView(doc, view, { quick: true });
       const data = await this.readFloat(texture, view.width, view.height);
