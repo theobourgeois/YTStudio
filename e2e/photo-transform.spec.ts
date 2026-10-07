@@ -1,11 +1,12 @@
 /**
  * The photo suite's flips and turns: Edit › Transform on the selected layers (⌘H, ⌥⌘H, the menu, Properties'
  * buttons), Image › Image Rotation on the whole canvas (masks in document pixels moved pixel for pixel), and the
- * assistant's. Then Free Transform (⌘T): Skew, Distort and Perspective, drawn by the GPU in perspective. Its own photos, as `photo.spec.ts`'s; run alone with `pnpm test:e2e photo-transform`.
+ * assistant's. Then Free Transform (⌘T): Skew, Distort and Perspective, drawn by the GPU in perspective, and Warp. Its own photos, as `photo.spec.ts`'s; run alone with `pnpm test:e2e photo-transform`.
  */
 import path from "node:path";
 import { type Page, expect, test } from "@playwright/test";
 import { invertHomography, layerProjection, project, quadOf } from "../shared/photo/projective.ts";
+import { unwarp, warpPoint } from "../shared/photo/warp.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -172,7 +173,7 @@ test("the assistant flips layers and turns the canvas", async ({ page }) => {
   expect(doc.layers[0].transform).toEqual({ x: 600, y: 800, scaleX: 1, scaleY: -1, rotation: -90 });
 });
 
-type Placed = { x: number; y: number; scaleX: number; scaleY: number; rotation: number; skew?: number; perspective?: [number, number] };
+type Placed = { x: number; y: number; scaleX: number; scaleY: number; rotation: number; skew?: number; perspective?: [number, number]; warp?: { points: [number, number][]; style: { style: string } | null } };
 
 /** The open photo's first layer's place as the editor has it now (a Free Transform session isn't saved until it ends). */
 const livePlace = (page: Page) =>
@@ -279,4 +280,99 @@ test("the assistant puts a layer on four corners and skews one", async ({ page }
     expect(q[i].x).toBeCloseTo(x, 3);
     expect(q[i].y).toBeCloseTo(y, 3);
   });
+});
+
+test("Warp: a Warp Style from the options bar, drawn point for point as the patch says; a dragged point makes it custom; one undo step each", async ({ page }) => {
+  const id = await openNewPhoto(page, "Warped");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0]?.transform).toBeTruthy();
+  const half: Placed = { x: 800, y: 600, scaleX: 0.5, scaleY: 0.5, rotation: 0 };
+  await page.evaluate((t) => {
+    const { photo } = (window as unknown as DebugWindow).photoDebug;
+    photo.getState().commit((d) => ({ ...d, layers: d.layers.map((l) => ({ ...l, transform: t })) }));
+  }, half);
+  await page.locator("[data-layer]").first().click();
+  // The picture upright at 50%: what the warp must show, point for point.
+  const upright = await renderRegion(page, { zoom: 1, x: 400, y: 300, width: 800, height: 600 });
+
+  // Edit › Transform › Warp, then Arc from the Warp Style menu; Enter commits.
+  await page.locator("[data-edit-menu]").click();
+  await page.locator("[data-transform-menu]").click();
+  await page.locator('[data-transform-mode-item="warp"]').click();
+  await expect(page.locator('[data-tool-options="move"]')).toHaveAttribute("data-free-transform", "warp");
+  await expect(page.locator("[data-warp-overlay]")).toBeVisible();
+  await page.locator("[data-warp-style]").click();
+  await page.getByRole("option", { name: "Arc", exact: true }).click();
+  await expect(page.locator("[data-warp-point]")).toHaveCount(16);
+  await page.keyboard.press("Enter");
+  const t = await expect.poll(async () => (await savedPhoto(page, id)).layers[0].transform.warp?.style?.style).toBe("arc").then(async () => (await savedPhoto(page, id)).layers[0].transform as Placed);
+  const points = t.warp!.points;
+
+  // Each shown pixel is the picture's pixel the patch takes there; past the bent top edge there's nothing.
+  const box = { zoom: 1, x: 500, y: 250, width: 600, height: 500 };
+  const shown = await renderRegion(page, box);
+  let total = 0;
+  let count = 0;
+  let outside = 0;
+  for (let y = 0; y < box.height; y += 10) {
+    for (let x = 0; x < box.width; x += 10) {
+      const dx = box.x + x + 0.5;
+      const dy = box.y + y + 0.5;
+      // Document → its warped own pixels (at 50%, centred on 800, 600) → the source.
+      const own = (ex: number, ey: number) => unwarp(points, (ex - 400) / 800, (ey - 300) / 600);
+      const n = own(dx, dy);
+      const at = (y * box.width + x) * 4;
+      if (!n) {
+        // Clearly outside (not within the few pixels its edge is resampled over): nothing drawn.
+        if ([[-4, -4], [4, -4], [-4, 4], [4, 4]].some(([ox, oy]) => own(dx + ox, dy + oy))) continue;
+        outside++;
+        expect(shown[at + 3]).toBeLessThan(0.01);
+        continue;
+      }
+      if (n[0] < 0.02 || n[0] > 0.98 || n[1] < 0.02 || n[1] > 0.98) continue;
+      const ux = Math.min(799, Math.round(n[0] * 800 - 0.5));
+      const uy = Math.min(599, Math.round(n[1] * 600 - 0.5));
+      for (let c = 0; c < 3; c++) total += Math.abs(shown[at + c] - upright[(uy * 800 + ux) * 4 + c]);
+      count += 3;
+    }
+  }
+  expect(outside).toBeGreaterThan(20);
+  expect(count).toBeGreaterThan(1000);
+  expect(total / count).toBeLessThan(0.04);
+
+  // A point dragged: a custom warp (its corner's tangents along), committed in one step.
+  await page.keyboard.press("ControlOrMeta+t");
+  await page.locator('[data-transform-mode="warp"]').click();
+  const p = (await page.locator('[data-warp-point="5"]').boundingBox())!;
+  await page.mouse.move(p.x + p.width / 2, p.y + p.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(p.x + 40, p.y + 30, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0].transform.warp?.style).toBeNull();
+  const custom = (await savedPhoto(page, id)).layers[0].transform as Placed;
+  expect(custom.warp!.points[5]).not.toEqual(points[5]);
+  expect(custom.warp!.points[0]).toEqual(points[0]);
+  // Where the patch takes its middle moved with it.
+  expect(warpPoint(custom.warp!.points, 0.33, 0.33)).not.toEqual(warpPoint(points, 0.33, 0.33));
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0].transform.warp?.style?.style).toBe("arc");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0].transform).toEqual(half);
+});
+
+test("the assistant warps a layer by a style", async ({ page }) => {
+  const id = await openNewPhoto(page, "Assisted warp");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const layer = (await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(1).then(() => savedPhoto(page, id))).layers[0];
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill([`call transform_layer {"layer": "${layer.id}", "warp": {"style": "flag", "bend": 30}}`, "call get_photo"].join("\n"));
+  await composer.press("Enter");
+  await expect(panel).toContainText("get_photo: ok", { timeout: 30_000 });
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0].transform.warp?.style).toMatchObject({ style: "flag", bend: 30 });
 });

@@ -219,6 +219,15 @@ Photoshop's: several layers can be selected, and what acts on a layer acts on al
   shapes skew but don't distort (the 2D canvas draws them affine). The GPU draws a layer in perspective through its
   homography, widening Mitchell on its far side. Not yet: painting or filling a layer in perspective (or its mask),
   and cropping it with its own frame (the Crop tool crops the canvas): it says so; Convert to Pixels first.
+- **Warp (built, `shared/photo/warp.ts`)**: Edit › Transform › Warp, or Free Transform's Warp mode: an image or pixel
+  layer's own pixels bent through a 4 × 4 Bézier patch before its place takes them (so moving, flipping, perspective
+  and crops keep it). The canvas shows the patch's grid at the thirds and its 16 points; dragging one makes the warp
+  custom (a corner takes its two tangents and the inside point by it, as Photoshop's). The options bar has
+  Photoshop's Warp Styles (Arc, Arc Lower, Arc Upper, Arch, Bulge, Shell Lower, Shell Upper, Flag, Wave, Fish, Rise,
+  Fisheye, Inflate, Squeeze, Twist) with Bend, the horizontal and vertical distortions and the orientation: each a
+  function of the square fitted to the patch by least squares, ours rather than Photoshop's measured envelopes. The
+  GPU inverts the patch per pixel by Newton's method. Not yet: Photoshop's split grids (more than one patch) and
+  dragging inside the grid, painting a warped layer (it says so, as for perspective), and warping text or shapes.
 - **100% means one image pixel per device pixel**, so on a Retina display the image looks half its CSS size. The zoom
   readout says this, and DPR changes, window resizes and fractional zooms are tested.
 - **Zoom limits**: the smallest zoom fits any document; the largest shows pixel edges.
