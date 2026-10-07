@@ -128,7 +128,7 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   guides: [],
   marquee: null,
   selectionDraft: null,
-  groupTools: { marquee: "marquee", lasso: "lasso", wand: "quickSelect", eraser: "eraser", fill: "gradient", toning: "dodge" },
+  groupTools: { marquee: "marquee", lasso: "lasso", wand: "quickSelect", eraser: "eraser", fill: "gradient", toning: "dodge", shape: "rectangleShape" },
   view: null,
   exportOpen: false,
   filterGalleryOpen: false,

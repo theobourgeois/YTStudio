@@ -6,6 +6,7 @@ import { cropKit } from "./crop";
 import { gradientKit } from "./gradient";
 import { magicEraserKit } from "./magic-eraser";
 import { paintBucketKit } from "./paint-bucket";
+import { arrowShapeKit, ellipseShapeKit, lineShapeKit, rectangleShapeKit } from "./shapes";
 import { burnKit, dodgeKit, spongeKit } from "./toning";
 import { typeKit } from "./type-tool";
 
@@ -21,4 +22,8 @@ export const TOOLBOX: Partial<Record<PhotoTool, ToolKit>> = {
   burn: burnKit,
   sponge: spongeKit,
   type: typeKit,
+  rectangleShape: rectangleShapeKit,
+  ellipseShape: ellipseShapeKit,
+  lineShape: lineShapeKit,
+  arrowShape: arrowShapeKit,
 };

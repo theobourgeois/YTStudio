@@ -9,6 +9,8 @@ import {
   PiArrowCounterClockwise,
   PiArrowClockwise,
   PiArrowsLeftRight,
+  PiArrowUpRight,
+  PiCircle,
   PiCircleDashed,
   PiCrop,
   PiCursor,
@@ -19,6 +21,7 @@ import {
   PiGradient,
   PiExport,
   PiHand,
+  PiLineSegment,
   PiImage,
   PiLasso,
   PiMagicWand,
@@ -28,6 +31,7 @@ import {
   PiPaintBrushBroad,
   PiPaintBucket,
   PiPolygon,
+  PiRectangle,
   PiSelection,
   PiSparkle,
   PiSunDim,
@@ -312,12 +316,16 @@ const TOOL_INFO: Record<PhotoTool, { label: string; key: string; Icon: typeof Pi
   burn: { label: "Burn", key: "O", Icon: PiFlame },
   sponge: { label: "Sponge", key: "O", Icon: PiDropHalf },
   type: { label: "Type", key: "T", Icon: PiTextT },
+  rectangleShape: { label: "Rectangle", key: "U", Icon: PiRectangle },
+  ellipseShape: { label: "Ellipse", key: "U", Icon: PiCircle },
+  lineShape: { label: "Line", key: "U", Icon: PiLineSegment },
+  arrowShape: { label: "Arrow", key: "U", Icon: PiArrowUpRight },
   hand: { label: "Hand", key: "H", Icon: PiHand },
   zoom: { label: "Zoom", key: "Z", Icon: PiMagnifyingGlass },
 };
 
 /** The strip's places, top to bottom: a tool, or a group (showing the one of it used last). */
-const STRIP: (PhotoTool | ToolGroup)[] = ["move", "marquee", "lasso", "wand", "crop", "brush", "eraser", "fill", "toning", "type", "hand", "zoom"];
+const STRIP: (PhotoTool | ToolGroup)[] = ["move", "marquee", "lasso", "wand", "crop", "brush", "eraser", "fill", "toning", "type", "shape", "hand", "zoom"];
 
 /** "marquee" in the strip is the Marquees' group. */
 const isGroup = (place: PhotoTool | ToolGroup): place is ToolGroup => Object.hasOwn(TOOL_GROUPS, place);

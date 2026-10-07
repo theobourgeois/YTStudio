@@ -1,7 +1,7 @@
 /**
  * Tools that share a place in the strip and a key, Photoshop's way (ux.md, "Keys"): the Marquees (M), the Lassos (L),
  * Quick Selection and the Magic Wand (W), the Erasers (E), the Gradient and the Paint Bucket (G), Dodge, Burn and
- * Sponge (O). Shift + the key steps through a group; a right-click on its button lists it. Pure, so it's tested.
+ * Sponge (O), the shapes: Rectangle, Ellipse, Line and Arrow (U). Shift + the key steps through a group; a right-click on its button lists it. Pure, so it's tested.
  */
 
 /** The tools of the strip (ux.md, "Workspace"); more arrive with what they edit. */
@@ -24,10 +24,14 @@ export type PhotoTool =
   | "burn"
   | "sponge"
   | "type"
+  | "rectangleShape"
+  | "ellipseShape"
+  | "lineShape"
+  | "arrowShape"
   | "hand"
   | "zoom";
 
-export type ToolGroup = "marquee" | "lasso" | "wand" | "eraser" | "fill" | "toning";
+export type ToolGroup = "marquee" | "lasso" | "wand" | "eraser" | "fill" | "toning" | "shape";
 
 export const TOOL_GROUPS: Record<ToolGroup, readonly PhotoTool[]> = {
   marquee: ["marquee", "ellipse"],
@@ -36,6 +40,7 @@ export const TOOL_GROUPS: Record<ToolGroup, readonly PhotoTool[]> = {
   eraser: ["eraser", "backgroundEraser", "magicEraser"],
   fill: ["gradient", "paintBucket"],
   toning: ["dodge", "burn", "sponge"],
+  shape: ["rectangleShape", "ellipseShape", "lineShape", "arrowShape"],
 };
 
 export const groupOf = (tool: PhotoTool): ToolGroup | null => (Object.keys(TOOL_GROUPS) as ToolGroup[]).find((g) => TOOL_GROUPS[g].includes(tool)) ?? null;

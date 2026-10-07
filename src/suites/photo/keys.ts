@@ -9,8 +9,8 @@ import type { PhotoTool, ToolGroup } from "./tool-groups";
 export type PhotoKeyAction =
   | { type: "tool"; tool: PhotoTool }
   /**
-   * M, L, W, E, G, O: a group's tool (the Marquees, the Lassos, Quick Selection and the Magic Wand, the Erasers, the
-   * Gradient and the Paint Bucket, Dodge, Burn and Sponge); with Shift, the next of it.
+   * M, L, W, E, G, O, U: a group's tool (the Marquees, the Lassos, Quick Selection and the Magic Wand, the Erasers,
+   * the Gradient and the Paint Bucket, Dodge, Burn and Sponge, the shapes); with Shift, the next of it.
    */
   | { type: "toolGroup"; group: ToolGroup; cycle: boolean }
   /** ⇧⌘I: Select › Inverse. */
@@ -66,7 +66,7 @@ export type PhotoKeyAction =
   | { type: "stepBlendMode"; direction: 1 | -1 };
 
 /** Photoshop's letters for the tool groups. */
-const GROUP_KEYS: Record<string, ToolGroup> = { m: "marquee", l: "lasso", w: "wand", e: "eraser", g: "fill", o: "toning" };
+const GROUP_KEYS: Record<string, ToolGroup> = { m: "marquee", l: "lasso", w: "wand", e: "eraser", g: "fill", o: "toning", u: "shape" };
 
 export interface KeyPress {
   key: string;
