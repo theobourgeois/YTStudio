@@ -6,6 +6,7 @@
 import { Fragment } from "react";
 import { PiPaintBucket } from "react-icons/pi";
 import { FILL_MODES, type FillMode } from "@shared/photo/fill-compose";
+import { patternName } from "@shared/photo/style/patterns";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PatternPicker } from "../layer-style/controls/pattern-picker";
 import { Scrub, Toggle } from "../options-bar";
@@ -25,7 +26,7 @@ export function FillModeSelect({ value, onChange }: { value: FillMode; onChange:
     <span className="flex items-center gap-1" data-option="Mode">
       <span className="text-muted-foreground">Mode</span>
       <Select value={value} onValueChange={(v) => onChange(v as FillMode)}>
-        <SelectTrigger size="sm" className="h-6 w-32 text-xs" aria-label="Mode">
+        <SelectTrigger size="sm" className="h-6 w-28 text-xs" aria-label="Mode">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -47,10 +48,10 @@ function BucketOptionsBar() {
   const patterns = usePhotoDoc((d) => d.patterns ?? NO_PATTERNS);
   return (
     <div className="flex shrink-0 items-center gap-3 text-xs whitespace-nowrap" data-tool-options="paint-bucket">
-      <span className="flex items-center gap-1" data-option="Fill">
-        <span className="text-muted-foreground">Fill</span>
+      {/* Photoshop's bar starts with the source alone, Foreground or Pattern; a pattern's name is its swatch's tip. */}
+      <span className="flex items-center" data-option="Fill">
         <Select value={o.source} onValueChange={(v) => set({ source: v as "foreground" | "pattern" })}>
-          <SelectTrigger size="sm" className="h-6 w-28 text-xs" aria-label="Fill">
+          <SelectTrigger size="sm" className="h-6 w-[6.75rem] text-xs" aria-label="Fill" title="Fill with the foreground colour or a pattern">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -60,7 +61,7 @@ function BucketOptionsBar() {
         </Select>
       </span>
       {o.source === "pattern" && (
-        <span className="flex w-40 items-center" data-option="Pattern">
+        <span className="flex items-center [&_.truncate]:hidden" data-option="Pattern" title={patternName({ patterns }, o.pattern)}>
           <PatternPicker value={o.pattern} patterns={patterns} onChange={(pattern) => set({ pattern })} />
         </span>
       )}

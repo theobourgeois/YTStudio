@@ -68,7 +68,7 @@ with the assistant), `toolbox/fill-options.ts` (its options, kept in this browse
   click's fill is a few tiles to a few hundred, done once.
 - **The options bar**: Fill (Foreground or Pattern, then the pattern picker), Mode, Opacity, Tolerance, Anti-alias,
   Contiguous, All Layers, with Photoshop's defaults (Foreground, Normal, 100%, 32, on, on, off).
-- **The cursor** is a crosshair with a small bucket beside it, the bucket's spout at the point that's read.
+- **The cursor** is a crosshair (the point read) with a small bucket beside it.
 - **The assistant**: `bucket_fill` (a point, the colour or pattern, mode, opacity, tolerance, contiguous,
   anti-alias, all layers, the layer and its target).
 
