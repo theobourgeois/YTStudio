@@ -108,7 +108,7 @@ Chosen: **IS-Net general use, fp16** (`imgly/isnet-general-onnx`, `onnx/model_fp
   `ort-wasm-simd-threaded.asyncify.wasm` handed to Vite by URL). The photo's sample is squeezed to 1024 × 1024 (over
   white where it's transparent), the answer stretched back, values under 0.02 dropped and over 0.98 made whole, and
   read up to the document's pixels. Nothing of the photo leaves the computer.
-- **Tests** never download it: `EDITOR_SUBJECT_MODEL=stand-in` (the e2e config) makes the server say the model is a
+- **Tests** never download it: `EDITOR_PHOTO_MODELS=stand-in` (the e2e config) makes the server say the model is a
   stand-in, and the tab selects what's unlike the photo's border instead (`standInProbabilities`).
 
 ## The assistant

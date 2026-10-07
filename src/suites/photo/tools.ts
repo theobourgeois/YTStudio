@@ -5,7 +5,7 @@
  * the canvas.
  */
 import { createId } from "@shared/ids";
-import { addImageLayer, placement, setMask } from "@shared/photo/edits";
+import { addImageLayer, findLayer, placement, setMask } from "@shared/photo/edits";
 import { ONLINE_SOURCES, type OnlinePlaceRequest, WEB_FILTERS, iconSizeFor, isLink, onlineLayerName } from "@shared/photo/online";
 import { mergedLayer, replaceWithMerged } from "@shared/photo/merge";
 import { dabsAlong } from "@shared/photo/quick-select";
@@ -26,6 +26,7 @@ import { addPattern, describeStyle, stylePatterns } from "@shared/photo/style/st
 import { currentDoc, currentSelection } from "./store";
 import { applySelection, quickSelectionResult, selectActions, startQuickSelection, wandAt } from "./selecting";
 import { selectSubject } from "./subject-model";
+import { FILL_LAYER_NAME, contentAwareFill } from "./content-aware-fill";
 import { usePhoto } from "./store";
 import {
   type PhotoEdit,
@@ -395,6 +396,16 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     const id = await editActions.layerVia(input.cut === true, layer.id);
     if (!id) throw new Error(`Nothing was copied from "${layer.name}": ${layer.kind === "adjustment" ? "an adjustment layer has no pixels" : input.cut === true && layer.kind === "image" ? "a placed image can't be cut (copy it, or ask the user to convert it to pixels)" : "the selection is empty there"}.`);
     return textResult(`${input.cut === true ? "Cut" : "Copied"} the selection of "${layer.name}" to a new layer ${id} above it.`, { added: [id], changed: input.cut === true ? [layer.id] : [], removed: 0 });
+  },
+  async content_aware_fill(input, ctx) {
+    const target = await targetOf(ctx);
+    if (!target.open) throw new Error("Open the photo in the editor first: Content-Aware Fill needs it on the GPU, and the selection is the open photo's.");
+    const selection = currentSelection();
+    if (!selection) throw new Error("There's no selection: select what to remove first (select_subject, select_rect, select_polygon…).");
+    const layer = input.layer === undefined ? null : findLayerRef(target.doc, input.layer);
+    const id = await contentAwareFill({ layerId: layer ? layer.id : undefined, selection });
+    const made = findLayer(currentDoc()!, id);
+    return textResult(`Filled the selection (${describeSelection(selection, target.doc.canvas)}) from what's around it: a new layer ${id} "${made?.name ?? FILL_LAYER_NAME}"${layer ? ` above "${layer.name}"` : ""}. Look at it with view_photo; remove_layer ${id} takes it back.`, { added: [id], changed: [], removed: 0 });
   },
   async fill_selection(input, ctx) {
     const target = await targetOf(ctx);

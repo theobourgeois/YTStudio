@@ -38,7 +38,7 @@ over its box: `shared/photo/selection*.ts`, `magic-wand.ts`, `quick-select.ts` o
 GPU gets a mask's coverage per tile from the CPU (`selectionCoverage`), keep rectangles' analytic path. The tools read
 the photo through `PhotoRenderer.samplePixels` (`selecting.ts` keeps it). Select Subject's model (IS-Net) is
 downloaded by the server into `MODELS_DIR` only when the user says yes, and run in the tab by ONNX Runtime Web
-(`subject-model.ts`); e2e sets `EDITOR_SUBJECT_MODEL=stand-in`. Light (docs/photo/f4-light.md): no pixel is brighter than its coverage (up to white), the
+(`subject-model.ts`); e2e sets `EDITOR_PHOTO_MODELS=stand-in`. Light (docs/photo/f4-light.md): no pixel is brighter than its coverage (up to white), the
 output's `film` rolls light above white off at the end (`output.ts`), and a glow's or flare's WGSL mirrors its CPU
 reference in `shared/photo/reference/`: change both. Layer Style L1–L4 are built (docs/photo/layer-style/README.md:
 blend modes and compositing in render/blend.ts, effects (Bevel & Emboss, Satin, patterns too) in shared/photo/style/ and
@@ -74,6 +74,11 @@ develops (`analysis.ts`: guided-filter grids, haze, statistics, from a coarse re
 Its Color Mixer and Color Grading are `colour.ts` (Grading in stops of linear ProPhoto, as Camera Raw's), Glow reads a
 grid made from the analysis (`glowGrid`); the GPU's table carries them after the curves. Its presets are
 `presets.ts` (the window's Presets tab, `add_filter`/`add_adjustment`'s `preset`), Auto is `auto.ts`.
+**Content-Aware Fill** (docs/photo/content-aware-fill.md; ⇧⌫, the canvas's right-click menu, `content_aware_fill`)
+fills the selection from what's around it onto a new layer above the active one: LaMa (512 × 512) run in the tab as
+Select Subject's model is (every photo model is `shared/photo/models.ts`, `/api/photo/models/<name>`, one download
+question: `model-dialog.tsx`), a hole filled in crops about twice its size, never under 512, one after another
+(`shared/photo/inpaint.ts`'s `planFill`), the photo's grain put back where a crop was shrunk (`content-aware-fill.ts`).
 The **Online panel** (docs/photo/online.md; a tab beside Properties) searches Iconify's icons, Bing's images and
 Openverse's photos, or reads a pasted link, and places a result as a layer: the server searches and downloads
 (`server/photo/online.ts`; Iconify limits requests, so icons' shapes are fetched a set at a time and kept, never one

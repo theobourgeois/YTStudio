@@ -516,6 +516,14 @@ export const PHOTO_TOOLS = [
     ),
   }),
   tool({
+    name: "content_aware_fill",
+    title: "Content-Aware Fill the selection",
+    kind: "edit",
+    description:
+      "Photoshop's Content-Aware Fill: removes what's in the current selection (make one first: select_subject, select_rect with a box around the thing, select_polygon…) by filling it from what's around it, with an inpainting model running on the user's computer. The selection is grown a little so the object's edge goes too. The result is a new pixel layer named \"Content-Aware Fill\" right above layer (default: the selected layer), made from that layer and those under it as they show; the photo's own pixels don't change, so remove_layer undoes it. The selection stays. Select the object generously (its shadow too). It needs its model downloaded once by the user (Content-Aware Fill in the editor); if it isn't, the error says so. The photo must be open in the editor. Look at the result with view_photo.",
+    inputSchema: obj({ layer: str("The layer it reads from and sits above (an id or a name); default the selected one.") }),
+  }),
+  tool({
     name: "add_pixel_layer",
     title: "Add a pixel layer",
     kind: "edit",

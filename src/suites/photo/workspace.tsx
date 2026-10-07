@@ -45,7 +45,9 @@ import { useColours } from "./colours";
 import { editActions, hasPhotoClipboard } from "./edit-actions";
 import { PaintChoiceDialog, ToolOptions } from "./options-bar";
 import { TOOLBOX } from "./toolbox";
-import { FeatherDialog, SelectMenu, SubjectModelDialog, useFeather } from "./select-commands";
+import { FeatherDialog, SelectMenu, useFeather } from "./select-commands";
+import { ModelDialog } from "./model-dialog";
+import { runContentAwareFill } from "./content-aware-fill";
 import { selectActions, useSelectOptions } from "./selecting";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { AssistantButton } from "@/components/assistant/assistant-button";
@@ -152,7 +154,7 @@ export default function PhotoWorkspace() {
       <PhotoDesktop />
       <PaintChoiceDialog />
       <FeatherDialog />
-      <SubjectModelDialog />
+      <ModelDialog />
     </div>
   );
 }
@@ -558,6 +560,8 @@ function usePhotoKeys(active: boolean) {
           return void editActions.layerVia(true);
         case "fill":
           return void editActions.fill(useColours.getState()[action.colour]);
+        case "contentAwareFill":
+          return void runContentAwareFill();
       }
     };
     const up = (e: KeyboardEvent) => {

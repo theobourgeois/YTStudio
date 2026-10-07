@@ -15,7 +15,8 @@ import { photoApi } from "../api";
 import { useColours } from "../colours";
 import { useSourceStates, withRenderer } from "../live";
 import { currentDoc, currentSelection, usePhoto } from "../store";
-import { SubjectModelMissing, selectSubject, useSubjectModel } from "../subject-model";
+import { ModelMissing, askForModel } from "../models";
+import { selectSubject } from "../subject-model";
 import { usePhotoUi } from "../ui";
 
 type Point = { x: number; y: number };
@@ -164,9 +165,8 @@ export async function removeBackground(layerId: string): Promise<boolean> {
     return true;
   } catch (error) {
     toast.dismiss(working);
-    if (error instanceof SubjectModelMissing) {
-      if (error.status.status === "downloading") toast(error.message);
-      else useSubjectModel.setState({ asking: true, pending: null });
+    if (error instanceof ModelMissing) {
+      askForModel(error);
       return false;
     }
     toast.error("Couldn't remove the background", { description: errorMessage(error) });
