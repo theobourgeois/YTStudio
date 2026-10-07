@@ -41,9 +41,14 @@ describe("the Move tool's frame", () => {
     expect((turned.layers[0] as ImageLayer).transform.rotation).toBeCloseTo(180);
   });
 
-  it("stretches one way only when every layer is at a right angle", () => {
+  it("stretches one way whatever the layers' angles: a turned one is skewed, every pixel carried", () => {
     expect(frameOf(doc(["a", 100, 100, 90], ["b", 400, 300]).layers, ["a", "b"], sized)!.stretches).toBe(true);
-    expect(frameOf(doc(["a", 100, 100, 30], ["b", 400, 300]).layers, ["a", "b"], sized)!.stretches).toBe(false);
+    const turned = doc(["a", 100, 100, 30], ["b", 400, 300]);
+    const frame = frameOf(turned.layers, ["a", "b"], sized)!;
+    expect(frame.stretches).toBe(true);
+    const stretched = frame.place(turned, { ...frame.t, scaleX: 2 });
+    const a = stretched.layers.find((l) => l.id === "a") as ImageLayer;
+    expect(a.transform.skew).toBeDefined();
     expect(touches({ x0: 0, y0: 0, x1: 10, y1: 10 }, { x0: 10, y0: 5, x1: 20, y1: 20 })).toBe(true);
     expect(touches({ x0: 0, y0: 0, x1: 10, y1: 10 }, { x0: 11, y0: 5, x1: 20, y1: 20 })).toBe(false);
   });

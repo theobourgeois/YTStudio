@@ -24,6 +24,8 @@
  */
 import { type View, levelForScale } from "@shared/photo/geometry.ts";
 import { type Affine, invert, layerScale } from "@shared/photo/layers.ts";
+import type { Homography } from "@shared/photo/projective.ts";
+import { inverseRows } from "./layer-map.ts";
 import { type AdjustmentNode, type ContentNode, type DrawNode, type GeneratorNode, type PlanFormat, type PlanNode, type RenderPlan, addsLight, blendsInLinear, isDrawNode, isIsolated } from "@shared/photo/render-plan.ts";
 import type { LayerTransform } from "@shared/photo/types.ts";
 import { ADJUSTMENT_KERNELS, adjustmentShader } from "./adjustments.ts";
@@ -53,8 +55,10 @@ export interface Drawable {
 /** One layer to draw: its pixels on the GPU, where they go, how opaque, and its mask (in the same atlas). */
 export interface LayerDraw {
   source: Drawable;
-  /** Layer pixels → document pixels. */
+  /** Layer pixels → document pixels (affine: its place without perspective). */
   matrix: Affine;
+  /** Its whole map when it's in perspective (absent: `matrix` is all of it). */
+  projection?: Homography;
   transform: LayerTransform;
   opacity: number;
   mask: Drawable | null;
@@ -62,8 +66,10 @@ export interface LayerDraw {
   crop?: { x0: number; y0: number; x1: number; y1: number } | null;
 }
 
-/** The layer pass's uniform: 96 bytes (its `Layer`). */
-const LAYER_UNIFORM = 96;
+/** The layer pass's uniform: 112 bytes (its `Layer`). */
+const LAYER_UNIFORM = 112;
+
+
 
 /** A layer's crop as the layer pass reads it (x0, y0, x1, y1 in its own pixels; none: everything). */
 const cropOfDraw = (l: LayerDraw): [number, number, number, number] => (l.crop ? [l.crop.x0, l.crop.y0, l.crop.x1, l.crop.y1] : [-1e9, -1e9, 1e9, 1e9]);
@@ -119,6 +125,7 @@ struct Layer {
   hasMask: u32,
   encoded: u32,       // 1: write encoded values (a "photoshop" plan's composite)
   crop: vec4f,        // what shows of it, in its own pixels: x0, y0, x1, y1
+  inv2: vec4f,        // w = dot(inv2.xy, doc) + inv2.z: (u, v) are divided by it (1 but in perspective)
 }
 @group(2) @binding(0) var<uniform> layer: Layer;
 @group(2) @binding(1) var preview: texture_2d<f32>;
@@ -161,8 +168,8 @@ fn bicubic(level: u32, u: vec2f, s: f32) -> vec4f {
 
 // How much of the layer shows at u (its crop): all inside, nothing outside, an edge a target pixel wide (exact, pixel
 // for pixel, when it's drawn texel for texel on whole pixels).
-fn crop_cover(u: vec2f) -> f32 {
-  let k = max(layer.scale, 1e-6);
+fn crop_cover(u: vec2f, scale: f32) -> f32 {
+  let k = max(scale, 1e-6);
   let a = clamp((u - layer.crop.xy) * k + 0.5, vec2f(0.0), vec2f(1.0));
   let b = clamp((layer.crop.zw - u) * k + 0.5, vec2f(0.0), vec2f(1.0));
   return a.x * a.y * b.x * b.y;
@@ -177,12 +184,22 @@ fn out(c: vec4f, k: f32) -> vec4f {
 @fragment
 fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let doc = layer.origin + pos.xy / layer.zoom;
-  let u = vec2f(dot(layer.inv0.xy, doc) + layer.inv0.z, dot(layer.inv1.xy, doc) + layer.inv1.z);
+  // In perspective, w: past the horizon (w ≤ 0) no pixel of the layer lands.
+  let w = dot(layer.inv2.xy, doc) + layer.inv2.z;
+  if (w <= 0.0) { discard; }
+  let u = vec2f(dot(layer.inv0.xy, doc) + layer.inv0.z, dot(layer.inv1.xy, doc) + layer.inv1.z) / w;
+  // Target pixels per source pixel: the layer's, or in perspective this pixel's own (the far side's smaller).
+  var scale = layer.scale;
+  if (layer.inv2.x != 0.0 || layer.inv2.y != 0.0) {
+    let du = (layer.inv0.xy - u.x * layer.inv2.xy) / w;
+    let dv = (layer.inv1.xy - u.y * layer.inv2.xy) / w;
+    scale = layer.zoom / sqrt(max(abs(du.x * dv.y - du.y * dv.x), 1e-12));
+  }
   // A source pixel's reach under Mitchell, in source pixels: never past this, nothing of the layer shows.
-  let reach = 4.0 * max(1.0, 1.0 / layer.scale) + 1.0;
+  let reach = 4.0 * max(1.0, 1.0 / scale) + 1.0;
   if (u.x < -reach || u.y < -reach || u.x > layer.size.x + reach || u.y > layer.size.y + reach) { discard; }
   let masked = layer.hasMask == 1u;
-  let shown = crop_cover(u);
+  let shown = crop_cover(u, scale);
   if (shown <= 0.0) { discard; }
   if (layer.mode == 2u) {
     // Texel for texel: the source pixel under this one, exactly (and its mask's).
@@ -197,7 +214,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     if (present_src(level, i32(floor(p.x)), i32(floor(p.y)))) {
       var c: vec4f;
       if (layer.mode == 1u) {
-        c = bicubic(level, p, max(1.0, exp2(-f32(level)) / layer.scale));
+        c = bicubic(level, p, max(1.0, exp2(-f32(level)) / scale));
       } else {
         c = bilinear(level, p);
       }
@@ -799,7 +816,7 @@ export class Compositor {
         // (An isolated layer's own entry isn't drawn: its content is its filters'.)
         const hides = node.style.maskHidesEffects && d.mask;
         images.push({ index: i, draw: hides ? { ...d, mask: null } : d });
-        if (hides) images.push({ index: i, draw: { source: d.mask!, matrix: d.matrix, transform: d.transform, opacity: 1, mask: null }, maskOnly: true });
+        if (hides) images.push({ index: i, draw: { source: d.mask!, matrix: d.matrix, projection: d.projection, transform: d.transform, opacity: 1, mask: null }, maskOnly: true });
         styled.push({ index: i, node, draw: d });
         continue;
       }
@@ -821,14 +838,15 @@ export class Compositor {
       images.forEach(({ index, draw: l, maskOnly }, i) => {
         const f = new Float32Array(data, i * UNIFORM_STRIDE, LAYER_UNIFORM / 4);
         const u = new Uint32Array(data, i * UNIFORM_STRIDE, LAYER_UNIFORM / 4);
-        const inv = invert(l.matrix);
+        const inv = inverseRows(l);
         // A blended or styled layer is drawn alone at full strength: its opacity is its pass's.
         const node = plan.nodes[index] as DrawNode;
         const opacity = node.blend || node.style ? 1 : l.opacity;
-        f.set([inv[0], inv[2], inv[4], 0, inv[1], inv[3], inv[5], 0, view.x, view.y, view.zoom, opacity, l.source.width, l.source.height], 0);
+        f.set([...inv.slice(0, 8), view.x, view.y, view.zoom, opacity, l.source.width, l.source.height], 0);
+        f.set(inv.slice(8), 24);
         const scale = view.zoom * layerScale(l.transform);
         u[14] = levelForScale(scale, l.source.image.levels.length);
-        u[15] = alignedLayer(l.matrix, view) ? 2 : quality === "final" ? 1 : 0;
+        u[15] = !l.projection && alignedLayer(l.matrix, view) ? 2 : quality === "final" ? 1 : 0;
         f[16] = scale;
         u[17] = l.source.preview ? 1 : 0;
         u[18] = l.mask ? 1 : 0;
@@ -878,7 +896,7 @@ export class Compositor {
         const crop = node.crop ? `|crop:${node.crop.x0},${node.crop.y0},${node.crop.x1},${node.crop.y1}` : "";
         const key = `${content}|${maskKey}|${node.size.width}x${node.size.height}|${fieldPlan.key}|${sources.revision?.(node) ?? ""}${crop}`;
         const set = this.styleFields.fields(encoder, fieldPlan, key, () => this.drawForFields(encoder, draw, node.style!.maskHidesEffects ? null : draw.mask, fieldPlan, format));
-        const packed = packStyle(node, node.blend!, node.opacity, plan.compositing, fieldPlan, draw.matrix, view, sources.pattern);
+        const packed = packStyle(node, node.blend!, node.opacity, plan.compositing, fieldPlan, draw, view, sources.pattern);
         const dataKey = `${node.key}|${fieldPlan.key}|${packed.patternKey}`;
         let gpu = this.styleData.get(dataKey);
         let patterns = this.patternBuffers.get(packed.patternKey);
@@ -1171,6 +1189,7 @@ export class Compositor {
     u[19] = 0;
     // In its own pixels, its crop is the identity place's too.
     f.set(cropOfDraw(draw), 20);
+    f.set([0, 0, 1, 0], 24);
     device.queue.writeBuffer(uniform, 0, f);
     const group = device.createBindGroup({
       layout: this.layouts.layer,
@@ -1215,11 +1234,12 @@ export class Compositor {
     const data = new ArrayBuffer(LAYER_UNIFORM);
     const f = new Float32Array(data);
     const u = new Uint32Array(data);
-    const inv = invert(l.matrix);
-    f.set([inv[0], inv[2], inv[4], 0, inv[1], inv[3], inv[5], 0, view.x, view.y, view.zoom, l.opacity, l.source.width, l.source.height], 0);
+    const inv = inverseRows(l);
+    f.set([...inv.slice(0, 8), view.x, view.y, view.zoom, l.opacity, l.source.width, l.source.height], 0);
+    f.set(inv.slice(8), 24);
     const scale = view.zoom * layerScale(l.transform);
     u[14] = levelForScale(scale, l.source.image.levels.length);
-    u[15] = alignedLayer(l.matrix, view) ? 2 : quality === "final" ? 1 : 0;
+    u[15] = !l.projection && alignedLayer(l.matrix, view) ? 2 : quality === "final" ? 1 : 0;
     f[16] = scale;
     u[17] = l.source.preview ? 1 : 0;
     u[18] = l.mask ? 1 : 0;

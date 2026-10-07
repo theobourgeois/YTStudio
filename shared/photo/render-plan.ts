@@ -18,7 +18,8 @@ import type { CameraRawAnalysis } from "./effects/camera-raw/analysis.ts";
 import { SCENE_PARAM, type SceneMaps, type SceneReads } from "./scene.ts";
 import { ANALYSIS_PARAM, needsAnalysis } from "./effects/camera-raw/develop.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
-import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
+import { type Affine, affineHomography, apply, invert, layerMatrix } from "./layers.ts";
+import { type Homography, invertHomography, isProjective, layerProjection, project } from "./projective.ts";
 import { type CanvasRaster, canvasContentOf, canvasRaster } from "./canvas-content.ts";
 import { findPattern } from "./style/patterns.ts";
 import { drawnEffects, effectAltitude, effectAngle, stylePatterns, styleReach } from "./style/style.ts";
@@ -118,8 +119,10 @@ export interface ImageNode extends ContentFields {
   mediaId: string;
   transform: LayerTransform;
   size: Size;
-  /** Layer pixels → document pixels. */
+  /** Layer pixels → document pixels: its affine place (without its perspective: `projection` has all of it). */
   matrix: Affine;
+  /** Layer pixels → document pixels, its perspective too: what draws it and reads through it. */
+  projection: Homography;
   /** Its opacity, and its Fill too when it blends as plain Normal. */
   opacity: number;
   mask: MaskRef | null;
@@ -141,6 +144,7 @@ export interface PixelNode extends ContentFields {
   transform: LayerTransform;
   size: Size;
   matrix: Affine;
+  projection: Homography;
   opacity: number;
   mask: MaskRef | null;
   blend: NodeBlend | null;
@@ -164,6 +168,7 @@ export interface CanvasNode extends ContentFields {
   transform: LayerTransform;
   size: Size;
   matrix: Affine;
+  projection: Homography;
   opacity: number;
   mask: MaskRef | null;
   blend: NodeBlend | null;
@@ -486,11 +491,8 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const mask = maskOf(layer, size);
       const crop = cropRectOf(layer, size);
       const matrix = layerMatrix(t, size);
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options, {
-        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}${cropKey(crop)}`),
-        placement: matrix,
-        size,
-      });
+      const projection = layerProjection(t, size);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${transformKey(t)}${cropKey(crop)}`), 0, options, sceneOf(`image|${layer.mediaId}|${size.width}x${size.height}${cropKey(crop)}`, t, matrix, size));
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
         kind: "image",
@@ -499,6 +501,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         transform: t,
         size,
         matrix,
+        projection,
         opacity: blending.opacity,
         mask,
         blend: blending.blend,
@@ -506,7 +509,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         ...content,
         commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
         commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
-        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}${cropKey(crop)}`),
+        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${transformKey(t)}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}${cropKey(crop)}`),
         crop,
       });
       continue;
@@ -517,11 +520,8 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const mask = maskOf(layer, size);
       const crop = cropRectOf(layer, size);
       const matrix = layerMatrix(t, size);
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options, {
-        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}${cropKey(crop)}`),
-        placement: matrix,
-        size,
-      });
+      const projection = layerProjection(t, size);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${transformKey(t)}${cropKey(crop)}`), 0, options, sceneOf(`pixel|${layer.surface}|${size.width}x${size.height}${cropKey(crop)}`, t, matrix, size));
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
         kind: "pixel",
@@ -530,6 +530,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         transform: t,
         size,
         matrix,
+        projection,
         opacity: blending.opacity,
         mask,
         blend: blending.blend,
@@ -537,7 +538,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         ...content,
         commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
         commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
-        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}${cropKey(crop)}`),
+        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${transformKey(t)}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}${cropKey(crop)}`),
         crop,
       });
       continue;
@@ -560,6 +561,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         transform: { x: raster.x + size.width / 2, y: raster.y + size.height / 2, scaleX: 1, scaleY: 1, rotation: 0 },
         size,
         matrix: [1, 0, 0, 1, raster.x, raster.y],
+        projection: affineHomography([1, 0, 0, 1, raster.x, raster.y]),
         opacity: blending.opacity,
         mask,
         blend: blending.blend,
@@ -660,16 +662,40 @@ export function inputRegion(node: PlanNode, rect: Rect): Rect | null {
   const reach = node.filters.reduce((sum, f) => sum + f.reach, 0);
   if (reach) rect = { x0: rect.x0 - reach, y0: rect.y0 - reach, x1: rect.x1 + reach, y1: rect.y1 + reach };
   if (node.kind === "generator") return rect;
-  const inv = invert(node.matrix);
-  const pts = [apply(inv, rect.x0, rect.y0), apply(inv, rect.x1, rect.y0), apply(inv, rect.x0, rect.y1), apply(inv, rect.x1, rect.y1)];
   // Only what shows of it: inside its crop (and the few pixels past its edge that resampling reads).
   const c = node.crop;
   const limit = c ? { x0: Math.max(0, c.x0 - 4), y0: Math.max(0, c.y0 - 4), x1: Math.min(node.size.width, c.x1 + 4), y1: Math.min(node.size.height, c.y1 + 4) } : { x0: 0, y0: 0, x1: node.size.width, y1: node.size.height };
+  const pts = regionInLayer(node.projection, node.matrix, isProjective(node.transform), rect);
+  // In perspective, a corner past the horizon sees the layer's whole far side.
+  if (!pts) return limit.x1 > limit.x0 && limit.y1 > limit.y0 ? limit : null;
   const x1 = Math.min(limit.x1, Math.max(...pts.map((p) => p.x)));
   const y1 = Math.min(limit.y1, Math.max(...pts.map((p) => p.y)));
   const x0 = Math.max(limit.x0, Math.min(...pts.map((p) => p.x)));
   const y0 = Math.max(limit.y0, Math.min(...pts.map((p) => p.y)));
   return x1 > x0 && y1 > y0 ? { x0, y0, x1, y1 } : null;
+}
+
+/** A document rectangle's corners in a layer's pixels (null when one is past a layer in perspective's horizon). */
+function regionInLayer(projection: Homography, matrix: Affine, projective: boolean, rect: Rect): { x: number; y: number }[] | null {
+  if (!projective) {
+    const inv = invert(matrix);
+    return [apply(inv, rect.x0, rect.y0), apply(inv, rect.x1, rect.y0), apply(inv, rect.x0, rect.y1), apply(inv, rect.x1, rect.y1)];
+  }
+  const inv = invertHomography(projection);
+  const pts = [project(inv, rect.x0, rect.y0), project(inv, rect.x1, rect.y0), project(inv, rect.x0, rect.y1), project(inv, rect.x1, rect.y1)];
+  return pts.every((p) => p !== null) ? (pts as { x: number; y: number }[]) : null;
+}
+
+/** What says where a layer is in its keys: its five numbers, and its skew and perspective when it has them. */
+export const transformKey = (t: LayerTransform) => `${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${t.skew ? `,k${t.skew}` : ""}${t.perspective ? `,p${t.perspective.join(",")}` : ""}`;
+
+/**
+ * A placed layer's scene input: its maps made of its own pixels, wherever it is (read through its place), or, for one
+ * in perspective (which an affine read can't follow), of the document where it is now.
+ */
+function sceneOf(key: string, t: LayerTransform, matrix: Affine, size: Size): SceneInput {
+  if (isProjective(t)) return { key: hashKey(`${key}|${transformKey(t)}`), placement: [1, 0, 0, 1, 0, 0], size: null };
+  return { key: hashKey(key), placement: matrix, size };
 }
 
 /**

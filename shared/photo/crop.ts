@@ -6,7 +6,8 @@
 import { type DocPoint, type LayerCrop, type LayerTransform, type MaskSelection, MAX_CANVAS_SIDE, type PhotoLayer, type PhotoProject, type PhotoSelection, type PhotoState, type PlacedLayer, type SurfaceId, isCroppable, isPlaced } from "./types.ts";
 import { effectDefinition, unavailableReason } from "./effects/index.ts";
 import type { Size } from "./geometry.ts";
-import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
+import { type Affine, apply, layerMatrix, layerPoint, pointInLayer } from "./layers.ts";
+import { isProjective, transformFromQuad } from "./projective.ts";
 
 /** A rectangle: x right and y down from a top-left corner, with a size. */
 export type CropRect = LayerCrop;
@@ -40,8 +41,20 @@ export const isCropped = (layer: PhotoLayer, size: Size) => !sameRect(cropOf(lay
  * layer is handled by what shows of it.
  */
 export function croppedPlace(t: LayerTransform, size: Size, crop: CropRect): { t: LayerTransform; size: Size } {
+  const part = { width: crop.width, height: crop.height };
+  // In perspective, the crop is a quad of its own: its place is the one that puts it on those corners.
+  if (isProjective(t)) {
+    const q = rectCorners(t, size, crop);
+    const placed = transformFromQuad([q[0], q[1], q[2], q[3]], part, t);
+    if (placed) return { t: placed, size: part };
+  }
   const c = apply(layerMatrix(t, size), crop.x + crop.width / 2, crop.y + crop.height / 2);
-  return { t: { ...t, x: c.x, y: c.y }, size: { width: crop.width, height: crop.height } };
+  return { t: { ...t, x: c.x, y: c.y }, size: part };
+}
+
+/** A rectangle of a layer's pixels' corners in document pixels (top-left, top-right, bottom-right, bottom-left). */
+function rectCorners(t: LayerTransform, size: Size, r: CropRect) {
+  return [layerPoint(t, size, r.x, r.y), layerPoint(t, size, r.x + r.width, r.y), layerPoint(t, size, r.x + r.width, r.y + r.height), layerPoint(t, size, r.x, r.y + r.height)];
 }
 
 /** A layer's visible place (`croppedPlace` of its crop; the layer's own when it has none). */
@@ -54,6 +67,13 @@ export function visiblePlace(layer: PlacedLayer, size: Size): { t: LayerTransfor
  * `croppedPlace`, so the crop stays where it is on the layer.
  */
 export function uncroppedTransform(next: LayerTransform, size: Size, crop: CropRect): LayerTransform {
+  if (isProjective(next)) {
+    // The whole layer's corners, in the crop's own pixels, through the crop's new place.
+    const part = { width: crop.width, height: crop.height };
+    const q = rectCorners(next, part, { x: -crop.x, y: -crop.y, width: size.width, height: size.height });
+    const placed = transformFromQuad([q[0], q[1], q[2], q[3]], size, next);
+    if (placed) return placed;
+  }
   // The layer's centre in the crop's own pixels, carried by the crop's new place.
   const c = apply(layerMatrix(next, { width: crop.width, height: crop.height }), size.width / 2 - crop.x, size.height / 2 - crop.y);
   return { ...next, x: c.x, y: c.y };
@@ -61,14 +81,22 @@ export function uncroppedTransform(next: LayerTransform, size: Size, crop: CropR
 
 /** Whether document point (x, y) is on what shows of the layer (inside its crop). */
 export function containsCropped(layer: PlacedLayer, size: Size, x: number, y: number): boolean {
-  const p = apply(invert(layerMatrix(layer.transform, size)), x, y);
+  const p = pointInLayer(layer.transform, size, x, y);
   const c = cropOf(layer, size);
-  return p.x >= c.x && p.y >= c.y && p.x <= c.x + c.width && p.y <= c.y + c.height;
+  return !!p && p.x >= c.x && p.y >= c.y && p.x <= c.x + c.width && p.y <= c.y + c.height;
 }
 
-/** The axis-aligned box around what shows of a layer, in document pixels. */
+/** The axis-aligned box around what shows of a layer (an affine one, by its matrix), in document pixels. */
 export function croppedBounds(matrix: Affine, crop: CropRect) {
   const pts = [apply(matrix, crop.x, crop.y), apply(matrix, crop.x + crop.width, crop.y), apply(matrix, crop.x, crop.y + crop.height), apply(matrix, crop.x + crop.width, crop.y + crop.height)];
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+}
+
+/** The axis-aligned box around part of a layer's pixels (what shows of it: its crop), in perspective too. */
+export function partBounds(t: LayerTransform, size: Size, part: CropRect) {
+  const pts = rectCorners(t, size, part);
   const xs = pts.map((p) => p.x);
   const ys = pts.map((p) => p.y);
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
@@ -124,8 +152,9 @@ export function setLayerCrop(doc: PhotoProject, id: string, crop: CropRect | nul
  * into the layer's pixels (a turned layer's: the box around it there), kept inside the layer. Null when the box misses it.
  */
 export function cropFromDocBox(t: LayerTransform, size: Size, box: CropRect): CropRect | null {
-  const inv = invert(layerMatrix(t, size));
-  const pts = [apply(inv, box.x, box.y), apply(inv, box.x + box.width, box.y), apply(inv, box.x, box.y + box.height), apply(inv, box.x + box.width, box.y + box.height)];
+  const at = (x: number, y: number) => pointInLayer(t, size, x, y) ?? { x: NaN, y: NaN };
+  const pts = [at(box.x, box.y), at(box.x + box.width, box.y), at(box.x, box.y + box.height), at(box.x + box.width, box.y + box.height)];
+  if (pts.some((p) => !Number.isFinite(p.x))) return fullRect(size);
   const x0 = Math.min(...pts.map((p) => p.x));
   const y0 = Math.min(...pts.map((p) => p.y));
   const x1 = Math.max(...pts.map((p) => p.x));

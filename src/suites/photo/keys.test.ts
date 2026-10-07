@@ -46,6 +46,12 @@ describe("photo keys", () => {
     expect(resolvePhotoKey({ ...press("h", { metaKey: true, ctrlKey: true }), code: "KeyH" }, true)).toBeNull();
   });
 
+  it("starts Free Transform with ⌘T (T alone is the Type tool)", () => {
+    expect(resolvePhotoKey(press("t", { metaKey: true }), true)).toEqual({ type: "freeTransform" });
+    expect(resolvePhotoKey(press("t", { ctrlKey: true }), false)).toEqual({ type: "freeTransform" });
+    expect(resolvePhotoKey(press("t"), true)).toEqual({ type: "tool", tool: "type" });
+  });
+
   it("nudges by 1, or 10 with Shift, and leaves the app's keys alone", () => {
     expect(resolvePhotoKey(press("ArrowLeft"), true)).toEqual({ type: "nudge", dx: -1, dy: 0 });
     expect(resolvePhotoKey(press("ArrowDown", { shiftKey: true }), true)).toEqual({ type: "nudge", dx: 0, dy: 10 });

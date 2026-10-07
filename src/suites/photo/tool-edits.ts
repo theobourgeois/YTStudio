@@ -16,6 +16,7 @@ import {
   addGeneratorLayer,
   addImageLayer,
   addPixelLayer,
+  canDistort,
   findLayer,
   moveFilter,
   moveLayer,
@@ -42,12 +43,13 @@ import { describeGradient, gradientInput } from "@shared/photo/effects/gradient"
 import type { Gradient } from "@shared/photo/types";
 import { ADJUSTMENTS, type EffectDefinition, type EffectKind, FILTERS, GENERATORS, effectDefinition, newEffect, unavailableReason, usableAs } from "@shared/photo/effects/index";
 import { CURVE_CHANNELS, type ElementParamSpec, MAX_CURVE_POINTS, type ParamSpec, sameValue } from "@shared/photo/effects/params";
-import { bounds, layerMatrix } from "@shared/photo/layers";
-import { type CropRect, canvasCropRect, cropFromDocBox, cropOf, croppedBounds, parseRatio, ratioBox, setLayerCrop } from "@shared/photo/crop";
+import { bounds } from "@shared/photo/layers";
+import { type CropRect, canvasCropRect, cropFromDocBox, cropOf, partBounds, parseRatio, ratioBox, setLayerCrop } from "@shared/photo/crop";
 import { selectionBox } from "@shared/photo/selection";
 import type { MergeKind } from "@shared/photo/merge";
-import { isColour } from "@shared/photo/project";
+import { MAX_SKEW, isColour } from "@shared/photo/project";
 import { ORIENTATIONS, ORIENTATION_LABELS, isOrientation, orientLayers } from "@shared/photo/orient";
+import { type Quad, isDistorted, quadOf, transformFromQuad } from "@shared/photo/projective";
 import {
   type AdjustmentLayer,
   type ContentLayer,
@@ -200,12 +202,13 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
       : `image ${layer.mediaId}${asset ? ` (${asset.name}, ${asset.width}×${asset.height})` : " (missing: the file isn't in the project)"}`;
   const parts = [
     `${index}. ${layer.id} "${layer.name}": ${what}`,
-    `   centre (${round(t.x)}, ${round(t.y)}), scale ${round(t.scaleX, 4)} × ${round(t.scaleY, 4)}, rotation ${round(t.rotation)}°`,
+    `   centre (${round(t.x)}, ${round(t.y)}), scale ${round(t.scaleX, 4)} × ${round(t.scaleY, 4)}, rotation ${round(t.rotation)}°${t.skew ? `, skew ${round(t.skew)}°` : ""}${t.perspective ? `, perspective [${round(t.perspective[0], 4)}, ${round(t.perspective[1], 4)}]` : ""}`,
   ];
+  if (size && isDistorted(t)) parts.push(`   corners: ${quadOf(t, size).map((p) => `(${round(p.x)}, ${round(p.y)})`).join(", ")} (top-left, top-right, bottom-right, bottom-left)`);
   if (size) {
     // What shows of it: a cropped layer's box is its crop's.
     const crop = cropOf(layer, size);
-    const b = layer.crop ? croppedBounds(layerMatrix(t, size), crop) : bounds(t, size);
+    const b = layer.crop ? partBounds(t, size, crop) : bounds(t, size);
     parts.push(`   box on the canvas: x ${round(b.x0)}..${round(b.x1)}, y ${round(b.y0)}..${round(b.y1)}`);
     if (layer.crop) parts.push(`   cropped (crop_layer): shows its pixels x ${round(crop.x)}..${round(crop.x + crop.width)}, y ${round(crop.y)}..${round(crop.y + crop.height)} of ${size.width}×${size.height}; the rest is hidden, kept`);
   }
@@ -281,12 +284,32 @@ export const transformLayerTool: PhotoEdit = (doc, input, env) => {
   const scale = num(input.scale);
   if (scale !== undefined) t = { ...t, scaleX: Math.sign(t.scaleX || 1) * Math.abs(scale), scaleY: Math.sign(t.scaleY || 1) * Math.abs(scale) };
   t = {
+    ...t,
     x: (num(input.x) ?? t.x) + (num(input.dx) ?? 0),
     y: (num(input.y) ?? t.y) + (num(input.dy) ?? 0),
     scaleX: num(input.scaleX) ?? t.scaleX,
     scaleY: num(input.scaleY) ?? t.scaleY,
     rotation: num(input.rotation) ?? t.rotation,
   };
+  const skew = num(input.skew);
+  if (input.skew !== undefined && (skew === undefined || Math.abs(skew) > MAX_SKEW)) throw new Error(`skew is degrees from -${MAX_SKEW} to ${MAX_SKEW}.`);
+  if (skew !== undefined) t.skew = skew;
+  if (input.perspective !== undefined) {
+    const p = Array.isArray(input.perspective) ? input.perspective.map(num) : [];
+    if (p.length !== 2 || p.some((v) => v === undefined)) throw new Error("perspective is [x, y]: two numbers ([0, 0] takes it off).");
+    if (Math.abs(p[0]!) + Math.abs(p[1]!) >= 1) throw new Error("perspective's |x| + |y| must be under 1 (past it a corner would be beyond the horizon).");
+    if ((p[0] || p[1]) && !canDistort(layer)) throw new Error(`"${layer.name}" is a ${layer.kind} layer: only images and pixel layers go in perspective (it can skew).`);
+    t.perspective = [p[0]!, p[1]!];
+  }
+  if (input.corners !== undefined) {
+    const pts = Array.isArray(input.corners) ? input.corners.map((c) => (Array.isArray(c) ? { x: num(c[0]), y: num(c[1]) } : { x: undefined, y: undefined })) : [];
+    if (pts.length !== 4 || pts.some((p) => p.x === undefined || p.y === undefined)) throw new Error("corners is four [x, y] canvas points: top-left, top-right, bottom-right, bottom-left.");
+    if (!size) throw new Error(`Layer "${layer.name}"'s image is missing, so it can't be put on corners.`);
+    const placed = transformFromQuad(pts as unknown as Quad, size, layer.transform);
+    if (!placed) throw new Error("Those corners don't make a convex four-sided shape in order (top-left, top-right, bottom-right, bottom-left, going clockwise or anticlockwise all round): the layer can't be put on them.");
+    if (placed.perspective && !canDistort(layer)) throw new Error(`"${layer.name}" is a ${layer.kind} layer: it can only skew, so its corners must be a parallelogram.`);
+    t = { ...placed, perspective: placed.perspective ?? [0, 0], skew: placed.skew ?? 0 };
+  }
   if (t.scaleX === 0 || t.scaleY === 0) throw new Error("A scale of 0 would make the layer vanish: use set_layer with visible: false to hide it.");
   const next = setTransform(doc, layer.id, t);
   const after = findLayer(next, layer.id)!;

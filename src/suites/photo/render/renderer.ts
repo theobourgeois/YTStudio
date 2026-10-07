@@ -16,7 +16,8 @@ import { type View, levelForScale } from "@shared/photo/geometry.ts";
 import { fromHalf, toHalf } from "@shared/photo/half.ts";
 import { coverageIn } from "@shared/photo/selection.ts";
 import type { BrushSettings } from "@shared/photo/brush.ts";
-import { type Affine, IDENTITY, apply, invert, layerMatrix, layerScale } from "@shared/photo/layers.ts";
+import { type Affine, IDENTITY, affineHomography, apply, corners as layerCorners, invert, layerMatrix, layerScale } from "@shared/photo/layers.ts";
+import { invertHomography, isProjective, layerProjection, perspectiveRefusal, project } from "@shared/photo/projective.ts";
 import type { TileSize } from "@shared/photo/lab.ts";
 import { DITHER_8BIT, type Highlights } from "@shared/photo/output.ts";
 import { type PixelSample, sampleSize } from "@shared/photo/pixel-sample.ts";
@@ -151,14 +152,19 @@ export interface Presented {
 }
 
 /** A pseudo-view of a layer's own pixels covering what `view` shows of it, for fetching its evicted tiles. */
-export function layerView(view: View, matrix: Affine, transformScale: number, size: { width: number; height: number }): View | null {
-  const inv = invert(matrix);
-  const pts = [
-    apply(inv, view.x, view.y),
-    apply(inv, view.x + view.width / view.zoom, view.y),
-    apply(inv, view.x, view.y + view.height / view.zoom),
-    apply(inv, view.x + view.width / view.zoom, view.y + view.height / view.zoom),
-  ];
+export function layerView(view: View, matrix: Affine, transformScale: number, size: { width: number; height: number }, transform?: LayerTransform): View | null {
+  const x1v = view.x + view.width / view.zoom;
+  const y1v = view.y + view.height / view.zoom;
+  let pts: { x: number; y: number }[];
+  if (transform && isProjective(transform)) {
+    // In perspective: a corner past the horizon sees as far as the layer goes.
+    const inv = invertHomography(layerProjection(transform, size));
+    const found = [project(inv, view.x, view.y), project(inv, x1v, view.y), project(inv, view.x, y1v), project(inv, x1v, y1v)];
+    pts = found.every((p) => p !== null) ? (found as { x: number; y: number }[]) : [{ x: 0, y: 0 }, { x: size.width, y: size.height }];
+  } else {
+    const inv = invert(matrix);
+    pts = [apply(inv, view.x, view.y), apply(inv, x1v, view.y), apply(inv, view.x, y1v), apply(inv, x1v, y1v)];
+  }
   const x0 = Math.max(0, Math.min(...pts.map((p) => p.x)));
   const y0 = Math.max(0, Math.min(...pts.map((p) => p.y)));
   const x1 = Math.min(size.width, Math.max(...pts.map((p) => p.x)));
@@ -566,7 +572,7 @@ export class PhotoRenderer {
       if (node.kind === "pixel") {
         const pixels = this.surfaceOf(node.layerId, "content");
         if (!pixels) return null;
-        return { source: pixels, matrix: node.matrix, transform: node.transform, opacity: node.opacity, mask, crop: node.crop };
+        return { source: pixels, matrix: node.matrix, ...(isProjective(node.transform) ? { projection: node.projection } : {}), transform: node.transform, opacity: node.opacity, mask, crop: node.crop };
       }
       if (node.kind === "canvas") {
         // Drawn now if it isn't kept, in the 8-bit atlas (beside its mask, in document pixels).
@@ -578,7 +584,8 @@ export class PhotoRenderer {
       if (!image) return null;
       // A mask lives in its source's atlas (a 16-bit source's is f32): one made for another isn't drawn with it.
       if (mask && mask.ctx !== image.ctx) return null;
-      return { source: image, matrix: layerMatrix(node.transform, image.layout), transform: node.transform, opacity: node.opacity, mask, crop: node.crop };
+      const projection = isProjective(node.transform) ? { projection: layerProjection(node.transform, image.layout) } : {};
+      return { source: image, matrix: layerMatrix(node.transform, image.layout), ...projection, transform: node.transform, opacity: node.opacity, mask, crop: node.crop };
     },
     mask: (node: { layerId: string }): Drawable | null => this.surfaceOf(node.layerId, "mask"),
     glowCache: (node, index) => this.glows.lookup(node, index),
@@ -662,22 +669,22 @@ export class PhotoRenderer {
   private planNeeds(plan: RenderPlan, view: View): ResidencyNeed[] {
     const needs: ResidencyNeed[] = [];
     const doc = { width: plan.canvas.width, height: plan.canvas.height };
-    const surface = (layerId: string, part: SurfacePart, matrix: Affine, scale: number, size: { width: number; height: number }, whole = false) => {
+    const surface = (layerId: string, part: SurfacePart, matrix: Affine, scale: number, size: { width: number; height: number }, whole = false, transform?: LayerTransform) => {
       const image = this.surfaceOf(layerId, part);
       if (!image) return;
       if (whole || levelForScale(view.zoom * scale, image.image.levels.length) !== 0) return void needs.push({ surface: image, region: null });
-      const local = layerView(view, matrix, scale, size);
+      const local = layerView(view, matrix, scale, size, transform);
       if (local) needs.push({ surface: image, region: { x: local.x, y: local.y, width: local.width / local.zoom, height: local.height / local.zoom } });
     };
     for (const node of plan.nodes) {
       if (node.kind === "pixel") {
         const scale = layerScale(node.transform);
         const levels = this.surfaceOf(node.layerId, "content")?.image.levels.length ?? 1;
-        surface(node.layerId, "content", node.matrix, scale, node.size, !!node.style && planFields(node, levels).level === 0);
-        if (node.mask) surface(node.layerId, "mask", node.matrix, scale, node.size);
+        surface(node.layerId, "content", node.matrix, scale, node.size, !!node.style && planFields(node, levels).level === 0, node.transform);
+        if (node.mask) surface(node.layerId, "mask", node.matrix, scale, node.size, false, node.transform);
       } else if (node.kind === "image") {
         const image = this.sources.get(node.mediaId)?.image;
-        if (node.mask && image) surface(node.layerId, "mask", layerMatrix(node.transform, image.layout), layerScale(node.transform), image.layout);
+        if (node.mask && image) surface(node.layerId, "mask", layerMatrix(node.transform, image.layout), layerScale(node.transform), image.layout, false, node.transform);
       } else if (node.mask) {
         // An adjustment's or a generator's mask is in document pixels.
         surface(node.layerId, "mask", IDENTITY, 1, doc);
@@ -694,7 +701,7 @@ export class PhotoRenderer {
       }
       const scale = layerScale(node.transform);
       if (levelForScale(view.zoom * scale, image.image.levels.length) !== 0) continue;
-      const local = layerView(view, layerMatrix(node.transform, image.layout), scale, image.layout);
+      const local = layerView(view, layerMatrix(node.transform, image.layout), scale, image.layout, node.transform);
       if (local) needs.push({ image, view: { ...local, zoom: Math.max(1, local.zoom) } });
     }
     return needs;
@@ -1061,7 +1068,7 @@ export class PhotoRenderer {
       canvas: size,
       compositing: "linear",
       background: [0, 0, 0, 1],
-      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, blend: null, style: null, filters: [], contentKey: "mask", commutesFrom: 0, commutes: true, key: "mask", crop: null }],
+      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, projection: affineHomography(matrix), opacity: 1, mask: null, blend: null, style: null, filters: [], contentKey: "mask", commutesFrom: 0, commutes: true, key: "mask", crop: null }],
       baseKey: "mask",
       prefixKeys: ["mask"],
       key: "mask",
@@ -1277,6 +1284,8 @@ export class PhotoRenderer {
     if (!layer) return null;
     // An adjustment's, a generator's, a text's or a shape's pixels (its mask's) are the document's.
     if (!isPlaced(layer) || layer.kind === "text" || layer.kind === "shape") return { matrix: IDENTITY, scale: 1 };
+    // In perspective a brush's dabs can't be placed by an affine map: painting on it is refused before this.
+    if (isProjective(layer.transform)) return null;
     const surface = this.surfaceOf(layerId, part);
     const size = layer.kind === "pixel" ? layer.size : surface?.size;
     if (!size) return null;
@@ -1427,6 +1436,7 @@ export class PhotoRenderer {
     const layer = doc.layers.find((l) => l.id === layerId);
     if (!layer) return null;
     if (!isPlaced(layer) || layer.kind === "text" || layer.kind === "shape") return { size: doc.canvas, matrix: IDENTITY, bits: 8 };
+    if (isProjective(layer.transform)) throw new Error(perspectiveRefusal(layer.name));
     if (layer.kind === "pixel") return { size: layer.size, matrix: layerMatrix(layer.transform, layer.size), bits: 8 };
     const asset = this.assets.get(layer.mediaId);
     if (!asset?.width || !asset.height) return null;
@@ -1494,7 +1504,7 @@ export class PhotoRenderer {
     const matrix = layer.kind === "generator" ? IDENTITY : layerMatrix(layer.transform, shape);
     // A text's glyphs may reach a little past its frame.
     const reach = layer.kind === "generator" ? 0 : filtersReach(layer) + (layer.kind === "text" ? Math.ceil(0.25 * layer.font.size * layerScale(layer.transform)) + 2 : 0);
-    let corners = [apply(matrix, 0, 0), apply(matrix, shape.width, 0), apply(matrix, 0, shape.height), apply(matrix, shape.width, shape.height)];
+    let corners = layer.kind === "generator" ? [apply(matrix, 0, 0), apply(matrix, shape.width, shape.height)] : layerCorners(layer.transform, shape);
     // A shape's pixels are what it draws: its stroke and heads reach past its box.
     if (layer.kind === "shape") {
       const drawn = shapeBounds(layer);

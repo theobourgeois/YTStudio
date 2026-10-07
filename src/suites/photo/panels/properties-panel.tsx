@@ -8,11 +8,12 @@
  * value is one undo step; a slider or graph drag is one too.
  */
 import { useState } from "react";
-import { PiArrowClockwise, PiArrowCounterClockwise, PiArrowSquareOut, PiFlipHorizontal, PiFlipVertical, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiPaintBrush, PiStack, PiTrash, PiWarningCircle } from "react-icons/pi";
+import { PiArrowClockwise, PiArrowCounterClockwise, PiArrowSquareOut, PiFlipHorizontal, PiFlipVertical, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiPaintBrush, PiSquare, PiStack, PiTrash, PiWarningCircle } from "react-icons/pi";
 import { blendingOf, compositingOf } from "@shared/photo/blending";
 import { resetEffect, setCanvas, setCompositing, setEffectParams, setHighlights, setLayerBlending, setTransform, updateLayer } from "@shared/photo/edits";
 import { effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import { ORIENTATION_LABELS, type Orientation, orientLayers } from "@shared/photo/orient";
+import { isDistorted } from "@shared/photo/projective";
 import { type AdjustmentLayer, CANVAS_PRESETS, type Compositing, type PhotoLayer, type PlacedLayer, hasContent, isPlaced } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -227,6 +228,21 @@ function LayerProperties({ layer }: { layer: PlacedLayer }) {
             ))}
           </div>
         </div>
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label="Skew" value={round(t.skew ?? 0)} onCommit={(skew) => set({ skew })} suffix="°" />
+          {isDistorted(t) && (
+            <div className="flex items-end">
+              <Button size="sm" variant="outline" title="Take the skew and perspective off (Edit › Transform's), keeping its place, size and angle" onClick={() => set({ skew: 0, perspective: [0, 0] })} data-straighten>
+                <PiSquare /> Straighten
+              </Button>
+            </div>
+          )}
+        </div>
+        {t.perspective && (
+          <p className="text-xs text-muted-foreground" data-perspective>
+            In perspective: {round(t.perspective[0] * 100)}% across, {round(t.perspective[1] * 100)}% down (Edit › Transform › Distort or Perspective)
+          </p>
+        )}
         {size && (
           <div className="flex gap-1.5">
             <Button size="sm" variant="outline" onClick={() => set(fitted(t, size, canvas, "contain"))}>

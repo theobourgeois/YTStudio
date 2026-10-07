@@ -180,7 +180,7 @@ export const PHOTO_TOOLS = [
     title: "Move, scale or rotate a layer",
     kind: "edit",
     description:
-      "Moves, scales or rotates a layer. Positions are the layer's centre in canvas pixels (0, 0 is the top-left corner). Scale is a factor of the image's own size (1 = 100%; negative mirrors); rotation is in degrees, clockwise. Give only what changes. `fit` scales and centres it to fit inside the canvas (contain) or to cover it (cover), keeping its proportions.",
+      "Moves, scales, rotates, skews or distorts a layer (Photoshop's Free Transform). Positions are the layer's centre in canvas pixels (0, 0 is the top-left corner). Scale is a factor of the image's own size (1 = 100%; negative mirrors); rotation is in degrees, clockwise; skew leans its vertical edges by degrees (positive: the bottom goes right). `corners` puts the layer's four corners on four canvas points (top-left, top-right, bottom-right, bottom-left), in perspective when they aren't a parallelogram: to place a picture onto a screen, a sign or a wall seen at an angle (images and pixel layers only; text and shapes can only skew). `perspective` [x, y] sets how much the far side shrinks (0 none; |x| + |y| < 1). Give only what changes. `fit` scales and centres it to fit inside the canvas (contain) or to cover it (cover), keeping its proportions.",
     inputSchema: obj(
       {
         layer,
@@ -192,6 +192,9 @@ export const PHOTO_TOOLS = [
         scaleX: num("Horizontal scale (negative mirrors)."),
         scaleY: num("Vertical scale (negative flips)."),
         rotation: num("Rotation in degrees, clockwise (absolute)."),
+        skew: num("Skew in degrees, -85 to 85 (absolute; 0 takes it off)."),
+        perspective: arr(num("A fraction."), "[x, y]: the perspective (absolute; [0, 0] takes it off).", { minItems: 2, maxItems: 2 }),
+        corners: arr(arr(num("A coordinate."), "[x, y]", { minItems: 2, maxItems: 2 }), "Four canvas points for the layer's corners: top-left, top-right, bottom-right, bottom-left (a convex shape). Overrides the rest.", { minItems: 4, maxItems: 4 }),
         fit: oneOf(["contain", "cover"], "Fit inside the canvas, or cover it."),
       },
       ["layer"],
