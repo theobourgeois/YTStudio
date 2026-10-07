@@ -1,15 +1,23 @@
 # Pro-L
 
 FabFilter's **Pro-L 2**, the true peak limiter, planned as a stock effect of ours in the music suite (Built in
-→ Pro-L), as Pro-Q is. Nothing here is built yet: this is the plan, written before building, from
+→ Pro-L), as Pro-Q is, and made **more versatile than Pro-L 2**: a clip stage inside, no bass distortion, mid-side,
+a ceiling held by any measure, delivery tools. Nothing here is built yet: this is the plan, written before building.
+
+**Two rounds of research.** The first (2 October 2026) built this document from
 FabFilter's own **Pro-L 2 manual** (the PDF, `fabfilter.com/downloads/pdf/help/ffprol2-manual.pdf`, 49 pages,
 the same text as the online help at `fabfilter.com/help/pro-l`: "the manual"), its screenshots (below), the
 Pro-L 1 manual (whose style descriptions carry starting values the Pro-L 2 manual dropped), FabFilter's
 press releases and forum answers from FabFilter staff, reviews (Sound On Sound, Mix, Computer Music /
 MusicRadar), engineers' measurements (Jonathan Jetter's tests of its time constants), the standards its
 meters follow (ITU-R BS.1770-5, EBU R 128, EBU Tech 3341 and 3342) and the DSP literature on look-ahead
-limiting, true peak detection, oversampling and noise shaping. Quotes in "…" are the sources' own words.
-[Sources](#sources) at the end, with URLs.
+limiting, true peak detection, oversampling and noise shaping. The second (7 October 2026), in
+**`pro-l-research.md`**, asked how engineers in Théo's genres limit and clip (rap, trap, pop, hyperpop: loud masters,
+streaming masters, vocals and buses), **measured the real Pro-L 2** offline (`scripts/fabfilter-probes/pro_l.py`),
+surveyed every other serious limiter and clipper and the broadcast processors, and read the literature further. What
+it changed: §2's unknown defaults (now measured), the styles (§4), the DSP (§5: the hold, the order of the release, the
+kernels, the clip stage, mid-side, latency), the presets (§6), the proposal (§7), the build (§8) and the questions (§9).
+Quotes in "…" are the sources' own words. [Sources](#sources) at the end, with URLs.
 
 **Is there a newer Pro-L?** No. As of 2 October 2026 the current version is **Pro-L 2 2.26** (16 April 2026,
 a bug-fix release for all FabFilter plug-ins). There is no Pro-L 3: a user thread ("Pro-L3 idea") exists on
@@ -25,6 +33,7 @@ Pro-Q 4 (December 2024) and Pro-C 3. This document is based on Pro-L 2 throughou
 | **[std]** | A standard says so (ITU-R BS.1770-5, EBU R 128, Tech 3341, Tech 3342). |
 | **[observed]** | Read off FabFilter's screenshots. |
 | **[user]** | Someone measured or reported it on the real plug-in (reviews, forums, blogs). It can be wrong. |
+| **[measured]** | Measured on the real Pro-L 2 2.26 (its trial), offline: `pro-l-research.md` §2. |
 | **[inferred]** | Worked out here from the above; consistent with everything found, not confirmed. |
 | **[checked]** | Checked numerically here (Python / NumPy / SciPy, scripts described in [§5.16](#516-how-the-checked-claims-were-checked)). Proves the maths, not that Pro-L does the same. |
 | **[ours]** | A decision for Vaudio's version, not a claim about FabFilter's. |
@@ -163,7 +172,7 @@ files in `Documents/FabFilter/Presets/Pro-L 2`, subfolders as categories. **[FF]
 | | |
 | --- | --- |
 | Range | **0 to +30 dB** (the Compact view's Gain knob reads "0 dB … 30 dB") **[observed]** |
-| Default | **0 dB** **[inferred]**: the Default Setting is a starting point "to move the Gain slider up" |
+| Default | **0 dB** **[measured]**; linear taper |
 | What it does | "Adjusts the threshold of limiting and the increase in output gain at the same time." **[FF]** The sound is turned up by Gain, then limited to the Output Level. |
 | Mouse | Click anywhere on it and drag; the wheel; "if you click on the slider background and move the mouse slowly, you make more precise adjustments"; double-click to type. Its value floats in a small box on the strip ("+10.5"). **[FF]** |
 | Alt-drag | "The Gain slider is reverse-linked to the Output Level parameter, so holding down the Alt key … while increasing the gain, will decrease the output level with the same amount": hear the limiting without the level change. **[FF]** |
@@ -176,11 +185,11 @@ files in `Documents/FabFilter/Presets/Pro-L 2`, subfolders as categories. **[FF]
 | Control | Range | Default | Scale | What it does |
 | --- | --- | --- | --- | --- |
 | **Style** | Transparent, Punchy, Dynamic, Allround, Aggressive, Modern, Bus, Safe | **Modern** **[FF]** | a button with a menu | The limiting algorithm ([§4](#4-the-styles)). The new four "need more latency than others". **[FF]** |
-| **Lookahead** | **0 to 5 ms** **[observed]** | **not stated** (near the bottom of its range in every screenshot **[observed]**) | **not stated**; a short red arc at the very start of its ring **[observed]**, presumably the "less than 0.1 ms" zone that "will approximate 'hard clipping'" **[inferred]** | "The look-ahead time for the initial 'transient' stage": time to see a peak coming. Short: "preserving transients better and increasing the apparent loudness, but at the expense of possible distortion". Long: "safer, but less loud, and transients might appear to get lost in the mix a little more." **[FF]** |
-| **Attack** | **0 to 10 s** **[observed]** | **not stated** (about 11 o'clock **[observed]**) | **not stated** | How soon the slower release stage sets in. "Shorter attack times will allow the release stage to set in sooner." **[FF]** |
-| **Release** | **0 to 10 s** **[observed]** | **not stated** (about 11 to 12 o'clock **[observed]**) | **not stated** | How much the release stage holds. "Longer release times will cause it to have more effect." **[FF]** |
-| **Channel Linking: Transients** | **0 to 100%** | about **75%** **[observed]** | linear | Linking of the transient stage between left and right. "It often works well to choose less than 100% here." **[FF]** |
-| **Channel Linking: Release** | **0 to 100%** | **100%** **[observed]** | linear | Linking of the release stage; "it is best to start with 100% which will completely link the channels." **[FF]** |
+| **Lookahead** | **0 to 5 ms** **[observed]** | **0.18 ms** **[measured]** | linear **[measured]**; a short red arc at the very start of its ring **[observed]**, presumably the "less than 0.1 ms" zone that "will approximate 'hard clipping'" **[inferred]** | "The look-ahead time for the initial 'transient' stage": time to see a peak coming. Short: "preserving transients better and increasing the apparent loudness, but at the expense of possible distortion". Long: "safer, but less loud, and transients might appear to get lost in the mix a little more." **[FF]** |
+| **Attack** | **0 to 10 s** **[observed]** | **275 ms** **[measured]** | **10 s × raw⁴** (1 ms at a tenth of the knob, 256 ms at 0.4, 625 ms half way) **[measured]** | How soon the slower release stage sets in. "Shorter attack times will allow the release stage to set in sooner." **[FF]** |
+| **Release** | **0 to 10 s** **[observed]** | **400 ms** **[measured]** | **6.859 s × raw³** to 5 s (at 0.9), then on to 10 s **[measured]** | How much the release stage holds. "Longer release times will cause it to have more effect." **[FF]** |
+| **Channel Linking: Transients** | **0 to 100%** | **75%** **[measured]** | the knob is linear, its effect isn't: nothing below about 20 %, full linking from 50 % at 6 dB of reduction **[measured]** | Linking of the transient stage between left and right. "It often works well to choose less than 100% here." **[FF]** |
+| **Channel Linking: Release** | **0 to 100%** | **100%** **[measured]** | linear | Linking of the release stage; "it is best to start with 100% which will completely link the channels." **[FF]** |
 
 "In general, short attack times and long release times are safer and cleaner, but they can also cause pumping
 and reduce clarity. On the other hand, long attack times and short release times can increase apparent
@@ -206,7 +215,7 @@ range (see [§2.10](#210-surround-midi-learn-side-chain)). **[FF]**
 | --- | --- | --- |
 | **MIDI Learn ▾** | | See [§2.10](#210-surround-midi-learn-side-chain). |
 | **True Peak Limiting** | on / off (a green line on its top edge when on **[observed]**) | "The true peak output is ensured not to exceed the currently set Output Level in dBTP." The output readout then says "dBTP". Adds "about 5 ms" of latency. **[FF]** |
-| **Oversampling** | Off, 2x, 4x, 8x, 16x (CPU-intensive), 32x (Very CPU-intensive) **[observed]** | Runs the limiter at a multiple of the rate to cut aliasing and inter-sample peaks. "We recommend 4x or possibly 8x oversampling for normal use"; 16x and 32x for offline renders. Linear-phase: "a very slight pre-ring". **[FF]** |
+| **Oversampling** | Off (the default **[measured]**), 2x, 4x, 8x, 16x (CPU-intensive), 32x (Very CPU-intensive) **[observed]** | Runs the limiter at a multiple of the rate to cut aliasing and inter-sample peaks. "We recommend 4x or possibly 8x oversampling for normal use"; 16x and 32x for offline renders. Linear-phase: "a very slight pre-ring". **[FF]** |
 | **Dither** | the panel: Dither Off, 24, 22, 20, 18, 16 bits; Noise Shaping Basic, Optimized, Weighted **[FF]** | The button reads e.g. "16 Bits (O)". TPDF dither, "2-bit peak-to-peak". **[FF]** |
 | **Global Bypass** ⏻ | | "Guaranteed to correctly compensate the latency of the plug-in and it also applies soft bypassing to avoid clicks." The display dims; a red light on the button. **[FF]** |
 | **Out: 0.0 dBTP** | | The output button: a click opens the output panel; dragging it vertically sets the ceiling; double-click types it. **[FF]** |
@@ -220,8 +229,8 @@ The **output panel** (it pops up above the output button) **[FF]**:
 
 | Control | Range / default | What it does |
 | --- | --- | --- |
-| **Output Level** (a large knob) | −30 to 0 dB (dBTP with True Peak Limiting) **[observed]**; factory presets "were saved with a default output level of 0.0 dB" **[FF]** | The ceiling: "the desired maximum output level for the limiter". |
-| **DC** (Filter DC Offset) | off | "Gentle DC offset filtering, which removes a possible DC bias in the input signal … avoids unnecessary and asymmetrical limiting." Blue when on **[observed]**. Its corner frequency is **not stated**. |
+| **Output Level** (a large knob) | −30 to 0 dB (dBTP with True Peak Limiting) **[observed]**; factory presets "were saved with a default output level of 0.0 dB" **[FF]**; the Default Setting is 0.0 dBTP with True Peak Limiting **on** **[measured]** | The ceiling: "the desired maximum output level for the limiter". |
+| **DC** (Filter DC Offset) | off | "Gentle DC offset filtering, which removes a possible DC bias in the input signal … avoids unnecessary and asymmetrical limiting." Blue when on **[observed]**. Its corner is about **1.5 Hz**, first order (−5.1 dB at 1 Hz, −0.1 dB at 10 Hz) **[measured]**. |
 | **Side Chain Triggering** (antenna icon) | off | The external side chain drives the detector instead of the input: for **stem mastering**, a stem limited exactly as the full master was ("use Pro-L 2 on the stem channel, while feeding the original (unmastered, unlimited) master to its side chain input"). |
 | **1:1** (Unity Gain) | off | "Automatically sets the Output Level to the inverse of the current Gain, so you can listen to the effect of limiting in relation to the input signal." A yellow light; the output meters turn yellow; "all metering still shows levels as if the normal Output Level is applied." Temporary by design. |
 | **Headphones** (Audition Limiting) | off | "Subtracts the processed output from the input audio to audition the 'delta' signal: the actual gain reduction that is being applied." |
@@ -419,7 +428,7 @@ From FabFilter's descriptions **[FF]** and reviews **[user]**:
 
 | Artefact | What you hear | Cause | How to avoid it (Pro-L's way, and ours) |
 | --- | --- | --- | --- |
-| **Bass distortion** | Fuzz on sustained bass and 808s, a "farty" low end | The gain moves within one cycle of the bass (a 40 Hz cycle is 25 ms): fast release or short attack amplitude-modulates the waveform, adding harmonics and sidebands | Program-dependent release (slower while the overload lasts); attack ramps no shorter than half a bass period when the overload is low-frequency ([§5.5](#55-the-transient-stage)) |
+| **Bass distortion** | Fuzz on sustained bass and 808s, a "farty" low end | The gain moves within one cycle of the bass (a 40 Hz cycle is 25 ms): fast release or short attack amplitude-modulates the waveform, adding harmonics and sidebands | A **hold** of half the bass's period (Auto Hold), which makes the gain on a sustained bass constant at no latency; Pro-L 2's Aggressive, Modern, Bus and Safe hold it flat, its Transparent, Punchy, Dynamic and Allround don't (−21 to −26 dB THD on 40 Hz, **[measured]**) ([§5.5](#55-the-transient-stage)) |
 | **Pumping / breathing** | The mix ducks on every kick and swells back; reverb and room "breathe" | The release is slow enough to be heard as a level movement, in time with the loudest element | A short transient release for isolated peaks; a release stage that charges only on sustained overloads (Attack); linked release |
 | **Transient dulling** | Drums lose snap, the mix gets "smaller" | Long lookahead: the gain starts falling before the hit, so its first milliseconds are turned down most | Shorter lookahead; Dynamic's transient emphasis; Modern's adaptive ramp (short ramps for short peaks) |
 | **Clipping grit, aliasing** | Harsh, papery highs, inharmonic "sizzle" | A near-instant gain change is a waveshaper: it makes harmonics, and those above half the rate fold back as inharmonic tones | Oversampling (2x–32x), so the harmonics fall above the audible band and are filtered out; soft rather than hard clipping where it's wanted |
@@ -441,181 +450,194 @@ From FabFilter's descriptions **[FF]** and reviews **[user]**:
   100–250 ms and Release around 100–300 ms so the release stage smooths phrases without pumping the reverb,
   both links at 100% (a vocal is centred; its stereo reverb shouldn't move), no true peak limiting (it's not
   the last stage), oversampling off or 2x. **[ours]** On a track being recorded through its effects, every
-  millisecond of the limiter's latency is heard by the singer: pick a low-latency style (Transparent,
-  Punchy) and leave True Peak and oversampling off. **[ours]**
+  millisecond of the limiter's latency is heard by the singer: pick a low-latency style (ours: Spit at about
+  1 ms, Transparent and Punchy at 5 ms; Pro-L 2's Transparent is 10.3 ms **[measured]**) and leave True Peak and
+  oversampling off. **[ours]**
+- **For "spit"**: rap engineers end vocal chains in a Waves L1 or L2 hit hard, for colour more than control
+  ("spit and attitude … almost like an EQ", Chris Lord-Alge; `pro-l-research.md` §1.4). Ours is the Spit style
+  (§4.2). **[ours]**
 
 ---
 
 ## 4. The styles
 
-What FabFilter says about the differences: "Choosing a style affects both the lookahead, attack and release
-characteristics of the limiting algorithm"; even with Attack at its maximum some styles (Safe) still use an
-attack phase; "the Lookahead phase can sound different for different styles" (FabFilter staff, 2018) **[FF]**.
-The four new styles "need more latency" ("a different, more advanced design") **[FF]**. Jetter measured that
-Safe "uses only the slower release stage, bypassing the transient stage entirely" **[user]**.
+### 4.1 Pro-L 2's styles, measured
 
-Nothing more is published, so each style below is a **reconstruction**: a set of values for one engine
-([§5](#5-how-it-works-the-dsp)), chosen so that it does what FabFilter's sentence promises. Every number is
-**[ours]**, to be tuned by ear against the real plug-in. A style is data, not code, as EchoBoy's styles are.
+What FabFilter says: "Choosing a style affects both the lookahead, attack and release characteristics of the limiting
+algorithm"; the four new styles "need more latency" **[FF]**. What they actually do, measured on the real plug-in
+(`pro-l-research.md` §2) **[measured]**:
 
-The engine's blocks a style sets (explained in §5):
+| Style | Latency (48 kHz, Off, TP off) | Ramp before a peak | Between a bass note's half-cycles | Release | Bass THD (+6 dB, 40 Hz) | IMD (50 Hz + 3 kHz) |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Transparent** | 496 (256 + 5 ms) | the Lookahead knob | the gain bounces back | a fast transient release; the slow stage per Attack / Release | −21 dB | −13 dB |
+| **Punchy** | 496 | the knob | bounces | slower transient release (the pump) | −26 | −17 |
+| **Dynamic** | 992 | the knob, 0.4–0.5 dB extra at the onset | bounces | moderate | −24 | −15 |
+| **Allround** | 496 | the knob | bounces | holds, then an S-shaped release | −21 | −14 |
+| **Aggressive** | 2896 (≈ 60 ms) | **half a period of the waveform at the peak** (≥ knob, ≤ ~50 ms) | flat | **none**: the same adaptive ramp back up (0.3 ms for 1 kHz) | none | **−10** (−4 at +12 dB) |
+| **Modern** | 2880 (60 ms) | half a period; **~0.7 ms for a click** | flat (±0.15 dB) | a slow stage with a **~400 ms floor** | −73 | −38 |
+| **Bus** | 2896 (≈ 60 ms) | ~12 ms (sines), 50 ms (DC) | flat | smooth, ~200–400 ms | none | −27 |
+| **Safe** | 2640 (55 ms) | ~35 ms (sines), 50 ms (DC) | flat | slow | none | **−71** |
 
-- **Reserve**: extra look-ahead the style keeps beyond the Lookahead knob (its latency).
-- **Ramp**: the shape and length of the gain's descent before a peak (the smoothing kernel).
-- **Transient release**: how fast the transient stage lets go, from *fast* (an isolated peak) to *slow* (a
-  dense, sustained overload), chosen per sample by how busy the last 100 ms were.
-- **Release stage**: how strongly the slow stage charges (×), and what drives it (the peak demand, or an RMS
-  measure for Bus).
-- **Clipper**: a soft clipper before the limiter taking up to so many dB (Aggressive).
+Every style is bit-transparent below the ceiling and a hard wall above it: no knee, no compression under the ceiling,
+no emphasis on sounds under it. The first round's Allround knee and Bus's RMS compressor were wrong. And Pro-L 2's
+**loudness isn't monotonic in Gain** in Modern, Aggressive or Bus: past about +12 dB, Modern gets quieter as Gain rises
+(`pro-l-research.md` §2.6).
+
+### 4.2 Ours
+
+**Our styles keep Pro-L 2's names** (engineers know them: Kinelski's "EDM-Aggressive and Tight", Sangiao's "Hip Hop
+Mastering RS") **and what each is for, and fix what the measurements show is wrong with them**. One more is added for
+vocals. A style is data, not code, as EchoBoy's styles are **[ours]**. The blocks a style sets (explained in §5):
+
+- **Reserve**: look-ahead the style keeps beyond the Lookahead knob (its latency).
+- **Ramp**: the gain's descent before a peak: the knob's length, or **adaptive** (half the period of the waveform at
+  the peak, between the knob and the reserve; short for clicks), drawn by a box-stack kernel (§5.4).
+- **Hold**: how long the gain stays down after a peak (§5.5). **Auto** is half the period of the overload's lowest
+  strong frequency, so a sustained bass gets a constant gain (no distortion) and a drum hit none (its loudness). Every
+  style has the Hold control; the style sets its default.
+- **Transient release**: how fast the transient stage lets go, from *fast* (an isolated peak) to *slow* (a busy
+  passage), or **symmetric** (the adaptive ramp back up: Aggressive).
+- **Release stage**: how strongly it charges, its **floor** (the shortest recovery), and its **shape** (exponential, or
+  an S-curve with a release delay: Allround). Its strength is capped so that **loudness always rises with Gain**
+  (Pro-L 2's doesn't).
 - **Emphasis**: transient emphasis before the limiter (Dynamic).
 
-| Style | Reserve | Ramp | Transient release (fast → slow) | Release stage | Extras | Starting values: Lookahead / Attack / Release |
-| --- | --- | --- | --- | --- | --- | --- |
-| **Transparent** | 0 | Hann over the Lookahead | 10 → 60 ms | ×1 on the peak demand | none | 0.5 ms / 150 ms / 500 ms |
-| **Punchy** | 0 | Hann over the Lookahead, at least 1 ms | 40 → 150 ms (the pump) | ×1.3 | none | 1.5 ms / 250 ms / 500 ms |
-| **Dynamic** | 2 ms | Hann over the Lookahead | 10 → 60 ms | ×1 | emphasis: onsets up to +3 dB for 5–15 ms, scaled by how hard it's limiting | 0.3 ms / 250 ms / 250 ms |
-| **Allround** | 0 | Hann, at least 0.5 ms | 15 → 100 ms | ×1 | a 1 dB soft knee under the ceiling | 0.5 ms / 250 ms / 500 ms |
-| **Aggressive** | 3 ms | raised cosine over min(Lookahead, 0.3 ms) | 2 → 20 ms | ×0.5 | soft clipper taking up to 2 dB, oversampled | 0.1 ms / 1 s / 100 ms |
-| **Modern** | 10 ms | adaptive: per overload, from the Lookahead (sharp, isolated peaks) up to 10 ms (low-frequency ones): at least half the period of the overload's lowest strong frequency | 5 → 80 ms, two-sided (the recovery is planned within the reserve, so it's as smooth as the descent) | ×1 | none | 0.5 ms / 150 ms / 300 ms |
-| **Bus** | 50 ms | Hann, at least 2 ms | 50 → 300 ms | RMS-driven: compresses from 6 dB under the ceiling at 4:1 (a 30 ms look-ahead RMS), then limits | glue and pump by design | 2 ms / 30 ms / 300 ms |
-| **Safe** | 20 ms | Hann over max(Lookahead, 20 ms) | none (no transient stage: everything is the release stage's) | ×1, its release never under 80 ms | none | 5 ms / 0 s / 1 s |
+| Style | Reserve | Ramp | Hold default | Transient release | Release stage | Extras | Starting values: Lookahead / Attack / Release | For |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **Transparent** | 0 | the knob | Auto | 10 → 60 ms | ×1, exponential | | 0.5 ms / 150 ms / 500 ms | masters, a few dB; the low-latency master style |
+| **Punchy** | 0 | the knob, ≥ 1 ms | Auto | 40 → 150 ms (the pump) | ×1.3 | | 1.5 ms / 275 ms / 400 ms | vocals, bass, beat music |
+| **Dynamic** | 2 ms | the knob | Auto | 10 → 60 ms | ×1 | emphasis: onsets up to +3 dB | 0.3 ms / 250 ms / 250 ms | rock, live drums |
+| **Allround** | 0 | the knob, ≥ 0.5 ms | Auto | 15 → 100 ms | ×1, **S-curve with a 100 ms release delay** (Weiss) | | 0.5 ms / 275 ms / 400 ms | when unsure |
+| **Aggressive** | 25 ms | adaptive, knob → 25 ms, both sides | Auto | symmetric (no release stage) | none | | 0.1 ms / – / – | EDM, trap, near-clipping density |
+| **Modern** | 25 ms | adaptive, knob → 25 ms, short for clicks | Auto | 5 → 80 ms, two-sided | ×1, floor 300 ms, capped for monotonic loudness | | 0.18 ms / 275 ms / 400 ms | the default; masters of every kind |
+| **Bus** | 45 ms | ≥ 12 ms, adaptive → 50 ms | 15 ms | 50 → 300 ms | ×1.3 | | 2 ms / 30 ms / 300 ms | drum bus, glue and pump |
+| **Safe** | 35 ms | 35 ms (box stack) | 20 ms | none (all release stage) | ×1, never under 80 ms | | 5 ms / 0 s / 1 s | acoustic, classical, delicate vocals |
+| **Spit** (new) | 0, **Lookahead 0–1 ms** | the knob (0.05 ms by default) | 0 | 1 → 5 ms | none | oversampling Off in its presets | 0.05 ms / – / 3 ms | the L1 / L2 "spit and attitude" on a vocal, a drum bus; ~1 ms of latency |
 
-The starting values are where the presets of §6 start from, what the style menu's hint suggests and what
-the assistant is told to begin with; choosing a style from the menu leaves the knobs where they are, as Lookahead, Attack and Release
-are separate parameters in Pro-L too (whether Pro-L moves them with the style is **not stated**) **[ours]**.
+Why these **[ours]**:
 
-Why these choices **[inferred]**:
+- **Auto hold in every style but Spit.** The old four's bass distortion (−21 dB, about 10 %) is the gain bouncing between
+  half-cycles. A hold of half a period removes it entirely at no latency (`pro-l-research.md` §5.1). Anyone who wants
+  Pro-L 2's old grit sets Hold to 0.
+- **Adaptive ramps for Aggressive and Modern**, as measured on Pro-L 2, but a **25 ms reserve instead of 60**: half the
+  period of a 20 Hz wave is 25 ms, and nothing musical is lower. So both are half Pro-L 2's latency.
+- **Modern's release floor stays** (300 ms, near the measured 400) because that's its smoothness; its strength is capped
+  so that more Gain is never quieter.
+- **Allround's S-shaped release** (measured: it holds, then lets go along an S) is Weiss's Release Delay: the release
+  starts only when the sound has really ended, so tails aren't dented.
+- **Spit** is the edgy vocal limiter the engineers reach for (Lord-Alge, Firkins, Brathwaite, Bolooki): a fast, hard,
+  not oversampled brickwall. Its harshness is the point; the window says so.
+- **Bus** keeps its slow ramps and pump; no sub-ceiling compression (Pro-L 2 has none).
 
-- **Transparent** has nothing hidden: short smooth ramps and a moderate program-dependent release, the
-  classic clean look-ahead limiter; it needs no more latency than the knob (FabFilter: choose it "if you need
-  minimum latency").
-- **Punchy**'s slower transient release *is* the pump: the gain recovers over tens of milliseconds, audibly,
-  in time with the beat; its minimum 1 ms ramp is why it stays clean on single tracks.
-- **Dynamic** "enhances transients before actually applying limiting": an onset detector adds a short boost
-  to each attack (as a transient designer would), so after limiting the hit still stands out from what
-  follows. The 2 ms reserve lets the boost start on the onset rather than after it.
-- **Allround**'s small knee begins reducing just under the ceiling, so it reaches full reduction gently: a
-  compromise between loudness and transparency.
-- **Aggressive** "near-clipping": very short ramps (the gain changes within a fraction of a millisecond,
-  close to waveshaping) plus a soft clipper that rounds the very tops; oversampled, so the clipping's
-  harmonics don't alias. Its weak release stage keeps it loud.
-- **Modern** reconciles "very near-zero lookahead" with "extremely clean": the knob's short ramp is used only
-  where it is clean (short, high-frequency peaks); a bass overload gets a ramp long enough not to distort it,
-  from the reserve. The reserve also lets the recovery be shaped ahead of time. Its 10 ms reserve is why it's
-  among the styles that "need more latency".
-- **Bus** is a compressor in front of a limiter: glue (several dB of RMS-driven gain reduction under the
-  ceiling) and pump (slow release). A long look-ahead (50 ms) for its RMS detector fits a user's report of
-  "massive latency (>65 ms) on the 'Bus' algorithm" **[user]**.
-- **Safe**: one slow stage, long ramps (20 ms), slow release: its gain never moves fast enough to distort, at
-  the price of loudness and some pumping.
+Choosing a style leaves Lookahead, Attack, Release and Hold where they are (they're separate parameters, as in
+Pro-L 2); the starting values are where the presets of §6 start and what the style menu's hint and the assistant
+suggest. The window shows what the current style does in plain numbers (its ramp, hold, release and latency), as DMG's
+"Copy to Manual" and KVR's complaints about Pro-L's opaque styles ask **[ours]**.
 
 ---
 
 ## 5. How it works: the DSP
 
-FabFilter publishes no block diagram (a user asked for one in 2018 **[FF forum]**). What follows is the
-design we'd build: the parts FabFilter describes, each done by the best-known method, with the reasoning, and
-numbers checked where they could be.
+The first round designed the parts FabFilter describes, each by the best-known method. The second round measured
+Pro-L 2 and read further (`pro-l-research.md`); what changed is marked **(changed)**.
 
-Conventions: `fs` is the host rate, `k` the oversampling factor, `fo = k·fs` the rate the limiter runs at.
-Gains are linear unless written in dB; "reduction" is a positive number of dB. `C` is the ceiling (Output
-Level) as a linear amplitude.
+Conventions: `fs` is the host rate, `k` the oversampling factor, `fo = k·fs` the rate the limiter runs at. Gains are
+linear unless written in dB; "reduction" is a positive number of dB. `C` is the ceiling (Output Level) as a linear
+amplitude.
 
 ### 5.0 The conclusions in brief
 
-1. **Two stages, one guarantee.** A fast look-ahead *transient stage* alone guarantees the ceiling; a slow
-   *release stage* only ever adds reduction (the final gain is the lower of the two), so it shapes the sound
-   without risking the ceiling. Attack decides which overloads the slow stage takes on. This reproduces every
-   behaviour FabFilter and Jetter describe **[inferred]**.
-2. **Look-ahead without overshoot is a theorem, not a tuning**: take the lowest gain any sample needs over
-   the next `L` samples, smooth it with any non-negative kernel no longer than `L + 1` samples, delay the sound
-   by `L`: no output sample can exceed the ceiling ([§5.4](#54-look-ahead-without-overshoot)) **[checked]**.
-3. **An oversampled limiter must end with a stage at the host rate.** Limiting at `fo` and then decimating
-   puts the output over the ceiling, by up to **0.8 dB** (samples) and **1.3 dB** (true peak) on hard material
-   **[checked]**. That is Pro-L 1's oversampling overshoot, which Pro-L 2 says it fixed **[FF]**.
-4. **True peak limiting is only as good as its detector.** On sound with energy near half the rate (clipped
-   drums, noise), good interpolators disagree by up to 0.5 dB about the "true" peak **[checked]**; the
-   BS.1770 reference filter over-reads high frequencies by up to 0.2 dB **[checked]**. So the detector takes
-   the maximum of the ITU's own four phases and a finer 8x interpolator (128 taps a phase, with a parabola
-   through the highest three points), and the stage runs twice (a second pass leaves a fiftieth of what one
-   pass leaves: ≤ 0.0012 dB against 0.06 dB). With oversampling on, the output then stays under the ceiling
-   by the BS.1770 meter and by an ideal reconstruction alike **[checked]**.
-5. **The loudness meter is standard maths**: K-weighting from the analog prototype at any rate (it matches
-   the ITU's 48 kHz coefficients to every printed digit **[checked]**), 100 ms sub-blocks, 400 ms and 3 s
-   windows, gating; Integrated and LRA from fixed-size histograms so nothing allocates on the audio thread.
-6. **Latency is fixed per style, oversampling and true peak**, never by the Lookahead knob, so turning or
-   automating it never changes the song's delay compensation **[ours]**; Pro-L's own latency also seems not to
-   depend on the knob ("496 samples … in 'transparent/look ahead off' mode") **[user]** **[inferred]**.
+1. **Two stages, one guarantee.** A fast look-ahead *transient stage* alone guarantees the ceiling; a slow *release
+   stage* only ever adds reduction, so it shapes the sound without risking the ceiling. Measured on Pro-L 2: this is how
+   Transparent behaves exactly (`pro-l-research.md` §2.4).
+2. **Look-ahead without overshoot is a theorem**: take the lowest gain any sample needs over a window, smooth it with
+   any non-negative kernel no longer than the look-ahead, delay the sound: no output sample can exceed the ceiling
+   ([§5.4](#54-look-ahead-without-overshoot)) **[checked]**.
+3. **(changed) A hold, not a longer ramp, removes bass distortion**: a hold-min window extended backwards by half the
+   bass's period makes the gain on a sustained bass constant, at no latency ([§5.5](#55-the-transient-stage)).
+4. **(changed) Every "only lowers" curve goes before the kernel** (the transient release, the release stage): the same
+   guarantee, 15–45 dB less gain modulation above 5 kHz **[checked]**.
+5. **(changed) The kernel is a box stack**, O(1) a sample at any length, 21 dB lower sidelobes than Hann.
+6. **(new) A clip stage before the look-ahead stages** ([§5.7](#57-the-clip-stage)), at ≥ 4× with anti-aliasing on its
+   residue, bit-exact below its knee.
+7. **(new) M/S "side first" linking keeps the guarantee** ([§5.3](#53-the-gain-computer-linking-and-mid-side)).
+8. **An oversampled limiter must end with a stage at the host rate**, and **true peak is only as good as its
+   detector**: ours holds the ceiling by BS.1770's meter *and* by an ideal reconstruction; Pro-L 2 holds only the
+   first (+0.1 to +0.37 dB over by an ideal reconstruction, measured).
+9. **Latency is fixed per style, oversampling and true peak**, never by the Lookahead knob (Pro-L 2's too, measured),
+   and roughly half Pro-L 2's for the adaptive styles.
+10. **(new) Loudness rises with Gain**, always (a test, §8.9).
 
 ### 5.1 The signal flow
 
 ```
  in (L, R)
    │
- [DC filter]                          optional, 5 Hz high-pass
+ [DC filter]                          optional, first-order high-pass at 1.5 Hz (Pro-L 2's, measured)
    │
  × Gain                               0..+30 dB, glides
    │
  upsample ×k                          linear phase (Off: k = 1)
    │
  [Dynamic: transient emphasis]        in the audio path
- [Aggressive: soft clipper]           in the audio path
    │
-   ├───────────► detector: |x| at fo  (the input's true peak when TP is on and k = 1)
+ CLIP STAGE (§5.7)                    optional: shaves what exceeds ceiling + Clip Range; at ≥ 4×, ADAA on the
+   │                                  residue; below 4× its own differential ×4 stage
+   ├───────────► detector at fo: |x| per channel, or |M| and |S| (§5.3)
    │                  │
-   │             gain computer: r = max(0, 20·log10(|x| / C)), per channel
+   │             gain computer: demand per channel (or the M/S pair)
    │                  │
    │        ┌─────────┴──────────┐
    │   link: transients     link: release
    │        │                    │
-   │   TRANSIENT STAGE      RELEASE STAGE (at fs)
-   │   hold-min, ramp,      attack / release follower
-   │   fast release         of the demand (Bus: RMS)
-   │        └─────────┬──────────┘
-   │             g = min(g_transient, g_release)
-   │                  │
- delay D ──────────► × g
-                      │
-                downsample ×k                 linear phase
-                      │
-                LAST STAGE at fs              sample-peak catch (k > 1), or the
-                      │                       true peak stage, twice (TP on)
-                      ├──────────► meters: peak / true peak, GR, RMS, loudness
-                      │
-                × Unity Gain                  (the meters are fed before it)
-                      │
-                Audition (delta)              delayed input − output
-                      │
-                dither                        TPDF, noise shaping
-                      │
-                     out
+   │   hold-min over        RELEASE STAGE (at fs)
+   │   reserve + Lookahead  follower of the demand
+   │   + Hold (backwards)        │
+   │        │                    │
+   │   transient release ── min ─┘          (both only lower the curve: before the kernel)
+   │        │
+   │   kernel: box stack, length = ramp (the knob, or adaptive)
+   │        │
+ delay D ──► × g
+               │
+         downsample ×k                linear phase
+               │
+         LAST STAGE at fs             sample-peak catch (k > 1), or the true peak stage, twice (TP on)
+               ├──────────► meters: peak / true peak, GR per stage, % clipped, peak density, RMS, loudness
+               │
+         × Unity Gain                 (the meters are fed before it)
+               │
+         Audition: All / Clip / Limiter   delayed input − output, or one stage's share
+               │
+         dither                       TPDF, noise shaping
+               │
+              out
 ```
 
-- Gain is applied before everything, so Gain *is* the threshold: with Gain at +6 dB and the ceiling at
-  −1 dB, anything over −7 dBFS at the input is reduced.
-- The detector and the audio path are the same signal at `fo`; only the gain curve needs the look-ahead, so
-  the audio is delayed by `D` (the stage's whole look-ahead: reserve + 5 ms) while the gain is computed from
-  the undelayed signal.
-- The release stage runs at `fs` (it's slow; there's no point running it at 32x) and is interpolated
-  linearly to `fo` **[ours]**.
+- Gain is applied before everything, so Gain *is* the threshold: with Gain at +6 dB and the ceiling at −1 dB, anything
+  over −7 dBFS at the input is reduced (by the limiter, and by the clipper above −7 + Clip Range).
+- Only the gain curve needs the look-ahead: the audio is delayed by `D` (the style's reserve + 5 ms) while the gain is
+  computed from the undelayed signal. The Hold looks *backwards*, so it costs nothing.
+- The release stage runs at `fs` and is interpolated to `fo`; it's min'd into the transient stage's curve before the
+  kernel, aligned so the kernel centres it.
 
 ### 5.2 Levels, the ceiling, Unity Gain, Audition, the DC filter
 
-- **Ceiling**: `C = 10^(Output/20)`; with True Peak Limiting it's in dBTP (the true peak stage enforces it),
-  without it in dBFS (sample peaks). **[FF]**
-- **Unity Gain**: the output is multiplied by `10^(−Gain/20)` after the limiter, so the limited sound plays at
-  the input's level; the meters keep showing the levels as if Unity Gain were off (they're fed before it).
-  **[FF]**
-- **Audition Limiting**: out = (the input, delayed by the whole latency, through the same oversampling filters
-  and Gain) − (the limited output, before Unity Gain), i.e. exactly what was removed. To make it a clean null
-  the dry copy must go through the same up / down filters (otherwise their passband ripple and pre-ring
-  appear in the "delta") **[inferred]**. Whether FabFilter's delta is before or after the gain stage is **not
-  stated**; ours is at the limited level, so it sounds as loud as what was taken away **[ours]**.
-- **DC filter**: "gentle" **[FF]**; ours a first-order high-pass at 5 Hz on the input, `y[n] = x[n] − x[n−1]
-  + R·y[n−1]`, `R = exp(−2π·5/fs)` (Smith's DC blocker; his `R = 0.995` at 44.1 kHz is a 35 Hz corner, too high
-  for a master) **[ours]**. Its phase shift at 20 Hz is 14°, and none of it is latency.
+- **Ceiling**: `C = 10^(Output/20)`; with True Peak Limiting it's in dBTP (the true peak stage enforces it), without it
+  in dBFS (sample peaks). **[FF]** The true peak is always *shown* (the loudness panel and the output meter), even when
+  the ceiling is a sample-peak one: the "release style" ceilings of real records (−0.01 to −0.3 dBFS) put them at +1 to
+  +2.5 dBTP, and the user should see it (`pro-l-research.md` §1.6) **[ours]**.
+- **Unity Gain**: the output is multiplied by `10^(−Gain/20)` after the limiter, so the limited sound plays at the
+  input's level; the meters keep showing the levels as if Unity Gain were off. **[FF]**
+- **Audition** (changed): **All** is Pro-L's: (the input, delayed by the whole latency, through the same oversampling
+  filters and Gain) − (the output, before Unity Gain), i.e. exactly what was removed. **Clip** is the clip stage's
+  residue alone, and **Limiter** what the look-ahead stages removed after it; Clip + Limiter = All. Each is heard at the
+  limited level (KClip's and Flatline's "delta", the engineers' habit, `pro-l-research.md` §1.3) **[ours]**.
+- **DC filter** (changed): a first-order high-pass at **1.5 Hz**, as Pro-L 2's measures (−5.1 dB at 1 Hz, −0.1 dB at
+  10 Hz); `y[n] = x[n] − x[n−1] + R·y[n−1]`, `R = exp(−2π·1.5/fs)`. The first round's 5 Hz was too high. It's at the
+  input, so it never adds overshoot after the limiter (a high-pass after a limiter raises its peaks).
 
-### 5.3 The gain computer and channel linking
+### 5.3 The gain computer, linking and mid-side
 
 Per channel `c`, at `fo`, the reduction needed for the sample to sit at the ceiling:
 
@@ -623,143 +645,225 @@ Per channel `c`, at `fo`, the reduction needed for the sample to sit at the ceil
 r_c[n] = max(0, 20·log10(|x_c[n]| / C))           (dB; 0 when under the ceiling)
 ```
 
-**Channel linking** **[inferred]** (the obvious reading of "the amount of channel linking"): with link `λ`
-(0..1) for a stage, each channel's demand moves towards the louder channel's:
+**L/R linking** (as the first round): with link `λ` (0..1) for a stage, each channel's demand moves towards the louder
+channel's in dB:
 
 ```
 r_link[n] = max_c r_c[n]
-d_c[n]    = r_c[n] + λ·(r_link[n] − r_c[n])         (dB)
+d_c[n]    = r_c[n] + λ·(r_link[n] − r_c[n])
 ```
 
-At 100% both channels get the larger demand (the image can't move); at 0% each its own. Linking can only
-*add* reduction, so it never threatens the ceiling. The transient stage uses `λ_transients`, the release
-stage `λ_release`. (Linking in dB rather than linear makes 50% the geometric middle, the one that sounds
-halfway **[ours]**.) For surround, Pro-L's second half of the range interpolates every channel towards the
-maximum of all **[FF]**; we're stereo only.
+At 100 % both channels get the larger demand; at 0 % each its own; 50 % is the geometric middle **[ours]**. Linking can
+only *add* reduction, so it never threatens the ceiling. The transient stage uses `λ_transients`, the release stage
+`λ_release` (= Ozone's Transient / Sustain stereo independence). **Pro-L 2's own knob, measured, isn't linear**: no
+linking below about 20 %, full linking from 50 % (at 6 dB of reduction) **[measured]**. Ours is linear in dB, so the
+whole range does something; its default 75 % is a real three-quarter link **[ours]**.
+
+**(new) Mid-side, side first.** With `M = (L+R)/2`, `S = (L−R)/2` and gains `gM`, `gS` (`L' = gM·M + gS·S`,
+`R' = gM·M − gS·S`), and since `max(|a+b|, |a−b|) = |a| + |b|`, the ceiling holds at a sample iff
+
+```
+gM·|M| + gS·|S| ≤ C
+```
+
+which is linear and monotone in both gains: lowering either never hurts. So the look-ahead construction extends to the
+pair: per sample choose a feasible `(gM, gS)`, hold-min and smooth each, and the averaged pair is still feasible
+**[checked]**. The policy, **side first**: lower `gS` down to the **Side floor** (0 to −18 dB, default −6) before `gM`
+moves; past the floor both move together. Wide synths narrow for an instant instead of the vocal, kick and 808 ducking:
++0.34 dB overall, +0.43 dB in the centre on a wide chord stack over a mono 808, both at exactly the ceiling
+(`pro-l-research.md` §5.4). It also helps mono compatibility. The window's stereo mode is **L/R** (with the two links)
+or **M/S** (with the Side floor; the two link knobs aren't used) **[ours]**. Not in Pro-L 2.
 
 ### 5.4 Look-ahead without overshoot
 
-The requirement on the gain applied to sample `n` is `g[n] ≤ q[n] = min(1, C/|x[n]|)` (from `d_c` in dB).
-The design (Signalsmith's, after many before it) **[checked]**:
+The requirement on the gain applied to sample `n` is `g[n] ≤ q[n] = min(1, C/|x[n]|)` (from `d_c` in dB). The design
+(Signalsmith's, after many before it) **[checked]**:
 
 ```
-m[n] = min( q[n−L], q[n−L+1], …, q[n] )             hold-min over L+1 samples (computed on the undelayed signal)
-s[n] = Σ_{j=0..L} w[j] · m[n−j]                      any kernel w[j] ≥ 0 with Σ w = 1 (the ramp)
-y[n] = s[n] · x[n−L]                                  the sound delayed by L
+m[n] = min( q[n−L−H], …, q[n] )                       hold-min over L+1+H samples (undelayed signal; H looks back)
+m'[n] = min( m[n], released[n] )                       every "only lowers" curve: transient release, release stage
+s[n] = Σ_{j=0..R} w[j] · m'[n−j]                       a kernel w[j] ≥ 0, Σ w = 1, length R + 1 ≤ L + 1 (the ramp)
+y[n] = s[n] · x[n−L]                                   the sound delayed by L
 ```
 
-**Why it can't overshoot**: each `m[n−j]` for `0 ≤ j ≤ L` is a minimum over `q[n−j−L … n−j]`, a window that
-contains `n − L`; so every term is `≤ q[n−L]`, and so is their weighted average: `s[n] ≤ q[n−L]`, i.e.
-`|y[n]| ≤ C`. The same holds for averages in dB (geometric means), for windows longer than the kernel (a
-*hold*), for a kernel that changes from one sample to the next (the argument is per sample), and after any
-release that only ever *lowers* the curve (`g = min(s, released)`). It holds exactly in floating point up to
-rounding (the checks read −0.0000 dB over the ceiling **[checked]**).
+**Why it can't overshoot**: each `m[n−j]` for `0 ≤ j ≤ L` is a minimum over a window that contains `n − L`, so every
+term is `≤ q[n−L]`, and so is their weighted average: `|y[n]| ≤ C`. The same holds for windows longer than the kernel
+(the hold, forwards or backwards), for a kernel that changes from one sample to the next, and for any curve that only
+ever *lowers* `m` before the kernel. It holds exactly in floating point up to rounding.
+
+**(changed) The kernel: a box stack.** A Hann kernel can't be computed by running sums; at 32× with 5 ms it's about
+7 700 taps a sample. A cascade of box filters (moving averages, each a running sum) is non-negative, its step response
+monotonic, its total length exactly `R + 1`, and it costs a few adds a sample whatever `R` is:
+
+| Kernel | Layers' lengths (of the total) | Sidelobes | Cost |
+| --- | --- | --- | --- |
+| box² (a triangle) | ½, ½ | −27 dB | 2 running sums |
+| box³ | 0.40408, 0.33485, 0.26107 | (between) | 3 |
+| **box⁴** (default) | 0.30794, 0.27370, 0.22913, 0.18922 | **21 dB lower than Hann** | 4 |
+
+(Signalsmith's optimal ratios.) Its length can change per sample, which the adaptive ramp needs. The running sums are
+made exact (no drift) by summing integers (gains in fixed point, rounded *down*, so averages stay `≤ q`) or by
+restarting at each buffer wrap **[ours, from Signalsmith]**. Hann or Blackman remain as fixed-length shapes where the
+length is short (the host-rate stages).
+
+**(changed) The sliding minimum.** Lemire's wedge does at most 3n comparisons for n samples, but one sample can pop the
+whole deque. Signalsmith's `PeakHold` (three regions with incremental suffix minima: constant work per sample, and its
+length can change live) or van Herk / Gil–Werman (branch-free, vectorisable over channels) are steadier. At 16–32× the
+hold-min runs at a control rate: the minimum over a window is the minimum of per-chunk minima (chunks of 8–32 samples at
+`fo`, zita-dpl1's approach), with one chunk added to the hold **[ours]**.
 
 What the parts do to the sound:
 
-- **The kernel is the attack's shape.** A box (moving average) gives a straight-line descent in time (in
-  linear gain); a cascade of two boxes a triangle-kernel S-curve; a **Hann** kernel a raised-cosine descent,
-  the smoothest (its spectrum has the lowest sidelobes, so the gain change makes the fewest sidebands). The
-  kernel's length is the descent's length: a peak is reached after the full Lookahead, which is why Pro-L calls
-  it look-ahead time.
-- **Very short ramps approach clipping**: at 1 sample the gain changes instantly; the output is the sound
-  multiplied by a step, i.e. waveshaped. "Very short look-ahead times (less than 0.1 ms) will approximate
-  'hard clipping', introducing distortion and aliasing" **[FF]**.
-- **A hold** (a min-window longer than the kernel) keeps the gain down between close peaks, so it doesn't
-  flutter up and down between the hits of a roll (Signalsmith uses 15 ms in its example).
-- **A variable kernel** (Modern's adaptive ramp) is a box whose length changes per sample, computed in O(1)
-  from a running sum (`(P[n] − P[n−len]) / len`), twice for a triangle; any length up to `L + 1` keeps the
-  guarantee.
-
-**The sliding minimum in O(1)**: Lemire's monotonic wedge (a deque of indices whose values increase; push
-pops larger values from the back; the front leaves when it's older than the window): at most three
-comparisons per sample, worst case. **[Lemire 2006]** The deque's storage is the window's length, allocated
-on the message thread. For the reserve's sub-windows (Modern's adaptive ramp reads the minimum over a shorter
-recent span) the same wedge answers "minimum over the last `s` samples, for any `s ≤ L`" by a binary search
-for the first index inside the span (the wedge is sorted by index) **[inferred]**.
+- **The kernel is the attack's shape** and its length the descent's length. Very short ramps approach clipping
+  ("less than 0.1 ms will approximate 'hard clipping'" **[FF]**).
+- **The hold keeps the gain down** between close peaks (the hits of a roll) and through a bass note's cycle (§5.5).
+- **A variable kernel** (the adaptive ramp) is a box stack whose length changes per sample; any length up to `L + 1`
+  keeps the guarantee.
 
 ### 5.5 The transient stage
 
-The ceiling's guardian. Per channel, on the linked demand `d_c`:
+The ceiling's guardian. Per channel (or for M and S), on the linked demand:
 
-1. `q = 10^(−d_c/20)`, hold-min over the stage's whole look-ahead `D` (reserve + Lookahead).
-2. The **ramp**: the style's kernel, of the Lookahead's length (or, in Modern, adaptive).
-3. The **release**: after the kernel, the gain may rise no faster than the release allows:
+1. **The requirement** `q = 10^(−d/20)`.
+2. **(changed) Hold-min** over the style's reserve + Lookahead *ahead* and the **Hold** *behind*.
+3. **The transient release** (before the kernel):
+   ```
+   rel[n] = min( m[n],  rel[n−1] + (1 − rel[n−1])·(1 − e^(−1/(τ·fo))) )
+   ```
+   **Program-dependent** **[inferred]**: `τ` moves between the style's *fast* and *slow* times with how busy the last
+   100 ms were (`b`, the fraction of it over 0.5 dB of reduction; `τ = τ_fast·(τ_slow/τ_fast)^b`). Aggressive's is
+   **symmetric**: the gain rises along the mirror image of its adaptive ramp (Pro-L 2's Aggressive, measured: 0.3 ms
+   after a 1 kHz burst, 50 ms after DC).
+4. **The release stage's curve** (§5.6), min'd in.
+5. **The kernel**, of the ramp's length.
 
-```
-rel[n] = min( s[n],  rel[n−1] + (1 − rel[n−1])·(1 − e^(−1/(τ·fo))) )      (a one-pole rise towards 1, never above s)
-```
+**The Hold, and why it's the cure for bass distortion (changed).** On a sustained bass, the requirement dips once per
+half-cycle. Without a hold, the gain rises between the crests and is pulled down at the next: a ripple at twice the
+bass frequency, multiplying the bass (harmonics) and everything riding on it (sidebands). That's Pro-L 2's
+Transparent at −21 dB THD on a 40 Hz overload (about 10 %) **[measured]**. Lengthening the ramp doesn't remove it. **A
+hold-min window reaching back at least half the bass's period makes the gain on a steady bass exactly constant**:
 
-**Program-dependent release** **[inferred]** (FabFilter: "highly program-dependent limiting algorithms"
-**[FF]**): `τ` moves between the style's *fast* and *slow* times with how busy the limiter has been: let
-`b ∈ [0, 1]` be the fraction of the last 100 ms during which the reduction was over 0.5 dB (a running count
-over a ring of 100 ms; O(1)); `τ = τ_fast·(τ_slow/τ_fast)^b`. An isolated snare recovers in `τ_fast`
-(loudness kept); a sustained bass overload holds at `τ_slow`, slow enough not to modulate a 40 Hz cycle (the
-dominant distortion of fast limiters). This is the same idea as the "auto-release" of other limiters and
-compressors; FabFilter's exact law is **not stated**.
+| 40 Hz, 6 dB over | release 5 ms | 50 ms | 300 ms |
+| --- | --- | --- | --- |
+| no hold | −16.6 dB THD | −26.7 | −39.2 |
+| hold ½ period + 1 ms (13.5 ms) | **−170** | −170 | −170 |
 
-**Modern's adaptive ramp** **[ours]**: for each overload the ramp length is chosen from the overload's lowest
-strong frequency: the zero-crossing interval of the demand's source over the reserve (at least half a period,
-at most the 10 ms reserve, at least the Lookahead). A 60 Hz 808 gets ≥ 8.3 ms; a snare's crack gets the knob's
-0.5 ms. Because the ramp is computed from what's *ahead* in the reserve, there's no guessing. Both are within
-the window, so the guarantee holds.
+**[checked]** (`pro-l-research.md` §5.1). It costs no latency (the window is in the past). **Hold = Auto** sets it per
+overload: half the period of the lowest strong frequency of what's overloading, estimated from the zero-crossing
+intervals of a 150 Hz low-passed copy of the side chain over the window, plus the ramp, clamped 0–25 ms. A drum hit gets
+a near-zero hold (keeping its loudness), an 808 a constant gain. A manual Hold (0–50 ms) is Weiss's **Release Delay**
+(a hold after the look-ahead, so the release doesn't dent the end of a sound) **[ours, after zita-dpl1, LazyLimiter,
+Weiss]**. On a *decaying* 808 the hold-min becomes a staircase (a new, lower step each half cycle): a 12 ms hold with a
+10 ms release was as clean as a 100 ms release, and slightly louder **[checked]**.
 
-**Safe** has no transient stage **[user]**: its release stage (with a 20 ms Hann ramp in front, so it still
-can't overshoot) does everything.
+**The adaptive ramp** (Aggressive, Modern; measured on Pro-L 2): for each overload the ramp is **half the period of the
+waveform at the peak** (the interval between the zero crossings around it), at least the Lookahead, at most the
+reserve. A 50 Hz 808 gets 10 ms, a snare's crack the knob's 0.1–0.5 ms. Modern also shortens it for **clicks**: when
+the overload begins with a broadband step (the energy above 2 kHz in the 1 ms before the peak exceeds the energy below
+by a margin), the ramp is the knob's **[ours, matching the measurement]**. Both are within the window, so the guarantee
+holds.
+
+**Safe** has no transient release: its release stage (with a 35 ms box stack in front, so it still can't overshoot)
+does everything.
 
 ### 5.6 The release stage
 
-FabFilter: "a slower 'release' envelope stage that responds to the average dynamics of the incoming audio. The
-Attack and Release knobs control how quickly and heavily the release stage sets in." **[FF]** Jetter
-measured (gain reduction curves of short impulses and of an 808) **[user]**:
-
-- with Attack at its maximum, short impulses release "near-instantly regardless of release settings";
-- with Attack at 0 ms, "the release stage [acts] even for brief peaks", and their recovery follows Release;
-- longer signals (an 808) release gradually, following the sound's decay;
-- so "any peak shorter than the attack time receives near-instant release", longer ones are the release
-  stage's.
-
-The design that does exactly this **[inferred]**: a slow follower `u` (in dB of reduction, per channel after
-release linking) of the demand `d`, charged by Attack, discharged by Release (the "smooth branching" peak
-detector of Giannoulis, Massberg and Reiss, in dB):
+FabFilter: "a slower 'release' envelope stage that responds to the average dynamics of the incoming audio. The Attack
+and Release knobs control how quickly and heavily the release stage sets in." **[FF]** Measured on Pro-L 2's
+Transparent: with Attack at 10 s a peak recovers in 0.6 ms whatever the Release; at Attack 0 the recovery follows Release
+(to 1 dB in about 0.73 × Release); a 2 ms burst recovers to 1 dB in 0.7 ms, a 200 ms one in 291 ms **[measured]**. The
+design that does exactly this: a slow follower `u` (dB of reduction, per channel after release linking) of the demand
+`d`, charged by Attack, discharged by Release (Giannoulis, Massberg and Reiss's smooth branching detector):
 
 ```
-αA = e^(−1/(A·fs)),  αR = e^(−1/(R·fs))            (A, R: the knobs in seconds; 0 s → α = 0, instant)
-if d[n] > u[n−1]:  u[n] = αA·u[n−1] + (1 − αA)·d[n]·κ        charge (κ: the style's "×" in §4, ≤ 1.5)
+αA = e^(−1/(A·fs)),  αR = e^(−1/(R·fs))
+if d[n] > u[n−1]:  u[n] = αA·u[n−1] + (1 − αA)·d[n]·κ        charge (κ: the style's strength, ≤ 1.3)
 else:              u[n] = αR·u[n−1] + (1 − αR)·d[n]           discharge
 g_release[n] = 10^(−u[n]/20)
-g = min(g_transient, g_release)
 ```
 
-- A peak shorter than Attack hardly charges `u`: the transient stage handles it and lets go at its own fast
-  pace. A long overload charges `u` up to the demand; when the overload ends, `u` holds the reduction and lets
-  go at Release: pumping, if long; smooth level-riding, if moderate.
-- Attack 0: `u` follows the demand instantly and every overload releases at Release: the "safer and cleaner,
-  but pumping" end. Attack 10 s: `u` barely moves: only the fast stage: "louder … possible distortion".
-- `u` is driven by the demand computed at the input but applied to the delayed sound: its curve is delayed by
-  `D` too (it's at `fs`, so a ring of `D·fs` values) **[inferred]**. It never needs look-ahead itself because
-  it only lowers the gain.
-- **Bus**: the follower is driven not only by the demand over the ceiling but by an RMS measure (30 ms,
-  looked ahead within the 50 ms reserve) over a threshold 6 dB under the ceiling, at 4:1: a compressor
-  feeding the limiter **[ours]**.
+- A peak shorter than Attack hardly charges `u`: the transient stage handles it and lets go at its own pace. A long
+  overload charges `u`; when it ends, `u` holds the reduction and lets go at Release.
+- **(changed)** `g_release` is min'd into the transient stage's curve *before* the kernel, delayed to line up with the
+  audio (a ring of `D·fs` values) and centred under the kernel.
+- **The floor** (Modern 300 ms, Safe 80 ms): `R` is never below it.
+- **The shape**: exponential (the follower), or Allround's **S-curve**: a release delay (the reduction held for 100 ms
+  after the overload ends), then a raised-cosine return over Release.
+- **(new) Monotonic loudness.** Pro-L 2's Modern gets quieter past +12 dB of Gain (its release stage reduces more the
+  harder it's pushed) **[measured]**. Ours caps the release stage's reduction at the transient stage's *peak* demand over
+  the last Release time minus a margin that grows with the Gain (so more Gain always yields more output); the exact law
+  is to be tuned against §8.9's test, which checks it on hard material in every style **[ours]**.
+- Options for later (none clearly beat this law on objective proxies, `pro-l-research.md` §5.7): Weiss's dual release
+  chosen by peak-to-RMS ratio, LazyLimiter's "don't rise if the coming window needs as much", Hyrax's max of a fast and a
+  very slow envelope, a Release Shape control (log, linear, S-curve).
 
-### 5.7 Soft clipping, the knee, the emphasis
+### 5.7 The clip stage
 
-- **Aggressive's clipper** **[ours]**: before the limiter (at `fo`, so oversampled), on the gained signal, a
-  soft clipper whose knee starts 2 dB under the ceiling: with `T = C·10^(−2/20)`, `y = x` while `|x| ≤ T`,
-  and `y = sign(x)·(T + (C − T)·tanh((|x| − T)/(C − T)))` above, which approaches `C` and never reaches it.
-  It rounds the top of every peak into the ceiling with a smooth curve (no corner, so its harmonics fall off
-  fast), and the limiter after it takes whatever is still over. Its share is why Aggressive is
-  "near-clipping" yet "smart".
-  (Anti-derivative anti-aliasing, Parker et al., would reduce its aliasing further at low `k`; with
-  oversampling it isn't needed **[inferred]**.)
-- **Allround's knee** **[ours]**: the demand starts 1 dB under the ceiling with a quadratic knee (the
-  textbook soft knee of Giannoulis et al.), reaching the full brickwall at the ceiling.
-- **Dynamic's emphasis** **[ours]**: an onset detector (a fast peak follower, 1 ms attack / 20 ms release,
-  against a slow one, 20 ms / 200 ms, in dB); where the fast exceeds the slow by `e` dB, the audio is boosted
-  by `min(3, e/2)` dB, scaled by how much the limiter is reducing, gliding over 1 ms; the 2 ms reserve lets
-  the boost begin with the onset. The limiter then has more to take off the hit, but the hit's contrast with
-  what follows is kept: "preserving the original punch and clarity".
+**(new)**, replacing the first round's Aggressive-only soft clipper. Engineers clip before they limit (`pro-l-research.md`
+§1.3), FabFilter's users asked for a clipper in Pro-L 2, and every other modern limiter has one. Ours runs **inside the
+limiter, at the oversampled rate, before the look-ahead stages**, so the limiter (and the final true peak stage) catch
+what it can't guarantee: a clipper alone is never true-peak safe (+0.8 to +3.2 dB over its level after decimation,
+**[checked]**).
+
+**Its level.** The clipper sits at **ceiling + Clip Range** (0 to +6 dB; Off). The limiter takes the first Clip Range dB
+of every peak and the clipper everything beyond: at 0 the clipper does all the peak work and the limiter only cleans its
+overshoot ("clip to 0, then limit"); at +3 dB the limiter takes a peak's body and the clipper its crack. **Default when
+switched on: +1.5 dB** (Orban keeps the final clip within 0.5–1 dB; iZotope ~0.5–0.8 dB; engineers 0–3 dB) **[ours]**.
+
+**Its shapes** (`Lc` the clip level; every curve odd-symmetric and exactly linear below its knee, so the stage is
+bit-exact under it):
+
+| Shape | Curve | Harmonics fall | Why |
+| --- | --- | --- | --- |
+| **Hard** | `min(|x|, Lc)` | −12 dB/octave | the loudest and most transparent on transients (TDR, StandardCLIP, the shootout) |
+| **Smooth** (default) | linear to `T = Lc − K`, then a C2 smoothstep knee `y = T + w(u − u³ + u⁴/2)`, `u = (|x| − T)/w`, `w = 2K`, flat at `Lc`; **Knee K 0–6 dB** (default 1.5) | −24 dB/octave | smooth and close to the ceiling, what the GedLee metric rewards; TDR's warning argues for a narrow default |
+| **Soft** | `Lc·v/√(1 + v²)`, `v = x/Lc` (no linear region) | exponential | saturation for colour (Ozone's Heavy, the Inflator's family) |
+| **Converter** | linear to `Lc − 6 dB`, the top 6 dB fitted into 3 (2:1 in dB), a C2 join to `Lc` | ≈ −24 dB/octave | Lavry's "soft saturation", StandardCLIP's Soft Clip Pro, KClip's Crisp |
+| **FL** (later) | FL Studio's soft clipper, once measured | | the sound trap beats are made through (§9) |
+
+Not offered: asymmetric, tape or tube curves. They make a DC that follows the envelope (heard as thump), so they're a
+colour, not a peak control.
+
+**Anti-aliasing.** The clip runs at `fo ≥ 4×` with **first-order ADAA on the residue** `r(x) = x − f(x)`:
+
+```
+R(x) = x²/2 − F(x)                                   (F: the curve's antiderivative, F(0) = 0)
+r̄[n] = (R(x[n]) − R(x[n−1])) / (x[n] − x[n−1])      fallback when |Δx| < 1e-5: r((x[n] + x[n−1])/2)
+out[n] = x[n−½] − r̄[n]                               (the half-sample delay absorbed by the residue path's filter)
+```
+
+`R` is exactly 0 in the linear region, so **ADAA of the residue is exactly 0 whenever both samples are below the knee**:
+unclipped audio is untouched bit for bit, and ADAA's half-sample delay and treble droop apply only to the clippings.
+First-order ADAA at 4× is about plain 16×: the worst alias of a 1.25 kHz sine 12 dB into a hard clip is −94 dB
+**[checked]**. **When the limiter's oversampling is Off or 2×**, the clip stage oversamples by itself as **Orban's
+differential clipper** (US 6,337,999, expired): upsample ×4 (or ×2 more), clip with ADAA, **decimate only the
+residue**, subtract it from the delayed input. The programme never passes through its filters **[ours]**.
+
+**Stereo.** Per channel in L/R mode (even when the limiter is linked, as Waves L4 does: clipping linked would duck the
+quiet side for a one-sided crack); on M and S in M/S mode.
+
+**Its meters**: the clip reduction (peak and average), the **share of samples clipped** over the last 3 s against the
+0.3 % line where hard clipping becomes audible (Moir, via Defraene), and the residue's loudness relative to the
+programme's.
+
+**Later**, from the broadcast processors (`pro-l-research.md` §4.2):
+
+- **Bass clip**: a bass clipper 2–5 dB below the main one, embedded in a complementary split at 80–200 Hz (low =
+  LP(x), high = delayed x − low) with a gentle low-pass after it, so its harmonics don't spray into the mids (Orban's
+  bass clipper; the 808 problem).
+- **Clean** (0–100 %): Orban's distortion cancelling for mastering: add back `Clean × LPF_2.2kHz(residue)`, so the
+  clipper acts only on the highs (cracks, hats, sibilance) and the restored low and mid peaks go to the look-ahead
+  limiter. "There is NO distortion masking used at the record mastering level" (Omnia): nobody offers this.
+- **Smart clip**: a masking-weighted clipper (Defraene et al. 2012: a projected gradient per frame, real time, ~12 ms of
+  latency), the published way to beat hard and soft clipping on PEAQ.
+
+**Latency**: none at `k ≥ 4` beyond half a sample at `fo` (absorbed); the differential stage at `k < 4` adds its filters'
+delay (~0.5 ms), fixed. Its knobs never change the latency.
+
+**Dynamic's emphasis** **[ours]**: an onset detector (a fast peak follower, 1 ms / 20 ms, against a slow one,
+20 ms / 200 ms, in dB); where the fast exceeds the slow by `e` dB, the audio is boosted by `min(3, e/2)` dB, scaled by how
+much the limiter is reducing, gliding over 1 ms; the 2 ms reserve lets the boost begin with the onset. Measured on
+Pro-L 2's Dynamic: 0.4–0.5 dB extra reduction at the onset of a constant overload, and nothing below the ceiling.
 
 ### 5.8 Oversampling
 
@@ -787,6 +891,10 @@ stage 1 = 63 samples, stage 2 ≈ 7.5, stage 3 and on ≈ 1.75, 0.9, 0.4: **2x �
 JUCE's `dsp::Oversampling` has the same structure (2x stages up to 16x, `filterHalfBandFIREquiripple` for
 linear phase) and could be used for up to 16x; 32x needs a fifth stage of our own. Its "maximum quality"
 filters are close to the table above **[inferred]**.
+
+**Pro-L 2's own filters, measured**: the same at every factor, ±24 samples long (0.5 ms each side), −0.1 dB at
+20.9 kHz, −3 dB at 22.75 kHz **[measured]**: shorter and gentler than the table above. Ours keep the steeper first stage
+(flat to 20 kHz at 44.1 kHz); the latency difference is about 1 ms.
 
 **Pre-ring**: a linear-phase filter rings before a transient as much as after: "a very slight pre-ring … so
 small that it's inaudible" **[FF]**. With stage 1's transition at 0.45–0.55 fs the ringing is at ~22 kHz and
@@ -857,7 +965,9 @@ process itself, will be smoothly attenuated afterwards." Extra latency: "about 5
 | Sample-peak catch | −0.0000 dB over on everything |
 
 So: **with oversampling on (2x or more), the output's true peak stays under the ceiling by BS.1770's meter
-and by an ideal reconstruction**. With oversampling **off**, on input that already has
+and by an ideal reconstruction**. **Pro-L 2, measured** on the same kinds of material (+12 dB into −1 dBTP, TP on):
+within 0.04 dB by BS.1770's meter, but **+0.1 to +0.37 dB over by an ideal reconstruction**, even at 32x
+(`pro-l-research.md` §2.7) **[measured]**. With oversampling **off**, on input that already has
 energy at half the rate (clipped, square, noise), "true" depends on the interpolator: we guarantee it by
 BS.1770's filter and our detector, and an ideal reconstruction may read up to ~0.5 dB more. That is why
 FabFilter: "we highly recommend to use oversampling in combination with true peak limiting" **[FF]**. The
@@ -869,43 +979,39 @@ Pro-L's "about 5 ms" **[FF]**.
 
 ### 5.10 Latency
 
-What's known of Pro-L 2's **[FF]** **[user]**:
+What Pro-L 2's is, measured (`pro-l-research.md` §2.3): Transparent, Punchy, Allround 256 samples + 5 ms (10.3 ms at
+48 kHz); Dynamic twice that; Modern 60 ms, Safe 55 ms, Aggressive and Bus about 60 ms, at every rate; never the Lookahead
+knob; true peak +4.9 ms with oversampling off, about +0.5 ms with it on.
 
-| Setting | Latency | Source |
-| --- | --- | --- |
-| True Peak Limiting on | "about 5 ms" more | the manual |
-| The new four styles | "need more latency than others" | the manual |
-| Transparent (2018, Logic, settings not given) | 12 ms (Pro-L 1: 8 ms) | user, FabFilter forum |
-| Bus (same) | "> 65 ms" | user, FabFilter forum |
-| Transparent, look-ahead off (2024, rate not given) | 496 samples | user, FabFilter forum |
-| For the least | "choose the Transparent algorithm and also disable True Peak Limiting" (and oversampling) | FabFilter staff |
-
-Ours, fixed by the style, oversampling and true peak (never by Lookahead, Attack or Release) **[ours]**:
+Ours, fixed by the style, oversampling and true peak (never by Lookahead, Hold, Attack, Release or the clip stage's
+knobs) **[ours]**:
 
 ```
-latency = round((reserve + 5 ms)·fs)   + oversampling (0 when Off, ≈ 63–74 samples)   + last stage
-          main stage                                                                       (0 if k = 1 and TP off;
-                                                                                            sample catch 0.5 ms if k > 1;
-                                                                                            true peak stage 240 samples at 48 kHz)
+latency = round((reserve + lookahead range)·fs)   + oversampling (0 when Off, ≈ 63–74 samples)   + last stage
+          main stage (lookahead range: 5 ms; Spit: 1 ms)                                           (0 if k = 1 and TP off;
+                                                                                                     sample catch 0.5 ms if k > 1;
+                                                                                                     true peak stage 240 samples at 48 kHz)
+          + the clip stage's differential filters when it's on and k < 4 (~0.5 ms)
 ```
 
 At 48 kHz (samples / ms):
 
-| Style | Off, TP off | 4x, TP off | 4x, TP on |
-| --- | --- | --- | --- |
-| Transparent, Punchy, Allround | 240 / 5.0 | 335 / 7.0 | 551 / 11.5 |
-| Dynamic | 336 / 7.0 | 431 / 9.0 | 647 / 13.5 |
-| Aggressive | 384 / 8.0 | 479 / 10.0 | 695 / 14.5 |
-| Modern | 720 / 15.0 | 815 / 17.0 | 1031 / 21.5 |
-| Safe | 1200 / 25.0 | 1295 / 27.0 | 1511 / 31.5 |
-| Bus | 2640 / 55.0 | 2735 / 57.0 | 2951 / 61.5 |
+| Style | Off, TP off | 4x, TP off | 4x, TP on | Pro-L 2, Off / 4x TP |
+| --- | --- | --- | --- | --- |
+| Spit | 48 / 1.0 | 143 / 3.0 | 359 / 7.5 | (none) |
+| Transparent, Punchy, Allround | 240 / 5.0 | 335 / 7.0 | 551 / 11.5 | 496 / 562 |
+| Dynamic | 336 / 7.0 | 431 / 9.0 | 647 / 13.5 | 992 / 866 |
+| Aggressive, Modern | 1440 / 30.0 | 1535 / 32.0 | 1751 / 36.5 | 2880–2896 / 2962–3138 |
+| Safe | 1920 / 40.0 | 2015 / 42.0 | 2231 / 46.5 | 2640 / 2898 |
+| Bus | 2400 / 50.0 | 2495 / 52.0 | 2711 / 56.5 | 2896 / 2962 |
 
-(The 4x column adds 71 samples of filters and 24 of the sample catch; the TP column replaces the catch by the
-240-sample true peak stage. Off with TP on: the main stage plus 240.)
+Every style is under Pro-L 2's in every column. Our true peak stage costs more than Pro-L 2's (240 samples, against
+about 25 when oversampling is on) because it holds the ceiling by an ideal reconstruction too, running twice at the host
+rate, while Pro-L 2's only meets BS.1770's meter (§5.9); the shorter reserves more than pay for it. On a vocal or a bus
+true peak is off anyway.
 
-The engine reports it to `Song::compensate`, as Pro-Q and Auto-Tune do; a change of style, oversampling or
-true peak remakes the song with the new delay (as a Pro-Q mode change does). A Lookahead change within the
-reserved 5 ms moves only where the ramp starts, inside the same delay.
+The engine reports it to `Song::compensate`, as Pro-Q and Auto-Tune do; a change of style, oversampling or true peak
+remakes the song with the new delay. A Lookahead change within the style's range moves only where the ramp starts.
 
 ### 5.11 Dither and noise shaping
 
@@ -934,6 +1040,10 @@ SoX ships, from Lipshitz, Vanderkooy and Wannamaker's papers), picked by matchin
 | **Basic** | Lipshitz's 5-tap "minimally audible" `2.033, −2.165, 1.959, −1.590, 0.6149` | moderate dip in the mid band, rise above ~6–8 kHz |
 | **Optimized** | improved E-weighted, 9 taps `2.847, −4.685, 6.214, −7.184, 6.639, −5.032, 3.263, −1.632, 0.4191` | deeper dip, a steep rise above ~10 kHz |
 | **Weighted** | F-weighted (Wannamaker), 9 taps `2.412, −3.370, 3.937, −4.174, 3.353, −2.205, 1.281, −0.569, 0.0847` | the ear's threshold curve at low level; made for 44.1 kHz (so is Pro-L's) |
+
+**Pro-L 2's curves, measured** (16 bits, noise per octave against flat TPDF; `pro-l-research.md` §2.7): Basic −6 to
+−8 dB to 4 kHz, +7 dB at 20 kHz; Optimized −11 to −12 dB to 2 kHz, +14 dB at 20 kHz; Weighted down to −23 dB at 4 kHz,
++22 dB at 20 kHz. The filters above have these shapes; they're tuned to them within 2 dB per octave (§8.9) **[ours]**.
 
 At 48 kHz the 44.1 kHz filters are close (their curves shift up 9%); SoX has 48 kHz sets for some
 (Gesemann's `2.2374, −0.7339, …`); above 48 kHz, shaping moves the noise above 24 kHz and is simple to
@@ -1007,54 +1117,48 @@ EBU's files.
 
 ### 5.13 Parameter changes, sample rate, denormals, determinism
 
-- **Gain and Output** glide (a one-pole in dB, 10 ms) **[ours]**; Pro-L has "Smart Parameter Interpolation"
-  **[FF]**. The ceiling the gain computer uses travels with the sound: the requirement for a sample is
-  computed with the ceiling at the time it enters, and applied when it leaves `D` later; the true peak stage
-  reads its ceiling from the same delayed copy, so a falling ceiling never lets a sample through above itself
-  **[inferred]**.
-- **Lookahead** glides at most 0.05 ms per 10 ms (the ramp lengthens or shortens a sample at a time); the
-  hold-min window is the whole reserve, so nothing has to be recomputed **[ours]**.
-- **Attack, Release, links** take effect at once (they change rates and weights, not levels).
-- **Style, oversampling, true peak** change the latency: a new core (buffers, filters) is built on the message
-  thread and handed over by atomic exchange; the old one is faded out over 10 ms and returned to be deleted,
-  as Pro-Q's convolvers are; the song is remade with the new delay **[ours]**.
-- **Sample-rate independence**: every time is in seconds and turned into samples at the rate it runs at
-  (`fo` or `fs`); the K-weighting is derived per rate; the true peak detector's factor is chosen per rate
-  (8x / 4x / 2x); the dither filters per rate. A song sounds the same at 44.1 and 96 kHz within the
-  filters' small differences.
-- **Denormals**: the engine runs under `ScopedNoDenormals` (flush to zero) already; release followers are
-  floored (a reduction under 1e-6 dB is 0), so they stop moving in silence.
-- **Determinism**: everything is per sample, with state carried between blocks; nothing depends on the block
-  size, so live (any buffer), offline and export (2048) render the same samples, and the parallel export is
-  identical to one thread (a track's effects touch only its own buffers). Automation lanes are applied at the
-  256-sample slices like every other lane.
+- **Gain, Output and Clip Range** glide (a one-pole in dB, 10 ms) **[ours]**; Pro-L has "Smart Parameter Interpolation"
+  **[FF]**. The ceiling and the clip level travel with the sound: the requirement for a sample is computed with the
+  levels at the time it enters, and applied when it leaves `D` later, so a falling ceiling never lets a sample through
+  above itself **[inferred]**.
+- **Lookahead** glides at most 0.05 ms per 10 ms; **Hold** changes the hold-min's backward length (PeakHold's live
+  `set`).
+- **Attack, Release, links, Side floor, shape, knee** take effect at once (they change rates, weights and curves, not
+  levels; the clip curve's change is per sample, so it can't click beyond the curve itself).
+- **Style, oversampling, true peak, stereo mode** change the latency or the core: a new core is built on the message
+  thread and handed over by atomic exchange; the old one is faded out over 10 ms and returned to be deleted, as Pro-Q's
+  convolvers are; the song is remade with the new delay **[ours]**.
+- **Sample-rate independence**: every time is in seconds and turned into samples at the rate it runs at; the K-weighting,
+  the true peak detector's factor and the dither filters are chosen per rate.
+- **Denormals**: `ScopedNoDenormals`; followers floored.
+- **Determinism**: everything per sample with state carried between blocks; nothing depends on the block size, so live,
+  offline and export render the same samples, and the parallel export is identical to one thread. Automation lanes at
+  the 256-sample slices like every other lane.
 
 ### 5.14 CPU budget
 
-Per channel per host sample, roughly **[inferred]**:
+Per channel per host sample, roughly **[inferred]** (changed: the kernels are box stacks and the minimum a PeakHold, so
+the limiter's cost no longer grows with the look-ahead's length):
 
 | Part | Multiply-adds |
 | --- | --- |
-| Oversampling up + down, 4x (half-band stages, half the taps zero) | ~ 2 × (64 + 2·16) ≈ 200 |
-| Limiter at `fo` (detector, linking, wedge, kernel by running sums, release, multiply) | ~ 30 × k (120 at 4x, 960 at 32x) |
+| Oversampling up + down, 4x (half-band stages) | ~ 200 |
+| Clip stage at `fo` (curve, antiderivative, a division) | ~ 15 × k (60 at 4x) |
+| Limiter at `fo` (detector, linking, PeakHold, release, box⁴, multiply; the minimum at a control rate above 8x) | ~ 25 × k (100 at 4x, ~400 at 32x) |
 | Release stage at `fs` | ~ 15 |
-| True peak stage ×2 (8 phases × 128 taps, the parabola, ITU's 48) | ~ 2 × 1080 ≈ 2200 |
-| Loudness (two biquads, a square, sums) and meters | ~ 20 |
+| True peak stage ×2 | ~ 2200 |
+| Loudness and meters | ~ 30 |
 
-At 4x with true peak, ~2.5 k operations a sample, 48 kHz stereo: ~250 M/s, a few per cent of one core with
-SIMD (the FIRs vectorise well); 32x about half as much again. The true peak detector is the largest part: if
-it's ever too heavy, 8x/64 taps with the parabola is within 0.017 dB (§5.9), covered by a 0.02 dB margin.
-Fine for one or two on a master; Pro-L's own labels warn about 16x and 32x **[FF]**.
+At 4x with true peak, ~2.6 k operations a sample: a few per cent of a core with SIMD.
 
 ### 5.15 What feeds the display and the meters
 
-Per 10 ms "column" the engine keeps, per instance: the input's peak (after Gain, before limiting), the
-output's peak, the largest gain reduction, and M and S at that moment; plus the meter values (output peak or
-true peak per channel, momentary RMS per channel and combined, gain reduction per channel, I, LRA, Max M,
-Max S, max true peak, max gain reduction). They go to the tab in each transport event (25 a second: two or
-three columns each) for the Pro-Ls whose window is open, as Pro-Q's analyzer does (§8.6). The peak labels
-are found in the tab from the gain reduction columns (local maxima a few dB deep and far enough apart)
-**[ours]**: they're a drawing matter.
+Per 10 ms "column": the input's peak (after Gain), the output's peak, the largest **clip** reduction and the largest
+**limiter** reduction (the transient and release stages' share apart), and M and S. The meter values: output peak or
+true peak per channel, momentary RMS, gain reduction per stage, I, LRA, Max M / S, max true peak, PLR, **the share of
+samples clipped**, **the peak density** (the share of samples within 0.5 dB of the ceiling over 400 ms, a live proxy for
+codec risk), max gain reduction. To the tab in each transport event (25 a second) for the Pro-Ls whose window is open,
+as Pro-Q's analyzer does. Peak labels are found in the tab from the columns **[ours]**.
 
 ### 5.16 How the [checked] claims were checked
 
@@ -1085,133 +1189,135 @@ Python 3.9, NumPy 2.0, SciPy 1.13, at 48 kHz. Not committed (they're not tests o
 
 ## 6. The factory presets
 
-**Pro-L 2's**: the list isn't published. What's known **[FF]**: they're "divided per musical genre and have
-descriptive names"; most were made by outside engineers (**bManic** (Niklas Silén), **Stephan Muesch (SM)**,
-**Ricardo Sangiao (RS)**); the **Default Setting** loads with every new instance; all were saved with the
-output at 0.0 dB; Pro-L 1's presets are under "V1 Preset Folder". Names seen **[observed]**: Default Setting,
-Modern. Pro-L 1 had one called "Jazzy, Spacious, Dynamic and Loud" **[user, SOS]**. Presets are "different
-permutations of the Advanced Settings" (SOS) **[user]**: style, lookahead, attack, release, links.
+**Pro-L 2's**: the list isn't published; most are by outside engineers (bManic, Stephan Muesch, Ricardo Sangiao);
+names seen in sessions: "Hip Hop Mastering RS", "EDM-Aggressive and Tight" **[FF]** **[user]**.
 
-**Ours** **[ours]**, by what they're for (with Lock Output on, only the sound changes). Gain is left at 0 dB in
-every preset (the user sets how loud); Output, True Peak and oversampling only in the delivery presets:
+**Ours** **[ours]**, from the engineers' numbers (`pro-l-research.md` §1.10). Gain is left at 0 dB (the user sets how
+loud); delivery settings only where a preset is about delivery ("—" leaves them as they are, with Lock Output on).
+"Clip" is Clip Range / shape:
 
-| Preset | Style | Lookahead | Attack | Release | Links (T / R) | Delivery | For |
+| Preset | Style | Lookahead / Attack / Release / Hold | Clip | Stereo | Ceiling | Target | For |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Default Setting** | Modern | 0.5 ms | 150 ms | 300 ms | 75 / 100% | TP, 4x, −1.0 dBTP | anything |
-| Master: Clean | Transparent | 0.5 ms | 150 ms | 500 ms | 75 / 100% | | pop, rock, acoustic, a few dB |
-| Master: Loud and Clean | Modern | 0.2 ms | 300 ms | 200 ms | 70 / 100% | | modern pop, hip-hop |
-| Master: EDM | Aggressive | 0.1 ms | 1 s | 100 ms | 60 / 100% | | EDM, trap, dense and loud |
-| Master: Rock Punch | Dynamic | 0.3 ms | 250 ms | 250 ms | 80 / 100% | | rock, live drums |
-| Master: Allround | Allround | 0.5 ms | 250 ms | 500 ms | 80 / 100% | | when unsure |
-| Master: Classical and Acoustic | Safe | 5 ms | 0 s | 1 s | 100 / 100% | | delicate, dynamic music |
-| Master: 808 Control | Modern | 1 ms | 400 ms | 400 ms | 100 / 100% | | sub-heavy beats (bass stays clean) |
-| Drum Bus: Glue | Bus | 2 ms | 30 ms | 300 ms | 100 / 100% | | drum bus, a few dB |
-| Drum Bus: Squash | Bus | 1 ms | 10 ms | 150 ms | 100 / 100% | | parallel or crushed drums |
-| Vocal: Peak Catcher | Punchy | 2 ms | 150 ms | 200 ms | 100 / 100% | | after the vocal compressor |
-| Vocal: Smooth | Safe | 5 ms | 0 s | 300 ms | 100 / 100% | | ballads, spoken word |
-| Bass and Guitar | Punchy | 1.5 ms | 250 ms | 500 ms | 100 / 100% | | single instruments |
-| Streaming (−14 LUFS) | Modern | 0.5 ms | 150 ms | 300 ms | 75 / 100% | TP, 4x, −1.0 dBTP, target −14 | Spotify, YouTube, Tidal |
-| Broadcast EBU R 128 | Transparent | 1 ms | 150 ms | 500 ms | 100 / 100% | TP, 4x, −1.0 dBTP, target −23 | TV, radio (Europe) |
-| Broadcast ATSC A/85 | Transparent | 1 ms | 150 ms | 500 ms | 100 / 100% | TP, 4x, −2.0 dBTP, target −24 | TV (US) |
-| CD Master | Modern | 0.5 ms | 150 ms | 300 ms | 75 / 100% | TP, 8x, −0.1 dBTP, 16 bits (O), target −9 | a 16-bit master |
+| **Default Setting** | Modern | 0.18 ms / 275 ms / 400 ms / Auto | off | L/R 75 / 100 % | −1.0 dBTP, 4x | −14 | anything |
+| Master: Streaming −14 | Modern | 0.5 ms / 150 / 300 / Auto | off | L/R | −1.0 dBTP, 4x | −14 | Spotify, YouTube, TIDAL |
+| Master: Streaming Loud | Modern | 0.5 / 150 / 300 / Auto | +2 dB Smooth | L/R | **−2.0 dBTP**, 4x | −10 | louder than −14, headed for lossy |
+| Master: Chart Pop | Modern | 0.3 / 200 / 300 / Auto | +2 dB Smooth, knee 1.5 | L/R | −1.0 dBTP, 4x | −8 | pop (−8.3 LUFS is the 2024 norm) |
+| Master: Trap Loud | Punchy | 0.5 / 275 / 300 / Auto | +3 dB Smooth | L/R | −0.1 dBFS sample (TP shown), 4x | −6 | trap, rap: clip → limit |
+| Master: Rage / Hyperpop | Aggressive | 0.1 / – / – / Auto | +1 dB Hard | L/R | −0.01 dBFS sample, 4x | −4 | Carti, Ken Carson, 100 gecs |
+| Master: Wide | Modern | 0.3 / 275 / 400 / Auto | +2 dB Smooth | **M/S, side floor −6** | −1.0 dBTP, 4x | −8 | wide hyperpop and pop choruses |
+| Master: Clean | Transparent | 1 ms / 150 / 500 / Auto | off | L/R | −1.0 dBTP, 4x | −12 | ballads, R&B, dynamic masters |
+| Master: 808 Control | Modern | 1 ms / 400 / 400 / Auto | off | L/R 100 / 100 % | — | — | sub-heavy beats, the bass stays clean |
+| Master: Rock Punch | Dynamic | 0.3 / 250 / 250 / Auto | off | L/R 80 / 100 % | — | — | rock, live drums |
+| Master: Allround | Allround | 0.5 / 275 / 400 / Auto | off | L/R 80 / 100 % | — | — | when unsure |
+| Master: Classical and Acoustic | Safe | 5 ms / 0 / 1 s / 20 ms | off | L/R 100 / 100 % | — | — | delicate, dynamic music |
+| Approval Mix | Modern | 0.3 / 275 / 400 / Auto | +1 dB Smooth | L/R | −0.3 dBFS sample, 4x | −9 | client bounces; off for mastering |
+| Vocal: Peak Catcher | Punchy | 2 ms / 150 / 200 / Auto | off | L/R 100 / 100 % | — (TP off, Off) | — | after the vocal compressors |
+| Vocal: Spit | Spit | 0.05 ms / – / 3 ms / 0 | off | L/R 100 / 100 % | — (TP off, Off) | — | the L1 "spit and attitude", hit hard |
+| Vocal: Smooth | Safe | 5 ms / 0 / 300 / 20 ms | off | L/R 100 / 100 % | — (TP off, Off) | — | ballads, spoken word |
+| 808: Clip | Transparent | 0.5 / 275 / 100 / Auto | **0 dB Smooth** (the clipper does the work) | L/R 100 / 100 % | — (TP off, 4x) | — | an 808 or sub bus |
+| Drum Bus: Glue | Bus | 2 ms / 30 / 300 / 15 ms | off | L/R 100 / 100 % | — (TP off) | — | drum bus, a few dB |
+| Drum Bus: Crunch | Bus | 1 ms / 10 / 150 / 15 ms | +1 dB Soft | L/R 100 / 100 % | — (TP off) | — | clipped, crunchy drums |
+| Kick and Sub Ceiling | Transparent | 1 ms / 275 / 200 / Auto | off | L/R 100 / 100 % | — (TP off) | — | a maximum for kick and 808 |
+| Broadcast EBU R 128 | Transparent | 1 ms / 150 / 500 / Auto | off | L/R 100 / 100 % | −1.0 dBTP, 4x | −23 | TV, radio (Europe) |
+| Broadcast ATSC A/85 | Transparent | 1 ms / 150 / 500 / Auto | off | L/R 100 / 100 % | −2.0 dBTP, 4x | −24 | TV (US) |
+| CD Master | Modern | 0.5 / 275 / 400 / Auto | off | L/R | −0.1 dBTP, 8x, 16 bits (O) | −9 | a 16-bit master |
 
 ---
 
 ## 7. Proposed for Vaudio
 
-Not yet talked through with Théo (2026-10-02, from his request: "FabFilter Pro-L 2 is pretty fire, we can do
-something similar"). What's proposed, to check with him:
+Revised 2026-10-07 after the second round of research and the measurements, from Théo's ask: "more versatile than Pro-L
+… the most goated limiter ever", for loud masters, streaming masters, vocals and buses, with a clipper stage inside.
 
 ### 7.1 Decided, to confirm
 
-- **A stock effect of ours**, chosen from an effect slot's picker (Built in → Pro-L), as Pro-Q is: its
-  settings **in the song** (`MixerEffect.proL`: every change undone, read and set by the assistant), the
-  engine running it natively. The real Pro-L 2 can still be loaded as a plugin beside it.
-- **Its look is FabFilter's, as Pro-Q's is**: the dark display, the blue input and output, the red gain
-  reduction, the amber labels, FabFilter's knob, in every theme (a plugin's window keeps its own look). Its
-  colours are theme tokens: Pro-Q's surfaces (`--eq-bg-*`, `--eq-bar`, `--eq-knob*`, `--eq-text`) and its own
-  `--lim-*` (input, output, reduction, label, loudness low / near / over, target), plain colours so the canvases
-  can read them.
-- **The engine is one engine with eight styles as tables** ([§4](#4-the-styles)): each tuned to FabFilter's
-  description, to be tuned again by ear (and, if Théo has Pro-L 2, by measurement).
-- **A new Pro-L** is the Default Setting: Modern, True Peak Limiting on, 4x, ceiling −1.0 dBTP (Pro-L's own
-  presets are at 0.0 dB, TP not stated; ours starts where streaming wants it).
-- **The ceiling is never exceeded**, by construction ([§5.4](#54-look-ahead-without-overshoot), §5.8–5.9):
-  sample peaks always; true peaks by the BS.1770 meter always, and by any good reconstruction whenever
-  oversampling is on. Every style, oversampling and lookahead is tested on hard material.
-- **Latency is fixed** by the style, oversampling and true peak; the Lookahead knob turns inside it, so it
-  automates without moving the song's delay compensation.
-- **The meters run whether the window is open or not** (the loudness of a whole song needs it); what the
-  display draws is sent only for open windows.
-- **The slot's mix knob**: every effect slot has one; below 100% the dry sound is added back (held back by the
-  latency, so it doesn't comb) and the ceiling no longer holds. The window says so. Pro-L has no mix **[FF]**.
-- **Unity Gain and Audition** are in the song, as Pro-L's parameters are (an undo step each); the window
-  shows them lit, as Pro-L does.
-- **No external side chain, no MIDI Learn, no surround**: the app has none of those for effects yet. Every
-  continuous control is automatable instead.
+- **A stock effect of ours**, chosen from an effect slot's picker (Built in → Pro-L), as Pro-Q is: its settings **in the
+  song** (`MixerEffect.proL`), the engine running it natively. The real Pro-L 2 can still be loaded as a plugin beside it.
+- **Pro-L 2's window and workflow, plus what it lacks**: the display, the Gain strip, the Advanced panel, the meters and
+  the loudness panel, the output panel; then the clip stage, Hold, M/S, per-stage meters and audition, delivery tools.
+- **Its look is FabFilter's, as Pro-Q's is** (`--eq-*` surfaces, `--lim-*` colours, plain colours for the canvases).
+- **Nine styles as tables** (§4.2): Pro-L 2's eight, re-measured and fixed, and Spit.
+- **The ceiling is never exceeded**, by construction: sample peaks always; true peaks by the BS.1770 meter *and* by an
+  ideal reconstruction whenever oversampling is on (Pro-L 2: the meter only). The true peak is always shown.
+- **No bass distortion in any style that claims to be clean** (Auto Hold), **loudness that rises with Gain** (Pro-L 2's
+  doesn't), **IMD at or under Pro-L 2's Modern** in the transparent styles: measured by the same probe on both (§8.9).
+- **Latency is fixed** by the style, oversampling and true peak, and at or under Pro-L 2's in every style (half for the
+  adaptive ones); the Lookahead knob turns inside it.
+- **The meters run whether the window is open or not**; the display's columns only for open windows.
+- **The slot's mix knob** works (the dry delayed to match); below 100 % the ceiling no longer holds and the window says so.
+- **No external side chain, MIDI Learn or surround** in the first version; every continuous control is automatable.
 
 ### 7.2 First, then later
 
-| First | Later |
-| --- | --- |
-| The eight styles; Gain, Output, Lookahead, Attack, Release, both links | Compact view (a layout of the same window) |
-| True Peak Limiting; oversampling Off to 32x | Stems through the master's limiter (§8.8) |
-| DC filter, Unity Gain, Audition | An **Analyze** render: the song's I, LRA, max true peak and gain reduction at the current settings, without playing it (Pro Tools' AudioSuite Analyze **[FF]**), and with it **Gain to target** (one click, and the assistant's) |
-| Dither (24 … 16 bits) with Basic, Optimized, Weighted | Loudness and true peak of every export, in the export window (the same meter code) |
-| The display (Fast, Slow, Slow Down, Infinite, Off), peak labels, the loudness curve | Per-platform targets beyond Pro-L's four (Spotify's Loud / Quiet, Apple Music, YouTube…) |
-| The meters: 16 / 32 / 48 dB, K-12 / 14 / 20, Loudness; TP metering; readouts that reset | PLR history, a loudness log to export |
-| Loudness: M, S, I, LRA, Max M / S, targets −9 / −14 / −23 / −24 / custom, +9 / +18, absolute / relative, pause, reset, auto-reset | |
-| Presets, Lock Output, A/B, Copy, the app's undo | Saving presets of one's own |
-| Automation of the seven continuous controls; tools | |
-
-### 7.3 Where Vaudio would differ
-
-| What | Pro-L 2 | Vaudio |
+| First | After the core | Later |
 | --- | --- | --- |
-| Styles' insides | FabFilter's, unpublished | Ours, reconstructed from the descriptions; to be tuned by ear |
-| Latency | Per style, partly unknown (Transparent ~12 ms, Bus > 65 ms, TP +5 ms, reported) | Fixed per style / oversampling / TP, from 5 ms (Transparent, Off) to 61.5 ms (Bus, 4x, TP) at any rate |
-| External side chain (stem mastering) | Yes | No sidechain inputs to effects yet; possibly stems through the master's gain curve instead (§8.8) |
-| Surround, Dolby Atmos | Up to 9.1.6 | Stereo |
-| MIDI Learn, MIDI program changes | Yes | No (no MIDI to effects); automation clips instead |
-| Automation | Every parameter | Gain, Output, Lookahead, Attack, Release, both links (the rest change latency or are set once) |
-| Mix | None | The slot's mix knob (warned about) |
-| Presets | Files, folders, Save As Default | Factory presets (ours), A/B and Copy; Copy / Paste of the whole effect |
-| Loudness | Four target presets and custom | The same, plus PLR; per-platform targets later |
-| Undo | Its own | The app's |
-| Sizes | Compact, Small, Medium, Large, scaling, full screen | The window resizes freely and fills the desktop (double-click its title); Compact later |
-| Help | Interactive hints | Tooltips |
+| The nine styles; Gain, Output, Lookahead, Attack, Release, **Hold (Auto)**, both links | **Bass clip** in the clip stage | **Multiband**: 2 bands (an 808 band below ~120 Hz) then 3–4, a weighted projection of the band gains with a tonal-drift clamp, always followed by the wideband stages |
+| **The clip stage**: Clip Range, Hard / Smooth / Soft / Converter, knee, ADAA, the differential stage | **Clean** (Orban's distortion cancelling) | A masking-weighted **Smart clip** |
+| **Stereo: L/R or M/S side first** with the Side floor | An **HF limiter** (a dynamic high shelf) before the clip stage | An **upward / "inflate"** density stage before the limiter |
+| True Peak Limiting; oversampling Off to 32x | **Normalised listen**: the output turned to each platform's level (Spotify's rules, its Loud limiter) to hear it as listeners will | The **FL** clip curve, once measured |
+| DC filter, Unity Gain, **Audition All / Clip / Limiter** | An **Analyze** render: the song's I, LRA, max true peak and gain reduction at the current settings, without playing it, and **Gain to target** (suggested, never silent; the assistant's too) | Stems through the master's limiter (§8.8) |
+| Dither (24 … 16 bits) with Basic, Optimized, Weighted (matched to Pro-L 2's measured curves) | **A codec check in the export**: encode with real encoders (Apple AAC 256 through `afconvert`, Opus, LAME), decode, report the decoded true peak, suggest a trim | Release-law options (dual peak/RMS, Release Shape) |
+| The display, peak labels, the loudness curve, **GR per stage** | **Per-platform targets** in the loudness panel, with what each will do to the master (turn down, turn up within headroom, Spotify Loud's limiter) | An **Approval / Master** pair in the export: the master rendered with and without its limiter |
+| The meters: 16 / 32 / 48 dB, K-12 / 14 / 20, Loudness; **PLR, % clipped, peak density** | | Compact view |
+| Loudness: M, S, I, LRA, Max M / S, targets, +9 / +18, absolute / relative, pause, reset, auto-reset | | Saving presets of one's own |
+| Presets (§6), Lock Output, A/B, Copy, the app's undo; automation of every continuous control; tools | | |
+
+### 7.3 Where Vaudio differs from Pro-L 2
+
+| What | Pro-L 2 (measured where marked) | Ours |
+| --- | --- | --- |
+| Clipper | none (users put one before it) | a clip stage before the limiter: four shapes, ADAA, bit-exact below its knee, its own meters and delta |
+| Bass distortion | −21 dB THD on 40 Hz in Transparent / Allround (**measured**) | Auto Hold: none in any style but Spit |
+| Loudness against Gain | not monotonic in Modern, Aggressive, Bus (**measured**) | monotonic, tested |
+| True peak | holds by BS.1770's meter; +0.1 to +0.37 dB over by an ideal reconstruction (**measured**) | holds by both |
+| Latency | 10.3 ms (Transparent) to ~60 ms (Modern, Aggressive, Bus) at 48 kHz, TP off (**measured**) | 1 ms (Spit), 5 ms (Transparent) to 50 ms (Bus) |
+| Linking | two knobs; effectively a switch between 20 % and 50 % (**measured**) | two knobs, linear in dB; **M/S side first** |
+| Styles | eight, opaque | nine, each showing its ramp, hold, release and latency |
+| Audition | the whole delta | All, Clip or Limiter |
+| Meters | output, GR, loudness | the same, plus GR per stage, PLR, % clipped, peak density; per-platform previews later |
+| External side chain, surround, MIDI Learn | yes | no (automation instead) |
+| Mix | none | the slot's mix knob (warned about) |
+| Undo, presets, sizes | its own | the app's undo; factory presets; the window resizes freely; Compact later |
 
 ---
 
 ## 8. How it'd be built here
 
-The same shape as Pro-Q and PanMan: the document and what it means in TypeScript, the sound in C++, the window
-in React.
+The same shape as Pro-Q and PanMan: the document and what it means in TypeScript, the sound in C++, the window in React.
 
 ### 8.1 The document
 
 ```ts
 // shared/music/types.ts
-export const PRO_L_STYLES = ["transparent", "punchy", "dynamic", "allround", "aggressive", "modern", "bus", "safe"] as const;
+export const PRO_L_STYLES = ["transparent", "punchy", "dynamic", "allround", "aggressive", "modern", "bus", "safe", "spit"] as const;
 export type ProLStyle = (typeof PRO_L_STYLES)[number];
+export const PRO_L_CLIP_SHAPES = ["hard", "smooth", "soft", "converter"] as const;
+export type ProLClipShape = (typeof PRO_L_CLIP_SHAPES)[number];
 
 /** Pro-L's sound: what A/B swaps and presets set. Levels in dB, times in seconds, links 0..1. */
 export interface ProLState {
   style: ProLStyle;
   gain: number;            // 0..30
   output: number;          // −30..0 (dBTP with truePeak)
-  lookahead: number;       // 0..0.005
+  lookahead: number;       // 0..0.005 (Spit: 0..0.001)
   attack: number;          // 0..10
   release: number;         // 0..10
+  hold: number | null;     // 0..0.05; null: Auto
+  stereo: "lr" | "ms";
   linkTransients: number;  // 0..1
   linkRelease: number;     // 0..1
+  sideFloor: number;       // 0..−18 dB (M/S)
+  clip: boolean;
+  clipRange: number;       // 0..6 dB above the ceiling
+  clipShape: ProLClipShape;
+  clipKnee: number;        // 0..6 dB (Smooth)
   truePeak: boolean;
   oversampling: 1 | 2 | 4 | 8 | 16 | 32;
   dither: 0 | 16 | 18 | 20 | 22 | 24;   // 0: off
-  noiseShaping: "basic" | "optimized" | "weighted";
+  noiseShaping: "none" | "basic" | "optimized" | "weighted";
   dcFilter: boolean;
   unityGain: boolean;
-  audition: boolean;
+  audition: "off" | "all" | "clip" | "limiter";
 }
 
 /** How it meters and shows (left alone by presets and A/B, as Pro-L's metering settings are). */
@@ -1219,16 +1325,15 @@ export interface ProLMeter {
   scale: "16" | "32" | "48" | "k12" | "k14" | "k20" | "loudness";
   truePeakMeter: boolean;
   display: "slowDown" | "fast" | "slow" | "infinite" | "off";
-  target: number;                 // LUFS, −9 / −14 / −23 / −24 or custom
+  target: number;                 // LUFS
   timeScale: "momentary" | "shortTerm" | "integrated";
-  loudnessRange: 9 | 18;          // the +9 / +18 scale
-  relative: boolean;              // LU around the target, or LUFS
+  loudnessRange: 9 | 18;
+  relative: boolean;
   maxOf: "momentary" | "shortTerm";
   autoReset: boolean;
 }
 
 export interface ProL extends ProLState {
-  /** The factory preset last loaded (the name shown, what's dimmed once changed). */
   preset: string;
   lockOutput: boolean;
   ab: "a" | "b";
@@ -1238,207 +1343,182 @@ export interface ProL extends ProLState {
 // MixerEffect.proL?: ProL, on an effect whose plugin is PRO_L_PLUGIN ({ id: "vaudio:pro-l", name: "Pro-L", format: "Vaudio" }).
 ```
 
-Bypass is the slot's `enabled` (the engine fades it, as Pro-L's "soft bypassing"; its latency stays in the
-compensation, as Pro-L's global bypass "is guaranteed to correctly compensate the latency"). Validated by
-`normalizeProL` (or it's dropped on load and save).
+Bypass is the slot's `enabled` (the engine fades it; its latency stays in the compensation). Validated by
+`normalizeProL` (or it's dropped on load and save). A "normalised listen" (later) is the tab's, never the song's, so
+it can't reach an export.
 
 ### 8.2 The files
 
 | File | What |
 | --- | --- |
-| `shared/music/pro-l-presets.ts` | `PRO_L_PLUGIN`, `isProL`; every control's range, default and taper (`PRO_L_CONTROLS`: Lookahead skewed so 1 ms is the middle; Attack and Release 0–10 s with 250 ms in the middle, JUCE's skew `log 0.5 / log(0.025)`); the **style tables** (§4); the loudness targets and their labels ("−14 (Strm)"); the presets (§6); `DEFAULT_PRO_L`; `normalizeProL`. Tested. |
-| `shared/music/pro-l.ts` | `findProL`, `editProL`, `updateProL` (a patch; the same song when nothing changes), `loadProLPreset` (keeps Gain, Output, TP, oversampling, dither, DC, Unity when `lockOutput`), `switchProLAB` / `copyProLAB`, `engineProL` (what the engine plays: the style's table resolved, controls in engine units), `proLLatencySeconds` (for the window's readout; the engine's samples are what counts). Tested. |
-| `shared/music/loudness.ts` | A plain TypeScript BS.1770-5 / Tech 3341 / 3342 meter (K-weighting at any rate, M, S, I, LRA, Annex 2 true peak): the **independent reference** the integration tests measure the engine's sound and meters with, and the tab's maths for the meter scales. Tested against Tech 3341 / 3342's signals. |
+| `shared/music/pro-l-presets.ts` | `PRO_L_PLUGIN`, `isProL`; every control's range, default and taper (`PRO_L_CONTROLS`; Attack and Release with Pro-L 2's own tapers, 10 s × raw⁴ and 6.859 s × raw³, so a value typed reads the same in both); the **style tables** (§4.2); the clip shapes; the loudness targets; the presets (§6); `DEFAULT_PRO_L`; `normalizeProL`. Tested. |
+| `shared/music/pro-l.ts` | `findProL`, `editProL`, `updateProL`, `loadProLPreset` (Lock Output), `switchProLAB` / `copyProLAB`, `engineProL` (the style's table resolved, the release stage's cap, controls in engine units), `proLLatencySeconds`, `describeProLStyle` (what the window and the assistant say a style does: its ramp, hold, release, latency). Tested. |
+| `shared/music/loudness.ts` | A plain TypeScript BS.1770-5 / Tech 3341 / 3342 meter and true-peak reader: the **independent reference** the integration tests measure with. Tested against Tech 3341 / 3342's signals. |
 | `shared/music/compile.ts` | `EngineEffect.proL`; lanes `kind: "limiter"`. |
-| `engine/src/ProL.h/.cpp` | `limit::Settings` (parsed on the message thread), `limit::State` (per effect id: the core, the meters), `limit::Registry`. The chain of §5.1. |
-| `engine/src/Lookahead.h` | The look-ahead limiter of §5.4: the wedge, the kernels (Hann, box by running sums, adaptive), the hold, the release. Pure DSP, used three times (main stage, sample catch, true peak stage). |
-| `engine/src/Oversampler.h/.cpp` | The half-band cascade (2x … 32x, linear phase, integer latency). Reusable: saturation in PanMan's Analog Styles or EchoBoy could use it. |
-| `engine/src/TruePeak.h/.cpp` | The detector of §5.9 (ITU phases, 8x/128 + parabola; 4x/2x at higher rates). Reusable by the export to report true peaks. |
-| `engine/src/Loudness.h/.cpp` | The meter of §5.12 (K-weighting, sub-blocks, histograms, M / S / I / LRA / maxima). Reusable by the export and a future master meter. |
+| `engine/src/ProL.h/.cpp` | `limit::Settings`, `limit::State` (per effect id: the core, the meters), `limit::Registry`. The chain of §5.1. |
+| `engine/src/Lookahead.h` | The look-ahead limiter of §5.4: PeakHold (forward and backward windows, live length), the box-stack kernel (variable length), the transient release, the adaptive ramp's period estimate. Pure DSP, used three times (main stage, sample catch, true peak stage). |
+| `engine/src/Clipper.h` | The clip stage (§5.7): the curves and antiderivatives, ADAA on the residue, the differential ×4 stage. |
+| `engine/src/Oversampler.h/.cpp` | The half-band cascade (2x … 32x, linear phase, integer latency). Reusable. |
+| `engine/src/TruePeak.h/.cpp` | The detector of §5.9. Reusable by the export. |
+| `engine/src/Loudness.h/.cpp` | The meter of §5.12. Reusable by the export. |
 | `engine/src/Dither.h` | TPDF and the error-feedback quantiser with the shaping tables by rate. |
-| `engine/src/Song.cpp`, `Sequencer.cpp`, `Engine.cpp`, `Export.cpp` | Parse `vaudio:pro-l` into a `Track::Effect` (`limSettings`, `lim`); `Song::compensate` adds its latency; `Sequencer::runProL` (with the dry held back for the slot's mix) and its lanes (`setLimiterControl`); the `proL` command (reset, pause, resume a meter); `limiters` in transport events and in `render`'s answer; the export's own registry (as Pro-Q's). |
-| `server/music/fake-engine.mjs` | Answers `proL`; sends made-up `limiters` readings, so e2e can see the meters move. |
-| `src/suites/music/pro-l/` | `pro-l-window.tsx` (top bar, display, Gain strip, Advanced panel, meters, loudness panel, bottom bar, output panel), `display.tsx` + `draw.ts` (the canvas: the scrolling picture, gain reduction, loudness curve, peak labels; drawn every frame something moves), `meters.ts` (the meters' and loudness bars' drawing and falls), `history.ts` (the columns, outside React, timed for smooth scrolling, as Auto-Tune's `pitch-history.ts`), `labels.ts` (finding the peak labels; tested), `geometry.ts` (meter scales with their linear tops, loudness colours, the connecting curves; tested), `actions.ts`, `store.ts` (open windows, the Advanced panel open, the display's pause), `tool-edits.ts` (tested). |
-| `src/suites/music/fabfilter/` | **New, shared with Pro-Q**: the FabFilter knob (moved from `pro-q/knob.tsx`), the top bar (undo, redo, A/B, Copy, presets), the bottom bar's buttons. Pro-L is the second FabFilter clone; this is the moment to share them. |
-| `src/themes/studio.css` | `--lim-*` tokens (dark in every theme, like `--eq-*`). |
+| `engine/src/Song.cpp`, `Sequencer.cpp`, `Engine.cpp`, `Export.cpp` | Parse `vaudio:pro-l`; `Song::compensate` adds its latency; `Sequencer::runProL` (the dry held back for the slot's mix) and its lanes; the `proL` command (reset, pause, resume a meter); `limiters` in transport events and in `render`'s answer; the export's own registry. |
+| `server/music/fake-engine.mjs` | Answers `proL`; sends made-up `limiters` readings. |
+| `src/suites/music/pro-l/` | `pro-l-window.tsx`, `display.tsx` + `draw.ts` (the scrolling picture, GR per stage, the loudness curve, peak labels), `meters.ts`, `history.ts`, `labels.ts`, `geometry.ts`, `clip-panel.tsx` (the clip stage's controls and its transfer curve, traced live), `actions.ts`, `store.ts`, `tool-edits.ts`. |
+| `src/suites/music/fabfilter/` | **New, shared with Pro-Q**: the FabFilter knob, the top bar, the bottom bar's buttons. |
+| `src/themes/studio.css` | `--lim-*` tokens (input, output, clip reduction, limiter reduction, label, loudness low / near / over, target). |
+| `scripts/fabfilter-probes/pro_l.py` | **Exists**: measures Pro-L 2; gains a mode that runs the same signals through our engine's offline render, so the two print side by side (§8.9). |
 | Tests | `shared/music/pro-l.test.ts`, `loudness.test.ts`, `server/music/pro-l.integration.test.ts`, `e2e/music.spec.ts`. |
 
 ### 8.3 What's decided where
 
 | In TypeScript (tested, the song's) | In the engine (C++, the sound's) |
 | --- | --- |
-| What each style *is* (its table), presets, defaults, ranges, tapers | Every sample: oversampling, detection, linking, both stages, clipper, emphasis, true peak stage, dither |
-| The ceiling, Gain and Unity in dB; times in seconds | Times turned into samples at the rate it runs (`fs`, `fo`); the latency in samples |
-| Which noise shaping, which bit depth | The shaping coefficients for the rate |
-| The meters' scales, colours, targets, labels (drawing) | The measurements: peaks, true peaks, RMS, M, S, I, LRA, maxima, the columns |
+| What each style *is* (its table), presets, defaults, ranges, tapers, the release stage's cap | Every sample: oversampling, the clip stage, detection, linking and M/S, the hold, both stages, the kernel, the true peak stage, dither |
+| The ceiling, Gain, Clip Range and Unity in dB; times in seconds | Times turned into samples at the rate it runs; the latency in samples |
+| Which noise shaping, which bit depth, which clip shape | The shaping coefficients, the curves' antiderivatives |
+| The meters' scales, colours, targets, labels (drawing) | The measurements |
 | Automation curves sampled into lanes | Lanes applied per 256-sample slice |
-
-As everywhere in the music suite, nothing musical is decided in C++ that TypeScript could decide; but limiting
-is sound, so it's the engine's, and its tests are in the engine's integration tests.
 
 ### 8.4 The engine's state and the audio thread
 
-- **By effect id** (`limit::Registry`, like `eq::Registry`): a song edit doesn't empty its delay lines or reset
-  its meters; the export makes its own registry (its meters then describe the export).
-- **The core** (delay lines, wedges, oversampler, true peak rings: sized by style, oversampling and rate) is
-  built on the message thread when those change, handed to the audio thread by atomic exchange, faded in over
-  10 ms while the old one fades out, and returned to be deleted (`collect`), as `Convolver::offer` does. The
-  **meters** live in the State, outside the core, so a style change doesn't reset the integrated loudness.
-- **Nothing on the audio thread allocates, locks or does I/O**: histograms and rings are allocated with the
-  State or core; readings go out through atomics (the latest) and a single-producer ring of columns that the
-  message thread drains for each transport event; reset and pause are atomics.
-- **Sizes**: the largest ring is Bus at 32x: 55 ms × 32 × 48 kHz ≈ 84 000 samples a channel (×2 for the
-  wedge's indices): under 2 MB; nothing else comes close.
+- **By effect id** (`limit::Registry`): a song edit doesn't empty its delay lines or reset its meters; the export makes
+  its own registry.
+- **The core** (delay lines, PeakHolds, box sums, oversampler, true peak rings: sized by style, oversampling and rate) is
+  built on the message thread when those change, handed over by atomic exchange, faded over 10 ms, and returned to be
+  deleted, as `Convolver::offer` does. The **meters** live in the State, outside the core.
+- **Nothing on the audio thread allocates, locks or does I/O.**
+- **Sizes**: the largest ring is Bus at 32x: 55 ms × 32 × 48 kHz ≈ 84 000 samples a channel; the hold's backward window
+  adds at most 50 ms; under 3 MB in all.
 
 ### 8.5 Latency and compensation
 
-`Song::compensate` adds `effect.limSettings->latency` for an enabled Pro-L, as it does `eqSettings->latency`
-and `tune->latency()`. The latency is computed when the song is parsed, at the device's rate (§5.10). A
-style / oversampling / true peak change makes the song again with the new delay (`checkLatencies` already does
-when a plugin's latency changes). The slot's dry sound is held back by the same amount (`mixDry`, as Pro-Q).
-`songLatency` keeps the playhead in time; the export trims it, so an exported master starts on its first
-sample.
+`Song::compensate` adds `effect.limSettings->latency` for an enabled Pro-L, as it does `eqSettings->latency`. A style /
+oversampling / true peak / stereo-mode change makes the song again with the new delay. The slot's dry sound is held
+back by the same amount. `songLatency` keeps the playhead in time; the export trims it.
 
 ### 8.6 Automation, events, the window
 
-- **Automation**: `AutomationTarget` `{ kind: "proL"; effect: string; control: ProLControl }`,
-  `ProLControl = "gain" | "output" | "lookahead" | "attack" | "release" | "linkTransients" | "linkRelease"`;
-  a knob with a `target` gets Create automation clip. Lanes `kind: "limiter"` in the engine's units (dB,
-  seconds, 0..1: all within the lanes' ±64, no scaling), set at each slice's start; the engine glides them
-  (§5.13).
-- **Transport events**: `EngineTransport.limiters?: Record<effectId, EngineLimiterState>`: the meter values
-  (§5.15) for every Pro-L, and the columns since the last event for those watched (`limWatch`, the open
-  windows, like `eqWatch`).
-- **The window** (FabFilter's layout, §2.1): the display canvas with the Gain strip on its left (dragging
-  anywhere on it, Alt-drag moving Output the other way: our modifier for linked knobs), the Advanced panel
-  sliding out, the meters and the loudness panel at the right, the bottom bar with the output panel popping
-  up. FabFilter's knob gestures map onto ours: drag, wheel, double-click to type, Cmd-click to reset, Shift
-  for fine. Right-click on a knob is the app's menu (Create automation clip), as everywhere in the suite.
-  Keys while it's in front: none needed (Space plays, as everywhere).
+- **Automation**: `AutomationTarget` `{ kind: "proL"; effect: string; control: ProLControl }`, `ProLControl = "gain" |
+  "output" | "lookahead" | "attack" | "release" | "hold" | "linkTransients" | "linkRelease" | "sideFloor" | "clipRange" |
+  "clipKnee"`; lanes `kind: "limiter"` in the engine's units, set at each slice's start; the engine glides them.
+  `e2e/music.spec.ts` right-clicks every slider of the window (as for every built-in).
+- **Transport events**: `EngineTransport.limiters?: Record<effectId, EngineLimiterState>`: the meter values (§5.15) for
+  every Pro-L, and the columns since the last event for those watched (`limWatch`).
+- **The window** (FabFilter's layout, §2.1): the display with the Gain strip on its left, the Advanced panel (Style,
+  Lookahead, Attack, Release, **Hold**, the links or the **Side floor**, the **stereo mode**), a **Clip** panel beside it
+  (on, Clip Range, shape, knee, the transfer curve with the signal traced on it, the clip meters), the meters and the
+  loudness panel at the right, the bottom bar with the output panel. The style's numbers (ramp, hold, release, latency)
+  under its name.
 
 ### 8.7 The assistant's tools
 
 | Tool | Kind | What |
 | --- | --- | --- |
-| `get_pro_l` | look | Its settings, its latency, and the readings: I, S, M, LRA, Max M / S, max true peak, max gain reduction, PLR, whether it's measured anything since the reset. What a mastering engineer would read off it. |
-| `update_pro_l` | edit | A patch: style, gain, output, lookahead, attack, release, links, true peak, oversampling, dither and shaping, DC, unity, audition, target, scale; or a preset by name (respecting Lock Output). Errors name the allowed values. |
+| `get_pro_l` | look | Its settings and what its style does in numbers, its latency, and the readings: I, S, M, LRA, Max M / S, max true peak, PLR, GR per stage, % clipped, peak density. |
+| `update_pro_l` | edit | A patch (every field of §8.1), or a preset by name (respecting Lock Output). Errors name the allowed values. |
 | `reset_pro_l_meter` | action | Reset (or pause, resume) its loudness measurement. |
 | `add_mixer_effect` | (exists) | Takes "Pro-L". |
-| `add_automation` | (exists) | Takes "limiter gain", "limiter output", "limiter lookahead", "limiter attack", "limiter release", "limiter link transients", "limiter link release". |
-| later: `analyze_pro_l` | action | The song rendered offline through it (no file): I, LRA, max true peak, gain reduction over time. With it, the assistant can set Gain to reach a target in two or three tries (the loudness rises monotonically with Gain). |
-
-Edits are pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested); labels in
-`describeToolCall`, icons in `tool-steps.tsx`; `describeMixer` mentions a Pro-L's style, ceiling and latency.
+| `add_automation` | (exists) | Takes "limiter gain", "limiter output", "limiter clip range", … |
+| after the core: `analyze_pro_l` | action | The song rendered offline through it: I, LRA, max true peak, GR over time. With it, the assistant suggests the Gain for a target in two or three tries (loudness rises with Gain, §5.6). |
 
 ### 8.8 How it relates to the export
 
-- **`preventClipping` / `exportGain`** (`shared/music/export.ts`) turns a whole render down, statically, until
-  its loudest *sample* is at `CLIP_CEILING` (−0.3 dBFS): a safety net that costs loudness and knows nothing of
-  true peaks. A Pro-L on the master is the musical answer: it limits dynamically, to a *true peak* ceiling. With
-  a Pro-L at −1 dBTP last on the master, the render's peak is under `CLIP_CEILING`, so `exportGain` is 1 and
-  nothing changes. **But** a Pro-L at 0.0 dB (Pro-L's own presets' ceiling) peaks above −0.3 dBFS and
-  `exportGain` would turn the whole song down by up to 0.3 dB, undoing the ceiling the user chose and
-  any dither. Proposed: when the master's last enabled effect is a Pro-L, `exportGain` only acts above 0 dBFS
-  (which the render can't reach unless something after the Pro-L adds level) **[ours, to confirm]**.
-- **Dither**: the export's 16-bit dither (ffmpeg's Shibata shaping) and a Pro-L's dither must not both run.
-  When a master Pro-L dithers, the export window says so and leaves its own off; a Pro-L dithering to 16 bits
-  makes the 32-bit float render hold 16-bit values exactly, which ffmpeg's `s16` conversion keeps as they are
-  (no `volume`, no `aresample` dither). Pro-L's advice applies: dither once, last **[FF]**.
-- **Stems**: the export's stems are each track after its fader, before the master's effects; with a limiter
-  on the master they no longer add up to the mix. Pro-L's answer is its external side chain (the master
-  triggering a stem's limiter) **[FF]**. Ours could be simpler: the export records the master Pro-L's gain
-  curve and applies it to every stem (exactly additive while the style's processing is only gain: not with
-  Aggressive's clipper or Dynamic's emphasis, and with oversampling the gain is applied at `fo`, so the stems
-  would need the same filters) **[ours, later]**.
-- **Offline oversampling**: FabFilter suggests 16x / 32x "when doing offline rendering". The export renders
-  with the song's setting; an "export at 32x" option is possible but changes latency between live and export,
-  which the export trims anyway **[ours, an open question]**.
-- **Reporting**: the export's job could show the render's I, LRA and max true peak, computed by the same
-  `Loudness` and `TruePeak` code over the mix it writes **[ours, later]**.
+- **`preventClipping` / `exportGain`** turns a whole render down until its loudest *sample* is at −0.3 dBFS. With a
+  Pro-L at −1 dBTP last on the master nothing changes; with a "release style" sample ceiling (−0.01 to −0.1 dBFS: how
+  trap and hyperpop records ship) it would undo the ceiling the user chose. Proposed: when the master's last enabled
+  effect is a Pro-L, `exportGain` only acts above 0 dBFS **[ours, to confirm]**.
+- **Dither**: dither once, last: when a master Pro-L dithers, the export's own is off.
+- **Codec check** (after the core): the export encodes its mix with the destination's real encoders (Apple AAC 256
+  through `afconvert` on macOS, libopus, LAME; never ffmpeg's own AAC), decodes to float, reports the decoded true peak
+  and `afclip`'s on-sample and inter-sample clips, and suggests a trim; three tries at most.
+- **Approval / Master pair** (later): the export renders the master with and without its limiter in one go, the most
+  common manual step in these genres (`pro-l-research.md` §1.10).
+- **Stems** through the master's limiter (later): the master Pro-L's gain curve applied to every stem (exact while the
+  processing is only gain: not with the clip stage or Dynamic's emphasis).
+- **Reporting**: the export's job can show the render's I, LRA and max true peak with the same `Loudness` and `TruePeak`
+  code.
 
 ### 8.9 Offline tests, with pass criteria
 
-`server/music/pro-l.integration.test.ts`, the real engine offline (as `pro-q.integration.test.ts`), at
-48 kHz and, where marked, 44.1 and 96 kHz. The engine's render is read back (24-bit WAV: its quantisation is
-under 0.00001 dB at these levels) and measured **in TypeScript with `shared/music/loudness.ts`**, which shares
-no code with the engine. Rows 1–6 and 12–23 are hard requirements; the thresholds in rows 7–11 describe our
-styles as designed in §4 and move with them if tuning against the real Pro-L changes the styles. "Hard
-material" is synthesised in the test: drum hits clipped after +12 dB, clipped
-white noise, a band-limited square, a +3 dBTP quarter-rate tone, a 0 dBFS sweep, and a real mix if one is in
-the test media, each pushed with Gain +12 dB.
+`server/music/pro-l.integration.test.ts`, the real engine offline, at 48 kHz and, where marked, 44.1 and 96 kHz,
+measured **in TypeScript with `shared/music/loudness.ts`**. "Hard material" is synthesised in the test (clipped drums,
+clipped noise, a band-limited square, a +3 dBTP quarter-rate tone, a 0 dBFS sweep, the probe's trap loop), pushed with
+Gain +12 dB. The probe's signals (`scripts/fabfilter-probes/pro_l.py`) are reused so the numbers compare with Pro-L 2's
+in `pro-l-research.md` §2.
 
 | # | What | Setup | Pass |
 | --- | --- | --- | --- |
-| 1 | **Sample ceiling** | Hard material × 8 styles × oversampling {Off, 4x, 32x} × lookahead {0, 0.1 ms, 5 ms} × ceiling {0, −0.1, −1 dB}; TP off | Max \|sample\| ≤ ceiling + 0.0001 dB, every case |
-| 2 | **True peak ceiling, BS.1770** | The same with TP on | Max true peak by the Annex 2 filter (its printed coefficients, in the test) ≤ ceiling + 0.001 dB, every case |
-| 3 | **True peak ceiling, independent** | TP on, oversampling ≥ 2x | Max true peak by a 16x Kaiser-windowed sinc with 256 taps a phase (in the test, not the engine's detector) ≤ ceiling + 0.02 dB |
-| 4 | **True peak, oversampling off** | TP on, Off, material band-limited to 0.45 fs | Independent 16x ≤ ceiling + 0.02 dB (and the window's warning is shown when Off, in e2e) |
-| 5 | **Latency exact** | An impulse at −20 dBFS (no reduction), every style × {Off, 2x, 4x, 32x} × TP {off, on}, at 44.1 / 48 / 96 kHz | The song reports the latency; the impulse's peak (Off) or its filters' centre of symmetry (oversampled) is at exactly that sample. With the song's compensation, a dry track and the limited track are in time to the sample (as `latency.integration.test.ts` does) |
-| 6 | **Untouched below the threshold** | A −20 dBFS sine sweep, Gain 0, ceiling 0 | Off, TP off: output = input delayed, null ≤ −120 dB. Oversampled: within ±0.01 dB to 20 kHz (the filters' passband) |
-| 7 | **The release stage, Jetter's tests** | A 1 kHz tone at −12 dBFS with 1 ms clicks 6 dB over the ceiling every 500 ms; Transparent | Attack 10 s: the tone is back within 0.5 dB of its level < 30 ms after a click whatever the Release (0.01 s or 10 s). Attack 0: the recovery time to within 0.5 dB grows with Release (Release 1 s: between 0.5 and 4 s) |
-| 8 | **Program-dependent release** | The same click alone, then a sustained 60 Hz overload of the same depth | The recovery after the sustained overload is at least 3× slower than after the click (style's slow vs fast) |
-| 9 | **Distortion by style** | A 60 Hz sine pushed 6 dB into the ceiling, lookahead 0.5 ms, 4x | THD+N order: Safe < Modern ≤ Transparent < Aggressive; Safe's THD < −60 dB; Modern's < −45 dB; Aggressive's > Transparent's by ≥ 6 dB |
-| 10 | **Loudness gained by style** | A drum loop, Gain +10 dB, ceiling −1 dBTP | Integrated loudness order: Aggressive ≥ Modern ≥ Safe, and Safe at least 0.5 LU under Aggressive |
-| 11 | **Bus glues** | A drum loop 3 dB under the ceiling (no overs) | Bus reduces it (gain reduction ≥ 1 dB on the loudest hits); every other style leaves it untouched (≤ 0.01 dB) |
-| 12 | **Linking** | A peak in the left channel only, 6 dB over | Links 0 %: the right channel is unchanged (≤ 0.01 dB). 100 %: both channels reduced by the same amount (within 0.01 dB). 50 %: the right reduced by half the left's reduction in dB (± 0.5 dB) |
-| 13 | **Unity Gain** | Gain +6 dB; a tone 10 dB under the ceiling (not limited), then a drum loop limited by about 3 dB | The tone comes out at the input's level within 0.01 dB; the loop's integrated loudness within 1 LU of the input's (heavy limiting makes it quieter: Mix noticed); the meters (in `render`'s answer) read the levels as if Unity were off |
-| 14 | **Audition** | Hard material | Audition output + normal output (rendered separately) = the delayed input after Gain, within −90 dB (Off) / −60 dB (oversampled) |
-| 15 | **DC filter** | A tone with +0.1 DC | Output mean < 0.0005 after 1 s; a 50 Hz tone's level within 0.05 dB |
-| 16 | **Dither** | Silence-to-tone fades, 16 bits, each shaping | Every output sample × 32768 is an integer (± 1e-6); flat TPDF's noise is 2 LSB p-p triangular (variance ½ LSB² ± 5 %); Basic, Optimized, Weighted: noise in 1–4 kHz at least 3, 6, 6 dB under flat TPDF, and their spectra rise above 6, 10 and ~12 kHz respectively |
-| 17 | **EBU Tech 3341** | Signals 1–6 and 9–14, synthesised in the test (5.0's test 6 is skipped: stereo only), Gain 0, ceiling 0 dB (nothing limited) | M, S, I (and Max M / Max S for 10–14) within ±0.1 LU, read from `render`'s answer at the end of each, at 44.1 and 48 kHz |
-| 18 | **True peak meter** | Tech 3341's 15–23, measured on the input meter (some are over the ceiling) | Within +0.2 / −0.4 dB (ours expected within ±0.05) |
-| 19 | **EBU Tech 3342** | LRA signals 1–4 | Within ±1 LU (ours expected ±0.1) |
-| 20 | **Meter reset, pause, auto-reset** | A tone, reset, another tone; pause in between | I reflects only what was measured while running |
-| 21 | **Block size and threads** | Hard material rendered with blocks of 64, 512, and through the export (2048, parallel and single-threaded) | Identical samples |
-| 22 | **Edits don't click** | Gain automated 0 → 12 dB over a beat; a song re-sent mid-play with Attack changed | No sample-to-sample step over 0.05 in the output's high-passed difference; the meters' integrated reading survives the edit |
-| 23 | **Speed** | 32x, TP, Modern, a minute of stereo | Renders at least 10× real time on the test machine |
+| 1 | **Sample ceiling** | Hard material × 9 styles × oversampling {Off, 4x, 32x} × lookahead {0, 0.1 ms, max} × ceiling {0, −0.1, −1 dB} × clip {off, 0 dB Hard, +2 dB Smooth} × stereo {L/R, M/S}; TP off | Max \|sample\| ≤ ceiling + 0.0001 dB, every case |
+| 2 | **True peak, BS.1770** | The same with TP on | ≤ ceiling + 0.001 dB by the Annex 2 filter |
+| 3 | **True peak, ideal reconstruction** | TP on, oversampling ≥ 2x | ≤ ceiling + 0.02 dB by a 16x Kaiser sinc (Pro-L 2: +0.1 to +0.37) |
+| 4 | **True peak, oversampling off** | TP on, Off, band-limited material | Independent 16x ≤ ceiling + 0.02 dB |
+| 5 | **Latency exact** | An impulse at −20 dBFS, every style × {Off, 2x, 4x, 32x} × TP × clip on / off, at 44.1 / 48 / 96 kHz | As reported, to the sample; in time with a dry track |
+| 6 | **Untouched below the threshold** | A −20 dBFS sweep, the trap loop at Gain 0 (peaks −1 dBFS), clip on at Range 0 | Off, TP off: a null ≤ −120 dB (Pro-L 2: −152 dB); oversampled: within ±0.01 dB to 20 kHz |
+| 7 | **Bass: no distortion** | Sines at 30, 40, 60, 100 Hz, 6 and 12 dB over, every style but Spit, Hold Auto | THD ≤ −80 dB (Pro-L 2's Transparent: −21 dB; Modern −73 dB) |
+| 8 | **Bass under the mids** | 50 Hz 6 dB over plus 3 kHz at −20 dB | Sidebands of 3 kHz: Transparent, Modern, Safe ≤ −40 dBc; Aggressive is near-clipping by design (Pro-L 2's: −10) |
+| 9 | **Loudness rises with Gain** | The trap loop and hard material, Gain 0 → 30 dB in 2 dB steps, every style | Integrated loudness never falls by more than 0.05 LU from one step to the next (Pro-L 2's Modern falls 1.7 LU) |
+| 10 | **The release stage** (Jetter's tests) | A 1 kHz tone at −12 dBFS with 1 ms clicks 6 dB over every 500 ms; Transparent | Attack 10 s: back within 0.5 dB < 30 ms after a click; Attack 0: the recovery grows with Release |
+| 11 | **Program-dependent release** | The click alone, then a sustained 60 Hz overload | The recovery after the sustained one at least 3× slower |
+| 12 | **Hold** | A 1 kHz burst 6 dB over for 50 ms; Hold 0 / 20 ms | With 20 ms, the reduction stays within 0.1 dB of full for 20 ms after the burst |
+| 13 | **Clip stage** | A 1.25 kHz sine 12 dB into a Hard clip at 4x; a −20 dBFS sweep with the clip on | Worst alias ≤ −90 dBc; below the knee the residue is exactly 0 (bit-exact output, Off) |
+| 14 | **M/S keeps the centre** | A wide chord stack over a mono 808 | Side first: the M gain stays at 0 dB until the S gain reaches the floor; the ceiling holds (row 1) |
+| 15 | **Linking** | A peak in the left only, 6 dB over | 0 %: the right untouched; 100 %: the same reduction; 50 %: half in dB (± 0.5 dB) |
+| 16 | **Unity Gain** | Gain +6 dB | A tone under the ceiling comes out at the input's level within 0.01 dB |
+| 17 | **Audition** | Hard material, clip on | All + output = the delayed input after Gain (−90 dB Off / −60 dB oversampled); Clip + Limiter = All |
+| 18 | **DC filter** | A tone with +0.1 DC | Mean < 0.0005 after 2 s; 20 Hz within 0.05 dB |
+| 19 | **Dither** | 16 bits, each shaping | Integers ± 1e-6; TPDF variance ½ LSB² ± 5 %; each shaping within 2 dB of Pro-L 2's measured octave curve (`pro-l-research.md` §2.7) |
+| 20 | **EBU Tech 3341, 3342; true peak meter** | Their signals, synthesised | M, S, I within ±0.1 LU; LRA ±1 LU; true peak +0.2 / −0.4 dB |
+| 21 | **Meter reset, pause, auto-reset** | | I reflects only what was measured while running |
+| 22 | **Block size and threads** | Blocks of 64, 512, the export (2048, parallel and one thread) | Identical samples |
+| 23 | **Edits don't click** | Gain and Clip Range automated over a beat; Attack changed mid-play | No step over 0.05 in the output's high-passed difference |
+| 24 | **Speed** | 32x, TP, clip, Modern, a minute of stereo | ≥ 10× real time |
 
-Pure tests (vitest): `normalizeProL` (repairs any input, keeps a valid one identical), presets and Lock
-Output, A/B, `engineProL` (every style's table resolved; latencies by formula), `loudness.ts` against Tech 3341
-/ 3342 (the same signals, as a check of the checker), the meter geometry (scales, linear tops, colours, the
-connecting curves), peak labels (local maxima, spacing, depth), the tools' edits. **e2e** (`music.spec.ts`):
-add Pro-L from an effect slot's picker, open its window, drag Gain, see the meters move (the fake engine's
-readings), switch style and A/B, undo, Create automation clip on Gain, and the TP-without-oversampling note.
+Pure tests (vitest): `normalizeProL`, presets and Lock Output, A/B, `engineProL` (every style resolved; latencies),
+`loudness.ts` against Tech 3341 / 3342, the meter geometry, peak labels, the tools' edits. **e2e** (`music.spec.ts`):
+add Pro-L, open its window, drag Gain, see the meters move (the fake engine's readings), switch style and A/B, turn the
+clip stage on, undo, Create automation clip on every knob, the TP-without-oversampling note.
+
+**Against Pro-L 2** (not a pass/fail test; `pro_l.py` run on both, printed side by side): bass THD, IMD, the gain curves
+per style, loudness against Gain, latency, ideal true peak, transient retention and the matched-loudness residue. And a
+blind, loudness-matched A/B on short loops with Théo deciding.
 
 ### 8.10 What's reused
 
-- **Pro-Q**: the window's structure and look, its knob and top bar (to share in `src/suites/music/fabfilter/`),
-  `eq::Registry`'s pattern, `Convolver::offer`'s hand-over (for the core), `mixDry`, the `eqWatch` idea, the
-  integration test's harness.
-- **Auto-Tune**: `pitch-history.ts`'s way of keeping fast readings outside React for a scrolling canvas;
-  reporting latency to `Song::compensate`.
-- **The engine**: `ScopedNoDenormals`, the lanes, `Workers` (nothing to do: per-track state is already safe),
-  `DelayLine`'s ring for the dry path, `Resampling.h`'s Kaiser maths for the detector's sinc table.
-- **New and reusable**: `Oversampler`, `TruePeak`, `Loudness`, `Lookahead`: the export can report loudness and
-  true peak with the last two, and future effects with saturation can oversample with the first.
+- **Pro-Q**: the window's structure and look, its knob and top bar (to share in `src/suites/music/fabfilter/`), the
+  registry pattern, `Convolver::offer`'s hand-over, `mixDry`, the watch idea, the integration test's harness.
+- **Auto-Tune**: keeping fast readings outside React for a scrolling canvas; reporting latency.
+- **Pro-C**: its knee display (for the clip stage's transfer curve), its `--comp-*` approach to a dark display.
+- **The engine**: `ScopedNoDenormals`, the lanes, `Workers`, `DelayLine`'s ring, `Resampling.h`'s Kaiser maths.
+- **New and reusable**: `Oversampler`, `Clipper`, `TruePeak`, `Loudness`, `Lookahead`.
 
 ---
 
 ## 9. Open questions for Théo
 
-1. **The default**: Pro-L's presets ship at a 0.0 dB ceiling, True Peak Limiting not stated; we'd start at
-   **−1.0 dBTP, TP on, 4x** (streaming-safe; 21.5 ms of latency with Modern at 48 kHz, 11.5 ms with
-   Transparent). Or match FabFilter (0.0 dB) and let the user choose?
-2. **A limiter on new songs' master?** FL Studio's default template has one. Should a new song start with a
-   Pro-L on the master (bypassed, or on at Gain 0)?
-3. **The export's safety net**: when the master ends with a Pro-L, should `preventClipping` stand down unless
-   the render goes over 0 dBFS (so a 0.0 dB ceiling isn't turned down 0.3 dB)? Should it also look at true
-   peaks?
-4. **Stems through the master's limiter** (each stem multiplied by the master Pro-L's gain curve, so stems add
-   up to the limited mix)? Worth it, and on by default when stems are exported with a master Pro-L?
-5. **Latency vs Lookahead**: we reserve the whole 5 ms so the knob never moves the song's delay (Pro-L seems to
-   do the same). Should there be a **low-latency** choice (the delay follows the knob, for tracking through a
-   vocal chain), at the price of the song re-compensating when it's turned?
-6. **Tuning the styles**: they're reconstructions. Do you have Pro-L 2 here? With it we'd measure each style
-   (step responses, a click, a 60 Hz overload, THD, latency) and tune ours to match, as EchoBoy's doc proposes.
-7. **Its look**: FabFilter's dark look in every theme, as Pro-Q (proposed), or the app's surfaces?
-8. **Per-platform targets** (Spotify Loud/Normal/Quiet, Apple Music, YouTube, Tidal…) beyond Pro-L's four?
-   Their numbers change over time and only Spotify's is published where we could read it.
-9. **Unity Gain and Audition**: in the song (Pro-L's way: saved, undone) or the tab's (temporary listening
-   aids, like Pro-Q's band solo, never saved)?
-10. **"Gain to target"** (an offline analysis and one click to reach −14 LUFS integrated at the ceiling): wanted
-    in the first version, for you and the assistant, or later?
-11. **Compact view**: needed, or is a freely resizable window enough?
+1. **Its name.** Pro-C kept its name with 21 styles; "Pro-L" would too. Or a name of our own, since it's now more than
+   Pro-L?
+2. **The default ceiling.** **−1.0 dBTP, true peak on, 4x** (streaming-safe; −2 if the master is louder than −14, by
+   Spotify's own advice), or the "release style" sample ceiling (−0.1 dBFS, true peak shown) that trap and hyperpop
+   records actually ship with? Pro-L 2's own default is 0 dBTP with oversampling off.
+3. **The clip stage on a new Pro-L**: off (one click to turn on, as proposed), or on at +1.5 dB Smooth?
+4. **FL Studio's soft clipper.** Trap beats are made through it, and Orange Clip sells a copy of its curve. If you have
+   FL Studio installed, I can measure Fruity Soft Clipper's and Fruity Limiter's curves offline the way I measured
+   Pro-L 2, and add an **FL** shape. Worth it?
+5. **Multiband.** Ozone 12, L3, Limitless and Elevate all split the spectrum so the 808 doesn't duck the mix. Proposed:
+   later, after Hold (which already removes the 808's distortion) and Bass clip. Or do you want an 808 split in the
+   first version, at the cost of latency (a linear-phase split at ~120 Hz costs 10–20 ms)?
+6. **Delivery tools first or later?** The codec check in the export (Apple's AAC encoder is on every Mac),
+   per-platform previews and a normalised listen ("hear it as Spotify will") are proposed right after the core.
+7. **More measurements?** Waves L4, Ozone 12 and DMG Limitless have trials too (Ozone and Waves need accounts), and TDR
+   Limiter 6 GE has a free edition. Measuring them would give more targets, especially the clippers in L4 and
+   Limitless. Want me to?
+8. **Latency on vocals.** Spit is ~1 ms and Transparent 5 ms with oversampling off: low enough to record through. Is
+   that enough, or should every style have a "low latency" switch (the delay follows the Lookahead knob, and the song
+   re-compensates when it's turned)?
+9. **Earlier questions still open**: a limiter on new songs' master (FL Studio's template has one); Unity Gain and
+   Audition saved in the song (Pro-L's way) or the tab's; FabFilter's dark look in every theme (proposed) or the app's;
+   a Compact view.
 
 ---
 
@@ -1468,6 +1548,8 @@ FabFilter:
   `truepeaks@2x.gif`, `truepeaklimiting@2x.jpg`, `truepeakmetering@2x.jpg`, `gainslider@2x.jpg`,
   `knobs@2x.jpg`, `undoredo@2x.jpg`, `resize@2x.jpg`, `midilearn@2x.jpg`, `surroundchannellinking@2x.jpg`,
   `surroundmeters@2x.jpg`)
+- The second round of research, with the measurements of Pro-L 2 and every source behind them: `pro-l-research.md`;
+  the probe: `scripts/fabfilter-probes/pro_l.py`, through Spotify's pedalboard <https://github.com/spotify/pedalboard>
 - FabFilter Pro-L (version 1) manual: <https://www.fabfilter.com/help/ffprol-manual.pdf>
 - Product page: <https://www.fabfilter.com/products/pro-l-2-limiter-plug-in>
 - Downloads (version 2.26, 16 April 2026): <https://www.fabfilter.com/download>
