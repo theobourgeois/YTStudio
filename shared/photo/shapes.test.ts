@@ -168,33 +168,42 @@ describe("what a shape draws", () => {
   });
 
   it("dashes and dots by the stroke's width, whatever the cap adds", () => {
-    expect(shapeDrawing(rect({ dash: "dashed", cap: "butt" })).items[0]).toMatchObject({ dash: [30, 22], cap: "butt" });
-    expect(shapeDrawing(rect({ dash: "dashed", cap: "round" })).items[0]).toMatchObject({ dash: [22, 30] });
-    expect(shapeDrawing(rect({ dash: "dotted", cap: "butt" })).items[0]).toMatchObject({ dash: [0, 20], cap: "round" });
+    const line = (paint: object) => shapeDrawing(makeShapeLayer(doc, { id: "l", kind: "line", from: { x: 0, y: 0 }, to: { x: 500, y: 0 }, paint })).items[0];
+    expect(line({ dash: "dashed", cap: "butt" })).toMatchObject({ dash: [30, 22], cap: "butt" });
+    expect(line({ dash: "dashed", cap: "round" })).toMatchObject({ dash: [22, 30] });
+    expect(line({ dash: "dotted", cap: "butt" })).toMatchObject({ dash: [0, 20], cap: "round" });
+    // Round a closed outline (600 px), a whole number of dashes: twelve of 52 stretched to 50.
+    const [d, g] = (shapeDrawing(rect({ dash: "dashed", cap: "butt" })).items[0] as { dash: number[] }).dash;
+    expect(d / g).toBeCloseTo(30 / 22, 9);
+    expect(600 / (d + g)).toBeCloseTo(12, 9);
   });
 
   it("ends an arrow at its tip, a filled head's line stopping inside it", () => {
     const open = shapeDrawing(arrow());
     expect(open.items.map((i) => i.kind)).toEqual(["stroke", "stroke"]);
     const [body, head] = open.items;
-    expect(body.path.at(-1)).toEqual(["L", 600, 400]);
+    // The wings' mitred point lands on the end: the tip is drawn back by half the stroke over sin 25°.
+    const inset = 4 / Math.sin((25 * Math.PI) / 180);
+    expect(body.path.at(-1)![1]).toBeCloseTo(600 - inset, 6);
     // The head's wings meet at the tip, 25° either side, 38 px long (3 × 8 + 14).
-    expect(head.path[1]).toEqual(["L", 600, 400]);
-    expect(head.path[0][1]).toBeCloseTo(600 - 38 * Math.cos((25 * Math.PI) / 180), 6);
+    expect(head.path[1][1]).toBeCloseTo(600 - inset, 6);
+    expect(head.path[0][1]).toBeCloseTo(600 - inset - 38 * Math.cos((25 * Math.PI) / 180), 6);
+    // Round corners reach half the stroke past it.
+    expect(shapeDrawing(arrow(undefined, undefined, { paint: { join: "round" } })).items[1].path[1][1]).toBeCloseTo(596, 6);
     const filled = shapeDrawing(arrow(undefined, undefined, { startHead: "circle", endHead: "triangle" }));
     expect(filled.items.map((i) => i.kind)).toEqual(["stroke", "fill", "stroke", "fill"]);
     const end = filled.items[0].path.at(-1)!;
-    expect(end[1]).toBeCloseTo(600 - 38 * 0.8, 6);
+    expect(end[1]).toBeCloseTo(600 - 4 / Math.sin(Math.atan(0.5)) - 38 * 0.8, 6);
     // Heads shrink on short lines.
     const short = shapeDrawing(arrow({ x: 0, y: 0 }, { x: 20, y: 0 }));
-    expect(short.items[1].path[0][1]).toBeGreaterThan(20 - 13);
+    expect((short.items[1].path[1][1] as number) - (short.items[1].path[0][1] as number)).toBeCloseTo(12 * Math.cos((25 * Math.PI) / 180), 6);
   });
 
   it("points a bent arrow's head along the curve as it arrives", () => {
     const bent = shapeDrawing(arrow({ x: 0, y: 0 }, { x: 400, y: 0 }, { bend: 100 }));
     expect(bent.items[0].path[1][0]).toBe("C");
     const [l, tip, r] = bent.items[1].path.map((c) => [c[1], c[2]] as [number, number]);
-    expect(tip).toEqual([400, 0]);
+    expect(Math.hypot(tip[0] - 400, tip[1])).toBeCloseTo(4 / Math.sin((25 * Math.PI) / 180), 0);
     // Bent to the left (up, y down): it arrives going down and right, so its wings sit up and to the left of it.
     expect((l[1] + r[1]) / 2).toBeLessThan(0);
   });
@@ -247,8 +256,9 @@ describe("a shape's pixels", () => {
     expect(plan.nodes).toHaveLength(1);
     const node = plan.nodes[0];
     expect(node).toMatchObject({ kind: "pixel", layerId: "r1", size: { width: 512, height: 256 }, transform: { x: 256, y: 128, scaleX: 1, scaleY: 1, rotation: 0 } });
-    expect(node.kind === "pixel" && node.surface.startsWith("shape:")).toBe(true);
-    const moved = compileRender(setShapeLayer(d, { ...(d.layers[0] as ShapeLayer), transform: { ...d.layers[0].transform!, x: 210 } } as ShapeLayer), new Map());
+    expect(node.kind === "pixel" && !!node.surface?.startsWith("shape:")).toBe(true);
+    const first = d.layers[0] as ShapeLayer;
+    const moved = compileRender(setShapeLayer(d, { ...first, transform: { ...first.transform, x: 210 } }), new Map());
     expect(moved.key).not.toBe(plan.key);
   });
 });

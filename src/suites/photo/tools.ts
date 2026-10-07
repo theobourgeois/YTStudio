@@ -58,6 +58,7 @@ import {
 } from "./tool-edits";
 import { usePhotoUi } from "./ui";
 import { imageLayerOf } from "./media";
+import { addShapeTool, setShapeTool } from "./shape-tool-edits";
 import { photoApi } from "./api";
 import { placeAsset, removeBackground } from "./online/online";
 
@@ -411,6 +412,9 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     const result = await withRenderer(target.projectId, target.doc, target.assets, (r) => r.export(target.projectId, target.doc, { name, format, bits, quality }, (f) => ctx.progress(f, "Exporting"), ctx.signal));
     return textResult(`Exported ${name} (${target.doc.canvas.width}×${target.doc.canvas.height}, ${bits}-bit, ${Math.round(result.bytes / 1024)} KB) to ${result.path}.`);
   },
+  // Shapes (docs/photo/tools/shapes.md): a new one is stroked in the user's foreground colour unless told otherwise.
+  add_shape: edit((doc, input, env) => addShapeTool(doc, input, { ...env, foreground: useColours.getState().foreground })),
+  set_shape: edit(setShapeTool),
 };
 
 export async function runPhotoTool(name: string, input: Input, ctx: ToolRunContext): Promise<ToolResult> {

@@ -28,6 +28,7 @@ import { EffectsSection } from "./effects-section";
 import { FilterProperties, GeneratorProperties } from "./light";
 import { CameraRawProperties } from "../camera-raw/properties";
 import { NumberField, ParamSlider } from "./fields";
+import { ShapeSection } from "../toolbox/shapes/properties";
 
 export function PropertiesPanel() {
   const selected = usePhotoUi((s) => s.selectedLayerId);
@@ -47,6 +48,14 @@ export function PropertiesPanel() {
         ) : (
           <FilterProperties layer={layer} filterId={filter.id} />
         )
+      ) : layer?.kind === "shape" ? (
+        <>
+          <Section title={layer.name}>
+            <ShapeSection layer={layer} />
+          </Section>
+          <BlendingSection layer={layer} />
+          <EffectsSection layer={layer} />
+        </>
       ) : layer && isPlaced(layer) ? (
         <LayerProperties layer={layer} />
       ) : layer?.kind === "generator" ? (

@@ -80,6 +80,13 @@ set_filter changes, bypasses or reorders a layer's filters, remove_filter remove
 Flare layer (a source glow, a halo, ghosts, a streak: elements on the line from its source through the optical \
 centre) that adds its light to what's below; move_handle moves its source (where the light is) or optical centre, \
 and set_effect_params changes its intensity, colour or elements. Light can be brighter than white: set_canvas's \
-highlights decide how it leaves the photo (film rolls it towards white, the default; clip clips it).`,
+highlights decide how it leaves the photo (film rolls it towards white, the default; clip clips it).
+
+Shapes (annotations, sketches, wireframes): add_shape adds a shape layer, a vector that stays editable: a rectangle \
+(rounded with radius) or an ellipse by its box (x, y, width, height), or a line or an arrow from one point to another \
+(an arrow's tip lands exactly on its \`to\`), with a stroke, a fill, dashes, heads at either end, a bend and a \
+hand-drawn look (sloppiness). set_shape changes one; transform_layer moves, scales and turns it like any layer (its \
+stroke keeps its width). To annotate, look first (view_photo), then box what matters with an unfilled rectangle and \
+point at it with an arrow ending just outside it, in a colour that stands out.`,
   },
 };

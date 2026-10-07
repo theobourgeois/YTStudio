@@ -208,6 +208,15 @@ function headTrim(head: Arrowhead, length: number): number {
   return 0;
 }
 
+/** How far a head's stroked tip reaches past its point: a miter's corner (by its half-angle), else half the stroke. */
+function tipInset(head: Arrowhead, width: number, join: ShapePaint["join"]): number {
+  const corner = (halfAngle: number) => width / 2 / Math.sin(halfAngle);
+  if (head === "arrow") return join === "miter" ? corner((25 * Math.PI) / 180) : width / 2;
+  if (head === "triangle") return corner(Math.atan(0.5));
+  if (head === "diamond") return corner(Math.atan(0.6));
+  return 0;
+}
+
 /** A head at `tip`, pointing along `d` (unit), `length` long, for a stroke `width` wide. */
 function headItems(head: Arrowhead, tip: Pt, d: Pt, length: number, paint: ShapePaint, colour: string, width: number, rough: RoughOptions | null): DrawItem[] {
   const n: Pt = [-d[1], d[0]];
@@ -265,6 +274,17 @@ function dashFor(paint: ShapePaint, width: number): { dash: number[]; cap: Shape
   return { dash: [], cap: paint.cap };
 }
 
+/** A dash pattern stretched (or shrunk) so a whole number of its periods goes round a closed path. */
+function fitDash(dash: number[], path: readonly PathCommand[]): number[] {
+  if (dash.length < 2) return dash;
+  const period = dash[0] + dash[1];
+  let perimeter = 0;
+  for (const poly of flatten(path, 16)) for (let i = 1; i < poly.length; i++) perimeter += Math.hypot(poly[i][0] - poly[i - 1][0], poly[i][1] - poly[i - 1][1]);
+  if (!perimeter || !period) return dash;
+  const k = perimeter / (Math.max(1, Math.round(perimeter / period)) * period);
+  return dash.map((v) => v * k);
+}
+
 // --- the drawing ---
 
 /** rough.js's options for this layer (Excalidraw's): its offsets scaled with the stroke, so a thick shape wobbles as much. */
@@ -315,7 +335,8 @@ function makeDrawing(layer: ShapeLayer): ShapeDrawing {
     width: w,
     cap: rough ? "round" : cap,
     join: rough ? "round" : paint.join,
-    dash,
+    // Around a closed outline, a whole number of dashes: no short one where it closes.
+    dash: !rough && placed.type !== "line" ? fitDash(dash, path) : dash,
     clip,
   });
   if (placed.type === "line") {
@@ -365,11 +386,15 @@ function lineItems(
   const items: DrawItem[] = [];
   // Two heads share the line: each at most 40% of it.
   const length = headLength(width, total * (placed.startHead !== "none" && placed.endHead !== "none" ? 0.4 : 0.6));
-  const t0 = tAt(m, placed.startHead === "none" ? 0 : headTrim(placed.startHead, length));
-  const t1 = tAt(m, total - (placed.endHead === "none" ? 0 : headTrim(placed.endHead, length)));
+  // A head's tip is drawn back from the line's end by as far as its stroke's corner reaches past it, so the arrow's
+  // point is where its end was put; a filled head's line stops inside it.
+  const inset = (head: Arrowhead) => (head === "none" ? 0 : tipInset(head, width, rough ? "round" : paint.join));
+  const [in0, in1] = [inset(placed.startHead), inset(placed.endHead)];
+  const t0 = tAt(m, in0 + (placed.startHead === "none" ? 0 : headTrim(placed.startHead, length)));
+  const t1 = tAt(m, total - in1 - (placed.endHead === "none" ? 0 : headTrim(placed.endHead, length)));
   const body = total > 0 ? curvePiece(curve, t0, Math.max(t0, t1)) : [["M", curve.p0[0], curve.p0[1]] as PathCommand, ["L", curve.p1[0] + 1e-3, curve.p1[1]] as PathCommand];
   items.push(strokeItem(rough ? roughPath(body, rough) : body, width));
-  // Each head points along the curve as it arrives: from the point a head's length back to the tip.
+  // Each head points along the curve as it arrives: from a little way back (a fifth of a head) to the tip.
   const direction = (tip: Pt, from: Pt): Pt => {
     const dx = tip[0] - from[0];
     const dy = tip[1] - from[1];
@@ -377,8 +402,14 @@ function lineItems(
     return d > 1e-9 ? [dx / d, dy / d] : [1, 0];
   };
   if (total > 0) {
-    if (placed.endHead !== "none") items.push(...headItems(placed.endHead, curve.p1, direction(curve.p1, curveAt(curve, tAt(m, total - length * 0.7))), length, paint, paint.stroke!, width, rough));
-    if (placed.startHead !== "none") items.push(...headItems(placed.startHead, curve.p0, direction(curve.p0, curveAt(curve, tAt(m, length * 0.7))), length, paint, paint.stroke!, width, rough));
+    if (placed.endHead !== "none") {
+      const tip = curveAt(curve, tAt(m, total - in1));
+      items.push(...headItems(placed.endHead, tip, direction(tip, curveAt(curve, tAt(m, total - in1 - length * 0.2))), length, paint, paint.stroke!, width, rough));
+    }
+    if (placed.startHead !== "none") {
+      const tip = curveAt(curve, tAt(m, in0));
+      items.push(...headItems(placed.startHead, tip, direction(tip, curveAt(curve, tAt(m, in0 + length * 0.2))), length, paint, paint.stroke!, width, rough));
+    }
   }
   return items;
 }
