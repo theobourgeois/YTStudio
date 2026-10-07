@@ -1059,24 +1059,21 @@ y = Q(v + tpdf)                    (Q: round to the bit depth's step, 2^−(bits
 e[n] = y − v                       (the error of the quantiser, dither included)
 ```
 
-The noise's spectrum is `|1 − H(e^jω)|²` times the white TPDF noise. The filters are published ones (the set
-SoX ships, from Lipshitz, Vanderkooy and Wannamaker's papers), picked by matching FabFilter's descriptions
-**[inferred]**:
+The noise's spectrum is `|1 − H(e^jω)|²` times the white TPDF noise. **As built** **[checked]**: the published sets
+(SoX's, from Lipshitz, Vanderkooy and Wannamaker's papers: Lipshitz's 5-tap, the improved E-weighted, Wannamaker's
+F-weighted) have the right shapes but miss Pro-L 2's measured curves by several dB, so ours are fitted to those
+curves directly: 12-tap filters, minimum phase (a cepstral fit to the measured octave levels, then optimised against
+them), so the loop is stable. Their noise per octave against flat TPDF, off Pro-L 2's (`pro-l-research.md` §2.7):
 
-| Shaping | Filter `h` (44.1 kHz) | Why it matches |
+| Shaping | Worst band | Total noise (Pro-L 2's) |
 | --- | --- | --- |
-| **Basic** | Lipshitz's 5-tap "minimally audible" `2.033, −2.165, 1.959, −1.590, 0.6149` | moderate dip in the mid band, rise above ~6–8 kHz |
-| **Optimized** | improved E-weighted, 9 taps `2.847, −4.685, 6.214, −7.184, 6.639, −5.032, 3.263, −1.632, 0.4191` | deeper dip, a steep rise above ~10 kHz |
-| **Weighted** | F-weighted (Wannamaker), 9 taps `2.412, −3.370, 3.937, −4.174, 3.353, −2.205, 1.281, −0.569, 0.0847` | the ear's threshold curve at low level; made for 44.1 kHz (so is Pro-L's) |
+| **Basic** | 0.5 dB | +3.5 dB (+3.5) |
+| **Optimized** | 0.9 dB | +9.8 dB (+10.6) |
+| **Weighted** | 1.6 dB | +17.6 dB (+18.3) |
 
-**Pro-L 2's curves, measured** (16 bits, noise per octave against flat TPDF; `pro-l-research.md` §2.7): Basic −6 to
-−8 dB to 4 kHz, +7 dB at 20 kHz; Optimized −11 to −12 dB to 2 kHz, +14 dB at 20 kHz; Weighted down to −23 dB at 4 kHz,
-+22 dB at 20 kHz. The filters above have these shapes; they're tuned to them within 2 dB per octave (§8.9) **[ours]**.
-
-At 48 kHz the 44.1 kHz filters are close (their curves shift up 9%); SoX has 48 kHz sets for some
-(Gesemann's `2.2374, −0.7339, …`); above 48 kHz, shaping moves the noise above 24 kHz and is simple to
-redesign (or fall back to flat TPDF) **[inferred]**. The error feedback must be clamped (a large `h` gain
-with a clipped output can run away): clip `v` to ±1 and reset `e` on overload **[inferred]**.
+The coefficients are in `engine/src/Dither.h`. They're fitted at 48 kHz and used at 44.1 kHz too (the curve moves
+down 8% in frequency); above 50 kHz the dither is flat TPDF (shaping would only move noise above 24 kHz, where
+nobody hears it). The error fed back is held within ±4 LSB, so a clipped output can't run the loop away.
 
 **Relation to the export**: the export already dithers to 16 bits through ffmpeg (`aresample` with
 Shibata noise shaping) when asked. Dithering twice only adds noise **[FF]**: when a master Pro-L dithers, the
@@ -1186,7 +1183,9 @@ Per 10 ms "column": the input's peak (after Gain), the output's peak, the larges
 true peak per channel, momentary RMS, gain reduction per stage, I, LRA, Max M / S, max true peak, PLR, **the share of
 samples clipped**, **the peak density** (the share of samples within 0.5 dB of the ceiling over 400 ms, a live proxy for
 codec risk), max gain reduction. To the tab in each transport event (25 a second) for the Pro-Ls whose window is open,
-as Pro-Q's analyzer does. Peak labels are found in the tab from the columns **[ours]**.
+as Pro-Q's analyzer does. Peak labels are found in the tab from the columns **[ours]**. **As built**: the columns go
+to the tab for every YT-L, drained by each transport event as Pro-C's points are (a few a second each: no watch list);
+each column's gain reduction is when the gain is applied, a few milliseconds before the sound leaves the downsampler.
 
 ### 5.16 How the [checked] claims were checked
 
@@ -1326,6 +1325,14 @@ dither, the window, presets, automation's TypeScript side, the assistant's tools
 
 **Step 2** (2026-10-07): the clip stage (§5.7: Hard, Smooth, Soft, Converter, FL; before or after the limiter),
 mid/side side first (§5.3), Audition All / Clip / Limiter (§5.2), with their offline tests.
+
+**Step 3** (2026-10-07): the meters and dither. `engine/src/Loudness.h` (§5.12: K-weighting at any rate, M, S,
+Integrated and LRA from fixed histograms, the maxima, BS.1770's true peak meter; pause and reset by the `proL`
+command), the peaks in and out, each side's Momentary, the clip stage's and the limiter's most reduction, the share
+clipped and the peak density over 400 ms, the display's 10 ms columns (`EngineProLState`, drained by each transport
+event for every YT-L, as Pro-C's points are: no watch list); `engine/src/Dither.h` (§5.11). Offline tests: Tech 3341's
+1–5 and 15–19, Tech 3342's 1–4, pause and reset, the readings, dither's whole steps, its TPDF and its three curves
+within 2 dB of Pro-L 2's in every band.
 
 The same shape as Pro-Q and PanMan: the document and what it means in TypeScript, the sound in C++, the window in React.
 
@@ -1513,7 +1520,7 @@ in `pro-l-research.md` §2.
 | 16 | **Unity Gain** | Gain +6 dB | A tone under the ceiling comes out at the input's level within 0.01 dB |
 | 17 | **Audition** | Hard material, clip on | All + output = the delayed input after Gain (−90 dB Off / −60 dB oversampled); Clip + Limiter = All |
 | 18 | **DC filter** | A tone with +0.1 DC | Mean < 0.0005 after 2 s; 20 Hz within 0.05 dB |
-| 19 | **Dither** | 16 bits, each shaping | Integers ± 1e-6; TPDF variance ½ LSB² ± 5 %; each shaping within 2 dB of Pro-L 2's measured octave curve (`pro-l-research.md` §2.7) |
+| 19 | **Dither** | 16 bits, each shaping | Integers ± 1e-6; noise power ¼ LSB² ± 5 % (rounding's 1/12 and TPDF's 1/6); each shaping within 2 dB of Pro-L 2's measured octave curve (`pro-l-research.md` §2.7) |
 | 20 | **EBU Tech 3341, 3342; true peak meter** | Their signals, synthesised | M, S, I within ±0.1 LU; LRA ±1 LU; true peak +0.2 / −0.4 dB |
 | 21 | **Meter reset, pause, auto-reset** | | I reflects only what was measured while running |
 | 22 | **Block size and threads** | Blocks of 64, 512, the export (2048, parallel and one thread) | Identical samples |

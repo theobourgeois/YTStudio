@@ -78,6 +78,10 @@ describe("what the engine plays", () => {
     const compiled = compileSong(updateProL(song(), "fx_lim", { gain: 8 }), "pattern");
     const master = compiled.tracks.find((t) => t.id === MASTER_TRACK_ID)!;
     expect(master.effects[0].plugin.id).toBe("vaudio:pro-l");
-    expect(master.effects[0].proL).toMatchObject({ gain: 8, ceiling: -0.1, oversampling: 4, truePeak: false });
+    expect(master.effects[0].proL).toMatchObject({ gain: 8, ceiling: -0.1, oversampling: 4, truePeak: false, dither: 0 });
+  });
+
+  it("sends its dither's bit depth and noise shaping", () => {
+    expect(engineProL({ ...DEFAULT_PRO_L, dither: 16, noiseShaping: "weighted" })).toMatchObject({ dither: 16, noiseShaping: "weighted" });
   });
 });

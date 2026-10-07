@@ -151,7 +151,7 @@ juce::var Engine::transport() const
                                { "echoBoys", echoBoys.describe() },
                                { "otts", otts.describe() },
                                { "proCs", procs.describe (false) },
-                               { "limiters", limiters.describe() },
+                               { "limiters", limiters.describe (false) },
                                { "reverbs", reverbs.describe() },
                                { "panMen", panMen.describe() },
                                { "pitchWheels", pitchWheels.describe() },
@@ -502,6 +502,18 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             return reply (fail ("The song playing has no such YT-C."), {});
         const auto mode = params["mode"].toString();
         state->audition.store (mode == "key" ? 1 : mode == "triggering" ? 2 : 0);
+        return ok();
+    }
+    if (command == "proL")
+    {
+        // A YT-L's loudness measurement: reset (and its maxima), paused or carried on.
+        const auto state = limiters.find (params["effect"].toString());
+        if (state == nullptr)
+            return reply (fail ("The song playing has no such YT-L."), {});
+        if ((bool) params["reset"])
+            state->resetRequest.store (true);
+        if (params["pause"].isBool())
+            state->paused.store ((bool) params["pause"]);
         return ok();
     }
     if (command == "compMatch")
@@ -955,7 +967,7 @@ void Engine::timerCallback()
                                             { "echoBoys", echoBoys.describe() },
                                             { "otts", otts.describe() },
                                             { "proCs", procs.describe (true) },
-                                            { "limiters", limiters.describe() },
+                                            { "limiters", limiters.describe (true) },
                                             { "reverbs", reverbs.describe() },
                                             { "eq", eqs.describe() },
                                             { "panMen", panMen.describe() },

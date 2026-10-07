@@ -110,6 +110,11 @@ std::shared_ptr<Settings> Settings::parse (const juce::var& json, State& state)
     s->linkRelease = number (json["linkRelease"], 1, 0, 1);
     s->dcFilter = (bool) json["dcFilter"];
     s->unityGain = (bool) json["unityGain"];
+    s->ditherBits = (int) number (json["dither"], 0, 0, 24);
+    if (s->ditherBits < 8)
+        s->ditherBits = 0;
+    const auto shaping = json["noiseShaping"].toString();
+    s->ditherShaping = shaping == "basic" ? 1 : shaping == "optimized" ? 2 : shaping == "weighted" ? 3 : 0;
     s->midSide = json["stereo"].toString() == "ms";
     s->sideFloor = number (json["sideFloor"], -6, -18, 0);
     if (const auto clip = json["clip"]; clip.isObject())
@@ -196,6 +201,9 @@ State::State (double sampleRate, int capacity) : rate (sampleRate), blockCapacit
     passAhead = juce::jmax (1, (int) std::lround (passAheadSeconds * rate));
     for (auto& pass : passes)
         pass.prepare (passAhead, rate);
+    loudness.prepare (rate);
+    columnSize = juce::jmax (1, (int) std::lround (0.01 * rate));
+    windowSize = juce::jmax (1, (int) std::lround (0.1 * rate));
     prepare (1);
 }
 
@@ -299,6 +307,20 @@ void State::process (const Settings& s, float* left, float* right, int numSample
         return;
     if (stale || s.shape != shape || core == nullptr)
         reset (s);
+    if (resetRequest.exchange (false))
+    {
+        loudness.restart();
+        mostClip = mostLimit = 0;
+        maxClip.store (0, std::memory_order_relaxed);
+        maxLimit.store (0, std::memory_order_relaxed);
+    }
+    if (const auto wanted = s.ditherBits * 4 + s.ditherShaping; wanted != ditherFor)
+    {
+        dither.set (s.ditherBits, s.ditherShaping, rate);
+        dither.reset();
+        ditherFor = wanted;
+    }
+    const auto held = paused.load (std::memory_order_relaxed);
     auto& c = *core;
     const auto factor = c.factor;
     const auto fo = rate * factor;
@@ -346,6 +368,9 @@ void State::process (const Settings& s, float* left, float* right, int numSample
     {
         const auto m = juce::jmin (chunk, numSamples - start);
         const auto writeStart = ringWrite;
+        std::fill (chunkClip.begin(), chunkClip.begin() + m, 0.0f);
+        std::fill (chunkLimit.begin(), chunkLimit.begin() + m, 0.0f);
+        std::fill (chunkClipped.begin(), chunkClipped.begin() + m, false);
 
         // In: the DC filter, the gain and the ceiling (gliding), the dry sound and the ceiling kept for later.
         for (int j = 0; j < m; ++j)
@@ -368,6 +393,8 @@ void State::process (const Settings& s, float* left, float* right, int numSample
                 }
                 chunkAudio.setSample (ch, j, (float) (x * g));
             }
+            for (int ch = 0; ch < 2; ++ch)
+                chunkInput[(size_t) ch][(size_t) j] = std::abs (chunkAudio.getSample (ch, j));
             chunkCeiling[(size_t) j] = (float) fromDb (ceilingNow);
             ceilingRing[(size_t) ringWrite] = chunkCeiling[(size_t) j];
             ringWrite = (ringWrite + 1) % dryLength;
@@ -427,6 +454,8 @@ void State::process (const Settings& s, float* left, float* right, int numSample
             for (int ch = 0; ch < 2; ++ch)
             {
                 const auto previous = c.clipFirst[(size_t) ch].previousX;
+                if (s.clip && ! s.clipLast)
+                    clipped (first, x[ch], i / factor);
                 x[ch] = c.clipFirst[(size_t) ch].process (first, x[ch], s.clip && ! s.clipLast);
                 c.pre[(size_t) ch][(size_t) (t & mask)] = (float) previous;
                 c.audio[(size_t) ch][(size_t) (t & mask)] = (float) x[ch];
@@ -531,6 +560,8 @@ void State::process (const Settings& s, float* left, float* right, int numSample
                         g = juce::jmin (g, (double) c.bassGain[(size_t) ch][(size_t) (e & mask)]);
                     limited[ch] = g * c.audio[(size_t) ch][(size_t) (e & mask)];
                     reduction = juce::jmax (reduction, -toDb (g));
+                    auto& shown = chunkLimit[(size_t) (i / factor)];
+                    shown = juce::jmax (shown, (float) -toDb (g));
                 }
             }
 
@@ -540,6 +571,8 @@ void State::process (const Settings& s, float* left, float* right, int numSample
                 const auto e = t - delay;
                 const auto preNow = e >= 0 ? (double) c.pre[(size_t) ch][(size_t) (e & mask)] : 0.0;
                 const auto audioNow = e >= 0 ? (double) c.audio[(size_t) ch][(size_t) (e & mask)] : 0.0;
+                if (s.clip && s.clipLast)
+                    clipped (last, limited[ch], i / factor);
                 auto y = c.clipLast[(size_t) ch].process (last, limited[ch], s.clip && s.clipLast);
                 if (auditioning)
                 {
@@ -592,24 +625,144 @@ void State::process (const Settings& s, float* left, float* right, int numSample
                 ++catchWrite;
             }
             fadeIn = juce::jmin (1.0, fadeIn + fadeStep);
+            if (! auditioning)
+                measure (j, y, ceiling, held);
             const auto unity = s.unityGain && ! auditioning ? fromDb (-gainNow) : 1.0;
+            float out[2];
             for (int ch = 0; ch < 2; ++ch)
             {
-                auto out = y[ch] * unity * fadeIn;
+                out[ch] = (float) (y[ch] * unity * fadeIn);
                 if (mix < 1.0f && ! auditioning)
-                    out = mix * out + (1.0f - mix) * dryRing.getSample (ch, ((pos - total) % dryLength + dryLength) % dryLength);
-                (ch == 0 ? left : right)[i] = (float) out;
+                    out[ch] = mix * out[ch] + (1.0f - mix) * dryRing.getSample (ch, ((pos - total) % dryLength + dryLength) % dryLength);
             }
+            if (dither.on() && ! auditioning)
+                dither.process (out[0], out[1]);
+            left[i] = out[0];
+            right[i] = out[1];
         }
     }
     nowReduction.store ((float) reduction, std::memory_order_relaxed);
 }
 
-juce::var State::describe() const
+void State::clipped (const ClipCurve& curve, double x, int j)
 {
+    const auto a = std::abs (x);
+    const auto out = curve.shaped (a);
+    if (a <= 0 || out >= a)
+        return;
+    chunkClipped[(size_t) j] = true;
+    chunkClip[(size_t) j] = juce::jmax (chunkClip[(size_t) j], (float) -toDb (out / a));
+}
+
+namespace
+{
+void raise (std::atomic<float>& most, float value)
+{
+    if (value > most.load (std::memory_order_relaxed))
+        most.store (value, std::memory_order_relaxed);
+}
+float shownDb (double gain) { return (float) juce::jmax (-120.0, toDb (gain)); }
+} // namespace
+
+void State::measure (int j, const float* y, double ceiling, bool held)
+{
+    loudness.process (y[0], y[1], held);
+    const auto near = ceiling * fromDb (-0.5);
+    auto out = 0.0;
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        const auto a = (double) std::abs (y[ch]);
+        out = juce::jmax (out, a);
+        raise (outPeak[(size_t) ch], (float) a);
+        raise (outTruePeak[(size_t) ch], (float) loudness.peaks[(size_t) ch]);
+        raise (inPeak[(size_t) ch], chunkInput[(size_t) ch][(size_t) j]);
+    }
+    const auto clip = (double) chunkClip[(size_t) j], limitDb = (double) chunkLimit[(size_t) j];
+    if (! held)
+    {
+        if (clip > mostClip)
+            maxClip.store ((float) (mostClip = clip), std::memory_order_relaxed);
+        if (limitDb > mostLimit)
+            maxLimit.store ((float) (mostLimit = limitDb), std::memory_order_relaxed);
+    }
+
+    // The display's column.
+    column.in = juce::jmax (column.in, shownDb (juce::jmax (chunkInput[0][(size_t) j], chunkInput[1][(size_t) j])));
+    column.out = juce::jmax (column.out, shownDb (out));
+    column.clip = juce::jmax (column.clip, (float) clip);
+    column.limit = juce::jmax (column.limit, (float) limitDb);
+    if (++columnFill >= columnSize)
+    {
+        column.m = loudness.momentary.load (std::memory_order_relaxed);
+        column.s = loudness.shortTerm.load (std::memory_order_relaxed);
+        const auto w = columnsWritten.load (std::memory_order_relaxed);
+        columns[(size_t) (w % columnRing)] = column;
+        columnsWritten.store (w + 1, std::memory_order_release);
+        column = {};
+        columnFill = 0;
+    }
+
+    // The last 400 ms: how much was clipped, and how much sat near the ceiling (a live sign of codec risk).
+    clippedWindows[(size_t) windowIndex] += chunkClipped[(size_t) j] ? 1 : 0;
+    denseWindows[(size_t) windowIndex] += out >= near ? 1 : 0;
+    if (++windowFill >= windowSize)
+    {
+        auto clippedSum = 0, denseSum = 0;
+        for (int k = 0; k < 4; ++k)
+            clippedSum += clippedWindows[(size_t) k], denseSum += denseWindows[(size_t) k];
+        clippedShare.store ((float) clippedSum / (float) (4 * windowSize), std::memory_order_relaxed);
+        density.store ((float) denseSum / (float) (4 * windowSize), std::memory_order_relaxed);
+        windowIndex = (windowIndex + 1) % 4;
+        clippedWindows[(size_t) windowIndex] = denseWindows[(size_t) windowIndex] = 0;
+        windowFill = 0;
+    }
+}
+
+juce::var State::describe (bool drain)
+{
+    const auto pair = [&] (std::array<std::atomic<float>, 2>& peaks) {
+        juce::Array<juce::var> list;
+        for (auto& p : peaks)
+            list.add (drain ? p.exchange (0) : p.load());
+        return juce::var (list);
+    };
+    juce::Array<juce::var> list;
+    if (drain)
+    {
+        const auto written = columnsWritten.load (std::memory_order_acquire);
+        // Never more than the ring holds (a slow reader loses the oldest).
+        for (auto w = juce::jmax (columnsRead, written - columnRing + 1); w < written; ++w)
+        {
+            const auto& c = columns[(size_t) (w % columnRing)];
+            list.add (juce::Array<juce::var> { c.in, c.out, c.clip, c.limit, c.m, c.s });
+        }
+        columnsRead = written;
+    }
+    auto* meter = new juce::DynamicObject();
+    meter->setProperty ("momentary", loudness.momentary.load());
+    meter->setProperty ("shortTerm", loudness.shortTerm.load());
+    meter->setProperty ("integrated", loudness.integrated.load());
+    meter->setProperty ("range", loudness.range.load());
+    meter->setProperty ("maxMomentary", loudness.maxMomentary.load());
+    meter->setProperty ("maxShortTerm", loudness.maxShortTerm.load());
+    meter->setProperty ("maxTruePeak", loudness.maxTruePeak.load());
+    meter->setProperty ("seconds", loudness.seconds.load());
+    meter->setProperty ("paused", paused.load());
+
     auto* object = new juce::DynamicObject();
     object->setProperty ("latency", latencyNow.load());
     object->setProperty ("reduction", nowReduction.load());
+    object->setProperty ("input", pair (inPeak));
+    object->setProperty ("output", pair (outPeak));
+    object->setProperty ("truePeak", pair (outTruePeak));
+    object->setProperty ("rms", juce::Array<juce::var> { loudness.channel[0].load(), loudness.channel[1].load() });
+    object->setProperty ("loudness", juce::var (meter));
+    object->setProperty ("clipped", clippedShare.load());
+    object->setProperty ("density", density.load());
+    object->setProperty ("maxClip", maxClip.load());
+    object->setProperty ("maxReduction", maxLimit.load());
+    object->setProperty ("step", columnSize / rate);
+    object->setProperty ("columns", list);
     return juce::var (object);
 }
 
@@ -637,11 +790,11 @@ void Registry::keepOnly (const juce::StringArray& ids)
         it = ids.contains (it->first) ? std::next (it) : states.erase (it);
 }
 
-juce::var Registry::describe() const
+juce::var Registry::describe (bool drain) const
 {
     auto* object = new juce::DynamicObject();
     for (const auto& [id, state] : states)
-        object->setProperty (id, state->describe());
+        object->setProperty (id, state->describe (drain));
     return juce::var (object);
 }
 } // namespace limit

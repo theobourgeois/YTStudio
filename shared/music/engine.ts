@@ -132,7 +132,7 @@ export interface EngineTransport {
   otts?: Record<string, EngineOttState>;
   /** Each Pro-C in the song (by effect id): its levels and gain reduction since the last event, for its display (absent from engines that don't say). */
   proCs?: Record<string, EngineProCState>;
-  /** Each YT-L in the song (by effect id): its latency and the reduction now (absent from engines that don't say). */
+  /** Each YT-L in the song (by effect id): its latency, its meters and its display's columns since the last event (absent from engines that don't say). */
   limiters?: Record<string, EngineProLState>;
   /** Each Reverb in the song (by effect id): its meters, ducking and (watched: `verbWatch`) its tail's spectrum (absent from engines that don't say). */
   reverbs?: Record<string, EngineReverbState>;
@@ -182,10 +182,47 @@ export interface EngineEchoLevels {
  * What an OTT hears: each band's level (dB of its mean square, as its compressors hear it) and the gain
  * it gives it now (dB, its H / M / L gain in), low, mid, high; and the peaks in and out (falling).
  */
-/** What a YT-L says: how late its sound is (samples at the song's rate) and the gain reduction now (dB). */
+/**
+ * What a YT-L's loudness meter says (`docs/fabfilter/pro-l.md` §5.12: BS.1770, EBU Tech 3341 and 3342), measured
+ * after its last stage, before Unity Gain and dither: Momentary and Short-term (LUFS), Integrated and the Loudness
+ * Range (LU) since the last reset, their most, the most true peak (dBTP), how long it's measured (seconds; LRA
+ * settles after 60) and whether it's paused. −120: nothing to read yet.
+ */
+export interface EngineProLLoudness {
+  momentary: number;
+  shortTerm: number;
+  integrated: number;
+  range: number;
+  maxMomentary: number;
+  maxShortTerm: number;
+  maxTruePeak: number;
+  seconds: number;
+  paused: boolean;
+}
+
+/**
+ * What a YT-L says: how late its sound is (samples at the song's rate), the gain reduction now (dB); the peaks
+ * (1 full scale, each side) in after Gain, out, and out by BS.1770's true peak meter, since the last event; each
+ * side's Momentary (LUFS, the output meter's RMS); its loudness meter; over the last 400 ms the share of
+ * samples clipped and the share within 0.5 dB of the ceiling (a sign of codec risk); the clip stage's and the
+ * limiter's most reduction since the reset (dB); and its display's `columns` since the last event, `step`
+ * seconds apart, oldest first: `[in, out, clip, limiter, momentary, shortTerm]` (peaks in dBFS, reductions in
+ * dB, loudness in LUFS).
+ */
 export interface EngineProLState {
   latency: number;
   reduction: number;
+  input: [number, number];
+  output: [number, number];
+  truePeak: [number, number];
+  rms: [number, number];
+  loudness: EngineProLLoudness;
+  clipped: number;
+  density: number;
+  maxClip: number;
+  maxReduction: number;
+  step: number;
+  columns: [number, number, number, number, number, number][];
 }
 
 export interface EngineOttState {
@@ -742,6 +779,8 @@ export interface EngineCommands {
   compAudition: { effect: string; mode: "off" | "key" | "triggering" };
   /** Measure a Pro-C's loudness in and out while it plays, for `seconds` (Match: the tab sets Wet Gain from it). */
   compMatch: { effect: string; seconds: number };
+  /** A YT-L's loudness measurement (live, never in the song): `reset` starts it again (and its maxima), `pause` holds or carries it on. */
+  proL: { effect: string; reset?: boolean; pause?: boolean };
   /** The Reverbs whose windows are open: their wet sound is measured for the Decay display's analyzer (Pro-Q's FFT, `size` long). */
   verbWatch: { effects: { effect: string; size: number }[] };
   /**
