@@ -1,6 +1,6 @@
 /** The subject filters' CPU references (`../../effects/filters/subject.ts`), mirrored by `render/filters/subject.ts`. */
 import { addLight } from "../../effects/glow.ts";
-import { type SceneMaps, sceneOf } from "../../scene.ts";
+import { type SceneMaps, invertAffine, sceneOf, scenePoint } from "../../scene.ts";
 import { type KernelEnv, type KernelReference, type Pixel, clamp, dec3, enc3, fromEncoded, hexEncoded, mix, rand, rotate, smoothstep, unpremul, vnoise } from "../kernel.ts";
 
 /** Rec. 709's weights, used on encoded colour as a stylised brightness. */
@@ -47,19 +47,26 @@ const centres = new WeakMap<Float32Array, [number, number]>();
 
 /**
  * Where the subject is, as a whole: the subject map's centre of mass (weighted by its square, so its core counts more
- * than its soft fringes), in document pixels; the canvas's centre without one. Aura's rays radiate from it. Worked out
- * once per map, in f64, by the reference and the GPU's packing alike.
+ * than its soft fringes), in document pixels where its layer is now; the canvas's centre without one. Aura's rays
+ * radiate from it. Worked out once per map, in f64, by the reference and the GPU's packing alike.
  */
 export function subjectCentre(maps: SceneMaps | null, canvas: { width: number; height: number }): [number, number] {
   if (!maps?.subject) return [canvas.width / 2, canvas.height / 2];
-  const known = centres.get(maps.subject);
+  const [x, y] = builtCentre(maps.subject, maps, canvas);
+  // Where it was when the maps were made, moved to where it is now.
+  return maps.place ? scenePoint({ ...maps, place: invertAffine(maps.place) }, x, y) : [x, y];
+}
+
+/** The subject's centre where the maps were made. */
+function builtCentre(subject: Float32Array, maps: SceneMaps, canvas: { width: number; height: number }): [number, number] {
+  const known = centres.get(subject);
   if (known) return known;
   let sum = 0;
   let sx = 0;
   let sy = 0;
   for (let j = 0; j < maps.height; j++) {
     for (let i = 0; i < maps.width; i++) {
-      const s = maps.subject[j * maps.width + i];
+      const s = subject[j * maps.width + i];
       const w = s * s;
       sum += w;
       sx += w * (i + 0.5) * maps.spacing;
@@ -67,7 +74,7 @@ export function subjectCentre(maps: SceneMaps | null, canvas: { width: number; h
     }
   }
   const centre: [number, number] = sum > 1e-6 ? [sx / sum, sy / sum] : [canvas.width / 2, canvas.height / 2];
-  centres.set(maps.subject, centre);
+  centres.set(subject, centre);
   return centre;
 }
 

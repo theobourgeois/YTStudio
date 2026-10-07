@@ -317,10 +317,21 @@ export interface CameraRawNeed {
 /** A Camera Raw's analysis, or null while it isn't there yet (the plan then draws without its local sliders). */
 export type CameraRawResolver = (need: CameraRawNeed) => CameraRawAnalysis | null;
 
-/** What a filter needs of the scene: the maps of its input (a layer's content and the filters before it), by its key. */
+/**
+ * What a filter needs of the scene: the maps of its input (a layer's content and the filters before it), by its key,
+ * which says nothing of where the layer is (`inputKey`), and where its pixels are now (`placement`, its pixels to the
+ * document's): maps made before a move are read through the move rather than made again.
+ */
 export interface SceneNeed extends CameraRawNeed {
   filterId: string;
   reads: SceneReads;
+  placement: Affine;
+}
+
+/** A layer's content for its scene maps: its key, wherever the layer is, and where its pixels are now. */
+interface SceneInput {
+  key: string;
+  placement: Affine;
 }
 
 /** A filter's scene maps, or null while they're being made (the plan leaves the filter out until then). */
@@ -409,7 +420,7 @@ export function backgroundIn(hex: string | null, compositing: Compositing): [num
 const filterCommutesFrom = (f: FilterNode) => (f.type === "glow" ? GLOW_CACHED_FROM : effectDefinition(f.type)!.commutesWithReduction(f.params) ? 0 : Infinity);
 
 /** A layer's filters as the plan runs them: those on and usable, none while its "Filters" eye is off. */
-function filterNodes(layer: PhotoLayer, canvas: Size = { width: 0, height: 0 }, contentKey = "", resolve: Resolvers = {}, measuring = false): FilterNode[] {
+function filterNodes(layer: PhotoLayer, canvas: Size = { width: 0, height: 0 }, contentKey = "", resolve: Resolvers = {}, measuring = false, scene: SceneInput = { key: contentKey, placement: [1, 0, 0, 1, 0, 0] }): FilterNode[] {
   const before: string[] = [];
   return activeFilters(layer).flatMap((f) => {
     const def = effectDefinition(f.type)!;
@@ -420,7 +431,7 @@ function filterNodes(layer: PhotoLayer, canvas: Size = { width: 0, height: 0 }, 
     const reads = def.scene?.(f.params);
     if (reads && !measuring) {
       // Its scene maps, or nothing of it until they're made.
-      const maps = resolve.scene?.({ inputKey, layerId: layer.id, filterId: f.id, reads }) ?? null;
+      const maps = resolve.scene?.({ inputKey: `${scene.key}|${before.join(",")}`, placement: scene.placement, layerId: layer.id, filterId: f.id, reads }) ?? null;
       if (!maps) return [];
       drawn = { params: { ...drawn.params, [SCENE_PARAM]: maps as unknown as EffectParamValue }, key: `${drawn.key}|scene:${maps.id}` };
     }
@@ -434,8 +445,8 @@ function filterNodes(layer: PhotoLayer, canvas: Size = { width: 0, height: 0 }, 
 export const filtersReach = (layer: PhotoLayer): number => filterNodes(layer, undefined, "", {}, true).reduce((sum, f) => sum + f.reach, 0);
 
 /** Its content's fields: filters, the content key they're keyed by, and from which level it commutes. */
-function contentFields(layer: PhotoLayer, canvas: Size, contentKey: string, contentCommutesFrom = 0, resolve: Resolvers = {}): ContentFields & { filtersKey: string } {
-  const filters = filterNodes(layer, canvas, contentKey, resolve);
+function contentFields(layer: PhotoLayer, canvas: Size, contentKey: string, contentCommutesFrom = 0, resolve: Resolvers = {}, scene?: SceneInput): ContentFields & { filtersKey: string } {
+  const filters = filterNodes(layer, canvas, contentKey, resolve, false, scene);
   return {
     filters,
     contentKey,
@@ -468,8 +479,11 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const t = layer.transform;
       const mask = maskOf(layer, size);
       const crop = cropRectOf(layer, size);
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options);
       const matrix = layerMatrix(t, size);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options, {
+        key: hashKey(`image|${layer.mediaId}|${size.width}x${size.height}${cropKey(crop)}`),
+        placement: matrix,
+      });
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
         kind: "image",
@@ -495,8 +509,11 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const { size, transform: t } = layer;
       const mask = maskOf(layer, size);
       const crop = cropRectOf(layer, size);
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options);
       const matrix = layerMatrix(t, size);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options, {
+        key: hashKey(`pixel|${layer.surface}|${size.width}x${size.height}${cropKey(crop)}`),
+        placement: matrix,
+      });
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
         kind: "pixel",
@@ -523,7 +540,8 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       if (!raster) continue;
       const size = { width: raster.width, height: raster.height };
       const mask = maskOf(layer, { width: doc.canvas.width, height: doc.canvas.height });
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`canvas|${raster.key}`), 0, options);
+      // A raster's key says nothing of where it is: its maps follow it by its corner.
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`canvas|${raster.key}`), 0, options, { key: hashKey(`canvas|${raster.key}`), placement: [1, 0, 0, 1, raster.x, raster.y] });
       // Its style's Align with Layer is the layer's frame, not the raster's box.
       const styled = styleOf(doc, layer, layerMatrix(painted.transform, painted.size), painted.size);
       nodes.push({

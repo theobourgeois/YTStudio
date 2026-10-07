@@ -428,7 +428,7 @@ export class Isolation {
       layout: this.layouts.kernel,
       entries: [
         { binding: 0, resource: source.createView() },
-        { binding: 1, resource: { buffer: this.uniform(kernelHeader(view, grow, ((f.params.mix as number | undefined) ?? 100) / 100, f.canvas, applyToCode(f.params)), "kernel header") } },
+        { binding: 1, resource: { buffer: this.uniform(kernelHeader(view, grow, ((f.params.mix as number | undefined) ?? 100) / 100, f.canvas, applyToCode(f.params), sceneOf(f.params)?.place ?? undefined), "kernel header") } },
         { binding: 2, resource: { buffer: this.uniform(packed.uniform, "kernel params") } },
         { binding: 3, resource: { buffer: table } },
         { binding: 4, resource: { buffer: this.sceneBuffer(sceneOf(f.params)) } },
@@ -442,18 +442,20 @@ export class Isolation {
   /** A filter's scene maps on the GPU (kept by their id), or the placeholder when it reads none. */
   private sceneBuffer(maps: SceneMaps | null): GPUBuffer {
     if (!maps) return this.noTable;
-    const kept = this.scenes.get(maps.id);
+    // By its grids: the same buffer however they're placed (a layer dragged reads them through its header).
+    const id = maps.data ?? maps.id;
+    const kept = this.scenes.get(id);
     if (kept) {
       // Most recently used last.
-      this.scenes.delete(maps.id);
-      this.scenes.set(maps.id, kept);
+      this.scenes.delete(id);
+      this.scenes.set(id, kept);
       return kept;
     }
     const { device } = this.compositor.ctx;
     const data = packScene(maps);
     const buffer = device.createBuffer({ label: "scene maps", size: data.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     device.queue.writeBuffer(buffer, 0, data);
-    this.scenes.set(maps.id, buffer);
+    this.scenes.set(id, buffer);
     while (this.scenes.size > KEPT_TABLES) {
       const [oldest, old] = this.scenes.entries().next().value!;
       this.scenes.delete(oldest);

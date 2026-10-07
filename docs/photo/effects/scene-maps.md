@@ -36,7 +36,13 @@ tab (`src/suites/photo/models.ts`, ONNX Runtime Web on WebGPU, as every photo mo
   gives it the picture's edges, so a blur or fog by depth stops at the subject's outline (`depthMap`).
 - **Subject**: IS-Net's 1024 × 1024 answer, read at the grid's cells.
 
-Maps are kept by picture (its input key and canvas), up to 16, each map added when a filter first asks for it.
+Maps are kept by picture (its input key and canvas), up to 16, each map added when a filter first asks for it. The
+key says nothing of where the layer is: a layer moved, scaled or turned reads the maps it had through the move
+(`SceneMaps.place`, an affine from the document point now to where it was, in the kernel's header), and they're made
+again where it is once it has stayed there (`SETTLE_MS`); a filter whose picture changed (a stroke) is shown its last
+maps meanwhile. Model runs go one at a time (`runModel`): two at once on one ONNX Runtime session spun the page's
+thread for good, which is what froze the app when a layer with a depth filter was dragged (each step a new picture,
+a new run).
 
 The plan (`compileRender`'s `scene` resolver) hands a filter its maps in `SCENE_PARAM` and keys its node by their id;
 **until they're made the filter is left out** (its keys say nothing of it, so nothing drawn without it is reused).

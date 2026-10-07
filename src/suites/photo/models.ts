@@ -69,8 +69,21 @@ export function modelSession(name: PhotoModelName): Promise<InferenceSession> {
   return made;
 }
 
-/** Runs a model on float32 inputs (name → data and shape): its output `output`, read back. */
-export async function runModel(name: PhotoModelName, inputs: Record<string, { data: Float32Array; dims: number[] }>, output: string): Promise<Float32Array> {
+/** The last run of each model: the next waits for it (a session runs one input at a time). */
+const running: Partial<Record<PhotoModelName, Promise<unknown>>> = {};
+
+/**
+ * Runs a model on float32 inputs (name → data and shape): its output `output`, read back. Runs of a model go one after
+ * another: ONNX Runtime Web's session can't run two at once (two at once spun the page's thread for good).
+ */
+export function runModel(name: PhotoModelName, inputs: Record<string, { data: Float32Array; dims: number[] }>, output: string): Promise<Float32Array> {
+  const run = () => runNow(name, inputs, output);
+  const next = (running[name] ?? Promise.resolve()).then(run, run);
+  running[name] = next.catch(() => {});
+  return next;
+}
+
+async function runNow(name: PhotoModelName, inputs: Record<string, { data: Float32Array; dims: number[] }>, output: string): Promise<Float32Array> {
   const ort = await import("onnxruntime-web/webgpu");
   const session = await modelSession(name);
   const feeds = Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, new ort.Tensor("float32", v.data, v.dims)]));
