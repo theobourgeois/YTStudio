@@ -137,8 +137,9 @@ stretch is the colour and opacity of the stop it ends at, the first stop's befor
 (`reference/gradient.ts`'s `tableAt`), so they agree to f16's rounding whatever the method; a stripe's edge on a
 4096-px gradient is a pixel wide.
 
-**Dither**: a triangular noise of under one 8-bit level, the same at a document pixel wherever it's drawn
-(`gradientDither`, the output dither's hash salted apart). Our pipeline is float and every 8-bit output is dithered
+**Dither**: a triangular noise of under one 8-bit level on the colour (never the opacity: an opaque gradient stays
+opaque), the same at a document pixel wherever it's drawn (`gradientDither`, the output dither's hash salted apart).
+Our pipeline is float and every 8-bit output is dithered
 already (ledger A09), so a gradient doesn't band either way; Dither is kept for what it does in Photoshop (its pixels
 when exported at 16 bits, or painted into an 8-bit-looking flat area).
 

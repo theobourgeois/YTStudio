@@ -504,6 +504,80 @@ export class SurfaceImage {
     return result?.id ?? null;
   }
 
+  /**
+   * Starts a stroke painted a whole tile at a time rather than by dabs (the Gradient tool's Classic mode,
+   * docs/photo/tools/gradient.md): `paintTiles` paints it, again whenever it changes; `end` commits it and `cancel`
+   * drops it, as a stroke's. Each draft keeps the tile as it was beside it, so every paint starts from that.
+   */
+  beginTiles(place: SurfacePlace, selection: PhotoSelection | null) {
+    if (this.stroke) this.cancel();
+    this.stroke = { spacer: new DabSpacer({ radius: 1, hardness: 1, strength: 1, spacing: 1 }), place, limited: true, selection };
+    this.ctx.device.queue.writeBuffer(this.params, 0, packParams(this.ctx.tile, [0, 0, 0, 0], place, selection));
+  }
+
+  /**
+   * Paints every tile the selection reaches (each one without a selection) by the caller's compute pass: `run`
+   * records it into `encoder`, reading job j's `first` slot (its tile as it was before the stroke) at tile (`tx`,
+   * `ty`) of this surface and writing scratch layer j, for `count` jobs of `jobs`. The selection then limits the result
+   * as it limits a stroke's. Nothing happens outside a `beginTiles` stroke.
+   */
+  paintTiles(run: (encoder: GPUCommandEncoder, jobs: GPUBuffer, count: number, target: { ctx: RenderContext; kind: SurfaceKind; matrix: Affine }) => void) {
+    const stroke = this.stroke;
+    if (!stroke) return;
+    const tile = this.ctx.tile;
+    const { tilesX, tilesY } = this.image.levels[0];
+    let [tx0, ty0, tx1, ty1] = [0, 0, tilesX - 1, tilesY - 1];
+    if (stroke.selection) {
+      // The selection's box in this surface's pixels: the tiles it can reach.
+      const box = selectionBox(stroke.selection);
+      const inv = invert(stroke.place.matrix);
+      const corners = [apply(inv, box.x0, box.y0), apply(inv, box.x1, box.y0), apply(inv, box.x0, box.y1), apply(inv, box.x1, box.y1)];
+      tx0 = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.x)) / tile));
+      ty0 = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.y)) / tile));
+      tx1 = Math.min(tilesX - 1, Math.floor(Math.max(...corners.map((p) => p.x)) / tile));
+      ty1 = Math.min(tilesY - 1, Math.floor(Math.max(...corners.map((p) => p.y)) / tile));
+    }
+    const touched: { tx: number; ty: number }[] = [];
+    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) touched.push({ tx, ty });
+    const { device } = this.ctx;
+    for (let i = 0; i < touched.length; i += BATCH) {
+      const batch = touched.slice(i, i + BATCH);
+      const encoder = device.createCommandEncoder({ label: "tiles" });
+      const drafts = batch.map((t) => this.draftFor(t.tx, t.ty, encoder));
+      const jobs = new ArrayBuffer(batch.length * 32);
+      drafts.forEach((d, j) => {
+        new Uint32Array(jobs, j * 32, 1)[0] = d.paint!;
+        new Int32Array(jobs, j * 32 + 4, 2).set([d.tx, d.ty]);
+        new Uint32Array(jobs, j * 32 + 12, 1)[0] = d.base!;
+        new Uint32Array(jobs, j * 32 + 20, 1)[0] = d.cover ?? 0;
+      });
+      device.queue.writeBuffer(this.limitJobs, 0, jobs);
+      run(encoder, this.limitJobs, batch.length, { ctx: this.ctx, kind: this.kind, matrix: stroke.place.matrix });
+      this.ctx.copyScratchToSlots(
+        encoder,
+        drafts.map((d) => d.paint!),
+      );
+      const limit = encoder.beginComputePass();
+      limit.setPipeline(this.ctx.kernels.limit);
+      limit.setBindGroup(0, this.ctx.atlasBindGroup());
+      limit.setBindGroup(1, this.limitGroup);
+      limit.dispatchWorkgroups(tile / 16, tile / 16, batch.length);
+      limit.end();
+      this.ctx.copyScratchToSlots(
+        encoder,
+        drafts.map((d) => d.slot),
+      );
+      device.queue.submit([encoder.finish()]);
+      for (const d of drafts) {
+        this.image.setSlot(0, d.tx, d.ty, d.slot);
+        this.markParents(d.tx, d.ty);
+      }
+    }
+    this.image.flush();
+    this.buildLevels();
+    this.changed();
+  }
+
   /** Paints the dabs these samples (in this surface's pixels) add. */
   add(points: readonly { x: number; y: number }[]) {
     if (!this.stroke) return;

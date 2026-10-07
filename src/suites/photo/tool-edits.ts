@@ -38,6 +38,8 @@ import {
 } from "@shared/photo/edits";
 import { effectPreset } from "@shared/photo/effects/catalog";
 import { FLARE_PRESETS } from "@shared/photo/effects/flare";
+import { describeGradient, gradientInput } from "@shared/photo/effects/gradient";
+import type { Gradient } from "@shared/photo/types";
 import { ADJUSTMENTS, type EffectDefinition, type EffectKind, FILTERS, GENERATORS, effectDefinition, newEffect, unavailableReason, usableAs } from "@shared/photo/effects/index";
 import { CURVE_CHANNELS, type ElementParamSpec, MAX_CURVE_POINTS, type ParamSpec, sameValue } from "@shared/photo/effects/params";
 import { bounds } from "@shared/photo/layers";
@@ -132,6 +134,8 @@ function paramText(spec: ParamSpec, v: EffectParamValue | undefined): string {
         })
         .join("\n")}`;
     }
+    case "gradient":
+      return `${spec.key} ${describeGradient(v as Gradient)}`;
     default:
       return `${spec.key} ${String(v)}`;
   }
@@ -532,6 +536,8 @@ function checkValue(spec: Exclude<ParamSpec, { kind: "curves" | "elements" }>, v
       if (v === null && spec.nullable) return null;
       if (!Array.isArray(v) || v.length !== 2 || !v.every((n) => typeof n === "number" && Number.isFinite(n))) throw new Error(`${name} must be [x, y] in canvas pixels${spec.nullable ? " (or null: the canvas's centre)" : ""}; got ${JSON.stringify(v)}.`);
       return [v[0], v[1]];
+    case "gradient":
+      return gradientInput(v, name);
   }
 }
 
@@ -639,7 +645,8 @@ export const addGeneratorTool: PhotoEdit = (doc, input) => {
   const def = effectDefinition(String(input.type ?? "lens-flare"));
   if (def?.kind !== "generator") throw new Error(`No generator "${String(input.type)}". The generators: ${GENERATORS.map((d) => d.type).join(", ")}.`);
   const preset = input.preset === undefined ? undefined : String(input.preset);
-  if (preset !== undefined && !FLARE_PRESETS.some((p) => p.id === preset)) throw new Error(`No preset "${preset}". The presets: ${FLARE_PRESETS.map((p) => p.id).join(", ")}.`);
+  const presets = def.presets?.map((p) => p.id) ?? FLARE_PRESETS.map((p) => p.id);
+  if (preset !== undefined && !presets.includes(preset)) throw new Error(`No ${def.label} preset "${preset}". Its presets: ${presets.join(", ")}.`);
   const above = input.above === undefined ? null : findLayerRef(doc, input.above).id;
   const id = createId("layer");
   const fresh = addGeneratorLayer(doc, { id, type: def.type, preset, name: typeof input.name === "string" ? input.name : undefined }, above);

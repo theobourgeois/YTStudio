@@ -60,6 +60,9 @@ import { usePhotoUi } from "./ui";
 import { imageLayerOf } from "./media";
 import { photoApi } from "./api";
 import { placeAsset, removeBackground } from "./online/online";
+import { describeGradient } from "@shared/photo/effects/gradient";
+import { paintGradient } from "./toolbox/gradient-actions";
+import { gradientPaintRequest } from "./toolbox/gradient-request";
 
 /** How many of a search's results the model is told of at once. */
 const ONLINE_LISTED = 40;
@@ -410,6 +413,15 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     ctx.progress(0, "Exporting");
     const result = await withRenderer(target.projectId, target.doc, target.assets, (r) => r.export(target.projectId, target.doc, { name, format, bits, quality }, (f) => ctx.progress(f, "Exporting"), ctx.signal));
     return textResult(`Exported ${name} (${target.doc.canvas.width}×${target.doc.canvas.height}, ${bits}-bit, ${Math.round(result.bytes / 1024)} KB) to ${result.path}.`);
+  },
+  async paint_gradient(input, ctx) {
+    const target = await targetOf(ctx);
+    if (!target.open) throw new Error("Open the photo in the editor first: painting needs it on the GPU.");
+    const request = gradientPaintRequest(target.doc, input, useColours.getState());
+    const selection = currentSelection();
+    const surface = await paintGradient(request, selection);
+    if (!surface) throw new Error(`Nothing was painted on "${request.name}": ${selection ? "the selection misses it" : "its pixels weren't ready: try again"}.`);
+    return textResult(`Painted a ${request.shape.style} gradient ${describeGradient(request.shape.gradient)} from (${request.shape.start.join(", ")}) to (${request.shape.end.join(", ")}) on "${request.name}"${request.part === "mask" ? "'s mask" : ""}${selection ? ", within the selection" : ""}.`, { added: [], changed: [request.layerId], removed: 0 });
   },
 };
 

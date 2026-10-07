@@ -1245,6 +1245,26 @@ export class PhotoRenderer {
     return true;
   }
 
+  /**
+   * Starts a stroke painted a whole tile at a time on a layer's pixels or mask (the Gradient tool's Classic mode),
+   * limited by `selection`: `paintTiles` paints it (again as it changes), `endStroke` and `cancelStroke` end it as
+   * any stroke. False when that surface isn't on the GPU yet.
+   */
+  beginTiles(layerId: string, part: SurfacePart, selection: PhotoSelection | null): boolean {
+    this.cancelStroke();
+    const surface = this.surfaceOf(layerId, part);
+    const place = this.placeOf(layerId, part);
+    if (!surface || !place) return false;
+    surface.beginTiles({ matrix: place.matrix }, selection);
+    this.stroke = { key: `${layerId}:${part}`, surface, toSurface: invert(place.matrix), scale: place.scale };
+    return true;
+  }
+
+  /** Paints the stroke `beginTiles` began with `run`'s pass (`SurfaceImage.paintTiles`). */
+  paintTiles(run: Parameters<SurfaceImage["paintTiles"]>[0]) {
+    this.stroke?.surface.paintTiles(run);
+  }
+
   /** Paints the stroke through these pointer samples (document pixels). */
   strokeTo(points: readonly { x: number; y: number }[]) {
     const s = this.stroke;

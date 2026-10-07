@@ -73,7 +73,7 @@ export function sanitizeGradient(value: unknown): { value: Gradient; repaired: b
   }
   colours.sort((a, b) => a.at - b.at);
   opacities.sort((a, b) => a.at - b.at);
-  const method = v.method === "linear" || v.method === "perceptual" || v.method === "classic" ? v.method : "classic";
+  const method = v.method === "linear" || v.method === "perceptual" || v.method === "classic" || v.method === "smooth" || v.method === "stripes" ? v.method : "classic";
   if (method !== v.method) repaired = true;
   const name = typeof v.name === "string" && v.name.trim() ? v.name.trim().slice(0, 64) : "Custom";
   return { value: { name, colours, opacities, method }, repaired };
@@ -117,11 +117,19 @@ function fromOklab([L, A, B]: [number, number, number]): [number, number, number
 
 const mix3 = (a: [number, number, number], b: [number, number, number], f: number): [number, number, number] => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
 
-/** The gradient at `t` in [0, 1]: its straight colour, sRGB-encoded, and its opacity. */
+/** Smooth's ease (the Gradient tool's Method, ours: docs/photo/tools/gradient.md): smoothstep, level at every stop. */
+const smoothEase = (t: number) => t * t * (3 - 2 * t);
+
+/**
+ * The gradient at `t` in [0, 1]: its straight colour, sRGB-encoded, and its opacity. Smooth mixes as Perceptual
+ * does, eased so nothing turns a corner at a stop; Stripes doesn't mix: each stretch is the colour (and opacity) of
+ * the stop it ends at, the first stop's before it (Photoshop's, as seen: a two-stop one is all its second colour).
+ */
 export function gradientAt(g: Gradient, t: number): [number, number, number, number] {
   const c = bracket(g.colours, t);
   const o = bracket(g.opacities, t);
-  const ease = g.method === "classic" ? classicEase : (f: number) => f;
+  if (g.method === "stripes") return [...hex(c.b.colour), o.b.opacity];
+  const ease = g.method === "classic" ? classicEase : g.method === "smooth" ? smoothEase : (f: number) => f;
   let rgb: [number, number, number];
   const ca = hex(c.a.colour);
   const cb = hex(c.b.colour);

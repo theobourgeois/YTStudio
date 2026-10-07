@@ -381,7 +381,8 @@ export interface NewGeneratorLayer {
 /**
  * A new generator layer right above `above` (an id), or at the top; its effect's id is `${id}_fx`. A new flare's
  * source starts at the canvas's upper left third (where the video editor's sample sun is), its elements are the
- * preset's for this canvas, and it adds its light in linear light (Linear Dodge, `blendSpace: "linear"`). A wrong
+ * preset's for this canvas, and it adds its light in linear light (Linear Dodge, `blendSpace: "linear"`). Another
+ * generator (a Gradient Fill) starts at its `preset` (or its first) for this canvas, blending Normally. A wrong
  * type changes nothing.
  */
 export function addGeneratorLayer(doc: PhotoProject, layer: NewGeneratorLayer, above?: string | null): PhotoProject {
@@ -389,9 +390,14 @@ export function addGeneratorLayer(doc: PhotoProject, layer: NewGeneratorLayer, a
   if (!def || !usableAs(def, "generator") || findLayer(doc, layer.id)) return doc;
   let effect = newEffect(def, `${layer.id}_fx`);
   const { width, height } = doc.canvas;
-  const start: Record<string, unknown> = def.type === "lens-flare" ? { source: [Math.round(width * 0.3), Math.round(height * 0.34)], elements: flarePreset(layer.preset ?? "classic", width, height) } : {};
+  const flare = def.type === "lens-flare";
+  // Another generator starts at its preset (the first, by default) made for this canvas: a Gradient Fill across it.
+  const preset = flare ? undefined : (def.presets?.find((p) => p.id === layer.preset) ?? def.presets?.[0]);
+  const start: Record<string, unknown> = flare ? { source: [Math.round(width * 0.3), Math.round(height * 0.34)], elements: flarePreset(layer.preset ?? "classic", width, height) } : (preset?.params(doc.canvas) ?? {});
   effect = { ...effect, params: patchParams(def, effect.params, { ...start, ...layer.params }) };
-  const added: GeneratorLayer = { id: layer.id, kind: "generator", name: layer.name?.trim() || def.label, visible: true, opacity: 1, effect, blend: "linear-dodge", blendSpace: "linear" };
+  // A flare's light adds in linear light; other generators blend as a layer does.
+  const light = flare ? { blend: "linear-dodge" as const, blendSpace: "linear" as const } : {};
+  const added: GeneratorLayer = { id: layer.id, kind: "generator", name: layer.name?.trim() || def.label, visible: true, opacity: 1, effect, ...light };
   const layers = [...doc.layers];
   const at = above ? layers.findIndex((l) => l.id === above) : -1;
   layers.splice(at >= 0 ? at + 1 : layers.length, 0, added);

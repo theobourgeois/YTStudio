@@ -32,7 +32,7 @@ function paramLine(p: ParamSpec | ElementParamSpec, indent: string): string {
     case "elements":
       return `${p.key} (a list of up to ${p.max}): ${p.description}\n${p.types.map((t) => `${indent}  ${t.type}: ${t.description}\n${t.params.map((q) => `${indent}    ${paramLine(q, indent + "    ")}`).join("\n")}`).join("\n")}`;
     case "gradient":
-      return `${p.key} (a gradient { "name": "…", "colours": [{ "at": 0, "colour": "#000000" }, { "at": 1, "colour": "#ffffff" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 1 }], "method": "classic" | "linear" | "perceptual" }, default "${p.default.name}"): ${p.description}`;
+      return `${p.key} (a gradient { "name": "…", "colours": [{ "at": 0, "colour": "#000000" }, { "at": 1, "colour": "#ffffff" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 1 }], "method": "classic" | "linear" | "perceptual" | "smooth" | "stripes" }, default "${p.default.name}"): ${p.description}`;
     default:
       return `${p.key}: ${p.description}`;
   }
@@ -365,15 +365,15 @@ export const PHOTO_TOOLS = [
     name: "add_generator",
     title: "Add a lens flare",
     kind: "edit",
-    description: `Adds a generator layer: content it makes itself, live (move its handles with move_handle, change it with set_effect_params). A new Lens Flare adds its light to what's below in linear light (set_layer's blend: add), with the preset's elements sized for this canvas. Presets: ${FLARE_PRESETS.map((p) => p.id).join(", ")}. The generators:\n${describeEffects("generator")}`,
+    description: `Adds a generator layer: content it makes itself, live (move its handles with move_handle, change it with set_effect_params). A new Lens Flare adds its light to what's below in linear light (set_layer's blend: add), with the preset's elements sized for this canvas (presets: ${FLARE_PRESETS.map((p) => p.id).join(", ")}). A Gradient Fill (type gradient-fill) is the Gradient tool's live gradient, Photoshop's Gradient Fill layer: a gradient laid from start to end, e.g. { "type": "gradient-fill", "params": { "style": "radial", "start": [540, 960], "end": [540, 200], "gradient": { "colours": [{ "at": 0, "colour": "#ffd27a" }, { "at": 1, "colour": "#1a0f3a" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 1 }], "method": "perceptual" } } } (a stock gradient by name works too: "Copper"); fade a layer out with a gradient on its mask instead (paint_gradient). The generators:\n${describeEffects("generator")}\n${describePresets("generator")}`,
     inputSchema: obj({
       type: oneOf(
         GENERATORS.map((d) => d.type),
         "Which generator (default lens-flare).",
       ),
       preset: oneOf(
-        FLARE_PRESETS.map((p) => p.id),
-        "A flare's starting elements (default classic).",
+        [...new Set(GENERATORS.flatMap((d) => (d.presets ?? []).map((p) => p.id)))],
+        "Its starting look: a flare's elements (default classic), a Gradient Fill's stock gradient across the canvas (default black-white).",
       ),
       source: arr({ type: "number" }, "Where the light is: [x, y] in canvas pixels (default: the upper left third)."),
       params: { type: "object", description: "Other parameters (see above).", additionalProperties: true },
@@ -386,11 +386,11 @@ export const PHOTO_TOOLS = [
     title: "Move a flare's handle",
     kind: "edit",
     description:
-      "Moves a generator's handle (a Lens Flare's source, where its light is, or its optical centre, which its ghosts line up through) to a point of the canvas, in canvas pixels; follow_canvas: true puts the optical centre back on the canvas's centre (following it).",
+      "Moves a generator's handle (a Lens Flare's source, where its light is, or its optical centre, which its ghosts line up through; a Gradient Fill's start or end) to a point of the canvas, in canvas pixels; follow_canvas: true puts the optical centre back on the canvas's centre (following it).",
     inputSchema: obj(
       {
         layer,
-        handle: oneOf(["source", "centre"], "Which handle."),
+        handle: oneOf([...new Set(GENERATORS.flatMap((d) => d.params.filter((p) => p.kind === "point" && p.handle).map((p) => p.key)))], "Which handle."),
         x: num("Canvas pixels from the left."),
         y: num("Canvas pixels from the top."),
         follow_canvas: bool("The optical centre on the canvas's centre (it follows the canvas)."),
@@ -563,6 +563,33 @@ export const PHOTO_TOOLS = [
     description:
       "Exports the photo as a PNG (keeps transparency; 8 or 16 bits a channel) or a JPEG (over the background, or white), at its canvas size. 16 bits keeps a 16-bit source's precision. The file goes to the app's exports; the result says where.",
     inputSchema: obj({ format: oneOf(["png", "jpeg"], "png (default) or jpeg."), bits: oneOf(["8", "16"], "PNG's bits a channel (default 8)."), quality: int("JPEG quality, 1 to 100 (default 92).") }),
+  }),
+  tool({
+    name: "paint_gradient",
+    title: "Paint a gradient",
+    kind: "edit",
+    description:
+      "Paints a gradient into a layer's pixels or its mask (Photoshop's Classic gradient: the pixels change; for a live, editable gradient layer use add_generator with type gradient-fill). Within the current selection when there is one. On a mask it goes in as greys, black hiding and white revealing: a black-to-white gradient on a layer's mask fades it out (add_mask first). A placed image can't be painted (it's kept whole): paint its mask, or a pixel layer above it. Undoable. The photo must be open in the editor.",
+    inputSchema: obj(
+      {
+        layer,
+        target: oneOf(["content", "mask"], "The layer's pixels (default) or its mask."),
+        start: arr({ type: "number" }, "Where the gradient starts (its first stop): [x, y] in canvas pixels."),
+        end: arr({ type: "number" }, "Where it ends (its last stop): [x, y] in canvas pixels. Past the ends it keeps the ends' colours."),
+        style: oneOf(["linear", "radial", "angle", "reflected", "diamond"], "Its type (default linear): linear from start to end; radial a circle around start; angle a sweep around start; reflected mirrored about start; diamond out to a corner at end."),
+        gradient: {
+          description:
+            'The gradient: "foreground-background" (the default) or "foreground-transparent" (from the colour swatches), a stock gradient by name ("Black, White", "Copper"…), or { "colours": [{ "at": 0, "colour": "#000000" }, { "at": 1, "colour": "#ffffff" }], "opacities": [{ "at": 0, "opacity": 1 }, { "at": 1, "opacity": 0 }] }.',
+        },
+        method: oneOf(["perceptual", "linear", "classic", "smooth", "stripes"], "How it mixes between stops (default perceptual)."),
+        reverse: bool("Run it from its last stop to its first."),
+        dither: bool("A little noise so it never bands (default true)."),
+        mode: oneOf([...BLEND_MODES.map((m) => m.id), "behind", "clear"], "How it goes onto what's there (default normal): a blend mode, behind (only where the layer is transparent) or clear (takes the layer away)."),
+        opacity: num("0 to 100 (default 100)."),
+        transparency: bool("Use the gradient's opacity stops (default true; false: it's opaque)."),
+      },
+      ["layer", "start", "end"],
+    ),
   }),
 ] as const;
 
