@@ -6,7 +6,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { type Affine, apply, compose, invert, layerMatrix } from "@shared/photo/layers";
-import { cssFont, letterSpacingOf } from "@shared/photo/text";
+import { letterSpacingOf } from "@shared/photo/text";
 import type { TextLayer } from "@shared/photo/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { layoutWithFonts } from "../../text-measure";
@@ -147,8 +147,11 @@ function Editing({ layer, view, caret, docPoint }: { layer: TextLayer; view: { x
         }}
         className="pointer-events-auto absolute top-0 left-0 m-0 origin-top-left resize-none overflow-hidden border-0 bg-transparent p-0 text-transparent outline-none selection:bg-brand/40"
         style={{
-          // `font` resets the other font properties, so it goes first.
-          font: cssFont(font),
+          // The longhands, as the canvas's `font` says them (the shorthand would reset the line height on a change).
+          fontFamily: `"${font.family.replace(/["\\]/g, "\\$&")}", sans-serif`,
+          fontWeight: font.weight,
+          fontStyle: font.italic ? "italic" : "normal",
+          fontSize: `${font.size}px`,
           fontStretch: font.stretch ?? "normal",
           fontKerning: "normal",
           lineHeight: `${layout.lineHeight}px`,
