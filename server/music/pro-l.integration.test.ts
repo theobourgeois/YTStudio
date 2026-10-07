@@ -16,7 +16,7 @@ import { integratedLoudness, loudnessChunks } from "../../shared/music/audio-int
 import { addChannels, setSteps } from "../../shared/music/edits.ts";
 import { setEffect } from "../../shared/music/mixer.ts";
 import { type ProLPatch, updateProL } from "../../shared/music/pro-l.ts";
-import { PRO_L_PLUGIN } from "../../shared/music/pro-l-presets.ts";
+import { FL_CLIP_KNEE, PRO_L_PLUGIN } from "../../shared/music/pro-l-presets.ts";
 import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "../../shared/music/project.ts";
 import { PRO_L_STYLES, type MusicProject, type ProLStyle } from "../../shared/music/types.ts";
 import { ENGINE } from "../config.ts";
@@ -123,6 +123,40 @@ function thd(x: Float32Array, from: number, length: number, f0: number) {
   return 10 * Math.log10(harmonics / fundamental);
 }
 
+/** A Blackman–Harris windowed power spectrum (radix-2; `x` cut to a power of two). */
+function spectrum(x: Float32Array, from: number, size: number) {
+  const re = new Float64Array(size), im = new Float64Array(size);
+  for (let i = 0; i < size; i++) {
+    const w = 0.35875 - 0.48829 * Math.cos((2 * Math.PI * i) / size) + 0.14128 * Math.cos((4 * Math.PI * i) / size) - 0.01168 * Math.cos((6 * Math.PI * i) / size);
+    re[i] = x[from + i] * w;
+  }
+  for (let i = 1, j = 0; i < size; i++) {
+    let bit = size >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) [re[i], re[j], im[i], im[j]] = [re[j], re[i], im[j], im[i]];
+  }
+  for (let len = 2; len <= size; len <<= 1) {
+    const angle = (-2 * Math.PI) / len;
+    for (let i = 0; i < size; i += len)
+      for (let k = 0; k < len / 2; k++) {
+        const cr = Math.cos(angle * k), ci = Math.sin(angle * k);
+        const ar = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci, ai = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+        re[i + k + len / 2] = re[i + k] - ar;
+        im[i + k + len / 2] = im[i + k] - ai;
+        re[i + k] += ar;
+        im[i + k] += ai;
+      }
+  }
+  return Float64Array.from({ length: size / 2 }, (_, k) => re[k] ** 2 + im[k] ** 2);
+}
+
+/** Fruity Soft Clipper (measured, `pro-l-research.md` §2.9) at a ceiling of 1. */
+function flCurve(x: number) {
+  const t = amp(-FL_CLIP_KNEE), a = Math.abs(x);
+  return Math.sign(x) * (a <= t ? a : 1 - (1 - t) * Math.exp(-(a - t) / (1 - t)));
+}
+
 // ----------------------------------------------------------------------------------------------- material
 
 const both = (x: Float32Array) => [x, x];
@@ -214,6 +248,12 @@ describe.skipIf(!existsSync(ENGINE))("YT-L, offline", () => {
     await writeWavChannels(path.join(dir, "noise.wav"), both(noise(2)), RATE);
     await writeWavChannels(path.join(dir, "loop.wav"), both(loop(4)), RATE);
     for (const f of [40, 60, 100]) await writeWavChannels(path.join(dir, `sine${f}.wav`), both(Float32Array.from({ length: 2 * RATE }, (_, i) => amp(-6) * Math.sin((2 * Math.PI * f * i) / RATE))), RATE);
+    // A 50 Hz sine rising from −30 to 0 dBFS over 3 s (the FL curve's test).
+    await writeWavChannels(path.join(dir, "ramp.wav"), both(Float32Array.from({ length: 3 * RATE }, (_, i) => amp(-30 + (30 * i) / (3 * RATE)) * Math.sin((2 * Math.PI * 50 * i) / RATE))), RATE);
+    await writeWavChannels(path.join(dir, "tone1250.wav"), both(Float32Array.from({ length: 2 * RATE }, (_, i) => amp(-6) * Math.sin((2 * Math.PI * 1250 * i) / RATE))), RATE);
+    // A centred 60 Hz note and a wide 2 kHz one: |L| and |R| reach 1.2 together.
+    const centre = (i: number) => 0.6 * Math.sin((2 * Math.PI * 60 * i) / RATE), wide = (i: number) => 0.6 * Math.sin((2 * Math.PI * 2000 * i) / RATE);
+    await writeWavChannels(path.join(dir, "wide.wav"), [Float32Array.from({ length: 2 * RATE }, (_, i) => Math.max(-1, Math.min(1, (centre(i) + wide(i)) / 1.25))), Float32Array.from({ length: 2 * RATE }, (_, i) => Math.max(-1, Math.min(1, (centre(i) - wide(i)) / 1.25)))], RATE);
     // A click at 0.25 s, well under the ceiling.
     const click = new Float32Array(RATE);
     click[RATE / 4] = 0.25;
@@ -248,6 +288,27 @@ describe.skipIf(!existsSync(ENGINE))("YT-L, offline", () => {
         }
   });
 
+  it("never lets a sample over its ceiling with its clip stage, in either order, or in mid/side", async () => {
+    const cases: ProLPatch[] = [
+      { clip: true, clipShape: "smooth", clipRange: 1.5 },
+      { clip: true, clipShape: "hard", clipRange: 0 },
+      { clip: true, clipShape: "fl", clipRange: 3 },
+      { clip: true, clipShape: "soft", clipRange: 1 },
+      { clip: true, clipShape: "converter", clipRange: 2 },
+      { clip: true, clipShape: "hard", clipRange: 1, clipOrder: "last" },
+      { clip: true, clipShape: "fl", clipRange: 2, clipOrder: "last" },
+      { stereo: "ms", sideFloor: -6 },
+      { stereo: "ms", sideFloor: -18, clip: true },
+    ];
+    for (const patch of cases)
+      for (const style of ["transparent", "modern", "aggressive", "spit"] as ProLStyle[])
+        for (const material of ["drums", "noise"]) {
+          const sound = await played(song(material, { style, gain: 12, output: -1, lookahead: 0, ...patch }), 2.1);
+          const over = db(Math.max(peak(sound.channels[0]), peak(sound.channels[1]))) + 1;
+          expect(over, `${style}, ${JSON.stringify(patch)}, ${material}`).toBeLessThanOrEqual(1e-4);
+        }
+  });
+
   it("holds a true peak ceiling by BS.1770's meter, and by an ideal reconstruction when oversampled", async () => {
     for (const style of ["transparent", "modern", "aggressive"] as ProLStyle[])
       for (const oversampling of [1, 4] as const)
@@ -264,7 +325,7 @@ describe.skipIf(!existsSync(ENGINE))("YT-L, offline", () => {
       for (const oversampling of [1, 4] as const)
         for (const truePeak of [false, true])
           for (const lookahead of [0, 0.001]) {
-            const sound = await played(song("click", { style, oversampling, truePeak, lookahead }), 0.5);
+            const sound = await played(song("click", { style, oversampling, truePeak, lookahead, clip: lookahead > 0 }), 0.5);
             const late = sound.channels[0].reduce((best, v, i, x) => (Math.abs(v) > Math.abs(x[best]) ? i : best), 0) - RATE / 4;
             expect(late, `${style}, ${oversampling}x, true peak ${truePeak}`).toBe(await latency());
           }
@@ -350,5 +411,71 @@ describe.skipIf(!existsSync(ENGINE))("YT-L, offline", () => {
     // Nothing is limited at −20 dBFS: a half-and-half mix of two aligned copies is the same sound (no comb).
     const a = db(peak(wet.channels[0], RATE / 2, RATE - 1000)), b = db(peak(half.channels[0], RATE / 2, RATE - 1000));
     expect(Math.abs(a - b)).toBeLessThan(0.05);
+  });
+
+  it("leaves the sound under its clip stage's knee bit for bit", async () => {
+    // Clipping at 4x either way: the same samples whether the clip stage is on or not, when nothing reaches it.
+    const off = await played(song("quiet", { style: "modern", oversampling: 4, output: 0 }), 1);
+    const on = await played(song("quiet", { style: "modern", oversampling: 4, output: 0, clip: true, clipShape: "hard", clipRange: 0 }), 1);
+    let most = 0;
+    for (let i = 0; i < RATE; i++) most = Math.max(most, Math.abs(off.channels[0][i] - on.channels[0][i]));
+    expect(most).toBeLessThan(1e-6);
+  });
+
+  it("clips as Fruity Soft Clipper does with its FL shape", async () => {
+    const input = (await readWav(path.join(dir, "ramp.wav"))).channels[0];
+    const sound = await played(song("ramp", { style: "transparent", oversampling: 4, output: 0, gain: 6, clip: true, clipShape: "fl", clipRange: 0 }), 3);
+    const late = await latency();
+    let most = 0;
+    for (let i = RATE / 2; i < 2.5 * RATE; i++) most = Math.max(most, Math.abs(sound.channels[0][i + late] - flCurve(input[i] * amp(6))));
+    expect(most).toBeLessThan(0.002);
+  });
+
+  it("keeps a hard clip's aliasing under −85 dB (4x, anti-aliased)", async () => {
+    // What the clip stage takes off, alone (Audition: Clip): a 1250 Hz tone 12 dB into a hard clip. The floor is
+    // JUCE's half-band filters' (more oversampling reads worse: −85 dB at 8x, −84.5 at 16x), not the clip's: FL
+    // Studio's own reads −46 dB, a plain clip at 4x about −73.
+    const sound = await played(song("tone1250", { style: "transparent", output: 0, gain: 12, clip: true, clipShape: "hard", clipRange: 0, audition: "clip" }), 2);
+    const size = 65536;
+    const power = spectrum(sound.channels[0], RATE / 2, size);
+    const bin = (f: number) => Math.round((f * size) / RATE);
+    const fundamental = Math.max(...[-2, -1, 0, 1, 2].map((d) => power[bin(1250) + d]));
+    let alias = 0;
+    for (let k = 10; k < size / 2; k++) {
+      const harmonic = Math.abs(k * (RATE / size) / 1250 - Math.round(k * (RATE / size) / 1250)) * 1250 < 8 * (RATE / size);
+      if (!harmonic) alias = Math.max(alias, power[k]);
+    }
+    expect(10 * Math.log10(alias / fundamental)).toBeLessThan(-85);
+  });
+
+  it("in mid/side, turns the side down first and leaves the centre alone", async () => {
+    const midLevel = async (stereo: "lr" | "ms") => {
+      const sound = await played(song("wide", { style: "transparent", output: 0, gain: 2, stereo, sideFloor: -6 }), 2);
+      const late = await latency();
+      let sum = 0, input = 0;
+      for (let i = RATE / 2; i < 1.5 * RATE; i++) {
+        sum += ((sound.channels[0][i + late] + sound.channels[1][i + late]) / 2) ** 2;
+        input += ((0.6 / 1.25) * amp(2) * Math.sin((2 * Math.PI * 60 * i) / RATE)) ** 2;
+      }
+      return { mid: 10 * Math.log10(sum / input), peak: db(Math.max(peak(sound.channels[0]), peak(sound.channels[1]))) };
+    };
+    const ms = await midLevel("ms"), lr = await midLevel("lr");
+    expect(Math.abs(ms.mid)).toBeLessThan(0.05);
+    expect(ms.peak).toBeLessThanOrEqual(1e-4);
+    expect(lr.mid).toBeLessThan(-0.5);
+  });
+
+  it("auditions what it takes away: that and what's heard add up to what came in", async () => {
+    const input = (await readWav(path.join(dir, "drums.wav"))).channels[0];
+    const heard = await played(song("drums", { style: "modern", output: -1, gain: 6, oversampling: 1 }), 2);
+    const taken = await played(song("drums", { style: "modern", output: -1, gain: 6, oversampling: 1, audition: "all" }), 2);
+    const late = await latency();
+    let error = 0, power = 0;
+    for (let i = 0.01 * RATE; i < 1.8 * RATE; i++) {
+      const want = input[i] * amp(6);
+      error += (heard.channels[0][i + late] + taken.channels[0][i + late] - want) ** 2;
+      power += want ** 2;
+    }
+    expect(10 * Math.log10(error / power)).toBeLessThan(-80);
   });
 });

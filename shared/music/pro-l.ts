@@ -7,7 +7,7 @@
  * sample-peak catch or two true peak passes at the song's rate.
  */
 import { findEffect } from "./automation.ts";
-import { DEFAULT_PRO_L_STATE, PRO_L_STYLE_SPECS, normalizeProL } from "./pro-l-presets.ts";
+import { DEFAULT_PRO_L_STATE, FL_CLIP_KNEE, PRO_L_STYLE_SPECS, normalizeProL } from "./pro-l-presets.ts";
 import type { MusicProject, ProL, ProLState } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -83,6 +83,12 @@ export interface EngineProL {
   emphasis: number;
   linkTransients: number;
   linkRelease: number;
+  /** Mid/side, the side first down to `sideFloor` (dB). */
+  stereo: "lr" | "ms";
+  sideFloor: number;
+  /** The clip stage (null: off): its gap to the limiter (dB), curve, knee (dB) and place. */
+  clip: { range: number; shape: ProLState["clipShape"]; knee: number; order: ProLState["clipOrder"] } | null;
+  audition: ProLState["audition"];
   dcFilter: boolean;
   unityGain: boolean;
 }
@@ -109,6 +115,11 @@ export function engineProL(proL: ProLState): EngineProL {
     emphasis: spec.emphasis,
     linkTransients: proL.linkTransients,
     linkRelease: proL.linkRelease,
+    stereo: proL.stereo,
+    sideFloor: proL.sideFloor,
+    // FL's curve keeps its own knee (Fruity Soft Clipper's, measured); the Knee knob is Smooth's.
+    clip: proL.clip ? { range: proL.clipRange, shape: proL.clipShape, knee: proL.clipShape === "fl" ? FL_CLIP_KNEE : proL.clipKnee, order: proL.clipOrder } : null,
+    audition: proL.audition,
     dcFilter: proL.dcFilter,
     unityGain: proL.unityGain,
   };
@@ -121,7 +132,10 @@ export function engineProL(proL: ProLState): EngineProL {
  */
 export function proLLatencySeconds(proL: ProLState = DEFAULT_PRO_L_STATE): number {
   const spec = PRO_L_STYLE_SPECS[proL.style];
-  const filters = proL.oversampling > 1 ? 0.0015 : 0;
-  const last = proL.truePeak ? 2 * (40 / 48000 + 0.001) : proL.oversampling > 1 ? 0.0005 : 0;
-  return spec.reserve + spec.range + filters + last;
+  // The clip stage clips at 4x at least.
+  const factor = proL.clip ? Math.max(4, proL.oversampling) : proL.oversampling;
+  const filters = factor > 1 ? 0.0015 : 0;
+  const last = proL.truePeak ? 2 * (72 / 48000 + 0.001) : factor > 1 ? 0.0005 : 0;
+  const clip = (factor === 1 ? 2 : 1) / 48000;
+  return spec.reserve + spec.range + filters + last + clip;
 }

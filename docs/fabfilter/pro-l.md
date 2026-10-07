@@ -871,6 +871,14 @@ programme's.
 - **Smart clip**: a masking-weighted clipper (Defraene et al. 2012: a projected gradient per frame, real time, ~12 ms of
   latency), the published way to beat hard and soft clipping on PEAQ.
 
+**As built** (2026-10-07): the five curves (`engine/src/Clipper.h`), first-order ADAA on the residue re-centred by
+averaging two of its values, so the stage is exactly one sample late at the rate it runs; the clip stage makes the
+core run at 4x at least (the differential stage for 1x and 2x is left for later), so turning it on with
+oversampling below 4x changes the latency, which the song compensates. Measured offline (§8.9): bit-exact under its
+knee; the FL curve within 0.002 of Fruity Soft Clipper's; a hard clip's aliasing −88 dB at 4x, where the floor is
+JUCE's half-band filters' (about −90 dB: −85 at 8x, −84.5 at 16x), not the clip's. Our own filters with a −120 dB
+stopband (§5.8's table) would lower that floor for the whole limiter **[later]**.
+
 **Latency**: none at `k ≥ 4` beyond half a sample at `fo` (absorbed); the differential stage at `k < 4` adds its filters'
 delay (~0.5 ms), fixed. Its knobs never change the latency.
 
@@ -1313,8 +1321,11 @@ Revised 2026-10-07 after the second round of research and the measurements, from
 **Built so far** (2026-10-07): step 1, the engine core: `engine/src/ProL.h/.cpp` (the stages, the bass stage,
 Auto Hold, the release stage, Dynamic's emphasis, the DC filter, Unity Gain, the slot's mix), `Lookahead.h` (the
 sliding minimum, the box stack, a stage), `TruePeak.h` (the passes); the document, its validation and
-`engineProL` (`shared/music/pro-l*.ts`); its offline tests. Not yet: the clip stage, M/S, Audition, the meters,
+`engineProL` (`shared/music/pro-l*.ts`); its offline tests. Not yet (after step 1): the clip stage, M/S, Audition, the meters,
 dither, the window, presets, automation's TypeScript side, the assistant's tools.
+
+**Step 2** (2026-10-07): the clip stage (§5.7: Hard, Smooth, Soft, Converter, FL; before or after the limiter),
+mid/side side first (§5.3), Audition All / Clip / Limiter (§5.2), with their offline tests.
 
 The same shape as Pro-Q and PanMan: the document and what it means in TypeScript, the sound in C++, the window in React.
 
