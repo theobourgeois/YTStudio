@@ -115,15 +115,15 @@ export function SelectionAnts() {
 
 /**
  * The brush's circle where the pointer is: its size and hardness, on screen (the pointer itself is hidden). Quick
- * Selection's (`quick`) is its own size, hard, with a + or − for what it does.
+ * Selection's (`quick`) is its own size, hard, with a + or − for what it does; `size` is another tool's own.
  */
-export function BrushCursor({ quick = null }: { quick?: "add" | "subtract" | null }) {
+export function BrushCursor({ quick = null, size: ownSize }: { quick?: "add" | "subtract" | null; size?: number }) {
   const view = usePhotoUi((s) => s.view);
   const at = useCanvasPointer((s) => s.at);
   const brushSize = useBrush((s) => s.size);
   const quickSize = useSelectOptions((s) => s.quickSize);
   const brushHardness = useBrush((s) => s.hardness);
-  const size = quick ? quickSize : brushSize;
+  const size = ownSize ?? (quick ? quickSize : brushSize);
   const hardness = quick ? 1 : brushHardness;
   if (!view || !at) return null;
   const dpr = devicePixelRatio;

@@ -1347,7 +1347,7 @@ const within = (value: number, expected: number, share: number) => Math.abs(valu
 
 let shapesId = "";
 
-test("the selection tools: Magic Wand, Lassos, Elliptical Marquee, Quick Selection, Select Subject; modes, Inverse, Feather and the right-click menu", async ({ page }) => {
+test("the selection tools: Magic Wand, Lassos, Elliptical Marquee, Object Selection, Quick Selection, Select Subject; modes, Inverse, Feather and the right-click menu", async ({ page }) => {
   shapesId = await openNewPhoto(page, "Shapes");
   await openImage(page, await shapesPicture());
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
@@ -1374,8 +1374,10 @@ test("the selection tools: Magic Wand, Lassos, Elliptical Marquee, Quick Selecti
   };
   const area = async () => (await selectionNow(page))?.area ?? 0;
 
-  // W is Quick Selection; Shift+W steps to the Magic Wand (Photoshop's group).
+  // W is Object Selection; Shift+W steps to Quick Selection, then the Magic Wand (Photoshop's group).
   await page.keyboard.press("w");
+  await expect(holder).toHaveAttribute("data-tool", "objectSelect");
+  await page.keyboard.press("Shift+W");
   await expect(holder).toHaveAttribute("data-tool", "quickSelect");
   await page.keyboard.press("Shift+W");
   await expect(holder).toHaveAttribute("data-tool", "magicWand");
@@ -1467,9 +1469,36 @@ test("the selection tools: Magic Wand, Lassos, Elliptical Marquee, Quick Selecti
   await expect.poll(area).toBeGreaterThan(400 * 300 + 100_000);
   expect(within(await area(), 400 * 300 + Math.PI * 200 * 200, 0.01)).toBe(true);
 
-  // Quick Selection: a short stroke inside the disc grows to its edge. Its mode is Add afterwards (Photoshop's).
+  // Object Selection (the tests' stand-in for the model, shown only around the strokes): painted over the disc, the
+  // disc alone, where Select Subject finds the square too; Shift paints the square in. The red stroke shows meanwhile.
   await page.keyboard.press("ControlOrMeta+d");
   await page.keyboard.press("w");
+  await page.keyboard.press("Shift+W");
+  await expect(holder).toHaveAttribute("data-tool", "objectSelect");
+  await page.locator('[data-select-mode="new"]').click();
+  await expect(page.locator('[data-tool-options-for="objectSelect"] [data-option="Size"]')).toBeVisible();
+  const first = await at(330, 450);
+  await page.mouse.move(first.x, first.y);
+  await page.mouse.down();
+  for (const [x, y] of [[670, 450], [670, 750], [330, 750]] as [number, number][]) {
+    const p = await at(x, y);
+    await page.mouse.move(p.x, p.y, { steps: 8 });
+  }
+  await expect(page.locator('[data-object-stroke="painting"]')).toBeVisible();
+  await page.mouse.up();
+  await expect.poll(area, { timeout: 15_000 }).toBeGreaterThan(DISC * 0.9);
+  expect(within(await area(), DISC, 0.03)).toBe(true);
+  await expect(page.locator("[data-object-stroke]")).toHaveCount(0);
+  await drag([[1180, 380], [1320, 520]], ["Shift"]);
+  await expect.poll(area, { timeout: 15_000 }).toBeGreaterThan(DISC + SQUARE * 0.9);
+  expect(within(await area(), DISC + SQUARE, 0.03)).toBe(true);
+  // A stroke on nothing the model finds leaves the selection as it was.
+  await drag([[100, 1100], [200, 1100]]);
+  await expect(page.getByText("Nothing was found where you painted")).toBeVisible();
+  expect(within(await area(), DISC + SQUARE, 0.03)).toBe(true);
+
+  // Quick Selection: a short stroke inside the disc grows to its edge. Its mode is Add afterwards (Photoshop's).
+  await page.keyboard.press("ControlOrMeta+d");
   await page.keyboard.press("Shift+W");
   await expect(holder).toHaveAttribute("data-tool", "quickSelect");
   await page.locator('[data-select-mode="new"]').click();
@@ -1530,7 +1559,7 @@ test("the selection tools: Magic Wand, Lassos, Elliptical Marquee, Quick Selecti
   await expect(page.locator("[data-selection]")).toHaveCount(0);
 });
 
-test("the assistant selects with the wand, a lasso, Quick Selection and the subject, inverts, and looks at the selection", async ({ page }) => {
+test("the assistant selects with the wand, a lasso, Quick Selection, the subject and an object, inverts, and looks at the selection", async ({ page }) => {
   await page.goto(`/p/${shapesId}`);
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
   await page.getByRole("button", { name: "Assistant" }).click();
@@ -1558,6 +1587,12 @@ test("the assistant selects with the wand, a lasso, Quick Selection and the subj
   // The subject met with the selection, then with a box around the square: the square alone.
   await expect.poll(async () => (await selectionNow(page))?.area ?? 0).toBeLessThan(SQUARE * 1.05);
   expect(within((await selectionNow(page))!.area, SQUARE, 0.04)).toBe(true);
+  // Object Selection: a stroke over the disc adds the disc alone.
+  await composer.fill(['call select_object {"strokes": [[[400, 600], [600, 600]]], "size": 300, "mode": "add"}', "call get_photo"].join("\n"));
+  await composer.press("Enter");
+  await expect(panel.getByText("get_photo: ok")).toHaveCount(3, { timeout: 30_000 });
+  await expect.poll(async () => (await selectionNow(page))?.area ?? 0).toBeGreaterThan(SQUARE + DISC * 0.9);
+  expect(within((await selectionNow(page))!.area, SQUARE + DISC, 0.04)).toBe(true);
 });
 
 // --- Edit commands, the eraser, options and colours ---
