@@ -10,7 +10,7 @@ import { cn } from "cn";
 import { PiArrowsLeftRight, PiCheck, PiX } from "react-icons/pi";
 import type { CropRect } from "@shared/photo/crop";
 import { apply, invert } from "@shared/photo/layers";
-import { type PhotoProject, isPlaced } from "@shared/photo/types";
+import { type PhotoProject, isCroppable } from "@shared/photo/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { isHtmlElement } from "@/lib/window-events";
 import { Button } from "@/components/ui/button";
@@ -48,8 +48,8 @@ function snapping(doc: PhotoProject, e: { ctrlKey: boolean }) {
   const { assets, projectId } = usePhoto.getState();
   const known = (id: string) => (projectId ? uploadsFor(projectId).knownManifest(id) : null);
   const others = doc.layers.flatMap((l) => {
-    const size = isPlaced(l) && l.visible ? sizeOf(l, assets) : null;
-    const box = size && isPlaced(l) ? contentBox(l, size, known) : null;
+    const size = isCroppable(l) && l.visible ? sizeOf(l, assets) : null;
+    const box = size && isCroppable(l) ? contentBox(l, size, known) : null;
     return box ? [box] : [];
   });
   return { targets: snapTargets(doc.canvas, others), threshold: (SNAP_CSS_PX * devicePixelRatio) / view.zoom };
@@ -64,7 +64,7 @@ function layerAt(doc: PhotoProject, p: Point) {
   for (let i = doc.layers.length - 1; i >= 0; i--) {
     const l = doc.layers[i];
     const size = sizeOf(l, assets);
-    if (isPlaced(l) && l.visible && size && hitsContent(l, size, p.x, p.y, known)) return l;
+    if (isCroppable(l) && l.visible && size && hitsContent(l, size, p.x, p.y, known)) return l;
   }
   return null;
 }

@@ -68,11 +68,15 @@ import { selectedArea } from "@shared/photo/selection";
 import type { MediaAsset } from "@shared/types";
 import { fitted } from "./canvas/handles";
 import { imageLayerOf } from "./media";
+import { describeTextLayer } from "./text-tool-edits";
+import type { FrameText } from "@shared/photo/text";
 
 type Input = Record<string, unknown>;
 
 export interface PhotoEditEnv {
   assets: readonly MediaAsset[];
+  /** Measures a text's frame (the tab's fonts): what text edits need. */
+  frameText?: FrameText;
 }
 
 export interface PhotoEditResult {
@@ -89,7 +93,7 @@ const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : u
 
 /** A placed layer's size in its own pixels: an image's source (null while it's missing), a pixel layer's (null for adjustments). */
 export const sizeOf = (layer: PhotoLayer, assets: readonly MediaAsset[]): { width: number; height: number } | null => {
-  if (layer.kind === "pixel") return layer.size;
+  if (layer.kind === "pixel" || layer.kind === "text") return layer.size;
   if (layer.kind !== "image") return null;
   const a = assets.find((x) => x.id === layer.mediaId);
   return a?.width && a.height ? { width: a.width, height: a.height } : null;
@@ -186,7 +190,9 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
   const t = layer.transform;
   const asset = layer.kind === "image" ? assets.find((a) => a.id === layer.mediaId) : undefined;
   const what =
-    layer.kind === "pixel"
+    layer.kind === "text"
+      ? describeTextLayer(layer)
+      : layer.kind === "pixel"
       ? `pixel layer ${layer.size.width}×${layer.size.height}${layer.surface ? " (painted)" : " (empty: nothing painted yet)"}`
       : `image ${layer.mediaId}${asset ? ` (${asset.name}, ${asset.width}×${asset.height})` : " (missing: the file isn't in the project)"}`;
   const parts = [

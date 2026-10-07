@@ -12,7 +12,7 @@ import { type CropRect, canvasCropRect, cropCanvas, cropFromDocBox, cropOf, docu
 import type { Size } from "@shared/photo/geometry";
 import { type Affine, IDENTITY, layerMatrix } from "@shared/photo/layers";
 import { selectionBox } from "@shared/photo/selection";
-import { type PhotoProject, type PhotoSelection, type PlacedLayer, isPlaced } from "@shared/photo/types";
+import { type PhotoProject, type PhotoSelection, type CroppableLayer, isCroppable, isPlaced } from "@shared/photo/types";
 import { currentDoc, currentSelection, usePhoto } from "../store";
 import { sizeOf } from "../tool-edits";
 import { usePhotoUi } from "../ui";
@@ -85,12 +85,12 @@ export const useCrop = create<CropState>(() => ({
 const targetKey = (t: CropTarget) => (t.kind === "canvas" ? "canvas" : `layer:${t.layerId}`);
 
 /** The one image or pixel layer selected (with a size), when there's exactly one. */
-function selectedPlaced(doc: PhotoProject): { layer: PlacedLayer; size: Size } | null {
+function selectedPlaced(doc: PhotoProject): { layer: CroppableLayer; size: Size } | null {
   const { selectedLayerIds } = usePhotoUi.getState();
   if (selectedLayerIds.length !== 1) return null;
   const layer = doc.layers.find((l) => l.id === selectedLayerIds[0]);
   const size = layer ? sizeOf(layer, usePhoto.getState().assets) : null;
-  return layer && isPlaced(layer) && size ? { layer, size } : null;
+  return layer && isCroppable(layer) && size ? { layer, size } : null;
 }
 
 /** Whether a layer could be cropped now (one image or pixel layer selected): the switch's Layer side. */
@@ -248,7 +248,7 @@ export function cropShownDoc(doc: PhotoProject): PhotoProject {
   if (tool !== "crop" || frame?.target.kind !== "layer") return doc;
   const id = frame.target.layerId;
   const layer = doc.layers.find((l) => l.id === id);
-  if (!layer || !isPlaced(layer) || !layer.crop) return doc;
+  if (!layer || !isCroppable(layer) || !layer.crop) return doc;
   return setLayerCrop(doc, id, null, frame.full);
 }
 

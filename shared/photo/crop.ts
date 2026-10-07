@@ -3,7 +3,7 @@
  * the canvas (its size, and everything placed in document pixels moved by the box's corner). Pure: the Crop tool,
  * the renderer's plan, the Move tool's frame and the assistant all go through these.
  */
-import { type DocPoint, type LayerCrop, type LayerTransform, type MaskSelection, MAX_CANVAS_SIDE, type PhotoLayer, type PhotoProject, type PhotoSelection, type PhotoState, type PlacedLayer, type SurfaceId, isPlaced } from "./types.ts";
+import { type DocPoint, type LayerCrop, type LayerTransform, type MaskSelection, MAX_CANVAS_SIDE, type PhotoLayer, type PhotoProject, type PhotoSelection, type PhotoState, type PlacedLayer, type SurfaceId, isCroppable, isPlaced } from "./types.ts";
 import { effectDefinition, unavailableReason } from "./effects/index.ts";
 import type { Size } from "./geometry.ts";
 import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
@@ -27,7 +27,7 @@ export function clipRect(r: CropRect, size: Size): CropRect | null {
 
 /** What shows of a layer of `size`: its crop inside it, or the whole layer. */
 export function cropOf(layer: PhotoLayer, size: Size): CropRect {
-  const crop = isPlaced(layer) && layer.crop ? clipRect(layer.crop, size) : null;
+  const crop = isCroppable(layer) && layer.crop ? clipRect(layer.crop, size) : null;
   return crop ?? fullRect(size);
 }
 
@@ -106,7 +106,7 @@ export function normalizeCrop(value: unknown, size: Size | null, report: (proble
 export function setLayerCrop(doc: PhotoProject, id: string, crop: CropRect | null, size: Size): PhotoProject {
   let changed = false;
   const layers = doc.layers.map((l) => {
-    if (l.id !== id || !isPlaced(l)) return l;
+    if (l.id !== id || !isCroppable(l)) return l;
     const clipped = crop ? clipRect(crop, size) : null;
     const next = clipped && !sameRect(clipped, fullRect(size)) ? clipped : null;
     const now = l.crop ?? null;
@@ -114,7 +114,7 @@ export function setLayerCrop(doc: PhotoProject, id: string, crop: CropRect | nul
     changed = true;
     if (next) return { ...l, crop: next };
     const { crop: _, ...rest } = l;
-    return rest as PlacedLayer;
+    return rest as typeof l;
   });
   return changed ? { ...doc, layers } : doc;
 }

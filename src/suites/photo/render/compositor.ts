@@ -873,7 +873,7 @@ export class Compositor {
       const data = new ArrayBuffer(STYLE_SLOT * styled.length);
       styled.forEach(({ index, node, draw }, slot) => {
         const fieldPlan = planFields(node, draw.source.image.levels.length);
-        const content = node.kind === "image" ? `${node.mediaId}` : `${node.surface}`;
+        const content = node.kind === "image" ? `${node.mediaId}` : node.kind === "canvas" ? `canvas:${node.raster.key}` : `${node.surface}`;
         const maskKey = node.style!.maskHidesEffects ? "" : `${node.mask?.surface ?? ""}`;
         const crop = node.crop ? `|crop:${node.crop.x0},${node.crop.y0},${node.crop.x1},${node.crop.y1}` : "";
         const key = `${content}|${maskKey}|${node.size.width}x${node.size.height}|${fieldPlan.key}|${sources.revision?.(node) ?? ""}${crop}`;

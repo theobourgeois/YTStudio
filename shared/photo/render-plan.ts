@@ -18,6 +18,7 @@ import type { CameraRawAnalysis } from "./effects/camera-raw/analysis.ts";
 import { ANALYSIS_PARAM, needsAnalysis } from "./effects/camera-raw/develop.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
 import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
+import { type CanvasRaster, canvasContentOf, canvasRaster } from "./canvas-content.ts";
 import { findPattern } from "./style/patterns.ts";
 import { drawnEffects, effectAltitude, effectAngle, stylePatterns, styleReach } from "./style/style.ts";
 import type { Box } from "./style/gradients.ts";
@@ -149,6 +150,28 @@ export interface PixelNode extends ContentFields {
 }
 
 /**
+ * A layer whose pixels the tab draws with a 2D canvas (`canvas-content.ts`: a text's words), in document pixels through
+ * its whole transform: its raster, placed by a whole-pixel offset, then drawn as a pixel layer's pixels are.
+ */
+export interface CanvasNode extends ContentFields {
+  kind: "canvas";
+  layerId: string;
+  /** Text isn't cropped (`isCroppable`): always null, so every drawn node reads a crop alike. */
+  crop: null;
+  raster: CanvasRaster;
+  /** The raster's place: a whole-pixel translation. */
+  transform: LayerTransform;
+  size: Size;
+  matrix: Affine;
+  opacity: number;
+  mask: MaskRef | null;
+  blend: NodeBlend | null;
+  style: NodeStyle | null;
+  commutes: boolean;
+  key: string;
+}
+
+/**
  * A generator layer: content made by its effect at every document point (a lens flare), then its filters, then
  * blended at its opacity through its mask (in document pixels), in linear light when `space` says so (light that
  * adds physically).
@@ -187,15 +210,15 @@ export interface AdjustmentNode {
   key: string;
 }
 
-export type PlanNode = ImageNode | PixelNode | GeneratorNode | AdjustmentNode;
+export type PlanNode = ImageNode | PixelNode | GeneratorNode | AdjustmentNode | CanvasNode;
 
-/** A node that draws pixels of its own (an image's or a pixel layer's), as the compositor's layer pass does. */
-export type DrawNode = ImageNode | PixelNode;
+/** A node that draws pixels of its own (an image's, a pixel layer's or a text's), as the compositor's layer pass does. */
+export type DrawNode = ImageNode | PixelNode | CanvasNode;
 
-export const isDrawNode = (node: PlanNode): node is DrawNode => node.kind === "image" || node.kind === "pixel";
+export const isDrawNode = (node: PlanNode): node is DrawNode => node.kind === "image" || node.kind === "pixel" || node.kind === "canvas";
 
 /** A node with content of its own: one that can have filters. */
-export type ContentNode = ImageNode | PixelNode | GeneratorNode;
+export type ContentNode = ImageNode | PixelNode | GeneratorNode | CanvasNode;
 
 export const isContentNode = (node: PlanNode): node is ContentNode => node.kind !== "adjustment";
 
@@ -207,7 +230,7 @@ export const isContentNode = (node: PlanNode): node is ContentNode => node.kind 
 export const addsLight = (b: NodeBlend | null) => !!b && b.mode === "linear-dodge" && b.fill === 1 && b.channels.r && b.channels.g && b.channels.b && !Object.values(b.blendIf).some(Boolean);
 
 /** A layer evaluated alone first: a generator, or a layer with filters. */
-export type IsolatedNode = GeneratorNode | ((ImageNode | PixelNode) & { filters: [FilterNode, ...FilterNode[]] });
+export type IsolatedNode = GeneratorNode | ((ImageNode | PixelNode | CanvasNode) & { filters: [FilterNode, ...FilterNode[]] });
 
 /**
  * Whether an isolated layer blends in linear light whatever the document's compositing: a generator told so
@@ -466,6 +489,35 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       });
       continue;
     }
+    const painted = canvasContentOf(layer);
+    if (painted) {
+      const raster = canvasRaster(doc, painted, styleReach(layer) + filtersReach(layer), !!layer.mask?.surface, hashKey);
+      if (!raster) continue;
+      const size = { width: raster.width, height: raster.height };
+      const mask = maskOf(layer, { width: doc.canvas.width, height: doc.canvas.height });
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`canvas|${raster.key}`), 0, options.cameraRaw);
+      // Its style's Align with Layer is the layer's frame, not the raster's box.
+      const styled = styleOf(doc, layer, layerMatrix(painted.transform, painted.size), painted.size);
+      nodes.push({
+        kind: "canvas",
+        crop: null,
+        layerId: layer.id,
+        raster,
+        transform: { x: raster.x + size.width / 2, y: raster.y + size.height / 2, scaleX: 1, scaleY: 1, rotation: 0 },
+        size,
+        matrix: [1, 0, 0, 1, raster.x, raster.y],
+        opacity: blending.opacity,
+        mask,
+        blend: blending.blend,
+        style: styled.style,
+        ...content,
+        commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
+        commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
+        key: hashKey(`canvas|${raster.key}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}`),
+      });
+      continue;
+    }
+    if (layer.kind === "text") continue;
     const effect = layer.effect;
     if (!effect.enabled) continue;
     const def = effectDefinition(effect.type);

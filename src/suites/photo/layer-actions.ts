@@ -224,26 +224,29 @@ export const layerActions = {
   },
 
   /**
-   * An image or generator layer as pixels (Photoshop's Rasterize): its transform, filters and mask baked in, in its
-   * place (a generator's over the canvas).
+   * An image, generator or text layer as pixels (Photoshop's Rasterize; Rasterize Type): its transform, filters and
+   * mask baked in, in its place (a generator's over the canvas). A text's style stays a style, as Photoshop's does.
    */
   async convertToPixels(layerId: string) {
     const doc = currentDoc();
     const layer = doc ? findLayer(doc, layerId) : undefined;
-    if (!doc || (layer?.kind !== "image" && layer?.kind !== "generator")) return;
+    if (!doc || (layer?.kind !== "image" && layer?.kind !== "generator" && layer?.kind !== "text")) return;
+    const keepsStyle = layer.kind === "text" && layer.style ? layer.style : undefined;
     try {
       const renderer = await liveRenderer();
       if (!renderer) return;
-      const pixels = await renderer.rasterize(doc, layerId);
+      const drawn = keepsStyle ? { ...doc, layers: doc.layers.map((l) => (l.id === layerId ? { ...l, style: undefined } : l)) } : doc;
+      const pixels = await renderer.rasterize(drawn, layerId);
       usePhoto.getState().commit((d) => {
         const now = findLayer(d, layerId);
         if (!now) return d;
         // Its blending stays the layer's (the pixels are drawn plain).
         const blending = { ...(now.blend ? { blend: now.blend } : {}), ...(now.fill !== undefined ? { fill: now.fill } : {}), ...(now.blending ? { blending: now.blending } : {}) };
-        return replaceLayer(d, layerId, { id: layerId, kind: "pixel", name: now.name, visible: now.visible, opacity: now.opacity, ...blending, ...pixels });
+        return replaceLayer(d, layerId, { id: layerId, kind: "pixel", name: now.name, visible: now.visible, opacity: now.opacity, ...blending, ...(keepsStyle && now.style ? { style: now.style } : {}), ...pixels });
       });
       usePhotoUi.getState().setTarget("content");
-      toast.success(`"${layer.name}" is pixels now`, { description: "Its place, filters and mask are part of them: scaling it now resamples these pixels." });
+      if (layer.kind === "text") toast.success(`"${layer.name}" is pixels now`, { description: "Its words can't be edited any more; its layer style is still a style." });
+      else toast.success(`"${layer.name}" is pixels now`, { description: "Its place, filters and mask are part of them: scaling it now resamples these pixels." });
     } catch (error) {
       toast.error("Couldn't convert it to pixels", { description: errorMessage(error) });
     }
