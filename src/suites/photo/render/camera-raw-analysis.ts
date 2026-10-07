@@ -14,6 +14,12 @@ import { type PhotoProject, hasContent } from "@shared/photo/types.ts";
 
 /** What builds an analysis: a view of a document rendered (at its own level) and read back as floats. */
 export interface AnalysisHost {
+  /**
+   * Resolves when everything a document shows is in (its images loaded, its surfaces showing their pixels): an
+   * analysis is kept for good, so one made from a picture still loading would develop the wrong picture until the
+   * photo is closed.
+   */
+  settled: (doc: PhotoProject) => Promise<void>;
   renderFloats: (doc: PhotoProject, view: { zoom: number; x: number; y: number; width: number; height: number }) => Promise<Float32Array>;
   /** An analysis arrived: the screen draws again. */
   built: () => void;
@@ -88,6 +94,7 @@ export class CameraRawAnalyses {
   private async make(id: string, need: CameraRawNeed, doc: PhotoProject): Promise<CameraRawAnalysis | null> {
     const input = analysisInput(doc, need);
     if (!input) return null;
+    await this.host.settled(input);
     const spacing = analysisSpacing(doc.canvas);
     const width = Math.ceil(doc.canvas.width / spacing);
     const height = Math.ceil(doc.canvas.height / spacing);

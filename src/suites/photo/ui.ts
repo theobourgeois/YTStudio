@@ -27,15 +27,16 @@ export type { PaintTarget };
  * view (device pixels per document pixel and where it is), and the windows. Per open project: it starts afresh.
  */
 /**
- * What the Camera Raw window edits: a Camera Raw filter on a layer (`filterId`), or a Camera Raw adjustment layer
- * (`filterId` null). `adding`: it doesn't exist yet, and the window's gesture adds it (Cancel leaves nothing): a new
- * adjustment layer goes above `above`.
+ * What an effect's window (Camera Raw's, Hue/Saturation's) edits: a filter on a layer (`filterId`), or an adjustment
+ * layer (`filterId` null). `adding`: it doesn't exist yet, and the window's gesture adds it (Cancel leaves nothing): a
+ * new adjustment layer goes above `above`.
  */
-export interface CameraRawTarget {
+export interface EffectTarget {
   layerId: string;
   filterId: string | null;
   adding?: { above: string | null };
 }
+export type CameraRawTarget = EffectTarget;
 
 interface PhotoUi {
   tool: PhotoTool;
@@ -91,6 +92,8 @@ interface PhotoUi {
   layerStyle: { layerId: string; page: string } | null;
   /** The Camera Raw window and what it edits (docs/photo/camera-raw.md), or null when it's closed. */
   cameraRaw: CameraRawTarget | null;
+  /** The Hue/Saturation window (⌘U) and what it edits, or null when it's closed. */
+  hueSaturation: EffectTarget | null;
   /** The Scale Effects window's layers, or null when it's closed. */
   scaleEffects: string[] | null;
   setTool: (tool: PhotoTool) => void;
@@ -119,6 +122,7 @@ interface PhotoUi {
   setLastFilter: (last: PhotoUi["lastFilter"]) => void;
   setLayerStyle: (open: { layerId: string; page: string } | null) => void;
   setCameraRaw: (target: CameraRawTarget | null) => void;
+  setHueSaturation: (target: EffectTarget | null) => void;
   setScaleEffects: (layerIds: string[] | null) => void;
 }
 
@@ -144,6 +148,7 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   lastFilter: null,
   layerStyle: null,
   cameraRaw: null,
+  hueSaturation: null,
   scaleEffects: null,
   setTool: (tool) =>
     set((s) => {
@@ -180,6 +185,7 @@ export const usePhotoUi = create<PhotoUi>((set) => ({
   setLastFilter: (lastFilter) => set({ lastFilter }),
   setLayerStyle: (layerStyle) => set({ layerStyle }),
   setCameraRaw: (cameraRaw) => set({ cameraRaw }),
+  setHueSaturation: (hueSaturation) => set({ hueSaturation }),
   setScaleEffects: (scaleEffects) => set({ scaleEffects }),
 }));
 
@@ -196,7 +202,7 @@ export const useActiveTool = () => usePhotoUi((s) => (s.spaceHand ? "hand" : s.t
 // Another photo: a fresh view, nothing selected, its windows closed.
 usePhoto.subscribe((state, prev) => {
   if (state.projectId !== prev.projectId)
-    usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, selectedFilterId: null, selectedElementId: null, guides: [], marquee: null, selectionDraft: null, view: null, exportOpen: false, filterGalleryOpen: false, filterPreview: null, textPreview: null, lastFilter: null, layerStyle: null, cameraRaw: null, scaleEffects: null, spaceHand: false, target: "content", paintChoice: null });
+    usePhotoUi.setState({ selectedLayerIds: [], selectedLayerId: null, hoveredLayerId: null, selectedFilterId: null, selectedElementId: null, guides: [], marquee: null, selectionDraft: null, view: null, exportOpen: false, filterGalleryOpen: false, filterPreview: null, textPreview: null, lastFilter: null, layerStyle: null, cameraRaw: null, hueSaturation: null, scaleEffects: null, spaceHand: false, target: "content", paintChoice: null });
   // Selected layers that are gone (undone, deleted) are no longer selected.
   const { selectedLayerIds, selectedLayerId } = usePhotoUi.getState();
   if (!state.history || selectedLayerIds.length === 0 || state.history.doc.doc.layers === prev.history?.doc.doc.layers) return;

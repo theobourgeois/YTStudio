@@ -74,6 +74,10 @@ develops (`analysis.ts`: guided-filter grids, haze, statistics, from a coarse re
 Its Color Mixer and Color Grading are `colour.ts` (Grading in stops of linear ProPhoto, as Camera Raw's), Glow reads a
 grid made from the analysis (`glowGrid`); the GPU's table carries them after the curves. Its presets are
 `presets.ts` (the window's Presets tab, `add_filter`/`add_adjustment`'s `preset`), Auto is `auto.ts`.
+**Hue/Saturation** (docs/photo/hue-saturation.md; ⌘U, the header's Image menu) is one effect, `hue-saturation`, a
+filter and an adjustment layer alike, as Camera Raw is: its window (`src/suites/photo/hue-saturation/`) is one gesture
+on an `EffectTarget` (`effect-window.ts`: `targetEdit`, shared with Camera Raw's), its controls show in Properties too.
+Its maths is `shared/photo/reference/hue-saturation.ts`, mirrored in WGSL by `render/hue-saturation.ts`: change both.
 The **Online panel** (docs/photo/online.md; a tab beside Properties) searches Iconify's icons, Bing's images and
 Openverse's photos, or reads a pasted link, and places a result as a layer: the server searches and downloads
 (`server/photo/online.ts`; Iconify limits requests, so icons' shapes are fetched a set at a time and kept, never one
