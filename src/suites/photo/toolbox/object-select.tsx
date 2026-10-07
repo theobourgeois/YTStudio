@@ -1,7 +1,7 @@
 /**
  * The Object Selection tool (W: docs/photo/selections.md), Lightroom's Select Objects brush: paint roughly over a
- * thing in translucent red, let go, and the model selects that thing (`selectObject`). Shift adds, Alt subtracts,
- * both intersect (else the options bar's mode). Its options are the selection tools' bar's.
+ * thing in translucent red, let go, and the model (SAM 2.1) selects that thing (`selectObject`). Shift adds, Alt
+ * subtracts, both intersect (else the options bar's mode). Its options are the selection tools' bar's.
  */
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { cn } from "cn";
@@ -15,7 +15,7 @@ import { BrushCursor, useCanvasPointer } from "../canvas/overlays";
 import { ModelMissing, askForModel } from "../models";
 import { useSelectOptions } from "../selecting";
 import { currentDoc } from "../store";
-import { selectObject, useSubjectModel } from "../subject-model";
+import { selectObject, useObjectModel, warmObjectModel } from "../object-model";
 import { usePhotoUi } from "../ui";
 import type { DocPointOf, ToolKit } from "./kit";
 
@@ -42,10 +42,11 @@ async function find(points: Point[], size: number, mode: SelectionMode) {
 
 function press(e: ReactPointerEvent<HTMLDivElement>, docPoint: DocPointOf) {
   // One at a time: the model is busy with the stroke before.
-  if (!currentDoc() || useSubjectModel.getState().running || useObjectStroke.getState().finding) return;
+  if (!currentDoc() || useObjectModel.getState().running || useObjectStroke.getState().finding) return;
   const o = useSelectOptions.getState();
   const mode = modeFor(e, o.mode);
   const size = o.objectSize;
+  warmObjectModel(o.sampleAll);
   const points = [docPoint(e.clientX, e.clientY)];
   useObjectStroke.setState((s) => ({ points, size, finding: false, version: s.version + 1 }));
   const done = () => void find(points, size, mode);

@@ -70,15 +70,13 @@ turns megabytes of mask into JSON. The pure maths:
   working ones (its edge as soft as a working pixel; Auto-Enhance smooths it more). The paper's adaptive band
   upsampling, its multi-core cut and its viewport-sized local window when zoomed in aren't built.
 - `subject.ts`: Select Subject's model and what's around it (below).
-- `object-select.ts`: the Object Selection tool. The model is shown only the strokes' bounds grown by a quarter of
-  their longer side (`objectBox`: a stroke needn't cover the whole thing), read from the photo at enough detail for
-  that part alone, so the thing fills the model's 1024 × 1024. Of its answer, the parts over one half certain are
-  joined into things (8 neighbours), and a thing is kept when the strokes (on the model's grid, `paintedGrid`) cover
-  30% of it, or 15% of the strokes lie on it, or it's the one they lie on most; their soft rims come with them
-  (`objectProbabilities`). So a big brush spilling onto a neighbour doesn't take it, and painting two things takes
-  both. It's Select Subject's model (IS-Net) for now: it can only say what stands out in the part it's shown, so two
-  things of equal weight there, or a thing joined to another in its answer (a cat lying on a deck), come together. A
-  prompted model (SAM, the strokes as its box and points) is next.
+- `sam.ts`: the Object Selection tool's model, SAM 2.1 (below), and its maths: the photo as its input, the strokes as
+  its points, which of its masks the stroke meant, a mask as a selection.
+- `object-select.ts`: what the strokes painted on a model's grid (`paintedGrid`, which `chooseMask` weighs SAM's
+  masks by), and the tests' stand-in for SAM: the part around the strokes (`objectBox`: their bounds grown by a
+  quarter), what's unlike its border, and of that the things the strokes cover 30% of, or lie on 15% of themselves,
+  or lie on most (`objectProbabilities`). This was the tool's first model, Select Subject's IS-Net shown that part:
+  it could only say what stood out there, so a cat lying on a deck came with the deck.
 - `pixel-sample.ts`: what the tools look at: the photo as it shows, or the active layer alone (its pixels and filters,
   without its style or blending), rendered by the tab's renderer through the output transform into 8-bit sRGB with
   straight alpha (`PhotoRenderer.samplePixels`), at most 4096 pixels a side (a phone's 12 MP photo is read whole),
@@ -106,7 +104,7 @@ Researched options (2026-10-06):
 | BiRefNet lite | MIT | 224 MB fp32, 115 MB fp16 | Better edges, but its upstream ONNX has nodes WebGPU can't compile (a 32-output Split over the 8-storage-buffer limit); only a third party's patched export runs (3.4 s at 1024) |
 | BRIA RMBG 1.4 / 2.0 | CC BY-NC | 44–176 MB | Non-commercial: not used |
 | U²-Net small | Apache-2.0 | 4.7 MB | Too coarse for a selection |
-| SAM family | Apache-2.0 | 40 MB+ | Prompted (a click or a box): the Object Selection tool's, later |
+| SAM family | Apache-2.0 | 40 MB+ | Prompted (points or a box): the Object Selection tool's (below) |
 
 Chosen: **IS-Net general use, fp16** (`imgly/isnet-general-onnx`, `onnx/model_fp16.onnx`, 88,152,708 bytes, SHA-256
 `2eb4b5dd…f20`), verified here with ONNX Runtime: input `input` [1, 3, 1024, 1024] float32, planar RGB normalised
@@ -122,6 +120,37 @@ Chosen: **IS-Net general use, fp16** (`imgly/isnet-general-onnx`, `onnx/model_fp
   read up to the document's pixels. Nothing of the photo leaves the computer.
 - **Tests** never download it: `EDITOR_PHOTO_MODELS=stand-in` (the e2e config) makes the server say the model is a
   stand-in, and the tab selects what's unlike the photo's border instead (`standInProbabilities`).
+
+## Object Selection's model
+
+The tool is prompted, which Select Subject's model isn't: the user says which thing. Researched 2026-10-07: SAM 2.1
+(Meta, Apache-2.0 weights) is the prompted segmenter with ONNX exports that run in ONNX Runtime Web. onnx-community's
+(made for Transformers.js) are two graphs, each with its weights in a file beside it (ONNX's external data): a vision
+encoder, `pixel_values` [1, 3, 1024, 1024] to three embeddings (32 × 256², 64 × 128², 256 × 64²), and a prompt
+encoder and mask decoder, the embeddings and `input_points` [1, 1, n, 2] (the 1024 square's pixels), `input_labels`
+(int64; 1 is the thing) and `input_boxes` [1, 0, 4] to `pred_masks` (three masks' logits, 256²), `iou_scores` and
+`object_score_logits`. Chosen: **SAM 2.1 Hiera small, fp16** (`onnx-community/sam2.1-hiera-small-ONNX` at
+`a7df49d8`, four files, 92,289,100 bytes: `SAM_FILES`), verified here with ONNX Runtime on a photo of a cat lying on a
+deck (which Select Subject took with the deck): the cat alone, ears and all. Tiny (78 MB) was less steady: its best
+mask moved between its three outputs and one was ragged.
+
+- **Prompts**: the strokes' points (`samPoints`: along their middles, up to six, each the farthest from those taken
+  from the one nearest their middle). A box from the strokes' bounds was tried and dropped: a rough stroke rarely
+  reaches a thing's ends, and the box cut the cat's ears off. Points alone let SAM find the whole thing.
+- **Which mask** (`chooseMask`): SAM answers three (a part, the thing, the thing and more); the one kept is the best
+  its own score rates, weighed by how much of what was painted it holds. An object score under 0 is nothing.
+- **The edge** (`samSelection`): SAM's answer is where its logits are over 0. They're read between the 256 grid's
+  cells at the sample's size and each pixel covered by its distance inside that line (the logit over its slope), so
+  the edge is anti-aliased over a pixel. A sigmoid of the logits also half-selected wide places the model was unsure
+  of, all over the photo.
+- **The tab** (`object-model.ts`) runs the encoder once per photo (the photo as Select Subject reads it, at most 2048
+  a side, squeezed to 1024 × 1024, ImageNet's normalisation) and keeps what it made while the photo doesn't change; a
+  press of the brush starts it, so it's often done when the stroke ends. Each stroke is then the decoder's tens of
+  milliseconds (measured in Chromium on WebGPU: the first stroke 1.1 s after it was let go, model loading included,
+  the next 91 ms). A model of several files is downloaded, checked and served file by file
+  (`/api/photo/models/object/files/<file>`); the tab hands a graph its weights as external data, by the name the
+  graph knows them by (`PhotoModelFile.location`).
+- **Tests** use the stand-in in `object-select.ts` (above), as Select Subject's do.
 
 ## The assistant
 
@@ -140,7 +169,9 @@ is described by its box and how much it covers.
 - The Polygonal Lasso doesn't snap its sides to 45° with Shift, and Alt doesn't switch a Lasso drag to polygonal.
 - Select Subject has no cloud or "detailed" mode; hair is as fine as IS-Net at 1024 × 1024 gives.
 - Object Selection is painted, not a rectangle or a lasso, and has no Object Finder (Photoshop's hover that outlines
-  each thing before a click). Its model is IS-Net, not a prompted one (SAM) yet: see `object-select.ts` above.
+  each thing before a click). Its edge is SAM's (a 256² mask over the photo), so hair and fur aren't picked out yet:
+  edge refinement in a band around the outline is next. It reads the whole photo at 1024 × 1024, so a small thing in
+  a big photo gets few of SAM's cells.
 
 ## Sources
 
