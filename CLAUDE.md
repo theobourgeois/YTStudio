@@ -170,7 +170,7 @@ pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + c
 pnpm tsx scripts/preset-sheet.ts [type|tag ...] [--out f.png]       # render + check presets
 pnpm tsx scripts/pro-c-sheet.ts [style ...] [--out f.png]           # Pro-C's styles measured on the engine: curves, gain, colour
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
-pnpm tsx scripts/perf.ts --scrub <Project.vaudio>                   # scrub and play a copy of a real project, GPU and all
+pnpm tsx scripts/perf.ts --scrub <Project.vaudio> [--render]        # scrub and play a copy of a real project, GPU and all
 pnpm tsx scripts/engine-profile.ts <Name.vaudio> [--only-plugin n] [--sample]   # a song's playback load, offline (silent)
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
 pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
@@ -304,6 +304,9 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   assistant-tools.ts The video editor's tools for AI agents (MCP): names, input schemas, descriptions, kind (look/edit/action).
   assistant.ts       The assistant's chat: messages, ChatEvent + applyChatEvent (server and tab fold the same events),
                      describeToolCall (a step's label), TabEvent (what the tab's event stream carries).
+  render-files.ts    Render files (Premiere's preview files, docs/render-files.md): the main sequence cut into segments,
+                     each keyed by a hash of what its frames depend on; the tab (the render bar, playback) and the
+                     server (the files' names) run the same function, so they agree.
   export-formats.ts  What an export can be (V10): H.264, HEVC, ProRes 422 HQ, ProRes 4444, PNG sequences, as data (container,
                      encoder, readback, quality, alpha); `exportSettings` checks a request's format, quality and alpha.
   math.ts, format.ts, errors.ts   clamp/EPS/roundTime, time and size formatting, errorMessage.
@@ -317,7 +320,10 @@ server/
   migrate.ts         Older data folders: data/project.json and data/projects + data/media become packages, on startup.
   media.ts, web-media.ts, exports.ts   Services behind the routes.
   library.ts         LibraryStore: library.json (folders, items) + its own MediaLibrary under data/library/media.
-  render.ts          Export plan (pure, unit-tested): planRender (decoders + per-frame layers), audioArgs.
+  render.ts          Export plan (pure, unit-tested): planRender (decoders + per-frame layers, any range of frames), audioArgs.
+  render-inputs.ts   What drawing a project needs from the library (paths, reversed copies, signals) and its plan.
+  render-files.ts    Render files: a video's heavy segments rendered into `<package>/render/<key>.mp4` (drawFrames,
+                     an encoder a segment), listed, served and deleted (`/api/render-files`).
   encoders.ts        Each export format's encoder (`encoderArgs`), the formats this ffmpeg can make (`availableFormats`).
   zip.ts             A stored ZIP of files on disk (ZIP64 when it's big): a PNG sequence's download.
   frame-render.ts + gl-browser.ts   Runs the plan: decoders -> headless Chromium compositor -> encoder.
@@ -444,7 +450,10 @@ src/
   lib/api.ts         Typed client for every endpoint. lib/edit-gesture.ts, lib/pointer-drag.ts (see below).
   lib/text-render.ts Text layout (the browser's text engine measures it in any installed font); used by the preview,
                      the export (`export/layout-texts.ts` sends layouts) and the canvas text editor.
-  components/preview/engine.ts   Imperative preview: drives hidden <video>/<img> and draws with the compositor.
+  components/preview/engine.ts   Imperative preview: drives hidden <video>/<img> and draws with the compositor. At
+                     most two frames are queued on the GPU (`inFlight`), heavy moving frames are drawn smaller
+                     (`adaptive.ts`, After Effects' Adaptive Resolution, the lightning button), and a segment with a
+                     render file is played from it (`renderedPicture`, `stores/render-files.ts`).
   components/preview/sync.ts, placement.ts   Its pure planners (tested). The engine plans each sequence as a `Level`
                      (a nested one draws into a compositor group), with media elements per `previewSlots` id.
   components/properties/graph-editor.tsx   The graph editor (value/speed graphs, Bézier handles; maths in graph-geometry.ts).

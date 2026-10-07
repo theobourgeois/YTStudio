@@ -200,6 +200,38 @@ export interface Tick {
   label: string | null;
 }
 
+/** A stretch of the render bar: green (`done`, rendered) or red (worth rendering), in lane px. */
+export interface RenderRun {
+  x: number;
+  width: number;
+  done: boolean;
+}
+
+/**
+ * Premiere's render bar over lane px [x0, x1]: the heavy segments (`shared/render-files.ts`, in frames at `fps`),
+ * neighbours in the same state as one run. Nothing where a segment plays live as it is.
+ */
+export function renderRuns(
+  segments: readonly { from: number; to: number; key: string; heavy: boolean }[],
+  rendered: (key: string) => boolean,
+  fps: number,
+  zoom: number,
+  x0: number,
+  x1: number,
+): RenderRun[] {
+  const runs: RenderRun[] = [];
+  for (const s of segments) {
+    if (!s.heavy) continue;
+    const [a, b] = [(s.from / fps) * zoom, (s.to / fps) * zoom];
+    if (b < x0 || a > x1) continue;
+    const done = rendered(s.key);
+    const last = runs.at(-1);
+    if (last && last.done === done && Math.abs(last.x + last.width - a) < 0.5) last.width = b - last.x;
+    else runs.push({ x: a, width: b - a, done });
+  }
+  return runs;
+}
+
 /** Ticks covering lane px [x0, x1]. Indexes by integer steps so there is no float drift. */
 export function rulerTicks(zoom: number, x0: number, x1: number): Tick[] {
   const { major, minor } = tickSpacing(zoom);

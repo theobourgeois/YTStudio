@@ -52,6 +52,12 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("m", { repeat: true }))).toBeNull();
   });
 
+  it("renders effects with Enter, like Premiere's Render Effects In to Out", () => {
+    expect(resolveShortcut(key("Enter"))).toBe("renderEffects");
+    expect(resolveShortcut(key("Enter", { shiftKey: true }))).toBeNull();
+    expect(resolveShortcut(key("Enter", { repeat: true }))).toBeNull();
+  });
+
   it("marks In and Out like Premiere", () => {
     expect(resolveShortcut(key("i"))).toBe("markIn");
     expect(resolveShortcut(key("o"))).toBe("markOut");

@@ -615,6 +615,8 @@ export function describeToolCall(rawName: string, input: unknown): string {
       return "Add from the Library";
     case "export_video":
       return `Export ${String(f("resolution") ?? "1080p")}${typeof f("format") === "string" && f("format") !== "h264" ? ` as ${String(f("format"))}` : ""}`;
+    case "render_effects":
+      return f("delete") === true ? "Delete render files" : "Render effects";
     case "focus":
       return typeof f("time") === "number" ? `Show ${seconds(f("time"))}` : "Select clips";
     default:

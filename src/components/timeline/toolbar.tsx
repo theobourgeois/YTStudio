@@ -45,6 +45,7 @@ import { sliderToZoom, zoomToSlider } from "./geometry";
 import { timelineCommands, useMinZoom } from "./view-store";
 import { ClipSpeedButton } from "./speed-control";
 import { ClipVolumeButton } from "./volume-control";
+import { RenderControl } from "./render-control";
 import { showPanel } from "@/stores/video-dock";
 
 const ZOOM_STEP = 1.5;
@@ -229,6 +230,8 @@ export function TimelineToolbar() {
       </ToolButton>
 
       <div className="ml-auto flex items-center gap-1">
+        <RenderControl />
+        <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-5" />
         <ToolButton label="Zoom out" shortcut={SHORTCUT_KEYS.zoomOut} hint="or ⌘/Ctrl + scroll" disabled={zoom <= minZoom} onClick={() => ctx.zoomTo(zoom / ZOOM_STEP)}>
           <PiMagnifyingGlassMinus />
         </ToolButton>

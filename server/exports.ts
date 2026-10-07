@@ -1,6 +1,3 @@
-import { signalAssets, usesSignals } from "../shared/audio-signals.ts";
-import type { SignalData } from "../shared/signals/format.ts";
-import { readSignals } from "./signals.ts";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { EXPORT_RESOLUTIONS, createId, outputSize, projectDuration, withoutAudioTracks } from "../shared/timeline.ts";
@@ -16,10 +13,10 @@ import { ffmpegVersion } from "./ffmpeg.ts";
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
 import { renderVideo } from "./frame-render.ts";
-import { probeColorSpace } from "./probe.ts";
 import { run } from "./process.ts";
 import { availableFormats, encoderArgs, wavArgs } from "./encoders.ts";
-import { type RenderAsset, audioArgs, planRender, runWithProgress } from "./render.ts";
+import { audioArgs, runWithProgress } from "./render.ts";
+import { renderInputs } from "./render-inputs.ts";
 import { type DataPaths, HttpError, isValidId } from "./storage.ts";
 import { writeZip } from "./zip.ts";
 
@@ -36,7 +33,7 @@ interface JobState {
 const MAX_TEXT_LAYOUTS = 20_000;
 
 /** A text clip's layouts from an export request (one, or several in time order), or null when they aren't sane. */
-function parseLayouts(raw: unknown): TextLayoutAt[] | null {
+export function parseLayouts(raw: unknown): TextLayoutAt[] | null {
   const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
   if (list.length === 0 || list.length > MAX_TEXT_LAYOUTS) return null;
   const layouts: TextLayoutAt[] = [];
@@ -208,43 +205,10 @@ export class ExportManager {
     const frames = sequence ? this.paths.tmpFile("") : null;
     const { signal } = controller;
     try {
-      const library = this.library.byId();
-      const assets: Record<string, RenderAsset> = {};
-      const drawn: Record<string, TextLayoutAt[]> = Object.fromEntries(texts);
-      for (const clip of allClips(project)) {
-        // Text, solids, shapes and adjustment layers are drawn by the compositor itself, and a nested sequence from its clips.
-        if (!hasMedia(clip) || isNestedClip(clip)) continue;
-        const asset = library[clip.assetId];
-        if (!asset) throw new Error("Some media was deleted before the export started.");
-        if (assets[asset.id]) continue;
-        const file = this.library.sourcePath(asset);
-        const colorSpace = asset.kind === "video" && asset.hasVideo ? await probeColorSpace(file) : null;
-        assets[asset.id] = { ...asset, path: file, colorSpace };
-      }
-      // Clips played backwards play their media's reversed copy (made now if it isn't yet).
-      for (const clip of project.clips) {
-        const asset = assets[clip.assetId];
-        if (clip.reversed && asset && !asset.reversedPath) asset.reversedPath = await this.library.reversedPath(clip.assetId);
-        if (signal.aborted) return;
-      }
-      // What reacts to sound reads its files' signals (analysed now if they aren't yet).
-      const signals = new Map<string, SignalData>();
-      if (usesSignals(project)) {
-        for (const id of signalAssets(project, (id) => !!assets[id]?.hasAudio)) {
-          signals.set(id, await readSignals(await this.library.signalsPath(id)));
-          if (signal.aborted) return;
-        }
-      }
-      const opts = { width: job.width, height: job.height, fps: preview ? Math.min(15, project.settings.fps) : project.settings.fps, ffmpegPath: FFMPEG, signals };
-      let plan = planRender(project, assets, opts, drawn);
-      // Media shown backwards elsewhere (a remapped clip running back, a reversed nest) needs its reversed copy too.
-      if (plan.needsReversed.length) {
-        for (const id of plan.needsReversed) {
-          assets[id].reversedPath = await this.library.reversedPath(id);
-          if (signal.aborted) return;
-        }
-        plan = planRender(project, assets, opts, drawn);
-      }
+      const fps = preview ? Math.min(15, project.settings.fps) : project.settings.fps;
+      const inputs = await renderInputs(this.library, project, Object.fromEntries(texts), { width: job.width, height: job.height, fps, ffmpegPath: FFMPEG }, signal);
+      if (!inputs) return;
+      const { plan, assets, opts } = inputs;
 
       if (preview) plan.frames = Math.min(plan.frames, Math.ceil(job.duration * opts.fps));
 

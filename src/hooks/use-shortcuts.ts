@@ -14,6 +14,7 @@ import { useLayout } from "@/stores/layout";
 import { addMarkerAtPlayhead, deleteMarkerAtPlayhead, goToMarker } from "@/stores/markers";
 import { deleteSelectedVertices, usePathEditing } from "@/stores/path-editing";
 import { usePlayback } from "@/stores/playback";
+import { useRenderFiles } from "@/stores/render-files";
 import { useSourcePreview } from "@/stores/source-preview";
 import { resolveShortcut, type ShortcutAction } from "./shortcuts";
 import { showPanel } from "@/stores/video-dock";
@@ -113,6 +114,11 @@ export function runShortcut(action: ShortcutAction): boolean {
       return true;
     case "showShortcuts":
       useLayout.getState().setShortcutsOpen(true);
+      return true;
+    case "renderEffects":
+      // Enter closes the path the pen is drawing first (its own handler).
+      if (usePathEditing.getState().drawing) return false;
+      void useRenderFiles.getState().render();
       return true;
     case "togglePlay":
       playback.toggle();

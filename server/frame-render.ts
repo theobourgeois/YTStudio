@@ -146,11 +146,6 @@ class Decoder {
   }
 }
 
-/**
- * Draw every frame of `plan` and encode them with `encoderArgv` (see
- * `encoderArgs`). `onFrame` is called after each frame is handed to the
- * encoder; resolves once the encoder has finished the file.
- */
 /** Refuse to start when a user's shader (the Shader effect) doesn't compile, naming where it's used. */
 async function checkShaders(session: GlSession, plan: RenderPlan): Promise<void> {
   const user = Object.fromEntries(Object.entries(plan.shaders).filter(([key]) => key.startsWith("fx:shader:")));
@@ -164,12 +159,51 @@ async function checkShaders(session: GlSession, plan: RenderPlan): Promise<void>
   );
 }
 
+/**
+ * Draw every frame of `plan` and encode them with `encoderArgv` (see
+ * `encoderArgs`). `onFrame` is called after each frame is handed to the
+ * encoder; resolves once the encoder has finished the file.
+ */
 export async function renderVideo(
   plan: RenderPlan,
   encoderArgv: string[],
   signal: AbortSignal,
   onFrame: () => void,
   output: Pick<CompositeJob, "readback" | "transparent"> = {},
+): Promise<void> {
+  signal.throwIfAborted();
+  const encoder = spawnStreaming(encoderArgv, "pipe", "ignore");
+  const kill = () => encoder.child.kill("SIGKILL");
+  signal.addEventListener("abort", kill, { once: true });
+  try {
+    const stdin = encoder.child.stdin!;
+    stdin.on("error", () => {}); // a failing encoder reports through `done`
+    const frameSize = frameBytes(plan, output.readback);
+    await drawFrames(plan, { from: 0, to: plan.frames }, signal, output, async (_frame, data) => {
+      stdin.write(data);
+      onFrame();
+      if (stdin.writableLength > frameSize * ENCODER_QUEUE) await Promise.race([once(stdin, "drain"), encoder.done]);
+    });
+    stdin.end();
+    await encoder.done;
+    signal.throwIfAborted();
+  } finally {
+    signal.removeEventListener("abort", kill);
+    kill();
+  }
+}
+
+/**
+ * Draw output frames [from, to) of `plan` with the headless compositor page, handing each to `write` in order
+ * (awaited, so a slow consumer holds drawing back). The export writes every frame to its encoder; a preview
+ * render writes each segment's to its own (`server/render-files.ts`).
+ */
+export async function drawFrames(
+  plan: RenderPlan,
+  range: { from: number; to: number },
+  signal: AbortSignal,
+  output: Pick<CompositeJob, "readback" | "transparent">,
+  write: (frame: number, data: Buffer) => Promise<void>,
 ): Promise<void> {
   signal.throwIfAborted();
   const session = await GlSession.open();
@@ -183,29 +217,29 @@ export async function renderVideo(
   const kill = () => processes.forEach((p) => p.child.kill("SIGKILL"));
   signal.addEventListener("abort", kill, { once: true });
   try {
-    const encoder = spawnStreaming(encoderArgv, "pipe", "ignore");
-    processes.push(encoder);
-    const stdin = encoder.child.stdin!;
-    stdin.on("error", () => {}); // a failing encoder reports through `done`
     const frameSize = frameBytes(plan, output.readback);
 
-    // Finished frames can come back out of order; they're encoded in order.
+    // Finished frames can come back out of order, and while one is being written: they're written in order,
+    // one at a time (a preview render finishes a file between two).
     const finished = new Map<number, Buffer>();
-    let written = 0;
-    const encode = async (frame: number, data: Buffer) => {
+    let written = range.from;
+    let writing = Promise.resolve();
+    const encode = (frame: number, data: Buffer) => {
       if (data.length !== frameSize) throw new Error("The compositor returned a frame of the wrong size.");
       finished.set(frame, data);
-      for (let next = finished.get(written); next; next = finished.get(written)) {
-        finished.delete(written++);
-        stdin.write(next);
-        onFrame();
-      }
-      if (stdin.writableLength > frameSize * ENCODER_QUEUE) await Promise.race([once(stdin, "drain"), encoder.done]);
+      writing = writing.then(async () => {
+        for (let next = finished.get(written); next; next = finished.get(written)) {
+          finished.delete(written);
+          await write(written++, next);
+        }
+      });
+      return writing;
     };
 
     // Decoders start this many frames before they're first needed.
     const lookahead = Math.ceil(plan.fps / 2);
-    const pending = [...plan.sources].sort((a, b) => a.first - b.first);
+    // (Sources wholly outside the range aren't needed; a plan made for the range has none.)
+    const pending = plan.sources.filter((s) => s.end > range.from && s.first < range.to).sort((a, b) => a.first - b.first);
     const running = new Map<string, Decoder>();
     let lastGroups = new Set<string>();
     let shaders: Record<string, string> | null = plan.shaders;
@@ -275,21 +309,19 @@ export async function renderVideo(
       return packet;
     };
 
-    let assigned = 0;
+    let assigned = range.from;
     let prepared: Promise<unknown> = Promise.resolve();
-    await session.composite({ width: plan.width, height: plan.height, ...output }, async (done) => {
+    await session.composite({ width: plan.width, height: plan.height, ...output, first: range.from }, async (done) => {
       signal.throwIfAborted();
       if (done) await encode(done.frame, done.data);
-      if (assigned >= plan.frames) return null;
+      if (assigned >= range.to) return null;
       const f = assigned++;
       const packet = prepared.then(() => prepare(f));
       prepared = packet.catch(() => {});
       return packet;
     }, plan.fonts);
-    if (written !== plan.frames) throw new Error("Some frames weren't drawn.");
-    stdin.end();
+    if (written !== range.to) throw new Error("Some frames weren't drawn.");
     for (const decoder of running.values()) decoder.close();
-    await encoder.done;
     signal.throwIfAborted();
   } finally {
     signal.removeEventListener("abort", kill);

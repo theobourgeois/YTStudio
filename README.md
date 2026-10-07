@@ -65,6 +65,8 @@ renamed while it's open takes its new file name when it's closed.
 | Nest | Select clips → `⌥G` (or right-click → **Nest**); double-click the nested clip to edit inside it. See [Nested sequences](#nested-sequences) |
 | Parent | **Parent** in a clip's Properties, or drag its pick-whip onto another clip. See [Parenting and null objects](#parenting-and-null-objects) |
 | Preview resolution | **Full**, **1/2** or **1/4** next to the canvas tools: fewer pixels keep a heavy edit playing smoothly (exports are always full) |
+| Adaptive resolution | While you scrub or play, frames too heavy to keep up are drawn at fewer pixels, then in full once the playhead stops (After Effects' Adaptive Resolution). The lightning button next to the resolution lights up when it's happening; click it (or Settings › Video editor) to turn it off |
+| Render effects | The bar along the top of the ruler is red where the picture is heavy (effects, transitions, adjustment layers, nests). Press `Enter` (or **Render** in the timeline's toolbar, Sequence › Render Effects In to Out) to render those parts: they turn green and play back smoothly in full, from files kept in the project. An edit turns only its own part red again; undo brings the green back. Sequence › Delete Render Files throws them away |
 | Split | `S` (or ⌘B) at the playhead |
 | Delete | `⌫` / `Delete` leaves a gap; `⇧⌫` ripple-deletes (closes it). Click an empty stretch of a track and `⌫` to close that gap |
 | Play / pause | `Space` |

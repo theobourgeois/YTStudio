@@ -19,7 +19,18 @@ export function Stage() {
   const videoTrackIds = useEditor(useShallow((s) => previewSlots(s.project).video));
 
   const [status, setStatus] = useState({ offline: false, noWebGl: false });
-  const [engine] = useState(() => new PreviewEngine(setStatus, undefined, true));
+  const [engine] = useState(
+    () =>
+      new PreviewEngine(
+        ({ offline, noWebGl, draft }) => {
+          // The draft icon is the transport's: only what the stage shows re-renders it.
+          useLayout.getState().setPreviewDraft(draft);
+          setStatus((s) => (s.offline === offline && s.noWebGl === noWebGl ? s : { offline, noWebGl }));
+        },
+        undefined,
+        true,
+      ),
+  );
   const attachCanvas = useCallback((el: HTMLCanvasElement) => engine.attachCanvas(el), [engine]);
   useEffect(() => {
     engine.start();
@@ -27,6 +38,8 @@ export function Stage() {
   }, [engine]);
   const resolution = useLayout((s) => s.previewResolution);
   useEffect(() => engine.setResolution(resolution), [engine, resolution]);
+  const adaptive = useLayout((s) => s.adaptiveResolution);
+  useEffect(() => engine.setAdaptive(adaptive), [engine, adaptive]);
   // Text clips need to know which styles the installed fonts have.
   useEffect(() => useFonts.getState().load(), []);
 
@@ -64,6 +77,7 @@ export function Stage() {
         {videoTrackIds.map((trackId) => (
           <TrackSources key={trackId} trackId={trackId} engine={engine} />
         ))}
+        <RenderSources engine={engine} />
         <canvas ref={attachCanvas} data-slot="preview-canvas" className="absolute inset-0 size-full" />
         {audioTrackIds.map((trackId) => (
           <AudioTrackSources key={trackId} trackId={trackId} engine={engine} />
@@ -117,6 +131,18 @@ function TrackSources({ trackId, engine }: { trackId: string; engine: PreviewEng
       <video ref={videoB} className={mediaClass} playsInline preload="auto" />
       <img ref={imageA} className={mediaClass} alt="" draggable={false} decoding="async" />
       <img ref={imageB} className={mediaClass} alt="" draggable={false} decoding="async" />
+    </>
+  );
+}
+
+/** The render files' players (Premiere's preview files: `docs/render-files.md`): an A/B pair, like a video track's. */
+function RenderSources({ engine }: { engine: PreviewEngine }) {
+  const a = useCallback((el: HTMLVideoElement) => engine.attachRender(0, el), [engine]);
+  const b = useCallback((el: HTMLVideoElement) => engine.attachRender(1, el), [engine]);
+  return (
+    <>
+      <video ref={a} data-render-file className={mediaClass} muted playsInline preload="auto" />
+      <video ref={b} data-render-file className={mediaClass} muted playsInline preload="auto" />
     </>
   );
 }

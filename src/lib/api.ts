@@ -21,6 +21,9 @@ import type {
   Project,
   ProjectLocation,
   ProjectSummary,
+  RenderFilesState,
+  RenderJob,
+  RenderRequest,
   ProjectPreview,
   TextLayoutAt,
   ProjectTemplates,
@@ -225,6 +228,11 @@ export const api = {
   /** The export formats this computer's ffmpeg can make. */
   exportFormats: () => request<ExportFormat[]>("/api/exports/formats"),
   cancelExport: (id: string) => request<void>(`/api/exports/${id}`, { method: "DELETE" }),
+  renderFiles: (projectId: string) => request<RenderFilesState>(`/api/render-files/${projectId}`),
+  renderEffects: (projectId: string, req: RenderRequest) => request<RenderJob>(`/api/render-files/${projectId}`, { method: "POST", body: JSON.stringify(req) }),
+  cancelRender: (id: string) => request<void>(`/api/render-files/jobs/${id}`, { method: "DELETE" }),
+  deleteRenderFiles: (projectId: string) => request<RenderFilesState>(`/api/render-files/${projectId}`, { method: "DELETE" }),
+  renderFileUrl: (projectId: string, key: string) => `/api/render-files/${projectId}/${key}.mp4`,
 
   listTranscriptionEngines: () => request<TranscriptionEngineInfo[]>("/api/transcription/engines"),
   /** Local: starts installing (poll the list). Cloud: checks and saves the API key. */

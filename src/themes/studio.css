@@ -262,6 +262,10 @@
   --meter-high: #d6403c;
   --meter-off: #c5ccd5;
 
+  /* The timeline's render bar (Premiere's): rendered, and worth rendering but not yet. */
+  --render-done: #2f9e54;
+  --render-needed: #d6403c;
+
   /* Knobs (`knob.tsx`), FL Studio's: a cap in a well, the value an arc round it (the accent, for now: its own setting). */
   --knob-well: #c8ced6;
   --knob-well-edge: #b3bac4;
@@ -442,6 +446,9 @@
   --meter-mid: #f2b33d;
   --meter-high: #ef4d55;
   --meter-off: #353b45;
+
+  --render-done: #4cc46c;
+  --render-needed: #ef4d55;
 
   --knob-well: #17191d;
   --knob-well-edge: #3a3d45;
