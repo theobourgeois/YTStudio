@@ -216,3 +216,138 @@ equaliser the camera glides over, waves rippling through it on every kick.
 - **Sound**: heights are the spectrum; each kick sends a ring outwards from the camera's place (stepped, several at
   once) that lifts the pillars it passes; the level lights the horizon.
 - **Looks**: Style (Obsidian, Marble, Synth), Height, Spacing.
+
+## Five more, again: lights to lay over a picture
+
+Théo loved the ten and asked for five more (2026-10-06), leaning into what he liked best: Nebula's glowing gas, flights
+down tunnels, cyberspace, and worlds that can be laid **over clips**. So these five are made of light on black: nothing
+but what glows is drawn (no sky, no fog that lifts the blacks, a starfield that a slider turns off), so Blend Mode
+Screen or Add lays them over footage as a light leak or a hologram would be, and Replace shows them on their own. What
+was looked at: Shadertoy's tunnels and neon (mrange's glow work, Kali's *Star Nest*, the Doctor Who / Stargate vortex
+tunnels), the Millennium Simulation's renders of the cosmic web and the Voronoi models of it, Hubble's spiral galaxies
+(M51, M83, the Andromeda mosaic) and how volumetric galaxies are drawn (a logarithmic spiral's coordinates, dust on the
+arms' inner edges), CERN's event displays (ATLAS and CMS: helices in the solenoid's field, calorimeter towers, the
+muon chambers' octagon) and bubble-chamber photographs, and the visualizer loops people buy (wormholes, hyperspace,
+cyber tunnels). Same rules as the ten: raymarched GLSL, state stepped in TypeScript, portrait first, a full 1080x1920
+frame in about their time (≤ ~450 ms), travel that goes on for ever repeats its world and wraps its camera in TS.
+
+### 11. Cyberspace: down the data highway
+
+Inside the machine, at speed: an endless square tunnel whose walls are circuit boards, traces carrying pulses of light,
+packets of data racing past, holographic glyphs flickering, the whole tunnel spinning a quarter-turn on the big hits.
+Tron, *Hackers*, *Ghost in the Shell*'s dive, all neon on black.
+
+- **World**: a square tunnel along a winding path (sums of slow sines over a period, as Nebula's), its walls found by a
+  march of `halfSize - max(|q.x|, |q.y|)` in the path's frame. Each wall is a circuit board at two scales: a grid of
+  cells, each with hashed traces (straight runs and 45° jogs, the PCB look), pads and vias (rings), chips (dark
+  rectangles with rows of pins); pulses run along the traces (brightness a fract of distance along the trace minus
+  time, a hashed phase each). The corners are LED rails. Packets are glowing bars in hashed lanes, each moving along the
+  tunnel at its own speed, drawn as glow where the ray passes near them; glyph panels (5x7 dot characters, hex and
+  katakana-ish) hang off the walls. The walls are glossy black: they reflect a little of the light opposite (one cheap
+  bounce: the reflected ray's wall and its emission only). Distance fades to black, and a core of light at the
+  vanishing point pulses with the bass.
+- **Camera** (stepped): along the path at a speed on the bass; each hit kicks a **boost** (speed and a wider lens,
+  easing back: the speed felt); every fourth hit or so spins the tunnel a quarter-turn (eased roll, the square
+  section turning with it), and it weaves within the section.
+- **Sound**: the four corner rails are the spectrum (each rail a mirrored equaliser running away down the tunnel,
+  heard later the further off, as Monoliths' bands are); hits send a **scan**: a square frame of light that races
+  ahead down the tunnel and flashes the traces it passes; the level sets how many traces carry pulses; the highs
+  flicker the glyphs.
+- **Looks**: Style (Tron: cyan and orange; Matrix: greens and glyph rain; Synthwave: pink and cyan; Red Alert: white
+  and red), Glyphs, Spin.
+
+### 12. Wormhole: through the vortex
+
+Falling down a tunnel of luminous plasma that spirals round the flight, its filaments streaked by the speed, lightning
+crawling along its walls on the hits; now and then a **jump**: the stars stretch into lines, the tunnel flares and
+everything rushes.
+
+- **World**: a volume, but only a shell: in the path's frame the ray meets the tube between radii `R - w` and `R + w`
+  analytically, and only that stretch is marched (front to back, emission and absorption, as Nebula's gas), so the
+  cost goes where the light is. The plasma's density is fbm in the tube's coordinates (angle, depth, radius), twisted
+  (angle + depth × twist + spin) into spiral filaments and stretched along the flight; it glows hotter towards the
+  inner skin; its colour runs through the palette by radius and by a slow drift. Inside the tube: streaks of stars
+  whose length is the speed (stars in cells round the camera, drawn as segments along the flight), and fine sparks.
+  The tube's far end is a light that pulls the eye.
+- **Lightning** (stepped): each hit strikes a bolt along the wall (a seeded start angle and depth, a length, an age):
+  in the shell, the distance in (angle × radius, depth) to the bolt's jagged line (its angle a noise of depth, with a
+  branch or two) adds a white-violet glow that flickers and fades in a quarter-second; a few at once.
+- **Jump** (stepped): a warp envelope set off every few bars of hits (or when the level jumps after a quiet stretch):
+  the speed and the lens rise, the stars become long streaks, the plasma whitens and its hues shift, a flash at the
+  start, then it eases back.
+- **Camera** (stepped): along a gently winding path at a speed on the bass, rolling with the tunnel's twist; hits
+  shake it a little.
+- **Sound**: the wall's light round the tube is the spectrum (angle → band, mirrored, so the tunnel's rim is a circular
+  equaliser that runs away from the camera, heard later the further off); the bass breathes the tube's radius; the
+  level its glow; the highs the sparks.
+- **Looks**: Palette (Stargate: blue and white; Plasma: magenta and violet; Inferno: red, orange, gold; Toxic: green
+  and teal), Twist, Turbulence, Stars.
+
+### 13. Galaxy: through a spiral galaxy
+
+A spiral galaxy, a hundred billion suns: a golden core, blue-white arms threaded with dark dust lanes and pink
+star-forming knots. The camera tours it: high over the whole spiral, down onto the disk, skimming through the arms
+among the clusters, and out again.
+
+- **World**: a volume in the galaxy's own coordinates, marched only inside its slab (the ray meets `|y| < H`
+  analytically): starlight as emission whose density is an exponential disk times arms; the arms are a logarithmic
+  spiral (`φ = θ - ln(r) / tan(pitch)`, two to four arms, their brightness a power of `cos(m φ)` broken up by fbm);
+  dust lanes are absorption along the arms' inner edges, filamented by fbm; HII regions are pink knots in hashed
+  cells along the arms; the bulge is a warm ellipsoid of light (bar optional), brightest at a point-like core. Up close,
+  resolved stars (hashed points in cells near the camera, a few scales) sit in front of the unresolved glow; behind,
+  a few faint far galaxies. The pattern turns slowly (differentially: the inner faster).
+- **Camera** (stepped): a tour in phases, eased between them (~45 s around at Speed 1): overview from high and off
+  the axis, the spiral tilted; a dive down to the disk; a skim through the arms (low over the plane, the dust lanes
+  in silhouette against the core); a rise and swing out. Hits nudge the tour along.
+- **Sound**: the arms' brightness by radius is the spectrum (the bass at the core, the highs at the rim); each hit
+  sets off a **supernova** in the arms near what's in view (seeded, stepped: a blue-white star that flares, lights the
+  dust round it and fades over a few seconds; a few at once); the level brightens the core; the punch pulses two thin
+  **jets** from the core (a quasar's) along the axis.
+- **Looks**: Palette (Hubble, Andromeda: warm, Neon: magenta and cyan), Arms (2, 3, 4), Dust, Stars.
+
+### 14. Cosmic Web: the shape of the universe
+
+Flying through the largest structure there is: filaments of galaxies, bright clusters where they meet, black voids
+between. Each hit sends light racing out along the filaments from a cluster ahead, as if the universe were a brain;
+its **Neural** style makes it one: dendrites and cell bodies, signals firing.
+
+- **World**: a graph, not noise: a jittered lattice of nodes (clusters), each joined to some of its neighbours
+  (along the axes and a few diagonals, kept or dropped by a hash, so it reads as a web, not a grid) by curved
+  filaments (each bowed through a hashed midpoint). **Integer hashes** (WebGL2's `uint`), so TypeScript mirrors the
+  graph exactly: the camera flies along the web. A sample's distance to the nearest filament (the edges of the nodes
+  round its cell) drives a sphere-traced glow march: emission by the distance (a core and a halo), filaments
+  beaded with galaxies (sparkles along their length), nodes as bright clusters with halos; faint walls (sheets
+  between filaments) as a haze. The lattice repeats over a period (the hashes on cells modulo it) and the camera
+  wraps, so the flight never ends.
+- **Camera** (stepped): beside a filament, along it from node to node, picking the next filament at each node (hits
+  pick sharper turns), its look eased ahead to where it's going, banking into the turns; faster on the bass.
+- **Sound**: each cluster's brightness is a band of the spectrum (by its hash); the bass swells them; each hit sends a
+  **pulse** out from the node ahead: a front that grows at a speed, lighting the filaments it crosses (white, then
+  the palette, a tail behind it), a few at once; the level is the glow.
+- **Looks**: Style (Cosmic: gold filaments, blue-white clusters, the Millennium Simulation's; Neural: violet
+  dendrites, cyan cell bodies, white signals; Dark Matter: magenta and indigo; Mono), Density (how many filaments are
+  kept), Glow.
+
+### 15. Collider: a collision on every kick
+
+Inside a particle detector. On every kick, a collision at its heart: tracks spiral out through the magnetic field,
+jets slam into the calorimeter, muons fly out through the chambers, and the energy that went missing points away. The
+camera circles the barrel: down the beam pipe (the iconic round event display), from the side, from above.
+
+- **World**: the detector as faint lines of light: the tracker's layers (concentric cylinders, drawn as rings and a
+  few long lines), the calorimeter (a ring of cells round the barrel, each a tower that rises with its energy, so end
+  on it's a **circular equaliser**: the spectrum round φ), the muon system (the outer octagon of chambers, eight
+  toroid coils), the beam pipe a thin line glowing with the level. Tracks are drawn by projecting each one's helix to
+  the screen in the GLSL (a polyline of a few dozen points, a pixel's distance to it a glow), so they stay sharp at any
+  size; a track's helix is its momentum, charge and angles (curvature in the solenoid's field: soft ones curl into
+  tight spirals, hard ones nearly straight), all from the event's seed and its index.
+- **Events** (stepped): each hit starts a collision (seed, age, energy from the hit): tracks grow outwards over its
+  first moments (at "light speed", slowed for the eye), hit dots light where they cross the tracker's layers, jets'
+  energy adds to the towers they hit, muons cross everything, a dashed arrow for the missing energy; then the event
+  fades over a couple of seconds. Several overlap.
+- **Camera** (stepped): an orbit about the beam that moves between the end-on view, the side, three-quarters; slow
+  drift, a small push in on each collision.
+- **Sound**: hits are the collisions (harder hits: more tracks, bigger jets); the towers are the spectrum; the bass
+  makes the tower ring breathe; the level lights the beam.
+- **Looks**: Style (Event Display: ATLAS's colours, yellow tracks, green and red energy; Neon; Bubble Chamber: white
+  spirals on black, tight curls; Mono), Tracks (how many a collision makes), Detector (how bright its structure is).
