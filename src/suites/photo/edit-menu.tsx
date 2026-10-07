@@ -1,33 +1,16 @@
 /**
- * Photoshop's Edit menu, in the header: undo, the clipboard, and what fills the selection (Content-Aware Fill first,
+ * Photoshop's Edit menu, in the menu bar: undo, the clipboard, and what fills the selection (Content-Aware Fill first,
  * then the colours and Clear). Every item is a command the keys and the canvas's right-click menu run too.
  */
-import { PiCaretDown } from "react-icons/pi";
-import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut } from "@/components/ui/dropdown-menu";
 import { useColours } from "./colours";
 import { runContentAwareFill, useContentAwareFill } from "./content-aware-fill";
 import { editActions, hasPhotoClipboard } from "./edit-actions";
 import { keys } from "./select-commands";
 import { usePhoto, useSelection } from "./store";
 
-export function EditMenu() {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="ghost" data-edit-menu>
-          Edit <PiCaretDown className="size-3 text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-60">
-        <EditMenuItems />
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 /** Read when the menu opens (what can be pasted isn't a store's). */
-function EditMenuItems() {
+export function EditMenuItems() {
   const selection = useSelection();
   const canUndo = usePhoto((s) => (s.history?.past.length ?? 0) > 0);
   const canRedo = usePhoto((s) => (s.history?.future.length ?? 0) > 0);

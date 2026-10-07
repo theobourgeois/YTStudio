@@ -362,6 +362,29 @@ function PanelMenu({ panel }: { panel: string }) {
   );
 }
 
+/** A suite's Window menu (`SuiteMenuBar`): each panel (brought to the front), the workspaces, the default layout. */
+export function DockMenuItems<P extends string>({ dock, panels, workspaces = [] }: Pick<DockAreaProps<P>, "dock" | "panels" | "workspaces">) {
+  return (
+    <>
+      {(Object.keys(panels) as P[]).map((panel) => (
+        <DropdownMenuItem key={panel} onSelect={() => dock.getState().show(panel)}>
+          {panels[panel].title}
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuSeparator />
+      {workspaces.length > 0 && <DropdownMenuLabel className="text-xs text-muted-foreground">Workspaces</DropdownMenuLabel>}
+      {workspaces.map((w) => (
+        <DropdownMenuItem key={w.name} onSelect={() => dock.getState().reset(w.layout())}>
+          <PiLayout />
+          {w.name}
+        </DropdownMenuItem>
+      ))}
+      {workspaces.length > 0 && <DropdownMenuSeparator />}
+      <DropdownMenuItem onSelect={() => dock.getState().reset()}>Reset Layout</DropdownMenuItem>
+    </>
+  );
+}
+
 /** Every panel is floating: a way back to the usual layout. */
 function EmptyDock() {
   const { dock } = useDock();

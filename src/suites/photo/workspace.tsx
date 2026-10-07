@@ -1,13 +1,12 @@
 /**
- * The photo suite's main column (`clientSuite("photo").Workspace`, ux.md "Workspace"): its header (name, undo,
- * the tool's options, export, the assistant), the tool strip, the docked panels (the canvas, Layers, Properties:
- * Photoshop's are docked too), and its windows. Its keys are `keys.ts`'s.
+ * The photo suite's main column (`clientSuite("photo").Workspace`, ux.md "Workspace"): its menus (in the tab strip),
+ * its header (name, the tool's options, then undo, export and the assistant as every suite has them), the tool
+ * strip, the docked panels (the canvas, Layers, Properties: Photoshop's are docked too), and its windows. Its keys
+ * are `keys.ts`'s.
  */
 import { type DragEvent, type ReactNode, useEffect, useState } from "react";
 import { cn } from "cn";
 import {
-  PiArrowCounterClockwise,
-  PiArrowClockwise,
   PiArrowsLeftRight,
   PiArrowUpRight,
   PiCircle,
@@ -20,7 +19,6 @@ import {
   PiEyedropper,
   PiFlame,
   PiGradient,
-  PiExport,
   PiHand,
   PiLineSegment,
   PiImage,
@@ -48,14 +46,14 @@ import { editActions, hasPhotoClipboard } from "./edit-actions";
 import { PaintChoiceDialog, ToolOptions } from "./options-bar";
 import { TOOLBOX } from "./toolbox";
 import { photoColourSampler } from "./colour-sampling";
-import { FeatherDialog, SelectMenu, useFeather } from "./select-commands";
+import { FeatherDialog, useFeather } from "./select-commands";
 import { ModelDialog } from "./model-dialog";
 import { runContentAwareFill } from "./content-aware-fill";
 import { selectActions, useSelectOptions } from "./selecting";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { AssistantButton } from "@/components/assistant/assistant-button";
+import { HeaderActions } from "@/components/header/header-actions";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
-import { DockArea, FloatingPanels, type DockPanel } from "@/components/dock/dock-area";
+import { DockArea, DockMenuItems, FloatingPanels, type DockPanel } from "@/components/dock/dock-area";
 import type { DockLayout } from "@/components/dock/model";
 import { createDock } from "@/components/dock/store";
 import { ProjectName } from "@/components/header/project-name";
@@ -68,14 +66,13 @@ import { useFileDrop } from "@/hooks/use-file-drop";
 import { api } from "@/lib/api";
 import { CanvasPanel, actualPixels, canvasPointAt, fitToCanvas, zoomBy } from "./canvas/canvas-panel";
 import { PhotoExportWindow } from "./export-window";
-import { FilterGalleryWindow, FilterMenu } from "./filters";
+import { FilterGalleryWindow } from "./filters";
 import { LayerStyleWindow } from "./layer-style/layer-style-window";
 import { CameraRawWindow } from "./camera-raw/camera-raw-window";
 import { cameraRawActions } from "./camera-raw/actions";
 import { HueSaturationWindow } from "./hue-saturation/hue-saturation-window";
 import { hueSaturationActions } from "./hue-saturation/actions";
-import { EditMenu } from "./edit-menu";
-import { ImageMenu } from "./image-menu";
+import { PhotoMenus } from "./menus";
 import { ScaleEffectsWindow } from "./layer-style/scale-effects-window";
 import { resolvePhotoKey } from "./keys";
 import { layerActions, selectedInOrder } from "./layer-actions";
@@ -153,6 +150,7 @@ export default function PhotoWorkspace() {
     <ColorSamplerContext.Provider value={photoColourSampler}>
       <div key={projectId} className="relative flex min-h-0 flex-1 flex-col" data-suite="photo">
         <PhotoHeader />
+        <PhotoMenus window={<DockMenuItems dock={usePhotoDock} panels={PANELS} />} />
         <div className="flex min-h-0 flex-1">
           <ImageDrop>
             <ToolStrip />
@@ -244,18 +242,6 @@ function PhotoHeader() {
     <header data-titlebar="header" className="flex h-13 shrink-0 items-center gap-2 border-b border-line bg-surface-1 px-3" data-photo-header>
       <ProjectName name={name} onRename={(n) => usePhoto.getState().rename(n)} />
       <SaveState />
-      <div className="mx-2 flex items-center gap-0.5">
-        <Button variant="ghost" size="icon-sm" aria-label="Undo" disabled={!canUndo} onClick={() => usePhoto.getState().undo()}>
-          <PiArrowCounterClockwise />
-        </Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Redo" disabled={!canRedo} onClick={() => usePhoto.getState().redo()}>
-          <PiArrowClockwise />
-        </Button>
-      </div>
-      <EditMenu />
-      <ImageMenu />
-      <SelectMenu />
-      <FilterMenu />
       {/* The tool's options take the room there is, scrolling sideways rather than squeezing the rest. */}
       <div className="flex min-w-0 flex-[1_1_0%] items-center gap-2 overflow-x-auto [scrollbar-width:none]" data-tool-options-strip>
         <ToolOptions />
@@ -283,10 +269,13 @@ function PhotoHeader() {
       <Button size="sm" variant="outline" onClick={actualPixels}>
         100%
       </Button>
-      <Button size="sm" onClick={() => usePhotoUi.getState().setExportOpen(true)}>
-        <PiExport /> Export
-      </Button>
-      <AssistantButton />
+      <HeaderActions
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={() => usePhoto.getState().undo()}
+        onRedo={() => usePhoto.getState().redo()}
+        exportAction={{ onClick: () => usePhotoUi.getState().setExportOpen(true) }}
+      />
     </header>
   );
 }

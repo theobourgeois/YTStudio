@@ -18,6 +18,7 @@ const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
 export const NEW_PROJECT_KEYS = MOD === "⌘" ? "⇧⌘O" : "Ctrl+Shift+O";
 export const PROJECT_SEARCH_KEYS = `${MOD}P`;
 export const OPEN_KEYS = `${MOD}O`;
+export const CLOSE_TAB_KEYS = `${MOD}W`;
 export const HOME_KEYS = MOD === "⌘" ? "⇧⌘H" : "Ctrl+Shift+H";
 
 /**

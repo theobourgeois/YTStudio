@@ -129,6 +129,8 @@ const PLATFORM = [
   "src/components/home/",
   "src/components/assistant/",
   "src/components/header/header.tsx",
+  // Every suite's header ends the same way (undo, Settings, Export, the assistant).
+  "src/components/header/header-actions.tsx",
   "src/components/header/project-name.tsx",
   "src/components/settings/",
   "src/components/windows/",
@@ -156,10 +158,9 @@ const DEBT: string[] = [
   "src/components/assistant/tool-steps.tsx -> shared/timeline.ts",
   "src/components/assistant/tool-steps.tsx -> src/stores/editor.ts",
   "src/components/assistant/tool-steps.tsx -> src/stores/playback.ts",
-  "src/components/header/header.tsx -> src/components/export/export-dialog.tsx",
   "src/components/header/header.tsx -> src/components/header/settings-dialog.tsx",
-  "src/components/header/header.tsx -> src/hooks/shortcuts.ts",
   "src/components/header/header.tsx -> src/stores/editor.ts",
+  "src/components/header/header.tsx -> src/stores/video-windows.ts",
   "src/stores/assistant.ts -> src/stores/editor.ts",
   "src/stores/projects.ts -> src/stores/autosave.ts",
 ];

@@ -894,7 +894,9 @@ test("several layers are selected (Layers, Shift on the canvas, a marquee), move
   expect([photo, sticker]).not.toContain(merged.layers[0].id);
   await expect(page.locator(`[data-layer="${merged.layers[0].id}"]`)).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
-  await expect.poll(async () => (await shown()).every((p, i) => near(p, look[i], 3))).toBe(true);
+  // (The canvas shows the photo scaled down to fit, where one merged layer filters a level or two differently from the
+  // two it was made of.)
+  await expect.poll(async () => (await shown()).every((p, i) => near(p, look[i], 5))).toBe(true);
   await page.keyboard.press("ControlOrMeta+z");
   await expect(page.locator("[data-layer]")).toHaveCount(2);
 
@@ -974,8 +976,8 @@ test("the Online panel finds icons, web pictures and a link's pictures, and plac
   const media = async () => (await (await page.request.get(`/api/media?projectId=${id}`)).json()) as { id: string; name: string; width: number; height: number; origin?: string }[];
   const layers = async () => (await savedPhoto(page, id)).layers as { name: string; mediaId: string; transform: { x: number; y: number; scaleX: number } }[];
 
-  // It's a tab beside Properties.
-  await page.getByRole("tab", { name: "Online" }).click();
+  // It's a tab beside Properties (not the project's own tab, which has the same name).
+  await page.locator('[data-dock-tab="online"]').click();
   const panel = page.locator("[data-online-panel]");
   await panel.locator("[data-online-search]").fill("bell");
   await expect(panel.locator("[data-online-result]")).toHaveCount(4);
@@ -1512,7 +1514,7 @@ test("the selection tools: Magic Wand, Lassos, Elliptical Marquee, Object Select
 
   // Select › Subject (the tests' stand-in for the model: what's unlike the border): the disc and the square.
   await page.keyboard.press("ControlOrMeta+d");
-  await page.locator("[data-select-menu]").click();
+  await page.locator('[data-menu="select"]').click();
   await page.getByRole("menuitem", { name: "Subject" }).click();
   await expect.poll(area, { timeout: 15_000 }).toBeGreaterThan(SQUARE + DISC * 0.9);
   expect(within(await area(), SQUARE + DISC, 0.03)).toBe(true);
@@ -2457,7 +2459,7 @@ test("the Filter menu applies a look; the Filter Gallery previews one on the pho
   const filtersOf = async () => (await docLayers(page)).find((l) => l.id === photo.id)!.filters ?? [];
 
   // Filter › Light › Glow › Neon: the look's settings, its radius sized for this canvas.
-  await page.locator("[data-filter-menu]").click();
+  await page.locator('[data-menu="filter"]').click();
   await page.getByRole("menuitem", { name: "Glow" }).hover();
   await page.locator('[data-filter-item="glow/neon"]').click();
   await expect.poll(async () => (await filtersOf())[0]?.params).toMatchObject({ radius: Math.round(0.015 * Math.hypot(1600, 1200)), threshold: 60, knee: 15, intensity: 0.8 });
@@ -2469,15 +2471,16 @@ test("the Filter menu applies a look; the Filter Gallery previews one on the pho
   await radius.press("Enter");
   await expect.poll(async () => (await filtersOf())[0].params.radius).toBe(77);
   await expect(page.getByRole("menu")).toHaveCount(0);
-  await page.locator("[data-filter-menu]").click();
+  await page.locator('[data-menu="filter"]').click();
   await page.getByRole("menuitem", { name: /^Last Filter: Glow/ }).click();
   await expect.poll(async () => (await filtersOf()).map((f) => f.params.radius)).toEqual([77, 77]);
 
   // The gallery: a card for every look, each a picture of it on the sample scene (once the last menu has gone).
   await expect(page.getByRole("menu")).toHaveCount(0);
   const openGallery = async () => {
-    await page.locator("[data-filter-menu]").click();
-    await page.getByRole("menuitem", { name: "Filter Gallery…" }).click();
+    await page.locator('[data-menu="filter"]').click();
+    // (The Filter menu's: a menu just chosen from, the Layers panel's, may still be fading out.)
+    await page.getByRole("menu", { name: "Filter" }).getByRole("menuitem", { name: "Filter Gallery…" }).click();
     await expect(page.locator("[data-filter-gallery]")).toBeVisible();
   };
   await openGallery();
@@ -2598,7 +2601,7 @@ test("depth and subject filters read the photo's scene maps (the models' stand-i
   const plain = await settled();
 
   // Filter › Depth Grade › Depth Map: drawn once the photo's depth map is made (the plan leaves it out until then).
-  await page.locator("[data-filter-menu]").click();
+  await page.locator('[data-menu="filter"]').click();
   await page.getByRole("menuitem", { name: "Depth Grade" }).hover();
   await page.locator('[data-filter-item="depth-grade/depth-map"]').click();
   await expect.poll(async () => (await filtersOf())[0]?.params).toMatchObject({ blend: "replace", applyTo: "all" });
@@ -2780,7 +2783,7 @@ test("Hue/Saturation: ⌘U changes a layer's colours in its window (one undo ste
   expect((await live()).steps).toBe(steps);
 
   // Image › Hue/Saturation…: Reds alone, then Colorize (its own Hue); OK is one undo step.
-  await page.locator("[data-image-menu]").click();
+  await page.locator('[data-menu="image"]').click();
   await page.locator("[data-hue-saturation-item]").click();
   await window_.getByRole("combobox", { name: "Range" }).click();
   await page.getByRole("option", { name: "Reds" }).click();

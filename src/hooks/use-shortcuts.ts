@@ -64,7 +64,7 @@ export function useShortcuts() {
       if (isEditableTarget(e.target) || keptByWindow(e.target) || isOverlayOpen()) return;
       const action = resolveShortcut(e);
       // preventDefault stops Space from clicking a focused button, arrows from scrolling, etc.
-      if (action && run(action)) e.preventDefault();
+      if (action && runShortcut(action)) e.preventDefault();
     };
     // Escape leaves the source preview. It's caught before anything else sees it:
     // an open tooltip (or a popover still fading out) would otherwise swallow it.
@@ -86,8 +86,11 @@ export function useShortcuts() {
 /** Actions for the whole app; the others are the video editor's, and need a video open. */
 const APP_ACTIONS = new Set<ShortcutAction>(["toggleAssistant", "showShortcuts"]);
 
-/** Performs the action; returns false when it didn't apply (so the event is left alone). */
-function run(action: ShortcutAction): boolean {
+/**
+ * Performs the action; returns false when it didn't apply (so the event is left alone). The menu bar's items
+ * run their actions through here too, so a menu does exactly what its shortcut does.
+ */
+export function runShortcut(action: ShortcutAction): boolean {
   if (runSourcePreview(action)) return true;
   const editor = useEditor.getState();
   if (!editor.projectId && !APP_ACTIONS.has(action)) return false;

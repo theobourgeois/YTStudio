@@ -71,8 +71,9 @@ import { usePanUi } from "./panman/store";
 import { AutomationChooser } from "./automation/chooser";
 import { useAutomationUi } from "./automation/store";
 import { VocalMixDialog } from "./vocal-mix/dialog";
+import { type MusicEdit, MusicMenus } from "./menus";
 
-/** The music suite's main column (`clientSuite("music").Workspace`): its toolbar, its windows, its assistant. */
+/** The music suite's main column (`clientSuite("music").Workspace`): its menus, toolbar, windows and assistant. */
 export default function MusicWorkspace() {
   const projectId = useMusic((s) => s.projectId);
   const loaded = useMusic((s) => s.history !== null);
@@ -90,6 +91,7 @@ export default function MusicWorkspace() {
     <MainWindowPopups>
       <div key={projectId} className="flex min-h-0 flex-1 flex-col" data-suite="music">
         <MusicToolbar />
+        <MusicMenus run={runKey} edit={runEdit} />
         <VocalMixDialog />
         <div className="flex min-h-0 flex-1">
           <BrowserPanel />
@@ -477,6 +479,20 @@ function runKey(action: MusicKeyAction) {
     case "paste":
       return pasteSteps();
   }
+}
+
+/**
+ * The menu bar's Edit commands, on the window in front as their keys are: the Piano roll's notes, the Playlist's
+ * clips, else the rack's steps (which have no Select All).
+ */
+function runEdit(command: MusicEdit) {
+  const front = frontWindow();
+  const window = front === "piano" ? piano : front === "playlist" ? playlist : null;
+  if (window) return command === "delete" ? window.deleteSelected() : window[command]();
+  if (command === "cut") cutSteps();
+  else if (command === "copy") copySteps();
+  else if (command === "paste") pasteSteps();
+  else if (command === "delete") deleteSelected();
 }
 
 /** Dialogs and open menus own the keyboard. */
