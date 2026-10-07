@@ -12,6 +12,7 @@
 #include "ProQ.h"
 #include "Ott.h"
 #include "ProC.h"
+#include "ProL.h"
 #include "Reverb.h"
 #include "PitchWheel.h"
 #include "Host.h"
@@ -216,6 +217,9 @@ struct Song
             /** A Pro-C (ours too): its sound, kept across songs, and this song's settings for it (its key's track and delay in them). */
             std::shared_ptr<comp::State> comp;
             std::shared_ptr<comp::Settings> compSettings;
+            /** A YT-L (ours too): its sound, kept across songs, and this song's settings for it. */
+            std::shared_ptr<limit::State> lim;
+            std::shared_ptr<limit::Settings> limSettings;
             /** A PanMan (ours too): its sound's state, kept across songs, and this song's settings for it. */
             std::shared_ptr<panman::State> pan;
             std::shared_ptr<panman::Settings> panSettings;
@@ -278,7 +282,7 @@ struct Song
      */
     struct Lane
     {
-        enum class Kind { channel, pitch, track, send, mix, gross, tune, echo, eq, ott, comp, panman, wheel, verb, param };
+        enum class Kind { channel, pitch, track, send, mix, gross, tune, echo, eq, ott, comp, limiter, panman, wheel, verb, param };
         Kind kind = Kind::channel;
         /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix, attack, release, tension), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`), an OTT's (`ott::Lane`), a Pitch Wheel's (`PitchWheelControl`, by index), or a PanMan's (`PanControl`: offset, width, rate, input, output). */
         int channel = -1, track = -1, index = -1, control = 0;
@@ -455,7 +459,7 @@ struct Song
      * plugins the song doesn't have.
      */
     static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, ott::Registry& otts, comp::Registry& procs,
-                                        panman::Registry& panMen, wheel::Registry& pitchWheels, verb::Registry& reverbs, juce::StringArray& unreadable, int capacity, double sampleRate, bool keepOnly = true);
+                                        limit::Registry& limiters, panman::Registry& panMen, wheel::Registry& pitchWheels, verb::Registry& reverbs, juce::StringArray& unreadable, int capacity, double sampleRate, bool keepOnly = true);
 
     /**
      * Plugin delay compensation (FL Studio's automatic PDC): every path into a track waits until the

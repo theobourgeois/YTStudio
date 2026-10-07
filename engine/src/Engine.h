@@ -127,6 +127,8 @@ private:
     /** Its OTTs' sounds, likewise. */
     ott::Registry otts;
     comp::Registry procs;
+    /** Its YT-Ls' sounds, likewise. */
+    limit::Registry limiters;
     /** Its PanMen's sounds, likewise. */
     panman::Registry panMen;
     /** Its Pitch Wheels' sounds, by effect id. */

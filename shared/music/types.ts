@@ -179,7 +179,8 @@ export interface Pattern {
  * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; Auto-Tune:
  * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`; Pro-Q: `PRO_Q_PLUGIN` and
  * `proQ`; PanMan: `PANMAN_PLUGIN` and `panMan`; Pitch Wheel: `PITCH_WHEEL_PLUGIN` and `pitchWheel`; OTT:
- * `OTT_PLUGIN` and `ott`; Pro-C: `PRO_C_PLUGIN` and `proC`; Reverb: `REVERB_PLUGIN` and `reverb`).
+ * `OTT_PLUGIN` and `ott`; Pro-C: `PRO_C_PLUGIN` and `proC`; YT-L: `PRO_L_PLUGIN` and `proL`; Reverb: `REVERB_PLUGIN` and
+ * `reverb`).
  */
 export interface MixerEffect {
   /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
@@ -206,6 +207,8 @@ export interface MixerEffect {
   ott?: Ott;
   /** Pro-C's settings, on a Pro-C (absent on a plugin). */
   proC?: ProC;
+  /** YT-L's settings, on a YT-L (absent on a plugin). */
+  proL?: ProL;
   /** PanMan's settings, on a PanMan (absent on a plugin). */
   panMan?: PanMan;
   /** Pitch Wheel's settings, on a Pitch Wheel (absent on a plugin). */
@@ -400,6 +403,63 @@ export interface ProC extends ProCState {
   slot: "a" | "b";
   /** How its window shows it (kept with the song, as Pro-Q's display range is). */
   view: { knee: boolean; scale: number; compact: boolean; sidechain: boolean };
+}
+
+/**
+ * YT-L's styles (`docs/fabfilter/pro-l.md` §4.2): Pro-L 2's eight, measured and fixed, and Spit (the L1 "spit and
+ * attitude" on a vocal). Each is a table of numbers for one engine (`PRO_L_STYLE_SPECS`).
+ */
+export const PRO_L_STYLES = ["transparent", "punchy", "dynamic", "allround", "aggressive", "modern", "bus", "safe", "spit"] as const;
+export type ProLStyle = (typeof PRO_L_STYLES)[number];
+/** The clip stage's curves (§5.7): FL is Fruity Soft Clipper's, measured. */
+export const PRO_L_CLIP_SHAPES = ["hard", "smooth", "soft", "converter", "fl"] as const;
+export type ProLClipShape = (typeof PRO_L_CLIP_SHAPES)[number];
+/** The oversampling factors (1: off). */
+export const PRO_L_OVERSAMPLING = [1, 2, 4, 8, 16] as const;
+export type ProLOversampling = (typeof PRO_L_OVERSAMPLING)[number];
+/** Dither's bit depths (0: off). */
+export const PRO_L_DITHER = [0, 16, 18, 20, 22, 24] as const;
+export type ProLDither = (typeof PRO_L_DITHER)[number];
+export const PRO_L_NOISE_SHAPINGS = ["none", "basic", "optimized", "weighted"] as const;
+export type ProLNoiseShaping = (typeof PRO_L_NOISE_SHAPINGS)[number];
+
+/** YT-L's sound: levels in dB, times in seconds, links 0..1 (`docs/fabfilter/pro-l.md` §8.1). */
+export interface ProLState {
+  style: ProLStyle;
+  /** 0..30: what the sound is turned up by (the threshold, so to speak). */
+  gain: number;
+  /** −30..0: the ceiling (dBTP with `truePeak`). */
+  output: number;
+  /** 0..0.005 (Spit's 0..0.001). */
+  lookahead: number;
+  attack: number;
+  release: number;
+  /** 0..0.05; null: Auto (half the bass's period). */
+  hold: number | null;
+  stereo: "lr" | "ms";
+  linkTransients: number;
+  linkRelease: number;
+  /** 0..−18 dB: how far the side is turned down before the mid moves (M/S). */
+  sideFloor: number;
+  clip: boolean;
+  /** 0..6 dB: the gap between the clipper and the limiter. */
+  clipRange: number;
+  clipShape: ProLClipShape;
+  /** 0..6 dB (Smooth, FL). */
+  clipKnee: number;
+  /** Clip then limit, or limit then clip at the ceiling (FL's Emphasizer). */
+  clipOrder: "first" | "last";
+  truePeak: boolean;
+  oversampling: ProLOversampling;
+  dither: ProLDither;
+  noiseShaping: ProLNoiseShaping;
+  dcFilter: boolean;
+  unityGain: boolean;
+}
+
+export interface ProL extends ProLState {
+  /** The preset last chosen, null once it's been changed by hand. */
+  preset: string | null;
 }
 
 /**

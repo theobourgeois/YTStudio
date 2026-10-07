@@ -12,6 +12,7 @@ import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import { AUTO_TUNE_PLUGIN, isAutoTune, normalizeAutoTune } from "./auto-tune-presets.ts";
 import { ECHO_BOY_PLUGIN, isEchoBoy, normalizeEchoBoy } from "./echo-boy-presets.ts";
 import { OTT_PLUGIN, isOtt, normalizeOtt } from "./ott-presets.ts";
+import { PRO_L_PLUGIN, isProL, normalizeProL } from "./pro-l-presets.ts";
 import { PRO_C_PLUGIN, isProC, normalizeProC } from "./pro-c-presets.ts";
 import { REVERB_PLUGIN, isReverb, normalizeReverb } from "./reverb-presets.ts";
 import {
@@ -538,6 +539,7 @@ function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null 
   if (isProQ(plugin)) return { ...effect, plugin: PRO_Q_PLUGIN, proQ: normalizeProQ(input.proQ) };
   if (isOtt(plugin)) return { ...effect, plugin: OTT_PLUGIN, ott: normalizeOtt(input.ott) };
   if (isProC(plugin)) return { ...effect, plugin: PRO_C_PLUGIN, proC: normalizeProC(input.proC) };
+  if (isProL(plugin)) return { ...effect, plugin: PRO_L_PLUGIN, proL: normalizeProL(input.proL) };
   if (isPanMan(plugin)) return { ...effect, plugin: PANMAN_PLUGIN, panMan: normalizePanMan(input.panMan) };
   if (isPitchWheel(plugin)) return { ...effect, plugin: PITCH_WHEEL_PLUGIN, pitchWheel: normalizePitchWheel(input.pitchWheel) };
   if (isReverb(plugin)) return { ...effect, plugin: REVERB_PLUGIN, reverb: normalizeReverb(input.reverb) };

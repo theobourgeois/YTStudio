@@ -132,6 +132,8 @@ export interface EngineTransport {
   otts?: Record<string, EngineOttState>;
   /** Each Pro-C in the song (by effect id): its levels and gain reduction since the last event, for its display (absent from engines that don't say). */
   proCs?: Record<string, EngineProCState>;
+  /** Each YT-L in the song (by effect id): its latency and the reduction now (absent from engines that don't say). */
+  limiters?: Record<string, EngineProLState>;
   /** Each Reverb in the song (by effect id): its meters, ducking and (watched: `verbWatch`) its tail's spectrum (absent from engines that don't say). */
   reverbs?: Record<string, EngineReverbState>;
   /** Each Pro-Q being watched (`eqWatch`), by effect id: its spectra and its dynamic bands (absent from engines that don't say). */
@@ -180,6 +182,12 @@ export interface EngineEchoLevels {
  * What an OTT hears: each band's level (dB of its mean square, as its compressors hear it) and the gain
  * it gives it now (dB, its H / M / L gain in), low, mid, high; and the peaks in and out (falling).
  */
+/** What a YT-L says: how late its sound is (samples at the song's rate) and the gain reduction now (dB). */
+export interface EngineProLState {
+  latency: number;
+  reduction: number;
+}
+
 export interface EngineOttState {
   bands: { level: number; gain: number }[];
   input: [number, number];
