@@ -25,7 +25,8 @@ import { allStyles, findStyle, materialise, newStyle, styleEdit, useStyles } fro
 import { addPattern, describeStyle, stylePatterns } from "@shared/photo/style/style";
 import { currentDoc, currentSelection } from "./store";
 import { applySelection, quickSelectionResult, selectActions, startQuickSelection, wandAt } from "./selecting";
-import { selectObject, selectSubject } from "./subject-model";
+import { selectObject } from "./object-model";
+import { selectSubject } from "./subject-model";
 import { FILL_LAYER_NAME, contentAwareFill } from "./content-aware-fill";
 import { usePhoto } from "./store";
 import {

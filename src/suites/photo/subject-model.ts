@@ -1,13 +1,12 @@
 /**
- * Select Subject and the Object Selection tool in the tab (docs/photo/selections.md): the model (IS-Net) run as every
- * photo model is (`models.ts`: downloaded once per computer when the user says yes, run by ONNX Runtime Web on the
- * GPU). The tests' server answers with a stand-in instead (`standIn`): nothing is downloaded or run.
+ * Select Subject in the tab (docs/photo/selections.md): the model (IS-Net) run as every photo model is (`models.ts`:
+ * downloaded once per computer when the user says yes, run by ONNX Runtime Web on the GPU). The tests' server answers
+ * with a stand-in instead (`standIn`): nothing is downloaded or run.
  */
 import { create } from "zustand";
 import { sampleScale } from "@shared/photo/pixel-sample";
-import { objectBox, objectProbabilities, paintedGrid } from "@shared/photo/object-select";
 import { SUBJECT_MODEL, SUBJECT_SIDE, type SampleBox, cropSample, standInProbabilities, subjectInput, subjectSelection } from "@shared/photo/subject";
-import type { MaskSelection, PhotoProject, PhotoSelection, SelectionMode } from "@shared/photo/types";
+import type { PhotoProject, PhotoSelection, SelectionMode } from "@shared/photo/types";
 import { readyModel, runModel } from "./models";
 import { applySelection, photoSample, sampledLayer, useSelectOptions } from "./selecting";
 import { currentDoc, currentSelection } from "./store";
@@ -54,25 +53,5 @@ export async function selectSubject(mode: SelectionMode, layer?: string, box?: S
     if (!answer || currentDoc() !== doc) return currentSelection();
     applySelection(subjectSelection(answer.probs, SUBJECT_SIDE, answer.sample, doc.canvas, answer.at), mode);
     return currentSelection();
-  });
-}
-
-/**
- * The Object Selection tool (`object-select.ts`): `strokes` (document points) painted `size` pixels across over a
- * thing, which the model finds around them; the thing meets the selection by `mode`. What was found, or null when
- * the strokes touched nothing it found (the selection is left alone then, and when the photo changed meanwhile).
- * Throws `ModelMissing` while the model isn't here.
- */
-export async function selectObject(strokes: { x: number; y: number }[][], size: number, mode: SelectionMode, sampleAll = useSelectOptions.getState().sampleAll): Promise<MaskSelection | null> {
-  const doc = currentDoc();
-  const box = doc && objectBox(strokes, size, doc.canvas);
-  if (!doc || !box) return null;
-  return withModel(async (standIn) => {
-    const answer = await subjectAnswer(doc, sampledLayer(doc, sampleAll), standIn, box);
-    if (!answer?.at || currentDoc() !== doc) return null;
-    const kept = objectProbabilities(answer.probs, SUBJECT_SIDE, paintedGrid(strokes, size, answer.sample.scale, answer.at, SUBJECT_SIDE));
-    const shape = kept && subjectSelection(kept, SUBJECT_SIDE, answer.sample, doc.canvas, answer.at);
-    if (shape) applySelection(shape, mode);
-    return shape;
   });
 }

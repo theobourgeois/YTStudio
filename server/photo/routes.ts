@@ -1,5 +1,5 @@
 /** `/api/photo/lab`: the photo lab's sources, decoded tiles, blobs and exports (shared/photo/lab.ts). */
-import { Router, json, raw } from "express";
+import { type NextFunction, type Request, type Response, Router, json, raw } from "express";
 import type { ExportRequest, TileSize } from "../../shared/photo/lab.ts";
 import { HttpError } from "../storage.ts";
 import { MAX_TILE_BYTES } from "./blobs.ts";
@@ -203,7 +203,8 @@ export function photoRoutes(photo: PhotoService, models: Record<PhotoModelName, 
     res.status(201).json(await online.place(req.params.projectId, req.body));
   });
 
-  // The models (Select Subject's, Content-Aware Fill's): whether one is here, its download (asked for by the user), the file.
+  // The models (Select Subject's, Object Selection's, Content-Aware Fill's…): whether one is here, its download (asked
+  // for by the user), its files (`file` is its first; a model of several graphs names the one it wants).
   const modelOf = (name: string) => {
     if (!isPhotoModelName(name)) throw new HttpError(404, `No model "${name}": the models are ${Object.keys(models).join(", ")}.`);
     return models[name];
@@ -217,11 +218,13 @@ export function photoRoutes(photo: PhotoService, models: Record<PhotoModelName, 
     await model.setUp();
     res.status(202).json(await model.status());
   });
-  router.get("/models/:name/file", async (req, res, next) => {
-    const file = await modelOf(req.params.name).file();
-    if (!file) throw new HttpError(404, `That model isn't downloaded: POST /api/photo/models/${req.params.name}/setup first.`);
+  const sendModelFile = async (req: Request, res: Response, next: NextFunction, name?: string) => {
+    const file = await modelOf(String(req.params.name)).file(name);
+    if (!file) throw new HttpError(404, `That model isn't downloaded (or has no file "${name}"): POST /api/photo/models/${req.params.name}/setup first.`);
     res.sendFile(file, { headers: { "Cache-Control": "no-cache" }, dotfiles: "allow" }, (error) => error && next(error));
-  });
+  };
+  router.get("/models/:name/file", (req, res, next) => sendModelFile(req, res, next));
+  router.get("/models/:name/files/:file", (req, res, next) => sendModelFile(req, res, next, req.params.file));
 
   return router;
 }

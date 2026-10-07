@@ -72,7 +72,7 @@ it) and set_effect_params changes one: Exposure is in stops of light; Curves' po
 as in Photoshop (a gentle S, [[0, 0], [64, 52], [192, 205], [255, 255]], adds contrast). Selections: select_rect \
 selects a rectangle or an ellipse (or all, or none), select_polygon an outline (the lasso), select_magic_wand similar \
 colours, select_quick grows from strokes to an object's edges (Quick Selection), select_object selects the one thing \
-strokes paint roughly over (Object Selection: better than select_subject when there are several), select_subject finds \
+strokes paint roughly over (Object Selection, SAM 2.1: better than select_subject when there are several), select_subject finds \
 the main subject with a model; each can add to, subtract from or intersect the selection there (mode), and modify_selection inverts or \
 feathers it. Check one with view_photo's show_selection. add_mask gives a layer a mask, from the selection (it shows only there) or empty, or \
 removes one; add_pixel_layer adds an empty layer for the user to paint on (you can't paint strokes); \

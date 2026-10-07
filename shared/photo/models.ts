@@ -5,6 +5,7 @@
  * them. Every one is asked for, downloaded and shown the same way (`/api/photo/models/<name>`).
  */
 import { FILL_MODEL } from "./inpaint.ts";
+import { SAM_FILES } from "./sam.ts";
 import { DEPTH_MODEL } from "./scene.ts";
 import { SUBJECT_MODEL } from "./subject.ts";
 
@@ -16,21 +17,29 @@ export interface PhotoModelFile {
   url: string;
   size: number;
   sha256: string;
+  /** The name a graph knows this file by, when it's that graph's weights (ONNX's external data). */
+  location?: string;
 }
 
 /** A model and what it's for: the question before its download says this. */
-export interface PhotoModelSpec extends PhotoModelFile {
+export interface PhotoModelSpec {
   /** The command that needs it ("Select Subject"). */
   command: string;
   /** What the command does with it, finishing "…with <this>". */
   does: string;
+  /** Its files, downloaded together: a graph, or several graphs and their weights (SAM's encoder and decoder). */
+  files: readonly PhotoModelFile[];
 }
 
 export const PHOTO_MODELS = {
-  subject: { ...SUBJECT_MODEL, command: "Select Subject", does: "finds the main subject with a segmentation model (IS-Net)" },
-  fill: { ...FILL_MODEL, command: "Content-Aware Fill", does: "fills the selection from what's around it with an inpainting model (LaMa)" },
-  depth: { ...DEPTH_MODEL, command: "Depth Map", does: "sees how far away each part of the photo is, for the depth filters (Lens Blur, Fog, Tilt-Shift…), with a depth model (Depth Anything V2)" },
+  subject: { files: [SUBJECT_MODEL], command: "Select Subject", does: "finds the main subject with a segmentation model (IS-Net)" },
+  object: { files: SAM_FILES, command: "Object Selection", does: "selects the thing you paint over with a prompted segmentation model (SAM 2.1)" },
+  fill: { files: [FILL_MODEL], command: "Content-Aware Fill", does: "fills the selection from what's around it with an inpainting model (LaMa)" },
+  depth: { files: [DEPTH_MODEL], command: "Depth Map", does: "sees how far away each part of the photo is, for the depth filters (Lens Blur, Fog, Tilt-Shift…), with a depth model (Depth Anything V2)" },
 } satisfies Record<string, PhotoModelSpec>;
+
+/** A model's bytes to download, all its files together. */
+export const modelSize = (spec: PhotoModelSpec) => spec.files.reduce((sum, f) => sum + f.size, 0);
 
 export type PhotoModelName = keyof typeof PHOTO_MODELS;
 
