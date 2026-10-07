@@ -46,10 +46,10 @@ describe("project tabs", () => {
     expect(restoreTabs("nope", exists)).toEqual([]);
   });
 
-  it("shows the strip with two tabs, or with one on the Home screen", () => {
+  it("shows the strip while a project is open, and on the Home screen with tabs", () => {
     expect(tabsVisible(0, true)).toBe(false);
-    expect(tabsVisible(1, false)).toBe(false);
     expect(tabsVisible(1, true)).toBe(true);
+    expect(tabsVisible(1, false)).toBe(true);
     expect(tabsVisible(2, false)).toBe(true);
   });
 });

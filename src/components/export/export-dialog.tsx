@@ -1,43 +1,17 @@
 import { useRef, useState } from "react";
-import { PiDownloadSimple } from "react-icons/pi";
 import type { ExportResolution } from "@shared/types";
 import { describeExport } from "@shared/export-formats";
 import { formatBytes, formatDuration } from "@shared/format";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { FloatingWindow, WindowBody, WindowLead, centredOnDesktop } from "@/components/windows/floating-window";
 import { useEditor } from "@/stores/editor";
 import { exportRequestSettings } from "@/stores/export-preferences";
 import { useOpenVideoWindows } from "@/stores/video-windows";
 import { layoutTexts } from "./layout-texts";
-import { ExportForm, brandButton } from "./export-form";
+import { ExportForm } from "./export-form";
 import { ExportDone, ExportError, ExportProgress, formatElapsed } from "./export-status";
 import { useExportJob, type ExportPhase } from "./use-export-job";
 import { useExportFormats } from "./use-export-formats";
 import { useFfmpegStatus } from "./use-ffmpeg-status";
-
-/** The header's "Export" button: opens the export window (`ExportWindow`), or brings it to the front. */
-export function ExportButton() {
-  // The whole video is exported (its main sequence), whichever sequence the timeline shows.
-  const empty = useEditor((s) => s.document.clips.length === 0);
-  const button = (
-    <Button size="sm" className={`h-8 px-3.5 ${brandButton}`} disabled={empty} onClick={() => useOpenVideoWindows.getState().show("export")}>
-      <PiDownloadSimple />
-      Export
-    </Button>
-  );
-  if (!empty) return button;
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span tabIndex={0} className="rounded-md outline-none">
-          {button}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">Add clips to the timeline to export</TooltipContent>
-    </Tooltip>
-  );
-}
 
 const WIDTH = 448;
 

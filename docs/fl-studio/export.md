@@ -198,7 +198,7 @@ Built on 2026-10-01 from this document. Written for speed: Théo wants exports t
   once (they take a fraction of the render). The MIDI file is written in TypeScript from the same compiled
   song (`shared/music/midi.ts`). The settings, names and ffmpeg's arguments are pure
   (`shared/music/export.ts`).
-- **The window** (`src/suites/music/export/`): ⌘R / ⌘⇧R or the toolbar's Export, the save dialog
+- **The window** (`src/suites/music/export/`): ⌘R / ⌘⇧R, the header's Export or File › Export…, the save dialog
   (`chooseSaveFile`, the desktop app's), the settings (remembered), Start, progress polled from the server,
   the files listed. `export_song` is the assistant's.
 - **Tested**: the engine offline (`server/music/export.integration.test.ts`: the length, the tail, the

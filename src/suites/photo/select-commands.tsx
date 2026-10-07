@@ -4,7 +4,6 @@
  */
 import { useState } from "react";
 import { toast } from "sonner";
-import { PiCaretDown } from "react-icons/pi";
 import { errorMessage } from "@shared/errors";
 import type { SelectionMode } from "@shared/photo/types";
 import {
@@ -17,7 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { create } from "zustand";
 import { selectActions } from "./selecting";
@@ -50,17 +49,11 @@ export async function runSelectSubject(mode: SelectionMode = "new") {
   }
 }
 
-/** The header's Select menu (Photoshop's). */
-export function SelectMenu() {
+/** The Select menu's items (Photoshop's), in the menu bar. */
+export function SelectMenuItems() {
   const selection = useSelection();
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="ghost" data-select-menu>
-          Select <PiCaretDown className="size-3 text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
+    <>
         <DropdownMenuItem onSelect={selectActions.all}>
           All <DropdownMenuShortcut>{keys("⌘A", "Ctrl+A")}</DropdownMenuShortcut>
         </DropdownMenuItem>
@@ -78,8 +71,7 @@ export function SelectMenu() {
         <DropdownMenuItem disabled={!selection} onSelect={() => useFeather.setState({ open: true })}>
           Feather… <DropdownMenuShortcut>{keys("⇧F6", "Shift+F6")}</DropdownMenuShortcut>
         </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    </>
   );
 }
 

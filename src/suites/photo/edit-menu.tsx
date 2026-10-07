@@ -1,20 +1,15 @@
 /**
- * Photoshop's Edit menu, in the header: undo, the clipboard, what fills the selection (Content-Aware Fill first,
+ * Photoshop's Edit menu, in the menu bar: undo, the clipboard, what fills the selection (Content-Aware Fill first,
  * then the colours and Clear), and Transform's flips and turns of the selected layers. Every item is a command the
  * keys and the canvas's right-click menu run too.
  */
-import { PiCaretDown } from "react-icons/pi";
-import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ORIENTATIONS, ORIENTATION_LABELS, type Orientation } from "@shared/photo/orient";
 import { useColours } from "./colours";
@@ -38,23 +33,8 @@ import { usePhotoUi } from "./ui";
 /** The flips' keys (Théo's; Photoshop leaves them unset). */
 const ORIENTATION_KEYS: Partial<Record<Orientation, string>> = { "flip-horizontal": keys("⌘H", "Ctrl+H"), "flip-vertical": keys("⌥⌘H", "Ctrl+Alt+H") };
 
-export function EditMenu() {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="ghost" data-edit-menu>
-          Edit <PiCaretDown className="size-3 text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-60">
-        <EditMenuItems />
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 /** Read when the menu opens (what can be pasted isn't a store's). */
-function EditMenuItems() {
+export function EditMenuItems() {
   const selection = useSelection();
   const canUndo = usePhoto((s) => (s.history?.past.length ?? 0) > 0);
   const canRedo = usePhoto((s) => (s.history?.future.length ?? 0) > 0);

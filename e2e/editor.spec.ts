@@ -195,7 +195,7 @@ test("splits at the playhead, deletes (leaving a gap), closes a clicked gap or r
   await expect.poll(async () => (await timelineClips(page)).length).toBe(4);
 
   // Seek to 3s with the keyboard (Home, then 3 × Shift+Right).
-  await page.locator("body").click({ position: { x: 720, y: 20 } });
+  await page.locator("body").click({ position: { x: 720, y: 66 } });
   await page.keyboard.press("Home");
   for (let i = 0; i < 3; i++) await page.keyboard.press("Shift+ArrowRight");
   await expect(page.getByText("0:03.00", { exact: false }).first()).toBeVisible();
@@ -373,7 +373,7 @@ test("right-click menus, copy/paste and the shortcuts dialog", async ({ page }) 
 
 test("plays back and keeps the video in sync with the clock", async ({ page }) => {
   await openLatest(page);
-  await page.locator("body").click({ position: { x: 720, y: 20 } });
+  await page.locator("body").click({ position: { x: 720, y: 66 } });
   await page.keyboard.press("Home");
   await page.keyboard.press("Space");
   await page.waitForTimeout(1500);
@@ -1525,7 +1525,7 @@ test("plays an audio track cut into pieces with one pair of players", async ({ p
   await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
 
   // Cut it at 1 s and 2 s.
-  await page.locator("body").click({ position: { x: 720, y: 20 } });
+  await page.locator("body").click({ position: { x: 720, y: 66 } });
   await page.keyboard.press("Home");
   for (const t of [1, 2]) {
     await page.keyboard.press("Shift+ArrowRight");
@@ -1540,7 +1540,7 @@ test("plays an audio track cut into pieces with one pair of players", async ({ p
       [...document.querySelectorAll<HTMLAudioElement>("[data-slot=canvas] audio")].map((a) => ({ paused: a.paused, t: a.currentTime })),
     );
   expect(await players()).toHaveLength(2);
-  await page.locator("body").click({ position: { x: 720, y: 20 } });
+  await page.locator("body").click({ position: { x: 720, y: 66 } });
   await page.keyboard.press("Home");
   await page.keyboard.press("Space");
   await page.waitForTimeout(2500);
@@ -1901,7 +1901,7 @@ test("speeds a clip up, reverses it and stretches it to fit, moving the clips af
   await dragAsset(page, "vertical-1080x1920", await timeX(page, 0.05), y);
   await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
   // Cut it in two at 3 s.
-  await page.locator("body").click({ position: { x: 720, y: 20 } });
+  await page.locator("body").click({ position: { x: 720, y: 66 } });
   await page.keyboard.press("Home");
   for (let i = 0; i < 3; i++) await page.keyboard.press("Shift+ArrowRight");
   await page.keyboard.press("s");
@@ -1928,7 +1928,7 @@ test("speeds a clip up, reverses it and stretches it to fit, moving the clips af
   await expect
     .poll(() => page.evaluate((id) => fetch(`/api/media/${id}`).then((r) => r.json()).then((a) => a.reversed?.status), first.assetId), { timeout: 30_000 })
     .toBe("ready");
-  await page.locator("body").click({ position: { x: 720, y: 20 } });
+  await page.locator("body").click({ position: { x: 720, y: 66 } });
   await page.keyboard.press("Home");
   await page.keyboard.press("Space");
   await page.waitForTimeout(600);
@@ -2415,8 +2415,8 @@ test("keeps the open projects as tabs: switch, reorder, close", async ({ page })
   await openLatest(page);
   const firstUrl = page.url();
   const tabs = page.getByRole("tablist", { name: "Open projects" });
-  // One project open: no strip.
-  await expect(tabs).toHaveCount(0);
+  // One project open: its tab (the strip always shows with a project open: the menus are in it).
+  await expect(tabs.getByRole("tab")).toHaveCount(1);
 
   // A second one makes it appear, the new one selected.
   await newVideo(page);
@@ -2448,10 +2448,10 @@ test("keeps the open projects as tabs: switch, reorder, close", async ({ page })
   await expect(tabs.getByRole("tab").nth(1)).toHaveAttribute("data-tab-id", /./);
   await expect(tabs.getByRole("tab").nth(1)).toHaveAttribute("aria-selected", "true");
 
-  // ⌘W closes the open one's tab: the other shows, alone, so the strip goes.
+  // ⌘W closes the open one's tab: the other shows, alone in the strip.
   await page.keyboard.press("ControlOrMeta+w");
   await expect(page).toHaveURL(secondUrl);
-  await expect(tabs).toHaveCount(0);
+  await expect(tabs.getByRole("tab")).toHaveCount(1);
 
   // Home with one tab still open shows the strip, so it can be gone back to.
   await page.getByRole("button", { name: "Home", exact: true }).click();
