@@ -1,7 +1,7 @@
 # Pro-L
 
-FabFilter's **Pro-L 2**, the true peak limiter, planned as a stock effect of ours in the music suite (Built in
-→ Pro-L), as Pro-Q is, and made **more versatile than Pro-L 2**: a clip stage inside, no bass distortion, mid-side,
+FabFilter's **Pro-L 2**, the true peak limiter, planned as a stock effect of ours in the music suite, **YT-L**
+(Built in → YT-L; its id `vaudio:pro-l` and its files `pro-l*`, as YT-C's are `vaudio:pro-c` and `pro-c*`), as Pro-Q is, and made **more versatile than Pro-L 2**: a clip stage inside, no bass distortion, mid-side,
 a ceiling held by any measure, delivery tools. Nothing here is built yet: this is the plan, written before building.
 
 **Two rounds of research.** The first (2 October 2026) built this document from
@@ -1198,7 +1198,7 @@ loud); delivery settings only where a preset is about delivery ("—" leaves the
 
 | Preset | Style | Lookahead / Attack / Release / Hold | Clip | Stereo | Ceiling | Target | For |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Default Setting** | Modern | 0.18 ms / 275 ms / 400 ms / Auto | off | L/R 75 / 100 % | −1.0 dBTP, 4x | −14 | anything |
+| **Default Setting** | Modern | 0.18 ms / 275 ms / 400 ms / Auto | off | L/R 75 / 100 % | **−0.1 dBFS sample peak** (true peak shown), 4x | −14 | anything |
 | Master: Streaming −14 | Modern | 0.5 ms / 150 / 300 / Auto | off | L/R | −1.0 dBTP, 4x | −14 | Spotify, YouTube, TIDAL |
 | Master: Streaming Loud | Modern | 0.5 / 150 / 300 / Auto | +2 dB Smooth | L/R | **−2.0 dBTP**, 4x | −10 | louder than −14, headed for lossy |
 | Master: Chart Pop | Modern | 0.3 / 200 / 300 / Auto | +2 dB Smooth, knee 1.5 | L/R | −1.0 dBTP, 4x | −8 | pop (−8.3 LUFS is the 2024 norm) |
@@ -1231,11 +1231,15 @@ Revised 2026-10-07 after the second round of research and the measurements, from
 
 ### 7.1 Decided, to confirm
 
-- **A stock effect of ours**, chosen from an effect slot's picker (Built in → Pro-L), as Pro-Q is: its settings **in the
+- **A stock effect of ours, named YT-L** (Théo, 2026-10-07), chosen from an effect slot's picker (Built in → YT-L), as
+  YT-EQ is: its settings **in the
   song** (`MixerEffect.proL`), the engine running it natively. The real Pro-L 2 can still be loaded as a plugin beside it.
 - **Pro-L 2's window and workflow, plus what it lacks**: the display, the Gain strip, the Advanced panel, the meters and
   the loudness panel, the output panel; then the clip stage, Hold, M/S, per-stage meters and audition, delivery tools.
 - **Its look is FabFilter's, as Pro-Q's is** (`--eq-*` surfaces, `--lim-*` colours, plain colours for the canvases).
+- **The default ceiling is −0.1 dBFS, sample peak** (Théo, 2026-10-07): where trap and hyperpop releases are
+  finished (`pro-l-research.md` §1.6). True Peak Limiting is off by default, the true peak is always shown beside it,
+  and the streaming and broadcast presets switch it on (−1 or −2 dBTP).
 - **Nine styles as tables** (§4.2): Pro-L 2's eight, re-measured and fixed, and Spit.
 - **The ceiling is never exceeded**, by construction: sample peaks always; true peaks by the BS.1770 meter *and* by an
   ideal reconstruction whenever oversampling is on (Pro-L 2: the meter only). The true peak is always shown.
@@ -1340,7 +1344,7 @@ export interface ProL extends ProLState {
   other: ProLState | null;
   meter: ProLMeter;
 }
-// MixerEffect.proL?: ProL, on an effect whose plugin is PRO_L_PLUGIN ({ id: "vaudio:pro-l", name: "Pro-L", format: "Vaudio" }).
+// MixerEffect.proL?: ProL, on an effect whose plugin is PRO_L_PLUGIN ({ id: "vaudio:pro-l", name: "YT-L", format: "Vaudio" }).
 ```
 
 Bypass is the slot's `enabled` (the engine fades it; its latency stays in the compensation). Validated by
@@ -1418,7 +1422,7 @@ back by the same amount. `songLatency` keeps the playhead in time; the export tr
 | `get_pro_l` | look | Its settings and what its style does in numbers, its latency, and the readings: I, S, M, LRA, Max M / S, max true peak, PLR, GR per stage, % clipped, peak density. |
 | `update_pro_l` | edit | A patch (every field of §8.1), or a preset by name (respecting Lock Output). Errors name the allowed values. |
 | `reset_pro_l_meter` | action | Reset (or pause, resume) its loudness measurement. |
-| `add_mixer_effect` | (exists) | Takes "Pro-L". |
+| `add_mixer_effect` | (exists) | Takes "YT-L". |
 | `add_automation` | (exists) | Takes "limiter gain", "limiter output", "limiter clip range", … |
 | after the core: `analyze_pro_l` | action | The song rendered offline through it: I, LRA, max true peak, GR over time. With it, the assistant suggests the Gain for a target in two or three tries (loudness rises with Gain, §5.6). |
 
@@ -1426,8 +1430,8 @@ back by the same amount. `songLatency` keeps the playhead in time; the export tr
 
 - **`preventClipping` / `exportGain`** turns a whole render down until its loudest *sample* is at −0.3 dBFS. With a
   Pro-L at −1 dBTP last on the master nothing changes; with a "release style" sample ceiling (−0.01 to −0.1 dBFS: how
-  trap and hyperpop records ship) it would undo the ceiling the user chose. Proposed: when the master's last enabled
-  effect is a Pro-L, `exportGain` only acts above 0 dBFS **[ours, to confirm]**.
+  trap and hyperpop records ship, and YT-L's default) it would undo the ceiling the user chose. So **when the master's
+  last enabled effect is a YT-L, `exportGain` only acts above 0 dBFS** (required by the default ceiling) **[ours]**.
 - **Dither**: dither once, last: when a master Pro-L dithers, the export's own is off.
 - **Codec check** (after the core): the export encodes its mix with the destination's real encoders (Apple AAC 256
   through `afconvert` on macOS, libopus, LAME; never ffmpeg's own AAC), decodes to float, reports the decoded true peak
@@ -1496,29 +1500,24 @@ blind, loudness-matched A/B on short loops with Théo deciding.
 
 ## 9. Open questions for Théo
 
-1. **Its name.** Pro-C kept its name with 21 styles; "Pro-L" would too. Or a name of our own, since it's now more than
-   Pro-L?
-2. **The default ceiling.** **−1.0 dBTP, true peak on, 4x** (streaming-safe; −2 if the master is louder than −14, by
-   Spotify's own advice), or the "release style" sample ceiling (−0.1 dBFS, true peak shown) that trap and hyperpop
-   records actually ship with? Pro-L 2's own default is 0 dBTP with oversampling off.
-3. **The clip stage on a new Pro-L**: off (one click to turn on, as proposed), or on at +1.5 dB Smooth?
-4. **FL Studio's soft clipper.** Trap beats are made through it, and Orange Clip sells a copy of its curve. If you have
-   FL Studio installed, I can measure Fruity Soft Clipper's and Fruity Limiter's curves offline the way I measured
-   Pro-L 2, and add an **FL** shape. Worth it?
-5. **Multiband.** Ozone 12, L3, Limitless and Elevate all split the spectrum so the 808 doesn't duck the mix. Proposed:
-   later, after Hold (which already removes the 808's distortion) and Bass clip. Or do you want an 808 split in the
-   first version, at the cost of latency (a linear-phase split at ~120 Hz costs 10–20 ms)?
-6. **Delivery tools first or later?** The codec check in the export (Apple's AAC encoder is on every Mac),
+Answered on 2026-10-07: its name is **YT-L**; the default ceiling is **−0.1 dBFS sample peak** (§7.1); **multiband
+later**, as proposed (§7.2).
+
+1. **The clipper on a new YT-L.** The clipper shaves the very tips of the loudest peaks before the limiter sees them
+   (what StandardCLIP or KClip do in front of Pro-L 2). Should a freshly added YT-L have it **off** (the limiter alone,
+   one click to turn the clipper on) or **on**, already taking the top 1.5 dB of the biggest hits?
+2. **An FL Studio clip shape.** Trap beats are made through FL Studio's own soft clipper (Fruity Soft Clipper, and the
+   saturation in Fruity Limiter), and engineers buy plug-ins that copy its exact sound. If FL Studio is installed on
+   this Mac, I can measure that clipper the way I measured Pro-L 2 and add its curve as a shape, so YT-L's clipper can
+   sound exactly like the FL master the beat came from. Is FL Studio installed, and do you want that?
+3. **Delivery tools first or later?** The codec check in the export (Apple's AAC encoder is on every Mac),
    per-platform previews and a normalised listen ("hear it as Spotify will") are proposed right after the core.
-7. **More measurements?** Waves L4, Ozone 12 and DMG Limitless have trials too (Ozone and Waves need accounts), and TDR
-   Limiter 6 GE has a free edition. Measuring them would give more targets, especially the clippers in L4 and
-   Limitless. Want me to?
-8. **Latency on vocals.** Spit is ~1 ms and Transparent 5 ms with oversampling off: low enough to record through. Is
-   that enough, or should every style have a "low latency" switch (the delay follows the Lookahead knob, and the song
-   re-compensates when it's turned)?
-9. **Earlier questions still open**: a limiter on new songs' master (FL Studio's template has one); Unity Gain and
-   Audition saved in the song (Pro-L's way) or the tab's; FabFilter's dark look in every theme (proposed) or the app's;
-   a Compact view.
+4. **More measurements?** Waves L4, Ozone 12 and DMG Limitless have trials (Ozone and Waves need accounts), and TDR
+   Limiter 6 GE has a free edition.
+5. **Latency on vocals.** Spit is ~1 ms and Transparent 5 ms with oversampling off: enough to record through, or should
+   every style have a low-latency switch?
+6. **Earlier questions still open**: a limiter on new songs' master (FL Studio's template has one); Unity Gain and
+   Audition saved in the song or the tab's; FabFilter's dark look in every theme (proposed) or the app's; a Compact view.
 
 ---
 
