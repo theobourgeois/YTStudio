@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { controlOf, createAutomation } from "./automation.ts";
 import { compileSong } from "./compile.ts";
-import { setEffect } from "./mixer.ts";
+import { setEffect, updateEffect } from "./mixer.ts";
 import { addClips, editClips } from "./playlist.ts";
+import { PRO_C_PLUGIN } from "./pro-c-presets.ts";
 import {
   DEFAULT_PRO_L,
   DEFAULT_PRO_L_METER,
@@ -18,7 +19,7 @@ import {
   turnFromAttack,
   turnFromRelease,
 } from "./pro-l-presets.ts";
-import { PRO_L_CONTROL_SPECS, PRO_L_LANES, chooseProLPreset, copyProLAB, engineProL, findProL, setProLControl, switchProLAB, updateProL } from "./pro-l.ts";
+import { PRO_L_CONTROL_SPECS, PRO_L_LANES, chooseProLPreset, finalProL, copyProLAB, engineProL, findProL, setProLControl, switchProLAB, updateProL } from "./pro-l.ts";
 import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject, normalizeMusicProject, normalizeTarget } from "./project.ts";
 import { PRO_L_CONTROLS, PRO_L_STYLES } from "./types.ts";
 
@@ -177,6 +178,19 @@ describe("YT-L's automation", () => {
     expect(lanes[0].values.length).toBeGreaterThan(0);
     for (const value of lanes[0].values) expect(value).toBeGreaterThanOrEqual(0);
     expect(lanes[0].values.every((v) => v <= 30)).toBe(true);
+  });
+});
+
+describe("YT-L and the export", () => {
+  it("finishes the song when it's the master's last enabled effect at its full mix", () => {
+    const s = song();
+    expect(finalProL(s)).toMatchObject({ style: "modern" });
+    // Something after it: it isn't last. Bypassed after it: it is again.
+    const after = setEffect(s, MASTER_TRACK_ID, 1, PRO_C_PLUGIN, "fx_c");
+    expect(finalProL(after)).toBeNull();
+    expect(finalProL(updateEffect(after, MASTER_TRACK_ID, 1, { enabled: false }))).not.toBeNull();
+    expect(finalProL(updateEffect(s, MASTER_TRACK_ID, 0, { mix: 0.5 }))).toBeNull();
+    expect(finalProL(createMusicProject("Plain", 120))).toBeNull();
   });
 });
 

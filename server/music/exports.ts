@@ -26,6 +26,7 @@ import {
 } from "../../shared/music/export.ts";
 import { midiFile } from "../../shared/music/midi.ts";
 import { trackName } from "../../shared/music/mixer.ts";
+import { finalProL } from "../../shared/music/pro-l.ts";
 import { normalizeMusicProject } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
 import type { MediaAsset } from "../../shared/types.ts";
@@ -223,7 +224,11 @@ export class MusicExports {
       }
       // Over full scale (the mix is floating point, a file isn't): every file turned down alike, if asked.
       const peak = Math.max(0, ...rendered.files.map((f) => f.peak));
-      const gain = exportGain(peak, settings);
+      // A YT-L last on the master: its ceiling and its dither are the user's (only over full scale is turned down,
+      // and the export doesn't dither again).
+      const limiter = finalProL(song);
+      const gain = exportGain(peak, settings, limiter !== null);
+      const encoding = limiter?.dither ? { ...settings, dither: false } : settings;
       view.peakDb = peak > 0 ? 20 * Math.log10(peak) : null;
       view.gainDb = gain < 1 ? 20 * Math.log10(gain) : 0;
       job.abort.signal.throwIfAborted();
@@ -256,7 +261,7 @@ export class MusicExports {
           const name = exportFileName(base, task.track, task.format);
           const target = path.join(folder, name);
           written.add(target);
-          await run(this.ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-i", task.source, ...encoderArgs(task.format, settings, rendered.sampleRate, encoders, gain), target], {
+          await run(this.ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-i", task.source, ...encoderArgs(task.format, encoding, rendered.sampleRate, encoders, gain), target], {
             signal: job.abort.signal,
           }).catch((err) => {
             if (job.abort.signal.aborted) throw job.abort.signal.reason;

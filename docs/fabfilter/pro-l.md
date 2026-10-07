@@ -1351,6 +1351,11 @@ with Auto, L/R links or M/S's Side Floor, the clip stage, Output with True Peak)
 dither and its shaping, DC, Unity Gain, Audition, the display and meter scale, the latency, bypass); the picker's
 entry; `--lim-*` tokens; e2e tests. Not yet: the delivery tools (step 5), the scale's K-System colours, Compact.
 
+**Step 5, begun** (2026-10-07): the export and a YT-L that finishes the song (`finalProL`: the master's last enabled
+effect, at its full mix): Prevent Clipping turns a render down only over full scale, to full scale, so the user's
+ceiling (−0.1 dBFS by default) is what's written; and when it dithers, the export doesn't dither again (§8.8). Still to
+come: the codec check, platform previews, the normalised listen, Analyze and gain to a target.
+
 The same shape as Pro-Q and PanMan: the document and what it means in TypeScript, the sound in C++, the window in React.
 
 ### 8.1 The document
