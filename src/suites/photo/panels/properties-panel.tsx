@@ -14,6 +14,7 @@ import { resetEffect, setCanvas, setCompositing, setEffectParams, setHighlights,
 import { effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import { ORIENTATION_LABELS, type Orientation, orientLayers } from "@shared/photo/orient";
 import { isDistorted } from "@shared/photo/projective";
+import { WARP_STYLE_LABELS } from "@shared/photo/warp";
 import { type AdjustmentLayer, CANVAS_PRESETS, type Compositing, type PhotoLayer, type PlacedLayer, hasContent, isPlaced } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -232,12 +233,17 @@ function LayerProperties({ layer }: { layer: PlacedLayer }) {
           <NumberField label="Skew" value={round(t.skew ?? 0)} onCommit={(skew) => set({ skew })} suffix="°" />
           {isDistorted(t) && (
             <div className="flex items-end">
-              <Button size="sm" variant="outline" title="Take the skew and perspective off (Edit › Transform's), keeping its place, size and angle" onClick={() => set({ skew: 0, perspective: [0, 0] })} data-straighten>
+              <Button size="sm" variant="outline" title="Take the skew, perspective and warp off (Edit › Transform's), keeping its place, size and angle" onClick={() => set({ skew: 0, perspective: [0, 0], warp: undefined })} data-straighten>
                 <PiSquare /> Straighten
               </Button>
             </div>
           )}
         </div>
+        {t.warp && (
+          <p className="text-xs text-muted-foreground" data-warped>
+            Warped: {t.warp.style ? `${WARP_STYLE_LABELS[t.warp.style.style]}, bend ${round(t.warp.style.bend)}%` : "custom"} (Edit › Transform › Warp)
+          </p>
+        )}
         {t.perspective && (
           <p className="text-xs text-muted-foreground" data-perspective>
             In perspective: {round(t.perspective[0] * 100)}% across, {round(t.perspective[1] * 100)}% down (Edit › Transform › Distort or Perspective)

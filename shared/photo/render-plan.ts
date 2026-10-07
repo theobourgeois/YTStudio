@@ -19,7 +19,7 @@ import { SCENE_PARAM, type SceneMaps, type SceneReads } from "./scene.ts";
 import { ANALYSIS_PARAM, needsAnalysis } from "./effects/camera-raw/develop.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
 import { type Affine, affineHomography, apply, invert, layerMatrix } from "./layers.ts";
-import { type Homography, invertHomography, isProjective, layerProjection, project } from "./projective.ts";
+import { type Homography, invertHomography, isBent, isProjective, layerProjection, project } from "./projective.ts";
 import { type CanvasRaster, canvasContentOf, canvasRaster } from "./canvas-content.ts";
 import { findPattern } from "./style/patterns.ts";
 import { drawnEffects, effectAltitude, effectAngle, stylePatterns, styleReach } from "./style/style.ts";
@@ -665,7 +665,8 @@ export function inputRegion(node: PlanNode, rect: Rect): Rect | null {
   // Only what shows of it: inside its crop (and the few pixels past its edge that resampling reads).
   const c = node.crop;
   const limit = c ? { x0: Math.max(0, c.x0 - 4), y0: Math.max(0, c.y0 - 4), x1: Math.min(node.size.width, c.x1 + 4), y1: Math.min(node.size.height, c.y1 + 4) } : { x0: 0, y0: 0, x1: node.size.width, y1: node.size.height };
-  const pts = regionInLayer(node.projection, node.matrix, isProjective(node.transform), rect);
+  // A warp can take any of its pixels anywhere in its box: all of them.
+  const pts = node.transform.warp ? null : regionInLayer(node.projection, node.matrix, isProjective(node.transform), rect);
   // In perspective, a corner past the horizon sees the layer's whole far side.
   if (!pts) return limit.x1 > limit.x0 && limit.y1 > limit.y0 ? limit : null;
   const x1 = Math.min(limit.x1, Math.max(...pts.map((p) => p.x)));
@@ -687,14 +688,15 @@ function regionInLayer(projection: Homography, matrix: Affine, projective: boole
 }
 
 /** What says where a layer is in its keys: its five numbers, and its skew and perspective when it has them. */
-export const transformKey = (t: LayerTransform) => `${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${t.skew ? `,k${t.skew}` : ""}${t.perspective ? `,p${t.perspective.join(",")}` : ""}`;
+export const transformKey = (t: LayerTransform) =>
+  `${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${t.skew ? `,k${t.skew}` : ""}${t.perspective ? `,p${t.perspective.join(",")}` : ""}${t.warp ? `,w${t.warp.points.flat().join(",")}` : ""}`;
 
 /**
  * A placed layer's scene input: its maps made of its own pixels, wherever it is (read through its place), or, for one
- * in perspective (which an affine read can't follow), of the document where it is now.
+ * in perspective or warped (which an affine read can't follow), of the document where it is now.
  */
 function sceneOf(key: string, t: LayerTransform, matrix: Affine, size: Size): SceneInput {
-  if (isProjective(t)) return { key: hashKey(`${key}|${transformKey(t)}`), placement: [1, 0, 0, 1, 0, 0], size: null };
+  if (isBent(t)) return { key: hashKey(`${key}|${transformKey(t)}`), placement: [1, 0, 0, 1, 0, 0], size: null };
   return { key: hashKey(key), placement: matrix, size };
 }
 

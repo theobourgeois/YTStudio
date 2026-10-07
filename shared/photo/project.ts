@@ -33,6 +33,7 @@ import {
   type SurfaceId,
   type TextLayer,
 } from "./types.ts";
+import { normalizeWarp } from "./warp.ts";
 
 const DEFAULT_PRESET = CANVAS_PRESETS[0];
 
@@ -111,16 +112,18 @@ export function normalizeTransform(value: unknown, fallback: { x: number; y: num
   if (skew) out.skew = skew;
   const perspective = normalizePerspective(t.perspective);
   if (perspective[0] || perspective[1]) out.perspective = perspective;
+  const warp = normalizeWarp(t.warp);
+  if (warp) out.warp = warp;
   return out;
 }
 
 /**
- * A transform without perspective: what text and shape layers hold (the browser's 2D canvas draws them, through an
- * affine map only; they skew, as Photoshop's type does, but don't distort).
+ * A transform without perspective or warp: what text and shape layers hold (the browser's 2D canvas draws them,
+ * through an affine map only; they skew, as Photoshop's type does, but don't distort).
  */
 export function withoutPerspective(t: LayerTransform): LayerTransform {
-  if (!t.perspective) return t;
-  const { perspective: _, ...rest } = t;
+  if (!t.perspective && !t.warp) return t;
+  const { perspective: _, warp: __, ...rest } = t;
   return rest;
 }
 

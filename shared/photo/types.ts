@@ -12,10 +12,11 @@
  * arrive with their renderers, through versioned migrations (`normalizePhotoProject`).
  */
 import type { DocumentBase } from "../suites.ts";
+import type { LayerWarp } from "./warp.ts";
 
 /**
- * 8: a layer's transform can be skewed and in perspective (`LayerTransform.skew`, `.perspective`: Edit › Transform's
- * Skew, Distort and Perspective; absent when there's none), 7: text layers (the Type tool, docs/photo/tools/type.md: words and how they're set, laid out by the tab and drawn by
+ * 8: a layer's transform can be skewed, in perspective and warped (`LayerTransform.skew`, `.perspective`: Edit › Transform's
+ * Skew, Distort and Perspective; `.warp`: Warp; absent when there's none), 7: text layers (the Type tool, docs/photo/tools/type.md: words and how they're set, laid out by the tab and drawn by
  * the browser's text engine), a layer's crop (image, pixel and text layers' `crop`: a rectangle of their own pixels,
  * everything outside it hidden; absent: none) and shape layers (docs/photo/tools/shapes.md: a rectangle, an ellipse,
  * a line or an arrow, placed by a transform and drawn from its geometry and paint, never stored as pixels), 6: the
@@ -53,6 +54,11 @@ export interface LayerTransform {
    * 1 / w as tall). |x| + |y| < 1, so no corner is past the horizon; absent: none. Image and pixel layers only.
    */
   perspective?: [number, number];
+  /**
+   * A warp (Edit › Transform › Warp, `shared/photo/warp.ts`): the layer's own pixels bent through a Bézier patch
+   * before the rest takes them to the document. Image and pixel layers only; absent: none.
+   */
+  warp?: LayerWarp;
 }
 
 /**

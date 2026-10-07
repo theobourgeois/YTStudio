@@ -94,6 +94,8 @@ export function orientTransform(t: LayerTransform, o: Orientation, from: { x: nu
       : { x: c.x, y: c.y, scaleX: mirror === "x" ? -t.scaleX : t.scaleX, scaleY: mirror === "y" ? -t.scaleY : t.scaleY, rotation: wrapDegrees(-angle + 0) };
   if (t.skew) next.skew = mirror === "none" ? t.skew : -t.skew;
   if (t.perspective) next.perspective = [t.perspective[0], t.perspective[1]];
+  // A warp is in the layer's own pixels, as its perspective is.
+  if (t.warp) next.warp = t.warp;
   return next;
 }
 

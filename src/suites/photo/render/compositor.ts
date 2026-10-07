@@ -25,7 +25,8 @@
 import { type View, levelForScale } from "@shared/photo/geometry.ts";
 import { type Affine, invert, layerScale } from "@shared/photo/layers.ts";
 import type { Homography } from "@shared/photo/projective.ts";
-import { inverseRows } from "./layer-map.ts";
+import { inverseRows, warpRows } from "./layer-map.ts";
+import { WARP_WGSL } from "@shared/photo/warp.ts";
 import { type AdjustmentNode, type ContentNode, type DrawNode, type GeneratorNode, type PlanFormat, type PlanNode, type RenderPlan, addsLight, blendsInLinear, isDrawNode, isIsolated } from "@shared/photo/render-plan.ts";
 import type { LayerTransform } from "@shared/photo/types.ts";
 import { ADJUSTMENT_KERNELS, adjustmentShader } from "./adjustments.ts";
@@ -66,8 +67,8 @@ export interface LayerDraw {
   crop?: { x0: number; y0: number; x1: number; y1: number } | null;
 }
 
-/** The layer pass's uniform: 112 bytes (its `Layer`). */
-const LAYER_UNIFORM = 112;
+/** The layer pass's uniform: 256 bytes (its `Layer`). */
+const LAYER_UNIFORM = 256;
 
 
 
@@ -111,6 +112,7 @@ ${BLEND}
 ${imageFunctions("src", 1)}
 ${imageFunctions("mask", 3)}
 ${MASK_SAMPLE}
+${WARP_WGSL}
 struct Layer {
   inv0: vec4f,        // u = dot(inv0.xy, doc) + inv0.z
   inv1: vec4f,        // v = dot(inv1.xy, doc) + inv1.z
@@ -126,6 +128,7 @@ struct Layer {
   encoded: u32,       // 1: write encoded values (a "photoshop" plan's composite)
   crop: vec4f,        // what shows of it, in its own pixels: x0, y0, x1, y1
   inv2: vec4f,        // w = dot(inv2.xy, doc) + inv2.z: (u, v) are divided by it (1 but in perspective)
+  warp: array<vec4f, 9>, // its warp (warp.ts's WARP_WGSL): warp[8].z is 1 when it has one
 }
 @group(2) @binding(0) var<uniform> layer: Layer;
 @group(2) @binding(1) var preview: texture_2d<f32>;
@@ -187,13 +190,21 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   // In perspective, w: past the horizon (w ≤ 0) no pixel of the layer lands.
   let w = dot(layer.inv2.xy, doc) + layer.inv2.z;
   if (w <= 0.0) { discard; }
-  let u = vec2f(dot(layer.inv0.xy, doc) + layer.inv0.z, dot(layer.inv1.xy, doc) + layer.inv1.z) / w;
-  // Target pixels per source pixel: the layer's, or in perspective this pixel's own (the far side's smaller).
+  var u = vec2f(dot(layer.inv0.xy, doc) + layer.inv0.z, dot(layer.inv1.xy, doc) + layer.inv1.z) / w;
+  // Target pixels per source pixel: the layer's, or in perspective or warped this pixel's own (the far side's smaller).
   var scale = layer.scale;
-  if (layer.inv2.x != 0.0 || layer.inv2.y != 0.0) {
+  let warped = layer.warp[8].z > 0.5;
+  if (layer.inv2.x != 0.0 || layer.inv2.y != 0.0 || warped) {
     let du = (layer.inv0.xy - u.x * layer.inv2.xy) / w;
     let dv = (layer.inv1.xy - u.y * layer.inv2.xy) / w;
     scale = layer.zoom / sqrt(max(abs(du.x * dv.y - du.y * dv.x), 1e-12));
+  }
+  if (warped) {
+    // Through the warp to its own pixels: none where nothing of the patch lands.
+    let r = unwarp_px(layer.warp, u);
+    if (r.z < 0.5) { discard; }
+    u = r.xy;
+    scale = scale * sqrt(max(abs(r.w), 1e-12));
   }
   // A source pixel's reach under Mitchell, in source pixels: never past this, nothing of the layer shows.
   let reach = 4.0 * max(1.0, 1.0 / scale) + 1.0;
@@ -844,9 +855,10 @@ export class Compositor {
         const opacity = node.blend || node.style ? 1 : l.opacity;
         f.set([...inv.slice(0, 8), view.x, view.y, view.zoom, opacity, l.source.width, l.source.height], 0);
         f.set(inv.slice(8), 24);
+        f.set(warpRows(l.transform, l.source), 28);
         const scale = view.zoom * layerScale(l.transform);
         u[14] = levelForScale(scale, l.source.image.levels.length);
-        u[15] = !l.projection && alignedLayer(l.matrix, view) ? 2 : quality === "final" ? 1 : 0;
+        u[15] = !l.projection && !l.transform.warp && alignedLayer(l.matrix, view) ? 2 : quality === "final" ? 1 : 0;
         f[16] = scale;
         u[17] = l.source.preview ? 1 : 0;
         u[18] = l.mask ? 1 : 0;
@@ -1237,9 +1249,10 @@ export class Compositor {
     const inv = inverseRows(l);
     f.set([...inv.slice(0, 8), view.x, view.y, view.zoom, l.opacity, l.source.width, l.source.height], 0);
     f.set(inv.slice(8), 24);
+    f.set(warpRows(l.transform, l.source), 28);
     const scale = view.zoom * layerScale(l.transform);
     u[14] = levelForScale(scale, l.source.image.levels.length);
-    u[15] = !l.projection && alignedLayer(l.matrix, view) ? 2 : quality === "final" ? 1 : 0;
+    u[15] = !l.projection && !l.transform.warp && alignedLayer(l.matrix, view) ? 2 : quality === "final" ? 1 : 0;
     f[16] = scale;
     u[17] = l.source.preview ? 1 : 0;
     u[18] = l.mask ? 1 : 0;
