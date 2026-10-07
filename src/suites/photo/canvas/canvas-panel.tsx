@@ -7,7 +7,7 @@
  */
 import { useStyleCanvasDrag } from "../layer-style/canvas-drag";
 import { useCanvasPick } from "../camera-raw/canvas-pick";
-import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 import { PiWarningCircle } from "react-icons/pi";
 import { createId } from "@shared/ids";
@@ -38,6 +38,7 @@ import { contentBox, hitsContent } from "./content";
 import { sizeOf } from "../tool-edits";
 import { isSelectionTool, useActiveTool, usePhotoUi } from "../ui";
 import { TOOLBOX } from "../toolbox";
+import { editTextAt } from "../toolbox/type-tool";
 import { CanvasDriver } from "./driver";
 import { resizeCursor, rotateCursor } from "./cursors";
 import { type Frame, frameOf, touches } from "./frame";
@@ -404,6 +405,15 @@ export function CanvasPanel() {
     usePhotoUi.getState().hover(autoSelects(e) ? (layerAt(doc, at.x, at.y)?.id ?? null) : null);
   };
 
+  // A double-click on text with the Move tool edits its words, the caret where it was clicked (Photoshop's).
+  const onDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const doc = usePhoto.getState().history?.doc.doc;
+    if (tool !== "move" || e.button !== 0 || !doc || !usePhotoUi.getState().view) return;
+    const at = docPoint(e.clientX, e.clientY);
+    const hit = layerAt(doc, at.x, at.y);
+    if (hit?.kind === "text") editTextAt(hit, at);
+  };
+
   const pan = (e: ReactPointerEvent<HTMLDivElement>) => {
     const start = usePhotoUi.getState().view!;
     startPointerDrag(e, {
@@ -437,6 +447,7 @@ export function CanvasPanel() {
         )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
+        onDoubleClick={onDoubleClick}
         onPointerLeave={() => {
           usePhotoUi.getState().hover(null);
           useCanvasPointer.getState().set(null);
