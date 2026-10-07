@@ -172,8 +172,8 @@ delete several), and **Ctrl selects** instead.
   [Stretching audio clips](#stretching-audio-clips)). Without stretching, an audio clip plays at its own
   speed whatever the tempo (a tempo change moves its end, not its sound).
 - **7 / 8** pitch the selected audio clips a semitone down / up; **9** reverses them.
-- "Make unique as sample" copies the file on disk too; "Extract stems", "Deverb", Edison and NewTone are
-  FL's own tools.
+- "Make unique as sample" copies the file on disk too; "Deverb", Edison and NewTone are FL's own tools.
+  "Extract stems" (and Edison's Convert to score) we have: [stems-and-notes.md](stems-and-notes.md).
 
 ### Stretching audio clips
 

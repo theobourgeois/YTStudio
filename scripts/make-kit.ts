@@ -1,6 +1,7 @@
 /**
  * Synthesise the music suite's starter kit (kick, clap, hat, snare) into public/kit/: four small
- * drum sounds, so a new song can make a beat before any samples are brought in.
+ * drum sounds, so a new song can make a beat before any samples are brought in. And a tone, the sampler
+ * Convert to notes plays its melodies on until it's replaced by an instrument.
  *
  *   pnpm tsx scripts/make-kit.ts
  */
@@ -85,8 +86,26 @@ function hat(): Float32Array {
   return finish(highpass(highpass(render(0.09, (t) => noise() * Math.exp(-t / 0.022)), 7000), 7000), 0.6);
 }
 
+/** A soft keyboard tone at middle C (the sampler's root, `ROOT_PITCH`): a few harmonics, the higher dying sooner. */
+function tone(): Float32Array {
+  const hz = 440 * 2 ** ((60 - 69) / 12);
+  const partials = [
+    [1, 1, 1.4],
+    [2, 0.35, 0.7],
+    [3, 0.14, 0.45],
+    [4, 0.07, 0.3],
+  ];
+  return finish(
+    render(2.5, (t) => {
+      const attack = Math.min(1, t / 0.006);
+      return attack * partials.reduce((sum, [n, gain, decay]) => sum + gain * Math.sin(2 * Math.PI * hz * n * t) * Math.exp(-t / decay), 0);
+    }),
+    0.7,
+  );
+}
+
 await fs.mkdir(OUT, { recursive: true });
-for (const [name, samples] of Object.entries({ kick: kick(), clap: clap(), hat: hat(), snare: snare() })) {
+for (const [name, samples] of Object.entries({ kick: kick(), clap: clap(), hat: hat(), snare: snare(), tone: tone() })) {
   await writeWav(path.join(OUT, `${name}.wav`), samples, RATE);
   console.log(`public/kit/${name}.wav  ${(samples.length / RATE).toFixed(2)} s`);
 }

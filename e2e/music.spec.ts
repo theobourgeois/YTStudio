@@ -4217,3 +4217,85 @@ test("every knob of our built-in effects can be automated: YT-Time, YT-Delay (ea
   await page.getByRole("button", { name: "Close Mixer" }).click();
   expect(await notAutomatable(page, window)).toEqual([]);
 });
+
+test("an audio clip's Extract stems and Convert to notes: stems under it, the clip muted, one undo step; its notes a pattern on a sampler under it; the assistant does both", async ({ page }) => {
+  // A song at 120 BPM with a four-second file on track 1 (EDITOR_MUSIC_MODELS=stand-in: each stem an even share of the file, a made-up melody).
+  const { id } = await (await page.request.post("/api/projects", { data: { suite: "music", name: "Stems" } })).json();
+  const file = path.resolve("e2e/.data/stems-song.wav");
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await writeWav(file, Array.from({ length: 4 * 44100 }, (_, i) => Math.sin(i / 8) * 0.5), 44100);
+  const asset = await (await page.request.post("/api/media/import-file", { data: { projectId: id, path: file } })).json();
+  const song = await savedSong(page, id);
+  song.settings.tempo = 120;
+  song.channels.push({ id: "chan_song", name: "Song", kind: "audio", sampleId: asset.id });
+  song.playlist.clips = [{ id: 1, kind: "audio", ref: "chan_song", track: 0, start: 0, length: 2 * BAR_TICKS, offset: 0, muted: false }];
+  expect((await page.request.put(`/api/projects/${id}`, { data: song })).ok()).toBe(true);
+  await page.goto(`/p/${id}`);
+  await expect(page.getByTestId("playlist")).toBeVisible();
+  await page.getByRole("button", { name: "Close Channel rack" }).click();
+  const box = (await page.getByTestId("playlist-grid").boundingBox())!;
+  const clipMenu = async () => {
+    await page.mouse.click(box.x + 10, box.y + 6);
+    return page.getByTestId("clip-menu");
+  };
+
+  // Extract stems…: four ticked (FL's), Guitar added; Other then holds the piano alone.
+  await (await clipMenu()).getByRole("menuitem", { name: "Extract stems…" }).click();
+  const stems = page.getByTestId("stems-window");
+  await expect(stems).toBeVisible();
+  for (const name of ["Vocals", "Drums", "Bass", "Other"]) await expect(stems.getByRole("button", { name, exact: true })).toHaveAttribute("aria-pressed", "true");
+  await stems.getByRole("button", { name: "Guitar", exact: true }).click();
+  await expect(stems).toContainText("Other holds the piano too.");
+  await stems.getByRole("button", { name: "Extract", exact: true }).click();
+  await expect(stems).toBeHidden();
+  const stemNames = ["Song - Vocals", "Song - Drums", "Song - Bass", "Song - Guitar", "Song - Other"];
+  await expect.poll(async () => (await savedSong(page, id)).channels.filter((c: { kind: string }) => c.kind === "audio").map((c: { name: string }) => c.name), { timeout: 30_000 }).toEqual(["Song", ...stemNames]);
+  const placed = await savedSong(page, id);
+  // Under the clip, lined up with it, on tracks named after them; the clip muted.
+  expect(placed.playlist.clips.map((c: SavedClip) => [c.track, c.start, c.length, c.muted])).toEqual([[0, 0, 2 * BAR_TICKS, true], ...[1, 2, 3, 4, 5].map((t) => [t, 0, 2 * BAR_TICKS, false])]);
+  expect(placed.playlist.tracks.slice(1, 6).map((t: { name: string | null }) => t.name)).toEqual(["Vocals", "Drums", "Bass", "Guitar", "Other"]);
+  // Into the master: mixing them is the user's.
+  expect(placed.channels.filter((c: { name: string }) => stemNames.includes(c.name)).every((c: { mixerTrack: string }) => c.mixerTrack === "master")).toBe(true);
+  // One undo step takes it all back.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedClips(page, id)).map((c) => [c.track, c.muted])).toEqual([[0, false]]);
+
+  // Convert to notes…: the made-up melody heard (a note every half second), drawn, then made a pattern under the clip.
+  await (await clipMenu()).getByRole("menuitem", { name: "Convert to notes…" }).click();
+  const convert = page.getByTestId("convert-window");
+  await expect(convert).toBeVisible();
+  await expect(convert.getByTestId("convert-summary")).toHaveText("8 notes, C4 to G4", { timeout: 15_000 });
+  // Drums hears no hits in a sine.
+  await convert.getByRole("radio", { name: "Drums" }).click();
+  await expect(convert.getByTestId("convert-summary")).toHaveText("0 kicks, 0 snares, 0 hats");
+  await convert.getByRole("radio", { name: "Melodic" }).click();
+  await convert.getByRole("button", { name: "Convert", exact: true }).click();
+  await expect(convert).toBeHidden();
+  await expect.poll(async () => (await savedSong(page, id)).patterns.map((p: { name: string }) => p.name), { timeout: 15_000 }).toContain("Song notes");
+  const converted = await savedSong(page, id);
+  const pattern = converted.patterns.find((p: { name: string }) => p.name === "Song notes");
+  const sampler = converted.channels.find((c: { name: string; sampleId: string | null }) => c.name === "Song notes");
+  // A sampler (the kit's tone): replace it with any instrument.
+  expect(sampler).toMatchObject({ kind: "sampler" });
+  expect(converted.channels.some((c: { kind: string; sampleId: string | null }) => c.kind === "audio" && c.sampleId === sampler.sampleId)).toBe(false);
+  const notes = pattern.notes[sampler.id] as { start: number; pitch: number }[];
+  expect(notes.map((n) => [n.start, n.pitch])).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((k) => [k * 96, [60, 64, 67][k % 3]]));
+  expect(converted.playlist.clips.find((c: SavedClip) => c.kind === "pattern")).toMatchObject({ ref: pattern.id, track: 1, start: 0, length: 2 * BAR_TICKS });
+  // The Piano roll shows it.
+  await expect(page.getByTestId("piano-roll")).toBeVisible();
+
+  // The assistant: stems from the channel's file (under each of its clips), and its drums as notes.
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(['call extract_stems {"audio": "Song", "stems": ["vocals", "other"], "mute": false}', 'call convert_to_notes {"clip": 1, "kind": "melodic", "quantize": 2}'].join("\n"));
+  await composer.press("Enter");
+  await expect(panel).toContainText("extract_stems: ok, convert_to_notes: ok", { timeout: 30_000 });
+  await expect.poll(async () => (await savedSong(page, id)).patterns.filter((p: { name: string }) => p.name === "Song notes").length).toBe(2);
+  const assisted = await savedSong(page, id);
+  expect(assisted.channels.filter((c: { name: string }) => c.name === "Song - Vocals" || c.name === "Song - Other")).toHaveLength(2);
+  expect(assisted.playlist.clips.find((c: SavedClip) => c.id === 1)!.muted).toBe(false);
+  const second = assisted.patterns.filter((p: { name: string }) => p.name === "Song notes").at(-1);
+  const eighths = Object.values(second.notes as Record<string, { start: number }[]>)[0].map((n) => n.start % 48);
+  expect(eighths.every((r) => r === 0)).toBe(true);
+});

@@ -14,7 +14,7 @@ import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
-import { GALLERY_DL, MODELS_DIR, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, config } from "./config.ts";
+import { GALLERY_DL, MODELS_DIR, MUSIC_MODELS, MUSIC_WORKER, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, config } from "./config.ts";
 import { photoModels } from "./photo/models.ts";
 import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
@@ -26,7 +26,10 @@ import { AudioEngine, type EngineOptions } from "./music/engine.ts";
 import { SampleBrowser } from "./music/browser.ts";
 import { type MusicExportOptions, MusicExports } from "./music/exports.ts";
 import { SongVisualizers } from "./music/visualizer.ts";
-import { browserRoutes, engineRoutes, musicExportRoutes, musicVisualizerRoutes } from "./music/routes.ts";
+import { NoteHearing } from "./music/hearing.ts";
+import { musicModels } from "./music/ml.ts";
+import { browserRoutes, engineRoutes, musicExportRoutes, musicModelRoutes, musicVisualizerRoutes, noteRoutes, stemRoutes } from "./music/routes.ts";
+import { StemSeparator } from "./music/stems.ts";
 import { mixerSetupRoutes } from "./music/mixer-setup.ts";
 import { PhotoHelper } from "./photo/helper.ts";
 import { PhotoLab } from "./photo/lab.ts";
@@ -171,6 +174,20 @@ export async function createApp({
     handoff: (handoff, options) => projects.createFromHandoff("video", handoff, options),
   });
 
+  // Extract stems and Convert to notes: models run on this computer, in a process of their own.
+  const musicModelSet = musicModels(MODELS_DIR, MUSIC_MODELS === "stand-in");
+  const ml = { worker: MUSIC_WORKER, models: musicModelSet, standIn: MUSIC_MODELS === "stand-in", samplePath: engineOptions?.samplePath ?? samplePath, tmpFile: (suffix: string) => paths.tmpFile(suffix) };
+  const stems = new StemSeparator({
+    ...ml,
+    mediaName: (projectId, mediaId) => {
+      const asset = library.find(mediaId);
+      return asset && asset.projectId === projectId ? asset.name : null;
+    },
+    find: (projectId, origin) => library.list(projectId).find((a) => a.origin === origin),
+    adopt: adoptTake,
+  });
+  const hearing = new NoteHearing(ml);
+
   audioIntelligence = new AudioIntelligence({ root: path.join(paths.root, "audio-intelligence"), engine,
     projectDir: id => projects.dir(id), samplePath: engineOptions?.samplePath ?? samplePath,
     isMusicProject: id => projects.suiteOf(id) === "music" });
@@ -242,6 +259,9 @@ export async function createApp({
   app.use("/api/music/audio", audioIntelligenceRoutes(audioIntelligence));
   app.use("/api/music/exports", musicExportRoutes(musicExports));
   app.use("/api/music/visualizer", musicVisualizerRoutes(visualizers));
+  app.use("/api/music/models", musicModelRoutes(musicModelSet));
+  app.use("/api/music/stems", stemRoutes(stems));
+  app.use("/api/music/notes", noteRoutes(hearing));
   app.use("/api/photo/lab", photoLabRoutes(photoLab));
   app.use("/api/photo", photoRoutes(photo, photoModels(MODELS_DIR, PHOTO_MODELS === "stand-in"), photoOnline));
   const mixerKeys = new ApiKeyStore(path.join(paths.root, "music-jev-settings.json"));
@@ -342,6 +362,7 @@ export async function createApp({
       audioIntelligence.shutdown();
       musicExports.shutdown();
       visualizers.shutdown();
+      stems.shutdown();
       engine.shutdown();
       browser.close();
     },

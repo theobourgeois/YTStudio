@@ -70,6 +70,8 @@ import { MIN_RACK_STEPS, type RackGroup, inRackGroup, selectInRack, selectedIn, 
 import { usePlaylist } from "./playlist/store";
 import { TrackSelector } from "./mixer/track-selector";
 import { MusicWindow } from "./window";
+import { openConvert } from "./convert/actions";
+import { openExtractStems } from "./stems/actions";
 
 /** A step's width and the gaps between steps and between beats (px): the lights, rows and graph share them. */
 const STEP_W = 14;
@@ -787,6 +789,17 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
               <ContextMenuItem inset disabled={silent} onSelect={() => useTransport.getState().audition(id)}>
                 Hear it <ContextMenuShortcut>⌘click</ContextMenuShortcut>
               </ContextMenuItem>
+              {/* Its file split into stems (under each of its clips), or heard as notes (docs/fl-studio/stems-and-notes.md). */}
+              {!isPlugin && (
+                <ContextMenuItem inset disabled={!channel.sampleId} onSelect={() => setTimeout(() => openExtractStems({ channelId: id, clipId: null }))}>
+                  Extract stems…
+                </ContextMenuItem>
+              )}
+              {!isPlugin && (
+                <ContextMenuItem inset disabled={!channel.sampleId} onSelect={() => setTimeout(() => openConvert({ channelId: id, clipId: null }))}>
+                  Convert to notes…
+                </ContextMenuItem>
+              )}
             </ContextMenuCell>
             <ContextMenuCell>
               {[2, 4, 8].map((every) => (

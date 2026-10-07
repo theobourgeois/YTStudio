@@ -176,12 +176,13 @@ pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/Vaudio.app, then 
 pnpm test:desktop:music # macOS: real clicks between the music windows and Serum's (or the test synth's): stacking, focus, app switching; needs Accessibility access and an unlocked screen
 pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build; needs cmake + ninja (brew)
 pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
-pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit into public/kit/
+pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit (and Convert to notes' tone) into public/kit/
 pnpm tsx scripts/make-audio-fixtures.ts [--out dir]   # the audio-intelligence fixtures as WAVs + a manifest (tests render them in memory)
 pnpm tsx scripts/photo-fixtures.ts [--skip-large]   # the photo suite's test images (48/100 MP, P3, 16-bit, alpha, EXIF) into data/photo-fixtures
 pnpm tsx scripts/photo-bench.ts [--runner chrome|electron] [--quick] [--lab [--tiles 256,512]] [--shots dir]   # the photo suite's targets, measured in the workspace (--lab: F0's lab)
 pnpm tsx scripts/select-mixparams.ts   # MixParams' reviewed reference subset into the gitignored data/ (docs/audio-intelligence/)
 python3 scripts/audit-cl1b.py <Dataset.zip> --out <report.json>   # CL 1B's layout, read statically: never unpickles
+.venv/bin/python -I scripts/basic-pitch-fixtures.py shared/music/transcribe-fixtures.json   # Basic Pitch's own note picking (pip install basic-pitch)
 python3 scripts/photoshop-probes/<probe>.py   # measure a real Photoshop (macOS, installed): docs/photo/layer-style/photoshop-measurements.md
 ```
 
@@ -901,6 +902,18 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   "verb"` per `REVERB_LANES`). Its displays' measurements come in each transport event (`EngineTransport.reverbs`,
   for the windows `verbWatch` names); Freeze held, Kill and the audition click are live (`verb`). Its look is
   `--verb-*`.
+- **Extract stems and Convert to notes** (`docs/fl-studio/stems-and-notes.md`; an audio clip's menu, an audio
+  channel's in the rack, `extract_stems` / `convert_to_notes`): models run on this computer, downloaded once when the
+  user says yes (`shared/music/models.ts`, on the platform's `shared/models.ts` + `server/models.ts`, which the photo
+  suite's use too). **The server runs them**, a job a process (`server/music/ml-worker.mjs`, ONNX Runtime's native
+  build; the desktop app ships it bundled with the library beside it); `server/music/stems.ts` splits a file with
+  HTDemucs into stems that become the project's media (reused by `origin`), `server/music/hearing.ts` gives Basic
+  Pitch's activations and drum measurements once a file. **Picking notes is the tab's** (`shared/music/transcribe.ts`:
+  `pickNotes` is Basic Pitch's own note creation, held to its Python's output by `transcribe-fixtures.json`; change
+  both or neither), so the window's settings answer at once; `shared/music/stems.ts` (`placeStems`) and `convert.ts`
+  (`convertedParts`, `addConvertedPattern`) are the edits, one undo step each. Stems play into the master and the
+  original clip is muted; notes go on a plain sampler (the kit's `tone.wav`) to be replaced. e2e sets
+  `EDITOR_MUSIC_MODELS=stand-in`; `ml-worker.integration.test.ts` runs the real models once they're downloaded.
 - **Resampling** (`engine/src/Resampling.h`; Settings' Quality): how samplers and audio clips read between
   samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).
