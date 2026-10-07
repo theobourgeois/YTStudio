@@ -70,7 +70,7 @@ export function displaySeconds(mode: ProLDisplayMode, kept: number): number {
  */
 export function headFraction(mode: ProLDisplayMode, shownSeconds: number, measuredSeconds: number): number {
   if (mode !== "slowDown" && mode !== "infinite") return 1;
-  return clamp(measuredSeconds / Math.max(1e-6, shownSeconds), 0.02, 1);
+  return clamp(measuredSeconds / Math.max(1e-6, shownSeconds), 0, 1);
 }
 
 // ---------------------------------------------------------------------------

@@ -19,8 +19,6 @@ export interface LimHistory {
   /** When column `anchorN` was (`performance.now()` ms): columns are timed from it, `step` apart, so the display scrolls evenly. */
   anchorN: number;
   anchorAt: number;
-  /** Seconds of columns since the display was cleared (Slow Down fills until it's full). */
-  filled: number;
   /** What it said last (the meters), and when (ms). */
   latest: EngineProLState;
   at: number;
@@ -40,8 +38,7 @@ export function mergeColumns(history: LimHistory | undefined, state: EngineProLS
     anchorN = last;
     anchorAt = now;
   }
-  const filled = (same ? history.filled : 0) + state.columns.length * state.step;
-  return { columns: kept, last, step: state.step, anchorN, anchorAt, filled, latest: state, at: now };
+  return { columns: kept, last, step: state.step, anchorN, anchorAt, latest: state, at: now };
 }
 
 /** When column `n` was (`performance.now()` ms). */
@@ -73,5 +70,5 @@ export const limReading = (effectId: string) => readings.get(effectId) ?? null;
 /** The display starts again (the meter's reset: Slow Down and Infinite fill from empty). */
 export function clearLimHistory(effectId: string) {
   const history = histories.get(effectId);
-  if (history) histories.set(effectId, { ...history, columns: [], filled: 0 });
+  if (history) histories.set(effectId, { ...history, columns: [] });
 }
