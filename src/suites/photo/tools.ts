@@ -25,7 +25,7 @@ import { allStyles, findStyle, materialise, newStyle, styleEdit, useStyles } fro
 import { addPattern, describeStyle, stylePatterns } from "@shared/photo/style/style";
 import { currentDoc, currentSelection } from "./store";
 import { applySelection, quickSelectionResult, selectActions, startQuickSelection, wandAt } from "./selecting";
-import { selectSubject } from "./subject-model";
+import { selectObject, selectSubject } from "./subject-model";
 import { FILL_LAYER_NAME, contentAwareFill } from "./content-aware-fill";
 import { usePhoto } from "./store";
 import {
@@ -354,16 +354,8 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
   },
   async select_quick(input) {
     const doc = openDoc();
-    const strokes = (Array.isArray(input.strokes) ? input.strokes : []).map((stroke, i) => {
-      if (!Array.isArray(stroke) || stroke.length === 0) throw new Error(`strokes[${i}] must be a list of [x, y] points.`);
-      return stroke.map((p, j) => {
-        if (!Array.isArray(p) || p.length !== 2 || !p.every((v) => typeof v === "number" && Number.isFinite(v))) throw new Error(`strokes[${i}][${j}] must be [x, y] in canvas pixels.`);
-        return { x: p[0] as number, y: p[1] as number };
-      });
-    });
-    if (!strokes.length) throw new Error("Give at least one stroke: [[[x, y], …]].");
-    const size = input.size === undefined ? 30 : n(input.size, "size");
-    if (size < 1 || size > 2500) throw new Error("size must be 1..2500 pixels.");
+    const strokes = strokesOf(input.strokes);
+    const size = brushSizeOf(input.size, 30);
     const mode: SelectionMode = input.mode === "new" || input.mode === "subtract" ? input.mode : currentSelection() ? "add" : "new";
     const session = await startQuickSelection(doc, mode, size / 2, input.sample_all_layers !== false);
     for (const stroke of strokes) session.q.paint(dabsAlong(stroke.map((p) => ({ x: p.x * session.scale, y: p.y * session.scale })), Math.max(0.75, (size / 2) * session.scale)));
@@ -371,6 +363,15 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     const result = quickSelectionResult(session, false);
     if (result === undefined) return textResult(`Nothing changed: the strokes were all ${mode === "subtract" ? "outside" : "inside"} the selection already. Selection: ${selectionText()}.`);
     usePhoto.getState().select(result);
+    return selectionResult(mode);
+  },
+  async select_object(input) {
+    openDoc();
+    const strokes = strokesOf(input.strokes);
+    const size = brushSizeOf(input.size, 120);
+    const mode = selectionMode(input.mode);
+    const shape = await selectObject(strokes, size, mode, input.sample_all_layers !== false);
+    if (!shape) return textResult(`Nothing was found under the strokes (or they're off the canvas): paint over more of the thing you mean. Selection: ${selectionText()}.`);
     return selectionResult(mode);
   },
   async select_subject(input) {
@@ -523,6 +524,26 @@ function openDoc(): PhotoProject {
 function n(v: unknown, name: string): number {
   if (typeof v !== "number" || !Number.isFinite(v)) throw new Error(`Give ${name} as a number (canvas pixels).`);
   return v;
+}
+
+/** Brush strokes the model gave ([[[x, y], …], …], canvas pixels), or a message saying what's wanted. */
+function strokesOf(v: unknown): { x: number; y: number }[][] {
+  const strokes = (Array.isArray(v) ? v : []).map((stroke, i) => {
+    if (!Array.isArray(stroke) || stroke.length === 0) throw new Error(`strokes[${i}] must be a list of [x, y] points.`);
+    return stroke.map((p, j) => {
+      if (!Array.isArray(p) || p.length !== 2 || !p.every((c) => typeof c === "number" && Number.isFinite(c))) throw new Error(`strokes[${i}][${j}] must be [x, y] in canvas pixels.`);
+      return { x: p[0] as number, y: p[1] as number };
+    });
+  });
+  if (!strokes.length) throw new Error("Give at least one stroke: [[[x, y], …]].");
+  return strokes;
+}
+
+/** A brush's diameter the model gave (`fallback` when it gave none). */
+function brushSizeOf(v: unknown, fallback: number): number {
+  const size = v === undefined ? fallback : n(v, "size");
+  if (size < 1 || size > 2500) throw new Error("size must be 1..2500 pixels.");
+  return size;
 }
 
 function selectionMode(v: unknown): SelectionMode {

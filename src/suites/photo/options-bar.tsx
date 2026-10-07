@@ -2,7 +2,7 @@
  * The tool options bar (ux.md, "Workspace": it follows the active tool), in the header: the Brush's and the
  * Eraser's size, hardness and strength (the colours are every tool's, at the foot of the tool strip), and the
  * selection tools' (docs/photo/selections.md: the mode, Feather, Anti-alias, the Magic Wand's Tolerance, Sample Size,
- * Contiguous and Sample All Layers, Quick Selection's size and Auto-Enhance, Select Subject). And the question a
+ * Contiguous and Sample All Layers, Quick and Object Selection's size, Auto-Enhance, Select Subject). And the question a
  * brush asks over an image layer (ux.md: never rasterised silently).
  */
 import { cn } from "cn";
@@ -87,6 +87,7 @@ function SelectionOptionsBar({ tool }: { tool: PhotoTool }) {
   const running = useSubjectModel((s) => s.running);
   const wand = tool === "magicWand";
   const quick = tool === "quickSelect";
+  const object = tool === "objectSelect";
   // Quick Selection only adds and takes away.
   const modes = quick ? MODES.slice(0, 3) : MODES;
   return (
@@ -104,7 +105,8 @@ function SelectionOptionsBar({ tool }: { tool: PhotoTool }) {
         ))}
       </div>
       {quick && <Scrub label="Size" value={o.quickSize} display={QUICK_SIZE} onChange={(v) => set({ quickSize: v })} />}
-      {!wand && !quick && <Scrub label="Feather" value={o.feather} display={FEATHER} onChange={(v) => set({ feather: v })} />}
+      {object && <Scrub label="Size" value={o.objectSize} display={QUICK_SIZE} onChange={(v) => set({ objectSize: v })} />}
+      {!wand && !quick && !object && <Scrub label="Feather" value={o.feather} display={FEATHER} onChange={(v) => set({ feather: v })} />}
       {wand && (
         <span className="flex items-center gap-1" data-option="Sample Size">
           <span className="text-muted-foreground">Sample</span>
@@ -123,11 +125,11 @@ function SelectionOptionsBar({ tool }: { tool: PhotoTool }) {
         </span>
       )}
       {wand && <Scrub label="Tolerance" value={o.tolerance} display={TOLERANCE} onChange={(v) => set({ tolerance: v })} />}
-      {tool !== "marquee" && !quick && <Toggle label="Anti-alias" checked={o.antiAlias} onChange={(antiAlias) => set({ antiAlias })} />}
+      {tool !== "marquee" && !quick && !object && <Toggle label="Anti-alias" checked={o.antiAlias} onChange={(antiAlias) => set({ antiAlias })} />}
       {wand && <Toggle label="Contiguous" checked={o.contiguous} onChange={(contiguous) => set({ contiguous })} />}
-      {(wand || quick) && <Toggle label="All Layers" title="Sample All Layers: read the photo as it shows (else the active layer alone)" checked={o.sampleAll} onChange={(sampleAll) => set({ sampleAll })} />}
+      {(wand || quick || object) && <Toggle label="All Layers" title="Sample All Layers: read the photo as it shows (else the active layer alone)" checked={o.sampleAll} onChange={(sampleAll) => set({ sampleAll })} />}
       {quick && <Toggle label="Auto-Enhance" checked={o.autoEnhance} onChange={(autoEnhance) => set({ autoEnhance })} />}
-      {(wand || quick) && (
+      {(wand || quick || object) && (
         <Button size="sm" variant="outline" disabled={running} onClick={() => void runSelectSubject(o.mode)} title="Select Subject" data-select-subject-button>
           <PiUserFocus /> Subject
         </Button>

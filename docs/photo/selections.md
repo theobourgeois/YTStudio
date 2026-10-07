@@ -1,7 +1,7 @@
 # Selections
 
-The photo suite's selection tools, Photoshop's: the Marquees (M), the Lassos (L), Quick Selection and the Magic Wand
-(W), Select Subject, and what's done to a selection (modes, Inverse, Feather, the right-click menu). Researched
+The photo suite's selection tools, Photoshop's: the Marquees (M), the Lassos (L), Object Selection, Quick Selection
+and the Magic Wand (W), Select Subject, and what's done to a selection (modes, Inverse, Feather, the right-click menu). Researched
 2026-10-06; this is what's built and why.
 
 ## What Photoshop does
@@ -25,6 +25,9 @@ The photo suite's selection tools, Photoshop's: the Marquees (M), the Lassos (L)
   Select Subject.
 - **Select Subject** (Select › Subject, and a button in the W tools' options bar): a model finds the photo's main
   subject. Photoshop runs it in the cloud or on the device.
+- **Object Selection**: Photoshop's draws a rectangle or a lasso around a thing and a model selects the thing inside.
+  Ours is painted instead, as Lightroom's and Camera Raw's Select Objects brush is (Théo's call, 2026-10-07): a big
+  round brush paints over the thing in translucent red, and when it's let go the thing is selected.
 - **Select menu**: All (⌘A), Deselect (⌘D), Inverse (⇧⌘I), Subject, Modify › Feather (⇧F6).
 - **Right-click on the canvas with a selection tool**: Deselect, Select Inverse, Feather…, Select and Mask…, Layer via
   Copy, Layer via Cut, Fill…, Stroke…, and with no selection Select All.
@@ -67,6 +70,15 @@ turns megabytes of mask into JSON. The pure maths:
   working ones (its edge as soft as a working pixel; Auto-Enhance smooths it more). The paper's adaptive band
   upsampling, its multi-core cut and its viewport-sized local window when zoomed in aren't built.
 - `subject.ts`: Select Subject's model and what's around it (below).
+- `object-select.ts`: the Object Selection tool. The model is shown only the strokes' bounds grown by a quarter of
+  their longer side (`objectBox`: a stroke needn't cover the whole thing), read from the photo at enough detail for
+  that part alone, so the thing fills the model's 1024 × 1024. Of its answer, the parts over one half certain are
+  joined into things (8 neighbours), and a thing is kept when the strokes (on the model's grid, `paintedGrid`) cover
+  30% of it, or 15% of the strokes lie on it, or it's the one they lie on most; their soft rims come with them
+  (`objectProbabilities`). So a big brush spilling onto a neighbour doesn't take it, and painting two things takes
+  both. It's Select Subject's model (IS-Net) for now: it can only say what stands out in the part it's shown, so two
+  things of equal weight there, or a thing joined to another in its answer (a cat lying on a deck), come together. A
+  prompted model (SAM, the strokes as its box and points) is next.
 - `pixel-sample.ts`: what the tools look at: the photo as it shows, or the active layer alone (its pixels and filters,
   without its style or blending), rendered by the tab's renderer through the output transform into 8-bit sRGB with
   straight alpha (`PhotoRenderer.samplePixels`), at most 4096 pixels a side (a phone's 12 MP photo is read whole),
@@ -114,19 +126,21 @@ Chosen: **IS-Net general use, fp16** (`imgly/isnet-general-onnx`, `onnx/model_fp
 ## The assistant
 
 `select_rect` (now also an ellipse, a mode, feather), `select_polygon` (the lasso), `select_magic_wand`,
-`select_quick` (strokes), `select_subject`, `modify_selection` (invert, feather), and `view_photo`'s
+`select_quick` (strokes), `select_object` (strokes over a thing), `select_subject`, `modify_selection` (invert, feather), and `view_photo`'s
 `show_selection` (Photoshop's Quick Mask: red over what isn't selected), since the model can't see ants. A selection
 is described by its box and how much it covers.
 
 ## Where we still differ
 
-- No Magnetic Lasso, Object Selection tool (a prompted model: SAM), Select and Mask (edge refinement, decontaminate
+- No Magnetic Lasso, Select and Mask (edge refinement, decontaminate
   colours), Color Range, Focus Area, Save/Load Selection, Quick Mask mode, Transform Selection, or moving the
   selection's outline by dragging inside it.
 - Quick Selection works on the photo reduced for big brushes, and its first cut on the whole photo reduced: a part
   thinner than a few pixels of that may be missed until a smaller brush paints it.
 - The Polygonal Lasso doesn't snap its sides to 45° with Shift, and Alt doesn't switch a Lasso drag to polygonal.
 - Select Subject has no cloud or "detailed" mode; hair is as fine as IS-Net at 1024 × 1024 gives.
+- Object Selection is painted, not a rectangle or a lasso, and has no Object Finder (Photoshop's hover that outlines
+  each thing before a click). Its model is IS-Net, not a prompted one (SAM) yet: see `object-select.ts` above.
 
 ## Sources
 

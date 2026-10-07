@@ -1,6 +1,6 @@
 /**
  * Tools that share a place in the strip and a key, Photoshop's way (ux.md, "Keys"): the Marquees (M), the Lassos (L),
- * Quick Selection and the Magic Wand (W), the Erasers (E), the Gradient and the Paint Bucket (G), Dodge, Burn and
+ * Object Selection, Quick Selection and the Magic Wand (W), the Erasers (E), the Gradient and the Paint Bucket (G), Dodge, Burn and
  * Sponge (O), the shapes: Rectangle, Ellipse, Line and Arrow (U). Shift + the key steps through a group; a right-click on its button lists it. Pure, so it's tested.
  */
 
@@ -11,6 +11,7 @@ export type PhotoTool =
   | "ellipse"
   | "lasso"
   | "polygonLasso"
+  | "objectSelect"
   | "quickSelect"
   | "magicWand"
   | "crop"
@@ -37,7 +38,7 @@ export type ToolGroup = "marquee" | "lasso" | "wand" | "eraser" | "fill" | "toni
 export const TOOL_GROUPS: Record<ToolGroup, readonly PhotoTool[]> = {
   marquee: ["marquee", "ellipse"],
   lasso: ["lasso", "polygonLasso"],
-  wand: ["quickSelect", "magicWand"],
+  wand: ["objectSelect", "quickSelect", "magicWand"],
   eraser: ["eraser", "backgroundEraser", "magicEraser"],
   fill: ["gradient", "paintBucket"],
   toning: ["dodge", "burn", "sponge"],
