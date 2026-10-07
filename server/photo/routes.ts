@@ -4,7 +4,7 @@ import type { ExportRequest, TileSize } from "../../shared/photo/lab.ts";
 import { HttpError } from "../storage.ts";
 import { MAX_TILE_BYTES } from "./blobs.ts";
 import type { PhotoLab } from "./lab.ts";
-import type { SubjectModel } from "./models.ts";
+import type { ModelFile } from "./models.ts";
 import type { PhotoOnline } from "./online.ts";
 import type { ExportStart, PhotoService } from "./service.ts";
 
@@ -103,8 +103,16 @@ export function photoLabRoutes(lab: PhotoLab): Router {
   return router;
 }
 
-/** `/api/photo`: the photo suite's own routes (a project's decoded images, exports, Select Subject's model). */
-export function photoRoutes(photo: PhotoService, subject: SubjectModel, online: PhotoOnline): Router {
+/** The photo suite's models, by the name in their routes. */
+export interface PhotoModels {
+  /** Select Subject's (and the scene maps' subject). */
+  subject: ModelFile;
+  /** The scene maps' depth. */
+  depth: ModelFile;
+}
+
+/** `/api/photo`: the photo suite's own routes (a project's decoded images, exports, its models). */
+export function photoRoutes(photo: PhotoService, models: PhotoModels, online: PhotoOnline): Router {
   const router = Router();
   // Paths are the server's own (a data folder can be a dot-folder: e2e's is e2e/.data).
   const immutable = { headers: { "Cache-Control": "no-cache" }, dotfiles: "allow" as const };
@@ -190,18 +198,23 @@ export function photoRoutes(photo: PhotoService, subject: SubjectModel, online: 
     res.status(201).json(await online.place(req.params.projectId, req.body));
   });
 
-  // Select Subject's model: whether it's here, its download (asked for by the user), the file.
-  router.get("/models/subject", async (_req, res) => {
+  // The models (subject, depth): whether each is here, its download (asked for by the user), the file.
+  const model = (name: string): ModelFile => {
+    if (name !== "subject" && name !== "depth") throw new HttpError(404, `No model "${name}": there are "subject" and "depth".`);
+    return models[name];
+  };
+  router.get("/models/:name", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
-    res.json(await subject.status());
+    res.json(await model(req.params.name).status());
   });
-  router.post("/models/subject/setup", async (_req, res) => {
-    await subject.setUp();
-    res.status(202).json(await subject.status());
+  router.post("/models/:name/setup", async (req, res) => {
+    const m = model(req.params.name);
+    await m.setUp();
+    res.status(202).json(await m.status());
   });
-  router.get("/models/subject/file", async (_req, res, next) => {
-    const file = await subject.file();
-    if (!file) throw new HttpError(404, "The subject model isn't downloaded: POST /api/photo/models/subject/setup first.");
+  router.get("/models/:name/file", async (req, res, next) => {
+    const file = await model(req.params.name).file();
+    if (!file) throw new HttpError(404, `The ${req.params.name} model isn't downloaded: POST /api/photo/models/${req.params.name}/setup first.`);
     res.sendFile(file, { headers: { "Cache-Control": "no-cache" }, dotfiles: "allow" }, (error) => error && next(error));
   });
 

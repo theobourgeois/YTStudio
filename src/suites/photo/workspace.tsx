@@ -46,6 +46,7 @@ import { editActions, hasPhotoClipboard } from "./edit-actions";
 import { PaintChoiceDialog, ToolOptions } from "./options-bar";
 import { TOOLBOX } from "./toolbox";
 import { FeatherDialog, SelectMenu, SubjectModelDialog, useFeather } from "./select-commands";
+import { SceneModelDialog } from "./scene-model-dialog";
 import { selectActions, useSelectOptions } from "./selecting";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { AssistantButton } from "@/components/assistant/assistant-button";
@@ -153,6 +154,7 @@ export default function PhotoWorkspace() {
       <PaintChoiceDialog />
       <FeatherDialog />
       <SubjectModelDialog />
+      <SceneModelDialog />
     </div>
   );
 }

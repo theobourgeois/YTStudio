@@ -7,6 +7,7 @@ import { addAdjustmentLayer, addFilter, addGeneratorLayer, setEffectParams, setF
 import { type View, fitView, zoomAbout } from "@shared/photo/geometry";
 import { identityCurveSet } from "@shared/photo/effects/params";
 import { analysisOf } from "@shared/photo/effects/camera-raw/develop";
+import { sceneOf } from "@shared/photo/scene";
 import { useProjects } from "@/stores/projects";
 import { canvasDriver } from "./canvas/canvas-panel";
 import { liveRenderer } from "./live";
@@ -590,6 +591,21 @@ export async function cameraRawAnalysis(doc: PhotoProject, layerId: string, filt
       node.kind === "adjustment" ? (node.layerId === layerId && filterId === null ? node.params : null) : node.layerId === layerId ? (node.filters.find((f) => f.id === filterId)?.params ?? null) : null;
     const analysis = params ? analysisOf(params) : null;
     if (analysis) return { ...analysis, grid: Array.from(analysis.grid), colour: Array.from(analysis.colour) };
+  }
+  return null;
+}
+
+/**
+ * A filter's scene maps in `doc` (photo-sheet.ts holds the GPU to the CPU reference with them): the ones the renderer
+ * draws with, built if they aren't there; their maps as plain arrays.
+ */
+export async function sceneMaps(doc: PhotoProject, layerId: string, filterId: string) {
+  const r = await renderer();
+  const plan = await r.settledPlan(doc);
+  for (const node of plan.nodes) {
+    if (node.kind === "adjustment" || node.layerId !== layerId) continue;
+    const maps = sceneOf(node.filters.find((f) => f.id === filterId)?.params ?? {});
+    if (maps) return { ...maps, depth: maps.depth && Array.from(maps.depth), subject: maps.subject && Array.from(maps.subject) };
   }
   return null;
 }

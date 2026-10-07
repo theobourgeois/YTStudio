@@ -6,6 +6,8 @@ import { EDGES_KERNELS } from "./edges.ts";
 import { GLITCH_KERNELS } from "./glitch.ts";
 import { FILM_KERNELS } from "./film.ts";
 import { DISTORT_KERNELS } from "./distort.ts";
+import { DEPTH_KERNELS } from "./depth.ts";
+import { SUBJECT_KERNELS } from "./subject.ts";
 import { WIND_KERNELS } from "./wind.ts";
 import { WARP_KERNELS } from "./warp.ts";
 import { GLASS_KERNELS } from "./glass.ts";
@@ -18,4 +20,4 @@ import { EXTRUDE_KERNELS } from "./extrude.ts";
 import type { FilterKernel } from "../kernel.ts";
 import { CAMERA_RAW_FILTER } from "../camera-raw.ts";
 
-export const FILTER_KERNELS: Record<string, FilterKernel> = { ...COLOUR_KERNELS, ...LIGHT_KERNELS, ...STYLIZE_KERNELS, ...EDGES_KERNELS, ...GLITCH_KERNELS, ...FILM_KERNELS, ...DISTORT_KERNELS, ...WIND_KERNELS, ...WARP_KERNELS, ...GLASS_KERNELS, ...SURFACE_KERNELS, ...CELLS_KERNELS, ...PAINT_KERNELS, ...PRINT_KERNELS, ...CRT_KERNELS, ...EXTRUDE_KERNELS, "camera-raw": CAMERA_RAW_FILTER };
+export const FILTER_KERNELS: Record<string, FilterKernel> = { ...COLOUR_KERNELS, ...LIGHT_KERNELS, ...STYLIZE_KERNELS, ...EDGES_KERNELS, ...GLITCH_KERNELS, ...FILM_KERNELS, ...DISTORT_KERNELS, ...DEPTH_KERNELS, ...SUBJECT_KERNELS, ...WIND_KERNELS, ...WARP_KERNELS, ...GLASS_KERNELS, ...SURFACE_KERNELS, ...CELLS_KERNELS, ...PAINT_KERNELS, ...PRINT_KERNELS, ...CRT_KERNELS, ...EXTRUDE_KERNELS, "camera-raw": CAMERA_RAW_FILTER };

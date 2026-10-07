@@ -8,6 +8,8 @@ import { linearToSrgb, srgbToLinear } from "../colour.ts";
 import type { EffectParamValue } from "../types.ts";
 import { hash2 } from "../output.ts";
 import type { FloatImage } from "./glow.ts";
+import { applyToCode } from "../effects/kernel.ts";
+import { SCENE_PARAM, type SceneMaps, sceneAt } from "../scene.ts";
 
 export type Pixel = [number, number, number, number];
 export type Rgb = [number, number, number];
@@ -19,6 +21,11 @@ export interface KernelEnv {
   src: (x: number, y: number) => Pixel;
   /** Document pixels per pixel evaluated (1 at full resolution): what edges are smoothed over. */
   px: number;
+  /**
+   * The picture's scene maps at a document point (`../scene.ts`): [depth (1 the nearest), subject (0..1)], 0 where the
+   * filter reads none. WGSL's `scene_at`.
+   */
+  scene: (x: number, y: number) => [number, number];
 }
 
 /** A filter at a point: premultiplied linear light out, before Mix. */
@@ -115,19 +122,30 @@ export function sampler(image: FloatImage, origin = { x: 0, y: 0 }): (x: number,
 }
 
 /**
- * A kernel filter over `image` (its pixel (0, 0) at document `origin`), at full resolution: each pixel's result
- * mixed with what it was by Mix.
+ * Where Apply To lets a filter change the layer at a point, 0..1, from the subject there (`code`: 0 everywhere, 1 the
+ * subject, 2 the background): WGSL's `apply_weight`.
  */
-export function applyKernel(reference: KernelReference, image: FloatImage, params: Record<string, EffectParamValue>, canvas: { width: number; height: number }, origin = { x: 0, y: 0 }): FloatImage {
-  const fn = reference(params, canvas);
-  const env: KernelEnv = { canvas, src: sampler(image, origin), px: 1 };
-  const amount = ((params.mix as number | undefined) ?? 100) / 100;
+export const applyWeight = (code: number, subject: number) => (code === 1 ? subject : code === 2 ? 1 - subject : 1);
+
+/**
+ * A kernel filter over `image` (its pixel (0, 0) at document `origin`), at full resolution: each pixel's result
+ * mixed with what it was by Mix, where Apply To lets it. `maps` are its picture's scene maps, when it reads them.
+ */
+export function applyKernel(reference: KernelReference, image: FloatImage, params: Record<string, EffectParamValue>, canvas: { width: number; height: number }, origin = { x: 0, y: 0 }, maps: SceneMaps | null = null): FloatImage {
+  const drawn = maps ? { ...params, [SCENE_PARAM]: maps as unknown as EffectParamValue } : params;
+  const fn = reference(drawn, canvas);
+  const env: KernelEnv = { canvas, src: sampler(image, origin), px: 1, scene: (x, y) => sceneAt(maps, x, y) };
+  const code = applyToCode(params);
+  const mixed = ((params.mix as number | undefined) ?? 100) / 100;
   const out = new Float64Array(image.width * image.height * 4);
   for (let j = 0; j < image.height; j++) {
     for (let i = 0; i < image.width; i++) {
       const k = (j * image.width + i) * 4;
       const c: Pixel = [image.data[k], image.data[k + 1], image.data[k + 2], image.data[k + 3]];
-      const f = fn([origin.x + i + 0.5, origin.y + j + 0.5], c, env);
+      const x = origin.x + i + 0.5;
+      const y = origin.y + j + 0.5;
+      const f = fn([x, y], c, env);
+      const amount = mixed * applyWeight(code, code ? env.scene(x, y)[1] : 0);
       for (let ch = 0; ch < 4; ch++) out[k + ch] = mix(c[ch], f[ch], amount);
     }
   }

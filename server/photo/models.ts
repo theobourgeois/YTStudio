@@ -1,7 +1,7 @@
 /**
- * Select Subject's model (docs/photo/selections.md): an ONNX file downloaded once per computer into `MODELS_DIR`
- * (as the speech model is), its size and checksum checked before it's used, and served to the tab, which runs it.
- * Nothing is downloaded until the user asks (`setUp`).
+ * The photo suite's models (Select Subject's, docs/photo/selections.md; the depth model, docs/photo/effects/scene-maps.md):
+ * each an ONNX file downloaded once per computer into `MODELS_DIR` (as the speech model is), its size and checksum
+ * checked before it's used, and served to the tab, which runs it. Nothing is downloaded until the user asks (`setUp`).
  */
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
@@ -9,18 +9,27 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { SUBJECT_MODEL, type SubjectModelStatus } from "../../shared/photo/subject.ts";
+import type { SubjectModelStatus } from "../../shared/photo/subject.ts";
 import { errorMessage } from "../../shared/errors.ts";
 
-export class SubjectModel {
+/** A model file: where it comes from, its size and checksum. */
+export interface ModelSpec {
+  name: string;
+  file: string;
+  url: string;
+  size: number;
+  sha256: string;
+}
+
+export class ModelFile {
   private downloading: { progress: number } | null = null;
   private error: string | null = null;
 
   constructor(
     private readonly modelsDir: string,
+    private readonly model: ModelSpec,
     /** The tests' stand-in: the tab answers without a model, and nothing is downloaded. */
     private readonly standIn = false,
-    private readonly model = SUBJECT_MODEL,
   ) {}
 
   get path() {
@@ -48,7 +57,7 @@ export class SubjectModel {
     void this.download().then(
       () => (this.downloading = null),
       (error: unknown) => {
-        console.error("[photo] the subject model's download failed:", error);
+        console.error(`[photo] ${this.model.name}'s download failed:`, error);
         this.downloading = null;
         this.error = `The download failed: ${errorMessage(error)}`;
       },

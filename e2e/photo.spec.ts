@@ -2588,7 +2588,7 @@ test("Camera Raw: ⇧⌘A develops a layer in its window (one undo step, Cancel 
   const develop = cameraRawReference(doc.filters![0].params as never, { width: 1600, height: 1200 });
   for (let y = 0; y < 24; y += 5) {
     for (let x = 0; x < 24; x += 5) {
-      const expected = develop([region.x + x + 0.5, region.y + y + 0.5], pixelAt(plain, 24, x, y), { canvas: { width: 1600, height: 1200 }, src: () => [0, 0, 0, 0], px: 1 });
+      const expected = develop([region.x + x + 0.5, region.y + y + 0.5], pixelAt(plain, 24, x, y), { canvas: { width: 1600, height: 1200 }, src: () => [0, 0, 0, 0], px: 1, scene: () => [0, 0] });
       expect(close(pixelAt(developed, 24, x, y), expected, 2e-3)).toBe(true);
     }
   }
@@ -2687,7 +2687,7 @@ test("Camera Raw's local sliders (CR2): read from the picture's analysis, the sa
   const develop = cameraRawReference(params as never, { width: 1600, height: 1200 });
   for (let y = 0; y < 24; y += 5) {
     for (let x = 0; x < 24; x += 5) {
-      const expected = develop([region.x + x + 0.5, region.y + y + 0.5], pixelAt(drawn.below, 24, x, y), { canvas: { width: 1600, height: 1200 }, src: () => [0, 0, 0, 0], px: 1 });
+      const expected = develop([region.x + x + 0.5, region.y + y + 0.5], pixelAt(drawn.below, 24, x, y), { canvas: { width: 1600, height: 1200 }, src: () => [0, 0, 0, 0], px: 1, scene: () => [0, 0] });
       expect(close(pixelAt(drawn.above, 24, x, y), expected, 3e-3)).toBe(true);
     }
   }

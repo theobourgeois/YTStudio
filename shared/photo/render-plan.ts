@@ -15,6 +15,7 @@ import { effectDefinition, isKernelFilter, unavailableReason } from "./effects/i
 import { GLOW_CACHED_FROM } from "./effects/glow.ts";
 import { CAMERA_RAW } from "./effects/camera-raw/index.ts";
 import type { CameraRawAnalysis } from "./effects/camera-raw/analysis.ts";
+import { SCENE_PARAM, type SceneMaps, type SceneReads } from "./scene.ts";
 import { ANALYSIS_PARAM, needsAnalysis } from "./effects/camera-raw/develop.ts";
 import { type Size, levelForScale, type View } from "./geometry.ts";
 import { type Affine, apply, invert, layerMatrix } from "./layers.ts";
@@ -293,6 +294,8 @@ export interface CompileOptions {
   float32?: boolean;
   /** Camera Raw's analyses (docs/photo/camera-raw.md, CR2): the renderer's, by what each one develops. */
   cameraRaw?: CameraRawResolver;
+  /** Scene maps (docs/photo/effects/scene-maps.md): the renderer's, by the picture each one is of. */
+  scene?: SceneResolver;
   /**
    * The document pixels rendered, when they aren't the canvas's (a merge renders the box around its layers, where
    * they are): what the canvas layers' rasters cover.
@@ -313,6 +316,18 @@ export interface CameraRawNeed {
 
 /** A Camera Raw's analysis, or null while it isn't there yet (the plan then draws without its local sliders). */
 export type CameraRawResolver = (need: CameraRawNeed) => CameraRawAnalysis | null;
+
+/** What a filter needs of the scene: the maps of its input (a layer's content and the filters before it), by its key. */
+export interface SceneNeed extends CameraRawNeed {
+  filterId: string;
+  reads: SceneReads;
+}
+
+/** A filter's scene maps, or null while they're being made (the plan leaves the filter out until then). */
+export type SceneResolver = (need: SceneNeed) => SceneMaps | null;
+
+/** What a plan is compiled with besides the document: the analyses and maps made of its pictures. */
+type Resolvers = Pick<CompileOptions, "cameraRaw" | "scene">;
 
 /**
  * A Camera Raw instance's parameters as drawn (its analysis handed in, when it reads one) and the key part saying
@@ -394,13 +409,21 @@ export function backgroundIn(hex: string | null, compositing: Compositing): [num
 const filterCommutesFrom = (f: FilterNode) => (f.type === "glow" ? GLOW_CACHED_FROM : effectDefinition(f.type)!.commutesWithReduction(f.params) ? 0 : Infinity);
 
 /** A layer's filters as the plan runs them: those on and usable, none while its "Filters" eye is off. */
-function filterNodes(layer: PhotoLayer, canvas: Size = { width: 0, height: 0 }, contentKey = "", resolve?: CameraRawResolver): FilterNode[] {
+function filterNodes(layer: PhotoLayer, canvas: Size = { width: 0, height: 0 }, contentKey = "", resolve: Resolvers = {}, measuring = false): FilterNode[] {
   const before: string[] = [];
   return activeFilters(layer).flatMap((f) => {
     const def = effectDefinition(f.type)!;
     if (def.isIdentity(f.params)) return [];
     const where = isKernelFilter(def.type) ? `|${canvas.width}x${canvas.height}` : "";
-    const drawn = def.type === CAMERA_RAW.type ? cameraRawParams(f.params, { inputKey: `${contentKey}|${before.join(",")}`, layerId: layer.id, filterId: f.id }, resolve) : { params: f.params, key: "" };
+    const inputKey = `${contentKey}|${before.join(",")}`;
+    let drawn = def.type === CAMERA_RAW.type ? cameraRawParams(f.params, { inputKey, layerId: layer.id, filterId: f.id }, resolve.cameraRaw) : { params: f.params, key: "" };
+    const reads = def.scene?.(f.params);
+    if (reads && !measuring) {
+      // Its scene maps, or nothing of it until they're made.
+      const maps = resolve.scene?.({ inputKey, layerId: layer.id, filterId: f.id, reads }) ?? null;
+      if (!maps) return [];
+      drawn = { params: { ...drawn.params, [SCENE_PARAM]: maps as unknown as EffectParamValue }, key: `${drawn.key}|scene:${maps.id}` };
+    }
     const key = hashKey(`${def.type}@${def.version}|${JSON.stringify(f.params)}${where}${drawn.key}`);
     before.push(key);
     return [{ id: f.id, type: def.type, version: def.version, params: drawn.params, reach: def.reach(f.params), canvas, key }];
@@ -408,10 +431,10 @@ function filterNodes(layer: PhotoLayer, canvas: Size = { width: 0, height: 0 }, 
 }
 
 /** How far a layer's filters reach past its pixels, in document pixels (each filter's reach adds to the last's). */
-export const filtersReach = (layer: PhotoLayer): number => filterNodes(layer).reduce((sum, f) => sum + f.reach, 0);
+export const filtersReach = (layer: PhotoLayer): number => filterNodes(layer, undefined, "", {}, true).reduce((sum, f) => sum + f.reach, 0);
 
 /** Its content's fields: filters, the content key they're keyed by, and from which level it commutes. */
-function contentFields(layer: PhotoLayer, canvas: Size, contentKey: string, contentCommutesFrom = 0, resolve?: CameraRawResolver): ContentFields & { filtersKey: string } {
+function contentFields(layer: PhotoLayer, canvas: Size, contentKey: string, contentCommutesFrom = 0, resolve: Resolvers = {}): ContentFields & { filtersKey: string } {
   const filters = filterNodes(layer, canvas, contentKey, resolve);
   return {
     filters,
@@ -445,7 +468,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const t = layer.transform;
       const mask = maskOf(layer, size);
       const crop = cropRectOf(layer, size);
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options.cameraRaw);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`image|${layer.mediaId}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options);
       const matrix = layerMatrix(t, size);
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
@@ -472,7 +495,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const { size, transform: t } = layer;
       const mask = maskOf(layer, size);
       const crop = cropRectOf(layer, size);
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options.cameraRaw);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`pixel|${layer.surface}|${size.width}x${size.height}|${t.x},${t.y},${t.scaleX},${t.scaleY},${t.rotation}${cropKey(crop)}`), 0, options);
       const matrix = layerMatrix(t, size);
       const styled = styleOf(doc, layer, matrix, size);
       nodes.push({
@@ -500,7 +523,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       if (!raster) continue;
       const size = { width: raster.width, height: raster.height };
       const mask = maskOf(layer, { width: doc.canvas.width, height: doc.canvas.height });
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`canvas|${raster.key}`), 0, options.cameraRaw);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(`canvas|${raster.key}`), 0, options);
       // Its style's Align with Layer is the layer's frame, not the raster's box.
       const styled = styleOf(doc, layer, layerMatrix(painted.transform, painted.size), painted.size);
       nodes.push({
@@ -534,7 +557,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
       const canvas = { width: doc.canvas.width, height: doc.canvas.height };
       const mask = maskOf(layer, canvas);
       const own = `${def.type}@${def.version}|${JSON.stringify(effect.params)}|${canvas.width}x${canvas.height}`;
-      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(own), def.commutesWithReduction(effect.params) ? 0 : Infinity, options.cameraRaw);
+      const { filtersKey, ...content } = contentFields(layer, doc.canvas, hashKey(own), def.commutesWithReduction(effect.params) ? 0 : Infinity, options);
       const space = layer.blendSpace === "linear" ? "linear" : "document";
       // Linear Dodge (Add) in linear light adds light, which commutes with reduction; other modes don't.
       const b = blending.blend;
