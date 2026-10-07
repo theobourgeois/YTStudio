@@ -162,8 +162,8 @@ precision. `scripts/scene-sheet.ts` renders them to look at;
 pnpm dev          # server :5311 + app http://localhost:5310 (moves to 5410/5411… if taken)
 pnpm typecheck    # tsc -b (app + node projects)
 pnpm test         # vitest: shared/, src/, server/ (the server integration tests need ffmpeg)
-pnpm test:e2e     # Playwright on :5320/5321 with a throwaway e2e/.data (serial, ~2 min)
-pnpm test:e2e music   # only e2e/music.spec.ts (seconds): each suite's spec stands on its own (photo too)
+pnpm test:e2e     # Playwright on :5320/5321 with a throwaway e2e/.data (serial, ~20 min: rarely the whole thing)
+pnpm test:e2e music   # only the spec files whose names contain "music": each suite's specs stand on their own
 pnpm samples      # test media into ./samples
 pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + check transitions
 pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + check video effects
@@ -185,7 +185,14 @@ python3 scripts/audit-cl1b.py <Dataset.zip> --out <report.json>   # CL 1B's layo
 python3 scripts/photoshop-probes/<probe>.py   # measure a real Photoshop (macOS, installed): docs/photo/layer-style/photoshop-measurements.md
 ```
 
-**Verify every change** with `pnpm typecheck && pnpm test`, and also `pnpm test:e2e` for anything the UI touches.
+**Verify every change** with `pnpm typecheck && pnpm test`, and also the e2e specs of what you touched for anything
+the UI touches. **Don't run the whole e2e suite** (about 20 minutes, one file at a time): run only the files that
+cover your change, by name, e.g. `pnpm test:e2e e2e/photo-crop.spec.ts`. Which ones:
+- the video editor: `editor.spec.ts` (Home's cards and their previews: `previews.spec.ts`);
+- music: `music.spec.ts` (~9 min; `piano.spec.ts` for the Piano roll, `music-audio.spec.ts` for audio intelligence);
+- photo: the `photo-<tool>.spec.ts` of the tool you changed, else `photo.spec.ts`;
+- the platform (Home, the tab strip, the menu bar, windows, `components/ui`, themes): one spec per suite it shows in.
+- E2E_WEB_PORT/E2E_SERVER_PORT move the suite off :5320/5321 when another checkout is running its own.
 - Don't edit `src/` while e2e runs: Vite hot-reloads the page mid-test and a test fails for no real reason.
 - The e2e tests depend on each other (serial, shared state), so run the whole file rather than `-g` one test.
   Each suite has its own spec (`e2e/editor.spec.ts` is the video editor's, `e2e/music.spec.ts` the music
