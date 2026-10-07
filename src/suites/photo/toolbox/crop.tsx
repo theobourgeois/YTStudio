@@ -70,8 +70,9 @@ function layerAt(doc: PhotoProject, p: Point) {
 }
 
 /**
- * A click (no drag): a second one inside the box crops; with nothing pending, a click picks what to crop (the layer
- * under it, or the canvas when there's none: ours, so the Layers panel isn't needed to switch).
+ * A click (no drag): a second one inside the box crops; with nothing pending, a click where no layer shows deselects
+ * (the canvas is cropped), and one on another layer while a layer is cropped crops that one (ours, so the Layers panel
+ * isn't needed to switch).
  */
 function clicked(at: Point, insideBox: boolean) {
   const now = performance.now();
@@ -81,11 +82,19 @@ function clicked(at: Point, insideBox: boolean) {
   if (isPending()) return;
   const doc = currentDoc();
   if (!doc) return;
-  const hit = layerAt(doc, at);
   const ui = usePhotoUi.getState();
-  if (hit && !(ui.selectedLayerIds.length === 1 && ui.selectedLayerId === hit.id)) ui.select(hit.id);
-  else if (!hit && ui.selectedLayerIds.length) ui.select(null);
-  if (hit) useCrop.setState({ canvasChosen: false });
+  const frame = useCrop.getState().frame;
+  // On the layer being cropped (shown whole), nothing changes.
+  if (frame?.target.kind === "layer" && frame.bounds && inside(frame.bounds, toFrame(frame, at))) return;
+  // What's past the canvas isn't shown: the pasteboard is nothing's.
+  const onCanvas = at.x >= 0 && at.y >= 0 && at.x <= doc.canvas.width && at.y <= doc.canvas.height;
+  const hit = onCanvas ? layerAt(doc, at) : null;
+  if (!hit) {
+    if (ui.selectedLayerIds.length) ui.select(null);
+    return;
+  }
+  // While a layer is cropped, another one clicked is cropped instead; the canvas's crop picks nothing (Photoshop's).
+  if (frame?.target.kind === "layer") ui.select(hit.id);
 }
 
 /** A drag that changes the box from `start` (the box at the press) as the pointer goes; one box, no document edit. */

@@ -276,6 +276,12 @@ test("with a layer selected it crops that layer alone, kept whole underneath, an
   await expect(page.locator('[data-crop-overlay="canvas"]')).toBeVisible();
   await page.locator('[data-crop-choice="layer"]').click();
   await expect(page.locator('[data-crop-overlay="layer"]')).toBeVisible();
+  // A click where no layer shows (the pasteboard) deselects too.
+  const canvas = (await page.getByLabel("Photo canvas").boundingBox())!;
+  await page.mouse.click(canvas.x + 6, canvas.y + canvas.height / 2);
+  await expect(page.locator('[data-crop-overlay="canvas"]')).toBeVisible();
+  await page.locator(`[data-layer="${sticker.id}"]`).click();
+  await expect(page.locator('[data-crop-overlay="layer"]')).toBeVisible();
   await page.locator("[data-crop-clear]").click();
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await savedPhoto(page, photoId)).layers[2].crop).toBeUndefined();

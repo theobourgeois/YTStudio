@@ -83,8 +83,10 @@ it's the canvas.
   or turning a cropped layer moves its whole self so the crop stays where it is on it.
 
 **Ours, which Photoshop doesn't have: targeting.** Escape with nothing to commit deselects the layers (back to the
-canvas); a click outside every layer does too, and a click on a layer selects it (when no crop is pending), so going
-between the canvas and a layer never needs the Layers panel.
+canvas), and so does a click outside every layer (on the pasteboard, or where nothing shows). While a layer is
+cropped, a click on another layer crops that one instead. Clicks on the canvas while it's the canvas that's cropped
+select nothing, as in Photoshop: a photo filling the canvas would otherwise be picked by every stray click. Nothing
+changes target while a crop is pending.
 
 **Switching tools with a crop pending applies it** (with a toast that says so and offers Undo), as Photoshop did before
 its question was added: our windows never stop the editor for a question, and the crop is one undo step away.
