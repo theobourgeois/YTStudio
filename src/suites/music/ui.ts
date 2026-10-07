@@ -26,6 +26,8 @@ export type WindowId =
   | "automate"
   | "plugins"
   | "modulators"
+  | "stems"
+  | "to-notes"
   | `channel:${string}`
   | `automation:${string}`
   | `gross:${string}`

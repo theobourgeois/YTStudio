@@ -74,6 +74,8 @@ import { MAX_PX_PER_TICK, OVERVIEW_EDGE, scrollViewBy, tickToX, trackZoomDrag, x
 import { CLIP_DRAG_TYPE, Picker } from "./picker";
 import { clearIncoming, showIncoming } from "./incoming";
 import { holdClipPreview } from "./preview";
+import { openConvert } from "../convert/actions";
+import { openExtractStems } from "../stems/actions";
 import { gridCursor, gridPointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
 import { RULER_HEIGHT } from "./geometry";
 import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
@@ -710,6 +712,13 @@ function ClipMenu() {
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuItem onSelect={() => void autodetectTempo(stretchTarget)}>Detect tempo</DropdownMenuItem>
+            {/* The models' (docs/fl-studio/stems-and-notes.md): its file split into stems, or heard as notes. Opened after the menu lets go of the focus. */}
+            <DropdownMenuItem title="Split its file into vocals, drums, bass… on the tracks below it (FL's Extract stems from sample)" onSelect={() => setTimeout(() => openExtractStems({ channelId: clip.ref, clipId: clip.id }))}>
+              Extract stems…
+            </DropdownMenuItem>
+            <DropdownMenuItem title="The notes played in it, as a pattern on a sampler under it" onSelect={() => setTimeout(() => openConvert({ channelId: clip.ref, clipId: clip.id }))}>
+              Convert to notes…
+            </DropdownMenuItem>
             {/* FL's Automate: an automation clip of its channel's volume or pan, over the clip. */}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>Automate</DropdownMenuSubTrigger>

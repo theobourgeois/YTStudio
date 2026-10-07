@@ -65,6 +65,12 @@ import { switchMode, useTransport } from "./transport";
 import { armedIn, notesKept, takesOf, useRecording } from "./recording";
 import { midiTarget, useMidi } from "./midi";
 import { bounceClips } from "./playlist/bounce";
+import { convertSettings } from "@shared/music/convert";
+import { DEFAULT_STEMS, STEMS, STEM_NAMES, isStem } from "@shared/music/stems";
+import { STEP_TICKS } from "@shared/music/types";
+import { type AudioTarget, modelStatus } from "./ml";
+import { extractStems } from "./stems/actions";
+import { convertToNotes } from "./convert/actions";
 import { inputChoices, inputKey, useInputs } from "./inputs";
 import { findEffect, inputText } from "./mixer/tool-edits";
 import { useVisualizer } from "./visualizer/store";
@@ -166,6 +172,18 @@ const edit =
   };
 
 /** The song open in the editor, for tools that only make sense there (what's shown, what plays). */
+/** What extract_stems and convert_to_notes act on: `clip` (an audio clip's id) or `audio` (its channel's whole file). */
+function audioTargetOf(song: MusicProject, input: Record<string, unknown>): AudioTarget {
+  if (typeof input.clip === "number") {
+    const clip = song.playlist.clips.find((c) => c.id === input.clip);
+    if (!clip) throw new Error(`There's no clip ${input.clip} on the playlist: get_playlist has their ids.`);
+    if (clip.kind !== "audio") throw new Error(`Clip ${input.clip} is ${clip.kind === "pattern" ? "a pattern's" : "an automation clip's"}: give an audio clip.`);
+    return { channelId: clip.ref, clipId: clip.id };
+  }
+  if (input.audio !== undefined) return { channelId: findAudio(song, input.audio).id, clipId: null };
+  throw new Error('Give "clip" (an audio clip\'s id, from get_playlist) or "audio" (an audio clip\'s channel).');
+}
+
 function requireOpen(target: Target, what: string) {
   if (!target.open) throw new Error(`${what} only works on the song open in the editor, and this chat's song isn't open. Ask the user to open it.`);
 }
@@ -1028,6 +1046,54 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(
       `"${channel.name}": ${tempo} BPM (heard ${detected.bpm}, ${Math.round(detected.confidence * 100)}% sure), ${length}. The song is at ${target.song.settings.tempo} BPM; ` +
         `stretch_audio with tempo ${tempo} (or "detect") puts it on the song's.`,
+    );
+  },
+  async extract_stems(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "Extracting stems");
+    const audio = audioTargetOf(target.song, input);
+    const status = await modelStatus("stems");
+    if (status.status !== "ready" && !status.standIn)
+      throw new Error("Extract stems' model isn't downloaded yet (136 MB, once): ask the user to choose Extract stems… in an audio clip's menu and download it.");
+    const asked = Array.isArray(input.stems) ? input.stems : [];
+    const unknown = asked.filter((s) => !isStem(s));
+    if (unknown.length) throw new Error(`Unknown stems ${unknown.join(", ")}: the stems are ${STEMS.join(", ")}.`);
+    const stems = asked.length ? STEMS.filter((s) => asked.includes(s)) : [...DEFAULT_STEMS];
+    const result = await extractStems(audio, stems, { mute: input.mute !== false });
+    if ("error" in result) throw new Error(result.error);
+    const song = useMusic.getState().history!.doc;
+    const lines = result.channelIds.map((id) => {
+      const channel = song.channels.find((c) => c.id === id)!;
+      const clips = song.playlist.clips.filter((c) => c.ref === id).map((c) => `clip ${c.id} on track ${c.track + 1}`);
+      return `- "${channel.name}" (channel ${id})${clips.length ? `: ${clips.join(", ")}` : ""}`;
+    });
+    return textResult(`Extracted ${result.stems.map((s) => STEM_NAMES[s]).join(", ")} from "${result.name}"${audio.clipId !== null && input.mute !== false ? "; the clip is muted" : ""}:\n${lines.join("\n")}`);
+  },
+  async convert_to_notes(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "Converting to notes");
+    const audio = audioTargetOf(target.song, input);
+    const status = await modelStatus("notes");
+    if (status.status !== "ready" && !status.standIn)
+      throw new Error("Convert to notes' model isn't downloaded yet (230 KB, once): ask the user to choose Convert to notes… in an audio clip's menu and download it.");
+    const settings = convertSettings({
+      kind: input.kind,
+      sensitivity: input.sensitivity,
+      quantize: typeof input.quantize === "number" ? input.quantize * STEP_TICKS : undefined,
+      snapToScale: input.snap_to_scale,
+      shortest: input.shortest,
+      lowest: input.lowest,
+      highest: input.highest,
+    });
+    if (settings.snapToScale && !target.song.settings.scale) throw new Error("The song has no scale to snap to: set_scale gives it one, or leave snap_to_scale out.");
+    const result = await convertToNotes(audio, settings);
+    if ("error" in result) throw new Error(result.error);
+    const song = useMusic.getState().history!.doc;
+    const clip = song.playlist.clips.find((c) => c.kind === "pattern" && c.ref === result.patternId);
+    const channels = result.channelIds.map((id) => `"${song.channels.find((c) => c.id === id)?.name}" (${id})`).join(", ");
+    return textResult(
+      `${result.notes} note${result.notes === 1 ? "" : "s"} in pattern "${result.name}" (${result.patternId}), on ${channels}` +
+        `${clip ? `; its clip ${clip.id} is on track ${clip.track + 1}, under the audio` : "; not placed in the playlist"}. get_pattern reads them; replace_channel puts an instrument on the sampler.`,
     );
   },
   async add_audio_clip(input, ctx) {

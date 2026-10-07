@@ -8,6 +8,7 @@ import { usePiano } from "./piano/store";
 import { activeDraft, withDraftPattern } from "./patterns";
 import { useMusicPreferences } from "./preferences";
 import { clipPreview } from "./playlist/preview";
+import { convertPreview, useConvert } from "./convert/actions";
 import { usePlaylist } from "./playlist/store";
 import { armedIn, useRecording } from "./recording";
 import { useInputs } from "./inputs";
@@ -52,7 +53,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         const song = withQuantizePreview(withChopPreview(withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern))));
         const loop = playMode === "song" ? usePlaylist.getState().time : usePiano.getState().time;
         // A clip previewed from its menu: the song is only that clip, its time the loop.
-        const preview = clipPreview(song);
+        // Convert to notes' Preview: the clip with the notes heard in it.
+        const preview = clipPreview(song) ?? convertPreview(song);
         const { resampling } = useMusicPreferences.getState();
         // Controls the hand holds: their automation is left out until they're let go (song mode's alone has any).
         const held = playMode === "song" ? [...useAutomationUi.getState().held] : [];
@@ -98,6 +100,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   });
   const unsubscribePlaylist = usePlaylist.subscribe((state, prev) => {
     if ((state.time !== prev.time && useTransport.getState().mode === "song") || state.previewing !== prev.previewing) void send();
+  });
+  const unsubscribeConvert = useConvert.subscribe((state, prev) => {
+    if (state.previewing !== prev.previewing || (state.previewing && (state.settings !== prev.settings || state.heard !== prev.heard || state.samples !== prev.samples))) void send();
   });
   const unsubscribeLoop = usePiano.subscribe((state, prev) => {
     if ((state.time !== prev.time && useTransport.getState().mode === "pattern") || state.chopping !== prev.chopping || state.quantizing !== prev.quantizing) void send();
@@ -232,6 +237,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     stopped = true;
     unsubscribe();
     unsubscribeLoop();
+    unsubscribeConvert();
     unsubscribePlaylist();
     unsubscribeMode();
     unsubscribeQuality();

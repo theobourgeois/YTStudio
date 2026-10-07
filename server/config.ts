@@ -45,6 +45,8 @@ export const GROQ_API_KEY = process.env.GROQ_API_KEY || null;
 export const CLAUDE = process.env.CLAUDE_PATH || null;
 /** "stand-in": the photo models (Select Subject's, Content-Aware Fill's) are stood in for, never downloaded (the e2e tests). */
 export const PHOTO_MODELS = process.env.EDITOR_PHOTO_MODELS || null;
+/** "stand-in": the music suite's models (Extract stems', Convert to notes') are stood in for, never downloaded (the e2e tests). */
+export const MUSIC_MODELS = process.env.EDITOR_MUSIC_MODELS || null;
 /** "stand-in": the photo suite's Online panel searches a made-up internet (the e2e tests: `online-stand-in.ts`). */
 export const ONLINE_ASSETS = process.env.EDITOR_ONLINE_ASSETS || null;
 /** gallery-dl, which reads the pictures of a link pasted into the photo suite's Online panel (optional). */
@@ -63,6 +65,8 @@ export const ENGINE =
   engineExecutable(path.join(ENGINE_BUILD, "VaudioEngine_artefacts", "Release"));
 /** The photo suite's helper process (decodes and encodes image files); the desktop app ships its own build. */
 export const PHOTO_HELPER = process.env.EDITOR_PHOTO_HELPER_PATH || path.join(REPO_ROOT, "server", "photo", "helper-process.mjs");
+/** The music suite's models' process (runs them with ONNX Runtime's native build); the desktop app ships its own build. */
+export const MUSIC_WORKER = process.env.EDITOR_MUSIC_WORKER_PATH || path.join(REPO_ROOT, "server", "music", "ml-worker.mjs");
 /** The engine's own source (a checkout's, not a packaged app's): an engine built before it last changed is out of date. */
 export const ENGINE_SOURCE = path.join(REPO_ROOT, "engine");
 export const ENGINE_PLUGIN_PATHS = process.env.EDITOR_PLUGIN_PATHS

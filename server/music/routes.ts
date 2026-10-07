@@ -1,7 +1,12 @@
 import { Router, json } from "express";
 import type { BrowserMedia, SampleBrowser } from "./browser.ts";
+import { isMusicModelName } from "../../shared/music/models.ts";
+import { HttpError } from "../storage.ts";
 import type { AudioEngine } from "./engine.ts";
 import type { MusicExports } from "./exports.ts";
+import type { NoteHearing } from "./hearing.ts";
+import type { MusicModels } from "./ml.ts";
+import type { StemSeparator } from "./stems.ts";
 import type { SongVisualizers } from "./visualizer.ts";
 
 /** `/api/engine`: the music suite's audio engine (the plugins it found, and commands to it). */
@@ -168,6 +173,60 @@ export function musicVisualizerRoutes(visualizers: SongVisualizers): Router {
   });
   router.post("/:id/abort", async (req, res) => {
     res.json(await visualizers.abort(req.params.id));
+  });
+  return router;
+}
+
+/** `/api/music/models`: the music suite's models (`shared/music/models.ts`): whether one is here, and its download (asked for by the user). */
+export function musicModelRoutes(models: MusicModels): Router {
+  const router = Router();
+  router.use((_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
+  const modelOf = (name: string) => {
+    if (!isMusicModelName(name)) throw new HttpError(404, `No model "${name}": the models are ${Object.keys(models).join(", ")}.`);
+    return models[name];
+  };
+  router.get("/:name", async (req, res) => {
+    res.json(await modelOf(req.params.name).status());
+  });
+  router.post("/:name/setup", async (req, res) => {
+    const model = modelOf(req.params.name);
+    await model.setUp();
+    res.status(202).json(await model.status());
+  });
+  return router;
+}
+
+/** `/api/music/stems`: Extract stems (`shared/music/stems.ts`), a job the tab polls. */
+export function stemRoutes(stems: StemSeparator): Router {
+  const router = Router();
+  router.use((_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
+  router.post("/", json(), async (req, res) => {
+    res.json(await stems.start(req.body));
+  });
+  router.get("/:id", (req, res) => {
+    res.json(stems.get(req.params.id));
+  });
+  router.post("/:id/cancel", (req, res) => {
+    res.json(stems.cancel(req.params.id));
+  });
+  return router;
+}
+
+/** `/api/music/notes`: what Convert to notes hears in one of a song's files (`shared/music/transcribe.ts`). */
+export function noteRoutes(hearing: NoteHearing): Router {
+  const router = Router();
+  router.use((_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
+  router.post("/", json(), async (req, res) => {
+    res.json(await hearing.hear(req.body));
   });
   return router;
 }

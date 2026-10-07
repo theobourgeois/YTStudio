@@ -70,6 +70,10 @@ if (app.isPackaged && !process.env.EDITOR_ENGINE_PATH) {
 if (app.isPackaged && !process.env.EDITOR_PHOTO_HELPER_PATH) {
   process.env.EDITOR_PHOTO_HELPER_PATH = path.join(process.resourcesPath, "photo-helper", "helper.mjs");
 }
+// And the music suite's models' worker, with ONNX Runtime beside it; development runs server/music/ml-worker.mjs.
+if (app.isPackaged && !process.env.EDITOR_MUSIC_WORKER_PATH) {
+  process.env.EDITOR_MUSIC_WORKER_PATH = path.join(process.resourcesPath, "music-worker", "ml-worker.mjs");
+}
 
 let mainWindow: BrowserWindow | null = null;
 /** Files asked to open (double-clicked in Finder, Open Recent, dropped on the Dock icon) before the page could: it opens them once it's loaded. */
