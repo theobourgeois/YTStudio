@@ -38,9 +38,9 @@ function paramLine(p: ParamSpec | ElementParamSpec, indent: string): string {
   }
 }
 
-/** Every effect of a kind and its parameters, for the model: names, units, ranges, defaults. */
+/** Every effect usable as a kind and its parameters, for the model: names, units, ranges, defaults. */
 export function describeEffects(kind: EffectKind): string {
-  return EFFECTS.filter((d) => d.kind === kind)
+  return EFFECTS.filter((d) => (d.kinds ?? [d.kind]).includes(kind))
     .map((def) => `${def.type}: ${def.description}\n  ${def.params.map((p) => paramLine(p, "  ")).join("\n  ")}`)
     .join("\n");
 }
@@ -75,7 +75,7 @@ export function describeStyleEffects(): string {
 const adjustmentParams: Schema = {
   type: "object",
   description:
-    'Parameters to set; the rest keep their value (a new layer\'s start at their defaults). Exposure: { "exposure": 1, "offset": 0, "gamma": 1 }. Curves: points [input, output] on 0..255 per curve, e.g. { "rgb": [[0, 0], [64, 50], [192, 210], [255, 255]], "red": [[0, 10], [255, 255]] } (or the same under "curves").',
+    'Parameters to set; the rest keep their value (a new layer\'s start at their defaults). Exposure: { "exposure": 1, "offset": 0, "gamma": 1 }. Curves: points [input, output] on 0..255 per curve, e.g. { "rgb": [[0, 0], [64, 50], [192, 210], [255, 255]], "red": [[0, 10], [255, 255]] } (or the same under "curves"). Hue/Saturation: { "saturation": 20, "bluesHue": -15 } or { "colorize": true, "colorizeHue": 35, "colorizeSaturation": 25 }.',
   additionalProperties: true,
 };
 
@@ -628,6 +628,14 @@ export const PHOTO_TOOLS = [
         align: oneOf(["left", "center", "right", "justify"], "Alignment (justify: paragraph text, its last line left)."),
         leading: { description: 'Pixels between baselines, or "auto" (the default: 120% of the size).' },
         tracking: num("Letter spacing in thousandths of an em (default 0)."),
+        kerning: oneOf(["metrics", "none"], "metrics (default): the font's own pair kerning; none: off (Photoshop's 0)."),
+        horizontal_scale: num("Glyphs stretched across, in percent (default 100; 1 to 1000)."),
+        vertical_scale: num("Glyphs stretched up, in percent (default 100; 1 to 1000; the leading stays)."),
+        faux_bold: bool("Photoshop's Faux Bold: the glyphs thickened (default false)."),
+        faux_italic: bool("Photoshop's Faux Italic: the glyphs slanted (default false)."),
+        caps: oneOf(["none", "all", "small"], "All Caps or Small Caps (default none: as typed; the words keep their case)."),
+        underline: bool("Underlined (default false)."),
+        strikethrough: bool("Struck through (default false)."),
         name: str("The layer's name (default: its words, following them)."),
         above: str("The layer to put it right above (id or name); default: the top."),
       },
@@ -639,7 +647,7 @@ export const PHOTO_TOOLS = [
     title: "Change text",
     kind: "edit",
     description:
-      'Changes a text layer\'s words or how they\'re set, the whole layer (one style per layer). Give any of text, font, style, size, colour, align, leading ("auto" or pixels), tracking, and box: { width, height } (makes it paragraph text in a box that size; its top-left stays) or "point" (point text again). What isn\'t given stays; the text\'s origin stays where it is on the canvas.',
+      'Changes a text layer\'s words or how they\'re set, the whole layer (one style per layer). Give any of text, font, style, size, colour, align, leading ("auto" or pixels), tracking, kerning, horizontal_scale, vertical_scale, faux_bold, faux_italic, caps, underline, strikethrough, and box: { width, height } (makes it paragraph text in a box that size; its top-left stays) or "point" (point text again). What isn\'t given stays; the text\'s origin stays where it is on the canvas.',
     inputSchema: obj(
       {
         layer,
@@ -651,6 +659,14 @@ export const PHOTO_TOOLS = [
         align: oneOf(["left", "center", "right", "justify"], "Alignment."),
         leading: { description: 'Pixels between baselines, or "auto".' },
         tracking: num("Letter spacing in thousandths of an em."),
+        kerning: oneOf(["metrics", "none"], "The font's own pair kerning (metrics) or none."),
+        horizontal_scale: num("Glyphs stretched across, in percent (100: as designed)."),
+        vertical_scale: num("Glyphs stretched up, in percent (100: as designed)."),
+        faux_bold: bool("Faux Bold on or off."),
+        faux_italic: bool("Faux Italic on or off."),
+        caps: oneOf(["none", "all", "small"], "All Caps, Small Caps, or none."),
+        underline: bool("Underline on or off."),
+        strikethrough: bool("Strikethrough on or off."),
         box: { description: 'Paragraph text\'s box { width, height }, or "point" for point text.' },
       },
       ["layer"],

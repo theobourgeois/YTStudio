@@ -3,8 +3,8 @@
  * kept in this browser as Photoshop keeps the tool's last settings. The colour is the foreground colour (`colours.ts`).
  */
 import { create } from "zustand";
-import { DEFAULT_TEXT_FONT, MAX_FONT_SIZE, MIN_FONT_SIZE } from "@shared/photo/text";
-import type { TextAlign, TextFont } from "@shared/photo/types";
+import { type CharacterPatch, DEFAULT_TEXT_FONT, MAX_FONT_SIZE, MIN_FONT_SIZE, withCharacter } from "@shared/photo/text";
+import type { TextAlign, TextCharacter, TextFont } from "@shared/photo/types";
 
 const storage: Pick<Storage, "getItem" | "setItem"> = typeof localStorage !== "undefined" ? localStorage : { getItem: () => null, setItem: () => {} };
 const KEY = "photo-type";
@@ -14,9 +14,11 @@ export interface TypeOptions {
   align: TextAlign;
   leading: number | null;
   tracking: number;
+  /** The Character panel's other settings (kerning, scales, faux styles, caps, lines). */
+  character: TextCharacter;
 }
 
-const DEFAULTS: TypeOptions = { font: DEFAULT_TEXT_FONT, align: "left", leading: null, tracking: 0 };
+const DEFAULTS: TypeOptions = { font: DEFAULT_TEXT_FONT, align: "left", leading: null, tracking: 0, character: {} };
 
 /** Options from anywhere (storage, a patch), each wrong one back to its default. */
 export function sanitizeTypeOptions(o: Partial<Record<keyof TypeOptions, unknown>>): TypeOptions {
@@ -34,6 +36,7 @@ export function sanitizeTypeOptions(o: Partial<Record<keyof TypeOptions, unknown
     align: o.align === "center" || o.align === "right" || o.align === "justify" ? o.align : "left",
     leading: typeof o.leading === "number" && o.leading >= 1 ? o.leading : null,
     tracking: typeof o.tracking === "number" && Number.isFinite(o.tracking) ? o.tracking : 0,
+    character: withCharacter({}, (o.character && typeof o.character === "object" ? o.character : {}) as CharacterPatch),
   };
 }
 
@@ -46,14 +49,20 @@ function load(): TypeOptions {
 }
 
 interface TypeOptionsStore extends TypeOptions {
-  set: (patch: Partial<Omit<TypeOptions, "font">> & { font?: Partial<TextFont> }) => void;
+  set: (patch: Partial<Omit<TypeOptions, "font" | "character">> & { font?: Partial<TextFont> } & CharacterPatch) => void;
 }
 
 export const useTypeOptions = create<TypeOptionsStore>((set, get) => ({
   ...load(),
   set(patch) {
-    const { font, align, leading, tracking } = get();
-    const next = sanitizeTypeOptions({ font: { ...font, ...patch.font }, align: patch.align ?? align, leading: patch.leading !== undefined ? patch.leading : leading, tracking: patch.tracking ?? tracking });
+    const { font, align, leading, tracking, character } = get();
+    const next = sanitizeTypeOptions({
+      font: { ...font, ...patch.font },
+      align: patch.align ?? align,
+      leading: patch.leading !== undefined ? patch.leading : leading,
+      tracking: patch.tracking ?? tracking,
+      character: withCharacter(character, patch),
+    });
     storage.setItem(KEY, JSON.stringify(next));
     set(next);
   },

@@ -2,7 +2,7 @@
  * The installed fonts (`src/stores/fonts.ts`, the platform's list), for the Type tool's options bar and a text layer's
  * Properties: a searchable list of families, each shown in itself, and the chosen family's styles.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PiCaretDown, PiCheck, PiMagnifyingGlass, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import type { TextFont } from "@shared/photo/types";
@@ -30,41 +30,81 @@ export function closestFace(family: string, font: Pick<TextFont, "weight" | "ita
   return styles.reduce((best, s) => (cost(s) < cost(best) ? s : best));
 }
 
-/** A font family: a button showing it, opening the searchable list. `onChoose` gets the family's name. */
-export function FontFamilyPicker({ value, onChoose, className }: { value: string; onChoose: (family: string) => void; className?: string }) {
+/** How long the pointer rests on a family (or the keys on it) before the canvas shows it: a quick sweep doesn't redraw. */
+const PREVIEW_DELAY = 60;
+
+/**
+ * A font family: a button showing it (a select's), opening the searchable list. `onChoose` gets the family's name;
+ * `onPreview` the family hovered or reached with the arrows while the list is open (Photoshop's live font preview),
+ * and null when there's none to show (the list closed, or chosen from).
+ */
+export function FontFamilyPicker({ value, onChoose, onPreview, className }: { value: string; onChoose: (family: string) => void; onPreview?: (family: string | null) => void; className?: string }) {
   const families = useFonts((s) => s.families);
   const status = useFonts((s) => s.status);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [active, setActive] = useState(-1);
+  const list = useRef<HTMLDivElement>(null);
+  const previewing = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => useFonts.getState().load(), []);
   const installed = status !== "ready" || !!findFamily(value);
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     return q ? families.filter((f) => f.family.toLowerCase().includes(q)) : families;
   }, [families, query]);
+
+  const preview = (family: string | null) => {
+    if (!onPreview) return;
+    if (previewing.current) clearTimeout(previewing.current);
+    previewing.current = null;
+    if (family === null || family === value) return onPreview(null);
+    previewing.current = setTimeout(() => onPreview(family), PREVIEW_DELAY);
+  };
+  // Nothing previewed once the list is gone (or this picker is).
+  useEffect(() => () => preview(null), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const highlight = (index: number, scroll: boolean) => {
+    setActive(index);
+    preview(shown[index]?.family ?? null);
+    if (scroll) list.current?.querySelector(`[data-index="${index}"]`)?.scrollIntoView({ block: "nearest" });
+  };
+  const openChange = (next: boolean) => {
+    setOpen(next);
+    if (next) {
+      // The list opens on the family there is, as a select's does.
+      const at = families.findIndex((f) => f.family === value);
+      setActive(at);
+      requestAnimationFrame(() => list.current?.querySelector(`[data-index="${at}"]`)?.scrollIntoView({ block: "center" }));
+    } else {
+      setQuery("");
+      preview(null);
+    }
+  };
   const choose = (family: string) => {
-    setOpen(false);
-    setQuery("");
+    openChange(false);
     if (family !== value) onChoose(family);
   };
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={openChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
           aria-label="Font family"
           title={installed ? "Font family" : `${value} isn't installed: it's drawn in the fallback font`}
-          className={cn("flex h-6 min-w-0 items-center gap-1.5 rounded border border-line bg-surface-0 px-2 text-left text-xs", className)}
+          className={cn(
+            "sunken flex h-6 min-w-0 items-center gap-1.5 rounded-md px-2.5 text-left text-xs whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+            className,
+          )}
           data-font-family={value}
         >
           {!installed && <PiWarning className="size-3.5 shrink-0 text-amber-500" aria-label="Not installed" />}
           <span className="min-w-0 flex-1 truncate" style={{ fontFamily: faceStyle(value, faceFromName("Regular")).fontFamily }}>
             {value}
           </span>
-          <PiCaretDown className="size-3 shrink-0 opacity-50" />
+          <PiCaretDown className="size-3.5 shrink-0 text-muted-foreground opacity-70" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <PopoverContent align="start" className="w-72 p-0" onOpenAutoFocus={(e) => e.preventDefault()} data-font-list>
         <div className="flex items-center gap-2 border-b border-line px-2.5">
           <PiMagnifyingGlass className="size-3.5 shrink-0 text-muted-foreground" />
           <input
@@ -72,35 +112,49 @@ export function FontFamilyPicker({ value, onChoose, className }: { value: string
             aria-label="Search fonts"
             placeholder={families.length ? `Search ${families.length} fonts` : "Search fonts"}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && shown[0]) choose(shown[0].family);
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setActive(0);
+              preview(null);
             }}
-            className="h-9 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                if (!shown.length) return;
+                const step = e.key === "ArrowDown" ? 1 : -1;
+                highlight(active < 0 ? 0 : (active + step + shown.length) % shown.length, true);
+              } else if (e.key === "Enter") {
+                const pick = shown[active] ?? shown[0];
+                if (pick) choose(pick.family);
+              }
+            }}
+            className="h-8 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
           />
         </div>
-        <div role="listbox" aria-label="Fonts" className="max-h-80 overflow-y-auto overscroll-contain p-1">
+        <div ref={list} role="listbox" aria-label="Fonts" className="max-h-80 overflow-y-auto overscroll-contain p-1" onPointerLeave={() => preview(null)}>
           {status === "loading" && <p className="px-2 py-6 text-center text-xs text-muted-foreground">Loading fonts…</p>}
           {status === "error" && <p className="px-2 py-6 text-center text-xs text-muted-foreground">Couldn't list the installed fonts.</p>}
           {status === "ready" && shown.length === 0 && <p className="px-2 py-6 text-center text-xs text-muted-foreground">No fonts match “{query.trim()}”.</p>}
-          {shown.map((f) => {
+          {shown.map((f, i) => {
             const regular = f.styles.find((s) => s.weight === 400 && !s.italic) ?? f.styles[0];
             const selected = f.family === value;
             return (
-              <button
+              <div
                 key={f.family}
-                type="button"
                 role="option"
                 aria-selected={selected}
+                data-index={i}
+                data-active={i === active || undefined}
+                onPointerMove={() => i !== active && highlight(i, false)}
                 onClick={() => choose(f.family)}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none hover:bg-accent focus-visible:bg-accent"
+                className="relative flex w-full cursor-default items-center gap-2 rounded-sm py-1 pr-8 pl-2 text-[13px] select-none data-[active]:bg-brand/20 data-[active]:text-foreground"
               >
-                <span className="min-w-0 flex-1 truncate text-[15px] leading-6" style={faceStyle(f.family, regular)}>
+                <span className="min-w-0 flex-1 truncate text-sm leading-5" style={faceStyle(f.family, regular)}>
                   {f.family}
                 </span>
                 {f.styles.length > 1 && <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{f.styles.length}</span>}
-                <PiCheck className={cn("size-3.5 shrink-0", !selected && "invisible")} />
-              </button>
+                {selected && <PiCheck className="absolute right-2 size-4 text-muted-foreground" />}
+              </div>
             );
           })}
         </div>

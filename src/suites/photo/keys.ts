@@ -22,6 +22,8 @@ export type PhotoKeyAction =
   | { type: "lastFilter" }
   /** ⇧⌘A: Filter › Camera Raw Filter…, Photoshop's. */
   | { type: "cameraRaw" }
+  /** ⌘U: Image › Adjustments › Hue/Saturation…, Photoshop's. */
+  | { type: "hueSaturation" }
   | { type: "redo" }
   | { type: "fit" }
   | { type: "actual" }
@@ -117,6 +119,7 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
     if (key === "c" && !e.shiftKey) return { type: "copy" };
     if (key === "x" && !e.shiftKey) return { type: "cut" };
     if (key === "e" && !e.shiftKey) return { type: "merge" };
+    if (key === "u" && !e.shiftKey) return { type: "hueSaturation" };
     // ⇧⌘[ / ⇧⌘] are the app's (tab switching), so Bring to Front and Send to Back are the Layers menu's alone.
     if (!e.shiftKey && is("]", "BracketRight")) return { type: "shift", direction: 1 };
     if (!e.shiftKey && is("[", "BracketLeft")) return { type: "shift", direction: -1 };

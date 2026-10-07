@@ -79,6 +79,10 @@ fills the selection from what's around it onto a new layer above the active one:
 Select Subject's model is (every photo model is `shared/photo/models.ts`, `/api/photo/models/<name>`, one download
 question: `model-dialog.tsx`), a hole filled in crops about twice its size, never under 512, one after another
 (`shared/photo/inpaint.ts`'s `planFill`), the photo's grain put back where a crop was shrunk (`content-aware-fill.ts`).
+**Hue/Saturation** (docs/photo/hue-saturation.md; ⌘U, the header's Image menu) is one effect, `hue-saturation`, a
+filter and an adjustment layer alike, as Camera Raw is: its window (`src/suites/photo/hue-saturation/`) is one gesture
+on an `EffectTarget` (`effect-window.ts`: `targetEdit`, shared with Camera Raw's), its controls show in Properties too.
+Its maths is `shared/photo/reference/hue-saturation.ts`, mirrored in WGSL by `render/hue-saturation.ts`: change both.
 The **Online panel** (docs/photo/online.md; a tab beside Properties) searches Iconify's icons, Bing's images and
 Openverse's photos, or reads a pasted link, and places a result as a layer: the server searches and downloads
 (`server/photo/online.ts`; Iconify limits requests, so icons' shapes are fetched a set at a time and kept, never one
@@ -89,7 +93,8 @@ Paint Bucket, Dodge/Burn/Sponge, Background and Magic Eraser) are each a `ToolKi
 options, its press on the canvas, its overlay), registered in `toolbox/index.ts` and placed in the strip by
 `tool-groups.ts` (Photoshop's groups and keys). Text and shape layers are drawn by the browser's 2D canvas through one
 seam (`shared/photo/canvas-content.ts` → a `CanvasNode`, `render/canvas-content.ts`): a new kind of drawn layer is a
-case there. Only image and pixel layers crop (`isCroppable`). A placed image is never rasterised by these tools: the
+case there. A raster's key says what it draws within a pixel, never which pixel (the Move tool drags these layers by
+whole pixels), so a move reuses the drawn raster: keep positions out of `CanvasRaster.key`. Only image and pixel layers crop (`isCroppable`). A placed image is never rasterised by these tools: the
 Magic Eraser erases through its mask; the others ask (the paint-choice dialog).
 
 The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is

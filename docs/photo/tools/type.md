@@ -60,6 +60,13 @@ interface TextLayer extends LayerBase, Filtered {
   align: "left" | "center" | "right" | "justify";   // justify: paragraph text, its last line left
   leading: number | null;        // px between baselines; null: Auto (1.2 × size)
   tracking: number;              // thousandths of an em, added after every character
+  // The Character panel's others (`TextCharacter`), each absent at its default:
+  kerning?: "none";              // the font's pair kerning off (Photoshop's 0); absent: Metrics
+  horizontalScale?: number;      // glyphs stretched across / up, 1 = 100% (0.01 to 10)
+  verticalScale?: number;
+  fauxBold?: true; fauxItalic?: true;
+  caps?: "all" | "small";        // All Caps draws capitals (the words stay as typed), Small Caps the font's
+  underline?: true; strikethrough?: true;
   box: { width: number; height: number } | null;    // paragraph text's box (layer px); null: point text
   size: { width: number; height: number };          // its frame: the words' ink and their lines, in layer px
   origin: { x: number; y: number };                 // the text's origin in its frame
@@ -81,8 +88,9 @@ follow the layer when it moves, but it doesn't drift when the words change eithe
 
 `normalizePhotoProject` checks every field (a family of up to 200 characters, a weight 1–1000, a size of 1 to 5000
 px, a colour, an alignment, a leading of 1 to 10 000 px or Auto, tracking −1000 to 10 000, a box and a frame of
-positive sizes, words up to 100 000 characters), repairing what's wrong to its default. Version 7 describes text
-layers; an older document is a valid version 7.
+positive sizes, words up to 100 000 characters, the character settings), repairing what's wrong to its default.
+Version 7 describes text layers; an older document is a valid version 7. The character settings came later without a
+new version: each is absent at its default, so a text without them is stored, keyed and drawn as before.
 
 ### Drawing it: a text raster in document pixels
 
@@ -123,11 +131,24 @@ box's are hidden. The baseline sits in each line box as CSS puts it (half the le
 `textFrame` is the frame and origin; `caretAt` the character under a point (a click that starts editing puts the caret
 there).
 
+The character settings go through the measurer (the tab's measures in the font's kerning or none, in small caps, in
+capitals for All Caps, and scales advances, ink and ascent by the horizontal and vertical scale), so the layout is
+unchanged by them. The frame adds Faux Italic's slant (0.2 of the ink's ascent right, of its descent left), Faux
+Bold's outline (0.035 em, half outside) and the underline's bar. The drawing (`render/text-draw.ts`) places each
+piece of a line on its baseline through the glyphs' own map (scale, then the slant), strokes the outline for Faux
+Bold, and draws the bars along each line. The editing field is set unscaled and scaled as a whole (its line height
+divided by the vertical scale), with `font-kerning`, `font-variant-caps` and `text-transform`, so its caret still
+falls between the drawn letters.
+
 ### The tool (`src/suites/photo/toolbox/type-tool.tsx`, `toolbox/type/`)
 
 - **A click** on the canvas makes point text there (the click on the first baseline); **a drag** draws a dashed box and
   makes paragraph text in it. **A click on a text layer's words** edits it, the caret where it was clicked;
-  **Shift-click** makes a new one even there. The pointer is the I-beam.
+  **Shift-click** makes a new one even there. The pointer is the I-beam. **A double-click on text with the Move tool**
+  edits it too (the Type tool is picked), the caret where it was clicked.
+- **Moving text.** The Move tool drags text (and shapes) by whole document pixels, as Photoshop's layers move: the
+  raster's key holds where its content falls within a pixel but not which pixel, so a whole-pixel move places the raster
+  already drawn again rather than drawing and uploading it at every step of the drag (which made dragging text slow).
 - **Editing** is a `<textarea>` over the layer (`TypeEditor`), transformed with it (its matrix to the screen), in the
   layer's font, size, letter spacing, line height and alignment: its letters are transparent and the renderer draws
   the real ones under it, so only the caret and the selection (the theme's brand colour) show. A dashed outline shows
@@ -140,12 +161,16 @@ there).
 - The photo's keys stay out of the way while typing: the editor's key listener skips text fields (`isTyping`), so V,
   Delete, Space, ⌘J and the rest are the text's.
 - **The options bar**: font family (a searchable list of installed fonts, each in itself, `src/stores/fonts.ts`, now
-  the platform's), style (the family's installed styles), size (px, dragged or typed), alignment, colour, and while
-  editing ✕ and ✓. While typing they set the layer being typed; with text layers selected they restyle them all, one
+  the platform's; styled as every select is), style (the family's installed styles), size (px, dragged or typed),
+  alignment, colour, the Character button (a popover of the Character panel's other settings), and while editing ✕
+  and ✓. **Font preview**: the family under the pointer in the list (or reached with the arrows) is drawn on the text
+  the choice would restyle (`PhotoUi.textPreview`, applied where the canvas's document is made, `live.ts`), never in
+  the document; closing the list takes it away. While typing they set the layer being typed; with text layers selected they restyle them all, one
   undo step; otherwise they're what the next text is made with (kept on this computer). The colour swatch shows the
   foreground colour when no text layer is selected, and new text takes it.
-- **Properties** has a **Character** section (family, style, size, leading with Auto, tracking, colour) and a
-  **Paragraph** section (alignment, point or paragraph text, the box's size) for a text layer, under its transform.
+- **Properties** has a **Character** section (family, style, colour, size, leading with Auto, tracking, kerning,
+  horizontal and vertical scale, and the type buttons: Faux Bold, Faux Italic, All Caps, Small Caps, Underline,
+  Strikethrough; `type/character.tsx`, also the options bar's popover) and a **Paragraph** section (alignment, point or paragraph text, the box's size) for a text layer, under its transform.
 - **Layers** shows a text layer's thumbnail as a **T** and its name, which follows its words until it's renamed.
   Double-clicking the T edits it with every word selected.
 - **Painting a text layer** asks first, as an image does (a new paint layer above it, or *Rasterize Type*). Layer ›
@@ -155,7 +180,8 @@ there).
 ### The assistant
 
 `add_text_layer` (words, where: a point for point text or a box for paragraph text, font, style, size, colour,
-alignment, leading, tracking, above), `set_text` (any of the words, setting, box: `null` makes it point text) and
+alignment, leading, tracking, kerning, horizontal and vertical scale, faux bold and italic, caps, underline,
+strikethrough, above), `set_text` (any of the words, setting, box: `null` makes it point text) and
 `rasterize_type`. `get_photo` describes a text layer by its words and setting, point or paragraph, and its frame.
 Their edits measure through the tab's layout (`PhotoEditEnv.measureText`); a test's is fixed-width.
 
@@ -163,10 +189,11 @@ Their edits measure through the tab's layout (`PhotoEditEnv.measureText`); a tes
 
 - **One style per layer.** Photoshop styles any run of characters (one word bold, another red); here the setting is
   the whole layer's, and an option changed while typing restyles all of it.
-- **No** vertical type, warp, type on a path, type masks, kerning (the font's own pair kerning applies; no manual or
-  optical kerning), vertical and horizontal scale, baseline shift, faux styles, caps, super- and subscript, underline,
-  strike-through, hyphenation, indents, space before and after, OpenType features, Glyphs panel, or anti-aliasing
-  methods (the browser's own smoothing, greyscale, always).
+- **No** vertical type, warp, type on a path, type masks, manual kerning between two characters or Optical kerning
+  (Metrics or 0 only: the canvas has no optical kerning), baseline shift, super- and subscript, hyphenation, indents,
+  space before and after, OpenType features, Glyphs panel, or anti-aliasing methods (the browser's own smoothing,
+  greyscale, always). Underline and strike-through sit where a fraction of the em says, not where the font's own
+  metrics would (the canvas doesn't report them); Faux Bold and Faux Italic are our own amounts.
 - **Justify** is one of Photoshop's four (last line left).
 - **Masks don't follow the text** when it's moved (they're in document pixels, as an adjustment's are), so a moved
   text layer's mask stays where it was. Photoshop's linked mask moves with the layer.

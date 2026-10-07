@@ -518,7 +518,7 @@ export function compileRender(doc: PhotoProject, sources: ReadonlyMap<string, So
         ...content,
         commutesFrom: blending.blend || (encodedLight && content.filters.length && styled.style) ? Infinity : content.commutesFrom,
         commutes: !blending.blend && !(encodedLight && content.filters.length && styled.style) && content.commutesFrom === 0,
-        key: hashKey(`canvas|${raster.key}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}`),
+        key: hashKey(`canvas|${raster.key}|${raster.x},${raster.y}|${blending.opacity}${maskKey(mask)}${blending.key}${styled.key}${filtersKey}`),
       });
       continue;
     }

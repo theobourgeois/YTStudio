@@ -10,6 +10,7 @@ import { CURVE_TABLE_SIZE, curveTable, identityChannels } from "@shared/photo/ef
 import type { CurveSet, EffectParamValue } from "@shared/photo/types.ts";
 import { BLEND, BLEND_STRUCT } from "./blend.ts";
 import { CAMERA_RAW_ADJUSTMENT } from "./camera-raw.ts";
+import { HUE_SATURATION_ADJUSTMENT } from "./hue-saturation.ts";
 import { ROUND_FOR_STORE, type StorageFormat } from "./kernels.ts";
 import { MATHS } from "./wgsl.ts";
 
@@ -73,7 +74,7 @@ fn adjust(c: vec4f, doc: vec2f) -> vec4f {
   },
 };
 
-export const ADJUSTMENT_KERNELS: Record<string, AdjustmentKernel> = { exposure: EXPOSURE, curves: CURVES, "camera-raw": CAMERA_RAW_ADJUSTMENT };
+export const ADJUSTMENT_KERNELS: Record<string, AdjustmentKernel> = { exposure: EXPOSURE, curves: CURVES, "hue-saturation": HUE_SATURATION_ADJUSTMENT, "camera-raw": CAMERA_RAW_ADJUSTMENT };
 
 /**
  * The whole shader for an adjustment writing a target of `format`. `mask` is the compositor's WGSL for groups 2

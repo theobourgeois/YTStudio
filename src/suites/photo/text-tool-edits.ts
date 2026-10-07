@@ -4,7 +4,7 @@
  * computer's fonts in the tab; a fixed-width measurer in tests). Errors say what's wrong and what to give.
  */
 import { createId } from "@shared/ids";
-import { DEFAULT_TEXT_FONT, type FrameText, MAX_FONT_SIZE, MIN_FONT_SIZE, type TextPatch, addTextLayer, leadingOf, makeTextLayer, setText } from "@shared/photo/text";
+import { type CharacterPatch, DEFAULT_TEXT_FONT, type FrameText, MAX_FONT_SIZE, MAX_TEXT_SCALE, MIN_FONT_SIZE, MIN_TEXT_SCALE, type TextPatch, addTextLayer, leadingOf, makeTextLayer, setText, withCharacter } from "@shared/photo/text";
 import type { TextAlign, TextFont, TextLayer } from "@shared/photo/types";
 import { faceFromName, findFamily, resolveFace, useFonts } from "@/stores/fonts";
 import { type PhotoEdit, type PhotoEditEnv, findLayerRef } from "./tool-edits";
@@ -20,7 +20,45 @@ export function describeTextLayer(layer: TextLayer): string {
   const words = layer.text.length > 300 ? `${layer.text.slice(0, 300)}…` : layer.text;
   const kind = layer.box ? `paragraph text in a ${round(layer.box.width)}×${round(layer.box.height)} box` : "point text";
   const leading = layer.leading === null ? `auto (${round(leadingOf(layer))} px)` : `${round(layer.leading)} px`;
-  return `text layer (${kind}): ${JSON.stringify(words)}, ${f.family} ${f.style} ${round(f.size)} px, colour ${layer.colour}, align ${layer.align}, leading ${leading}, tracking ${round(layer.tracking)}`;
+  const c = withCharacter(layer);
+  const character = [
+    c.kerning === "none" && "kerning none",
+    c.horizontalScale !== undefined && `horizontal scale ${round(c.horizontalScale * 100)}%`,
+    c.verticalScale !== undefined && `vertical scale ${round(c.verticalScale * 100)}%`,
+    c.fauxBold && "faux bold",
+    c.fauxItalic && "faux italic",
+    c.caps === "all" && "all caps",
+    c.caps === "small" && "small caps",
+    c.underline && "underline",
+    c.strikethrough && "strikethrough",
+  ].filter(Boolean);
+  return `text layer (${kind}): ${JSON.stringify(words)}, ${f.family} ${f.style} ${round(f.size)} px, colour ${layer.colour}, align ${layer.align}, leading ${leading}, tracking ${round(layer.tracking)}${character.length ? `, ${character.join(", ")}` : ""}`;
+}
+
+/** The Character panel's other settings a call gives (kerning, scales in percent, faux styles, caps, lines). */
+function characterFrom(input: Input): CharacterPatch {
+  const patch: CharacterPatch = {};
+  if (input.kerning !== undefined) {
+    if (input.kerning !== "metrics" && input.kerning !== "none") throw new Error('kerning is "metrics" (the font\'s own) or "none".');
+    patch.kerning = input.kerning;
+  }
+  for (const [key, field] of [["horizontal_scale", "horizontalScale"], ["vertical_scale", "verticalScale"]] as const) {
+    const v = input[key];
+    if (v === undefined) continue;
+    if (!finite(v) || v < MIN_TEXT_SCALE * 100 || v > MAX_TEXT_SCALE * 100) throw new Error(`${key} is a percentage, ${MIN_TEXT_SCALE * 100} to ${MAX_TEXT_SCALE * 100} (100: as the font draws it).`);
+    patch[field] = v / 100;
+  }
+  for (const [key, field] of [["faux_bold", "fauxBold"], ["faux_italic", "fauxItalic"], ["underline", "underline"], ["strikethrough", "strikethrough"]] as const) {
+    const v = input[key];
+    if (v === undefined) continue;
+    if (typeof v !== "boolean") throw new Error(`${key} is true or false.`);
+    patch[field] = v;
+  }
+  if (input.caps !== undefined) {
+    if (input.caps !== "none" && input.caps !== "all" && input.caps !== "small") throw new Error('caps is "none", "all" (All Caps) or "small" (Small Caps).');
+    patch.caps = input.caps;
+  }
+  return patch;
 }
 
 function frameOf(env: PhotoEditEnv): FrameText {
@@ -80,7 +118,7 @@ function patchFrom(input: Input, base: TextFont, notes: string[]): TextPatch {
     if (!finite(input.tracking) || input.tracking < -1000 || input.tracking > 10_000) throw new Error("tracking is in thousandths of an em, -1000 to 10000.");
     patch.tracking = input.tracking;
   }
-  return patch;
+  return { ...patch, ...characterFrom(input) };
 }
 
 function boxFrom(v: unknown): { x?: number; y?: number; width: number; height: number } {
@@ -110,7 +148,7 @@ export const addTextLayerTool: PhotoEdit = (doc, input, env) => {
   }
   const above = input.above === undefined ? null : findLayerRef(doc, input.above).id;
   const layer = makeTextLayer(
-    { id: createId("layer"), text: patch.text, font, colour: patch.colour ?? "#000000", align: patch.align, leading: patch.leading, tracking: patch.tracking, box, at, name: typeof input.name === "string" ? input.name : undefined },
+    { id: createId("layer"), text: patch.text, font, colour: patch.colour ?? "#000000", align: patch.align, leading: patch.leading, tracking: patch.tracking, character: patch, box, at, name: typeof input.name === "string" ? input.name : undefined },
     measure,
   );
   const next = addTextLayer(doc, layer, above);
@@ -125,7 +163,7 @@ export const setTextTool: PhotoEdit = (doc, input, env) => {
   const patch = patchFrom(input, found.font, notes);
   if (input.box === null || input.box === "point") patch.box = null;
   else if (input.box !== undefined) patch.box = { width: boxFrom(input.box).width, height: boxFrom(input.box).height };
-  if (!Object.keys(patch).length) throw new Error("Give something to change: text, font, style, size, colour, align, leading, tracking or box.");
+  if (!Object.keys(patch).length) throw new Error("Give something to change: text, font, style, size, colour, align, leading, tracking, kerning, horizontal_scale, vertical_scale, faux_bold, faux_italic, caps, underline, strikethrough or box.");
   const next = setText(doc, found.id, patch, measure);
   const layer = next.layers.find((l) => l.id === found.id) as TextLayer;
   return { doc: next, layerId: layer.id, text: [next === doc ? `"${layer.name}" already is that.` : `"${layer.name}": ${describeTextLayer(layer)}.`, ...notes].join("\n") };

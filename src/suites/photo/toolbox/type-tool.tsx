@@ -35,6 +35,11 @@ function caretFor(layer: TextLayer, at: { x: number; y: number }): number {
   return caretAt(layer, layout, measurerFor(layer), p.x - layer.origin.x, p.y - layer.origin.y);
 }
 
+/** Edits a text layer's words with the caret where document point `at` is (a click with the Type tool, a double-click with the Move tool). */
+export function editTextAt(layer: TextLayer, at: { x: number; y: number }) {
+  editTextLayer(layer.id, { caret: caretFor(layer, at) });
+}
+
 function press(e: ReactPointerEvent<HTMLDivElement>, docPoint: DocPointOf) {
   const doc = currentDoc();
   if (!doc || e.button !== 0) return;
@@ -45,7 +50,7 @@ function press(e: ReactPointerEvent<HTMLDivElement>, docPoint: DocPointOf) {
   if (hit) {
     // Not the press's own default: it would take the focus from the field that's about to open.
     e.preventDefault();
-    return editTextLayer(hit.id, { caret: caretFor(hit, at) });
+    return editTextAt(hit, at);
   }
   const dpr = devicePixelRatio;
   const done = () => useTypeSession.setState({ draft: null });

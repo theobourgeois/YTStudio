@@ -3,6 +3,7 @@
  * assistant's pictures render with it too. A photo that isn't open (an assistant call in another chat) gets a
  * renderer of its own for the call, without a canvas.
  */
+import { setTexts } from "@shared/photo/text";
 import type { PhotoProject } from "@shared/photo/types";
 import type { MediaAsset } from "@shared/types";
 import { api } from "@/lib/api";
@@ -12,6 +13,7 @@ import { PhotoRenderer, type RefineState, type SourceState } from "./render/rend
 import { usePhoto } from "./store";
 import { commitSurface } from "./paint-target";
 import { shownDoc } from "./filter-preview";
+import { frameText } from "./text-measure";
 import { usePhotoUi } from "./ui";
 import { cropPreviewKey, cropShownDoc, useCrop } from "./toolbox/crop-state";
 
@@ -45,12 +47,13 @@ export function liveRenderer(): Promise<PhotoRenderer> | null {
 }
 
 /**
- * What the canvas shows of `doc`: with the Filter Gallery's look while one is picked, and the layer the Crop tool
- * crops shown whole (docs/photo/tools/crop.md).
+ * What the canvas shows of `doc`: with the Filter Gallery's look while one is picked, the font list's hovered family
+ * on the text it would set, and the layer the Crop tool crops shown whole (docs/photo/tools/crop.md).
  */
 const shown = (doc: PhotoProject) => {
-  const { filterPreview, selectedLayerId } = usePhotoUi.getState();
-  return cropShownDoc(shownDoc(doc, filterPreview, selectedLayerId));
+  const { filterPreview, textPreview, selectedLayerId } = usePhotoUi.getState();
+  const previewed = textPreview ? setTexts(doc, textPreview.layerIds, textPreview.patch, frameText) : doc;
+  return cropShownDoc(shownDoc(previewed, filterPreview, selectedLayerId));
 };
 
 export function closeRenderer() {
@@ -73,9 +76,10 @@ usePhoto.subscribe((state, prev) => {
   void open.renderer.then((r) => r.setDocument(projectId, shown(history.doc.doc), assets), () => {});
 });
 
-// The gallery's look follows what's picked, its settings and the active layer it goes on.
+// The gallery's look follows what's picked, its settings and the active layer it goes on; a text preview what's hovered.
 usePhotoUi.subscribe((state, prev) => {
-  if (state.filterPreview === prev.filterPreview && (state.selectedLayerId === prev.selectedLayerId || (!state.filterPreview && !prev.filterPreview))) return;
+  const filter = state.filterPreview !== prev.filterPreview || (state.selectedLayerId !== prev.selectedLayerId && (!!state.filterPreview || !!prev.filterPreview));
+  if (!filter && state.textPreview === prev.textPreview) return;
   const { projectId, history, assets } = usePhoto.getState();
   if (!open || !projectId || !history) return;
   void open.renderer.then((r) => r.setDocument(projectId, shown(history.doc.doc), assets), () => {});
