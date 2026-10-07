@@ -5,6 +5,7 @@
 import { type Schema, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { BLEND_MODES } from "./blending.ts";
 import { ORIENTATIONS } from "./orient.ts";
+import { WARP_STYLES } from "./warp.ts";
 import { ADJUSTMENTS, EFFECTS, type EffectDefinition, type EffectKind, FILTERS, GENERATORS } from "./effects/index.ts";
 import { APPLY_TO, MIX } from "./effects/kernel.ts";
 import { FILTER_ENTRIES, describePresets } from "./effects/catalog.ts";
@@ -180,7 +181,7 @@ export const PHOTO_TOOLS = [
     title: "Move, scale or rotate a layer",
     kind: "edit",
     description:
-      "Moves, scales, rotates, skews or distorts a layer (Photoshop's Free Transform). Positions are the layer's centre in canvas pixels (0, 0 is the top-left corner). Scale is a factor of the image's own size (1 = 100%; negative mirrors); rotation is in degrees, clockwise; skew leans its vertical edges by degrees (positive: the bottom goes right). `corners` puts the layer's four corners on four canvas points (top-left, top-right, bottom-right, bottom-left), in perspective when they aren't a parallelogram: to place a picture onto a screen, a sign or a wall seen at an angle (images and pixel layers only; text and shapes can only skew). `perspective` [x, y] sets how much the far side shrinks (0 none; |x| + |y| < 1). Give only what changes. `fit` scales and centres it to fit inside the canvas (contain) or to cover it (cover), keeping its proportions.",
+      "Moves, scales, rotates, skews or distorts a layer (Photoshop's Free Transform). Positions are the layer's centre in canvas pixels (0, 0 is the top-left corner). Scale is a factor of the image's own size (1 = 100%; negative mirrors); rotation is in degrees, clockwise; skew leans its vertical edges by degrees (positive: the bottom goes right). `corners` puts the layer's four corners on four canvas points (top-left, top-right, bottom-right, bottom-left), in perspective when they aren't a parallelogram: to place a picture onto a screen, a sign or a wall seen at an angle (images and pixel layers only; text and shapes can only skew). `perspective` [x, y] sets how much the far side shrinks (0 none; |x| + |y| < 1). `warp` bends it (Photoshop's Warp; images and pixel layers): a style with its bend, or 16 control points of a 4 × 4 Bézier grid, or \"none\". Give only what changes. `fit` scales and centres it to fit inside the canvas (contain) or to cover it (cover), keeping its proportions.",
     inputSchema: obj(
       {
         layer,
@@ -195,6 +196,9 @@ export const PHOTO_TOOLS = [
         skew: num("Skew in degrees, -85 to 85 (absolute; 0 takes it off)."),
         perspective: arr(num("A fraction."), "[x, y]: the perspective (absolute; [0, 0] takes it off).", { minItems: 2, maxItems: 2 }),
         corners: arr(arr(num("A coordinate."), "[x, y]", { minItems: 2, maxItems: 2 }), "Four canvas points for the layer's corners: top-left, top-right, bottom-right, bottom-left (a convex shape). Overrides the rest.", { minItems: 4, maxItems: 4 }),
+        warp: {
+          description: `"none" takes it off; { "style": one of ${WARP_STYLES.join(", ")}, "bend": -100..100 (default 50), "horizontal" and "vertical": distortion -100..100 (default 0), "orientation": "horizontal" | "vertical" } for a Warp Style; or { "points": 16 [x, y] control points of the 4 × 4 Bézier grid in the layer's own fractions (0..1 across and down; unwarped they're at the thirds), row by row from the top-left } for a custom warp.`,
+        },
         fit: oneOf(["contain", "cover"], "Fit inside the canvas, or cover it."),
       },
       ["layer"],

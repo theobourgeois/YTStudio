@@ -327,6 +327,21 @@ const clean = (v: number) => {
 /** A warp from a style. */
 export const styleWarp = (settings: WarpStyleSettings): LayerWarp => ({ points: stylePoints(settings), style: { ...settings } });
 
+/** The control points that move with corner `k` (Photoshop's: a corner's anchor carries its two tangents and the inside point by it). */
+const CORNER_FOLLOWERS: Record<number, number[]> = { 0: [1, 4, 5], 3: [2, 7, 6], 12: [8, 13, 9], 15: [11, 14, 10] };
+
+/** Whether control point `k` is a corner (an anchor on the layer's corner). */
+export const isWarpCorner = (k: number) => k in CORNER_FOLLOWERS;
+
+/** The points with point `k` moved to `to` (normalised): a custom warp. A corner takes its tangents along. */
+export function moveWarpPoint(points: readonly WarpPoint[], k: number, to: WarpPoint): WarpPoint[] {
+  const next = points.map((p) => [p[0], p[1]] as WarpPoint);
+  const dx = to[0] - points[k][0];
+  const dy = to[1] - points[k][1];
+  for (const i of [k, ...(CORNER_FOLLOWERS[k] ?? [])]) next[i] = [points[i][0] + dx, points[i][1] + dy];
+  return next;
+}
+
 /** The farthest a control point may be from the layer (in its own sizes). */
 export const WARP_REACH = 4;
 
@@ -367,10 +382,6 @@ export function sameWarp(a: LayerWarp | undefined, b: LayerWarp | undefined): bo
  * The same steps as `unwarp` here: the corners' bilinear patch, then the Bézier's.
  */
 export const WARP_WGSL = /* wgsl */ `
-fn warp_point_at(w: array<vec4f, 8>, k: u32) -> vec2f {
-  let v = w[k / 2u];
-  return select(v.xy, v.zw, (k & 1u) == 1u);
-}
 fn bern(t: f32) -> vec4f {
   let s = 1.0 - t;
   return vec4f(s * s * s, 3.0 * t * s * s, 3.0 * t * t * s, t * t * t);
@@ -379,9 +390,9 @@ fn bern_d(t: f32) -> vec4f {
   let s = 1.0 - t;
   return vec4f(-3.0 * s * s, 3.0 * s * s - 6.0 * t * s, 6.0 * t * s - 3.0 * t * t, 3.0 * t * t);
 }
-// The patch at (u, v) (.xy) and its derivatives (∂u in .zw of the second, ∂v in its .xy... see below).
+// The patch at (u, v), and its derivatives along u and v.
 struct WarpEval { p: vec2f, du: vec2f, dv: vec2f }
-fn warp_eval(w: array<vec4f, 8>, u: f32, v: f32) -> WarpEval {
+fn warp_eval(pts: ptr<function, array<vec2f, 16>>, u: f32, v: f32) -> WarpEval {
   let bu = bern(u);
   let bv = bern(v);
   let du = bern_d(u);
@@ -389,7 +400,7 @@ fn warp_eval(w: array<vec4f, 8>, u: f32, v: f32) -> WarpEval {
   var out = WarpEval(vec2f(0.0), vec2f(0.0), vec2f(0.0));
   for (var j = 0u; j < 4u; j++) {
     for (var i = 0u; i < 4u; i++) {
-      let p = warp_point_at(w, j * 4u + i);
+      let p = (*pts)[j * 4u + i];
       out.p += bu[i] * bv[j] * p;
       out.du += du[i] * bv[j] * p;
       out.dv += bu[i] * dv[j] * p;
@@ -397,13 +408,21 @@ fn warp_eval(w: array<vec4f, 8>, u: f32, v: f32) -> WarpEval {
   }
   return out;
 }
-// The normalised point the patch takes to p (.xy), .z 1 when it's found inside the patch, and .w the patch's area
-// there (its Jacobian's determinant).
-fn unwarp(w: array<vec4f, 8>, p: vec2f) -> vec4f {
-  let c0 = warp_point_at(w, 0u);
-  let c1 = warp_point_at(w, 3u);
-  let c2 = warp_point_at(w, 15u);
-  let c3 = warp_point_at(w, 12u);
+// The layer pixel the warp takes to layer pixel q (.xy), .z 1 when there is one inside the patch (0 outside or on a
+// fold), and .w the patch's area there (its Jacobian's determinant). w: the points two a vec4, then (width, height).
+fn unwarp_px(w: array<vec4f, 9>, q: vec2f) -> vec4f {
+  var pts: array<vec2f, 16>;
+  for (var k = 0u; k < 8u; k++) {
+    pts[2u * k] = w[k].xy;
+    pts[2u * k + 1u] = w[k].zw;
+  }
+  let size = w[8].xy;
+  let p = q / size;
+  // The corners' bilinear patch first, then the Bézier's (as \`unwarp\` does).
+  let c0 = pts[0];
+  let c1 = pts[3];
+  let c2 = pts[15];
+  let c3 = pts[12];
   var uv = vec2f(0.5);
   for (var k = 0; k < 8; k++) {
     let f = (1.0 - uv.x) * (1.0 - uv.y) * c0 + uv.x * (1.0 - uv.y) * c1 + uv.x * uv.y * c2 + (1.0 - uv.x) * uv.y * c3 - p;
@@ -413,15 +432,18 @@ fn unwarp(w: array<vec4f, 8>, p: vec2f) -> vec4f {
     if (det == 0.0) { break; }
     uv -= vec2f(dv.y * f.x - dv.x * f.y, -du.y * f.x + du.x * f.y) / det;
   }
-  var e = warp_eval(w, uv.x, uv.y);
-  for (var k = 0; k < 12; k++) {
+  var e = warp_eval(&pts, uv.x, uv.y);
+  for (var k = 0; k < 10; k++) {
     let f = e.p - p;
     let det = e.du.x * e.dv.y - e.dv.x * e.du.y;
     if (det == 0.0) { return vec4f(0.0); }
     uv -= vec2f(e.dv.y * f.x - e.dv.x * f.y, -e.du.y * f.x + e.du.x * f.y) / det;
-    e = warp_eval(w, uv.x, uv.y);
+    e = warp_eval(&pts, uv.x, uv.y);
   }
-  let found = length(e.p - p) < 1e-3 && all(uv >= vec2f(-1e-4)) && all(uv <= vec2f(1.0 + 1e-4));
-  return vec4f(uv, select(0.0, 1.0, found), e.du.x * e.dv.y - e.dv.x * e.du.y);
+  // Settled within a hundredth of a pixel, inside the patch or a few pixels past it (where its edge is resampled, as
+  // any layer's is: the pass's crop cover fades it).
+  let off = length((e.p - p) * size);
+  let found = off < 0.01 && all(uv >= vec2f(-4.0) / size) && all(uv <= vec2f(1.0) + vec2f(4.0) / size);
+  return vec4f(uv * size, select(0.0, 1.0, found), e.du.x * e.dv.y - e.dv.x * e.du.y);
 }
 `;

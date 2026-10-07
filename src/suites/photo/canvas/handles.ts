@@ -4,7 +4,7 @@
  * is absolute (from the transform at the press), so a drag's preview never drifts.
  */
 import type { Size } from "@shared/photo/geometry";
-import { type Affine, bounds, corners, layerPoint, transformedBy } from "@shared/photo/layers";
+import { type Affine, bounds, layerPoint, outlinePoints, transformedBy } from "@shared/photo/layers";
 import { type Point, type Quad, isDistorted, linearPart, quadOf, transformFromQuad } from "@shared/photo/projective";
 import type { LayerTransform, PhotoProject } from "@shared/photo/types";
 import { type Guide, type SnapTargets, guidesOf, snapMove, snapResize } from "./snap";
@@ -38,7 +38,7 @@ export function handlePoint(t: LayerTransform, size: Size, h: Handle) {
 }
 
 /** The layer's outline, for drawing. */
-export const outline = (t: LayerTransform, size: Size) => corners(t, size);
+export const outline = (t: LayerTransform, size: Size) => outlinePoints(t, size);
 
 /** Moved by (dx, dy) document pixels; `constrain` keeps to the axis it's moved furthest along (Shift). */
 export function moved(t: LayerTransform, dx: number, dy: number, constrain = false): LayerTransform {
@@ -124,9 +124,10 @@ function scaledDistorted(t: LayerTransform, size: Size, handle: Handle, p: Point
 /**
  * How a handle drags (Photoshop's Edit › Transform modes): scale (the default), skew (an edge slides along itself, a
  * corner along the edge it's pulled most along), distort (a corner goes anywhere, an edge's corners move with it)
- * and perspective (a corner and its neighbour move apart or together along their edge, symmetrically).
+ * and perspective (a corner and its neighbour move apart or together along their edge, symmetrically). Warp shows
+ * the warp's own points instead of handles (`warp-overlay.tsx`).
  */
-export type TransformMode = "scale" | "skew" | "distort" | "perspective";
+export type TransformMode = "scale" | "skew" | "distort" | "perspective" | "warp";
 
 /**
  * What a handle drag does: Photoshop's modifiers first (⌘ on a corner distorts, on an edge skews; ⌘⌥⇧ on a corner
@@ -156,7 +157,7 @@ const dot = (a: Point, b: Point) => a.x * b.x + a.y * b.y;
  * layer on it. `projective` false (text, shapes) keeps it affine: distort and perspective then skew. The press's
  * place when the quad can't hold the picture (a bow tie, a sliver).
  */
-export function reshaped(t: LayerTransform, size: Size, handle: Handle, p: Point, mode: Exclude<TransformMode, "scale">, projective = true): LayerTransform {
+export function reshaped(t: LayerTransform, size: Size, handle: Handle, p: Point, mode: Exclude<TransformMode, "scale" | "warp">, projective = true): LayerTransform {
   const q = quadOf(t, size).map((c) => ({ ...c }));
   const corner = cornerIndex(handle);
   const from = handlePoint(t, size, handle);

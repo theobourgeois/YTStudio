@@ -6,6 +6,11 @@
 import type { Size } from "./geometry.ts";
 import { type Homography, fromLinear, invertHomography, isDistorted, isProjective, layerProjection, linearPart, maxLayerScale, project, quadOf, transformFromQuad } from "./projective.ts";
 import type { LayerTransform, PhotoLayer } from "./types.ts";
+import { identityPoints, unwarp, warpOutline, warpPoint } from "./warp.ts";
+
+/** The unit square's own outline, sampled the way a warped one is: the patch maps it. */
+let identity: ReturnType<typeof identityPoints> | null = null;
+const identityPointsOf = () => (identity ??= identityPoints());
 
 /** A 2D affine map: (x, y) → (a·x + c·y + e, b·x + d·y + f), the canvas convention. */
 export type Affine = readonly [a: number, b: number, c: number, d: number, e: number, f: number];
@@ -41,21 +46,31 @@ export function invert(m: Affine): Affine {
 
 export const apply = (m: Affine, x: number, y: number) => ({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] });
 
-/** Where layer pixel (u, v) lands, in perspective too (NaN past the horizon, which no layer's own pixel is). */
+/** Where layer pixel (u, v) lands, in perspective and warped too (NaN past the horizon, which no layer's own pixel is). */
 export function layerPoint(t: LayerTransform, size: Size, u: number, v: number): { x: number; y: number } {
+  // A warp bends the layer's own pixels first.
+  if (t.warp) [u, v] = warpPoint(t.warp.points, u / size.width, v / size.height).map((c, i) => c * (i ? size.height : size.width)) as [number, number];
   if (!isProjective(t)) return apply(layerMatrix(t, size), u, v);
   return project(layerProjection(t, size), u, v) ?? { x: NaN, y: NaN };
 }
 
-/** The layer pixel under document point (x, y); null where none can be (past a layer in perspective's horizon). */
+/** The layer pixel under document point (x, y); null where none is (past a layer in perspective's horizon, outside a warp). */
 export function pointInLayer(t: LayerTransform, size: Size, x: number, y: number): { x: number; y: number } | null {
-  if (!isProjective(t)) return apply(invert(layerMatrix(t, size)), x, y);
-  return project(invertHomography(layerProjection(t, size)), x, y);
+  const q = isProjective(t) ? project(invertHomography(layerProjection(t, size)), x, y) : apply(invert(layerMatrix(t, size)), x, y);
+  if (!q || !t.warp) return q;
+  const n = unwarp(t.warp.points, q.x / size.width, q.y / size.height);
+  return n && { x: n[0] * size.width, y: n[1] * size.height };
 }
 
 /** The layer's four corners in document pixels: top-left, top-right, bottom-right, bottom-left of the source. */
 export function corners(t: LayerTransform, size: Size) {
   return [layerPoint(t, size, 0, 0), layerPoint(t, size, size.width, 0), layerPoint(t, size, size.width, size.height), layerPoint(t, size, 0, size.height)];
+}
+
+/** Its outline in document pixels: its corners, or a warped layer's curved edges (16 points a side). */
+export function outlinePoints(t: LayerTransform, size: Size): { x: number; y: number }[] {
+  if (!t.warp) return corners(t, size);
+  return warpOutline(identityPointsOf(), 16).map(([u, v]) => layerPoint(t, size, u * size.width, v * size.height));
 }
 
 /** Whether document point (x, y) is on the layer's pixels. */
@@ -72,7 +87,7 @@ export const layerScale = (t: LayerTransform) => maxLayerScale(t);
 
 /** The axis-aligned box around the layer, in document pixels. */
 export function bounds(t: LayerTransform, size: Size) {
-  const c = corners(t, size);
+  const c = outlinePoints(t, size);
   const xs = c.map((p) => p.x);
   const ys = c.map((p) => p.y);
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
@@ -107,6 +122,7 @@ export function transformedBy(t: LayerTransform, size: Size, m: Affine): LayerTr
   const scaleY = (a * d - b * c) / scaleX;
   // Plain when the second column is the first turned a right angle (no skew), as it was.
   if (!isDistorted(t) && Math.abs(a * c + b * d) <= 1e-9 * Math.max(1, scaleX * Math.abs(scaleY))) {
+    // (A warped layer is distorted: `fromLinear` below keeps its warp.)
     const rotation = (Math.atan2(b, a) * 180) / Math.PI;
     return { x: centre.x, y: centre.y, scaleX, scaleY, rotation: rotation === -180 ? 180 : rotation };
   }

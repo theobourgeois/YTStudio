@@ -6,6 +6,7 @@
  */
 import type { Size } from "./geometry.ts";
 import type { LayerTransform } from "./types.ts";
+import { type WarpPoint, warpArea } from "./warp.ts";
 
 /**
  * A homography, row-major: (x, y) → ((m0·x + m1·y + m2) / w, (m3·x + m4·y + m5) / w) with w = m6·x + m7·y + m8.
@@ -61,10 +62,16 @@ export const isProjective = (t: LayerTransform) => !!t.perspective && (t.perspec
  * a selection is placed on them by an affine map.
  */
 export const perspectiveRefusal = (name: string) =>
-  `"${name}" is in perspective: its pixels and mask can't be painted or filled yet. Convert it to pixels (Layers › Convert to Pixels), or take its perspective off (Properties › Transform).`;
+  `"${name}" is in perspective or warped: its pixels and mask can't be painted or filled yet. Convert it to pixels (Layers › Convert to Pixels), or Straighten it (Properties).`;
 
-/** Whether a layer is more than moved, scaled and turned: skewed or in perspective. */
-export const isDistorted = (t: LayerTransform) => skewOf(t) !== 0 || isProjective(t);
+/** Whether a layer is more than moved, scaled and turned: skewed, in perspective or warped. */
+export const isDistorted = (t: LayerTransform) => skewOf(t) !== 0 || isProjective(t) || !!t.warp;
+
+/**
+ * Whether a layer's own pixels aren't placed by an affine map (in perspective, or warped): what places a brush, a
+ * fill or a crop on them can't follow it yet.
+ */
+export const isBent = (t: LayerTransform) => isProjective(t) || !!t.warp;
 
 /**
  * cos and sin of an angle in degrees, exact at right angles (Math.cos of 90° is 6e-17, not 0): a layer turned a
@@ -129,12 +136,20 @@ export function quadOf(t: LayerTransform, size: Size): Quad {
  * level a distorted layer's pixels are read at, the far side's widened by its filter.
  */
 export function maxLayerScale(t: LayerTransform): number {
-  const area = Math.abs(t.scaleX * t.scaleY);
+  // A warp stretches some of its pixels: by most where its patch's area is largest.
+  const area = Math.abs(t.scaleX * t.scaleY) * (t.warp ? maxWarpArea(t.warp.points) : 1);
   if (!isProjective(t)) return Math.sqrt(area);
   const [px, py] = perspectiveOf(t);
   // The area a pixel covers is det(L) / w³; w is least at a corner.
   const w = Math.min(1 - px - py, 1 + px - py, 1 + px + py, 1 - px + py);
   return Math.sqrt(area / Math.max(w, 1e-6) ** 3);
+}
+
+/** The most a warp's patch stretches area, sampled over it (at least 1: its level is never coarser for it). */
+function maxWarpArea(points: readonly WarpPoint[]): number {
+  let most = 1;
+  for (let j = 0; j <= 6; j++) for (let i = 0; i <= 6; i++) most = Math.max(most, Math.abs(warpArea(points, i / 6, j / 6)));
+  return most;
 }
 
 const cross = (o: Point, a: Point, b: Point) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
@@ -215,6 +230,8 @@ export function fromLinear(x: number, y: number, [a, b, c, d]: readonly [number,
   if (k) t.skew = k;
   const p: [number, number] = [clean(perspective[0]), clean(perspective[1])];
   if (p[0] || p[1]) t.perspective = p;
+  // A warp is in the layer's own pixels: whatever places them, it stays.
+  if (like?.warp) t.warp = like.warp;
   return t;
 }
 

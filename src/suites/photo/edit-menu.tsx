@@ -32,6 +32,7 @@ const TRANSFORM_MODES: [TransformMode, string][] = [
   ["skew", "Skew"],
   ["distort", "Distort"],
   ["perspective", "Perspective"],
+  ["warp", "Warp"],
 ];
 import { usePhotoUi } from "./ui";
 

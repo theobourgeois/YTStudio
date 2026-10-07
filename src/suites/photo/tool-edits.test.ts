@@ -71,6 +71,19 @@ describe("the photo assistant's edits", () => {
     expect(() => transformLayerTool(placed, { layer: "Cat", perspective: [0.6, 0.6] }, env)).toThrow(/under 1/);
   });
 
+  it("warps a layer by a style or by its points, and takes it off", () => {
+    const placed = addImageLayerTool(empty, { media: "media_cat", name: "Cat" }, env).doc;
+    const arced = transformLayerTool(placed, { layer: "Cat", warp: { style: "arc", bend: 40 } }, env);
+    expect(placeOf(arced.doc).warp?.style).toMatchObject({ style: "arc", bend: 40, orientation: "horizontal" });
+    expect(arced.text).toMatch(/warped \(arc, bend 40/);
+    const points = Array.from({ length: 16 }, (_, k) => [(k % 4) / 3, Math.floor(k / 4) / 3]);
+    points[5] = [0.4, 0.2];
+    expect(placeOf(transformLayerTool(placed, { layer: "Cat", warp: { points } }, env).doc).warp?.style).toBeNull();
+    expect(placeOf(transformLayerTool(arced.doc, { layer: "Cat", warp: "none" }, env).doc).warp).toBeUndefined();
+    expect(() => transformLayerTool(placed, { layer: "Cat", warp: { style: "spiral" } }, env)).toThrow(/arc, arc-lower/);
+    expect(() => transformLayerTool(placed, { layer: "Cat", warp: { points: [[0, 0]] } }, env)).toThrow(/16/);
+  });
+
   it("flips and turns layers together, and says what it left", () => {
     const placed = addImageLayerTool(empty, { media: "media_cat", name: "Cat" }, env).doc;
     const flipped = flipRotateLayersTool(placed, { layers: ["Cat"], operation: "flip-horizontal" }, env);

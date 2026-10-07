@@ -19,10 +19,11 @@ import { type Affine, apply, layerScale } from "@shared/photo/layers.ts";
 import type { DrawNode, NodeBlend, NodeStyle, PatternRef, PlanFormat } from "@shared/photo/render-plan.ts";
 import { specShows } from "@shared/photo/effects/params.ts";
 import { type PatternImage, placementOf, turn } from "@shared/photo/style/patterns.ts";
-import type { BlendMode, Compositing, Contour, EffectInstance, Gradient } from "@shared/photo/types.ts";
+import type { BlendMode, Compositing, Contour, EffectInstance, Gradient, LayerTransform } from "@shared/photo/types.ts";
 import { type Homography, project } from "@shared/photo/projective.ts";
 import { ROUND_FOR_STORE } from "./kernels.ts";
-import { inverseRows } from "./layer-map.ts";
+import { inverseRows, warpRows } from "./layer-map.ts";
+import { WARP_WGSL } from "@shared/photo/warp.ts";
 import { MATHS } from "./wgsl.ts";
 
 /** The largest side of a layer's fields: a bigger layer's are made from a level of its pyramid. */
@@ -416,12 +417,13 @@ export class StyleFields {
 
 /** One effect as the composite reads it (144 bytes). */
 const FX_SIZE = 144;
-/** The composite's uniform: the layer's place, the fields', flags, then its `BlendParams`. */
-export const STYLE_UNIFORM_SIZE = 96 + BLEND_PARAMS_SIZE;
+/** The composite's uniform: the layer's place, the fields', flags, then its `BlendParams`, then its warp. */
+export const STYLE_UNIFORM_SIZE = 96 + BLEND_PARAMS_SIZE + 144;
 
 export const STYLE_COMPOSITE = (format: PlanFormat) => /* wgsl */ `
 ${ROUND_FOR_STORE(format)}
 ${MATHS}
+${WARP_WGSL}
 ${BLEND_STRUCT}
 ${BLEND}
 // A bevel's fields: mode and colour its highlight's, opacity its highlight opacity, spread its height past the field,
@@ -446,6 +448,7 @@ struct SU {
   sdScale: f32, flags: u32, gradients: u32, p0: u32,  // flags: 1 interior as group, 2 mask hides effects
   inv2: vec4f,                                        // w = dot(inv2.xy, doc) + inv2.z (1 but in perspective)
   blend: BlendParams,
+  warp: array<vec4f, 9>,                              // the layer's warp (WARP_WGSL); warp[8].z 1 when it has one
 }
 @group(0) @binding(0) var below: texture_2d<f32>;
 @group(0) @binding(1) var drawn: texture_2d<f32>;
@@ -476,7 +479,13 @@ fn to_field(doc: vec2f) -> vec2f {
   // Past a layer in perspective's horizon: far outside its field.
   let w = dot(su.inv2.xy, doc) + su.inv2.z;
   if (w <= 0.0) { return vec2f(-1e9); }
-  let u = vec2f(dot(su.inv0.xy, doc) + su.inv0.z, dot(su.inv1.xy, doc) + su.inv1.z) / w;
+  var u = vec2f(dot(su.inv0.xy, doc) + su.inv0.z, dot(su.inv1.xy, doc) + su.inv1.z) / w;
+  // A warped layer's fields are in its own pixels, before the warp.
+  if (su.warp[8].z > 0.5) {
+    let r = unwarp_px(su.warp, u);
+    if (r.z < 0.5) { return vec2f(-1e9); }
+    u = r.xy;
+  }
   return u / su.field.w + su.field.z;
 }
 fn noise_at(f: vec2f, salt: u32) -> f32 {
@@ -805,7 +814,7 @@ function packPatterns(style: NodeStyle, patternsOf: PatternsOf): { data: Float32
 /** Packed patterns by what's in them (a style's own, kept: packing copies their pixels). */
 const packedPatterns = new Map<string, { data: Float32Array; bases: Map<string, number>; key: string }>();
 
-export function packStyle(node: DrawNode, blend: NodeBlend, opacity: number, compositing: Compositing, plan: FieldPlan, place: { matrix: Affine; projection?: Homography }, view: { x: number; y: number; zoom: number }, patternsOf: PatternsOf = () => null) {
+export function packStyle(node: DrawNode, blend: NodeBlend, opacity: number, compositing: Compositing, plan: FieldPlan, place: { matrix: Affine; projection?: Homography; transform: LayerTransform; source: { width: number; height: number } }, view: { x: number; y: number; zoom: number }, patternsOf: PatternsOf = () => null) {
   const matrix = place.matrix;
   const style = node.style!;
   const effects = style.effects.filter((e) => styleDefinition(e.type));
@@ -922,6 +931,7 @@ export function packStyle(node: DrawNode, blend: NodeBlend, opacity: number, com
   u[17] = (style.interiorAsGroup ? 1 : 0) | (style.maskHidesEffects ? 2 : 0);
   u[18] = gradientBase;
   packBlend(blend, opacity, compositing, view, uniform, 96);
+  f.set(warpRows(place.transform, place.source), (96 + BLEND_PARAMS_SIZE) / 4);
   return { uniform, fx, tables, count: effects.length, patterns: patterns.data, patternKey: patterns.key };
 }
 

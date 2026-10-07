@@ -16,8 +16,8 @@ import { type View, levelForScale } from "@shared/photo/geometry.ts";
 import { fromHalf, toHalf } from "@shared/photo/half.ts";
 import { coverageIn } from "@shared/photo/selection.ts";
 import type { BrushSettings } from "@shared/photo/brush.ts";
-import { type Affine, IDENTITY, affineHomography, apply, corners as layerCorners, invert, layerMatrix, layerScale } from "@shared/photo/layers.ts";
-import { invertHomography, isProjective, layerProjection, perspectiveRefusal, project } from "@shared/photo/projective.ts";
+import { type Affine, IDENTITY, affineHomography, apply, outlinePoints, invert, layerMatrix, layerScale } from "@shared/photo/layers.ts";
+import { invertHomography, isBent, isProjective, layerProjection, perspectiveRefusal, project } from "@shared/photo/projective.ts";
 import type { TileSize } from "@shared/photo/lab.ts";
 import { DITHER_8BIT, type Highlights } from "@shared/photo/output.ts";
 import { type PixelSample, sampleSize } from "@shared/photo/pixel-sample.ts";
@@ -156,7 +156,10 @@ export function layerView(view: View, matrix: Affine, transformScale: number, si
   const x1v = view.x + view.width / view.zoom;
   const y1v = view.y + view.height / view.zoom;
   let pts: { x: number; y: number }[];
-  if (transform && isProjective(transform)) {
+  if (transform?.warp) {
+    // A warp can take any of its pixels anywhere in its box: all of them.
+    pts = [{ x: 0, y: 0 }, { x: size.width, y: size.height }];
+  } else if (transform && isProjective(transform)) {
     // In perspective: a corner past the horizon sees as far as the layer goes.
     const inv = invertHomography(layerProjection(transform, size));
     const found = [project(inv, view.x, view.y), project(inv, x1v, view.y), project(inv, view.x, y1v), project(inv, x1v, y1v)];
@@ -1284,8 +1287,8 @@ export class PhotoRenderer {
     if (!layer) return null;
     // An adjustment's, a generator's, a text's or a shape's pixels (its mask's) are the document's.
     if (!isPlaced(layer) || layer.kind === "text" || layer.kind === "shape") return { matrix: IDENTITY, scale: 1 };
-    // In perspective a brush's dabs can't be placed by an affine map: painting on it is refused before this.
-    if (isProjective(layer.transform)) return null;
+    // In perspective or warped a brush's dabs can't be placed by an affine map: painting on it is refused before this.
+    if (isBent(layer.transform)) return null;
     const surface = this.surfaceOf(layerId, part);
     const size = layer.kind === "pixel" ? layer.size : surface?.size;
     if (!size) return null;
@@ -1436,7 +1439,7 @@ export class PhotoRenderer {
     const layer = doc.layers.find((l) => l.id === layerId);
     if (!layer) return null;
     if (!isPlaced(layer) || layer.kind === "text" || layer.kind === "shape") return { size: doc.canvas, matrix: IDENTITY, bits: 8 };
-    if (isProjective(layer.transform)) throw new Error(perspectiveRefusal(layer.name));
+    if (isBent(layer.transform)) throw new Error(perspectiveRefusal(layer.name));
     if (layer.kind === "pixel") return { size: layer.size, matrix: layerMatrix(layer.transform, layer.size), bits: 8 };
     const asset = this.assets.get(layer.mediaId);
     if (!asset?.width || !asset.height) return null;
@@ -1504,7 +1507,7 @@ export class PhotoRenderer {
     const matrix = layer.kind === "generator" ? IDENTITY : layerMatrix(layer.transform, shape);
     // A text's glyphs may reach a little past its frame.
     const reach = layer.kind === "generator" ? 0 : filtersReach(layer) + (layer.kind === "text" ? Math.ceil(0.25 * layer.font.size * layerScale(layer.transform)) + 2 : 0);
-    let corners = layer.kind === "generator" ? [apply(matrix, 0, 0), apply(matrix, shape.width, shape.height)] : layerCorners(layer.transform, shape);
+    let corners = layer.kind === "generator" ? [apply(matrix, 0, 0), apply(matrix, shape.width, shape.height)] : outlinePoints(layer.transform, shape);
     // A shape's pixels are what it draws: its stroke and heads reach past its box.
     if (layer.kind === "shape") {
       const drawn = shapeBounds(layer);

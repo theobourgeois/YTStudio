@@ -11,7 +11,7 @@ import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEv
 import { cn } from "cn";
 import { PiWarningCircle } from "react-icons/pi";
 import { createId } from "@shared/ids";
-import { duplicateLayers, moveLayersBy } from "@shared/photo/edits";
+import { canDistort, duplicateLayers, moveLayersBy } from "@shared/photo/edits";
 import { srgbToLinear } from "@shared/photo/colour";
 import { fitView, panBy, viewToDoc, zoomAbout } from "@shared/photo/geometry";
 import { contains } from "@shared/photo/layers";
@@ -46,6 +46,7 @@ import { type Frame, frameOf, touches } from "./frame";
 import { activeGenerator, GeneratorHandles } from "./generator-handles";
 import { HANDLES, type Handle, type SnapContext, dragMode, handlePoint, movedWithSnap, outline, reshaped, rotated, scaledWithSnap } from "./handles";
 import { sessionGesture, useFreeTransform } from "../free-transform";
+import { WarpOverlay } from "./warp-overlay";
 import { type Box, type Guide, snapTargets } from "./snap";
 
 /** The driver of the canvas on screen (the bench and the keys reach it here). */
@@ -583,6 +584,12 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
   // While a handle is dragged, the box drawn is the dragged one (a turned box stays turned until it's let go).
   const [dragged, setDragged] = useState<{ t: LayerTransform; size: Frame["size"] } | null>(null);
   if (!view || !frame) return null;
+  // Warp: the one layer's own points instead of the box's handles.
+  const warping = mode0 === "warp" && frame.ids.length === 1 ? layers.find((l) => l.id === frame.ids[0]) : undefined;
+  if (warping && isPlaced(warping) && canDistort(warping)) {
+    const size = sizeOf(warping, assets);
+    if (size) return <WarpOverlay layer={warping} size={size} docPoint={docPoint} />;
+  }
   const dpr = devicePixelRatio;
   const css = (p: { x: number; y: number }) => ({ x: ((p.x - view.x) * view.zoom) / dpr, y: ((p.y - view.y) * view.zoom) / dpr });
   const shown = dragged ?? frame;
@@ -643,8 +650,8 @@ function TransformOverlay({ docPoint }: { docPoint: (x: number, y: number) => { 
       (p, ev) => {
         const doc = usePhoto.getState().history!.doc.doc;
         // ⌘ (Ctrl) distorts a corner and skews an edge, ⌘⌥⇧ a corner is perspective; Free Transform's mode otherwise.
-        const mode = dragMode(h, { mod: MAC ? ev.metaKey : ev.ctrlKey, alt: ev.altKey, shift: ev.shiftKey }, mode0);
-        if (mode !== "scale") return { t: reshaped(base, size, h, p, mode, frame.projective), guides: [] };
+        const mode = dragMode(h, { mod: MAC ? ev.metaKey : ev.ctrlKey, alt: ev.altKey, shift: ev.shiftKey }, mode0 === "warp" ? null : mode0);
+        if (mode !== "scale" && mode !== "warp") return { t: reshaped(base, size, h, p, mode, frame.projective), guides: [] };
         return scaledWithSnap(base, size, h, p, { free: ev.shiftKey && frame.stretches, fromCentre: ev.altKey }, snapContext(doc, frame.ids, ev));
       },
       cursorOf(h),

@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import { type CropRect, canvasCropRect, cropCanvas, cropFromDocBox, cropOf, documentMasks, fullRect, sameRect, setLayerCrop } from "@shared/photo/crop";
 import type { Size } from "@shared/photo/geometry";
-import { isProjective } from "@shared/photo/projective";
+import { isBent } from "@shared/photo/projective";
 import { type Affine, IDENTITY, layerMatrix } from "@shared/photo/layers";
 import { selectionBox } from "@shared/photo/selection";
 import { type PhotoProject, type PhotoSelection, type CroppableLayer, isCroppable, isPlaced } from "@shared/photo/types";
@@ -92,7 +92,7 @@ function selectedPlaced(doc: PhotoProject): { layer: CroppableLayer; size: Size 
   const layer = doc.layers.find((l) => l.id === selectedLayerIds[0]);
   const size = layer ? sizeOf(layer, usePhoto.getState().assets) : null;
   // A layer in perspective isn't cropped by its own frame here (that's affine): the Crop tool crops the canvas.
-  return layer && isCroppable(layer) && size && !isProjective(layer.transform) ? { layer, size } : null;
+  return layer && isCroppable(layer) && size && !isBent(layer.transform) ? { layer, size } : null;
 }
 
 /** Whether a layer could be cropped now (one image or pixel layer selected): the switch's Layer side. */

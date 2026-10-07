@@ -50,6 +50,7 @@ import type { MergeKind } from "@shared/photo/merge";
 import { MAX_SKEW, isColour } from "@shared/photo/project";
 import { ORIENTATIONS, ORIENTATION_LABELS, isOrientation, orientLayers } from "@shared/photo/orient";
 import { type Quad, isDistorted, quadOf, transformFromQuad } from "@shared/photo/projective";
+import { WARP_STYLES, normalizeWarp } from "@shared/photo/warp";
 import {
   type AdjustmentLayer,
   type ContentLayer,
@@ -202,7 +203,7 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
       : `image ${layer.mediaId}${asset ? ` (${asset.name}, ${asset.width}×${asset.height})` : " (missing: the file isn't in the project)"}`;
   const parts = [
     `${index}. ${layer.id} "${layer.name}": ${what}`,
-    `   centre (${round(t.x)}, ${round(t.y)}), scale ${round(t.scaleX, 4)} × ${round(t.scaleY, 4)}, rotation ${round(t.rotation)}°${t.skew ? `, skew ${round(t.skew)}°` : ""}${t.perspective ? `, perspective [${round(t.perspective[0], 4)}, ${round(t.perspective[1], 4)}]` : ""}`,
+    `   centre (${round(t.x)}, ${round(t.y)}), scale ${round(t.scaleX, 4)} × ${round(t.scaleY, 4)}, rotation ${round(t.rotation)}°${t.skew ? `, skew ${round(t.skew)}°` : ""}${t.perspective ? `, perspective [${round(t.perspective[0], 4)}, ${round(t.perspective[1], 4)}]` : ""}${t.warp ? `, warped (${t.warp.style ? `${t.warp.style.style}, bend ${round(t.warp.style.bend)}, horizontal ${round(t.warp.style.horizontal)}, vertical ${round(t.warp.style.vertical)}, ${t.warp.style.orientation}` : "custom points"})` : ""}`,
   ];
   if (size && isDistorted(t)) parts.push(`   corners: ${quadOf(t, size).map((p) => `(${round(p.x)}, ${round(p.y)})`).join(", ")} (top-left, top-right, bottom-right, bottom-left)`);
   if (size) {
@@ -309,6 +310,19 @@ export const transformLayerTool: PhotoEdit = (doc, input, env) => {
     if (!placed) throw new Error("Those corners don't make a convex four-sided shape in order (top-left, top-right, bottom-right, bottom-left, going clockwise or anticlockwise all round): the layer can't be put on them.");
     if (placed.perspective && !canDistort(layer)) throw new Error(`"${layer.name}" is a ${layer.kind} layer: it can only skew, so its corners must be a parallelogram.`);
     t = { ...placed, perspective: placed.perspective ?? [0, 0], skew: placed.skew ?? 0 };
+  }
+  if (input.warp !== undefined) {
+    if (!canDistort(layer)) throw new Error(`"${layer.name}" is a ${layer.kind} layer: only images and pixel layers warp.`);
+    if (input.warp === "none" || input.warp === null) t = { ...t, warp: undefined };
+    else {
+      const w = input.warp as Record<string, unknown>;
+      if (w && typeof w === "object" && typeof w.style === "string" && !(WARP_STYLES as readonly string[]).includes(w.style)) throw new Error(`warp.style must be one of ${WARP_STYLES.join(", ")}.`);
+      const warp = normalizeWarp(w && typeof w === "object" && typeof w.style === "string" ? { style: w } : w);
+      if (!warp && !(w && typeof w === "object" && Array.isArray(w.points))) throw new Error('warp is "none", { "style": …, "bend": … }, or { "points": 16 [x, y] }.');
+      if (!warp && Array.isArray(w.points) && (w.points.length !== 16 || !w.points.every((p) => Array.isArray(p) && p.length === 2 && p.every((c) => typeof c === "number" && Number.isFinite(c)))))
+        throw new Error("warp.points must be 16 [x, y] pairs, row by row (4 × 4), in the layer's own fractions.");
+      t = { ...t, warp: warp ?? undefined };
+    }
   }
   if (t.scaleX === 0 || t.scaleY === 0) throw new Error("A scale of 0 would make the layer vanish: use set_layer with visible: false to hide it.");
   const next = setTransform(doc, layer.id, t);
