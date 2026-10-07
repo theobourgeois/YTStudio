@@ -47,6 +47,7 @@ import { type CropRect, canvasCropRect, cropFromDocBox, cropOf, croppedBounds, p
 import { selectionBox } from "@shared/photo/selection";
 import type { MergeKind } from "@shared/photo/merge";
 import { isColour } from "@shared/photo/project";
+import { ORIENTATIONS, ORIENTATION_LABELS, isOrientation, orientLayers } from "@shared/photo/orient";
 import {
   type AdjustmentLayer,
   type ContentLayer,
@@ -290,6 +291,25 @@ export const transformLayerTool: PhotoEdit = (doc, input, env) => {
   const next = setTransform(doc, layer.id, t);
   const after = findLayer(next, layer.id)!;
   return { doc: next, layerId: layer.id, text: next === doc ? `Layer "${layer.name}" was already there.` : `Transformed "${layer.name}".\n${describeLayer(after, env.assets, next.layers.indexOf(after))}` };
+};
+
+/** `flip_rotate_layers`: layers flipped or turned together about the box around them. */
+export const flipRotateLayersTool: PhotoEdit = (doc, input, env) => {
+  if (!isOrientation(input.operation)) throw new Error(`operation must be one of ${ORIENTATIONS.join(", ")}.`);
+  const refs = Array.isArray(input.layers) ? input.layers : input.layer !== undefined ? [input.layer] : [];
+  if (!refs.length) throw new Error("Give layers: a list of layer ids or names.");
+  const chosen = refs.map((r) => findLayerRef(doc, r));
+  const movable = chosen.filter((l) => isPlaced(l) || l.kind === "generator");
+  if (!movable.length) throw new Error(`${chosen.map((l) => `"${l.name}"`).join(", ")} ${chosen.length > 1 ? "are adjustment layers" : "is an adjustment layer"}: it has no place to flip or turn (it changes everything below it).`);
+  const next = orientLayers(doc, movable.map((l) => l.id), input.operation, (l) => sizeOf(l, env.assets));
+  const label = ORIENTATION_LABELS[input.operation];
+  const left = chosen.filter((l) => !isPlaced(l) && l.kind !== "generator");
+  const lines = movable.map((l) => describeLayer(findLayer(next, l.id)!, env.assets, next.layers.findIndex((x) => x.id === l.id)));
+  return {
+    doc: next,
+    layerId: movable.at(-1)!.id,
+    text: `${label}: ${movable.map((l) => `"${l.name}"`).join(", ")}${left.length ? ` (left as they are: ${left.map((l) => `"${l.name}"`).join(", ")}, adjustments have no place)` : ""}.\n${lines.join("\n")}`,
+  };
 };
 
 export const setLayerTool: PhotoEdit = (doc, input) => {

@@ -398,6 +398,12 @@ function answerProjectDialogs() {
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
   // The page's tab strip is a shorter bar than its headers: the window buttons sit in the middle of whichever shows.
+  // ⌘H / ⌥⌘H the page didn't use (the app menu leaves them to it): macOS's Hide and Hide Others.
+  ipcMain.on("hide-app", (_event, which: unknown) => {
+    if (!isMac) return;
+    if (which === "others") Menu.sendActionToFirstResponder("hideOtherApplications:");
+    else app.hide();
+  });
   ipcMain.on("tab-strip", (event, shown: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (isMac) win?.setWindowButtonPosition(shown === true ? TAB_STRIP_BUTTONS : HEADER_BUTTONS);
@@ -543,7 +549,26 @@ function keepLinksOutside(win: BrowserWindow) {
 
 function buildMenu(): Menu {
   const template: MenuItemConstructorOptions[] = [
-    ...(isMac ? [{ role: "appMenu" as const }] : []),
+    // The app menu as macOS makes it, but Hide (⌘H) and Hide Others (⌥⌘H) leave their keys to the page: the photo
+    // editor flips with them, and anywhere else the page hands them back (`hide-app`).
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: "about" as const },
+              { type: "separator" as const },
+              { role: "services" as const },
+              { type: "separator" as const },
+              { role: "hide" as const, accelerator: "Command+H", registerAccelerator: false },
+              { role: "hideOthers" as const, accelerator: "Command+Alt+H", registerAccelerator: false },
+              { role: "unhide" as const },
+              { type: "separator" as const },
+              { role: "quit" as const },
+            ],
+          },
+        ]
+      : []),
     {
       label: "File",
       // The page catches these keys itself (wherever focus is), so the menu only shows them.

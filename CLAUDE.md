@@ -100,7 +100,7 @@ options, its press on the canvas, its overlay), registered in `toolbox/index.ts`
 `tool-groups.ts` (Photoshop's groups and keys). Text and shape layers are drawn by the browser's 2D canvas through one
 seam (`shared/photo/canvas-content.ts` → a `CanvasNode`, `render/canvas-content.ts`): a new kind of drawn layer is a
 case there. A raster's key says what it draws within a pixel, never which pixel (the Move tool drags these layers by
-whole pixels), so a move reuses the drawn raster: keep positions out of `CanvasRaster.key`. Only image and pixel layers crop (`isCroppable`). A placed image is never rasterised by these tools: the
+whole pixels), so a move reuses the drawn raster: keep positions out of `CanvasRaster.key`. Only image and pixel layers crop (`isCroppable`). **Flips and right-angle turns** (Edit › Transform, ⌘H / ⌥⌘H; Image › Image Rotation) are `shared/photo/orient.ts`: exact in a layer's five numbers, the canvas's document-pixel masks moved pixel for pixel (`surface-orient.ts`); `layerMatrix` is exact at right angles (`cosSin`), so a turned layer is still drawn texel for texel. A placed image is never rasterised by these tools: the
 Magic Eraser erases through its mask; the others ask (the paint-choice dialog). Every colour picker shown in the photo
 editor samples the canvas, as Photoshop's Color Picker does (`ColorSamplerContext`, provided by `colour-sampling.tsx`:
 a press on the canvas with one open goes to it, whatever the tool).

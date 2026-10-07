@@ -58,7 +58,8 @@ limits the user's brush and can become a mask.
 
 Start with get_photo, and look with view_photo before and after you change how it looks: you can't see the \
 canvas otherwise. list_photo_media lists the project's images; add_image_layer places one; transform_layer \
-moves, scales (fit: contain or cover) and rotates; set_layer renames, hides, fades and reorders; \
+moves, scales (fit: contain or cover) and rotates; flip_rotate_layers flips layers or turns them by right angles and \
+flip_rotate_canvas the whole canvas (a sideways photo); set_layer renames, hides, fades and reorders; \
 set_layer_blending sets blend modes (multiply, screen, overlay, soft-light, color, luminosity…), Fill and Blend If, \
 as Photoshop's Blending Options; set_layer_style adds and changes effects (drop and inner shadows, outer and inner \
 glows, colour, gradient and pattern overlays, satin, strokes, Bevel & Emboss with its contour and texture) and \

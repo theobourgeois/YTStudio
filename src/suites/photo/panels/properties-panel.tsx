@@ -8,10 +8,11 @@
  * value is one undo step; a slider or graph drag is one too.
  */
 import { useState } from "react";
-import { PiArrowCounterClockwise, PiArrowSquareOut, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiPaintBrush, PiStack, PiTrash, PiWarningCircle } from "react-icons/pi";
+import { PiArrowClockwise, PiArrowCounterClockwise, PiArrowSquareOut, PiFlipHorizontal, PiFlipVertical, PiArrowsIn, PiArrowsOut, PiLink, PiLinkBreak, PiPaintBrush, PiStack, PiTrash, PiWarningCircle } from "react-icons/pi";
 import { blendingOf, compositingOf } from "@shared/photo/blending";
 import { resetEffect, setCanvas, setCompositing, setEffectParams, setHighlights, setLayerBlending, setTransform, updateLayer } from "@shared/photo/edits";
 import { effectDefinition, unavailableReason } from "@shared/photo/effects/index";
+import { ORIENTATION_LABELS, type Orientation, orientLayers } from "@shared/photo/orient";
 import { type AdjustmentLayer, CANVAS_PRESETS, type Compositing, type PhotoLayer, type PlacedLayer, hasContent, isPlaced } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -182,6 +183,14 @@ function MaskProperties({ layer }: { layer: PhotoLayer }) {
   );
 }
 
+/** Edit › Transform's turns and flips, beside the angle. */
+const ORIENT_BUTTONS: [Orientation, typeof PiFlipHorizontal][] = [
+  ["rotate-90-ccw", PiArrowCounterClockwise],
+  ["rotate-90-cw", PiArrowClockwise],
+  ["flip-horizontal", PiFlipHorizontal],
+  ["flip-vertical", PiFlipVertical],
+];
+
 function LayerProperties({ layer }: { layer: PlacedLayer }) {
   const imageSize = useLayerSize(layer.kind === "image" ? layer.mediaId : undefined);
   const size = layer.kind === "pixel" || layer.kind === "text" ? layer.size : imageSize;
@@ -210,6 +219,13 @@ function LayerProperties({ layer }: { layer: PlacedLayer }) {
             </Button>
           </div>
           <NumberField label="Angle" value={round(t.rotation)} onCommit={(rotation) => set({ rotation })} suffix="°" />
+          <div className="flex items-end gap-0.5">
+            {ORIENT_BUTTONS.map(([o, Icon]) => (
+              <Button key={o} variant="ghost" size="icon-sm" title={ORIENTATION_LABELS[o]} aria-label={ORIENTATION_LABELS[o]} onClick={() => commit((d) => orientLayers(d, [layer.id], o, () => size ?? null))} data-orient-button={o}>
+                <Icon />
+              </Button>
+            ))}
+          </div>
         </div>
         {size && (
           <div className="flex gap-1.5">
