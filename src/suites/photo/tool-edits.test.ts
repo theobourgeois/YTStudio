@@ -56,6 +56,21 @@ describe("the photo assistant's edits", () => {
     expect(() => transformLayerTool(placed, { layer: "Dog" }, env)).toThrow(/The layers: .*Cat/);
   });
 
+  it("skews, puts in perspective and puts a layer on four corners; text and shapes only skew", () => {
+    const placed = addImageLayerTool(empty, { media: "media_cat", name: "Cat" }, env).doc;
+    const skewed = transformLayerTool(placed, { layer: "Cat", skew: 20 }, env);
+    expect(placeOf(skewed.doc).skew).toBe(20);
+    expect(skewed.text).toMatch(/skew 20°/);
+    const corners = [[100, 100], [600, 150], [620, 500], [80, 520]];
+    const onQuad = transformLayerTool(placed, { layer: "Cat", corners }, env);
+    expect(placeOf(onQuad.doc).perspective).toBeDefined();
+    expect(onQuad.text).toMatch(/corners: \(100, 100\), \(600, 150\), \(620, 500\), \(80, 520\)/);
+    const straight = transformLayerTool(onQuad.doc, { layer: "Cat", perspective: [0, 0], skew: 0 }, env).doc;
+    expect(placeOf(straight).perspective).toBeUndefined();
+    expect(() => transformLayerTool(placed, { layer: "Cat", corners: [[0, 0], [100, 100], [100, 0], [0, 100]] }, env)).toThrow(/convex/);
+    expect(() => transformLayerTool(placed, { layer: "Cat", perspective: [0.6, 0.6] }, env)).toThrow(/under 1/);
+  });
+
   it("flips and turns layers together, and says what it left", () => {
     const placed = addImageLayerTool(empty, { media: "media_cat", name: "Cat" }, env).doc;
     const flipped = flipRotateLayersTool(placed, { layers: ["Cat"], operation: "flip-horizontal" }, env);

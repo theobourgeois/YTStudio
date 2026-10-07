@@ -109,7 +109,8 @@ export interface Point {
 
 /** A shape as it is on the canvas (document pixels): a box (centre, size, turn) or a line (ends, and its curve's control point). */
 export type PlacedShape =
-  | { type: "rect" | "ellipse"; cx: number; cy: number; width: number; height: number; rotation: number; radius: number }
+  /** `skew`: the tangent its vertical edges lean by (the transform's skew; absent: upright). */
+  | { type: "rect" | "ellipse"; cx: number; cy: number; width: number; height: number; rotation: number; radius: number; skew?: number }
   | { type: "line"; from: Point; to: Point; control: Point | null; bend: number; startHead: Arrowhead; endHead: Arrowhead };
 
 /** Where a line's curve is pulled to (its own pixels): the quadratic's control point, twice the bend from the chord's middle. */
@@ -126,7 +127,9 @@ export function placedShape(layer: Pick<ShapeLayer, "shape" | "size" | "transfor
   const t = layer.transform;
   const s = layer.shape;
   if (s.type !== "line") {
-    return { type: s.type, cx: t.x, cy: t.y, width: layer.size.width * Math.abs(t.scaleX), height: layer.size.height * Math.abs(t.scaleY), rotation: t.rotation, radius: s.type === "rect" ? s.radius : 0 };
+    const placed: PlacedShape = { type: s.type, cx: t.x, cy: t.y, width: layer.size.width * Math.abs(t.scaleX), height: layer.size.height * Math.abs(t.scaleY), rotation: t.rotation, radius: s.type === "rect" ? s.radius : 0 };
+    if (t.skew) placed.skew = Math.tan((t.skew * Math.PI) / 180);
+    return placed;
   }
   const m = layerMatrix(t, layer.size);
   const control = ownControl(s.from, s.to, s.bend);
@@ -146,6 +149,7 @@ export function placedShape(layer: Pick<ShapeLayer, "shape" | "size" | "transfor
 export function withPlacedBox(layer: ShapeLayer, box: { cx: number; cy: number; width: number; height: number; rotation?: number }): ShapeLayer {
   const t = layer.transform;
   const transform: LayerTransform = { x: box.cx, y: box.cy, scaleX: Math.sign(t.scaleX) || 1, scaleY: Math.sign(t.scaleY) || 1, rotation: wrapDegrees(box.rotation ?? t.rotation) };
+  if (t.skew) transform.skew = t.skew;
   const size = { width: clamp(Math.abs(box.width), MIN_SIDE, MAX_SIDE), height: clamp(Math.abs(box.height), MIN_SIDE, MAX_SIDE) };
   return { ...layer, size, transform };
 }

@@ -56,6 +56,13 @@ export const perspectiveOf = (t: LayerTransform): [number, number] => t.perspect
 /** Whether a layer is drawn in perspective (its edges don't stay parallel). */
 export const isProjective = (t: LayerTransform) => !!t.perspective && (t.perspective[0] !== 0 || t.perspective[1] !== 0);
 
+/**
+ * What's said when something would edit a layer in perspective's own pixels (paint, its mask, a fill): a brush or
+ * a selection is placed on them by an affine map.
+ */
+export const perspectiveRefusal = (name: string) =>
+  `"${name}" is in perspective: its pixels and mask can't be painted or filled yet. Convert it to pixels (Layers › Convert to Pixels), or take its perspective off (Properties › Transform).`;
+
 /** Whether a layer is more than moved, scaled and turned: skewed or in perspective. */
 export const isDistorted = (t: LayerTransform) => skewOf(t) !== 0 || isProjective(t);
 

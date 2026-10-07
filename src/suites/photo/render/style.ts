@@ -15,12 +15,14 @@ import { CONTOUR_TABLE_SIZE, contourTable } from "@shared/photo/style/contours.t
 import { styleDefinition } from "@shared/photo/style/definitions.ts";
 import { GRADIENT_TABLE_SIZE, type GradientStyle, gradientLayout, gradientTable } from "@shared/photo/style/gradients.ts";
 import { bevelOptions, bevelWidth, chiselShape, satinOffset, shadowOffset, strokeEmbossBand } from "@shared/photo/reference/style.ts";
-import { type Affine, apply, invert, layerScale } from "@shared/photo/layers.ts";
+import { type Affine, apply, layerScale } from "@shared/photo/layers.ts";
 import type { DrawNode, NodeBlend, NodeStyle, PatternRef, PlanFormat } from "@shared/photo/render-plan.ts";
 import { specShows } from "@shared/photo/effects/params.ts";
 import { type PatternImage, placementOf, turn } from "@shared/photo/style/patterns.ts";
 import type { BlendMode, Compositing, Contour, EffectInstance, Gradient } from "@shared/photo/types.ts";
+import { type Homography, project } from "@shared/photo/projective.ts";
 import { ROUND_FOR_STORE } from "./kernels.ts";
+import { inverseRows } from "./layer-map.ts";
 import { MATHS } from "./wgsl.ts";
 
 /** The largest side of a layer's fields: a bigger layer's are made from a level of its pyramid. */
@@ -442,7 +444,7 @@ struct SU {
   origin: vec2f, zoom: f32, count: u32,
   field: vec4f,                                       // width, height, pad, 2^level
   sdScale: f32, flags: u32, gradients: u32, p0: u32,  // flags: 1 interior as group, 2 mask hides effects
-  p1: vec4f,
+  inv2: vec4f,                                        // w = dot(inv2.xy, doc) + inv2.z (1 but in perspective)
   blend: BlendParams,
 }
 @group(0) @binding(0) var below: texture_2d<f32>;
@@ -471,7 +473,10 @@ fn bil(fi: i32, f: vec2f, edge: f32) -> f32 {
 }
 fn sd_at(f: vec2f) -> f32 { return bil(0, f, 1e9); }
 fn to_field(doc: vec2f) -> vec2f {
-  let u = vec2f(dot(su.inv0.xy, doc) + su.inv0.z, dot(su.inv1.xy, doc) + su.inv1.z);
+  // Past a layer in perspective's horizon: far outside its field.
+  let w = dot(su.inv2.xy, doc) + su.inv2.z;
+  if (w <= 0.0) { return vec2f(-1e9); }
+  let u = vec2f(dot(su.inv0.xy, doc) + su.inv0.z, dot(su.inv1.xy, doc) + su.inv1.z) / w;
   return u / su.field.w + su.field.z;
 }
 fn noise_at(f: vec2f, salt: u32) -> f32 {
@@ -800,13 +805,14 @@ function packPatterns(style: NodeStyle, patternsOf: PatternsOf): { data: Float32
 /** Packed patterns by what's in them (a style's own, kept: packing copies their pixels). */
 const packedPatterns = new Map<string, { data: Float32Array; bases: Map<string, number>; key: string }>();
 
-export function packStyle(node: DrawNode, blend: NodeBlend, opacity: number, compositing: Compositing, plan: FieldPlan, matrix: Affine, view: { x: number; y: number; zoom: number }, patternsOf: PatternsOf = () => null) {
+export function packStyle(node: DrawNode, blend: NodeBlend, opacity: number, compositing: Compositing, plan: FieldPlan, place: { matrix: Affine; projection?: Homography }, view: { x: number; y: number; zoom: number }, patternsOf: PatternsOf = () => null) {
+  const matrix = place.matrix;
   const style = node.style!;
   const effects = style.effects.filter((e) => styleDefinition(e.type));
   const fx = new ArrayBuffer(Math.max(FX_SIZE, FX_SIZE * effects.length));
   const patterns = packPatterns(style, patternsOf);
   // A linked pattern starts at the layer's top-left.
-  const layerOrigin = apply(matrix, 0, 0);
+  const layerOrigin = (place.projection && project(place.projection, 0, 0)) || apply(matrix, 0, 0);
   const contours: Float32Array[] = [];
   const gradients: Float32Array[] = [];
   const contourRow = (c: Contour) => contours.push(contourTable(c)) - 1;
@@ -908,8 +914,9 @@ export function packStyle(node: DrawNode, blend: NodeBlend, opacity: number, com
   const uniform = new ArrayBuffer(STYLE_UNIFORM_SIZE);
   const f = new Float32Array(uniform);
   const u = new Uint32Array(uniform);
-  const inv = invert(matrix);
-  f.set([inv[0], inv[2], inv[4], 0, inv[1], inv[3], inv[5], 0, view.x, view.y, view.zoom], 0);
+  const inv = inverseRows(place);
+  f.set([...inv.slice(0, 8), view.x, view.y, view.zoom], 0);
+  f.set(inv.slice(8), 20);
   u[11] = effects.length;
   f.set([plan.width, plan.height, plan.pad, 2 ** plan.level, plan.scale], 12);
   u[17] = (style.interiorAsGroup ? 1 : 0) | (style.maskHidesEffects ? 2 : 0);

@@ -31,9 +31,11 @@ import { type SelectOptions, useSelectOptions } from "./selecting";
 import { useSubjectModel } from "./subject-model";
 import { type PhotoTool, isSelectionTool, useActiveTool, usePhotoUi } from "./ui";
 import { TOOLBOX } from "./toolbox";
+import { MoveOptionsBar } from "./free-transform-bar";
 
 export function ToolOptions() {
   const tool = useActiveTool();
+  if (tool === "move") return <MoveOptionsBar />;
   if (tool === "brush" || tool === "eraser") return <BrushOptionsBar />;
   if (isSelectionTool(tool)) return <SelectionOptionsBar tool={tool} />;
   const Options = TOOLBOX[tool]?.Options;

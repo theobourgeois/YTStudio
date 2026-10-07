@@ -5,7 +5,8 @@
  */
 import { findLayer } from "@shared/photo/edits";
 import { IDENTITY, layerMatrix } from "@shared/photo/layers";
-import type { PhotoProject, SurfaceId } from "@shared/photo/types";
+import { isProjective, perspectiveRefusal } from "@shared/photo/projective";
+import { type PhotoProject, type SurfaceId, isPlaced } from "@shared/photo/types";
 import type { MediaAsset } from "@shared/types";
 import { type PaintTarget, type SurfacePart, paintTargetOf } from "../paint-target";
 import { sizeOf } from "../tool-edits";
@@ -42,6 +43,7 @@ export function eraserWhere(doc: PhotoProject, activeId: string | null, target: 
   const layer = activeId ? findLayer(doc, activeId) : undefined;
   if (!layer) return { error: "Select a layer to erase on." };
   if (!layer.visible) return { error: `"${layer.name}" is hidden: show it to erase on it.` };
+  if (isPlaced(layer) && isProjective(layer.transform)) return { error: perspectiveRefusal(layer.name) };
   if (layer.kind === "pixel" && !(target === "mask" && layer.mask)) return { layerId: layer.id, part: "content", own: layer.id, addsMask: false };
   return { layerId: layer.id, part: "mask", own: ownOf(doc, layer.id), addsMask: !layer.mask };
 }
@@ -62,6 +64,8 @@ export function shownSurface(doc: PhotoProject, layerId: string, part: SurfacePa
 export function floodSurface(doc: PhotoProject, layerId: string, part: SurfacePart, assets: readonly MediaAsset[]): SurfaceTarget | null {
   const layer = findLayer(doc, layerId);
   if (!layer) return null;
+  // In perspective a layer's own pixels aren't placed by an affine map: nothing here edits them yet.
+  if (isPlaced(layer) && isProjective(layer.transform)) return null;
   if (part === "content") {
     if (layer.kind !== "pixel") return null;
     return { surface: layer.surface, kind: "pixels", size: layer.size, matrix: layerMatrix(layer.transform, layer.size) };

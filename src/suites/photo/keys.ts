@@ -70,7 +70,9 @@ export type PhotoKeyAction =
   /** ⇧+ / ⇧−: the next or previous blend mode in the menu. */
   | { type: "stepBlendMode"; direction: 1 | -1 }
   /** ⌘H / ⌥⌘H: the selected layers flipped horizontally / vertically (Edit › Transform; Théo's keys, not Photoshop's). */
-  | { type: "orient"; orientation: Orientation };
+  | { type: "orient"; orientation: Orientation }
+  /** ⌘T: Edit › Free Transform. */
+  | { type: "freeTransform" };
 
 /** Photoshop's letters for the tool groups. */
 const GROUP_KEYS: Record<string, ToolGroup> = { m: "marquee", l: "lasso", w: "wand", e: "eraser", g: "fill", o: "toning", u: "shape" };
@@ -124,6 +126,7 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
     if (key === "x" && !e.shiftKey) return { type: "cut" };
     if (key === "e" && !e.shiftKey) return { type: "merge" };
     if (key === "u" && !e.shiftKey) return { type: "hueSaturation" };
+    if (key === "t" && !e.shiftKey) return { type: "freeTransform" };
     // ⇧⌘[ / ⇧⌘] are the app's (tab switching), so Bring to Front and Send to Back are the Layers menu's alone.
     if (!e.shiftKey && is("]", "BracketRight")) return { type: "shift", direction: 1 };
     if (!e.shiftKey && is("[", "BracketLeft")) return { type: "shift", direction: -1 };
