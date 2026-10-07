@@ -8,6 +8,7 @@ import { flarePreset } from "./effects/flare.ts";
 import { type ElementsParam, newElement, sameValue, sanitizeParam } from "./effects/params.ts";
 import type { Size } from "./geometry.ts";
 import { MIN_SCALE, isColour, normalizePerspective, normalizeSkew, wrapDegrees } from "./project.ts";
+import { normalizeWarp, sameWarp } from "./warp.ts";
 import {
   type AdjustmentLayer,
   type Compositing,
@@ -94,15 +95,17 @@ export const sameTransform = (a: LayerTransform, b: LayerTransform) =>
   a.rotation === b.rotation &&
   (a.skew ?? 0) === (b.skew ?? 0) &&
   (a.perspective?.[0] ?? 0) === (b.perspective?.[0] ?? 0) &&
-  (a.perspective?.[1] ?? 0) === (b.perspective?.[1] ?? 0);
+  (a.perspective?.[1] ?? 0) === (b.perspective?.[1] ?? 0) &&
+  sameWarp(a.warp, b.warp);
 
 /** Whether a layer can be in perspective: an image's or a pixel layer's (text and shapes are drawn affine: they skew). */
 export const canDistort = (l: PhotoLayer) => l.kind === "image" || l.kind === "pixel";
 
 /**
  * Sets part of a placed layer's transform; a scale too close to 0 is held at the smallest (it has to stay
- * invertible), a skew and a perspective to what can be drawn (`skew: 0`, `perspective: [0, 0]` take them off; text
- * and shapes take no perspective). Adjustments have no place of their own: nothing changes.
+ * invertible), a skew, a perspective and a warp to what can be drawn (`skew: 0`, `perspective: [0, 0]`,
+ * `warp: undefined` take them off; text and shapes take no perspective or warp). Adjustments have no place of their
+ * own: nothing changes.
  */
 export function setTransform(doc: PhotoProject, id: string, patch: Partial<LayerTransform>): PhotoProject {
   return mapLayer(doc, id, (l) => {
@@ -116,6 +119,9 @@ export function setTransform(doc: PhotoProject, id: string, patch: Partial<Layer
     if (skew) next.skew = skew;
     const perspective = canDistort(l) ? normalizePerspective(t.perspective) : [0, 0];
     if (perspective[0] || perspective[1]) next.perspective = [perspective[0], perspective[1]];
+    // `warp: undefined` takes it off; one that's the same object is kept as it is.
+    const warp = !canDistort(l) || !t.warp ? null : t.warp === l.transform.warp ? t.warp : normalizeWarp(t.warp);
+    if (warp) next.warp = warp;
     return sameTransform(next, l.transform) ? l : { ...l, transform: next };
   });
 }

@@ -41,6 +41,8 @@ export const isCropped = (layer: PhotoLayer, size: Size) => !sameRect(cropOf(lay
  * layer is handled by what shows of it.
  */
 export function croppedPlace(t: LayerTransform, size: Size, crop: CropRect): { t: LayerTransform; size: Size } {
+  // A warped layer's frame is the whole layer's (what shows of a warp is a patch of its own).
+  if (t.warp) return { t, size };
   const part = { width: crop.width, height: crop.height };
   // In perspective, the crop is a quad of its own: its place is the one that puts it on those corners.
   if (isProjective(t)) {
@@ -67,6 +69,7 @@ export function visiblePlace(layer: PlacedLayer, size: Size): { t: LayerTransfor
  * `croppedPlace`, so the crop stays where it is on the layer.
  */
 export function uncroppedTransform(next: LayerTransform, size: Size, crop: CropRect): LayerTransform {
+  if (next.warp) return next;
   if (isProjective(next)) {
     // The whole layer's corners, in the crop's own pixels, through the crop's new place.
     const part = { width: crop.width, height: crop.height };
@@ -96,7 +99,18 @@ export function croppedBounds(matrix: Affine, crop: CropRect) {
 
 /** The axis-aligned box around part of a layer's pixels (what shows of it: its crop), in perspective too. */
 export function partBounds(t: LayerTransform, size: Size, part: CropRect) {
-  const pts = rectCorners(t, size, part);
+  // A warp bends the edges: along them, not just the corners.
+  const steps = t.warp ? 16 : 1;
+  const pts: { x: number; y: number }[] = [];
+  for (let k = 0; k < steps; k++) {
+    const f = k / steps;
+    pts.push(
+      layerPoint(t, size, part.x + f * part.width, part.y),
+      layerPoint(t, size, part.x + part.width, part.y + f * part.height),
+      layerPoint(t, size, part.x + part.width - f * part.width, part.y + part.height),
+      layerPoint(t, size, part.x, part.y + part.height - f * part.height),
+    );
+  }
   const xs = pts.map((p) => p.x);
   const ys = pts.map((p) => p.y);
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WARP_STYLES, identityPoints, isIdentityWarp, normalizeWarp, styleFunction, stylePoints, unwarp, warpArea, warpPoint } from "./warp.ts";
+import { WARP_STYLES, identityPoints, moveWarpPoint, isIdentityWarp, normalizeWarp, styleFunction, stylePoints, unwarp, warpArea, warpPoint } from "./warp.ts";
 
 describe("a warp's patch", () => {
   it("warps nothing at its identity points", () => {
@@ -58,5 +58,16 @@ describe("a warp's patch", () => {
     const custom = identityPoints();
     custom[5] = [0.5, 0.2];
     expect(normalizeWarp({ points: custom, style: null })).toEqual({ points: custom, style: null });
+  });
+
+  it("moves a point: a corner takes its tangents and inside point with it, others move alone", () => {
+    const id = identityPoints();
+    const moved = moveWarpPoint(id, 0, [0.1, 0.05]);
+    expect(moved[0]).toEqual([0.1, 0.05]);
+    expect(moved[1][0]).toBeCloseTo(1 / 3 + 0.1, 12);
+    expect(moved[5][1]).toBeCloseTo(1 / 3 + 0.05, 12);
+    expect(moved[2]).toEqual(id[2]);
+    const edge = moveWarpPoint(id, 2, [0.7, -0.2]);
+    expect(edge.filter((p, i) => p !== id[i] && (p[0] !== id[i][0] || p[1] !== id[i][1]))).toHaveLength(1);
   });
 });
