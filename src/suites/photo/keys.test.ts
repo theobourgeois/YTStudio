@@ -65,6 +65,10 @@ describe("layer keys (Photoshop's)", () => {
     // ⇧⌘A: Filter › Camera Raw Filter…
     expect(resolvePhotoKey({ ...press("A", { metaKey: true, shiftKey: true }), code: "KeyA" }, true)).toEqual({ type: "cameraRaw" });
     expect(resolvePhotoKey({ ...press("a", { ctrlKey: true, shiftKey: true }), code: "KeyA" }, false)).toEqual({ type: "cameraRaw" });
+    // ⌘U: Hue/Saturation; U alone is still the shapes.
+    expect(resolvePhotoKey(press("u", { metaKey: true }), true)).toEqual({ type: "hueSaturation" });
+    expect(resolvePhotoKey(press("u", { ctrlKey: true }), false)).toEqual({ type: "hueSaturation" });
+    expect(resolvePhotoKey(press("u"), true)).toEqual({ type: "toolGroup", group: "shape", cycle: false });
     expect(resolvePhotoKey(press("f", { metaKey: true }), true)).toBeNull();
     expect(resolvePhotoKey(press("f", { metaKey: true, ctrlKey: true, shiftKey: true }), true)).toBeNull();
   });

@@ -17,15 +17,11 @@ import type { CurveSet, EffectParamValue } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { type CurveSetEdit, CurveSetEditor } from "../panels/curves-editor";
+import type { ParamsSink } from "../effect-window";
 import { GradingPanel, MixerPanel } from "./colour-sections";
 
-/** Where the sections' changes go: a drag is `begin`, `apply`…, `end` (or `cancel`); a typed value or a reset the same, at once. */
-export interface CameraRawSink {
-  begin: () => void;
-  apply: (patch: Record<string, EffectParamValue>) => void;
-  end: () => void;
-  cancel: () => void;
-}
+/** Where the sections' changes go (any effect window's sink). */
+export type CameraRawSink = ParamsSink;
 
 /** A whole change in one step (a typed value, a reset, a button). */
 const once = (sink: CameraRawSink, patch: Record<string, EffectParamValue>) => {

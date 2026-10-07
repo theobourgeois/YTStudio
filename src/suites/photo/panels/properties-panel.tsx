@@ -27,6 +27,7 @@ import { DevelopSection } from "./develop-section";
 import { EffectsSection } from "./effects-section";
 import { FilterProperties, GeneratorProperties } from "./light";
 import { CameraRawProperties } from "../camera-raw/properties";
+import { HueSaturationProperties } from "../hue-saturation/properties";
 import { NumberField, ParamSlider } from "./fields";
 import { TextProperties } from "../toolbox/type/text-properties";
 import { ShapeSection } from "../toolbox/shapes/properties";
@@ -45,6 +46,10 @@ export function PropertiesPanel() {
         filter.type === "camera-raw" && !unavailableReason(filter, "filter") ? (
           <Section title={`Camera Raw · ${layer.name}`}>
             <CameraRawProperties layerId={layer.id} filterId={filter.id} />
+          </Section>
+        ) : filter.type === "hue-saturation" && !unavailableReason(filter, "filter") ? (
+          <Section title={`Hue/Saturation · ${layer.name}`}>
+            <HueSaturationProperties layerId={layer.id} filterId={filter.id} />
           </Section>
         ) : (
           <FilterProperties layer={layer} filterId={filter.id} />
@@ -103,6 +108,15 @@ function AdjustmentProperties({ layer }: { layer: AdjustmentLayer }) {
       <>
         <Section title={layer.name}>
           <CameraRawProperties layerId={layer.id} filterId={null} />
+        </Section>
+        <BlendingSection layer={layer} />
+      </>
+    );
+  if (def?.type === "hue-saturation" && !reason)
+    return (
+      <>
+        <Section title={layer.name}>
+          <HueSaturationProperties layerId={layer.id} filterId={null} />
         </Section>
         <BlendingSection layer={layer} />
       </>

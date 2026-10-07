@@ -38,9 +38,9 @@ function paramLine(p: ParamSpec | ElementParamSpec, indent: string): string {
   }
 }
 
-/** Every effect of a kind and its parameters, for the model: names, units, ranges, defaults. */
+/** Every effect usable as a kind and its parameters, for the model: names, units, ranges, defaults. */
 export function describeEffects(kind: EffectKind): string {
-  return EFFECTS.filter((d) => d.kind === kind)
+  return EFFECTS.filter((d) => (d.kinds ?? [d.kind]).includes(kind))
     .map((def) => `${def.type}: ${def.description}\n  ${def.params.map((p) => paramLine(p, "  ")).join("\n  ")}`)
     .join("\n");
 }
@@ -75,7 +75,7 @@ export function describeStyleEffects(): string {
 const adjustmentParams: Schema = {
   type: "object",
   description:
-    'Parameters to set; the rest keep their value (a new layer\'s start at their defaults). Exposure: { "exposure": 1, "offset": 0, "gamma": 1 }. Curves: points [input, output] on 0..255 per curve, e.g. { "rgb": [[0, 0], [64, 50], [192, 210], [255, 255]], "red": [[0, 10], [255, 255]] } (or the same under "curves").',
+    'Parameters to set; the rest keep their value (a new layer\'s start at their defaults). Exposure: { "exposure": 1, "offset": 0, "gamma": 1 }. Curves: points [input, output] on 0..255 per curve, e.g. { "rgb": [[0, 0], [64, 50], [192, 210], [255, 255]], "red": [[0, 10], [255, 255]] } (or the same under "curves"). Hue/Saturation: { "saturation": 20, "bluesHue": -15 } or { "colorize": true, "colorizeHue": 35, "colorizeSaturation": 25 }.',
   additionalProperties: true,
 };
 

@@ -194,7 +194,7 @@ describe("the assistant's light", () => {
     expect(imageOf(doc).filtersEnabled).toBe(false);
     doc = removeFilterTool(doc, { layer: "sky", filter: first }, env).doc;
     expect(imageOf(doc).filters!.map((f) => f.id)).toEqual([second]);
-    expect(() => addFilterTool(doc, { layer: "sky", type: "exposure" }, env)).toThrow(/The filters: camera-raw, glow/);
+    expect(() => addFilterTool(doc, { layer: "sky", type: "exposure" }, env)).toThrow(/The filters: hue-saturation, camera-raw, glow/);
     expect(() => setFilterTool(doc, { layer: "sky", filter: "9" }, env)).toThrow(/1\. fx_/);
     expect(() => setFilterTool(doc, { layer: "sky", filter: second, params: { radius: 9000 } }, env)).toThrow(/from 1 to 4000/);
     expect(() => setFilterTool(doc, { layer: "sky", filter: second, params: { tint: "orange" } }, env)).toThrow(/#ffb070/);
@@ -208,6 +208,16 @@ describe("the assistant's light", () => {
     const r = addFilterTool(doc, { layer: "sky", type: "glow", preset: "neon", params: { intensity: 2 } }, env);
     expect(imageOf(r.doc).filters![0].params).toMatchObject({ radius: Math.round(0.015 * diagonal), threshold: 60, knee: 15, intensity: 2 });
     expect(() => addFilterTool(doc, { layer: "sky", type: "glow", preset: "sparkly" }, env)).toThrow(/Its presets: bloom, soft-haze, neon, dreamy, halation/);
+  });
+
+  it("adds Hue/Saturation as a filter (a preset, params on top) or an adjustment layer, and says what it does", () => {
+    const doc = withSky();
+    const filtered = addFilterTool(doc, { layer: "sky", type: "hue-saturation", preset: "sepia", params: { lightness: 10 } }, env).doc;
+    expect(imageOf(filtered).filters![0]).toMatchObject({ type: "hue-saturation", params: { colorize: true, colorizeHue: 35, colorizeSaturation: 25, lightness: 10 } });
+    const adjusted = addAdjustmentTool(doc, { type: "hue-saturation", params: { saturation: 20, bluesHue: -15 } }, env);
+    expect(effectOf(adjusted.doc, adjusted.doc.layers.length - 1).params).toMatchObject({ saturation: 20, bluesHue: -15, hue: 0 });
+    expect(adjusted.text).toMatch(/Hue\/Saturation: saturation 20, bluesHue -15/);
+    expect(() => addAdjustmentTool(doc, { type: "hue-saturation", params: { hue: 200 } }, env)).toThrow(/from -180 to 180/);
   });
 
   it("adds a lens flare where it's told, moves its handles, changes it and its blend", () => {

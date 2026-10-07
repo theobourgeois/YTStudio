@@ -17,5 +17,6 @@ import { CRT_KERNELS } from "./crt.ts";
 import { EXTRUDE_KERNELS } from "./extrude.ts";
 import type { FilterKernel } from "../kernel.ts";
 import { CAMERA_RAW_FILTER } from "../camera-raw.ts";
+import { HUE_SATURATION_FILTER } from "../hue-saturation.ts";
 
-export const FILTER_KERNELS: Record<string, FilterKernel> = { ...COLOUR_KERNELS, ...LIGHT_KERNELS, ...STYLIZE_KERNELS, ...EDGES_KERNELS, ...GLITCH_KERNELS, ...FILM_KERNELS, ...DISTORT_KERNELS, ...WIND_KERNELS, ...WARP_KERNELS, ...GLASS_KERNELS, ...SURFACE_KERNELS, ...CELLS_KERNELS, ...PAINT_KERNELS, ...PRINT_KERNELS, ...CRT_KERNELS, ...EXTRUDE_KERNELS, "camera-raw": CAMERA_RAW_FILTER };
+export const FILTER_KERNELS: Record<string, FilterKernel> = { ...COLOUR_KERNELS, ...LIGHT_KERNELS, ...STYLIZE_KERNELS, ...EDGES_KERNELS, ...GLITCH_KERNELS, ...FILM_KERNELS, ...DISTORT_KERNELS, ...WIND_KERNELS, ...WARP_KERNELS, ...GLASS_KERNELS, ...SURFACE_KERNELS, ...CELLS_KERNELS, ...PAINT_KERNELS, ...PRINT_KERNELS, ...CRT_KERNELS, ...EXTRUDE_KERNELS, "camera-raw": CAMERA_RAW_FILTER, "hue-saturation": HUE_SATURATION_FILTER };
