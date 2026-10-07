@@ -29,7 +29,7 @@ export interface SelectOptions {
   /** The Magic Wand's (0..255). */
   tolerance: number;
   contiguous: boolean;
-  /** Read every layer as the photo shows (else the active layer alone): the Magic Wand and Quick Selection. */
+  /** Read every layer as the photo shows (else the active layer alone): the Magic Wand, Quick and Object Selection. */
   sampleAll: boolean;
   /** The Magic Wand's sample size, in document pixels a side (1: the pixel). */
   sampleSize: number;
@@ -37,9 +37,11 @@ export interface SelectOptions {
   quickSize: number;
   /** Quick Selection smooths its edges. */
   autoEnhance: boolean;
+  /** The Object Selection tool's brush diameter, document pixels. */
+  objectSize: number;
 }
 
-const DEFAULTS: SelectOptions = { mode: "new", feather: 0, antiAlias: true, tolerance: 32, contiguous: true, sampleAll: true, sampleSize: 1, quickSize: 30, autoEnhance: false };
+const DEFAULTS: SelectOptions = { mode: "new", feather: 0, antiAlias: true, tolerance: 32, contiguous: true, sampleAll: true, sampleSize: 1, quickSize: 30, autoEnhance: false, objectSize: 120 };
 
 const MODES: readonly SelectionMode[] = ["new", "add", "subtract", "intersect"];
 
@@ -56,6 +58,7 @@ export function sanitizeSelectOptions(o: Partial<Record<keyof SelectOptions, unk
     sampleSize: Math.round(num(o.sampleSize, 1, 101, DEFAULTS.sampleSize)),
     quickSize: Math.round(num(o.quickSize, 1, 2500, DEFAULTS.quickSize)),
     autoEnhance: bool(o.autoEnhance, DEFAULTS.autoEnhance),
+    objectSize: Math.round(num(o.objectSize, 1, 2500, DEFAULTS.objectSize)),
   };
 }
 

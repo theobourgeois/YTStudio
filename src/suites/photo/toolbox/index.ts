@@ -6,6 +6,7 @@ import { cropKit } from "./crop";
 import { eyedropperKit } from "./eyedropper";
 import { gradientKit } from "./gradient";
 import { magicEraserKit } from "./magic-eraser";
+import { objectSelectKit } from "./object-select";
 import { paintBucketKit } from "./paint-bucket";
 import { arrowShapeKit, ellipseShapeKit, lineShapeKit, rectangleShapeKit } from "./shapes";
 import { burnKit, dodgeKit, spongeKit } from "./toning";
@@ -14,6 +15,7 @@ import { typeKit } from "./type-tool";
 export type { DocPointOf, ToolKit } from "./kit";
 
 export const TOOLBOX: Partial<Record<PhotoTool, ToolKit>> = {
+  objectSelect: objectSelectKit,
   crop: cropKit,
   eyedropper: eyedropperKit,
   backgroundEraser: backgroundEraserKit,

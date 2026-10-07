@@ -492,6 +492,22 @@ export const PHOTO_TOOLS = [
     ),
   }),
   tool({
+    name: "select_object",
+    title: "Object Selection",
+    kind: "edit",
+    description:
+      "Photoshop's Object Selection, as the user's red brush does it: strokes painted roughly over one thing (each a list of [x, y] canvas points; one point is a dab), and the segmentation model running on the user's computer selects that whole thing, soft at its edges, looking only around the strokes. Better than select_subject when the photo has several things or the subject isn't what stands out: paint over most of the one you mean (it may reach a little past the strokes; what they only brush past is left out). size is the brush's diameter in pixels (default 120). mode: new (default), add, subtract, intersect. It needs Select Subject's model downloaded once by the user; if it isn't, the error says so. Check with view_photo's show_selection.",
+    inputSchema: obj(
+      {
+        strokes: arr(arr(arr(num("A coordinate."), "[x, y]", { minItems: 2, maxItems: 2 }), "One stroke's points.", { minItems: 1 }), "The strokes, [[[x, y], …], …], canvas pixels.", { minItems: 1 }),
+        size: num("The brush's diameter in pixels (default 120)."),
+        mode: SELECTION_MODE,
+        sample_all_layers: bool("Read the photo as it shows (default true), else the selected layer."),
+      },
+      ["strokes"],
+    ),
+  }),
+  tool({
     name: "select_subject",
     title: "Select the subject",
     kind: "edit",
