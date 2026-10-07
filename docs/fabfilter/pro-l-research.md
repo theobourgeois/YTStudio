@@ -17,7 +17,7 @@ So Pro-L 2 is now the baseline to beat, not the target. This document has five p
    words. Their chains, how much each stage takes, how loud real records are, streaming in 2026, codec overshoot.
 2. [Pro-L 2, measured](#2-pro-l-2-measured): the real plug-in run offline on test signals. Its latencies, how each
    style moves the gain, its distortion, its linking, its true peak, its filters and dither. Some of this corrects
-   the first round.
+   the first round. And FL Studio's own clipper and limiters, which trap beats are made through (§2.9).
 3. [What other limiters do](#3-what-other-limiters-do): Ozone (and its patent), Waves L1–L4, Weiss, Sonnox, DMG
    Limitless, Elevate, TDR Limiter 6, Elephant, Uni-L, Matchering's Hyrax, the DAWs' own. What they do that Pro-L 2
    doesn't, and what users complain about.
@@ -533,6 +533,57 @@ close in shape).
 The targets for ours are the same tests, run on our engine (`pro-l.md` §8.9): zero bass distortion in every style that
 claims transparency, IMD at or under Modern's, a ceiling held by an ideal reconstruction, loudness monotonic in Gain.
 
+### 2.9 FL Studio's own, measured
+
+Trap beats are made in FL Studio and arrive "already clipped by the producer's FL Studio master" (§1.5), so FL's own
+clipper and master limiter were measured too: **FL Studio 2026 (26.1.7)**, its free trial, the test file rendered
+through each by hand (FL renders a project from the command line, `OsxFL -R -Ewav project.flp`, but a file of ours
+can only be put into a project by hand), exported as 16-bit WAV at 44.1 kHz, compared with the same file converted to
+44.1 kHz. The probe: **`scripts/fabfilter-probes/fl_studio.py`** (`make` writes the test file, `analyse` reads the
+exports). All three pass below their threshold at unity gain (−0.006 dB) with no delay. **(measured)**
+
+**FL 2026's default template ("Basic with limiter") puts the Emphasizer on the master**, a new plug-in, not Fruity
+Limiter (Théo noticed; the template file names only the Emphasizer). Older versions' template had Fruity Limiter
+**(unverified)**: beats made in those went through the clean limiter below, not the Emphasizer.
+
+**Fruity Soft Clipper (defaults) is a pure waveshaper**: the output is the same for the same input whatever came before
+(spread 0.0000), and it's exactly
+
+```
+y = x                                   for |x| ≤ T
+y = sign(x)·(C − (C − T)·e^(−(|x| − T)/(C − T)))   above,   T = 0.7812 (−2.145 dBFS), C = 1.0000
+```
+
+an exponential knee that leaves the straight line with the same slope (C1, so its harmonics fall at −18 dB/octave) and
+approaches full scale without reaching it. The fit's largest error is 0.0003, about the 16-bit export's own step; a tanh
+join (`pro-l.md`'s first-round knee) is off by 0.030 and a hard clip by 0.081. It runs **without oversampling**: its
+aliasing on a 1 kHz tone driven 12 dB is −46.5 dB, the same curve run naively gives −46.6 dB, and at 8× it would be
+−60 dB. On a 100 Hz tone there's none to speak of (−147 dB): **on 808s the FL sound is the curve, not aliasing**.
+
+**Fruity Limiter (defaults) is a clean look-ahead limiter**, like Pro-L 2's Modern on bass: its reduction starts 1.8 ms
+before a 1 kHz peak and a half-period before a 50 Hz one (5.4 to 10.6 ms), so a sustained bass gets a constant gain
+(THD+N −98 dB, the 16-bit floor); its ceiling is **−0.22 dBFS**; it lets go in a fixed ~36 ms (to 1 dB) whatever the
+burst's length. The loop at +12 dB: −7.0 LUFS, +1.17 dBTP.
+
+**The Emphasizer (defaults) is a limiter, then a hard clip**:
+
+| | 6 dB over, steady | 12 dB over, steady |
+| --- | --- | --- |
+| the smooth gain, first 20 ms → after a second | −3.6 → −4.9 dB | −8.8 → −10.9 dB |
+| what's left over full scale for the clip | **1.07 dB** | **1.07 dB** |
+| the clip's curve | a hard clip at 0 dBFS (0.90 → 0.902, 1.00 → 1.000) | the same |
+| THD+N (50 Hz, 1 kHz) | −25.7 dB | −25.5 dB |
+
+- Its smooth stage has no look-ahead (reduction starts as the overload does), holds the level **1.07 dB over** full scale
+  however hard it's pushed, and lets go in ~50 ms (to 1 dB) after a 200 ms burst. A short burst (20 ms) is left almost
+  entirely to the clip.
+- So **FL 2026's default master is "limit, then clip the last dB"**: the order Ernster uses (§1.2), with the clip at 0
+  dBFS. It's the loudest of the three: the loop at +12 dB comes out at **−5.5 LUFS** (Fruity Limiter −7.0) and +2.14 dBTP.
+
+What this gives YT-L (`pro-l.md` §5.7, §6): an **FL** clip shape (this curve, its knee adjustable, run anti-aliased:
+on 808s nothing changes, on hats and snares it's cleaner than FL), an **order** for the clip stage (limit, then clip at
+the ceiling: the Emphasizer's), and an **FL Master** preset that sounds like FL 2026's default master.
+
 ---
 
 ## 3. What other limiters do
@@ -759,7 +810,7 @@ A **clip stage inside the limiter, before the look-ahead stages, at the limiter'
   dB of every peak and the clipper everything beyond. At 0 the clipper does all the peak work and the limiter only
   cleans overshoot ("clip to 0, then limit"); at +3 the limiter takes the body and the clipper the crack.
 - **Shapes**: Hard; **Smooth** (default; a C2 knee 0–6 dB); Soft (x/√(1+x²), colour); **Converter** (Lavry-style 2:1
-  top); and an **FL-style** curve, once it's measured (§9 of `pro-l.md`).
+  top); and **FL**, Fruity Soft Clipper's exponential knee, measured (§2.9).
 - **Anti-aliasing**: always clip at ≥ 4×, with first-order ADAA on the residue. With the limiter's oversampling Off, the
   stage oversamples by itself as Orban's **differential** clipper (only the clippings are resampled).
 - **Bass** (optional): a bass clipper 2–5 dB lower, embedded in a complementary split, so its harmonics don't spray into
