@@ -7,12 +7,17 @@
 import { clamp, isFiniteNumber } from "../math.ts";
 import {
   PRO_L_CLIP_SHAPES,
+  PRO_L_DISPLAY_MODES,
   PRO_L_DITHER,
+  PRO_L_METER_SCALES,
   PRO_L_NOISE_SHAPINGS,
   PRO_L_OVERSAMPLING,
   PRO_L_STYLES,
+  PRO_L_TIME_SCALES,
   type PluginRef,
   type ProL,
+  type ProLControl,
+  type ProLMeter,
   type ProLState,
   type ProLStyle,
 } from "./types.ts";
@@ -158,7 +163,33 @@ export const DEFAULT_PRO_L_STATE: ProLState = {
   unityGain: false,
   audition: "off",
 };
-export const DEFAULT_PRO_L: ProL = { ...DEFAULT_PRO_L_STATE, preset: "Default Setting" };
+/** The meter as a new YT-L shows it: 32 dB, true peaks, Slow Down, a streaming target. */
+export const DEFAULT_PRO_L_METER: ProLMeter = {
+  scale: "32",
+  truePeakMeter: true,
+  display: "slowDown",
+  target: -14,
+  timeScale: "shortTerm",
+  loudnessRange: 9,
+  relative: false,
+  maxOf: "shortTerm",
+  autoReset: true,
+};
+export const PRO_L_TARGET_RANGE = [-40, 0] as const;
+/** The loudness targets offered (§2.7): Pro-L 2's, and the louder ones these genres master to. */
+export const PRO_L_TARGETS = [
+  { lufs: -6, name: "Loud rap / hyperpop" },
+  { lufs: -9, name: "CD" },
+  { lufs: -14, name: "Streaming" },
+  { lufs: -16, name: "Apple Music" },
+  { lufs: -23, name: "EBU R 128" },
+  { lufs: -24, name: "ATSC A/85" },
+] as const;
+
+export const DEFAULT_PRO_L: ProL = { ...DEFAULT_PRO_L_STATE, preset: "Default Setting", lockOutput: false, other: null, slot: "a", meter: DEFAULT_PRO_L_METER };
+
+/** What Lock Output keeps when a preset is loaded: where the sound is delivered, not how it sounds. */
+export const PRO_L_DELIVERY = ["output", "truePeak", "dither", "noiseShaping"] as const satisfies readonly (keyof ProLState)[];
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const num = (v: unknown, min: number, max: number, fallback: number) => (isFiniteNumber(v) ? clamp(v, min, max) : fallback);
@@ -197,8 +228,127 @@ export function normalizeProLState(input: unknown): ProLState {
   };
 }
 
-/** A YT-L's settings from anything: its sound, and the preset it was last set to (a name, or null). */
+/** A YT-L's meter settings from anything. */
+export function normalizeProLMeter(input: unknown): ProLMeter {
+  if (!isObject(input)) return DEFAULT_PRO_L_METER;
+  const d = DEFAULT_PRO_L_METER;
+  const meter: ProLMeter = {
+    scale: oneOf(PRO_L_METER_SCALES, input.scale, d.scale),
+    truePeakMeter: input.truePeakMeter !== false,
+    display: oneOf(PRO_L_DISPLAY_MODES, input.display, d.display),
+    target: Math.round(num(input.target, PRO_L_TARGET_RANGE[0], PRO_L_TARGET_RANGE[1], d.target) * 10) / 10,
+    timeScale: oneOf(PRO_L_TIME_SCALES, input.timeScale, d.timeScale),
+    loudnessRange: input.loudnessRange === 18 ? 18 : 9,
+    relative: input.relative === true,
+    maxOf: input.maxOf === "momentary" ? "momentary" : "shortTerm",
+    autoReset: input.autoReset !== false,
+  };
+  return JSON.stringify(meter) === JSON.stringify(d) ? d : meter;
+}
+
+/** A YT-L's settings from anything: its sound, the preset it was last set to (a name, or null), A/B and its meter. */
 export function normalizeProL(input: unknown): ProL {
   if (!isObject(input)) return DEFAULT_PRO_L;
-  return { ...normalizeProLState(input), preset: typeof input.preset === "string" && input.preset.length <= 80 ? input.preset : null };
+  return {
+    ...normalizeProLState(input),
+    preset: typeof input.preset === "string" && PRO_L_PRESETS.some((p) => p.name === input.preset) ? input.preset : null,
+    lockOutput: input.lockOutput === true,
+    other: isObject(input.other) ? normalizeProLState(input.other) : null,
+    slot: input.slot === "b" ? "b" : "a",
+    meter: normalizeProLMeter(input.meter),
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Presets
+// ---------------------------------------------------------------------------
+
+/**
+ * A preset (`pro-l.md` §6): the sound it sets (the rest is the default), its delivery settings where it's about
+ * delivery (left as they are otherwise, and with Lock Output on), and the loudness it's meant for.
+ */
+export interface ProLPreset {
+  name: string;
+  folder: "Master" | "Vocal" | "Drums and bass" | "Delivery";
+  detail: string;
+  settings: Partial<ProLState>;
+  /** LUFS: the meter's target it sets. */
+  target?: number;
+}
+
+const ms = (v: number) => v / 1000;
+/** Lookahead, Attack, Release (milliseconds). */
+const times = (lookahead: number, attack: number, release: number) => ({ lookahead: ms(lookahead), attack: ms(attack), release: ms(release) });
+const truePeak = (output: number, oversampling: ProLState["oversampling"] = 4) => ({ output, truePeak: true, oversampling });
+const samplePeak = (output: number, oversampling: ProLState["oversampling"] = 4) => ({ output, truePeak: false, oversampling });
+const linked = { linkTransients: 1, linkRelease: 1 };
+
+/** Ours, from the engineers' numbers (`pro-l-research.md` §1.10). Gain stays at 0 dB: how loud is the user's call. */
+export const PRO_L_PRESETS: readonly ProLPreset[] = [
+  { name: "Default Setting", folder: "Master", detail: "Modern, a −0.1 dBFS ceiling, 4x: anything", settings: { style: "modern", ...times(0.18, 275, 400), ...samplePeak(-0.1) }, target: -14 },
+  { name: "Master: Streaming −14", folder: "Master", detail: "Spotify, YouTube, TIDAL: −1 dBTP", settings: { style: "modern", ...times(0.5, 150, 300), ...truePeak(-1) }, target: -14 },
+  { name: "Master: Streaming Loud", folder: "Master", detail: "Louder than −14 and headed for lossy: −2 dBTP, a clipper first", settings: { style: "modern", ...times(0.5, 150, 300), clip: true, clipRange: 2, clipShape: "smooth", ...truePeak(-2) }, target: -10 },
+  { name: "Master: Chart Pop", folder: "Master", detail: "Pop at today's −8 LUFS", settings: { style: "modern", ...times(0.3, 200, 300), clip: true, clipRange: 2, clipShape: "smooth", clipKnee: 1.5, ...truePeak(-1) }, target: -8 },
+  { name: "Master: Trap Loud", folder: "Master", detail: "Trap and rap: FL's clipper into the limiter", settings: { style: "punchy", ...times(0.5, 275, 300), clip: true, clipRange: 3, clipShape: "fl", ...samplePeak(-0.1) }, target: -6 },
+  {
+    name: "Master: FL (Emphasizer)",
+    folder: "Master",
+    detail: "FL Studio 2026's default master, as measured: a limiter 1 dB over, then a hard clip at the ceiling",
+    settings: { style: "punchy", ...times(0.5, 275, 50), clip: true, clipOrder: "last", clipRange: 1, clipShape: "hard", ...samplePeak(-0.1, 1) },
+    target: -6,
+  },
+  { name: "Master: Rage / Hyperpop", folder: "Master", detail: "Carti, Ken Carson, 100 gecs: as loud as it goes", settings: { style: "aggressive", lookahead: ms(0.1), clip: true, clipRange: 1, clipShape: "hard", ...samplePeak(-0.01) }, target: -4 },
+  { name: "Master: Wide", folder: "Master", detail: "Wide choruses: the side first, the centre kept", settings: { style: "modern", ...times(0.3, 275, 400), clip: true, clipRange: 2, clipShape: "smooth", stereo: "ms", sideFloor: -6, ...truePeak(-1) }, target: -8 },
+  { name: "Master: Clean", folder: "Master", detail: "Ballads, R&B, dynamic masters", settings: { style: "transparent", ...times(1, 150, 500), ...truePeak(-1) }, target: -12 },
+  { name: "Master: 808 Control", folder: "Master", detail: "Sub-heavy beats: the bass stays clean", settings: { style: "modern", ...times(1, 400, 400), ...linked } },
+  { name: "Master: Rock Punch", folder: "Master", detail: "Rock and live drums: hits keep their snap", settings: { style: "dynamic", ...times(0.3, 250, 250), linkTransients: 0.8 } },
+  { name: "Master: Allround", folder: "Master", detail: "When unsure", settings: { style: "allround", ...times(0.5, 275, 400), linkTransients: 0.8 } },
+  { name: "Master: Classical and Acoustic", folder: "Master", detail: "Delicate, dynamic music: never distorts", settings: { style: "safe", ...times(5, 0, 1000), hold: ms(20), ...linked } },
+  { name: "Approval Mix", folder: "Delivery", detail: "A client bounce, loud enough to compare: off for mastering", settings: { style: "modern", ...times(0.3, 275, 400), clip: true, clipRange: 1, clipShape: "smooth", ...samplePeak(-0.3) }, target: -9 },
+  { name: "Vocal: Peak Catcher", folder: "Vocal", detail: "After the vocal compressors: the last peaks", settings: { style: "punchy", ...times(2, 150, 200), ...linked, truePeak: false, oversampling: 1 } },
+  { name: "Vocal: Spit", folder: "Vocal", detail: "The L1's \"spit and attitude\", hit hard", settings: { style: "spit", lookahead: ms(0.05), release: ms(3), hold: 0, ...linked, truePeak: false, oversampling: 1 } },
+  { name: "Vocal: Smooth", folder: "Vocal", detail: "Ballads, spoken word", settings: { style: "safe", ...times(5, 0, 300), hold: ms(20), ...linked, truePeak: false, oversampling: 1 } },
+  { name: "808: Clip", folder: "Drums and bass", detail: "An 808 or sub bus: the clipper does the work", settings: { style: "transparent", ...times(0.5, 275, 100), clip: true, clipRange: 0, clipShape: "fl", ...linked, truePeak: false } },
+  { name: "Drum Bus: Glue", folder: "Drums and bass", detail: "A drum bus, a few dB", settings: { style: "bus", ...times(2, 30, 300), hold: ms(15), ...linked, truePeak: false } },
+  { name: "Drum Bus: Crunch", folder: "Drums and bass", detail: "Clipped, crunchy drums", settings: { style: "bus", ...times(1, 10, 150), hold: ms(15), clip: true, clipRange: 1, clipShape: "soft", ...linked, truePeak: false } },
+  { name: "Kick and Sub Ceiling", folder: "Drums and bass", detail: "A maximum for the kick and 808", settings: { style: "transparent", ...times(1, 275, 200), ...linked, truePeak: false } },
+  { name: "Broadcast EBU R 128", folder: "Delivery", detail: "TV and radio in Europe: −23 LUFS, −1 dBTP", settings: { style: "transparent", ...times(1, 150, 500), ...linked, ...truePeak(-1) }, target: -23 },
+  { name: "Broadcast ATSC A/85", folder: "Delivery", detail: "TV in the US: −24 LUFS, −2 dBTP", settings: { style: "transparent", ...times(1, 150, 500), ...linked, ...truePeak(-2) }, target: -24 },
+  { name: "CD Master", folder: "Delivery", detail: "A 16-bit master, dithered", settings: { style: "modern", ...times(0.5, 275, 400), ...truePeak(-0.1, 8), dither: 16, noiseShaping: "optimized" }, target: -9 },
+];
+
+export const proLPreset = (name: string) => PRO_L_PRESETS.find((p) => p.name.toLowerCase() === name.toLowerCase()) ?? null;
+
+// ---------------------------------------------------------------------------
+// The assistant's names for its automatable controls
+// ---------------------------------------------------------------------------
+
+/** add_automation's names for YT-L's controls. */
+export const PRO_L_TOOL_CONTROLS = {
+  "limiter gain": "gain",
+  "limiter output": "output",
+  "limiter attack": "attack",
+  "limiter release": "release",
+  "limiter hold": "hold",
+  "limiter transients link": "linkTransients",
+  "limiter release link": "linkRelease",
+  "limiter side floor": "sideFloor",
+  "limiter clip range": "clipRange",
+  "limiter clip knee": "clipKnee",
+} as const satisfies Record<string, ProLControl>;
+export type ProLToolControl = keyof typeof PRO_L_TOOL_CONTROLS;
+export const PRO_L_TOOL_CONTROL_NAMES = Object.keys(PRO_L_TOOL_CONTROLS) as ProLToolControl[];
+
+/** Each control's values, said for the model. */
+export const PRO_L_HINTS: Record<ProLControl, string> = {
+  gain: "dB, 0 to 30",
+  output: "dB, -30 to 0 (the ceiling)",
+  attack: "milliseconds, 0 to 10000",
+  release: "milliseconds, 0 to 10000",
+  hold: "milliseconds, 0 to 50",
+  linkTransients: "0 to 1 (100%)",
+  linkRelease: "0 to 1 (100%)",
+  sideFloor: "dB, -18 to 0",
+  clipRange: "dB, 0 to 6",
+  clipKnee: "dB, 0 to 6",
+};

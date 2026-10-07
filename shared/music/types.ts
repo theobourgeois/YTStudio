@@ -459,9 +459,44 @@ export interface ProLState {
   audition: "off" | "all" | "clip" | "limiter";
 }
 
+/** The meter's scales (`pro-l.md` §2.6): dB shown, Bob Katz's K-System, or the loudness panel. */
+export const PRO_L_METER_SCALES = ["16", "32", "48", "k12", "k14", "k20", "loudness"] as const;
+export type ProLMeterScale = (typeof PRO_L_METER_SCALES)[number];
+/** How the display scrolls (§2.6). */
+export const PRO_L_DISPLAY_MODES = ["slowDown", "fast", "slow", "infinite", "off"] as const;
+export type ProLDisplayMode = (typeof PRO_L_DISPLAY_MODES)[number];
+/** Which loudness is shown large (§2.7). */
+export const PRO_L_TIME_SCALES = ["momentary", "shortTerm", "integrated"] as const;
+export type ProLTimeScale = (typeof PRO_L_TIME_SCALES)[number];
+
+/** How a YT-L meters and shows (left alone by presets and A/B, as Pro-L's metering settings are). */
+export interface ProLMeter {
+  scale: ProLMeterScale;
+  /** The output meter reads true peaks (BS.1770). */
+  truePeakMeter: boolean;
+  display: ProLDisplayMode;
+  /** The loudness target (LUFS). */
+  target: number;
+  timeScale: ProLTimeScale;
+  /** The loudness scale's span above the target (LU). */
+  loudnessRange: 9 | 18;
+  /** LU relative to the target rather than LUFS. */
+  relative: boolean;
+  /** With Integrated large: which most is shown. */
+  maxOf: "momentary" | "shortTerm";
+  /** The measurement starts again when play starts. */
+  autoReset: boolean;
+}
+
 export interface ProL extends ProLState {
   /** The preset last chosen, null once it's been changed by hand. */
   preset: string | null;
+  /** Lock Output: a preset loaded leaves the delivery settings alone (Output, True Peak, oversampling, dither). */
+  lockOutput: boolean;
+  /** A/B: the other state, and which one this is. */
+  other: ProLState | null;
+  slot: "a" | "b";
+  meter: ProLMeter;
 }
 
 /**
@@ -1398,6 +1433,7 @@ export type AutomationTarget =
   | { kind: "proQ"; effect: string; band: number; control: EqControl }
   | { kind: "ott"; effect: string; control: OttControl }
   | { kind: "proC"; effect: string; control: ProCControl }
+  | { kind: "proL"; effect: string; control: ProLControl }
   | { kind: "panMan"; effect: string; control: PanControl }
   | { kind: "pitchWheel"; effect: string; control: PitchWheelControl }
   | { kind: "reverb"; effect: string; control: ReverbControl }
@@ -1469,6 +1505,13 @@ export type OttControl = (typeof OTT_CONTROLS)[number];
 /** Pro-C's controls an automation clip can drive: every continuous knob (not Lookahead: moving it moves where the gain lands). */
 export const PRO_C_CONTROLS = ["threshold", "ratio", "knee", "range", "attack", "release", "hold", "wet", "dry", "mix", "sidechainLevel", "drive", "input", "output", "emphasis"] as const;
 export type ProCControl = (typeof PRO_C_CONTROLS)[number];
+
+/**
+ * YT-L's controls an automation clip can drive: its continuous knobs (not Lookahead: it changes the latency), in the
+ * engine's lanes' order (`ProLLane`, `limit::Lane`).
+ */
+export const PRO_L_CONTROLS = ["gain", "output", "attack", "release", "hold", "linkTransients", "linkRelease", "sideFloor", "clipRange", "clipKnee"] as const;
+export type ProLControl = (typeof PRO_L_CONTROLS)[number];
 
 /** A Pro-Q band's controls an automation clip can drive; and its own (band 0): its output, pan and Gain Scale. */
 export type EqControl = "frequency" | "gain" | "q" | "range" | "output" | "pan" | "gainScale";

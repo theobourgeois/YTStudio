@@ -93,7 +93,7 @@ export function documentHashes(content: SnapshotContent): MixSnapshot["document"
 }
 
 /** Which of our own effects this is: its settings are in the song, so there's no state file. */
-export const BUILT_IN_SETTINGS = ["grossBeat", "echoBoy", "autoTune", "proQ", "ott", "proC", "panMan", "pitchWheel", "reverb"] as const;
+export const BUILT_IN_SETTINGS = ["grossBeat", "echoBoy", "autoTune", "proQ", "ott", "proC", "proL", "panMan", "pitchWheel", "reverb"] as const;
 export const isBuiltInEffect = (effect: MixerEffect): boolean => BUILT_IN_SETTINGS.some((key) => effect[key] !== undefined);
 
 /** Each media id the song plays and the channels that play it, sorted by id. */

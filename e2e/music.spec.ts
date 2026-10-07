@@ -3854,6 +3854,91 @@ test("YT-C: chosen for a slot, Threshold turned and undone, a Vintage style's fa
   await page.getByRole("button", { name: "Stop", exact: true }).click();
 });
 
+type SavedProL = { style: string; gain: number; output: number; truePeak: boolean; clip: boolean; clipShape: string; clipOrder: string; preset: string | null; lockOutput: boolean; slot: string; hold: number | null; stereo: string; meter: { target: number; timeScale: string } };
+async function savedProL(page: Page, id: string, effectId: string): Promise<SavedProL | null> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.proL;
+  return null;
+}
+
+test("YT-L: chosen for the master's slot, Gain pushed and undone, a style, the clip stage, a preset under Lock Output, A/B, its meters while it plays", async ({ page }) => {
+  const id = await openNewSong(page, "Loud");
+  await page.keyboard.press("F9");
+  const mixer = page.getByTestId("mixer");
+  await mixer.locator('[data-track-name="Master"]').click({ position: { x: 8, y: 6 } });
+  const inspector = page.getByTestId("mixer-inspector");
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /YT-L/ }).click();
+  const window = page.getByTestId("pro-l");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  // Théo's default: Modern, a −0.1 dBFS ceiling, the clipper off.
+  await expect.poll(async () => (await savedProL(page, id, effectId))?.preset).toBe("Default Setting");
+  await expect(window).toHaveAttribute("data-style", "modern");
+  // Closed, its name in the slot opens it again.
+  await page.getByRole("button", { name: /^Close YT-L/ }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "YT-L: open its window" }).click();
+  await expect(window).toBeVisible();
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+
+  // Gain pushed up: the song changes and the preset's name goes; Undo takes it back.
+  const gain = window.getByTestId("pro-l-knob-gain");
+  await drag(page, gain, gain, { dy: -60 });
+  await expect.poll(async () => (await savedProL(page, id, effectId))?.gain).toBeGreaterThan(0);
+  expect((await savedProL(page, id, effectId))?.preset).toBeNull();
+  await window.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(async () => (await savedProL(page, id, effectId))?.gain).toBe(0);
+
+  // A style; Attack and Release grey out for one without a release stage.
+  await window.getByTestId("pro-l-style").click();
+  await page.getByRole("menuitemradio", { name: /^Aggressive/ }).click();
+  await expect(window).toHaveAttribute("data-style", "aggressive");
+  await expect(window.getByRole("slider", { name: "Attack" })).toHaveAttribute("aria-readonly", "true");
+  // Hold: Auto off sets a time.
+  await window.getByTestId("pro-l-auto-hold").click();
+  await expect.poll(async () => (await savedProL(page, id, effectId))?.hold).toBe(0.005);
+
+  // The clip stage: on, FL's shape, after the limiter (FL's Emphasizer).
+  await window.getByTestId("pro-l-clip-on").click();
+  await window.getByTestId("pro-l-clip-shape").click();
+  await page.getByRole("menuitemradio", { name: /^FL/ }).click();
+  await window.getByTestId("pro-l-clip-order").getByRole("radio", { name: "Last" }).click();
+  await expect.poll(async () => await savedProL(page, id, effectId)).toMatchObject({ clip: true, clipShape: "fl", clipOrder: "last" });
+  // Mid/side shows the side's floor in place of the links.
+  await window.getByTestId("pro-l-stereo").getByRole("radio", { name: "M/S" }).click();
+  await expect(window.getByRole("slider", { name: "Side Floor" })).toBeVisible();
+  await expect.poll(async () => (await savedProL(page, id, effectId))?.stereo).toBe("ms");
+
+  // Delivery set by hand and locked: a preset loads its sound but leaves the ceiling alone.
+  await window.getByTestId("pro-l-true-peak").click();
+  await window.getByTestId("pro-l-lock-output").click();
+  await expect.poll(async () => await savedProL(page, id, effectId)).toMatchObject({ truePeak: true, lockOutput: true });
+  await window.getByTestId("pro-l-preset").click();
+  await page.getByRole("menuitem", { name: "Master" }).click();
+  await page.getByRole("menuitem", { name: /^Master: Rage \/ Hyperpop/ }).click();
+  await expect.poll(async () => await savedProL(page, id, effectId)).toMatchObject({ preset: "Master: Rage / Hyperpop", style: "aggressive", truePeak: true, output: -0.1, meter: { target: -4 } });
+  await expect(window.getByTestId("pro-l-preset")).toHaveText("Master: Rage / Hyperpop");
+
+  // A/B: B starts as A; changed there, A is as it was.
+  await window.getByTestId("pro-l-ab").click();
+  await expect.poll(async () => (await savedProL(page, id, effectId))?.slot).toBe("b");
+  await window.getByTestId("pro-l-style").click();
+  await page.getByRole("menuitemradio", { name: /^Transparent/ }).click();
+  await window.getByTestId("pro-l-ab").click();
+  await expect.poll(async () => await savedProL(page, id, effectId)).toMatchObject({ slot: "a", style: "aggressive" });
+
+  // Its meters while the song plays (the stand-in engine's made-up loudness), the target from its menu, reset.
+  await window.getByTestId("pro-l-target").click();
+  await page.getByRole("menuitemradio", { name: /^-14 LUFS/ }).click();
+  await expect.poll(async () => (await savedProL(page, id, effectId))?.meter.target).toBe(-14);
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(window.getByTestId("pro-l-loudness-value")).not.toHaveText("—", { timeout: 5000 });
+  await expect(window.getByTestId("pro-l-lra")).toHaveText(/LRA/);
+  await window.getByRole("button", { name: "Reset the measurement" }).click();
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+});
+
 test("sidechain: the kick's strip ducks a track with a new YT-C, the slot shows its key and changes its tap, a dotted cable", async ({ page }) => {
   const id = await openNewSong(page, "Ducked");
   await page.keyboard.press("F9");
@@ -4124,7 +4209,7 @@ async function notAutomatable(page: Page, window: Locator): Promise<string[]> {
   return missing;
 }
 
-test("every knob of our built-in effects can be automated: YT-Time, YT-Delay (each mode, Tweak, the Style Editor), YT-Tune, YT-EQ, YT-Multiband, YT-C, YT-R (with its advanced panel), YT-Pan (each mode, Tweak), YT-Pitch", async ({ page }) => {
+test("every knob of our built-in effects can be automated: YT-Time, YT-Delay (each mode, Tweak, the Style Editor), YT-Tune, YT-EQ, YT-Multiband, YT-C, YT-L, YT-R (with its advanced panel), YT-Pan (each mode, Tweak), YT-Pitch", async ({ page }) => {
   test.setTimeout(300_000);
   await openNewSong(page, "Automate everything");
   await page.keyboard.press("F9");
@@ -4191,6 +4276,15 @@ test("every knob of our built-in effects can be automated: YT-Time, YT-Delay (ea
   expect(await notAutomatable(page, page.getByTestId("pro-c-output-panel"))).toEqual([]);
   await page.keyboard.press("Escape");
   await close(/^Close YT-C/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/YT-L/, "pro-l");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  // (Lookahead isn't automatable: it moves the latency.) In mid/side, the side's floor shows in place of the links.
+  expect(await notAutomatable(page, window)).toEqual(["Lookahead"]);
+  await window.getByTestId("pro-l-stereo").getByRole("radio", { name: "M/S" }).click();
+  expect(await notAutomatable(page, window)).toEqual(["Lookahead"]);
+  await close(/^Close YT-L/);
 
   await page.keyboard.press("F9");
   window = await choose(/YT-R/, "reverb");

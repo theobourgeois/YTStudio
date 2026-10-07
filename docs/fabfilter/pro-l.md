@@ -1334,6 +1334,23 @@ event for every YT-L, as Pro-C's points are: no watch list); `engine/src/Dither.
 1–5 and 15–19, Tech 3342's 1–4, pause and reset, the readings, dither's whole steps, its TPDF and its three curves
 within 2 dB of Pro-L 2's in every band.
 
+**Step 4a** (2026-10-07): the TypeScript side. Lock Output, A/B and the meter's settings in the document
+(`ProL.lockOutput`, `other`, `slot`, `meter`); the presets of §6 (`PRO_L_PRESETS`: a preset sets its sound over the
+default's, its delivery settings, Output, True Peak and dither, only where it has them and never with Lock Output on,
+and its loudness target); automation (`AutomationTarget` `proL`, every continuous knob but Lookahead, which moves the
+latency; lanes `kind: "limiter"`, one each, in the engine's units); the assistant's `get_pro_l`, `update_pro_l`,
+`reset_pro_l_meter`, `add_mixer_effect` "YT-L" and `add_automation`'s "limiter …" controls; the readings in the tab's
+transport store; the stand-in engine's made-up readings. The window, the picker and the e2e tests are step 4b.
+
+**Step 4b** (2026-10-07): the window (`src/suites/music/pro-l/`): the top bar (undo, A/B, presets by folder, Lock
+Output), Gain at the display's left, the level display (input, output, the clip stage's and the limiter's reduction,
+the loudness line, the ceiling; Slow Down, Fast, Slow, Infinite, Off), the output and reduction meters (true or sample
+peaks, each side's Momentary), the loudness panel (M, S or I large, the others as bars against the target, Max M / S,
+LRA, PLR, pause, reset, Auto-Reset, the target and its scale), the controls (Style, Lookahead, Attack, Release, Hold
+with Auto, L/R links or M/S's Side Floor, the clip stage, Output with True Peak) and the bottom bar (oversampling,
+dither and its shaping, DC, Unity Gain, Audition, the display and meter scale, the latency, bypass); the picker's
+entry; `--lim-*` tokens; e2e tests. Not yet: the delivery tools (step 5), the scale's K-System colours, Compact.
+
 The same shape as Pro-Q and PanMan: the document and what it means in TypeScript, the sound in C++, the window in React.
 
 ### 8.1 The document

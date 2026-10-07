@@ -6,9 +6,28 @@
  * main stage that guarantees the ceiling, a bass stage and a release stage that only lower it further), then a
  * sample-peak catch or two true peak passes at the song's rate.
  */
+import { clamp } from "../math.ts";
 import { findEffect } from "./automation.ts";
-import { DEFAULT_PRO_L_STATE, FL_CLIP_KNEE, PRO_L_STYLE_SPECS, normalizeProL } from "./pro-l-presets.ts";
-import type { MusicProject, ProL, ProLState } from "./types.ts";
+import {
+  DEFAULT_PRO_L_STATE,
+  FL_CLIP_KNEE,
+  PRO_L_DELIVERY,
+  PRO_L_GAIN_RANGE,
+  PRO_L_MAX_CLIP_KNEE,
+  PRO_L_MAX_CLIP_RANGE,
+  PRO_L_MAX_HOLD,
+  PRO_L_OUTPUT_RANGE,
+  PRO_L_SIDE_FLOOR_RANGE,
+  PRO_L_STYLE_SPECS,
+  attackFromTurn,
+  normalizeProL,
+  normalizeProLState,
+  proLPreset,
+  releaseFromTurn,
+  turnFromAttack,
+  turnFromRelease,
+} from "./pro-l-presets.ts";
+import type { MusicProject, ProL, ProLControl, ProLMeter, ProLState } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Finding and editing
@@ -27,6 +46,9 @@ export function proLs(song: MusicProject) {
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** What's heard (not which preset is named, A/B's other side, Lock Output or the meter). */
+const heard = (p: ProLState): ProLState => normalizeProLState(p);
+const soundChanged = (a: ProLState, b: ProLState) => !same(heard(a), heard(b));
 
 /** Change a YT-L's settings (kept valid); the same song when nothing changes. */
 export function editProL(song: MusicProject, effectId: string, change: (proL: ProL) => ProL): MusicProject {
@@ -45,14 +67,44 @@ export function editProL(song: MusicProject, effectId: string, change: (proL: Pr
   };
 }
 
-export type ProLPatch = Partial<ProLState>;
+export type ProLPatch = Partial<ProLState> & { lockOutput?: boolean; meter?: Partial<ProLMeter> };
 
 /** Set some of a YT-L's controls. Changing its sound by hand forgets the preset it came from. */
 export function updateProL(song: MusicProject, effectId: string, patch: ProLPatch): MusicProject {
   return editProL(song, effectId, (proL) => {
-    const next = { ...proL, ...patch };
-    return same(next, proL) ? proL : { ...next, preset: null };
+    const { meter, ...rest } = patch;
+    const next = { ...proL, ...rest, meter: meter ? { ...proL.meter, ...meter } : proL.meter };
+    return soundChanged(proL, next) ? { ...next, preset: null } : next;
   });
+}
+
+/**
+ * Load a preset (by name): its sound over the default's, its delivery settings where it has them (unless Lock Output
+ * is on), its loudness target; A/B and the rest of the meter kept.
+ */
+export function chooseProLPreset(song: MusicProject, effectId: string, name: string): MusicProject {
+  const preset = proLPreset(name);
+  if (!preset) return song;
+  return editProL(song, effectId, (proL) => {
+    const sound: ProLState = { ...DEFAULT_PRO_L_STATE, ...preset.settings };
+    const kept = Object.fromEntries(PRO_L_DELIVERY.flatMap((key) => (proL.lockOutput || preset.settings[key] === undefined ? [[key, proL[key]]] : []))) as Partial<ProLState>;
+    const meter = preset.target === undefined ? proL.meter : { ...proL.meter, target: preset.target };
+    return { ...proL, ...sound, ...kept, preset: preset.name, meter };
+  });
+}
+
+/** A/B: swap to the other state (the first switch copies this one there). */
+export function switchProLAB(song: MusicProject, effectId: string): MusicProject {
+  return editProL(song, effectId, (proL) => {
+    const here = heard(proL);
+    const there = proL.other ?? here;
+    return { ...proL, ...there, other: here, slot: proL.slot === "a" ? "b" : "a" };
+  });
+}
+
+/** A/B's Copy: this state to the other. */
+export function copyProLAB(song: MusicProject, effectId: string): MusicProject {
+  return editProL(song, effectId, (proL) => ({ ...proL, other: heard(proL) }));
 }
 
 /** Choose a style: the knobs stay where they are (they're separate controls, as in Pro-L 2). */
@@ -144,3 +196,66 @@ export function proLLatencySeconds(proL: ProLState = DEFAULT_PRO_L_STATE): numbe
   const clip = (factor === 1 ? 2 : 1) / 48000;
   return spec.reserve + spec.range + filters + last + clip;
 }
+
+// ---------------------------------------------------------------------------
+// Automation
+// ---------------------------------------------------------------------------
+
+/** What an automation lane of YT-L's sets in the engine (`EngineLaneTarget` "limiter", `limit::Lane`): one value. */
+export const PRO_L_LANES: Record<ProLControl, (e: EngineProL, p: ProLState) => number[]> = {
+  gain: (e) => [e.gain],
+  output: (e) => [e.ceiling],
+  attack: (_, p) => [p.attack],
+  release: (_, p) => [p.release],
+  hold: (e) => [e.hold],
+  linkTransients: (e) => [e.linkTransients],
+  linkRelease: (e) => [e.linkRelease],
+  sideFloor: (e) => [e.sideFloor],
+  clipRange: (_, p) => [p.clipRange],
+  clipKnee: (_, p) => [p.clipShape === "fl" ? FL_CLIP_KNEE : p.clipKnee],
+};
+
+/** An automatable control: as Pro-C's (`ProCControlSpec`). */
+export interface ProLControlSpec {
+  name: string;
+  get: (p: ProLState) => number;
+  set: (p: ProLState, value: number) => ProLState;
+  toControl: (fraction: number) => number;
+  fromControl: (value: number) => number;
+  defaultValue: number;
+  format: (value: number) => string;
+}
+
+const linear = (min: number, max: number) => ({ toControl: (f: number) => min + clamp(f, 0, 1) * (max - min), fromControl: (v: number) => clamp((v - min) / (max - min), 0, 1) });
+const db = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
+const percent = (v: number) => `${Math.round(v * 100)}%`;
+/** Milliseconds or seconds, as Pro-L shows a time. */
+export const formatProLTime = (seconds: number) => (seconds < 0.01 ? `${(seconds * 1000).toFixed(2)} ms` : seconds < 1 ? `${Math.round(seconds * 1000)} ms` : `${seconds.toFixed(2)} s`);
+
+export const PRO_L_CONTROL_SPECS: Record<ProLControl, ProLControlSpec> = {
+  gain: { name: "Gain", get: (p) => p.gain, set: (p, gain) => ({ ...p, gain }), ...linear(PRO_L_GAIN_RANGE[0], PRO_L_GAIN_RANGE[1]), defaultValue: 0, format: db },
+  output: { name: "Output Level", get: (p) => p.output, set: (p, output) => ({ ...p, output }), ...linear(PRO_L_OUTPUT_RANGE[0], PRO_L_OUTPUT_RANGE[1]), defaultValue: -0.1, format: db },
+  attack: { name: "Attack", get: (p) => p.attack, set: (p, attack) => ({ ...p, attack }), toControl: attackFromTurn, fromControl: turnFromAttack, defaultValue: 0.275, format: formatProLTime },
+  release: { name: "Release", get: (p) => p.release, set: (p, release) => ({ ...p, release }), toControl: releaseFromTurn, fromControl: turnFromRelease, defaultValue: 0.4, format: formatProLTime },
+  hold: {
+    name: "Hold",
+    // Auto reads as its knob's start; automation holds a set time.
+    get: (p) => p.hold ?? 0,
+    set: (p, hold) => ({ ...p, hold }),
+    ...linear(0, PRO_L_MAX_HOLD),
+    defaultValue: 0,
+    format: formatProLTime,
+  },
+  linkTransients: { name: "Transients Link", get: (p) => p.linkTransients, set: (p, linkTransients) => ({ ...p, linkTransients }), ...linear(0, 1), defaultValue: 0.75, format: percent },
+  linkRelease: { name: "Release Link", get: (p) => p.linkRelease, set: (p, linkRelease) => ({ ...p, linkRelease }), ...linear(0, 1), defaultValue: 1, format: percent },
+  sideFloor: { name: "Side Floor", get: (p) => p.sideFloor, set: (p, sideFloor) => ({ ...p, sideFloor }), ...linear(PRO_L_SIDE_FLOOR_RANGE[0], PRO_L_SIDE_FLOOR_RANGE[1]), defaultValue: -6, format: db },
+  clipRange: { name: "Clip Range", get: (p) => p.clipRange, set: (p, clipRange) => ({ ...p, clipRange }), ...linear(0, PRO_L_MAX_CLIP_RANGE), defaultValue: 1.5, format: (v) => `${v.toFixed(1)} dB` },
+  clipKnee: { name: "Clip Knee", get: (p) => p.clipKnee, set: (p, clipKnee) => ({ ...p, clipKnee }), ...linear(0, PRO_L_MAX_CLIP_KNEE), defaultValue: 1.5, format: (v) => `${v.toFixed(1)} dB` },
+};
+
+/** Set a YT-L's control to a value in its own units (a knob turned, an assistant's edit). */
+export const setProLControl = (song: MusicProject, effectId: string, control: ProLControl, value: number) =>
+  editProL(song, effectId, (proL) => {
+    const next = { ...proL, ...PRO_L_CONTROL_SPECS[control].set(proL, value) };
+    return soundChanged(proL, next) ? { ...next, preset: null } : proL;
+  });

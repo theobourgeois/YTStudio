@@ -16,7 +16,7 @@ import { ECHO_CONTROL_SPECS, ECHO_LANES, type EchoLane, type EngineEchoBoy, LANE
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { type EngineEq, engineProQ } from "./pro-q.ts";
 import { type EngineOtt, OTT_CONTROL_SPECS, OTT_LANES, OTT_LANES_OF, type OttLane, engineOtt } from "./ott.ts";
-import { type EngineProL, engineProL } from "./pro-l.ts";
+import { type EngineProL, PRO_L_CONTROL_SPECS, PRO_L_LANES, engineProL } from "./pro-l.ts";
 import { type EngineProC, PRO_C_CONTROL_SPECS, PRO_C_LANES, PRO_C_LANES_OF, type ProCLane, engineProC } from "./pro-c.ts";
 import { type EngineReverb, REVERB_CONTROL_SPECS, REVERB_LANES, REVERB_LANES_OF, REVERB_LANE_NAMES, type ReverbLane, engineReverb, reverbSeed } from "./reverb.ts";
 import { type EnginePitchWheel, controlValue as pitchWheelValue, engineControlValue as engineWheelValue, enginePitchWheel } from "./pitch-wheel.ts";
@@ -43,6 +43,9 @@ import {
   type MusicProject,
   OTT_CONTROLS,
   PRO_C_CONTROLS,
+  PRO_L_CONTROLS,
+  type ProLControl,
+  type ProLState,
   REVERB_CONTROLS,
   type ReverbState,
   type PanControl,
@@ -257,6 +260,8 @@ export type EngineLaneTarget =
   | { kind: "ott"; track: number; effect: number; control: OttLane }
   /** A Pro-C's lane (`ProCLane`): one value, or two (a slope and its loop gain; a gain per side). */
   | { kind: "comp"; track: number; effect: number; control: ProCLane }
+  /** A YT-L's lane (`PRO_L_LANES`): one value in the engine's units (dB, seconds, 0..1). */
+  | { kind: "limiter"; track: number; effect: number; control: ProLControl }
   /** A PanMan's control; or its pattern (`shape`: `PAN_SHAPE_POINTS` positions evenly over it), Smoothing, Feel or Groove automated. */
   | { kind: "panman"; track: number; effect: number; control: PanControl | "shape" }
   | { kind: "wheel"; track: number; effect: number; control: PitchWheelControl }
@@ -1117,6 +1122,20 @@ function automationLanes(
           add({ kind: "comp", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick, eOf) => {
             const at = moving.reduce((settings, c) => (c.key ? PRO_C_CONTROL_SPECS[c.control].set(settings, c.value(tick, eOf)) : settings), pc as ProCState);
             return PRO_C_LANES[lane](engineProC(at));
+          });
+        }
+      }
+      const pl = effect.proL;
+      if (pl) {
+        // Each control its own lane, in the engine's units (Attack and Release as the release stage has them).
+        for (const control of PRO_L_CONTROLS) {
+          const target: AutomationTarget = { kind: "proL", effect: effect.id, control };
+          const key = automated(target);
+          if (!key) continue;
+          const value = valueOf(target, PRO_L_CONTROL_SPECS[control].get(pl));
+          add({ kind: "limiter", track: t, effect: effectIndex, control }, [key], (tick, eOf) => {
+            const at = PRO_L_CONTROL_SPECS[control].set(pl as ProLState, value(tick, eOf));
+            return PRO_L_LANES[control](engineProL(at), at);
           });
         }
       }

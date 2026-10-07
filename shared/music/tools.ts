@@ -11,6 +11,7 @@ import { EXPORT_FORMATS } from "./export.ts";
 import { ECHO_TOOL_CONTROL_NAMES } from "./echo-boy-presets.ts";
 import { OTT_TOOL_CONTROL_NAMES } from "./ott-presets.ts";
 import { PRO_C_PRESETS, PRO_C_TOOL_CONTROL_NAMES } from "./pro-c-presets.ts";
+import { PRO_L_PRESETS, PRO_L_TOOL_CONTROL_NAMES } from "./pro-l-presets.ts";
 import { REVERB_PRESETS, REVERB_TOOL_CONTROL_NAMES } from "./reverb-presets.ts";
 import { REVERB_BAND_SHAPES, REVERB_ERAS, REVERB_MODES } from "./types.ts";
 import { PRO_C_AUDIO_MODES, PRO_C_CHARACTERS, PRO_C_DETECTORS, PRO_C_LINK_MODES, PRO_C_RECOVERIES, PRO_C_STYLES, PRO_C_TIME_MODES, SIDECHAIN_TAPS } from "./types.ts";
@@ -51,6 +52,12 @@ const ottRef = {
 /** Which Pro-C a tool acts on. */
 const proCRef = {
   effect: str("The YT-C: its effect id (from get_mixer or get_pro_c). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
+/** Which YT-L a tool acts on. */
+const proLRef = {
+  effect: str("The YT-L: its effect id (from get_mixer or get_pro_l). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
@@ -148,6 +155,7 @@ const controlFields = {
       ...ECHO_TOOL_CONTROL_NAMES,
       ...OTT_TOOL_CONTROL_NAMES,
       ...PRO_C_TOOL_CONTROL_NAMES,
+      ...PRO_L_TOOL_CONTROL_NAMES,
       ...REVERB_TOOL_CONTROL_NAMES,
       ...["panman offset", "panman width", "panman rate", "panman input", "panman output"],
       ...["panman smoothing", "panman feel", "panman groove", "panman trigger", "panman divider", "panman cutoff", "panman filter gain", "panman threshold", "panman attack", "panman release", "panman offset mod", "panman width mod", "panman rate mod"],
@@ -168,7 +176,9 @@ const controlFields = {
       "or a YT-EQ's (the effect in `track`'s `slot`, \"eq ...\"): a band's (`band`) frequency (values in Hz: a filter sweep), gain or " +
       "dynamic range (dB) or Q, or its output (dB), pan (-1 to 1) or gain scale (0 to 2, 1 is 100%); or a YT-Multiband's (\"ott ...\"): depth 0 to 1, time 0 to 10 (1 is 100%), in and out gain dB, " +
       "upward and downward 0 to 2 (1 is 100%), a band's threshold 0 to 2 or gain dB; or a YT-C's (\"pro-c ...\"): threshold dB -60 to 0, ratio 1 to 100 (100: ∞:1), knee and range dB, " +
-      "attack, release and hold in milliseconds, wet, dry, side chain level, input and output in dB, mix 0 to 2 (1 is 100%), drive 0 to 1, emphasis dB 0 to 10 (Opto 2A); or a YT-R's (\"reverb ...\": " +
+      "attack, release and hold in milliseconds, wet, dry, side chain level, input and output in dB, mix 0 to 2 (1 is 100%), drive 0 to 1, emphasis dB 0 to 10 (Opto 2A); or a YT-L's (\"limiter ...\"): gain dB 0 to 30 (a louder " +
+      "chorus is a \"limiter gain\" curve), output dB -30 to 0, attack, release and hold in milliseconds, transients link and release link " +
+      "0 to 1, side floor dB -18 to 0, clip range and clip knee dB 0 to 6; or a YT-R's (\"reverb ...\": " +
       "mix 0 to 1, decay seconds 0.1 to 60 (61 is ∞), freeze 0 or 1 (hold curves: a throw frozen on a word), predelay ms, size, distance, " +
       "diffusion, mod, width 0 to 1.5, low cut and high cut Hz, de-ess dB 0 to 24, duck dB -24 to 0, auto decay 0 to 0.9, the duck's " +
       "threshold dB and attack, release and hold in ms, the shelves, mono below Hz, output dB; drier verses and a wetter chorus are a " +
@@ -857,9 +867,11 @@ export const MUSIC_TOOLS = [
       "bright, loud sound; set with update_ott) is ours as well, and so is YT-C (plugin \"YT-C\": our compressor, " +
       "with 21 styles: YT-C's own, Vox (one-knob vocal, after Waves' RVox) and a Vintage group after the 1176, LA-2A, CL 1B, Distressor, dbx 160 and " +
       "Neve 33609; a side chain EQ, an external side chain, Host Sync pumping; set with update_pro_c; add_vocal_compression sets up a vocal's compressors in one step), " +
+      "and so is YT-L (plugin \"YT-L\": our limiter, after FabFilter's Pro-L 2, with a clipper inside; the master's last effect for a loud, " +
+      "clean master, or a vocal's or a bus's peak catcher; set with update_pro_l), " +
       "and so is YT-R (plugin \"YT-R\": plates, rooms, chambers and halls made for vocals, with ducking, a de-esser and a synced " +
       "pre-delay built in; set with update_reverb and set_reverb_decay; add_vocal_reverb sets up a vocal's reverb send in one step, which is usually better).",
-    inputSchema: obj({ track: mixerTrack(), plugin: str('"YT-R", "YT-C", "YT-EQ", "YT-Multiband", "YT-Delay", "YT-Time", "YT-Tune", "YT-Pan", "YT-Pitch", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
+    inputSchema: obj({ track: mixerTrack(), plugin: str('"YT-R", "YT-C", "YT-L", "YT-EQ", "YT-Multiband", "YT-Delay", "YT-Time", "YT-Tune", "YT-Pan", "YT-Pitch", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
   }),
   tool({
     name: "update_mixer_effect",
@@ -1122,6 +1134,68 @@ export const MUSIC_TOOLS = [
       ),
       ab: oneOf(["switch", "copy"], "A/B: switch to the other state, or copy this one there."),
     }),
+  }),
+  tool({
+    name: "get_pro_l",
+    title: "Read a YT-L",
+    kind: "look",
+    description:
+      "A YT-L (our limiter, in a mixer track's slot): its style and what it does in numbers (its ramp, hold, release, latency), every " +
+      "knob, its clip stage, stereo mode, oversampling, true peak, dither and A/B; and its meters as the song plays: Momentary, " +
+      "Short-term and Integrated loudness (LUFS) and the loudness range since the meter's reset, the most true peak, PLR, the gain " +
+      "reduction of its clip stage and its limiter, the share of samples clipped and how many sit near the ceiling (a sign the master " +
+      "will distort once it's made an MP3 or AAC). Reset the meter (reset_pro_l_meter) and play the loudest part to measure it.",
+    inputSchema: obj({ ...proLRef }),
+  }),
+  tool({
+    name: "update_pro_l",
+    title: "Change a YT-L",
+    kind: "edit",
+    description:
+      "Set a YT-L's style, knobs or a preset. Gain is how hard it's pushed (how loud the result is); output is the ceiling. Styles: " +
+      "modern (clean and loud, the default), transparent (the least colour), punchy (it pumps: beat music, vocals), dynamic (hits " +
+      "turned up first: rock), allround (when unsure), aggressive (near clipping: EDM, trap), bus (slow: a drum bus), safe (never " +
+      "distorts: acoustic), spit (a fast, hard brickwall for a vocal's bite). The clip stage (clip: true) clips first, `clipRange` dB " +
+      "over the ceiling (0: it does all the work), in a shape: hard, smooth, soft, converter or fl (FL Studio's Fruity Soft Clipper); " +
+      "`clipOrder` last is FL's Emphasizer (limit, then clip at the ceiling). For streaming: truePeak on, output -1; loud rap and " +
+      "hyperpop ship at a -0.1 sample-peak ceiling with the clipper on. Times in milliseconds. Returns its settings.",
+    inputSchema: obj({
+      ...proLRef,
+      preset: str(`A preset's name (with lockOutput on, the output, true peak and dither stay): ${PRO_L_PRESETS.map((p) => p.name).join(", ")}.`),
+      style: oneOf(["transparent", "punchy", "dynamic", "allround", "aggressive", "modern", "bus", "safe", "spit"], "Its style."),
+      gain: num("dB, 0 to 30: how hard it's pushed."),
+      output: num("dB, -30 to 0: the ceiling (dBTP with truePeak)."),
+      lookahead: num("Milliseconds, 0 to 5 (spit: 0 to 1): longer is cleaner and slower to catch."),
+      attack: num("Milliseconds, 0 to 10000: how long it takes to settle into a sustained level."),
+      release: num("Milliseconds, 0 to 10000: how long it takes to come back."),
+      hold: { description: "Milliseconds, 0 to 50, or \"auto\" (half the bass's period: no bass distortion).", anyOf: [{ type: "number" }, { type: "string" }] },
+      stereo: oneOf(["lr", "ms"], "lr: left and right, linked; ms: mid/side, the side turned down first (wide masters keep their centre)."),
+      linkTransients: num("0 to 1: how much the channels share their fast reduction."),
+      linkRelease: num("0 to 1: how much they share their slow reduction."),
+      sideFloor: num("dB, -18 to 0: how far the side goes down before the mid moves (ms)."),
+      clip: bool("The clip stage on."),
+      clipRange: num("dB, 0 to 6: the clipper's gap over the limiter's ceiling (0: the clipper does the work)."),
+      clipShape: oneOf(["hard", "smooth", "soft", "converter", "fl"], "The clip's curve."),
+      clipKnee: num("dB, 0 to 6 (smooth)."),
+      clipOrder: oneOf(["first", "last"], "Clip then limit (first, the default) or limit then clip at the ceiling (last: FL's Emphasizer)."),
+      truePeak: bool("True Peak Limiting: the ceiling holds between the samples too (dBTP)."),
+      oversampling: { type: "integer", enum: [1, 2, 4, 8, 16], description: "Oversampling (1: off). The clip stage runs at 4 at least." },
+      dither: { type: "integer", enum: [0, 16, 18, 20, 22, 24], description: "Dither to this bit depth (0: off): only on the last thing before a 16-bit file." },
+      noiseShaping: oneOf(["none", "basic", "optimized", "weighted"], "Dither's noise shaping."),
+      dcFilter: bool("Remove DC."),
+      unityGain: bool("Listen at the level it came in (Gain taken back off): compare the sound, not the loudness."),
+      audition: oneOf(["off", "all", "clip", "limiter"], "Listen to what it takes away: all of it, the clip stage's or the limiter's share."),
+      lockOutput: bool("Lock Output: presets leave the output, true peak and dither alone."),
+      target: num("The meter's loudness target, LUFS -40 to 0."),
+      ab: oneOf(["switch", "copy"], "A/B: switch to the other state, or copy this one there."),
+    }),
+  }),
+  tool({
+    name: "reset_pro_l_meter",
+    title: "Reset a YT-L's meter",
+    kind: "action",
+    description: "Start a YT-L's loudness measurement again (Integrated, the loudness range and the maxima), or pause it (pause: true) and carry it on (pause: false).",
+    inputSchema: obj({ ...proLRef, pause: bool("Pause (true) or carry on (false), rather than reset.") }),
   }),
   tool({
     name: "set_pro_c_sidechain",

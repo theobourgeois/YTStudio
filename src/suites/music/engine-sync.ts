@@ -16,9 +16,10 @@ import { startMidiSync, useMidi } from "./midi";
 import { presetsChanged } from "./plugin-presets";
 import { useMusic } from "./store";
 import { takeAutoTunes } from "./auto-tune/pitch-history";
-import { NO_CHANNELS, NO_ECHO_BOYS, NO_EFFECTS, NO_EQ, NO_GROSS_BEATS, NO_METERS, NO_OTTS, NO_PANMEN, NO_PRO_CS, afterSongSent, useTransport } from "./transport";
+import { NO_CHANNELS, NO_ECHO_BOYS, NO_EFFECTS, NO_EQ, NO_GROSS_BEATS, NO_METERS, NO_OTTS, NO_PANMEN, NO_PRO_CS, NO_PRO_LS, afterSongSent, useTransport } from "./transport";
 import { takePitchWheels } from "./pitch-wheel/live";
 import { takeProCs } from "./pro-c/history";
+import { takeLimiters } from "./pro-l/history";
 import { currentTrackId, useMusicUi } from "./ui";
 import { automateParameter } from "./automation/actions";
 import { useMixerView } from "./mixer/view";
@@ -152,6 +153,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         echoBoys: event.echoBoys ?? NO_ECHO_BOYS,
         otts: event.otts ?? NO_OTTS,
         proCs: event.proCs ?? NO_PRO_CS,
+        limiters: event.limiters ?? NO_PRO_LS,
         eq: event.eq ?? NO_EQ,
         panMen: event.panMen ?? NO_PANMEN,
       });
@@ -161,6 +163,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       takePitchWheels(event.pitchWheels);
       // What each Pro-C did: its level display's points, kept outside React.
       takeProCs(event.proCs);
+      // What each YT-L did: its display's columns and its meters, likewise.
+      takeLimiters(event.limiters);
       // What each Reverb is doing: its meters and its tail's spectrum, likewise.
       takeReverbs(event.reverbs);
       // Each modulator's level: the controls it moves show it.

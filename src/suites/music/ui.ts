@@ -38,6 +38,7 @@ export type WindowId =
   | `wheel:${string}`
   | `ott:${string}`
   | `proc:${string}`
+  | `prol:${string}`
   | `verb:${string}`;
 
 /**
@@ -60,6 +61,8 @@ export const proQWindow = (effectId: string): WindowId => `proq:${effectId}`;
 export const ottWindow = (effectId: string): WindowId => `ott:${effectId}`;
 /** A Pro-C's window (`pro-c/pro-c-window.tsx`), by its effect's id. */
 export const proCWindow = (effectId: string): WindowId => `proc:${effectId}`;
+/** A YT-L's window (`pro-l/pro-l-window.tsx`), by its effect's id. */
+export const proLWindow = (effectId: string): WindowId => `prol:${effectId}`;
 /** A Reverb's window (`reverb/reverb-window.tsx`), by its effect's id. */
 export const reverbWindow = (effectId: string): WindowId => `verb:${effectId}`;
 /** A PanMan's window (`panman/panman-window.tsx`), by its effect's id. */

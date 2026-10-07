@@ -558,7 +558,7 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan, Pitch Wheel, OTT, Pro-C, Reverb. Where it is and every step still to come, in order:
+the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan, Pitch Wheel, OTT, Pro-C, YT-L, Reverb. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume, scale? }, channels,
@@ -877,6 +877,20 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   input held back as long. Its display's points and levels come in each transport event
   (`EngineTransport.proCs`, drained by the event, not the status); `compAudition` and `compMatch` are live.
   Its knobs automate (`AutomationTarget` `proC`, lanes `kind: "comp"` per `PRO_C_LANES`). Its look is `--comp-*`.
+- **YT-L** (`docs/fabfilter/pro-l.md`, its research and measurements `pro-l-research.md`; `shared/music/pro-l*.ts`,
+  `engine/src/ProL.cpp` + `Lookahead.h`, `TruePeak.h`, `Clipper.h`, `Loudness.h`, `Dither.h`, `src/suites/music/pro-l/`):
+  FabFilter's Pro-L 2, ours, as Gross Beat is (`PRO_L_PLUGIN`, `MixerEffect.proL`, in the song): nine styles, a clip
+  stage (FL's Fruity Soft Clipper's curve among its shapes, before or after the limiter), mid/side side first, true
+  peak limiting, a BS.1770 loudness meter and dither. **The engine knows no style**: `engineProL` turns each into
+  numbers (`PRO_L_STYLE_SPECS`). Its main stage alone guarantees the ceiling (a hold-min, then a box-stack ramp no
+  longer than the look-ahead: `Lookahead.h`); the bass and release stages only lower the gain, so loudness always rises
+  with Gain, and Auto Hold (half the bass's period) keeps a bass note undistorted: keep both so.
+  `pro-l.integration.test.ts` holds the engine to its ceiling by sample, by BS.1770's meter and by an ideal
+  reconstruction, its meter to EBU Tech 3341 and 3342, its dither to Pro-L 2's measured curves. Its readings and
+  its display's columns come in each transport event (`EngineTransport.limiters`, drained by the event:
+  `pro-l/history.ts`); the meter's reset and pause are the live `proL` command (Auto-Reset as play starts). Its
+  knobs automate but Lookahead, which moves its latency (`AutomationTarget` `proL`, lanes `kind: "limiter"`). Its
+  presets' delivery settings (Output, True Peak, dither) stay under Lock Output. Its look is `--lim-*`.
 - **PanMan** (`docs/soundtoys/panman.md`; `shared/music/panman*.ts`, `engine/src/PanMan.cpp`,
   `src/suites/music/panman/`): Soundtoys' auto-panner, ours, built as Gross Beat is (when in doubt about it,
   do what Soundtoys' does: the doc is from its manual). `MixerEffect.panMan` on an effect whose plugin is

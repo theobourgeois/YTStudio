@@ -280,6 +280,95 @@ const proCs = () =>
 const lastProCs = new Map();
 const proCsNow = () => Object.fromEntries((song?.tracks ?? []).flatMap((t) => t.effects ?? []).flatMap((e) => (e.proC && lastProCs.has(e.id) ? [[e.id, lastProCs.get(e.id)]] : [])));
 
+/** YT-L is ours too: a column of its display every 10 ms, numbered from when the engine started. */
+const LIM_STEP = 0.01;
+/** Each YT-L's meter: the last column made, the loudness it's summed since its reset, its maxima, paused. */
+const limStates = new Map();
+/** A beat's peak level (dBFS) at `t` seconds: a kick on every beat at 120 BPM over a steadier bed. */
+const beatAt = (t) => -9 + 7 * Math.max(0, Math.cos(Math.PI * 2 * t)) ** 12 - 3 * Math.abs(Math.sin(Math.PI * 0.25 * t));
+const toDb = (v) => (v > 0 ? 10 * Math.log10(v) : -120);
+const limStateOf = (id) => {
+  if (!limStates.has(id)) limStates.set(id, { n: -1, powers: [], sum: 0, count: 0, maxM: -120, maxS: -120, maxTp: -120, maxGr: 0, maxClip: 0, gr: 0, paused: false, last: null });
+  return limStates.get(id);
+};
+/**
+ * Each YT-L in the song, as the real engine says what it does: while playing, a beat's level through its gain, the
+ * clip stage and the ceiling, so its display and meters move (loudness about 8 dB under the peaks); stopped, nothing new.
+ */
+const limiters = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.proL)
+      .map((e) => {
+        const p = e.proL;
+        const state = limStateOf(e.id);
+        const now = Math.floor((Date.now() - started) / 1000 / LIM_STEP);
+        const columns = [];
+        if (playingSince !== null) {
+          const from = state.n < 0 || now - state.n > 100 ? now - 4 : state.n + 1;
+          for (let n = from; n <= now; n++) {
+            const input = beatAt(n * LIM_STEP) + p.gain;
+            const clipAt = p.ceiling + (p.clip ? p.clip.range : 0);
+            const clip = p.clip ? Math.max(0, input - clipAt) * 0.8 : 0;
+            const over = Math.max(0, input - clip - p.ceiling);
+            state.gr = Math.max(over, state.gr * 0.85);
+            const out = input - clip - state.gr;
+            const power = 10 ** ((out - 8) / 10);
+            state.powers.push(power);
+            if (state.powers.length > 300) state.powers.shift();
+            const mean = (k) => state.powers.slice(-k).reduce((a, b) => a + b, 0) / Math.min(k, state.powers.length);
+            const m = toDb(mean(40)), st = toDb(mean(300));
+            if (!state.paused) {
+              state.sum += power;
+              state.count++;
+              state.maxM = Math.max(state.maxM, m);
+              state.maxS = Math.max(state.maxS, st);
+              state.maxTp = Math.max(state.maxTp, out + (p.truePeak ? 0 : 0.3));
+              state.maxGr = Math.max(state.maxGr, state.gr);
+              state.maxClip = Math.max(state.maxClip, clip);
+            }
+            columns.push([input, out, clip, state.gr, m, st]);
+          }
+          state.n = now;
+        }
+        const last = columns.at(-1) ?? state.last ?? [-120, -120, 0, 0, -120, -120];
+        state.last = last;
+        limStates.set(e.id, state);
+        const peak = (db) => (db <= -119 ? 0 : 10 ** (db / 20));
+        const result = {
+          latency: Math.round(0.03 * 48000),
+          reduction: playingSince === null ? 0 : last[3],
+          input: [peak(last[0]), peak(last[0])],
+          output: [peak(last[1]), peak(last[1])],
+          truePeak: [peak(last[1] + 0.2), peak(last[1] + 0.2)],
+          rms: [last[4], last[4]],
+          loudness: {
+            momentary: last[4],
+            shortTerm: last[5],
+            integrated: state.count ? toDb(state.sum / state.count) : -120,
+            range: state.count > 30 ? 4.2 : 0,
+            maxMomentary: state.maxM,
+            maxShortTerm: state.maxS,
+            maxTruePeak: state.maxTp,
+            seconds: state.count * LIM_STEP,
+            paused: state.paused,
+          },
+          clipped: playingSince !== null && last[2] > 0 ? 0.02 : 0,
+          density: playingSince !== null && last[1] > p.ceiling - 0.5 ? 0.04 : 0,
+          maxClip: state.maxClip,
+          maxReduction: state.maxGr,
+          step: LIM_STEP,
+          columns,
+        };
+        lastLimiters.set(e.id, { ...result, columns: [] });
+        return [e.id, result];
+      }),
+  );
+/** What each said last, without new columns (a status mustn't take the next event's). */
+const lastLimiters = new Map();
+const limitersNow = () => Object.fromEntries((song?.tracks ?? []).flatMap((t) => t.effects ?? []).flatMap((e) => (e.proL && lastLimiters.has(e.id) ? [[e.id, lastLimiters.get(e.id)]] : [])));
+
 /** PanMan is ours too. */
 const PANMAN = "vaudio:panman";
 /** Each PanMan's divider count (its Manual Trigger counts). */
@@ -463,7 +552,7 @@ const status = () => ({
   songLatency: 0,
   tone,
   peak: 0,
-  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), pitchWheels: pitchWheels(), echoBoys: echoBoys(), panMen: panMen(), otts: otts(), proCs: proCsNow(), reverbs: reverbs() },
+  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), pitchWheels: pitchWheels(), echoBoys: echoBoys(), panMen: panMen(), otts: otts(), proCs: proCsNow(), limiters: limitersNow(), reverbs: reverbs() },
   exporting: exporting && { id: exporting.id, done: exporting.done, frames: exporting.frames },
   channels: channels(),
   effects: effects(),
@@ -517,6 +606,7 @@ const sendTransport = () =>
     echoBoys: echoBoys(),
     otts: otts(),
     proCs: proCs(),
+    limiters: limiters(),
     reverbs: reverbs(),
     eq: eqs(),
     panMen: panMen(),
@@ -665,7 +755,12 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (params.band) eqSolos.set(params.effect, params.band);
     else eqSolos.delete(params.effect);
   }
-  if (cmd === "proL" && !(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.proL))) return fail("The song playing has no such YT-L.");
+  if (cmd === "proL") {
+    if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.proL))) return fail("The song playing has no such YT-L.");
+    const state = limStateOf(params.effect);
+    if (params.reset) Object.assign(state, { sum: 0, count: 0, maxM: -120, maxS: -120, maxTp: -120, maxGr: 0, maxClip: 0 });
+    if (typeof params.pause === "boolean") state.paused = params.pause;
+  }
   if (cmd === "compAudition" || cmd === "compMatch") {
     if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.proC))) return fail("The song playing has no such Pro-C.");
     if (cmd === "compMatch") compMatches.set(params.effect, { since: Date.now(), seconds: params.seconds, input: 0, output: 0, count: 0 });

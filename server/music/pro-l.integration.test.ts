@@ -14,7 +14,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { integratedLoudness, loudnessChunks } from "../../shared/music/audio-intelligence/loudness.ts";
+import { createAutomation, editPoints } from "../../shared/music/automation.ts";
 import { addChannels, setSteps } from "../../shared/music/edits.ts";
+import { addClips, editClips } from "../../shared/music/playlist.ts";
 import { setEffect } from "../../shared/music/mixer.ts";
 import { type ProLPatch, updateProL } from "../../shared/music/pro-l.ts";
 import { FL_CLIP_KNEE, PRO_L_PLUGIN } from "../../shared/music/pro-l-presets.ts";
@@ -235,9 +237,9 @@ describe.skipIf(!existsSync(ENGINE))("YT-L, offline", () => {
     await engine.setSong({ projectId: PROJECT, song: createMusicProject("Silence", 120), patternId: P, mode: "pattern" });
     await hear(RATE / 10);
   }
-  async function played(s: MusicProject, seconds: number) {
+  async function played(s: MusicProject, seconds: number, mode: "pattern" | "song" = "pattern") {
     await fresh();
-    await engine.setSong({ projectId: PROJECT, song: s, patternId: P, mode: "pattern" });
+    await engine.setSong({ projectId: PROJECT, song: s, patternId: P, mode });
     await engine.command("play", {});
     return hear(Math.round(seconds * RATE));
   }
@@ -636,5 +638,21 @@ describe.skipIf(!existsSync(ENGINE))("YT-L, offline", () => {
       const shaped = bands((await noiseOf(shaping))[0]);
       BANDS.forEach((b, i) => expect(Math.abs(10 * Math.log10(shaped[i] / base[i]) - PRO_L_2[shaping][i]), `${shaping} at ${b} Hz`).toBeLessThanOrEqual(2));
     }
+  });
+
+  it("plays its automated Output: the ceiling moved by an automation clip", async () => {
+    let s = song("tone1250", { output: 0 });
+    s = editClips(s, (clips) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: TICKS }]).clips);
+    const made = createAutomation(s, { kind: "proL", effect: L, control: "output" }, { start: 0, length: TICKS });
+    // 0 dB for the first second (the −6 dBFS tone untouched), −12 dB after (the fraction of −30..0).
+    s = editPoints(made.song, made.automationId, () => [
+      { tick: 0, value: 1, tension: 0, curve: "single" },
+      { tick: TICKS / 2, value: 1, tension: 0, curve: "single" },
+      { tick: TICKS / 2, value: 0.6, tension: 0, curve: "single" },
+      { tick: TICKS, value: 0.6, tension: 0, curve: "single" },
+    ]);
+    const sound = await played(s, 2, "song");
+    expect(db(peak(sound.channels[0], 0.3 * RATE, 0.9 * RATE))).toBeCloseTo(-6, 1);
+    expect(db(peak(sound.channels[0], 1.3 * RATE, 1.9 * RATE))).toBeCloseTo(-12, 1);
   });
 });
