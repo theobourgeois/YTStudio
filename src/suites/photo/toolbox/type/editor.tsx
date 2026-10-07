@@ -6,7 +6,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { type Affine, apply, compose, invert, layerMatrix } from "@shared/photo/layers";
-import { letterSpacingOf } from "@shared/photo/text";
+import { letterSpacingOf, textScale } from "@shared/photo/text";
 import type { TextLayer } from "@shared/photo/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { layoutWithFonts } from "../../text-measure";
@@ -41,9 +41,11 @@ const HANDLES: [number, number][] = [[0, 0], [0.5, 0], [1, 0], [1, 0.5], [1, 1],
 
 function Editing({ layer, view, caret, docPoint }: { layer: TextLayer; view: { x: number; y: number; zoom: number }; caret: number | "all" | "end"; docPoint: DocPointOf }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const { text, font, align, leading, tracking, box, origin } = layer;
-  const layout = useMemo(() => layoutWithFonts({ text, font, align, leading, tracking, box }), [text, font, align, leading, tracking, box]);
+  const { text, font, align, box, origin } = layer;
+  const layout = useMemo(() => layoutWithFonts(layer), [layer]);
   const m = toScreen(layer, view);
+  // The field is set unscaled and scaled as a whole: its glyphs, advances and ascent then are the drawn ones.
+  const scale = textScale(layer);
 
   // Focused once it's there (after the press that started it has finished), the caret where it was asked for.
   useEffect(() => {
@@ -75,7 +77,7 @@ function Editing({ layer, view, caret, docPoint }: { layer: TextLayer; view: { x
   const left = box ? origin.x : align === "center" ? origin.x - width / 2 : align === "right" ? origin.x - width : origin.x;
   const top = origin.y + layout.top;
   const height = box ? box.height : Math.max(layout.lineHeight, layout.lines.length * layout.lineHeight);
-  const field = compose(m, [1, 0, 0, 1, left - (box ? 0 : pad), top]);
+  const field = compose(m, [scale.x, 0, 0, scale.y, left - (box ? 0 : pad), top]);
 
   const frame = [apply(m, 0, 0), apply(m, layer.size.width, 0), apply(m, layer.size.width, layer.size.height), apply(m, 0, layer.size.height)];
   const boxCorner = (u: number, v: number) => apply(m, origin.x + u * (box?.width ?? 0), origin.y + v * (box?.height ?? 0));
@@ -153,17 +155,19 @@ function Editing({ layer, view, caret, docPoint }: { layer: TextLayer; view: { x
           fontStyle: font.italic ? "italic" : "normal",
           fontSize: `${font.size}px`,
           fontStretch: font.stretch ?? "normal",
-          fontKerning: "normal",
-          lineHeight: `${layout.lineHeight}px`,
+          fontKerning: layer.kerning === "none" ? "none" : "normal",
+          fontVariantCaps: layer.caps === "small" ? "small-caps" : "normal",
+          textTransform: layer.caps === "all" ? "uppercase" : "none",
+          lineHeight: `${layout.lineHeight / scale.y}px`,
           letterSpacing: `${letterSpacingOf(layer)}px`,
           textAlign: align === "justify" ? (box ? "justify" : "left") : align,
           textAlignLast: align === "justify" ? "left" : undefined,
           whiteSpace: box ? "pre-wrap" : "pre",
           overflowWrap: "break-word",
-          width: width + (box ? 0 : 2 * pad),
-          height,
-          paddingLeft: box ? 0 : pad,
-          paddingRight: box ? 0 : pad,
+          width: (width + (box ? 0 : 2 * pad)) / scale.x,
+          height: height / scale.y,
+          paddingLeft: box ? 0 : pad / scale.x,
+          paddingRight: box ? 0 : pad / scale.x,
           transform: css(field),
           caretColor: layer.colour,
         }}

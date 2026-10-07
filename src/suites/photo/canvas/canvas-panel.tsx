@@ -7,7 +7,7 @@
  */
 import { useStyleCanvasDrag } from "../layer-style/canvas-drag";
 import { useCanvasPick } from "../camera-raw/canvas-pick";
-import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 import { PiWarningCircle } from "react-icons/pi";
 import { createId } from "@shared/ids";
@@ -38,6 +38,7 @@ import { contentBox, hitsContent } from "./content";
 import { sizeOf } from "../tool-edits";
 import { isSelectionTool, useActiveTool, usePhotoUi } from "../ui";
 import { TOOLBOX } from "../toolbox";
+import { editTextAt } from "../toolbox/type-tool";
 import { CanvasDriver } from "./driver";
 import { resizeCursor, rotateCursor } from "./cursors";
 import { type Frame, frameOf, touches } from "./frame";
@@ -263,6 +264,10 @@ export function CanvasPanel() {
     // Only images and pixel layers have a place to move (an adjustment changes everything below it).
     let frame = frameOf(doc.layers, usePhotoUi.getState().selectedLayerIds, sized);
     if (!frame) return;
+    const drawsOnCanvas = frame.ids.some((id) => {
+      const kind = doc.layers.find((l) => l.id === id)?.kind;
+      return kind === "text" || kind === "shape";
+    });
     const gesture = photoGesture();
     const done = () => usePhotoUi.getState().setGuides([]);
     startPointerDrag(e, {
@@ -282,7 +287,12 @@ export function CanvasPanel() {
         if (!frame) return;
         const f = frame;
         const z = usePhotoUi.getState().view!.zoom;
-        const r = movedWithSnap(f.t, f.size, (travel.x * devicePixelRatio) / z, (travel.y * devicePixelRatio) / z, ev.shiftKey, snapContext(doc, f.ids, ev));
+        let dx = (travel.x * devicePixelRatio) / z;
+        let dy = (travel.y * devicePixelRatio) / z;
+        // Text and shapes move by whole pixels, as Photoshop's layers do: their drawn raster is then the one already
+        // drawn, placed again, rather than drawn again at every step of the drag.
+        if (drawsOnCanvas) [dx, dy] = [Math.round(dx), Math.round(dy)];
+        const r = movedWithSnap(f.t, f.size, dx, dy, ev.shiftKey, snapContext(doc, f.ids, ev));
         usePhotoUi.getState().setGuides(r.guides);
         gesture.apply((d) => f.place(d, r.t));
       },
@@ -395,6 +405,15 @@ export function CanvasPanel() {
     usePhotoUi.getState().hover(autoSelects(e) ? (layerAt(doc, at.x, at.y)?.id ?? null) : null);
   };
 
+  // A double-click on text with the Move tool edits its words, the caret where it was clicked (Photoshop's).
+  const onDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const doc = usePhoto.getState().history?.doc.doc;
+    if (tool !== "move" || e.button !== 0 || !doc || !usePhotoUi.getState().view) return;
+    const at = docPoint(e.clientX, e.clientY);
+    const hit = layerAt(doc, at.x, at.y);
+    if (hit?.kind === "text") editTextAt(hit, at);
+  };
+
   const pan = (e: ReactPointerEvent<HTMLDivElement>) => {
     const start = usePhotoUi.getState().view!;
     startPointerDrag(e, {
@@ -428,6 +447,7 @@ export function CanvasPanel() {
         )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
+        onDoubleClick={onDoubleClick}
         onPointerLeave={() => {
           usePhotoUi.getState().hover(null);
           useCanvasPointer.getState().set(null);

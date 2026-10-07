@@ -333,13 +333,35 @@ export interface TextFont {
 export type TextAlign = "left" | "center" | "right" | "justify";
 
 /**
+ * The Character panel's settings past the font, size, leading and tracking (Photoshop's, the whole layer's), each
+ * absent at its default: so a text that has none of them is stored, keyed and drawn as before they were.
+ */
+export interface TextCharacter {
+  /** "none": the font's own pair kerning off (Photoshop's 0); absent: on (Metrics). */
+  kerning?: "none";
+  /** Glyphs stretched across and up, 1 = 100% (absent): the advances and the line's ascent scale, the leading doesn't. */
+  horizontalScale?: number;
+  verticalScale?: number;
+  /** Photoshop's Faux Bold (the glyphs' outlines thickened) and Faux Italic (slanted about each baseline). */
+  fauxBold?: true;
+  fauxItalic?: true;
+  /** All Caps (drawn in capitals, the words kept as typed) or Small Caps (the font's, else the browser's). */
+  caps?: "all" | "small";
+  underline?: true;
+  strikethrough?: true;
+}
+
+/** The keys of `TextCharacter`, for code that copies or compares them. */
+export const TEXT_CHARACTER_KEYS = ["kerning", "horizontalScale", "verticalScale", "fauxBold", "fauxItalic", "caps", "underline", "strikethrough"] as const satisfies readonly (keyof TextCharacter)[];
+
+/**
  * A text layer (version 7, Photoshop's type layer: docs/photo/tools/type.md): its words and how they're set, drawn by
  * the browser's text engine in the installed fonts. Point text (`box` null) grows from its origin, the first baseline
  * at the alignment's point; paragraph text wraps in its box, whose top-left is the origin. `size` and `origin` are its
  * frame, measured by the tab (the lines and the glyphs' ink): what the transform places, as an image's pixels. Its mask
  * is in document pixels, as an adjustment's.
  */
-export interface TextLayer extends LayerBase, Filtered {
+export interface TextLayer extends LayerBase, Filtered, TextCharacter {
   kind: "text";
   /** Text isn't cropped (`isCroppable`): its frame is its words'. Declared so a placed layer's crop reads alike. */
   crop?: undefined;

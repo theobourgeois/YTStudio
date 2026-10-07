@@ -94,7 +94,7 @@ export class CanvasImage implements Drawable {
   private write(slot: number, data: Float32Array) {
     const { texture, layer } = this.ctx.atlas.location(slot);
     const tile = this.ctx.tile;
-    const samples: ArrayBufferView<ArrayBuffer> = this.ctx.format === "rgba32float" ? (data as Float32Array<ArrayBuffer>) : Uint16Array.from(data, toHalf);
+    const samples: ArrayBufferView<ArrayBuffer> = this.ctx.format === "rgba32float" ? (data as Float32Array<ArrayBuffer>) : halves(data);
     this.ctx.device.queue.writeTexture({ texture, origin: [0, 0, layer] }, samples, { bytesPerRow: this.ctx.rowBytes }, [tile, tile, 1]);
   }
 
@@ -103,6 +103,21 @@ export class CanvasImage implements Drawable {
     this.image.destroy();
   }
 }
+
+type HalfArrayConstructor = new (from: ArrayLike<number>) => ArrayBufferView<ArrayBuffer>;
+/** The browser's own Float16Array where it has one (it rounds as `toHalf` does, ties to even), many times faster. */
+const NativeHalf = (globalThis as { Float16Array?: HalfArrayConstructor }).Float16Array;
+
+/** Floats as half floats' bits, for an `rgba16float` texture. */
+function halves(data: Float32Array): ArrayBufferView<ArrayBuffer> {
+  if (NativeHalf) return new NativeHalf(data);
+  const out = new Uint16Array(data.length);
+  for (let i = 0; i < data.length; i++) out[i] = toHalf(data[i]);
+  return out;
+}
+
+/** An 8-bit sRGB value in linear light, by table. */
+const LINEAR = Float32Array.from({ length: 256 }, (_, i) => srgbToLinear(i / 255));
 
 function everyFourth(pixels: Uint8ClampedArray, offset: number): Uint8Array {
   const out = new Uint8Array(pixels.length / 4);
@@ -114,7 +129,11 @@ function everyFourth(pixels: Uint8ClampedArray, offset: number): Uint8Array {
 function premultipliedPyramid(pixels: Uint8ClampedArray, width: number, height: number, count: number) {
   const alpha = everyFourth(pixels, 3);
   const coverage = coveragePyramid(alpha, width, height, count);
-  const colours = [0, 1, 2].map((c) => meanPyramid(Float32Array.from({ length: alpha.length }, (_, i) => srgbToLinear(pixels[i * 4 + c] / 255) * (alpha[i] / 255)), width, height, count));
+  const colours = [0, 1, 2].map((c) => {
+    const base = new Float32Array(alpha.length);
+    for (let i = 0; i < base.length; i++) base[i] = (LINEAR[pixels[i * 4 + c]] * alpha[i]) / 255;
+    return meanPyramid(base, width, height, count);
+  });
   return coverage.map((level, i) => (tx: number, ty: number, tile: number) => {
     const out = coverageTile(level, tx, ty, tile, [1, 1, 1]);
     if (!out) return null;

@@ -17,6 +17,7 @@ import {
   resizeTextBox,
   setText,
   textFrame,
+  withCharacter,
 } from "./text.ts";
 import { PHOTO_VERSION, type TextLayer } from "./types.ts";
 
@@ -232,5 +233,49 @@ describe("text in the render plan", () => {
     // Masked: from the document's top-left (where its mask's pixels start) to the region's far corner.
     const masked = canvasRaster(doc, facts, 0, true, hashKey, region)!;
     expect([masked.x, masked.y, masked.width, masked.height]).toEqual([0, 0, 400, 280]);
+  });
+});
+
+describe("character settings", () => {
+  it("are stored only when they differ from the default, and cleared by their default", () => {
+    expect(withCharacter({}, { kerning: "metrics", horizontalScale: 1, fauxBold: false, caps: "none" })).toEqual({});
+    expect(withCharacter({}, { kerning: "none", horizontalScale: 1.5, verticalScale: 50, fauxItalic: true, caps: "small", underline: true })).toEqual({ kerning: "none", horizontalScale: 1.5, verticalScale: 10, fauxItalic: true, caps: "small", underline: true });
+    expect(withCharacter({ underline: true, caps: "all" }, { underline: false, caps: "none" })).toEqual({});
+  });
+
+  it("restyle a layer, which drops what's turned off, and key its raster afresh", () => {
+    const layer = makeTextLayer({ id: "t1", text: "Hello", font, at: { x: 100, y: 200 }, character: { underline: true, fauxBold: true } }, frameText);
+    expect(layer).toMatchObject({ underline: true, fauxBold: true });
+    const doc = addTextLayer(createPhotoProject("t", { width: 400, height: 300 }), layer);
+    const plain = setText(doc, "t1", { underline: false, fauxBold: false }, frameText);
+    const text = plain.layers[0] as TextLayer;
+    expect("underline" in text || "fauxBold" in text).toBe(false);
+    // Turned off already: the same document.
+    expect(setText(plain, "t1", { underline: false }, frameText)).toBe(plain);
+    expect(compileRender(plain, new Map()).nodes[0].key).not.toBe(compileRender(doc, new Map()).nodes[0].key);
+    // A text without them keys as it always did: no character fields in what it draws.
+    expect(Object.keys(canvasContentOf(text)!.content)).toEqual(["kind", "text", "font", "colour", "align", "leading", "tracking", "box", "origin"]);
+  });
+
+  it("widen the frame for a slant, a thickened outline, and an underline below the ink", () => {
+    const base = textFrame(spec({ text: "abc" }), fixed(spec()));
+    const slanted = textFrame(spec({ text: "abc", fauxItalic: true }), fixed(spec()));
+    // The tops lean right by 0.2 of the ink's ascent (2.8 px), the descenders left by 0.2 of its descent (0.4 px),
+    // each rounded out to whole pixels.
+    expect(slanted.size.width).toBe(base.size.width + 4);
+    const bold = textFrame(spec({ text: "abc", fauxBold: true }), fixed(spec()));
+    expect(bold.size.width).toBeGreaterThan(base.size.width);
+    const underlined = textFrame(spec({ text: "abc", underline: true }), fixed(spec()));
+    expect(underlined.size.height).toBeGreaterThanOrEqual(base.size.height);
+  });
+
+  it("are checked when a photo is opened", () => {
+    const layer = makeTextLayer({ id: "t1", text: "Hi", font, at: { x: 10, y: 20 } }, frameText);
+    const doc = { ...createPhotoProject("t"), layers: [{ ...layer, kerning: "optical", horizontalScale: 99, fauxBold: "yes", caps: "small", underline: true }] };
+    const problems: string[] = [];
+    const project = normalizePhotoProject(doc, (p) => problems.push(p));
+    expect(project.layers[0]).toMatchObject({ caps: "small", underline: true });
+    for (const key of ["kerning", "horizontalScale", "fauxBold"]) expect(project.layers[0]).not.toHaveProperty(key);
+    expect(problems.join("\n")).toMatch(/horizontal scale/);
   });
 });

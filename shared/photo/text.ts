@@ -9,10 +9,10 @@
  */
 import type { Size } from "./geometry.ts";
 import { apply, layerMatrix } from "./layers.ts";
-import type { LayerTransform, PhotoProject, TextAlign, TextFont, TextLayer } from "./types.ts";
+import { type LayerTransform, type PhotoProject, TEXT_CHARACTER_KEYS, type TextAlign, type TextCharacter, type TextFont, type TextLayer } from "./types.ts";
 
 /** What lays a text out: the words and their setting (a text layer's, or one being made). */
-export type TextSpec = Pick<TextLayer, "text" | "font" | "align" | "leading" | "tracking" | "box">;
+export type TextSpec = Pick<TextLayer, "text" | "font" | "align" | "leading" | "tracking" | "box"> & TextCharacter;
 
 /** Measures text in one font, letter spacing included (after every character, as CSS and the canvas add it). */
 export interface TextMeasurer {
@@ -57,6 +57,75 @@ export const AUTO_LEADING = 1.2;
 export const MIN_FONT_SIZE = 1;
 export const MAX_FONT_SIZE = 5000;
 export const MAX_TEXT_LENGTH = 100_000;
+
+/** Horizontal and vertical scale's range (Photoshop's 0% to 1000%, less the 0 that draws nothing). */
+export const MIN_TEXT_SCALE = 0.01;
+export const MAX_TEXT_SCALE = 10;
+/** Faux Italic's slant (x moved per y, about the baseline: about 11°). */
+export const FAUX_ITALIC_SLANT = 0.2;
+/** Faux Bold's outline, in ems: drawn on the glyphs' edge, so half of it thickens each side. */
+export const FAUX_BOLD_WIDTH = 0.035;
+
+/** A change of character settings (`TextCharacter`): each a value, or its default to clear it. */
+export interface CharacterPatch {
+  kerning?: "metrics" | "none";
+  horizontalScale?: number;
+  verticalScale?: number;
+  fauxBold?: boolean;
+  fauxItalic?: boolean;
+  caps?: "none" | "all" | "small";
+  underline?: boolean;
+  strikethrough?: boolean;
+}
+
+const clampScale = (v: number) => Math.max(MIN_TEXT_SCALE, Math.min(MAX_TEXT_SCALE, v));
+
+/** Character settings with `patch` applied, as they're stored: each at its default left out. */
+export function withCharacter(base: TextCharacter, patch: CharacterPatch = {}): TextCharacter {
+  const pick = <K extends keyof CharacterPatch>(k: K) => (patch[k] !== undefined ? patch[k] : base[k]);
+  const out: TextCharacter = {};
+  if (pick("kerning") === "none") out.kerning = "none";
+  const h = pick("horizontalScale");
+  if (typeof h === "number" && Number.isFinite(h) && h !== 1) out.horizontalScale = clampScale(h);
+  const v = pick("verticalScale");
+  if (typeof v === "number" && Number.isFinite(v) && v !== 1) out.verticalScale = clampScale(v);
+  if (pick("fauxBold") === true) out.fauxBold = true;
+  if (pick("fauxItalic") === true) out.fauxItalic = true;
+  const caps = pick("caps");
+  if (caps === "all" || caps === "small") out.caps = caps;
+  if (pick("underline") === true) out.underline = true;
+  if (pick("strikethrough") === true) out.strikethrough = true;
+  return out;
+}
+
+/** A text's character settings alone (what's set of them). */
+export const characterOf = (spec: TextCharacter): TextCharacter => withCharacter(spec);
+
+/** A text layer without its character settings (to set them afresh). */
+function withoutCharacter<T extends TextCharacter>(l: T): T {
+  const out = { ...l };
+  for (const k of TEXT_CHARACTER_KEYS) delete out[k];
+  return out;
+}
+
+/** A text's glyphs' scale: across and up. */
+export const textScale = (spec: TextCharacter) => ({ x: spec.horizontalScale ?? 1, y: spec.verticalScale ?? 1 });
+
+/** The words as they're drawn: in capitals with All Caps (the words themselves are kept as typed). */
+export const shownText = (spec: TextCharacter, text: string) => (spec.caps === "all" ? text.toUpperCase() : text);
+
+/** Underline's and strike-through's lines: each one's centre below (+) or above (−) the baseline, and thickness. */
+export function decorations(spec: Pick<TextSpec, "font"> & TextCharacter): { offset: number; thickness: number }[] {
+  const em = spec.font.size * textScale(spec).y;
+  const thickness = Math.max(1, 0.05 * em);
+  const out: { offset: number; thickness: number }[] = [];
+  if (spec.underline) out.push({ offset: 0.1 * em + thickness / 2, thickness });
+  if (spec.strikethrough) out.push({ offset: -0.28 * em, thickness });
+  return out;
+}
+
+/** A line's advance with its justified spaces widened. */
+export const lineAdvance = (line: TextLine) => line.width + line.gap * (line.text.split(" ").length - 1);
 
 /** Pixels between baselines: the leading, or Auto's 120% of the size. */
 export const leadingOf = (spec: Pick<TextSpec, "leading" | "font">) => spec.leading ?? AUTO_LEADING * spec.font.size;
@@ -160,12 +229,18 @@ export function textFrame(spec: TextSpec, m: TextMeasurer, layout = layoutText(s
     x1 = Math.max(x1, bx);
     y1 = Math.max(y1, by);
   };
+  const slant = spec.fauxItalic ? FAUX_ITALIC_SLANT : 0;
+  const bold = spec.fauxBold ? (FAUX_BOLD_WIDTH * spec.font.size * Math.max(textScale(spec).x, textScale(spec).y)) / 2 : 0;
+  const lines = decorations(spec);
   for (const line of layout.lines) {
+    const advance = lineAdvance(line);
     // A caret's width at least, so an empty line has somewhere to be.
-    add(line.x, line.baseline - m.ascent, line.x + Math.max(1, line.width + line.gap * (line.text.split(" ").length - 1)), line.baseline + m.descent);
+    add(line.x, line.baseline - m.ascent, line.x + Math.max(1, advance), line.baseline + m.descent);
     if (line.text.trim()) {
       const ink = m.ink(line.text);
-      add(line.x - ink.left, line.baseline - ink.ascent, line.x + ink.right, line.baseline + ink.descent);
+      // Slanted about the baseline: the tops lean right, the descenders left.
+      add(line.x - ink.left - slant * ink.descent - bold, line.baseline - ink.ascent - bold, line.x + ink.right + slant * ink.ascent + bold, line.baseline + ink.descent + bold);
+      for (const d of lines) add(line.x, line.baseline + d.offset - d.thickness / 2, line.x + advance, line.baseline + d.offset + d.thickness / 2);
     }
   }
   if (spec.box) add(0, 0, spec.box.width, spec.box.height);
@@ -224,6 +299,7 @@ export function placeOrigin(t: Pick<LayerTransform, "scaleX" | "scaleY" | "rotat
 
 export interface NewTextLayer {
   id: string;
+  character?: CharacterPatch;
   text?: string;
   font?: TextFont;
   colour?: string;
@@ -247,6 +323,7 @@ export function makeTextLayer(layer: NewTextLayer, frameOf: FrameText): TextLaye
     leading: layer.leading ?? null,
     tracking: layer.tracking ?? 0,
     box: layer.box ? { width: Math.max(1, layer.box.width), height: Math.max(1, layer.box.height) } : null,
+    ...withCharacter({}, layer.character),
   };
   const frame = frameOf(spec);
   return {
@@ -273,7 +350,7 @@ export function addTextLayer(doc: PhotoProject, layer: TextLayer, above?: string
 }
 
 /** What `setText` may change. */
-export type TextPatch = Partial<Pick<TextLayer, "text" | "colour" | "align" | "leading" | "tracking" | "box">> & { font?: Partial<TextFont> };
+export type TextPatch = Partial<Pick<TextLayer, "text" | "colour" | "align" | "leading" | "tracking" | "box">> & { font?: Partial<TextFont> } & CharacterPatch;
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -306,6 +383,7 @@ function patchText(l: TextLayer, patch: TextPatch, frameOf: FrameText, at?: { x:
     leading: patch.leading !== undefined ? patch.leading : l.leading,
     tracking: patch.tracking ?? l.tracking,
     box: patch.box !== undefined ? (patch.box ? { width: Math.max(1, patch.box.width), height: Math.max(1, patch.box.height) } : null) : l.box,
+    ...withCharacter(l, patch),
   };
   if (spec.font.size !== l.font.size) spec.font = { ...spec.font, size: Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, spec.font.size)) };
   if (spec.font.stretch === "normal" || spec.font.stretch === undefined) {
@@ -313,7 +391,7 @@ function patchText(l: TextLayer, patch: TextPatch, frameOf: FrameText, at?: { x:
     spec.font = rest;
   }
   const colour = patch.colour && isColour(patch.colour) ? patch.colour.toLowerCase() : l.colour;
-  const same = spec.text === l.text && sameJson(spec.font, l.font) && spec.align === l.align && spec.leading === l.leading && spec.tracking === l.tracking && sameJson(spec.box, l.box);
+  const same = spec.text === l.text && sameJson(spec.font, l.font) && spec.align === l.align && spec.leading === l.leading && spec.tracking === l.tracking && sameJson(spec.box, l.box) && sameJson(characterOf(spec), characterOf(l));
   if (same && colour === l.colour && !at) return l;
   const name = l.name === nameFromText(l.text) ? nameFromText(spec.text) : l.name;
   if (same && !at) return { ...l, colour, name };
@@ -326,7 +404,7 @@ function patchText(l: TextLayer, patch: TextPatch, frameOf: FrameText, at?: { x:
     anchor = apply(layerMatrix(t, frame.size), frame.origin.x, frame.origin.y - (frame.firstBaseline ?? 0));
   }
   const { firstBaseline: _, ...kept } = frame;
-  return { ...l, ...spec, colour, name, size: kept.size, origin: kept.origin, transform: placeOrigin(l.transform, frame, anchor) };
+  return { ...withoutCharacter(l), ...spec, colour, name, size: kept.size, origin: kept.origin, transform: placeOrigin(l.transform, frame, anchor) };
 }
 
 /**
@@ -373,7 +451,25 @@ export function normalizeTextFields(l: Record<string, unknown>, id: string, repo
   const o = (l.origin && typeof l.origin === "object" ? l.origin : {}) as Record<string, unknown>;
   const size = sizeOf(l.size, "frame") ?? { width: box?.width ?? font.size, height: box?.height ?? font.size * AUTO_LEADING };
   if (typeof l.text !== "string") report(`Layer ${id}: its words aren't text; left empty.`);
+  const scale = (v: unknown, what: string) => (v === undefined ? undefined : num(v, MIN_TEXT_SCALE, MAX_TEXT_SCALE, 1, what));
+  const flag = (v: unknown, what: string) => {
+    if (v !== undefined && typeof v !== "boolean") report(`Layer ${id}: its ${what} isn't on or off; off instead.`);
+    return v === true;
+  };
+  if (l.caps !== undefined && l.caps !== "all" && l.caps !== "small") report(`Layer ${id}: its caps aren't "all" or "small"; left as typed.`);
+  if (l.kerning !== undefined && l.kerning !== "none") report(`Layer ${id}: its kerning isn't "none"; the font's own instead.`);
+  const character = withCharacter({}, {
+    kerning: l.kerning === "none" ? "none" : "metrics",
+    horizontalScale: scale(l.horizontalScale, "horizontal scale"),
+    verticalScale: scale(l.verticalScale, "vertical scale"),
+    fauxBold: flag(l.fauxBold, "faux bold"),
+    fauxItalic: flag(l.fauxItalic, "faux italic"),
+    caps: l.caps === "all" || l.caps === "small" ? l.caps : "none",
+    underline: flag(l.underline, "underline"),
+    strikethrough: flag(l.strikethrough, "strike-through"),
+  });
   return {
+    ...character,
     text: typeof l.text === "string" ? l.text.slice(0, MAX_TEXT_LENGTH) : "",
     font,
     colour: isColour(l.colour) ? l.colour.toLowerCase() : "#000000",
