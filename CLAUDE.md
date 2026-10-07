@@ -79,6 +79,13 @@ Openverse's photos, or reads a pasted link, and places a result as a layer: the 
 (`server/photo/online.ts`; Iconify limits requests, so icons' shapes are fetched a set at a time and kept, never one
 by one), the helper's `prepare` makes anything that isn't PNG, JPEG or WebP a PNG; e2e sets
 `EDITOR_ONLINE_ASSETS=stand-in` (`online-stand-in.ts`).
+The **Photoshop tools** past the selection tools and the brush (docs/photo/tools/: Crop, Type, the shapes, Gradient,
+Paint Bucket, Dodge/Burn/Sponge, Background and Magic Eraser) are each a `ToolKit` (`src/suites/photo/toolbox/`: its
+options, its press on the canvas, its overlay), registered in `toolbox/index.ts` and placed in the strip by
+`tool-groups.ts` (Photoshop's groups and keys). Text and shape layers are drawn by the browser's 2D canvas through one
+seam (`shared/photo/canvas-content.ts` → a `CanvasNode`, `render/canvas-content.ts`): a new kind of drawn layer is a
+case there. Only image and pixel layers crop (`isCroppable`). A placed image is never rasterised by these tools: the
+Magic Eraser erases through its mask; the others ask (the paint-choice dialog).
 
 The **visualizer** (audio-reactive video, inside the video editor; **Make visualizer** from the music suite) is
 planned in [`docs/visualizer/README.md`](docs/visualizer/README.md): signals, links, audio shaders, Perform, its
