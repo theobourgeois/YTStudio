@@ -297,7 +297,7 @@ test("Warp: a Warp Style from the options bar, drawn point for point as the patc
   const upright = await renderRegion(page, { zoom: 1, x: 400, y: 300, width: 800, height: 600 });
 
   // Edit › Transform › Warp, then Arc from the Warp Style menu; Enter commits.
-  await page.locator("[data-edit-menu]").click();
+  await page.locator('[data-menu="edit"]').click();
   await page.locator("[data-transform-menu]").click();
   await page.locator('[data-transform-mode-item="warp"]').click();
   await expect(page.locator('[data-tool-options="move"]')).toHaveAttribute("data-free-transform", "warp");
