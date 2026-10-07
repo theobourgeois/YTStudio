@@ -3,7 +3,6 @@
  * layer's words edits it (Shift: new text even there), a press outside the text being typed commits it. The typing
  * itself is `type/editor.tsx`, the session `type/session.ts`, the options bar `type/options-bar.tsx`.
  */
-import { useEffect } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { apply, contains, invert, layerMatrix } from "@shared/photo/layers";
 import { caretAt } from "@shared/photo/text";
@@ -74,8 +73,6 @@ function press(e: ReactPointerEvent<HTMLDivElement>, docPoint: DocPointOf) {
 function Overlay({ docPoint }: { docPoint: DocPointOf }) {
   const draft = useTypeSession((s) => s.draft);
   const view = usePhotoUi((s) => s.view);
-  // Leaving the tool (its overlay goes) keeps what was typed.
-  useEffect(() => () => commitText(), []);
   const dpr = devicePixelRatio;
   return (
     <>

@@ -49,7 +49,10 @@ smaller and bigger again never loses quality. Coordinates are canvas pixels from
 position is its centre, its scale a factor of its own size (1 = 100%), its rotation degrees clockwise. An \
 adjustment layer (Exposure, Curves) changes everything below it without changing any image: hide it, fade it with \
 its opacity, or change its settings at any time. A pixel layer holds what the user paints. A generator layer \
-makes its own content (a Lens Flare). Any layer can have a mask: black hides the layer, white reveals it (on an \
+makes its own content (a Lens Flare). A text layer holds words in an installed font, editable: add_text_layer adds \
+point text (its first baseline at x, y) or paragraph text (wrapped in a box), set_text changes its words or how \
+they're set (font, style, size, colour, align, leading, tracking), layer styles (a stroke, a drop shadow) suit it, \
+and rasterize_type makes it pixels. Any layer can have a mask: black hides the layer, white reveals it (on an \
 adjustment, where it applies). The selection (marching ants) \
 limits the user's brush and can become a mask.
 

@@ -93,16 +93,19 @@ measured them. Where it joins the renderer was the main choice:
   publication gate, uploads) and stale the moment the font or the words change.
 - **Rejected: the words drawn in the layer's own pixels and resampled through its transform**, as an image is.
   Scaled up with the Move tool they'd blur, which type never does in Photoshop.
-- **Chosen: the words drawn in document pixels through the layer's whole transform** (`render/text.ts`). The plan
-  (`compileRender`) turns a text layer into a `TextNode`: a draw node like a pixel layer's, whose pixels are a
-  `TextRaster` (the words, their setting, their matrix into document pixels, an integer box on the canvas grid). The
-  renderer keeps a `TextImage` per raster (by its key): the coverage drawn once in white on a transparent canvas,
-  then made premultiplied linear light in the layer's colour (exactly its colour: coverage only scales it), with its
-  pyramid's levels reduced on the CPU, in pinned atlas slots (nothing to fetch, so always resident). The node's
-  matrix is a whole-pixel translation, so the layer pass reads it texel for texel. Everything else is the layer
-  pass's: opacity, Fill, blend modes and Blend If, the mask (its frame is the canvas when the layer has a mask, so the
-  mask's pixels and the raster's are the same), layer styles (their fields are made from the raster's pixels, the
-  layer's box for Align with Layer), filters (the raster is the content they run on), and Rasterize Type.
+- **Chosen: the words drawn in document pixels through the layer's whole transform**, by a seam any content the 2D
+  canvas draws can use (vector shapes next): `shared/photo/canvas-content.ts` says what of a layer is drawn
+  (`canvasContentOf`: a `CanvasContent`, its transform, its frame and how far its ink may pass it) and where
+  (`canvasRaster`: a `CanvasRaster`, the content, its matrix into the raster and an integer box on the canvas grid,
+  keyed). The plan (`compileRender`) turns such a layer into a `CanvasNode`, a draw node like a pixel layer's. The
+  renderer keeps a `CanvasImage` per raster key (`render/canvas-content.ts`; `drawCanvasContent` draws each kind, a
+  text by `render/text-draw.ts`): text's coverage is drawn once in white on a transparent canvas, then made
+  premultiplied linear light in the layer's colour (exactly its colour: coverage only scales it), its pyramid's
+  levels reduced on the CPU (`text-pyramid.ts`), in pinned atlas slots (nothing to fetch, so always resident). The
+  node's matrix is a whole-pixel translation, so the layer pass reads it texel for texel. Everything else is the
+  layer pass's: opacity, Fill, blend modes and Blend If, the mask (its frame is the canvas when the layer has a mask,
+  so the mask's pixels and the raster's are the same), layer styles (their fields are made from the raster's pixels,
+  the layer's box for Align with Layer), filters (the raster is the content they run on), and Rasterize Type.
 
 So the view, exports, Home's cover, the Layers thumbnails and the assistant's pictures all draw it through the same
 evaluator, at the document's resolution, as Photoshop rasterises type. Moving, scaling or rotating the layer draws it

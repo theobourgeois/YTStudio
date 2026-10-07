@@ -1383,6 +1383,9 @@ export class PhotoRenderer {
     delete plain.blend;
     delete plain.fill;
     delete plain.blending;
+    // A text is drawn only near its canvas: it's moved onto this one (its box's top-left at 0, 0), and so are the regions.
+    const shift = plain.kind === "text" ? { x: x0, y: y0 } : { x: 0, y: 0 };
+    if (plain.kind === "text") plain.transform = { ...plain.transform, x: plain.transform.x - x0, y: plain.transform.y - y0 };
     const alone: PhotoProject = { ...doc, compositing: "linear", canvas: { width, height, background: null }, layers: [plain] };
     const plan = await this.settledPlan(alone, false);
     await this.glows.ensure(plan);
@@ -1396,9 +1399,9 @@ export class PhotoRenderer {
     try {
       for (let ty = 0; ty < tilesY; ty++) {
         for (let tx = 0; tx < tilesX; tx++) {
-          const region: View = { zoom: 1, x: x0 + tx * tile, y: y0 + ty * tile, width: tile, height: tile };
+          const region: View = { zoom: 1, x: x0 - shift.x + tx * tile, y: y0 - shift.y + ty * tile, width: tile, height: tile };
           // What the selection covers of this tile's document pixels: none, and the tile is left out.
-          const cover = selection ? coverageIn(selection, { x: region.x, y: region.y, width: tile, height: tile }) : null;
+          const cover = selection ? coverageIn(selection, { x: region.x + shift.x, y: region.y + shift.y, width: tile, height: tile }) : null;
           if (cover && !cover.some((v) => v > 0)) continue;
           const readback = await this.whenResident(plan, region, () => {
             const readback = device.createBuffer({ size: tile * tile * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
