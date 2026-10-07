@@ -1,11 +1,12 @@
 /**
  * The canvas's right-click menu with a selection tool, or whenever there's a selection (Photoshop's): what's done
- * to and with the selection (Deselect, Select Inverse, Feather, Select Subject; Layer via Copy and Cut; Fill and
- * Clear; a mask from it), and with none, Select All and Select Subject.
+ * to and with the selection (Deselect, Select Inverse, Feather, Select Subject; Layer via Copy and Cut; Content-Aware
+ * Fill, Fill and Clear; a mask from it), and with none, Select All and Select Subject.
  */
 import type { ReactNode } from "react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { useColours } from "../colours";
+import { runContentAwareFill } from "../content-aware-fill";
 import { actingLayerId, editActions } from "../edit-actions";
 import { layerActions } from "../layer-actions";
 import { keys, runSelectSubject, useFeather } from "../select-commands";
@@ -61,6 +62,9 @@ function SelectionMenuItems() {
         Mask from Selection
       </ContextMenuItem>
       <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => void runContentAwareFill()} data-content-aware-fill>
+        Content-Aware Fill <ContextMenuShortcut>{keys("⇧⌫", "Shift+Del")}</ContextMenuShortcut>
+      </ContextMenuItem>
       <ContextMenuItem onSelect={() => void editActions.fill(useColours.getState().foreground)}>
         Fill with Foreground <ContextMenuShortcut>{keys("⌥⌫", "Alt+Del")}</ContextMenuShortcut>
       </ContextMenuItem>

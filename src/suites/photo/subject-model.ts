@@ -1,55 +1,31 @@
 /**
- * Select Subject in the tab (docs/photo/selections.md): the model (IS-Net, served by the server once it's downloaded)
- * run by ONNX Runtime Web on the GPU (`scene-models.ts`), loaded on first use and kept. The
- * download is the user's to start (88 MB, once per computer): `useSubjectModel` says where it is, and the workspace
- * asks before it starts. The tests' server answers with a stand-in instead (`standIn`): nothing is downloaded or run.
+ * Select Subject in the tab (docs/photo/selections.md): the model (IS-Net) run as every photo model is (`models.ts`:
+ * downloaded once per computer when the user says yes, run by ONNX Runtime Web on the GPU). The tests' server answers
+ * with a stand-in instead (`standIn`): nothing is downloaded or run.
  */
 import { create } from "zustand";
 import { sampleScale } from "@shared/photo/pixel-sample";
-import { SUBJECT_SIDE, type SubjectModelStatus, cropSample, standInProbabilities, subjectInput, subjectSelection } from "@shared/photo/subject";
+import { SUBJECT_MODEL, SUBJECT_SIDE, cropSample, standInProbabilities, subjectInput, subjectSelection } from "@shared/photo/subject";
 import type { PhotoSelection, SelectionMode } from "@shared/photo/types";
-import { modelApi, subjectProbabilities } from "./scene-models";
+import { readyModel, runModel } from "./models";
 import { applySelection, photoSample, sampledLayer, useSelectOptions } from "./selecting";
 import { currentDoc, currentSelection } from "./store";
 
-interface SubjectModelState {
-  status: SubjectModelStatus | null;
-  /** The question before the download is open (with what to do once it's here). */
-  asking: boolean;
-  /** A selection waiting for the model, made once it's here. */
-  pending: SelectionMode | null;
-  /** Select Subject is running. */
-  running: boolean;
-}
+/** Select Subject is running. */
+export const useSubjectModel = create<{ running: boolean }>(() => ({ running: false }));
 
-export const useSubjectModel = create<SubjectModelState>(() => ({ status: null, asking: false, pending: null, running: false }));
-
-export const subjectApi = {
-  status: () => modelApi.status("subject"),
-  setUp: () => modelApi.setUp("subject"),
-};
-
-export class SubjectModelMissing extends Error {
-  constructor(readonly status: SubjectModelStatus) {
-    super(
-      status.status === "downloading"
-        ? `Select Subject's model is downloading (${Math.round((status.progress ?? 0) * 100)}%): try again when it's done.`
-        : `Select Subject needs its model (${Math.round(status.size / 1e6)} MB, downloaded once). The user downloads it by choosing Select › Subject in the editor.`,
-    );
-  }
-}
+/** Runs the model on its input: a probability a pixel, 1024 × 1024. */
+const probabilities = (input: Float32Array) => runModel("subject", { [SUBJECT_MODEL.input]: { data: input, dims: [1, 3, SUBJECT_SIDE, SUBJECT_SIDE] } }, SUBJECT_MODEL.output);
 
 /**
  * Select › Subject: the model finds the photo's subject, which meets the selection there by `mode`. Throws
- * `SubjectModelMissing` while the model isn't here. `layer` looks at that layer alone (the Online panel's Remove
+ * `ModelMissing` while the model isn't here. `layer` looks at that layer alone (the Online panel's Remove
  * background), else what Sample All Layers says; `box` (document pixels) at that part of the photo alone.
  */
 export async function selectSubject(mode: SelectionMode, layer?: string, box?: { x: number; y: number; width: number; height: number }): Promise<PhotoSelection | null> {
   const doc = currentDoc();
   if (!doc) return null;
-  const status = await subjectApi.status();
-  useSubjectModel.setState({ status });
-  if (status.status !== "ready") throw new SubjectModelMissing(status);
+  const status = await readyModel("subject");
   useSubjectModel.setState({ running: true });
   try {
     const layerId = layer ?? sampledLayer(doc, useSelectOptions.getState().sampleAll);
@@ -59,23 +35,12 @@ export async function selectSubject(mode: SelectionMode, layer?: string, box?: {
     const part = box ? cropSample(sample, box) : null;
     if (box && !part) return currentSelection();
     const seen = part?.crop ?? sample;
-    const probs = status.standIn ? standInProbabilities(seen) : await subjectProbabilities(subjectInput(seen));
+    const probs = status.standIn ? standInProbabilities(seen) : await probabilities(subjectInput(seen));
     const shape = subjectSelection(probs, SUBJECT_SIDE, sample, doc.canvas, part?.at);
     if (currentDoc() !== doc) return currentSelection();
     applySelection(shape, mode);
     return currentSelection();
   } finally {
     useSubjectModel.setState({ running: false });
-  }
-}
-
-/** Starts the model's download (the user said yes) and follows it; what was pending runs once it's here. */
-export async function downloadSubjectModel() {
-  useSubjectModel.setState({ asking: false, status: await subjectApi.setUp() });
-  for (;;) {
-    const status = await subjectApi.status();
-    useSubjectModel.setState({ status });
-    if (status.status !== "downloading") return status;
-    await new Promise((r) => setTimeout(r, 500));
   }
 }

@@ -1,7 +1,7 @@
 /**
- * The photo suite's models (Select Subject's, docs/photo/selections.md; the depth model, docs/photo/effects/scene-maps.md):
- * each an ONNX file downloaded once per computer into `MODELS_DIR` (as the speech model is), its size and checksum
- * checked before it's used, and served to the tab, which runs it. Nothing is downloaded until the user asks (`setUp`).
+ * A photo model (Select Subject's, Content-Aware Fill's: shared/photo/models.ts): an ONNX file downloaded once per
+ * computer into `MODELS_DIR` (as the speech model is), its size and checksum checked before it's used, and served to
+ * the tab, which runs it. Nothing is downloaded until the user asks (`setUp`).
  */
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
@@ -9,27 +9,18 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import type { SubjectModelStatus } from "../../shared/photo/subject.ts";
+import { PHOTO_MODELS, type PhotoModelFile, type PhotoModelName, type PhotoModelStatus } from "../../shared/photo/models.ts";
 import { errorMessage } from "../../shared/errors.ts";
 
-/** A model file: where it comes from, its size and checksum. */
-export interface ModelSpec {
-  name: string;
-  file: string;
-  url: string;
-  size: number;
-  sha256: string;
-}
-
-export class ModelFile {
+export class PhotoModel {
   private downloading: { progress: number } | null = null;
   private error: string | null = null;
 
   constructor(
     private readonly modelsDir: string,
-    private readonly model: ModelSpec,
     /** The tests' stand-in: the tab answers without a model, and nothing is downloaded. */
     private readonly standIn = false,
+    private readonly model: PhotoModelFile,
   ) {}
 
   get path() {
@@ -41,7 +32,7 @@ export class ModelFile {
     return stat?.size === this.model.size;
   }
 
-  async status(): Promise<SubjectModelStatus> {
+  async status(): Promise<PhotoModelStatus> {
     const base = { size: this.model.size, standIn: this.standIn, error: this.error };
     if (this.standIn) return { ...base, status: "ready", progress: null };
     if (this.downloading) return { ...base, status: "downloading", progress: this.downloading.progress };
@@ -93,3 +84,10 @@ export class ModelFile {
     }
   }
 }
+
+/** Every photo model, by name (`/api/photo/models/<name>`). `standIn`: the tests', which download nothing. */
+export const photoModels = (modelsDir: string, standIn: boolean): Record<PhotoModelName, PhotoModel> => ({
+  subject: new PhotoModel(modelsDir, standIn, PHOTO_MODELS.subject),
+  fill: new PhotoModel(modelsDir, standIn, PHOTO_MODELS.fill),
+  depth: new PhotoModel(modelsDir, standIn, PHOTO_MODELS.depth),
+});

@@ -62,6 +62,8 @@ export type PhotoKeyAction =
   | { type: "layerViaCut" }
   /** ⌥⌫ / ⌘⌫: fill the selection with the foreground / background colour. */
   | { type: "fill"; colour: "foreground" | "background" }
+  /** ⇧⌫: Content-Aware Fill, the selection filled from what's around it (Photoshop's Fill opens on Content-Aware). */
+  | { type: "contentAwareFill" }
   /** ⇧⌥ + a letter: the selected layers' blend mode (Photoshop's letters: M Multiply, S Screen, O Overlay…). */
   | { type: "blendMode"; mode: BlendMode }
   /** ⇧+ / ⇧−: the next or previous blend mode in the menu. */
@@ -91,6 +93,7 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
   const erasing = key === "Backspace" || key === "Delete";
   if (erasing && e.altKey && !mod && !e.shiftKey) return { type: "fill", colour: "foreground" };
   if (erasing && mod && !e.altKey && !e.shiftKey) return { type: "fill", colour: "background" };
+  if (erasing && e.shiftKey && !mod && !e.altKey && !e.ctrlKey && !e.metaKey) return { type: "contentAwareFill" };
   // Photoshop's Layers keys with ⌥ and no ⌘: through the stack.
   if (e.altKey && !mod && !(mac ? e.ctrlKey : e.metaKey)) {
     if (is("]", "BracketRight")) return { type: "step", direction: 1, add: e.shiftKey };

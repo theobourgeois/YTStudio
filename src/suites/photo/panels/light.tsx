@@ -21,7 +21,7 @@ import { layerActions } from "../layer-actions";
 import { usePhoto } from "../store";
 import { usePhotoUi } from "../ui";
 import { ParamField } from "./params";
-import { SceneModelNote } from "../scene-model-dialog";
+import { SceneModelNote } from "../scene-model-note";
 
 /** Each element type's icon. */
 const ELEMENT_ICONS: Record<string, typeof PiSun> = { glow: PiSun, halo: PiCircle, ghost: PiHexagon, streak: PiLineSegment };

@@ -28,7 +28,7 @@ subject map 200 pixels wide while reading the picture only at the point.
 Like Camera Raw's analysis ([camera-raw.md](../camera-raw.md), CR2), and with the same input: a filter's picture is its
 layer's content with the filters before it (`analysisInput`). The renderer's `SceneMapStore`
 (`src/suites/photo/render/scene-maps.ts`) renders it coarsely on the grid, reads it back, and runs the models in the
-tab (`src/suites/photo/scene-models.ts`, ONNX Runtime Web on WebGPU, as Select Subject does):
+tab (`src/suites/photo/models.ts`, ONNX Runtime Web on WebGPU, as every photo model is):
 
 - **Depth**: the picture at its shape, short side 518, sides multiples of 14 (`depthInputSize`), normalised as
   ImageNet; the answer (inverse depth) read at the grid's cells, its 2nd to 98th percentile of what the picture
@@ -45,13 +45,14 @@ The screen builds what's missing in the background and draws again; exports, pic
 
 ## The models
 
-Downloaded only when the user says yes, once per computer, into `MODELS_DIR` (`server/photo/models.ts`'s
-`ModelFile`, checked by size and SHA-256; `/api/photo/models/{subject,depth}`, `/setup`, `/file`). A filter that needs a
-model that isn't here is left out; the renderer says which (`onMissing`, once until `retry`) and the workspace asks
-(`scene-model-dialog.tsx`); Properties and the Filter Gallery's settings say so beside the filter, with a Download
-button. e2e sets `EDITOR_SUBJECT_MODEL=stand-in` and `EDITOR_DEPTH_MODEL=stand-in`: the stand-ins answer at once
-(`standInProbabilities`, `standInDepth`: nearer lower down and on the stand-in's subject). `photo-sheet.ts` uses them
-too unless `--models` says to use the real ones (thumbnails do).
+The depth model is one of the photo models (`PHOTO_MODELS.depth`, `shared/photo/models.ts`), as Select Subject's and
+Content-Aware Fill's are: downloaded only when the user says yes, once per computer, into `MODELS_DIR`, checked by size
+and SHA-256 (`/api/photo/models/depth`). A filter that needs a model that isn't here is left out; the renderer says
+which (`SceneMapStore.onMissing`, once until `retry`) and the workspace asks (`ModelDialog`, then the maps are built);
+Properties and the Filter Gallery's settings say so beside the filter, with a Download button (`scene-model-note.tsx`).
+e2e sets `EDITOR_PHOTO_MODELS=stand-in`: the stand-ins answer at once (`standInProbabilities`, `standInDepth`: nearer
+lower down and on the stand-in's subject). `photo-sheet.ts` uses them too unless `--models` says to use the real ones
+(thumbnails do).
 
 ## Apply To
 

@@ -32,7 +32,7 @@ import { type FilterPreview, startingPreview } from "./filter-preview";
 import { layerActions } from "./layer-actions";
 import { cameraRawActions } from "./camera-raw/actions";
 import { ParamField } from "./panels/params";
-import { SceneModelNote } from "./scene-model-dialog";
+import { SceneModelNote } from "./scene-model-note";
 import { currentDoc, usePhotoDoc } from "./store";
 import { usePhotoUi } from "./ui";
 

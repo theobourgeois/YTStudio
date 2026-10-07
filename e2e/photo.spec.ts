@@ -2570,7 +2570,7 @@ test("depth and subject filters read the photo's scene maps (the models' stand-i
   await expect.poll(screenNow, { timeout: 20_000 }).not.toBe(plain);
   const everywhere = await settled();
   // No download asked for: the stand-ins are ready.
-  await expect(page.locator("[data-scene-model-download]")).toHaveCount(0);
+  await expect(page.locator("[data-model-download]")).toHaveCount(0);
   await expect(page.locator("[data-scene-model-note]")).toHaveCount(0);
 
   // Apply To › Background: the subject keeps its own colours (the subject map is made too).

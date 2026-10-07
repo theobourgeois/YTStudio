@@ -1,7 +1,6 @@
 /**
  * The Select menu's commands where the user meets them (docs/photo/selections.md): the header's Select menu, the
- * canvas's right-click menu, Select Subject's question before its model is downloaded, and Feather's radius. What
- * they do is `selecting.ts`'s and `subject-model.ts`'s.
+ * canvas's right-click menu, and Feather's radius. What they do is `selecting.ts`'s and `subject-model.ts`'s.
  */
 import { useState } from "react";
 import { toast } from "sonner";
@@ -23,7 +22,8 @@ import { Input } from "@/components/ui/input";
 import { create } from "zustand";
 import { selectActions } from "./selecting";
 import { useSelection } from "./store";
-import { SubjectModelMissing, downloadSubjectModel, selectSubject, useSubjectModel } from "./subject-model";
+import { ModelMissing, askForModel } from "./models";
+import { selectSubject, useSubjectModel } from "./subject-model";
 
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 /** A shortcut as this platform writes it (⌘ on a Mac, Ctrl elsewhere). */
@@ -45,11 +45,7 @@ export async function runSelectSubject(mode: SelectionMode = "new") {
     if (!s) toast("No subject was found.");
   } catch (error) {
     toast.dismiss(working);
-    if (error instanceof SubjectModelMissing) {
-      if (error.status.status === "downloading") toast(error.message);
-      else useSubjectModel.setState({ asking: true, pending: mode });
-      return;
-    }
+    if (error instanceof ModelMissing) return askForModel(error, () => void runSelectSubject(mode));
     toast.error("Select Subject didn't work", { description: errorMessage(error) });
   }
 }
@@ -123,53 +119,6 @@ export function FeatherDialog() {
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <Button disabled={!valid} onClick={apply}>
             OK
-          </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
-/** The question before Select Subject's model is downloaded (once per computer), and its progress after. */
-export function SubjectModelDialog() {
-  const asking = useSubjectModel((s) => s.asking);
-  const size = useSubjectModel((s) => s.status?.size ?? 0);
-  const error = useSubjectModel((s) => s.status?.error ?? null);
-  const close = () => useSubjectModel.setState({ asking: false, pending: null });
-  const download = async () => {
-    const pending = useSubjectModel.getState().pending;
-    const progress = toast.loading("Downloading the subject model…");
-    const stop = useSubjectModel.subscribe((s) => {
-      if (s.status?.status === "downloading") toast.loading(`Downloading the subject model… ${Math.round((s.status.progress ?? 0) * 100)}%`, { id: progress });
-    });
-    try {
-      const status = await downloadSubjectModel();
-      toast.dismiss(progress);
-      if (status.status !== "ready") return void toast.error("The subject model didn't download", { description: status.error ?? undefined });
-      if (pending) await runSelectSubject(pending);
-    } catch (e) {
-      toast.dismiss(progress);
-      toast.error("The subject model didn't download", { description: errorMessage(e) });
-    } finally {
-      stop();
-      useSubjectModel.setState({ pending: null });
-    }
-  };
-  return (
-    <AlertDialog open={asking} onOpenChange={(o) => !o && close()}>
-      <AlertDialogContent data-subject-download>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Download Select Subject's model?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Select Subject finds the main subject with a segmentation model (IS-Net) that runs on this computer. It's {Math.round(size / 1e6) || 88} MB, downloaded
-            once from Hugging Face; nothing of your photos leaves this computer.
-            {error ? ` The last try failed: ${error}` : ""}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Not now</AlertDialogCancel>
-          <Button onClick={() => void download()} data-autofocus>
-            Download
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

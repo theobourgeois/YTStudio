@@ -45,8 +45,9 @@ import { useColours } from "./colours";
 import { editActions, hasPhotoClipboard } from "./edit-actions";
 import { PaintChoiceDialog, ToolOptions } from "./options-bar";
 import { TOOLBOX } from "./toolbox";
-import { FeatherDialog, SelectMenu, SubjectModelDialog, useFeather } from "./select-commands";
-import { SceneModelDialog } from "./scene-model-dialog";
+import { FeatherDialog, SelectMenu, useFeather } from "./select-commands";
+import { ModelDialog } from "./model-dialog";
+import { runContentAwareFill } from "./content-aware-fill";
 import { selectActions, useSelectOptions } from "./selecting";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { AssistantButton } from "@/components/assistant/assistant-button";
@@ -70,6 +71,7 @@ import { CameraRawWindow } from "./camera-raw/camera-raw-window";
 import { cameraRawActions } from "./camera-raw/actions";
 import { HueSaturationWindow } from "./hue-saturation/hue-saturation-window";
 import { hueSaturationActions } from "./hue-saturation/actions";
+import { EditMenu } from "./edit-menu";
 import { ImageMenu } from "./image-menu";
 import { ScaleEffectsWindow } from "./layer-style/scale-effects-window";
 import { resolvePhotoKey } from "./keys";
@@ -156,8 +158,7 @@ export default function PhotoWorkspace() {
       <PhotoDesktop />
       <PaintChoiceDialog />
       <FeatherDialog />
-      <SubjectModelDialog />
-      <SceneModelDialog />
+      <ModelDialog />
     </div>
   );
 }
@@ -245,6 +246,7 @@ function PhotoHeader() {
           <PiArrowClockwise />
         </Button>
       </div>
+      <EditMenu />
       <ImageMenu />
       <SelectMenu />
       <FilterMenu />
@@ -568,6 +570,8 @@ function usePhotoKeys(active: boolean) {
           return void editActions.layerVia(true);
         case "fill":
           return void editActions.fill(useColours.getState()[action.colour]);
+        case "contentAwareFill":
+          return void runContentAwareFill();
       }
     };
     const up = (e: KeyboardEvent) => {

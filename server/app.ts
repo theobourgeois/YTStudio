@@ -14,10 +14,8 @@ import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
-import { DEPTH_MODEL, GALLERY_DL, MODELS_DIR, ONLINE_ASSETS, PHOTO_HELPER, SUBJECT_MODEL, config } from "./config.ts";
-import { ModelFile } from "./photo/models.ts";
-import { SUBJECT_MODEL as SUBJECT_MODEL_FILE } from "../shared/photo/subject.ts";
-import { DEPTH_MODEL as DEPTH_MODEL_FILE } from "../shared/photo/scene.ts";
+import { GALLERY_DL, MODELS_DIR, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, config } from "./config.ts";
+import { photoModels } from "./photo/models.ts";
 import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { listFonts } from "./fonts.ts";
@@ -245,11 +243,7 @@ export async function createApp({
   app.use("/api/music/exports", musicExportRoutes(musicExports));
   app.use("/api/music/visualizer", musicVisualizerRoutes(visualizers));
   app.use("/api/photo/lab", photoLabRoutes(photoLab));
-  const photoModels = {
-    subject: new ModelFile(MODELS_DIR, SUBJECT_MODEL_FILE, SUBJECT_MODEL === "stand-in"),
-    depth: new ModelFile(MODELS_DIR, DEPTH_MODEL_FILE, DEPTH_MODEL === "stand-in"),
-  };
-  app.use("/api/photo", photoRoutes(photo, photoModels, photoOnline));
+  app.use("/api/photo", photoRoutes(photo, photoModels(MODELS_DIR, PHOTO_MODELS === "stand-in"), photoOnline));
   const mixerKeys = new ApiKeyStore(path.join(paths.root, "music-jev-settings.json"));
   await mixerKeys.load();
   app.use("/api/music/mixer-setup", mixerSetupRoutes({ engine, keys: mixerKeys, hasProject: (id) => projects.has(id), assets: (id) => library.list(id) }));

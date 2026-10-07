@@ -1,7 +1,7 @@
 /**
  * Scene maps (docs/photo/effects/scene-maps.md), the renderer's: for each filter that reads its picture's depth or
  * subject, a coarse render of that picture (its layer's content and the filters before it, as Camera Raw's analysis
- * is made), read back and given to the models (`../scene-models.ts`), kept by what it was made of.
+ * is made), read back and given to the models (`../models.ts`), kept by what it was made of.
  *
  * A plan compiled before a filter's maps are there leaves that filter out and says so (its node's keys change when
  * they come): the screen asks for them and draws again when they're built; exports, pictures and refinements wait
@@ -9,14 +9,18 @@
  * and `onMissing` says which model, once, so the user can be asked.
  */
 import { hashKey, type SceneNeed, type SceneResolver } from "@shared/photo/render-plan.ts";
-import { type SceneMaps, type SceneReads, depthInput, depthInputSize, depthMap, pictureSample, resampleToGrid, sceneGrid, standInDepth } from "@shared/photo/scene.ts";
-import { SUBJECT_SIDE, standInProbabilities, subjectInput } from "@shared/photo/subject.ts";
+import type { PhotoModelName } from "@shared/photo/models.ts";
+import { DEPTH_MODEL, type SceneMaps, type SceneReads, depthInput, depthInputSize, depthMap, pictureSample, resampleToGrid, sceneGrid, standInDepth } from "@shared/photo/scene.ts";
+import { SUBJECT_MODEL, SUBJECT_SIDE, standInProbabilities, subjectInput } from "@shared/photo/subject.ts";
 import type { PhotoProject } from "@shared/photo/types.ts";
-import { type PhotoModel, depthValues, modelStatus, subjectProbabilities } from "../scene-models";
+import { modelApi, runModel, useModels } from "../models";
 import { type AnalysisHost, analysisInput } from "./camera-raw-analysis.ts";
 
 /** Maps kept (each a few MB at most). */
 const KEPT = 16;
+
+/** The models scene maps are made with. */
+type SceneModel = Extract<PhotoModelName, "depth" | "subject">;
 
 /** Whether `maps` has every map `reads` asks for. */
 const covers = (maps: SceneMaps, reads: SceneReads) => (!reads.depth || !!maps.depth) && (!reads.subject || !!maps.subject);
@@ -26,13 +30,13 @@ export class SceneMapStore {
   private readonly kept = new Map<string, SceneMaps>();
   private readonly building = new Map<string, Promise<SceneMaps | null>>();
   /** Models found missing: nothing needing them is built until `retry`. */
-  private readonly unavailable = new Set<PhotoModel>();
+  private readonly unavailable = new Set<SceneModel>();
   /** Pictures whose maps failed to build (a model's error): not tried again until `retry`. */
   private readonly failed = new Set<string>();
   /** Bumped whenever maps arrive: a plan compiled before them is compiled again. */
   generation = 0;
   /** A filter needs a model that isn't here (once per model until `retry`). */
-  onMissing: ((model: PhotoModel) => void) | null = null;
+  onMissing: ((model: SceneModel) => void) | null = null;
 
   constructor(private readonly host: AnalysisHost) {}
 
@@ -81,8 +85,9 @@ export class SceneMapStore {
   }
 
   /** Whether a model can run (its stand-in counts); if not, it's marked missing and said so. */
-  private async ready(model: PhotoModel): Promise<{ standIn: boolean } | null> {
-    const status = await modelStatus(model);
+  private async ready(model: SceneModel): Promise<{ standIn: boolean } | null> {
+    const status = await modelApi.status(model);
+    useModels.setState((s) => ({ status: { ...s.status, [model]: status } }));
     if (status.status === "ready") return { standIn: status.standIn };
     if (!this.unavailable.has(model)) {
       this.unavailable.add(model);
@@ -107,7 +112,9 @@ export class SceneMapStore {
     let subject = before?.subject ?? null;
     let depth = before?.depth ?? null;
     if (subjectModel) {
-      const probs = subjectModel.standIn ? standInProbabilities(sample) : await subjectProbabilities(subjectInput(sample));
+      const probs = subjectModel.standIn
+        ? standInProbabilities(sample)
+        : await runModel("subject", { [SUBJECT_MODEL.input]: { data: subjectInput(sample), dims: [1, 3, SUBJECT_SIDE, SUBJECT_SIDE] } }, SUBJECT_MODEL.output);
       subject = resampleToGrid(probs, SUBJECT_SIDE, SUBJECT_SIDE, grid);
     }
     if (depthModel) {
@@ -116,7 +123,9 @@ export class SceneMapStore {
         depth = depthMap(stand.values, stand.width, stand.height, sample, grid);
       } else {
         const size = depthInputSize(sample.width, sample.height);
-        depth = depthMap(await depthValues(depthInput(sample)), size.width, size.height, sample, grid);
+        const input = depthInput(sample);
+        const values = await runModel("depth", { [DEPTH_MODEL.input]: { data: input.data, dims: [1, 3, input.height, input.width] } }, DEPTH_MODEL.output);
+        depth = depthMap(values, size.width, size.height, sample, grid);
       }
     }
     const maps: SceneMaps = { id: hashKey(`${picture}|${depth ? "d" : ""}${subject ? "s" : ""}`), ...grid, depth, subject };
