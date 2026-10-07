@@ -944,6 +944,8 @@ const StepRow = memo(function StepRow({ channelId, name, steps, playingStep }: {
   const notes = useCurrentPattern((pattern) => pattern.notes[channelId] ?? EMPTY);
   const loop = useCurrentPattern((pattern, song) => lengthOf(song, pattern));
   const on = new Set(notes.filter((n) => n.start % STEP_TICKS === 0).map((n) => n.start / STEP_TICKS));
+  // The step whose lamp is lit: the one playing, if this channel plays on it.
+  const litStep = playingStep !== null && on.has(playingStep) ? playingStep : null;
   const gesture = useRef(songGesture()).current;
 
   // Notes that aren't plain steps (written in the Piano roll): a picture of them instead, as in FL Studio.
@@ -990,10 +992,10 @@ const StepRow = memo(function StepRow({ channelId, name, steps, playingStep }: {
           data-step={step}
           aria-label={`${name} step ${step + 1}`}
           aria-pressed={on.has(step)}
-          data-lit={step === playingStep && on.has(step) ? "" : undefined}
+          data-lit={step === litStep ? "" : undefined}
           // FL Studio's step keys: beats in two alternating colours, dark when off, pale and lit when on
           // (`step-*` in index.css, coloured by the theme), each with a lamp along its top that lights as
-          // the playhead passes: brightly on a step that plays, faintly on one that doesn't.
+          // the playhead plays it (only a step that's on).
           className={cn(
             "absolute top-0 rounded-[3px] outline-none",
             on.has(step) ? (oddBeat(step) ? "step-on-alt" : "step-on") : oddBeat(step) ? "step-off-alt" : "step-off",
@@ -1014,7 +1016,7 @@ const StepRow = memo(function StepRow({ channelId, name, steps, playingStep }: {
             aria-hidden
             className={cn(
               "pointer-events-none absolute inset-x-[3px] top-[3px] h-[2px] rounded-full",
-              step !== playingStep ? "bg-black/30" : on.has(step) ? "bg-brand shadow-[0_0_5px_1px] shadow-brand" : "bg-brand/45",
+              step === litStep ? "bg-brand shadow-[0_0_5px_1px] shadow-brand" : "bg-black/30",
             )}
           />
         </button>

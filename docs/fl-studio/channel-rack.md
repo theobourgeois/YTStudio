@@ -253,7 +253,7 @@ in `e2e/music.spec.ts`; the table is what's left. "With" names the phase that br
 **Same as FL Studio now**: the look of the rows (small knobs, a wide button with the name in the middle and the
 instrument's icon at its end, pushed in while its window is open and red when it has nothing to play; the
 thin selector; step keys in grey and red beats, spaced apart, dark when off and pale when on, in the theme's colours, a lamp
-along each one's top lit as the playhead passes); left-click turns a step on and right-click off, both painting when dragged;
+along each one's top lit as the playhead plays it, only on a step that's on); left-click turns a step on and right-click off, both painting when dragged;
 the rack's right edge is dragged to show more steps, and a pattern's length is Auto (the last bar with
 notes) unless its LCD sets one; the mute light, with Solo on its right-click menu, Ctrl/Alt+click, and
 the 1…0 and Ctrl+1…0 keys; knobs (drag, Ctrl for fine, Alt+click or middle-click to reset, a right-click
