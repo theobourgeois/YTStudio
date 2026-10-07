@@ -644,6 +644,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     }
     song->capacity = juce::jmax (0, capacity);
     song->playingPlugins.reserve (song->channels.size());
+    song->order.reserve (juce::jmax (song->channels.size(), song->tracks.size()));
     // A pair for each reached track with a pre-fader send or a key after its effects: its sound before its gains.
     for (size_t t = 0; t < song->tracks.size(); ++t)
     {

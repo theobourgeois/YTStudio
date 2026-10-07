@@ -1189,10 +1189,29 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
             meter.store (0.0f, std::memory_order_relaxed);
         meterSerial = song->serial;
     }
-    // Stage by stage: its tracks' effects and faders (at once, for the export), then what each sends on, in turn.
+    // Stage by stage: its tracks' effects and faders (at once, on the workers), then what each sends on, in turn.
     for (const auto& stage : song->stages)
     {
-        each ((int) stage.size(), [&] (int i) { runTrack ((size_t) stage[(size_t) i], glide, numSamples); });
+        // Spread only where two of its tracks have effects: waking threads costs more than a fader. The
+        // costliest start first; the sends below keep the stage's own order, so the sum is the same either way.
+        auto withEffects = 0;
+        for (const auto index : stage)
+            withEffects += song->tracks[(size_t) index].effects.empty() ? 0 : 1;
+        if (workers == nullptr || withEffects < 2)
+            for (const auto index : stage)
+                runTrack ((size_t) index, glide, numSamples);
+        else
+        {
+            auto& order = song->order;
+            order.assign (stage.begin(), stage.end());
+            std::sort (order.begin(), order.end(), [this] (int a, int b) { return song->tracks[(size_t) a].cost > song->tracks[(size_t) b].cost; });
+            each ((int) order.size(), [&] (int i) {
+                const auto t = (size_t) order[(size_t) i];
+                const auto started = juce::Time::getHighResolutionTicks();
+                runTrack (t, glide, numSamples);
+                song->tracks[t].cost = lately (song->tracks[t].cost, juce::Time::getHighResolutionTicks() - started);
+            });
+        }
         for (const auto index : stage)
         {
             const auto t = (size_t) index;
@@ -2074,11 +2093,17 @@ void Sequencer::renderPlugins (int numSamples)
         if (plugin != nullptr && numSamples <= plugin->buffer.getNumSamples() && trackAudio ((int) c).first != nullptr)
             playingPlugins.push_back ((int) c);
     }
-    each ((int) playingPlugins.size(), [&] (int i) {
-        auto& plugin = *song->channels[(size_t) playingPlugins[(size_t) i]].plugin;
+    // The costliest first: the caller takes the first item at once, so the slowest plugin isn't left to last.
+    auto& order = song->order;
+    order.assign (playingPlugins.begin(), playingPlugins.end());
+    std::sort (order.begin(), order.end(), [this] (int a, int b) { return song->channels[(size_t) a].plugin->cost > song->channels[(size_t) b].plugin->cost; });
+    each ((int) order.size(), [&] (int i) {
+        auto& plugin = *song->channels[(size_t) order[(size_t) i]].plugin;
+        const auto started = juce::Time::getHighResolutionTicks();
         juce::AudioBuffer<float> view (plugin.buffer.getArrayOfWritePointers(), plugin.buffer.getNumChannels(), numSamples);
         view.clear();
         plugin.instance->processBlock (view, plugin.midi);
+        plugin.cost = lately (plugin.cost, juce::Time::getHighResolutionTicks() - started);
     });
     for (const auto c : playingPlugins)
     {

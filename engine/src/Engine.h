@@ -133,6 +133,8 @@ private:
     wheel::Registry pitchWheels;
     /** Its Reverbs' sounds, by effect id (measured for their windows when status and events are said, hence mutable). */
     mutable verb::Registry reverbs;
+    /** The threads the song's plugins and mixer tracks are spread over while it plays (before the sequencer, which uses them). */
+    std::unique_ptr<Workers> workers;
     Sequencer sequencer;
     /** The Browser's preview of a file, outside the song. */
     FilePreview preview;
