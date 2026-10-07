@@ -19,7 +19,7 @@ export function Stage() {
   const videoTrackIds = useEditor(useShallow((s) => previewSlots(s.project).video));
 
   const [status, setStatus] = useState({ offline: false, noWebGl: false });
-  const [engine] = useState(() => new PreviewEngine(setStatus));
+  const [engine] = useState(() => new PreviewEngine(setStatus, undefined, true));
   const attachCanvas = useCallback((el: HTMLCanvasElement) => engine.attachCanvas(el), [engine]);
   useEffect(() => {
     engine.start();

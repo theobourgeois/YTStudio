@@ -28,8 +28,9 @@ async function previewSettled(root: ParentNode, signal: AbortSignal): Promise<vo
     const busy = videos.some((v) => v.src && (v.seeking || (v.readyState < HTMLMediaElement.HAVE_CURRENT_DATA && !v.error)));
     const images = [...root.querySelectorAll<HTMLImageElement>("img")];
     const loading = images.some((i) => i.src && !i.complete);
-    // A simulation still catching up after the seek (or a 3D scene's runtime still loading).
-    const catching = [...root.querySelectorAll<HTMLCanvasElement>("canvas")].some((c) => c.dataset.simulation === "catching-up");
+    // A simulation still catching up after the seek (or a 3D scene's runtime still loading), or a
+    // draft: a frame waiting for the GPU, or drawn at fewer pixels while moving (`FRAME_BUDGET_MS`).
+    const catching = [...root.querySelectorAll<HTMLCanvasElement>("canvas")].some((c) => c.dataset.simulation === "catching-up" || c.dataset.frame === "draft");
     if (!busy && !loading && !catching) break;
     await sleep(50);
   }
