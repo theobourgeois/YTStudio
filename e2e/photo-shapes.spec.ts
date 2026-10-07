@@ -202,7 +202,7 @@ test("the options bar restyles the selected shapes, one undo step each, and styl
   await page.locator(`[data-layer="${first.id}"]`).click();
   const bar = page.locator('[data-tool-options="shape"]');
   // The width, typed.
-  await bar.locator('[data-option="Width"]').getByRole("button").click();
+  await bar.getByRole("spinbutton", { name: "Width" }).click();
   await page.keyboard.type("20");
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await layersNow(page))[0].paint.strokeWidth).toBe(20);
@@ -218,8 +218,13 @@ test("the options bar restyles the selected shapes, one undo step each, and styl
   await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
   await expect.poll(async () => (await layersNow(page))[0].paint).toMatchObject({ dash: "dashed", sloppiness: 0 });
   // The next shape is drawn with what the bar says.
+  const count = (await layersNow(page)).length;
   await drag(page, [800, 500], [1000, 700]);
-  expect((await lastShape(page)).paint).toMatchObject({ strokeWidth: 20, fill: "#000000", dash: "dashed" });
+  await expect.poll(async () => (await layersNow(page)).length).toBe(count + 1);
+  // Above the layer that was active (the first rectangle), and selected.
+  const drawn = (await layersNow(page))[1];
+  await expect(page.locator(`[data-layer="${drawn.id}"]`)).toHaveAttribute("aria-selected", "true");
+  expect(drawn.paint).toMatchObject({ strokeWidth: 20, fill: "#000000", dash: "dashed" });
 });
 
 test("Properties edits a shape in pixels; a rectangle's corners round from its widget; Rasterize makes it pixels that look the same", async ({ page }) => {
@@ -239,10 +244,12 @@ test("Properties edits a shape in pixels; a rectangle's corners round from its w
   const before = await renderRegion(page, region);
   await page.locator('[data-shape-properties]').getByRole("button", { name: "Rasterize" }).click();
   await expect(page.locator(`[data-layer="${rect.id}"]`)).toHaveAttribute("data-kind", "pixel");
-  const after = await renderRegion(page, region);
-  let worst = 0;
-  for (let i = 0; i < before.length; i++) worst = Math.max(worst, Math.abs(before[i] - after[i]));
-  expect(worst).toBeLessThan(0.01);
+  // Once its pixels are on the GPU, they're what the shape showed.
+  const worst = async () => {
+    const after = await renderRegion(page, region);
+    return before.reduce((w, v, i) => Math.max(w, Math.abs(v - after[i])), 0);
+  };
+  await expect.poll(worst, { timeout: 10_000 }).toBeLessThan(0.01);
 });
 
 test("shapes take blend modes and layer styles, and the assistant boxes and points at things", async ({ page }) => {
@@ -263,13 +270,13 @@ test("shapes take blend modes and layer styles, and the assistant boxes and poin
     ].join("\n"),
   );
   await composer.press("Enter");
-  await expect(panel).toContainText("set_shape: failed, set_layer_style: ok, get_photo: ok, view_photo: ok", { timeout: 30_000 });
+  await expect(panel).toContainText("set_shape: failed, set_layer_blending: ok, set_layer_style: ok, get_photo: ok, view_photo: ok", { timeout: 30_000 });
   const doc = await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(2).then(() => savedPhoto(page, id));
   const [box, pointer] = doc.layers as ShapeLayer[];
   expect(box).toMatchObject({ name: "Box", blend: "multiply", shape: { type: "rect", radius: 16 }, paint: { stroke: "#ff0000", strokeWidth: 10, fill: null } });
   expect(placedShape(box)).toMatchObject({ cx: 550, cy: 300, width: 300, height: 200 });
   expect(pointer).toMatchObject({ name: "Pointer", shape: { endHead: "triangle" }, paint: { sloppiness: 1 }, style: { effects: [{ type: "drop-shadow" }] } });
-  // Drawn red on the box's edge; its shadow shows below the arrow's line, darker than the white canvas.
+  // Drawn red on the box's edge (multiplied over white: red).
   const edge = await pixelAt(page, 550, 200);
   expect(edge[0]).toBeGreaterThan(0.8);
   expect(edge[1]).toBeLessThan(0.1);

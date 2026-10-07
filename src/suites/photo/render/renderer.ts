@@ -1470,9 +1470,9 @@ export class PhotoRenderer {
     delete plain.blend;
     delete plain.fill;
     delete plain.blending;
-    // A text is drawn only near its canvas: it's moved onto this one (its box's top-left at 0, 0), and so are the regions.
-    const shift = plain.kind === "text" ? { x: x0, y: y0 } : { x: 0, y: 0 };
-    if (plain.kind === "text") plain.transform = { ...plain.transform, x: plain.transform.x - x0, y: plain.transform.y - y0 };
+    // A text or a shape is drawn only near its canvas: it's moved onto this one (its box's top-left at 0, 0), and so are the regions.
+    const shift = plain.kind === "text" || plain.kind === "shape" ? { x: x0, y: y0 } : { x: 0, y: 0 };
+    if (plain.kind === "text" || plain.kind === "shape") plain.transform = { ...plain.transform, x: plain.transform.x - x0, y: plain.transform.y - y0 };
     const alone: PhotoProject = { ...doc, compositing: "linear", canvas: { width, height, background: null }, layers: [plain] };
     const plan = await this.settledPlan(alone, false);
     await this.glows.ensure(plan);

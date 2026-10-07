@@ -159,7 +159,7 @@ function OptionSelect<T extends string>({
       <SelectTrigger size="sm" className={cn("h-6 text-xs", width)} aria-label={label} title={label} data-option={label} data-value={value}>
         {shown ? shown(value) : options.find(([v]) => v === value)?.[1]}
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent position="popper">
         {options.map(([v, text]) => (
           <SelectItem key={v} value={v} data-value={v}>
             {text}
