@@ -68,6 +68,9 @@ import { FilterGalleryWindow, FilterMenu } from "./filters";
 import { LayerStyleWindow } from "./layer-style/layer-style-window";
 import { CameraRawWindow } from "./camera-raw/camera-raw-window";
 import { cameraRawActions } from "./camera-raw/actions";
+import { HueSaturationWindow } from "./hue-saturation/hue-saturation-window";
+import { hueSaturationActions } from "./hue-saturation/actions";
+import { ImageMenu } from "./image-menu";
 import { ScaleEffectsWindow } from "./layer-style/scale-effects-window";
 import { resolvePhotoKey } from "./keys";
 import { layerActions, selectedInOrder } from "./layer-actions";
@@ -209,6 +212,7 @@ function PhotoDesktop() {
   const filterGalleryOpen = usePhotoUi((s) => s.filterGalleryOpen);
   const layerStyle = usePhotoUi((s) => s.layerStyle);
   const cameraRaw = usePhotoUi((s) => s.cameraRaw);
+  const hueSaturation = usePhotoUi((s) => s.hueSaturation);
   const scaleEffects = usePhotoUi((s) => s.scaleEffects);
   return (
     <Desktop windows={usePhotoWindows} name="photo" label="Photo windows" overlay className="absolute inset-0 z-50">
@@ -217,6 +221,7 @@ function PhotoDesktop() {
       {filterGalleryOpen && <FilterGalleryWindow />}
       {layerStyle && <LayerStyleWindow key={layerStyle.layerId} layerId={layerStyle.layerId} page={layerStyle.page} />}
       {cameraRaw && <CameraRawWindow key={`${cameraRaw.layerId}:${cameraRaw.filterId}`} target={cameraRaw} />}
+      {hueSaturation && <HueSaturationWindow key={`${hueSaturation.layerId}:${hueSaturation.filterId}`} target={hueSaturation} />}
       {scaleEffects && <ScaleEffectsWindow key={scaleEffects.join()} layerIds={scaleEffects} />}
     </Desktop>
   );
@@ -240,6 +245,7 @@ function PhotoHeader() {
           <PiArrowClockwise />
         </Button>
       </div>
+      <ImageMenu />
       <SelectMenu />
       <FilterMenu />
       {/* The tool's options take the room there is, scrolling sideways rather than squeezing the rest. */}
@@ -520,6 +526,8 @@ function usePhotoKeys(active: boolean) {
           return void layerActions.repeatLastFilter();
         case "cameraRaw":
           return cameraRawActions.filter();
+        case "hueSaturation":
+          return hueSaturationActions.open();
         case "snap":
           return usePhotoPreferences.getState().setSnap(!usePhotoPreferences.getState().snap);
         case "save":

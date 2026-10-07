@@ -15,13 +15,13 @@
  *
  * `camera-raw` renders Camera Raw's looks (docs/photo/camera-raw.md) as a filter and as an adjustment layer: the filter
  * on the GPU is its CPU reference (`shared/photo/reference/camera-raw.ts`), and the adjustment over the photo alone
- * is the filter on it.
+ * is the filter on it. `hue-saturation` does the same for Hue/Saturation (docs/photo/hue-saturation.md).
  *
  * Filters that read their picture's scene maps (depth, subject: docs/photo/effects/scene-maps.md) get them from the
  * models' stand-ins, unless `--models` says to use the real ones (downloaded first if they aren't here: thumbnails
  * want them). The reference is given the maps the renderer drew with.
  *
- *   pnpm tsx scripts/photo-sheet.ts [glow|flare|film|camera-raw|<filter type> ...] [--out photo-sheet.png] [--thumbnails] [--models] [--port 5344]
+ *   pnpm tsx scripts/photo-sheet.ts [glow|flare|film|camera-raw|hue-saturation|<filter type> ...] [--out photo-sheet.png] [--thumbnails] [--models] [--port 5344]
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -339,6 +339,48 @@ if (shows("camera-raw")) {
     if (worst > 2e-2) failures.push(`camera-raw ${name}: the adjustment layer differs from the filter by ${worst}`);
   }
   rows.push({ label: "camera raw", cells });
+}
+
+// Hue/Saturation: a few settings as a filter on the photo (the GPU is its CPU reference), then as an adjustment layer
+// over it (the same pixels).
+if (shows("hue-saturation")) {
+  const def = effectDefinition("hue-saturation")!;
+  const LOOKS: [string, Record<string, unknown>][] = [
+    ["hue", { hue: 120 }],
+    ["saturate", { saturation: 60, lightness: -10 }],
+    ["desaturate", { saturation: -80, lightness: 20 }],
+    ["ranges", { redsHue: 40, yellowsSaturation: 70, greensHue: -60, cyansLightness: 50, bluesSaturation: -100, magentasHue: 90 }],
+    ["master and range", { hue: -30, saturation: 30, bluesHue: 60, bluesLightness: -40 }],
+    ["sepia", { colorize: true, colorizeHue: 35, colorizeSaturation: 25 }],
+    ["cyanotype", { colorize: true, colorizeHue: 205, colorizeSaturation: 60, lightness: -20 }],
+  ];
+  const cells = [];
+  for (const [sc, x0, y0] of [[SCENES[1], 180, 140], [SCENES[2], 300, 230], [SCENES[0], 250, 430]] as const) {
+    const doc = { ...sc.doc, canvas: { ...sc.doc.canvas, background: null } };
+    const [W, H] = [160, 120];
+    const plain = await call<number[]>("renderDoc", doc, { zoom: 1, x: x0, y: y0, width: W, height: H });
+    for (const [name, raw] of LOOKS) {
+      const params = validateParams(def, raw).params;
+      const filtered = addFilter(doc, sc.layer, { id: "sheet_hs", type: "hue-saturation", params });
+      if (sc === SCENES[1]) cells.push({ label: `hue/sat ${name}`, data: await call<number[]>("renderDoc", filtered, view), s: 1 as number | "clip" });
+      const gpu = await call<number[]>("renderDoc", filtered, { zoom: 1, x: x0, y: y0, width: W, height: H });
+      const expected = applyKernel(KERNEL_REFERENCES["hue-saturation"], { width: W, height: H, data: Float64Array.from(plain) }, params, doc.canvas, { x: x0, y: y0 });
+      const diffs = gpu.map((v, i) => Math.abs(v - expected.data[i])).sort((a, b) => a - b);
+      const p99 = diffs[Math.floor(diffs.length * 0.99)];
+      const line = `hue-saturation ${name} on ${sc.name} (filter): p99 ${p99.toExponential(2)}, worst ${diffs[diffs.length - 1].toExponential(2)}`;
+      console.log(line);
+      if (p99 > 1e-3 || diffs[diffs.length - 1] > 2e-2) failures.push(`GPU ≠ reference: ${line}`);
+      if (gpu.some((v) => !Number.isFinite(v))) failures.push(`hue-saturation ${name} on ${sc.name}: not a number`);
+      if (sc === SCENES[1] && plain.reduce((w, v, i) => Math.max(w, Math.abs(v - gpu[i])), 0) < 1e-3) failures.push(`hue-saturation ${name}: changes nothing`);
+      // The adjustment layer over the layer alone draws what the filter on it does.
+      const adjusted = setEffectParams(addAdjustmentLayer(doc, { id: "sheet_hs_layer", type: "hue-saturation" }, null), "sheet_hs_layer", params);
+      const adj = await call<number[]>("renderDoc", adjusted, { zoom: 1, x: x0, y: y0, width: W, height: H });
+      const worst = adj.reduce((w, v, i) => Math.max(w, Math.abs(v - gpu[i])), 0);
+      console.log(`hue-saturation ${name} on ${sc.name} (adjustment vs filter): worst ${worst.toExponential(2)}`);
+      if (worst > 2e-2) failures.push(`hue-saturation ${name} on ${sc.name}: the adjustment layer differs from the filter by ${worst}`);
+    }
+  }
+  rows.push({ label: "hue/saturation", cells });
 }
 
 // The Filter Gallery's cards: every look on the sample scene.

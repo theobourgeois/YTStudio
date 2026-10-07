@@ -23,6 +23,7 @@ import { type PatternImage, builtInPatternLevels, patternFromLinear, patternMips
 import { newStyleEffect } from "../shared/photo/style/style.ts";
 import { glowReference } from "../shared/photo/reference/glow.ts";
 import { cameraRawReference } from "../shared/photo/reference/camera-raw.ts";
+import { hueSaturationFor } from "../shared/photo/reference/hue-saturation.ts";
 import { boxReduce, sampleMitchell } from "../shared/photo/reference/reduce.ts";
 
 test.describe.configure({ mode: "serial" });
@@ -2689,6 +2690,103 @@ test("Camera Raw: ⇧⌘A develops a layer in its window (one undo step, Cancel 
   await properties.getByLabel("Exposure", { exact: true }).blur();
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => (await savedPhoto(page, id)).layers[1].effect.params.exposure).toBe(0);
+});
+
+test("Hue/Saturation: ⌘U changes a layer's colours in its window (one undo step, Cancel leaves nothing), a range alone, Colorize; an adjustment layer in Properties", async ({ page }) => {
+  const id = await openNewPhoto(page, "Hue Saturation");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  await page.locator("[data-layer]").first().click();
+  const layerId = (await expect.poll(async () => (await savedPhoto(page, id)).layers.length).toBe(1).then(() => savedPhoto(page, id)).then((d) => d.layers[0].id)) as string;
+  const live = () =>
+    page.evaluate(() => {
+      const { history } = (window as unknown as { photoDebug: { photo: { getState(): { history: { past: unknown[]; doc: { doc: { layers: { kind: string; filters?: { type: string; params: Record<string, unknown> }[]; effect?: { type: string; params: Record<string, unknown> } }[] } } } } } } }).photoDebug.photo.getState();
+      return { steps: history.past.length, layers: history.doc.doc.layers };
+    });
+  const window_ = page.locator("[data-hue-saturation-window]");
+  const steps = (await live()).steps;
+  const set = async (where: typeof window_, label: string, value: string) => {
+    await where.getByLabel(label, { exact: true }).fill(value);
+    await where.getByLabel(label, { exact: true }).press("Enter");
+  };
+
+  // ⌘U: the window on a new Hue/Saturation filter, shown on the canvas while it's open.
+  await page.keyboard.press("ControlOrMeta+u");
+  await expect(window_).toHaveAttribute("data-hue-saturation-window", "filter");
+  await set(window_, "Hue", "90");
+  await set(window_, "Saturation", "30");
+  await expect.poll(async () => (await live()).layers[0].filters?.[0]?.params.hue).toBe(90);
+
+  // The GPU's is the CPU reference's, on the layer as it was.
+  const region = { zoom: 1, x: 760, y: 560, width: 24, height: 24 };
+  const pixels = (hideFilters: boolean) =>
+    page.evaluate(
+      async ({ region, hideFilters }) => {
+        const { photoDebug } = window as unknown as DebugWindow;
+        const r = await photoDebug.renderer();
+        const doc = photoDebug.photo.getState().history.doc.doc;
+        const shown = { ...doc, layers: doc.layers.map((l) => (hideFilters ? { ...l, filters: [] } : l)) };
+        const { texture } = await r.renderView(shown, region);
+        const data = await r.readFloat(texture, region.width, region.height);
+        texture.destroy();
+        return Array.from(data);
+      },
+      { region, hideFilters },
+    );
+  const plain = await pixels(true);
+  const adjusted = await pixels(false);
+  const reference = hueSaturationFor((await live()).layers[0].filters![0].params as never);
+  for (let y = 0; y < 24; y += 5) for (let x = 0; x < 24; x += 5) expect(close(pixelAt(adjusted, 24, x, y), reference(pixelAt(plain, 24, x, y)), 2e-3)).toBe(true);
+
+  // Cancel (Escape): nothing was made, and no undo step.
+  await page.keyboard.press("Escape");
+  await expect(window_).toHaveCount(0);
+  expect((await live()).layers[0].filters ?? []).toHaveLength(0);
+  expect((await live()).steps).toBe(steps);
+
+  // Image › Hue/Saturation…: Reds alone, then Colorize (its own Hue); OK is one undo step.
+  await page.locator("[data-image-menu]").click();
+  await page.locator("[data-hue-saturation-item]").click();
+  await window_.getByRole("combobox", { name: "Range" }).click();
+  await page.getByRole("option", { name: "Reds" }).click();
+  await set(window_, "Saturation", "-100");
+  await expect.poll(async () => (await live()).layers[0].filters?.[0]?.params.redsSaturation).toBe(-100);
+  expect((await live()).layers[0].filters![0].params.saturation).toBe(0);
+  await window_.getByRole("checkbox", { name: "Colorize" }).check();
+  await set(window_, "Hue", "200");
+  await window_.getByRole("button", { name: "OK" }).click();
+  await expect(window_).toHaveCount(0);
+  const saved = await expect.poll(async () => (await savedPhoto(page, id)).layers[0].filters?.length ?? 0).toBe(1).then(() => savedPhoto(page, id));
+  expect(saved.layers[0].filters[0]).toMatchObject({ type: "hue-saturation", params: { redsSaturation: -100, colorize: true, colorizeHue: 200, hue: 0 } });
+  expect((await live()).steps).toBe(steps + 1);
+  // Properties shows its controls; undo takes it away; its Layers row reopens the window.
+  await expect(page.locator('[data-hue-saturation-properties="filter"]')).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0].filters?.length ?? 0).toBe(0);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[0].filters?.length ?? 0).toBe(1);
+  await page.locator(`[data-filter-of="${layerId}"]`).dblclick();
+  await expect(window_).toBeVisible();
+  await window_.getByRole("button", { name: "Cancel" }).click();
+  await expect(window_).toHaveCount(0);
+
+  // An adjustment layer: its controls in Properties, each change one undo step (Saturation −100: grey below).
+  await page.getByRole("button", { name: "New adjustment layer" }).click();
+  await page.getByRole("menuitem", { name: /Hue\/Saturation/ }).click();
+  const properties = page.locator('[data-hue-saturation-properties="adjustment"]');
+  await expect(properties).toBeVisible();
+  await set(properties, "Saturation", "-100");
+  const two = await expect.poll(async () => (await savedPhoto(page, id)).layers[1]?.effect?.params.saturation).toBe(-100).then(() => savedPhoto(page, id));
+  expect(two.layers[1]).toMatchObject({ kind: "adjustment", effect: { type: "hue-saturation" } });
+  const [r, g, b] = pixelAt(await renderRegion(page, region), 24, 12, 12);
+  expect(Math.abs(r - g)).toBeLessThan(2e-3);
+  expect(Math.abs(b - g)).toBeLessThan(2e-3);
+  // A preset sets every slider.
+  await properties.getByRole("combobox", { name: "Preset" }).click();
+  await page.getByRole("option", { name: "Sepia" }).click();
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[1].effect.params).toMatchObject({ colorize: true, colorizeHue: 35, colorizeSaturation: 25, saturation: 0 });
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, id)).layers[1].effect.params.saturation).toBe(-100);
 });
 
 test("Camera Raw's local sliders (CR2): read from the picture's analysis, the same zoomed out as settled, following what's below", async ({ page }) => {

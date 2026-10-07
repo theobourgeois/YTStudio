@@ -53,6 +53,17 @@ describe("the assistant's text edits", () => {
     expect(textOf(setTextTool(doc, { layer: layer.id, box: "point" }, env).doc).box).toBeNull();
   });
 
+  it("sets the Character panel's other settings, and turns them off again", () => {
+    const { doc, text } = addTextLayerTool(empty, { text: "Sale", kerning: "none", horizontal_scale: 120, faux_italic: true, caps: "all", underline: true }, env);
+    expect(textOf(doc)).toMatchObject({ kerning: "none", horizontalScale: 1.2, fauxItalic: true, caps: "all", underline: true });
+    expect(text).toMatch(/kerning none, horizontal scale 120%, faux italic, all caps, underline/);
+    const plain = textOf(setTextTool(doc, { layer: "Sale", kerning: "metrics", horizontal_scale: 100, faux_italic: false, caps: "none", underline: false, strikethrough: true }, env).doc);
+    expect(plain.strikethrough).toBe(true);
+    for (const key of ["kerning", "horizontalScale", "fauxItalic", "caps", "underline"]) expect(plain).not.toHaveProperty(key);
+    expect(() => setTextTool(doc, { layer: "Sale", caps: "upper" }, env)).toThrow(/caps is/);
+    expect(() => setTextTool(doc, { layer: "Sale", vertical_scale: 0 }, env)).toThrow(/percentage/);
+  });
+
   it("says what's wrong", () => {
     const doc = addTextLayerTool(empty, { text: "Hi" }, env).doc;
     expect(() => addTextLayerTool(empty, { text: "" }, env)).toThrow(/text is required/);

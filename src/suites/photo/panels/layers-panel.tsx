@@ -21,6 +21,7 @@ import {
   PiChartLine,
   PiCircleHalfTilt,
   PiCopy,
+  PiDropHalf,
   PiEye,
   PiEyeSlash,
   PiFunnelSimple,
@@ -42,6 +43,7 @@ import { STYLE_LIST, styleDefinition } from "@shared/photo/style/definitions";
 import { setStyleEffect, setStyleEnabled } from "@shared/photo/style/style";
 import { ADJUSTMENTS, effectDefinition, unavailableReason } from "@shared/photo/effects/index";
 import { cameraRawActions } from "../camera-raw/actions";
+import { hueSaturationActions } from "../hue-saturation/actions";
 import { type AdjustmentLayer, type ContentLayer, type GeneratorLayer, type ImageLayer, type PhotoLayer, type PixelLayer, hasContent } from "@shared/photo/types";
 import { ScrubNumber } from "@/components/scrub-number";
 import { Button } from "@/components/ui/button";
@@ -62,7 +64,7 @@ import { editTextLayer } from "../toolbox/type/session";
 import { ShapeThumb } from "../toolbox/shapes/thumb";
 
 /** Each adjustment's icon (Photoshop's Adjustments panel has one per kind). */
-export const ADJUSTMENT_ICONS: Record<string, typeof PiSun> = { exposure: PiSun, curves: PiChartLine };
+export const ADJUSTMENT_ICONS: Record<string, typeof PiSun> = { exposure: PiSun, curves: PiChartLine, "hue-saturation": PiDropHalf };
 
 /** Adds an adjustment layer above the selected layer (or on top) and selects it. */
 export function addAdjustment(type: string) {
@@ -498,6 +500,7 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow, folded, onFo
         else if (layer.kind === "text" && (e.target as Element).closest("[data-thumb='content']")) editTextLayer(layer.id, { selectAll: true });
         // A Camera Raw adjustment layer opens in its window (Photoshop's adjustment layers open their settings).
         else if (layer.kind === "adjustment" && layer.effect.type === "camera-raw") cameraRawActions.edit(layer.id, null);
+        else if (layer.kind === "adjustment" && layer.effect.type === "hue-saturation") hueSaturationActions.edit(layer.id, null);
         else layerActions.blendingOptions(layer.id);
       }}
       data-layer={layer.id}
@@ -616,7 +619,11 @@ function FilterRows({ layer }: { layer: ContentLayer }) {
             className={cn("flex h-6 cursor-default items-center gap-1.5 pr-2 pl-14 text-xs", f.id === selectedId ? "bg-accent" : "hover:bg-surface-2", (!f.enabled || !on) && "text-muted-foreground")}
             onPointerDown={(e) => press(e, f.id)}
             onContextMenu={() => usePhotoUi.getState().selectFilter(layer.id, f.id)}
-            onDoubleClick={() => f.type === "camera-raw" && !reason && cameraRawActions.edit(layer.id, f.id)}
+            onDoubleClick={() => {
+              if (reason) return;
+              if (f.type === "camera-raw") cameraRawActions.edit(layer.id, f.id);
+              else if (f.type === "hue-saturation") hueSaturationActions.edit(layer.id, f.id);
+            }}
             data-filter={f.id}
             data-filter-of={layer.id}
             aria-selected={f.id === selectedId}

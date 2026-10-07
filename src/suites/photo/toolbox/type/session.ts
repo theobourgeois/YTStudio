@@ -53,7 +53,10 @@ export function editedLayer(): TextLayer | null {
 export function startNewText(at: { x: number; y: number }, box: { width: number; height: number } | null = null) {
   commitText();
   const o = useTypeOptions.getState();
-  const layer = makeTextLayer({ id: createId("layer"), font: o.font, align: box || o.align !== "justify" ? o.align : "left", leading: o.leading, tracking: o.tracking, colour: useColours.getState().foreground, box, at }, frameText);
+  const layer = makeTextLayer(
+    { id: createId("layer"), font: o.font, align: box || o.align !== "justify" ? o.align : "left", leading: o.leading, tracking: o.tracking, character: o.character, colour: useColours.getState().foreground, box, at },
+    frameText,
+  );
   const above = usePhotoUi.getState().selectedLayerId;
   gesture = photoGesture();
   gesture.begin();
@@ -121,6 +124,16 @@ export function endStyling() {
 /** A paragraph box's handles, dragged while typing: `rect` in `from`'s frame (the layer when the drag began). */
 export function resizeBox(from: TextLayer, rect: { x0: number; y0: number; x1: number; y1: number }) {
   live().apply((d) => resizeTextBox(d, from, rect, frameText));
+}
+
+/**
+ * A setting shown on the canvas before it's chosen (the font list's hovered family), on the text a change would
+ * restyle: the one typed, else `layerIds` (the selected text layers). Null takes it away. Never in the document.
+ */
+export function previewText(patch: TextPatch | null, layerIds: readonly string[] = selectedTextLayers()) {
+  const editing = useTypeSession.getState().editing;
+  const ids = editing ? [editing.layerId] : [...layerIds];
+  usePhotoUi.getState().setTextPreview(patch && ids.length ? { layerIds: ids, patch } : null);
 }
 
 /** The selected text layers (what the options bar restyles when nothing is being typed). */

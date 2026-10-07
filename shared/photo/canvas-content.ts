@@ -11,10 +11,14 @@
  */
 import { type Affine, apply, layerMatrix } from "./layers.ts";
 import { shapeOverhang } from "./shape-drawing.ts";
-import type { LayerTransform, PhotoLayer, PhotoProject, ShapeLayer, TextLayer } from "./types.ts";
+import { characterOf, textScale } from "./text.ts";
+import type { LayerTransform, PhotoLayer, PhotoProject, ShapeLayer, TextCharacter, TextLayer } from "./types.ts";
 
-/** A text layer's words and their setting (`TextLayer`'s), drawn from its origin in its layer pixels. */
-export interface TextContent {
+/**
+ * A text layer's words and their setting (`TextLayer`'s), drawn from its origin in its layer pixels. Its character
+ * settings are there only when set, so a text without them keys as it always did.
+ */
+export interface TextContent extends TextCharacter {
   kind: "text";
   text: string;
   font: TextLayer["font"];
@@ -70,7 +74,8 @@ export interface CanvasLayerFacts {
 export function canvasContentOf(layer: PhotoLayer): CanvasLayerFacts | null {
   if (layer.kind === "text") {
     const { text, font, colour, align, leading, tracking, box, origin } = layer;
-    return { content: { kind: "text", text, font, colour, align, leading, tracking, box, origin }, transform: layer.transform, size: layer.size, overhang: 0.25 * font.size };
+    const scale = textScale(layer);
+    return { content: { kind: "text", text, font, colour, align, leading, tracking, box, origin, ...characterOf(layer) }, transform: layer.transform, size: layer.size, overhang: 0.25 * font.size * Math.max(1, scale.x, scale.y) };
   }
   if (layer.kind === "shape") {
     const { id, shape, size, transform, paint } = layer;
@@ -112,5 +117,8 @@ export function canvasRaster(
   y1 = Math.min(y1, y0 + MAX_RASTER_SIDE);
   if (x1 <= x0 || y1 <= y0) return null;
   const matrix: Affine = [m[0], m[1], m[2], m[3], m[4] - x0, m[5] - y0];
-  return { content: facts.content, matrix, x: x0, y: y0, width: x1 - x0, height: y1 - y0, key: hash(`${JSON.stringify(facts.content)}|${matrix.join(",")}|${x1 - x0}x${y1 - y0}`) };
+  // Keyed by what its pixels are, not where: moved by whole pixels, a layer's raster is the one already drawn.
+  const content = facts.content;
+  const keyed = content.kind === "shape" ? { ...content, transform: { ...content.transform, x: content.transform.x - x0, y: content.transform.y - y0 } } : content;
+  return { content, matrix, x: x0, y: y0, width: x1 - x0, height: y1 - y0, key: hash(`${JSON.stringify(keyed)}|${matrix.join(",")}|${x1 - x0}x${y1 - y0}`) };
 }

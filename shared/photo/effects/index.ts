@@ -2,7 +2,8 @@
  * The photo suite's effect definitions (docs/photo/effects/system.md): what each is, its parameters, its region
  * rule and whether it commutes with reduction (rendering.md, "The render plan"), and its CPU reference. Adding an
  * adjustment: a definition here, its GPU pass in `src/suites/photo/render/adjustments.ts`, a reference in
- * `../reference/`. Filters (glow: `glow.ts`) and generators (Lens Flare: `flare.ts`) have their own passes in
+ * `../reference/`. Camera Raw and Hue/Saturation are filters and adjustments alike (`kinds`): a kernel and an
+ * adjustment pass each. Filters (glow: `glow.ts`) and generators (Lens Flare: `flare.ts`) have their own passes in
  * `src/suites/photo/render/`; the stylised filters are kernel filters (`kernel.ts`, by category in `filters/`), which
  * one generic pass evaluates.
  */
@@ -14,6 +15,8 @@ import { FLARE_PARAMS, FLARE_PRESETS, flarePreset } from "./flare.ts";
 import { GRADIENT_FILL, GRADIENT_FILL_PARAMS, GRADIENT_FILL_PRESETS, GRADIENT_TYPE_LABELS, gradientFillShape } from "./gradient.ts";
 import { GLOW_PARAMS, GLOW_PRESETS, glowReach } from "./glow.ts";
 import { CAMERA_RAW } from "./camera-raw/index.ts";
+import { HUE_SATURATION } from "./hue-saturation.ts";
+import { hueSaturationFor } from "../reference/hue-saturation.ts";
 import { isIdentityCurve, isIdentityCurveSet } from "./curve-math.ts";
 import { CURVE_CHANNELS, type CurveChannel, type CurvesParam, type EffectPreset, type NumberParam, type ParamSpec, defaultParams, identityCurveSet, sanitizeParam } from "./params.ts";
 
@@ -194,7 +197,7 @@ const GRADIENT_FILL_DEF: EffectDefinition = {
   },
 };
 
-export const EFFECTS: readonly EffectDefinition[] = [EXPOSURE, CURVES, CAMERA_RAW, GLOW, FLARE, ...KERNEL_FILTERS, GRADIENT_FILL_DEF];
+export const EFFECTS: readonly EffectDefinition[] = [EXPOSURE, CURVES, { ...HUE_SATURATION, reference: hueSaturationFor }, CAMERA_RAW, GLOW, FLARE, ...KERNEL_FILTERS, GRADIENT_FILL_DEF];
 
 export const effectDefinition = (type: string): EffectDefinition | undefined => EFFECTS.find((d) => d.type === type);
 

@@ -32,6 +32,42 @@ export const useFonts = create<FontsState>((set, get) => ({
   },
 }));
 
+/** How many recently used families the pickers show first (Photoshop's default). */
+export const RECENT_FONTS = 10;
+const RECENT_KEY = "recent-fonts";
+const storage: Pick<Storage, "getItem" | "setItem"> | null = typeof localStorage !== "undefined" ? localStorage : null;
+
+/** `recent` with `family` first, once, at most `max` long. */
+export function withRecentFont(recent: readonly string[], family: string, max = RECENT_FONTS): string[] {
+  const key = family.toLowerCase();
+  return [family, ...recent.filter((f) => f.toLowerCase() !== key)].slice(0, max);
+}
+
+/** The recent families still installed (in `families`), most recent first, as the list has them. */
+export function recentFamilies(recent: readonly string[], families: readonly FontFamily[]): FontFamily[] {
+  const byName = new Map(families.map((f) => [f.family.toLowerCase(), f]));
+  return recent.flatMap((f) => byName.get(f.toLowerCase()) ?? []);
+}
+
+function loadRecent(): string[] {
+  try {
+    const list: unknown = JSON.parse(storage?.getItem(RECENT_KEY) ?? "[]");
+    return Array.isArray(list) ? list.filter((f): f is string => typeof f === "string" && !!f).slice(0, RECENT_FONTS) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The families chosen lately in any font picker, most recent first: this computer's, shown at the top of the lists. */
+export const useRecentFonts = create<{ recent: string[]; use: (family: string) => void }>((set, get) => ({
+  recent: loadRecent(),
+  use(family) {
+    const recent = withRecentFont(get().recent, family);
+    storage?.setItem(RECENT_KEY, JSON.stringify(recent));
+    set({ recent });
+  },
+}));
+
 /** Resolves once the font list has loaded (or failed to). */
 export function fontsSettled(): Promise<void> {
   useFonts.getState().load();
