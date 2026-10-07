@@ -88,7 +88,7 @@ async function reopen(page: Page, id: string) {
   await expect.poll(() => page.evaluate(() => !!(window as unknown as DebugWindow).photoDebug.ui.getState().view)).toBe(true);
 }
 
-const layersNow = (page: Page) => page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers) as Promise<ShapeLayer[]>;
+const layersNow = (page: Page) => page.evaluate(() => (window as unknown as DebugWindow).photoDebug.photo.getState().history.doc.doc.layers) as unknown as Promise<ShapeLayer[]>;
 const lastShape = async (page: Page) => (await layersNow(page)).at(-1)!;
 
 /** The open photo rendered by the app's renderer over a region at 100% (RGBA floats). */

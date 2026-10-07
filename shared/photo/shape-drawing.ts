@@ -1,12 +1,10 @@
 /**
  * What a shape layer draws (docs/photo/tools/shapes.md), pure: `shapeDrawing` turns its geometry and paint into
- * fills and strokes in document pixels (paths the 2D canvas plays: `render/shape-raster.ts`), hand-drawn through
- * `shape-rough.ts` when it's sloppy; `shapeRaster` says which of the document's tiles it touches (those wholly inside a
- * fill and touched by nothing else are constant) and the size of the surface it's shown as; `hitShape` says whether
- * a point is on what it draws. The same layer always draws the same thing (its randomness is seeded by its id).
+ * fills and strokes in document pixels (paths the 2D canvas plays: `render/shape-draw.ts`, a canvas layer's raster as
+ * text's are: `canvas-content.ts`), hand-drawn through `shape-rough.ts` when it's sloppy; `shapeOverhang` says how far
+ * it reaches past its box; `hitShape` says whether a point is on what it draws. The same layer always draws the same
+ * thing (its randomness is seeded by its id).
  */
-import { srgbToLinear } from "./colour.ts";
-import { fromHalf, toHalf } from "./half.ts";
 import { type PathCommand, type Pt, Random, type RoughOptions, hachure, roughEllipse, roughFillPolygon, roughPath } from "./shape-rough.ts";
 import { type PlacedShape, type Point, placedShape, shapeSeed } from "./shapes.ts";
 import type { Arrowhead, ShapeLayer, ShapePaint } from "./types.ts";
@@ -40,6 +38,9 @@ export interface StrokeItem {
 }
 
 export type DrawItem = FillItem | StrokeItem;
+
+/** What a shape's drawing depends on: a shape layer, or a 2D-canvas raster's content of one (its id seeds the wobble). */
+export type DrawnShape = Pick<ShapeLayer, "id" | "shape" | "size" | "transform" | "paint">;
 
 export interface ShapeDrawing {
   /** In drawing order. */
@@ -288,7 +289,7 @@ function fitDash(dash: number[], path: readonly PathCommand[]): number[] {
 // --- the drawing ---
 
 /** rough.js's options for this layer (Excalidraw's): its offsets scaled with the stroke, so a thick shape wobbles as much. */
-function roughOptionsOf(layer: ShapeLayer, placed: PlacedShape): RoughOptions | null {
+function roughOptionsOf(layer: DrawnShape, placed: PlacedShape): RoughOptions | null {
   const p = layer.paint;
   if (!p.sloppiness) return null;
   const scale = Math.max(1, p.strokeWidth / 3);
@@ -309,10 +310,10 @@ function roughOptionsOf(layer: ShapeLayer, placed: PlacedShape): RoughOptions | 
   };
 }
 
-const drawings = new WeakMap<ShapeLayer, ShapeDrawing>();
+const drawings = new WeakMap<DrawnShape, ShapeDrawing>();
 
 /** What a shape layer draws (kept per layer object: a layer is immutable). */
-export function shapeDrawing(layer: ShapeLayer): ShapeDrawing {
+export function shapeDrawing(layer: DrawnShape): ShapeDrawing {
   let drawing = drawings.get(layer);
   if (!drawing) {
     drawing = makeDrawing(layer);
@@ -321,7 +322,7 @@ export function shapeDrawing(layer: ShapeLayer): ShapeDrawing {
   return drawing;
 }
 
-function makeDrawing(layer: ShapeLayer): ShapeDrawing {
+function makeDrawing(layer: DrawnShape): ShapeDrawing {
   const paint = layer.paint;
   const placed = placedShape(layer);
   const rough = roughOptionsOf(layer, placed);
@@ -439,37 +440,30 @@ function boundsOf(items: readonly DrawItem[]): Box | null {
 /** How far past its path a stroke may paint: half its width, a miter's point further, and a pixel of antialiasing. */
 const reachOf = (s: StrokeItem) => (s.width / 2) * (s.join === "miter" ? 2.6 : s.cap === "square" ? 1.5 : 1) + 2;
 
-// --- tiles ---
+// --- where it reaches ---
 
-/** The largest a shape's surface gets, each way (a shape further out is cut there). */
-export const MAX_RASTER_SIDE = 65_536;
-
-export interface ShapeRaster {
-  /** What it draws, hashed: its tiles' and its surface's name. */
-  key: string;
-  /** The surface: the document's pixels from its top-left corner, as far as the shape reaches (whole tiles). */
-  size: { width: number; height: number };
-  bounds: Box | null;
-  /** The tiles it touches, sorted by y then x: drawn, or (wholly inside a fill, touched by nothing else) a constant colour. */
-  tiles: { tx: number; ty: number; constant: [number, number, number, number] | null }[];
+/**
+ * How far past its box (in its own pixels) what a shape draws may reach: its stroke, a miter's point, its heads, a
+ * hand-drawn wobble. What a 2D-canvas raster pads its frame by (`canvas-content.ts`), scaled back by the transform's.
+ */
+export function shapeOverhang(layer: DrawnShape): number {
+  const b = shapeDrawing(layer).bounds;
+  if (!b) return 0;
+  const box = boxOf(layer.transform, layer.size);
+  const extra = Math.max(0, box.x0 - b.x0, box.y0 - b.y0, b.x1 - box.x1, b.y1 - box.y1);
+  return extra / Math.max(1e-6, Math.min(Math.abs(layer.transform.scaleX), Math.abs(layer.transform.scaleY)));
 }
 
-/** cyrb53: a short hash of a string, base 36. */
-function hash(text: string): string {
-  let h1 = 0xdeadbeef;
-  let h2 = 0x41c6ce57;
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i);
-    h1 = Math.imul(h1 ^ c, 2654435761);
-    h2 = Math.imul(h2 ^ c, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+/** The axis-aligned box a transform puts a box of `size` in. */
+function boxOf(t: ShapeLayer["transform"], size: ShapeLayer["size"]): Box {
+  const a = (t.rotation * Math.PI) / 180;
+  const [c, s] = [Math.cos(a), Math.sin(a)];
+  const hw = (size.width * Math.abs(t.scaleX)) / 2;
+  const hh = (size.height * Math.abs(t.scaleY)) / 2;
+  const ex = Math.abs(c) * hw + Math.abs(s) * hh;
+  const ey = Math.abs(s) * hw + Math.abs(c) * hh;
+  return { x0: t.x - ex, y0: t.y - ey, x1: t.x + ex, y1: t.y + ey };
 }
-
-/** What makes a layer's pixels: its id (its seed), geometry, place and paint. */
-export const shapeKey = (layer: ShapeLayer) => hash(JSON.stringify([layer.id, layer.shape, layer.size, layer.transform, layer.paint]));
 
 /** Distance from a point to a segment. */
 function pointSegment(px: number, py: number, a: Pt, b: Pt): number {
@@ -478,34 +472,6 @@ function pointSegment(px: number, py: number, a: Pt, b: Pt): number {
   const l2 = dx * dx + dy * dy;
   const t = l2 ? Math.max(0, Math.min(1, ((px - a[0]) * dx + (py - a[1]) * dy) / l2)) : 0;
   return Math.hypot(px - a[0] - t * dx, py - a[1] - t * dy);
-}
-
-/** Whether segment ab comes within `reach` of the box. */
-function segmentNearBox(a: Pt, b: Pt, box: Box, reach: number): boolean {
-  const inside = (p: Pt) => p[0] >= box.x0 - reach && p[0] <= box.x1 + reach && p[1] >= box.y0 - reach && p[1] <= box.y1 + reach;
-  if (inside(a) || inside(b)) return true;
-  // Liang–Barsky against the box grown by the reach (a little more than needed at its corners: conservative).
-  let t0 = 0;
-  let t1 = 1;
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  const edges: [number, number][] = [
-    [-dx, a[0] - (box.x0 - reach)],
-    [dx, box.x1 + reach - a[0]],
-    [-dy, a[1] - (box.y0 - reach)],
-    [dy, box.y1 + reach - a[1]],
-  ];
-  for (const [p, q] of edges) {
-    if (p === 0) {
-      if (q < 0) return false;
-    } else {
-      const r = q / p;
-      if (p < 0) t0 = Math.max(t0, r);
-      else t1 = Math.min(t1, r);
-      if (t0 > t1) return false;
-    }
-  }
-  return true;
 }
 
 /** Whether a point is inside polylines by the nonzero rule. */
@@ -523,85 +489,13 @@ function inside(polys: readonly Pt[][], x: number, y: number): boolean {
   return winding !== 0;
 }
 
-/** sRGB "#rrggbb" opaque, premultiplied linear light, as half floats store it (a drawn pixel of it is the same). */
-function opaqueLinear(hex: string): [number, number, number, number] {
-  const n = Number.parseInt(hex.slice(1), 16);
-  const c = (v: number) => fromHalf(toHalf(srgbToLinear(v / 255)));
-  return [c((n >> 16) & 255), c((n >> 8) & 255), c(n & 255), 1];
-}
-
-const rasters = new WeakMap<ShapeLayer, ShapeRaster>();
-
-/** The shape's surface and the tiles of it that aren't empty (kept per layer object). */
-export function shapeRaster(layer: ShapeLayer, tile = 256): ShapeRaster {
-  const kept = rasters.get(layer);
-  if (kept && tile === 256) return kept;
-  const drawing = shapeDrawing(layer);
-  const b = drawing.bounds;
-  // Whole tiles, a power of two of them: a shape drawn or dragged larger changes its surface's size a few times only.
-  const side = (v: number) => Math.min(MAX_RASTER_SIDE, 2 ** Math.ceil(Math.log2(Math.max(1, Math.ceil(Math.max(v, 1) / tile)))) * tile);
-  const size = { width: side(b?.x1 ?? 0), height: side(b?.y1 ?? 0) };
-  const raster: ShapeRaster = { key: shapeKey(layer), size, bounds: b, tiles: b ? touchedTiles(drawing, b, size, tile) : [] };
-  if (tile === 256) rasters.set(layer, raster);
-  return raster;
-}
-
-function touchedTiles(drawing: ShapeDrawing, b: Box, size: { width: number; height: number }, tile: number): ShapeRaster["tiles"] {
-  const tx0 = Math.max(0, Math.floor(b.x0 / tile));
-  const ty0 = Math.max(0, Math.floor(b.y0 / tile));
-  const tx1 = Math.min(size.width / tile - 1, Math.floor(b.x1 / tile));
-  const ty1 = Math.min(size.height / tile - 1, Math.floor(b.y1 / tile));
-  if (tx1 < tx0 || ty1 < ty0) return [];
-  const cols = tx1 - tx0 + 1;
-  const touched = new Uint8Array(cols * (ty1 - ty0 + 1));
-  const fills: { polys: Pt[][]; colour: string }[] = [];
-  for (const item of drawing.items) {
-    const polys = flatten(item.path, 8);
-    // A fill's edge is antialiased over a pixel; a stroke reaches half its width (and a miter's point) past its path.
-    const reach = item.kind === "stroke" ? reachOf(item) : 1.5;
-    if (item.kind === "fill") fills.push({ polys, colour: item.colour });
-    for (const poly of polys) {
-      for (let i = 0; i + 1 < poly.length + (item.kind === "fill" ? 1 : 0); i++) {
-        const a = poly[i];
-        const c = poly[(i + 1) % poly.length];
-        const x0 = Math.max(tx0, Math.floor((Math.min(a[0], c[0]) - reach) / tile));
-        const x1 = Math.min(tx1, Math.floor((Math.max(a[0], c[0]) + reach) / tile));
-        const y0 = Math.max(ty0, Math.floor((Math.min(a[1], c[1]) - reach) / tile));
-        const y1 = Math.min(ty1, Math.floor((Math.max(a[1], c[1]) + reach) / tile));
-        for (let ty = y0; ty <= y1; ty++) {
-          for (let tx = x0; tx <= x1; tx++) {
-            const k = (ty - ty0) * cols + (tx - tx0);
-            if (touched[k]) continue;
-            if (segmentNearBox(a, c, { x0: tx * tile, y0: ty * tile, x1: (tx + 1) * tile, y1: (ty + 1) * tile }, reach)) touched[k] = 1;
-          }
-        }
-      }
-    }
-  }
-  const out: ShapeRaster["tiles"] = [];
-  for (let ty = ty0; ty <= ty1; ty++) {
-    for (let tx = tx0; tx <= tx1; tx++) {
-      if (touched[(ty - ty0) * cols + (tx - tx0)]) {
-        out.push({ tx, ty, constant: null });
-        continue;
-      }
-      // Untouched: wholly inside a fill (the last one drawn there), or empty.
-      const cx = (tx + 0.5) * tile;
-      const cy = (ty + 0.5) * tile;
-      const fill = fills.findLast((f) => inside(f.polys, cx, cy));
-      if (fill) out.push({ tx, ty, constant: opaqueLinear(fill.colour) });
-    }
-  }
-  return out;
-}
-
 // --- hit testing ---
 
 /**
  * Whether document point (x, y) is on what the layer draws, within `tolerance` document pixels (its fill, or its
  * stroke's band): what the Move tool and the shape tools pick by.
  */
-export function hitShape(layer: ShapeLayer, x: number, y: number, tolerance = 0): boolean {
+export function hitShape(layer: DrawnShape, x: number, y: number, tolerance = 0): boolean {
   const drawing = shapeDrawing(layer);
   const b = drawing.bounds;
   if (!b || x < b.x0 - tolerance || x > b.x1 + tolerance || y < b.y0 - tolerance || y > b.y1 + tolerance) return false;
@@ -623,7 +517,7 @@ function nearAny(polys: readonly Pt[][], x: number, y: number, reach: number): b
 }
 
 /** The box a layer's shape occupies on the canvas (for picking, snapping, merges), or null when it draws nothing. */
-export const shapeBounds = (layer: ShapeLayer): Box | null => shapeDrawing(layer).bounds;
+export const shapeBounds = (layer: DrawnShape): Box | null => shapeDrawing(layer).bounds;
 
 /** A point the canvas's overlays use: the document point of a placed shape's line control. */
 export type { Point };

@@ -47,14 +47,15 @@ import { planFields } from "./style.ts";
 import { readSurface, surfaceFromPixels } from "../surface-pixels.ts";
 import { COMPOSITE_FORMATS, Compositor, type Drawable, type EvaluatorStats, type LayerDraw, type PlanSources, type Quality, type WorkPair, compositeTexture, needsPass } from "./compositor.ts";
 import { RenderContext } from "./context.ts";
+import type { BrushEffect } from "./brush-effects.ts";
 import { GlowCaches } from "./glow-cache.ts";
 import { CameraRawAnalyses } from "./camera-raw-analysis.ts";
 import { type Gpu, createGpu } from "./gpu.ts";
 import { LatestOnly } from "./latest.ts";
 import { SourceImage } from "./source.ts";
+import { CanvasImages } from "./canvas-content.ts";
 import { SurfaceImage, type SurfaceKind } from "./surface.ts";
-import { shapeStore, shapeTiles } from "./shape-raster.ts";
-import { shapeRaster } from "@shared/photo/shape-drawing.ts";
+import { shapeBounds } from "@shared/photo/shape-drawing.ts";
 import { type PatternImage, builtInPatternLevels, patternFromLinear, patternMips } from "@shared/photo/style/patterns.ts";
 
 export { backgroundLight };
@@ -191,6 +192,8 @@ export class PhotoRenderer {
   /** Document patterns' levels by surface and size (`patternOf`). */
   private readonly patternLevels = new Map<string, { levels: PatternImage[] | null; failed: boolean; loaded: Promise<void> }>();
   private stroke: Stroke | null = null;
+  /** Layers the 2D canvas draws (text), drawn once per raster (`canvas-content.ts`). */
+  private readonly canvasImages = new CanvasImages();
   private projectId: string | null = null;
   private doc: PhotoProject | null = null;
   private assets = new Map<string, MediaAsset>();
@@ -333,17 +336,15 @@ export class PhotoRenderer {
    * says. A surface whose size or atlas changed is made afresh; one no layer has any more goes.
    */
   private syncSurfaces(doc: PhotoProject) {
-    const wanted = new Map<string, { kind: SurfaceKind; size: { width: number; height: number }; bits: 8 | 16; id: SurfaceId | null; store?: SurfaceUploads }>();
+    const wanted = new Map<string, { kind: SurfaceKind; size: { width: number; height: number }; bits: 8 | 16; id: SurfaceId | null }>();
     for (const l of doc.layers) {
       if (l.kind === "pixel") wanted.set(`${l.id}:content`, { kind: "pixels", size: l.size, bits: 8, id: l.surface });
-      // A shape layer's pixels are made here from its geometry (shape-raster.ts), never fetched; its mask is in its surface's pixels.
-      if (l.kind === "shape") wanted.set(`${l.id}:content`, { kind: "pixels", bits: 8, ...shapeTiles.register(l), store: shapeStore });
       if (!l.mask) continue;
       if (l.kind === "image") {
         const asset = this.assets.get(l.mediaId);
         if (!asset?.width || !asset.height) continue;
         wanted.set(`${l.id}:mask`, { kind: "mask", size: { width: asset.width, height: asset.height }, bits: asset.image?.bits === 16 ? 16 : 8, id: l.mask.surface });
-      } else wanted.set(`${l.id}:mask`, { kind: "mask", size: l.kind === "pixel" ? l.size : l.kind === "shape" ? shapeRaster(l).size : doc.canvas, bits: 8, id: l.mask.surface });
+      } else wanted.set(`${l.id}:mask`, { kind: "mask", size: l.kind === "pixel" ? l.size : doc.canvas, bits: 8, id: l.mask.surface });
     }
     for (const [key, s] of this.surfaces) {
       if (wanted.has(key)) continue;
@@ -352,7 +353,7 @@ export class PhotoRenderer {
       this.surfaces.delete(key);
     }
     for (const [key, want] of wanted) {
-      const shape = `${want.kind}|${want.size.width}x${want.size.height}|${want.bits}${want.store ? "|drawn" : ""}`;
+      const shape = `${want.kind}|${want.size.width}x${want.size.height}|${want.bits}`;
       let s = this.surfaces.get(key);
       if (s && s.shape !== shape) {
         if (this.stroke?.key === key) this.stroke = null;
@@ -364,7 +365,7 @@ export class PhotoRenderer {
         this.surfaces.set(key, made);
         void this.contextFor(want.bits).then((ctx) => {
           if (this.surfaces.get(key) !== made || this.destroyed) return;
-          const image = new SurfaceImage(ctx, want.size, want.kind, want.store ?? this.uploads!);
+          const image = new SurfaceImage(ctx, want.size, want.kind, this.uploads!);
           image.onChange = () => this.changed();
           made.image = image;
           void this.showSurface(made);
@@ -529,13 +530,19 @@ export class PhotoRenderer {
       if (node.kind === "pixel") {
         const pixels = this.surfaceOf(node.layerId, "content");
         if (!pixels) return null;
-        return { source: pixels, matrix: node.matrix, transform: node.transform, opacity: node.opacity, mask };
+        return { source: pixels, matrix: node.matrix, transform: node.transform, opacity: node.opacity, mask, crop: node.crop };
+      }
+      if (node.kind === "canvas") {
+        // Drawn now if it isn't kept, in the 8-bit atlas (beside its mask, in document pixels).
+        const image = this.canvasImages.get(this.contexts.get("rgba16float")!, node.raster);
+        if (mask && mask.ctx !== image.ctx) return null;
+        return { source: image, matrix: node.matrix, transform: node.transform, opacity: node.opacity, mask };
       }
       const image = this.sources.get(node.mediaId)?.image;
       if (!image) return null;
       // A mask lives in its source's atlas (a 16-bit source's is f32): one made for another isn't drawn with it.
       if (mask && mask.ctx !== image.ctx) return null;
-      return { source: image, matrix: layerMatrix(node.transform, image.layout), transform: node.transform, opacity: node.opacity, mask };
+      return { source: image, matrix: layerMatrix(node.transform, image.layout), transform: node.transform, opacity: node.opacity, mask, crop: node.crop };
     },
     mask: (node: { layerId: string }): Drawable | null => this.surfaceOf(node.layerId, "mask"),
     glowCache: (node, index) => this.glows.lookup(node, index),
@@ -1016,7 +1023,7 @@ export class PhotoRenderer {
       canvas: size,
       compositing: "linear",
       background: [0, 0, 0, 1],
-      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, blend: null, style: null, filters: [], contentKey: "mask", commutesFrom: 0, commutes: true, key: "mask" }],
+      nodes: [{ kind: "pixel", layerId, surface: mask.shown, transform, size, matrix, opacity: 1, mask: null, blend: null, style: null, filters: [], contentKey: "mask", commutesFrom: 0, commutes: true, key: "mask", crop: null }],
       baseKey: "mask",
       prefixKeys: ["mask"],
       key: "mask",
@@ -1226,8 +1233,8 @@ export class PhotoRenderer {
   private placeOf(layerId: string, part: SurfacePart): { matrix: Affine; scale: number } | null {
     const layer = this.doc?.layers.find((l) => l.id === layerId);
     if (!layer) return null;
-    // An adjustment's or a generator's pixels (its mask's) are the document's; a shape's too (its surface's).
-    if (!isPlaced(layer) || layer.kind === "shape") return { matrix: IDENTITY, scale: 1 };
+    // An adjustment's, a generator's, a text's or a shape's pixels (its mask's) are the document's.
+    if (!isPlaced(layer) || layer.kind === "text" || layer.kind === "shape") return { matrix: IDENTITY, scale: 1 };
     const surface = this.surfaceOf(layerId, part);
     const size = layer.kind === "pixel" ? layer.size : surface?.size;
     if (!size) return null;
@@ -1247,6 +1254,26 @@ export class PhotoRenderer {
     surface.begin({ ...brush, radius: brush.radius / place.scale }, colour, { matrix: place.matrix }, selection, erase);
     this.stroke = { key: `${layerId}:${part}`, surface, toSurface: invert(place.matrix), scale: place.scale };
     return true;
+  }
+
+  /**
+   * Starts a stroke painted a whole tile at a time on a layer's pixels or mask (the Gradient tool's Classic mode),
+   * limited by `selection`: `paintTiles` paints it (again as it changes), `endStroke` and `cancelStroke` end it as
+   * any stroke. False when that surface isn't on the GPU yet.
+   */
+  beginTiles(layerId: string, part: SurfacePart, selection: PhotoSelection | null): boolean {
+    this.cancelStroke();
+    const surface = this.surfaceOf(layerId, part);
+    const place = this.placeOf(layerId, part);
+    if (!surface || !place) return false;
+    surface.beginTiles({ matrix: place.matrix }, selection);
+    this.stroke = { key: `${layerId}:${part}`, surface, toSurface: invert(place.matrix), scale: place.scale };
+    return true;
+  }
+
+  /** Paints the stroke `beginTiles` began with `run`'s pass (`SurfaceImage.paintTiles`). */
+  paintTiles(run: Parameters<SurfaceImage["paintTiles"]>[0]) {
+    this.stroke?.surface.paintTiles(run);
   }
 
   /** Paints the stroke through these pointer samples (document pixels). */
@@ -1294,13 +1321,70 @@ export class PhotoRenderer {
     return id;
   }
 
+  /**
+   * Starts a stroke that reads the pixels it changes (Dodge, Burn, Sponge, the Background Eraser: `brush-effects.ts`)
+   * on a layer's pixels or mask, as `beginStroke` does: `brush` in document pixels. False when that surface isn't on
+   * the GPU yet. Toning's samples go through `strokeTo`; the Background Eraser works on `strokeTarget`.
+   */
+  beginEffectStroke(layerId: string, part: SurfacePart, brush: BrushSettings, effect: BrushEffect, selection: PhotoSelection | null): boolean {
+    this.cancelStroke();
+    const surface = this.shownSurface(layerId, part);
+    const place = this.placeOf(layerId, part);
+    if (!surface || !place) return false;
+    surface.beginEffect({ ...brush, radius: brush.radius / place.scale }, effect, { matrix: place.matrix }, selection);
+    this.stroke = { key: `${layerId}:${part}`, surface, toSurface: invert(place.matrix), scale: place.scale };
+    return true;
+  }
+
+  /**
+   * A layer's surface only once it shows what the document says (a layer converted to pixels a moment ago is still
+   * fetching them): a stroke that reads its pixels must start from them, never from an empty surface.
+   */
+  private shownSurface(layerId: string, part: SurfacePart): SurfaceImage | null {
+    const s = this.surfaces.get(`${layerId}:${part}`);
+    return s?.image && s.failed === null && s.image.shown === s.wanted ? s.image : null;
+  }
+
+  /** Dabs at these points (document pixels) whatever the spacing: Airbrush's, where the pointer rests. */
+  strokeDab(points: readonly { x: number; y: number }[]) {
+    const s = this.stroke;
+    if (s) s.surface.dabAt(points.map((p) => apply(s.toSurface, p.x, p.y)));
+  }
+
+  /** The stroke in progress: its surface, and document pixels → its pixels and their scale. */
+  get strokeTarget(): { readonly surface: SurfaceImage; readonly toSurface: Affine; readonly scale: number } | null {
+    return this.stroke;
+  }
+
+  /**
+   * Applies `effect` to what `selection` covers of a layer's pixels or mask (all of it: null) at once, as a new
+   * surface the caller commits (the assistant's toning and colour removal; `accumulate` writes the Background
+   * Eraser's from the pixels). Null when nothing there changes; undefined while that surface isn't on the GPU (or doesn't
+   * show what the document says yet).
+   */
+  async applyEffect(
+    layerId: string,
+    part: SurfacePart,
+    effect: BrushEffect,
+    selection: PhotoSelection | null,
+    accumulate?: (surface: SurfaceImage, toSurface: Affine, tiles: { tx: number; ty: number }[]) => Promise<void>,
+  ): Promise<SurfaceId | null | undefined> {
+    this.cancelStroke();
+    const surface = this.shownSurface(layerId, part);
+    const place = this.placeOf(layerId, part);
+    if (!surface || !place) return undefined;
+    const entry = this.surfaces.get(`${layerId}:${part}`);
+    const toSurface = invert(place.matrix);
+    const id = await surface.effectFill(effect, selection, { matrix: place.matrix }, accumulate && ((tiles) => accumulate(surface, toSurface, tiles)));
+    if (id && entry) entry.wanted = id;
+    return id;
+  }
+
   /** The size and place of a layer's mask, as the document has it now. */
   private maskShape(doc: PhotoProject, layerId: string): { size: { width: number; height: number }; matrix: Affine; bits: 8 | 16 } | null {
     const layer = doc.layers.find((l) => l.id === layerId);
     if (!layer) return null;
-    // A shape's mask is in its surface's pixels: the document's, from its top-left corner.
-    if (layer.kind === "shape") return { size: shapeRaster(layer).size, matrix: IDENTITY, bits: 8 };
-    if (!isPlaced(layer)) return { size: doc.canvas, matrix: IDENTITY, bits: 8 };
+    if (!isPlaced(layer) || layer.kind === "text" || layer.kind === "shape") return { size: doc.canvas, matrix: IDENTITY, bits: 8 };
     if (layer.kind === "pixel") return { size: layer.size, matrix: layerMatrix(layer.transform, layer.size), bits: 8 };
     const asset = this.assets.get(layer.mediaId);
     if (!asset?.width || !asset.height) return null;
@@ -1363,15 +1447,16 @@ export class PhotoRenderer {
     const layerId = layer?.id ?? "";
     if (!layer || layer.kind === "adjustment" || !this.uploads) throw new Error("Only an image, pixel or generator layer can be made pixels.");
     // A generator's content is everywhere: what the canvas shows of it. Filters reach past a layer's box.
-    const shape = layer.kind === "generator" ? doc.canvas : layer.kind === "pixel" ? layer.size : this.maskShape(doc, layerId)?.size;
+    const shape = layer.kind === "generator" ? doc.canvas : layer.kind === "pixel" || layer.kind === "text" || layer.kind === "shape" ? layer.size : this.maskShape(doc, layerId)?.size;
     if (!shape) throw new Error("That image isn't loaded yet.");
     const matrix = layer.kind === "generator" ? IDENTITY : layerMatrix(layer.transform, shape);
-    const reach = layer.kind === "generator" ? 0 : filtersReach(layer);
+    // A text's glyphs may reach a little past its frame.
+    const reach = layer.kind === "generator" ? 0 : filtersReach(layer) + (layer.kind === "text" ? Math.ceil(0.25 * layer.font.size * layerScale(layer.transform)) + 2 : 0);
     let corners = [apply(matrix, 0, 0), apply(matrix, shape.width, 0), apply(matrix, 0, shape.height), apply(matrix, shape.width, shape.height)];
-    // A shape layer's pixels are what it draws: the box around that, not its surface's.
-    const drawn = layer.kind === "shape" ? shapeRaster(layer).bounds : null;
+    // A shape's pixels are what it draws: its stroke and heads reach past its box.
     if (layer.kind === "shape") {
-      if (!drawn) throw new Error("That shape draws nothing (no stroke or fill): there are no pixels to make.");
+      const drawn = shapeBounds(layer);
+      if (!drawn) throw new Error("That shape draws nothing (no stroke, no fill): there are no pixels to make.");
       corners = [{ x: drawn.x0, y: drawn.y0 }, { x: drawn.x1, y: drawn.y1 }];
     }
     const s = selection;
@@ -1385,6 +1470,9 @@ export class PhotoRenderer {
     delete plain.blend;
     delete plain.fill;
     delete plain.blending;
+    // A text is drawn only near its canvas: it's moved onto this one (its box's top-left at 0, 0), and so are the regions.
+    const shift = plain.kind === "text" ? { x: x0, y: y0 } : { x: 0, y: 0 };
+    if (plain.kind === "text") plain.transform = { ...plain.transform, x: plain.transform.x - x0, y: plain.transform.y - y0 };
     const alone: PhotoProject = { ...doc, compositing: "linear", canvas: { width, height, background: null }, layers: [plain] };
     const plan = await this.settledPlan(alone, false);
     await this.glows.ensure(plan);
@@ -1398,9 +1486,9 @@ export class PhotoRenderer {
     try {
       for (let ty = 0; ty < tilesY; ty++) {
         for (let tx = 0; tx < tilesX; tx++) {
-          const region: View = { zoom: 1, x: x0 + tx * tile, y: y0 + ty * tile, width: tile, height: tile };
+          const region: View = { zoom: 1, x: x0 - shift.x + tx * tile, y: y0 - shift.y + ty * tile, width: tile, height: tile };
           // What the selection covers of this tile's document pixels: none, and the tile is left out.
-          const cover = selection ? coverageIn(selection, { x: region.x, y: region.y, width: tile, height: tile }) : null;
+          const cover = selection ? coverageIn(selection, { x: region.x + shift.x, y: region.y + shift.y, width: tile, height: tile }) : null;
           if (cover && !cover.some((v) => v > 0)) continue;
           const readback = await this.whenResident(plan, region, () => {
             const readback = device.createBuffer({ size: tile * tile * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -1510,6 +1598,7 @@ export class PhotoRenderer {
       this.surfaces.clear();
       for (const s of this.sources.values()) s.image?.destroy();
       this.sources.clear();
+      this.canvasImages.clear();
       this.dropScreen();
       this.compiled = null;
       this.glows.destroy();
@@ -1533,6 +1622,7 @@ export class PhotoRenderer {
     this.surfaces.clear();
     for (const s of this.sources.values()) s.image?.destroy();
     this.sources.clear();
+    this.canvasImages.clear();
     this.dropScreen();
     this.glows.destroy();
     this.compositor?.destroy();

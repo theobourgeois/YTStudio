@@ -6,11 +6,13 @@
  */
 import { createId } from "../ids.ts";
 import { normalizeLayerBlending } from "./blending.ts";
+import { normalizeCrop } from "./crop.ts";
 import { MAX_PATTERN_SIDE } from "./style/patterns.ts";
 import { normalizeStyle } from "./style/style.ts";
 import { effectDefinition, validateParams } from "./effects/index.ts";
 import { isHash } from "./surfaces.ts";
 import { normalizeShapeFields } from "./shapes.ts";
+import { normalizeTextFields } from "./text.ts";
 import {
   type AdjustmentLayer,
   CANVAS_PRESETS,
@@ -29,6 +31,7 @@ import {
   type PixelLayer,
   type ShapeLayer,
   type SurfaceId,
+  type TextLayer,
 } from "./types.ts";
 
 const DEFAULT_PRESET = CANVAS_PRESETS[0];
@@ -180,7 +183,7 @@ function normalizeFilters(l: Record<string, unknown>, id: string, seen: Set<stri
   return out;
 }
 
-const LAYER_NAMES: Record<string, string> = { image: "Image", pixel: "Layer", adjustment: "Adjustment", generator: "Lens Flare", shape: "Shape" };
+const LAYER_NAMES: Record<string, string> = { image: "Image", pixel: "Layer", adjustment: "Adjustment", generator: "Lens Flare", text: "Text", shape: "Shape" };
 
 function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, report: Report): PhotoLayer | null {
   if (!value || typeof value !== "object") return null;
@@ -192,7 +195,7 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
     ...normalizeMask(l.mask, id, report),
     ...normalizeLayerBlending(l),
     // Adjustment layers have Blending Options but no effects (Photoshop's); generator layers none yet either.
-    ...(l.kind === "image" || l.kind === "pixel" || l.kind === "shape" ? styleOf(l.style) : {}),
+    ...(l.kind === "image" || l.kind === "pixel" || l.kind === "text" || l.kind === "shape" ? styleOf(l.style) : {}),
   });
   const styleOf = (value: unknown) => {
     const style = normalizeStyle(value, seen, () => createId("fx"), report);
@@ -208,6 +211,8 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
       mediaId: l.mediaId,
       transform: normalizeTransform(l.transform, { x: canvas.width / 2, y: canvas.height / 2 }),
       ...normalizeFilters(l, id, seen, report),
+      // Its source's size isn't known here: the plan keeps the crop inside it.
+      ...normalizeCrop(l.crop, null, report, id),
     };
     return layer;
   }
@@ -251,6 +256,20 @@ function normalizeLayer(value: unknown, canvas: PhotoCanvas, seen: Set<string>, 
       surface: surfaceRef(l.surface, `Layer ${id}`, report),
       size,
       transform: normalizeTransform(l.transform, { x: size.width / 2, y: size.height / 2 }),
+      ...normalizeFilters(l, id, seen, report),
+      ...normalizeCrop(l.crop, size, report, id),
+    };
+    return layer;
+  }
+  if (l.kind === "text") {
+    const id = uniqueId(l.id, "layer", seen);
+    const fields = normalizeTextFields(l, id, report);
+    const layer: TextLayer = {
+      id,
+      kind: "text",
+      ...common(id),
+      ...fields,
+      transform: normalizeTransform(l.transform, { x: canvas.width / 2, y: canvas.height / 2 }),
       ...normalizeFilters(l, id, seen, report),
     };
     return layer;

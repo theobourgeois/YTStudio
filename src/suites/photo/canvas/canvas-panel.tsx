@@ -15,6 +15,7 @@ import { duplicateLayers, moveLayersBy } from "@shared/photo/edits";
 import { srgbToLinear } from "@shared/photo/colour";
 import { fitView, panBy, viewToDoc, zoomAbout } from "@shared/photo/geometry";
 import { contains } from "@shared/photo/layers";
+import { visiblePlace } from "@shared/photo/crop";
 import { type LayerTransform, type PhotoLayer, type PhotoProject, type PlacedLayer, isPlaced } from "@shared/photo/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { liveRenderer, useRenderState } from "../live";
@@ -652,7 +653,8 @@ function SelectedOutlines({ ids }: { ids: readonly string[] }) {
       {layers.map((l) => {
         const size = ids.includes(l.id) ? sizeOf(l, assets) : null;
         if (!size || !isPlaced(l)) return null;
-        const points = outline(l.transform, size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);
+        const shown = visiblePlace(l, size);
+        const points = outline(shown.t, shown.size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);
         return <polygon key={l.id} points={points.join(" ")} fill="none" stroke="var(--brand)" strokeOpacity={0.6} strokeDasharray="3 3" strokeWidth={1} data-selected-outline={l.id} />;
       })}
     </>
@@ -667,10 +669,11 @@ function HoverOutline() {
   const found = usePhotoDoc((d) => d.layers.find((l) => l.id === hovered));
   const layer = found && isPlaced(found) && !selected ? found : undefined;
   const imageSize = useLayerSize(layer?.kind === "image" ? layer.mediaId : undefined);
-  const size = layer?.kind === "pixel" || layer?.kind === "shape" ? layer.size : imageSize;
+  const size = layer?.kind === "pixel" || layer?.kind === "text" || layer?.kind === "shape" ? layer.size : imageSize;
   if (!view || !layer || !size) return null;
   const dpr = devicePixelRatio;
-  const points = outline(layer.transform, size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);
+  const shown = visiblePlace(layer, size);
+  const points = outline(shown.t, shown.size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);
   return (
     <svg className="pointer-events-none absolute inset-0 size-full overflow-visible" data-hover-outline={layer.id}>
       <polygon points={points.join(" ")} fill="none" stroke="var(--brand)" strokeWidth={1.5} />

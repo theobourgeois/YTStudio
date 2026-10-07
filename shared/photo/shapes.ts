@@ -122,7 +122,7 @@ function ownControl(from: DocPoint, to: DocPoint, bend: number): Point | null {
   return { x: (from[0] + to[0]) / 2 + (dy / length) * 2 * bend, y: (from[1] + to[1]) / 2 - (dx / length) * 2 * bend };
 }
 
-export function placedShape(layer: ShapeLayer): PlacedShape {
+export function placedShape(layer: Pick<ShapeLayer, "shape" | "size" | "transform">): PlacedShape {
   const t = layer.transform;
   const s = layer.shape;
   if (s.type !== "line") {

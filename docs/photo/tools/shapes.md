@@ -78,8 +78,9 @@ why, and where we still differ.
 **Drawn from the geometry, never stored as pixels.** `shared/photo/shape-drawing.ts` turns a layer into paths in
 document pixels (fills and strokes, with clips for inside and outside strokes), `shape-rough.ts` is rough.js's
 algorithm (lines, curves, ellipses, hachure) seeded by the layer's id, so the same layer looks the same in every
-render. The tab plays those paths on a 2D canvas per tile of 256 pixels (`render/shape-raster.ts`): the renderer
-shows a shape layer as a surface whose tiles it makes itself instead of fetching them. So it composites like any
+render. A shape layer is a 2D-canvas layer, as a text layer is (`shared/photo/canvas-content.ts`: its content is
+`ShapeContent`, how far it reaches past its box `shapeOverhang`): the plan makes it a canvas node over a raster of
+whole document pixels, which the tab draws by playing those paths (`render/shape-draw.ts`). So it composites like any
 pixel layer: blend modes, opacity, Fill, masks, layer styles, filters, thumbnails, the assistant's pictures,
 merges, exports and Rasterize (Convert to Pixels) all see the same pixels. A shape is drawn at document resolution,
 as Photoshop shows a shape layer: zoomed past 100% its pixels show, and what's shown is what's exported.
@@ -115,10 +116,10 @@ canvas, and its style. So boxing something or pointing an arrow at it takes one 
   placed layer has: the Move tool, snapping, the transform box, multi-layer moves, `transform_layer` and the canvas
   anchoring need nothing new. Its shape tool handles edit the geometry and bake the scale back into the box (scale
   ±1), so the box's numbers stay the shape's pixel size.
-- **The raster is anchored at the document's origin** (its tiles are the document's tile grid, as far right and down
-  as the shape reaches): it doesn't depend on the canvas, so merges and Rasterize (which render with a canvas of
-  their own) draw it in the same place. A shape's mask is in document pixels, as an adjustment's and a generator's
-  are: it doesn't move with the shape.
+- **The raster is the box of whole document pixels around what it draws** (the canvas, grown by its effects' and
+  filters' reach), drawn through the shape's whole transform, so it's sharp at any scale or angle. A shape's mask is
+  in document pixels, as an adjustment's, a generator's and a text's are: it doesn't move with the shape (a canvas
+  crop moves it).
 - **Strokes don't scale** with the transform (Photoshop's, Figma's resizing, Excalidraw's): a box drawn around a face
   keeps its 8 px stroke when it's resized.
 - **The tool stays** after drawing (Photoshop's), rather than Excalidraw's return to Selection: the Move tool is V.
@@ -136,8 +137,8 @@ canvas, and its style. So boxing something or pointing an arrow at it takes one 
 - Arrowheads have fixed proportions (no Width, Length or Concavity), sized from the stroke's width; no outline
   variants or crow's feet; arrows bend into one curve, not elbows or several points.
 - Space while drawing doesn't move the shape; Excalidraw's tool lock doesn't exist (the tool always stays).
-- A shape is clipped at the document's top and left edges (its raster starts there), and its mask stays put when the
-  shape moves.
+- A shape far past the canvas is cut a little past it (its effects' reach), and its mask stays put when the shape
+  moves. The Crop tool doesn't crop a shape layer (it crops images and pixel layers).
 - Zoomed past 100%, a shape shows its pixels (as Photoshop's do); the outline drawn over it while it's selected is
   the vector.
 

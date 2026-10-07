@@ -57,6 +57,8 @@ import { clickLayer } from "../selection";
 import { usePhotoUi } from "../ui";
 import { BlendModeMenu, useBlendModePreview } from "./blend-mode-menu";
 import { useLayerThumbnail, useMaskThumbnail } from "./thumbnails";
+import { TextThumb } from "../toolbox/type/text-thumb";
+import { editTextLayer } from "../toolbox/type/session";
 import { ShapeThumb } from "../toolbox/shapes/thumb";
 
 /** Each adjustment's icon (Photoshop's Adjustments panel has one per kind). */
@@ -354,7 +356,9 @@ function LayersMenu({ count }: { count: number }) {
       {active?.mask && <ContextMenuItem onSelect={() => layerActions.deleteMask()}>Delete Layer Mask</ContextMenuItem>}
       {active && hasContent(active) && <ContextMenuItem onSelect={() => layerActions.addFilter("glow", active.id)}>Add Glow Filter</ContextMenuItem>}
       <ContextMenuItem onSelect={() => usePhotoUi.getState().setFilterGalleryOpen(true)}>Filter Gallery…</ContextMenuItem>
-      {(active?.kind === "image" || active?.kind === "generator" || active?.kind === "shape") && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Convert to Pixels</ContextMenuItem>}
+      {(active?.kind === "image" || active?.kind === "generator") && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Convert to Pixels</ContextMenuItem>}
+      {active?.kind === "text" && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Rasterize Type</ContextMenuItem>}
+      {active?.kind === "shape" && <ContextMenuItem onSelect={() => void layerActions.convertToPixels(active.id)}>Rasterize Shape</ContextMenuItem>}
       <ContextMenuItem disabled={!active || active.kind === "adjustment"} onSelect={() => void editActions.definePattern()}>
         Define Pattern
       </ContextMenuItem>
@@ -490,6 +494,8 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow, folded, onFo
         const name = e.currentTarget.querySelector("[data-layer-name]")?.getBoundingClientRect();
         const onName = name && e.clientX >= name.left - 2 && e.clientX <= name.right + 2 && e.clientY >= name.top - 2 && e.clientY <= name.bottom + 2;
         if (onName) setRenaming(true);
+        // A text's T edits its words, all of them selected (Photoshop's).
+        else if (layer.kind === "text" && (e.target as Element).closest("[data-thumb='content']")) editTextLayer(layer.id, { selectAll: true });
         // A Camera Raw adjustment layer opens in its window (Photoshop's adjustment layers open their settings).
         else if (layer.kind === "adjustment" && layer.effect.type === "camera-raw") cameraRawActions.edit(layer.id, null);
         else layerActions.blendingOptions(layer.id);
@@ -512,7 +518,7 @@ function LayerRow({ layer, selected, onPress, dropAbove, dropBelow, folded, onFo
         {layer.visible ? <PiEye /> : <PiEyeSlash />}
       </button>
       <span className={cn("shrink-0 rounded-sm ring-offset-1 ring-offset-surface-1", targeted("content") && layer.kind !== "adjustment" && "ring-1 ring-foreground/70")} data-thumb="content" data-targeted={targeted("content") || undefined}>
-        {layer.kind === "image" ? <ImageThumb layer={layer} /> : layer.kind === "pixel" ? <PixelThumb layer={layer} /> : layer.kind === "generator" ? <GeneratorThumb layer={layer} /> : layer.kind === "shape" ? <ShapeThumb layer={layer} /> : <AdjustmentThumb layer={layer} />}
+        {layer.kind === "image" ? <ImageThumb layer={layer} /> : layer.kind === "pixel" ? <PixelThumb layer={layer} /> : layer.kind === "generator" ? <GeneratorThumb layer={layer} /> : layer.kind === "text" ? <TextThumb /> : layer.kind === "shape" ? <ShapeThumb layer={layer} /> : <AdjustmentThumb layer={layer} />}
       </span>
       {layer.mask && (
         <span className={cn("shrink-0 rounded-sm ring-offset-1 ring-offset-surface-1", targeted("mask") && "ring-1 ring-foreground/70")} data-thumb="mask" data-targeted={targeted("mask") || undefined} title="Layer mask: black hides, white reveals">

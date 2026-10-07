@@ -31,6 +31,8 @@ import { CAMERA_RAW_PARAMS } from "@shared/photo/effects/camera-raw/index";
 import type { EffectParamValue } from "@shared/photo/types";
 import { GradingPanel, MixerPanel } from "./camera-raw/colour-sections";
 import type { CameraRawSink } from "./camera-raw/sections";
+import { backgroundEraserKit } from "./toolbox/background-eraser";
+import { dodgeKit, spongeKit } from "./toolbox/toning";
 
 const curves = (id: string, set: AdjustmentLayer["effect"]["params"]["curves"]): AdjustmentLayer => ({
   id,
@@ -196,6 +198,18 @@ export const PHOTO_SECTIONS: GallerySection[] = [
     title: "Photo: Camera Raw's Color Mixer (sliders drawn in what they do) and Color Grading's wheels (drag the puck; double-click resets), 3-way and one wheel",
     source: "suites/photo/camera-raw/colour-sections.tsx",
     render: () => <CameraRawColour />,
+  },
+  {
+    id: "photo-toning",
+    title: "Photo: Dodge's, Sponge's and the Background Eraser's options bars (Range, Exposure, Protect Tones; Mode, Flow, Vibrance; Sampling, Limits, Tolerance)",
+    source: "suites/photo/toolbox/toning.tsx, background-eraser.tsx",
+    render: () => (
+      <div className="flex flex-col gap-3">
+        {dodgeKit.Options && <dodgeKit.Options />}
+        {spongeKit.Options && <spongeKit.Options />}
+        {backgroundEraserKit.Options && <backgroundEraserKit.Options />}
+      </div>
+    ),
   },
 ];
 

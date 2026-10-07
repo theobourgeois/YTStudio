@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createPhotoProject, normalizePhotoProject } from "./project.ts";
 import { compileRender } from "./render-plan.ts";
 import { describeGeometry, describePaint } from "./shape-describe.ts";
-import { MAX_RASTER_SIDE, flatten, hitShape, pathData, shapeBounds, shapeDrawing, shapeRaster } from "./shape-drawing.ts";
+import { canvasContentOf, canvasRaster } from "./canvas-content.ts";
+import { flatten, hitShape, pathData, shapeBounds, shapeDrawing, shapeOverhang } from "./shape-drawing.ts";
 import {
   DEFAULT_PAINT,
   addShapeLayer,
@@ -228,38 +229,38 @@ describe("what a shape draws", () => {
 });
 
 describe("a shape's pixels", () => {
-  it("lists only the tiles it touches, from the document's corner, a power of two of them across", () => {
-    const diagonal = shapeRaster(arrow({ x: 10, y: 10 }, { x: 2000, y: 2000 }));
-    expect(diagonal.size).toEqual({ width: 2048, height: 2048 });
-    // Along the diagonal only (and its neighbours where the stroke crosses a corner), not the 64 of its box.
-    expect(diagonal.tiles.length).toBeLessThan(30);
-    expect(diagonal.tiles.every((t) => Math.abs(t.tx - t.ty) <= 1)).toBe(true);
-    // Sorted by row.
-    expect(diagonal.tiles.map((t) => t.ty * 100 + t.tx)).toEqual([...diagonal.tiles.map((t) => t.ty * 100 + t.tx)].sort((a, b) => a - b));
+  it("reaches past its box by its stroke and heads, in its own pixels", () => {
+    // A centred 8 px stroke with miter corners: half its width times the miter allowance, and a pixel.
+    expect(shapeOverhang(rect())).toBeCloseTo(4 * 2.6 + 2, 6);
+    // Scaled by its transform: the same document pixels are fewer of its own.
+    const scaled = { ...rect(), transform: { ...rect().transform, scaleX: 2, scaleY: 2 } };
+    expect(shapeOverhang(scaled)).toBeCloseTo((4 * 2.6 + 2) / 2, 6);
+    expect(shapeOverhang(rect({ stroke: null, fill: "#000000" }))).toBeCloseTo(1, 6);
+    expect(shapeOverhang(rect({ stroke: null }))).toBe(0);
   });
 
-  it("makes tiles wholly inside a fill a constant of its colour", () => {
-    const big = shapeRaster(rect({ fill: "#ffffff" }, { x0: 0, y0: 0, x1: 1500, y1: 1500 }));
-    const constant = big.tiles.filter((t) => t.constant);
-    // Tiles 1 to 4 each way: the stroke touches the outer ring.
-    expect(constant.length).toBe(16);
-    expect(constant[0].constant).toEqual([1, 1, 1, 1]);
-    expect(big.tiles.find((t) => t.tx === 0 && t.ty === 0)?.constant).toBeNull();
-    // Off the document's top-left: cut there.
-    expect(shapeRaster(rect({}, { x0: -500, y0: -500, x1: -100, y1: -100 })).tiles).toEqual([]);
-    expect(shapeRaster(arrow({ x: 0, y: 0 }, { x: 1e6, y: 0 })).size.width).toBe(MAX_RASTER_SIDE);
+  it("is a canvas layer: its content and frame, drawn into a raster of whole document pixels around what it draws", () => {
+    const layer = arrow({ x: 100, y: 400 }, { x: 600, y: 400 });
+    const facts = canvasContentOf(layer)!;
+    expect(facts.content).toEqual({ kind: "shape", id: "a1", shape: layer.shape, size: layer.size, transform: layer.transform, paint: layer.paint });
+    const raster = canvasRaster(doc, facts, 0, false, (t) => t)!;
+    const b = shapeBounds(layer)!;
+    expect(raster.x).toBeLessThanOrEqual(b.x0);
+    expect(raster.y).toBeLessThanOrEqual(b.y0);
+    expect(raster.x + raster.width).toBeGreaterThanOrEqual(b.x1);
+    expect(raster.y + raster.height).toBeGreaterThanOrEqual(b.y1);
   });
 
-  it("is a pixel layer's node in the render plan, keyed by what it draws", () => {
+  it("is a canvas node in the render plan, keyed by what it draws", () => {
     const d = addShapeLayer(doc, rect({ fill: "#ff0000" }));
     const plan = compileRender(d, new Map());
     expect(plan.nodes).toHaveLength(1);
-    const node = plan.nodes[0];
-    expect(node).toMatchObject({ kind: "pixel", layerId: "r1", size: { width: 512, height: 256 }, transform: { x: 256, y: 128, scaleX: 1, scaleY: 1, rotation: 0 } });
-    expect(node.kind === "pixel" && !!node.surface?.startsWith("shape:")).toBe(true);
+    expect(plan.nodes[0]).toMatchObject({ kind: "canvas", layerId: "r1", raster: { content: { kind: "shape" } } });
     const first = d.layers[0] as ShapeLayer;
     const moved = compileRender(setShapeLayer(d, { ...first, transform: { ...first.transform, x: 210 } }), new Map());
     expect(moved.key).not.toBe(plan.key);
+    const restyled = compileRender(restyleShapes(d, ["r1"], { sloppiness: 1 }), new Map());
+    expect(restyled.key).not.toBe(plan.key);
   });
 });
 

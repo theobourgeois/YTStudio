@@ -8,6 +8,7 @@
 import type { ParamSpec } from "@shared/photo/effects/params";
 import type { DocPoint, EffectParamValue, Gradient, PhotoProject } from "@shared/photo/types";
 import { ColorSwatchPicker } from "@/components/color-picker";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -51,6 +52,25 @@ export function ParamField({ spec, value, edit, change }: { spec: ParamSpec; val
         </div>
       );
     case "choice":
+      // More than four don't fit the panel as buttons (a Gradient Fill's five types): a menu.
+      if (spec.options.length > 4)
+        return (
+          <div className="flex items-center gap-2" data-param={spec.key}>
+            <Label spec={spec} />
+            <Select value={value as string} onValueChange={(v) => gesture.apply(v)}>
+              <SelectTrigger size="sm" className="h-7 w-32 text-xs" aria-label={spec.label}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {spec.options.map((o) => (
+                  <SelectItem key={o.value} value={o.value} className="text-xs">
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        );
       return (
         <div className="flex items-center gap-2" data-param={spec.key}>
           <Label spec={spec} />

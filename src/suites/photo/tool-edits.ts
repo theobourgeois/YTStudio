@@ -38,9 +38,13 @@ import {
 } from "@shared/photo/edits";
 import { effectPreset } from "@shared/photo/effects/catalog";
 import { FLARE_PRESETS } from "@shared/photo/effects/flare";
+import { describeGradient, gradientInput } from "@shared/photo/effects/gradient";
+import type { Gradient } from "@shared/photo/types";
 import { ADJUSTMENTS, type EffectDefinition, type EffectKind, FILTERS, GENERATORS, effectDefinition, newEffect, unavailableReason, usableAs } from "@shared/photo/effects/index";
 import { CURVE_CHANNELS, type ElementParamSpec, MAX_CURVE_POINTS, type ParamSpec, sameValue } from "@shared/photo/effects/params";
-import { bounds } from "@shared/photo/layers";
+import { bounds, layerMatrix } from "@shared/photo/layers";
+import { type CropRect, canvasCropRect, cropFromDocBox, cropOf, croppedBounds, parseRatio, ratioBox, setLayerCrop } from "@shared/photo/crop";
+import { selectionBox } from "@shared/photo/selection";
 import type { MergeKind } from "@shared/photo/merge";
 import { isColour } from "@shared/photo/project";
 import {
@@ -65,11 +69,15 @@ import { describeShapeLines } from "@shared/photo/shape-describe";
 import type { MediaAsset } from "@shared/types";
 import { fitted } from "./canvas/handles";
 import { imageLayerOf } from "./media";
+import { describeTextLayer } from "./text-tool-edits";
+import type { FrameText } from "@shared/photo/text";
 
 type Input = Record<string, unknown>;
 
 export interface PhotoEditEnv {
   assets: readonly MediaAsset[];
+  /** Measures a text's frame (the tab's fonts): what text edits need. */
+  frameText?: FrameText;
 }
 
 export interface PhotoEditResult {
@@ -86,7 +94,7 @@ const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : u
 
 /** A placed layer's size in its own pixels: an image's source (null while it's missing), a pixel layer's (null for adjustments). */
 export const sizeOf = (layer: PhotoLayer, assets: readonly MediaAsset[]): { width: number; height: number } | null => {
-  if (layer.kind === "pixel" || layer.kind === "shape") return layer.size;
+  if (layer.kind === "pixel" || layer.kind === "text" || layer.kind === "shape") return layer.size;
   if (layer.kind !== "image") return null;
   const a = assets.find((x) => x.id === layer.mediaId);
   return a?.width && a.height ? { width: a.width, height: a.height } : null;
@@ -133,6 +141,8 @@ function paramText(spec: ParamSpec, v: EffectParamValue | undefined): string {
         })
         .join("\n")}`;
     }
+    case "gradient":
+      return `${spec.key} ${describeGradient(v as Gradient)}`;
     default:
       return `${spec.key} ${String(v)}`;
   }
@@ -182,7 +192,9 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
   const t = layer.transform;
   const asset = layer.kind === "image" ? assets.find((a) => a.id === layer.mediaId) : undefined;
   const what =
-    layer.kind === "pixel"
+    layer.kind === "text"
+      ? describeTextLayer(layer)
+      : layer.kind === "pixel"
       ? `pixel layer ${layer.size.width}×${layer.size.height}${layer.surface ? " (painted)" : " (empty: nothing painted yet)"}`
       : `image ${layer.mediaId}${asset ? ` (${asset.name}, ${asset.width}×${asset.height})` : " (missing: the file isn't in the project)"}`;
   const parts = [
@@ -190,8 +202,11 @@ export function describeLayer(layer: PhotoLayer, assets: readonly MediaAsset[], 
     `   centre (${round(t.x)}, ${round(t.y)}), scale ${round(t.scaleX, 4)} × ${round(t.scaleY, 4)}, rotation ${round(t.rotation)}°`,
   ];
   if (size) {
-    const b = bounds(t, size);
+    // What shows of it: a cropped layer's box is its crop's.
+    const crop = cropOf(layer, size);
+    const b = layer.crop ? croppedBounds(layerMatrix(t, size), crop) : bounds(t, size);
     parts.push(`   box on the canvas: x ${round(b.x0)}..${round(b.x1)}, y ${round(b.y0)}..${round(b.y1)}`);
+    if (layer.crop) parts.push(`   cropped (crop_layer): shows its pixels x ${round(crop.x)}..${round(crop.x + crop.width)}, y ${round(crop.y)}..${round(crop.y + crop.height)} of ${size.width}×${size.height}; the rest is hidden, kept`);
   }
   return [...parts, ...filters, ...mask, ...faded].join("\n");
 }
@@ -534,6 +549,8 @@ function checkValue(spec: Exclude<ParamSpec, { kind: "curves" | "elements" }>, v
       if (v === null && spec.nullable) return null;
       if (!Array.isArray(v) || v.length !== 2 || !v.every((n) => typeof n === "number" && Number.isFinite(n))) throw new Error(`${name} must be [x, y] in canvas pixels${spec.nullable ? " (or null: the canvas's centre)" : ""}; got ${JSON.stringify(v)}.`);
       return [v[0], v[1]];
+    case "gradient":
+      return gradientInput(v, name);
   }
 }
 
@@ -641,7 +658,8 @@ export const addGeneratorTool: PhotoEdit = (doc, input) => {
   const def = effectDefinition(String(input.type ?? "lens-flare"));
   if (def?.kind !== "generator") throw new Error(`No generator "${String(input.type)}". The generators: ${GENERATORS.map((d) => d.type).join(", ")}.`);
   const preset = input.preset === undefined ? undefined : String(input.preset);
-  if (preset !== undefined && !FLARE_PRESETS.some((p) => p.id === preset)) throw new Error(`No preset "${preset}". The presets: ${FLARE_PRESETS.map((p) => p.id).join(", ")}.`);
+  const presets = def.presets?.map((p) => p.id) ?? FLARE_PRESETS.map((p) => p.id);
+  if (preset !== undefined && !presets.includes(preset)) throw new Error(`No ${def.label} preset "${preset}". Its presets: ${presets.join(", ")}.`);
   const above = input.above === undefined ? null : findLayerRef(doc, input.above).id;
   const id = createId("layer");
   const fresh = addGeneratorLayer(doc, { id, type: def.type, preset, name: typeof input.name === "string" ? input.name : undefined }, above);
@@ -711,4 +729,56 @@ export const setCanvasTool: PhotoEdit = (doc, input) => {
   if (input.compositing) next = setCompositing(next, input.compositing as "photoshop" | "linear");
   if (input.highlights !== undefined) next = setHighlights(next, input.highlights);
   return { doc: next, text: `Canvas: ${next.canvas.width}×${next.canvas.height} px, background ${next.canvas.background ?? "transparent"}, layers mix ${compositingOf(next) === "photoshop" ? "as Photoshop's" : "in linear light"}, highlights ${next.output.highlights}.` };
+};
+
+// --- the Crop tool's (docs/photo/tools/crop.md) ---
+
+/**
+ * `crop_canvas`'s box (whole canvas pixels, possibly past the canvas): the one given, a ratio's largest centred on the
+ * canvas, or the selection's bounds. The edit itself moves masks first (`cropCanvas`): the handler's.
+ */
+export function canvasCropOf(doc: PhotoProject, input: Input, selection: PhotoSelection | null): { box: CropRect; text: string } {
+  const canvas = { x: 0, y: 0, width: doc.canvas.width, height: doc.canvas.height };
+  let wanted: CropRect;
+  if (input.to_selection === true) {
+    if (!selection) throw new Error("There's no selection: make one first (select_rect…), or give a box or a ratio.");
+    const b = selectionBox(selection);
+    wanted = { x: Math.floor(b.x0), y: Math.floor(b.y0), width: Math.ceil(b.x1) - Math.floor(b.x0), height: Math.ceil(b.y1) - Math.floor(b.y0) };
+  } else if (input.ratio !== undefined) {
+    const r = typeof input.ratio === "string" ? parseRatio(input.ratio) : typeof input.ratio === "number" && input.ratio > 0 ? input.ratio : null;
+    if (!r) throw new Error('ratio must be width to height, like "4:5", "16:9" or "1.5".');
+    wanted = ratioBox(canvas, r);
+  } else {
+    const [x, y, width, height] = [num(input.x) ?? 0, num(input.y) ?? 0, num(input.width), num(input.height)];
+    if (width === undefined || height === undefined) throw new Error(`Give the box (x, y, width, height in canvas pixels; the canvas is ${doc.canvas.width}×${doc.canvas.height}), a ratio, or to_selection: true.`);
+    wanted = { x, y, width, height };
+  }
+  const box = canvasCropRect(wanted);
+  if (!box) throw new Error("That box is empty or too big: each side must be 1 to 30000 pixels.");
+  if (box.x === 0 && box.y === 0 && box.width === doc.canvas.width && box.height === doc.canvas.height) throw new Error(`That's the canvas as it is (${doc.canvas.width}×${doc.canvas.height}): nothing to crop.`);
+  const grows = box.x < 0 || box.y < 0 || box.x + box.width > doc.canvas.width || box.y + box.height > doc.canvas.height;
+  return {
+    box,
+    text: `Cropped the canvas to x ${box.x}..${box.x + box.width}, y ${box.y}..${box.y + box.height}: it's ${box.width}×${box.height} px now${grows ? " (grown past the old canvas: transparent there, or the background)" : ""}, everything moved by (${-box.x}, ${-box.y}). Layers keep their pixels past it.`,
+  };
+}
+
+/** `crop_layer`: a layer's crop from a box of the canvas, or taken off. */
+export const cropLayerTool: PhotoEdit = (doc, input, env) => {
+  const layer = findPlacedRef(doc, input.layer);
+  const size = sizeOf(layer, env.assets);
+  if (!size) throw new Error(`Layer "${layer.name}"'s image is missing, so it can't be cropped.`);
+  if (input.clear === true) {
+    const next = setLayerCrop(doc, layer.id, null, size);
+    return { doc: next, layerId: layer.id, text: next === doc ? `"${layer.name}" isn't cropped: it shows whole.` : `Took "${layer.name}"'s crop off: it shows whole again.` };
+  }
+  const [x, y, width, height] = [num(input.x), num(input.y), num(input.width), num(input.height)];
+  if (x === undefined || y === undefined || width === undefined || height === undefined || width <= 0 || height <= 0) {
+    throw new Error("Give the box to keep (x, y, width, height in canvas pixels; get_photo gives the layer's box), or clear: true.");
+  }
+  const crop = cropFromDocBox(layer.transform, size, { x, y, width, height });
+  if (!crop) throw new Error(`That box misses "${layer.name}" (get_photo gives its box on the canvas).`);
+  const next = setLayerCrop(doc, layer.id, crop, size);
+  const index = next.layers.findIndex((l) => l.id === layer.id);
+  return { doc: next, layerId: layer.id, text: `${next === doc ? "Nothing changed: " : "Cropped "}"${layer.name}".\n${describeLayer(next.layers[index], env.assets, index)}` };
 };
