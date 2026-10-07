@@ -30,12 +30,14 @@ import { runSelectSubject } from "./select-commands";
 import { type SelectOptions, useSelectOptions } from "./selecting";
 import { useSubjectModel } from "./subject-model";
 import { type PhotoTool, isSelectionTool, useActiveTool, usePhotoUi } from "./ui";
+import { TOOLBOX } from "./toolbox";
 
 export function ToolOptions() {
   const tool = useActiveTool();
   if (tool === "brush" || tool === "eraser") return <BrushOptionsBar />;
   if (isSelectionTool(tool)) return <SelectionOptionsBar tool={tool} />;
-  return null;
+  const Options = TOOLBOX[tool]?.Options;
+  return Options ? <Options /> : null;
 }
 
 const SIZE = { min: MIN_BRUSH, max: MAX_BRUSH, step: 1, decimals: 0, unit: "px" };

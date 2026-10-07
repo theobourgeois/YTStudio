@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupKey, groupOf } from "./tool-groups";
+import { groupKey, groupOf, isSelectionTool } from "./tool-groups";
 
 describe("tool groups", () => {
   it("a group's key gives its tool; with Shift, the next of it once it's in use", () => {
@@ -11,5 +11,15 @@ describe("tool groups", () => {
     expect(groupKey("marquee", "ellipse", "ellipse", false)).toBe("ellipse");
     expect(groupOf("polygonLasso")).toBe("lasso");
     expect(groupOf("brush")).toBeNull();
+  });
+
+  it("only the Marquees, the Lassos and the Wands select", () => {
+    expect(isSelectionTool("magicWand")).toBe(true);
+    expect(isSelectionTool("ellipse")).toBe(true);
+    expect(isSelectionTool("magicEraser")).toBe(false);
+    expect(isSelectionTool("gradient")).toBe(false);
+    expect(isSelectionTool("crop")).toBe(false);
+    expect(groupKey("eraser", "eraser", "eraser", true)).toBe("backgroundEraser");
+    expect(groupKey("toning", "sponge", "sponge", true)).toBe("dodge");
   });
 });

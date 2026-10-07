@@ -36,6 +36,7 @@ import { useSelectOptions } from "../selecting";
 import { contentBox, hitsContent } from "./content";
 import { sizeOf } from "../tool-edits";
 import { isSelectionTool, useActiveTool, usePhotoUi } from "../ui";
+import { TOOLBOX } from "../toolbox";
 import { CanvasDriver } from "./driver";
 import { resizeCursor, rotateCursor } from "./cursors";
 import { type Frame, frameOf, touches } from "./frame";
@@ -99,6 +100,7 @@ export function CanvasPanel() {
   const canvasWidth = usePhotoDoc((d) => d.canvas.width);
   const canvasHeight = usePhotoDoc((d) => d.canvas.height);
   const tool = useActiveTool();
+  const kit = TOOLBOX[tool];
   usePolygonKeys(tool === "polygonLasso");
 
   // The open photo's renderer, drawing on this canvas while it's shown.
@@ -231,6 +233,7 @@ export function CanvasPanel() {
     if (tool === "magicWand") return void wandClick(e, docPoint);
     if (tool === "quickSelect") return quickSelect(e, docPoint);
     if (tool === "brush" || tool === "eraser") return paint(e, tool === "eraser");
+    if (kit) return kit.press?.(e, docPoint);
     // Move: with Auto-select (⌘ for the opposite), the layer under the pointer is picked first, as Photoshop's;
     // Shift adds it to the selection (or takes it out). A press on nothing (outside the selected layers' box)
     // selects nothing, or draws a marquee that selects the layers it touches. The drag moves the selected images.
@@ -386,6 +389,7 @@ export function CanvasPanel() {
     const at = docPoint(e.clientX, e.clientY);
     useCanvasPointer.getState().set(at, e.altKey);
     if (tool === "polygonLasso") polygonHover(at);
+    if (kit?.hover && e.buttons === 0) kit.hover(e, docPoint);
     if (tool !== "move" || e.buttons !== 0) return;
     usePhotoUi.getState().hover(autoSelects(e) ? (layerAt(doc, at.x, at.y)?.id ?? null) : null);
   };
@@ -415,9 +419,11 @@ export function CanvasPanel() {
               ? "cursor-zoom-in"
               : tool === "brush" || tool === "eraser" || tool === "quickSelect"
                 ? "cursor-none"
-                : isSelectionTool(tool)
-                  ? "cursor-crosshair"
-                  : "cursor-default",
+                : kit
+                  ? (kit.cursor ?? "cursor-crosshair")
+                  : isSelectionTool(tool)
+                    ? "cursor-crosshair"
+                    : "cursor-default",
         )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -437,6 +443,7 @@ export function CanvasPanel() {
         {renderer && <SelectionAnts />}
         {renderer && (tool === "brush" || tool === "eraser") && <BrushCursor />}
         {renderer && tool === "quickSelect" && <QuickCursor />}
+        {renderer && kit?.Overlay && <kit.Overlay docPoint={docPoint} />}
         {failure && (
           <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-white/80">
             <div className="flex max-w-sm flex-col items-center gap-2">

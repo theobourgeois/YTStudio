@@ -10,8 +10,13 @@ import {
   PiArrowClockwise,
   PiArrowsLeftRight,
   PiCircleDashed,
+  PiCrop,
   PiCursor,
+  PiDropHalf,
   PiEraser,
+  PiEraserFill,
+  PiFlame,
+  PiGradient,
   PiExport,
   PiHand,
   PiImage,
@@ -21,8 +26,12 @@ import {
   PiMagnifyingGlass,
   PiPaintBrush,
   PiPaintBrushBroad,
+  PiPaintBucket,
   PiPolygon,
   PiSelection,
+  PiSparkle,
+  PiSunDim,
+  PiTextT,
 } from "react-icons/pi";
 import { toast } from "sonner";
 import { moveLayersBy } from "@shared/photo/edits";
@@ -292,14 +301,23 @@ const TOOL_INFO: Record<PhotoTool, { label: string; key: string; Icon: typeof Pi
   polygonLasso: { label: "Polygonal Lasso", key: "L", Icon: PiPolygon },
   quickSelect: { label: "Quick Selection", key: "W", Icon: PiPaintBrushBroad },
   magicWand: { label: "Magic Wand", key: "W", Icon: PiMagicWand },
+  crop: { label: "Crop", key: "C", Icon: PiCrop },
   brush: { label: "Brush", key: "B", Icon: PiPaintBrush },
   eraser: { label: "Eraser", key: "E", Icon: PiEraser },
+  backgroundEraser: { label: "Background Eraser", key: "E", Icon: PiEraserFill },
+  magicEraser: { label: "Magic Eraser", key: "E", Icon: PiSparkle },
+  gradient: { label: "Gradient", key: "G", Icon: PiGradient },
+  paintBucket: { label: "Paint Bucket", key: "G", Icon: PiPaintBucket },
+  dodge: { label: "Dodge", key: "O", Icon: PiSunDim },
+  burn: { label: "Burn", key: "O", Icon: PiFlame },
+  sponge: { label: "Sponge", key: "O", Icon: PiDropHalf },
+  type: { label: "Type", key: "T", Icon: PiTextT },
   hand: { label: "Hand", key: "H", Icon: PiHand },
   zoom: { label: "Zoom", key: "Z", Icon: PiMagnifyingGlass },
 };
 
 /** The strip's places, top to bottom: a tool, or a group (showing the one of it used last). */
-const STRIP: (PhotoTool | ToolGroup)[] = ["move", "marquee", "lasso", "wand", "brush", "eraser", "hand", "zoom"];
+const STRIP: (PhotoTool | ToolGroup)[] = ["move", "marquee", "lasso", "wand", "crop", "brush", "eraser", "fill", "toning", "type", "hand", "zoom"];
 
 /** "marquee" in the strip is the Marquees' group. */
 const isGroup = (place: PhotoTool | ToolGroup): place is ToolGroup => Object.hasOwn(TOOL_GROUPS, place);
