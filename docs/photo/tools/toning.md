@@ -78,9 +78,10 @@ known approximation of the older tool and is what Pixelmator-style tutorials des
   from `Y` is scaled by `1 − a` (Desaturate) or `1 + a` (Saturate), where `a` is the stroke's amount. With Vibrance,
   Saturate is weighted by how muted the colour is (`1 − s`, `s` HSV saturation) and limited so no channel leaves
   [0, 1]; Desaturate is weighted `(1 + s)/2`, so colours already muted keep some. Without Vibrance, Saturate clips.
-- **Flow is a rate**: each dab adds `1 − (1 − Flow)^spacing` of coverage (spacing 10% of the diameter), so one pass of
-  a hard brush over a pixel adds about Flow, and scrubbing the same stroke keeps building to the full change (grey, or
-  saturation doubled).
+- **Flow is a rate**: each dab adds `1 − (1 − Flow)^(spacing / c)` of coverage (spacing 10% of the diameter; `c` the
+  brush's mean coverage along a diameter, `h + (1 − h)/2` for hardness `h`), so one pass over a pixel adds about Flow
+  with a hard brush or a soft one, and scrubbing the same stroke keeps building to the full change (grey, or
+  saturation doubled). Airbrush's dabs use the same law for half the Exposure.
 - On a mask: contrast, as Photoshop's on greys (`0.5 + (v − 0.5)(1 ± a)`).
 
 ### Targets
@@ -104,8 +105,10 @@ an empty layer does nothing. A hidden layer refuses, saying why.
   frame's work is the tiles its dabs touch. Every store rounds to the nearest half (`round_for_store`).
 - `SurfaceImage.beginEffect` starts such a stroke; ending, cancelling (Escape), reading back, hashing, uploading and
   one undo step are the Brush's (`StrokeController`'s path).
-- The assistant: `tone_area` dodges, burns or sponges the selection, a box or the whole layer with a range and an
-  exposure (or a flow), as one undo step; `get_photo` lists what it can be applied to.
+- The assistant: `tone_area` dodges, burns or sponges a box (feathered, so it blends), the selection or the whole
+  layer with a range and an exposure (or a mode and a flow), as one undo step: the stroke's law with its accumulation
+  full where the region reaches (`SurfaceImage.effectFill`). A placed image is converted only when the call says
+  `convert: true`.
 
 ## Where we still differ
 

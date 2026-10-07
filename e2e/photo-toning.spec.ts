@@ -155,6 +155,29 @@ test("Dodge, Burn and Sponge on the GPU are their CPU reference", async ({ page 
   }
   // Nothing was kept of those strokes.
   expect((await tileOf(page, layerId, 1, 1)).data).toEqual(base.data);
+
+  // On a mask (a grey, white where nothing's painted): Burn by the range's curve, Sponge as contrast.
+  const onMask = (effect: ToneEffect) =>
+    page.evaluate(
+      async ({ layerId, effect }) => {
+        type Doc = { layers: { id: string }[] };
+        const store = (window as unknown as { photoDebug: { photo: { getState(): { commit(fn: (d: Doc) => Doc): void } } } }).photoDebug.photo;
+        store.getState().commit((d: Doc) => ({ ...d, layers: d.layers.map((l) => (l.id === layerId ? { ...l, mask: { surface: null } } : l)) }));
+        const r = await (window as unknown as Debug).photoDebug.renderer();
+        for (let i = 0; i < 200 && !r.beginEffectStroke(layerId, "mask", { radius: 400, hardness: 1, strength: 1, spacing: 0.1 }, { kind: "tone", effect, cap: 0.7, mask: true }, null); i++) await new Promise((f) => setTimeout(f, 10));
+        r.strokeTo([{ x: 384, y: 384 }]);
+        const t = await r.readSurfaceTile(layerId, "mask", 1, 1);
+        r.cancelStroke();
+        return Array.from(t.data!.slice(0, 4));
+      },
+      { layerId, effect },
+    );
+  const burnt = await onMask({ tool: "burn", range: "highlights", protect: false });
+  burnt.forEach((v) => expect(v).toBeCloseTo(1 - 0.7 / 3, 3));
+  const sponged = await onMask({ tool: "sponge", mode: "desaturate", vibrance: true });
+  sponged.forEach((v) => expect(v).toBeCloseTo(0.5 + 0.5 * 0.3, 3));
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, tonedId)).layers[0].mask).toBeUndefined();
 });
 
 test("a stroke with the mouse: one undo step, capped at its Exposure, Escape drops it, Alt burns", async ({ page }) => {
@@ -200,6 +223,27 @@ test("a stroke with the mouse: one undo step, capped at its Exposure, Escape dro
   await drag(page, [{ x: 300, y: 384 }, { x: 460, y: 384 }], { alt: true });
   await expect.poll(async () => (await savedPhoto(page, tonedId)).layers[0].surface).not.toBe(surface);
   expect(luminance(at((await tileOf(page, layerId, 1, 1)).data!))).toBeLessThan(luminance(at(before.data!)));
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPhoto(page, tonedId)).layers[0].surface).toBe(surface);
+
+  // Airbrush: a click lays a little; holding still builds up (towards the Exposure).
+  await page.locator('[data-tool-options="dodge"] [data-option="Airbrush"]').click();
+  const gain = async (hold: number) => {
+    await page.mouse.move(centre.x, centre.y);
+    await page.mouse.down();
+    if (hold) await page.waitForTimeout(hold);
+    await page.mouse.up();
+    await expect.poll(async () => (await savedPhoto(page, tonedId)).layers[0].surface).not.toBe(surface);
+    const g = luminance(at((await tileOf(page, layerId, 1, 1)).data!)) - luminance(at(before.data!));
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(async () => (await savedPhoto(page, tonedId)).layers[0].surface).toBe(surface);
+    return g;
+  };
+  const click = await gain(0);
+  const held = await gain(800);
+  expect(click).toBeGreaterThan(0);
+  expect(held).toBeGreaterThan(click * 2);
+  await page.locator('[data-tool-options="dodge"] [data-option="Airbrush"]').click();
 
   // ⇧O steps through the group: Burn, then Sponge, each with its options.
   await page.keyboard.press("Shift+o");
@@ -295,4 +339,6 @@ test("the assistant dodges, burns and removes a background colour", async ({ pag
   expect(burnt[3]).toBeCloseTo(1, 3);
   expect(burnt[0]).toBeLessThan(0.95);
   expect(burnt[0]).toBeGreaterThan(0.2);
+  // Outside the box, the disc is as it was.
+  expect(pixelOf(tile, 300 - 256, 110)[0]).toBeCloseTo(1, 3);
 });

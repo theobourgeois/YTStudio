@@ -92,6 +92,9 @@ const overlay = (tool: ToningTool) =>
     );
   };
 
-export const dodgeKit: ToolKit = { Options: () => <DodgeBurnOptions tool="dodge" />, press: press("dodge"), Overlay: overlay("dodge"), cursor: "cursor-none", brush: toningBrush("dodge") };
-export const burnKit: ToolKit = { Options: () => <DodgeBurnOptions tool="burn" />, press: press("burn"), Overlay: overlay("burn"), cursor: "cursor-none", brush: toningBrush("burn") };
+const DodgeOptions = () => <DodgeBurnOptions tool="dodge" />;
+const BurnOptions = () => <DodgeBurnOptions tool="burn" />;
+
+export const dodgeKit: ToolKit = { Options: DodgeOptions, press: press("dodge"), Overlay: overlay("dodge"), cursor: "cursor-none", brush: toningBrush("dodge") };
+export const burnKit: ToolKit = { Options: BurnOptions, press: press("burn"), Overlay: overlay("burn"), cursor: "cursor-none", brush: toningBrush("burn") };
 export const spongeKit: ToolKit = { Options: SpongeOptions, press: press("sponge"), Overlay: overlay("sponge"), cursor: "cursor-none", brush: toningBrush("sponge") };
