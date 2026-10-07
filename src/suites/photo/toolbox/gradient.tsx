@@ -99,7 +99,7 @@ function GradientOptionsBar() {
   return (
     <div className="flex shrink-0 items-center gap-3 text-xs whitespace-nowrap" data-tool-options="gradient">
       <Select value={o.mode} onValueChange={(mode) => set({ mode: mode as GradientOptions["mode"] })}>
-        <SelectTrigger size="sm" className="h-6 w-36 text-xs" aria-label="Gradient mode" data-option="Mode switch">
+        <SelectTrigger size="sm" className="h-6 w-32 text-xs" aria-label="Gradient mode" data-option="Mode switch">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -138,7 +138,7 @@ function GradientOptionsBar() {
         <span className="flex items-center gap-1" data-option="Mode">
           <span className="text-muted-foreground">Mode</span>
           <Select value={o.paintMode} onValueChange={(paintMode) => set({ paintMode: paintMode as GradientPaintMode })}>
-            <SelectTrigger size="sm" className="h-6 w-32 text-xs" aria-label="Paint mode">
+            <SelectTrigger size="sm" className="h-6 w-28 text-xs" aria-label="Paint mode">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -331,6 +331,8 @@ function GradientOverlay({ docPoint }: { docPoint: DocPointOf }) {
   const drag = (e: React.PointerEvent, onMove: (p: Point, ev: PointerEvent) => Record<string, unknown> | null, options: { threshold?: number; onClick?: () => void } = {}) => {
     if (e.button !== 0 || !layer) return;
     e.stopPropagation();
+    // (No text selection from a double-click on a stop.)
+    e.preventDefault();
     const gesture = photoGesture();
     const box = (e.currentTarget as Element).closest("svg")!.getBoundingClientRect();
     startPointerDrag(e, {
