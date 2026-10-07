@@ -171,6 +171,7 @@ pnpm tsx scripts/preset-sheet.ts [type|tag ...] [--out f.png]       # render + c
 pnpm tsx scripts/pro-c-sheet.ts [style ...] [--out f.png]           # Pro-C's styles measured on the engine: curves, gain, colour
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
 pnpm tsx scripts/perf.ts --scrub <Project.vaudio>                   # scrub and play a copy of a real project, GPU and all
+pnpm tsx scripts/engine-profile.ts <Name.vaudio> [--only-plugin n] [--sample]   # a song's playback load, offline (silent)
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
 pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
 pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/Vaudio.app, then launch it, export, check
@@ -355,7 +356,7 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      (every input not turned off, into the sequencer's queue); AudioStream.cpp is that stream (a reader
                      thread, a lock-free ring; Signalsmith Stretch for stretched clips), and ClipPlayer.cpp plays the playlist's audio clips with it,
                      each started on its sample. Export.cpp: the export, rendered on a thread of its own
-                     (Workers.h runs its plugins on every core). GrossBeat.cpp: Gross Beat, a native effect
+                     (Workers.h runs its plugins on every core, as it does playback's). GrossBeat.cpp: Gross Beat, a native effect
                      (its rolling buffer, envelopes, sync, HOLD). EchoBoy.cpp: EchoBoy, a native echo (its
                      lines, the style on each repeat; its filters, saturations, diffusers, LFOs in EchoDsp.h).
                      AutoTune.cpp: Auto-Tune, native too (YIN pitch tracking, Antares' correction,
@@ -988,6 +989,13 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   atomic pointer and goes back through a lock-free queue to be deleted (`Sequencer::setSong`, `collectGarbage`);
   requests are atomics and queues; the plugin bench has a lock the audio thread only tries (a block goes out
   without the bench if it's busy). Keep it that way: no allocation, locks or I/O on the audio thread.
+- Playback runs on several cores, as FL's does (`Workers.h`): each block's plugin instruments, then each
+  mixer stage's tracks (where two have effects), are spread over real-time threads in the device's audio
+  workgroup, the costliest first; the audio thread works too and spins until they're done. Nothing there
+  locks or allocates (one atomic ticket hands the items out). Anything a track runs must touch only its own
+  buffers and state, and what's added up is added in the song's order, so one thread and several sound the
+  same to the sample (`playback-threads.integration.test.ts`; `VAUDIO_PLAYBACK_THREADS=1` turns it off).
+  `scripts/engine-profile.ts` measures what a song's package costs to play, offline, and what each part costs.
 - The mixer: a `Song` has its tracks in the order to run them (the master last) and allocates their buffers
   itself, when it's parsed on the message thread (`Song::audio`, as long as the engine's longest block).
   Voices and plugins render into their channel's track; `Sequencer::mixTracks` runs the tracks' gains and

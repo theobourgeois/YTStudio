@@ -13,6 +13,15 @@ const double offlineSampleRate = [] {
     return wanted >= 8000 && wanted <= 192000 ? wanted : 48000.0;
 }();
 constexpr int offlineBlockSize = 512;
+/**
+ * How many threads play the song, the audio thread's own included: the physical cores, up to 8 (more
+ * only add wake-ups), or what VAUDIO_PLAYBACK_THREADS says (1: the audio thread alone; the profiler compares).
+ */
+int playbackThreads()
+{
+    const auto wanted = juce::SystemStats::getEnvironmentVariable ("VAUDIO_PLAYBACK_THREADS", {}).getIntValue();
+    return juce::jlimit (1, 64, wanted > 0 ? wanted : juce::jmin (8, juce::SystemStats::getNumPhysicalCpus()));
+}
 /** A buffer small enough to play along to, where the device allows it. */
 constexpr int preferredBlockSize = 256;
 /** How often the server hears where the song is (it fills in between). */
@@ -72,12 +81,15 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
       }),
       plugins (bench.formatManager(), bench.knownPlugins(), "channel", [this] { pluginChanged(); }),
       effects (bench.formatManager(), bench.knownPlugins(), "effect", [this] { pluginChanged(); }),
+      // Real-time threads while a device plays; offline, the renders are as fast as they compute.
+      workers (std::make_unique<Workers> (playbackThreads(), ! isOffline)),
       sequencer (isOffline),
       preview (isOffline)
 {
     dataDir.createDirectory();
     plugins.setPresetsFolder (dataDir.getChildFile ("presets"));
     effects.setPresetsFolder (dataDir.getChildFile ("presets"));
+    sequencer.setWorkers (workers.get());
     // The sinc's table, made now rather than by the audio thread the first time it's needed.
     resampling::Kernel::get();
     if (offline)
@@ -964,6 +976,8 @@ void Engine::audioDeviceAboutToStart (juce::AudioIODevice* device)
     for (int channel = 0; channel <= open.getHighestBit() && channel < maxInputs; ++channel)
         if (open[channel])
             inputMap.push_back (channel);
+    // The workers meet the device's deadline with its own thread (macOS: kept on the fast cores).
+    workers->setWorkgroup (device->getWorkgroup());
     start (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
 }
 
