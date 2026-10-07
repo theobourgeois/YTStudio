@@ -65,6 +65,8 @@
   --color-line-strong: var(--line-strong);
   --color-brand-edge: var(--brand-edge);
   --color-destructive-solid: var(--destructive-solid);
+  --color-render-done: var(--render-done);
+  --color-render-needed: var(--render-needed);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

@@ -16,7 +16,10 @@ import { transitionShader, transitionUniforms } from "@shared/transition-gl";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
 import { textDrawing, textUnit } from "@shared/text-drawing";
 import { type Size, fittedSize } from "@shared/transform";
+import { segmentIndexAt } from "@shared/render-files";
+import { api } from "@/lib/api";
 import { useEditor } from "@/stores/editor";
+import { segmentsOf, useRenderFiles } from "@/stores/render-files";
 import { useFonts } from "@/stores/fonts";
 import { usePlayback } from "@/stores/playback";
 import { SETTLE_MS, nextAdaptiveLevel } from "./adaptive";
@@ -165,6 +168,14 @@ export interface PreviewSource {
   subscribe(listener: () => void): () => void;
   /** Where its sound's signals are read from; absent: the open video's (`setSignalReader`). */
   signals?(): SignalReader | null;
+  /** The render file showing `time`, if there's one (Premiere's preview files: `stores/render-files.ts`). */
+  rendered?(time: number): RenderedAt | null;
+}
+
+/** A segment's render file and the moment in it (seconds); the next segment's too, if it has one, to have ready. */
+export interface RenderedAt {
+  current: { key: string; src: string; time: number };
+  next: { key: string; src: string; time: number } | null;
 }
 
 /** The Program monitor's source: the open video at the playback clock. */
@@ -179,10 +190,32 @@ export const editorSource: PreviewSource = {
     const offEditor = useEditor.subscribe((s, prev) => {
       if (s.project !== prev.project || s.assets !== prev.assets) listener();
     });
+    const offRendered = useRenderFiles.subscribe((s, prev) => {
+      if (s.keys !== prev.keys) listener();
+    });
     return () => {
       offPlayback();
       offEditor();
+      offRendered();
     };
+  },
+  rendered(time) {
+    const { project, document, assets, projectId } = useEditor.getState();
+    const { keys, projectId: of } = useRenderFiles.getState();
+    // The main sequence's (a nested one opened in its tab has none).
+    if (!projectId || of !== projectId || project !== document || keys.size === 0) return null;
+    const segments = segmentsOf(document, assets);
+    const fps = document.settings.fps;
+    const f = time * fps;
+    const i = segmentIndexAt(segments, Math.floor(f + 1e-6));
+    const has = (k: number) => !!segments[k]?.heavy && keys.has(segments[k].key);
+    if (!has(i)) return null;
+    // A quarter of a frame in, so a frame on its own boundary isn't read as the one before.
+    const at = (k: number, frame: number) => {
+      const { key, from, to } = segments[k];
+      return { key, src: api.renderFileUrl(projectId, key), time: Math.min(frame - from + 0.25, to - from - 0.5) / fps };
+    };
+    return { current: at(i, f), next: has(i + 1) ? at(i + 1, segments[i + 1].from) : null };
   },
 };
 
@@ -228,6 +261,9 @@ type Layer =
  */
 export class PreviewEngine {
   private layers = new Map<string, VideoLayer>();
+  /** The render files' A/B pair: the segment shown, and the next parked on its first frame (see `RenderedAt`). */
+  private renders: [MediaSlot | null, MediaSlot | null] = [null, null];
+  private renderIds: SlotIds = [null, null];
   private audio = new Map<string, AudioLayer>();
   private unsubscribe: (() => void) | null = null;
   private offline = false;
@@ -413,6 +449,20 @@ export class PreviewEngine {
     };
   }
 
+  /** Ref-callback helper: one of the render files' pair of hidden videos. Returns the cleanup. */
+  attachRender(index: 0 | 1, el: HTMLVideoElement) {
+    const slot = new MediaSlot(el, this.update, this.requestDraw);
+    this.renders[index] = slot;
+    this.renderIds = withId(this.renderIds, index, null);
+    this.update();
+    return () => {
+      slot.dispose();
+      if (this.renders[index] !== slot) return;
+      this.renders[index] = null;
+      this.renderIds = withId(this.renderIds, index, null);
+    };
+  }
+
   attachImage(trackId: string, index: 0 | 1, el: HTMLImageElement) {
     const slot = new ImageSlot(el, this.update);
     const layer = this.layer(trackId);
@@ -489,7 +539,7 @@ export class PreviewEngine {
     // Expressions hear the source's sound (the open video's unless it says otherwise).
     withSignals(this.source.signals?.() ?? null, () => {
       const layers = this.planLevel({ view: project, prefix: "", time, playing, rate: 1, muted: false, gain: 1, canvas: this.size, depth: 0, hearing: null }, status);
-      this.draw(project, layers, status.stateful);
+      this.draw(project, layers, status.stateful, this.renderedPicture(time, playing));
     });
     if (status.offline !== this.offline) {
       this.offline = status.offline;
@@ -722,13 +772,49 @@ export class PreviewEngine {
     this.onStatusChange({ offline: this.offline, noWebGl: !!this.canvas && !this.compositor, draft: this.draft });
   }
 
-  /** Composite the tracks' layers onto the canvas. */
-  private draw(project: Project, layers: Layer[], stateful: boolean) {
+  /**
+   * The render file's picture for `time`, when its segment has one and its video is showing it (or a frame of it
+   * near: scrubbing waits for no seek). Its pair keeps the next segment's ready. Null: draw live. "wait": the
+   * segment has a file but its video isn't ready yet: the picture shown stays until it is (drawing the segment
+   * live meanwhile is the heavy work the file is there to save), unless the file won't load.
+   */
+  private renderedPicture(time: number, playing: boolean): HTMLVideoElement | "wait" | null {
+    const at = this.source.rendered?.(time) ?? null;
+    this.renderIds = assignSlots(this.renderIds, at?.current.key ?? null, at?.next?.key ?? null);
+    let shown: HTMLVideoElement | "wait" | null = null;
+    this.renders.forEach((slot, i) => {
+      if (!slot) return;
+      const id = this.renderIds[i];
+      const el = slot.el as HTMLVideoElement;
+      setShown(el, !!at && id === at.current.key);
+      slot.setAudio(1, true);
+      if (at && id === at.current.key) {
+        slot.setSrc(at.current.src);
+        if (playing) slot.follow(at.current.time);
+        else slot.hold(at.current.time);
+        if (slot.failed) shown = null;
+        else shown = el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && el.videoWidth > 0 ? el : "wait";
+      } else if (at?.next && id === at.next.key) {
+        slot.setSrc(at.next.src);
+        slot.hold(at.next.time);
+      } else slot.pause();
+    });
+    return shown;
+  }
+
+  /** Composite the tracks' layers onto the canvas (or show a render file's picture: `rendered`). */
+  private draw(project: Project, layers: Layer[], stateful: boolean, rendered: HTMLVideoElement | "wait" | null = null) {
     const compositor = this.compositor;
     const canvas = this.canvas;
     if (!compositor || !canvas || !(this.size.width > 0 && this.size.height > 0)) return;
     const gl = compositor.gl;
     if (gl.isContextLost()) return;
+    // A render file still loading or seeking: its video's events draw again once it has the frame.
+    if (rendered === "wait") {
+      setData(canvas, "frame", "draft");
+      setData(canvas, "source", "render");
+      return;
+    }
     // The GPU still drawing the last frames: this one waits for one of them (and is then drawn as it is by then).
     // Meanwhile the monitor shows an earlier moment: catching up, as a simulation stepping to its frame is.
     if (this.inFlight.length >= MAX_IN_FLIGHT) {
@@ -740,7 +826,7 @@ export class PreviewEngine {
     const playing = this.source.get().playing;
     const now = performance.now();
     const moving = playing || now - this.movedAt < SETTLE_MS;
-    const level = this.adaptiveResolution && this.adaptiveOn && moving && !stateful ? this.adaptive : 1;
+    const level = this.adaptiveResolution && this.adaptiveOn && moving && !stateful && !rendered ? this.adaptive : 1;
     if ((level < 1) !== this.draft) {
       this.draft = level < 1;
       this.reportStatus();
@@ -752,9 +838,13 @@ export class PreviewEngine {
     compositor.clear();
     this.catchUpUntil = now + (playing ? CATCH_UP_MS.playing : CATCH_UP_MS.paused);
     this.caughtUp = true;
-    let count: { transitions: number };
+    let count: { transitions: number } = { transitions: 0 };
     try {
-      count = this.drawLayers(compositor, project, layers, this.size, dpr);
+      if (rendered) {
+        // Rendered: the segment's file, filling the canvas, instead of everything in it.
+        compositor.setPicture(RENDER_PICTURE, rendered);
+        compositor.drawPicture({ key: RENDER_PICTURE, affine: [1, 0, 0, 1, 0, 0], opacity: 1 });
+      } else count = this.drawLayers(compositor, project, layers, this.size, dpr);
       compositor.present();
     } finally {
       if (query) gl.endQuery(this.timer!.TIME_ELAPSED_EXT);
@@ -768,6 +858,7 @@ export class PreviewEngine {
     // A frame drawn at fewer pixels is drawn again in full once the picture holds still.
     if (level < 1 && !playing) this.settleLater();
     setData(canvas, "frame", level < 1 ? "draft" : "final");
+    setData(canvas, "source", rendered ? "render" : "live");
     const state = count.transitions ? "transition" : layers.length ? "clips" : "empty";
     if (canvas.dataset.drawn !== state) canvas.dataset.drawn = state;
     // A simulation not caught up yet shows a close frame, and goes on catching up on the next draw.
@@ -1120,6 +1211,9 @@ const MAX_PLAYBACK_RATE = 16;
 
 const withId = (ids: SlotIds, index: 0 | 1, id: string | null): SlotIds =>
   index === 0 ? [id, ids[1]] : [ids[0], id];
+
+/** The compositor's picture of the render file shown. */
+const RENDER_PICTURE = "render-file";
 
 /** Set a data attribute only when it changes. */
 function setData(el: HTMLElement, key: string, value: string) {

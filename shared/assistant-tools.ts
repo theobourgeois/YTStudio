@@ -1250,6 +1250,20 @@ export const VIDEO_TOOLS = [
     }),
   }),
   tool({
+    name: "render_effects",
+    title: "Render effects",
+    kind: "action",
+    timeout: 3600,
+    description:
+      "Render the main sequence's heavy parts (effects, transitions, adjustment layers, nests, 3D layers: red in the " +
+      "bar over the timeline's ruler) to render files and wait for it, as Premiere's Render Effects In to Out (Enter), " +
+      "so the Program monitor plays them back smoothly in full: it turns green. Parts already rendered and unchanged " +
+      "aren't rendered again; an edit turns only its own part red. It takes about as long as exporting those parts and " +
+      "changes nothing in the video or its export. Offer it when the user says playback is slow or choppy. `delete` " +
+      "throws every render file away instead (Delete Render Files).",
+    inputSchema: obj({ delete: bool("Delete the video's render files instead of rendering.") }),
+  }),
+  tool({
     name: "focus",
     title: "Show the user",
     kind: "action",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addEffect, defaultEffects, setParams, solidEffects, visualizerEffects } from "./effects.ts";
+import { addEffect, defaultEffects, setParams, solidEffects, textEffects, visualizerEffects } from "./effects.ts";
 import { type SegmentAsset, MAX_SEGMENT, frameAt, hash, renderSegments, segmentAt, stable } from "./render-files.ts";
 import { MAIN_TRACK_ID, createDefaultProject } from "./timeline.ts";
 import { createTransition } from "./transitions.ts";
@@ -92,6 +92,24 @@ describe("renderSegments", () => {
     // The visualizer's segments (0..2 s) hear the song move; the plain clip's (2..4 s) don't.
     expect(segmentAt(b, 15)!.key).not.toBe(segmentAt(a, 15)!.key);
     expect(segmentAt(b, 90)!.key).toBe(segmentAt(a, 90)!.key);
+  });
+
+  it("scales with the clip count: 1500 captions, and one of them moved", () => {
+    const captions = Array.from({ length: 1500 }, (_, i) => clip(`c${i}`, i, 0.8, { assetId: "", effects: textEffects({ text: `Caption ${i}` }) }));
+    const p = project(captions);
+    let t = performance.now();
+    const segments = renderSegments(p, assets);
+    const first = performance.now() - t;
+    // A caption and a gap each (the last caption ends the sequence).
+    expect(segments).toHaveLength(2999);
+    const moved = { ...p, clips: p.clips.map((c, i) => (i === 700 ? { ...c, start: 700.1 } : c)) };
+    t = performance.now();
+    const again = renderSegments(moved, assets);
+    const second = performance.now() - t;
+    // Only the moved caption's neighbourhood changes.
+    expect(again.filter((s, i) => s.key !== segments[i]?.key).length).toBeLessThan(10);
+    expect(first).toBeLessThan(1500);
+    expect(second).toBeLessThan(400);
   });
 
   it("is empty for an empty sequence", () => {

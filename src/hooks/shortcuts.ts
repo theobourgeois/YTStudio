@@ -68,7 +68,8 @@ export type ShortcutAction =
   | "rectangleTool"
   | "ellipseTool"
   | "toggleAssistant"
-  | "showShortcuts";
+  | "showShortcuts"
+  | "renderEffects";
 
 export type KeyLike = Pick<
   KeyboardEvent,
@@ -254,6 +255,9 @@ function resolvePlain(e: KeyLike): ShortcutAction | null {
       return "markOut";
     case "\\":
       return "zoomFit";
+    // Premiere's Render Effects In to Out.
+    case "enter":
+      return e.shiftKey ? null : "renderEffects";
     case "home":
       return "seekStart";
     case "end":
@@ -337,6 +341,7 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   ellipseTool: "E",
   toggleAssistant: `${MOD}I`,
   showShortcuts: "?",
+  renderEffects: "Enter",
 };
 
 export interface ShortcutGroup {
@@ -358,6 +363,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Scrub from clip start to clip end", keys: [`${MOD}Drag the playhead`] },
       { label: "Previous / next keyframe of the selected clip", keys: ["[", "]"] },
       { label: "Go to start / end", keys: ["Home", "End"] },
+      { label: "Render the heavy parts (red in the bar over the ruler) to play them smoothly", keys: ["Enter"] },
     ],
   },
   {

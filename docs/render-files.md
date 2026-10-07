@@ -35,11 +35,15 @@ files instead of drawing the effects. Editing a clip turns only the stretch it c
   (pre-roll, not encoded), so its echoes are there; simulations step up from their clip's start as the export's do.
   Jobs run one at a time, in the background: the bar turns green segment by segment, and editing meanwhile is fine
   (a segment rendered from an older version is kept under that version's key).
-- **Playback** (`PreviewEngine`): where the playhead is in a green segment, the monitor shows the segment's file (a
-  pair of hidden videos, the current one and the next parked, like a track's) instead of compositing; the media
-  elements still play for the sound. Anywhere else it draws live, as before.
-- **Commands**: Sequence › Render In to Out (Enter), Delete Render Files; the assistant's `render_previews`. There's
-  no sequence In/Out yet, so it renders the whole sequence (Premiere's behaviour with none set).
+- **Playback** (`PreviewEngine`, `stores/render-files.ts`): where the playhead is in a green segment, the monitor
+  shows the segment's file (a pair of hidden videos, the current one and the next parked, like a track's) instead of
+  compositing; the media elements still play for the sound. While the file loads or seeks, the picture shown stays
+  (drawing the segment live meanwhile is the heavy work the file saves); only a file that won't load is drawn live.
+  Anywhere else it draws live, as before. The canvas says which (`data-source`: `render` or `live`).
+- **Commands**: Sequence › Render Effects In to Out (Enter, Premiere's name for rendering only what needs it) and
+  Delete Render Files; the timeline toolbar's Render (how many parts are red, then how far a render is, Cancel); the
+  assistant's `render_effects`. There's no sequence In/Out yet, so it renders the whole sequence (Premiere's
+  behaviour with none set).
 
 ## Where we still differ
 

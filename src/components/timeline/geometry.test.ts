@@ -17,6 +17,7 @@ import {
   newTrackZoneAt,
   pageScrollTarget,
   peakInRange,
+  renderRuns,
   rulerTicks,
   sliderToZoom,
   snapDelta,
@@ -243,5 +244,24 @@ describe("thumbnails + waveform", () => {
     expect(peakInRange(peaks, 2, 0, 100)).toBe(0.9);
     expect(peakInRange(peaks, 2, 50, 51)).toBe(0);
     expect(peakInRange([], 2, 0, 1)).toBe(0);
+  });
+});
+
+describe("renderRuns", () => {
+  const seg = (from: number, to: number, key: string, heavy = true) => ({ from, to, key, heavy });
+  const segments = [seg(0, 30, "a"), seg(30, 60, "b"), seg(60, 90, "c"), seg(90, 120, "d", false), seg(120, 150, "e")];
+  const rendered = (key: string) => key === "a" || key === "b";
+
+  it("draws heavy segments, rendered ones green, neighbours as one run, plain ones not at all", () => {
+    // 30 fps, 100 px a second.
+    expect(renderRuns(segments, rendered, 30, 100, 0, 1000)).toEqual([
+      { x: 0, width: 200, done: true },
+      { x: 200, width: 100, done: false },
+      { x: 400, width: 100, done: false },
+    ]);
+  });
+
+  it("leaves out what's outside the window", () => {
+    expect(renderRuns(segments, rendered, 30, 100, 350, 1000)).toEqual([{ x: 400, width: 100, done: false }]);
   });
 });

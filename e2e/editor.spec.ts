@@ -1877,6 +1877,57 @@ test("a simulation shows the same frame seeked to or stepped to, and a 3D scene 
   await page.screenshot({ path: "/tmp/ridgeline.png" });
 });
 
+test("renders effects to render files: the bar turns green, the monitor plays them, an edit turns its part red", async ({ page }) => {
+  await openLatest(page);
+  await newVideo(page);
+  // A solid with an effect on it: worth rendering (red in the bar over the ruler).
+  await page.getByRole("button", { name: "New layer" }).click();
+  await page.getByRole("menuitem", { name: /Solid/ }).click();
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  const addFromTab = async (search: string, label: string) => {
+    await page.getByRole("tab", { name: "Effects", exact: true }).click();
+    await page.getByRole("searchbox", { name: "Search effects" }).fill(search);
+    const card = page.locator("[data-effect-type]").filter({ hasText: label }).first();
+    await card.hover();
+    await card.getByRole("button", { name: `Add ${label}` }).click();
+  };
+  await addFromTab("invert", "Invert");
+  const needed = page.locator("[data-render-run=needed]");
+  const rendered = page.locator("[data-render-run=rendered]");
+  await expect(needed).toHaveCount(1);
+  await expect(rendered).toHaveCount(0);
+
+  // Enter renders it (Premiere's Render Effects In to Out): the toolbar says how far, then the bar is green.
+  const ruler = (await page.locator("[data-timeline-ruler]").boundingBox())!;
+  await page.mouse.click(ruler.x + 1, ruler.y + ruler.height / 2);
+  await page.keyboard.press("Enter");
+  await expect(rendered).toHaveCount(1, { timeout: 120_000 });
+  await expect(needed).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Render effects" })).toBeDisabled();
+
+  // Where it's green the monitor plays the render file instead of drawing the effects.
+  const canvas = page.locator("[data-slot=preview-canvas]");
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(canvas).toHaveAttribute("data-source", "render");
+
+  // An edit turns its part red again (the monitor draws it live); undo brings the green back (the file's kept).
+  await addFromTab("sepia", "Sepia");
+  await expect(needed).toHaveCount(1);
+  await expect(canvas).toHaveAttribute("data-source", "live");
+  await page.mouse.click(ruler.x + 1, ruler.y + ruler.height / 2);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(rendered).toHaveCount(1);
+  await expect(canvas).toHaveAttribute("data-source", "render");
+
+  // Sequence › Delete Render Files.
+  await page.getByRole("menubar", { name: "Menus" }).getByRole("menuitem", { name: "Sequence" }).click();
+  await page.getByRole("menuitem", { name: "Delete Render Files" }).click();
+  await expect(needed).toHaveCount(1);
+  await expect(canvas).toHaveAttribute("data-source", "live");
+});
+
 test("pinching over the monitor scales the selected clip, as one undo step", async ({ page }) => {
   await openLatest(page);
   await newVideo(page);

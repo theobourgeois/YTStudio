@@ -22,7 +22,7 @@ import { getSequence, writeSequence } from "@shared/sequences";
 import { getSubclip } from "@shared/subclips";
 import { placeTemplate } from "@shared/library";
 import { clipEnd, getClip, projectDuration, timelineTime, outputSize } from "@shared/timeline";
-import type { Clip, ExportJob, ExportResolution, Library, MediaAsset, Project, TranscriptionEngineId, TranscriptionJob } from "@shared/types";
+import type { Clip, ExportJob, ExportResolution, Library, MediaAsset, Project, RenderJob, TranscriptionEngineId, TranscriptionJob } from "@shared/types";
 import { layoutTexts } from "@/components/export/layout-texts";
 import { clipsOnCanvas } from "@/components/preview/placement";
 import { fontsSettled } from "@/stores/fonts";
@@ -34,6 +34,8 @@ import { placeAssets, useEditor } from "@/stores/editor";
 import { assetMarkedRange } from "@/stores/source-marks";
 import { useLibrary } from "@/stores/library";
 import { usePlayback } from "@/stores/playback";
+import { useRenderFiles } from "@/stores/render-files";
+import { RENDER_RESOLUTION } from "@shared/render-files";
 import {
   type CatalogKind,
   describeCatalog,
@@ -744,6 +746,37 @@ const TOOLS: Record<VideoToolName, Handler> = {
     return textResult(
       `Exported "${job.fileName}.${job.extension}" (${describeExport(job)}, ${job.width}×${job.height}, ${secs(job.duration)}s${size}): ${location.origin}${job.downloadUrl ?? job.url}`,
     );
+  },
+  async render_effects(input, ctx) {
+    const doc = await ctx.doc();
+    const store = useRenderFiles.getState;
+    if (optBoolean(input, "delete")) {
+      if (doc.isOpen) await store().deleteAll();
+      else await api.deleteRenderFiles(doc.projectId);
+      return textResult("Deleted the video's render files: its heavy parts are red again (Enter renders them).");
+    }
+    const document = doc.document;
+    if (document.clips.length === 0) throw new ToolError("The timeline is empty: there's nothing to render.");
+    ctx.progress(null, "Preparing");
+    const started = Date.now();
+    // The open video's through its store, so the bar over the ruler turns green as it goes.
+    let job = doc.isOpen
+      ? await store().render()
+      : await api.renderEffects(doc.projectId, { project: document, texts: await layoutTexts(document, RENDER_RESOLUTION) });
+    if (!job) throw new ToolError(store().error ?? "The render couldn't start.");
+    const id = job.id;
+    ctx.signal.addEventListener("abort", () => void api.cancelRender(id).catch(() => {}));
+    while (job.status === "queued" || job.status === "rendering") {
+      ctx.progress(job.progress, "Rendering");
+      await sleep(POLL_MS);
+      if (ctx.signal.aborted) throw new ToolError("Stopped.");
+      const now: RenderJob | null = doc.isOpen ? store().job : (await api.renderFiles(doc.projectId)).job;
+      if (!now || now.id !== id) throw new ToolError("The render was replaced by another (started again, or its files deleted).");
+      job = now;
+    }
+    if (job.status !== "done") throw new ToolError(job.error ?? `The render was ${job.status}.`);
+    if (job.segments === 0) return textResult("Nothing to render: the heavy parts were rendered already (green), or there are none.");
+    return textResult(`Rendered ${job.segments} part${job.segments === 1 ? "" : "s"} in ${secs((Date.now() - started) / 1000)}s: they play back smoothly now.`);
   },
   async open_sequence(input, ctx) {
     const doc = await ctx.doc();

@@ -6,9 +6,9 @@
 import { usesSignals } from "./audio-signals.ts";
 import { clipKind, definitionOf, findEffect, hasMedia } from "./effects.ts";
 import { isNestedClip, nestedSequence } from "./sequences.ts";
-import { trackTransitions } from "./transition-windows.ts";
+import { type TransitionWindow, trackTransitions } from "./transition-windows.ts";
 import { clipEnd, clipsById, projectDuration, trackClips, videoTracks } from "./timeline.ts";
-import type { Clip, ExportResolution, MediaAsset, Project, Sequence } from "./types.ts";
+import type { Clip, ExportResolution, MediaAsset, Project, Sequence, Track } from "./types.ts";
 
 /** A segment is at most this long (seconds), so a small change re-renders little. */
 export const MAX_SEGMENT = 2;
@@ -69,18 +69,36 @@ export function renderSegments(project: Project, assets: ReadonlyMap<string, Seg
       ]),
     ));
 
+  // Each track's clips and transitions in time order (neither overlaps another of its track), each with a
+  // cursor that only moves forward as the segments do: what's under each segment is found in one pass.
+  const lanes: Lane[] = tracks.map((track) => ({
+    track,
+    clips: trackClips(project, track.id),
+    windows: [...(windows.get(track.id) ?? [])].sort((a, b) => a.start - b.start),
+    clip: 0,
+    window: 0,
+  }));
   const segments: RenderSegment[] = [];
   for (let i = 0; i + 1 < edges.length; i++) {
     for (let from = edges[i]; from < edges[i + 1]; from += longest) {
       const to = Math.min(edges[i + 1], from + longest);
-      segments.push(segment(project, byId, windows, from, to, soundOf));
+      segments.push(segment(project, byId, lanes, from, to, soundOf));
     }
   }
   return segments;
 }
 
-/** The segment showing frame `frame`, or null (segments in time order: a binary search). */
-export function segmentAt(segments: readonly RenderSegment[], frame: number): RenderSegment | null {
+/** A video track as the segments are walked: its clips and transitions, and the first of each not yet passed. */
+interface Lane {
+  track: Track;
+  clips: readonly Clip[];
+  windows: TransitionWindow[];
+  clip: number;
+  window: number;
+}
+
+/** The index of the segment showing frame `frame`, or -1 (segments in time order: a binary search). */
+export function segmentIndexAt(segments: readonly RenderSegment[], frame: number): number {
   let lo = 0;
   let hi = segments.length - 1;
   while (lo <= hi) {
@@ -88,30 +106,43 @@ export function segmentAt(segments: readonly RenderSegment[], frame: number): Re
     const s = segments[mid];
     if (frame < s.from) hi = mid - 1;
     else if (frame >= s.to) lo = mid + 1;
-    else return s;
+    else return mid;
   }
-  return null;
+  return -1;
+}
+
+/** The segment showing frame `frame`, or null. */
+export function segmentAt(segments: readonly RenderSegment[], frame: number): RenderSegment | null {
+  return segments[segmentIndexAt(segments, frame)] ?? null;
 }
 
 function segment(
   project: Project,
   assets: ReadonlyMap<string, SegmentAsset>,
-  windows: Map<string, ReturnType<typeof trackTransitions>>,
+  lanes: Lane[],
   from: number,
   to: number,
   soundOf: () => string,
 ): RenderSegment {
   const fps = project.settings.fps;
   const byId = clipsById(project);
-  const overlaps = (start: number, end: number) => frameAt(start, fps) < to && frameAt(end, fps) > from;
   let heavy = false;
+  let hears = false;
 
   // What each video track shows, top first: its clips under the segment (and the ones its transitions show).
   const shown = new Set<Clip>();
-  const tracks = videoTracks(project).map((track) => {
+  const tracks = lanes.map((lane) => {
+    const { track } = lane;
+    while (lane.clip < lane.clips.length && frameAt(clipEnd(lane.clips[lane.clip]), fps) <= from) lane.clip++;
+    while (lane.window < lane.windows.length && frameAt(lane.windows[lane.window].end, fps) <= from) lane.window++;
     const clips = new Set<Clip>();
-    for (const clip of trackClips(project, track.id)) if (overlaps(clip.start, clipEnd(clip))) clips.add(clip);
-    const transitions = (windows.get(track.id) ?? []).filter((w) => overlaps(w.start, w.end));
+    for (let k = lane.clip; k < lane.clips.length && frameAt(lane.clips[k].start, fps) < to; k++) {
+      if (frameAt(clipEnd(lane.clips[k]), fps) > from) clips.add(lane.clips[k]);
+    }
+    const transitions: TransitionWindow[] = [];
+    for (let k = lane.window; k < lane.windows.length && frameAt(lane.windows[k].start, fps) < to; k++) {
+      if (frameAt(lane.windows[k].end, fps) > from) transitions.push(lane.windows[k]);
+    }
     for (const w of transitions) {
       heavy = true;
       if (w.from) clips.add(w.from);
@@ -128,7 +159,9 @@ function segment(
   const add = (clip: Clip, inside: Project | Sequence) => {
     if (clips.has(clip.id)) return;
     clips.set(clip.id, clip);
-    if (isHeavy(clip)) heavy = true;
+    const facts = factsOf(clip);
+    if (facts.heavy) heavy = true;
+    if (facts.hears) hears = true;
     const seq = nestedSequence(project, clip);
     if (seq && !sequences.has(seq.id)) {
       sequences.set(seq.id, seq);
@@ -139,23 +172,30 @@ function segment(
   };
   for (const clip of shown) add(clip, project);
 
-  const involved = { clips: [...clips.values()], sequences: [...sequences.values()] } as Project;
-  const hears = usesSignals(involved);
+  // Everything as one line of the pieces' own hashes (each worked out once per object).
   const key = hash(
-    stable([
+    [
       RENDER_VERSION,
       RENDER_RESOLUTION,
-      project.settings,
+      settingsText(project.settings),
       from,
       to,
-      tracks,
-      [...clips.values()].sort((a, b) => (a.id < b.id ? -1 : 1)).map(clipText),
-      [...sequences.values()].sort((a, b) => (a.id < b.id ? -1 : 1)).map(sequenceText),
-      [...media].sort().map((id) => assetText(assets.get(id), id)),
-      hears ? soundOf() : null,
-    ]),
+      tracks.map((t) => `${t.id}:${t.muted ? 1 : 0}:${t.clips.join(",")}`).join(";"),
+      [...clips.values()].sort((a, b) => (a.id < b.id ? -1 : 1)).map(clipText).join(","),
+      [...sequences.values()].sort((a, b) => (a.id < b.id ? -1 : 1)).map(sequenceText).join(","),
+      [...media].sort().map((id) => assetText(assets.get(id), id)).join(","),
+      hears ? soundOf() : "",
+    ].join("|"),
   );
   return { from, to, key, heavy };
+}
+
+/** What a clip says about a segment it's in: worth rendering, and hearing the sound (worked out once per clip object). */
+const facts = new WeakMap<Clip, { heavy: boolean; hears: boolean }>();
+function factsOf(clip: Clip): { heavy: boolean; hears: boolean } {
+  let known = facts.get(clip);
+  if (!known) facts.set(clip, (known = { heavy: isHeavy(clip), hears: usesSignals({ clips: [clip] } as Project) }));
+  return known;
 }
 
 /** Whether a clip makes its segment worth rendering: what costs the GPU more than drawing a picture. */
@@ -168,21 +208,35 @@ function isHeavy(clip: Clip): boolean {
   return clip.effects.some((e) => e.enabled && !!definitionOf(e)?.shader);
 }
 
-// Stringified once per clip or sequence object (they're never changed in place), so a drag hashes little.
-const clipTexts = new WeakMap<Clip, string>();
-const sequenceTexts = new WeakMap<Sequence, string>();
+// Hashed once per clip or sequence object (they're never changed in place), so an edit hashes only what it changed.
+const clipHashes = new WeakMap<Clip, string>();
+const sequenceHashes = new WeakMap<Sequence, string>();
 const clipText = (clip: Clip) => {
-  let text = clipTexts.get(clip);
-  if (text === undefined) clipTexts.set(clip, (text = stable(clip)));
+  let text = clipHashes.get(clip);
+  if (text === undefined) clipHashes.set(clip, (text = hash(stable(clip))));
   return text;
 };
 const sequenceText = (seq: Sequence) => {
-  let text = sequenceTexts.get(seq);
-  if (text === undefined) sequenceTexts.set(seq, (text = stable(seq)));
+  let text = sequenceHashes.get(seq);
+  if (text === undefined) sequenceHashes.set(seq, (text = hash(stable(seq))));
   return text;
 };
-const assetText = (asset: SegmentAsset | undefined, id: string) =>
-  asset ? stable([asset.id, asset.src, asset.kind, asset.duration, asset.width, asset.height, asset.fps, asset.reversed?.status ?? null]) : `missing:${id}`;
+const assetTexts = new WeakMap<SegmentAsset, string>();
+const assetText = (asset: SegmentAsset | undefined, id: string) => {
+  if (!asset) return `missing:${id}`;
+  let text = assetTexts.get(asset);
+  if (text === undefined) {
+    text = hash(stable([asset.id, asset.src, asset.kind, asset.duration, asset.width, asset.height, asset.fps, asset.reversed?.status ?? null]));
+    assetTexts.set(asset, text);
+  }
+  return text;
+};
+const settingsTexts = new WeakMap<object, string>();
+const settingsText = (settings: Project["settings"]) => {
+  let text = settingsTexts.get(settings);
+  if (text === undefined) settingsTexts.set(settings, (text = stable(settings)));
+  return text;
+};
 
 /** JSON with every object's keys in order, so the same content always reads the same. */
 export function stable(value: unknown): string {

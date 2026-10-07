@@ -1,10 +1,12 @@
 import { memo, useMemo, type PointerEvent as ReactPointerEvent } from "react";
+import type { RenderSegment } from "@shared/render-files";
 import { editPoints, nearestPoint } from "@shared/timeline";
 import { useEditor } from "@/stores/editor";
+import { segmentsOf, useRenderFiles } from "@/stores/render-files";
 import { usePlayback } from "@/stores/playback";
 import { cn } from "cn";
 import { lanePoint, useTimelineContext } from "./context";
-import { rulerTicks } from "./geometry";
+import { renderRuns, rulerTicks } from "./geometry";
 import { RulerMarkers } from "./markers";
 import { PlayheadHead } from "./playhead";
 import { startPointerSession } from "./pointer-session";
@@ -62,12 +64,40 @@ export function Ruler({ width, zoom }: { width: number; zoom: number }) {
 
   return (
     <div data-timeline-ruler className="relative h-full touch-none select-none" style={{ width }} onPointerDown={onPointerDown}>
+      <RenderBar width={width} zoom={zoom} />
       <Ticks width={width} zoom={zoom} />
       <RulerMarkers zoom={zoom} />
       <PlayheadHead />
     </div>
   );
 }
+
+const NO_SEGMENTS: RenderSegment[] = [];
+
+/**
+ * Premiere's render bar along the ruler's top: red where the picture is worth rendering (effects, transitions,
+ * adjustment layers, nests: Enter renders them), green where it has been. The main sequence's only; while a
+ * drag lasts it shows the video as it was when the drag began.
+ */
+const RenderBar = memo(function RenderBar({ width, zoom }: { width: number; zoom: number }) {
+  const [x0, x1] = useVisibleWindow();
+  const segments = useEditor((s) => (s.project === s.document ? segmentsOf(s.gestureDocument ?? s.document, s.assets) : NO_SEGMENTS));
+  const fps = useEditor((s) => s.document.settings.fps);
+  const keys = useRenderFiles((s) => s.keys);
+  const runs = useMemo(() => renderRuns(segments, (k) => keys.has(k), fps, zoom, x0, Math.min(x1, width)), [segments, keys, fps, zoom, x0, x1, width]);
+  return (
+    <>
+      {runs.map((r) => (
+        <div
+          key={r.x}
+          data-render-run={r.done ? "rendered" : "needed"}
+          className={cn("pointer-events-none absolute top-0 h-[3px]", r.done ? "bg-render-done" : "bg-render-needed")}
+          style={{ left: r.x, width: r.width }}
+        />
+      ))}
+    </>
+  );
+});
 
 const Ticks = memo(function Ticks({ width, zoom }: { width: number; zoom: number }) {
   const [x0, x1] = useVisibleWindow();

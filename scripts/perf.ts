@@ -8,7 +8,7 @@
  *   pnpm tsx scripts/perf.ts [clips=1500] [--profile <scenario>]
  *   pnpm tsx scripts/perf.ts --links [clips=300]
  *   pnpm tsx scripts/perf.ts --visualizers
- *   pnpm tsx scripts/perf.ts --scrub <Project.vaudio>
+ *   pnpm tsx scripts/perf.ts --scrub <Project.vaudio> [--render]
  *
  * `--links` is the visualizer's gate instead (V3, docs/visualizer/README.md): a song and `clips`
  * solids on ten tracks, each with its scale linked to the bass and its opacity to the kicks, played
@@ -16,7 +16,9 @@
  * visualizers (Spectrum Bars, Circular Spectrum, Spectrogram) over a song in a 9:16 video, played.
  * `--scrub` opens a copy of a real project in Chrome with the GPU, on a Retina-sized window, and scrubs
  * its ruler as a hand does (a move every 8 ms, not waiting for the page), then plays it: how smooth the
- * page stays, how many frames the Program monitor draws, and at what size (adaptive resolution).
+ * page stays, how many frames the Program monitor draws, and at what size (adaptive resolution). With `--render`
+ * it renders the effects first (Enter, docs/render-files.md) and says how long that took and what the monitor
+ * then showed: the render files, or live drawing.
  * `--profile drag` (any part of a scenario's name) samples that scenario with
  * the JS profiler and prints where the time went, by component and by function.
  * The app runs in dev mode (like `pnpm dev`), so React's development build counts.
@@ -361,6 +363,16 @@ async function scrubProject(pkg: string): Promise<never> {
   await page.locator("[data-clip-id]").first().waitFor({ timeout: 120_000 });
   await page.waitForTimeout(3000);
   const canvas = page.locator("[data-slot=preview-canvas]");
+  const results: [string, string][] = [];
+  if (args.includes("--render")) {
+    await page.locator("body").click({ position: { x: 900, y: 20 } });
+    const start = performance.now();
+    await page.keyboard.press("Enter");
+    await page.locator("[data-rendering]").waitFor({ timeout: 30_000 });
+    await page.locator("[data-rendering]").waitFor({ state: "detached", timeout: 30 * 60_000 });
+    const runs = await page.locator("[data-render-run]").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.renderRun).join(" "));
+    results.push(["render effects (Enter)", `${((performance.now() - start) / 1000).toFixed(1)} s, the bar: ${runs}`]);
+  }
   const canvasSize = () => canvas.evaluate((c: HTMLCanvasElement) => `${c.width}×${c.height}`);
   // As text: tsx would wrap a function's inner names in a helper the page doesn't have.
   const startRecording = () =>
@@ -377,11 +389,12 @@ async function scrubProject(pkg: string): Promise<never> {
       const sum = f.reduce((a, b) => a + b, 0);
       return { fps: f.length / (sum / 1000), worst: Math.max(...f), drawn: window.__drawn, long: window.__longTasks };
     })()`);
-  const results: [string, string][] = [];
   const record = (name: string, wall: number, m: { fps: number; worst: number; drawn: number; long: number }, extra = "") =>
     results.push([name, `${wall.toFixed(0).padStart(6)} ms, page ${m.fps.toFixed(0)} fps (slowest ${m.worst.toFixed(0)} ms), monitor drew ${m.drawn}, long tasks ${m.long.toFixed(0)} ms${extra}`]);
 
+  const session = await page.context().newCDPSession(page);
   async function scrub(name: string, from: number, to: number, moves = 60) {
+    const profiling = profileName !== null && name.includes(profileName);
     await page.locator("body").click({ position: { x: 900, y: 20 } });
     await page.keyboard.press("Home");
     await page.keyboard.press("Shift+Z");
@@ -394,6 +407,7 @@ async function scrubProject(pkg: string): Promise<never> {
     const [y, x0, x1] = [ruler.y + ruler.height / 2, ruler.x + width * from, ruler.x + width * to];
     await page.mouse.move(x0, y);
     await page.mouse.down();
+    if (profiling) await startProfile(session);
     await startRecording();
     const start = performance.now();
     for (let k = 1; k <= moves; k++) {
@@ -402,11 +416,12 @@ async function scrubProject(pkg: string): Promise<never> {
     }
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     const wall = performance.now() - start;
-    const during = await canvasSize();
+    const during = `${await canvasSize()} ${await canvas.evaluate((c: HTMLCanvasElement) => c.dataset.source)}`;
     const m = await stopRecording();
     await page.mouse.up();
     await page.waitForTimeout(1000);
     record(name, wall, m, `, drawn at ${during} (${await canvasSize()} once still)`);
+    if (profiling) await printProfile(session, name);
   }
 
   await scrub("scrub the edit (60 moves)", 0, 0.9);

@@ -13,6 +13,7 @@ import { SHORTCUT_KEYS, type ShortcutAction } from "@/hooks/shortcuts";
 import { runShortcut } from "@/hooks/use-shortcuts";
 import { useCaptions } from "@/stores/captions";
 import { useEditor } from "@/stores/editor";
+import { useRenderFiles } from "@/stores/render-files";
 import { VIDEO_WORKSPACES, useVideoDock } from "@/stores/video-dock";
 import { useOpenVideoWindows } from "@/stores/video-windows";
 import { VIDEO_PANEL_DEFS } from "./video-panels";
@@ -127,6 +128,11 @@ export function VideoMenus() {
               <Action action="newAdjustmentLayer">New Adjustment Layer</Action>
               <Action action="newSolid">New Solid</Action>
               <Action action="newCamera">New Camera</Action>
+              <DropdownMenuSeparator />
+              <Action action="renderEffects" disabled={empty}>
+                Render Effects In to Out
+              </Action>
+              <DropdownMenuItem onSelect={() => void useRenderFiles.getState().deleteAll()}>Delete Render Files</DropdownMenuItem>
               <DropdownMenuSeparator />
               <Action action="markIn">Mark In</Action>
               <Action action="markOut">Mark Out</Action>

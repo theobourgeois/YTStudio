@@ -147,6 +147,7 @@ const ICONS: Record<string, IconType> = {
   library_save: PiBooks,
   library_use: PiBooks,
   export_video: PiDownloadSimple,
+  render_effects: PiFilmStrip,
   focus: PiCrosshair,
 };
 
