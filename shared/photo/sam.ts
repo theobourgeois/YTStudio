@@ -73,12 +73,14 @@ const MAX_POINTS = 6;
 
 /**
  * The points a stroke prompts with, in the encoder's square's pixels: along the strokes' middles (`strokes` in
- * document points, painted `size` across, over a `canvas` the square squeezes), spread out (each the farthest from
- * those taken, from the one nearest their middle), none closer than the brush's radius to another.
+ * document points, painted `size` across) inside `frame` (the part of the document the square squeezes: the canvas,
+ * or a crop of it), spread out (each the farthest from those taken, from the one nearest their middle), none closer
+ * than the brush's radius to another.
  */
-export function samPoints(strokes: readonly (readonly Point[])[], size: number, canvas: Size): Point[] {
+export function samPoints(strokes: readonly (readonly Point[])[], size: number, frame: { x: number; y: number; width: number; height: number }): Point[] {
   const r = size / 2;
-  const candidates = strokes.flatMap((stroke) => dabsAlong(stroke, Math.max(1, r)));
+  const inside = (p: Point) => p.x >= frame.x && p.y >= frame.y && p.x < frame.x + frame.width && p.y < frame.y + frame.height;
+  const candidates = strokes.flatMap((stroke) => dabsAlong(stroke, Math.max(1, r))).filter(inside);
   if (!candidates.length) return [];
   const mx = candidates.reduce((s, p) => s + p.x, 0) / candidates.length;
   const my = candidates.reduce((s, p) => s + p.y, 0) / candidates.length;
@@ -94,7 +96,7 @@ export function samPoints(strokes: readonly (readonly Point[])[], size: number, 
     taken.push(p);
     for (let i = 0; i < candidates.length; i++) nearest[i] = Math.min(nearest[i], Math.hypot(candidates[i].x - p.x, candidates[i].y - p.y));
   }
-  return taken.map((p) => ({ x: (p.x * SAM_SIDE) / canvas.width, y: (p.y * SAM_SIDE) / canvas.height }));
+  return taken.map((p) => ({ x: ((p.x - frame.x) * SAM_SIDE) / frame.width, y: ((p.y - frame.y) * SAM_SIDE) / frame.height }));
 }
 
 /**
@@ -122,14 +124,12 @@ export function chooseMask(masks: Float32Array, scores: ArrayLike<number>, paint
 }
 
 /**
- * A mask (256² logits over the squeezed photo) as a selection of the document. SAM's answer is where its logits are
- * over 0: they're read between cells at the sample's size, and each pixel is covered by how far it is inside that
- * line (the logit over its slope there), so the edge is anti-aliased over a pixel and follows the thing, not the grid.
- * (A sigmoid of the logits would also half-select the wide places the model is unsure of, far from the thing.)
+ * A mask (256² logits over a `width × height` picture) as coverage of its pixels (0..255): the logits read between
+ * cells, each pixel covered by how far it is inside their zero line (the logit over its slope), so the edge is
+ * anti-aliased over a pixel. (A sigmoid of the logits would also half-cover the wide places the model is unsure of.)
  */
-export function samSelection(logits: Float32Array, sample: { width: number; height: number; scale: number }, canvas: Size): MaskSelection | null {
+export function maskCoverage(logits: Float32Array, width: number, height: number): Uint8Array {
   const side = SAM_MASK_SIDE;
-  const { width, height } = sample;
   const at = (x: number, y: number) => logits[Math.max(0, Math.min(side - 1, y)) * side + Math.max(0, Math.min(side - 1, x))];
   const field = new Float32Array(width * height);
   for (let y = 0; y < height; y++) {
@@ -155,5 +155,10 @@ export function samSelection(logits: Float32Array, sample: { width: number; heig
       values[i] = Math.round(Math.max(0, Math.min(1, cover)) * 255);
     }
   }
-  return coverageToSelection(values, width, height, sample.scale, canvas);
+  return values;
+}
+
+/** A mask (256² logits over the squeezed photo) as a selection of the document, its edge anti-aliased over a pixel (`maskCoverage`). */
+export function samSelection(logits: Float32Array, sample: { width: number; height: number; scale: number }, canvas: Size): MaskSelection | null {
+  return coverageToSelection(maskCoverage(logits, sample.width, sample.height), sample.width, sample.height, sample.scale, canvas);
 }
