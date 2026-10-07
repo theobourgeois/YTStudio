@@ -172,6 +172,7 @@ export function describeMixer(song: MusicProject, effects: EngineEffects | null,
         (effect.proQ && `, effect ${effect.id}, ${effect.proQ.bands.length} band${effect.proQ.bands.length === 1 ? "" : "s"} (get_pro_q)`) ||
         (effect.ott && `, effect ${effect.id}, depth ${percent(effect.ott.depth)}${effect.ott.preset ? `, preset "${effect.ott.preset}"` : ""} (get_ott)`) ||
         (effect.proC && `, effect ${effect.id}, style ${effect.proC.style}, threshold ${Math.round(effect.proC.threshold)} dB${effect.proC.preset ? `, preset "${effect.proC.preset}"` : ""} (get_pro_c)`) ||
+        (effect.proL && `, effect ${effect.id}, style ${effect.proL.style}, gain ${Math.round(effect.proL.gain * 10) / 10} dB into ${effect.proL.output} ${effect.proL.truePeak ? "dBTP" : "dBFS"}${effect.proL.clip ? `, clipping ${effect.proL.clipShape}` : ""}${effect.proL.preset ? `, preset "${effect.proL.preset}"` : ""} (get_pro_l)`) ||
         (effect.panMan && `, effect ${effect.id}, ${effect.panMan.mode} mode, preset "${effect.panMan.preset}" (get_panman)`) ||
         (effect.pitchWheel && `, effect ${effect.id}, ${wheelSummary(song, effect.pitchWheel)} (get_pitch_wheel)`) ||
         (effect.reverb && `, effect ${effect.id}, Reverb: ${reverbLine(song, effect.id)}, mix ${percent(effect.reverb.mix)} (get_reverb)`);

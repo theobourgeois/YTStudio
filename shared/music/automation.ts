@@ -16,6 +16,7 @@ import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS, MAX_GROSS_ATTACK
 import { EQ_CONTROL_SCALES } from "./pro-q-presets.ts";
 import { OTT_CONTROL_SPECS } from "./ott.ts";
 import { PRO_C_CONTROL_SPECS } from "./pro-c.ts";
+import { PRO_L_CONTROL_SPECS } from "./pro-l.ts";
 import { REVERB_CONTROL_SPECS } from "./reverb.ts";
 import { PAN_CONTROLS, panControlFraction, panControlValue } from "./panman-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
@@ -205,6 +206,8 @@ export function targetKey(target: AutomationTarget): string {
       return `ott:${target.effect}:${target.control}`;
     case "proC":
       return `proc:${target.effect}:${target.control}`;
+    case "proL":
+      return `prol:${target.effect}:${target.control}`;
     case "panMan":
       return `panman:${target.effect}:${target.control}`;
     case "pitchWheel":
@@ -483,6 +486,20 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
         owner: found && proC ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted YT-C",
         exists: !!proC,
         own: proC ? spec.fromControl(spec.get(proC)) : null,
+        toControl: spec.toControl,
+        fromControl: spec.fromControl,
+        format: (v) => spec.format(spec.toControl(v)),
+      };
+    }
+    case "proL": {
+      const found = findEffect(song, target.effect);
+      const proL = found?.effect?.proL ?? null;
+      const spec = PRO_L_CONTROL_SPECS[target.control];
+      return {
+        name: spec.name,
+        owner: found && proL ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted YT-L",
+        exists: !!proL,
+        own: proL ? spec.fromControl(spec.get(proL)) : null,
         toControl: spec.toControl,
         fromControl: spec.fromControl,
         format: (v) => spec.format(spec.toControl(v)),

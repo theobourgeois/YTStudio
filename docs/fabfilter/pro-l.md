@@ -1334,6 +1334,14 @@ event for every YT-L, as Pro-C's points are: no watch list); `engine/src/Dither.
 1–5 and 15–19, Tech 3342's 1–4, pause and reset, the readings, dither's whole steps, its TPDF and its three curves
 within 2 dB of Pro-L 2's in every band.
 
+**Step 4a** (2026-10-07): the TypeScript side. Lock Output, A/B and the meter's settings in the document
+(`ProL.lockOutput`, `other`, `slot`, `meter`); the presets of §6 (`PRO_L_PRESETS`: a preset sets its sound over the
+default's, its delivery settings, Output, True Peak and dither, only where it has them and never with Lock Output on,
+and its loudness target); automation (`AutomationTarget` `proL`, every continuous knob but Lookahead, which moves the
+latency; lanes `kind: "limiter"`, one each, in the engine's units); the assistant's `get_pro_l`, `update_pro_l`,
+`reset_pro_l_meter`, `add_mixer_effect` "YT-L" and `add_automation`'s "limiter …" controls; the readings in the tab's
+transport store; the stand-in engine's made-up readings. The window, the picker and the e2e tests are step 4b.
+
 The same shape as Pro-Q and PanMan: the document and what it means in TypeScript, the sound in C++, the window in React.
 
 ### 8.1 The document

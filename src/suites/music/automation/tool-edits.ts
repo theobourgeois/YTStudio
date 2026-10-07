@@ -25,6 +25,7 @@ import { MAX_PLAYLIST_TRACKS, normalizePoints } from "@shared/music/project";
 import { ECHO_TOOL_CONTROLS, ECHO_TOOL_CONTROL_NAMES, type EchoToolControl } from "@shared/music/echo-boy-presets";
 import { OTT_HINTS, OTT_TOOL_CONTROLS, OTT_TOOL_CONTROL_NAMES, type OttToolControl } from "@shared/music/ott-presets";
 import { PRO_C_HINTS, PRO_C_TOOL_CONTROLS, PRO_C_TOOL_CONTROL_NAMES, type ProCToolControl, slopeOf } from "@shared/music/pro-c-presets";
+import { PRO_L_HINTS, PRO_L_TOOL_CONTROLS, PRO_L_TOOL_CONTROL_NAMES, type ProLToolControl } from "@shared/music/pro-l-presets";
 import { REVERB_HINTS, REVERB_MS_CONTROLS, REVERB_TOOL_CONTROLS, REVERB_TOOL_CONTROL_NAMES, type ReverbToolControl } from "@shared/music/reverb-presets";
 import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject, type PanControl, type PitchWheelControl } from "@shared/music/types";
 import { findTrack, trackLabel } from "../mixer/tool-edits";
@@ -74,6 +75,7 @@ export const CONTROLS = [
   ...ECHO_TOOL_CONTROL_NAMES,
   ...OTT_TOOL_CONTROL_NAMES,
   ...PRO_C_TOOL_CONTROL_NAMES,
+  ...PRO_L_TOOL_CONTROL_NAMES,
   ...REVERB_TOOL_CONTROL_NAMES,
   "panman offset",
   "panman width",
@@ -380,6 +382,11 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       return { owner: "effect", id: effect.id, parameter: input.parameter.trim(), ownerName: `${effect.plugin.name} on ${trackLabel(song, track)}` };
     }
     default:
+      if (typeof control === "string" && control in PRO_L_TOOL_CONTROLS) {
+        const { track, effect } = effectAt(song, input);
+        if (!effect.proL) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a YT-L: a "${control}" is YT-L's.`);
+        return { kind: "proL", effect: effect.id, control: PRO_L_TOOL_CONTROLS[control as ProLToolControl] };
+      }
       if (typeof control === "string" && control in REVERB_TOOL_CONTROLS) {
         const { track, effect } = effectAt(song, input);
         if (!effect.reverb) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Reverb: a "${control}" is the Reverb's.`);
@@ -411,7 +418,7 @@ function pointsOf(raw: unknown, target: AutomationTarget, song: MusicProject, le
     // slots are numbered from 1 for the model, from 0 inside.
     const slots = target.kind === "grossBeat" && (target.control === "timeSlot" || target.control === "volumeSlot");
     const span = range.max - range.min;
-    const own = slots ? p.value - 1 : target.kind === "autoTune" && HUNDREDTHS.includes(target.control) ? p.value / 100 : target.kind === "proC" ? proCValue(target.control, p.value) : target.kind === "reverb" && REVERB_MS_CONTROLS.includes(target.control) ? p.value / 1000 : p.value;
+    const own = slots ? p.value - 1 : target.kind === "autoTune" && HUNDREDTHS.includes(target.control) ? p.value / 100 : target.kind === "proC" ? proCValue(target.control, p.value) : target.kind === "proL" && (target.control === "attack" || target.control === "release" || target.control === "hold") ? p.value / 1000 : target.kind === "reverb" && REVERB_MS_CONTROLS.includes(target.control) ? p.value / 1000 : p.value;
     const fraction = span === 0 ? 0 : (info.fromControl(own) - range.min) / span;
     return { tick: Math.round(p.at * barTicks), value: Math.min(1, Math.max(0, fraction)), tension: (p.tension as number | undefined) ?? 0, curve: (p.curve as CurveType | undefined) ?? "single" };
   });
@@ -487,6 +494,8 @@ const valueHint = (target: AutomationTarget) =>
     ? OTT_HINTS[target.control]
     : target.kind === "proC"
     ? PRO_C_HINTS[target.control]
+    : target.kind === "proL"
+    ? PRO_L_HINTS[target.control]
     : target.kind === "reverb"
     ? REVERB_HINTS[target.control]
     : target.kind === "pitchWheel"

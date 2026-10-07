@@ -46,10 +46,12 @@ import {
   ECHO_CONTROLS,
   OTT_CONTROLS,
   PRO_C_CONTROLS,
+  PRO_L_CONTROLS,
   REVERB_CONTROLS,
   type ReverbControl,
   type OttControl,
   type ProCControl,
+  type ProLControl,
   type EchoControl,
   type Envelope,
   EQ_MODES,
@@ -800,6 +802,8 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
       return isId(raw.effect) && OTT_CONTROLS.includes(raw.control as OttControl) ? { kind: "ott", effect: raw.effect, control: raw.control as OttControl } : null;
     case "proC":
       return isId(raw.effect) && PRO_C_CONTROLS.includes(raw.control as ProCControl) ? { kind: "proC", effect: raw.effect, control: raw.control as ProCControl } : null;
+    case "proL":
+      return isId(raw.effect) && PRO_L_CONTROLS.includes(raw.control as ProLControl) ? { kind: "proL", effect: raw.effect, control: raw.control as ProLControl } : null;
     case "panMan":
       return isId(raw.effect) && PAN_CONTROL_IDS.includes(raw.control as PanControl) ? { kind: "panMan", effect: raw.effect, control: raw.control as PanControl } : null;
     case "reverb":

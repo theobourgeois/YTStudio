@@ -905,7 +905,7 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.index = (int) number (target["effect"], -1, -1, 1e6);
             if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].limSettings == nullptr)
                 continue;
-            const auto control = juce::StringArray { "gain", "output", "attack", "release", "hold", "linkTransients", "linkRelease" }.indexOf (target["control"].toString());
+            const auto control = juce::StringArray { "gain", "output", "attack", "release", "hold", "linkTransients", "linkRelease", "sideFloor", "clipRange", "clipKnee" }.indexOf (target["control"].toString());
             if (control < 0)
                 continue;
             lane.control = control;

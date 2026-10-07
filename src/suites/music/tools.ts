@@ -15,6 +15,7 @@ import { OTT_PLUGIN } from "@shared/music/ott-presets";
 import { findReverb } from "@shared/music/reverb";
 import { REVERB_PLUGIN } from "@shared/music/reverb-presets";
 import { PRO_C_PLUGIN } from "@shared/music/pro-c-presets";
+import { PRO_L_PLUGIN } from "@shared/music/pro-l-presets";
 import { PANMAN_PLUGIN } from "@shared/music/panman-presets";
 import { PITCH_WHEEL_PLUGIN } from "@shared/music/pitch-wheel-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
@@ -104,6 +105,7 @@ import { describeGrossBeat, setGrossBeatSlotTool, updateGrossBeatTool } from "./
 import { describeProQ, setProQBandsTool, updateProQTool } from "./pro-q/tool-edits";
 import { describeOtt, updateOttTool } from "./ott/tool-edits";
 import { addVocalCompressionTool, describeProC, findProCRef, setProCBandsTool, setProCSidechainTool, updateProCTool } from "./pro-c/tool-edits";
+import { describeProL, findProLRef, updateProLTool } from "./pro-l/tool-edits";
 import { addVocalReverbTool, describeReverb, setReverbDecayTool, updateReverbTool } from "./reverb/tool-edits";
 import { describePanMan, findPan, setPanPatternTool, updatePanManTool } from "./panman/tool-edits";
 import { displayName, previewRequest, rememberClips, requestFor } from "./browser/online";
@@ -517,6 +519,15 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           "update_pro_c sets its style and knobs (or a preset), set_pro_c_sidechain and set_pro_c_bands its side chain, get_pro_c reads it.",
       );
     }
+    if (wanted === PRO_L_PLUGIN.name.toLowerCase() || wanted === PRO_L_PLUGIN.id || wanted === "pro-l" || wanted === "prol" || wanted === "pro l" || wanted === "pro-l 2" || wanted === "limiter") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, PRO_L_PLUGIN, id));
+      return textResult(
+        `Put YT-L (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}, at its default: the Modern style, a -0.1 dBFS ceiling, 4× oversampling, Gain 0 dB (nothing limited yet). ` +
+          "update_pro_l sets its gain (how loud), style, ceiling, clip stage or a preset; get_pro_l reads it and its loudness meter.",
+      );
+    }
     if (wanted === REVERB_PLUGIN.name.toLowerCase() || wanted === REVERB_PLUGIN.id || wanted === "reverb" || wanted === "verb" || wanted === "vocal reverb") {
       const replaced = track.effects[slot];
       const id = createId("fx");
@@ -609,6 +620,24 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(describeProC(song, input, live));
   },
   update_pro_c: edit((song, input) => updateProCTool(song, input)),
+  async get_pro_l(input, ctx) {
+    const target = await targetOf(ctx);
+    // Its meters, if the engine has said them (it says them to the open song's tab).
+    const live = target.open ? useTransport.getState().limiters[findProLRef(target.song, input).effect.id] : null;
+    return textResult(describeProL(target.song, input, live));
+  },
+  update_pro_l: edit((song, input) => updateProLTool(song, input)),
+  async reset_pro_l_meter(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "A YT-L's meter");
+    const { effect } = findProLRef(target.song, input);
+    if (typeof input.pause === "boolean") {
+      await musicApi.engine("proL", { effect: effect.id, pause: input.pause });
+      return textResult(`${input.pause ? "Paused" : "Carried on with"} ${effect.id}'s loudness measurement.`);
+    }
+    await musicApi.engine("proL", { effect: effect.id, reset: true });
+    return textResult(`Reset ${effect.id}'s loudness measurement: Integrated, the range and the maxima start again from now. Play the part to measure, then get_pro_l.`);
+  },
   set_pro_c_sidechain: edit((song, input) => setProCSidechainTool(song, input)),
   set_pro_c_bands: edit((song, input) => setProCBandsTool(song, input)),
   add_vocal_compression: edit((song, input) => addVocalCompressionTool(song, input)),
