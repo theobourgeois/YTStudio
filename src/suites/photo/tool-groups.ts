@@ -14,6 +14,7 @@ export type PhotoTool =
   | "quickSelect"
   | "magicWand"
   | "crop"
+  | "eyedropper"
   | "brush"
   | "eraser"
   | "backgroundEraser"

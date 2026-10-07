@@ -148,6 +148,8 @@ export function resolvePhotoKey(e: KeyPress, mac: boolean): PhotoKeyAction | nul
       return { type: "tool", tool: "brush" };
     case "c":
       return { type: "tool", tool: "crop" };
+    case "i":
+      return { type: "tool", tool: "eyedropper" };
     case "t":
       return { type: "tool", tool: "type" };
     case "d":
