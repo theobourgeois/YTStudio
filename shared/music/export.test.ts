@@ -51,6 +51,11 @@ describe("keeping it from clipping", () => {
     // Off: as it is (it clips, but in a 32-bit float WAV).
     expect(exportGain(4, { preventClipping: false })).toBe(1);
   });
+  it("leaves a YT-L's ceiling alone when one finishes the song: only over full scale is turned down, to full scale", () => {
+    expect(exportGain(10 ** (-0.1 / 20), DEFAULT_EXPORT_SETTINGS, true)).toBe(1);
+    expect(exportGain(10 ** (-0.1 / 20), DEFAULT_EXPORT_SETTINGS)).toBeLessThan(1);
+    expect(exportGain(2, DEFAULT_EXPORT_SETTINGS, true)).toBe(0.5);
+  });
   it("turns every format down first, before any dither", () => {
     const s = DEFAULT_EXPORT_SETTINGS;
     expect(encoderArgs("wav", { ...s, wavBits: 16, dither: true }, 48000, new Set(), 0.5)).toEqual(["-af", "volume=0.500000:precision=double,aresample=osf=s16:dither_method=shibata", "-c:a", "pcm_s16le"]);

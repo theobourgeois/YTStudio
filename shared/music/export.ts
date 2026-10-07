@@ -241,10 +241,13 @@ export const CLIP_CEILING = 10 ** (-0.3 / 20);
 
 /**
  * How much to turn a render down (a linear gain, 1: not at all), from the loudest sample of any of
- * its files: one gain for all of them, so stems still add up to the mix.
+ * its files: one gain for all of them, so stems still add up to the mix. A song a YT-L finishes
+ * (`finalProL`) has the ceiling its user chose (−0.1 dBFS is how loud records ship): only a render
+ * over full scale is turned down, to full scale (`docs/fabfilter/pro-l.md` §8.8).
  */
-export function exportGain(peak: number, settings: Pick<ExportSettings, "preventClipping">): number {
-  return settings.preventClipping && peak > CLIP_CEILING ? CLIP_CEILING / peak : 1;
+export function exportGain(peak: number, settings: Pick<ExportSettings, "preventClipping">, limited = false): number {
+  const ceiling = limited ? 1 : CLIP_CEILING;
+  return settings.preventClipping && peak > ceiling ? ceiling / peak : 1;
 }
 
 /** About how many bytes a second of stereo sound takes in a format, for the window's disk space. */

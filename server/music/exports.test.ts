@@ -9,7 +9,9 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { addChannels, setMainVolume, setSteps } from "../../shared/music/edits.ts";
 import { DEFAULT_EXPORT_SETTINGS, type ExportSettings, type MusicExportJob } from "../../shared/music/export.ts";
-import { routeChannels, updateMixerTrack } from "../../shared/music/mixer.ts";
+import { routeChannels, setEffect, updateMixerTrack } from "../../shared/music/mixer.ts";
+import { PRO_L_PLUGIN } from "../../shared/music/pro-l-presets.ts";
+import { updateProL } from "../../shared/music/pro-l.ts";
 import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "../../shared/music/project.ts";
 import { FFMPEG, FFPROBE } from "../config.ts";
 import { run } from "../process.ts";
@@ -164,6 +166,17 @@ describe("MusicExports", () => {
     const asIs = await finished((await startLoud({ formats: ["wav"], wavBits: 24, preventClipping: false })).id);
     expect(asIs.gainDb).toBe(0);
     expect(await peakDb(exports.file(asIs.id, "Night drive.wav"))).toBeCloseTo(0, 1);
+  });
+
+  it("leaves a YT-L's ceiling alone when one finishes the song: only over full scale is turned down", async () => {
+    // (The stand-in engine limits nothing: this checks what the export does with what it's given.)
+    const limited = updateProL(setEffect(setMainVolume(updateMixerTrack(song(), MASTER_TRACK_ID, { volume: 1 }), 1), MASTER_TRACK_ID, 0, PRO_L_PLUGIN, "fx_lim"), "fx_lim", { dither: 16 });
+    const job = await finished(
+      (await exports.start({ projectId: PROJECT, song: limited, patternId: P, selection: null, settings: { ...DEFAULT_EXPORT_SETTINGS, mode: "pattern", formats: ["wav"], wavBits: 16, dither: true }, destination: null })).id,
+    );
+    expect(job.peakDb).toBeGreaterThan(3);
+    // To full scale, not to −0.3 dB.
+    expect(job.gainDb).toBeCloseTo(-job.peakDb!, 6);
   });
 
   it("fails cleanly when ffmpeg can't encode, saying why", async () => {

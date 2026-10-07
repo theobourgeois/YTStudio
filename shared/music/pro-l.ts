@@ -110,6 +110,16 @@ export function copyProLAB(song: MusicProject, effectId: string): MusicProject {
 /** Choose a style: the knobs stay where they are (they're separate controls, as in Pro-L 2). */
 export const chooseProLStyle = (song: MusicProject, effectId: string, style: ProLState["style"]) => updateProL(song, effectId, { style });
 
+/**
+ * The YT-L that finishes the song, if one does: the master's last enabled effect, at its full mix. The export
+ * leaves its ceiling and its dither alone (`docs/fabfilter/pro-l.md` §8.8).
+ */
+export function finalProL(song: MusicProject): ProL | null {
+  const master = song.mixer.tracks[0];
+  const last = master?.effects.filter((e) => e?.enabled).at(-1);
+  return last?.proL && last.mix >= 1 ? last.proL : null;
+}
+
 // ---------------------------------------------------------------------------
 // What the engine plays
 // ---------------------------------------------------------------------------
