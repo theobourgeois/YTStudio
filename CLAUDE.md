@@ -74,7 +74,7 @@ develops (`analysis.ts`: guided-filter grids, haze, statistics, from a coarse re
 Its Color Mixer and Color Grading are `colour.ts` (Grading in stops of linear ProPhoto, as Camera Raw's), Glow reads a
 grid made from the analysis (`glowGrid`); the GPU's table carries them after the curves. Its presets are
 `presets.ts` (the window's Presets tab, `add_filter`/`add_adjustment`'s `preset`), Auto is `auto.ts`.
-**Content-Aware Fill** (docs/photo/content-aware-fill.md; ⇧⌫, the canvas's right-click menu, `content_aware_fill`)
+**Content-Aware Fill** (docs/photo/content-aware-fill.md; ⇧⌫, the Edit menu, the canvas's right-click menu, `content_aware_fill`)
 fills the selection from what's around it onto a new layer above the active one: LaMa (512 × 512) run in the tab as
 Select Subject's model is (every photo model is `shared/photo/models.ts`, `/api/photo/models/<name>`, one download
 question: `model-dialog.tsx`), a hole filled in crops about twice its size, never under 512, one after another

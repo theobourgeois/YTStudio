@@ -71,6 +71,7 @@ import { CameraRawWindow } from "./camera-raw/camera-raw-window";
 import { cameraRawActions } from "./camera-raw/actions";
 import { HueSaturationWindow } from "./hue-saturation/hue-saturation-window";
 import { hueSaturationActions } from "./hue-saturation/actions";
+import { EditMenu } from "./edit-menu";
 import { ImageMenu } from "./image-menu";
 import { ScaleEffectsWindow } from "./layer-style/scale-effects-window";
 import { resolvePhotoKey } from "./keys";
@@ -245,6 +246,7 @@ function PhotoHeader() {
           <PiArrowClockwise />
         </Button>
       </div>
+      <EditMenu />
       <ImageMenu />
       <SelectMenu />
       <FilterMenu />

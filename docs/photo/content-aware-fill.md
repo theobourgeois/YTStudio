@@ -13,8 +13,9 @@ Fill), and it's gone, filled from what's around it. Built 2026-10-07; this is wh
 
 ## What we build
 
-One command, everywhere the selection's commands are: **⇧⌫** (Shift+Delete elsewhere) and the canvas's right-click
-menu (above Fill with Foreground), and the assistant's `content_aware_fill`. No dialog and no options:
+One command, everywhere the selection's commands are: **⇧⌫** (Shift+Delete elsewhere), the header's **Edit** menu and
+the canvas's right-click menu (each above Fill with Foreground), and the assistant's `content_aware_fill`. No dialog
+and no options:
 
 - **It needs a selection.** Without one it says "Select what to remove first".
 - **The result is a new pixel layer**, "Content-Aware Fill", right above the active layer, as Photoshop's output to a

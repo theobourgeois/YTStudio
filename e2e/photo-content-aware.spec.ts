@@ -102,6 +102,9 @@ test("Content-Aware Fill fills the selection on a new layer from the right-click
   await page.keyboard.press("Shift+Backspace");
   await expect(page.getByText("Select what to remove first")).toBeVisible();
   expect(await layerCount(page, id)()).toBe(1);
+  await page.locator("[data-edit-menu]").click();
+  await expect(page.getByRole("menuitem", { name: /Content-Aware Fill/ })).toBeDisabled();
+  await page.keyboard.press("Escape");
 
   // A box around the disc, then the canvas's right-click menu.
   await selectRect(page, 140, 140, 320, 320);
@@ -130,6 +133,11 @@ test("Content-Aware Fill fills the selection on a new layer from the right-click
   await expect.poll(layerCount(page, id)).toBe(1);
   await page.keyboard.press("ControlOrMeta+Shift+z");
   await expect.poll(layerCount(page, id)).toBe(2);
+
+  // The header's Edit menu has it too, there only with a selection.
+  await page.locator("[data-edit-menu]").click();
+  await expect(page.getByRole("menuitem", { name: /Content-Aware Fill/ })).toBeEnabled();
+  await page.keyboard.press("Escape");
 
   // ⇧⌫ does the same, with the selection kept: another layer, over the square this time.
   await selectRect(page, 490, 190, 220, 220);
