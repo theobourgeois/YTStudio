@@ -29,7 +29,7 @@ export type EffectKind = "adjustment" | "filter" | "generator";
  * Where the Filter menu and the Filter Gallery list a filter or a generator (Photoshop's Filter menu has Blur,
  * Distort, Render…). A new category is a name here; its filters say they're in it.
  */
-export const FILTER_CATEGORIES = ["Colour", "Light", "Stylize", "Glitch", "Film", "Distort"] as const;
+export const FILTER_CATEGORIES = ["Colour", "Light", "Stylize", "Pixelate", "Glitch", "Film", "Blur", "Distort"] as const;
 export type FilterCategory = (typeof FILTER_CATEGORIES)[number];
 
 export interface EffectDefinition {

@@ -42,7 +42,10 @@ filter's settings beside them; OK applies. Ours (`src/suites/photo/filters.tsx`)
 ## The filters
 
 By category (the Filter menu's and the gallery's order). Sizes in presets are fractions of the canvas's diagonal,
-so a look is the same on any canvas. 18 filters with Glow and Lens Flare, 80 looks.
+so a look is the same on any canvas. 35 filters with Glow and Lens Flare, 157 looks. The second batch (Holographic
+Foil, Wind, Chrome, Oil Paint, Risograph, ASCII, Extrude, the Pixelate cells, CRT, Motion Blur, the warps and the
+glasses, 2026-10-06) follows Photoshop's Filter menu where it has the filter, and the covers of the moment where it
+doesn't.
 
 ### Colour
 - **Gradient Map**: the encoded luminance picks a colour along a gradient (Photoshop's Gradient Map, the usual way
@@ -55,6 +58,10 @@ so a look is the same on any canvas. 18 filters with Glow and Lens Flare, 80 loo
 - **Psychedelic**: hues turned about the grey axis by Shift plus Cycles turns of brightness (grey midtones first
   given colour by Rainbow, or they couldn't turn), saturation, solarisation. Acid Trip, Oil Slick, Invert Hues,
   Solarized, Thermal Dream.
+- **Holographic Foil**: a thin-film rainbow (a cosine palette) whose hue follows a sweep across the canvas, the
+  picture's brightness and its slope along the sweep, so the sheen bends with its shapes; overlaid and screened on
+  the picture (Over) or the picture's lightness in foil colours (Foil); seeded glitter flakes added as light. Holo
+  Foil, Oil Slick, Pearl, Glitter, Holo Sticker.
 
 ### Light
 Glow and Lens Flare (f4-light.md), and **Light Leak**: light bleeding in from an edge, as on expired film, added in
@@ -68,11 +75,42 @@ Burn, Sunset, Cool Leak, Double.
   Engraving, Bold Dots.
 - **Dither**: Bayer 4×4, 8×8 or noise dithering of blocky pixels (each the average of a 4×4 grid of reads), mono
   between two colours or per channel. 1-Bit, Game Boy, Retro PC, Grit.
-- **Pixelate**: mosaic cells or LED dots, with a gap. Mosaic, Big Pixels, LED Wall.
 - **Deep Fry**: the meme look, from how it's made by hand: unsharp-mask sharpening far past taste (a fixed ring of
   reads), saturation and contrast pushed, reds pushed, tones crushed, noise. Lightly Fried, Deep Fried, Nuclear.
 - **Neon Edges**: Sobel edges as light in their own colour, a tint or by direction (a rainbow), over black, over the
   image or as dark lines on paper. Glowing Edges (Photoshop's), Neon Outline, Rainbow Edges, Sketch.
+- **Wind**: Photoshop's, at any angle (its only blows left or right, hence the rotate-wind-rotate-back recipe for
+  fire). Up to 96 taps look back upwind; a tap starts a streak where its brightness differs from a read 1/12 of
+  Length further on by more than Threshold (light, dark or both), each row across the wind with its own seeded length;
+  the strongest streak fades in along its length, tinted keeping its brightness. Wind: thin rows, a fast fade;
+  Blast: thick rows, long streaks; Stagger: streaks set off their edges. Wind, Blast, Stagger, Fire, Speed, Drip.
+- **Chrome**: Photoshop's Sketch › Chrome taken further: brightness (times coverage) as a height, smoothed by two
+  rings of reads, in raised-cosine bands moved and shaded by its slope's lighting, through an environment gradient.
+  A cut-out's outline becomes a bevel. Liquid Chrome, Gold, Mercury, Black Chrome, Rainbow Metal.
+- **Oil Paint**: a generalised Kuwahara filter (eight overlapping sectors with Kyprianidis's polynomial weights, the
+  calmest winning by Sharpness; at most 149 taps, their offsets and weights a table), then shine lit from an angle
+  and seeded bristles along the strokes. Oil Paint, Impasto, Soft Paint, Palette Knife.
+- **Risograph**: two or three spot inks separated from the encoded colour by least squares (a small ridge, so two
+  near-identical inks still separate), each misregistered by a seeded slip, thinned by blotches and screened against
+  noise, multiplied over the paper and its fibre. Pink & Blue, Fluoro, Teal & Orange, Three Colour, Faded.
+- **ASCII**: each cell's brightness picks one of 16 glyphs (`" .:-~+=*o%&O8$#@"`) of a 5×7 bitmap font, defined
+  once in the definition and written into the WGSL; glyphs antialiased with a box, faded to their average coverage
+  where finer than a pixel. Mono, own colour or typewriter on paper; Rain fades columns in seeded falling streaks.
+  Terminal, Digital Rain, Colour Text, Typewriter, Big Type.
+- **Extrude**: Photoshop's, as a kernel: blocks or pyramids raised by brightness or at random, in an oblique
+  projection at an angle. Two grid rays back along the extrusion collect the candidate blocks (Depth is at most 12
+  blocks, so they're bounded); each one's faces get a coverage and a height at the point, and the three highest are
+  composited front to back. Blocks, Pyramids, City, Random Bricks.
+
+### Pixelate
+- **Pixelate**: mosaic cells or LED dots, with a gap. Mosaic, Big Pixels, LED Wall.
+- **Crystallize**, **Pointillize**, **Stained Glass**: one seeded Voronoi grid in document pixels (a point anywhere in
+  each grid cell; a pixel searches the 3×3 cells around it), its edges smoothed by the distance to the bisector,
+  each cell's colour the average of 9 reads around its point. Crystallize: flat crystals, lit towards a random side
+  by Facets (Crystallize, Shards, Fine Crystals, Regular). Pointillize: dots of varied size, hue and brightness on
+  paper, overlapping in a seeded order (Pointillism, Confetti, Fine Dots, Dark Paper). Stained Glass: saturated
+  panes lit towards their centres (above white when strong) between lead lines with a sheen (Stained Glass,
+  Cathedral, Mosaic, Leaded).
 
 ### Glitch
 - **RGB Split**: red one way and blue the other (or red against cyan: an anaglyph), across the picture or out from
@@ -81,6 +119,10 @@ Burn, Sunset, Cool Leak, Double.
   channels split (more where something moved): seeded, whole pixels. Slice, Data Mosh, Light Glitch, Wrecked.
 - **VHS**: lines jittered (more in a tracking band), colour averaged to the left so it trails the brightness,
   washed out and warm, scanlines (faded where finer than the pixels shown), snow. VHS Tape, Worn Tape, CRT.
+- **CRT**: a tube up close: an optional barrel curve (black past the tube's rounded edge), the picture sampled per
+  triad, each row a beam that widens with brightness, lit through an aperture grille, shadow or slot mask in linear
+  light (faded to its average where finer than the pixels shown), and phosphor glow added with the glow's coverage
+  rule. Trinitron, Arcade, Monitor, Giant Pixels.
 
 ### Film
 - **Film Grain**: two octaves of value noise in document pixels, strongest in the midtones, mono or colour; seeded
@@ -88,11 +130,28 @@ Burn, Sunset, Cool Leak, Double.
 - **Vignette**: edges darkened towards a colour (negative Amount) or lightened towards white, from the canvas's
   shape to a circle. Classic, Heavy, Soft White, Purple Edge.
 
+### Blur
+- **Motion Blur**: an even premultiplied average of up to 193 reads along a line, at most a pixel apart where that
+  fits, centred or (Trail) only ahead of the point, weighted down with distance. Motion, Speed, Smear, Vertical Drop,
+  Shake.
+
 ### Distort
 - **Wave**: sine waves (horizontal, vertical or both) or a liquid noise warp; reads past the canvas's edge are held
   on it, so edges stretch rather than tear. Wavy, Liquid, Heat Haze, Ripple.
+- **Twirl**, **Pinch**, **ZigZag**: Photoshop's warps about a centre (the canvas's unless one is given), each fading
+  out at its radius. Twirl turns the read back by Angle·(1 − r/R)², its reach the largest 2r·|sin(θ/2)| (worked out
+  numerically). Pinch reads at r·sin(πr/2R)^−k, smooth at the rim and never past it. ZigZag is a sine ripple of
+  R/Ridges fading to the rim, moving the read out, around or both. Twirl, Whirlpool, Gentle Swirl, Galaxy; Pinch,
+  Bulge, Big Bulge, Subtle; Pond, Water Drop, Rings, Around.
+- **Reeded Glass**: ribbed glass at any angle: across each rib a lens moves the read along it (Round: a mirrored
+  slice; Fluted: a squeezed upright copy; Prism: a ramp with hard seams), red and blue by 1 ± ¼ Dispersion, Frost
+  averaging 8 seeded reads; the seams darken, a thin sheen is added, and the two ribs blend within a pixel of a seam.
+  Reeded, Fluted, Shower Glass, Prism, Wide Ribs.
+- **Frosted Glass**: Photoshop's Glass: the read moved by a texture's slope (value noise with its exact gradient,
+  or shapes per cell): Frosted, Blocks (bricks with seams), Tiny Lens, Rippled, Raindrops (clear lenses on frosted
+  glass). Frosted, Glass Blocks, Tiny Lens, Bathroom Window, Rain Glass.
 
-Glitch, Neon Edges and Wave read the canvas's edge pixels again rather than past them (`onCanvas`), never farther
+Glitch, Neon Edges, the warps and the glasses read the canvas's edge pixels again rather than past them (`onCanvas`), never farther
 from the point than they'd have read: a shoved slice repeats the edge instead of leaving a hole.
 
 ## Where we differ from Photoshop
@@ -103,8 +162,11 @@ from the point than they'd have read: a shoved slice repeats the edge instead of
 - Its filters' patterns are in the image's pixels at its resolution; ours are in document pixels too, but a reduced
   view shows them refined from full resolution, so a halftone seen small averages to the picture rather than
   aliasing.
+- Its Wind blows left or right only; ours at any angle, its streaks optionally tinted.
 
 ## Later
 
 Mirror and kaleidoscope (their input is the mirrored region, not a reach around the point), zoom and radial blur
-(their reach is a fraction of the canvas), a blur family, and user-saved looks.
+(their reach is a fraction of the canvas), the rest of the blur family, and user-saved looks. Wind and Motion Blur
+step their taps past 96 and 192 px (up to about 21 px apart at Wind's 2000 px): very long ones over bright points can
+show it; a multi-pass smear would not.
