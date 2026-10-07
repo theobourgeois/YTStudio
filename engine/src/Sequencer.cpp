@@ -864,6 +864,10 @@ void Sequencer::driveLane (Song::Lane& lane, const float* startValues, const std
             // A Pro-C's, likewise (its knobs glide there over 20 ms).
             song->tracks[(size_t) lane.track].effects[(size_t) lane.index].compSettings->set ((comp::Lane) lane.control, start, lane.size);
             break;
+        case Song::Lane::Kind::limiter:
+            // A YT-L's, likewise (its gain and ceiling glide there over 10 ms).
+            song->tracks[(size_t) lane.track].effects[(size_t) lane.index].limSettings->set ((limit::Lane) lane.control, start, lane.size);
+            break;
         case Song::Lane::Kind::verb:
             // A Reverb's, likewise (its gains glide, its absorption glides to its new design, Size glides).
             song->tracks[(size_t) lane.track].effects[(size_t) lane.index].verbSettings->set ((verb::Lane) lane.control, start, lane.size);
@@ -954,6 +958,9 @@ void Sequencer::restoreLanes (Song& from)
                 break;
             case Song::Lane::Kind::comp:
                 from.tracks[(size_t) lane.track].effects[(size_t) lane.index].compSettings->set ((comp::Lane) lane.control, lane.base.data(), lane.size);
+                break;
+            case Song::Lane::Kind::limiter:
+                from.tracks[(size_t) lane.track].effects[(size_t) lane.index].limSettings->set ((limit::Lane) lane.control, lane.base.data(), lane.size);
                 break;
             case Song::Lane::Kind::verb:
                 from.tracks[(size_t) lane.track].effects[(size_t) lane.index].verbSettings->set ((verb::Lane) lane.control, lane.base.data(), lane.size);
@@ -1354,6 +1361,14 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
                 effect.comp->process (*effect.compSettings, grossClock, keyLeft, keyRight, l, r, numSamples, effect.mix);
             else
                 effect.comp->skipped();
+        }
+        else if (effect.lim != nullptr)
+        {
+            // Its mix is its own too: the dry sound waits as long as its latency.
+            if (effect.enabled)
+                effect.lim->process (*effect.limSettings, l, r, numSamples, effect.mix);
+            else
+                effect.lim->skipped();
         }
         else if (effect.pan != nullptr)
         {

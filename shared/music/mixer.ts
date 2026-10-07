@@ -12,6 +12,7 @@ import { GROSS_BEAT_PLUGIN, isGrossBeat } from "./gross-beat-presets.ts";
 import { DEFAULT_PANMAN, PANMAN_PLUGIN, isPanMan } from "./panman-presets.ts";
 import { PRO_Q_PLUGIN, isProQ } from "./pro-q-presets.ts";
 import { DEFAULT_OTT, OTT_PLUGIN, isOtt } from "./ott-presets.ts";
+import { DEFAULT_PRO_L, PRO_L_PLUGIN, isProL } from "./pro-l-presets.ts";
 import { DEFAULT_PRO_C, PRO_C_PLUGIN, isProC } from "./pro-c-presets.ts";
 import { DEFAULT_REVERB, REVERB_PLUGIN, isReverb } from "./reverb-presets.ts";
 import { DEFAULT_GROSS_BEAT, DEFAULT_PRO_Q, EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_OFFSET, MAX_INSERTS, MAX_LATENCY_OFFSET, MAX_NAME, createMixerTrack, normalizeInput, reaches, routeOf, trimTracks } from "./project.ts";
@@ -447,6 +448,7 @@ function newEffect(plugin: PluginRef, id: string, bus = false): MixerEffect {
   if (isProQ(plugin)) return { id, plugin: PRO_Q_PLUGIN, enabled: true, mix: 1, proQ: DEFAULT_PRO_Q };
   if (isOtt(plugin)) return { id, plugin: OTT_PLUGIN, enabled: true, mix: 1, ott: DEFAULT_OTT };
   if (isProC(plugin)) return { id, plugin: PRO_C_PLUGIN, enabled: true, mix: 1, proC: DEFAULT_PRO_C };
+  if (isProL(plugin)) return { id, plugin: PRO_L_PLUGIN, enabled: true, mix: 1, proL: DEFAULT_PRO_L };
   if (isPanMan(plugin)) return { id, plugin: PANMAN_PLUGIN, enabled: true, mix: 1, panMan: DEFAULT_PANMAN };
   if (isPitchWheel(plugin)) return { id, plugin: PITCH_WHEEL_PLUGIN, enabled: true, mix: 1, pitchWheel: DEFAULT_PITCH_WHEEL };
   if (isReverb(plugin)) return { id, plugin: REVERB_PLUGIN, enabled: true, mix: 1, reverb: bus ? { ...DEFAULT_REVERB, mix: 1, mixLock: true } : DEFAULT_REVERB };

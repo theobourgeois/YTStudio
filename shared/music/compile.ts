@@ -16,6 +16,7 @@ import { ECHO_CONTROL_SPECS, ECHO_LANES, type EchoLane, type EngineEchoBoy, LANE
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { type EngineEq, engineProQ } from "./pro-q.ts";
 import { type EngineOtt, OTT_CONTROL_SPECS, OTT_LANES, OTT_LANES_OF, type OttLane, engineOtt } from "./ott.ts";
+import { type EngineProL, engineProL } from "./pro-l.ts";
 import { type EngineProC, PRO_C_CONTROL_SPECS, PRO_C_LANES, PRO_C_LANES_OF, type ProCLane, engineProC } from "./pro-c.ts";
 import { type EngineReverb, REVERB_CONTROL_SPECS, REVERB_LANES, REVERB_LANES_OF, REVERB_LANE_NAMES, type ReverbLane, engineReverb, reverbSeed } from "./reverb.ts";
 import { type EnginePitchWheel, controlValue as pitchWheelValue, engineControlValue as engineWheelValue, enginePitchWheel } from "./pitch-wheel.ts";
@@ -135,6 +136,8 @@ export interface EngineEffect {
   ott?: EngineOtt;
   /** A Pro-C (ours, `PRO_C_PLUGIN`): its style as blocks and numbers, its key's track. */
   proC?: EngineProC;
+  /** A YT-L (ours, `PRO_L_PLUGIN`): its style as numbers, its knobs in the engine's units. */
+  proL?: EngineProL;
   /** A PanMan (ours, likewise: `PANMAN_PLUGIN`'s id): its settings and pattern. */
   panMan?: EnginePanMan;
   /** A Reverb (ours, `REVERB_PLUGIN`): its network, decay and vocal tools as numbers, its ducking key's track. */
@@ -541,6 +544,7 @@ function engineTracks(
         if (e.proQ) return [{ ...effect, eq: engineProQ(e.proQ) }];
         if (e.ott) return [{ ...effect, ott: engineOtt(e.ott) }];
         if (e.proC) return [{ ...effect, proC: engineProC(e.proC) }];
+        if (e.proL) return [{ ...effect, proL: engineProL(e.proL) }];
         if (e.panMan) return [{ ...effect, panMan: enginePanMan(e.panMan, e.id) }];
         if (e.reverb) return [{ ...effect, reverb: engineReverb(e.reverb, song.settings.tempo, reverbSeed(e.id)) }];
         if (e.pitchWheel) {

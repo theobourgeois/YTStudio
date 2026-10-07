@@ -505,13 +505,13 @@ vocals. A style is data, not code, as EchoBoy's styles are **[ours]**. The block
 | Style | Reserve | Ramp | Hold default | Transient release | Release stage | Extras | Starting values: Lookahead / Attack / Release | For |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | **Transparent** | 0 | the knob | Auto | 10 → 60 ms | ×1, exponential | | 0.5 ms / 150 ms / 500 ms | masters, a few dB; the low-latency master style |
-| **Punchy** | 0 | the knob, ≥ 1 ms | Auto | 40 → 150 ms (the pump) | ×1.3 | | 1.5 ms / 275 ms / 400 ms | vocals, bass, beat music |
+| **Punchy** | 0 | the knob, ≥ 1 ms | Auto | 40 → 150 ms (the pump) | ×1 | | 1.5 ms / 275 ms / 400 ms | vocals, bass, beat music |
 | **Dynamic** | 2 ms | the knob | Auto | 10 → 60 ms | ×1 | emphasis: onsets up to +3 dB | 0.3 ms / 250 ms / 250 ms | rock, live drums |
 | **Allround** | 0 | the knob, ≥ 0.5 ms | Auto | 15 → 100 ms | ×1, **S-curve with a 100 ms release delay** (Weiss) | | 0.5 ms / 275 ms / 400 ms | when unsure |
-| **Aggressive** | 25 ms | adaptive, knob → 25 ms, both sides | Auto | symmetric (no release stage) | none | | 0.1 ms / – / – | EDM, trap, near-clipping density |
-| **Modern** | 25 ms | adaptive, knob → 25 ms, short for clicks | Auto | 5 → 80 ms, two-sided | ×1, floor 300 ms, capped for monotonic loudness | | 0.18 ms / 275 ms / 400 ms | the default; masters of every kind |
-| **Bus** | 45 ms | ≥ 12 ms, adaptive → 50 ms | 15 ms | 50 → 300 ms | ×1.3 | | 2 ms / 30 ms / 300 ms | drum bus, glue and pump |
-| **Safe** | 35 ms | 35 ms (box stack) | 20 ms | none (all release stage) | ×1, never under 80 ms | | 5 ms / 0 s / 1 s | acoustic, classical, delicate vocals |
+| **Aggressive** | 25 ms | the knob, both sides; a **bass stage** (10 ms) | Auto | symmetric (no release stage) | none | | 0.1 ms / – / – | EDM, trap, near-clipping density |
+| **Modern** | 25 ms | the knob; a **bass stage** (10 ms) | Auto | 5 → 80 ms, two-sided | ×1, floor 300 ms, capped for monotonic loudness | | 0.18 ms / 275 ms / 400 ms | the default; masters of every kind |
+| **Bus** | 45 ms | ≥ 12 ms; a bass stage (20 ms) | 15 ms | 50 → 300 ms | ×1 | | 2 ms / 30 ms / 300 ms | drum bus, glue and pump |
+| **Safe** | 35 ms | 35 ms (box stack) | 20 ms | 80 ms (its release stage does the rest) | ×1, never under 80 ms | | 5 ms / 0 s / 1 s | acoustic, classical, delicate vocals |
 | **Spit** (new) | 0, **Lookahead 0–1 ms** | the knob (0.05 ms by default) | 0 | 1 → 5 ms | none | oversampling Off in its presets | 0.05 ms / – / 3 ms | the L1 / L2 "spit and attitude" on a vocal, a drum bus; ~1 ms of latency |
 
 Why these **[ours]**:
@@ -519,8 +519,12 @@ Why these **[ours]**:
 - **Auto hold in every style but Spit.** The old four's bass distortion (−21 dB, about 10 %) is the gain bouncing between
   half-cycles. A hold of half a period removes it entirely at no latency (`pro-l-research.md` §5.1). Anyone who wants
   Pro-L 2's old grit sets Hold to 0.
-- **Adaptive ramps for Aggressive and Modern**, as measured on Pro-L 2, but a **25 ms reserve instead of 60**: half the
-  period of a 20 Hz wave is 25 ms, and nothing musical is lower. So both are half Pro-L 2's latency.
+- **A bass stage for Aggressive, Modern and Bus**: Pro-L 2's two ramp half a bass period before each peak (measured);
+  ours limit the low end (below 150 Hz) over a longer ramp of its own while the crack of a hit keeps the knob's
+  short one, and Auto Hold keeps a held bass note's gain still. The same aim, a construction that keeps the
+  guarantee simply (§5.5). A **25 ms reserve instead of 60**: both are half Pro-L 2's latency.
+- **No release stage stronger than ×1** (built 2026-10-07): a stronger one (the first plan's ×1.3 for Punchy and Bus)
+  turns the sound down more than Gain turns it up, which is Pro-L 2's loudness trap.
 - **Modern's release floor stays** (300 ms, near the measured 400) because that's its smoothness; its strength is capped
   so that more Gain is never quieter.
 - **Allround's S-shaped release** (measured: it holds, then lets go along an S) is Weiss's Release Delay: the release
@@ -756,12 +760,15 @@ a near-zero hold (keeping its loudness), an 808 a constant gain. A manual Hold (
 Weiss]**. On a *decaying* 808 the hold-min becomes a staircase (a new, lower step each half cycle): a 12 ms hold with a
 10 ms release was as clean as a 100 ms release, and slightly louder **[checked]**.
 
-**The adaptive ramp** (Aggressive, Modern; measured on Pro-L 2): for each overload the ramp is **half the period of the
-waveform at the peak** (the interval between the zero crossings around it), at least the Lookahead, at most the
-reserve. A 50 Hz 808 gets 10 ms, a snare's crack the knob's 0.1–0.5 ms. Modern also shortens it for **clicks**: when
-the overload begins with a broadband step (the energy above 2 kHz in the 1 ms before the peak exceeds the energy below
-by a margin), the ramp is the knob's **[ours, matching the measurement]**. Both are within the window, so the guarantee
-holds.
+**The bass stage** (Aggressive, Modern, Bus; as built). Pro-L 2's Aggressive and Modern ramp **half the period of the
+waveform at the peak** (10 ms for a 50 Hz 808, the knob's 0.1–0.5 ms for a snare's crack; measured). A per-peak ramp
+length is hard to square with the guarantee (a kernel's taps must all see the peak it's guarding). So ours has a
+second stage on the same construction, fed by the low end alone (a 150 Hz low-pass of the sound): its ramp is long
+(10 ms; Bus 20 ms), its hold Auto, and its gain is min'd with the main stage's. A bass overload is then turned down
+smoothly over 10 ms by the bass stage, and the main stage, with its short ramp, only takes what's left (the click on
+top). The main stage alone still guarantees the ceiling; the bass stage only lowers the gain **[ours]**. With Auto
+Hold, a held 40, 60 or 100 Hz note 6 dB over the ceiling comes out with its harmonics under −80 dB in every style but
+Spit (§8.9).
 
 **Safe** has no transient release: its release stage (with a 35 ms box stack in front, so it still can't overshoot)
 does everything.
@@ -944,20 +951,26 @@ process itself, will be smoothly attenuated afterwards." Extra latency: "about 5
    without it, the main stage's detector reads the true peak of the input (the detector below) instead of
    `|x|`.
 2. **The true peak stage**, at `fs`, after the decimator, twice in a row:
-   - **detector**: per sample `n`, the peak of the waveform around `n`: the maximum of `|y[n]|`, the four
-     BS.1770 phases between `n−1` and `n+1` (so a BS.1770 meter can never read more than we saw), and an 8x
-     Kaiser-windowed-sinc interpolator (128 taps a phase, β = 12) over the same span, each local maximum of
-     its eight points refined by the parabola through it and its neighbours; at 88.2/96 kHz 4x, at
-     176.4/192 kHz 2x (BS.1770's own allowance);
-   - **requirement** `q[n] = min(1, C_int/peak[n])` with `C_int` 0.01 dB under the ceiling (a margin for
-     what the detector can still miss, see below), spread to the 8 samples either side (the interpolator's
-     main lobe);
+   - **detector** (as built): per gap between samples `j` and `j+1`, the most of the two samples, BS.1770's
+     four points in it (so a BS.1770 meter can never read more than we saw), and an 8x Kaiser-windowed sinc
+     (128 taps a phase, β = 10) at `j + 1/8 … j + 7/8`; **every** point that's higher than its neighbours is refined
+     by the parabola through it (the samples' own points too: the gaps beside lend them a neighbour each). Without
+     refining at the samples, a peak just beside one was missed by up to 0.08 dB;
+   - **requirement** `q = min(1, C_int/peak)` with `C_int` **0.03 dB** under the ceiling (what the detector and
+     the passes can still miss: measured, below), spread to the 8 samples either side;
    - **look-ahead** 1 ms: hold-min, Hann ramp, a fast release (5 ms), §5.4.
    - The second pass sees only what the first pass's own gain changes left: its gain changes are tiny, so its
      own residual is second-order.
 
-**Checked** (48 kHz, ceiling −1 dBTP, references: the BS.1770 filter, and an independent 32x Kaiser sinc with
-256 taps a phase, β = 14) **[checked]**:
+**As built** (`server/music/pro-l.integration.test.ts`: +12 dB of clipped drums and clipped noise into −1 dBTP,
+4x, Transparent, Modern, Aggressive): BS.1770's meter reads −0.030 dB (the margin) everywhere; a 16x Kaiser sinc
+(β 14, 128 taps a phase) at most **+0.017 dB** (Aggressive, clipped noise), +0.004 dB or less otherwise (with a
+0.02 dB margin, Aggressive on noise read +0.027). Pro-L 2, the same way: +0.1 to +0.37 dB (`pro-l-research.md`
+§2.7). With oversampling off, on material with energy up to half the rate, "true" depends on the reconstruction, as
+the checks below found.
+
+**Checked** before building (48 kHz, ceiling −1 dBTP, references: the BS.1770 filter, and an independent 32x Kaiser
+sinc with 256 taps a phase, β = 14) **[checked]**:
 
 | Experiment | Result |
 | --- | --- |
@@ -1268,7 +1281,7 @@ Revised 2026-10-07 after the second round of research and the measurements, from
 | The nine styles; Gain, Output, Lookahead, Attack, Release, **Hold (Auto)**, both links | **Bass clip** in the clip stage | **Multiband**: 2 bands (an 808 band below ~120 Hz) then 3–4, a weighted projection of the band gains with a tonal-drift clamp, always followed by the wideband stages |
 | **The clip stage**: Clip Range, Hard / Smooth / Soft / Converter / **FL**, knee, **order** (clip then limit, or limit then clip), ADAA, the differential stage | **Clean** (Orban's distortion cancelling) | A masking-weighted **Smart clip** |
 | **Stereo: L/R or M/S side first** with the Side floor | An **HF limiter** (a dynamic high shelf) before the clip stage | An **upward / "inflate"** density stage before the limiter |
-| True Peak Limiting; oversampling Off to 32x | **Normalised listen**: the output turned to each platform's level (Spotify's rules, its Loud limiter) to hear it as listeners will |  |
+| True Peak Limiting; oversampling Off to 16x (32x later: JUCE's oversampler stops at 16x) | **Normalised listen**: the output turned to each platform's level (Spotify's rules, its Loud limiter) to hear it as listeners will |  |
 | DC filter, Unity Gain, **Audition All / Clip / Limiter** | An **Analyze** render: the song's I, LRA, max true peak and gain reduction at the current settings, without playing it, and **Gain to target** (suggested, never silent; the assistant's too) | Stems through the master's limiter (§8.8) |
 | Dither (24 … 16 bits) with Basic, Optimized, Weighted (matched to Pro-L 2's measured curves) | **A codec check in the export**: encode with real encoders (Apple AAC 256 through `afconvert`, Opus, LAME), decode, report the decoded true peak, suggest a trim | Release-law options (dual peak/RMS, Release Shape) |
 | The display, peak labels, the loudness curve, **GR per stage** | **Per-platform targets** in the loudness panel, with what each will do to the master (turn down, turn up within headroom, Spotify Loud's limiter) | An **Approval / Master** pair in the export: the master rendered with and without its limiter |
@@ -1296,6 +1309,12 @@ Revised 2026-10-07 after the second round of research and the measurements, from
 ---
 
 ## 8. How it'd be built here
+
+**Built so far** (2026-10-07): step 1, the engine core: `engine/src/ProL.h/.cpp` (the stages, the bass stage,
+Auto Hold, the release stage, Dynamic's emphasis, the DC filter, Unity Gain, the slot's mix), `Lookahead.h` (the
+sliding minimum, the box stack, a stage), `TruePeak.h` (the passes); the document, its validation and
+`engineProL` (`shared/music/pro-l*.ts`); its offline tests. Not yet: the clip stage, M/S, Audition, the meters,
+dither, the window, presets, automation's TypeScript side, the assistant's tools.
 
 The same shape as Pro-Q and PanMan: the document and what it means in TypeScript, the sound in C++, the window in React.
 
