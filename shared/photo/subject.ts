@@ -28,7 +28,7 @@ export const SUBJECT_MODEL = {
 export type SubjectModelStatus = PhotoModelStatus;
 
 /** A sample's colour at (x, y) read between pixels, over white where it's transparent, 0..255. */
-function colourAt(s: PixelSample, x: number, y: number, c: number): number {
+export function colourAt(s: PixelSample, x: number, y: number, c: number): number {
   const x0 = Math.max(0, Math.min(s.width - 1, Math.floor(x)));
   const y0 = Math.max(0, Math.min(s.height - 1, Math.floor(y)));
   const x1 = Math.min(s.width - 1, x0 + 1);
