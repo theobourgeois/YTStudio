@@ -41,7 +41,7 @@ version assumed a squared law, so its "+2 dB" was about +3 dB.
 
 ## Using it
 
-Click **Vocal mix** in the music toolbar. Choose the vocal's insert, two nonoverlapping passages of 5–20 seconds
+Open **Tools › Vocal Mix Comparison…** from the music editor's menu bar. Choose the vocal's insert, two nonoverlapping passages of 5–20 seconds
 where it sings, and where it should sit, then **Measure and render alternatives**. The window shows what the
 measurements found per passage, then each alternative's reasons and measured effects, a player for both passages,
 and Keep current mix / Apply selected alternative.

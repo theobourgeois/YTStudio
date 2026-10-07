@@ -50,7 +50,10 @@ export function restoreTabs(saved: unknown, exists: (id: string) => boolean): st
   return [...seen];
 }
 
-/** Whether the strip shows: when there's somewhere else to go (two tabs), or on the Home screen with one. */
+/**
+ * Whether the strip shows: always while a project is open (the menus are in it), and on the Home screen while
+ * there are tabs to go back to.
+ */
 export function tabsVisible(tabCount: number, home: boolean): boolean {
-  return tabCount >= 2 || (home && tabCount >= 1);
+  return !home || tabCount >= 1;
 }

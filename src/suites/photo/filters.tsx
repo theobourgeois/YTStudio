@@ -7,15 +7,13 @@
  */
 import { type KeyboardEvent as ReactKeyboardEvent, useMemo, useState } from "react";
 import { cn } from "cn";
-import { PiArrowCounterClockwise, PiCaretDown, PiCursorClick, PiMagnifyingGlass, PiSparkle, PiSunHorizon } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiCursorClick, PiMagnifyingGlass, PiSparkle, PiSunHorizon } from "react-icons/pi";
 import { type FilterEntry, FILTER_ENTRIES, filterCategories, filterEntry, searchFilters } from "@shared/photo/effects/catalog";
 import { type FilterCategory, effectDefinition } from "@shared/photo/effects/index";
 import { specShows } from "@shared/photo/effects/params";
 import { type EffectParamValue, hasContent } from "@shared/photo/types";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -23,7 +21,6 @@ import {
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { FloatingWindow, WindowBody, WindowFooter, centredOnDesktop } from "@/components/windows/floating-window";
@@ -62,19 +59,13 @@ function useTarget(): { name: string | null; canFilter: boolean } {
 const unavailable = (name: string | null) =>
   name ? `"${name}" is an adjustment layer: filters work on a layer's own pixels.` : "Select an image, pixel or generator layer to filter it.";
 
-/** Photoshop's Filter menu, in the header. */
-export function FilterMenu() {
+/** Photoshop's Filter menu's items, in the menu bar. */
+export function FilterMenuItems() {
   const { name, canFilter } = useTarget();
   const last = usePhotoUi((s) => s.lastFilter);
   const lastLabel = last ? effectDefinition(last.type)?.label : null;
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="ghost" data-filter-menu>
-          Filter <PiCaretDown className="size-3 text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-60">
+    <>
         <DropdownMenuItem disabled={!last || !canFilter} onSelect={() => layerActions.repeatLastFilter()}>
           {lastLabel ? `Last Filter: ${lastLabel}` : "Last Filter"}
           <DropdownMenuShortcut>{MAC ? "⌃⌘F" : "Ctrl+Alt+F"}</DropdownMenuShortcut>
@@ -108,8 +99,7 @@ export function FilterMenu() {
             })}
           </div>
         ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    </>
   );
 }
 

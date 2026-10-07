@@ -126,7 +126,8 @@ test("the vocal is measured against the beat, alternatives proposed from it rend
   song = updateMixerTrack(song, "insert_vocal", { name: "Vocal" });
   expect((await page.request.put(`/api/projects/${project.id}`, { data: song })).ok()).toBe(true);
   await page.goto(`/p/${project.id}`);
-  await page.getByRole("button", { name: "Vocal mix comparison", exact: true }).click();
+  await page.locator('[data-menu="tools"]').click();
+  await page.getByRole("menuitem", { name: "Vocal Mix Comparison…" }).click();
   const dialog = page.getByRole("dialog", { name: "Vocal mix comparison" });
   await expect(dialog.getByLabel("Vocal mixer insert")).toHaveValue("insert_vocal");
   await dialog.getByRole("button", { name: "Measure and render alternatives", exact: true }).click();
@@ -145,7 +146,8 @@ test("the vocal is measured against the beat, alternatives proposed from it rend
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect.poll(async () => (await saved()).mixer.tracks.find((t: { id: string }) => t.id === "insert_vocal").effects.filter(Boolean).length).toBe(0);
-  await page.getByRole("button", { name: "Vocal mix comparison", exact: true }).click();
+  await page.locator('[data-menu="tools"]').click();
+  await page.getByRole("menuitem", { name: "Vocal Mix Comparison…" }).click();
   await dialog.getByRole("button", { name: "Vocal level", exact: true }).click();
   const mcpUrl = `http://127.0.0.1:${process.env.E2E_SERVER_PORT || 5321}/mcp?chat=${project.id}`;
   const changed = await context.request.post(mcpUrl, { data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "update_song", arguments: { tempo: 130 } } } });

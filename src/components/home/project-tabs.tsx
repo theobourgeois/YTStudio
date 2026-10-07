@@ -13,10 +13,8 @@ import { useLayout } from "@/stores/layout";
 import { tabsVisible } from "@/stores/project-tabs";
 import { projectSuite, useProjects } from "@/stores/projects";
 import { clientSuite } from "@/suites";
-import { HOME_KEYS, NEW_PROJECT_KEYS } from "./project-search-dialog";
-
-const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
-export const CLOSE_TAB_KEYS = `${MOD}W`;
+import { MenuBarSlot } from "./menu-bar";
+import { CLOSE_TAB_KEYS, HOME_KEYS, NEW_PROJECT_KEYS } from "./project-search-dialog";
 
 /** The projects open as tabs that can still be shown (a package moved away has nothing to open). */
 function useTabIds(): string[] {
@@ -35,7 +33,7 @@ export function useTabsShown(): boolean {
 /**
  * The open projects as tabs along the top of the window, Photoshop's way: click one to switch (the project
  * you leave is saved first), drag to reorder, × or middle-click to close (the project stays on disk), + for
- * a new one. The Home screen is the house at the left. It's a title bar in the desktop app (the window's
+ * a new one. The Home screen is the house at the left, the menus (`MenuBarSlot`) after it. It's a title bar in the desktop app (the window's
  * buttons sit at its left, as the Home button did). Files dropped on it start a new project, as on Home (an image
  * a photo named after it, footage a video).
  */
@@ -50,8 +48,6 @@ export function ProjectTabs() {
   return (
     <div
       data-titlebar="tabs"
-      role="tablist"
-      aria-label="Open projects"
       className={cn("flex h-10 shrink-0 items-end gap-1 border-b border-line bg-surface-0 px-2 pb-1 select-none", drop.active && "bg-brand/10")}
       style={filesDragged ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined}
       data-file-drop={drop.active || undefined}
@@ -79,7 +75,10 @@ export function ProjectTabs() {
         </TooltipContent>
       </Tooltip>
 
-      <div ref={strip} className="flex min-w-0 items-end gap-1">
+      <MenuBarSlot />
+      <div aria-hidden className="mx-1 h-5 w-px shrink-0 self-center bg-line" />
+
+      <div ref={strip} role="tablist" aria-label="Open projects" className="flex min-w-0 items-end gap-1">
         {ids.map((id) => (
           <ProjectTab key={id} id={id} selected={id === openId} strip={strip} />
         ))}

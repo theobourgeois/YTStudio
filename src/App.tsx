@@ -3,7 +3,6 @@ import { PiSpinnerGap } from "react-icons/pi";
 import { SettingsWindow, useSettingsShortcut } from "@/components/settings/settings-window";
 import { ShortcutsDialog } from "@/components/shortcuts/shortcuts-dialog";
 import { Home } from "@/components/home/home";
-import { HomeButton } from "@/components/home/home-button";
 import { noteTabStrip } from "@/lib/desktop";
 import { useDesktopCommands } from "@/components/home/desktop-commands";
 import { NewProjectDialog } from "@/components/home/new-project-dialog";
@@ -58,9 +57,6 @@ export default function App() {
               </main>
             )}
           </div>
-          {/* After the headers: in the desktop app, drag regions later in the page win over earlier ones, so before
-              them the header (which drags the window) would take the button's clicks. */}
-          <HomeButton />
         </div>
       ) : (
         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

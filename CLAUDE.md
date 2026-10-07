@@ -412,11 +412,19 @@ src/
                      `tabs` are the open projects as a strip along the window's top (`components/home/project-tabs.tsx`,
                      the order and edits in pure `stores/project-tabs.ts`, kept in localStorage): switching is just
                      `open` (the one left is flushed and its store closed, so it reloads: no per-tab state yet). The
-                     strip shows with two tabs, or on Home with one; then it starts the window (the Home button and a
-                     Mac's window buttons move into it: `[data-tabs]` in index.css, `tab-strip` in electron/main.ts).
-                     ⌘W closes a tab (the File menu's Close Tab; ⇧⌘W the window), ⇧⌘[ / ⇧⌘] and ⌃Tab go through them.
+                     strip always shows while a project is open, and on Home with tabs; it starts the window (the Home
+                     button and a Mac's window buttons are in it: `[data-tabs]` in index.css, `tab-strip` in
+                     electron/main.ts). ⌘W closes a tab (the File menu's Close Tab; ⇧⌘W the window), ⇧⌘[ / ⇧⌘] and
+                     ⌃Tab go through them.
+                     **The menu bar** is in the strip, after Home (`components/home/menu-bar.tsx`), the same in every
+                     suite: the app's File and Edit (Settings…), then View, the suite's own menus and Window. A suite's
+                     workspace renders `<SuiteMenuBar file edit view menus window />` (its items are
+                     `components/ui/dropdown-menu` items, each running the code its key runs: video's through
+                     `runShortcut`, music's `runKey`), which the strip shows in place of the app's own. Every suite's
+                     header ends with `HeaderActions` (components/header/header-actions.tsx: undo and redo, Settings,
+                     Export, the assistant), so the two bars look and sit the same in each suite.
   components/home/   The Home screen (home.tsx: New tiles, Open…, the recents as cards in project-card.tsx, search
-                     and suite filter), the corner's Home button, Open… / Locate… (open-project-dialog.tsx: the
+                     and suite filter), the tab strip and its menu bar, Open… / Locate… (open-project-dialog.tsx: the
                      desktop app's dialog, else a path), the New project picker (⇧⌘O) and ⌘P's search, and the
                      app's project keys (project-search-dialog.tsx `useProjectShortcuts`: ⌘O, ⇧⌘H too).
   stores/editor.ts   THE video document store: project, assets, selection, undo history, gestures, edit commands.

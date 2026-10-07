@@ -2656,17 +2656,12 @@ test("the assistant exports the song: the export window opens and lists what it 
   await expect(files).toContainText("Assisted export.mid");
 });
 
-test("Make visualizer: the toolbar's button makes a video of the song, which opens in a tab: the mix, the notes as hits, the exact beat, a look", async ({ page }) => {
+test("Make visualizer: File › Make Visualizer… makes a video of the song, which opens in a tab: the mix, the notes as hits, the exact beat, a look", async ({ page }) => {
   const songId = await openNewSong(page, "Visualize me");
   await addStarterKit(page);
   for (const n of [1, 5, 9, 13]) await step(page, "Kick", n).click();
-  // Its title is the app's own tip, not the browser's (`TitleTips`), and the hint bar still names it.
-  const button = page.getByRole("button", { name: "Make visualizer", exact: true });
-  await button.hover();
-  await expect(page.getByRole("tooltip")).toHaveText(/^Make visualizer: a video of the song/);
-  await expect(button).not.toHaveAttribute("title");
-  await expect(page.getByTestId("hint-bar")).toContainText("Make visualizer: a video of the song");
-  await button.click();
+  await page.locator('[data-menu="file"]').click();
+  await page.getByRole("menuitem", { name: "Make Visualizer…" }).click();
   const win = page.getByRole("region", { name: "Make visualizer" });
   await expect(win).toBeVisible();
   // Everything plays straight into the master: no stems, said why; the kick's notes, its role guessed.

@@ -95,7 +95,7 @@ test("the selected layer flips with ⌘H and ⌥⌘H, turns from Edit › Transf
   await expect.poll(place).toEqual({ x: 800, y: 600, scaleX: -1, scaleY: 1, rotation: 0 });
 
   // Edit › Transform: its items say their keys.
-  await page.locator("[data-edit-menu]").click();
+  await page.locator('[data-menu="edit"]').click();
   await page.locator("[data-transform-menu]").click();
   await expect(page.locator('[data-orient-layers="flip-horizontal"]')).toContainText(/⌘H|Ctrl\+H/);
   await page.locator('[data-orient-layers="rotate-90-cw"]').click();
@@ -128,7 +128,7 @@ test("Image › Image Rotation turns the whole canvas: the picture and a mask in
   const region = { zoom: 1, x: 600, y: 500, width: 40, height: 64 };
   const before = await renderRegion(page, region);
 
-  await page.locator("[data-image-menu]").click();
+  await page.locator('[data-menu="image"]').click();
   await page.locator("[data-image-rotation-menu]").click();
   await page.locator('[data-orient-canvas="rotate-90-cw"]').click();
   const turned = await expect.poll(async () => (await savedPhoto(page, id)).canvas.width).toBe(1200).then(() => savedPhoto(page, id));
