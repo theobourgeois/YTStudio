@@ -13,6 +13,7 @@ import { usePhoto } from "./store";
 import { commitSurface } from "./paint-target";
 import { shownDoc } from "./filter-preview";
 import { usePhotoUi } from "./ui";
+import { cropPreviewKey, cropShownDoc, useCrop } from "./toolbox/crop-state";
 
 let open: { projectId: string; renderer: Promise<PhotoRenderer> } | null = null;
 
@@ -43,10 +44,13 @@ export function liveRenderer(): Promise<PhotoRenderer> | null {
   return open.renderer;
 }
 
-/** What the canvas shows of `doc`: with the Filter Gallery's look while one is picked. */
+/**
+ * What the canvas shows of `doc`: with the Filter Gallery's look while one is picked, and the layer the Crop tool
+ * crops shown whole (docs/photo/tools/crop.md).
+ */
 const shown = (doc: PhotoProject) => {
   const { filterPreview, selectedLayerId } = usePhotoUi.getState();
-  return shownDoc(doc, filterPreview, selectedLayerId);
+  return cropShownDoc(shownDoc(doc, filterPreview, selectedLayerId));
 };
 
 export function closeRenderer() {
@@ -76,6 +80,19 @@ usePhotoUi.subscribe((state, prev) => {
   if (!open || !projectId || !history) return;
   void open.renderer.then((r) => r.setDocument(projectId, shown(history.doc.doc), assets), () => {});
 });
+
+// The layer the Crop tool crops shows whole while it's cropped, and as it is again after.
+let cropShown: string | null = null;
+const followCrop = () => {
+  const key = cropPreviewKey();
+  if (key === cropShown) return;
+  cropShown = key;
+  const { projectId, history, assets } = usePhoto.getState();
+  if (!open || !projectId || !history) return;
+  void open.renderer.then((r) => r.setDocument(projectId, shown(history.doc.doc), assets), () => {});
+};
+useCrop.subscribe(followCrop);
+usePhotoUi.subscribe(followCrop);
 
 /**
  * Runs `task` with a renderer showing `doc`, every image loaded: the open photo's, or one made for the call

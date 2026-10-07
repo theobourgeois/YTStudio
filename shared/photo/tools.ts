@@ -564,6 +564,36 @@ export const PHOTO_TOOLS = [
       "Exports the photo as a PNG (keeps transparency; 8 or 16 bits a channel) or a JPEG (over the background, or white), at its canvas size. 16 bits keeps a 16-bit source's precision. The file goes to the app's exports; the result says where.",
     inputSchema: obj({ format: oneOf(["png", "jpeg"], "png (default) or jpeg."), bits: oneOf(["8", "16"], "PNG's bits a channel (default 8)."), quality: int("JPEG quality, 1 to 100 (default 92).") }),
   }),
+  tool({
+    name: "crop_canvas",
+    title: "Crop the canvas",
+    kind: "edit",
+    description:
+      "Crops the canvas (Photoshop's Crop tool): the canvas becomes the box and everything moves with it, nothing resampled or deleted (layers keep their pixels past the canvas, so a larger crop or moving them brings them back; Photoshop's with Delete Cropped Pixels off). Give a box in canvas pixels (x, y, width, height; whole pixels; it may go past the canvas to grow it), or a ratio (\"4:5\", \"9:16\", \"1:1\", \"16:9\") for the largest box of it centred on the canvas, or to_selection: true for the selection's bounds. Undoable in one step.",
+    inputSchema: obj({
+      x: int("Left edge, canvas pixels (negative grows the canvas leftwards)."),
+      y: int("Top edge, canvas pixels."),
+      width: int("Width in pixels."),
+      height: int("Height in pixels."),
+      ratio: str('Width to height, "4:5", "16:9", "1.5": the largest box of it, centred.'),
+      to_selection: bool("Crop to the selection's bounds (the marching ants')."),
+    }),
+  }),
+  tool({
+    name: "crop_layer",
+    title: "Crop a layer",
+    kind: "edit",
+    description:
+      "Crops one image or pixel layer, as Figma or Canva crop an image: what's outside the box is hidden (its pixels are kept: crop it again larger, or clear: true, to show them). The box is in canvas pixels (x, y, width, height), taken into the layer's own pixels (a turned layer's: the box around it there) and kept inside the layer; get_photo says a layer's crop. Its filters, mask and effects follow the cropped edge.",
+    inputSchema: obj({
+      layer,
+      x: num("Left edge of what stays, canvas pixels."),
+      y: num("Top edge, canvas pixels."),
+      width: num("Width, canvas pixels."),
+      height: num("Height, canvas pixels."),
+      clear: bool("Take the crop off: the whole layer shows."),
+    }, ["layer"]),
+  }),
 ] as const;
 
 export type PhotoToolName = (typeof PHOTO_TOOLS)[number]["name"];
