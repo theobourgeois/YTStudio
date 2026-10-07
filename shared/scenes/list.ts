@@ -13,6 +13,11 @@ import { NEON_CITY } from "./neon-city.ts";
 import { NEBULA } from "./nebula.ts";
 import { ABYSS } from "./abyss.ts";
 import { MONOLITHS } from "./monoliths.ts";
+import { CYBERSPACE } from "./cyberspace.ts";
+import { WORMHOLE } from "./wormhole.ts";
+import { GALAXY } from "./galaxy.ts";
+import { COSMIC_WEB } from "./cosmic-web.ts";
+import { COLLIDER } from "./collider.ts";
 
 export const SCENES: SceneSpec[] = [
   RIDGELINE,
@@ -25,4 +30,9 @@ export const SCENES: SceneSpec[] = [
   NEBULA,
   ABYSS,
   MONOLITHS,
+  CYBERSPACE,
+  WORMHOLE,
+  GALAXY,
+  COSMIC_WEB,
+  COLLIDER,
 ] as SceneSpec[];

@@ -128,7 +128,7 @@ and the assistant (`add_filter`'s `preset`). Glow's: Bloom, Soft Haze, Neon, Dre
 Classic, Anamorphic, Subtle. Applying one adds an instance with its values: nothing refers back to the preset.
 
 **As built (stylised filters, 2026-10-06)**: kernel filters, a generic pass for filters that are a function of the
-point and its content within a reach ([stylized-filters.md](stylized-filters.md)): sixteen of them in six
+point and its content within a reach ([stylized-filters.md](stylized-filters.md)): thirty-two of them in eight
 categories. The Filter Gallery previews a look on the canvas before it's applied (the preview above, built).
 
 Presets are versioned data referencing definitions and assets the preset owns. Applying one copies it into an

@@ -68,7 +68,7 @@ const PIXELATE = kernelFilter({
   label: "Pixelate",
   description:
     "Mosaic: the picture in square cells of one colour each, the average of what's inside them (in document pixels, anchored to the canvas's corner). Gap shrinks each cell to a tile on black; Circle makes the cells round, as an LED wall's lights.",
-  category: "Stylize",
+  category: "Pixelate",
   params: [
     num("cellSize", "Cell Size", "px", 2, 300, 24, "Each cell's width, in document pixels."),
     choice("shape", "Shape", [["square", "Square"], ["circle", "Circle"]], "square", "Square cells, or round lights."),
