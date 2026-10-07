@@ -151,6 +151,13 @@ function scaledRate(rate: number | null, levelRate: number): number | null {
   return r >= MIN_PLAYBACK_RATE && r <= MAX_PLAYBACK_RATE ? r : null;
 }
 
+/** What the preview reports: media missing, no WebGL 2, and whether the frame shown is a draft (adaptive resolution). */
+export interface PreviewStatus {
+  offline: boolean;
+  noWebGl: boolean;
+  draft: boolean;
+}
+
 /** What the engine shows and when: the editor's video and playhead, or (for the assistant) another video at a time. */
 export interface PreviewSource {
   get(): { project: Project; assets: MediaAsset[]; time: number; playing: boolean };
@@ -267,9 +274,12 @@ export class PreviewEngine {
   private movedAt = -Infinity;
   private lastShown: { project: Project; time: number } | null = null;
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
+  private adaptiveOn = true;
+  /** The frame shown was drawn at fewer pixels (reported, for the monitor's icon). */
+  private draft = false;
 
   constructor(
-    private readonly onStatusChange: (status: { offline: boolean; noWebGl: boolean }) => void,
+    private readonly onStatusChange: (status: PreviewStatus) => void,
     private readonly source: PreviewSource = editorSource,
     /** Draw moving frames at fewer pixels when they're heavy (the Program monitor; not the assistant's pictures). */
     private readonly adaptiveResolution = false,
@@ -311,6 +321,13 @@ export class PreviewEngine {
     this.settleTimer = null;
     for (const layer of this.layers.values()) for (const slot of layer.videos) slot?.pause();
     for (const layer of this.audio.values()) for (const slot of layer.slots) slot?.pause();
+  }
+
+  /** Whether heavy moving frames are drawn at fewer pixels (the user's switch; only for an engine made `adaptiveResolution`). */
+  setAdaptive(on: boolean) {
+    if (on === this.adaptiveOn) return;
+    this.adaptiveOn = on;
+    this.update();
   }
 
   /** Draw at a fraction of the canvas' pixels (1, 0.5 or 0.25): less work for heavy edits. */
@@ -702,7 +719,7 @@ export class PreviewEngine {
   }
 
   private reportStatus() {
-    this.onStatusChange({ offline: this.offline, noWebGl: !!this.canvas && !this.compositor });
+    this.onStatusChange({ offline: this.offline, noWebGl: !!this.canvas && !this.compositor, draft: this.draft });
   }
 
   /** Composite the tracks' layers onto the canvas. */
@@ -723,7 +740,11 @@ export class PreviewEngine {
     const playing = this.source.get().playing;
     const now = performance.now();
     const moving = playing || now - this.movedAt < SETTLE_MS;
-    const level = this.adaptiveResolution && moving && !stateful ? this.adaptive : 1;
+    const level = this.adaptiveResolution && this.adaptiveOn && moving && !stateful ? this.adaptive : 1;
+    if ((level < 1) !== this.draft) {
+      this.draft = level < 1;
+      this.reportStatus();
+    }
     const dpr = Math.min(2, window.devicePixelRatio || 1) * this.resolution * level;
     const query = this.timer && gl.createQuery();
     if (query) gl.beginQuery(this.timer!.TIME_ELAPSED_EXT, query);

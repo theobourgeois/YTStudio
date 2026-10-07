@@ -17,6 +17,7 @@ export function VideoSettings() {
     <>
       <SettingsGroup title="Playback">
         <PreviewResolutionRow />
+        <AdaptiveResolutionRow />
       </SettingsGroup>
       <SettingsGroup title="Timeline">
         <SnappingRow />
@@ -45,6 +46,18 @@ function PreviewResolutionRow() {
           ))}
         </SelectContent>
       </Select>
+    </SettingsRow>
+  );
+}
+
+function AdaptiveResolutionRow() {
+  const on = useLayout((s) => s.adaptiveResolution);
+  return (
+    <SettingsRow
+      title="Adaptive resolution"
+      description="While the picture moves, frames too heavy to keep up are drawn at fewer pixels, then in full once it stops (the lightning icon under the monitor lights up). Off: every frame in full, however slowly."
+    >
+      <Switch checked={on} onCheckedChange={(v) => useLayout.getState().setAdaptiveResolution(v)} aria-label="Adaptive resolution" />
     </SettingsRow>
   );
 }

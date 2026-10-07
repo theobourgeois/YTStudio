@@ -4,6 +4,9 @@ import {
   PiCaretLineRight,
   PiCursor,
   PiCircle,
+  PiLightning,
+  PiLightningFill,
+  PiLightningSlash,
   PiPauseFill,
   PiPenNib,
   PiPlayFill,
@@ -82,10 +85,44 @@ export function Transport() {
         </TransportButton>
       </div>
       <div className="flex items-center gap-1.5 justify-self-end">
+        <AdaptiveButton />
         <ResolutionPicker />
         <CanvasTools />
       </div>
     </div>
+  );
+}
+
+/**
+ * After Effects' Fast Previews button: adaptive resolution on or off, lit while the monitor shows a frame
+ * drawn at fewer pixels (a heavy edit moving), so a softer picture is never a mystery.
+ */
+function AdaptiveButton() {
+  const on = useLayout((s) => s.adaptiveResolution);
+  const draft = useLayout((s) => s.previewDraft);
+  const lit = on && draft;
+  const tip = !on
+    ? "Adaptive resolution is off: every frame is drawn in full, however slowly. Click to turn it on."
+    : lit
+      ? "Adaptive resolution: this edit is too heavy to play in full, so it's drawn at fewer pixels while it moves, and in full once it stops. Click to turn it off."
+      : "Adaptive resolution: heavy frames are drawn at fewer pixels while the picture moves, and in full once it stops. Click to turn it off.";
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Adaptive resolution"
+          aria-pressed={on}
+          data-draft={lit || undefined}
+          className={cn("size-7 rounded-md text-muted-foreground", lit && "text-brand hover:text-brand")}
+          onClick={() => useLayout.getState().setAdaptiveResolution(!on)}
+        >
+          {!on ? <PiLightningSlash /> : lit ? <PiLightningFill /> : <PiLightning />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-64">{tip}</TooltipContent>
+    </Tooltip>
   );
 }
 

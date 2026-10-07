@@ -1126,6 +1126,16 @@ test("settings: a window; ⌘, opens it on the video editor's tab; themes and fo
   await expect(ripple).not.toBeChecked();
   await page.getByRole("button", { name: "Auto ripple", exact: true }).click();
   await expect(ripple).toBeChecked();
+  // Adaptive resolution: on unless turned off, here or by the lightning button under the monitor.
+  const adaptive = settings.getByRole("switch", { name: "Adaptive resolution" });
+  const lightning = page.getByRole("button", { name: "Adaptive resolution", exact: true });
+  await expect(adaptive).toBeChecked();
+  await expect(lightning).toHaveAttribute("aria-pressed", "true");
+  // (The window is over it now: the button's own click.)
+  await lightning.dispatchEvent("click");
+  await expect(adaptive).not.toBeChecked();
+  await adaptive.click();
+  await expect(lightning).toHaveAttribute("aria-pressed", "true");
   // A double-click on its title fills the window with it, and another puts it back.
   await title.dblclick({ position: { x: 100, y: 10 } });
   await expect(settings).toHaveAttribute("data-snap", "full");

@@ -19,7 +19,18 @@ export function Stage() {
   const videoTrackIds = useEditor(useShallow((s) => previewSlots(s.project).video));
 
   const [status, setStatus] = useState({ offline: false, noWebGl: false });
-  const [engine] = useState(() => new PreviewEngine(setStatus, undefined, true));
+  const [engine] = useState(
+    () =>
+      new PreviewEngine(
+        ({ offline, noWebGl, draft }) => {
+          // The draft icon is the transport's: only what the stage shows re-renders it.
+          useLayout.getState().setPreviewDraft(draft);
+          setStatus((s) => (s.offline === offline && s.noWebGl === noWebGl ? s : { offline, noWebGl }));
+        },
+        undefined,
+        true,
+      ),
+  );
   const attachCanvas = useCallback((el: HTMLCanvasElement) => engine.attachCanvas(el), [engine]);
   useEffect(() => {
     engine.start();
@@ -27,6 +38,8 @@ export function Stage() {
   }, [engine]);
   const resolution = useLayout((s) => s.previewResolution);
   useEffect(() => engine.setResolution(resolution), [engine, resolution]);
+  const adaptive = useLayout((s) => s.adaptiveResolution);
+  useEffect(() => engine.setAdaptive(adaptive), [engine, adaptive]);
   // Text clips need to know which styles the installed fonts have.
   useEffect(() => useFonts.getState().load(), []);
 

@@ -46,6 +46,14 @@ interface LayoutState {
   /** The Program monitor draws at this fraction of its pixels (Premiere's Playback Resolution): 1, 0.5 or 0.25. */
   previewResolution: number;
   setPreviewResolution: (resolution: number) => void;
+  /**
+   * After Effects' Adaptive Resolution: while the picture moves, frames too heavy to keep up are drawn at
+   * fewer pixels, and in full once it stops. `previewDraft`: the monitor is showing such a frame now.
+   */
+  adaptiveResolution: boolean;
+  setAdaptiveResolution: (on: boolean) => void;
+  previewDraft: boolean;
+  setPreviewDraft: (draft: boolean) => void;
   /** The Properties tab shows keyframe lanes next to the values (Premiere's Effect Controls timeline). */
   keyframesOpen: boolean;
   toggleKeyframes: () => void;
@@ -59,6 +67,7 @@ interface LayoutState {
 }
 
 const RESOLUTION_KEY = "editor-preview-resolution";
+const ADAPTIVE_KEY = "editor-adaptive-resolution";
 /** The preview resolutions offered: full, half and quarter. */
 export const PREVIEW_RESOLUTIONS = [1, 0.5, 0.25] as const;
 /** How each preview resolution is named (the Program monitor's picker, Settings). */
@@ -108,6 +117,15 @@ export const useLayout = create<LayoutState>((set, get) => ({
   setPreviewResolution(previewResolution) {
     localStorage.setItem(RESOLUTION_KEY, String(previewResolution));
     set({ previewResolution });
+  },
+  adaptiveResolution: localStorage.getItem(ADAPTIVE_KEY) !== "false",
+  setAdaptiveResolution(adaptiveResolution) {
+    localStorage.setItem(ADAPTIVE_KEY, String(adaptiveResolution));
+    set({ adaptiveResolution });
+  },
+  previewDraft: false,
+  setPreviewDraft(previewDraft) {
+    if (previewDraft !== get().previewDraft) set({ previewDraft });
   },
   keyframesOpen: localStorage.getItem(KEYFRAMES_KEY) === "true",
   toggleKeyframes() {
