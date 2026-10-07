@@ -60,6 +60,7 @@ import { usePhotoUi } from "./ui";
 import { imageLayerOf } from "./media";
 import { photoApi } from "./api";
 import { placeAsset, removeBackground } from "./online/online";
+import { floodTools } from "./toolbox/flood-tools";
 
 /** How many of a search's results the model is told of at once. */
 const ONLINE_LISTED = 40;
@@ -410,6 +411,16 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
     ctx.progress(0, "Exporting");
     const result = await withRenderer(target.projectId, target.doc, target.assets, (r) => r.export(target.projectId, target.doc, { name, format, bits, quality }, (f) => ctx.progress(f, "Exporting"), ctx.signal));
     return textResult(`Exported ${name} (${target.doc.canvas.width}×${target.doc.canvas.height}, ${bits}-bit, ${Math.round(result.bytes / 1024)} KB) to ${result.path}.`);
+  },
+  async bucket_fill(input, ctx) {
+    const target = await targetOf(ctx);
+    if (!target.open) throw new Error("Open the photo in the editor first: the Paint Bucket reads its pixels on the GPU.");
+    return floodTools.bucket_fill(input, target.doc, usePhotoUi.getState().selectedLayerId, useColours.getState());
+  },
+  async magic_erase(input, ctx) {
+    const target = await targetOf(ctx);
+    if (!target.open) throw new Error("Open the photo in the editor first: the Magic Eraser reads its pixels on the GPU.");
+    return floodTools.magic_erase(input, target.doc, usePhotoUi.getState().selectedLayerId);
   },
 };
 

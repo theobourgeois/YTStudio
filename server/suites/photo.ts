@@ -72,7 +72,9 @@ with a model; each can add to, subtract from or intersect the selection there (m
 feathers it. Check one with view_photo's show_selection. add_mask gives a layer a mask, from the selection (it shows only there) or empty, or \
 removes one; add_pixel_layer adds an empty layer for the user to paint on (you can't paint strokes); \
 layer_via_copy copies (or cuts) what the selection covers of a layer into a new layer; fill_selection fills it with \
-a colour or clears it. merge_layers merges layers into one image. export_photo writes a PNG (8 or 16 bits) or JPEG.
+a colour or clears it. bucket_fill fills the area of similar colour around a point (the Paint Bucket), and \
+magic_erase erases it (the Magic Eraser: a white background in one click; a placed image through its mask, never \
+rasterised). merge_layers merges layers into one image. export_photo writes a PNG (8 or 16 bits) or JPEG.
 
 Light: add_filter puts a glow (a filter, Photoshop's Smart Filter, on a layer's own pixels) on an image, pixel or \
 generator layer: its bright parts bloom, spreading up to its radius (in canvas pixels) past the layer's edges; \
