@@ -73,15 +73,18 @@ import { MusicWindow } from "./window";
 import { openConvert } from "./convert/actions";
 import { openExtractStems } from "./stems/actions";
 
-/** A step's width and the gaps between steps and between beats (px): the lights, rows and graph share them. */
-const STEP_W = 14;
-const STEP_GAP = 2;
-const BEAT_GAP = 4;
+/**
+ * A step's width and the gaps between steps and between beats (px): the lights, rows and graph share them.
+ * Spaced out as FL Studio's keys are, each a key of its own rather than a strip.
+ */
+const STEP_W = 16;
+const STEP_GAP = 5;
+const BEAT_GAP = 3;
 /** Steps to a beat, as the rack groups them. */
 const GROUP = 4;
 /** A row's height and the gap between rows (px): the two columns line up by these. */
 const ROW_H = 24;
-const ROW_GAP = 3;
+const ROW_GAP = 5;
 /** The widest the rack is dragged (past this, the steps scroll). */
 const MAX_DRAGGED_STEPS = 64;
 /** How far the graph editor's note bars reach, in semitones either side of the sample's own pitch. */
@@ -178,6 +181,7 @@ export function ChannelRack() {
   const graph = useMusicUi((s) => s.graphOpen);
   const selectedIdsNow = useMusicUi((s) => s.selectedChannelIds);
   const sounding = useSoundingChannels();
+  const playingStep = usePlayingStep();
   const lead = useMusicUi((s) => s.trackSelectorsShown) ? LEAD_WITH_TRACK : LEAD;
   const selected = selectedIn({ channels } as MusicProject, selectedIdsNow);
   const file = useRef<HTMLInputElement>(null);
@@ -269,10 +273,10 @@ export function ChannelRack() {
             ref={scrollerRef}
             className="ml-1.5 overflow-x-auto pb-1" style={{ maxWidth: room.native ? `${room.width}px` : `min(62vw, ${room.width}px)` }} data-testid="rack-steps">
             <div className="flex flex-col" style={{ gap: ROW_GAP, width: stepsWidth(steps) }}>
-              <StepLights steps={steps} />
+              <StepLights steps={steps} step={playingStep} />
               {/* An audio clip's channel too, as in FL Studio: its file can be played from steps and notes as well as from the playlist. */}
               {channels.map((channel) => (
-                <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
+                <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} playingStep={playingStep} />
               ))}
               {graph && (selected[0] ?? channels[0]) && <GraphEditor channel={selected[0] ?? channels[0]} steps={steps} />}
             </div>
@@ -516,13 +520,10 @@ function RackControls({ graph }: { graph: boolean }) {
   );
 }
 
-/** A light per step above the rows; the one playing is lit. */
-function StepLights({ steps }: { steps: number }) {
-  const tempo = useSong((song) => song.settings.tempo);
-  const loop = useCurrentPattern((pattern, song) => lengthOf(song, pattern));
+/** The step the shown pattern is playing (null when stopped); renders only when it moves on. */
+function usePlayingStep(): number | null {
   const playing = useTransport((s) => s.playing);
   const [step, setStep] = useState<number | null>(null);
-
   useEffect(() => {
     if (!playing) {
       setStep(null);
@@ -536,8 +537,13 @@ function StepLights({ steps }: { steps: number }) {
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [playing, tempo, loop]);
+  }, [playing]);
+  return step;
+}
 
+/** A light per step above the rows; the one playing is lit. */
+function StepLights({ steps, step }: { steps: number; step: number | null }) {
+  const loop = useCurrentPattern((pattern, song) => lengthOf(song, pattern));
   return (
     <div className="relative shrink-0" style={{ height: LIGHTS_H }} data-playing-step={step ?? undefined} aria-hidden>
       {Array.from({ length: steps }, (_, i) => (
@@ -889,7 +895,8 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
           if (e.button === 0) {
             // Shift+click: everything from the last one clicked to this one.
             if (e.shiftKey) return selectRange(ui.anchorChannelId ?? id, id);
-            // A click selects it alone; dragged along the selectors, everything from it to where the pointer is.
+            // A press selects it alone, at once; dragged along the selectors, everything from it to where the pointer is.
+            ui.selectChannel(id);
             startPointerDrag(e, {
               threshold: 3,
               onStart: () => useMusicUi.setState({ anchorChannelId: id }),
@@ -897,7 +904,6 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
                 const other = under(rack, ev.clientX, ev.clientY, "selector")?.dataset.selector;
                 if (other) selectRange(id, other);
               },
-              onClick: () => useMusicUi.getState().selectChannel(id),
             });
             return;
           }
@@ -917,7 +923,8 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
         <span
           className={cn(
             "my-px w-1.5 rounded-[2px] transition-[background-color,box-shadow] duration-75",
-            sounding ? "bg-brand shadow-[0_0_5px] shadow-brand/70" : "sunken group-hover:bg-surface-3",
+            // Lit paler than the outline that says it's selected, so the two read apart.
+            sounding ? "bg-[color-mix(in_oklab,var(--brand),white_55%)] shadow-[0_0_5px] shadow-brand/70" : "sunken group-hover:bg-surface-3",
             selected && "outline-[1.5px] outline-offset-1 outline-brand outline-solid",
           )}
         />
@@ -932,7 +939,7 @@ const EMPTY: Note[] = [];
  * A channel's steps in the current pattern. The left button turns steps on, the right one turns them
  * off, and either paints along the row when dragged: FL Studio's step sequencer.
  */
-const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: string; name: string; steps: number }) {
+const StepRow = memo(function StepRow({ channelId, name, steps, playingStep }: { channelId: string; name: string; steps: number; playingStep: number | null }) {
   const patternId = useCurrentPattern((pattern) => pattern.id);
   const notes = useCurrentPattern((pattern) => pattern.notes[channelId] ?? EMPTY);
   const loop = useCurrentPattern((pattern, song) => lengthOf(song, pattern));
@@ -983,10 +990,12 @@ const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: s
           data-step={step}
           aria-label={`${name} step ${step + 1}`}
           aria-pressed={on.has(step)}
+          data-lit={step === playingStep && on.has(step) ? "" : undefined}
           // FL Studio's step keys: beats in two alternating colours, dark when off, pale and lit when on
-          // (`step-*` in index.css, coloured by the theme).
+          // (`step-*` in index.css, coloured by the theme), each with a lamp along its top that lights as
+          // the playhead passes: brightly on a step that plays, faintly on one that doesn't.
           className={cn(
-            "absolute top-0 rounded-[2px] outline-none",
+            "absolute top-0 rounded-[3px] outline-none",
             on.has(step) ? (oddBeat(step) ? "step-on-alt" : "step-on") : oddBeat(step) ? "step-off-alt" : "step-off",
             // Past the pattern's end: there to be filled (Auto), or unheard (a set length).
             step >= loop && "opacity-45",
@@ -1000,7 +1009,15 @@ const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: s
             e.stopPropagation();
             useMusic.getState().commit((song) => setSteps(song, patternId, channelId, [step], turnOn));
           }}
-        />
+        >
+          <span
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-x-[3px] top-[3px] h-[2px] rounded-full",
+              step !== playingStep ? "bg-black/30" : on.has(step) ? "bg-brand shadow-[0_0_5px_1px] shadow-brand" : "bg-brand/45",
+            )}
+          />
+        </button>
       ))}
     </div>
   );

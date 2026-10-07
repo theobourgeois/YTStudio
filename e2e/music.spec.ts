@@ -189,7 +189,7 @@ test("a pattern is as long as its notes: the rack is dragged wider to reach furt
 
   // Dragging the rack's right edge shows more steps; the pattern is still a bar until one is used.
   const edge = page.getByRole("separator", { name: "Drag to show more steps" });
-  await drag(page, edge, edge, { dx: 16 * 17 }); // 16 steps of 17 px (a step, its gap, a quarter of a beat's)
+  await drag(page, edge, edge, { dx: 16 * 21.75 }); // 16 steps of 21.75 px (a step, its gap, a quarter of a beat's)
   expect(await drawn(page, "Kick")).toHaveLength(32);
   await expect(length).toHaveAttribute("aria-valuenow", "16");
   await step(page, "Kick", 1).click();
