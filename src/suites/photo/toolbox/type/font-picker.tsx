@@ -2,14 +2,14 @@
  * The installed fonts (`src/stores/fonts.ts`, the platform's list), for the Type tool's options bar and a text layer's
  * Properties: a searchable list of families, each shown in itself, and the chosen family's styles.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { PiCaretDown, PiCheck, PiMagnifyingGlass, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import type { TextFont } from "@shared/photo/types";
 import type { FontStyleInfo } from "@shared/types";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { faceFromName, findFamily, resolveFace, useFonts } from "@/stores/fonts";
+import { faceFromName, findFamily, recentFamilies, resolveFace, useFonts, useRecentFonts } from "@/stores/fonts";
 
 /** CSS that shows text in a face (the menus' previews). */
 const faceStyle = (family: string, face: Pick<FontStyleInfo, "weight" | "italic" | "stretch">) => ({
@@ -48,10 +48,14 @@ export function FontFamilyPicker({ value, onChoose, onPreview, className }: { va
   const previewing = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => useFonts.getState().load(), []);
   const installed = status !== "ready" || !!findFamily(value);
+  const recentNames = useRecentFonts((s) => s.recent);
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     return q ? families.filter((f) => f.family.toLowerCase().includes(q)) : families;
   }, [families, query]);
+  // The families used lately first (Photoshop's), unless searching; then every family. One list for the keys.
+  const recent = useMemo(() => (query.trim() ? [] : recentFamilies(recentNames, families)), [query, recentNames, families]);
+  const rows = useMemo(() => [...recent, ...shown], [recent, shown]);
 
   const preview = (family: string | null) => {
     if (!onPreview) return;
@@ -65,14 +69,14 @@ export function FontFamilyPicker({ value, onChoose, onPreview, className }: { va
 
   const highlight = (index: number, scroll: boolean) => {
     setActive(index);
-    preview(shown[index]?.family ?? null);
+    preview(rows[index]?.family ?? null);
     if (scroll) list.current?.querySelector(`[data-index="${index}"]`)?.scrollIntoView({ block: "nearest" });
   };
   const openChange = (next: boolean) => {
     setOpen(next);
     if (next) {
       // The list opens on the family there is, as a select's does.
-      const at = families.findIndex((f) => f.family === value);
+      const at = [...recentFamilies(recentNames, families), ...families].findIndex((f) => f.family === value);
       setActive(at);
       requestAnimationFrame(() => list.current?.querySelector(`[data-index="${at}"]`)?.scrollIntoView({ block: "center" }));
     } else {
@@ -82,6 +86,7 @@ export function FontFamilyPicker({ value, onChoose, onPreview, className }: { va
   };
   const choose = (family: string) => {
     openChange(false);
+    useRecentFonts.getState().use(family);
     if (family !== value) onChoose(family);
   };
   return (
@@ -120,11 +125,11 @@ export function FontFamilyPicker({ value, onChoose, onPreview, className }: { va
             onKeyDown={(e) => {
               if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
-                if (!shown.length) return;
+                if (!rows.length) return;
                 const step = e.key === "ArrowDown" ? 1 : -1;
-                highlight(active < 0 ? 0 : (active + step + shown.length) % shown.length, true);
+                highlight(active < 0 ? 0 : (active + step + rows.length) % rows.length, true);
               } else if (e.key === "Enter") {
-                const pick = shown[active] ?? shown[0];
+                const pick = rows[active] ?? rows[0];
                 if (pick) choose(pick.family);
               }
             }}
@@ -135,12 +140,19 @@ export function FontFamilyPicker({ value, onChoose, onPreview, className }: { va
           {status === "loading" && <p className="px-2 py-6 text-center text-xs text-muted-foreground">Loading fonts…</p>}
           {status === "error" && <p className="px-2 py-6 text-center text-xs text-muted-foreground">Couldn't list the installed fonts.</p>}
           {status === "ready" && shown.length === 0 && <p className="px-2 py-6 text-center text-xs text-muted-foreground">No fonts match “{query.trim()}”.</p>}
-          {shown.map((f, i) => {
+          {rows.map((f, i) => {
             const regular = f.styles.find((s) => s.weight === 400 && !s.italic) ?? f.styles[0];
             const selected = f.family === value;
+            const inRecent = i < recent.length;
             return (
+              <Fragment key={`${inRecent ? "recent" : "all"}:${f.family}`}>
+              {recent.length > 0 && (i === 0 || i === recent.length) && (
+                <div className={cn("px-2 pt-1.5 pb-1 text-[11px] text-muted-foreground", i > 0 && "mt-1 border-t border-line pt-2")} data-font-section={i === 0 ? "recent" : "all"}>
+                  {i === 0 ? "Recent" : "All fonts"}
+                </div>
+              )}
               <div
-                key={f.family}
+                data-recent={inRecent || undefined}
                 role="option"
                 aria-selected={selected}
                 data-index={i}
@@ -155,6 +167,7 @@ export function FontFamilyPicker({ value, onChoose, onPreview, className }: { va
                 {f.styles.length > 1 && <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{f.styles.length}</span>}
                 {selected && <PiCheck className="absolute right-2 size-4 text-muted-foreground" />}
               </div>
+              </Fragment>
             );
           })}
         </div>

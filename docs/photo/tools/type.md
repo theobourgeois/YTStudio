@@ -165,7 +165,8 @@ falls between the drawn letters.
   alignment, colour, the Character button (a popover of the Character panel's other settings), and while editing ✕
   and ✓. **Font preview**: the family under the pointer in the list (or reached with the arrows) is drawn on the text
   the choice would restyle (`PhotoUi.textPreview`, applied where the canvas's document is made, `live.ts`), never in
-  the document; closing the list takes it away. While typing they set the layer being typed; with text layers selected they restyle them all, one
+  the document; closing the list takes it away. The families chosen lately (in any font picker, the video editor's too: `useRecentFonts`, ten, this
+  computer's) head the list under **Recent**, as Photoshop's menu does, until a search. While typing they set the layer being typed; with text layers selected they restyle them all, one
   undo step; otherwise they're what the next text is made with (kept on this computer). The colour swatch shows the
   foreground colour when no text layer is selected, and new text takes it.
 - **Properties** has a **Character** section (family, style, colour, size, leading with Auto, tracking, kerning,

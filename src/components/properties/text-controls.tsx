@@ -8,7 +8,7 @@ import { normalizeHex } from "@/lib/color";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "cn";
-import { faceFromName, findFamily, resolveFace, useFonts } from "@/stores/fonts";
+import { faceFromName, findFamily, recentFamilies, resolveFace, useFonts, useRecentFonts } from "@/stores/fonts";
 import type { ParamEditor } from "./param-rows";
 
 interface ControlProps<S, V> {
@@ -118,6 +118,7 @@ export function FontControl({
   const choose = (family: string) => {
     setOpen(false);
     setQuery("");
+    useRecentFonts.getState().use(family);
     if (family === value) return;
     const style = styleKey ? closestStyle(family, resolveFace(value, String(values[styleKey] ?? ""))) : null;
     edit.patch(style && styleKey ? { [edit.key]: family, [styleKey]: style } : { [edit.key]: family });
@@ -160,8 +161,9 @@ export function FontControl({
 }
 
 /**
- * The families matching the search. Its own component so the hundreds of rows are only built
- * while the popover is open: the closed panel re-renders as the playhead moves over keyframes.
+ * The families matching the search (with no search, the ones used lately first, as Photoshop's menu). Its own
+ * component so the hundreds of rows are only built while the popover is open: the closed panel re-renders as the
+ * playhead moves over keyframes.
  */
 function FontList({
   status,
@@ -176,33 +178,45 @@ function FontList({
   value: string;
   choose: (family: string) => void;
 }) {
+  const families = useFonts((s) => s.families);
+  const recentNames = useRecentFonts((s) => s.recent);
+  const recent = useMemo(() => (query.trim() ? [] : recentFamilies(recentNames, families)), [query, recentNames, families]);
+  const row = (f: FontFamily, section: string) => {
+    const regular = f.styles.find((s) => s.weight === 400 && !s.italic) ?? f.styles[0];
+    const selected = f.family === value;
+    return (
+      <button
+        key={`${section}:${f.family}`}
+        type="button"
+        role="option"
+        aria-selected={selected}
+        onClick={() => choose(f.family)}
+        className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none hover:bg-accent focus-visible:bg-accent"
+        data-recent={section === "recent" || undefined}
+      >
+        <span className="min-w-0 flex-1 truncate text-[15px] leading-6" style={faceStyle(f.family, regular)}>
+          {f.family}
+        </span>
+        {f.styles.length > 1 && <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{f.styles.length}</span>}
+        <PiCheck className={cn("size-3.5 shrink-0", !selected && "invisible")} />
+      </button>
+    );
+  };
   return (
     <div role="listbox" aria-label="Fonts" className="max-h-80 overflow-y-auto overscroll-contain p-1">
+      {recent.length > 0 && (
+        <>
+          <div className="px-2 pt-1.5 pb-1 text-[11px] text-muted-foreground">Recent</div>
+          {recent.map((f) => row(f, "recent"))}
+          <div className="mt-1 border-t border-line px-2 pt-2 pb-1 text-[11px] text-muted-foreground">All fonts</div>
+        </>
+      )}
       {status === "loading" && <p className="px-2 py-6 text-center text-xs text-muted-foreground">Loading fonts…</p>}
       {status === "error" && <p className="px-2 py-6 text-center text-xs text-muted-foreground">Couldn't list the installed fonts.</p>}
       {status === "ready" && shown.length === 0 && (
         <p className="px-2 py-6 text-center text-xs text-muted-foreground">No fonts match “{query.trim()}”.</p>
       )}
-      {shown.map((f) => {
-        const regular = f.styles.find((s) => s.weight === 400 && !s.italic) ?? f.styles[0];
-        const selected = f.family === value;
-        return (
-          <button
-            key={f.family}
-            type="button"
-            role="option"
-            aria-selected={selected}
-            onClick={() => choose(f.family)}
-            className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none hover:bg-accent focus-visible:bg-accent"
-          >
-            <span className="min-w-0 flex-1 truncate text-[15px] leading-6" style={faceStyle(f.family, regular)}>
-              {f.family}
-            </span>
-            {f.styles.length > 1 && <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{f.styles.length}</span>}
-            <PiCheck className={cn("size-3.5 shrink-0", !selected && "invisible")} />
-          </button>
-        );
-      })}
+      {shown.map((f) => row(f, "all"))}
     </div>
   );
 }

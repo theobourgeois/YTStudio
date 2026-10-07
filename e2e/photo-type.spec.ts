@@ -407,4 +407,14 @@ test("Move drags text by whole pixels and a double-click edits it; the font list
   await expect.poll(async () => ((await layers(page))[0] as unknown as { horizontalScale?: number }).horizontalScale).toBe(1.5);
   expect((await layers(page))[0].size.width).toBeGreaterThan(narrow * 1.3);
   expect(await undoSteps(page)).toBe(steps + 2);
+  await page.keyboard.press("Escape");
+
+  // A family chosen goes to the top of the list, under Recent (Photoshop's), and stays in the list below.
+  await page.locator('[data-tool-options="type"] [aria-label="Font family"]').click();
+  await page.locator('[data-font-list] [role="option"]', { hasText: family }).first().click();
+  await expect.poll(async () => (await layers(page))[0].font.family).toBe(family);
+  await page.locator('[data-tool-options="type"] [aria-label="Font family"]').click();
+  await expect(page.locator('[data-font-section="recent"]')).toBeVisible();
+  await expect(page.locator("[data-font-list] [data-recent]").first()).toContainText(family);
+  await page.keyboard.press("Escape");
 });
