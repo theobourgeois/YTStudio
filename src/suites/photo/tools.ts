@@ -60,6 +60,9 @@ import { usePhotoUi } from "./ui";
 import { imageLayerOf } from "./media";
 import { photoApi } from "./api";
 import { placeAsset, removeBackground } from "./online/online";
+import { frameText } from "./text-measure";
+import { addTextLayerTool, setTextTool } from "./text-tool-edits";
+import { layerActions } from "./layer-actions";
 
 /** How many of a search's results the model is told of at once. */
 const ONLINE_LISTED = 40;
@@ -98,7 +101,7 @@ const edit =
   async (input: Input, ctx: ToolRunContext): Promise<ToolResult> => {
     const target = await targetOf(ctx);
     // An edit that can't be made throws here, before anything changes.
-    const result = run(target.doc, input, { assets: target.assets });
+    const result = run(target.doc, input, { assets: target.assets, frameText });
     if (target.open && usePhoto.getState().projectId === target.projectId) {
       usePhoto.getState().commit(() => result.doc);
       if (result.layerId) usePhotoUi.getState().select(result.layerId);
@@ -401,6 +404,18 @@ const TOOLS: Record<PhotoToolName, (input: Input, ctx: ToolRunContext) => Promis
   },
   remove_layer: edit(removeLayerTool),
   set_canvas: edit(setCanvasTool),
+  add_text_layer: edit(addTextLayerTool),
+  set_text: edit(setTextTool),
+  async rasterize_type(input, ctx) {
+    const target = await targetOf(ctx);
+    const layer = findLayerRef(target.doc, input.layer);
+    if (layer.kind !== "text") throw new Error(`"${layer.name}" isn't a text layer: rasterize_type makes a text layer pixels.`);
+    if (!target.open) throw new Error("Rasterizing renders the words in the open editor tab: ask the user to open the photo.");
+    await layerActions.convertToPixels(layer.id);
+    const now = currentDoc()?.layers.find((l) => l.id === layer.id);
+    if (now?.kind !== "pixel") throw new Error(`"${layer.name}" couldn't be rasterized.`);
+    return textResult(`"${layer.name}" is a pixel layer now: its words can't be edited any more (undoable).\n${describeLayer(now, target.assets, currentDoc()!.layers.indexOf(now))}`, { added: [], changed: [layer.id], removed: 0 });
+  },
   async export_photo(input, ctx) {
     const target = await targetOf(ctx);
     const format = input.format === "jpeg" ? "jpeg" : "png";

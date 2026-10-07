@@ -667,7 +667,7 @@ function HoverOutline() {
   const found = usePhotoDoc((d) => d.layers.find((l) => l.id === hovered));
   const layer = found && isPlaced(found) && !selected ? found : undefined;
   const imageSize = useLayerSize(layer?.kind === "image" ? layer.mediaId : undefined);
-  const size = layer?.kind === "pixel" ? layer.size : imageSize;
+  const size = layer?.kind === "pixel" || layer?.kind === "text" ? layer.size : imageSize;
   if (!view || !layer || !size) return null;
   const dpr = devicePixelRatio;
   const points = outline(layer.transform, size).map((p) => `${((p.x - view.x) * view.zoom) / dpr},${((p.y - view.y) * view.zoom) / dpr}`);

@@ -28,6 +28,7 @@ import { EffectsSection } from "./effects-section";
 import { FilterProperties, GeneratorProperties } from "./light";
 import { CameraRawProperties } from "../camera-raw/properties";
 import { NumberField, ParamSlider } from "./fields";
+import { TextProperties } from "../toolbox/type/text-properties";
 
 export function PropertiesPanel() {
   const selected = usePhotoUi((s) => s.selectedLayerId);
@@ -160,7 +161,7 @@ function MaskProperties({ layer }: { layer: PhotoLayer }) {
 
 function LayerProperties({ layer }: { layer: PlacedLayer }) {
   const imageSize = useLayerSize(layer.kind === "image" ? layer.mediaId : undefined);
-  const size = layer.kind === "pixel" ? layer.size : imageSize;
+  const size = layer.kind === "pixel" || layer.kind === "text" ? layer.size : imageSize;
   const canvas = usePhotoDoc((d) => d.canvas);
   const commit = usePhoto((s) => s.commit);
   const [linked, setLinked] = useState(true);
@@ -199,12 +200,13 @@ function LayerProperties({ layer }: { layer: PlacedLayer }) {
         )}
         {size && (
           <p className="text-xs text-muted-foreground">
-            {layer.kind === "pixel" ? "Pixels" : "Source"} {size.width} × {size.height} px · shown {Math.round(size.width * Math.abs(t.scaleX))} × {Math.round(size.height * Math.abs(t.scaleY))} px
+            {layer.kind === "pixel" ? "Pixels" : layer.kind === "text" ? "Frame" : "Source"} {size.width} × {size.height} px · shown {Math.round(size.width * Math.abs(t.scaleX))} × {Math.round(size.height * Math.abs(t.scaleY))} px
           </p>
         )}
       </Section>
+      {layer.kind === "text" && <TextProperties layer={layer} />}
       <BlendingSection layer={layer} />
-      <DevelopSection layer={layer} />
+      {layer.kind !== "text" && <DevelopSection layer={layer} />}
       <EffectsSection layer={layer} />
     </>
   );

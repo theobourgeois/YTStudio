@@ -8,19 +8,20 @@
  * version 2, adjustment layers (exposure, curves: they change what's below them); from version 3, pixel layers
  * (painted pixels) and every layer's mask; from version 4, Blending Options (a layer's blend mode, Fill, channels and
  * Blend If), the document's compositing, layer styles and Global Light; from version 5, filters and generator layers
- * (F4: light). Other kinds arrive with their renderers, through versioned migrations
+ * (F4: light); from version 7, text layers (the Type tool). Other kinds arrive with their renderers, through versioned migrations
  * (`normalizePhotoProject`).
  */
 import type { DocumentBase } from "../suites.ts";
 
 /**
- * 6: the document's patterns (Layer Style L4: Pattern Overlay, pattern strokes, Bevel's Texture), 5: light (F4:
+ * 7: text layers (the Type tool, docs/photo/tools/type.md: words and how they're set, laid out by the tab and drawn by
+ * the browser's text engine), 6: the document's patterns (Layer Style L4: Pattern Overlay, pattern strokes, Bevel's Texture), 5: light (F4:
  * filters, generator layers, the `film` highlights by default), 4: Layer Style (Blending Options and
  * compositing, then layer styles and Global Light: fields absent at their defaults), 3: pixel layers and masks, 2:
  * adjustment layers. An older document is a valid newer one (compositing in linear light and its highlights
  * clipped, as it was drawn then); an older app refuses a newer one.
  */
-export const PHOTO_VERSION = 6;
+export const PHOTO_VERSION = 7;
 
 /**
  * A surface: the SHA-256 (lowercase hex) of its manifest's canonical JSON. The server has every manifest a saved
@@ -291,15 +292,60 @@ export interface GeneratorLayer extends LayerBase, Filtered {
   blendSpace?: "linear";
 }
 
-export type PhotoLayer = ImageLayer | PixelLayer | AdjustmentLayer | GeneratorLayer;
+/** A text layer's font: an installed family and one of its styles (the CSS face that selects it), and its size. */
+export interface TextFont {
+  family: string;
+  /** The style's name, as the font calls it ("Bold Italic"). */
+  style: string;
+  /** CSS weight, 1..1000. */
+  weight: number;
+  italic: boolean;
+  /** CSS font-stretch keyword; absent: normal. */
+  stretch?: string;
+  /** Pixels (Photoshop's points at 72 ppi). */
+  size: number;
+}
+
+/** How a text's lines sit: on the origin (point text) or in the box (paragraph text). Justify is paragraph text's. */
+export type TextAlign = "left" | "center" | "right" | "justify";
+
+/**
+ * A text layer (version 7, Photoshop's type layer: docs/photo/tools/type.md): its words and how they're set, drawn by
+ * the browser's text engine in the installed fonts. Point text (`box` null) grows from its origin, the first baseline
+ * at the alignment's point; paragraph text wraps in its box, whose top-left is the origin. `size` and `origin` are its
+ * frame, measured by the tab (the lines and the glyphs' ink): what the transform places, as an image's pixels. Its mask
+ * is in document pixels, as an adjustment's.
+ */
+export interface TextLayer extends LayerBase, Filtered {
+  kind: "text";
+  /** "\n" between lines. */
+  text: string;
+  font: TextFont;
+  /** sRGB "#rrggbb". */
+  colour: string;
+  align: TextAlign;
+  /** Pixels between baselines; null: Auto (1.2 × the size). */
+  leading: number | null;
+  /** Thousandths of an em, added after every character. */
+  tracking: number;
+  /** Paragraph text's box in layer pixels; null: point text. */
+  box: { width: number; height: number } | null;
+  /** Its frame in layer pixels (what the transform places). */
+  size: { width: number; height: number };
+  /** Where the text's origin is in its frame. */
+  origin: { x: number; y: number };
+  transform: LayerTransform;
+}
+
+export type PhotoLayer = ImageLayer | PixelLayer | AdjustmentLayer | GeneratorLayer | TextLayer;
 
 /** A layer with pixels of its own and a place on the canvas: what the Move tool moves. */
-export type PlacedLayer = ImageLayer | PixelLayer;
+export type PlacedLayer = ImageLayer | PixelLayer | TextLayer;
 
-export const isPlaced = (layer: PhotoLayer): layer is PlacedLayer => layer.kind === "image" || layer.kind === "pixel";
+export const isPlaced = (layer: PhotoLayer): layer is PlacedLayer => layer.kind === "image" || layer.kind === "pixel" || layer.kind === "text";
 
 /** A layer with content of its own (pixels, or made by a generator): one that can carry filters. */
-export type ContentLayer = ImageLayer | PixelLayer | GeneratorLayer;
+export type ContentLayer = ImageLayer | PixelLayer | GeneratorLayer | TextLayer;
 
 export const hasContent = (layer: PhotoLayer): layer is ContentLayer => layer.kind !== "adjustment";
 

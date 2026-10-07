@@ -52,6 +52,7 @@ import { CameraRawAnalyses } from "./camera-raw-analysis.ts";
 import { type Gpu, createGpu } from "./gpu.ts";
 import { LatestOnly } from "./latest.ts";
 import { SourceImage } from "./source.ts";
+import { CanvasImages } from "./canvas-content.ts";
 import { SurfaceImage, type SurfaceKind } from "./surface.ts";
 import { type PatternImage, builtInPatternLevels, patternFromLinear, patternMips } from "@shared/photo/style/patterns.ts";
 
@@ -189,6 +190,8 @@ export class PhotoRenderer {
   /** Document patterns' levels by surface and size (`patternOf`). */
   private readonly patternLevels = new Map<string, { levels: PatternImage[] | null; failed: boolean; loaded: Promise<void> }>();
   private stroke: Stroke | null = null;
+  /** Layers the 2D canvas draws (text), drawn once per raster (`canvas-content.ts`). */
+  private readonly canvasImages = new CanvasImages();
   private projectId: string | null = null;
   private doc: PhotoProject | null = null;
   private assets = new Map<string, MediaAsset>();
@@ -526,6 +529,12 @@ export class PhotoRenderer {
         const pixels = this.surfaceOf(node.layerId, "content");
         if (!pixels) return null;
         return { source: pixels, matrix: node.matrix, transform: node.transform, opacity: node.opacity, mask };
+      }
+      if (node.kind === "canvas") {
+        // Drawn now if it isn't kept, in the 8-bit atlas (beside its mask, in document pixels).
+        const image = this.canvasImages.get(this.contexts.get("rgba16float")!, node.raster);
+        if (mask && mask.ctx !== image.ctx) return null;
+        return { source: image, matrix: node.matrix, transform: node.transform, opacity: node.opacity, mask };
       }
       const image = this.sources.get(node.mediaId)?.image;
       if (!image) return null;
@@ -1222,8 +1231,8 @@ export class PhotoRenderer {
   private placeOf(layerId: string, part: SurfacePart): { matrix: Affine; scale: number } | null {
     const layer = this.doc?.layers.find((l) => l.id === layerId);
     if (!layer) return null;
-    // An adjustment's or a generator's pixels (its mask's) are the document's.
-    if (!isPlaced(layer)) return { matrix: IDENTITY, scale: 1 };
+    // An adjustment's, a generator's or a text's pixels (its mask's) are the document's.
+    if (!isPlaced(layer) || layer.kind === "text") return { matrix: IDENTITY, scale: 1 };
     const surface = this.surfaceOf(layerId, part);
     const size = layer.kind === "pixel" ? layer.size : surface?.size;
     if (!size) return null;
@@ -1294,7 +1303,7 @@ export class PhotoRenderer {
   private maskShape(doc: PhotoProject, layerId: string): { size: { width: number; height: number }; matrix: Affine; bits: 8 | 16 } | null {
     const layer = doc.layers.find((l) => l.id === layerId);
     if (!layer) return null;
-    if (!isPlaced(layer)) return { size: doc.canvas, matrix: IDENTITY, bits: 8 };
+    if (!isPlaced(layer) || layer.kind === "text") return { size: doc.canvas, matrix: IDENTITY, bits: 8 };
     if (layer.kind === "pixel") return { size: layer.size, matrix: layerMatrix(layer.transform, layer.size), bits: 8 };
     const asset = this.assets.get(layer.mediaId);
     if (!asset?.width || !asset.height) return null;
@@ -1357,10 +1366,11 @@ export class PhotoRenderer {
     const layerId = layer?.id ?? "";
     if (!layer || layer.kind === "adjustment" || !this.uploads) throw new Error("Only an image, pixel or generator layer can be made pixels.");
     // A generator's content is everywhere: what the canvas shows of it. Filters reach past a layer's box.
-    const shape = layer.kind === "generator" ? doc.canvas : layer.kind === "pixel" ? layer.size : this.maskShape(doc, layerId)?.size;
+    const shape = layer.kind === "generator" ? doc.canvas : layer.kind === "pixel" || layer.kind === "text" ? layer.size : this.maskShape(doc, layerId)?.size;
     if (!shape) throw new Error("That image isn't loaded yet.");
     const matrix = layer.kind === "generator" ? IDENTITY : layerMatrix(layer.transform, shape);
-    const reach = layer.kind === "generator" ? 0 : filtersReach(layer);
+    // A text's glyphs may reach a little past its frame.
+    const reach = layer.kind === "generator" ? 0 : filtersReach(layer) + (layer.kind === "text" ? Math.ceil(0.25 * layer.font.size * layerScale(layer.transform)) + 2 : 0);
     const corners = [apply(matrix, 0, 0), apply(matrix, shape.width, 0), apply(matrix, 0, shape.height), apply(matrix, shape.width, shape.height)];
     const s = selection;
     const x0 = Math.floor(Math.max(Math.min(...corners.map((p) => p.x)) - reach, s ? s.x : -Infinity) + 1e-6);
@@ -1498,6 +1508,7 @@ export class PhotoRenderer {
       this.surfaces.clear();
       for (const s of this.sources.values()) s.image?.destroy();
       this.sources.clear();
+      this.canvasImages.clear();
       this.dropScreen();
       this.compiled = null;
       this.glows.destroy();
@@ -1521,6 +1532,7 @@ export class PhotoRenderer {
     this.surfaces.clear();
     for (const s of this.sources.values()) s.image?.destroy();
     this.sources.clear();
+    this.canvasImages.clear();
     this.dropScreen();
     this.glows.destroy();
     this.compositor?.destroy();

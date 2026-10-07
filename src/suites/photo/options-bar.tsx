@@ -164,6 +164,7 @@ function Toggle({ label, title, checked, onChange }: { label: string; title?: st
 export function PaintChoiceDialog() {
   const layerId = usePhotoUi((s) => s.paintChoice);
   const name = usePhotoDoc((d) => (layerId ? (findLayer(d, layerId)?.name ?? null) : null));
+  const text = usePhotoDoc((d) => (layerId ? findLayer(d, layerId)?.kind === "text" : false));
   const close = () => usePhotoUi.getState().setPaintChoice(null);
   return (
     <AlertDialog open={!!layerId && name !== null} onOpenChange={(open) => !open && close()}>
@@ -171,8 +172,9 @@ export function PaintChoiceDialog() {
         <AlertDialogHeader>
           <AlertDialogTitle>Paint on “{name}”?</AlertDialogTitle>
           <AlertDialogDescription>
-            It's a placed image, kept whole so it can be transformed without losing quality. Paint on a new layer above it, or convert it to pixels (its place
-            and mask become part of its pixels; scaling it later resamples them).
+            {text
+              ? "It's a text layer: its words stay editable. Paint on a new layer above it, or rasterize it (its words become pixels and can't be edited any more)."
+              : "It's a placed image, kept whole so it can be transformed without losing quality. Paint on a new layer above it, or convert it to pixels (its place and mask become part of its pixels; scaling it later resamples them)."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -184,7 +186,7 @@ export function PaintChoiceDialog() {
               if (layerId) void layerActions.convertToPixels(layerId);
             }}
           >
-            Convert to pixels
+            {text ? "Rasterize Type" : "Convert to pixels"}
           </Button>
           <Button
             onClick={() => {
