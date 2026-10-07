@@ -249,7 +249,14 @@ export class PhotoRenderer {
   readonly cameraRaw = new CameraRawAnalyses(this.analysisHost);
 
   /** Filters' scene maps (depth, subject), by the picture each is of (`scene-maps.ts`). */
-  readonly scene = new SceneMapStore(this.analysisHost);
+  readonly scene = new SceneMapStore({
+    ...this.analysisHost,
+    // The open photo's package keeps them (none for a renderer without a project: made again each time).
+    loadMap: async (key) => (this.projectId ? photoApi.sceneMap(this.projectId, key) : null),
+    saveMap: async (key, data) => {
+      if (this.projectId) await photoApi.putSceneMap(this.projectId, key, data);
+    },
+  });
 
   /** What the analyses and maps the plans read are now: a plan compiled before they changed is compiled again. */
   private analyses() {

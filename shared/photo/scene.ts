@@ -321,3 +321,23 @@ export function standInDepth(grid: { width: number; height: number }, subject: F
   }
   return { values, width: grid.width, height: grid.height };
 }
+
+// --- kept on disk ---
+
+/** A map's file (`/api/photo/projects/:id/scene/:key`): a header of four floats (format 1, width, height, spacing), then its cells as 16-bit fractions. */
+export function encodeSceneMap(grid: { width: number; height: number; spacing: number }, values: Float32Array): Uint8Array {
+  const out = new ArrayBuffer(16 + 2 * values.length);
+  new Float32Array(out, 0, 4).set([1, grid.width, grid.height, grid.spacing]);
+  const cells = new Uint16Array(out, 16, values.length);
+  for (let i = 0; i < values.length; i++) cells[i] = Math.round(Math.min(1, Math.max(0, values[i])) * 65535);
+  return new Uint8Array(out);
+}
+
+/** A map's file read back, or null when it isn't one of this grid. */
+export function decodeSceneMap(bytes: ArrayBuffer, grid: { width: number; height: number; spacing: number }): Float32Array | null {
+  if (bytes.byteLength < 16) return null;
+  const [format, width, height, spacing] = new Float32Array(bytes, 0, 4);
+  if (format !== 1 || width !== grid.width || height !== grid.height || spacing !== grid.spacing || bytes.byteLength !== 16 + 2 * width * height) return null;
+  const cells = new Uint16Array(bytes, 16, width * height);
+  return Float32Array.from(cells, (v) => v / 65535);
+}
