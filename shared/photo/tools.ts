@@ -4,7 +4,8 @@
  */
 import { type Schema, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { BLEND_MODES } from "./blending.ts";
-import { ADJUSTMENTS, EFFECTS, type EffectKind, FILTERS, GENERATORS } from "./effects/index.ts";
+import { ADJUSTMENTS, EFFECTS, type EffectDefinition, type EffectKind, FILTERS, GENERATORS } from "./effects/index.ts";
+import { APPLY_TO, MIX } from "./effects/kernel.ts";
 import { FILTER_ENTRIES, describePresets } from "./effects/catalog.ts";
 import { FLARE_PRESETS } from "./effects/flare.ts";
 import type { ElementParamSpec, ParamSpec } from "./effects/params.ts";
@@ -40,9 +41,12 @@ function paramLine(p: ParamSpec | ElementParamSpec, indent: string): string {
 
 /** Every effect of a kind and its parameters, for the model: names, units, ranges, defaults. */
 export function describeEffects(kind: EffectKind): string {
-  return EFFECTS.filter((d) => d.kind === kind)
-    .map((def) => `${def.type}: ${def.description}\n  ${def.params.map((p) => paramLine(p, "  ")).join("\n  ")}`)
-    .join("\n");
+  // Apply To and Mix, which every kernel filter has, are said once after them.
+  const shared = new Set([APPLY_TO.key, MIX.key]);
+  const own = (def: EffectDefinition) => def.params.filter((p) => !def.kernel || !shared.has(p.key));
+  const lines = EFFECTS.filter((d) => d.kind === kind).map((def) => `${def.type}: ${def.description}\n  ${own(def).map((p) => paramLine(p, "  ")).join("\n  ")}`);
+  if (EFFECTS.some((d) => d.kind === kind && d.kernel)) lines.push(`Every filter above but glow and camera-raw also takes:\n  ${paramLine(APPLY_TO, "  ")}\n  ${paramLine(MIX, "  ")}`);
+  return lines.join("\n");
 }
 
 /** Presets outside the Filter Gallery (Camera Raw's), for the model: `type presets: id (Label: description); …`. */

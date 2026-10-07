@@ -2542,6 +2542,47 @@ test("the Filter menu applies a look; the Filter Gallery previews one on the pho
   await expect(page.locator("[data-filter-gallery]")).toHaveCount(0);
 });
 
+test("depth and subject filters read the photo's scene maps (the models' stand-ins): Depth Grade's Depth Map, Apply To", async ({ page }) => {
+  await openNewPhoto(page, "Scene maps");
+  await openImage(page, PHOTO);
+  await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
+  const [photo] = await docLayers(page);
+  await page.locator(`[data-layer="${photo.id}"]`).click();
+  const filtersOf = async () => (await docLayers(page)).find((l) => l.id === photo.id)!.filters ?? [];
+  const screenNow = () =>
+    page.evaluate(async () => {
+      const r = await (window as unknown as DebugWindow).photoDebug.renderer();
+      const s = (await (r as unknown as { readScreen(): Promise<{ data: Float32Array } | null> }).readScreen())!;
+      return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new Float32Array(s.data)))].map((x) => x.toString(16).padStart(2, "0")).join("");
+    });
+  const settled = async () => {
+    await expect.poll(() => refineState(page), { timeout: 20_000 }).toMatch(/none|refined/);
+    return screenNow();
+  };
+  const plain = await settled();
+
+  // Filter › Depth Grade › Depth Map: drawn once the photo's depth map is made (the plan leaves it out until then).
+  await page.locator("[data-filter-menu]").click();
+  await page.getByRole("menuitem", { name: "Depth Grade" }).hover();
+  await page.locator('[data-filter-item="depth-grade/depth-map"]').click();
+  await expect.poll(async () => (await filtersOf())[0]?.params).toMatchObject({ blend: "replace", applyTo: "all" });
+  await expect.poll(screenNow, { timeout: 20_000 }).not.toBe(plain);
+  const everywhere = await settled();
+  // No download asked for: the stand-ins are ready.
+  await expect(page.locator("[data-scene-model-download]")).toHaveCount(0);
+  await expect(page.locator("[data-scene-model-note]")).toHaveCount(0);
+
+  // Apply To › Background: the subject keeps its own colours (the subject map is made too).
+  await page.locator('[data-filter-properties="depth-grade"] [data-param="applyTo"]').getByRole("radio", { name: "Background" }).click();
+  await expect.poll(async () => (await filtersOf())[0].params.applyTo).toBe("background");
+  await expect.poll(screenNow, { timeout: 20_000 }).not.toBe(everywhere);
+  const background = await settled();
+  expect(background).not.toBe(plain);
+  // Undo: everywhere again, drawn from the maps already made.
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  await expect.poll(screenNow, { timeout: 20_000 }).toBe(everywhere);
+});
+
 test("Camera Raw: ⇧⌘A develops a layer in its window (one undo step, Cancel leaves nothing); an adjustment layer develops everything below", async ({ page }) => {
   const id = await openNewPhoto(page, "Camera Raw");
   await openImage(page, PHOTO);
