@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cablePath, cableSwing } from "./cables";
+import { cableClips, cablePath, cableSwing } from "./cables";
 
 describe("a routing cable", () => {
   it("drops below the strips' bottom between its ends, further the further apart they are", () => {
@@ -12,5 +12,16 @@ describe("a routing cable", () => {
     expect(Math.abs(cableSwing(300))).toBeLessThan(4);
     expect(cableSwing(900)).toBe(0);
     expect(cableSwing(Infinity)).toBe(0);
+  });
+
+  it("shows each end only in its own dock: one scrolled under a docked strip is cut off there", () => {
+    const middle = [0, 600] as const;
+    const right = [600, 900] as const;
+    // Both ends in view: each half up to the middle (within its dock), with room for the stroke past its end.
+    expect(cableClips({ x: 100, region: middle }, { x: 700, region: right })).toEqual([[97, 400], [600, 703]]);
+    // The middle strip scrolled behind the right dock: its end isn't drawn, the dock's is.
+    const [hidden, shown] = cableClips({ x: 650, region: middle }, { x: 800, region: right });
+    expect(hidden[1] - hidden[0]).toBeLessThanOrEqual(0);
+    expect(shown).toEqual([725, 803]);
   });
 });

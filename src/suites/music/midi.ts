@@ -4,6 +4,7 @@ import type { MidiPlayed } from "@shared/music/engine";
 import type { MusicProject } from "@shared/music/types";
 import { musicApi } from "./api";
 import { usePiano } from "./piano/store";
+import { storage } from "./preferences";
 import { useMusic } from "./store";
 import { DEFAULT_TYPING_OCTAVE, MAX_TYPING_OCTAVE, MIN_TYPING_OCTAVE, TYPING_VELOCITY, resolveTypingKey } from "./typing-keyboard";
 import { useMusicUi } from "./ui";
@@ -15,7 +16,7 @@ import { useMusicUi } from "./ui";
  * they're played, lit and recorded the same way. None of it is the song's.
  */
 interface MidiState {
-  /** The typing keyboard to piano keyboard (Ctrl+T): letter keys play notes. */
+  /** The typing keyboard to piano keyboard (Ctrl+T): letter keys play notes. Kept in this browser. */
   typing: boolean;
   /** The octave its bottom row starts in (`[` and `]`). */
   octave: number;
@@ -27,6 +28,9 @@ interface MidiState {
   /** What the engine said was played (`midi` events). */
   played: (notes: readonly MidiPlayed[]) => void;
 }
+
+/** The typing keyboard stays as it was left, in every song and the next session (as FL's does). */
+const TYPING_KEY = "music-typing-keyboard";
 
 const NONE: Readonly<Record<string, readonly number[]>> = {};
 
@@ -45,12 +49,13 @@ export function releaseTyping() {
 }
 
 export const useMidi = create<MidiState>((set, get) => ({
-  typing: false,
+  typing: storage.getItem(TYPING_KEY) === "true",
   octave: DEFAULT_TYPING_OCTAVE,
   held: NONE,
   lastNoteAt: 0,
   setTyping(typing) {
     if (!typing) releaseTyping();
+    storage.setItem(TYPING_KEY, String(typing));
     set({ typing });
   },
   played(notes) {

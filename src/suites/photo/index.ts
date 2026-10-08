@@ -14,6 +14,7 @@ export const photoSuite: ClientSuite<"photo"> = {
   id: "photo",
   icon: PiImageSquare,
   tint: "bg-sky-500/12 text-sky-600 dark:text-sky-400",
+  menus: ["Image", "Layer", "Select", "Filter"],
   open: (projectId) => usePhoto.getState().open(projectId),
   close: () => usePhoto.getState().close(),
   flush: () => flushPhotos(),
