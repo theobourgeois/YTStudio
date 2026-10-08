@@ -19,6 +19,7 @@ import { askMicrophone, microphoneAccess } from "@/lib/desktop";
 import { useInputs } from "./inputs";
 import { ResamplingSelect } from "./resampling-select";
 import { useTransport } from "./transport";
+import { useBrowser } from "./browser/store";
 
 /**
  * The music editor's section of Settings, FL Studio's Audio settings (`docs/fl-studio/settings.md`): the
@@ -30,6 +31,7 @@ export default function MusicSettings() {
       <DeviceSettings />
       <QualitySettings />
       <TransportSettings />
+      <BrowserSettings />
       <HearingSettingsPanel />
       <SettingsGroup title="Engine and plugins" description="The audio engine's state, a test tone, and your plugins on a test bench." bare>
         <EnginePanel />
@@ -70,6 +72,22 @@ function TransportSettings() {
         description="Stopping silences delays, reverbs and every other tail at once. Off, they ring out after a stop, and pressing Stop again silences them."
       >
         <Switch checked={resetOnStop} onCheckedChange={setResetOnStop} aria-label="Reset plugins on stop" />
+      </SettingsRow>
+    </SettingsGroup>
+  );
+}
+
+/** How the Browser's favourite folders open: in place, under the Favourites, or as a jump to where they are. */
+function BrowserSettings() {
+  const inPlace = useBrowser((s) => s.favouritesInPlace);
+  const setInPlace = useBrowser((s) => s.setFavouritesInPlace);
+  return (
+    <SettingsGroup title="Browser">
+      <SettingsRow
+        title="Open favourite folders in place"
+        description="A starred folder opens under the Favourites, as any folder does. Off, it's a shortcut: clicking it shows the folder where it is among your folders."
+      >
+        <Switch checked={inPlace} onCheckedChange={setInPlace} aria-label="Open favourite folders in place" />
       </SettingsRow>
     </SettingsGroup>
   );

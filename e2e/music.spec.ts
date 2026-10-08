@@ -1793,14 +1793,30 @@ test("the Browser: a folder added once for every song, opened, previewed, search
   await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
   await page.keyboard.press("Space");
 
-  // Stars: a file, and a folder, which becomes a shortcut to it at the top.
+  // Stars: a file, and a folder, which opens in place at the top, apart from the tree.
   await item("Snare.wav").hover();
   await item("Snare.wav").getByRole("button", { name: "Star Snare.wav" }).click();
   await item("Loops").getByRole("button", { name: "Star Loops" }).click();
   await expect(list.getByRole("treeitem").first()).toHaveText("Snare.wav");
   await item("My Samples").click();
   await expect(list.getByRole("treeitem")).toHaveText(["Snare.wav", "Loops", "My Samples"]);
-  await list.getByRole("treeitem", { name: "Loops" }).first().click();
+  const starredLoops = list.getByRole("treeitem", { name: "Loops" }).first();
+  await starredLoops.click();
+  await expect(starredLoops).toHaveAttribute("aria-expanded", "true");
+  await expect(list.getByRole("treeitem")).toHaveText(["Snare.wav", "Loops", "Break.wav", "My Samples"]);
+  await starredLoops.click();
+  await expect(list.getByRole("treeitem")).toHaveText(["Snare.wav", "Loops", "My Samples"]);
+  // Settings makes it a shortcut instead: clicked, it shows the folder where it is in the tree.
+  await page.keyboard.press("ControlOrMeta+Comma");
+  const settings = page.getByRole("region", { name: "Settings" });
+  const inPlace = settings.getByRole("switch", { name: "Open favourite folders in place" });
+  await expect(inPlace).toHaveAttribute("aria-checked", "true");
+  await inPlace.click();
+  await expect(inPlace).toHaveAttribute("aria-checked", "false");
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  await expect(starredLoops).not.toHaveAttribute("aria-expanded");
+  await starredLoops.click();
   // (808 Kit was left open inside: it shows open again.)
   await expect(list.getByRole("treeitem")).toHaveText(["Snare.wav", "Loops", "My Samples", "808 Kit", "Kick 1.wav", "Kick 2.wav", "Snare.wav", "Loops", "Break.wav"]);
   await expect(list.getByRole("treeitem", { name: "Loops" }).last()).toHaveAttribute("aria-selected", "true");

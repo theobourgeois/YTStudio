@@ -42,7 +42,7 @@ import { resolveBrowserKey } from "./keys";
 import { displayName, isOnline } from "./online";
 import { OnlineTab } from "./online-tab";
 import { type BrowserTab, useBrowser } from "./store";
-import { type ItemRow, type Row, arrowAction, isItem, resultRows, rowRange, step, treeRows } from "./tree";
+import { type ItemRow, type Row, arrowAction, isItem, placeOf, resultRows, rowRange, step, treeRows } from "./tree";
 import { type Peaks, PEAK_COLUMNS, loadPeaks, waveformStops } from "./waveform";
 
 
@@ -286,25 +286,25 @@ function SearchBox({ inputRef, listRef }: { inputRef: React.RefObject<HTMLInputE
 function rowsOf(s: ReturnType<typeof useBrowser.getState>): Row[] {
   const favourites = s.state?.favourites ?? [];
   if (s.query.trim()) return s.results ? resultRows(s.results.hits, favourites) : [];
-  return treeRows({ roots: s.state?.roots ?? [], favourites, expanded: s.expanded, contents: s.contents });
+  return treeRows({ roots: s.state?.roots ?? [], favourites, expanded: s.expanded, favouritesInPlace: s.favouritesInPlace, favouritesExpanded: s.favouritesExpanded, contents: s.contents });
 }
 
 let rowsCache: { key: unknown[]; rows: Row[] } | null = null;
 /** The rows, worked out again only when what they're made of changes. */
 function visibleRows(): Row[] {
   const s = useBrowser.getState();
-  const key = [s.state, s.query, s.results, s.expanded, s.contents];
+  const key = [s.state, s.query, s.results, s.expanded, s.favouritesInPlace, s.favouritesExpanded, s.contents];
   if (!rowsCache || rowsCache.key.some((k, i) => k !== key[i])) rowsCache = { key, rows: rowsOf(s) };
   return rowsCache.rows;
 }
 
-/** Select one row and act on it: a file plays, a favourite or found folder shows in the tree. */
+/** Select one row and act on it: a file plays, a found folder (or a favourite one that doesn't open in place) shows in the tree. */
 function choose(row: ItemRow, play: boolean) {
   const store = useBrowser.getState();
   store.select([row.key], row.key);
   if (row.item.kind === "file") {
     if (play) store.preview(row.item.path);
-  } else if (row.section !== "tree") {
+  } else if (!row.opens) {
     if (play) store.reveal(row.item.path, true);
   }
 }
@@ -372,15 +372,15 @@ function RowList({ listRef, searchRef, onAddFolder }: { listRef: React.RefObject
       case "arrow": {
         if (!store.cursor) return;
         const arrow = arrowAction(rows, store.cursor, action.direction);
-        if (arrow?.type === "expand") store.expand(arrow.path);
-        else if (arrow?.type === "collapse") store.collapse(arrow.path);
+        if (arrow?.type === "expand") store.expand(arrow.path, arrow.place);
+        else if (arrow?.type === "collapse") store.collapse(arrow.path, arrow.place);
         else if (arrow?.type === "go") choose(arrow.row, false);
         return;
       }
       case "enter":
         if (!isItem(current)) return;
         if (current.item.kind === "file") void sendToSelectedChannel(current.item.path);
-        else if (current.section === "tree") store.toggleFolder(current.item.path);
+        else if (current.opens) store.toggleFolder(current.item.path, placeOf(current));
         else store.reveal(current.item.path, true);
         return;
       case "escape":
@@ -488,9 +488,9 @@ const RowView = memo(function RowView({ row, top, rows, onMenu }: { row: Row; to
       return store.select(keys, row.key);
     }
     if (e.shiftKey && store.cursor) return store.select(rowRange(rows, store.cursor, row.key), store.cursor);
-    if (folder && row.section === "tree") {
+    if (row.opens) {
       store.select([row.key], row.key);
-      return store.toggleFolder(item.path);
+      return store.toggleFolder(item.path, placeOf(row));
     }
     // A file played when it was pressed.
     choose(row, folder);
@@ -520,7 +520,7 @@ const RowView = memo(function RowView({ row, top, rows, onMenu }: { row: Row; to
       role="treeitem"
       aria-label={item.name}
       aria-selected={selected}
-      aria-expanded={folder && row.section === "tree" ? row.expanded : undefined}
+      aria-expanded={row.opens ? row.expanded : undefined}
       aria-level={row.depth + 1}
       data-row={row.key}
       data-kind={item.kind}
@@ -552,7 +552,7 @@ const RowView = memo(function RowView({ row, top, rows, onMenu }: { row: Row; to
       )}
       style={{ top, height: ROW_HEIGHT, paddingLeft: 6 + row.depth * INDENT }}
     >
-      {folder && row.section === "tree" ? (
+      {row.opens ? (
         <button
           type="button"
           tabIndex={-1}
@@ -560,7 +560,7 @@ const RowView = memo(function RowView({ row, top, rows, onMenu }: { row: Row; to
           className="grid size-3.5 shrink-0 place-items-center text-muted-foreground"
           onClick={(e) => {
             e.stopPropagation();
-            useBrowser.getState().toggleFolder(item.path);
+            useBrowser.getState().toggleFolder(item.path, placeOf(row));
           }}
         >
           {row.expanded ? <PiCaretDownFill className="size-2.5" /> : <PiCaretRightFill className="size-2.5" />}
@@ -611,11 +611,10 @@ function RowMenu({ row }: { row: ItemRow }) {
   return (
     <ContextMenuContent className="min-w-56">
       {folder ? (
-        row.section === "tree" ? (
-          <ContextMenuItem onSelect={() => store.toggleFolder(item.path)}>{row.expanded ? "Close" : "Open"}</ContextMenuItem>
-        ) : (
-          <ContextMenuItem onSelect={() => store.reveal(item.path, true)}>Show in the Browser</ContextMenuItem>
-        )
+        <>
+          {row.opens && <ContextMenuItem onSelect={() => store.toggleFolder(item.path, placeOf(row))}>{row.expanded ? "Close" : "Open"}</ContextMenuItem>}
+          {row.section !== "tree" && <ContextMenuItem onSelect={() => store.reveal(item.path, true)}>Show in its folder</ContextMenuItem>}
+        </>
       ) : (
         <>
           <ContextMenuItem onSelect={() => void sendToSelectedChannel(item.path)}>

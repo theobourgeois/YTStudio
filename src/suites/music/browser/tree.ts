@@ -22,7 +22,9 @@ export interface ItemRow {
   section: "favourites" | "tree" | "results";
   item: BrowserItem;
   depth: number;
-  /** Folders in the tree: open. */
+  /** A folder that opens where it is (one in the tree, or a favourite one with `favouritesInPlace`). */
+  opens: boolean;
+  /** Folders that open: open. */
   expanded: boolean;
   favourite: boolean;
   /** A folder added to the Browser (its own menu: remove it). */
@@ -37,6 +39,10 @@ export interface TreeInput {
   roots: readonly BrowserRoot[];
   favourites: readonly string[];
   expanded: ReadonlySet<string>;
+  /** Favourite folders open in their own section, rather than jumping to the tree (the default). */
+  favouritesInPlace?: boolean;
+  /** Folders open under the favourites (kept apart from the tree's, so one doesn't open the other). */
+  favouritesExpanded?: ReadonlySet<string>;
   contents: ReadonlyMap<string, FolderContents>;
 }
 
@@ -46,25 +52,31 @@ export const nameOf = (p: string) => p.slice(Math.max(p.lastIndexOf("/"), p.last
 /** A favourite: a file if it's audio (the Browser shows no other files), else a folder. */
 export const favouriteItem = (path: string): BrowserItem => ({ path, name: nameOf(path), kind: isAudioName(path) ? "file" : "folder" });
 
-/** The tree's rows: the favourites (a favourite folder is a shortcut to it, not opened in place), then the folders. */
-export function treeRows({ roots, favourites, expanded, contents }: TreeInput): Row[] {
+/** Where rows are walked: their section, their keys, and the folders open there. */
+interface Place {
+  section: "favourites" | "tree";
+  key: (path: string) => string;
+  open: ReadonlySet<string>;
+}
+
+/**
+ * The tree's rows: the favourites, then the folders. A favourite folder opens in place, under its star, or
+ * (`favouritesInPlace` off) is a shortcut to it in the tree.
+ */
+export function treeRows({ roots, favourites, expanded, favouritesInPlace = false, favouritesExpanded = new Set(), contents }: TreeInput): Row[] {
   const starred = new Set(favourites);
   const rows: Row[] = [];
-  if (favourites.length) {
-    rows.push({ kind: "heading", key: "h:favourites", label: "Favourites" });
-    for (const path of favourites) {
-      rows.push({ kind: "item", key: `f:${path}`, section: "favourites", item: favouriteItem(path), depth: 0, expanded: false, favourite: true, root: false, missing: false });
-    }
-  }
-  if (roots.length) rows.push({ kind: "heading", key: "h:folders", label: "Folders" });
-  const walk = (item: BrowserItem, depth: number, root: BrowserRoot | null) => {
-    const open = item.kind === "folder" && expanded.has(item.path) && !root?.missing;
+  const walk = (item: BrowserItem, depth: number, root: BrowserRoot | null, place: Place) => {
+    const opens = item.kind === "folder" && (place.section === "tree" || favouritesInPlace) && !root?.missing;
+    const open = opens && place.open.has(item.path);
+    const key = place.key(item.path);
     rows.push({
       kind: "item",
-      key: `t:${item.path}`,
-      section: "tree",
+      key,
+      section: place.section,
       item,
       depth,
+      opens,
       expanded: open,
       favourite: starred.has(item.path),
       root: root !== null,
@@ -72,12 +84,22 @@ export function treeRows({ roots, favourites, expanded, contents }: TreeInput): 
     });
     if (!open) return;
     const inside = contents.get(item.path);
-    if (!inside || inside.status === "loading") rows.push({ kind: "note", key: `n:${item.path}`, depth: depth + 1, text: "Reading…" });
-    else if (inside.status === "error") rows.push({ kind: "note", key: `n:${item.path}`, depth: depth + 1, text: inside.message });
-    else if (!inside.items.length) rows.push({ kind: "note", key: `n:${item.path}`, depth: depth + 1, text: "No audio files" });
-    else for (const child of inside.items) walk(child, depth + 1, null);
+    if (!inside || inside.status === "loading") rows.push({ kind: "note", key: `n:${key}`, depth: depth + 1, text: "Reading…" });
+    else if (inside.status === "error") rows.push({ kind: "note", key: `n:${key}`, depth: depth + 1, text: inside.message });
+    else if (!inside.items.length) rows.push({ kind: "note", key: `n:${key}`, depth: depth + 1, text: "No audio files" });
+    else for (const child of inside.items) walk(child, depth + 1, null, place);
   };
-  for (const root of roots) walk({ path: root.path, name: root.name, kind: "folder" }, 0, root);
+  if (favourites.length) {
+    rows.push({ kind: "heading", key: "h:favourites", label: "Favourites" });
+    // What's inside a favourite is keyed by the favourite too: favourites can be inside one another.
+    for (const path of favourites) {
+      const key = (p: string) => (p === path ? `f:${path}` : `f:${path}>${p}`);
+      walk(favouriteItem(path), 0, null, { section: "favourites", key, open: favouritesExpanded });
+    }
+  }
+  if (roots.length) rows.push({ kind: "heading", key: "h:folders", label: "Folders" });
+  const tree: Place = { section: "tree", key: (p) => `t:${p}`, open: expanded };
+  for (const root of roots) walk({ path: root.path, name: root.name, kind: "folder" }, 0, root, tree);
   return rows;
 }
 
@@ -90,6 +112,7 @@ export function resultRows(hits: readonly BrowserHit[], favourites: readonly str
     section: "results",
     item: { path: hit.path, name: hit.name, kind: hit.kind },
     depth: 0,
+    opens: false,
     expanded: false,
     favourite: starred.has(hit.path),
     root: false,
@@ -109,32 +132,36 @@ export function step(rows: readonly Row[], key: string | null, delta: number): I
   return items[Math.max(0, Math.min(items.length - 1, at + delta))];
 }
 
-/** The folder row a tree row is in (the nearest row above, one level out), or null at the top. */
+/** The folder row a row is in (the nearest row above, one level out, in its section), or null at the top. */
 export function parentRow(rows: readonly Row[], key: string): ItemRow | null {
   const at = rows.findIndex((r) => r.key === key);
   const row = rows[at];
-  if (!isItem(row) || row.section !== "tree" || row.depth === 0) return null;
+  if (!isItem(row) || row.section === "results" || row.depth === 0) return null;
   for (let i = at - 1; i >= 0; i--) {
     const above = rows[i];
-    if (isItem(above) && above.section === "tree" && above.depth === row.depth - 1) return above;
+    if (isItem(above) && above.section === row.section && above.depth === row.depth - 1) return above;
   }
   return null;
 }
 
+/** Which folders a row opens among: the tree's, or the favourites' own. */
+export const placeOf = (row: ItemRow): FolderPlace => (row.section === "favourites" ? "favourites" : "tree");
+export type FolderPlace = "tree" | "favourites";
+
 /** What → and ← do on a row, FL's (and Finder's) way. */
-export type ArrowAction = { type: "expand" | "collapse"; path: string } | { type: "go"; row: ItemRow } | null;
+export type ArrowAction = { type: "expand" | "collapse"; path: string; place: FolderPlace } | { type: "go"; row: ItemRow } | null;
 
 export function arrowAction(rows: readonly Row[], key: string, direction: -1 | 1): ArrowAction {
   const at = rows.findIndex((r) => r.key === key);
   const row = rows[at];
   if (!isItem(row)) return null;
   if (direction > 0) {
-    if (row.item.kind !== "folder" || row.section !== "tree" || row.missing) return null;
-    if (!row.expanded) return { type: "expand", path: row.item.path };
+    if (!row.opens) return null;
+    if (!row.expanded) return { type: "expand", path: row.item.path, place: placeOf(row) };
     const child = rows[at + 1];
     return isItem(child) && child.depth === row.depth + 1 ? { type: "go", row: child } : null;
   }
-  if (row.section === "tree" && row.item.kind === "folder" && row.expanded) return { type: "collapse", path: row.item.path };
+  if (row.opens && row.expanded) return { type: "collapse", path: row.item.path, place: placeOf(row) };
   const parent = parentRow(rows, key);
   return parent ? { type: "go", row: parent } : null;
 }

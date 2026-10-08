@@ -4,7 +4,7 @@ import { errorMessage } from "@shared/errors";
 import type { BrowserSearchResult, BrowserState } from "@shared/music/browser";
 import { musicApi } from "../api";
 import { previewRequest } from "./online";
-import { type FolderContents, foldersToReveal, nameOf } from "./tree";
+import { type FolderContents, type FolderPlace, foldersToReveal, nameOf } from "./tree";
 
 /**
  * The Browser (`docs/fl-studio/browser.md`): the same in every project, so none of it is the song's.
@@ -24,6 +24,10 @@ interface BrowserStoreState {
   state: BrowserState | null;
   /** Folders open in the tree. */
   expanded: ReadonlySet<string>;
+  /** Favourite folders open where they are, rather than shown in the tree (Settings; on by default). */
+  favouritesInPlace: boolean;
+  /** Folders open under the favourites. */
+  favouritesExpanded: ReadonlySet<string>;
   /** What's been read of each folder opened. */
   contents: ReadonlyMap<string, FolderContents>;
   query: string;
@@ -49,9 +53,11 @@ interface BrowserStoreState {
   setOnlineQuery: (query: string) => void;
   selectOnline: (url: string | null) => void;
   setVolume: (volume: number) => void;
-  toggleFolder: (path: string) => void;
-  expand: (path: string) => void;
-  collapse: (path: string) => void;
+  /** Open or close a folder in the tree, or (`place`) under the favourites. */
+  toggleFolder: (path: string, place?: FolderPlace) => void;
+  expand: (path: string, place?: FolderPlace) => void;
+  collapse: (path: string, place?: FolderPlace) => void;
+  setFavouritesInPlace: (inPlace: boolean) => void;
   collapseAll: () => void;
   /** Read every open folder again, and the index (Ctrl+R). */
   rescan: () => Promise<void>;
@@ -81,10 +87,12 @@ interface Saved {
   tab: BrowserTab;
   volume: number;
   expanded: string[];
+  favouritesInPlace: boolean;
+  favouritesExpanded: string[];
 }
 
 function readSaved(): Saved {
-  const fallback: Saved = { open: true, width: DEFAULT_WIDTH, tab: "files", volume: 0.8, expanded: [] };
+  const fallback: Saved = { open: true, width: DEFAULT_WIDTH, tab: "files", volume: 0.8, expanded: [], favouritesInPlace: true, favouritesExpanded: [] };
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as Partial<Saved> | null;
     if (!raw || typeof raw !== "object") return fallback;
@@ -93,13 +101,16 @@ function readSaved(): Saved {
       width: typeof raw.width === "number" ? clampWidth(raw.width) : fallback.width,
       tab: raw.tab === "online" ? "online" : fallback.tab,
       volume: typeof raw.volume === "number" ? Math.max(0, Math.min(1, raw.volume)) : fallback.volume,
-      expanded: Array.isArray(raw.expanded) ? raw.expanded.filter((p): p is string => typeof p === "string").slice(0, 500) : [],
+      expanded: paths(raw.expanded),
+      favouritesInPlace: typeof raw.favouritesInPlace === "boolean" ? raw.favouritesInPlace : fallback.favouritesInPlace,
+      favouritesExpanded: paths(raw.favouritesExpanded),
     };
   } catch {
     return fallback;
   }
 }
 
+const paths = (value: unknown) => (Array.isArray(value) ? value.filter((p): p is string => typeof p === "string").slice(0, 500) : []);
 const clampWidth = (width: number) => Math.round(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, width)));
 
 const saved = typeof localStorage === "undefined" ? null : readSaved();
@@ -110,9 +121,10 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useBrowser = create<BrowserStoreState>((set, get) => {
   function save() {
-    const { open, width, tab, volume, expanded } = get();
+    const { open, width, tab, volume, expanded, favouritesInPlace, favouritesExpanded } = get();
+    const saved: Saved = { open, width, tab, volume, expanded: [...expanded], favouritesInPlace, favouritesExpanded: [...favouritesExpanded] };
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ open, width, tab, volume, expanded: [...expanded] } satisfies Saved));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     } catch {
       // Private mode, or full: it's only where the Browser was left.
     }
@@ -135,6 +147,11 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
     set({ contents });
   }
 
+  /** The folders open in the tree, or under the favourites. */
+  const openIn = (place: FolderPlace) => (place === "favourites" ? "favouritesExpanded" : "expanded");
+  /** Every folder open anywhere (each read once). */
+  const allOpen = () => new Set([...get().expanded, ...get().favouritesExpanded]);
+
   function failed(what: string, err: unknown) {
     toast.error(what, { description: errorMessage(err) });
   }
@@ -146,6 +163,8 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
     volume: saved?.volume ?? 0.8,
     state: null,
     expanded: new Set(saved?.expanded ?? []),
+    favouritesInPlace: saved?.favouritesInPlace ?? true,
+    favouritesExpanded: new Set(saved?.favouritesExpanded ?? []),
     contents: new Map(),
     query: "",
     results: null,
@@ -164,7 +183,7 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
         // A restarted engine plays previews at full volume until it's told.
         void musicApi.engine("previewVolume", { volume: get().volume }).catch(() => {});
         // The folders left open last time are read again.
-        for (const path of get().expanded) if (state.roots.some((r) => path === r.path || path.startsWith(`${r.path}/`))) void list(path);
+        for (const path of allOpen()) if (state.roots.some((r) => path === r.path || path.startsWith(`${r.path}/`))) void list(path);
       } catch (err) {
         failed("Couldn't read the Browser's folders", err);
       }
@@ -189,32 +208,36 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
       save();
       void musicApi.engine("previewVolume", { volume: get().volume }).catch(() => {});
     },
-    toggleFolder(path) {
-      if (get().expanded.has(path)) get().collapse(path);
-      else get().expand(path);
+    toggleFolder(path, place = "tree") {
+      if (get()[openIn(place)].has(path)) get().collapse(path, place);
+      else get().expand(path, place);
     },
-    expand(path) {
-      const expanded = new Set(get().expanded);
+    expand(path, place = "tree") {
+      const expanded = new Set(get()[openIn(place)]);
       expanded.add(path);
-      set({ expanded });
+      set({ [openIn(place)]: expanded });
       save();
       // Read again each time it's opened: files come and go.
       void list(path);
     },
-    collapse(path) {
-      const expanded = new Set(get().expanded);
+    collapse(path, place = "tree") {
+      const expanded = new Set(get()[openIn(place)]);
       expanded.delete(path);
-      set({ expanded });
+      set({ [openIn(place)]: expanded });
       save();
     },
     collapseAll() {
-      set({ expanded: new Set() });
+      set({ expanded: new Set(), favouritesExpanded: new Set() });
+      save();
+    },
+    setFavouritesInPlace(favouritesInPlace) {
+      set({ favouritesInPlace });
       save();
     },
     async rescan() {
       try {
         set({ state: await musicApi.rescanBrowser() });
-        await Promise.all([...get().expanded].map((path) => list(path)));
+        await Promise.all([...allOpen()].map((path) => list(path)));
       } catch (err) {
         failed("Couldn't read the folders again", err);
       }
