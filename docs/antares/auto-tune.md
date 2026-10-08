@@ -4,7 +4,7 @@ Antares **Auto-Tune Pro**'s Auto mode, from Antares' own manuals (Auto-Tune Pro 
 Auto-Tune Pro guide, and Auto-Tune 7 and 8, whose wording and ranges the Pro manuals keep without
 restating them), and what producers use it for: the hard-tuned sound (T-Pain, modern rap and pop) at
 Retune Speed 0, and transparent correction at slower speeds. The last sections are ours: [what's
-decided](#decided), [where Vaudio differs](#where-vaudio-differs) and [how it's built](#how-its-built).
+decided](#decided), [where YTStudio differs](#where-ytstudio-differs) and [how it's built](#how-its-built).
 
 Sources: [Auto-Tune Pro 11 User Guide](https://antares-web-frontend.sfo3.cdn.digitaloceanspaces.com/documentation/pdfs/Auto-Tune_Pro_11_User_Guide.pdf),
 [Auto-Tune Pro X User Guide](https://antares-web-frontend.sfo3.cdn.digitaloceanspaces.com/documentation/pdfs/Auto-Tune_Pro_X_User_Guide_Version_10.3.1.pdf),
@@ -86,9 +86,9 @@ it). What was chosen, to check with him:
 - **Mix** is the slot's mix knob (every effect slot has one); its dry sound is held back as long as the
   tuned sound, so it doesn't comb.
 
-## Where Vaudio differs
+## Where YTStudio differs
 
-| What | Auto-Tune Pro | Vaudio |
+| What | Auto-Tune Pro | YTStudio |
 | --- | --- | --- |
 | Graph mode (note-by-note editing, time correction) | Yes | Not yet |
 | Target Notes / Learn Scale via MIDI | Yes | Not yet: effects hear no MIDI (MIDI input is a later step) |

@@ -2,7 +2,7 @@
  * The desktop app (electron/): run it in development, or build it.
  *
  *   pnpm dev:desktop       Vite (hot reload) + Electron; the main process restarts when electron/ or server/ change
- *   pnpm build:desktop     release/mac-<arch>/Vaudio.app (unsigned), to try the packaged app
+ *   pnpm build:desktop     release/mac-<arch>/YTStudio.app (unsigned), to try the packaged app
  *   pnpm package:desktop   the same as a .dmg and a .zip in release/
  *
  * The main process (electron/main.ts, which runs the server) is bundled with esbuild into one file, so the
@@ -308,14 +308,14 @@ async function pack(targets: "dir" | "installers") {
   // The app's own package.json: no dependencies, everything is in the bundle.
   writeFileSync(
     path.join(STAGE, "package.json"),
-    JSON.stringify({ name: "vaudio", productName: "Vaudio", version: pkg.version, private: true, type: "module", main: "main.mjs" }, null, 2),
+    JSON.stringify({ name: "ytstudio", productName: "YTStudio", version: pkg.version, private: true, type: "module", main: "main.mjs" }, null, 2),
   );
   const { build: builder } = await import("electron-builder");
   await builder({
     projectDir: ROOT,
     config: {
-      appId: "gg.jestr.vaudio",
-      productName: "Vaudio",
+      appId: "gg.jestr.ytstudio",
+      productName: "YTStudio",
       // scripts/make-icon.ts draws it; electron-builder makes the .icns / .ico from the 1024 px PNG.
       icon: path.join(ROOT, "resources", "icon.png"),
       electronVersion: electronPkg.version,
@@ -339,17 +339,18 @@ async function pack(targets: "dir" | "installers") {
       afterPack: async (packed) => {
         if (packed.electronPlatformName === "darwin") adHocSign(path.join(packed.appOutDir, `${packed.packager.appInfo.productFilename}.app`), { always: true });
       },
-      // Projects are packages (`Name.vaudio/`): Finder shows each as one file, and double-clicking one opens it here.
+      // Projects are packages (`Name.yt/`): Finder shows each as one file, and double-clicking one opens it here.
+      // `.vaudio` is what they were before the app was YTStudio: still declared, so those open too (and become `.yt`).
       mac: {
         category: "public.app-category.video",
         identity: null,
         // The engine it starts records from inputs (a mixer track armed): macOS asks the app responsible.
         extendInfo: {
           CFBundleDocumentTypes: [{
-            CFBundleTypeName: "Vaudio Project",
+            CFBundleTypeName: "YTStudio Project",
             CFBundleTypeRole: "Editor",
-            CFBundleTypeExtensions: ["vaudio"],
-            LSItemContentTypes: ["gg.jestr.vaudio.project"],
+            CFBundleTypeExtensions: ["yt", "vaudio"],
+            LSItemContentTypes: ["gg.jestr.ytstudio.project", "gg.jestr.vaudio.project"],
             LSHandlerRank: "Owner",
             LSTypeIsPackage: true,
           }, {
@@ -360,12 +361,18 @@ async function pack(targets: "dir" | "installers") {
             LSItemContentTypes: ["public.jpeg", "public.png", "public.tiff", "org.webmproject.webp", "public.avif"],
             LSHandlerRank: "Alternate",
           }],
-          NSMicrophoneUsageDescription: "Vaudio records your microphone or audio interface when you arm a mixer track.",
+          NSMicrophoneUsageDescription: "YTStudio records your microphone or audio interface when you arm a mixer track.",
           // The project type, a package (a folder Finder shows as one file), declared so macOS knows it.
           UTExportedTypeDeclarations: [
             {
+              UTTypeIdentifier: "gg.jestr.ytstudio.project",
+              UTTypeDescription: "YTStudio Project",
+              UTTypeConformsTo: ["com.apple.package", "public.composite-content"],
+              UTTypeTagSpecification: { "public.filename-extension": ["yt"] },
+            },
+            {
               UTTypeIdentifier: "gg.jestr.vaudio.project",
-              UTTypeDescription: "Vaudio Project",
+              UTTypeDescription: "YTStudio Project (old)",
               UTTypeConformsTo: ["com.apple.package", "public.composite-content"],
               UTTypeTagSpecification: { "public.filename-extension": ["vaudio"] },
             },
@@ -373,8 +380,8 @@ async function pack(targets: "dir" | "installers") {
         },
         target: targets === "dir" ? ["dir"] : ["dmg", "zip"],
       },
-      linux: { target: targets === "dir" ? ["dir"] : ["AppImage"], fileAssociations: [{ ext: "vaudio", name: "Vaudio Project", role: "Editor" }] },
-      win: { target: targets === "dir" ? ["dir"] : ["nsis"], fileAssociations: [{ ext: "vaudio", name: "Vaudio Project", role: "Editor" }] },
+      linux: { target: targets === "dir" ? ["dir"] : ["AppImage"], fileAssociations: [{ ext: ["yt", "vaudio"], name: "YTStudio Project", role: "Editor" }] },
+      win: { target: targets === "dir" ? ["dir"] : ["nsis"], fileAssociations: [{ ext: ["yt", "vaudio"], name: "YTStudio Project", role: "Editor" }] },
     },
   });
   console.log(`[desktop] built into ${path.relative(ROOT, path.join(ROOT, "release"))}/`);

@@ -3,7 +3,7 @@
 FL Studio's **Gross Beat**, from Image-Line's manual (`plugins/Gross%20Beat.htm`) and its screenshots
 (below), and what producers use it for: chops, stutters, repeats, half speed, tape stops, scratches,
 gates and sidechain pumping, all synced to the song. The last sections are ours: [what's
-decided](#decided), [where Vaudio differs](#where-vaudio-differs) and [how it's built](#how-its-built).
+decided](#decided), [where YTStudio differs](#where-ytstudio-differs) and [how it's built](#how-its-built).
 
 ![Gross Beat](img/gross-beat.png)
 
@@ -138,9 +138,9 @@ Beat is", in our UI style). What was chosen, to check with him:
 - **Pitched repeats** ("1/4 Repeat" and the like) repeat the first part of the bar, as the screenshot's
   Spd Up Rpt does: the steps run down the safety line.
 
-## Where Vaudio differs
+## Where YTStudio differs
 
-| What | FL Studio | Vaudio |
+| What | FL Studio | YTStudio |
 | --- | --- | --- |
 | Triggering slots from MIDI notes, Key-held | Yes | Not yet: there's no MIDI routing to effects (MIDI input is step 5). Slots are picked by a click or automated |
 | Time and Volume knobs | The envelopes' mix levels | The same (how far each envelope moves things: 50% time is half the offset) |

@@ -8,7 +8,7 @@ import { clamp, isFiniteNumber } from "../math.ts";
 import { EQ_PLACEMENTS, EQ_SHAPES, type EqBand, type EqPlacement, type EqShape, type EqSlope, type PluginRef, type ProQAnalyzer, type ProQState } from "./types.ts";
 
 /** What a Pro-Q is, as a slot's plugin: one of ours, run by the engine itself. */
-export const PRO_Q_PLUGIN: PluginRef = { id: "vaudio:pro-q", name: "YT-EQ", format: "Vaudio" };
+export const PRO_Q_PLUGIN: PluginRef = { id: "vaudio:pro-q", name: "YT-EQ", format: "YTStudio" };
 export const isProQ = (plugin: Pick<PluginRef, "id">) => plugin.id === PRO_Q_PLUGIN.id;
 
 /** Bands at most. */

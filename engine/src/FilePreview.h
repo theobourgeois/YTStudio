@@ -65,7 +65,7 @@ private:
     const bool offline;
     double sampleRate = 48000.0;
     juce::AudioFormatManager formats;
-    juce::TimeSliceThread reader { "Vaudio preview reader" };
+    juce::TimeSliceThread reader { "YTStudio preview reader" };
 
     /** The next stream for the audio thread (or `stopRequest`): it takes it at its next block. */
     std::atomic<Stream*> pending { nullptr };

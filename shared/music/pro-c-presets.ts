@@ -28,7 +28,7 @@ import {
 } from "./types.ts";
 
 /** What a Pro-C is, as a slot's plugin: one of ours, run by the engine itself. */
-export const PRO_C_PLUGIN: PluginRef = { id: "vaudio:pro-c", name: "YT-C", format: "Vaudio" };
+export const PRO_C_PLUGIN: PluginRef = { id: "vaudio:pro-c", name: "YT-C", format: "YTStudio" };
 export const isProC = (plugin: Pick<PluginRef, "id">) => plugin.id === PRO_C_PLUGIN.id;
 
 // ---------------------------------------------------------------------------

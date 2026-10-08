@@ -18,7 +18,7 @@ What the marks mean:
 | **[D]** | In the DSP section: derived here, the working shown |
 | **[E]** | In the DSP section: an informed choice, to tune by ear or by measuring Crystallizer (see [Measuring it](#514-measuring-crystallizer-yourself)) |
 
-The last sections are ours: [proposed for Vaudio](#6-proposed-for-vaudio), [how it'd be built
+The last sections are ours: [proposed for YTStudio](#6-proposed-for-ytstudio), [how it'd be built
 here](#7-how-itd-be-built-here) and [open questions for Théo](#8-open-questions-for-théo).
 
 The pictures in `img/` are the manual's own screenshots, © Soundtoys, kept here only as a private reference
@@ -29,7 +29,7 @@ laid out, in our own visual style.
 
 **Contents.** [1. What it is](#1-what-it-is) · [2. The panel](#2-the-panel) · [3. The factory
 presets](#3-the-factory-presets) · [4. The sound](#4-the-sound) · [5. How it works](#5-how-it-works-the-dsp)
-· [6. Proposed for Vaudio](#6-proposed-for-vaudio) · [7. How it'd be built](#7-how-itd-be-built-here) ·
+· [6. Proposed for YTStudio](#6-proposed-for-ytstudio) · [7. How it'd be built](#7-how-itd-be-built-here) ·
 [8. Open questions](#8-open-questions-for-théo) · [Sources](#sources)
 
 ---
@@ -710,7 +710,7 @@ Gate / Duck off, Recycle 0 unless said, each by rendering through it:
 
 ---
 
-## 6. Proposed for Vaudio
+## 6. Proposed for YTStudio
 
 ### 6.1 Decided
 
@@ -762,9 +762,9 @@ peak. Base it around it."). What's chosen, to check with him:
 | Hermite + band-limited sinc reads, one buffer a side | The pyramid (5.5) if memory matters at 192 kHz; the correlation-solved crossfade (5.4) |
 | Assistant tools at parity | A "freeze" button (Recycle to 1, pitch 0, input off) if Théo wants one |
 
-### 6.3 Where Vaudio differs
+### 6.3 Where YTStudio differs
 
-| What | Crystallizer | Vaudio |
+| What | Crystallizer | YTStudio |
 | --- | --- | --- |
 | Look | Black panel, walnut cheeks, red LCDs | The app's surfaces, knobs and LCDs; LEDs in its colours |
 | The DSP | Soundtoys' own, unpublished | 5.3–5.9's reconstruction; to be checked against the real one (5.14) if a copy is to hand |
@@ -870,7 +870,7 @@ or they're dropped on load.
 
 | File | What's in it |
 | --- | --- |
-| `shared/music/crystallizer-presets.ts` | `CRYSTALLIZER_PLUGIN` (`{ id: "vaudio:crystallizer", name: "Crystallizer", format: "Vaudio" }`), `isCrystallizer`, the ranges, `DEFAULT_CRYSTALLIZER`, `normalizeCrystallizer`, `CRYSTAL_CONTROLS` (each automatable control's range, scale and format: the knob's and the assistant's), the presets (6.4) |
+| `shared/music/crystallizer-presets.ts` | `CRYSTALLIZER_PLUGIN` (`{ id: "vaudio:crystallizer", name: "Crystallizer", format: "YTStudio" }`), `isCrystallizer`, the ranges, `DEFAULT_CRYSTALLIZER`, `normalizeCrystallizer`, `CRYSTAL_CONTROLS` (each automatable control's range, scale and format: the knob's and the assistant's), the presets (6.4) |
 | `shared/music/crystallizer.ts` | `findCrystallizer`, `crystallizers`, `editCrystallizer` / `updateCrystallizer` (the same song when nothing changes), `loadCrystalPreset`, `revertCrystalPreset`; the knobs' tapers (`pitchToKnob` / `knobToPitch`...); what it means: `crystalSides` (each side's cents, ratio, splice, delay), `noteSeconds`, the mix law, `feedbackMatrix`; `engineCrystallizer` (below); `CRYSTAL_LANES`, `LANES_OF` |
 | `shared/music/crystallizer.test.ts` | All of it (7.6) |
 | `shared/music/compile.ts` | `EngineEffect.crystallizer`; lanes `kind: "crystal"` |

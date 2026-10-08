@@ -34,9 +34,9 @@ associations and updates.
 FL's look is a theme: its colours (hue, saturation, lightness of the whole interface, plus a few
 highlight colours) are set here and saved as a theme file.
 
-## Where Vaudio differs
+## Where YTStudio differs
 
-Vaudio's Settings is FL's: one window for the whole app (⌘, or the gear in each suite's header,
+YTStudio's Settings is FL's: one window for the whole app (⌘, or the gear in each suite's header,
 `src/components/settings/`), with a tab per subject: General, then one per suite; the music editor's is
 FL's Audio tab. ⌘, opens it on the tab of the app you're in. Like FL's, it floats over the app without
 stopping it (a song keeps playing, the timeline can be clicked), is dragged, resized and maximised as any

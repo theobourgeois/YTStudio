@@ -56,5 +56,5 @@ scores them, and every round's verdicts feed the next. The aim is presets he'd p
 - **Tempo:** Serum follows the render's tempo through the engine's playhead (`engine/src/PlayHead.h`, PR #169). An engine built before it gives plugins none, and Serum assumes 120 BPM: if `engine/src/PlayHead.h` is missing from the checkout whose engine you run, render at 120 (or `pnpm engine:build` a newer one). In FL his presets get FL's tempo either way.
 - **Silence:** a filter shut at 8–30 Hz needs its envelope at ~95–100% to open, or the preset is nearly silent. Always check the solo RMS.
 - **The writer refuses bad specs** and lists what's valid: read the message, don't guess names.
-- **In a worktree**, the engine isn't built: set `EDITOR_ENGINE_PATH` to the main checkout's (`~/code/editor/engine/build/VaudioEngine_artefacts/Release/Vaudio Engine.app/Contents/MacOS/Vaudio Engine`).
+- **In a worktree**, the engine isn't built: set `EDITOR_ENGINE_PATH` to the main checkout's (`~/code/editor/engine/build/VaudioEngine_artefacts/Release/YTStudio Engine.app/Contents/MacOS/YTStudio Engine`).
 - **Never** open Serum's window, play sound out loud, or take screenshots of his screen. The engine always runs offline.

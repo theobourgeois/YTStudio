@@ -59,7 +59,7 @@ bool isFileName (const juce::String& id)
 }
 
 SongExport::SongExport (std::unique_ptr<Song> exported, Settings chosen, std::function<void (const juce::var&)> onFinished)
-    : juce::Thread ("Vaudio export"), song (std::move (exported)), settings (std::move (chosen)), finished (std::move (onFinished))
+    : juce::Thread ("YTStudio export"), song (std::move (exported)), settings (std::move (chosen)), finished (std::move (onFinished))
 {
     frames = (juce::int64) std::ceil (song->loopTicks * 60.0 * settings.sampleRate / (song->tempo * song->ppq));
 }

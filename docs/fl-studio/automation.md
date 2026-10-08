@@ -2,8 +2,8 @@
 
 How FL Studio automates a control over the song, from the manual (`playlist_automationclip.htm`, with bits of
 `playlist`, `basics_interface` and `plugins/wrapper`) and Théo. See [README.md](README.md) for the sources.
-The last sections are ours: [what's decided](#decided-with-théo-2026-10-01), [where Vaudio
-differs](#where-vaudio-differs) and [how it's built](#how-its-built).
+The last sections are ours: [what's decided](#decided-with-théo-2026-10-01), [where YTStudio
+differs](#where-ytstudio-differs) and [how it's built](#how-its-built).
 
 ## What it is
 
@@ -126,9 +126,9 @@ The manual doesn't say. What FL Studio does, from Théo and from using it:
   the clip. The Playlist's Picker has an **Automate…** button, a searchable list of every control the song
   has (each plugin's parameters with them), the last one touched at the top.
 
-## Where Vaudio differs
+## Where YTStudio differs
 
-| What | FL Studio | Vaudio |
+| What | FL Studio | YTStudio |
 | --- | --- | --- |
 | Where automation clips live | Channels in the Channel Rack | A list of the song's own (`MusicProject.automations`), shown in the Picker's automation tab; not in the rack |
 | Pattern mode | (unverified) | Automation never plays in pattern mode (Théo) |

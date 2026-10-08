@@ -43,13 +43,13 @@ import { type ChatStatus, chatStatus } from "./chat-status";
 import { showOpenDialog } from "./open-project-dialog";
 import { TrashProjectDialog } from "./trash-project-dialog";
 
-/** Where a project is, shortly: its folder, with the home folder as ~ ("~/Documents/Vaudio"). */
+/** Where a project is, shortly: its folder, with the home folder as ~ ("~/Documents/YTStudio"). */
 export function folderOf(path: string): string {
   const parent = path.replace(/[/\\][^/\\]*$/, "") || "/";
   return parent
     .replace(/^\/Users\/[^/]+(?=\/|$)/, "~")
     .replace(/^\/home\/[^/]+(?=\/|$)/, "~")
-    // Windows: C:\Users\name\Documents\Vaudio is ~\Documents\Vaudio.
+    // Windows: C:\Users\name\Documents\YTStudio is ~\Documents\YTStudio.
     .replace(/^[A-Za-z]:[/\\]Users[/\\][^/\\]+(?=[/\\]|$)/i, "~");
 }
 

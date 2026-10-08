@@ -487,9 +487,9 @@ UI": its layout, Gross Beat's look). Where the sources are silent, what was chos
 - **The factory presets** are ours, in v1's folders, the ones the sources show made to their settings.
 - **Defaults**: Single Echo, an eighth note, Studio Tape, Mix 0.4, Feedback 0.35, Width 0.5, L/R Offset 8 ms.
 
-## Where Vaudio differs
+## Where YTStudio differs
 
-| What | EchoBoy | Vaudio |
+| What | EchoBoy | YTStudio |
 | --- | --- | --- |
 | The styles' settings | Soundtoys' own, unpublished | Ours, voiced from the hardware and the descriptions |
 | Hysteresis, BBD clocking, a tape transport | Not stated (likely more modelled) | Curves (tanh, asymmetric, cubic, limiters) with pre- and de-emphasis for Tape; the delay read with Hermite, its length glided |

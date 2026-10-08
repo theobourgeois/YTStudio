@@ -1,5 +1,5 @@
 /**
- * Vaudio's app icon: the YT collective's banner (a yen inside a tressure of fleurs-de-lis), or the earlier design,
+ * YTStudio's app icon: the YT collective's banner (a yen inside a tressure of fleurs-de-lis), or the earlier design,
  * three translucent ribbons of sound waving through a V. Drawn as SVG on Apple's icon grid (an 824 px
  * continuous-corner tile on a 1024 px canvas), rendered to PNG by headless Chromium.
  *

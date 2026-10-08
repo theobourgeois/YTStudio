@@ -6,37 +6,37 @@ should do what FL Studio does**, the way the video editor follows Premiere Pro. 
 about to touch before changing it, and correct it when you learn it's wrong.
 
 - [channel-rack.md](channel-rack.md): the Channel Rack, the step sequencer, the graph editor and the
-  Channel Settings window. Ends with where Vaudio differs today and what to change.
+  Channel Settings window. Ends with where YTStudio differs today and what to change.
 - [piano-roll.md](piano-roll.md): the Piano roll's tools, selecting, the time selection, snap, the event
-  editor, ghost notes and every shortcut. Ends with where Vaudio differs.
+  editor, ghost notes and every shortcut. Ends with where YTStudio differs.
 - [toolbar.md](toolbar.md): the main toolbar across the top (transport, tempo, position, pattern
-  selector, window buttons, the hint bar, the meters). Ends with where Vaudio differs.
+  selector, window buttons, the hint bar, the meters). Ends with where YTStudio differs.
 - [plugin-window.md](plugin-window.md): the window a plugin's interface is shown in (the wrapper): its
-  title bar, and how the keyboard is shared with FL. Ends with where Vaudio differs.
+  title bar, and how the keyboard is shared with FL. Ends with where YTStudio differs.
 - [mixer.md](mixer.md): the Mixer: tracks, what a track does to its sound, effect slots, the track
   inspector and its EQ, mute and solo, routing channels and tracks, delay compensation. Ends with where
-  Vaudio differs and what's still to decide.
+  YTStudio differs and what's still to decide.
 - [browser.md](browser.md): the Browser: folders, previewing, using a file, favourites, search and its
-  keys. Ends with where Vaudio differs (only the user's own folders) and what's still to decide.
+  keys. Ends with where YTStudio differs (only the user's own folders) and what's still to decide.
 - [settings.md](settings.md): the Settings window (F10): its Audio, General and Themes tabs. Ends with
-  where Vaudio differs (one Settings page for the app, a section per suite).
+  where YTStudio differs (one Settings page for the app, a section per suite).
 - [playlist.md](playlist.md): the Playlist: tracks, pattern and audio clips, the tools, the time
   selection, the Picker panel, song mode, split by channel and its keys. Ends with what we'll leave out,
-  where Vaudio differs, what was decided, and how it's built.
+  where YTStudio differs, what was decided, and how it's built.
 - [automation.md](automation.md): automation clips: making one, editing its curve, the curve types, its
-  settings and LFO, what an automated control does. Ends with what was decided, where Vaudio differs and how it's built.
+  settings and LFO, what an automated control does. Ends with what was decided, where YTStudio differs and how it's built.
 - [export.md](export.md): exporting (rendering) a song: the export dialog's settings, the tail, stems,
-  quality. Ends with what was decided with Théo, how it's built (fast: every core) and where Vaudio differs.
+  quality. Ends with what was decided with Théo, how it's built (fast: every core) and where YTStudio differs.
 - [recording.md](recording.md): recording audio: a mixer track's input and arm, monitoring, the Record
   button and count-in, loop recording and takes, audio tracks, latency. Ends with what was decided with
-  Théo, how it's built and where Vaudio differs.
+  Théo, how it's built and where YTStudio differs.
 - [midi.md](midi.md): MIDI keyboards and the typing keyboard: which channel they play, recording notes
-  into the song. Ends with what was decided with Théo, how it's built and where Vaudio differs.
+  into the song. Ends with what was decided with Théo, how it's built and where YTStudio differs.
 - [stems-and-notes.md](stems-and-notes.md): an audio clip's Extract stems and Convert to notes (FL's stem
   separation and Edison's Convert to score), by models run on this computer. Ends with what was decided with
-  Théo, how it's built (and measured) and where Vaudio differs.
+  Théo, how it's built (and measured) and where YTStudio differs.
 - [gross-beat.md](gross-beat.md): Gross Beat, the time and volume effect (chops, repeats, half speed, tape
-  stops, gates): its envelopes, slots, sync and options. Ends with what was chosen, where Vaudio differs
+  stops, gates): its envelopes, slots, sync and options. Ends with what was chosen, where YTStudio differs
   and how it's built.
 
 Where the music suite is and the order of what's next: [../music-suite.md](../music-suite.md).

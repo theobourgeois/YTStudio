@@ -1,5 +1,5 @@
 /**
- * A project is a folder of its own, a package (`Summer edit.vaudio/`): its document (`project.json`), what
+ * A project is a folder of its own, a package (`Summer edit.yt/`): its document (`project.json`), what
  * kind it is (`meta.json`), its media (`media/<id>/`) and whatever its suite keeps beside them (a song's
  * `plugins/` and `recordings/`). Finder shows it as one file in the desktop app, which declares the type.
  * These are the file-level helpers: names, unique paths, moves across volumes and the Trash.
@@ -10,7 +10,23 @@ import os from "node:os";
 import path from "node:path";
 import { DEFAULT_PROJECT_NAME } from "../shared/suites.ts";
 
-export const PROJECT_EXTENSION = ".vaudio";
+export const PROJECT_EXTENSION = ".yt";
+/** What packages were called before the app was YTStudio: still opened, and renamed `.yt` once they can be. */
+export const LEGACY_EXTENSIONS = [".vaudio"];
+/** The default projects folder's name in Documents, and its name before. */
+export const PROJECTS_FOLDER = "YTStudio";
+export const LEGACY_PROJECTS_FOLDER = "Vaudio";
+
+/** The extension a package's name ends with ("" if it isn't one). */
+function extensionOf(dir: string): string {
+  const base = path.basename(dir).toLowerCase();
+  return [PROJECT_EXTENSION, ...LEGACY_EXTENSIONS].find((ext) => base.endsWith(ext)) ?? "";
+}
+
+/** Whether a name (or path) is a package's, `.yt` or an older one's. */
+export function isPackageName(name: string): boolean {
+  return extensionOf(name.replace(/[/\\]+$/, "")) !== "";
+}
 
 /** Longest file name kept from a project's name (file systems allow 255 bytes, and " 2" may follow). */
 const MAX_FILE_NAME = 120;
@@ -27,10 +43,10 @@ export function fileName(name: string): string {
   return clean || DEFAULT_PROJECT_NAME;
 }
 
-/** The project's name as its folder says it ("Summer edit" for ".../Summer edit.vaudio"). */
+/** The project's name as its folder says it ("Summer edit" for ".../Summer edit.yt"). */
 export function packageName(dir: string): string {
   const base = path.basename(dir);
-  return base.toLowerCase().endsWith(PROJECT_EXTENSION) ? base.slice(0, -PROJECT_EXTENSION.length) : base;
+  return base.slice(0, base.length - extensionOf(dir).length);
 }
 
 /** Whether a folder is named after a project, as `uniquePackage` names them ("Name", or "Name 2" if that was taken). */
@@ -41,6 +57,26 @@ export function namedAfter(dir: string, name: string): boolean {
   return base.startsWith(`${wanted} `) && /^\d+$/.test(base.slice(wanted.length + 1));
 }
 
+/** Whether a package is as `uniquePackage` would name it now: after its project, with today's extension. */
+export function fitsName(dir: string, name: string): boolean {
+  return namedAfter(dir, name) && extensionOf(dir) === PROJECT_EXTENSION;
+}
+
+/**
+ * Where a project (or the projects folder) saved before the app was YTStudio is now: the default folder moved
+ * from `Documents/Vaudio` to `Documents/YTStudio`, and packages are renamed `.yt`. The path itself if it's
+ * still there, or if it can't be found anywhere else either.
+ */
+export function relocated(target: string): string {
+  if (existsSync(target)) return target;
+  const parent = path.dirname(target);
+  const base = path.basename(target);
+  const parents = [parent, ...(path.basename(parent) === LEGACY_PROJECTS_FOLDER ? [path.join(path.dirname(parent), PROJECTS_FOLDER)] : [])];
+  const names = [base, ...(LEGACY_EXTENSIONS.includes(extensionOf(target)) ? [`${packageName(target)}${PROJECT_EXTENSION}`] : []), ...(base === LEGACY_PROJECTS_FOLDER ? [PROJECTS_FOLDER] : [])];
+  for (const dir of parents) for (const name of names) if (existsSync(path.join(dir, name))) return path.join(dir, name);
+  return target;
+}
+
 /** Two paths that name the same file here (macOS's disks don't tell case apart, by default). */
 export function samePath(a: string, b: string): boolean {
   const [x, y] = [path.resolve(a), path.resolve(b)];
@@ -48,7 +84,7 @@ export function samePath(a: string, b: string): boolean {
 }
 
 /**
- * A free path for a project called `name` in `parent`: `Name.vaudio`, else `Name 2.vaudio`... `except` is the
+ * A free path for a project called `name` in `parent`: `Name.yt`, else `Name 2.yt`... `except` is the
  * project's own folder, which it may keep (renaming it to the name it has).
  */
 export function uniquePackage(parent: string, name: string, except?: string): string {

@@ -1,6 +1,6 @@
 # A formant editor for vocals
 
-A design for Vaudio's own **formant shifter and formant editor**, a stock effect of the music suite as
+A design for YTStudio's own **formant shifter and formant editor**, a stock effect of the music suite as
 Auto-Tune, Pro-Q and PanMan are. It isn't a clone. Théo tried Soundtoys' Little AlterBoy and found it "distorted
 as fuck... too artificial"; he asked for something "smarter... actually high-quality, top fucking tier". So
 this document starts from research (what formants are, why shifting them sounds artificial, what the
@@ -50,7 +50,7 @@ them, and don't copy their artwork: we copy how things work, in our own visual s
 4. [The sound](#4-the-sound)
 5. [How it works: the DSP](#5-how-it-works-the-dsp)
 6. [Presets](#6-presets)
-7. [Proposed for Vaudio: first and later](#7-proposed-for-vaudio-first-and-later)
+7. [Proposed for YTStudio: first and later](#7-proposed-for-ytstudio-first-and-later)
 8. [How it'd be built here](#8-how-itd-be-built-here)
 9. [Open questions for Théo](#9-open-questions-for-théo)
 10. [Sources](#10-sources)
@@ -1006,7 +1006,7 @@ so that the total comes out.
 
 ---
 
-## 7. Proposed for Vaudio: first and later
+## 7. Proposed for YTStudio: first and later
 
 ### 7.1 Conventions (as for our other effects)
 
@@ -1085,7 +1085,7 @@ running it natively. Code names stay neutral (`formant`), whatever the product i
 | Tab | `src/suites/music/formant/` | `formant-window.tsx`; `display.tsx` + `draw.ts` + `geometry.ts` (the envelope display, the warp strip, the voice map); `pointer.ts` (every gesture); `envelope-history.ts` (the engine's frames, outside React, as `pitch-history.ts`); `actions.ts`; `store.ts` (open windows, freeze, selection, the A/B shown); `tool-edits.ts` |
 | | `src/themes/studio.css` (and themes) | `--formant-*` tokens |
 | | `src/suites/music/mixer/inspector.tsx`, `plugin-picker.tsx` | "Built in" → the plugin's name |
-| Docs | `docs/music-suite.md` | Its row in the table of what's built; this document gets *Decided*, *Where Vaudio differs* and *How it's built* as the others have |
+| Docs | `docs/music-suite.md` | Its row in the table of what's built; this document gets *Decided*, *Where YTStudio differs* and *How it's built* as the others have |
 
 ### 8.2 What's decided in TypeScript, what in the engine
 

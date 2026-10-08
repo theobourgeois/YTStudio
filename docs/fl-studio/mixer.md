@@ -5,7 +5,7 @@ How FL Studio's Mixer works, from the manual (`mixer.htm`, `mixer_trackprops.htm
 See [README.md](README.md) for the sources and for what holds everywhere (knobs, menus, windows, the left
 button does and the right button undoes).
 
-The last sections are ours: [where Vaudio differs](#where-vaudio-differs) and
+The last sections are ours: [where YTStudio differs](#where-ytstudio-differs) and
 [what to decide before building](#to-decide-with-théo).
 
 ## What it is
@@ -234,7 +234,7 @@ The Current track, docks, external inputs and outputs (until recording, step 6 o
 [../music-suite.md](../music-suite.md)), recording pickup points, surround, Patcher, Edison, multi-touch,
 the waveform meters, spare states, the eight layout sizes.
 
-## Where Vaudio differs
+## Where YTStudio differs
 
 The song has a mixer (`shared/music/mixer.ts`: tracks, routing, sends, effect slots, solo, all tested),
 `compileSong` turns it into tracks in an order with their gains, the engine plays through it
@@ -367,7 +367,7 @@ Not yet, or different: icons, the Current track, the track EQ (put off), "Compen
 
 The rest of the table is still to build.
 
-| What | FL Studio | Vaudio (planned) |
+| What | FL Studio | YTStudio (planned) |
 | --- | --- | --- |
 | Tracks | Dynamic, 16 in a new project, up to 500 | The same: a list in the song, 16 to start, **+** adds one |
 | Routing a channel | The rack's LCD (Alt+M), TRACK, auto-assign, Ctrl+L | All of these; the LCD is `Lcd` |

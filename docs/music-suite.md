@@ -19,7 +19,7 @@ put together and how we use its manual).
   light. The whole app is being restyled that way: `docs/ui-redesign.md`.
 - **How to build each panel**: talk the phase through with Théo first; write its FL Studio reference in
   `docs/fl-studio/<panel>.md` from the manual (and his corrections) before building it; then build it
-  faithfully, tested, and fast with big projects. Finish each reference doc with "Where Vaudio differs".
+  faithfully, tested, and fast with big projects. Finish each reference doc with "Where YTStudio differs".
 - macOS first; keep a Windows port cheap (only JUCE's APIs in the engine). A personal tool: JUCE's free
   Starter licence.
 

@@ -6,7 +6,7 @@ It's a React app (`src/`) plus a local Express + ffmpeg server (`server/`), shar
 README.md is the user-facing guide. This file is for working on the code.
 
 It's growing into a **creative suite**: every project belongs to one app, a *suite* (`SuiteId`: video, music; image
-next), picked on the Home screen or in the New project picker. **Every project is a file of its own**, a `.vaudio`
+next), picked on the Home screen or in the New project picker. **Every project is a file of its own**, a `.yt`
 package on disk (see "Projects are files"). The video editor is the furthest along; **music is a DAW modelled on
 FL Studio** (see "The music suite"). See "Suites" below: most of this file is about the video editor, which lives at the roots of
 `shared/`, `server/` and `src/`; every other suite has folders of its own.
@@ -170,11 +170,11 @@ pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + c
 pnpm tsx scripts/preset-sheet.ts [type|tag ...] [--out f.png]       # render + check presets
 pnpm tsx scripts/pro-c-sheet.ts [style ...] [--out f.png]           # Pro-C's styles measured on the engine: curves, gain, colour
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
-pnpm tsx scripts/perf.ts --scrub <Project.vaudio> [--render]        # scrub and play a copy of a real project, GPU and all
-pnpm tsx scripts/engine-profile.ts <Name.vaudio> [--only-plugin n] [--sample]   # a song's playback load, offline (silent)
+pnpm tsx scripts/perf.ts --scrub <Project.yt> [--render]        # scrub and play a copy of a real project, GPU and all
+pnpm tsx scripts/engine-profile.ts <Name.yt> [--only-plugin n] [--sample]   # a song's playback load, offline (silent)
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
 pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
-pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/Vaudio.app, then launch it, export, check
+pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/YTStudio.app, then launch it, export, check
 pnpm test:desktop:music # macOS: real clicks between the music windows and Serum's (or the test synth's): stacking, focus, app switching; needs Accessibility access and an unlocked screen
 pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build; needs cmake + ninja (brew)
 pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
@@ -316,7 +316,7 @@ server/
   index.ts → app.ts  Startup wiring; routes live in routes/<resource>.ts (one Router each).
   suites/            Each suite's server side (SuiteBackend): create/normalise/summarise its documents, what its
                      assistant is told. index.ts is the registry; video.ts wraps the video editor's.
-  projects.ts        ProjectStore: every suite's projects, each a package on disk (`Name.vaudio`: project.json, meta.json
+  projects.ts        ProjectStore: every suite's projects, each a package on disk (`Name.yt`: project.json, meta.json
                      says the suite (none = video), media/, a song's plugins/ and recordings/), opaque documents, and
                      this computer's recents (`data/projects.json`). packages.ts: names, unique paths, moves, the Trash.
   migrate.ts         Older data folders: data/project.json and data/projects + data/media become packages, on startup.
@@ -381,7 +381,7 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      centred so nothing is delayed. Protocol.cpp: the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
                      can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
-electron/          The desktop app (Vaudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
+electron/          The desktop app (YTStudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
                      main process and shows the page in a window; packaged, data is in userData, in development ./data.
                      panels.ts: the editor's windows as windows of the system (the page opens them with `window.open`;
                      this makes them frameless and floating, shows, hides and places them). floating.ts: which windows
@@ -582,7 +582,7 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   the channel's PITCH in whole semitones), and shows its own window when the channel's button is clicked. Its
   settings window is FL's wrapper (`plugin-tab.tsx`): the channel's knobs, and the plugin's presets (its own
   programs, and the user's saved in the engine's data folder, `PluginHost::savePreset`; `/api/engine/presets`). **A plugin's settings aren't in the document**: they're
-  a file beside it in its package (`<project>.vaudio/plugins/<channel id>.bin`), written by the engine every few seconds when
+  a file beside it in its package (`<project>.yt/plugins/<channel id>.bin`), written by the engine every few seconds when
   they've changed, when the channel is removed (so undoing that brings the plugin back as it was) and when the
   engine quits. So what's turned inside a plugin's window isn't an undo step, as in FL Studio. **Musical time is whole ticks, `PPQ` (96) to a quarter note**, never
   seconds; a step is `STEP_TICKS` (24). A step of the sequencer is simply a note starting on the grid
@@ -1086,11 +1086,15 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
 
 ## Projects are files
 
-- A project is a package, `Name.vaudio/` (`server/packages.ts`): `project.json`, `meta.json` (id, suite, dates),
-  `media/<id>/` and whatever its suite keeps beside them. New ones go in the location (`~/Documents/Vaudio`; Settings ›
-  General changes it; `EDITOR_PROJECTS_DIR`; a given `EDITOR_DATA_DIR` keeps them in its own `Documents/Vaudio`, so
+- A project is a package, `Name.yt/` (`server/packages.ts`): `project.json`, `meta.json` (id, suite, dates),
+  `media/<id>/` and whatever its suite keeps beside them. New ones go in the location (`~/Documents/YTStudio`; Settings ›
+  General changes it; `EDITOR_PROJECTS_DIR`; a given `EDITOR_DATA_DIR` keeps them in its own `Documents/YTStudio`, so
   tests and throwaway setups never touch the user's). The server keeps the recents in `data/projects.json`: a path per
   project, and what was known of it, for when its package isn't there (`ProjectSummary.missing`).
+- The app was called Vaudio: `.vaudio` packages still open (`isPackageName`, `LEGACY_EXTENSIONS`) and become `.yt` as
+  the folder follows its name (`fitsName`); `Documents/Vaudio` moves to `Documents/YTStudio` on startup
+  (`migrate.ts`), recents find theirs (`relocated`), and the desktop app moves its profile from `Vaudio` too. Internal
+  ids keep the old name (`vaudio:` plugin ids, `vaudio.*` storage keys, `VAUDIO_*` env vars): they're in saved data.
 - Media keep their URLs (`/files/media/<id>/...`), served from whichever package holds them (`MediaLibrary`'s
   `projectDirs`, `filesDir`): never build a path from a media id or a project id yourself. A project's own files are
   under `ProjectStore.dir(id)` (the audio engine's `projectDir` option); `DataPaths.projectDir` is the old layout.

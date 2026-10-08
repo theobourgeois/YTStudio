@@ -79,7 +79,7 @@ describe("the assistant's Pitch Wheel", () => {
     expect(text).toContain("Now (sound is going through it): pitch heard +6.5 st");
     expect(text).toContain("notes held: E5; voices: E5 at +4 st");
     expect(liveText(null, false)).toMatch(/hasn't said/);
-    expect(describeMixer(song(), null)).toContain("YT-Pitch (Vaudio), effect fx_wheel, pitch 0 semitones, formants kept, single (get_pitch_wheel)");
+    expect(describeMixer(song(), null)).toContain("YT-Pitch (YTStudio), effect fx_wheel, pitch 0 semitones, formants kept, single (get_pitch_wheel)");
   });
 
   it("automates its controls by name, and isn't a plugin's parameters", () => {
