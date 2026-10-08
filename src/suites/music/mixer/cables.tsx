@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
+import { type RefObject, useEffect, useId, useLayoutEffect, useRef } from "react";
 import { MASTER_TRACK_ID } from "@shared/music/project";
 import { sidechainLinks } from "@shared/music/sidechain";
 import type { Mixer } from "@shared/music/types";
@@ -26,6 +26,27 @@ interface Cable {
 export function cablePath(from: { x: number; y: number }, to: { x: number; y: number }, bottom: number, swing = 0): string {
   const below = bottom + 28 + Math.min(120, Math.abs(to.x - from.x) * 0.12) + swing;
   return `M ${from.x} ${from.y} C ${from.x} ${below}, ${to.x} ${below}, ${to.x} ${to.y}`;
+}
+
+/** Room past a cable's end its stroke and round cap take, in px. */
+const STROKE = 3;
+
+/**
+ * Where each end of a cable may show, as `[left, right]` in px: the dock its strip is in (`data-cable-region`:
+ * the left dock, the scrolling strips, the right dock), on its own side of the middle. A cable's two halves are
+ * apart in x (it only ever goes from one end's x to the other's), so an end scrolled under a docked strip is
+ * cut off there, never drawn over the docked strips, while the other end still shows where it goes.
+ */
+export function cableClips(
+  from: { x: number; region: readonly [number, number] },
+  to: { x: number; region: readonly [number, number] },
+): [[number, number], [number, number]] {
+  const mid = (from.x + to.x) / 2;
+  const side = (end: typeof from): [number, number] => {
+    const [left, right] = end.x < mid ? [end.x - STROKE, mid] : [mid, end.x + STROKE];
+    return [Math.max(left, end.region[0]), Math.min(right, end.region[1])];
+  };
+  return [side(from), side(to)];
 }
 
 /** A cable being plugged: from the current track's down-arrow to the pointer, while it's dragged. */
@@ -67,6 +88,9 @@ const SETTLE_MS = 900;
  */
 export function Cables({ area, mixer, sources }: { area: RefObject<HTMLElement | null>; mixer: Mixer; sources: readonly string[] }) {
   const paths = useRef(new Map<string, SVGPathElement>());
+  // Each cable's clip: a rectangle for each end (`cableClips`).
+  const clips = useRef(new Map<string, SVGClipPathElement>());
+  const clipId = `cables${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   // When each cable was plugged in (a send made from the track shown), for its swing.
   const born = useRef(new Map<string, number>());
   // Null until the first: the cables there when the mixer opens (or other tracks are selected) don't swing.
@@ -101,10 +125,13 @@ export function Cables({ area, mixer, sources }: { area: RefObject<HTMLElement |
       const cell = root.querySelector<HTMLElement>(`${strip} [data-send-point]`) ?? root.querySelector<HTMLElement>(`${strip} [data-send] button`);
       if (!cell) return null;
       const r = cell.getBoundingClientRect();
-      return { x: r.left + r.width / 2 - box.left, y: r.bottom - box.top };
+      // The dock it's in: scrolled under a docked strip, it's hidden there.
+      const dock = cell.closest("[data-cable-region]")?.getBoundingClientRect();
+      const region = dock ? ([dock.left - box.left, dock.right - box.left] as const) : ([0, box.width] as const);
+      return { x: r.left + r.width / 2 - box.left, y: r.bottom - box.top, region };
     };
     const now = performance.now();
-    const points = new Map<string, { x: number; y: number } | null>();
+    const points = new Map<string, ReturnType<typeof point>>();
     const at = (id: string) => {
       if (!points.has(id)) points.set(id, point(id));
       return points.get(id)!;
@@ -119,6 +146,16 @@ export function Cables({ area, mixer, sources }: { area: RefObject<HTMLElement |
         continue;
       }
       path.setAttribute("d", cablePath(from, to, box.height, cableSwing(now - (born.current.get(key) ?? -Infinity))));
+      const rects = clips.current.get(key)?.children;
+      if (!rects) continue;
+      cableClips(from, to).forEach(([left, right], i) => {
+        const rect = rects[i];
+        // Down past the bottom too: the loop is cut there by the strips, not by this.
+        rect.setAttribute("x", String(left));
+        rect.setAttribute("width", String(Math.max(0, right - left)));
+        rect.setAttribute("y", "0");
+        rect.setAttribute("height", String(box.height * 2 + 200));
+      });
     }
   };
 
@@ -163,7 +200,23 @@ export function Cables({ area, mixer, sources }: { area: RefObject<HTMLElement |
   return (
     <svg className="pointer-events-none absolute inset-0 z-10 size-full overflow-visible" aria-hidden data-testid="cables">
       <PluggedCable area={area} />
-      {cables.map((cable) => (
+      <defs>
+        {cables.map((cable, i) => (
+          <clipPath
+            key={cable.key}
+            id={`${clipId}-${i}`}
+            clipPathUnits="userSpaceOnUse"
+            ref={(clip) => {
+              if (clip) clips.current.set(cable.key, clip);
+              else clips.current.delete(cable.key);
+            }}
+          >
+            <rect />
+            <rect />
+          </clipPath>
+        ))}
+      </defs>
+      {cables.map((cable, i) => (
         <path
           key={cable.key}
           ref={(path) => {
@@ -171,6 +224,7 @@ export function Cables({ area, mixer, sources }: { area: RefObject<HTMLElement |
             else paths.current.delete(cable.key);
           }}
           className="fill-none"
+          clipPath={`url(#${clipId}-${i})`}
           stroke={cable.sidechain ? "var(--brand)" : cable.incoming ? "var(--mixer-name)" : "var(--mixer-on)"}
           strokeWidth={cable.incoming ? 1.25 : 1.75}
           strokeDasharray={cable.sidechain ? "1.5 3.5" : cable.incoming ? "4 3" : undefined}

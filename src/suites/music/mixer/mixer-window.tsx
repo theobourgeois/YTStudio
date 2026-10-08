@@ -268,7 +268,7 @@ export function MixerWindow() {
       <div className="flex min-h-0 flex-1" data-testid="mixer">
         <div ref={area} className="relative flex min-w-0 flex-1 overflow-hidden" style={{ background: "var(--mixer-bg)" }} role="list" aria-label="Mixer tracks">
           <SelectionMeter meterRef={meterRef(SELECTION_METER)} />
-          <div className="flex shrink-0 border-r-2" style={{ borderColor: "var(--mixer-line)" }} data-dock="left">
+          <div className="flex shrink-0 border-r-2" style={{ borderColor: "var(--mixer-line)" }} data-dock="left" data-cable-region>
             {docked.left.map((track) => strip(track))}
             {mixer.groups.map((group) => group.vca !== undefined && <VcaStrip key={group.id} group={group} view={view} banded={banded} />)}
           </div>
@@ -276,6 +276,7 @@ export function MixerWindow() {
             ref={scroller}
             className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
             data-testid="mixer-strips"
+            data-cable-region
             // A mouse's wheel (up and down) goes along the strips, as FL's does; a knob or fader under the
             // pointer takes it first (it cancels the event). Sideways scrolls (Shift+wheel on Windows) go natively.
             onWheel={(e) => {
@@ -301,7 +302,7 @@ export function MixerWindow() {
             </button>
           </div>
           {docked.right.length > 0 && (
-            <div className="flex shrink-0 border-l-2" style={{ borderColor: "var(--mixer-line)" }} data-dock="right">
+            <div className="flex shrink-0 border-l-2" style={{ borderColor: "var(--mixer-line)" }} data-dock="right" data-cable-region>
               {docked.right.map((track) => strip(track))}
             </div>
           )}
