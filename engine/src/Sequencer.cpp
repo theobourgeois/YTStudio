@@ -463,6 +463,35 @@ void Sequencer::process (float* left, float* right, int numSamples, const float*
     passNow = pass;
 }
 
+void Sequencer::updatePlayHead()
+{
+    // Where the transport is: the block's first tick while it plays (not counting in), else where it stands.
+    const auto tick = grossClock.playing ? grossClock.tick : song->offsetTicks + position_;
+    const auto ppq = song->ppq;
+    juce::AudioPlayHead::PositionInfo info;
+    info.setBpm (song->tempo);
+    info.setTimeSignature (juce::AudioPlayHead::TimeSignature { juce::jmax (1, (int) std::lround (song->barTicks / song->beatTicks)),
+                                                                juce::jmax (1, (int) std::lround (4.0 * ppq / song->beatTicks)) });
+    info.setPpqPosition (tick / ppq);
+    info.setPpqPositionOfLastBarStart (std::floor (tick / song->barTicks) * song->barTicks / ppq);
+    const auto seconds = tick / ppq * 60.0 / song->tempo;
+    info.setTimeInSeconds (seconds);
+    info.setTimeInSamples ((juce::int64) std::llround (seconds * sampleRate));
+    info.setIsPlaying (grossClock.playing);
+    info.setIsLooping (grossClock.loops);
+    if (grossClock.loops)
+        info.setLoopPoints (juce::AudioPlayHead::LoopPoints { grossClock.loopStart / ppq, grossClock.loopEnd / ppq });
+    playHead.info = info;
+    // Given every block (a pointer): a plugin moved into a new song, or the export's sequencer, is told by its own.
+    for (auto& channel : song->channels)
+        if (channel.plugin != nullptr && channel.plugin->instance != nullptr)
+            channel.plugin->instance->setPlayHead (&playHead);
+    for (auto& track : song->tracks)
+        for (auto& effect : track.effects)
+            if (effect.plugin != nullptr && effect.plugin->instance != nullptr)
+                effect.plugin->instance->setPlayHead (&playHead);
+}
+
 void Sequencer::processBlock (float* left, float* right, int numSamples, const float* const* inputs, int numInputs, ChannelFeed feed)
 {
     if (song != nullptr)
@@ -531,6 +560,7 @@ void Sequencer::processBlock (float* left, float* right, int numSamples, const f
             grossClock.loopEnd = song->offsetTicks + song->loopTicks;
             grossClock.loops = song->loops && ! through;
         }
+        updatePlayHead();
         if (playing)
         {
             // A count-in's part (`process` gives it one of its own): its clicks, the transport held.

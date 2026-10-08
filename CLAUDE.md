@@ -1008,6 +1008,11 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   FL's way to silence the effects' tails: `Engine::silence` lets go of the device as an export does,
   resets every plugin, drops our effects' states (each registry's `clear`) and the delay lines, and makes
   the song again from silence.
+- Hosted plugins are told where the song is (`PlayHead.h`): each sequencer (playback's, the export's) fills in a
+  playhead at the start of every block from the song (tempo, time signature, position, playing, loop) and gives
+  it to every plugin it plays, so their synced LFOs and delays follow the song. The tempo is the song's own (with
+  tempo clips the engine plays a warped song at that tempo). Tested by `playhead.integration.test.ts`
+  (VAUDIO_TEST_EFFECT_PLAYHEAD=report: the test effect puts out what it's told).
 - Commands run on the engine's message thread; the audio callback never waits. A song reaches it through an
   atomic pointer and goes back through a lock-free queue to be deleted (`Sequencer::setSong`, `collectGarbage`);
   requests are atomics and queues; the plugin bench has a lock the audio thread only tries (a block goes out
