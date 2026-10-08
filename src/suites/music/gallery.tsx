@@ -122,7 +122,7 @@ function Curves() {
 
 function LooseModeLights() {
   const [mode, setMode] = useState<"pattern" | "song">("song");
-  return <ModeLights mode={mode} onChange={setMode} />;
+  return <ModeLights mode={mode} onChange={setMode} className="raised h-[30px] rounded-[11px]" />;
 }
 
 function Controls() {

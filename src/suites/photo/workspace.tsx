@@ -1,6 +1,6 @@
 /**
- * The photo suite's main column (`clientSuite("photo").Workspace`, ux.md "Workspace"): its menus (in the tab strip),
- * its header (name, the tool's options, then undo, export and the assistant as every suite has them), the tool
+ * The photo suite's main column (`clientSuite("photo").Workspace`, ux.md "Workspace"): its menu row (name, save
+ * state, its menus, then undo, export and the assistant as every suite has them), the options bar (the tool's), the tool
  * strip, the docked panels (the canvas, Layers, Properties: Photoshop's are docked too), and its windows. Its keys
  * are `keys.ts`'s.
  */
@@ -52,6 +52,7 @@ import { runContentAwareFill } from "./content-aware-fill";
 import { selectActions, useSelectOptions } from "./selecting";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { HeaderActions } from "@/components/header/header-actions";
+import { MenuRow } from "@/components/header/menu-row";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { DockArea, DockMenuItems, FloatingPanels, type DockPanel } from "@/components/dock/dock-area";
 import type { DockLayout } from "@/components/dock/model";
@@ -241,44 +242,55 @@ function PhotoHeader() {
   const tool = useActiveTool();
   const snap = usePhotoPreferences((s) => s.snap);
   return (
-    <header data-titlebar="header" className="flex h-13 shrink-0 items-center gap-2 border-b border-line bg-surface-1 px-3" data-photo-header>
-      <ProjectName name={name} onRename={(n) => usePhoto.getState().rename(n)} />
-      <SaveState />
-      {/* The tool's options take the room there is, scrolling sideways rather than squeezing the rest. */}
-      <div className="flex min-w-0 flex-[1_1_0%] items-center gap-2 overflow-x-auto [scrollbar-width:none]" data-tool-options-strip>
-        <ToolOptions />
-        {tool === "move" && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Snap"
-                aria-pressed={snap}
-                className={cn(snap && "bg-accent text-foreground")}
-                onClick={() => usePhotoPreferences.getState().setSnap(!snap)}
-              >
-                <PiMagnet />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Snap to the canvas and layers (⇧⌘;). Hold Control while dragging to not snap.</TooltipContent>
-          </Tooltip>
-        )}
-      </div>
-      <Button size="sm" variant="outline" onClick={fitToCanvas}>
-        Fit
-      </Button>
-      <Button size="sm" variant="outline" onClick={actualPixels}>
-        100%
-      </Button>
-      <HeaderActions
-        canUndo={canUndo}
-        canRedo={canRedo}
-        onUndo={() => usePhoto.getState().undo()}
-        onRedo={() => usePhoto.getState().redo()}
-        exportAction={{ onClick: () => usePhotoUi.getState().setExportOpen(true) }}
+    <div className="flex shrink-0 flex-col" data-photo-header>
+      <MenuRow
+        name={
+          <>
+            <ProjectName name={name} onRename={(n) => usePhoto.getState().rename(n)} />
+            <SaveState />
+          </>
+        }
+        actions={
+          <HeaderActions
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={() => usePhoto.getState().undo()}
+            onRedo={() => usePhoto.getState().redo()}
+            exportAction={{ onClick: () => usePhotoUi.getState().setExportOpen(true) }}
+          />
+        }
       />
-    </header>
+      {/* Photoshop's options bar: the tool's options, then the view's. */}
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line bg-surface-1 px-3" data-options-bar>
+        {/* The tool's options take the room there is, scrolling sideways rather than squeezing the rest. */}
+        <div className="flex min-w-0 flex-[1_1_0%] items-center gap-2 overflow-x-auto [scrollbar-width:none]" data-tool-options-strip>
+          <ToolOptions />
+          {tool === "move" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Snap"
+                  aria-pressed={snap}
+                  className={cn(snap && "bg-accent text-foreground")}
+                  onClick={() => usePhotoPreferences.getState().setSnap(!snap)}
+                >
+                  <PiMagnet />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Snap to the canvas and layers (⇧⌘;). Hold Control while dragging to not snap.</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+        <Button size="sm" variant="outline" onClick={fitToCanvas}>
+          Fit
+        </Button>
+        <Button size="sm" variant="outline" onClick={actualPixels}>
+          100%
+        </Button>
+      </div>
+    </div>
   );
 }
 
