@@ -175,6 +175,7 @@ pnpm tsx scripts/engine-profile.ts <Name.yt> [--only-plugin n] [--sample]   # a 
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
 pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
 pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/YTStudio.app, then launch it, export, check
+pnpm update:desktop  # macOS: build it (engine too), quit the installed one, replace /Applications/YTStudio.app, reopen
 pnpm test:desktop:music # macOS: real clicks between the music windows and Serum's (or the test synth's): stacking, focus, app switching; needs Accessibility access and an unlocked screen
 pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build; needs cmake + ninja (brew)
 pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
