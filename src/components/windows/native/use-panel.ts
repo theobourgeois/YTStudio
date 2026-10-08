@@ -1,6 +1,7 @@
 import { type RefObject, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { desktopPanels } from "@/lib/desktop";
 import { type PanelWindow, openPanelWindow } from "./panel-window";
+import { noteWindowRaised } from "./popups";
 import { contentBounds, onContentBounds, pageScale } from "./bridge";
 import type { Metrics } from "./geometry";
 import { log } from "@/lib/log";
@@ -85,6 +86,8 @@ export function usePanelWindow(id: string, title: string, enabled: boolean, onGo
 
   useEffect(() => {
     if (!enabled || !desktopPanels()) return;
+    // (A menu closing as this opens leaves the keyboard to it, though it shows a moment later.)
+    noteWindowRaised();
     let made: PanelWindow | null = null;
     let live = true;
     // Next turn: React's development double-run of an effect opens (and closes) no window.

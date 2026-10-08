@@ -9,7 +9,7 @@ import { startPointerDrag } from "@/lib/pointer-drag";
 import { isElement, ownerDocument } from "@/lib/window-events";
 import { type Rect, type ResizeEdge, type WindowSnap, cascade, edgeSnap, magnetise, resizeRect, snappedRect, unsnapAt, EDGE_ZONE } from "./geometry";
 import { workAreas } from "./native/bridge";
-import { acquirePopups, alignPopups, usePopupContainerElement } from "./native/popups";
+import { acquirePopups, alignPopups, noteWindowRaised, usePopupContainerElement } from "./native/popups";
 import { type DeskTracker, createDeskTracker, openPanels, useDeskVersion, usePanelWindow } from "./native/use-panel";
 import { areaFor, capSize, deskToScreen, keepReachable, pointToDesk, resizeFree, screenToDesk } from "./native/geometry";
 import type { WindowPlace, WindowsStore } from "./store";
@@ -250,6 +250,7 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
     if (!shown.current) {
       shown.current = true;
       const front = windows.getState().order[windows.getState().order.length - 1] === id;
+      if (front) noteWindowRaised();
       desktopPanels()?.show(panel.name, front);
       if (front) ref.current?.focus({ preventScroll: true });
     }
@@ -283,7 +284,10 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
   }, [panel, windows, id]);
   const isFront = windows((s) => s.order[s.order.length - 1] === id);
   useEffect(() => {
-    if (panel && isFront && shown.current && !panel.win.document.hasFocus()) desktopPanels()?.raise(panel.name);
+    if (panel && isFront && shown.current && !panel.win.document.hasFocus()) {
+      noteWindowRaised();
+      desktopPanels()?.raise(panel.name);
+    }
   }, [panel, isFront]);
 
   const dragTitle = (e: ReactPointerEvent<HTMLElement>) => {
