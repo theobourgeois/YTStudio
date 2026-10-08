@@ -16,6 +16,8 @@ import {
   PiClipboard,
   PiCopy,
   PiCopySimple,
+  PiEye,
+  PiEyeSlash,
   PiFilmStrip,
   PiMagicWand,
   PiMusicNotes,
@@ -50,6 +52,7 @@ import {
   isOnVideoTrack,
   clipSpeed,
   removeTrack,
+  setTrackHidden,
   setTrackMuted,
   videoTracks,
 } from "@shared/timeline";
@@ -520,6 +523,12 @@ export function TrackHeaderMenu({ track, children }: { track: Track; children: R
           {track.muted ? <PiSpeakerHigh /> : <PiSpeakerSlash />}
           {track.muted ? "Unmute track" : "Mute track"}
         </ContextMenuItem>
+        {track.kind === "video" && (
+          <ContextMenuItem onSelect={() => editor().commit((p) => setTrackHidden(p, track.id, !track.hidden))}>
+            {track.hidden ? <PiEye /> : <PiEyeSlash />}
+            {track.hidden ? "Show track" : "Hide track"}
+          </ContextMenuItem>
+        )}
         <ContextMenuItem disabled={!hasClips} onSelect={() => selectTrack(track.id)}>
           <PiSelectionAll /> Select all clips on track
         </ContextMenuItem>

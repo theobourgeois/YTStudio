@@ -25,7 +25,7 @@ export const LaneBackgrounds = memo(function LaneBackgrounds({
             "pointer-events-none absolute inset-x-0 border-b",
             i === 0 && "border-t",
             lane.kind === "video" ? "bg-foreground/[0.035]" : "bg-foreground/[0.015]",
-            tracks[i]?.muted && "bg-[repeating-linear-gradient(135deg,transparent_0_8px,color-mix(in_oklab,var(--color-foreground)_3%,transparent)_8px_16px)]",
+            (tracks[i]?.muted || tracks[i]?.hidden) && "bg-[repeating-linear-gradient(135deg,transparent_0_8px,color-mix(in_oklab,var(--color-foreground)_3%,transparent)_8px_16px)]",
           )}
           style={{ top: lane.top, height: lane.height }}
         />

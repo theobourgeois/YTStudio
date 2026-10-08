@@ -87,6 +87,7 @@ function onCanvasAt(project: Project, assets: MediaAsset[], canvas: Size, t: num
   const byId = new Map(assets.map((a) => [a.id, a]));
   const out: OnCanvas[] = [];
   for (const track of videoTracks(project)) {
+    if (track.hidden) continue;
     const { current } = planTrack(project, track.id, t);
     if (!current || isCameraClip(current.clip)) continue;
     const asset = byId.get(current.clip.assetId);

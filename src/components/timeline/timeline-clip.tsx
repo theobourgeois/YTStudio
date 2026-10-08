@@ -29,7 +29,8 @@ interface TimelineClipProps {
   selected: boolean;
   /** This clip is being moved: draw it as a placeholder in its laid-out slot. */
   placeholder: boolean;
-  muted: boolean;
+  /** Its track is muted or hidden. */
+  dimmed: boolean;
   /** Slide into new positions (while another clip is being dragged). */
   animate: boolean;
 }
@@ -41,7 +42,7 @@ export const TimelineClip = memo(function TimelineClip({
   zoom,
   selected,
   placeholder,
-  muted,
+  dimmed,
   animate,
 }: TimelineClipProps) {
   const ctx = useTimelineContext();
@@ -94,7 +95,7 @@ export const TimelineClip = memo(function TimelineClip({
                         ? "bg-clip-audio"
                         : "bg-clip-video",
               ),
-          muted && !offline && "opacity-55 saturate-50",
+          dimmed && !offline && "opacity-55 saturate-50",
           placeholder && "opacity-30",
         )}
       >
@@ -160,7 +161,7 @@ function sameClipProps(a: TimelineClipProps, b: TimelineClipProps) {
     a.zoom === b.zoom &&
     a.selected === b.selected &&
     a.placeholder === b.placeholder &&
-    a.muted === b.muted &&
+    a.dimmed === b.dimmed &&
     a.animate === b.animate
   );
 }

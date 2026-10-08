@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addEffect, defaultEffects, setEffectEnabled, setParams, textEffects } from "../shared/effects.ts";
-import { createDefaultProject, newLayerClip, setClipSpeed } from "../shared/timeline.ts";
+import { createDefaultProject, newLayerClip, setClipSpeed, setTrackHidden } from "../shared/timeline.ts";
 import { addPresetLayer } from "../shared/presets.ts";
 import { placeClip, placementAffine } from "../shared/transform.ts";
 import type { Clip, Keyframe, ParamValues, Project, TextLayoutAt } from "../shared/types.ts";
@@ -358,6 +358,29 @@ describe("track mattes", () => {
     // Without the clip above, it's just drawn.
     const alone = planRender(project([below]), assets, opts).frame(15);
     expect(pictures(alone)[0].matte).toBeUndefined();
+  });
+
+  it("still come from a hidden track (as Premiere's)", () => {
+    const matte = { ...newLayerClip("solid", 0, 2, { color: "#ffffff" }), trackId: "top" };
+    const below = clip("vid", "main", 0, 0, 2, { opacity: { trackMatte: "luma-inverted" } });
+    const p = project([below, matte], (d) => setTrackHidden(withTop(d), "top", true));
+    const [only] = pictures(planRender(p, assets, opts).frame(15));
+    expect(only.matte).toMatchObject({ mode: 4 });
+  });
+});
+
+describe("hidden tracks", () => {
+  it("draw nothing, and still play their sound", () => {
+    const top = clip("photo", "top", 0, 0, 2);
+    const below = clip("vid", "main", 0, 0, 2);
+    const p = project([below, top], (d) => setTrackHidden(withTop(d), "top", true));
+    const shown = pictures(planRender(p, assets, opts).frame(15));
+    expect(shown).toHaveLength(1);
+    expect(planRender(project([below, top], withTop), assets, opts).frame(15)).toHaveLength(2);
+    // Hiding the bottom track leaves only the top one.
+    const bottomHidden = project([below, top], (d) => setTrackHidden(withTop(d), "main", true));
+    expect(pictures(planRender(bottomHidden, assets, opts).frame(15))).toHaveLength(1);
+    expect(inputsOf(audioArgs(bottomHidden, assets, { outputPath: "/tmp/mix.flac" }))).toEqual(["/media/vid.mp4"]);
   });
 });
 

@@ -26,6 +26,7 @@ import {
   removeClips,
   removeTrack,
   rippleClipEdit,
+  setTrackHidden,
   rippleDelete,
   rippleTrimTo,
   snapTime,
@@ -352,6 +353,19 @@ describe("tracks", () => {
     p = addClip(top.project, clip("t", top.trackId, 0, 1));
     p = addClip(p, clip("m", AUDIO, 0, 1));
     expect(withoutAudioTracks(p).clips.map((c) => c.id).sort()).toEqual(["a", "b", "c", "t"]);
+  });
+
+  it("hides video tracks only, and keeps the flag through a load", () => {
+    const p = createDefaultProject();
+    const hidden = setTrackHidden(p, MAIN_TRACK_ID, true);
+    expect(hidden.tracks[0].hidden).toBe(true);
+    expect(setTrackHidden(hidden, MAIN_TRACK_ID, true)).toBe(hidden);
+    expect(setTrackHidden(p, AUDIO, true)).toBe(p);
+    expect(setTrackHidden(hidden, MAIN_TRACK_ID, false).tracks[0]).not.toHaveProperty("hidden");
+    expect(normalizeProject(hidden).tracks[0].hidden).toBe(true);
+    // An audio track can't be hidden, even by a file that says so.
+    const odd = { ...p, tracks: p.tracks.map((t) => ({ ...t, hidden: true })) };
+    expect(normalizeProject(odd).tracks.map((t) => t.hidden)).toEqual([true, undefined]);
   });
 
   it("finds the clip under a time", () => {

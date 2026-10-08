@@ -69,6 +69,7 @@ import {
   clipEnd,
   clipSpeed,
   fileTime,
+  hiddenTracks,
   outputSize,
   projectDuration,
   sourceEdge,
@@ -231,6 +232,8 @@ export function planRender(
     windows: Map<string, TransitionWindow[]>;
     camera: (t: number) => Camera3D;
     trackAbove: (id: string) => string | undefined;
+    /** Video tracks drawn into no frame (their pictures can still be a track matte). */
+    hidden: Set<string>;
     layerOptions: { canvas: Size; fps: number; maxSamples: number };
   }
   const levels = new Map<string, Level>();
@@ -249,6 +252,7 @@ export function planRender(
       windows: transitionWindows(view),
       camera: projectCamera(view, canvas),
       trackAbove: (tid) => ids[ids.indexOf(tid) - 1],
+      hidden: hiddenTracks(view),
       layerOptions: { canvas, fps: view.settings.fps, maxSamples: EXPORT_SAMPLES },
     };
     levels.set(key, level);
@@ -653,8 +657,9 @@ export function planRender(
         return l;
       },
     );
+    const shownLayers = level.hidden.size ? matted.filter((l) => !level.hidden.has(l.trackId)) : matted;
     // 3D layers on neighbouring tracks are drawn far first.
-    const drawnLayers = sortByDepth(matted, (l) => (l.layer.kind === "picture" ? (l.layer.picture as { depth?: number }).depth : undefined)).map((l) => l.layer);
+    const drawnLayers = sortByDepth(shownLayers, (l) => (l.layer.kind === "picture" ? (l.layer.picture as { depth?: number }).depth : undefined)).map((l) => l.layer);
     return [...groups, ...drawnLayers];
   }
 }

@@ -1009,6 +1009,25 @@ export function setTrackMuted(project: Project, trackId: string, muted: boolean)
   };
 }
 
+/** The video tracks whose pictures aren't drawn (their clips can still be another's track matte). */
+export function hiddenTracks(project: Project): Set<string> {
+  return new Set(project.tracks.filter((t) => t.hidden).map((t) => t.id));
+}
+
+/** Hide or show a video track's pictures (its sound plays either way). */
+export function setTrackHidden(project: Project, trackId: string, hidden: boolean): Project {
+  const track = getTrack(project, trackId);
+  if (!track || track.kind !== "video" || !!track.hidden === hidden) return project;
+  return {
+    ...project,
+    tracks: project.tracks.map((t) => {
+      if (t.id !== trackId) return t;
+      const { hidden: _, ...rest } = t;
+      return hidden ? { ...rest, hidden: true } : rest;
+    }),
+  };
+}
+
 /**
  * The neighbouring track of the same kind above (`dir = -1`) or below (`1`)
  * `trackId`, or null at the edge of its group.
