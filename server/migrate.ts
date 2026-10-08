@@ -5,7 +5,7 @@ import { normalizeProject } from "../shared/normalize.ts";
 import { DEFAULT_PROJECT_NAME } from "../shared/suites.ts";
 import { createDefaultProject, createId } from "../shared/timeline.ts";
 import type { MediaAsset, Project } from "../shared/types.ts";
-import { PROJECT_EXTENSION, movePath, uniquePackage } from "./packages.ts";
+import { LEGACY_PROJECTS_FOLDER, PROJECTS_FOLDER, PROJECT_EXTENSION, movePath, uniquePackage } from "./packages.ts";
 import { type DataPaths, isObject, isValidId, readJson, writeJson } from "./storage.ts";
 import { log } from "./log.ts";
 
@@ -13,13 +13,28 @@ const logger = log("migrate");
 
 /**
  * Bring older data folders up to date before anything loads (idempotent; never deletes user files):
+ * 0. the projects folder of before the app was YTStudio (`Documents/Vaudio`) becomes `Documents/YTStudio`
+ *    (`moveProjectsFolder`; the recents find their packages there, `relocated`);
  * 1. pre-project data (`migrateLegacyData`) becomes a project of the old layout;
  * 2. projects of the old layout (`data/projects/<id>/`, their media in `data/media/<id>/`) become packages
  *    (`migrateToPackages`): in `location`, or the data folder's `templates/` for a suite's starting point.
  */
 export async function migrateData(paths: DataPaths, location: string): Promise<void> {
+  await moveProjectsFolder(location);
   await migrateLegacyData(paths, location);
   await migrateToPackages(paths, location);
+}
+
+/** `Documents/Vaudio` becomes the default location, `Documents/YTStudio`, unless that's there already. */
+async function moveProjectsFolder(location: string): Promise<void> {
+  if (path.basename(location) !== PROJECTS_FOLDER || existsSync(location)) return;
+  const legacy = path.join(path.dirname(location), LEGACY_PROJECTS_FOLDER);
+  if (!existsSync(legacy)) return;
+  try {
+    await movePath(legacy, location);
+  } catch (err) {
+    logger.warn(`couldn't move ${legacy} to ${location}: ${err instanceof Error ? err.message : err}`);
+  }
 }
 
 /** The old layout's media (`data/media/<id>/meta.json`). */

@@ -29,6 +29,15 @@ const withTwoClips = () =>
 const main = (p: Project) => trackClips(p, MAIN_TRACK_ID);
 
 describe("assistant edits", () => {
+  it("hides and shows video tracks, and won't hide an audio one", () => {
+    const p = createDefaultProject();
+    const hidden = run(p, ["edit_track", { trackId: MAIN_TRACK_ID, hidden: true, muted: true }]);
+    expect(hidden.tracks[0]).toMatchObject({ hidden: true, muted: true });
+    expect(run(hidden, ["edit_track", { trackId: MAIN_TRACK_ID, hidden: false }]).tracks[0].hidden).toBeUndefined();
+    const audio = p.tracks.find((t) => t.kind === "audio")!;
+    expect(() => run(p, ["edit_track", { trackId: audio.id, hidden: true }])).toThrow(/only video tracks hide/);
+  });
+
   it("adds clips after each other, part of a file, and sound on an audio track", () => {
     const p = run(withTwoClips(), ["add_clips", { items: [{ assetId: "media_song", start: 2 }] }]);
     expect(main(p).map((c) => [c.assetId, c.start, c.in, c.out])).toEqual([

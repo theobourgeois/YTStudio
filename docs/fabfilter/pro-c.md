@@ -16,7 +16,7 @@ into that, in its own document, **`pro-c-vocals.md`**: how 50-odd mix engineers 
 chains and settings), the eleven classic compressors they name (manuals, schematics, measurements), the ideas in
 thirty-odd other compressors, and the modelling papers. What it changed here: the vocal section
 ([3.3](#33-on-vocals)), the classic models as a **Vintage** group of styles ([4](#4-classic-models-as-extra-styles)),
-the vocal presets ([6](#6-the-factory-presets)), and the proposal and questions ([7](#7-proposed-for-vaudio),
+the vocal presets ([6](#6-the-factory-presets)), and the proposal and questions ([7](#7-proposed-for-ytstudio),
 [9](#9-open-questions-for-théo)).
 
 Anything the sources don't give is marked **not stated**; anything worked out rather than read is marked
@@ -38,7 +38,7 @@ artwork: we copy how it works and how it's laid out, in our own visual style (as
 4. [Classic models as extra styles](#4-classic-models-as-extra-styles)
 5. [How it works (the DSP)](#5-how-it-works-the-dsp)
 6. [The factory presets](#6-the-factory-presets)
-7. [Proposed for Vaudio](#7-proposed-for-vaudio)
+7. [Proposed for YTStudio](#7-proposed-for-ytstudio)
 8. [How it'd be built here](#8-how-itd-be-built-here)
 9. [Open questions for Théo](#9-open-questions-for-théo)
 10. [Sources](#10-sources)
@@ -1116,7 +1116,7 @@ that come in a later phase (section 7) come with them.
 
 ---
 
-## 7. Proposed for Vaudio
+## 7. Proposed for YTStudio
 
 > **Built (2026-10-02)**, everything in one pass at Théo's request ("a very versatile, all-in-one
 > compressor"): all 21 styles (Pro-C 3's 14, Vox, the six Vintage ones), Character, the side chain EQ, the
@@ -1195,9 +1195,9 @@ we'd choose, to check:
 | **2. Pro-C 3's additions** | Versatile, Smooth, Op-El, Vari-Mu, Upward, TTM; Character (Tube, Diode, Bright, Drive, Pre / Post, drift); 16×; Audition Triggering; **Distress** (its Detector, Audio and British switches; the two distortions) |
 | **3. If wanted** | **VCA 160** and **Diode 609**; MIDI triggering once effects can take MIDI (or a rack channel's notes as the key, section 9); a "compress to N dB" helper for the assistant |
 
-### Where Vaudio differs
+### Where YTStudio differs
 
-| What | Pro-C 3 | Vaudio |
+| What | Pro-C 3 | YTStudio |
 | --- | --- | --- |
 | Look | FabFilter's artwork | FabFilter's layout and dark look in our drawing, our tokens |
 | External side chain | The host's side chain input (Pro Tools' key input, Logic's menu…) | A mixer track that sends to this one, chosen in the window; the 0% send made for you |

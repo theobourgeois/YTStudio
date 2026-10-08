@@ -85,7 +85,7 @@ whole object model.
 - **Colour**: documents are RGB with transparency, displayed in SDR. Float internals are required for light effects.
   HDR display, CMYK, spot channels, print proofing and every Photoshop blend mode are separate features. Decoding a
   RAW file isn't a RAW developer.
-- **Files**: a project is a `.vaudio` package, as every suite's is, and a flattened export is not a save. PSD, ABR,
+- **Files**: a project is a `.yt` package, as every suite's is, and a flattened export is not a save. PSD, ABR,
   Adobe plugins and generative fill have no promise in the foundations; when interchange arrives, it reports what it
   couldn't carry.
 

@@ -8,7 +8,7 @@ import { clamp, isFiniteNumber } from "../math.ts";
 import { type PanControl, type PanCurve, type PanDirection, type PanMan, type PanManMode, type PanShapeEvent, type PanStepPoint, type PanStyle, PPQ, type PluginRef } from "./types.ts";
 
 /** What a PanMan effect is, as a slot's plugin: one of ours, run by the engine itself. */
-export const PANMAN_PLUGIN: PluginRef = { id: "vaudio:panman", name: "YT-Pan", format: "Vaudio" };
+export const PANMAN_PLUGIN: PluginRef = { id: "vaudio:panman", name: "YT-Pan", format: "YTStudio" };
 export const isPanMan = (plugin: Pick<PluginRef, "id">) => plugin.id === PANMAN_PLUGIN.id;
 
 /** Degrees: hard left or right is 90, and positions go on to 105 ("beyond the speakers"). */

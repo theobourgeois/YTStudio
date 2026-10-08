@@ -319,8 +319,8 @@ test("a renamed photo's package moves, and it still opens with its images", asyn
   await page.getByRole("button", { name: "Home" }).click();
   await expect
     .poll(async () => (await (await page.request.get("/api/projects")).json()).find((p: { id: string }) => p.id === photoId).path)
-    .toMatch(/Moved\.vaudio$/);
-  expect(before).toMatch(/Exact\.vaudio$/);
+    .toMatch(/Moved\.yt$/);
+  expect(before).toMatch(/Exact\.yt$/);
   await page.goto(`/p/${photoId}`);
   await expect(page.locator('[data-layer][data-source="ready"]')).toHaveCount(1);
 });

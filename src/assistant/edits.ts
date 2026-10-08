@@ -112,6 +112,7 @@ import {
   rippleDelete,
   rippleTrimTo,
   setClipSpeed,
+  setTrackHidden,
   setTrackMuted,
   sourceAt,
   sourceRange,
@@ -987,8 +988,20 @@ const editTrack: EditHandler = (project, input) => {
     return { project: p, text: `Removed "${track.name}" and its clips.` };
   }
   const muted = optBoolean(input, "muted");
-  if (muted === undefined) throw new ToolError("Give `muted` or `remove`.");
-  return { project: setTrackMuted(project, track.id, muted), text: `"${track.name}" is ${muted ? "muted" : "unmuted"}.` };
+  const hidden = optBoolean(input, "hidden");
+  if (muted === undefined && hidden === undefined) throw new ToolError("Give `muted`, `hidden` or `remove`.");
+  if (hidden !== undefined && track.kind !== "video") throw new ToolError(`"${track.name}" is an audio track: only video tracks hide. Mute it instead.`);
+  let p = project;
+  const said: string[] = [];
+  if (muted !== undefined) {
+    p = setTrackMuted(p, track.id, muted);
+    said.push(muted ? "muted" : "unmuted");
+  }
+  if (hidden !== undefined) {
+    p = setTrackHidden(p, track.id, hidden);
+    said.push(hidden ? "hidden" : "shown");
+  }
+  return { project: p, text: `"${track.name}" is ${said.join(" and ")}.` };
 };
 
 const setProject: EditHandler = (project, input) => {

@@ -8,7 +8,7 @@
  *   pnpm tsx scripts/perf.ts [clips=1500] [--profile <scenario>]
  *   pnpm tsx scripts/perf.ts --links [clips=300]
  *   pnpm tsx scripts/perf.ts --visualizers
- *   pnpm tsx scripts/perf.ts --scrub <Project.vaudio> [--render]
+ *   pnpm tsx scripts/perf.ts --scrub <Project.yt> [--render]
  *
  * `--links` is the visualizer's gate instead (V3, docs/visualizer/README.md): a song and `clips`
  * solids on ten tracks, each with its scale linked to the bass and its opacity to the kicks, played
@@ -335,7 +335,7 @@ async function linkedPlayback(): Promise<never> {
 /** `--scrub`: a real project scrubbed and played, measured. Exits. */
 async function scrubProject(pkg: string): Promise<never> {
   // A copy in the throwaway data folder's own Documents, so the real one is never touched.
-  const copy = path.join(dataDir, "Documents", "Vaudio", path.basename(pkg));
+  const copy = path.join(dataDir, "Documents", "YTStudio", path.basename(pkg));
   fs.cpSync(pkg, copy, { recursive: true });
   const opened = await fetch(`${api}/projects/open`, { method: "POST", headers: json, body: JSON.stringify({ path: copy }) });
   if (!opened.ok) throw new Error(`Opening ${pkg} failed: ${await opened.text()}`);

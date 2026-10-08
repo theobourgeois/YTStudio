@@ -139,6 +139,8 @@ export interface Track {
   kind: TrackKind;
   name: string;
   muted: boolean;
+  /** A video track whose pictures aren't drawn (Premiere's Toggle Track Output); its sound still plays. Absent: shown. */
+  hidden?: boolean;
 }
 
 export interface Clip {
@@ -532,7 +534,7 @@ export interface Subclip {
 }
 
 // ---------------------------------------------------------------------------
-// Projects: each one is a package on disk (`Name.vaudio/`, see `server/packages.ts`) of one suite (a
+// Projects: each one is a package on disk (`Name.yt/`, see `server/packages.ts`) of one suite (a
 // video, a song... see `shared/suites.ts`), wherever the user keeps it. The app lists the ones this
 // computer has opened, its recents, the latest first, on the Home screen.
 // ---------------------------------------------------------------------------
@@ -547,7 +549,7 @@ interface ProjectSummaryBase {
   updatedAt: number;
   /** Last time it was opened on this computer (epoch ms; when it was made or added, until then). */
   openedAt: number;
-  /** Its package on this computer (`.../Summer edit.vaudio`). */
+  /** Its package on this computer (`.../Summer edit.yt`). */
   path: string;
   /**
    * It isn't where it was last seen (moved or renamed in Finder, deleted, on a drive that's gone): the rest is
@@ -636,7 +638,7 @@ export interface OpenProjectRequest {
   path: string;
 }
 
-/** Where new projects are made (`~/Documents/Vaudio` unless the user picked another folder). */
+/** Where new projects are made (`~/Documents/YTStudio` unless the user picked another folder). */
 export interface ProjectLocation {
   path: string;
   /** Where they go unless the user picks another. */

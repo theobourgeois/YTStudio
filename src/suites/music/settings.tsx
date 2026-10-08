@@ -116,7 +116,7 @@ function DeviceSettings() {
 
   const change = async (body: SetDeviceRequest) => {
     try {
-      // Opening an input: Vaudio asks for the microphone first (macOS asks the app, not the engine).
+      // Opening an input: YTStudio asks for the microphone first (macOS asks the app, not the engine).
       if (body.input) {
         const answer = await askMicrophone();
         if (answer !== undefined) setMicrophone(answer);
@@ -201,7 +201,7 @@ function DeviceSettings() {
           !devices.inputs ? (
             <span className="text-destructive">The audio engine is older than the app and can't record: run `pnpm engine:build`, then restart `pnpm dev`.</span>
           ) : microphone === "denied" || microphone === "restricted" ? (
-            <span className="text-destructive">Vaudio can't hear your microphone: allow it in {IS_MAC ? "System Settings → Privacy & Security → Microphone" : "Windows Settings → Privacy & security → Microphone"}, then choose the input again.</span>
+            <span className="text-destructive">YTStudio can't hear your microphone: allow it in {IS_MAC ? "System Settings → Privacy & Security → Microphone" : "Windows Settings → Privacy & security → Microphone"}, then choose the input again.</span>
           ) : devices.input ? (
             `What mixer tracks record (their Input, in the Mixer): ${status.inputChannels ?? 0} input${status.inputChannels === 1 ? "" : "s"}, ${(status.inputLatencyMs ?? 0).toFixed(0)} ms late as the device reports it.`
           ) : (

@@ -6,7 +6,7 @@ It's a React app (`src/`) plus a local Express + ffmpeg server (`server/`), shar
 README.md is the user-facing guide. This file is for working on the code.
 
 It's growing into a **creative suite**: every project belongs to one app, a *suite* (`SuiteId`: video, music; image
-next), picked on the Home screen or in the New project picker. **Every project is a file of its own**, a `.vaudio`
+next), picked on the Home screen or in the New project picker. **Every project is a file of its own**, a `.yt`
 package on disk (see "Projects are files"). The video editor is the furthest along; **music is a DAW modelled on
 FL Studio** (see "The music suite"). See "Suites" below: most of this file is about the video editor, which lives at the roots of
 `shared/`, `server/` and `src/`; every other suite has folders of its own.
@@ -170,11 +170,11 @@ pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + c
 pnpm tsx scripts/preset-sheet.ts [type|tag ...] [--out f.png]       # render + check presets
 pnpm tsx scripts/pro-c-sheet.ts [style ...] [--out f.png]           # Pro-C's styles measured on the engine: curves, gain, colour
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
-pnpm tsx scripts/perf.ts --scrub <Project.vaudio> [--render]        # scrub and play a copy of a real project, GPU and all
-pnpm tsx scripts/engine-profile.ts <Name.vaudio> [--only-plugin n] [--sample]   # a song's playback load, offline (silent)
+pnpm tsx scripts/perf.ts --scrub <Project.yt> [--render]        # scrub and play a copy of a real project, GPU and all
+pnpm tsx scripts/engine-profile.ts <Name.yt> [--only-plugin n] [--sample]   # a song's playback load, offline (silent)
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
 pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
-pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/Vaudio.app, then launch it, export, check
+pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/YTStudio.app, then launch it, export, check
 pnpm test:desktop:music # macOS: real clicks between the music windows and Serum's (or the test synth's): stacking, focus, app switching; needs Accessibility access and an unlocked screen
 pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build; needs cmake + ninja (brew)
 pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
@@ -182,6 +182,8 @@ pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit (and C
 pnpm tsx scripts/make-audio-fixtures.ts [--out dir]   # the audio-intelligence fixtures as WAVs + a manifest (tests render them in memory)
 pnpm tsx scripts/photo-fixtures.ts [--skip-large]   # the photo suite's test images (48/100 MP, P3, 16-bit, alpha, EXIF) into data/photo-fixtures
 pnpm tsx scripts/photo-bench.ts [--runner chrome|electron] [--quick] [--lab [--tiles 256,512]] [--shots dir]   # the photo suite's targets, measured in the workspace (--lab: F0's lab)
+pnpm tsx scripts/serum-preset.ts read|write|verify …   # Serum 2 presets ⇄ readable specs, checked in Serum offline (docs/serum/preset-format.md)
+pnpm tsx scripts/serum-audition.ts <session.json>   # render a round of Serum presets as an audition page (the serum-presets skill)
 pnpm tsx scripts/select-mixparams.ts   # MixParams' reviewed reference subset into the gitignored data/ (docs/audio-intelligence/)
 python3 scripts/audit-cl1b.py <Dataset.zip> --out <report.json>   # CL 1B's layout, read statically: never unpickles
 .venv/bin/python -I scripts/basic-pitch-fixtures.py shared/music/transcribe-fixtures.json   # Basic Pitch's own note picking (pip install basic-pitch)
@@ -314,7 +316,7 @@ server/
   index.ts → app.ts  Startup wiring; routes live in routes/<resource>.ts (one Router each).
   suites/            Each suite's server side (SuiteBackend): create/normalise/summarise its documents, what its
                      assistant is told. index.ts is the registry; video.ts wraps the video editor's.
-  projects.ts        ProjectStore: every suite's projects, each a package on disk (`Name.vaudio`: project.json, meta.json
+  projects.ts        ProjectStore: every suite's projects, each a package on disk (`Name.yt`: project.json, meta.json
                      says the suite (none = video), media/, a song's plugins/ and recordings/), opaque documents, and
                      this computer's recents (`data/projects.json`). packages.ts: names, unique paths, moves, the Trash.
   migrate.ts         Older data folders: data/project.json and data/projects + data/media become packages, on startup.
@@ -351,7 +353,7 @@ server/
                      beats (Ellis's DP tracker, then evened out), bars, loudness sections and drops. The platform's:
                      beat sync and the music suite's Detect tempo both use it.
   config.ts          Every env var is read here and nowhere else.
-  log.ts             The app's log (`log(scope)`): JSON lines in `<data>/logs/vaudio.log`, rotated, written in the
+  log.ts             The app's log (`log(scope)`): JSON lines in `<data>/logs/ytstudio.log`, rotated, written in the
                      background; the tab's lines arrive by `POST /api/log` (`src/lib/log.ts`, `shared/log.ts`).
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
 engine/            The music suite's audio engine, a C++/JUCE program (CMake; JUCE is fetched into engine/build).
@@ -381,7 +383,7 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      centred so nothing is delayed. Protocol.cpp: the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
                      can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
-electron/          The desktop app (Vaudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
+electron/          The desktop app (YTStudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
                      main process and shows the page in a window; packaged, data is in userData, in development ./data.
                      panels.ts: the editor's windows as windows of the system (the page opens them with `window.open`;
                      this makes them frameless and floating, shows, hides and places them). floating.ts: which windows
@@ -434,15 +436,17 @@ src/
                      button and a Mac's window buttons are in it: `[data-tabs]` in index.css, `tab-strip` in
                      electron/main.ts). ⌘W closes a tab (the File menu's Close Tab; ⇧⌘W the window), ⇧⌘[ / ⇧⌘] and
                      ⌃Tab go through them.
-                     **The menu bar** is in the strip, after Home (`components/home/menu-bar.tsx`), the same in every
-                     suite: the app's File and Edit (Settings…), then View, the suite's own menus and Window. A suite's
+                     The strip is tabs only. Under it, every suite's header starts with **the menu row**
+                     (`components/header/menu-row.tsx` `MenuRow`, 40 px): the project's name (and its format or save
+                     state), **the menu bar** (`components/home/menu-bar.tsx`), the same in every suite: the app's File
+                     and Edit (Settings…), then View, the suite's own menus and Window; then `HeaderActions`
+                     (components/header/header-actions.tsx: undo and redo, Settings, Export, the assistant). A suite's
                      workspace renders `<SuiteMenuBar file edit view menus window />` (its items are
                      `components/ui/dropdown-menu` items, each running the code its key runs: video's through
-                     `runShortcut`, music's `runKey`), which the strip shows in place of the app's own. Every suite's
-                     header ends with `HeaderActions` (components/header/header-actions.tsx: undo and redo, Settings,
-                     Export, the assistant), so the two bars look and sit the same in each suite.
+                     `runShortcut`, music's `runKey`), which the row's slot shows in place of the app's own. A suite's
+                     own tools go in a row below it (music's transport, photo's options bar; video has none).
   components/home/   The Home screen (home.tsx: New tiles, Open…, the recents as cards in project-card.tsx, search
-                     and suite filter), the tab strip and its menu bar, Open… / Locate… (open-project-dialog.tsx: the
+                     and suite filter), the tab strip and the menu bar, Open… / Locate… (open-project-dialog.tsx: the
                      desktop app's dialog, else a path), the New project picker (⇧⌘O) and ⌘P's search, and the
                      app's project keys (project-search-dialog.tsx `useProjectShortcuts`: ⌘O, ⇧⌘H too).
   stores/editor.ts   THE video document store: project, assets, selection, undo history, gestures, edit commands.
@@ -540,6 +544,11 @@ extension** (Node ESM through tsx).
   around `SuiteBackend.assistant`), the MCP tools listed (`/mcp?chat=<id>`; outside clients get video's, or
   `?suite=`) and who runs the calls in the tab (`clientSuite(suite).runTool`). Tool names are unique across suites
   (tested). The panel (`AssistantPanel suite=…`) takes its texts from `ClientSuite.chat`.
+- **Checkpoints** (Cursor's, every suite): the bridge snapshots the project around each tool call of an answer
+  (`ClientSuite.documents`: its document, compared by identity), so any message of the user's can be restored (the
+  project as it was when it was sent; Redo takes that back) and what the assistant changed since the last Keep waits in
+  the review bar over the composer (Undo all / Keep all). Pure in `lib/checkpoints.ts`, held by `stores/checkpoints.ts`
+  for the session; each restore is one undo step of the suite's own history and keeps the project's name.
 - **Layering** (`server/architecture.test.ts` checks every import): the *platform* is what every suite stands on
   (projects, Home, assistant, storage, `components/ui`, `lib/api.ts`...: its `PLATFORM` list); a *suite* is its
   own folders (`shared/<suite>/`, `server/<suite>/`, `src/suites/<suite>/`), and video is everything else at the
@@ -575,7 +584,7 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   the channel's PITCH in whole semitones), and shows its own window when the channel's button is clicked. Its
   settings window is FL's wrapper (`plugin-tab.tsx`): the channel's knobs, and the plugin's presets (its own
   programs, and the user's saved in the engine's data folder, `PluginHost::savePreset`; `/api/engine/presets`). **A plugin's settings aren't in the document**: they're
-  a file beside it in its package (`<project>.vaudio/plugins/<channel id>.bin`), written by the engine every few seconds when
+  a file beside it in its package (`<project>.yt/plugins/<channel id>.bin`), written by the engine every few seconds when
   they've changed, when the channel is removed (so undoing that brings the plugin back as it was) and when the
   engine quits. So what's turned inside a plugin's window isn't an undo step, as in FL Studio. **Musical time is whole ticks, `PPQ` (96) to a quarter note**, never
   seconds; a step is `STEP_TICKS` (24). A step of the sequencer is simply a note starting on the grid
@@ -993,6 +1002,11 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   and analysis tools reach MCP; review/permission/profile writes are user routes. Native FLP/PTX/presets stay
   opaque until a tested adapter exists. Reviewed WAV excerpts retain parent/crop provenance and use B's local
   measurements; hosted listening additionally rechecks the dataset source's grant.
+- **Serum presets** (`docs/serum/`, the `serum-presets` skill in `.claude/skills/`): we design Serum 2 presets in
+  Théo's taste and he scores them round by round. `server/music/serum/` reads and writes `.SerumPreset` files (Xfer's
+  container, Serum's CBOR) from a readable spec (`preset-format.md`); `taste.md` is the research on his 118 starred
+  presets; his verdicts are in `data/serum-research/feedback.md` (git-ignored, the main checkout's). Serum runs in
+  the offline engine to check a preset (`scripts/serum-readout.ts`) and to render a round (`scripts/serum-audition.ts`).
 - The assistant's tools: specs in `shared/music/tools.ts`, handlers in `src/suites/music/tools.ts`, and their
   edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested); the mixer's in
   `mixer/tool-edits.ts` (`findTrack`: by id, number, "master" or name; `describeMixer` is `get_mixer`). Channels
@@ -1010,6 +1024,11 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   FL's way to silence the effects' tails: `Engine::silence` lets go of the device as an export does,
   resets every plugin, drops our effects' states (each registry's `clear`) and the delay lines, and makes
   the song again from silence.
+- Hosted plugins are told where the song is (`PlayHead.h`): each sequencer (playback's, the export's) fills in a
+  playhead at the start of every block from the song (tempo, time signature, position, playing, loop) and gives
+  it to every plugin it plays, so their synced LFOs and delays follow the song. The tempo is the song's own (with
+  tempo clips the engine plays a warped song at that tempo). Tested by `playhead.integration.test.ts`
+  (VAUDIO_TEST_EFFECT_PLAYHEAD=report: the test effect puts out what it's told).
 - Commands run on the engine's message thread; the audio callback never waits. A song reaches it through an
   atomic pointer and goes back through a lock-free queue to be deleted (`Sequencer::setSong`, `collectGarbage`);
   requests are atomics and queues; the plugin bench has a lock the audio thread only tries (a block goes out
@@ -1069,11 +1088,15 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
 
 ## Projects are files
 
-- A project is a package, `Name.vaudio/` (`server/packages.ts`): `project.json`, `meta.json` (id, suite, dates),
-  `media/<id>/` and whatever its suite keeps beside them. New ones go in the location (`~/Documents/Vaudio`; Settings ›
-  General changes it; `EDITOR_PROJECTS_DIR`; a given `EDITOR_DATA_DIR` keeps them in its own `Documents/Vaudio`, so
+- A project is a package, `Name.yt/` (`server/packages.ts`): `project.json`, `meta.json` (id, suite, dates),
+  `media/<id>/` and whatever its suite keeps beside them. New ones go in the location (`~/Documents/YTStudio`; Settings ›
+  General changes it; `EDITOR_PROJECTS_DIR`; a given `EDITOR_DATA_DIR` keeps them in its own `Documents/YTStudio`, so
   tests and throwaway setups never touch the user's). The server keeps the recents in `data/projects.json`: a path per
   project, and what was known of it, for when its package isn't there (`ProjectSummary.missing`).
+- The app was called Vaudio: `.vaudio` packages still open (`isPackageName`, `LEGACY_EXTENSIONS`) and become `.yt` as
+  the folder follows its name (`fitsName`); `Documents/Vaudio` moves to `Documents/YTStudio` on startup
+  (`migrate.ts`), recents find theirs (`relocated`), and the desktop app moves its profile from `Vaudio` too. Internal
+  ids keep the old name (`vaudio:` plugin ids, `vaudio.*` storage keys, `VAUDIO_*` env vars): they're in saved data.
 - Media keep their URLs (`/files/media/<id>/...`), served from whichever package holds them (`MediaLibrary`'s
   `projectDirs`, `filesDir`): never build a path from a media id or a project id yourself. A project's own files are
   under `ProjectStore.dir(id)` (the audio engine's `projectDir` option); `DataPaths.projectDir` is the old layout.

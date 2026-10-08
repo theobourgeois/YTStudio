@@ -1,5 +1,5 @@
 /**
- * The music editor's menus, in the tab strip (`SuiteMenuBar`): FL Studio's commands in the app's menus, Patterns
+ * The music editor's menus, in its menu row (`SuiteMenuBar`): FL Studio's commands in the app's menus, Patterns
  * and Tools its own. Every item runs what its key does (`run`: the workspace's `runKey`), so the two never differ.
  */
 import { createId } from "@shared/ids";

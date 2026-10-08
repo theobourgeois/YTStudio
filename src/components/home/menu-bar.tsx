@@ -1,6 +1,6 @@
 import { type KeyboardEvent, type ReactNode, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { SUITE_IDS, SUITES, type SuiteId } from "@shared/suites";
+import { SUITE_IDS, SUITES } from "@shared/suites";
 import { cn } from "cn";
 import { create } from "zustand";
 import {
@@ -15,13 +15,9 @@ import { FILE_MANAGER } from "@/lib/key-labels";
 import { useLayout } from "@/stores/layout";
 import { projectSuite, useProjects } from "@/stores/projects";
 import { useSettings } from "@/stores/settings";
-import { clientSuite } from "@/suites";
 import { SETTINGS_KEYS } from "@/components/settings/settings-window";
 import { showOpenDialog } from "./open-project-dialog";
 import { CLOSE_TAB_KEYS, HOME_KEYS, NEW_PROJECT_KEYS, OPEN_KEYS, PROJECT_SEARCH_KEYS } from "./project-search-dialog";
-import { log } from "@/lib/log";
-
-const logger = log("menus");
 
 /** One of a suite's own menus (Image, Patterns…): its name and its items (`components/ui/dropdown-menu`'s). */
 export interface SuiteMenu {
@@ -45,49 +41,34 @@ export interface SuiteMenus {
   window: ReactNode;
 }
 
-/** Where the menus go (the tab strip's slot), and whether a suite's workspace has put its own there. */
+/** Where the menus go (the menu row's slot, `MenuRow`), and whether a suite's workspace has put its own there. */
 const useMenuSlot = create<{ slot: HTMLElement | null; claimed: boolean }>(() => ({ slot: null, claimed: false }));
 
-/** Every menu name a suite's bar has, in order (`appMenus`, with the suite's own from its `ClientSuite.menus`). */
-const menuNames = (suite: SuiteId) => ["File", "Edit", "View", ...clientSuite(suite).menus, "Window"];
+/**
+ * The slot's ref: one function for good, so a header rendering again doesn't let go of the slot and take it back
+ * (which would unmount the menus, a menu closing among them, and leave Radix a layer that eats the next Escape).
+ */
+const setSlot = (slot: HTMLElement | null) => useMenuSlot.setState({ slot });
 
 /**
- * In the tab strip: the open suite's menus once its workspace gives them (`SuiteMenuBar`), else the app's own.
- * It's always as wide as the widest suite's bar (each laid out unseen in the same cell, so in whatever font
- * is chosen), so the tabs after it stay where they are whichever project is shown, Home and loading included.
+ * In the menu row (`MenuRow`, under the tabs): the open suite's menus once its workspace gives them
+ * (`SuiteMenuBar`), else the app's own (while a project loads).
  */
 export function MenuBarSlot() {
   const claimed = useMenuSlot((s) => s.claimed);
   return (
-    <div className="grid shrink-0 self-center">
-      {SUITE_IDS.map((suite) => (
-        <div key={suite} aria-hidden className="invisible col-start-1 row-start-1 flex">
-          {menuNames(suite).map((name) => (
-            <span key={name} className={MENU_NAME}>
-              {name}
-            </span>
-          ))}
-        </div>
-      ))}
-      <div ref={(slot) => useMenuSlot.setState({ slot })} className="col-start-1 row-start-1 flex">
-        {!claimed && <MenuBar menus={appMenus()} />}
-      </div>
+    <div ref={setSlot} className="flex shrink-0 self-center">
+      {!claimed && <MenuBar menus={appMenus()} />}
     </div>
   );
 }
 
 /**
- * A suite's menus, drawn in the tab strip. Its workspace renders this, so the items read its store only once
+ * A suite's menus, drawn in its menu row. Its workspace renders this, so the items read its store only once
  * a project is open, and the windows they open live where the workspace keeps them.
  */
 export function SuiteMenuBar(menus: SuiteMenus) {
   const slot = useMenuSlot((s) => s.slot);
-  if (import.meta.env.DEV) {
-    // The strip's room is worked out from the names the suite declares: they must be these.
-    const suite = projectSuite(useProjects.getState().openId);
-    const names = ["File", "Edit", "View", ...(menus.menus ?? []).map((m) => m.label), "Window"].join();
-    if (suite && menuNames(suite).join() !== names) logger.error(`the ${suite} suite's \`menus\` (${menuNames(suite).join()}) aren't its menu bar's (${names})`);
-  }
   useLayoutEffect(() => {
     useMenuSlot.setState({ claimed: true });
     return () => useMenuSlot.setState({ claimed: false });
@@ -159,7 +140,7 @@ function FileItems({ children }: { children?: ReactNode }) {
   );
 }
 
-/** A menu's name in the bar (and in the slot's unseen copies, which must measure the same). */
+/** A menu's name in the bar. */
 const MENU_NAME = "flex h-7 items-center px-2 text-[13px]";
 
 /**
@@ -201,7 +182,7 @@ function MenuBar({ menus }: { menus: SuiteMenu[] }) {
           <DropdownMenuContent
             align="start"
             // Gone at once when closed, as a desktop app's (a menu fading out still takes Escape from what opened).
-            className="min-w-56 data-[state=closed]:animate-none"
+            className="min-w-56 data-[state=closed]:animate-none!"
             onKeyDown={(e) => step(e, i)}
             // The focus isn't given back to the bar, as a desktop app's: a window or dialog the item opened keeps it,
             // and the editor's keys (Space to play) aren't a press of the menu's name.

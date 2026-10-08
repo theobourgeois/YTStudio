@@ -13,7 +13,7 @@ import { rememberClips } from "./online";
 import { useBrowser } from "./store";
 
 /**
- * The Browser's Online tab (`docs/fl-studio/browser.md`, where Vaudio differs): search YouTube or paste a link
+ * The Browser's Online tab (`docs/fl-studio/browser.md`, where YTStudio differs): search YouTube or paste a link
  * from any site yt-dlp reads, and use a clip's sound as any of the Browser's files: pressed, it plays (the
  * engine's preview, once it's downloaded; pressed again, it pauses, and again it goes on); dragged onto the rack, a channel or the Playlist, it comes into the
  * song. Kept mounted while the Files tab shows, so its results stay.

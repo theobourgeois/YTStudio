@@ -77,8 +77,8 @@ describe("the log", () => {
       await vi.waitFor(() => expect(statSync(logFile()!).size).not.toBe(before), { timeout: 2000 });
     };
     for (let n = 0; n < 6; n++) await round(`big-${n}`);
-    expect(existsSync(path.join(dir, "vaudio.1.log"))).toBe(true);
-    expect(statSync(path.join(dir, "vaudio.1.log")).size).toBeGreaterThan(4_000_000);
+    expect(existsSync(path.join(dir, "ytstudio.1.log"))).toBe(true);
+    expect(statSync(path.join(dir, "ytstudio.1.log")).size).toBeGreaterThan(4_000_000);
     expect(statSync(logFile()!).size).toBeLessThan(2_000_000);
     expect((await lines()).some((l) => String(l.message).includes("keeping up"))).toBe(false);
   });

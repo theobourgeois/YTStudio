@@ -133,7 +133,7 @@ export const api = {
   projectClosed: (id: string) => request<ProjectSummary>(`/api/projects/${id}/closed`, { method: "POST" }),
   /** Show its package in Finder. */
   revealProject: (id: string) => request<void>(`/api/projects/${id}/reveal`, { method: "POST" }),
-  /** The app's log file (`<data>/logs/vaudio.log`), shown in Finder. */
+  /** The app's log file (`<data>/logs/ytstudio.log`), shown in Finder. */
   revealLog: () => request<void>("/api/log/reveal", { method: "POST" }),
   /** Its card's picture, drawn by the tab (a JPEG or PNG, at most 4 MB): for suites the server can't render. */
   saveCover: (projectId: string, image: Blob) =>

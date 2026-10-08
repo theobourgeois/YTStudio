@@ -16,13 +16,13 @@ const dataDir = path.resolve(process.env.EDITOR_DATA_DIR || path.join(REPO_ROOT,
 export const config = {
   dataDir,
   /**
-   * Where new projects are saved (each a package, `Name.vaudio`) until the user picks another folder:
-   * `~/Documents/Vaudio`, or, when a data folder is given (tests, throwaway setups), its `Documents/Vaudio` (as the real one, `~/Documents/Vaudio`), so
+   * Where new projects are saved (each a package, `Name.yt`) until the user picks another folder:
+   * `~/Documents/YTStudio`, or, when a data folder is given (tests, throwaway setups), its `Documents/YTStudio` (as the real one, `~/Documents/YTStudio`), so
    * they never reach the user's Documents. The desktop app sets it for its own data folder.
    */
   projectsDir: path.resolve(
     process.env.EDITOR_PROJECTS_DIR ||
-      (process.env.EDITOR_DATA_DIR ? path.join(dataDir, "Documents", "Vaudio") : path.join(os.homedir(), "Documents", "Vaudio")),
+      (process.env.EDITOR_DATA_DIR ? path.join(dataDir, "Documents", "YTStudio") : path.join(os.homedir(), "Documents", "YTStudio")),
   ),
   port: Number(process.env.EDITOR_SERVER_PORT) || 5311,
   host: "127.0.0.1",

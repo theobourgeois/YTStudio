@@ -53,7 +53,7 @@ A plugin window with the focus doesn't stop FL's shortcuts working: **Space stil
   "Allow FL Studio to process keyboard presses when the keyboard focus option is on" and "Allow FL
   Studio to undo when Ctrl+Z is pressed".
 
-## Where Vaudio differs today
+## Where YTStudio differs today
 
 A plugin runs in the audio engine, a program of its own (so a plugin that crashes takes the engine
 down, not the app), and a window can't be put inside another program's window on a Mac. So the
@@ -62,7 +62,7 @@ plugin's window is the engine's, made to act like part of the app (`engine/src/E
 the system too, in the desktop app, so the two kinds stack among each other as FL's windows do
 (`docs/windows.md`, Native windows):
 
-| FL Studio | Vaudio |
+| FL Studio | YTStudio |
 | --- | --- |
 | Inside FL's window, above the playlist, below whatever was used since | A window of its own, at the same (floating) level as the app's windows, so a click brings it in front of any of them and a click on one of them in front of it: the rack can be in front of a plugin that is in front of the Playlist. The app's main window (its toolbar) is below them all. While another app is in use the windows go to the ordinary level (behind it, as an app's windows are) and come back, in the order they were, with the app. In the desktop app they're hidden while the app's window is minimised or hidden, and move along when it moves. In a browser tab (`pnpm dev`) the plugin's is an ordinary window, and the app's windows are boxes in the page |
 | On Windows: never behind FL, minimised with it, no taskbar button of its own | The same on Windows, and the editor's windows (rack, Piano roll, Playlist, mixer) are native windows owned by the main window too, so a click brings any of them in front of a plugin and the plugin back in front of them; a plugin's window never closes because the app was clicked. The details: the desktop app gives the engine its main window's handle (`HostWindow.handle`) and the plugin's window becomes that window's own (`setWindowOwner`, `engine/src/MacWindow.cpp`): always above it, never above another program, hidden while it's minimised, opened over it, with no taskbar button or Alt+Tab entry (a tool window). No always-on-top level there. Without the handle (a browser tab) it's an ordinary window with a taskbar button |

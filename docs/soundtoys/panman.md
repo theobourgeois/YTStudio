@@ -5,7 +5,7 @@ Soundtoys' **PanMan** ("Rhythmic Automatic Panner"), from Soundtoys' own **PanMa
 (below), the Tremolator manual (whose Groove PanMan shares), Soundtoys' product page and release log, and
 reviews (Sound On Sound 2010, MusicRadar, Resident Advisor, Barry Rudolph). Anything the sources don't give
 is marked **not stated**; anything worked out rather than read is marked **(inferred)**. The last sections
-are ours: [what's decided](#decided), [where Vaudio differs](#where-vaudio-differs) and
+are ours: [what's decided](#decided), [where YTStudio differs](#where-ytstudio-differs) and
 [how it's built](#how-its-built).
 
 The pictures in `img/` are the manual's own screenshots, © Soundtoys, kept here only as a private
@@ -224,9 +224,9 @@ researched closely, in our UI). What was chosen, to check with him:
   as it's driven (at unity gain, Clean changes nothing until it nears full scale).
 - **Moves don't click**: the position glides over 1 ms whatever the Smoothing, as a VCA's control would.
 
-## Where Vaudio differs
+## Where YTStudio differs
 
-| What | Soundtoys | Vaudio |
+| What | Soundtoys | YTStudio |
 | --- | --- | --- |
 | Look | Black panel, walnut cheeks, red LCDs, amber buttons | The app's surfaces, knobs and LCDs; the meter's LEDs in its colours |
 | Manual Trigger from MIDI | Yes | A click on its button (live: not recorded or exported). There's no MIDI routing to effects |

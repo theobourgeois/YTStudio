@@ -1,6 +1,6 @@
 /**
  * The app's log: what the server, the audio engine, the desktop app and the tab did that's worth knowing later,
- * above all what went wrong. A line of JSON each in `<data>/logs/vaudio.log` (moved aside to `vaudio.1.log`… as
+ * above all what went wrong. A line of JSON each in `<data>/logs/ytstudio.log` (moved aside to `ytstudio.1.log`… as
  * it grows, a few kept), and the console in development.
  *
  * Logging never waits on the disk: lines are gathered and appended in the background a few times a second, and
@@ -38,7 +38,7 @@ export interface LoggingOptions {
   about?: Record<string, unknown>;
 }
 
-const FILE_NAME = "vaudio.log";
+const FILE_NAME = "ytstudio.log";
 /** A file is moved aside past this, and `KEEP` files are kept in all: at most about 15 MB. */
 const MAX_BYTES = 5 * 1024 * 1024;
 const KEEP = 3;
@@ -299,7 +299,7 @@ class LogFile {
     }
   }
 
-  /** `vaudio.log` becomes `vaudio.1.log`, that `vaudio.2.log`…; the oldest is written over. */
+  /** `ytstudio.log` becomes `ytstudio.1.log`, that `ytstudio.2.log`…; the oldest is written over. */
   private async rotate() {
     const name = (n: number) => path.join(this.dir, n === 0 ? FILE_NAME : FILE_NAME.replace(/\.log$/, `.${n}.log`));
     for (let n = KEEP - 1; n >= 1; n--) await fs.rename(name(n - 1), name(n)).catch(() => {});

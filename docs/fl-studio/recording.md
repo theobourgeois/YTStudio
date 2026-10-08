@@ -7,7 +7,7 @@ How FL Studio records audio (a vocal, a guitar) into a song, from the manual (`r
 hardly changed since FL 20, and what's newer says so. Recording notes (MIDI) is [midi.md](midi.md).
 
 The last sections are ours: [what we'll leave out](#what-well-leave-out), [what's decided](#decided-with-théo-2026-10-01),
-[how it's built](#how-its-built) and [where Vaudio differs](#where-vaudio-differs).
+[how it's built](#how-its-built) and [where YTStudio differs](#where-ytstudio-differs).
 
 ## What it is
 
@@ -227,7 +227,7 @@ the engine moves samples and says where they were.
 
 - The engine opens **no input until one is chosen** in Settings (Input device), and again at start from
   what it saved (`device.xml`): someone who never records is never asked.
-- Both Vaudio's Info.plist (`mac.extendInfo` in `scripts/desktop.ts`) and the engine's
+- Both YTStudio's Info.plist (`mac.extendInfo` in `scripts/desktop.ts`) and the engine's
   (`MICROPHONE_PERMISSION_ENABLED` in `engine/CMakeLists.txt`) say why it wants the microphone. The
   desktop app asks (`systemPreferences.askForMediaAccess`, `electron/main.ts`, through the preload's
   `microphone` and `askMicrophone` in `src/lib/desktop.ts`) as an input device or a track's input is chosen;
@@ -309,9 +309,9 @@ the engine moves samples and says where they were.
   `record_audio` (start, and stop answering with the takes); `get_mixer` says what's armed.
 - **E2e**: the stand-in engine records (a tone per armed track and pass, 10 ms of latency at the head).
 
-## Where Vaudio differs
+## Where YTStudio differs
 
-| FL Studio | Vaudio |
+| FL Studio | YTStudio |
 | --- | --- |
 | Pickup: EXT, MIX, FX, EQ, LVL, POST | The dry input only (EXT), heard through the track (Théo) |
 | A track can be armed with no input, recording what's routed into it | Only a track with an input can be armed |

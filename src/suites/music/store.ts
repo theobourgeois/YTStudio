@@ -40,6 +40,8 @@ interface MusicState {
   rename: (name: string) => Promise<void>;
   /** Apply an edit as one undo step. */
   commit: (update: (song: MusicProject) => MusicProject) => void;
+  /** Put back a whole song as it was (the assistant's checkpoints), as one undo step; its name stays as it is now. */
+  restore: (song: MusicProject) => void;
   undo: () => void;
   redo: () => void;
   selectPattern: (id: string) => void;
@@ -191,6 +193,14 @@ export const useMusic = create<MusicState>((set, get) => {
       const { history } = get();
       if (!history) return;
       const next = commit(history, draftEdit(update));
+      if (next !== history) set({ history: next });
+    },
+
+    restore(song) {
+      const { history } = get();
+      if (!history) return;
+      const name = history.doc.name;
+      const next = commit(history, () => (song.name === name ? song : { ...song, name }));
       if (next !== history) set({ history: next });
     },
 

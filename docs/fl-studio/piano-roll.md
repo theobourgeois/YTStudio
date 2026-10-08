@@ -4,7 +4,7 @@ How FL Studio's Piano roll works, from the manual (`pianoroll.htm`, `pianoroll_m
 `basics_shortcuts.htm`) and from Théo. See [README.md](README.md) for the sources and for what holds
 everywhere (knobs, menus, windows, the left button does and the right button undoes).
 
-The last sections are ours: [where Vaudio differs](#where-vaudio-differs) and what was decided.
+The last sections are ours: [where YTStudio differs](#where-ytstudio-differs) and what was decided.
 
 ## Anatomy
 
@@ -187,7 +187,7 @@ not a modal: the Piano roll stays usable beside it (Théo).
   everything, **Shift+5** zooms to the time selection. Ctrl+right-drag zooms to a rectangle.
 - **Vertical zoom**: the small box above the vertical scrollbar, dragged up and down; or middle-button
   drag on the keyboard; or **Ctrl (⌘) + middle-button drag** on the grid, up for taller keys and down for
-  shorter (Théo). Vaudio does the last two, about the key under the pointer.
+  shorter (Théo). YTStudio does the last two, about the key under the pointer.
 - **Shift+0** centres the view on the playhead.
 
 ## With the Channel Rack
@@ -262,7 +262,7 @@ changes the note's property; Ctrl+right-click zooms to the selection.
 
 ---
 
-## Where Vaudio differs
+## Where YTStudio differs
 
 Built from this document (`src/suites/music/piano/`); every behaviour in the first part has a test in
 `e2e/piano.spec.ts` or beside the code. Decided with Théo: quantize is in (he uses it all the time);
@@ -293,7 +293,7 @@ right-click on one switches channel); zoom (Ctrl+wheel, Page Up / Down, Shift+1�
 (wheel, Shift+wheel, middle-drag); the keyboard sounds while held; a channel whose notes aren't steps
 shows a miniature of them in the rack, which opens them.
 
-| What | FL Studio | Vaudio now |
+| What | FL Studio | YTStudio now |
 | --- | --- | --- |
 | Backspace | Toggles the global snap | Deletes the selection too (a Mac keyboard has no Delete key) |
 | Paint | Monophonic: replaces the notes it overlaps | Lays notes over what's there |

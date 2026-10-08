@@ -37,6 +37,23 @@ export interface SuiteChat {
   contextHint: string;
 }
 
+/**
+ * A suite's documents, for the assistant's checkpoints (`stores/checkpoints.ts`): what a project is before and
+ * after each answer's changes, and putting one back. A document is whatever the suite saves and undoes, compared by
+ * identity, so `current` and `snapshot` hand back the same object until it changes; mid-gesture, the one from
+ * before the gesture.
+ */
+export interface SuiteDocuments {
+  /** The project's document while it's open here, else null. */
+  current(projectId: string): unknown;
+  /** Hook: the same. */
+  useCurrent(projectId: string): unknown;
+  /** The project's document now, open or not (null if it can't be had). `exact`: compared by identity, else by content. */
+  snapshot(projectId: string): Promise<{ doc: unknown; exact: boolean } | null>;
+  /** Put `doc` back in the open project as one undo step, keeping its name as it is now. */
+  restore(projectId: string, doc: unknown): void;
+}
+
 /** A suite's section of Settings (`components/settings/`). */
 export interface SuiteSettings {
   /** The section's name ("Video editor"). */
@@ -60,11 +77,6 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
   icon: IconType;
   /** Classes for its icon's tile (background and colour), on the Home screen and in the New project picker. */
   tint: string;
-  /**
-   * The names of its own menus (`SuiteMenus.menus`, between View and Window), in order: the tab strip keeps
-   * room for the widest suite's, so its tabs don't move as projects of different suites are switched between.
-   */
-  menus: readonly string[];
   /** What its Home card plays while the pointer is on it: a video, or a sound over its waveform. None: its picture is all there is. */
   preview?: "video" | "sound";
   /**
@@ -96,6 +108,8 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
   messageContext(): { context: string; label: string } | null;
   /** Run one of the suite's assistant tools (`shared/suite-tools.ts`). Throwing is fine: it becomes an error result. */
   runTool(name: string, input: Record<string, unknown>, ctx: ToolRunContext): Promise<ToolResult>;
+  /** Its documents, for the assistant's checkpoints. */
+  documents: SuiteDocuments;
   /**
    * Of files dropped on the Home screen, those it starts a project with (the first suite in `SUITE_IDS` that
    * takes any gets them, put in the new project by `importFiles`).

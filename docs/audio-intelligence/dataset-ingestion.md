@@ -30,7 +30,7 @@ Three operations must be named separately in the interface:
 - **Add session archive:** preserve the native project and discover included media; extraction coverage is displayed.
 - **Capture from DAW:** a companion workflow running in the engineer's installed DAW to export verified metadata, settings, and renders. Its feasibility checks belong early in planning for session-level ingestion.
 
-Accepting an FLP/PTX archive must never imply complete parsing, playback, conversion into a Vaudio song, or plugin parameter recovery.
+Accepting an FLP/PTX archive must never imply complete parsing, playback, conversion into a YTStudio song, or plugin parameter recovery.
 
 ## Full-session capture requirements
 
@@ -145,7 +145,7 @@ AAF/OMF may later help with timeline/media exchange, but are not the proposed tr
 
 Evaluate the official Pro Tools Scripting SDK for collecting session identity, track lists, available metadata, and supported export operations. Avid exposes a language-independent API, but each required command and version must be checked against the installed SDK. [Avid SDK](https://developer.avid.com/scripting/)
 
-The companion runs where Pro Tools and required AAX plugins are installed. Produce a portable manifest and audio renders; do not attempt to load AAX state directly into Vaudio's existing VST3/AU host. Route unsupported fields to unknown and retain rendered outcomes.
+The companion runs where Pro Tools and required AAX plugins are installed. Produce a portable manifest and audio renders; do not attempt to load AAX state directly into YTStudio's existing VST3/AU host. Route unsupported fields to unknown and retain rendered outcomes.
 
 SDK eligibility, licensing/distribution, export support, hardware inserts, sidechains, and parameter/automation access are investigation gates. UI automation is a separate fallback, not an assumed first implementation.
 
@@ -222,7 +222,7 @@ Retrieval first filters by processing stage, source role, genre/arrangement rele
 
 ## Proposed storage, modules, and routes
 
-Keep datasets outside `.vaudio` song packages, with explicit links from projects to engineer/profile IDs. A portable dataset export contains its manifest, originals or selected audio, reviews, and provenance; projects need not duplicate the whole library. Profile links should indicate whether they are pinned or follow newer versions.
+Keep datasets outside `.yt` song packages, with explicit links from projects to engineer/profile IDs. A portable dataset export contains its manifest, originals or selected audio, reviews, and provenance; projects need not duplicate the whole library. Profile links should indicate whether they are pinned or follow newer versions.
 
 Candidate module boundaries: `shared/music/datasets/` for pure records/validation; `server/music/datasets/` for store, importer, adapters, pairing, and profile service; `src/suites/music/datasets/` for the workspace; independent hearing modules as specified in the other plan.
 

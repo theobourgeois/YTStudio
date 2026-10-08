@@ -9,7 +9,7 @@ import { createId } from "../shared/ids.ts";
 import { DEFAULT_PROJECT_NAME, DEFAULT_SUITE, type SuiteDocument, type SuiteId, isSuiteId, SUITE_IDS, suiteNoun } from "../shared/suites.ts";
 import type { MediaAsset, ProjectLocation, ProjectSummary, ProjectTemplates } from "../shared/types.ts";
 import type { MediaLibrary } from "./media.ts";
-import { PROJECT_EXTENSION, fileName, isInside, moveToTrash, movePath, namedAfter, packageName, samePath, uniquePackage } from "./packages.ts";
+import { PROJECT_EXTENSION, fileName, fitsName, isInside, isPackageName, moveToTrash, movePath, namedAfter, packageName, relocated, samePath, uniquePackage } from "./packages.ts";
 import { revealInFinder } from "./process.ts";
 import { createLimiter } from "./queue.ts";
 import { type DataPaths, HttpError, MAX_NAME_LENGTH, isObject, isValidId, parseName, readJson, writeJson, writeJsonDurably } from "./storage.ts";
@@ -170,7 +170,7 @@ function userPath(raw: unknown, what: string): string {
 }
 
 export interface ProjectStoreOptions {
-  /** Where new projects go unless the user picks another folder (`~/Documents/Vaudio`). */
+  /** Where new projects go unless the user picks another folder (`~/Documents/YTStudio`). */
   location: string;
   /** Put a package in the Trash (default: `moveToTrash`). Packages inside the data folder are deleted instead. */
   trash?: (dir: string) => Promise<void>;
@@ -220,15 +220,15 @@ export class ProjectStore {
   /** Load the starting points and the recents (a package found where it was is loaded; one that isn't is `missing`). */
   async load(): Promise<void> {
     const saved = parseRecents(await readJson<unknown>(this.paths.recentsFile));
-    if (saved.location) this.location = saved.location;
+    if (saved.location) this.location = relocated(saved.location);
     for (const entry of await fs.readdir(this.paths.templates, { withFileTypes: true }).catch(() => [])) {
-      if (entry.isDirectory() && entry.name.endsWith(PROJECT_EXTENSION)) {
+      if (entry.isDirectory() && isPackageName(entry.name)) {
         await this.mount(path.join(this.paths.templates, entry.name), { template: true });
       }
     }
     for (const recent of saved.recent) {
       if (this.entries.has(recent.id) || this.missing.has(recent.id)) continue;
-      const entry = await this.mount(recent.path, { openedAt: recent.openedAt, follow: "document" }).catch((err) => {
+      const entry = await this.mount(relocated(recent.path), { openedAt: recent.openedAt, follow: "document" }).catch((err) => {
         logger.warn(`couldn't open ${recent.path}: ${err instanceof Error ? err.message : err}`);
         return null;
       });
@@ -305,7 +305,7 @@ export class ProjectStore {
   /** New projects go in another folder (made if need be). */
   async setLocation(body: unknown): Promise<ProjectLocation> {
     const dir = userPath(isObject(body) ? body.path : undefined, "folder");
-    if (dir.toLowerCase().endsWith(PROJECT_EXTENSION)) throw new HttpError(400, "That's a project: pick the folder to keep projects in.");
+    if (isPackageName(dir)) throw new HttpError(400, "That's a project: pick the folder to keep projects in.");
     try {
       await fs.mkdir(dir, { recursive: true });
     } catch {
@@ -676,7 +676,7 @@ export class ProjectStore {
     if (!template && follow === "document") {
       const saved = await readJson<unknown>(path.join(dir, DOC_FILE));
       const name = isObject(saved) && typeof saved.name === "string" ? saved.name : null;
-      if (name !== null && !namedAfter(dir, name)) {
+      if (name !== null && !fitsName(dir, name)) {
         const target = uniquePackage(path.dirname(dir), name, dir);
         try {
           await movePath(dir, target);
@@ -740,7 +740,7 @@ export class ProjectStore {
   /** Rename a project's package after it, unless it's open or busy (then later). Run inside `writes`. */
   private async followName(id: string): Promise<void> {
     const entry = this.entries.get(id);
-    if (!entry || entry.template || this.open.has(id) || namedAfter(entry.dir, entry.stats.name)) return;
+    if (!entry || entry.template || this.open.has(id) || fitsName(entry.dir, entry.stats.name)) return;
     if (this.library.busy(id)) {
       const timer = setTimeout(() => {
         this.retries.delete(timer);

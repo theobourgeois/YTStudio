@@ -74,7 +74,7 @@ export interface AppOptions {
   musicExports?: Partial<MusicExportOptions>;
   /**
    * Where new projects are saved until the user picks another folder (default: `config.projectsDir` for the
-   * configured data folder, else the given data folder's `Documents/Vaudio`, so tests stay inside it).
+   * configured data folder, else the given data folder's `Documents/YTStudio`, so tests stay inside it).
    */
   projectsDir?: string;
   /** Put a project's package in the Trash (the desktop app's own; default: `moveToTrash`). */
@@ -131,7 +131,7 @@ export async function createApp({
   void ffmpegVersion();
   const paths = new DataPaths(dataDir);
   await paths.init();
-  const location = projectsDir ?? (path.resolve(dataDir) === config.dataDir ? config.projectsDir : path.join(dataDir, "Documents", "Vaudio"));
+  const location = projectsDir ?? (path.resolve(dataDir) === config.dataDir ? config.projectsDir : path.join(dataDir, "Documents", "YTStudio"));
   await migrateData(paths, location);
   // The photo suite's helper process (the only code that parses image files), started on its first request.
   const photoHelper = new PhotoHelper(PHOTO_HELPER);

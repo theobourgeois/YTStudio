@@ -251,7 +251,7 @@ on every core), the same songs, 60 seconds of each:
 The parallel export is the same, sample for sample, as the one-thread one (tested). Plugins' offline-quality modes (always on, decided) can make a render slower
 than playing it live. That's the price of FL's better-than-live render.
 
-## Where Vaudio differs
+## Where YTStudio differs
 
 **Same as FL Studio**: ⌘R (WAV) and ⌘⇧R (MP3) and the save dialog first, then the window; Song or
 Pattern; the length from the time selection, else to the end of the last bar with something in it; the
@@ -259,7 +259,7 @@ tail; WAV, MP3, FLAC, OGG, M4A and MIDI in one render; WAV 16 / 24 / 32-bit floa
 / 24-bit and its level; dither for 16 bits; Split mixer tracks (stems) with the mix if asked; plugin delay
 trimmed; plugins told they're rendering offline; Show in Finder when done; Stop.
 
-| What | FL Studio | Vaudio |
+| What | FL Studio | YTStudio |
 | --- | --- | --- |
 | While it renders | The song is locked | The song can be edited: it's exported as it was at Start. Playing waits, and says why; plugin windows hide until it's done |
 | Speed | One thread, as fast as it goes | Every core: 45× real time with 24 Serums on an M5 Pro, against 4.3× played |

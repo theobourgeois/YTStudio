@@ -18,7 +18,7 @@ Overall: implementation in progress on Windows.
 - `server/config.ts`, `electron/main.ts` and `scripts/desktop.ts` hardcode Mac engine bundle paths.
 - Development launchers spawn `pnpm` directly; desktop development also uses the extensionless Electron shim. Windows launch behavior needs correction/verification.
 - Windows installer targets already exist in the desktop build configuration; engine resources remain Mac-specific.
-- `.vaudio` projects are directories, with Finder package metadata only on Mac.
+- `.yt` projects are directories, with Finder package metadata only on Mac.
 - Serum preset database automatic discovery currently only covers macOS.
 - In this session, Node is on PATH. pnpm, FFmpeg, CMake and Ninja were not found by `Get-Command`; this does not rule out installations outside PATH. `node_modules` is absent. A C++ toolchain has not been exhaustively searched.
 
@@ -30,7 +30,7 @@ Append dated entries with changes, checks, failures and next steps. Use Pending 
 
 - Plan committed and pushed to main as `e97ce6a` after rebasing over remote updates.
 - Installed pnpm 10.34.6 and repository dependencies. pnpm 12 was incompatible with the repository's existing build approval settings; switched to 10.
-- Installed FFmpeg/FFprobe 9.0.2, portable CMake 4.4.3 and Ninja 1.13.1 under `%LOCALAPPDATA%/Vaudio/tools`; added their executable directories to the user PATH. The initial winget installer processes stalled at elevation and were stopped. Existing Visual Studio 2022 MSVC 19.44 and Windows SDK 10.0.26100.0 are usable through Developer PowerShell.
+- Installed FFmpeg/FFprobe 9.0.2, portable CMake 4.4.3 and Ninja 1.13.1 under `%LOCALAPPDATA%/YTStudio/tools`; added their executable directories to the user PATH. The initial winget installer processes stalled at elevation and were stopped. Existing Visual Studio 2022 MSVC 19.44 and Windows SDK 10.0.26100.0 are usable through Developer PowerShell.
 - Downloaded Electron and Playwright Chromium for desktop/e2e verification.
 - Shared engine path resolution now selects Windows `.exe`, macOS bundle and Linux binary paths; desktop packaging uses the corresponding artifact name.
 - Development invokes pnpm through Node and Electron through its real executable. Windows shutdown uses taskkill for subprocess trees. Non-Mac desktop apps quit when all windows close.
@@ -49,7 +49,7 @@ Append dated entries with changes, checks, failures and next steps. Use Pending 
 - Windows project picker selects directories explicitly. Assistant discovery supports this machine's npm-installed native Claude and Codex JS entry point; Serum classification reads its Windows preferences, including a custom preset folder.
 - Reuse installed Electron during packaging to avoid repeated executable archive renames, which produced intermittent Windows EPERM locks.
 - Generated build/binary/data folders are excluded from Vite watching: packaging otherwise caused an EBUSY watcher crash during e2e. Full music e2e is being rerun after this fix.
-- Installer artifact: `release/Vaudio Setup 0.1.0.exe`; unpacked app: `release/win-unpacked/Vaudio.exe` (generated, gitignored).
+- Installer artifact: `release/YTStudio Setup 0.1.0.exe`; unpacked app: `release/win-unpacked/YTStudio.exe` (generated, gitignored).
 
 ### 2026-10-04 — music e2e green on Windows
 
@@ -69,4 +69,4 @@ Théo's report: recording laggy and off the beat, glitchy takes, sound unlike FL
 - Plugin windows owned by the app's window (no taskbar buttons, not above other programs, minimised with it, opened over it). Engine: power throttling off, ABOVE_NORMAL priority, keeps the PC awake while playing.
 - Electron: system caption buttons over the page (titleBarOverlay, Snap Layouts), menu bar hidden, app user model id.
 - UI: shortcut labels read Ctrl/Alt/Shift on Windows (`src/lib/key-labels.ts`), bare Alt/F10 no longer steal the keyboard, Shift+wheel (deltaX on Windows) scrolls/zooms, mixer scrolls on the wheel, Ctrl+wheel never zooms the page, Ctrl+R is export (the Browser's rescan key is a Mac's ⌃R only), "File Explorer" not "Finder".
-- Still pending: a loopback check of take placement with ASIO (needs a cable), real Serum focus/DPI check, `.vaudio` "Open in Vaudio" folder verb in the installer, AIFF still refused by the media check.
+- Still pending: a loopback check of take placement with ASIO (needs a cable), real Serum focus/DPI check, `.yt` "Open in YTStudio" folder verb in the installer, AIFF still refused by the media check.

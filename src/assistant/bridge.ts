@@ -15,6 +15,7 @@ import { suiteToolSpec, toolSuite } from "@shared/suite-tools";
 import { type ToolResult, errorResult } from "@shared/tool-spec";
 import { api } from "@/lib/api";
 import { useAssistant } from "@/stores/assistant";
+import { changed, useCheckpoints } from "@/stores/checkpoints";
 import { projectSuite, useProjects } from "@/stores/projects";
 import { type ToolRunContext, clientSuite } from "@/suites";
 import { log } from "@/lib/log";
@@ -53,6 +54,23 @@ async function runTool(target: string, name: string, input: Record<string, unkno
   }
 }
 
+/**
+ * For a call of an in-app chat's answer that may change its project: the project before it, and a function that
+ * records the change once it's run (the answer's checkpoint, `stores/checkpoints.ts`).
+ */
+async function checkpoint(target: string, call: Extract<TabEvent, { type: "call" }>): Promise<(() => Promise<void>) | null> {
+  const suite = projectSuite(target);
+  const turn = call.turn;
+  if (!turn || !call.chat || !suite || suiteToolSpec(suite, call.name)?.kind === "look") return null;
+  const { documents } = clientSuite(suite);
+  const before = await documents.snapshot(target).catch(() => null);
+  if (!before) return null;
+  return async () => {
+    const after = await documents.snapshot(target).catch(() => null);
+    if (after && changed(before, after)) useCheckpoints.getState().record(turn, target, before.doc, after.doc);
+  };
+}
+
 async function execute(call: Extract<TabEvent, { type: "call" }>) {
   const entry = running.get(call.id)!;
   entry.started = true;
@@ -63,6 +81,7 @@ async function execute(call: Extract<TabEvent, { type: "call" }>) {
   if (onScreen) assistant.setActivity({ callId: call.id, name: call.name, input: call.input, chat: call.chat, startedAt: Date.now() });
   // An agent outside the app: say what it's doing (the chat shows its own).
   if (!call.chat) toast(`Agent: ${describeToolCall(call.name, call.input)}`, { id: "external-agent", duration: 2500 });
+  const recordChange = await checkpoint(entry.target, call);
   let lastProgress = 0;
   const result: ToolResult = await runTool(entry.target, call.name, call.input, {
     chat: call.chat,
@@ -75,6 +94,7 @@ async function execute(call: Extract<TabEvent, { type: "call" }>) {
       api.postToolProgress(call.id, TAB_ID, fraction, label).catch(() => {});
     },
   });
+  await recordChange?.();
   running.delete(call.id);
   if (useAssistant.getState().activity?.callId === call.id) useAssistant.getState().setActivity(null);
   if (entry.cancelled) return;

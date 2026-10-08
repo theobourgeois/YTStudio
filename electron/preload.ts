@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
   // Where to save a file (a song's export), from the Mac's save dialog; null if it's cancelled.
   saveFile: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) =>
     ipcRenderer.invoke("save-file", options) as Promise<string | null>,
-  // Projects are files (`.vaudio` packages): the Mac's Open dialog for one, and its folder picker (where new ones go).
+  // Projects are files (`.yt` packages): the Mac's Open dialog for one, and its folder picker (where new ones go).
   chooseProject: (defaultPath?: string) => ipcRenderer.invoke("choose-project", { defaultPath }) as Promise<string | null>,
   chooseFolder: (defaultPath?: string) => ipcRenderer.invoke("choose-folder", { defaultPath }) as Promise<string | null>,
   // ⌘H or ⌥⌘H that the page didn't use: macOS's Hide or Hide Others (the menu leaves those keys to the page).
@@ -28,7 +28,7 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
   tabStrip: (shown: boolean) => ipcRenderer.send("tab-strip", shown),
   // A project was opened: the Dock's and File › Open Recent's recent documents list it.
   projectOpened: (path: string) => ipcRenderer.send("project-opened", path),
-  // An image dropped on the Dock icon (or opened with Vaudio), which the page starts a photo with.
+  // An image dropped on the Dock icon (or opened with YTStudio), which the page starts a photo with.
   readHandedImage: (path: string) => ipcRenderer.invoke("read-handed-image", path) as Promise<{ name: string; type?: string; data: Uint8Array }>,
   // The editor's windows, native ones (electron/panels.ts, src/components/windows/native/): the page opens each with
   // `window.open` and draws into it; this is what only the main process can do for them.
@@ -57,7 +57,7 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
       return () => void ipcRenderer.removeListener("panels:closed", on);
     },
   },
-  // Whether the engine may read inputs (recording): macOS asks Vaudio, which started it.
+  // Whether the engine may read inputs (recording): macOS asks YTStudio, which started it.
   microphone: {
     status: () => ipcRenderer.invoke("microphone-status") as Promise<string>,
     ask: () => ipcRenderer.invoke("microphone-ask") as Promise<string>,

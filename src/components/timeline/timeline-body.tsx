@@ -15,7 +15,7 @@ import { contentWidth, layoutLanes } from "./geometry";
 import { DragGhosts, DropIndicator, EmptyVideoHint, LaneBackgrounds, MarqueeBox, SelectedGap, SnapGuide } from "./lane-overlays";
 import { PlayheadLine, usePlayheadFollow } from "./playhead";
 import { Ruler } from "./ruler";
-import { SignalLanes } from "./signal-lanes";
+import { SignalLanes, SignalLanesToggle } from "./signal-lanes";
 import { TimelineClip } from "./timeline-clip";
 import { LanesContextMenu } from "./timeline-menus";
 import { TrackHeaders } from "./track-headers";
@@ -51,7 +51,7 @@ export function TimelineBody() {
   const width = contentWidth(duration, zoom, viewWidth);
   const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
   const laneById = useMemo(() => new Map(lanes.map((l) => [l.trackId, l])), [lanes]);
-  const muted = useMemo(() => new Set(tracks.filter((t) => t.muted).map((t) => t.id)), [tracks]);
+  const dimmed = useMemo(() => new Set(tracks.filter((t) => t.muted || t.hidden).map((t) => t.id)), [tracks]);
   const ordered = useMemo(() => [...clips].sort(byId), [clips]);
   // Only clips in (or near) view are rendered, so a long edit costs what's on screen. The window moves
   // in chunks (see `useVisibleWindow`), so scrolling re-renders this only now and then.
@@ -77,7 +77,9 @@ export function TimelineBody() {
     >
       <div className="relative flex min-h-full flex-col" style={{ width: HEADER_WIDTH + width }}>
         <div className="sticky top-0 z-40 flex shrink-0 border-b bg-timeline" style={{ height: RULER_HEIGHT }}>
-          <div className="sticky left-0 z-20 shrink-0 border-r bg-timeline" style={{ width: HEADER_WIDTH }} />
+          <div className="sticky left-0 z-20 shrink-0 border-r bg-timeline" style={{ width: HEADER_WIDTH }}>
+            <SignalLanesToggle />
+          </div>
           <Ruler width={width} zoom={zoom} />
         </div>
         <SignalLanes width={width} zoom={zoom} />
@@ -105,7 +107,7 @@ export function TimelineBody() {
                     zoom={zoom}
                     selected={selected.has(clip.id)}
                     placeholder={dragging.has(clip.id)}
-                    muted={muted.has(clip.trackId)}
+                    dimmed={dimmed.has(clip.trackId)}
                     animate={dragging.size > 0 && !dragging.has(clip.id)}
                   />
                 );

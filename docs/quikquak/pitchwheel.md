@@ -2,7 +2,7 @@
 
 QuikQuak's **Pitchwheel** (by Dave Hoskins), from its own [User guide, version 5.2](https://www.quikquak.com/media/Pitchwheel/Pitchwheel_User_Guide_5.pdf)
 and [product page](https://www.quikquak.com/Prod_Pitchwheel.html), and Théo's screenshot of it (2026-10-02). The last
-sections are ours: [what's decided](#decided), [where Vaudio differs](#where-vaudio-differs) and
+sections are ours: [what's decided](#decided), [where YTStudio differs](#where-ytstudio-differs) and
 [how it's built](#how-its-built). Anything in neither the guide nor the screenshot is marked **(unverified)**.
 
 ## What it is
@@ -101,9 +101,9 @@ pitch logic and engineering better than the actual Pitchwheel"). To check with h
   critical) and stiffness (×41 at the top), and at 1 it clamps outright. The actual pitch stops at ±48
   semitones.
 
-## Where Vaudio differs
+## Where YTStudio differs
 
-| What | Pitchwheel | Vaudio |
+| What | Pitchwheel | YTStudio |
 | --- | --- | --- |
 | MIDI | Notes and pitch bend sent to the plug-in | A channel's notes (`notesFrom`), and the window's keyboard; no pitch bend (effects hear no MIDI yet) |
 | Snap | On / Off | Off, Semitone, Octave |

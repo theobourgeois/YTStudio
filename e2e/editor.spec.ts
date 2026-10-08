@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ProjectSummary } from "../shared/types.ts";
 
 const SAMPLES = path.resolve(import.meta.dirname, "..", "samples");
-/** The e2e server's data folder (playwright.config.ts): its projects are in its Documents/Vaudio. */
+/** The e2e server's data folder (playwright.config.ts): its projects are in its Documents/YTStudio. */
 const DATA_DIR = path.resolve(import.meta.dirname, ".data");
 const FILES = [
   "vertical-1080x1920-6s.mp4",
@@ -142,8 +142,8 @@ test("starts a new video from the Home screen, a file of its own", async ({ page
   await expect(page.getByRole("button", { name: "Home", exact: true })).toBeVisible();
   const [project] = await projectList(page);
   expect(await projectList(page)).toHaveLength(1);
-  // In the e2e data folder's Documents/Vaudio (the user's own ~/Documents/Vaudio otherwise).
-  expect(project.path).toBe(path.resolve(DATA_DIR, "Documents", "Vaudio", "Untitled.vaudio"));
+  // In the e2e data folder's Documents/YTStudio (the user's own ~/Documents/YTStudio otherwise).
+  expect(project.path).toBe(path.resolve(DATA_DIR, "Documents", "YTStudio", "Untitled.yt"));
   expect(existsSync(path.join(project.path, "project.json"))).toBe(true);
 });
 
@@ -325,6 +325,14 @@ test("moves clips freely with snapping, onto a new track, and trims an edge", as
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => (await byStart())[1].start).toBe(before2.start);
   await page.getByRole("button", { name: "Auto ripple" }).click();
+
+  // The eye hides a video track's pictures (an undoable edit), and shows them again.
+  const tracks = async () => ((await savedProject(page)).tracks as { kind: string; hidden?: boolean }[]).filter((t) => t.kind === "video");
+  await page.getByRole("button", { name: "Hide track" }).first().click();
+  await expect.poll(async () => (await tracks())[0].hidden).toBe(true);
+  await expect(page.getByRole("button", { name: "Show track" })).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await tracks())[0].hidden).toBeUndefined();
 });
 
 test("right-click menus, copy/paste and the shortcuts dialog", async ({ page }) => {
@@ -1224,7 +1232,7 @@ test("goes Home and back, and opens, renames, duplicates, removes and trashes pr
   await page.keyboard.press("Enter");
   await expect(card(secondId)).toContainText("Second take");
   const pathOf = async (id: string) => ((await projectList(page)) as ProjectSummary[]).find((p) => p.id === id)?.path;
-  await expect.poll(() => pathOf(secondId)).toMatch(/\/Second take\.vaudio$/);
+  await expect.poll(() => pathOf(secondId)).toMatch(/\/Second take\.yt$/);
   expect(existsSync((await pathOf(secondId))!)).toBe(true);
 
   // Search narrows the cards; the suite filter too.
@@ -1247,7 +1255,7 @@ test("goes Home and back, and opens, renames, duplicates, removes and trashes pr
   await page.getByRole("menuitem", { name: "Duplicate" }).click();
   await expect(recent.getByRole("button", { name: `${first.name} copy`, exact: true })).toBeVisible();
   const copy = ((await projectList(page)) as (ProjectSummary & { clipCount: number })[]).find((p) => p.name === `${first.name} copy`)!;
-  expect(copy).toMatchObject({ clipCount: first.suite === "video" ? first.clipCount : 0, path: path.join(path.dirname(first.path), `${first.name} copy.vaudio`) });
+  expect(copy).toMatchObject({ clipCount: first.suite === "video" ? first.clipCount : 0, path: path.join(path.dirname(first.path), `${first.name} copy.yt`) });
   const media = (id: string) => page.evaluate((i) => fetch(`/api/media?projectId=${i}`).then((r) => r.json()), id);
   const [originals, copies] = [await media(first.id), await media(copy.id)];
   expect(copies.map((a: { name: string }) => a.name)).toEqual(originals.map((a: { name: string }) => a.name));
@@ -1418,14 +1426,38 @@ test("the assistant edits the video with the editor's tools, live and undoably; 
   await expect(panel.getByText("Done.")).toBeVisible();
   await expect.poll(async () => (await savedProject(page)).clips.length).toBe(3);
 
-  // One click takes the whole answer back.
-  await panel.getByRole("button", { name: "Revert" }).click();
+  // What it changed waits for review over the composer: Undo all puts the video back.
+  const review = panel.locator('[data-slot="assistant-review"]');
+  await expect(review).toContainText("1 change to review");
+  await review.getByRole("button", { name: "Undo all" }).click();
   await expect(page.locator("[data-clip-id]")).toHaveCount(2);
-  await expect(panel.getByText("Reverted")).toBeVisible();
+  await expect(review).toHaveCount(0);
+
+  // Every message is a checkpoint: restoring one puts the video back as it was when it was sent (what came after
+  // fades), and Redo takes that back. Keep all ends the review.
+  await composer.fill('call get_timeline\ncall split_clips {"at": 1.5, "clipIds": ["$clip"]}');
+  await composer.press("Enter");
+  await expect(panel.locator('[data-tool="split_clips"][data-status="done"]')).toHaveCount(2);
+  await expect(page.locator("[data-clip-id]")).toHaveCount(3);
+  const second = panel.locator("[data-user-message]").last();
+  await second.hover();
+  await second.getByRole("button", { name: "Restore checkpoint" }).click();
+  await expect(page.locator("[data-clip-id]")).toHaveCount(2);
+  await expect(second.getByRole("status")).toHaveText(/Restored to before this message/);
+  await expect(review).toHaveCount(0);
+  await second.getByRole("button", { name: "Redo" }).click();
+  await expect(page.locator("[data-clip-id]")).toHaveCount(3);
+  await expect(review).toContainText("1 change to review");
+  await review.getByRole("button", { name: "Keep all" }).click();
+  await expect(review).toHaveCount(0);
+  await expect(page.locator("[data-clip-id]")).toHaveCount(3);
+  // ⌘Z still takes it back, step by step.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(page.locator("[data-clip-id]")).toHaveCount(2);
 
   // The chat is kept with the video.
   await page.reload();
-  await expect(panel.locator('[data-tool="split_clips"]')).toBeVisible();
+  await expect(panel.locator('[data-tool="split_clips"]')).toHaveCount(2);
 
   // Anything undo can't bring back asks first.
   await composer.fill('call list_media\ncall delete_media {"assetId": "$media"}');
@@ -1669,6 +1701,13 @@ test("makes signals in the Signals window: a band from the spectrum, hits dragge
     return Math.abs(Math.log((kick.low ?? 0) / 200)) < 0.1 && Math.abs(Math.log((kick.high ?? 0) / 2000)) < 0.1;
   }).toBe(true);
   // Its lane shows under the ruler, and the meter reads the song once it's analysed.
+  await expect(page.locator("[data-signal-lane]")).toHaveCount(1);
+  // The ruler's corner folds the lanes away and back.
+  const fold = page.locator("[data-signal-lanes-toggle]");
+  await fold.click();
+  await expect(page.locator("[data-signal-lane]")).toHaveCount(0);
+  await expect(win.getByRole("switch", { name: "Signal lanes on the timeline" })).toHaveAttribute("aria-checked", "false");
+  await fold.click();
   await expect(page.locator("[data-signal-lane]")).toHaveCount(1);
   await expect(win.locator("[data-signal-meter]")).toContainText("Now");
 
@@ -2408,17 +2447,17 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
   const song = (await projectList(page)).find((p: { suite: string }) => p.suite === "music");
   expect(song).toMatchObject({ name: "Untitled", tempo: 140 });
-  expect(song.path).toMatch(/\/Documents\/Vaudio\/Untitled( \d+)?\.vaudio$/);
+  expect(song.path).toMatch(/\/Documents\/YTStudio\/Untitled( \d+)?\.yt$/);
 
   // Renamed from its header, like a video; its file takes the name once it's closed (Home shows it).
-  await page.locator("header").getByTitle("Rename project").click();
+  await page.locator('[data-titlebar="header"]').getByTitle("Rename project").click();
   await page.getByRole("textbox", { name: "Project name" }).fill("Anthem");
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await projectList(page)).find((p: { id: string }) => p.id === song.id).name).toBe("Anthem");
   await page.getByRole("button", { name: "Home", exact: true }).click();
   await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("Anthem");
   await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("140 BPM");
-  await expect.poll(async () => path.basename((await projectList(page)).find((p: { id: string }) => p.id === song.id).path)).toBe("Anthem.vaudio");
+  await expect.poll(async () => path.basename((await projectList(page)).find((p: { id: string }) => p.id === song.id).path)).toBe("Anthem.yt");
   await page.locator(`[data-project-id="${song.id}"]`).click();
   await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
 

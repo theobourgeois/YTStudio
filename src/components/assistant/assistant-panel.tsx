@@ -31,6 +31,7 @@ import { clientSuite } from "@/suites";
 import { ChatMessages } from "./chat-messages";
 import { EffortPicker, ModelPicker } from "./model-picker";
 import { ProviderIcon } from "./provider-icon";
+import { ReviewBar } from "./review-bar";
 
 /** The open chat's provider (Claude until it's loaded). */
 const useProvider = (): AssistantProvider => useAssistant((s) => s.chat?.provider ?? "claude");
@@ -165,7 +166,7 @@ function ChatBody({ projectId, suite }: { projectId: string; suite: SuiteId }) {
         ) : chat.messages.length === 0 ? (
           <EmptyChat suite={suite} />
         ) : (
-          <ChatMessages messages={chat.messages} />
+          <ChatMessages messages={chat.messages} projectId={projectId} suite={suite} />
         )}
         {chat && chatError && (
           <div className="mt-4">
@@ -354,6 +355,7 @@ function Composer({ projectId, suite }: { projectId: string; suite: SuiteId }) {
 
   return (
     <div className="shrink-0 px-3 pt-1 pb-3">
+      <ReviewBar projectId={projectId} suite={suite} />
       <div
         className={cn(
           "rounded-xl border bg-card shadow-xs transition-[border-color,box-shadow] focus-within:border-ring/60 focus-within:ring-[3px] focus-within:ring-ring/15 dark:bg-secondary/60",

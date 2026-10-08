@@ -160,6 +160,7 @@ function normalizeTimeline(
       kind: t.kind,
       name: String(t.name ?? TRACK_KIND_LABEL[t.kind]),
       muted: !!t.muted,
+      ...(t.kind === "video" && t.hidden === true && { hidden: true }),
     });
   }
   if (byKind.video.length === 0) byKind.video.push({ ...base.tracks[0] });

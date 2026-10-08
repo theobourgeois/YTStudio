@@ -2,9 +2,11 @@
  * The video's own signals as lanes under the ruler (the visualizer, docs/visualizer/README.md): a band's or
  * a curve's value drawn over time, an events signal's hits as ticks. Hits are dragged along the lane
  * (snapping to the beat while snapping is on), right-clicked away, and a double-click adds one. Only on the
- * main sequence, whose timeline the signals' times are on. Its name opens the Signals window on it.
+ * main sequence, whose timeline the signals' times are on. Its name opens the Signals window on it. The
+ * ruler's corner folds them away (`SignalLanesToggle`), so many signals never crowd out the tracks.
  */
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
+import { PiCaretDown, PiCaretRight } from "react-icons/pi";
 import { MASTER, currentSignalReader, customSignalLevel, eventTimes } from "@shared/audio-signals";
 import { setSignalEvents } from "@shared/links";
 import { projectDuration } from "@shared/timeline";
@@ -21,12 +23,40 @@ import { useVisibleWindow } from "./view-store";
 
 export const SIGNAL_LANE_HEIGHT = 24;
 
+/** How many signal lanes the timeline could show here (the main sequence's signals). */
+function useSignalCount(): number {
+  const count = useEditor((s) => s.project.signals?.length ?? 0);
+  const main = useEditor((s) => s.sequenceId === null);
+  return main ? count : 0;
+}
+
 /** Whether the timeline shows signal lanes now (and how many). */
 export function useSignalLaneCount(): number {
   const show = useSignalView((s) => s.lanes);
-  const count = useEditor((s) => s.project.signals?.length ?? 0);
-  const main = useEditor((s) => s.sequenceId === null);
-  return show && main ? count : 0;
+  const count = useSignalCount();
+  return show ? count : 0;
+}
+
+/** The ruler's corner: shows or folds away the signal lanes, while the video has any. */
+export function SignalLanesToggle() {
+  const count = useSignalCount();
+  const shown = useSignalView((s) => s.lanes);
+  if (!count) return null;
+  const Caret = shown ? PiCaretDown : PiCaretRight;
+  return (
+    <button
+      type="button"
+      title={shown ? "Hide the signal lanes" : "Show the signal lanes"}
+      aria-expanded={shown}
+      onClick={() => useSignalView.getState().setLanes(!shown)}
+      className="flex size-full cursor-pointer items-center gap-1 px-2 text-left text-[11px] text-muted-foreground hover:text-foreground"
+      data-signal-lanes-toggle
+    >
+      <Caret className="size-3 shrink-0" />
+      <span className="truncate">Signals</span>
+      <span className="ml-auto tabular-nums opacity-70">{count}</span>
+    </button>
+  );
 }
 
 export function SignalLanes({ width, zoom }: { width: number; zoom: number }) {

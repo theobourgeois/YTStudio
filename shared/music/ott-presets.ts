@@ -7,7 +7,7 @@ import { clamp, isFiniteNumber } from "../math.ts";
 import type { Ott, OttBand, OttControl, PluginRef } from "./types.ts";
 
 /** What an OTT effect is, as a slot's plugin: one of ours, run by the engine itself. */
-export const OTT_PLUGIN: PluginRef = { id: "vaudio:ott", name: "YT-Multiband", format: "Vaudio" };
+export const OTT_PLUGIN: PluginRef = { id: "vaudio:ott", name: "YT-Multiband", format: "YTStudio" };
 export const isOtt = (plugin: Pick<PluginRef, "id">) => plugin.id === OTT_PLUGIN.id;
 
 /** In Gain's and Out Gain's range (dB): OTT's top, and a bottom low enough (OTT's is −∞). */

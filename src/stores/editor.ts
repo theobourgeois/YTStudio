@@ -168,6 +168,8 @@ interface EditorState {
    * upload finishing during a drag) first finalises that gesture, so nothing is lost.
    */
   commit: (update: (p: Project) => Project) => void;
+  /** Put back a whole video as it was (the assistant's checkpoints), as one undo step; its name stays as it is now. */
+  restoreDocument: (document: Project) => void;
   /**
    * Start a continuous edit (drag/trim) and return its id. Use `preview` for live
    * updates, then end or cancel with the same id. Gesture owners should derive
@@ -488,6 +490,15 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (next === project) return;
     const edited = writeSequence(document, sequenceId, next);
     set({ ...atSequence(edited, sequenceId), past: [...past, document].slice(-HISTORY_LIMIT), future: [] });
+    fixSelection();
+  },
+
+  restoreDocument(doc) {
+    if (get().gestureBase) get().endGesture();
+    const { document, past } = get();
+    const next = doc.name === document.name ? doc : { ...doc, name: document.name };
+    if (next === document) return;
+    set({ ...showing(next), past: [...past, document].slice(-HISTORY_LIMIT), future: [] });
     fixSelection();
   },
 

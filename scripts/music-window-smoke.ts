@@ -26,7 +26,7 @@ assert(state().trusted, "Accessibility access is required for native clicks");
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const env: NodeJS.ProcessEnv = { ...process.env, EDITOR_DATA_DIR: path.join(tmp, "data"), EDITOR_USER_DATA_DIR: path.join(tmp, "profile") };
 delete env.ELECTRON_RUN_AS_NODE;
-const child = spawn(path.join(root, `release/mac-${process.arch}/Vaudio.app/Contents/MacOS/Vaudio`), ["--remote-debugging-port=0"], { env, stdio: ["ignore", "ignore", "pipe"] });
+const child = spawn(path.join(root, `release/mac-${process.arch}/YTStudio.app/Contents/MacOS/YTStudio`), ["--remote-debugging-port=0"], { env, stdio: ["ignore", "ignore", "pipe"] });
 const endpoint = await new Promise<string>((resolve, reject) => {
   let stderr = "";
   const timeout = setTimeout(() => reject(new Error("No desktop DevTools endpoint")), 30000);
@@ -79,7 +79,7 @@ try {
 
   await api("/api/engine/channelEditor", { channel: "chan_focus", open: true });
   const processes = execFileSync("ps", ["-axo", "pid,command"], { encoding: "utf8" });
-  const engine = processes.split("\n").find((line) => line.includes("Vaudio Engine --data " + path.join(tmp, "data")));
+  const engine = processes.split("\n").find((line) => line.includes("YTStudio Engine --data " + path.join(tmp, "data")));
   assert(engine, "Native engine is running");
   const enginePid = Number(engine.trim().split(/\s+/)[0]);
   await sleep(1500);

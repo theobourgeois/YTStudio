@@ -1,6 +1,6 @@
 // The engine's program: started by the server with
 //
-//   "Vaudio Engine" --data <dir> [--plugin-path <dir>]... [--offline] [--only-plugin-paths]
+//   "YTStudio Engine" --data <dir> [--plugin-path <dir>]... [--offline] [--only-plugin-paths]
 //
 // it answers commands until the server closes its stdin (so it never outlives the app).
 #include "Engine.h"
@@ -9,7 +9,7 @@
 class EngineApplication final : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return "Vaudio Engine"; }
+    const juce::String getApplicationName() override { return "YTStudio Engine"; }
     const juce::String getApplicationVersion() override { return "0.1.0"; }
     bool moreThanOneInstanceAllowed() override { return true; }
 

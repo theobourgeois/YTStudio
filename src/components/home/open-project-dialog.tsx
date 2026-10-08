@@ -53,11 +53,11 @@ function PathForm() {
         <DialogTitle>{locate ? `Where is “${locate.name}” now?` : "Open a project"}</DialogTitle>
         <DialogDescription>
           {locate
-            ? "It isn't where it was last opened. Type where it is now: its .vaudio folder, or a file in it."
-            : `Type where the project is on this computer: its .vaudio folder, or a file in it. ${IS_MAC ? "In Finder, ⌥⌘C" : "In File Explorer, Ctrl+Shift+C"} copies a file's path.`}
+            ? "It isn't where it was last opened. Type where it is now: its .yt folder, or a file in it."
+            : `Type where the project is on this computer: its .yt folder, or a file in it. ${IS_MAC ? "In Finder, ⌥⌘C" : "In File Explorer, Ctrl+Shift+C"} copies a file's path.`}
         </DialogDescription>
       </DialogHeader>
-      <Input autoFocus value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/Documents/Vaudio/My video.vaudio" aria-label="Project path" className="font-mono text-xs" />
+      <Input autoFocus value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/Documents/YTStudio/My video.yt" aria-label="Project path" className="font-mono text-xs" />
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => useOpenDialog.setState({ open: false })}>
           Cancel

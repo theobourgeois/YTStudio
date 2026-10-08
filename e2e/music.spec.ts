@@ -540,6 +540,17 @@ test("a plugin channel's settings are FL's wrapper: its knobs, the plugin, its p
   await expect(panel).toContainText("plugin_presets: ok, plugin_presets: ok, plugin_presets: ok, plugin_presets: failed", { timeout: 30_000 });
   await expect(program).toContainText("Lead");
   await expect(mine.getByRole("button", { name: "Assistant lead", exact: true })).toHaveAttribute("aria-current", "true");
+
+  // Cloned, the copy's plugin starts as the original is: its settings file is copied to the copy first.
+  const synthId = (await savedSong(page, id)).channels[0].id;
+  const copied = page.waitForRequest((r) => r.url().endsWith("/api/engine/states/copy"));
+  await synth.click({ button: "right" });
+  await page.getByTestId("channel-menu").getByRole("menuitem", { name: "Clone", exact: true }).click();
+  const request = (await copied).postDataJSON();
+  await expect.poll(async () => (await savedSong(page, id)).channels.length).toBe(2);
+  const [original, clone] = (await savedSong(page, id)).channels;
+  expect(request.copies).toEqual([{ from: synthId, to: clone.id }]);
+  expect(clone).toMatchObject({ kind: "plugin", plugin: original.plugin, pitch: 7 });
 });
 
 test("knobs work as in FL Studio, and a channel opens its settings window", async ({ page }) => {
@@ -593,8 +604,10 @@ test("knobs work as in FL Studio, and a channel opens its settings window", asyn
   await channelButton(page, "Hat").click();
   await expect(settings).toHaveCount(1);
 
-  // The window is dragged by its title bar, and has the channel's own knobs and its sample's tools.
+  // The window is dragged by its title bar, and has the channel's own knobs and its sample's tools. (The rack,
+  // pressed last, is in front of it, maybe over its title when the desktop is short: a click brings it forward.)
   const snare = page.getByRole("region", { name: "Snare" });
+  await snare.getByRole("tab", { name: "Sample" }).click();
   const before = (await snare.boundingBox())!;
   const title = snare.locator("[data-window-title]");
   await drag(page, title, title, { dx: 140, dy: 60 });
@@ -801,6 +814,14 @@ test("the assistant programs the drums with the music editor's tools", async ({ 
   expect(await muted(page)).toBe("M-");
   await page.locator("header").getByRole("button", { name: "Undo" }).click();
   expect(await muted(page)).toBe("--");
+  // And the whole answer waits for review over the composer: Undo all puts the song back as it was, as one undo step.
+  const review = panel.locator('[data-slot="assistant-review"]');
+  await expect(review).toContainText(/\d+ changes to review/);
+  await review.getByRole("button", { name: "Undo all" }).click();
+  await expect(review).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Tempo" })).not.toHaveValue("128");
+  await page.locator("header").getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByRole("textbox", { name: "Tempo" })).toHaveValue("128");
 });
 
 test("settings: ⌘, opens on the music tab, with the device and the plugin bench", async ({ page }) => {

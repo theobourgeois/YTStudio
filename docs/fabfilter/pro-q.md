@@ -4,7 +4,7 @@ FabFilter's **Pro-Q 3**, ours: a stock effect in the music suite, chosen from an
 (Built in → Pro-Q), as Gross Beat is. What Pro-Q 3 does and how it's worked is in
 [pro-q-3-manual.md](pro-q-3-manual.md) (from its manual, its parameter list and its screenshots, in
 `img/`); how its sound is made, in [pro-q-3-dsp.md](pro-q-3-dsp.md). This file is ours: what was
-decided, where Vaudio differs, and how it's built.
+decided, where YTStudio differs, and how it's built.
 
 ## Decided
 
@@ -35,9 +35,9 @@ same way"). Not yet talked through with him; what was chosen, to check:
 - **Defaults**: Zero Latency, Medium resolution, analyzer Pre+Post at High resolution, 90 dB, Medium speed,
   tilt 4.5 dB/oct, Spectrum Grab and collisions on, display ±12 dB.
 
-## Where Vaudio differs
+## Where YTStudio differs
 
-| What | Pro-Q 3 | Vaudio |
+| What | Pro-Q 3 | YTStudio |
 | --- | --- | --- |
 | External side chain for dynamic bands | Yes, a band's switch, only with a custom threshold; the side chain not band-limited or M/S encoded | The same (`EqBand.external`, the band's SC switch by its threshold): it hears its slot's key, chosen in the Mixer slot's Sidechain input (`docs/sidechain.md`) |
 | L/R and M/S bands in Linear Phase | Two stages, twice the latency | One stage (the whole 2×2 response in one kernel): the latency isn't doubled |

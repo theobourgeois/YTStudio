@@ -25,9 +25,9 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const outIndex = process.argv.indexOf("--out");
 const SCREENSHOT = outIndex > 0 ? path.resolve(process.argv[outIndex + 1]) : path.join(ROOT, "desktop-smoke.png");
 const APP = {
-  darwin: `release/mac-${process.arch}/Vaudio.app/Contents/MacOS/Vaudio`,
-  linux: "release/linux-unpacked/vaudio",
-  win32: "release/win-unpacked/Vaudio.exe",
+  darwin: `release/mac-${process.arch}/YTStudio.app/Contents/MacOS/YTStudio`,
+  linux: "release/linux-unpacked/ytstudio",
+  win32: "release/win-unpacked/YTStudio.exe",
 }[process.platform as "darwin" | "linux" | "win32"];
 
 const executablePath = process.env.EDITOR_DESKTOP_APP_PATH || (APP && path.join(ROOT, APP));
@@ -171,16 +171,16 @@ try {
     const mid = pixelAt(output, 2, 360, 640);
     check("the transition is drawn by the app's Chromium", near(pixelAt(output, 1.2, 360, 640), [255, 0, 0]) && near(mid, [128, 0, 128]) && near(pixelAt(output, 2.7, 360, 640), [0, 0, 255]), `mid ${mid}`);
   }
-  // Projects are files: a package in the data folder's Documents/Vaudio (the user's own Documents/Vaudio when no
+  // Projects are files: a package in the data folder's Documents/YTStudio (the user's own Documents/YTStudio when no
   // data folder is given), a type the app declares, opened by launching the app with it.
   const summary = (await api<ProjectSummary[]>("/api/projects")).find((p) => p.id === project.id);
-  const expected = path.join(tmp, "data", "Documents", "Vaudio", "Desktop smoke.vaudio");
+  const expected = path.join(tmp, "data", "Documents", "YTStudio", "Desktop smoke.yt");
   check("the project is a package", summary?.path === expected && existsSync(path.join(expected, "project.json")), summary?.path);
   if (process.platform === "darwin") {
     const plist = path.join(path.dirname(path.dirname(executablePath)), "Info.plist");
     const types = execFileSync("plutil", ["-extract", "CFBundleDocumentTypes", "json", "-o", "-", plist], { encoding: "utf8" });
-    check("associates the exported project type with Vaudio", /"LSItemContentTypes":\["gg\.jestr\.vaudio\.project"\]/.test(types));
-    check("declares .vaudio packages", /"vaudio"/.test(types) && /"LSTypeIsPackage":true/.test(types));
+    check("associates the exported project type with YTStudio", /"LSItemContentTypes":\["gg\.jestr\.ytstudio\.project",/.test(types));
+    check("declares .yt packages", /"yt"/.test(types) && /"LSTypeIsPackage":true/.test(types));
   }
   await window.goto(`${base}/`);
   await window.getByRole("heading", { name: "Recent" }).waitFor({ timeout: 20_000 });

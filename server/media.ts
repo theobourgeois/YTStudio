@@ -58,7 +58,7 @@ export interface MediaRoot {
   url: string;
 }
 
-/** Where a project keeps its media (`<project>.vaudio/media`), or null if there's no such project. */
+/** Where a project keeps its media (`<project>.yt/media`), or null if there's no such project. */
 export type ProjectMediaDirs = (projectId: string) => string | null;
 
 /** What an image prober says of a file: its size upright (after its EXIF orientation) and its samples. */
@@ -98,7 +98,7 @@ const isSize = (n: unknown): n is number => typeof n === "number" && Number.isIn
 
 /**
  * Media files on disk plus background processing: every project's media, each in its own package
- * (`<project>.vaudio/media/<id>/`, through `projectDirs`; loaded with `loadProject`), and separately the
+ * (`<project>.yt/media/<id>/`, through `projectDirs`; loaded with `loadProject`), and separately the
  * shared Library's (`data/library/media/<id>/`, with `projectId: null`). Either way an asset's files are
  * served at `<url>/<id>/...`, by id alone, so moving a project never changes them.
  */

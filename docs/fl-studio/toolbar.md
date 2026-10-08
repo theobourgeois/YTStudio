@@ -28,22 +28,22 @@ Two rows, left to right. Each group is a panel of its own (they can be rearrange
   label (BPM, M:S:CS).
 - Everything is small (a row is about 24 px), and the groups are separated by thin grooves.
 
-## Where Vaudio differs today
+## Where YTStudio differs today
 
-Vaudio shows only what it can do. What's there follows FL's layout (`src/suites/music/toolbar.tsx`):
+YTStudio shows only what it can do. What's there follows FL's layout (`src/suites/music/toolbar.tsx`):
 
-| FL Studio | Vaudio |
+| FL Studio | YTStudio |
 | --- | --- |
-| Layout: groups of two rows each | Ours (Théo): the title and hint at the left; in the middle two rows, the transport, tempo, position, the recording switches and monitors above, the window buttons, pattern selector and a wide song position slider below. As dense as FL's: every button in both rows is one size (30 px), the LCDs as tall |
-| Menus | None yet. The project's name (click to rename) is in their place, as the title |
+| Layout: groups of two rows each | Ours (Théo): the menu row every suite has (the title, the menus, the hint bar, then undo, Settings, Export, the assistant), then two rows of tools: the transport, tempo, position, the recording switches, the main volume and the monitors above, the window buttons, the pattern selector and the song position slider below. As dense as FL's: every button is one size (30 px), the LCDs as tall, and they light up as FL's hovered (`lit`: a glow in the accent, pale in the middle) |
+| Menus | The app's menu bar (File, Edit, View, Patterns, Tools, Window) after the project's name (click to rename), in the menu row |
 | Hint bar | Yes: the name of what's under the pointer (its title) |
 | PAT / SONG | Yes (L): two lights, the lit one is what plays (Théo's colours: PAT in the accent, SONG in FL's orange; the lit play and metronome icons are the accent too, without FL's glow). Not saved: a song with clips on its playlist opens in song mode |
-| Play / Pause, Stop | Yes, joined as FL's: playing, Play shows Pause (lit); pressed it stops where it is and the next play goes on from there. Stop (and a jump, or the other mode) forgets where it paused. Space plays and stops. Stop pressed while stopped resets every plugin and our effects (`stop { reset }`, `Engine::silence`: the device let go of meanwhile, as for an export), and Settings' "Reset plugins on stop" makes every stop do it |
-| Record, countdown, typing keyboard | Record in the transport panel; the typing keyboard and the count-in (3·2·1) after the position, as FL's, both kept in the browser across sessions |
+| Play / Pause, Stop | Yes, in FL's pill with PAT / SONG (one raised piece, rounded at both ends, its parts divided by grooves): playing, Play shows Pause (lit); pressed it stops where it is and the next play goes on from there. Stop (and a jump, or the other mode) forgets where it paused. Space plays and stops. Stop pressed while stopped resets every plugin and our effects (`stop { reset }`, `Engine::silence`: the device let go of meanwhile, as for an export), and Settings' "Reset plugins on stop" makes every stop do it |
+| Record, countdown, typing keyboard | Record, round, beside the pill; the typing keyboard and the count-in (3·2·1) after the position, as FL's, lit while they're on, both kept in the browser across sessions |
 | Tempo LCD | Yes, FL's look ("140.000", the decimals smaller, light digits on a dark display in every theme): drag it up and down (the pointer is locked, so it goes on past the screen's edge), or click it to type. Its menu has Tap tempo… (tap along to a song; any key taps too), Make it the default (new songs start at it; 140 BPM until it's set, kept in the browser) and Reset the default; no presets yet |
 | Position LCD | Yes (where the pattern or the song is, where it paused, or where play starts), in B:S:T or M:S:CS: a click switches (kept in the browser). Its last part is drawn smaller, as FL's |
 | Main volume knob | Yes, beside the position: everything the song puts out, after the master track (the song's, `settings.volume`; 78% leaves it as it is) |
-| Window buttons | Playlist (F5), Piano roll (F7), Channel rack (F6), Mixer (F9), Browser (Alt+F8), the transport's buttons' size and face, lit while their window is open: a press opens the window or brings it forward (the keys toggle). Ours (Théo): Alt+1…5 toggle them too, in the F keys' order (Playlist, Channel rack, Piano roll, Mixer, Browser), since a Mac's F keys need Fn |
+| Window buttons | Playlist (F5), Piano roll (F7), Channel rack (F6), Mixer (F9), Browser (Alt+F8), the toolbar's size and face, the same whether their window is open or not (they're commands, not switches; FL lights the window in front): a press opens the window or brings it forward (the keys toggle). Ours (Théo): Alt+1…5 toggle them too, in the F keys' order (Playlist, Channel rack, Piano roll, Mixer, Browser), since a Mac's F keys need Fn |
 | Snap | The Piano roll has its own; no global snap yet |
 | Metronome | Yes, with the recording switches after the position, as FL's. Its right-click menu picks its sound (Beep, Tick, Tap, Hi-hat, Cowbell, made by the engine; heard once as it's chosen; kept in the browser): FL has one sound you can replace with a sample |
 | Pattern selector with + | Yes: the arrow opens the list (rename, clone, delete); the name is scrolled or dragged up and down through the patterns, and past the last to the next one, empty, which joins the song only once something's put in it (Théo); + asks for a name and shows the new pattern |

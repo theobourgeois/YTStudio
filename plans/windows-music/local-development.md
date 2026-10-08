@@ -40,7 +40,7 @@ pnpm engine:build
 Do not assume it succeeds on Windows yet. Phase 3 will establish the supported compiler/configuration and executable path. Once a Windows engine has been built, set its actual absolute path before starting the server:
 
 ```powershell
-$env:EDITOR_ENGINE_PATH = 'C:\absolute\path\to\Vaudio Engine.exe'
+$env:EDITOR_ENGINE_PATH = 'C:\absolute\path\to\YTStudio Engine.exe'
 ```
 
 This is a placeholder path, not an existing binary. The plan will remove the need for this override in ordinary development.

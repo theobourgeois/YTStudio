@@ -23,7 +23,7 @@ describe("cached project previews", () => {
     root = await fs.mkdtemp(path.join(os.tmpdir(), "project-previews-"));
     paths = new DataPaths(root);
     await paths.init();
-    directory = path.join(root, "Song.vaudio");
+    directory = path.join(root, "Song.yt");
     await fs.mkdir(directory);
     revision = 100;
     projects = {
@@ -83,12 +83,12 @@ describe("cached project previews", () => {
     release();
     await expect.poll(async () => (await fs.readdir(paths.tmp)).length).toBe(0);
     expect((await previews.get(id)).state).toBe("idle");
-    const moved = path.join(root, "Renamed.vaudio");
+    const moved = path.join(root, "Renamed.yt");
     await fs.rename(directory, moved);
     directory = moved;
     await previews.ensure(id, revision);
     await ready();
-    expect(await previews.file(id, false)).toContain("Renamed.vaudio");
+    expect(await previews.file(id, false)).toContain("Renamed.yt");
   });
 
   it("caches empty songs, and lets failed renders be retried", async () => {

@@ -39,7 +39,7 @@ original sources are mono; this does not test captured stereo instruments.
 ## Actual app processing
 
 `scripts/render-afx-real-stems.ts` calls `AudioEngine.renderExport` from
-`server/music/engine.ts`, using the built Vaudio engine in an isolated workspace.
+`server/music/engine.ts`, using the built YTStudio engine in an isolated workspace.
 No live project is changed. Native engine settings and binary hash are saved in
 `render-manifest.json`; the engine binary passed the source freshness check.
 All 42 exports completed without missing plugins or sources.
