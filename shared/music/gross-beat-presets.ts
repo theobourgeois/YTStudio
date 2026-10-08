@@ -9,7 +9,7 @@
 import { type AutomationPoint, type CurveType, type GrossBeatSlot, PPQ, type PluginRef } from "./types.ts";
 
 /** What a Gross Beat effect is, as a slot's plugin: one of ours, run by the engine itself. */
-export const GROSS_BEAT_PLUGIN: PluginRef = { id: "vaudio:gross-beat", name: "YT-Time", format: "Vaudio" };
+export const GROSS_BEAT_PLUGIN: PluginRef = { id: "vaudio:gross-beat", name: "YT-Time", format: "YTStudio" };
 export const isGrossBeat = (plugin: Pick<PluginRef, "id">) => plugin.id === GROSS_BEAT_PLUGIN.id;
 
 /** Time slots and volume slots: 36 of each. */

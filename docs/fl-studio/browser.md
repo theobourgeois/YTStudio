@@ -6,7 +6,7 @@ and the right button undoes).
 
 FL's Browser does a lot (plugins, presets, the project's history, FL Cloud's shop). **We build only a part
 of it**: the user's own folders, searched and previewed well. The last sections are ours:
-[where Vaudio differs](#where-vaudio-differs) and [what to decide](#to-decide-with-théo).
+[where YTStudio differs](#where-ytstudio-differs) and [what to decide](#to-decide-with-théo).
 
 ## What it is
 
@@ -124,7 +124,7 @@ Tabs can be renamed, coloured, hidden, cloned and reordered, and a **search can 
 | Ctrl+R | Read the folders again |
 | Shift+wheel | Zoom |
 
-## Where Vaudio differs
+## Where YTStudio differs
 
 Théo (2026-10-01): **the browser is for his own folders, nothing else**. FL's way of moving through
 folders and its file search are what he likes; no plugins, generators, presets or default kits. On top of
@@ -132,7 +132,7 @@ it: **a good search, a good preview, favourites, solid shortcuts and menus** (se
 and the like). He works in the desktop app, so dropping a folder from Finder is enough to add one; the
 plain browser (`pnpm dev`) needn't add folders.
 
-| What | FL Studio | Vaudio |
+| What | FL Studio | YTStudio |
 | --- | --- | --- |
 | What it shows | Many tabs: FL's folders, the project, plugins, presets, online sounds | Two tabs: **Files**, the user's folders with **Favourites** on top, and **Online** (below) |
 | Online sounds | Sounds: FL Cloud's sample shop | **Online**: YouTube searched, or a link pasted from any site yt-dlp reads (YouTube, SoundCloud, TikTok…), Théo's way of sampling (2026-10-06). A result is used as a file is: pressed it plays (its sound downloaded once, then kept), its waveform below, and pressed again it pauses (pressed once more it goes on: a whole song shouldn't have to play to its end); dragged onto the rack, a channel, the Piano roll or the Playlist; Enter or the middle button sends it to the selected channel; its + opens it in a new channel. Its sound is copied into the project once, named after its title. The tab keeps its results while Files shows |

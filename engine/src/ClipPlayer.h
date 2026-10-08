@@ -93,7 +93,7 @@ private:
     const bool offline;
     double sampleRate = 48000.0;
     juce::AudioFormatManager formats;
-    juce::TimeSliceThread reader { "Vaudio clip reader" };
+    juce::TimeSliceThread reader { "YTStudio clip reader" };
 
     // The message thread's.
     std::vector<Clip> clips;

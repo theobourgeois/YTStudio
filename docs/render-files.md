@@ -25,7 +25,7 @@ files instead of drawing the effects. Editing a clip turns only the stretch it c
   function runs in the tab (the bar, playback) and on the server (the files' names), so they always agree.
   Red: an unrendered segment showing anything with effects, a transition, an adjustment layer, a nest or a 3D
   layer. Nothing: only plain media, text, solids and shapes. Green: rendered.
-- **Files** are the package's own: `<project>.vaudio/render/<key>.mp4` (H.264 at the sequence's 1080p size,
+- **Files** are the package's own: `<project>.yt/render/<key>.mp4` (H.264 at the sequence's 1080p size,
   short GOPs so scrubbing seeks quickly, no sound: the sound is mixed live, as Premiere's video previews are). They
   survive closing the project and go with it. A stale file isn't deleted at once (undo brings it back); past
   `PREVIEW_BUDGET` the oldest go.

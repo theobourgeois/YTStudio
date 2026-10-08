@@ -10,7 +10,7 @@ const project = (id: string, name: string, updatedAt: number, missing = false): 
   createdAt: 0,
   updatedAt,
   openedAt: 0,
-  path: `/Users/me/Documents/Vaudio/${name}.vaudio`,
+  path: `/Users/me/Documents/YTStudio/${name}.yt`,
   ...(missing && { missing: true as const }),
   duration: 0,
   thumbnail: null,

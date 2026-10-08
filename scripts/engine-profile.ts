@@ -8,7 +8,7 @@
  * `--plugins` is a scanned plugin list to start from (default: this checkout's data/engine/plugins.xml),
  * else every plugin on this computer is scanned first.
  *
- *   pnpm tsx scripts/engine-profile.ts ~/Documents/Vaudio/bemine.vaudio [--seconds 30] [--from <seconds>] [--without YT-EQ] [--sample]
+ *   pnpm tsx scripts/engine-profile.ts ~/Documents/YTStudio/bemine.yt [--seconds 30] [--from <seconds>] [--without YT-EQ] [--sample]
  */
 import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
@@ -33,11 +33,11 @@ const { values, positionals } = parseArgs({
   },
 });
 const source = positionals[0];
-if (!source) throw new Error("Which package? pnpm tsx scripts/engine-profile.ts <Name.vaudio>");
+if (!source) throw new Error("Which package? pnpm tsx scripts/engine-profile.ts <Name.yt>");
 
 const RATE = 48_000;
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "engine-profile-"));
-const pkg = path.join(tmp, "song.vaudio");
+const pkg = path.join(tmp, "song.yt");
 await fs.cp(source, pkg, { recursive: true });
 // This computer's plugin list, so the engine doesn't scan them all again.
 await fs.mkdir(path.join(tmp, "engine"), { recursive: true });
@@ -77,7 +77,7 @@ try {
   await engine.command("play", { from: fromTick });
 
   const marker = `--data ${path.join(tmp, "engine")}`;
-  const row = execFileSync("ps", ["-ax", "-o", "pid=,command="]).toString().split("\n").find((line) => line.includes(marker) && line.includes("Vaudio Engine"));
+  const row = execFileSync("ps", ["-ax", "-o", "pid=,command="]).toString().split("\n").find((line) => line.includes(marker) && line.includes("YTStudio Engine"));
   const pid = Number(row?.trim().split(/\s+/)[0]);
   const cpu = () => {
     const [user, system] = execFileSync("ps", ["-o", "utime=,stime=", "-p", String(pid)]).toString().trim().split(/\s+/);

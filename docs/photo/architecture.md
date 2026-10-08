@@ -330,7 +330,7 @@ stroke.
 ## Persistence and the package
 
 ```text
-Name.vaudio/
+Name.yt/
   project.json                    The document (platform)
   meta.json                       Suite and dates (platform)
   media/<id>/                     Sources (platform)

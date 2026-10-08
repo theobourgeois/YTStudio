@@ -40,7 +40,7 @@ Exit: live playback and an offline render work; recording and MIDI have evidence
 - Verify Ctrl/Alt shortcuts, menu labels, Windows window controls and multi-monitor display scaling.
 - Verify project create/open/save/reopen, sample import/browser folders, drag-and-drop, presets, plugin state, autosave and crash recovery.
 - Exercise paths with spaces, Unicode, drive letters and Windows separators.
-- Treat `.vaudio` projects as directories on Windows; verify folder dialogs and document opening rather than assuming Finder package behavior transfers.
+- Treat `.yt` projects as directories on Windows; verify folder dialogs and document opening rather than assuming Finder package behavior transfers.
 - Verify FFmpeg exports and stems, and music assistant process launch/tool actions on Windows.
 - Add Windows Serum preset database discovery if the existing automatic preset classification needs it.
 

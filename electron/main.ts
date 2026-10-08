@@ -3,9 +3,9 @@
  * Everything else (projects, media, export, assistant) is the same code as `pnpm dev`.
  *
  *   pnpm dev:desktop     development (Vite with hot reload, data in ./data)
- *   pnpm build:desktop   a packaged app in release/ (data in ~/Library/Application Support/Vaudio)
+ *   pnpm build:desktop   a packaged app in release/ (data in ~/Library/Application Support/YTStudio)
  */
-import { existsSync } from "node:fs";
+import { existsSync, renameSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { engineExecutable } from "../server/engine-path.ts";
@@ -20,7 +20,9 @@ import { HoverRelay } from "./hover.ts";
 import { Panels, answerPanelRequests, isPanelName, panelOptions, popupOptions } from "./panels.ts";
 import { Restacker, WindowStack } from "./stacking.ts";
 
-const APP_NAME = "Vaudio";
+const APP_NAME = "YTStudio";
+/** What the app was called before: where its data was. */
+const LEGACY_APP_NAME = "Vaudio";
 /** The packaged app's server port, kept the same across launches so the page's origin (and its saved layout) is too. */
 const PACKAGED_PORTS = [5611, 5612, 5613, 5614, 5615, 0];
 /** Set by scripts/desktop.ts in development: Vite's URL (it proxies /api and /files to our server). */
@@ -48,18 +50,34 @@ const IMAGE_TYPES: Record<string, string> = {
 app.setName(APP_NAME);
 // Windows groups the taskbar button, its pins and notifications by this: the installer's shortcut carries
 // the same id (electron-builder's appId), so the running app is that shortcut's, not a second "Electron".
-if (isWindows) app.setAppUserModelId(app.isPackaged ? "gg.jestr.vaudio" : process.execPath);
+if (isWindows) app.setAppUserModelId(app.isPackaged ? "gg.jestr.ytstudio" : process.execPath);
 // Chrome stops giving a page a GPU adapter after a second GPU-process crash within two minutes; the photo editor
 // renders with WebGPU and recovers from a lost device, so it must always get one (docs/photo/architecture.md).
 app.commandLine.appendSwitch("disable-gpu-process-crash-limit");
 app.commandLine.appendSwitch("disable-domain-blocking-for-3d-apis");
 // A separate profile (window state, page storage, the single-instance lock), for tests.
 if (process.env.EDITOR_USER_DATA_DIR) app.setPath("userData", path.resolve(process.env.EDITOR_USER_DATA_DIR));
+else {
+  // The app was called Vaudio: its profile and data (recents, the Library, settings, the page's storage) move
+  // to YTStudio's folder the first time, or stay where they are if they can't.
+  const userData = path.join(app.getPath("appData"), APP_NAME);
+  const legacy = path.join(app.getPath("appData"), LEGACY_APP_NAME);
+  let moved = existsSync(userData) || !existsSync(legacy);
+  if (!moved) {
+    try {
+      renameSync(legacy, userData);
+      moved = true;
+    } catch (err) {
+      console.warn(`[desktop] couldn't move ${legacy} to ${userData}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+  app.setPath("userData", moved ? userData : legacy);
+}
 // The packaged app keeps its own data (recents, the Library, settings) with the user's other app data, and
-// projects, files of their own, in ~/Documents/Vaudio; development uses the repo's ./data (and the same folder).
+// projects, files of their own, in ~/Documents/YTStudio; development uses the repo's ./data (and the same folder).
 if (app.isPackaged && !process.env.EDITOR_DATA_DIR) {
   process.env.EDITOR_DATA_DIR = path.join(app.getPath("userData"), "data");
-  process.env.EDITOR_PROJECTS_DIR ??= path.join(app.getPath("documents"), "Vaudio");
+  process.env.EDITOR_PROJECTS_DIR ??= path.join(app.getPath("documents"), "YTStudio");
 }
 
 // The audio engine ships in the app's resources (scripts/desktop.ts); development uses engine/build.
@@ -117,7 +135,7 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow.focus();
   });
   // A project double-clicked in Finder, dropped on the Dock icon or picked from Open Recent (macOS), or an image
-  // dropped on the Dock icon or opened with Vaudio, even before launch ends.
+  // dropped on the Dock icon or opened with YTStudio, even before launch ends.
   app.on("open-file", (event, file) => {
     event.preventDefault();
     openFile(file);
@@ -127,7 +145,8 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 function isProjectPath(file: string) {
-  return /\.vaudio[/\\]?$/i.test(file);
+  // `.yt`, or `.vaudio` from before the app was YTStudio (renamed `.yt` once it's opened and closed).
+  return /\.(yt|vaudio)[/\\]?$/i.test(file);
 }
 
 function imageType(file: string): string | undefined {
@@ -367,7 +386,7 @@ function answerSaveDialogs() {
 }
 
 /**
- * Projects are files (`.vaudio` packages, which Finder shows as one file once the app is installed): the
+ * Projects are files (`.yt` packages, which Finder shows as one file once the app is installed): the
  * Mac's Open dialog picks one (or a file inside one, where macOS doesn't know the type yet), its folder
  * dialog picks where new ones go, and an opened one joins the system's recent documents (File › Open Recent).
  * An image handed to the app is read here for the page, which starts a photo with it.
@@ -385,7 +404,7 @@ function answerProjectDialogs() {
       defaultPath: defaultPath(options),
       // A package is a file to the dialog when the type is registered (the packaged app); otherwise its folder is picked.
       properties: isMac ? ["openFile", "openDirectory"] : ["openDirectory"],
-      filters: [{ name: "Vaudio projects", extensions: ["vaudio"] }],
+      filters: [{ name: "YTStudio projects", extensions: ["yt", "vaudio"] }],
     };
     const result = win ? await dialog.showOpenDialog(win, settings) : await dialog.showOpenDialog(settings);
     return result.canceled ? null : (result.filePaths[0] ?? null);
@@ -426,16 +445,16 @@ function answerProjectDialogs() {
   });
   // An image handed to the app (`openImages`), for the page to start a photo with: never any other file.
   ipcMain.handle("read-handed-image", async (_event, file: unknown) => {
-    if (typeof file !== "string" || !handedImages.has(file)) throw new Error("That file wasn't opened with Vaudio.");
+    if (typeof file !== "string" || !handedImages.has(file)) throw new Error("That file wasn't opened with YTStudio.");
     handedImages.delete(file);
     return { name: path.basename(file), type: imageType(file), data: await readFile(file) };
   });
 }
 
 /**
- * Recording reads an input through the engine, which macOS lets through only once Vaudio (the app
+ * Recording reads an input through the engine, which macOS lets through only once YTStudio (the app
  * responsible for it) may use the microphone. The page asks for it before the engine opens an input,
- * so the question comes from Vaudio, when the user has just chosen one; and says so when it's refused.
+ * so the question comes from YTStudio, when the user has just chosen one; and says so when it's refused.
  */
 function answerMicrophone() {
   const status = () => (process.platform === "darwin" || process.platform === "win32" ? systemPreferences.getMediaAccessStatus("microphone") : "granted");

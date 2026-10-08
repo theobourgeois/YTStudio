@@ -23,7 +23,7 @@ import {
 } from "./types.ts";
 
 /** What a YT-L effect is, as a slot's plugin: one of ours, run by the engine itself. */
-export const PRO_L_PLUGIN: PluginRef = { id: "vaudio:pro-l", name: "YT-L", format: "Vaudio" };
+export const PRO_L_PLUGIN: PluginRef = { id: "vaudio:pro-l", name: "YT-L", format: "YTStudio" };
 export const isProL = (plugin: Pick<PluginRef, "id">) => plugin.id === PRO_L_PLUGIN.id;
 
 export const PRO_L_GAIN_RANGE = [0, 30] as const;

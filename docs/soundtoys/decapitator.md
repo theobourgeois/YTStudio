@@ -7,7 +7,7 @@ product page and release log, reviews (Sound On Sound 2010 and 2016, Tape Op, Ba
 Plugin News), the engineers who've said how they use it, and the circuit and DSP literature behind its five
 styles. Anything the sources don't give is marked **not stated**; anything worked out rather than read is marked
 **(inferred)**. The last sections are ours: a [decimation stage](#6-decimation-the-crush-stage-ours) Soundtoys
-doesn't have, [what we'd build](#7-proposed-for-vaudio), [how it'd be built here](#8-how-itd-be-built-here) and
+doesn't have, [what we'd build](#7-proposed-for-ytstudio), [how it'd be built here](#8-how-itd-be-built-here) and
 [the questions for Théo](#9-open-questions-for-théo).
 
 The pictures in `img/` are Soundtoys' own screenshots, © Soundtoys, kept here only as a private reference for
@@ -32,7 +32,7 @@ out, in our own visual style.
 4. [The sound](#4-the-sound)
 5. [How it works: the DSP](#5-how-it-works-the-dsp)
 6. [Decimation: the Crush stage (ours)](#6-decimation-the-crush-stage-ours)
-7. [Proposed for Vaudio](#7-proposed-for-vaudio)
+7. [Proposed for YTStudio](#7-proposed-for-ytstudio)
 8. [How it'd be built here](#8-how-itd-be-built-here)
 9. [Open questions for Théo](#9-open-questions-for-théo)
 10. [Sources](#10-sources)
@@ -759,7 +759,7 @@ level, so a quiet track uses fewer of the bits, exactly as sampling a quiet reco
 
 ---
 
-## 7. Proposed for Vaudio
+## 7. Proposed for YTStudio
 
 ### Decided (to check with Théo)
 
@@ -794,9 +794,9 @@ Decimator. I'm a big fan."). What's chosen:
 | **2** | The Crush stage and its Machines |
 | Later | A **harmonics display** (H1…H9 bars of the current setting, measured by the engine on a test tone it runs aside, or a live spectrum): Decapitator has none, and it would show *why* styles differ. Mid-riser quantising (Decimort's DC Shift). An SP-1200 "drop-sample" pitch mode (a Crush that also repitches, Yeh's tuning algorithm). Parameter lock while browsing presets. Upgrading EchoBoy's and PanMan's saturations to the same oversampling and ADAA |
 
-### Where Vaudio differs
+### Where YTStudio differs
 
-| What | Soundtoys | Vaudio |
+| What | Soundtoys | YTStudio |
 | --- | --- | --- |
 | Look | Black panel, walnut cheeks, bakelite VU, chicken-head knobs | The app's surfaces, knobs and LCDs; the VU on a canvas in its colours |
 | Aliasing | Reportedly none of oversampling: aliasing at 44.1/48 kHz | 8× + ADAA, linear phase; measured in tests |
@@ -821,7 +821,7 @@ natively in the engine, state kept by effect id.
 | File | What |
 | --- | --- |
 | `shared/music/types.ts` | `Decapitator`, `DecapStyle`, `DecapCrush`, `DecapControl`; `MixerEffect.decapitator`; `AutomationTarget` `{ kind: "decapitator"; effect; control }` |
-| `shared/music/decapitator-presets.ts` | `DECAPITATOR_PLUGIN = { id: "vaudio:decapitator", name: "Decapitator", format: "Vaudio" }`, `isDecapitator`, the constants and ranges, `DECAP_STYLES` (names and one-line details), `DECAP_MACHINES`, `DECAP_CONTROLS` (automatable: name, range, log, format), `DECAP_LANE_SCALE`, `normalizeDecapitator`, `DECAPITATOR_PRESETS`, `DEFAULT_DECAPITATOR`, and `AUTO_GAIN` (the calibration table, generated) |
+| `shared/music/decapitator-presets.ts` | `DECAPITATOR_PLUGIN = { id: "vaudio:decapitator", name: "Decapitator", format: "YTStudio" }`, `isDecapitator`, the constants and ranges, `DECAP_STYLES` (names and one-line details), `DECAP_MACHINES`, `DECAP_CONTROLS` (automatable: name, range, log, format), `DECAP_LANE_SCALE`, `normalizeDecapitator`, `DECAPITATOR_PRESETS`, `DEFAULT_DECAPITATOR`, and `AUTO_GAIN` (the calibration table, generated) |
 | `shared/music/decapitator.ts` | The edits (`updateDecapitator`, `loadDecapPreset`, `setDecapStyle`, `decapEdited`, `adjacentPreset`), `autoOutput`, and `engineDecapitator` (what the engine plays) |
 | `shared/music/compile.ts` | `EngineEffect.decapitator`; the lanes of kind `decap`, and the derived Output lane when Auto is on and Drive is automated |
 | `shared/music/engine.ts` | `EngineTransport.decapitators: Record<effectId, { vu: number }>` (the needle, in VU) |

@@ -6,7 +6,7 @@ manual (`envsettings_midi`, `recording`, `recording_scores`, `recording_step`, `
 [recording.md](recording.md); both share the Record button.
 
 The last sections are ours: [what's decided](#decided-with-théo-2026-10-02), [how it's built](#how-its-built)
-and [where Vaudio differs](#where-vaudio-differs).
+and [where YTStudio differs](#where-ytstudio-differs).
 
 ## Playing
 
@@ -89,9 +89,9 @@ selected in the rack.
   where recording started, on the first track it fits on; or into a pattern clip of the selected
   pattern already there.
 
-## Where Vaudio differs
+## Where YTStudio differs
 
-| FL Studio | Vaudio |
+| FL Studio | YTStudio |
 | --- | --- |
 | Each input is enabled by hand | Every input plays unless turned off (Settings → Music → MIDI inputs) |
 | Controller types, ports, output, sync, Link to controller | Not yet |

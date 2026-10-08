@@ -16,28 +16,28 @@ pnpm dev                 # server on :5311, app on http://localhost:5310 (next f
 
 Then drag files from `./samples` (or anywhere) into the media panel or straight onto the timeline.
 
-### Desktop app (Vaudio)
+### Desktop app (YTStudio)
 
 The same editor in its own window (Electron), with the server running inside the app:
 
 ```bash
 pnpm dev:desktop         # a window with hot reload, using ./data like pnpm dev (don't run both at once)
-pnpm build:desktop       # release/mac-arm64/Vaudio.app: drag it into Applications (unsigned: right-click → Open the first time)
+pnpm build:desktop       # release/mac-arm64/YTStudio.app: drag it into Applications (unsigned: right-click → Open the first time)
 ```
 
-Projects are files of their own, in `~/Documents/Vaudio` by default (see below). The built app keeps the rest (its
-recents, the Library, settings) in `~/Library/Application Support/Vaudio/data` (Help → Show Data Folder), separate
+Projects are files of their own, in `~/Documents/YTStudio` by default (see below). The built app keeps the rest (its
+recents, the Library, settings) in `~/Library/Application Support/YTStudio/data` (Help → Show Data Folder), separate
 from `./data`. Double-click a project in Finder to open it, or pick one from File › Open Recent. It finds ffmpeg and
 the rest through your shell's PATH, and draws exports in its own Chromium.
 
 ## Using it
 
-Every project (a video, a song) is a file of its own: a `.vaudio` package holding its document, its media and
-anything else it keeps (a song's plugin settings and recordings). New ones are saved in `~/Documents/Vaudio` (change
+Every project (a video, a song) is a file of its own: a `.yt` package holding its document, its media and
+anything else it keeps (a song's plugin settings and recordings). New ones are saved in `~/Documents/YTStudio` (change
 it in Settings › General); move, copy, back up or send them in Finder like any other file.
 
 The app opens on **Home**: a tile per kind of project (**New video** `⌘1`, **New song** `⌘2`; `⌥`-click starts blank
-when it has a starting point), **Open a project…** (`⌘O`: any `.vaudio` file, from anywhere), and your recent
+when it has a starting point), **Open a project…** (`⌘O`: any `.yt` file, from anywhere), and your recent
 projects as cards, the latest first, with a search (`⌘F`) and a Videos / Songs filter. Drop clips on Home to start a
 video with them. Songs have a play button and seek bar, with the waveform of the rendered mix. Hover a video
 thumbnail to play its edited timeline silently; click the speaker to unmute. Moving away restores the thumbnail
@@ -514,7 +514,7 @@ Keyframes stay on their frame of the media when a clip is moved, trimmed or spli
 ## How it works
 
 - **Suites** — the editor is growing into a creative suite: every project belongs to one app (`SuiteId`: video, music…),
-  chosen when it's made. Projects (each a `.vaudio` package on disk), the Home screen, the URL, assistant chats and the MCP server are shared; each suite brings
+  chosen when it's made. Projects (each a `.yt` package on disk), the Home screen, the URL, assistant chats and the MCP server are shared; each suite brings
   its document (`shared/suites.ts`, `server/suites/`), its workspace and store (`src/suites/`) and its assistant's
   prompt and tools (`shared/suite-tools.ts`). The video editor is below; music is a shell (`shared/music/`, `src/suites/music/`).
 - **`src/`** — React + Vite + Tailwind + shadcn/ui. The document lives in the zustand store `stores/editor.ts`
@@ -573,7 +573,7 @@ MP3/AAC/WAV/FLAC/Ogg/Opus audio, and PNG/JPEG/WebP/BMP (or single-frame GIF) ima
 | `pnpm build && pnpm start` | production build served by the server on :5311 |
 | `pnpm samples` | generate test media into `./samples` |
 | `pnpm dev:desktop` | the desktop app with hot reload |
-| `pnpm build:desktop` / `pnpm package:desktop` | `release/`: Vaudio.app / a .dmg and .zip |
+| `pnpm build:desktop` / `pnpm package:desktop` | `release/`: YTStudio.app / a .dmg and .zip |
 | `pnpm test:desktop` | launch the built app on throwaway data, export a transition, check it |
 
 Working on the code (architecture, conventions, how to add things): see [CLAUDE.md](CLAUDE.md).

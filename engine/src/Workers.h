@@ -99,7 +99,7 @@ private:
 
     struct Worker final : juce::Thread
     {
-        explicit Worker (Workers& owner) : juce::Thread ("Vaudio worker"), pool (owner) {}
+        explicit Worker (Workers& owner) : juce::Thread ("YTStudio worker"), pool (owner) {}
         void run() override { pool.work(); }
         Workers& pool;
     };

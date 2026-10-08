@@ -36,7 +36,7 @@ Investigate supported capture/export commands and vendor presets first. For unav
 
 `engine/src/Host.cpp` already restores saved instance state and enumerates parameter IDs, names, normalized values, and current display text. Its `PluginHost::parameters` currently filters out non-automatable parameters, so it is not a complete capture implementation. `server/music/engine.ts` exposes that enumeration to the app.
 
-This is useful groundwork for plugins hosted by Vaudio, not evidence that imported FL/Pro Tools session states are already readable. Ingestion needs correct source instance/state restoration or an exported manifest from the original DAW.
+This is useful groundwork for plugins hosted by YTStudio, not evidence that imported FL/Pro Tools session states are already readable. Ingestion needs correct source instance/state restoration or an exported manifest from the original DAW.
 
 ## Recommended capture and fallback order
 

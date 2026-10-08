@@ -9,10 +9,10 @@ const base = { createdAt: NOW - 86_400_000, updatedAt: NOW - 3_600_000, openedAt
 
 /** Projects in the states a card shows: with a picture, without one, missing, damaged. */
 const SAMPLES: ProjectSummary[] = [
-  { ...base, id: "project_000000000001", suite: "video", name: "Launch teaser", path: "/Users/me/Documents/Vaudio/Launch teaser.vaudio", thumbnail: appIconUrl("banner-blue"), aspectRatio: "9:16", clipCount: 7 },
-  { ...base, id: "project_000000000002", suite: "music", name: "Night drive beat", path: "/Users/me/Documents/Vaudio/Night drive beat.vaudio", thumbnail: null, tempo: 92, updatedAt: NOW - 172_800_000, openedAt: NOW - 172_800_000 },
-  { ...base, id: "project_000000000003", suite: "video", name: "Old vlog", path: "/Volumes/Backup/Old vlog.vaudio", thumbnail: null, aspectRatio: "16:9", clipCount: 3, missing: true },
-  { ...base, id: "project_000000000004", suite: "music", name: "Demo", path: "/Users/me/Documents/Vaudio/Demo.vaudio", thumbnail: null, tempo: 120, damaged: "\"Demo\" can't be opened: its document (project.json) is damaged: it isn't valid JSON. Nothing in it was changed." },
+  { ...base, id: "project_000000000001", suite: "video", name: "Launch teaser", path: "/Users/me/Documents/YTStudio/Launch teaser.yt", thumbnail: appIconUrl("banner-blue"), aspectRatio: "9:16", clipCount: 7 },
+  { ...base, id: "project_000000000002", suite: "music", name: "Night drive beat", path: "/Users/me/Documents/YTStudio/Night drive beat.yt", thumbnail: null, tempo: 92, updatedAt: NOW - 172_800_000, openedAt: NOW - 172_800_000 },
+  { ...base, id: "project_000000000003", suite: "video", name: "Old vlog", path: "/Volumes/Backup/Old vlog.yt", thumbnail: null, aspectRatio: "16:9", clipCount: 3, missing: true },
+  { ...base, id: "project_000000000004", suite: "music", name: "Demo", path: "/Users/me/Documents/YTStudio/Demo.yt", thumbnail: null, tempo: 120, damaged: "\"Demo\" can't be opened: its document (project.json) is damaged: it isn't valid JSON. Nothing in it was changed." },
 ];
 
 function HomeParts() {

@@ -3,8 +3,8 @@
 Xfer Records' **OTT**, the free multiband upward and downward compressor ("Over The Top"): the Ableton
 Multiband Dynamics preset of that name made a plugin, and the sound of a decade of EDM (squashed,
 bright, loud, every quiet tail brought up). This is what it is, from Xfer's plugin and what's been
-written and measured of it, and then what's ours: [what's decided](#decided), [where Vaudio
-differs](#where-vaudio-differs) and [how it's built](#how-its-built).
+written and measured of it, and then what's ours: [what's decided](#decided), [where YTStudio
+differs](#where-ytstudio-differs) and [how it's built](#how-its-built).
 
 Sources: [Xfer's freeware page](https://xferrecords.com/freeware); the 2022 redesign's write-ups
 ([Bedroom Producers Blog](https://bedroomproducersblog.com/2022/05/04/xfer-records-ott/),
@@ -90,9 +90,9 @@ Choices made for Théo (to confirm by ear):
 - **The display's scale**: −84 to 0 dB, with the input marker at the band's level and the output's bar at
   that level plus the band's gain now.
 
-## Where Vaudio differs
+## Where YTStudio differs
 
-| | OTT | Vaudio |
+| | OTT | YTStudio |
 | --- | --- | --- |
 | Clean XOV | A second crossover | Not modelled (the model's crossovers are OTT's default ones) |
 | Release at other sample rates | Faster at 96 kHz than at 48 kHz (part of it counts samples) | OTT at 48 kHz at every rate |

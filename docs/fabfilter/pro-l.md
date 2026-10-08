@@ -36,7 +36,7 @@ Pro-Q 4 (December 2024) and Pro-C 3. This document is based on Pro-L 2 throughou
 | **[measured]** | Measured on the real Pro-L 2 2.26 (its trial), offline: `pro-l-research.md` §2. |
 | **[inferred]** | Worked out here from the above; consistent with everything found, not confirmed. |
 | **[checked]** | Checked numerically here (Python / NumPy / SciPy, scripts described in [§5.16](#516-how-the-checked-claims-were-checked)). Proves the maths, not that Pro-L does the same. |
-| **[ours]** | A decision for Vaudio's version, not a claim about FabFilter's. |
+| **[ours]** | A decision for YTStudio's version, not a claim about FabFilter's. |
 | **not stated** | No source found says. |
 
 The pictures in `img/pro-l-*` are FabFilter's own screenshots from its online help, © FabFilter, kept here
@@ -53,7 +53,7 @@ copy how it works and how it's laid out, in our own visual style.
 4. [The styles](#4-the-styles)
 5. [How it works: the DSP](#5-how-it-works-the-dsp)
 6. [The factory presets](#6-the-factory-presets)
-7. [Proposed for Vaudio](#7-proposed-for-vaudio)
+7. [Proposed for YTStudio](#7-proposed-for-ytstudio)
 8. [How it'd be built here](#8-how-itd-be-built-here)
 9. [Open questions for Théo](#9-open-questions-for-théo)
 10. [Sources](#sources)
@@ -1252,7 +1252,7 @@ loud); delivery settings only where a preset is about delivery ("—" leaves the
 
 ---
 
-## 7. Proposed for Vaudio
+## 7. Proposed for YTStudio
 
 Revised 2026-10-07 after the second round of research and the measurements, from Théo's ask: "more versatile than Pro-L
 … the most goated limiter ever", for loud masters, streaming masters, vocals and buses, with a clipper stage inside.
@@ -1296,7 +1296,7 @@ Revised 2026-10-07 after the second round of research and the measurements, from
 | Loudness: M, S, I, LRA, Max M / S, targets, +9 / +18, absolute / relative, pause, reset, auto-reset | | Saving presets of one's own |
 | Presets (§6), Lock Output, A/B, Copy, the app's undo; automation of every continuous control; tools | | |
 
-### 7.3 Where Vaudio differs from Pro-L 2
+### 7.3 Where YTStudio differs from Pro-L 2
 
 | What | Pro-L 2 (measured where marked) | Ours |
 | --- | --- | --- |
@@ -1414,7 +1414,7 @@ export interface ProL extends ProLState {
   other: ProLState | null;
   meter: ProLMeter;
 }
-// MixerEffect.proL?: ProL, on an effect whose plugin is PRO_L_PLUGIN ({ id: "vaudio:pro-l", name: "YT-L", format: "Vaudio" }).
+// MixerEffect.proL?: ProL, on an effect whose plugin is PRO_L_PLUGIN ({ id: "vaudio:pro-l", name: "YT-L", format: "YTStudio" }).
 ```
 
 Bypass is the slot's `enabled` (the engine fades it; its latency stays in the compensation). Validated by

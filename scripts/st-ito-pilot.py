@@ -1,4 +1,4 @@
-"""Run upstream ST-ITO CMA-ES against real stems through Vaudio's native API."""
+"""Run upstream ST-ITO CMA-ES against real stems through YTStudio's native API."""
 import argparse
 import ast
 import hashlib

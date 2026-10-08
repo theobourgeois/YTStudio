@@ -8,7 +8,7 @@ button does and the right button undoes). Where neither the manual nor Théo say
 **(unverified)**.
 
 The last sections are ours: [what we'll leave out](#what-well-leave-out),
-[where Vaudio differs](#where-vaudio-differs), [what was decided](#decided-with-théo-2026-10-01) and
+[where YTStudio differs](#where-ytstudio-differs), [what was decided](#decided-with-théo-2026-10-01) and
 [how it's built](#how-its-built).
 
 ## What it is
@@ -37,7 +37,7 @@ The things that make it FL Studio:
 - **Instances, not copies.** Every pattern clip of a pattern plays that same pattern: change the pattern
   and every clip of it changes. "Make unique" breaks one away (it clones the pattern).
 - **Pattern mode and song mode** (the toolbar's PAT / SONG switch, L): PAT loops the current pattern
-  (what Vaudio does today); SONG plays the Playlist from where play starts.
+  (what YTStudio does today); SONG plays the Playlist from where play starts.
 - **Track mode** (newer FL) can link a Playlist track to one instrument channel and one mixer track (an
   "Instrument track" or "Audio track"), for those who want a DAW's 1:1 layout. It's optional and off
   by default; the free model above is the FL way.
@@ -218,7 +218,7 @@ Playlist pages, and FL Studio 2025's behaviour as its users describe it on Image
   right-click menu ("Create automation clip"), which puts a clip on the Playlist covering the song (or the
   time selection).
 - Its points are edited on the clip itself (right-click adds, drag moves; resizing is by its title bar).
-- Vaudio has them: everything about automation (making a clip, editing its curve, the curve types, what an
+- YTStudio has them: everything about automation (making a clip, editing its curve, the curve types, what an
   automated control does) is in [automation.md](automation.md).
 
 ## The clip menu
@@ -382,7 +382,7 @@ From the first version (most of it for good):
 - **Time signature changes** and markers' other actions (loop, skip, pause), Slip's ripple mode.
 - Consolidate, render as audio clip, time markers and the Zoom tool: built since (below).
 
-## Where Vaudio differs
+## Where YTStudio differs
 
 Built on 2026-10-01 from this document (`src/suites/music/playlist/`, `shared/music/playlist.ts`, song mode
 in `shared/music/compile.ts`, audio clips in `engine/src/ClipPlayer.cpp`). Every behaviour below has a test:
@@ -410,7 +410,7 @@ clone, split by channel, delete); the clip source menu in the
 title; the clip menu (its arrow); PAT / SONG (L); split by channel; make unique; audio clips as channels,
 dropped from the Browser or the Finder (Shift: one after another on the track), streamed from disk.
 
-| What | FL Studio | Vaudio now |
+| What | FL Studio | YTStudio now |
 | --- | --- | --- |
 | Tracks | 500, always there | As many as are used or changed, plus eight spare and enough to fill the view, up to 500 |
 | Clip kinds | Pattern, audio, automation | Pattern, audio, automation ([automation.md](automation.md)) |

@@ -4,7 +4,7 @@ How FL Studio's Channel Rack, step sequencer, graph editor and Channel Settings 
 manual (`channelrack.htm`, `chansettings*.htm`, `basics_shortcuts.htm`) and from Théo. See
 [README.md](README.md) for the sources and for what holds everywhere (knobs, menus, windows).
 
-The last two sections are ours: [where Vaudio differs today](#where-vaudio-differs-today) and
+The last two sections are ours: [where YTStudio differs today](#where-ytstudio-differs-today) and
 [open questions](#open-questions).
 
 ## Anatomy
@@ -244,7 +244,7 @@ empty pattern and asks its name; F2 renames.
 
 ---
 
-## Where Vaudio differs today
+## Where YTStudio differs today
 
 After the interaction pass on the rack (`src/suites/music/channel-rack.tsx`, `channel-settings.tsx`,
 `knob.tsx`, `window.tsx`). What's listed under "Same" was checked against this document and has tests
@@ -269,7 +269,7 @@ under the rows, which picks the new channel's instrument (the Sampler, or a VST3
 found on this computer), whose button then shows the plugin's own window; and the selector's drag and
 Shift+click, which select a range.
 
-| What | FL Studio | Vaudio now | When |
+| What | FL Studio | YTStudio now | When |
 | --- | --- | --- | --- |
 | Steps past what fits | A scrollbar; the rack can be any width | The rack grows to the pattern's length, scrolling past 64 steps' worth of width | Fine for now |
 | Pattern length LCD | Click its top or bottom edge to step by one | Drag, arrow keys, and the menu | Later |

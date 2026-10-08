@@ -6,7 +6,7 @@ function(vaudio_test_plugin target name code synth source)
     ${target}
     PRODUCT_NAME "${name}"
     COMPANY_NAME "Vaudio"
-    BUNDLE_ID gg.jestr.vaudio.${code}
+    BUNDLE_ID gg.jestr.yt.${code}
     PLUGIN_MANUFACTURER_CODE Vaud
     PLUGIN_CODE ${code}
     FORMATS VST3

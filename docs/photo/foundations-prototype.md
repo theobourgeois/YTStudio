@@ -136,7 +136,7 @@ photo`).
 | An unedited 8-bit sRGB photo exports bit-exact | The sample JPEG opened as the canvas, exported as PNG through the export window (in bands), compared by the helper with the file: 0 samples differ |
 | Down to 10% and back up is lossless | W typed 10 then 100 in Properties: the saved transform equals the original exactly, and the source is what's resampled |
 | Reopen restores everything | Reload after transforms, hiding, renaming, reordering: the saved document and the panels agree |
-| Duplicate and move keep it working | A duplicated project's layer loads (`data-source="ready"`); a renamed one's package moves to `Moved.vaudio` and reopens with its images |
+| Duplicate and move keep it working | A duplicated project's layer loads (`data-source="ready"`); a renamed one's package moves to `Moved.yt` and reopens with its images |
 | The spec passes alone | `pnpm test:e2e photo` |
 
 Also checked there: a new photo from the New tile, its size presets (undoable), images dropped on Home starting a

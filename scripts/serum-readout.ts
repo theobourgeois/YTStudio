@@ -15,7 +15,7 @@ import { DataPaths } from "../server/storage.ts";
 
 export const ENGINE_BINARY =
   process.env.EDITOR_ENGINE_PATH ??
-  path.join(import.meta.dirname, "../engine/build/VaudioEngine_artefacts/Release/Vaudio Engine.app/Contents/MacOS/Vaudio Engine");
+  path.join(import.meta.dirname, "../engine/build/VaudioEngine_artefacts/Release/YTStudio Engine.app/Contents/MacOS/YTStudio Engine");
 const VST3_FOLDER = "/Library/Audio/Plug-Ins/VST3";
 
 export interface SerumControl {

@@ -1,4 +1,4 @@
-# Reverb: a vocal reverb for Vaudio
+# Reverb: a vocal reverb for YTStudio
 
 The design of our reverb, mostly for vocals, written before it was built. **Steps 1–4 of 8.1 are built**
 (3 October 2026); what was decided on the open questions and where the build differs from this design are
@@ -7,7 +7,7 @@ it "isn't the best"; he asked for "a really good reverb mostly for vocals" and f
 So this document first surveys what the engineers behind pop, rap, R&B and hyperpop records put on vocals,
 and why ([1](#1-the-survey)); then chooses what to base ours on ([2](#2-the-choice)); then designs it
 completely: the panel ([4](#4-the-panel)), the sound ([5](#5-the-sound)), the DSP ([6](#6-how-it-works-the-dsp)),
-the presets ([7](#7-the-presets-wed-ship)), and how it's built here and tested ([8](#8-proposed-for-vaudio),
+the presets ([7](#7-the-presets-wed-ship)), and how it's built here and tested ([8](#8-proposed-for-ytstudio),
 [9](#9-how-itd-be-built-here)). [Open questions](#10-open-questions-for-théo) and [sources](#11-sources) at
 the end.
 
@@ -1276,7 +1276,7 @@ Rap Plate aim at named units with our modes and their published numbers, in pres
 presets carry; the two that need the engine (the EMT 140's damper-following curve and the 480L's Wander) are
 built into Plate and the modulation (6.4, 6.8). Question 2 asks Théo whether he'd rather have them as modes.
 
-## 8. Proposed for Vaudio
+## 8. Proposed for YTStudio
 
 ### 8.1 What we'd build first, and what later
 
@@ -1325,7 +1325,7 @@ follows theirs; nothing in the platform changes.
 | Where | File | What it holds |
 | --- | --- | --- |
 | Shared | `shared/music/types.ts` | `Reverb` (the settings), `ReverbMode`, `ReverbEra`, `ReverbDecayBand`, `ReverbControl`; `MixerEffect.reverb?: Reverb`; `AutomationTarget` gains `{ kind: "reverb"; effect: string; control: ReverbControl }` |
-| Shared | `shared/music/reverb-presets.ts` | `REVERB_PLUGIN` (`{ id: "vaudio:reverb", name: "Reverb", format: "Vaudio" }`), `isReverb`, `DEFAULT_REVERB`, every control's range and taper (`REVERB_CONTROLS`), the factory presets, `normalizeReverb` |
+| Shared | `shared/music/reverb-presets.ts` | `REVERB_PLUGIN` (`{ id: "vaudio:reverb", name: "Reverb", format: "YTStudio" }`), `isReverb`, `DEFAULT_REVERB`, every control's range and taper (`REVERB_CONTROLS`), the factory presets, `normalizeReverb` |
 | Shared | `shared/music/reverb-modes.ts` | The modes as data (section 6.4's table: topology, lines, lengths, diffusion, early pattern, natural decay curve, modulation) and the eras (section 6.10's table). The engine is told numbers, never a mode's name |
 | Shared | `shared/music/reverb.ts` | The edits (`updateReverb`, `loadReverbPreset`, `editDecayBands`, `editPostBands`, A/B, `copyReverb`), the curves the window draws (`decayCurve`: T60 against frequency; `postCurve`; `shapeEnvelope`: the energy against time), and `engineReverb`: what the engine plays (section 9.2) |
 | Shared | `shared/music/reverb.test.ts` | The edits return the same song when nothing changes; `decayCurve` at the knobs' ends; `engineReverb`'s bands, lengths and lanes; presets normalise to themselves |

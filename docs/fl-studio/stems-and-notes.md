@@ -70,7 +70,7 @@ drums, bass...), and the notes played in it written as a pattern.
   note), and `e2e/music.spec.ts` with `EDITOR_MUSIC_MODELS=stand-in` (each stem an even share of the file, a
   made-up melody).
 
-## Where Vaudio differs
+## Where YTStudio differs
 
 - Six stems (guitar and piano too), not four, and Other is whatever isn't chosen.
 - Everything runs on this computer; nothing is uploaded. The first use asks to download the model.

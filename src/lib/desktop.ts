@@ -51,7 +51,7 @@ declare global {
       pathForFile?: (file: File) => string;
       saveFile?: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
       microphone?: { status(): Promise<string>; ask(): Promise<string> };
-      /** The system's Open dialog for a project (a `.vaudio` package); null if cancelled. */
+      /** The system's Open dialog for a project (a `.yt` package); null if cancelled. */
       chooseProject?: (defaultPath?: string) => Promise<string | null>;
       /** The system's dialog for a folder; null if cancelled. */
       chooseFolder?: (defaultPath?: string) => Promise<string | null>;
@@ -108,7 +108,7 @@ export function microphoneAccess(): Promise<string> | undefined {
 }
 
 /**
- * Ask for the microphone (recording an input), before the engine opens one, so macOS asks on Vaudio's
+ * Ask for the microphone (recording an input), before the engine opens one, so macOS asks on YTStudio's
  * behalf at that moment. Resolves with the answer; undefined outside the desktop app.
  */
 export function askMicrophone(): Promise<string> | undefined {
@@ -177,7 +177,7 @@ async function openImages(paths: string[]) {
     toast.error("Couldn't open that image", { description: errorMessage(err) });
     return;
   }
-  if (!useProjects.getState().startWith(files)) toast.error("Vaudio can't open that file");
+  if (!useProjects.getState().startWith(files)) toast.error("YTStudio can't open that file");
 }
 
 /** Tell the desktop app whether the tab strip is showing (it keeps a Mac's window buttons level with the bar). */

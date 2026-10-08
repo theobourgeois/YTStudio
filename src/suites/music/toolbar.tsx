@@ -56,7 +56,7 @@ import { useWheelValue } from "./wheel";
 const MAIN_VOLUME: AutomationTarget = { kind: "main" };
 
 /**
- * The music editor's header, FL Studio's toolbar (`docs/fl-studio/toolbar.md`), with only what Vaudio does, in two
+ * The music editor's header, FL Studio's toolbar (`docs/fl-studio/toolbar.md`), with only what YTStudio does, in two
  * rows to save height: the menus start the first and the song's name and FL's hint bar the second (no menu row of
  * its own, as other suites have), the app's own (undo, Settings, Export, the assistant) at the first's end; the tools
  * as dense as FL's, every button in them one size (`TOOL`): the transport

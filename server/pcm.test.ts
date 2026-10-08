@@ -233,7 +233,7 @@ describe.skipIf(!ffmpegAvailable)("PCM files against ffprobe and ffmpeg", () => 
   it("adds a WAV to a project's media as it would through ffprobe", async () => {
     const paths = new DataPaths(path.join(dir, "data"));
     await paths.init();
-    const media = path.join(dir, "P.vaudio", "media");
+    const media = path.join(dir, "P.yt", "media");
     await fs.mkdir(media, { recursive: true });
     const library = new MediaLibrary(paths, undefined, () => media);
     const asset = await library.importFile(files.s16, "proj_000000000000", () => true, "origin");

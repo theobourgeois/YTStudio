@@ -190,7 +190,7 @@ function AppMark() {
   return (
     <div className="flex shrink-0 items-center gap-2 select-none">
       <img src={appIconUrl(icon)} alt="" className="size-6" draggable={false} />
-      <span className="text-[14px] font-semibold tracking-tight">Vaudio</span>
+      <span className="text-[14px] font-semibold tracking-tight">YTStudio</span>
     </div>
   );
 }
@@ -216,7 +216,7 @@ export function OpenTile() {
       </span>
       <span className="grid min-w-0 flex-1 gap-0.5">
         <span className="text-[13px] font-semibold">Open a project…</span>
-        <span className="text-xs leading-4 text-muted-foreground">A .vaudio file: a copy, a backup, one sent to you.</span>
+        <span className="text-xs leading-4 text-muted-foreground">A .yt file: a copy, a backup, one sent to you.</span>
       </span>
       <kbd className="shrink-0 self-start font-sans text-[11px] text-muted-foreground">{OPEN_KEYS}</kbd>
     </button>

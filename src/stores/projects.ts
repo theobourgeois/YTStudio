@@ -289,7 +289,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
     },
 
     startWith(files) {
-      const packages = files.map(droppedPath).filter((p) => /\.vaudio\/?$/i.test(p));
+      const packages = files.map(droppedPath).filter((p) => /\.(yt|vaudio)\/?$/i.test(p));
       if (packages.length) {
         void get().openFile(packages[0]);
         return true;

@@ -26,7 +26,7 @@ import {
 } from "./types.ts";
 
 /** What an EchoBoy effect is, as a slot's plugin: one of ours, run by the engine itself. */
-export const ECHO_BOY_PLUGIN: PluginRef = { id: "vaudio:echo-boy", name: "YT-Delay", format: "Vaudio" };
+export const ECHO_BOY_PLUGIN: PluginRef = { id: "vaudio:echo-boy", name: "YT-Delay", format: "YTStudio" };
 export const isEchoBoy = (plugin: Pick<PluginRef, "id">) => plugin.id === ECHO_BOY_PLUGIN.id;
 
 /** The longest echo, in ms (EchoBoy 5's 15 seconds). */

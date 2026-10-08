@@ -1,4 +1,4 @@
-# Pro-DS: a de-esser for Vaudio
+# Pro-DS: a de-esser for YTStudio
 
 FabFilter's **Pro-DS** (the de-esser), researched to be built as a stock effect of ours, as Pro-Q was. The
 sources: FabFilter's own **Pro-DS help** (the online help and its PDF, `ffprods-manual.pdf`, 35 pages, the
@@ -19,7 +19,7 @@ How sure each statement is:
 | **not stated** | No source says |
 | **(inferred)** | Worked out here, from the sources, measurements others published, or the literature. A design, to check by ear |
 
-The last sections are ours: [proposed for Vaudio](#proposed-for-vaudio), [how it'd be built](#how-itd-be-built),
+The last sections are ours: [proposed for YTStudio](#proposed-for-ytstudio), [how it'd be built](#how-itd-be-built),
 [tests](#tests) and [open questions](#open-questions-for-théo).
 
 The pictures in `img/` are FabFilter's own (the help's screenshots), © FabFilter, kept here only as a
@@ -38,7 +38,7 @@ works and how it's laid out, in our own visual style.
 4. [The sound](#the-sound)
 5. [How it works: the DSP](#how-it-works-the-dsp)
 6. [Other de-essers, and what to borrow](#other-de-essers-and-what-to-borrow)
-7. [Proposed for Vaudio](#proposed-for-vaudio)
+7. [Proposed for YTStudio](#proposed-for-ytstudio)
 8. [How it'd be built](#how-itd-be-built)
 9. [Tests](#tests)
 10. [Open questions for Théo](#open-questions-for-théo)
@@ -657,7 +657,7 @@ De-Esser). The lists are opinion; no blind comparison was found.
 
 ---
 
-## Proposed for Vaudio
+## Proposed for YTStudio
 
 Not yet talked through with Théo (2026-10-02, from his request for "really deep research … everything"
 before building). What's proposed, to check with him:
@@ -710,9 +710,9 @@ Transient Limiting; Vocal De-essing in Music), plus, ours:
 | **Backing Vocals (Sides)** | Single Vocal, Split, 6 – 14 kHz, Side-only | Wide doubles and harmonies, the lead left alone |
 | **Hi-Hat Tamer** | Allround, Split, 7 – 20 kHz, Range 6 dB, link 100 % | A drum bus whose hats are too loud |
 
-### Where Vaudio differs
+### Where YTStudio differs
 
-| What | Pro-DS | Vaudio |
+| What | Pro-DS | YTStudio |
 | --- | --- | --- |
 | Look | FabFilter's artwork | The app's window, in FabFilter's colours (as Pro-Q) |
 | External side chain | Yes | Not yet: effects have no side-chain inputs |
