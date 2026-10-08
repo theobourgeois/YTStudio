@@ -1,5 +1,6 @@
 import { type MouseEvent, type PointerEvent, useRef } from "react";
-import { PiFilePlus, PiHouse, PiPlus, PiX } from "react-icons/pi";
+import { PiFilePlus, PiPlus, PiX } from "react-icons/pi";
+import { appIconUrl } from "@shared/app-icons";
 import { DEFAULT_SUITE } from "@shared/suites";
 import { cn } from "cn";
 import { useShallow } from "zustand/react/shallow";
@@ -9,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useFileDrop, useFilesDragged } from "@/hooks/use-file-drop";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { FILE_MANAGER } from "@/lib/key-labels";
+import { useAppIcon } from "@/stores/app-icon";
 import { useLayout } from "@/stores/layout";
 import { tabsVisible } from "@/stores/project-tabs";
 import { projectSuite, useProjects } from "@/stores/projects";
@@ -32,13 +34,14 @@ export function useTabsShown(): boolean {
 /**
  * The open projects as tabs along the top of the window, Photoshop's way: click one to switch (the project
  * you leave is saved first), drag to reorder, × or middle-click to close (the project stays on disk), + for
- * a new one. The Home screen is the house at the left; the open project's menus are on the row below (`MenuRow`). It's a title bar in the desktop app (the window's
+ * a new one. The Home screen is the app's icon at the left (the one chosen in Settings); the open project's menus are on the row below (`MenuRow`). It's a title bar in the desktop app (the window's
  * buttons sit at its left, as the Home button did). Files dropped on it start a new project, as on Home (an image
  * a photo named after it, footage a video).
  */
 export function ProjectTabs() {
   const ids = useTabIds();
   const openId = useProjects((s) => s.openId);
+  const icon = useAppIcon((s) => s.choice);
   const strip = useRef<HTMLDivElement>(null);
   const drop = useFileDrop((files) => void useProjects.getState().startWith(files));
   // While files are dragged over the window, the title bar takes drops rather than moving the window.
@@ -59,13 +62,10 @@ export function ProjectTabs() {
             size="icon-sm"
             aria-label="Home"
             aria-pressed={openId === null}
-            className={cn(
-              "project-tabs-home mb-px shrink-0 text-muted-foreground hover:text-foreground [&_svg:not([class*='size-'])]:size-4.5",
-              openId === null && "raised text-foreground",
-            )}
+            className={cn("project-tabs-home mb-px shrink-0", openId === null && "raised")}
             onClick={() => void useProjects.getState().goHome()}
           >
-            <PiHouse />
+            <img src={appIconUrl(icon)} alt="" className="size-5" draggable={false} />
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom">
