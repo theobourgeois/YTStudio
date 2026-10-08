@@ -6,7 +6,7 @@
 import path from "node:path";
 import { type Page, expect, test } from "@playwright/test";
 import { invertHomography, layerProjection, project, quadOf } from "../shared/photo/projective.ts";
-import { unwarp, warpPoint } from "../shared/photo/warp.ts";
+import { type LayerWarp, unwarp, warpPoint } from "../shared/photo/warp.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -173,7 +173,7 @@ test("the assistant flips layers and turns the canvas", async ({ page }) => {
   expect(doc.layers[0].transform).toEqual({ x: 600, y: 800, scaleX: 1, scaleY: -1, rotation: -90 });
 });
 
-type Placed = { x: number; y: number; scaleX: number; scaleY: number; rotation: number; skew?: number; perspective?: [number, number]; warp?: { points: [number, number][]; style: { style: string } | null } };
+type Placed = { x: number; y: number; scaleX: number; scaleY: number; rotation: number; skew?: number; perspective?: [number, number]; warp?: LayerWarp };
 
 /** The open photo's first layer's place as the editor has it now (a Free Transform session isn't saved until it ends). */
 const livePlace = (page: Page) =>
