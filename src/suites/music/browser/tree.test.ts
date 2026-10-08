@@ -27,6 +27,35 @@ describe("treeRows", () => {
     expect(rows.filter(isItem).find((r) => r.item.name === "Gone")).toMatchObject({ root: true, missing: true });
   });
 
+  it("opens favourite folders in place, apart from the tree, each keyed by its favourite", () => {
+    const rows = treeRows({
+      roots,
+      favourites: ["/s/Drums", "/s/Drums/808"],
+      expanded: new Set(),
+      favouritesInPlace: true,
+      favouritesExpanded: new Set(["/s/Drums", "/s/Drums/808"]),
+      contents,
+    });
+    expect(keys(rows)).toEqual(["# Favourites", "Drums/", "  808/", "    Kick.wav", "  Clap.wav", "808/", "  Kick.wav", "# Folders", "Drums", "Gone"]);
+    expect(rows.filter(isItem).map((r) => r.key)).toEqual([
+      "f:/s/Drums",
+      "f:/s/Drums>/s/Drums/808",
+      "f:/s/Drums>/s/Drums/808/Kick.wav",
+      "f:/s/Drums>/s/Drums/Clap.wav",
+      "f:/s/Drums/808",
+      "f:/s/Drums/808>/s/Drums/808/Kick.wav",
+      "t:/s/Drums",
+      "t:/s/Gone",
+    ]);
+    expect(arrowAction(rows, "f:/s/Drums>/s/Drums/808", -1)).toEqual({ type: "collapse", path: "/s/Drums/808", place: "favourites" });
+    expect(arrowAction(rows, "f:/s/Drums>/s/Drums/Clap.wav", -1)).toEqual({ type: "go", row: expect.objectContaining({ key: "f:/s/Drums" }) });
+    expect(parentRow(rows, "f:/s/Drums/808")).toBeNull();
+    // Off, they're shortcuts: they never open, whatever was left open.
+    const shortcuts = treeRows({ roots, favourites: ["/s/Drums"], expanded: new Set(), favouritesExpanded: new Set(["/s/Drums"]), contents });
+    expect(keys(shortcuts)).toEqual(["# Favourites", "Drums", "# Folders", "Drums", "Gone"]);
+    expect(shortcuts.filter(isItem)[0]).toMatchObject({ opens: false, expanded: false });
+  });
+
   it("says when a folder is being read, empty or unreadable", () => {
     const more = new Map(contents);
     more.set("/s/Drums/808", { status: "loaded", items: [] });
@@ -55,12 +84,14 @@ describe("moving through the rows", () => {
 
   it("opens with →, goes in, closes with ←, goes out", () => {
     expect(arrowAction(rows, "t:/s/Drums", 1)).toEqual({ type: "go", row: expect.objectContaining({ key: "t:/s/Drums/808" }) });
-    expect(arrowAction(rows, "t:/s/Drums/808", -1)).toEqual({ type: "collapse", path: "/s/Drums/808" });
+    expect(arrowAction(rows, "t:/s/Drums/808", -1)).toEqual({ type: "collapse", path: "/s/Drums/808", place: "tree" });
     expect(arrowAction(rows, "t:/s/Drums/808/Kick.wav", -1)).toEqual({ type: "go", row: expect.objectContaining({ key: "t:/s/Drums/808" }) });
     expect(arrowAction(rows, "t:/s/Drums/Clap.wav", 1)).toBeNull();
     expect(arrowAction(rows, "t:/s/Gone", 1)).toBeNull();
     const closed = treeRows({ roots, favourites: [], expanded: new Set(), contents });
-    expect(arrowAction(closed, "t:/s/Drums", 1)).toEqual({ type: "expand", path: "/s/Drums" });
+    expect(arrowAction(closed, "t:/s/Drums", 1)).toEqual({ type: "expand", path: "/s/Drums", place: "tree" });
+    // A favourite folder that's a shortcut doesn't open.
+    expect(arrowAction(rows, "f:/s/Drums/808", 1)).toBeNull();
     expect(parentRow(rows, "t:/s/Drums")).toBeNull();
   });
 

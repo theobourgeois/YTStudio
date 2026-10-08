@@ -71,7 +71,7 @@ export function MusicToolbar() {
   return (
     // Two rows, FL's: the menus then what plays and what it sounds like; the song's name and the hint bar then
     // what's shown and where in it. The left column is as wide as the menus (the hint cell adds nothing to it).
-    <div className="grid shrink-0 grid-cols-[auto_minmax(0,1fr)] gap-x-1.5 gap-y-1 border-b border-line bg-surface-1 px-3 py-1.5 select-none">
+    <header className="grid shrink-0 grid-cols-[auto_minmax(0,1fr)] gap-x-1.5 gap-y-1 border-b border-line bg-surface-1 px-3 py-1.5 select-none">
       <div className="-ml-1 flex h-8 items-center">
         <MenuBarSlot />
       </div>
@@ -118,7 +118,7 @@ export function MusicToolbar() {
         </div>
         <PositionSlider />
       </div>
-    </div>
+    </header>
   );
 }
 
