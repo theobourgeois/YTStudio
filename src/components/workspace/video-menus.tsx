@@ -29,7 +29,7 @@ function Action({ action, disabled, children }: { action: ShortcutAction; disabl
 
 const editor = () => useEditor.getState();
 
-/** The video editor's menus, in the tab strip (`SuiteMenuBar`), Premiere's: Clip, Sequence and Markers its own. */
+/** The video editor's menus, in its menu row (`SuiteMenuBar`), Premiere's: Clip, Sequence and Markers its own. */
 export function VideoMenus() {
   const canUndo = useEditor((s) => s.past.length > 0 && !s.gestureBase);
   const canRedo = useEditor((s) => s.future.length > 0 && !s.gestureBase);

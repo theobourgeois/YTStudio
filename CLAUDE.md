@@ -182,6 +182,8 @@ pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit (and C
 pnpm tsx scripts/make-audio-fixtures.ts [--out dir]   # the audio-intelligence fixtures as WAVs + a manifest (tests render them in memory)
 pnpm tsx scripts/photo-fixtures.ts [--skip-large]   # the photo suite's test images (48/100 MP, P3, 16-bit, alpha, EXIF) into data/photo-fixtures
 pnpm tsx scripts/photo-bench.ts [--runner chrome|electron] [--quick] [--lab [--tiles 256,512]] [--shots dir]   # the photo suite's targets, measured in the workspace (--lab: F0's lab)
+pnpm tsx scripts/serum-preset.ts read|write|verify …   # Serum 2 presets ⇄ readable specs, checked in Serum offline (docs/serum/preset-format.md)
+pnpm tsx scripts/serum-audition.ts <session.json>   # render a round of Serum presets as an audition page (the serum-presets skill)
 pnpm tsx scripts/select-mixparams.ts   # MixParams' reviewed reference subset into the gitignored data/ (docs/audio-intelligence/)
 python3 scripts/audit-cl1b.py <Dataset.zip> --out <report.json>   # CL 1B's layout, read statically: never unpickles
 .venv/bin/python -I scripts/basic-pitch-fixtures.py shared/music/transcribe-fixtures.json   # Basic Pitch's own note picking (pip install basic-pitch)
@@ -432,15 +434,17 @@ src/
                      button and a Mac's window buttons are in it: `[data-tabs]` in index.css, `tab-strip` in
                      electron/main.ts). ⌘W closes a tab (the File menu's Close Tab; ⇧⌘W the window), ⇧⌘[ / ⇧⌘] and
                      ⌃Tab go through them.
-                     **The menu bar** is in the strip, after Home (`components/home/menu-bar.tsx`), the same in every
-                     suite: the app's File and Edit (Settings…), then View, the suite's own menus and Window. A suite's
+                     The strip is tabs only. Under it, every suite's header starts with **the menu row**
+                     (`components/header/menu-row.tsx` `MenuRow`, 40 px): the project's name (and its format or save
+                     state), **the menu bar** (`components/home/menu-bar.tsx`), the same in every suite: the app's File
+                     and Edit (Settings…), then View, the suite's own menus and Window; then `HeaderActions`
+                     (components/header/header-actions.tsx: undo and redo, Settings, Export, the assistant). A suite's
                      workspace renders `<SuiteMenuBar file edit view menus window />` (its items are
                      `components/ui/dropdown-menu` items, each running the code its key runs: video's through
-                     `runShortcut`, music's `runKey`), which the strip shows in place of the app's own. Every suite's
-                     header ends with `HeaderActions` (components/header/header-actions.tsx: undo and redo, Settings,
-                     Export, the assistant), so the two bars look and sit the same in each suite.
+                     `runShortcut`, music's `runKey`), which the row's slot shows in place of the app's own. A suite's
+                     own tools go in a row below it (music's transport, photo's options bar; video has none).
   components/home/   The Home screen (home.tsx: New tiles, Open…, the recents as cards in project-card.tsx, search
-                     and suite filter), the tab strip and its menu bar, Open… / Locate… (open-project-dialog.tsx: the
+                     and suite filter), the tab strip and the menu bar, Open… / Locate… (open-project-dialog.tsx: the
                      desktop app's dialog, else a path), the New project picker (⇧⌘O) and ⌘P's search, and the
                      app's project keys (project-search-dialog.tsx `useProjectShortcuts`: ⌘O, ⇧⌘H too).
   stores/editor.ts   THE video document store: project, assets, selection, undo history, gestures, edit commands.
@@ -996,6 +1000,11 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   and analysis tools reach MCP; review/permission/profile writes are user routes. Native FLP/PTX/presets stay
   opaque until a tested adapter exists. Reviewed WAV excerpts retain parent/crop provenance and use B's local
   measurements; hosted listening additionally rechecks the dataset source's grant.
+- **Serum presets** (`docs/serum/`, the `serum-presets` skill in `.claude/skills/`): we design Serum 2 presets in
+  Théo's taste and he scores them round by round. `server/music/serum/` reads and writes `.SerumPreset` files (Xfer's
+  container, Serum's CBOR) from a readable spec (`preset-format.md`); `taste.md` is the research on his 118 starred
+  presets; his verdicts are in `data/serum-research/feedback.md` (git-ignored, the main checkout's). Serum runs in
+  the offline engine to check a preset (`scripts/serum-readout.ts`) and to render a round (`scripts/serum-audition.ts`).
 - The assistant's tools: specs in `shared/music/tools.ts`, handlers in `src/suites/music/tools.ts`, and their
   edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested); the mixer's in
   `mixer/tool-edits.ts` (`findTrack`: by id, number, "master" or name; `describeMixer` is `get_mixer`). Channels
@@ -1013,6 +1022,11 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   FL's way to silence the effects' tails: `Engine::silence` lets go of the device as an export does,
   resets every plugin, drops our effects' states (each registry's `clear`) and the delay lines, and makes
   the song again from silence.
+- Hosted plugins are told where the song is (`PlayHead.h`): each sequencer (playback's, the export's) fills in a
+  playhead at the start of every block from the song (tempo, time signature, position, playing, loop) and gives
+  it to every plugin it plays, so their synced LFOs and delays follow the song. The tempo is the song's own (with
+  tempo clips the engine plays a warped song at that tempo). Tested by `playhead.integration.test.ts`
+  (VAUDIO_TEST_EFFECT_PLAYHEAD=report: the test effect puts out what it's told).
 - Commands run on the engine's message thread; the audio callback never waits. A song reaches it through an
   atomic pointer and goes back through a lock-free queue to be deleted (`Sequencer::setSong`, `collectGarbage`);
   requests are atomics and queues; the plugin bench has a lock the audio thread only tries (a block goes out

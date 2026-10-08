@@ -77,11 +77,6 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
   icon: IconType;
   /** Classes for its icon's tile (background and colour), on the Home screen and in the New project picker. */
   tint: string;
-  /**
-   * The names of its own menus (`SuiteMenus.menus`, between View and Window), in order: the tab strip keeps
-   * room for the widest suite's, so its tabs don't move as projects of different suites are switched between.
-   */
-  menus: readonly string[];
   /** What its Home card plays while the pointer is on it: a video, or a sound over its waveform. None: its picture is all there is. */
   preview?: "video" | "sound";
   /**
