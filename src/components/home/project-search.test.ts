@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectSummary } from "@shared/types";
-import { searchProjects } from "./project-search";
+import { groupByWhen, searchProjects } from "./project-search";
 
 const project = (id: string, name: string, updatedAt: number, missing = false): ProjectSummary => ({
   id,
@@ -36,5 +36,21 @@ describe("the project search", () => {
 
   it("finds them by their suite's name too", () => {
     expect(ids("music voc")).toEqual(["d"]);
+  });
+});
+
+describe("Home's sheet groups", () => {
+  it("puts each project under the day it was last touched, latest group first, empty groups left out", () => {
+    const now = new Date(2026, 9, 8, 13, 0).getTime();
+    const at = (d: number, h = 12) => new Date(2026, 9, d, h).getTime();
+    const projects = [project("a", "A", at(8, 9)), project("b", "B", at(7, 23)), project("c", "C", at(3)), project("d", "D", at(7, 1)), project("e", "E", at(1)), project("f", "F", new Date(2026, 6, 1).getTime())];
+    expect(groupByWhen(projects, now).map((g) => [g.label, g.projects.map((p) => p.id)])).toEqual([
+      ["Today", ["a"]],
+      ["Yesterday", ["b", "d"]],
+      ["This week", ["c"]],
+      // A week ago is no longer this week.
+      ["This month", ["e"]],
+      ["Earlier", ["f"]],
+    ]);
   });
 });

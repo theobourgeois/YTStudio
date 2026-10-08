@@ -6,7 +6,7 @@ import { errorMessage } from "@shared/errors";
 import { clamp } from "@shared/math";
 import { api, ApiRequestError } from "@/lib/api";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { clientSuite } from "@/suites";
+import { clientSuite, projectSketch } from "@/suites";
 import { useProjects } from "@/stores/projects";
 import { cn } from "cn";
 
@@ -25,7 +25,13 @@ const usePreviewPlayer = create<{ id: string | null; select: (id: string | null)
  * (as a video site's thumbnails do): a button unmutes it, and the line along its bottom is where it's
  * got to, scrubbed by pressing it (which unmutes it too).
  */
-export function ProjectPreviewPicture({ project }: { project: ProjectSummary }) {
+export function ProjectPreviewPicture({ project, className = "aspect-[16/10]", compact = false }: {
+  project: ProjectSummary;
+  /** The picture's box: its shape (16:10 by default), or a size. */
+  className?: string;
+  /** A small picture (a row's): smaller controls, and no words over it. */
+  compact?: boolean;
+}) {
   const { icon: Icon, tint, preview: plays } = clientSuite(project.suite);
   const container = useRef<HTMLDivElement>(null);
   const media = useRef<HTMLMediaElement | null>(null);
@@ -123,6 +129,7 @@ export function ProjectPreviewPicture({ project }: { project: ProjectSummary }) 
   const progress = preview?.duration ? Math.min(1, time / preview.duration) : 0;
   const poster = preview?.poster ?? project.thumbnail;
   const waveform = plays === "sound" && !!preview?.peaks?.length;
+  const sketch = poster ? null : projectSketch(project, active ? progress : 0);
 
   /** Hear it (or not): set on the element at once, inside the press, so the browser lets it sound. */
   const setSound = (on: boolean) => {
@@ -160,19 +167,17 @@ export function ProjectPreviewPicture({ project }: { project: ProjectSummary }) 
         setTime(0);
         if (media.current && media.current.readyState >= 1) media.current.currentTime = 0;
       }}>
-      <div className={cn("relative grid aspect-[16/10] place-items-center overflow-hidden", poster ? "bg-black" : tint)}>
+      <div className={cn("relative grid place-items-center overflow-hidden", poster ? "bg-black" : "bg-sunken", className)}>
         {poster ? (
           <>
             <img src={poster} alt="" loading="lazy" draggable={false} className="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-md" />
             <img src={poster} alt="" loading="lazy" draggable={false} className="relative h-full object-contain" />
           </>
         ) : (
-          <>
-            <span aria-hidden className="absolute inset-0 bg-[linear-gradient(to_right,currentColor_1px,transparent_1px),linear-gradient(to_bottom,currentColor_1px,transparent_1px)] [background-size:22px_22px] opacity-[0.07]" />
-            {waveform ? <Waveform peaks={preview!.peaks!} progress={active ? progress : 0} /> : (
-              <span className="raised relative grid size-14 place-items-center rounded-md"><Icon className="size-8" /></span>
-            )}
-          </>
+          // Its suite's drawing of it (a song's Playlist), else its rendered sound's waveform, else its icon.
+          (sketch ?? (waveform ? <span className={tint}><Waveform peaks={preview!.peaks!} progress={active ? progress : 0} /></span> : (
+            <span className={cn("grid place-items-center rounded-md", tint, compact ? "size-8" : "size-14")}><Icon className={compact ? "size-4.5" : "size-8"} /></span>
+          )))
         )}
         {ready && plays === "video" && (
           <video ref={(node) => { media.current = node; }} src={loaded ? preview.src : undefined} preload="none" playsInline muted={muted} loop
@@ -184,14 +189,14 @@ export function ProjectPreviewPicture({ project }: { project: ProjectSummary }) 
         {active && ready && (
           <button type="button" aria-label={`${muted ? "Unmute" : "Mute"} preview of ${project.name}`}
             title={muted ? "Unmute" : "Mute"}
-            className="absolute right-2 bottom-3 grid size-7 place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm hover:bg-black/80"
+            className={cn("absolute grid place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm hover:bg-black/80", compact ? "right-1 bottom-1.5 size-5" : "right-2 bottom-3 size-7")}
             onClick={(e) => { e.stopPropagation(); setSound(muted); }} onKeyDown={(e) => e.stopPropagation()}>
-            {muted ? <PiSpeakerSlash className="size-3.5" /> : <PiSpeakerHigh className="size-3.5" />}
+            {muted ? <PiSpeakerSlash className={compact ? "size-3" : "size-3.5"} /> : <PiSpeakerHigh className={compact ? "size-3" : "size-3.5"} />}
           </button>
         )}
         {/* A suite with nothing to play (a photo's) has its picture, or its icon: neither is an empty timeline. */}
-        {((plays && empty && !poster) || (plays && active && (busy || failed)) || playError) && (
-          <span className="pointer-events-none absolute right-2 bottom-2 left-2 truncate text-center text-[10px] text-current opacity-80"
+        {((plays && empty && !poster && !compact && !sketch) || (plays && active && (busy || failed)) || playError) && (
+          <span className="pointer-events-none absolute right-2 bottom-2 left-2 truncate text-center text-[10px] text-muted-foreground"
             title={playError ?? preview?.error}>
             {playError ?? (empty ? `Empty ${plays === "sound" ? "song" : "timeline"}` : failed ? "Preview unavailable" : "Preparing preview…")}
           </span>

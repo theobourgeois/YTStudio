@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { PiFolderOpen, PiMagnifyingGlass, PiPlus, PiUploadSimple } from "react-icons/pi";
+import type { IconType } from "react-icons";
+import { PiFolderOpen, PiImages, PiListBullets, PiMagnifyingGlass, PiSquaresFour, PiUploadSimple } from "react-icons/pi";
 import { appIconUrl } from "@shared/app-icons";
 import { SUITES, SUITE_IDS, type SuiteId, suiteNoun } from "@shared/suites";
 import { SettingsButton } from "@/components/settings/settings-button";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useNow } from "@/hooks/use-now";
 import { cn } from "cn";
@@ -12,8 +11,8 @@ import { useAppIcon } from "@/stores/app-icon";
 import { useProjects } from "@/stores/projects";
 import { useSettings } from "@/stores/settings";
 import { clientSuite } from "@/suites";
-import { folderOf, ProjectCard } from "./project-card";
-import { searchProjects } from "./project-search";
+import { folderOf, type HomeView, LIST_COLUMNS, ProjectCard } from "./project-card";
+import { groupByWhen, searchProjects } from "./project-search";
 import { OPEN_KEYS, NEW_PROJECT_KEYS, PROJECT_SEARCH_KEYS } from "./project-search-dialog";
 import { showOpenDialog } from "./open-project-dialog";
 
@@ -21,7 +20,21 @@ const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
 /** Which suite's projects the Home screen lists (all of them by default), kept in this browser. */
 const FILTER_KEY = "editor-home-suite";
 
+/** How Home shows the recents (`HomeView`): the list by default. */
+const VIEW_KEY = "editor-home-view";
+
 type Filter = SuiteId | "all";
+
+const VIEWS: { id: HomeView; label: string; Icon: IconType }[] = [
+  { id: "list", label: "List", Icon: PiListBullets },
+  { id: "cards", label: "Cards", Icon: PiSquaresFour },
+  { id: "sheet", label: "Sheet", Icon: PiImages },
+];
+
+const savedView = (): HomeView => {
+  const saved = localStorage.getItem(VIEW_KEY);
+  return VIEWS.some((v) => v.id === saved) ? (saved as HomeView) : "list";
+};
 
 const savedFilter = (): Filter => {
   const saved = localStorage.getItem(FILTER_KEY);
@@ -38,6 +51,7 @@ export function Home() {
   const location = useProjects((s) => s.location);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>(savedFilter);
+  const [view, setView] = useState<HomeView>(savedView);
   const now = useNow(30_000);
 
   const shown = useMemo(() => {
@@ -77,9 +91,14 @@ export function Home() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  const pickView = (next: HomeView) => {
+    localStorage.setItem(VIEW_KEY, next);
+    setView(next);
+  };
+
   return (
-    <div className="relative flex h-full min-w-0 flex-1 flex-col bg-surface-0" {...drop.handlers}>
-      <header data-titlebar="home" className="flex h-13 shrink-0 items-center gap-3 border-b border-line bg-surface-1 px-4">
+    <div className="relative flex h-full min-w-0 flex-1 flex-col bg-surface-1" {...drop.handlers}>
+      <header data-titlebar="home" className="flex h-13 shrink-0 items-center gap-3 border-b border-line bg-surface-0 px-4">
         <AppMark />
         <label className="sunken mx-auto flex h-8 w-full max-w-md min-w-40 items-center gap-2 rounded-md px-2.5 text-muted-foreground focus-within:ring-2 focus-within:ring-ring/60">
           <PiMagnifyingGlass className="size-4 shrink-0" />
@@ -95,82 +114,120 @@ export function Home() {
           />
           <kbd className="shrink-0 font-sans text-[11px]">{MOD}F</kbd>
         </label>
-        <div className="flex shrink-0 items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" onClick={() => showOpenDialog()}>
-                <PiFolderOpen />
-                Open…
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              Open a project from a file
-              <Kbd>{OPEN_KEYS}</Kbd>
-            </TooltipContent>
-          </Tooltip>
-          <SettingsButton />
-        </div>
+        <SettingsButton />
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto" aria-label="Home">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-7 px-8 pt-7 pb-12">
-          <section aria-labelledby="home-new">
-            <SectionTitle id="home-new">New</SectionTitle>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3">
-              {SUITE_IDS.map((id, i) => (
-                <NewTile key={id} suite={id} index={i} />
+      <div className="flex min-h-0 flex-1">
+        <aside aria-label="Start" className="flex w-60 shrink-0 flex-col gap-1.5 overflow-y-auto border-r border-line bg-surface-0 px-3.5 pt-5 pb-4">
+          {SUITE_IDS.map((id, i) => (
+            <NewTile key={id} suite={id} index={i} />
+          ))}
+          <div className="mx-1 my-2.5 h-px bg-line shadow-[0_1px_0_var(--bevel-highlight)]" />
+          <OpenTile />
+          <p className="mt-auto px-1.5 pt-4 text-[11px] leading-[1.6] text-muted-foreground">
+            New projects are saved in
+            <br />
+            <span className="font-mono text-[11px] text-foreground/80" title={location?.path}>
+              {location ? folderOf(`${location.path}/x`) : "…"}
+            </span>{" "}
+            <button type="button" className="text-brand hover:underline" onClick={() => useSettings.getState().show("general")}>
+              Change
+            </button>
+          </p>
+        </aside>
+
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Home">
+          <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-2 px-8 pt-6 pb-3">
+            <h2 id="home-recent" className="text-[17px] font-bold tracking-tight">
+              Recent
+            </h2>
+            <div role="radiogroup" aria-label="Show" className="flex items-center gap-0.5">
+              {(["all", ...SUITE_IDS] as Filter[]).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={filter === id}
+                  onClick={() => pickFilter(id)}
+                  className={cn(
+                    "h-7 rounded-sm border border-transparent px-2.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground",
+                    filter === id && "raised text-foreground",
+                  )}
+                >
+                  {id === "all" ? "All" : capitalise(suiteNoun(id, 2))}
+                </button>
               ))}
-              <OpenTile />
             </div>
-            <p className="mt-2.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-              New projects are saved in
-              <span className="font-mono text-[11px] text-foreground/80" title={location?.path}>
-                {location ? folderOf(`${location.path}/x`) : "…"}
-              </span>
-              <button type="button" className="text-brand hover:underline" onClick={() => useSettings.getState().show("general")}>
-                Change
-              </button>
-            </p>
-          </section>
-
-          <section aria-labelledby="home-recent" className="flex flex-col">
-            <div className="mb-3 flex flex-wrap items-end gap-3">
-              <SectionTitle id="home-recent" className="mb-0">
-                Recent
-              </SectionTitle>
-              <div role="radiogroup" aria-label="Show" className="sunken ml-auto flex h-7 items-center gap-0.5 rounded-md p-0.5">
-                {(["all", ...SUITE_IDS] as Filter[]).map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    role="radio"
-                    aria-checked={filter === id}
-                    onClick={() => pickFilter(id)}
-                    className={cn(
-                      "h-full rounded-sm border border-transparent px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
-                      filter === id && "raised text-foreground",
-                    )}
-                  >
-                    {id === "all" ? "All" : capitalise(suiteNoun(id, 2))}
-                  </button>
-                ))}
-              </div>
+            <div role="radiogroup" aria-label="View" className="sunken ml-auto flex h-7 items-center gap-0.5 rounded-md p-0.5">
+              {VIEWS.map(({ id, label, Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={view === id}
+                  aria-label={label}
+                  title={label}
+                  onClick={() => pickView(id)}
+                  className={cn(
+                    "grid h-full w-7 place-items-center rounded-sm border border-transparent text-muted-foreground transition-colors hover:text-foreground",
+                    view === id && "raised text-foreground",
+                  )}
+                >
+                  <Icon className="size-4" />
+                </button>
+              ))}
             </div>
+          </div>
 
-            {shown.length > 0 ? (
-              <div role="list" aria-label="Recent projects" className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-12">
+            {shown.length === 0 ? (
+              <Empty searching={query.trim() !== "" || filter !== "all"} hasAny={projects.length > 0} />
+            ) : view === "list" ? (
+              <>
+                <div aria-hidden className={cn(LIST_COLUMNS, "sticky top-0 z-[1] border-b border-line bg-surface-1 px-2 py-2 text-[11px] font-semibold text-muted-foreground")}>
+                  <span />
+                  <span>Name</span>
+                  <span>Kind</span>
+                  <span>Details</span>
+                  <span>Opened</span>
+                  <span>Where</span>
+                  <span />
+                </div>
+                <div role="list" aria-label="Recent projects" className="flex flex-col pt-1">
+                  {shown.map((p) => (
+                    <div role="listitem" key={p.id}>
+                      <ProjectCard project={p} now={now} view="list" />
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : view === "cards" ? (
+              <div role="list" aria-label="Recent projects" className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3.5 pt-1">
                 {shown.map((p) => (
                   <div role="listitem" key={p.id}>
-                    <ProjectCard project={p} now={now} />
+                    <ProjectCard project={p} now={now} view="cards" />
                   </div>
                 ))}
               </div>
             ) : (
-              <Empty searching={query.trim() !== "" || filter !== "all"} hasAny={projects.length > 0} />
+              <div role="list" aria-label="Recent projects" className="flex flex-col gap-7 pt-1">
+                {groupByWhen(shown, now).map((group) => (
+                  <section key={group.label} aria-label={group.label}>
+                    <h3 className="mb-2.5 text-xs font-semibold text-muted-foreground">{group.label}</h3>
+                    <div className="flex flex-wrap items-start gap-x-4 gap-y-5">
+                      {group.projects.map((p) => (
+                        <div role="listitem" key={p.id}>
+                          <ProjectCard project={p} now={now} view="sheet" />
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
             )}
-          </section>
-        </div>
-      </main>
+          </div>
+        </main>
+      </div>
 
       {drop.active && (
         <div className="pointer-events-none absolute inset-3 z-10 grid place-items-center rounded-md border-2 border-dashed border-brand bg-brand/8">
@@ -195,35 +252,23 @@ function AppMark() {
   );
 }
 
-function SectionTitle({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
-  return (
-    <h2 id={id} className={cn("mb-3 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase", className)}>
-      {children}
-    </h2>
-  );
-}
-
-/** Open a project from a file, beside the New tiles. */
+/** Open a project from a file, under the New buttons. */
 export function OpenTile() {
   return (
     <button
       type="button"
       onClick={() => showOpenDialog()}
-      className="group/tile flex items-center gap-3 rounded-md border border-dashed border-muted-foreground/35 px-3 py-3 text-left transition-colors hover:border-brand/60 hover:bg-surface-1"
+      title="Open a .yt file: a copy, a backup, one sent to you"
+      className="flex h-9 items-center gap-2.5 rounded-sm px-3 text-left text-[13px] font-medium transition-colors hover:bg-surface-2"
     >
-      <span className="grid size-11 shrink-0 place-items-center rounded-md bg-surface-2 text-muted-foreground group-hover/tile:text-foreground">
-        <PiFolderOpen className="size-5.5" />
-      </span>
-      <span className="grid min-w-0 flex-1 gap-0.5">
-        <span className="text-[13px] font-semibold">Open a project…</span>
-        <span className="text-xs leading-4 text-muted-foreground">A .yt file: a copy, a backup, one sent to you.</span>
-      </span>
-      <kbd className="shrink-0 self-start font-sans text-[11px] text-muted-foreground">{OPEN_KEYS}</kbd>
+      <PiFolderOpen className="size-4.5 shrink-0 text-muted-foreground" />
+      Open…
+      <kbd className="ml-auto font-mono text-[11px] text-muted-foreground">{OPEN_KEYS}</kbd>
     </button>
   );
 }
 
-/** A suite's New tile: click (⌥: blank, whatever its starting point) to make one, ⌘1, ⌘2… from anywhere on Home. */
+/** A suite's New button: click (⌥: blank, whatever its starting point) to make one, ⌘1, ⌘2… from anywhere on Home. */
 export function NewTile({ suite, index }: { suite: SuiteId; index: number }) {
   const { label, noun, description } = SUITES[suite];
   const { icon: Icon, tint } = clientSuite(suite);
@@ -233,23 +278,16 @@ export function NewTile({ suite, index }: { suite: SuiteId; index: number }) {
       type="button"
       data-suite={suite}
       aria-label={`New ${noun}`}
+      title={template ? `Starts as “${template.name}” (⌥ for blank)` : description}
       onClick={(e) => void useProjects.getState().create({ suite, blank: e.altKey })}
-      className="raised group/tile flex items-center gap-3 rounded-md px-3 py-3 text-left hover:raised-hover active:pressed"
+      className="raised flex h-10 items-center gap-2.5 rounded-sm px-3 text-left text-[13px] font-semibold hover:raised-hover active:pressed"
     >
-      <span className={cn("relative grid size-11 shrink-0 place-items-center rounded-md", tint)}>
-        <Icon className="size-5.5" />
-        <span className="absolute -right-1 -bottom-1 grid size-4.5 place-items-center rounded-full bg-brand text-brand-foreground ring-2 ring-surface-3">
-          <PiPlus className="size-2.5" />
-        </span>
-      </span>
-      <span className="grid min-w-0 flex-1 gap-0.5">
-        <span className="flex items-center gap-2 text-[13px] font-semibold">
-          New {noun}
-        </span>
-        <span className="line-clamp-2 text-xs leading-4 text-muted-foreground">{template ? `Starts as “${template.name}” (⌥ for blank)` : description}</span>
-      </span>
+      {/* The tint's colour alone: the button is the tile. */}
+      <Icon className={cn("size-4.5 shrink-0", tint.split(" ").filter((c) => !c.startsWith("bg-")))} />
+      New {noun}
+      {template && <span className="size-1.5 shrink-0 rounded-full bg-brand" aria-hidden />}
       {index < 9 && (
-        <kbd className="shrink-0 self-start font-sans text-[11px] text-muted-foreground tabular-nums">
+        <kbd className="ml-auto font-mono text-[11px] font-normal text-muted-foreground tabular-nums">
           {MOD}
           {index + 1}
         </kbd>
@@ -268,7 +306,7 @@ function Empty({ searching, hasAny }: { searching: boolean; hasAny: boolean }) {
       </span>
       <h3 className="mt-4 text-[15px] font-semibold">Nothing here yet</h3>
       <p className="mt-1.5 max-w-sm text-[13px] leading-5 text-muted-foreground">
-        Start something above, drop your clips here to start a {suiteNoun(SUITE_IDS[0])} (images alone start a photo), or open a project you already have
+        Start something on the left, drop your clips here to start a {suiteNoun(SUITE_IDS[0])} (images alone start a photo), or open a project you already have
         ({OPEN_KEYS}). Projects you open show up here.
       </p>
       <p className="mt-3 text-xs text-muted-foreground">

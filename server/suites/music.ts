@@ -1,3 +1,6 @@
+import { songOutline } from "../../shared/music/outline.ts";
+import { songTicks } from "../../shared/music/playlist.ts";
+import { songSeconds } from "../../shared/music/tempo.ts";
 import { createMusicProject, normalizeMusicProject, withSongOptions } from "../../shared/music/project.ts";
 import { isObject } from "../storage.ts";
 import type { SuiteBackend } from "./suite.ts";
@@ -11,7 +14,14 @@ export const musicSuite: SuiteBackend<"music"> = {
     if (!isObject(doc)) throw new Error("Not a song.");
     return normalizeMusicProject(doc, (id) => media[id]?.hasAudio === true);
   },
-  stats: (doc) => ({ name: doc.name, duration: 0, tempo: doc.settings.tempo, coverAssetId: null }),
+  stats: (doc) => ({
+    name: doc.name,
+    // The arrangement's, to its last clip's bar (a song still in its patterns has none yet).
+    duration: doc.playlist.clips.length ? songSeconds(doc, songTicks(doc)) : 0,
+    tempo: doc.settings.tempo,
+    outline: songOutline(doc),
+    coverAssetId: null,
+  }),
   remapMedia: (doc, ids) => ({
     ...doc,
     channels: doc.channels.map((c) => (c.sampleId ? { ...c, sampleId: ids.get(c.sampleId) ?? null } : c)),

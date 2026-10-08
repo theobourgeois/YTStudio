@@ -1,10 +1,12 @@
 import { lazy } from "react";
 import { PiWaveform } from "react-icons/pi";
+import { formatDuration } from "@shared/format";
 import type { MusicProject } from "@shared/music/types";
 import { api } from "@/lib/api";
 import type { ClientSuite } from "../types";
 import { songContext, songTiming } from "./context";
 import { newSongOptions } from "./preferences";
+import { songSketch } from "./sketch";
 import { discardSong, flushSongs, useMusic } from "./store";
 import { runMusicTool } from "./tools";
 
@@ -13,6 +15,9 @@ export const musicSuite: ClientSuite<"music"> = {
   id: "music",
   icon: PiWaveform,
   tint: "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400",
+  swatch: "bg-emerald-500 dark:bg-emerald-400",
+  aspect: () => 16 / 9,
+  sketch: songSketch,
   preview: "sound",
   open: (projectId) => useMusic.getState().open(projectId),
   close: () => useMusic.getState().close(),
@@ -24,7 +29,7 @@ export const musicSuite: ClientSuite<"music"> = {
     description: "The music editor (the DAW): where its sound goes, and your plugins.",
     Panel: lazy(() => import("./settings")),
   },
-  describe: (p) => `${p.tempo} BPM`,
+  describe: (p) => (p.duration > 0 ? `${p.tempo} BPM · ${formatDuration(p.duration)}` : `${p.tempo} BPM`),
   useLiveName: (projectId) => useMusic((s) => (s.projectId === projectId ? (s.history?.doc.name ?? null) : null)),
   chat: {
     pitch: "can read your song and program its drums: channels, steps, patterns, tempo and swing.",

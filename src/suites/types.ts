@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { IconType } from "react-icons";
 import type { SuiteId } from "@shared/suites";
 import type { ToolResult } from "@shared/tool-spec";
@@ -77,6 +77,15 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
   icon: IconType;
   /** Classes for its icon's tile (background and colour), on the Home screen and in the New project picker. */
   tint: string;
+  /** Solid background classes in its colour: a Home card's title strip, the dot beside a project's kind. */
+  swatch: string;
+  /** Its Home picture's shape (width over height) where it's shown as it is (Home's Sheet view). Absent: 16:10. */
+  aspect?(summary: SuiteProjectSummary<S>): number;
+  /**
+   * What its Home card draws while it has no picture of its own (a song's Playlist in miniature), or null for
+   * its icon. `progress` is where its preview is playing (0..1, 0 while it isn't).
+   */
+  sketch?(summary: SuiteProjectSummary<S>, progress: number): ReactNode;
   /** What its Home card plays while the pointer is on it: a video, or a sound over its waveform. None: its picture is all there is. */
   preview?: "video" | "sound";
   /**

@@ -1,3 +1,4 @@
+import { createElement } from "react";
 import { api } from "@/lib/api";
 import { layoutTexts } from "@/components/export/layout-texts";
 import { PiFilmSlate } from "react-icons/pi";
@@ -11,6 +12,7 @@ import VideoWorkspace from "@/components/workspace/video-workspace";
 import { discardPendingSave, editorProjectId, flushAutosave, useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
 import type { ClientSuite } from "./types";
+import { aspectOf, EmptyFrame } from "./video-sketch";
 import { VideoSettings } from "./video-settings";
 
 /**
@@ -24,6 +26,9 @@ export const videoSuite: ClientSuite<"video"> = {
   },
   icon: PiFilmSlate,
   tint: "bg-red-500/12 text-red-600 dark:text-red-400",
+  swatch: "bg-red-500 dark:bg-red-400",
+  aspect: (p) => aspectOf(p.aspectRatio),
+  sketch: (p) => (p.clipCount === 0 ? createElement(EmptyFrame, { aspect: aspectOf(p.aspectRatio) }) : null),
   preview: "video",
   open: (projectId) => useEditor.getState().openProject(projectId),
   close: () => useEditor.getState().closeProject(),
