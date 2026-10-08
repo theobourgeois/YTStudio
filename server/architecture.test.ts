@@ -132,8 +132,9 @@ const PLATFORM = [
   "src/components/home/",
   "src/components/assistant/",
   "src/components/header/header.tsx",
-  // Every suite's header ends the same way (undo, Settings, Export, the assistant).
+  // Every suite's header starts the same way: the menu row (name, menus, then undo, Settings, Export, the assistant).
   "src/components/header/header-actions.tsx",
+  "src/components/header/menu-row.tsx",
   "src/components/header/project-name.tsx",
   "src/components/settings/",
   "src/components/windows/",

@@ -13,7 +13,6 @@ import { useLayout } from "@/stores/layout";
 import { tabsVisible } from "@/stores/project-tabs";
 import { projectSuite, useProjects } from "@/stores/projects";
 import { clientSuite } from "@/suites";
-import { MenuBarSlot } from "./menu-bar";
 import { CLOSE_TAB_KEYS, HOME_KEYS, NEW_PROJECT_KEYS } from "./project-search-dialog";
 
 /** The projects open as tabs that can still be shown (a package moved away has nothing to open). */
@@ -33,7 +32,7 @@ export function useTabsShown(): boolean {
 /**
  * The open projects as tabs along the top of the window, Photoshop's way: click one to switch (the project
  * you leave is saved first), drag to reorder, × or middle-click to close (the project stays on disk), + for
- * a new one. The Home screen is the house at the left, the menus (`MenuBarSlot`) after it. It's a title bar in the desktop app (the window's
+ * a new one. The Home screen is the house at the left; the open project's menus are on the row below (`MenuRow`). It's a title bar in the desktop app (the window's
  * buttons sit at its left, as the Home button did). Files dropped on it start a new project, as on Home (an image
  * a photo named after it, footage a video).
  */
@@ -74,9 +73,6 @@ export function ProjectTabs() {
           <kbd className="ml-2 rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">{HOME_KEYS}</kbd>
         </TooltipContent>
       </Tooltip>
-
-      <MenuBarSlot />
-      <div aria-hidden className="mx-1 h-5 w-px shrink-0 self-center bg-line" />
 
       <div ref={strip} role="tablist" aria-label="Open projects" className="flex min-w-0 items-end gap-1">
         {ids.map((id) => (

@@ -22,7 +22,6 @@ export const videoSuite: ClientSuite<"video"> = {
   },
   icon: PiFilmSlate,
   tint: "bg-sky-500/12 text-sky-600 dark:text-sky-400",
-  menus: ["Clip", "Sequence", "Markers"],
   preview: "video",
   open: (projectId) => useEditor.getState().openProject(projectId),
   close: () => useEditor.getState().closeProject(),

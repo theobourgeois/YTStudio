@@ -1,5 +1,5 @@
 /**
- * The photo editor's menus, in the tab strip (`SuiteMenuBar`), Photoshop's: Image, Layer, Select and Filter its own.
+ * The photo editor's menus, in its menu row (`SuiteMenuBar`), Photoshop's: Image, Layer, Select and Filter its own.
  * Every item is a command its keys, the Layers panel's and the canvas's right-click menus run too.
  */
 import type { ReactNode } from "react";

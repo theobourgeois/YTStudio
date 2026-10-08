@@ -1,17 +1,20 @@
 import type { ReactNode } from "react";
 import { PiSpinnerGap } from "react-icons/pi";
+import { MenuRow } from "@/components/header/menu-row";
 import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
 
-/** The main column with a bare header: for the empty state, and a suite's loading or error. */
+/** The main column with a bare menu row (the app's own menus): for the empty state, and a suite's loading or error. */
 export function PlainWorkspace({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header data-titlebar="header" className="flex h-13 shrink-0 items-center gap-2 border-b bg-background px-3">
-        <div className="ml-auto">
-          <SettingsButton />
-        </div>
-      </header>
+      <MenuRow
+        actions={
+          <div className="ml-auto">
+            <SettingsButton />
+          </div>
+        }
+      />
       {children}
     </div>
   );
