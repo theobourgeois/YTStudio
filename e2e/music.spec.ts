@@ -604,8 +604,10 @@ test("knobs work as in FL Studio, and a channel opens its settings window", asyn
   await channelButton(page, "Hat").click();
   await expect(settings).toHaveCount(1);
 
-  // The window is dragged by its title bar, and has the channel's own knobs and its sample's tools.
+  // The window is dragged by its title bar, and has the channel's own knobs and its sample's tools. (The rack,
+  // pressed last, is in front of it, maybe over its title when the desktop is short: a click brings it forward.)
   const snare = page.getByRole("region", { name: "Snare" });
+  await snare.getByRole("tab", { name: "Sample" }).click();
   const before = (await snare.boundingBox())!;
   const title = snare.locator("[data-window-title]");
   await drag(page, title, title, { dx: 140, dy: 60 });
