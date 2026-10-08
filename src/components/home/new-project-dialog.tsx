@@ -124,7 +124,7 @@ function Picker() {
 }
 
 function SuiteOption({ suite, index, active, onHover, onPick }: { suite: SuiteId; index: number; active: boolean; onHover: () => void; onPick: (blank: boolean) => void }) {
-  const { label, description, early } = SUITES[suite];
+  const { label, description } = SUITES[suite];
   const { icon: Icon, tint } = clientSuite(suite);
   const template = useProjects((s) => s.templates[suite]);
   return (
@@ -143,7 +143,6 @@ function SuiteOption({ suite, index, active, onHover, onPick }: { suite: SuiteId
       <span className="grid min-w-0 flex-1">
         <span className="flex items-center gap-2 text-sm font-medium">
           {label}
-          {early && <span className="rounded-md border px-1.5 text-[10px] leading-4 font-medium text-muted-foreground">Early</span>}
         </span>
         {template ? (
           <span className="flex min-w-0 items-center gap-1 text-xs leading-5 text-brand">

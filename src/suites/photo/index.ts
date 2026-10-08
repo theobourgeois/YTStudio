@@ -15,7 +15,7 @@ import { usePhotoUi } from "./ui";
 export const photoSuite: ClientSuite<"photo"> = {
   id: "photo",
   icon: PiImageSquare,
-  tint: "bg-sky-500/12 text-sky-600 dark:text-sky-400",
+  tint: "bg-blue-500/12 text-blue-600 dark:text-blue-400",
   open: (projectId) => usePhoto.getState().open(projectId),
   close: () => usePhoto.getState().close(),
   flush: () => flushPhotos(),

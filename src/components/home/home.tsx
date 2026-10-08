@@ -225,7 +225,7 @@ export function OpenTile() {
 
 /** A suite's New tile: click (⌥: blank, whatever its starting point) to make one, ⌘1, ⌘2… from anywhere on Home. */
 export function NewTile({ suite, index }: { suite: SuiteId; index: number }) {
-  const { label, noun, description, early } = SUITES[suite];
+  const { label, noun, description } = SUITES[suite];
   const { icon: Icon, tint } = clientSuite(suite);
   const template = useProjects((s) => s.templates[suite]);
   return (
@@ -245,7 +245,6 @@ export function NewTile({ suite, index }: { suite: SuiteId; index: number }) {
       <span className="grid min-w-0 flex-1 gap-0.5">
         <span className="flex items-center gap-2 text-[13px] font-semibold">
           New {noun}
-          {early && <span className="rounded-sm border border-line px-1 text-[10px] leading-4 font-medium text-muted-foreground">Early</span>}
         </span>
         <span className="line-clamp-2 text-xs leading-4 text-muted-foreground">{template ? `Starts as “${template.name}” (⌥ for blank)` : description}</span>
       </span>
