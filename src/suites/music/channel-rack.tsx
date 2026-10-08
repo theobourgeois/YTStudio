@@ -833,7 +833,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
                 inset
                 onSelect={() => {
                   useMusicUi.getState().setSelection([id]);
-                  cloneSelected();
+                  void cloneSelected();
                 }}
               >
                 Clone
