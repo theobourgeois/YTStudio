@@ -3,6 +3,7 @@ import { addWindowListener, isElement, ownerDocument } from "@/lib/window-events
 import { PiFolders, PiKeyboard, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
+import { useShallow } from "zustand/react/shallow";
 import { lengthOf, setMainVolume, setTempo } from "@shared/music/edits";
 import { METRONOME_SOUNDS, type MetronomeSound } from "@shared/music/engine";
 import { NOTE_QUANTIZE, type NoteQuantize } from "@shared/music/recording";
@@ -24,7 +25,6 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Popover, PopoverContent } from "@/components/ui/popover";
-import { toggleVariants } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { canRedo, canUndo } from "@/lib/document-history";
 import { IS_MAC, keyLabel } from "@/lib/key-labels";
@@ -57,19 +57,20 @@ const MAIN_VOLUME: AutomationTarget = { kind: "main" };
 
 /**
  * The music editor's toolbar, FL Studio's (`docs/fl-studio/toolbar.md`), with only what Vaudio does: the
- * title and the hint bar, the transport (play, stop, the metronome, tempo, position), the windows,
- * the pattern selector and the song position, the engine's load and output, and at the right end the
- * app's own (undo, Settings, the assistant). In the middle, two rows: the transport and the
- * monitors above, the windows, the pattern and the song position below; groups apart by grooves.
+ * title and the hint bar, the transport (play, stop, record, tempo, position, then the typing keyboard,
+ * the count-in and the metronome), the windows, the pattern selector and the song position, the engine's
+ * load and output, and at the right end the app's own (undo, Settings, the assistant). In the middle, two
+ * rows as dense as FL's, every button in them one size (`TOOL`): the transport and the monitors above, the
+ * windows, the pattern and the song position below; groups apart by grooves.
  */
 export function MusicToolbar() {
   const name = useSong((song) => song.name);
   const error = useTransport((s) => s.error);
 
   return (
-    <header data-titlebar="header" className="flex h-[98px] shrink-0 items-stretch gap-3 border-b border-line bg-surface-1 px-3 py-2 select-none">
+    <header data-titlebar="header" className="flex h-[78px] shrink-0 items-stretch gap-3 border-b border-line bg-surface-1 px-3 py-[5px] select-none">
       {/* At the top, level with the Home button and the window's buttons. */}
-      <div className="flex w-36 min-w-20 flex-col gap-1 pt-1">
+      <div className="flex w-36 min-w-20 flex-col gap-0.5 pt-0.5">
         <div className="flex min-w-0 items-center gap-1.5">
           <ProjectName name={name} onRename={(next) => void useMusic.getState().rename(next)} className="-ml-1 h-7 px-1 text-[14px]" />
         </div>
@@ -79,21 +80,24 @@ export function MusicToolbar() {
 
       {/* Two rows: what plays and what it sounds like, then what's shown and where in it. */}
       <div className="flex min-w-0 flex-1 flex-col justify-between">
-        <div className="flex h-10 min-w-0 items-center gap-2">
-          <div className="flex items-center gap-2" role="toolbar" aria-label="Transport">
-            {/* FL Studio's transport: PAT / SONG, play and stop joined, and the metronome, together in one panel. */}
-            <div className="sunken flex h-10 items-center gap-1.5 rounded-md px-1.5">
+        <div className="flex h-8 min-w-0 items-center gap-1.5">
+          <div className="flex items-center gap-1.5" role="toolbar" aria-label="Transport">
+            {/* FL Studio's transport: PAT / SONG, play and stop joined, and record, together in one panel. */}
+            <div className="sunken flex h-8 items-center gap-1 rounded-md pr-px pl-1">
               <ModeSwitch />
               <div className="flex">
                 <PlayButtons />
               </div>
               <RecordButton />
-              <CountInToggle />
-              <TypingKeyboardToggle />
-              <MetronomeToggle />
             </div>
             <TempoLcd />
             <PositionLcd />
+            {/* After the time, as FL's: the typing keyboard, the count-in and the metronome. */}
+            <div className="flex items-center gap-1">
+              <TypingKeyboardToggle />
+              <CountInToggle />
+              <MetronomeToggle />
+            </div>
             <MainVolume />
           </div>
           <OutputGraph className="w-32 min-w-14 shrink" />
@@ -106,7 +110,7 @@ export function MusicToolbar() {
             </span>
           )}
         </div>
-        <div className="flex h-8 min-w-0 items-center gap-2">
+        <div className="flex h-8 min-w-0 items-center gap-1.5">
           <div className="flex items-center gap-1">
             <WindowToggles />
           </div>
@@ -171,9 +175,16 @@ function ModeSwitch() {
   return <ModeLights mode={mode} onChange={(next) => switchMode(next)} />;
 }
 
+/** Every button of the toolbar, FL Studio's: one size, so the transport, the switches and the windows' line up. */
+const TOOL = "size-[30px] [&_svg:not([class*=size-])]:size-[18px]";
+
+/** A toolbar button's face: raised, pressed while held, its icon lit in the accent while it's on (no glow). */
+const toolFace = (on?: boolean) =>
+  cn("raised hover:raised-hover active:pressed grid place-items-center rounded-[4px] transition-colors", TOOL, on ? "text-brand" : "text-foreground/80 hover:text-foreground");
+
 /**
- * A button of the transport panel, FL Studio's: a raised face (play and stop are joined, `className` rounds
- * the outer corners), its icon lit in the accent while it's on (no glow). `menu`: its right-click menu.
+ * A button of the toolbar, FL Studio's (play and stop are joined, `className` rounds the outer corners).
+ * `menu`: its right-click menu.
  */
 function TransportButton({ label, title, on, onClick, className, menu, children }: { label: string; title: string; on?: boolean; onClick: () => void; className?: string; menu?: ReactNode; children: ReactNode }) {
   const button = (
@@ -181,11 +192,7 @@ function TransportButton({ label, title, on, onClick, className, menu, children 
       type="button"
       aria-label={label}
       aria-pressed={on}
-      className={cn(
-        "raised hover:raised-hover active:pressed grid h-7 w-8 place-items-center rounded-[4px] transition-colors",
-        on ? "text-brand" : "text-foreground/80 hover:text-foreground",
-        className,
-      )}
+      className={cn(toolFace(on), className)}
       onClick={onClick}
     >
       {children}
@@ -221,10 +228,10 @@ function PlayButtons() {
           else transport.play();
         }}
       >
-        {playing ? <PiPauseFill className="size-[16px]" /> : <PiPlayFill className="size-[16px]" />}
+        {playing ? <PiPauseFill /> : <PiPlayFill />}
       </TransportButton>
       <TransportButton label="Stop" title="Stop (Space); press it again, stopped, to silence delays and reverbs still ringing" className="-ml-px rounded-l-none" onClick={() => useTransport.getState().stop()}>
-        <PiStopFill className="size-[14px]" />
+        <PiStopFill className="size-[16px]" />
       </TransportButton>
     </>
   );
@@ -251,7 +258,7 @@ function RecordButton() {
       aria-label="Record"
       aria-pressed={on}
       data-recording={recording || undefined}
-      className={cn("grid size-7 place-items-center rounded-full transition-colors", on ? "active:brightness-90" : "raised hover:raised-hover active:pressed", recording && "animate-pulse")}
+      className={cn("grid place-items-center rounded-full transition-colors", TOOL, on ? "active:brightness-90" : "raised hover:raised-hover active:pressed", recording && "animate-pulse")}
       // On, the whole button is red, its dot a brighter red in it; off, a round button with a red dot.
       style={on ? { background: "var(--destructive-solid)", boxShadow: "inset 0 1px 0 rgb(255 255 255 / 0.25), 0 0 0 1px color-mix(in oklab, var(--destructive-solid) 70%, #000)" } : undefined}
       onClick={() => useRecording.getState().setOn(!on)}
@@ -332,7 +339,7 @@ function TypingKeyboardToggle() {
       className="relative"
       onClick={() => useMidi.getState().setTyping(!typing)}
     >
-      <PiKeyboard className="size-[17px]" />
+      <PiKeyboard />
       <span
         aria-hidden
         data-midi-activity={lit || undefined}
@@ -376,7 +383,7 @@ function CountInToggle() {
       onClick={() => useMusicPreferences.getState().setRecording({ countIn: !options.countIn })}
       menu={<CountInBars />}
     >
-      <span className="text-[10px] leading-none font-semibold tracking-tight tabular-nums">3·2·1</span>
+      <span className="text-[11px] leading-none font-semibold tracking-tight tabular-nums">3·2·1</span>
     </TransportButton>
   );
 }
@@ -421,7 +428,7 @@ function TempoLcd() {
   // the header has, can't come back through the digits), and only shows while it's typed in; otherwise the
   // digits under it do, FL's way.
   const lcd = (
-    <Lcd label="BPM" className="group w-[92px]">
+    <Lcd label="BPM" className="group w-[86px]">
       <LcdDigits main={whole} tail={decimals} className="group-focus-within:invisible" />
       <input
         ref={input}
@@ -429,7 +436,7 @@ function TempoLcd() {
         data-automated={automated.automated || undefined}
         title="Tempo: drag up and down, or click to type it"
         inputMode="decimal"
-        className="absolute inset-0 z-10 w-full cursor-ns-resize rounded-[5px] bg-transparent px-2 pt-3 pb-[5px] text-right font-sans text-[22px] leading-none font-medium text-transparent tabular-nums caret-transparent outline-none selection:bg-brand/40 focus:cursor-text focus:text-[var(--lcd-text)] focus:caret-[var(--lcd-text)]"
+        className="absolute inset-0 z-10 w-full cursor-ns-resize rounded-[5px] bg-transparent px-2 pt-2.5 pb-[3px] text-right font-sans text-[20px] leading-none font-medium text-transparent tabular-nums caret-transparent outline-none selection:bg-brand/40 focus:cursor-text focus:text-[var(--lcd-text)] focus:caret-[var(--lcd-text)]"
         value={draft ?? String(tempo)}
         onPointerDown={(e) => {
           const input = e.currentTarget;
@@ -569,8 +576,8 @@ function TapTempo({ onSet, onDone }: { onSet: (tempo: number) => void; onDone: (
 /** A number display with its small label in the corner, FL Studio's: dark, recessed, light digits (`lcd`). */
 function Lcd({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <div data-no-drag className={cn("lcd relative flex h-10 shrink-0 items-end justify-end rounded-[5px] px-2 pb-[5px]", className)}>
-      <span className="pointer-events-none absolute top-[3px] right-2 text-[8px] leading-none font-semibold tracking-[0.08em] text-[var(--lcd-dim)]">{label}</span>
+    <div data-no-drag className={cn("lcd relative flex h-8 shrink-0 items-end justify-end rounded-[5px] px-2 pb-[3px]", className)}>
+      <span className="pointer-events-none absolute top-[2px] right-2 text-[7px] leading-none font-semibold tracking-[0.08em] text-[var(--lcd-dim)]">{label}</span>
       {children}
     </div>
   );
@@ -580,14 +587,14 @@ function Lcd({ label, className, children }: { label: string; className?: string
 function LcdDigits({ main = "", tail = "", className, mainRef, tailRef }: { main?: string; tail?: string; className?: string; mainRef?: Ref<HTMLSpanElement>; tailRef?: Ref<HTMLSpanElement> }) {
   return (
     <span className={cn("pointer-events-none flex items-baseline font-sans leading-none font-medium", className)}>
-      <span ref={mainRef} className="text-[22px]">
+      <span ref={mainRef} className="text-[20px]">
         {[...main].map((ch, i) => (
           <span key={i} className={cellClass(ch)}>
             {ch}
           </span>
         ))}
       </span>
-      <span ref={tailRef} className="text-[13px] opacity-80">
+      <span ref={tailRef} className="text-[12px] opacity-80">
         {[...tail].map((ch, i) => (
           <span key={i} className={cellClass(ch)}>
             {ch}
@@ -674,7 +681,7 @@ function PositionLcd() {
       title={title}
       onClick={() => useMusicPreferences.getState().setTimeFormat(format === "mscs" ? "bst" : "mscs")}
     >
-      <Lcd label={format === "mscs" ? "M:S:CS" : "B:S:T"} className="w-[104px]">
+      <Lcd label={format === "mscs" ? "M:S:CS" : "B:S:T"} className="w-[96px]">
         <span aria-label="Position" data-format={format}>
           <LcdDigits mainRef={main} tailRef={tail} />
         </span>
@@ -686,7 +693,7 @@ function PositionLcd() {
 /** FL Studio's main volume knob: everything the song puts out (the song's, `settings.volume`). */
 function MainVolume() {
   const volume = useSong((song) => song.settings.volume);
-  return <SongKnob value={volume} min={0} max={1} defaultValue={DEFAULT_VOLUME} label="Main volume" format={percent} unit={PERCENT} size={30} target={MAIN_VOLUME} edit={setMainVolume} className="mx-0.5" />;
+  return <SongKnob value={volume} min={0} max={1} defaultValue={DEFAULT_VOLUME} label="Main volume" format={percent} unit={PERCENT} size={28} target={MAIN_VOLUME} edit={setMainVolume} className="mx-0.5" />;
 }
 
 /** The song position slider's thumb, in px. */
@@ -810,7 +817,7 @@ function MetronomeToggle() {
         </>
       }
     >
-      <PiMetronome className="size-[17px]" />
+      <PiMetronome />
     </TransportButton>
   );
 }
@@ -822,33 +829,36 @@ function MetronomeToggle() {
 function WindowToggles() {
   // A Mac's F keys need Fn, so it's told Alt+1…5; elsewhere FL's own F keys.
   const key = (mac: string, other: string) => (IS_MAC ? mac : other);
+  const ui = useMusicUi(useShallow((s) => ({ playlistOpen: s.playlistOpen, rackOpen: s.rackOpen, pianoOpen: s.pianoOpen, mixerOpen: s.mixerOpen })));
+  const browserOpen = useBrowser((s) => s.open);
   return (
     <>
-      <WindowButton onOpen={() => openPlaylist()} label="Playlist" title={`Playlist: the song's arrangement (${key("⌥1", "F5")})`}>
+      <WindowButton onOpen={() => openPlaylist()} open={ui.playlistOpen} label="Playlist" title={`Playlist: the song's arrangement (${key("⌥1", "F5")})`}>
         <PiListDashes />
       </WindowButton>
-      <WindowButton onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title={`Channel rack (${key("⌥2", "F6")})`}>
+      <WindowButton onOpen={() => useMusicUi.getState().setRackOpen(true)} open={ui.rackOpen} label="Channel rack" title={`Channel rack (${key("⌥2", "F6")})`}>
         <PiRows />
       </WindowButton>
-      <WindowButton onOpen={() => openPianoRoll()} label="Piano roll" title={`Piano roll: the selected channel's notes (${key("⌥3", "F7")})`}>
+      <WindowButton onOpen={() => openPianoRoll()} open={ui.pianoOpen} label="Piano roll" title={`Piano roll: the selected channel's notes (${key("⌥3", "F7")})`}>
         <PiPianoKeys />
       </WindowButton>
-      <WindowButton onOpen={() => useMusicUi.getState().setMixerOpen(true)} label="Mixer" title={`Mixer (${key("⌥4", "F9")})`}>
+      <WindowButton onOpen={() => useMusicUi.getState().setMixerOpen(true)} open={ui.mixerOpen} label="Mixer" title={`Mixer (${key("⌥4", "F9")})`}>
         <PiSlidersHorizontal className="rotate-90" />
       </WindowButton>
-      <WindowButton onOpen={() => useBrowser.getState().setOpen(!useBrowser.getState().open)} label="Browser" title={`Browser: your sample folders (${key("⌥5", "Alt+F8")})`}>
+      <WindowButton onOpen={() => useBrowser.getState().setOpen(!useBrowser.getState().open)} open={browserOpen} label="Browser" title={`Browser: your sample folders (${key("⌥5", "Alt+F8")})`}>
         <PiFolders />
       </WindowButton>
     </>
   );
 }
 
-function WindowButton({ onOpen, label, title, children }: { onOpen: () => void; label: string; title: string; children: ReactNode }) {
-  // A plain button (it opens, it doesn't toggle): lit only while hovered.
+/** A window's button: the toolbar's face, lit while its window is open (it opens it, or brings it forward: it doesn't toggle). */
+function WindowButton({ onOpen, open, label, title, children }: { onOpen: () => void; open: boolean; label: string; title: string; children: ReactNode }) {
   return (
     <button
       type="button"
-      className={cn(toggleVariants({ size: "sm" }), "size-7 min-w-7 px-0 hover:text-brand [&_svg:not([class*=size-])]:size-[18px]")}
+      className={toolFace(open)}
+      data-open={open || undefined}
       onClick={onOpen}
       aria-label={label}
       title={title}
