@@ -325,6 +325,14 @@ test("moves clips freely with snapping, onto a new track, and trims an edge", as
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => (await byStart())[1].start).toBe(before2.start);
   await page.getByRole("button", { name: "Auto ripple" }).click();
+
+  // The eye hides a video track's pictures (an undoable edit), and shows them again.
+  const tracks = async () => ((await savedProject(page)).tracks as { kind: string; hidden?: boolean }[]).filter((t) => t.kind === "video");
+  await page.getByRole("button", { name: "Hide track" }).first().click();
+  await expect.poll(async () => (await tracks())[0].hidden).toBe(true);
+  await expect(page.getByRole("button", { name: "Show track" })).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await tracks())[0].hidden).toBeUndefined();
 });
 
 test("right-click menus, copy/paste and the shortcuts dialog", async ({ page }) => {
@@ -1693,6 +1701,13 @@ test("makes signals in the Signals window: a band from the spectrum, hits dragge
     return Math.abs(Math.log((kick.low ?? 0) / 200)) < 0.1 && Math.abs(Math.log((kick.high ?? 0) / 2000)) < 0.1;
   }).toBe(true);
   // Its lane shows under the ruler, and the meter reads the song once it's analysed.
+  await expect(page.locator("[data-signal-lane]")).toHaveCount(1);
+  // The ruler's corner folds the lanes away and back.
+  const fold = page.locator("[data-signal-lanes-toggle]");
+  await fold.click();
+  await expect(page.locator("[data-signal-lane]")).toHaveCount(0);
+  await expect(win.getByRole("switch", { name: "Signal lanes on the timeline" })).toHaveAttribute("aria-checked", "false");
+  await fold.click();
   await expect(page.locator("[data-signal-lane]")).toHaveCount(1);
   await expect(win.locator("[data-signal-meter]")).toContainText("Now");
 

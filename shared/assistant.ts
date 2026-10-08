@@ -579,7 +579,9 @@ export function describeToolCall(rawName: string, input: unknown): string {
     case "add_track":
       return `Add ${String(f("kind") ?? "a")} track`;
     case "edit_track":
-      return f("remove") ? "Remove a track" : f("muted") ? "Mute a track" : "Unmute a track";
+      if (f("remove")) return "Remove a track";
+      if (f("muted") === undefined && f("hidden") !== undefined) return f("hidden") ? "Hide a track" : "Show a track";
+      return f("muted") ? "Mute a track" : "Unmute a track";
     case "set_project":
       return "Change the video settings";
     case "style_captions":

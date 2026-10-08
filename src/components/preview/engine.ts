@@ -11,7 +11,7 @@ import { PREVIEW_SAMPLES, clipLayer, placer, projectCamera, sortByDepth, withTra
 import { parentAt } from "@shared/parenting";
 import { type Shown, type TransitionPlan, planTrack, planTransition } from "@shared/scene";
 import { shapeDrawingAt } from "@shared/shapes";
-import { clipEnd, clipSourceRange, clipSpeed, fileTime, outputSize, sourceTime, videoTracks } from "@shared/timeline";
+import { clipEnd, clipSourceRange, clipSpeed, fileTime, hiddenTracks, outputSize, sourceTime, videoTracks } from "@shared/timeline";
 import { transitionShader, transitionUniforms } from "@shared/transition-gl";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
 import { textDrawing, textUnit } from "@shared/text-drawing";
@@ -727,8 +727,10 @@ export class PreviewEngine {
     }
 
     // Track mattes: a clip that uses one is drawn through the picture on the track above, which isn't drawn itself.
+    // A hidden track draws nothing, but still lends its picture as a matte (as Premiere's).
     const trackIds = videoTracks(project).map((t) => t.id);
-    return withTrackMattes(
+    const hidden = hiddenTracks(project);
+    const matted = withTrackMattes(
       drawn,
       (id) => trackIds[trackIds.indexOf(id) - 1],
       (l) => {
@@ -738,6 +740,7 @@ export class PreviewEngine {
       (l) => l.kind === "picture",
       (l, m, mode) => (l.kind === "transition" || m.kind !== "picture" ? l : { ...l, matte: { mode, picture: m.picture } }),
     );
+    return hidden.size ? matted.filter((l) => !hidden.has(l.trackId)) : matted;
   }
 
   /**

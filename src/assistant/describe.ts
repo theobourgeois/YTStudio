@@ -209,7 +209,7 @@ export function describeTimeline(project: Project, assets: Assets, view: Timelin
     if (filter.trackId && track.id !== filter.trackId) continue;
     const all = trackClips(project, track.id);
     const clips = all.filter(inRange);
-    const head = `${quote(track.name)} ${track.id} · ${track.kind}${track.muted ? " · muted" : ""}`;
+    const head = `${quote(track.name)} ${track.id} · ${track.kind}${track.muted ? " · muted" : ""}${track.hidden ? " · hidden" : ""}`;
     const captions = all.length > 0 && all.every(isCaptionClip);
     if (captions && !filter.captions) {
       lines.push(`${head} · ${all.length} captions over ${range(all[0].start, clipEnd(all.at(-1)!))} (captions: true lists them)`);

@@ -1011,8 +1011,9 @@ export const VIDEO_TOOLS = [
     name: "edit_track",
     title: "Change a track",
     kind: "edit",
-    description: "Mute or unmute a track, or remove it with its clips (the last video track can't be removed).",
-    inputSchema: obj({ trackId: str("Track id."), muted: bool("Muted."), remove: bool("Remove it.") }, ["trackId"]),
+    description:
+      "Mute or unmute a track, hide or show a video track (a hidden one draws nothing, but its sound still plays and its clips can still be a track matte), or remove it with its clips (the last video track can't be removed).",
+    inputSchema: obj({ trackId: str("Track id."), muted: bool("Muted."), hidden: bool("Hidden (video tracks only)."), remove: bool("Remove it.") }, ["trackId"]),
   }),
   tool({
     name: "set_project",

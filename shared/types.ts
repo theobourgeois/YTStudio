@@ -139,6 +139,8 @@ export interface Track {
   kind: TrackKind;
   name: string;
   muted: boolean;
+  /** A video track whose pictures aren't drawn (Premiere's Toggle Track Output); its sound still plays. Absent: shown. */
+  hidden?: boolean;
 }
 
 export interface Clip {

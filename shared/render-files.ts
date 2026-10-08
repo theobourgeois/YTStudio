@@ -149,7 +149,7 @@ function segment(
       if (w.to) clips.add(w.to);
     }
     for (const clip of clips) shown.add(clip);
-    return { id: track.id, muted: track.muted, clips: [...clips].sort((a, b) => a.start - b.start).map((c) => c.id) };
+    return { id: track.id, muted: track.muted, hidden: !!track.hidden, clips: [...clips].sort((a, b) => a.start - b.start).map((c) => c.id) };
   });
 
   // And what those depend on: their parents, the sequences they nest (and what those nest), their media.
@@ -180,7 +180,7 @@ function segment(
       settingsText(project.settings),
       from,
       to,
-      tracks.map((t) => `${t.id}:${t.muted ? 1 : 0}:${t.clips.join(",")}`).join(";"),
+      tracks.map((t) => `${t.id}:${t.muted ? 1 : 0}${t.hidden ? "h" : ""}:${t.clips.join(",")}`).join(";"),
       [...clips.values()].sort((a, b) => (a.id < b.id ? -1 : 1)).map(clipText).join(","),
       [...sequences.values()].sort((a, b) => (a.id < b.id ? -1 : 1)).map(sequenceText).join(","),
       [...media].sort().map((id) => assetText(assets.get(id), id)).join(","),

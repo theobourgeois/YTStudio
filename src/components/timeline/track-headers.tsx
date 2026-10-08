@@ -1,7 +1,7 @@
 import { memo, type ReactNode } from "react";
-import { PiFilmStrip, PiMusicNotes, PiSpeakerHigh, PiSpeakerSlash, PiX } from "react-icons/pi";
+import { PiEye, PiEyeSlash, PiFilmStrip, PiMusicNotes, PiSpeakerHigh, PiSpeakerSlash, PiX } from "react-icons/pi";
 import type { Track } from "@shared/types";
-import { removeTrack, setTrackMuted } from "@shared/timeline";
+import { removeTrack, setTrackHidden, setTrackMuted } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "cn";
@@ -45,6 +45,8 @@ const TrackHeader = memo(function TrackHeader({
   const Icon = track.kind === "video" ? PiFilmStrip : PiMusicNotes;
   const toggleMute = () =>
     useEditor.getState().commit((p) => setTrackMuted(p, track.id, !track.muted));
+  const toggleHidden = () =>
+    useEditor.getState().commit((p) => setTrackHidden(p, track.id, !track.hidden));
   const remove = () => useEditor.getState().commit((p) => removeTrack(p, track.id));
 
   return (
@@ -61,7 +63,7 @@ const TrackHeader = memo(function TrackHeader({
         >
           <Icon className="size-3.5" />
         </div>
-        <span className={cn("min-w-0 flex-1 truncate text-xs font-medium", track.muted && "text-muted-foreground")}>
+        <span className={cn("min-w-0 flex-1 truncate text-xs font-medium", (track.muted || track.hidden) && "text-muted-foreground")}>
           {track.name}
         </span>
         <div className="flex shrink-0 items-center">
@@ -72,6 +74,16 @@ const TrackHeader = memo(function TrackHeader({
               className="opacity-0 group-hover/track:opacity-100 focus-visible:opacity-100"
             >
               <PiX />
+            </HeaderButton>
+          )}
+          {track.kind === "video" && (
+            <HeaderButton
+              label={track.hidden ? "Show track" : "Hide track"}
+              onClick={toggleHidden}
+              pressed={!!track.hidden}
+              className={cn(track.hidden && "text-destructive hover:text-destructive")}
+            >
+              {track.hidden ? <PiEyeSlash /> : <PiEye />}
             </HeaderButton>
           )}
           <HeaderButton

@@ -244,7 +244,8 @@ export function nestClips(view: Project, clipIds: readonly string[], name?: stri
   const t0 = Math.min(...chosen.map((c) => c.start));
   const end = Math.max(...chosen.map(clipEnd));
   const used = new Set(chosen.map((c) => c.trackId));
-  const tracks: Track[] = view.tracks.filter((t) => used.has(t.id)).map((t) => ({ ...t, muted: false }));
+  // The nest starts heard and seen, whatever its tracks were outside.
+  const tracks: Track[] = view.tracks.filter((t) => used.has(t.id)).map(({ hidden: _, ...t }) => ({ ...t, muted: false }));
   // A sequence always has a video track.
   if (!tracks.some((t) => t.kind === "video")) tracks.unshift({ id: "main", kind: "video", name: "Video 1", muted: false });
   const inner = pruneParents(chosen.map((c) => ({ ...c, start: roundTime(c.start - t0) })));
