@@ -12,6 +12,7 @@
     "start": "tsx scripts/start.ts",
     "build:desktop": "tsx scripts/desktop.ts build",
     "package:desktop": "tsx scripts/desktop.ts package",
+    "update:desktop": "tsx scripts/desktop.ts update",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
