@@ -62,7 +62,7 @@ export function ProjectTabs() {
             size="icon-sm"
             aria-label="Home"
             aria-pressed={openId === null}
-            className={cn("project-tabs-home mb-px shrink-0", openId === null && "raised")}
+            className={cn("project-tabs-home mb-0.5 shrink-0", openId === null && "raised")}
             onClick={() => void useProjects.getState().goHome()}
           >
             <img src={appIconUrl(icon)} alt="" className="size-5" draggable={false} />

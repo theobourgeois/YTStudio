@@ -349,18 +349,24 @@ html.desktop [data-titlebar] :is(button, a, input, label, select, textarea, [rol
   -webkit-app-region: no-drag;
 }
 /*
- * A Mac's window buttons start whichever bar starts the window: the tab strip while a project is open (and on
- * the Home screen with tabs), else the Home screen's own bar.
- *
- * The window buttons (electron/main.ts: 18 points in, centred 26 points down) don't zoom with the page, so
- * beside them lengths are window points divided by the page's zoom (`--desktop-zoom`, electron/preload.ts).
+ * The bar that starts the window (the tab strip while a project is open, and on the Home screen with tabs, else
+ * the Home screen's own bar) is the window's title bar: like the window's buttons, and a browser's tabs, it
+ * doesn't zoom with the page (⌘+ / ⌘−). `zoom` undoes the page's (`--desktop-zoom`, electron/preload.ts), so
+ * inside it a px is a window point at any zoom and its height matches the window buttons' place
+ * (electron/main.ts: TAB_STRIP_BUTTONS, HEADER_BUTTONS; on Windows TAB_STRIP_HEIGHT, HEADER_HEIGHT).
+ */
+html.desktop :is([data-titlebar="tabs"], [data-titlebar="home"]:not([data-tabs] *)) {
+  zoom: calc(1 / var(--desktop-zoom, 1));
+}
+/*
+ * A Mac's window buttons start that bar (18 points in, three of 12 points 8 apart: they end 70 points in), and
+ * what follows them keeps clear by as much as they keep from the window's edge.
  */
 html.desktop-darwin:not(.fullscreen) {
-  /* Where what follows the window buttons starts, in the page's px. */
-  --traffic-lights-end: calc(80px / var(--desktop-zoom, 1));
+  --traffic-lights-end: 86px;
 }
 html.desktop-darwin:not(.fullscreen) [data-titlebar="home"] {
-  padding-left: calc(var(--traffic-lights-end) + 4px);
+  padding-left: var(--traffic-lights-end);
 }
 /*
  * With the tab strip (home/project-tabs.tsx) above, it starts the window: after a Mac's window buttons, with
@@ -383,6 +389,10 @@ html.desktop-win32:not(.fullscreen) {
 }
 html.desktop-win32:not(.fullscreen) :is([data-titlebar="header"], [data-titlebar="home"], [data-titlebar="tabs"]) {
   padding-right: calc(var(--window-controls-width) + 8px);
+}
+/* The bar that starts the window undoes the page's zoom (above), which scales the page's px it's given too. */
+html.desktop-win32:not(.fullscreen) :is([data-titlebar="tabs"], [data-titlebar="home"]:not([data-tabs] *)) {
+  padding-right: calc(var(--window-controls-width) * var(--desktop-zoom, 1) + 8px);
 }
 /* Below the tab strip, the headers are clear of them again (their own padding: px-3, and px-4 for Home's). */
 html.desktop-win32:not(.fullscreen) [data-tabs] [data-titlebar="header"] {
