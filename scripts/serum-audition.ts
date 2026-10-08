@@ -14,8 +14,9 @@
  * A preset with `bed: true` plays over a quiet second Serum (the session's `bed`), so a bass is heard under chords.
  * Each loop is rendered twice and the second pass kept, so the tails of its end carry into its start.
  *
- * The engine doesn't tell plugins the song's tempo yet, so Serum assumes 120 BPM: render at 120, or synced LFOs and
- * delays drift against the drums. Needs ffmpeg (FFMPEG_PATH) and Serum 2 in /Library/Audio/Plug-Ins/VST3.
+ * Serum follows the session's tempo through the engine's playhead (`engine/src/PlayHead.h`); an engine built before
+ * it had none, and Serum assumed 120 BPM there: with such a build, render at 120 or synced LFOs and delays drift.
+ * Needs ffmpeg (FFMPEG_PATH) and Serum 2 in /Library/Audio/Plug-Ins/VST3.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";

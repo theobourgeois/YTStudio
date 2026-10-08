@@ -41,7 +41,7 @@ scores them, and every round's verdicts feed the next. The aim is presets he'd p
 3. **Write each preset** with `pnpm tsx scripts/serum-preset.ts write spec.json --out "<NAME>.SerumPreset"`. Name it in his style: `LD`, `PL`, `KY`, `PD`, `BS` plus a short evocative name. Give it three or four macros named for what they do (FILTER, ROOM, DUST, DRIVE…), mostly on effect mixes.
 4. **Check it in Serum** with `pnpm tsx scripts/serum-preset.ts verify --specs a.json --specs b.json --out <dir>` (one `--specs` per file). Known checker quirks, not errors: "0% [-∞ dB]" against 0, and a WT Pos frame number on long tables.
 5. **Write a session** (see `scripts/serum-audition.ts`'s header; copy `generated/batch7/session.json`):
-   - a fresh phrase per role in a new key, at **120 BPM** (see the traps);
+   - a fresh phrase per role in a new key and tempo (see the traps on tempo);
    - bass in octaves 1–2, lead and pluck in 4–5, chords in 3–4, remembering presets built an octave or two down;
    - a bass over the `bed` (quiet chords) for context.
    - Putting his original before your variation ("Reference — <name>") lets him compare.
@@ -53,7 +53,7 @@ scores them, and every round's verdicts feed the next. The aim is presets he'd p
 
 - **LFO shapes: y is measured from the top** (0 is the LFO's full value), and a shape should end at its start's height.
 - **PWM's display runs backwards**: knob 0 shows 100, a full-width pulse; knob 100 squeezes the wave to nearly nothing.
-- **Tempo:** the engine doesn't give hosted plugins a playhead yet, so Serum assumes 120 BPM in renders. Render at 120 until that's fixed; in FL his presets get FL's tempo.
+- **Tempo:** Serum follows the render's tempo through the engine's playhead (`engine/src/PlayHead.h`, PR #169). An engine built before it gives plugins none, and Serum assumes 120 BPM: if `engine/src/PlayHead.h` is missing from the checkout whose engine you run, render at 120 (or `pnpm engine:build` a newer one). In FL his presets get FL's tempo either way.
 - **Silence:** a filter shut at 8–30 Hz needs its envelope at ~95–100% to open, or the preset is nearly silent. Always check the solo RMS.
 - **The writer refuses bad specs** and lists what's valid: read the message, don't guess names.
 - **In a worktree**, the engine isn't built: set `EDITOR_ENGINE_PATH` to the main checkout's (`~/code/editor/engine/build/VaudioEngine_artefacts/Release/Vaudio Engine.app/Contents/MacOS/Vaudio Engine`).
