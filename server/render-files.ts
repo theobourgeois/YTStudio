@@ -26,6 +26,9 @@ import { createLimiter } from "./queue.ts";
 import { BT709 } from "./render.ts";
 import { renderInputs } from "./render-inputs.ts";
 import { HttpError, isValidId } from "./storage.ts";
+import { elapsed, log } from "./log.ts";
+
+const logger = log("render");
 
 /** A video's render files may take this much room; past it the oldest go (the current ones last). */
 const RENDER_BUDGET = 4 * 1024 ** 3;
@@ -91,7 +94,7 @@ export class RenderFiles {
     const state: JobState = { job, project, texts, segments: missing, controller: new AbortController() };
     this.jobs.set(job.id, state);
     this.latest.set(projectId, state);
-    this.limit(() => this.render(state)).catch((err) => console.error("[render]", err));
+    this.limit(() => this.render(state)).catch((err) => logger.error("a render job failed", err));
     return { ...job, rendered: [] };
   }
 
@@ -130,6 +133,7 @@ export class RenderFiles {
     const { job, project, texts, segments, controller } = state;
     if (job.status !== "queued") return;
     job.status = "rendering";
+    const began = performance.now();
     const { signal } = controller;
     const dir = this.dir(job.projectId);
     const temps = new Set<string>();
@@ -177,12 +181,13 @@ export class RenderFiles {
         }
       }
       Object.assign(job, { status: "done", progress: 1 });
+      logger.info(`${job.id} done in ${elapsed(began)} (${segments.length} segment${segments.length === 1 ? "" : "s"})`);
       await prune(dir, new Set(segments.map((s) => s.key)));
     } catch (err) {
       if (signal.aborted) return; // cancelled (status already set) or shutting down
       job.status = "error";
       job.error = `Rendering failed: ${errorMessage(err)}`;
-      console.error(`[render] ${job.id} failed: ${job.error}`);
+      logger.error(`${job.id} failed: ${job.error}`);
     } finally {
       for (const temp of temps) await fs.rm(temp, { force: true });
       this.jobs.delete(job.id);

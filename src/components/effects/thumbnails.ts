@@ -17,6 +17,9 @@ import { defaultParams } from "@shared/params";
 import { transitionShader, transitionUniforms } from "@shared/transition-gl";
 import { drawSampleScene } from "@shared/transition-samples";
 import { type TransitionDefinition, defaultTransitionParams } from "@shared/transitions";
+import { log } from "@/lib/log";
+
+const logger = log("effects");
 
 /** Thumbnail size in CSS px (3:2). */
 export const THUMB_WIDTH = 102;
@@ -225,7 +228,7 @@ function render(t: Thumbnailer, thumb: Thumb, at: number): boolean {
     t.compositor.present();
     return true;
   } catch (err) {
-    console.error(`"${thumb.key}" failed to draw`, err);
+    logger.error(`"${thumb.key}" failed to draw`, err);
     return false;
   }
 }

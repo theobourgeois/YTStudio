@@ -10,6 +10,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { engineExecutable } from "../server/engine-path.ts";
 import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, screen, shell, systemPreferences } from "electron";
+import { log, logFile, startLogging } from "../server/log.ts";
 import type { RunningServer } from "./server.ts";
 import { loadShellPath } from "./shell-path.ts";
 import { loadWindowState, trackWindowState } from "./window-state.ts";
@@ -68,7 +69,8 @@ else {
       renameSync(legacy, userData);
       moved = true;
     } catch (err) {
-      console.warn(`[desktop] couldn't move ${legacy} to ${userData}: ${err instanceof Error ? err.message : err}`);
+      // Before the log has a folder: printed only.
+      log("desktop").warn(`couldn't move ${legacy} to ${userData}: ${err instanceof Error ? err.message : err}`);
     }
   }
   app.setPath("userData", moved ? userData : legacy);
@@ -206,6 +208,17 @@ const TAB_STRIP_BUTTONS = { x: 18, y: 14 };
 const HEADER_HEIGHT = 52;
 const TAB_STRIP_HEIGHT = 40;
 
+/** The page's and Chromium's own processes (the GPU's, a utility's) going, and the window hanging, into the log. */
+function watchProcesses() {
+  const logger = log("desktop");
+  app.on("render-process-gone", (_event, contents, details) =>
+    logger.error(`a page's process went: ${details.reason} (exit ${details.exitCode})`, { url: contents.getURL() }),
+  );
+  app.on("child-process-gone", (_event, details) => {
+    if (details.reason !== "clean-exit") logger.error(`the ${details.name ?? details.type} process went: ${details.reason} (exit ${details.exitCode})`);
+  });
+}
+
 /** A menu command of the page's (`DesktopCommand` in src/lib/desktop.ts). */
 function pageCommand(name: string) {
   if (!mainWindow) createWindow();
@@ -218,9 +231,11 @@ async function start() {
     const devPort = Number(process.env.EDITOR_SERVER_PORT) || 0;
     process.env.EDITOR_SERVER_PORT ??= String(PACKAGED_PORTS[0]);
     // Only now: server/config.ts reads the environment when it's loaded.
-    const { config } = await import("../server/config.ts");
-    const { startServer } = await import("./server.ts");
+    const { LOG_LEVEL, config } = await import("../server/config.ts");
     dataDir = config.dataDir;
+    startLogging({ dir: path.join(dataDir, "logs"), level: LOG_LEVEL, console: !app.isPackaged, about: { version: app.getVersion(), packaged: app.isPackaged } });
+    watchProcesses();
+    const { startServer } = await import("./server.ts");
     const clientDir = path.join(app.getAppPath(), "dist");
     const server = await startServer({
       dataDir,
@@ -241,6 +256,7 @@ async function start() {
     });
     appUrl = DEV_URL ?? `http://127.0.0.1:${server.port}`;
   } catch (err) {
+    log("desktop").error("couldn't start", err);
     dialog.showErrorBox(`${APP_NAME} couldn't start`, err instanceof Error ? err.message : String(err));
     app.exit(1);
     return;
@@ -302,6 +318,8 @@ function createWindow() {
     },
   });
   if (state.maximized) win.maximize();
+  win.on("unresponsive", () => log("desktop").warn("the window stopped responding"));
+  win.on("responsive", () => log("desktop").info("the window is responding again"));
   // Windows and Linux: no menu bar across the window (FL Studio's is in its toolbar, as ours is the page's).
   // Its accelerators still work, and with autoHideMenuBar off a released Alt doesn't bring it back and take
   // the keyboard, which an Alt-drag (off the grid) would do every time.
@@ -639,6 +657,13 @@ function buildMenu(): Menu {
         {
           label: "Show Data Folder",
           click: () => void shell.openPath(dataDir),
+        },
+        {
+          label: "Show Logs",
+          click: () => {
+            const file = logFile();
+            if (file) shell.showItemInFolder(file);
+          },
         },
       ],
     },

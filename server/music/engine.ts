@@ -40,6 +40,7 @@ import type { MusicProject } from "../../shared/music/types.ts";
 import type { MediaAsset } from "../../shared/types.ts";
 import { createId } from "../../shared/ids.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS, ENGINE_SOURCE } from "../config.ts";
+import { lineLogger, log } from "../log.ts";
 import { spawnStreaming } from "../process.ts";
 import { repairWav } from "./take-repair.ts";
 import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";
@@ -129,6 +130,7 @@ const SAVE_STATES_MS = 5000;
 /** How long the engine has to start, and to answer (loading a big plugin takes a while). */
 const START_TIMEOUT_MS = 20_000;
 const REPLY_TIMEOUT_MS = 60_000;
+const engineLog = log("engine");
 
 type Running = ReturnType<typeof spawnStreaming>["child"];
 interface Pending {
@@ -857,7 +859,9 @@ export class AudioEngine {
     this.outdated = await engineOutdated(this.argv[0]);
     const args = ["--data", this.paths.engine, ...this.pluginPaths.filter((dir) => existsSync(dir)).flatMap((dir) => ["--plugin-path", dir])];
     args.push(...this.flags);
-    const { child, done } = spawnStreaming([...this.argv, ...args], "pipe", "pipe", { env: this.env });
+    // What it and its plugins print is kept in the log alone: plugins can be chatty.
+    const { child, done } = spawnStreaming([...this.argv, ...args], "pipe", "pipe", { env: this.env, onStderr: lineLogger(log("engine", { quiet: true })) });
+    const started = performance.now();
     // A write to an engine that just died must not take the server down with it.
     child.stdin!.on("error", () => {});
 
@@ -876,6 +880,7 @@ export class AudioEngine {
         if (message.event === "ready") {
           clearTimeout(timer);
           this.child = child;
+          engineLog.info(`started (pid ${child.pid}) in ${Math.round(performance.now() - started)} ms${this.outdated ? ", built before its source last changed" : ""}`);
           // A restarted engine has forgotten the song: give it back before anything else is asked.
           if (this.song) void this.request("song", { song: this.song }).catch(() => {});
           if (this.host) void this.request("host", { ...this.host }).catch(() => {});
@@ -907,7 +912,10 @@ export class AudioEngine {
         else pending.reject(new HttpError(409, typeof message.error === "string" ? message.error : "The audio engine refused."));
       });
       done
-        .catch((err: Error) => this.stopping || console.error(`[engine] ${err.message}`))
+        .then(
+          () => (this.stopping ? engineLog.info("stopped") : engineLog.warn("stopped by itself")),
+          (err: Error) => (this.stopping ? engineLog.info(`stopped: ${err.message}`) : engineLog.error(`stopped unexpectedly (a plugin may have crashed it): ${err.message}`, { exitCode: child.exitCode, signal: child.signalCode })),
+        )
         .finally(() => {
           clearTimeout(timer);
           if (this.child === child) this.child = null;

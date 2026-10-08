@@ -4,8 +4,10 @@
  * tools and reports what it does as `ChatEvent`s. Each provider's file turns
  * its CLI's own protocol into this (`claude.ts`, `codex.ts`).
  */
+import path from "node:path";
 import type { Writable } from "node:stream";
 import type { ChatEvent } from "../../shared/assistant.ts";
+import { log } from "../log.ts";
 import { spawnStreaming } from "../process.ts";
 
 /** How a turn ended. */
@@ -65,6 +67,7 @@ export class JsonLinesProcess {
   private stdin: Writable;
   private kill: () => void;
   private exited = false;
+  private stopping = false;
 
   constructor(opts: JsonLinesOptions) {
     const { child, done } = spawnStreaming(opts.argv, "pipe", "pipe", { cwd: opts.cwd, env: opts.env });
@@ -91,6 +94,7 @@ export class JsonLinesProcess {
     const finish = (error: string | null) => {
       if (this.exited) return;
       this.exited = true;
+      if (error && !this.stopping) log("assistant").warn(`${path.basename(opts.argv[0])} stopped: ${error}`);
       opts.onExit(error);
     };
     done.then(
@@ -108,6 +112,7 @@ export class JsonLinesProcess {
   }
 
   stop(): void {
+    this.stopping = true;
     if (!this.exited) this.kill();
   }
 }

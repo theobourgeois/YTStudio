@@ -18,6 +18,9 @@ import { WHISPER } from "../config.ts";
 import { firstThatRuns, run } from "../process.ts";
 import { wavFile, SAMPLE_RATE } from "./audio.ts";
 import { ENGLISH_STYLE_PROMPT, type EngineResult, type TranscribeOptions, type TranscriptionEngine, wordsFromPieces } from "./engine.ts";
+import { log } from "../log.ts";
+
+const logger = log("transcription");
 
 /** Whisper large-v3 turbo, 5-bit: close to large-v3's accuracy at a fraction of the size and time. */
 export const WHISPER_MODEL = {
@@ -86,7 +89,7 @@ export class WhisperCppEngine implements TranscriptionEngine {
     void this.install().then(
       () => (this.setup = { running: false, step: null, progress: null, error: null }),
       (err) => {
-        console.error("[transcription] setup failed:", err);
+        logger.error("setup failed", err);
         this.setup = { running: false, step: null, progress: null, error: `Setup failed: ${errorMessage(err)}` };
       },
     );

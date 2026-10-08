@@ -7,6 +7,9 @@ import { checkOnOpen, keepCheckpoint, recoverySurfaces } from "../photo/recovery
 import { resourcesOf } from "../photo/service.ts";
 import { HttpError } from "../storage.ts";
 import type { SuiteBackend } from "./suite.ts";
+import { log } from "../log.ts";
+
+const logger = log("photo");
 
 /**
  * The photo suite (docs/photo/): `PhotoProject` documents, whose image layers show the project's media. Its Home
@@ -34,7 +37,7 @@ export const photoSuite: SuiteBackend<"photo"> = {
   async opened(doc, dir) {
     if (!existsSync(path.join(dir, "project.json"))) return;
     const result = await new BlobStore(resourcesOf(dir)).collect([...documentSurfaces(doc), ...(await recoverySurfaces(dir))]);
-    if (result.missing.length) console.warn(`[photo] ${dir} names surfaces it hasn't got: ${result.missing.join(", ")}`);
+    if (result.missing.length) logger.warn(`${dir} names surfaces it hasn't got: ${result.missing.join(", ")}`);
   },
   assistant: {
     context: "the photo's canvas and which layer is selected when they sent it",

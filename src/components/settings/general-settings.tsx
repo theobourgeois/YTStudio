@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { type FontChoice, FONTS, MONO_FONTS, THEMES, type ThemeChoice, type ThemeId, themeClasses, useTheme } from "@/stores/theme";
 import { SettingsBlock, SettingsGroup, SettingsRow } from "./settings-ui";
 import { AppIconPicker } from "./app-icon-picker";
+import { LogSettings } from "./log-settings";
 import { ProjectsLocation } from "./projects-location";
 
 /** Settings' own section: where projects are saved and how the whole app looks, whichever suite is open. */
@@ -22,6 +23,7 @@ export function GeneralSettings() {
         <FontRow title="Numbers and code" description="Times, values, the position and tempo displays, expressions." fonts={MONO_FONTS} which="monoFont" />
         <FontSample />
       </SettingsGroup>
+      <LogSettings />
     </>
   );
 }

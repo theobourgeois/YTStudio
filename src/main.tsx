@@ -4,8 +4,10 @@ import "./index.css";
 import App from "./App";
 import { exposeDesktopHooks } from "./lib/desktop";
 import { trackKeyboardNavigation } from "./lib/focus-rings";
+import { watchPageErrors } from "./lib/log";
 import { useAppIcon } from "./stores/app-icon";
 
+watchPageErrors();
 exposeDesktopHooks();
 trackKeyboardNavigation();
 void useAppIcon.getState().init();

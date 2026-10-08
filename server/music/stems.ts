@@ -14,6 +14,9 @@ import { createLimiter } from "../queue.ts";
 import { HttpError } from "../storage.ts";
 import { type MusicModels, decodeRaw, modelFile, runWorker } from "./ml.ts";
 import { writeWavChannels } from "./wav.ts";
+import { log } from "../log.ts";
+
+const logger = log("stems");
 
 /** The rate HTDemucs separates at. */
 const STEM_RATE = 44_100;
@@ -126,7 +129,7 @@ export class StemSeparator {
     } catch (error) {
       if (view.state === "cancelled" || isAbortError(error) || abort.signal.aborted) view.state = "cancelled";
       else {
-        console.error("[stems] the split failed:", error);
+        logger.error("the split failed", error);
         view.state = "failed";
         view.error = errorMessage(error);
       }

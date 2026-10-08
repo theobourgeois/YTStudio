@@ -354,6 +354,8 @@ server/
                      beats (Ellis's DP tracker, then evened out), bars, loudness sections and drops. The platform's:
                      beat sync and the music suite's Detect tempo both use it.
   config.ts          Every env var is read here and nowhere else.
+  log.ts             The app's log (`log(scope)`): JSON lines in `<data>/logs/ytstudio.log`, rotated, written in the
+                     background; the tab's lines arrive by `POST /api/log` (`src/lib/log.ts`, `shared/log.ts`).
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
 engine/            The music suite's audio engine, a C++/JUCE program (CMake; JUCE is fetched into engine/build).
                      src/Engine.cpp: the device, commands, the real-time `process`. Song.cpp: a compiled song
@@ -1361,6 +1363,12 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   `server/integration.test.ts`, sound in `server/music/engine.integration.test.ts`); then one e2e spec per suite.
 - Server: validate every request body inside the service (bodies are `unknown`). Paths come from `DataPaths` and
   ids are checked with `isValidId`. Start external programs only through `process.ts`.
+- Logging: `log("<scope>")` from `server/log.ts` (server, desktop app) or `src/lib/log.ts` (the tab), never
+  `console.*`: it prints as before and keeps the line in `<data>/logs/` (Settings › General › Logs, Help › Show Logs),
+  where a packaged app's console goes nowhere. Log what's worth knowing later at a boundary: a job's end or failure,
+  a process dying, a request failing; at debug what's only for chasing a problem (`EDITOR_LOG_LEVEL=debug`: every
+  request and program run). Never per frame or per pointer move, nor a document's content; a program's own output
+  goes in quiet (`lineLogger`, `{ quiet: true }`). Nothing on the engine's audio thread logs.
 
 ## Windows (the page can be in several)
 

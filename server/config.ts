@@ -2,6 +2,7 @@ import { loadEnvFile } from "node:process";
 import os from "node:os";
 import path from "node:path";
 import { engineExecutable } from "./engine-path.ts";
+import { type LogLevel, isLogLevel } from "../shared/log.ts";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -28,6 +29,9 @@ export const config = {
   production: process.env.NODE_ENV === "production",
   clientDir: path.join(REPO_ROOT, "dist"),
 };
+
+/** How much the log keeps (`<data>/logs`, server/log.ts): debug, info (the default), warn or error. */
+export const LOG_LEVEL: LogLevel = isLogLevel(process.env.EDITOR_LOG_LEVEL) ? process.env.EDITOR_LOG_LEVEL : "info";
 
 export const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 export const FFPROBE = process.env.FFPROBE_PATH || "ffprobe";

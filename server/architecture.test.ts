@@ -55,6 +55,11 @@ const PLATFORM = [
   "server/storage.ts",
   "server/process.ts",
   "server/queue.ts",
+  // The app's log: every suite's server side, its tab and the desktop app write it.
+  "shared/log.ts",
+  "server/log.ts",
+  "server/routes/log.ts",
+  "src/lib/log.ts",
   // The API-key store is shared by transcription and music classification.
   "server/transcription/settings.ts",
   // Music analysis (tempo, beats): the video editor's beat sync and the music suite's Detect tempo.

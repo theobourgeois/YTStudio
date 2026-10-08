@@ -28,6 +28,9 @@ import { readWav } from "../wav.ts";
 import { hashStream } from "./files.ts";
 import { measureAudio } from "./measure.ts";
 import { captureSnapshot } from "./snapshot.ts";
+import { log } from "../../log.ts";
+
+const logger = log("audio-intelligence");
 
 export const AUDIO_SERVER_TOOLS = ["render_audio_passage", "analyse_audio_artifact", "get_audio_job", "cancel_audio_job", "retry_audio_job", "get_audio_report", "register_audio_artifact", "hear_audio_artifact", "get_hearing_capabilities", "get_hearing_receipt", ...VOCAL_SERVER_TOOLS, ...EXAMPLE_SERVER_TOOLS, ...DATASET_SERVER_TOOLS] as const;
 const checked = <T>(result: Validation<T>): T => { if (!result.ok) throw new HttpError(409, result.errors.join("; ")); return result.value; };
@@ -357,7 +360,7 @@ export class AudioIntelligence {
       await this.persist(id);
     });
   }
-  private schedule(id: string) { void this.work(() => this.execute(id)).catch(error => console.error("[audio-intelligence] job persistence failed", error)); }
+  private schedule(id: string) { void this.work(() => this.execute(id)).catch(error => logger.error("job persistence failed", error)); }
   private async execute(id: string) {
     const stored = this.jobs.get(id)!;
     if (this.stopped || stored.job.status !== "queued") return;

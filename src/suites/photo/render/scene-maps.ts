@@ -38,6 +38,9 @@ import { SUBJECT_MODEL, SUBJECT_SIDE, standInProbabilities, subjectInput } from 
 import type { PhotoProject } from "@shared/photo/types.ts";
 import { modelApi, runModel, useModels } from "../models";
 import { type AnalysisHost, analysisInput } from "./camera-raw-analysis.ts";
+import { log } from "@/lib/log";
+
+const logger = log("photo");
 
 /** Maps kept (each a few MB at most). */
 const KEPT = 16;
@@ -187,7 +190,7 @@ export class SceneMapStore {
     if (!promise) {
       promise = this.make(picture, need, doc)
         .catch((error: unknown) => {
-          console.error("[photo] scene maps couldn't be made:", error);
+          logger.error("scene maps couldn't be made", error);
           this.failed.add(picture);
           return null;
         })

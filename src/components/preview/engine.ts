@@ -28,6 +28,9 @@ import { placeOnCanvas } from "./placement";
 // Also has the user's shaders compiled before they're drawn (`provideShaderCheck`).
 import { recoverFromLostContext } from "./shader-recovery";
 import { type SlotIds, assignSlots } from "./sync";
+import { log } from "@/lib/log";
+
+const logger = log("preview");
 
 /**
  * The hidden elements that decode one video track's pictures: an A/B pair
@@ -418,7 +421,7 @@ export class PreviewEngine {
     });
     this.compositor = gl && !gl.isContextLost() ? createCompositor(gl) : null;
     this.timer = this.adaptiveResolution ? (gl?.getExtension("EXT_disjoint_timer_query_webgl2") ?? null) : null;
-    if (!gl) console.warn("WebGL 2 isn't available, so the preview can't be drawn.");
+    if (!gl) logger.warn("WebGL 2 isn't available, so the preview can't be drawn.");
     this.uploaded.clear();
     this.nestFrames.clear();
     this.reportStatus();
@@ -996,7 +999,7 @@ export class PreviewEngine {
         try {
           compositor.drawAdjustment(adjustment);
         } catch (err) {
-          console.error("An adjustment layer's effects failed to draw", err);
+          logger.error("an adjustment layer's effects failed to draw", err);
           compositor.drawAdjustment({ ...adjustment, effects: undefined, samples: undefined });
         }
         continue;
@@ -1009,7 +1012,7 @@ export class PreviewEngine {
           compositor.drawPicture(picture);
         } catch (err) {
           // An effect that won't compile: the clip still shows, without its effects.
-          console.error("A clip's effects failed to draw", err);
+          logger.error("a clip's effects failed to draw", err);
           compositor.drawPicture({ ...picture, effects: undefined, samples: undefined });
         }
         continue;
@@ -1025,7 +1028,7 @@ export class PreviewEngine {
           placed(layer.to),
         );
       } catch (err) {
-        console.error(`Transition "${def.label}" failed to draw`, err);
+        logger.error(`transition "${def.label}" failed to draw`, err);
       }
     }
     return { transitions };
@@ -1136,7 +1139,7 @@ export class PreviewEngine {
       try {
         compositor.setPicture(key, source);
       } catch (err) {
-        console.warn("Couldn't draw a picture", err);
+        logger.warn("couldn't draw a picture", err);
         return false;
       }
       this.uploaded.set(key, tag);

@@ -6,6 +6,7 @@
  */
 import fs from "node:fs/promises";
 import path from "node:path";
+import { lineLogger, log } from "../log.ts";
 import { spawnStreaming } from "../process.ts";
 
 /**
@@ -115,7 +116,7 @@ export class PhotoHelper {
 
   private start() {
     if (this.running) return this.running.child;
-    const running = spawnStreaming([this.command], "pipe", "pipe");
+    const running = spawnStreaming([this.command], "pipe", "pipe", { onStderr: lineLogger(log("photo-helper", { quiet: true })) });
     this.running = running;
     this.buffer = "";
     running.child.stdout!.setEncoding("utf8");
@@ -159,6 +160,7 @@ export class PhotoHelper {
     if (this.closed) return;
     this.restarts++;
     const reason = error?.message || "The photo helper stopped unexpectedly.";
+    log("photo-helper").error(`stopped unexpectedly (restart ${this.restarts}): ${reason}`);
     if (this.retrying !== null) {
       const culprit = this.retrying;
       this.retrying = null;

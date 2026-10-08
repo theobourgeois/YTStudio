@@ -7,6 +7,9 @@ import { createDefaultProject, createId } from "../shared/timeline.ts";
 import type { MediaAsset, Project } from "../shared/types.ts";
 import { LEGACY_PROJECTS_FOLDER, PROJECTS_FOLDER, PROJECT_EXTENSION, movePath, uniquePackage } from "./packages.ts";
 import { type DataPaths, isObject, isValidId, readJson, writeJson } from "./storage.ts";
+import { log } from "./log.ts";
+
+const logger = log("migrate");
 
 /**
  * Bring older data folders up to date before anything loads (idempotent; never deletes user files):
@@ -30,7 +33,7 @@ async function moveProjectsFolder(location: string): Promise<void> {
   try {
     await movePath(legacy, location);
   } catch (err) {
-    console.warn(`[migrate] couldn't move ${legacy} to ${location}: ${err instanceof Error ? err.message : err}`);
+    logger.warn(`couldn't move ${legacy} to ${location}: ${err instanceof Error ? err.message : err}`);
   }
 }
 
@@ -102,8 +105,8 @@ async function migrateLegacyData(paths: DataPaths, location: string): Promise<vo
     const taken = await fs.stat(backup).then(() => true, () => false);
     await fs.rename(paths.legacyProject, taken ? `${backup}-${Date.now()}` : backup);
   }
-  console.log(
-    `[migrate] moved ${legacy ? "project.json" : "untagged media"} into project ${id} ` +
+  logger.info(
+    `moved ${legacy ? "project.json" : "untagged media"} into project ${id} ` +
       `(${unowned.length} media file${unowned.length === 1 ? "" : "s"})`,
   );
 }
@@ -141,7 +144,7 @@ async function migrateToPackages(paths: DataPaths, location: string): Promise<vo
     const committed = await readJson<Record<string, unknown>>(path.join(partial, "meta.json"));
     if (!isObject(committed)) {
       // Never committed (its project.json without a meta.json): nothing to keep but its files, left as they are.
-      console.warn(`[migrate] ${id} had no meta.json: its files are in ${partial}`);
+      logger.warn(`${id} had no meta.json: its files are in ${partial}`);
       continue;
     }
     const { status: _status, settledAt: _settledAt, template: _template, ...rest } = committed;
@@ -162,5 +165,5 @@ async function migrateToPackages(paths: DataPaths, location: string): Promise<vo
   // The old layout's folders, if nothing else is in them.
   await fs.rmdir(paths.projects).catch(() => {});
   if (!(await oldMedia(paths)).length) await fs.rm(paths.media, { recursive: true, force: true }).catch(() => {});
-  if (moved) console.log(`[migrate] made ${moved} project${moved === 1 ? "" : "s"} into packages in ${location}`);
+  if (moved) logger.info(`made ${moved} project${moved === 1 ? "" : "s"} into packages in ${location}`);
 }

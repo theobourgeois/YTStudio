@@ -32,6 +32,9 @@ import { FakeEngine } from "./fake.ts";
 import { OpenAiCompatibleEngine } from "./openai.ts";
 import { ApiKeyStore } from "./settings.ts";
 import { WhisperCppEngine } from "./whisper-cpp.ts";
+import { elapsed, log } from "../log.ts";
+
+const logger = log("transcription");
 
 /** Stretches of one file this close together are transcribed as one (a clip split in two). */
 const JOIN_GAP = 1;
@@ -141,7 +144,7 @@ export class TranscriptionService {
     const job: TranscriptionJob = { id: createId("trans"), status: "queued", progress: 0, transcripts: null };
     const state: JobState = { job, engine, language, ranges, controller: new AbortController() };
     this.jobs.set(job.id, state);
-    this.limit(() => this.run(state)).catch((err) => console.error("[transcription]", err));
+    this.limit(() => this.run(state)).catch((err) => logger.error("a transcription job failed", err));
     return { ...job };
   }
 
@@ -200,6 +203,7 @@ export class TranscriptionService {
     const { job, engine, language, ranges, controller } = state;
     if (job.status !== "queued") return;
     job.status = "running";
+    const began = performance.now();
     const total = ranges.reduce((n, r) => n + r.out - r.in, 0);
     let done = 0;
     const transcripts: Transcript[] = [];
@@ -216,11 +220,12 @@ export class TranscriptionService {
       }
       if (controller.signal.aborted) return;
       Object.assign(job, { status: "done", progress: 1, transcripts });
+      logger.info(`${job.id} done in ${elapsed(began)} (${engine.id}, ${Math.round(total)} s of sound)`);
     } catch (err) {
       if (controller.signal.aborted) return; // cancelled (status already set) or shutting down
       job.status = "error";
       job.error = errorMessage(err);
-      console.error(`[transcription] ${job.id} failed: ${job.error}`);
+      logger.error(`${job.id} failed: ${job.error}`);
     }
   }
 

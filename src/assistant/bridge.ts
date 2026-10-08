@@ -18,6 +18,9 @@ import { useAssistant } from "@/stores/assistant";
 import { changed, useCheckpoints } from "@/stores/checkpoints";
 import { projectSuite, useProjects } from "@/stores/projects";
 import { type ToolRunContext, clientSuite } from "@/suites";
+import { log } from "@/lib/log";
+
+const logger = log("assistant");
 
 const RETRY_MS = 2000;
 
@@ -46,7 +49,7 @@ async function runTool(target: string, name: string, input: Record<string, unkno
   try {
     return await clientSuite(suite).runTool(name, input, ctx);
   } catch (err) {
-    console.error(`[assistant] ${name} failed`, err);
+    logger.error(`${name} failed`, err);
     return errorResult(errorMessage(err));
   }
 }
@@ -95,7 +98,7 @@ async function execute(call: Extract<TabEvent, { type: "call" }>) {
   running.delete(call.id);
   if (useAssistant.getState().activity?.callId === call.id) useAssistant.getState().setActivity(null);
   if (entry.cancelled) return;
-  await api.postToolResult(call.id, TAB_ID, result).catch((err) => console.error("[assistant] couldn't send a result", err));
+  await api.postToolResult(call.id, TAB_ID, result).catch((err) => logger.error("couldn't send a result", err));
 }
 
 function onEvent(event: TabEvent) {
@@ -103,7 +106,7 @@ function onEvent(event: TabEvent) {
     case "call": {
       const target = targetOf(event);
       running.set(event.id, { controller: new AbortController(), cancelled: false, target, started: false });
-      const queue = (queues.get(target) ?? Promise.resolve()).then(() => execute(event)).catch((err) => console.error("[assistant]", err));
+      const queue = (queues.get(target) ?? Promise.resolve()).then(() => execute(event)).catch((err) => logger.error("a tool call failed", err));
       queues.set(target, queue);
       void queue.then(() => {
         if (queues.get(target) === queue) queues.delete(target);
@@ -148,7 +151,7 @@ export function startAssistantBridge(): () => void {
       try {
         onEvent(JSON.parse(e.data) as TabEvent);
       } catch (err) {
-        console.error("[assistant] bad event", err);
+        logger.error("bad event", err);
       }
     };
     es.onerror = () => {

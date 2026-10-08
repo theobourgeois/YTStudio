@@ -1,4 +1,7 @@
 import { playbackCorrection } from "./sync";
+import { log } from "@/lib/log";
+
+const logger = log("preview");
 
 /** Paused elements closer than this to their target aren't re-seeked. */
 const SEEK_EPS = 1e-3;
@@ -100,7 +103,7 @@ export class MediaSlot {
     // An element that ran into the end of its media would restart from 0 on play().
     if (el.paused && !el.ended) {
       el.play().catch((err: unknown) => {
-        if (!(err instanceof DOMException && err.name === "AbortError")) console.warn(err);
+        if (!(err instanceof DOMException && err.name === "AbortError")) logger.warn("a media element wouldn't play", err);
       });
     }
   }

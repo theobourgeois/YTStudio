@@ -5,6 +5,9 @@ import { errorMessage } from "@shared/errors";
 import type { MediaAsset, Project, RenderJob } from "@shared/types";
 import { layoutTexts } from "@/components/export/layout-texts";
 import { api } from "@/lib/api";
+import { log } from "@/lib/log";
+
+const logger = log("render-files");
 
 /**
  * The open video's render files (Premiere's preview files, docs/render-files.md): which segments have one (by
@@ -63,7 +66,7 @@ export const useRenderFiles = create<RenderFilesState>((set, get) => ({
     const { job } = get();
     if (!job || (job.status !== "queued" && job.status !== "rendering")) return;
     set({ job: { ...job, status: "cancelled" } });
-    api.cancelRender(job.id).catch((err) => console.warn("Couldn't cancel the render", err));
+    api.cancelRender(job.id).catch((err) => logger.warn("couldn't cancel the render", err));
   },
 
   async deleteAll() {
@@ -89,7 +92,7 @@ async function load(projectId: string | null) {
     useRenderFiles.setState({ keys: new Set(state.keys), job: state.job });
     if (state.job && running(state.job)) poll(projectId);
   } catch (err) {
-    console.warn("Couldn't read the video's render files", err);
+    logger.warn("couldn't read the video's render files", err);
   }
 }
 
@@ -113,7 +116,7 @@ async function poll(projectId: string) {
       });
       if (!state.job || !running(state.job)) return;
     } catch (err) {
-      console.warn("Couldn't follow the render", err);
+      logger.warn("couldn't follow the render", err);
     }
   }
 }

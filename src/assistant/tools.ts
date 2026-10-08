@@ -66,6 +66,9 @@ import {
   string,
   strings,
 } from "./input";
+import { log } from "@/lib/log";
+
+const logger = log("assistant");
 
 export interface ToolContext {
   /** The chat the call is for (its video's id), or null for an agent outside the app (the open video). */
@@ -830,7 +833,7 @@ export async function runTool(name: string, input: Input, ctx: ToolContext): Pro
   } catch (err) {
     if (err instanceof ToolError) return { content: [{ type: "text", text: err.message }], isError: true };
     if ((err as { name?: string })?.name === "AbortError") return { content: [{ type: "text", text: "Stopped." }], isError: true };
-    console.error(`[assistant] ${name} failed`, err);
+    logger.error(`${name} failed`, err);
     const content: ToolContent[] = [{ type: "text", text: `${name} failed: ${errorMessage(err)}` }];
     return { content, isError: true };
   }

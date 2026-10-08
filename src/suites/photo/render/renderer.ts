@@ -62,6 +62,9 @@ import { CanvasImages } from "./canvas-content.ts";
 import { SurfaceImage, type SurfaceKind } from "./surface.ts";
 import { shapeBounds } from "@shared/photo/shape-drawing.ts";
 import { type PatternImage, builtInPatternLevels, patternFromLinear, patternMips } from "@shared/photo/style/patterns.ts";
+import { log } from "@/lib/log";
+
+const logger = log("photo");
 
 export { backgroundLight };
 
@@ -423,7 +426,7 @@ export class PhotoRenderer {
       await s.image.ensureResident();
     } catch (error) {
       if (s.wanted === wanted) s.failed = error instanceof Error ? error.message : String(error);
-      console.error("[photo] couldn't show a surface", error);
+      logger.error("couldn't show a surface", error);
     }
     this.changed();
   }
@@ -853,7 +856,7 @@ export class PhotoRenderer {
           // Wanted only while this screen is the one shown: a resized screen's textures are gone.
           this.refiner.want(refineKey, (isCurrent) =>
             this.refine(plan, at, s.pending, () => isCurrent() && this.screen === s).catch((error: unknown) => {
-              console.error("[photo] refining the view failed", error);
+              logger.error("refining the view failed", error);
               return null;
             }),
           );

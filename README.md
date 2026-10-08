@@ -27,7 +27,8 @@ pnpm build:desktop       # release/mac-arm64/YTStudio.app: drag it into Applicat
 
 Projects are files of their own, in `~/Documents/YTStudio` by default (see below). The built app keeps the rest (its
 recents, the Library, settings) in `~/Library/Application Support/YTStudio/data` (Help → Show Data Folder), separate
-from `./data`. Double-click a project in Finder to open it, or pick one from File › Open Recent. It finds ffmpeg and
+from `./data`. What it did and what went wrong is logged in its `logs` folder (Help → Show Logs, or Settings › General;
+`EDITOR_LOG_LEVEL=debug` keeps more). Double-click a project in Finder to open it, or pick one from File › Open Recent. It finds ffmpeg and
 the rest through your shell's PATH, and draws exports in its own Chromium.
 
 ## Using it

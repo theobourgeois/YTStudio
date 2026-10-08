@@ -39,6 +39,7 @@ import { errorMessage } from "../../shared/errors.ts";
 import type { AssistantProviderStatus, AssistantStatus, SendChatMessageRequest } from "../../shared/types.ts";
 import { createId } from "../../shared/ids.ts";
 import { CLAUDE, CODEX } from "../config.ts";
+import { log } from "../log.ts";
 import { firstThatRuns, run } from "../process.ts";
 import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";
 import type { Agent, AgentHandlers } from "./agent.ts";
@@ -59,6 +60,7 @@ const STATUS_TTL_MS = 30_000;
 /** Codex's model list changes rarely (and asking starts a process). */
 const MODELS_TTL_MS = 10 * 60_000;
 const DEFAULT_TIMEOUT_S = 120;
+const logger = log("assistant");
 
 interface Turn {
   messageId: string;
@@ -365,7 +367,7 @@ export class AssistantService {
 
   private save(chat: Chat): Promise<void> {
     const saved: SavedChat = { state: chat.state, sessions: chat.sessions };
-    return writeJson(this.chatFile(chat.projectId), saved).catch((err) => console.error("[assistant] saving the chat failed", err));
+    return writeJson(this.chatFile(chat.projectId), saved).catch((err) => logger.error("saving the chat failed", err));
   }
 
   async setModel(projectId: string, body: unknown): Promise<ChatSnapshot> {
@@ -603,6 +605,7 @@ export class AssistantService {
     }
     const partId = chat && call.toolUseId ? call.toolUseId : null;
     const onProgress = chat && partId ? (fraction: number | null, label?: string) => this.emit(chat, { type: "tool_progress", id: partId, fraction, ...(label && { label }) }) : undefined;
+    const started = performance.now();
     let result: ToolResult;
     try {
       result = serverResult ?? await this.bridge.call(tab!, bareToolName(call.name), call.input, {
@@ -614,9 +617,13 @@ export class AssistantService {
     } catch (err) {
       result = errorResult(errorMessage(err));
     }
+    // A tool's error is usually the model's mistake, told back to it: news, not a fault.
+    const output = result.content.flatMap((c) => (c.type === "text" ? [c.text] : [])).join("\n");
+    const took = `${call.name} in ${Math.round(performance.now() - started)} ms`;
+    if (result.isError) logger.info(`${took} answered an error: ${output.slice(0, 300)}`);
+    else logger.info(took);
     if (chat && partId) {
       const images = await this.saveImages(chat.projectId, result);
-      const output = result.content.flatMap((c) => (c.type === "text" ? [c.text] : [])).join("\n");
       this.emitResult(chat, {
         type: "tool_end",
         id: partId,
@@ -641,7 +648,7 @@ export class AssistantService {
         await fs.writeFile(path.join(dir, name), Buffer.from(c.data, "base64"));
         urls.push(`/api/assistant/images/${projectId}/${name}`);
       } catch (err) {
-        console.error("[assistant] couldn't keep a picture", err);
+        logger.error("couldn't keep a picture", err);
       }
     }
     return urls;

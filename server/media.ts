@@ -16,6 +16,9 @@ import { type ProbeResult, probeMedia } from "./probe.ts";
 import { createLimiter } from "./queue.ts";
 import { makeSignals } from "./signals.ts";
 import { type DataPaths, HttpError, isValidId, readJson, writeJson } from "./storage.ts";
+import { log } from "./log.ts";
+
+const logger = log("media");
 
 /** Background (filmstrip + waveform) jobs running at once. */
 const JOB_CONCURRENCY = 2;
@@ -285,7 +288,7 @@ export class MediaLibrary {
       const message = errorMessage(err);
       if (!this.probeWarnings.has(message) && this.probeWarnings.size < MAX_PROBE_WARNINGS) {
         this.probeWarnings.add(message);
-        console.warn(`[media] couldn't probe ${name} as an image, imported with ffprobe's reading alone: ${message}`);
+        logger.warn(`couldn't probe ${name} as an image, imported with ffprobe's reading alone: ${message}`);
       }
       return null;
     }
@@ -345,7 +348,7 @@ export class MediaLibrary {
         } catch (err) {
           // An image ffmpeg can't decode couldn't be exported either.
           if (still) throw new HttpError(415, "This image couldn't be read. Try saving it as PNG or JPEG.");
-          console.warn(`[media] poster failed for ${name}: ${errorMessage(err)}`);
+          logger.warn(`poster failed for ${name}: ${errorMessage(err)}`);
         }
       }
 
@@ -632,7 +635,7 @@ export class MediaLibrary {
         signals = { status: "ready", src: `${this.root.url}/${id}/${name}`, version: SIGNALS_VERSION };
       } catch (err) {
         if (signal.aborted) return;
-        console.warn(`[media] analysing the sound of ${asset.name} failed: ${errorMessage(err)}`);
+        logger.warn(`analysing the sound of ${asset.name} failed: ${errorMessage(err)}`);
         signals = { status: "error", error: errorMessage(err) };
       }
       if (signal.aborted) return;
@@ -641,7 +644,7 @@ export class MediaLibrary {
       if (before && before !== name) await fs.rm(path.join(this.dir(id), before), { force: true });
     })
       .catch((err) => {
-        if (!isAbortError(err)) console.error(`[media] analysing ${id} failed:`, err);
+        if (!isAbortError(err)) logger.error(`analysing ${id} failed`, err);
       })
       .finally(() => {
         if (this.signalling.get(id)?.controller === controller) this.signalling.delete(id);
@@ -666,13 +669,13 @@ export class MediaLibrary {
         reversed = { status: "ready", src: `${this.root.url}/${id}/${name}` };
       } catch (err) {
         if (signal.aborted) return;
-        console.warn(`[media] reversing ${asset.name} failed: ${errorMessage(err)}`);
+        logger.warn(`reversing ${asset.name} failed: ${errorMessage(err)}`);
         reversed = { status: "error", error: errorMessage(err) };
       }
       if (!signal.aborted) await this.setReversed(id, reversed);
     })
       .catch((err) => {
-        if (!isAbortError(err)) console.error(`[media] reversing ${id} failed:`, err);
+        if (!isAbortError(err)) logger.error(`reversing ${id} failed`, err);
       })
       .finally(() => {
         if (this.reversing.get(id)?.controller === controller) this.reversing.delete(id);
@@ -686,7 +689,7 @@ export class MediaLibrary {
     this.jobs.set(id, controller);
     this.limit(() => this.process(id, controller.signal))
       .catch((err) => {
-        if (!isAbortError(err)) console.error(`[media] processing ${id} failed:`, err);
+        if (!isAbortError(err)) logger.error(`processing ${id} failed`, err);
       })
       .finally(() => {
         if (this.jobs.get(id) === controller) this.jobs.delete(id);

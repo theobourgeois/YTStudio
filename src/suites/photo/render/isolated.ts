@@ -28,6 +28,9 @@ import { type FilterKernel, kernelHeader, kernelShader } from "./kernel.ts";
 import { applyToCode } from "@shared/photo/effects/kernel.ts";
 import { type SceneMaps, packScene, sceneOf } from "@shared/photo/scene.ts";
 import { ATLAS, IMAGE_STRUCTS, MASK_SAMPLE, MATHS, imageFunctions } from "./wgsl.ts";
+import { log } from "@/lib/log";
+
+const logger = log("photo");
 
 const USAGE = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST;
 
@@ -330,7 +333,7 @@ export class Isolation {
         ...Object.entries(FILTER_KERNELS).map(([type, k]) =>
           render(`${type} ${f}`, kernelShader(k, f), [kernel], f).then(
             (p) => void pipelines.kernels.set(`${type}:${f}`, p),
-            (error: unknown) => console.error(`[photo] the ${type} filter's shader doesn't compile`, error),
+            (error: unknown) => logger.error(`the ${type} filter's shader doesn't compile`, error),
           ),
         ),
       );
