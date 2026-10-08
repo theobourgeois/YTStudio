@@ -6,7 +6,7 @@ import { isStretchMode } from "@shared/music/stretch";
 import type { StretchMode } from "@shared/music/types";
 
 /** This browser's storage, or none (Node, in tests that load the transport): nothing is kept then. */
-const storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> =
+export const storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> =
   typeof localStorage !== "undefined" ? localStorage : { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 
 const DEFAULT_TEMPO_KEY = "music-default-tempo";
