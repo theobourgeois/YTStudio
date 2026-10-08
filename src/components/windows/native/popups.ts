@@ -8,7 +8,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { POPUP_WINDOW } from "@shared/panels";
 import { desktopPanels } from "@/lib/desktop";
-import { addWindowListener, isElement, ownerWindow } from "@/lib/window-events";
+import { addWindowListener, allWindows, isElement, ownerWindow } from "@/lib/window-events";
 import { pageScale, workAreas } from "./bridge";
 import { areaFor } from "./geometry";
 import { type PanelWindow, openPanelWindow } from "./panel-window";
@@ -22,6 +22,21 @@ interface Popups {
   placed: string;
   /** Closes what's in it when the user presses anywhere else (`watchOutside`), while something is. */
   unwatch: (() => void) | null;
+  /** `raised` when the menu opened: a window opened or raised since (by an item chosen in it) keeps the keyboard. */
+  raisedAtOpen: number;
+}
+
+/** How many times the page has opened or raised one of its windows (`noteWindowRaised`). */
+let raised = 0;
+/** How long after a menu closes the keyboard goes back to the window it was opened from: a window opened by its item shows first. */
+const GIVE_BACK_MS = 120;
+
+/**
+ * The page opened or brought forward one of its windows: a menu closing then leaves the keyboard where it went.
+ * (Given back to the menu's window, a window opened by one of its items, Transpose say, came up behind it.)
+ */
+export function noteWindowRaised() {
+  raised++;
 }
 
 let popups: Popups | null = null;
@@ -56,7 +71,7 @@ function create() {
   const style = doc.createElement("style");
   style.textContent = "html, body { background: transparent !important; } #panel-root { position: fixed; inset: 0; pointer-events: none; } #panel-root > * { pointer-events: auto; }";
   doc.head.append(style);
-  const next: Popups = { panel, shown: false, over: null, placed: "", unwatch: null, observer: new MutationObserver(() => update()) };
+  const next: Popups = { panel, shown: false, over: null, placed: "", unwatch: null, raisedAtOpen: 0, observer: new MutationObserver(() => update()) };
   next.observer.observe(panel.container, { childList: true });
   popups = next;
   panel.onGone = () => {
@@ -85,13 +100,21 @@ function update() {
   p.unwatch?.();
   p.unwatch = null;
   if (something) {
+    p.raisedAtOpen = raised;
     panels.show(p.panel.name, true);
     p.unwatch = watchOutside(p.panel.win);
   } else {
     panels.hide(p.panel.name);
-    // The keyboard back to the window the menu was opened from.
-    if (p.over?.name) panels.raise(p.over.name);
-    else if (p.over) window.focus();
+    // The keyboard back to the window the menu was opened from, unless it went somewhere else meanwhile: a window
+    // its item opened or raised, or a window pressed to close it.
+    const over = p.over;
+    const since = p.raisedAtOpen;
+    setTimeout(() => {
+      if (!over || raised !== since || popups?.shown) return;
+      if (allWindows().some((win) => win !== p.panel.win && !win.closed && win.document.hasFocus())) return;
+      if (over.name) panels.raise(over.name);
+      else window.focus();
+    }, GIVE_BACK_MS);
   }
 }
 

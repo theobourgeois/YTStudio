@@ -89,6 +89,11 @@ interface TransportState {
   setMetronomeSound: (sound: MetronomeSound) => void;
   /** Hear a channel's sample once. */
   audition: (channelId: string, pitch?: number) => void;
+  /**
+   * Plugin channels and mixer effects whose window is on its way (a big plugin's takes seconds to make, Serum's
+   * a few): until the engine answers, more clicks on its button are ignored, so they can't close it as it comes.
+   */
+  openingEditors: readonly string[];
   /** Show or close the window of a plugin channel's plugin. */
   showPlugin: (channelId: string, open: boolean) => void;
   /** Show or close the window of an effect in the mixer. */
@@ -122,6 +127,7 @@ export const setRecorder = (hook: Recorder) => {
 };
 
 export const NO_CHANNELS: EngineChannels = { loaded: [], loading: [], failed: [] };
+const NO_IDS: readonly string[] = [];
 export const NO_METERS: EngineMeters = {};
 export const NO_EFFECTS: EngineEffects = { loaded: [], loading: [], failed: [] };
 export const NO_GROSS_BEATS: Record<string, EngineGrossState> = {};
@@ -181,6 +187,7 @@ export const useTransport = create<TransportState>((set, get) => {
     unreadable: [],
     channels: NO_CHANNELS,
     effects: NO_EFFECTS,
+    openingEditors: NO_IDS,
     grossBeats: NO_GROSS_BEATS,
     echoBoys: NO_ECHO_BOYS,
     otts: NO_OTTS,
@@ -244,15 +251,25 @@ export const useTransport = create<TransportState>((set, get) => {
     startOf: () => (get().mode === "song" ? get().songStartTick : get().startTick),
     setMode: (mode) => get().mode !== mode && set({ mode, pausedAt: null }),
     showPlugin(channelId, open) {
+      if (get().openingEditors.includes(channelId)) return;
+      const done = opening(channelId, open);
       musicApi.engine("channelEditor", { channel: channelId, open }).then(
-        (status) => set({ channels: status.channels }),
-        (err) => toast.error("Couldn't open the plugin", { description: errorMessage(err) }),
+        (status) => set({ channels: status.channels, openingEditors: done() }),
+        (err) => {
+          set({ openingEditors: done() });
+          toast.error("Couldn't open the plugin", { description: errorMessage(err) });
+        },
       );
     },
     showEffect(effectId, open) {
+      if (get().openingEditors.includes(effectId)) return;
+      const done = opening(effectId, open);
       musicApi.engine("effectEditor", { effect: effectId, open }).then(
-        (status) => set({ effects: status.effects }),
-        (err) => toast.error("Couldn't open the effect", { description: errorMessage(err) }),
+        (status) => set({ effects: status.effects, openingEditors: done() }),
+        (err) => {
+          set({ openingEditors: done() });
+          toast.error("Couldn't open the effect", { description: errorMessage(err) });
+        },
       );
     },
   };
@@ -265,6 +282,15 @@ useTransport.subscribe((state, previous) => {
 
 /** How long a new plugin channel's window waits for its plugin to load before giving up (ms). */
 const SHOW_WHEN_LOADED_MS = 120_000;
+
+/** `id`'s window is being opened (closing is quick: nothing to wait for). Returns the ids still opening once it's answered. */
+function opening(id: string, open: boolean): () => readonly string[] {
+  if (open) useTransport.setState((s) => ({ openingEditors: [...s.openingEditors, id] }));
+  return () => {
+    const now = useTransport.getState().openingEditors;
+    return now.includes(id) ? now.filter((each) => each !== id) : now;
+  };
+}
 
 /**
  * Show a plugin channel's window once the engine has loaded its plugin (a new channel's loads in the

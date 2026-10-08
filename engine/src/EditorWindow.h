@@ -10,7 +10,8 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 
 class EditorWindow final : public juce::DocumentWindow,
-                           private juce::KeyListener
+                           private juce::KeyListener,
+                           private juce::Timer
 {
 public:
     /** `onCloseButton` is told the window's × was pressed: closing it (deleting it) is the owner's to do. */
@@ -33,6 +34,14 @@ public:
     static void* appWindow() { return owner; }
     /** Belong to the app's window as it is now (Windows; nothing elsewhere). */
     void followAppWindow();
+    /**
+     * Windows: the message thread is about to be busy for a while (a plugin loading, its editor being made, a
+     * sample read): until the returned hold is let go (on the message thread), no plugin window belongs to the
+     * app's. Belonging to a window of another program ties the two programs' threads together: the app's
+     * thread waits for ours whenever it moves, raises or activates a window, and shares its input with it, so
+     * a plugin taking seconds to load would freeze the app for as long. Holds nest; nothing elsewhere.
+     */
+    static std::shared_ptr<void> whileBusy();
     /** The typing piano takes note keys before a plugin can consume them. */
     static bool typingKeyboard;
 
@@ -58,6 +67,17 @@ public:
 
 private:
     static void* owner;
+    /** How many `whileBusy` holds are out. */
+    static int busy;
+    /** Shown while busy: brought to the front once the holds are let go. */
+    bool raiseWhenOwned = false;
+    /**
+     * A new window is cloaked (`cloakWindow`) until it has been drawn: until the message thread, which draws it
+     * and the plugin's editor, has kept time for a few ticks in a row (or a second has gone by).
+     */
+    void timerCallback() override;
+    juce::uint32 cloakedAt = 0, lastTick = 0;
+    int calmTicks = 0;
     void activeWindowStatusChanged() override;
     /** Its peer may be made again (a style change): the new one belongs to the app's window too. */
     void parentHierarchyChanged() override;

@@ -7,8 +7,12 @@ Read the music suite's guide (`docs/claude/music.md`) first.
   starts on the first `/api/engine` call. It owns the audio device and the plugins, and opens plugin editors as
   windows of its own. The tab never gets audio, only a status (`EngineStatus`, polled: the meter, scan progress).
 - The server talks to it in JSON lines (`shared/music/engine.ts`); the engine keeps stdout for that alone (plugins'
-  prints go to stderr) and quits when its stdin closes. If it dies (a plugin crashed), the next command starts it
-  again; what was loaded is lost until the song's document drives it.
+  prints go to stderr) and quits when its stdin closes. `protocol::send` never waits: a writer thread empties a queue
+  into stdout, and plugins' prints (fd 1 and 2) go through a pipe of the engine's own into another (dropped past
+  4 MB). In the desktop app the server reads them on the main window's thread, which on Windows can be waiting for
+  the engine's message thread (its windows are the main window's own): the two must never wait for each other.
+  If it dies (a plugin crashed), the next command starts it again; what was loaded is lost until the song's
+  document drives it.
 - Stop pressed while stopped (`stop { reset }`, and every stop with Settings' Reset plugins on stop) is
   FL's way to silence the effects' tails: `Engine::silence` lets go of the device as an export does,
   resets every plugin, drops our effects' states (each registry's `clear`) and the delay lines, and makes
@@ -64,6 +68,9 @@ Read the music suite's guide (`docs/claude/music.md`) first.
   there are no levels: the desktop app sends its main window's HWND (`HostWindow.handle`), and plugin windows
   become that window's owned windows (`setWindowOwner` in `MacWindow.cpp`, the engine's one platform file): above
   it, not above other programs, minimised with it, no taskbar button (`EditorWindow::getDesktopWindowStyleFlags`).
+  Owned across programs, the app's thread waits for ours, so slow work on the message thread holds
+  `EditorWindow::whileBusy()` (plugin loads, editors made, presets and samples read): the windows belong to nothing
+  meanwhile. Wrap any new slow message-thread work the same way.
 - Keep it portable (it runs on Windows too): only JUCE's APIs, no macOS calls of our own, paths from the server.
   On Windows it's built with ASIO (Steinberg's SDK, fetched by CMake) and, until a device is chosen in
   Settings (`vaudioChosen` in its `device.xml`), opens an audio interface's own ASIO driver (`openDefaultDevice`):

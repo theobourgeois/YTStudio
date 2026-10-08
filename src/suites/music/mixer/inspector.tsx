@@ -404,15 +404,17 @@ function PluginName({ effect }: { effect: MixerEffect }) {
   const open = useTransport((s) => s.effects.loaded.some((e) => e.effect === effect.id && e.editorOpen));
   const loaded = useTransport((s) => s.effects.loaded.some((e) => e.effect === effect.id));
   const loading = useTransport((s) => s.effects.loading.includes(effect.id));
+  const opening = useTransport((s) => s.openingEditors.includes(effect.id));
   const error = useTransport((s) => s.effects.failed.find((e) => e.effect === effect.id)?.error ?? null);
   return (
     <button
       type="button"
       aria-label={`${effect.plugin.name}: ${open ? "close its window" : "open its window"}`}
       aria-pressed={open}
+      aria-busy={opening || undefined}
       disabled={!loaded}
-      title={error ?? (loading ? `${effect.plugin.name}: loading…` : `${effect.plugin.name} (${effect.plugin.format}): click for its window`)}
-      className={cn("flex min-w-0 flex-1 items-center gap-1 text-left text-xs", open ? "text-brand" : "hover:text-brand", !effect.enabled && "text-muted-foreground line-through", error && "text-destructive")}
+      title={error ?? (loading ? `${effect.plugin.name}: loading…` : opening ? `${effect.plugin.name}: opening its window…` : `${effect.plugin.name} (${effect.plugin.format}): click for its window`)}
+      className={cn("flex min-w-0 flex-1 items-center gap-1 text-left text-xs", open ? "text-brand" : "hover:text-brand", !effect.enabled && "text-muted-foreground line-through", error && "text-destructive", opening && "animate-pulse")}
       onClick={() => useTransport.getState().showEffect(effect.id, !open)}
     >
       <span className="truncate">{effect.plugin.name}</span>

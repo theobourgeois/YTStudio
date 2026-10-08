@@ -565,6 +565,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
   // A plugin channel's window is the plugin's own, which the engine shows.
   const pluginOpen = useTransport((s) => s.channels.loaded.some((c) => c.channel === channel.id && c.editorOpen));
   const pluginLoading = useTransport((s) => s.channels.loading.includes(channel.id));
+  const pluginOpening = useTransport((s) => s.openingEditors.includes(channel.id));
   const pluginError = useTransport((s) => s.channels.failed.find((c) => c.channel === channel.id)?.error ?? null);
   const open = isPlugin ? pluginOpen : settingsOpen;
   const silent = isPlugin ? pluginError !== null : unreadable || !channel.sampleId;
@@ -670,10 +671,12 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
                   ? "pressed text-brand"
                   : "raised hover:raised-hover active:pressed",
               channel.muted && !silent && "text-muted-foreground",
+              pluginOpening && "animate-pulse",
               dropping && "ring-2 ring-brand",
             )}
             data-channel-button={id}
-            title={pluginError ?? `${channel.name}: click for its ${isPlugin ? "window" : "settings"}, Ctrl+click to hear it`}
+            aria-busy={pluginOpening || undefined}
+            title={pluginError ?? (pluginOpening ? `${channel.name}: opening its window…` : `${channel.name}: click for its ${isPlugin ? "window" : "settings"}, Ctrl+click to hear it`)}
             // Its menu acts on the channel, so a right-click selects it (keeping a selection it's part of).
             onContextMenu={() => {
               if (!useMusicUi.getState().selectedChannelIds.includes(id)) useMusicUi.getState().selectChannel(id);

@@ -43,5 +43,12 @@ void hookThreadKeys (KeyHook handler);
 /** The native window under a component (its peer's), or null. */
 void* nativeWindowOf (juce::Component& window);
 
+/**
+ * Windows: keep a window off the screen while it's shown (DWM's cloak: it's still drawn, only not composed), or
+ * put it back. A plugin's window shows white until the plugin has drawn its editor (Serum's a quarter of a
+ * second); cloaked meanwhile, it appears drawn. Nothing elsewhere.
+ */
+void cloakWindow (juce::Component& window, bool cloaked);
+
 /** Windows: keep the computer from sleeping while the song plays (`playing`), or let it again. Nothing elsewhere. */
 void keepAwake (bool playing);

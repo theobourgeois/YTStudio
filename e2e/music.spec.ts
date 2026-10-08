@@ -145,7 +145,7 @@ test("makes a beat in the channel rack as in FL Studio: left turns steps on, rig
   expect(await drawn(page, "Hat")).toBe("xxxxxxxxxxxx----");
   await page.keyboard.press("ControlOrMeta+z");
   expect(await drawn(page, "Hat")).toBe("----------------");
-  await page.locator("header").getByRole("button", { name: "Redo" }).click();
+  await page.locator("[data-suite=music]").getByRole("button", { name: "Redo", exact: true }).click();
   expect(await drawn(page, "Hat")).toBe("xxxxxxxxxxxx----");
 
   // The channel's menu fills, rotates, copies and pastes its steps.
@@ -812,7 +812,7 @@ test("the assistant programs the drums with the music editor's tools", async ({ 
   expect(song.channels[0]).toMatchObject({ cutSelf: true, muted: true, precomputed: { reverse: true } });
   // Its edits are undo steps like any other.
   expect(await muted(page)).toBe("M-");
-  await page.locator("header").getByRole("button", { name: "Undo" }).click();
+  await page.locator("[data-suite=music]").getByRole("button", { name: "Undo", exact: true }).click();
   expect(await muted(page)).toBe("--");
   // And the whole answer waits for review over the composer: Undo all puts the song back as it was, as one undo step.
   const review = panel.locator('[data-slot="assistant-review"]');
@@ -820,7 +820,7 @@ test("the assistant programs the drums with the music editor's tools", async ({ 
   await review.getByRole("button", { name: "Undo all" }).click();
   await expect(review).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "Tempo" })).not.toHaveValue("128");
-  await page.locator("header").getByRole("button", { name: "Undo" }).click();
+  await page.locator("[data-suite=music]").getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Tempo" })).toHaveValue("128");
 });
 
@@ -836,7 +836,7 @@ test("settings: ⌘, opens on the music tab, with the device and the plugin benc
   // The gear in the toolbar opens the same window.
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
-  await page.locator("header").getByRole("button", { name: "Settings", exact: true }).click();
+  await page.locator("[data-suite=music]").getByRole("button", { name: "Settings", exact: true }).click();
   await expect(dialog.getByRole("tab", { selected: true })).toHaveText("Music");
 
   // The output device and its buffer.
