@@ -34,7 +34,7 @@ Vaudio shows only what it can do. What's there follows FL's layout (`src/suites/
 
 | FL Studio | Vaudio |
 | --- | --- |
-| Layout: groups of two rows each | Ours (Théo): the menu row every suite has (the title, the menus, the hint bar, then undo, Settings, Export, the assistant), then one row of tools: the transport, tempo, position, the recording switches, the main volume, the window buttons, the pattern selector, the song position slider and the monitors. As dense as FL's: every button is one size (30 px), the LCDs as tall, and they light up as FL's hovered (`lit`: a glow in the accent, pale in the middle) |
+| Layout: groups of two rows each | Ours (Théo): the menu row every suite has (the title, the menus, the hint bar, then undo, Settings, Export, the assistant), then two rows of tools: the transport, tempo, position, the recording switches, the main volume and the monitors above, the window buttons, the pattern selector and the song position slider below. As dense as FL's: every button is one size (30 px), the LCDs as tall, and they light up as FL's hovered (`lit`: a glow in the accent, pale in the middle) |
 | Menus | The app's menu bar (File, Edit, View, Patterns, Tools, Window) after the project's name (click to rename), in the menu row |
 | Hint bar | Yes: the name of what's under the pointer (its title) |
 | PAT / SONG | Yes (L): two lights, the lit one is what plays (Théo's colours: PAT in the accent, SONG in FL's orange; the lit play and metronome icons are the accent too, without FL's glow). Not saved: a song with clips on its playlist opens in song mode |

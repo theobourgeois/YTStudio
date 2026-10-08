@@ -58,7 +58,7 @@ const MAIN_VOLUME: AutomationTarget = { kind: "main" };
 /**
  * The music editor's header, FL Studio's toolbar (`docs/fl-studio/toolbar.md`), with only what Vaudio does: the
  * menu row every suite has (the title, the menus, FL's hint bar, then the app's own: undo, Settings, Export, the
- * assistant), then the tools in one row as dense as FL's, every button in it one size (`TOOL`): the transport
+ * assistant), then the tools in two rows as dense as FL's, every button in them one size (`TOOL`): the transport
  * (PAT / SONG, play and stop in one pill, record), tempo, position, then the typing keyboard, the count-in and
  * the metronome, the main volume, the windows, the pattern selector and the song position, the engine's output
  * and load; groups apart by grooves.
@@ -76,38 +76,42 @@ export function MusicToolbar() {
         <Groove className="mx-1 h-5 self-center" />
         <HintBar />
       </MenuRow>
-      <div className="flex h-11 min-w-0 shrink-0 items-center gap-1.5 overflow-hidden border-b border-line bg-surface-1 px-3">
-        <div className="flex shrink-0 items-center gap-1.5" role="toolbar" aria-label="Transport">
-          <TransportPill />
-          <RecordButton />
-          <TempoLcd />
-          <PositionLcd />
-          {/* After the time, as FL's: the typing keyboard, the count-in and the metronome. */}
-          <div className="flex items-center gap-1">
-            <TypingKeyboardToggle />
-            <CountInToggle />
-            <MetronomeToggle />
+      {/* Two rows, as before: what plays and what it sounds like, then what's shown and where in it. */}
+      <div className="flex shrink-0 flex-col gap-1 border-b border-line bg-surface-1 px-3 py-1.5">
+        <div className="flex h-8 min-w-0 items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5" role="toolbar" aria-label="Transport">
+            <TransportPill />
+            <RecordButton />
+            <TempoLcd />
+            <PositionLcd />
+            {/* After the time, as FL's: the typing keyboard, the count-in and the metronome. */}
+            <div className="flex items-center gap-1">
+              <TypingKeyboardToggle />
+              <CountInToggle />
+              <MetronomeToggle />
+            </div>
+            <MainVolume />
           </div>
-          <MainVolume />
+          <OutputGraph className="w-32 min-w-14 shrink" />
+          <Groove className="mx-1 h-7 self-center" />
+          <CpuGraph className="w-32 min-w-14 shrink" />
+          {error && (
+            <span className="flex max-w-60 min-w-0 items-center gap-1.5 text-xs text-destructive" role="alert" title={error}>
+              <PiWarning className="shrink-0" />
+              <span className="truncate">{error}</span>
+            </span>
+          )}
         </div>
-        <Groove className="mx-1 h-7 self-center" />
-        <div className="flex shrink-0 items-center gap-1">
-          <WindowToggles />
+        <div className="flex h-8 min-w-0 items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1">
+            <WindowToggles />
+          </div>
+          <Groove className="mx-1 h-6 self-center" />
+          <div className="w-60 shrink-0">
+            <PatternPicker />
+          </div>
+          <PositionSlider />
         </div>
-        <Groove className="mx-1 h-7 self-center" />
-        <div className="w-60 min-w-36 shrink">
-          <PatternPicker />
-        </div>
-        <PositionSlider />
-        {error && (
-          <span className="flex max-w-60 min-w-0 items-center gap-1.5 text-xs text-destructive" role="alert" title={error}>
-            <PiWarning className="shrink-0" />
-            <span className="truncate">{error}</span>
-          </span>
-        )}
-        <OutputGraph className="ml-auto w-32 min-w-14 shrink" />
-        <Groove className="mx-1 h-7 self-center" />
-        <CpuGraph className="w-32 min-w-14 shrink" />
       </div>
     </div>
   );
