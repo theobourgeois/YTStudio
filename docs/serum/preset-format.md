@@ -9,6 +9,8 @@ against the real Serum 2 (2.1.5), hosted silently in the audio engine (`--offlin
   `fields.ts` (the spec's fields), `destinations.ts` (mod matrix names), `body.ts` (settings ⇄ spec), `preset.ts`
   (files ⇄ spec), `spec.ts` (the spec's types), `template.ts` (Serum's init patch).
 - CLI: `scripts/serum-preset.ts` (`read`, `write`, `verify`); `scripts/serum-readout.ts` runs Serum in the engine.
+- `scripts/serum-audition.ts` renders a round of presets, each playing its phrase over a beat, as an HTML page to
+  score (the workflow is the `serum-presets` skill, `.claude/skills/serum-presets/SKILL.md`).
 
 ```bash
 pnpm tsx scripts/serum-preset.ts read "Some Preset.SerumPreset" --out spec.json   # or a Serum 2 state (.bin)

@@ -182,6 +182,8 @@ pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit (and C
 pnpm tsx scripts/make-audio-fixtures.ts [--out dir]   # the audio-intelligence fixtures as WAVs + a manifest (tests render them in memory)
 pnpm tsx scripts/photo-fixtures.ts [--skip-large]   # the photo suite's test images (48/100 MP, P3, 16-bit, alpha, EXIF) into data/photo-fixtures
 pnpm tsx scripts/photo-bench.ts [--runner chrome|electron] [--quick] [--lab [--tiles 256,512]] [--shots dir]   # the photo suite's targets, measured in the workspace (--lab: F0's lab)
+pnpm tsx scripts/serum-preset.ts read|write|verify …   # Serum 2 presets ⇄ readable specs, checked in Serum offline (docs/serum/preset-format.md)
+pnpm tsx scripts/serum-audition.ts <session.json>   # render a round of Serum presets as an audition page (the serum-presets skill)
 pnpm tsx scripts/select-mixparams.ts   # MixParams' reviewed reference subset into the gitignored data/ (docs/audio-intelligence/)
 python3 scripts/audit-cl1b.py <Dataset.zip> --out <report.json>   # CL 1B's layout, read statically: never unpickles
 .venv/bin/python -I scripts/basic-pitch-fixtures.py shared/music/transcribe-fixtures.json   # Basic Pitch's own note picking (pip install basic-pitch)
@@ -991,6 +993,11 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   and analysis tools reach MCP; review/permission/profile writes are user routes. Native FLP/PTX/presets stay
   opaque until a tested adapter exists. Reviewed WAV excerpts retain parent/crop provenance and use B's local
   measurements; hosted listening additionally rechecks the dataset source's grant.
+- **Serum presets** (`docs/serum/`, the `serum-presets` skill in `.claude/skills/`): we design Serum 2 presets in
+  Théo's taste and he scores them round by round. `server/music/serum/` reads and writes `.SerumPreset` files (Xfer's
+  container, Serum's CBOR) from a readable spec (`preset-format.md`); `taste.md` is the research on his 118 starred
+  presets; his verdicts are in `data/serum-research/feedback.md` (git-ignored, the main checkout's). Serum runs in
+  the offline engine to check a preset (`scripts/serum-readout.ts`) and to render a round (`scripts/serum-audition.ts`).
 - The assistant's tools: specs in `shared/music/tools.ts`, handlers in `src/suites/music/tools.ts`, and their
   edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested); the mixer's in
   `mixer/tool-edits.ts` (`findTrack`: by id, number, "master" or name; `describeMixer` is `get_mixer`). Channels
