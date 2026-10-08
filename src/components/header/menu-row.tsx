@@ -3,10 +3,10 @@ import { cn } from "cn";
 import { MenuBarSlot } from "@/components/home/menu-bar";
 
 /**
- * The row under the tabs, the same in every suite: the project's name (and what goes with it: the video's
- * format, the photo's save state), its menus (`SuiteMenuBar` fills them in), then `children` (the music
- * editor's hint bar) and `actions` (`HeaderActions`, or Settings alone while a project loads). A suite's own
- * tools go in a row of their own below it. It drags the desktop app's window, as a title bar.
+ * The row under the tabs: the project's name (and what goes with it: the video's format, the photo's save state),
+ * its menus (`SuiteMenuBar` fills them in), then `children` and `actions` (`HeaderActions`, or Settings alone while
+ * a project loads). A suite's own tools go in a row of their own below it (the music editor, short of height, has
+ * its menus in its toolbar instead: `MenuBarSlot` goes anywhere). It drags the desktop app's window, as a title bar.
  */
 export function MenuRow({ name, children, actions, className }: { name?: ReactNode; children?: ReactNode; actions: ReactNode; className?: string }) {
   return (
