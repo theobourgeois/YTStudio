@@ -1418,14 +1418,38 @@ test("the assistant edits the video with the editor's tools, live and undoably; 
   await expect(panel.getByText("Done.")).toBeVisible();
   await expect.poll(async () => (await savedProject(page)).clips.length).toBe(3);
 
-  // One click takes the whole answer back.
-  await panel.getByRole("button", { name: "Revert" }).click();
+  // What it changed waits for review over the composer: Undo all puts the video back.
+  const review = panel.locator('[data-slot="assistant-review"]');
+  await expect(review).toContainText("1 change to review");
+  await review.getByRole("button", { name: "Undo all" }).click();
   await expect(page.locator("[data-clip-id]")).toHaveCount(2);
-  await expect(panel.getByText("Reverted")).toBeVisible();
+  await expect(review).toHaveCount(0);
+
+  // Every message is a checkpoint: restoring one puts the video back as it was when it was sent (what came after
+  // fades), and Redo takes that back. Keep all ends the review.
+  await composer.fill('call get_timeline\ncall split_clips {"at": 1.5, "clipIds": ["$clip"]}');
+  await composer.press("Enter");
+  await expect(panel.locator('[data-tool="split_clips"][data-status="done"]')).toHaveCount(2);
+  await expect(page.locator("[data-clip-id]")).toHaveCount(3);
+  const second = panel.locator("[data-user-message]").last();
+  await second.hover();
+  await second.getByRole("button", { name: "Restore checkpoint" }).click();
+  await expect(page.locator("[data-clip-id]")).toHaveCount(2);
+  await expect(second.getByRole("status")).toHaveText(/Restored to before this message/);
+  await expect(review).toHaveCount(0);
+  await second.getByRole("button", { name: "Redo" }).click();
+  await expect(page.locator("[data-clip-id]")).toHaveCount(3);
+  await expect(review).toContainText("1 change to review");
+  await review.getByRole("button", { name: "Keep all" }).click();
+  await expect(review).toHaveCount(0);
+  await expect(page.locator("[data-clip-id]")).toHaveCount(3);
+  // ⌘Z still takes it back, step by step.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(page.locator("[data-clip-id]")).toHaveCount(2);
 
   // The chat is kept with the video.
   await page.reload();
-  await expect(panel.locator('[data-tool="split_clips"]')).toBeVisible();
+  await expect(panel.locator('[data-tool="split_clips"]')).toHaveCount(2);
 
   // Anything undo can't bring back asks first.
   await composer.fill('call list_media\ncall delete_media {"assetId": "$media"}');

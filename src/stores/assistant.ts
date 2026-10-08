@@ -2,8 +2,8 @@
  * The assistant in the editor: its side panel, the open video's chat (kept by
  * the server and streamed in, see `src/assistant/bridge.ts`), which chats are
  * working (every project's, for the Home screen), what it's doing right now, the
- * clips it just changed (highlighted on the timeline), the confirmations it's
- * waiting for, and each answer's edits (to revert them).
+ * clips it just changed (highlighted on the timeline) and the confirmations it's
+ * waiting for. What each answer changed is kept by `stores/checkpoints.ts`.
  */
 import { create } from "zustand";
 import {
@@ -17,9 +17,8 @@ import {
   chatModel,
 } from "@shared/assistant";
 import { errorMessage } from "@shared/errors";
-import type { AssistantProviderStatus, AssistantStatus, Project } from "@shared/types";
+import type { AssistantProviderStatus, AssistantStatus } from "@shared/types";
 import { api } from "@/lib/api";
-import { useEditor } from "./editor";
 import { useProjects } from "./projects";
 
 const OPEN_KEY = "editor-assistant-open";
@@ -51,14 +50,6 @@ export interface Confirmation {
   /** The video it's about (a chat may be working on one that isn't open). */
   projectId: string | null;
   resolve: (ok: boolean) => void;
-}
-
-/** The edits one answer made: the video before its first edit and after its last. */
-export interface TurnEdits {
-  projectId: string;
-  base: Project;
-  result: Project;
-  reverted: boolean;
 }
 
 interface AssistantState {
@@ -107,13 +98,6 @@ interface AssistantState {
   /** Ask the user to allow something about a video; resolves false if they don't (or the call is cancelled). */
   confirm: (title: string, detail: string, projectId: string | null, signal?: AbortSignal) => Promise<boolean>;
   answer: (id: string, ok: boolean) => void;
-
-  /** Assistant message id -> its edits. */
-  turns: Record<string, TurnEdits>;
-  /** An edit by the answer `turn` (an assistant message id; null for an agent outside the app, not recorded). */
-  recordEdit: (turn: string | null, projectId: string, before: Project, after: Project) => void;
-  /** Undo one answer's edits (as a new, undoable step), if nothing changed since. */
-  revertTurn: (messageId: string) => boolean;
 }
 
 /** A provider's status (none until it's loaded). */
@@ -344,37 +328,4 @@ export const useAssistant = create<AssistantState>((set, get) => ({
   answer(id, ok) {
     get().confirmations.find((c) => c.id === id)?.resolve(ok);
   },
-
-  turns: {},
-  recordEdit(turn, projectId, before, after) {
-    if (!turn || before === after) return;
-    const known = get().turns[turn];
-    set({ turns: { ...get().turns, [turn]: { projectId, base: known?.base ?? before, result: after, reverted: false } } });
-  },
-  revertTurn(messageId) {
-    const turn = get().turns[messageId];
-    const editor = useEditor.getState();
-    if (!turn || turn.reverted || editor.projectId !== turn.projectId || editor.project !== turn.result) return false;
-    editor.commit(() => turn.base);
-    set({ turns: { ...get().turns, [messageId]: { ...turn, reverted: true } } });
-    return true;
-  },
 }));
-
-// Opening a video: answers that edited it in the background (or before it was last opened) can still be
-// reverted if it's just as they left it. (Its chat is marked seen by the bridge, for every suite.)
-useEditor.subscribe((s, prev) => {
-  if (s.projectId === prev.projectId || !s.projectId) return;
-  const { turns } = useAssistant.getState();
-  let text: string | null = null;
-  let changed = false;
-  const next = { ...turns };
-  for (const [id, turn] of Object.entries(turns)) {
-    if (turn.projectId !== s.projectId || turn.reverted || turn.result === s.project) continue;
-    text ??= JSON.stringify(s.project);
-    if (JSON.stringify(turn.result) !== text) continue;
-    next[id] = { ...turn, result: s.project };
-    changed = true;
-  }
-  if (changed) useAssistant.setState({ turns: next });
-});

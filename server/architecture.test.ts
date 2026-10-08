@@ -95,6 +95,9 @@ const PLATFORM = [
   // The open projects as tabs (pure).
   "src/stores/project-tabs.ts",
   "src/stores/assistant.ts",
+  // The assistant's checkpoints (restore a message, Keep all / Undo all), every suite's.
+  "src/lib/checkpoints.ts",
+  "src/stores/checkpoints.ts",
   "src/stores/theme.ts",
   // The app's icon (its colourways), app-wide as the theme is.
   "shared/app-icons.ts",
@@ -157,7 +160,6 @@ const DEBT: string[] = [
   "src/App.tsx -> src/hooks/use-shortcuts.ts",
   "src/components/assistant/assistant-button.tsx -> src/hooks/shortcuts.ts",
   "src/components/assistant/assistant-panel.tsx -> src/hooks/shortcuts.ts",
-  "src/components/assistant/chat-messages.tsx -> src/stores/editor.ts",
   "src/components/assistant/markdown.tsx -> src/stores/playback.ts",
   "src/components/assistant/tool-steps.tsx -> shared/timeline.ts",
   "src/components/assistant/tool-steps.tsx -> src/stores/editor.ts",
@@ -165,7 +167,6 @@ const DEBT: string[] = [
   "src/components/header/header.tsx -> src/components/header/settings-dialog.tsx",
   "src/components/header/header.tsx -> src/stores/editor.ts",
   "src/components/header/header.tsx -> src/stores/video-windows.ts",
-  "src/stores/assistant.ts -> src/stores/editor.ts",
   "src/stores/projects.ts -> src/stores/autosave.ts",
 ];
 

@@ -812,6 +812,14 @@ test("the assistant programs the drums with the music editor's tools", async ({ 
   expect(await muted(page)).toBe("M-");
   await page.locator("header").getByRole("button", { name: "Undo" }).click();
   expect(await muted(page)).toBe("--");
+  // And the whole answer waits for review over the composer: Undo all puts the song back as it was, as one undo step.
+  const review = panel.locator('[data-slot="assistant-review"]');
+  await expect(review).toContainText(/\d+ changes to review/);
+  await review.getByRole("button", { name: "Undo all" }).click();
+  await expect(review).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Tempo" })).not.toHaveValue("128");
+  await page.locator("header").getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByRole("textbox", { name: "Tempo" })).toHaveValue("128");
 });
 
 test("settings: ⌘, opens on the music tab, with the device and the plugin bench", async ({ page }) => {

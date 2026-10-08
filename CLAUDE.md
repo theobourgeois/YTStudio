@@ -542,6 +542,11 @@ extension** (Node ESM through tsx).
   around `SuiteBackend.assistant`), the MCP tools listed (`/mcp?chat=<id>`; outside clients get video's, or
   `?suite=`) and who runs the calls in the tab (`clientSuite(suite).runTool`). Tool names are unique across suites
   (tested). The panel (`AssistantPanel suite=…`) takes its texts from `ClientSuite.chat`.
+- **Checkpoints** (Cursor's, every suite): the bridge snapshots the project around each tool call of an answer
+  (`ClientSuite.documents`: its document, compared by identity), so any message of the user's can be restored (the
+  project as it was when it was sent; Redo takes that back) and what the assistant changed since the last Keep waits in
+  the review bar over the composer (Undo all / Keep all). Pure in `lib/checkpoints.ts`, held by `stores/checkpoints.ts`
+  for the session; each restore is one undo step of the suite's own history and keeps the project's name.
 - **Layering** (`server/architecture.test.ts` checks every import): the *platform* is what every suite stands on
   (projects, Home, assistant, storage, `components/ui`, `lib/api.ts`...: its `PLATFORM` list); a *suite* is its
   own folders (`shared/<suite>/`, `server/<suite>/`, `src/suites/<suite>/`), and video is everything else at the

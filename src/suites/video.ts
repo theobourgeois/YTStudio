@@ -2,11 +2,13 @@ import { api } from "@/lib/api";
 import { layoutTexts } from "@/components/export/layout-texts";
 import { PiFilmSlate } from "react-icons/pi";
 import { formatDuration } from "@shared/format";
+import type { Project } from "@shared/types";
 import { messageContext } from "@/assistant/context";
+import { docFor } from "@/assistant/doc";
 import { runTool } from "@/assistant/tools";
 import { acceptMediaFiles } from "@/components/media/import-media";
 import VideoWorkspace from "@/components/workspace/video-workspace";
-import { discardPendingSave, flushAutosave, useEditor } from "@/stores/editor";
+import { discardPendingSave, editorProjectId, flushAutosave, useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
 import type { ClientSuite } from "./types";
 import { VideoSettings } from "./video-settings";
@@ -80,6 +82,19 @@ export const videoSuite: ClientSuite<"video"> = {
     });
   },
   runTool,
+  documents: {
+    current: (projectId) => videoDocument(useEditor.getState(), projectId),
+    useCurrent: (projectId) => useEditor((s) => videoDocument(s, projectId)),
+    async snapshot(projectId) {
+      const open = videoDocument(useEditor.getState(), projectId);
+      if (open && editorProjectId() === projectId) return { doc: open, exact: true };
+      // A video edited in the background is a copy kept here while it's being edited.
+      return { doc: (await docFor(projectId)).document, exact: true };
+    },
+    restore(projectId, doc) {
+      if (useEditor.getState().projectId === projectId) useEditor.getState().restoreDocument(doc as Project);
+    },
+  },
   // Images alone start a photo (the photo suite takes them); anything with video or sound starts a video.
   startsWith: (files) => {
     const media = acceptMediaFiles(files);
@@ -90,6 +105,11 @@ export const videoSuite: ClientSuite<"video"> = {
     useEditor.getState().addAssetsToTimeline(assets.map((a) => a.id));
   },
 };
+
+/** The whole video (every sequence) while it's open; mid-drag, as it was before the drag. */
+function videoDocument(s: ReturnType<typeof useEditor.getState>, projectId: string): Project | null {
+  return s.projectId === projectId && !s.loading ? (s.gestureDocument ?? s.document) : null;
+}
 
 /** An image file, by its type or its name. */
 export const isImageFile = (file: File) => file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name);
