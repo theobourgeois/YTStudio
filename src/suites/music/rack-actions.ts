@@ -19,6 +19,9 @@ import {
 } from "@shared/music/edits";
 import { routeToFreeTracks } from "@shared/music/mixer";
 import { createId } from "@shared/ids";
+import { errorMessage } from "@shared/errors";
+import { toast } from "sonner";
+import { musicApi } from "./api";
 import type { MusicProject, PluginRef } from "@shared/music/types";
 import { usePiano } from "./piano/store";
 import { currentPattern, useMusic } from "./store";
@@ -81,7 +84,28 @@ export function selectRange(fromId: string, toId: string) {
 export const moveSelected = (direction: -1 | 1) => commit((doc) => moveChannels(doc, selectedIds(), direction));
 export const moveChannel = (channelId: string, direction: -1 | 1) => commit((doc) => moveChannels(doc, [channelId], direction));
 
-export const cloneSelected = () => commit((doc) => selectedIds().reduceRight((next, id) => cloneChannel(next, id), doc));
+/**
+ * Clone the selected channels (FL Studio's Clone). A plugin channel's copy starts as the original sounds:
+ * its plugin's settings file is copied to the copy's id first, by the server (as a mixer effect's copy is),
+ * so the copy's plugin loads with the original's settings rather than its own defaults.
+ */
+export async function cloneSelected() {
+  const doc = song();
+  const projectId = useMusic.getState().projectId;
+  const ids = selectedIds();
+  if (!doc || !projectId || !ids.length) return;
+  const copies = new Map(ids.map((id) => [id, createId("chan")] as const));
+  const plugins = ids.filter((id) => doc.channels.find((c) => c.id === id)?.kind === "plugin");
+  if (plugins.length) {
+    try {
+      await musicApi.copyStates({ projectId, copies: plugins.map((id) => ({ from: id, to: copies.get(id)! })) });
+    } catch (err) {
+      toast.error("Couldn't copy the plugin's settings", { description: errorMessage(err) });
+    }
+  }
+  if (useMusic.getState().projectId !== projectId) return;
+  commit((now) => ids.reduceRight((next, id) => cloneChannel(next, id, copies.get(id)), now));
+}
 
 export function deleteChannels(ids: string[]) {
   commit((doc) => removeChannels(doc, ids));

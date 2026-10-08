@@ -6,6 +6,9 @@
 // plugin with a better offline mode sounds different then), so a test can tell it was told. It has a
 // sidechain input (off unless the host turns it on); with VAUDIO_TEST_EFFECT_SIDECHAIN=listen, what it puts
 // out is what that input hears, summed (silence without one), so a test can hear the key a host gives it.
+// With VAUDIO_TEST_EFFECT_PLAYHEAD=report, it puts out what the host's playhead tells it instead of sound: the
+// tempo over 1000 on the left (0 without one), and on the right where it is in the bar, 0..1, while the host
+// plays (-0.5 when stopped), so a test can hear what a hosted plugin is told.
 #include <juce_audio_utils/juce_audio_utils.h>
 
 class TestEffect final : public juce::AudioProcessor
@@ -24,6 +27,7 @@ public:
         setLatencySamples (latency->get());
         fullOffline = juce::SystemStats::getEnvironmentVariable ("VAUDIO_TEST_EFFECT_OFFLINE", "") == "full";
         listen = juce::SystemStats::getEnvironmentVariable ("VAUDIO_TEST_EFFECT_SIDECHAIN", "") == "listen";
+        reportPlayHead = juce::SystemStats::getEnvironmentVariable ("VAUDIO_TEST_EFFECT_PLAYHEAD", "") == "report";
     }
 
     bool isBusesLayoutSupported (const BusesLayout& layout) const override
@@ -56,6 +60,28 @@ public:
 
     void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
+        if (reportPlayHead)
+        {
+            auto tempo = 0.0f, inBar = -0.5f;
+            if (auto* head = getPlayHead())
+                if (const auto position = head->getPosition())
+                {
+                    tempo = (float) (position->getBpm().orFallback (0.0) / 1000.0);
+                    if (position->getIsPlaying())
+                    {
+                        const auto signature = position->getTimeSignature().orFallback (juce::AudioPlayHead::TimeSignature {});
+                        const auto barQuarters = signature.numerator * 4.0 / signature.denominator;
+                        const auto quarters = position->getPpqPosition().orFallback (0.0) - position->getPpqPositionOfLastBarStart().orFallback (0.0);
+                        inBar = (float) (quarters / barQuarters);
+                    }
+                }
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                buffer.setSample (0, i, tempo);
+                buffer.setSample (1, i, inBar);
+            }
+            return;
+        }
         if (listen)
         {
             // What its sidechain input hears, summed, on both sides (silence without one).
@@ -115,7 +141,7 @@ private:
     static constexpr int maxLatency = 48000;
     juce::AudioParameterFloat* gain = nullptr;
     juce::AudioParameterInt* latency = nullptr;
-    bool fullOffline = false, listen = false;
+    bool fullOffline = false, listen = false, reportPlayHead = false;
     juce::AudioBuffer<float> ring;
     int write = 0;
 };

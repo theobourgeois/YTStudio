@@ -540,6 +540,17 @@ test("a plugin channel's settings are FL's wrapper: its knobs, the plugin, its p
   await expect(panel).toContainText("plugin_presets: ok, plugin_presets: ok, plugin_presets: ok, plugin_presets: failed", { timeout: 30_000 });
   await expect(program).toContainText("Lead");
   await expect(mine.getByRole("button", { name: "Assistant lead", exact: true })).toHaveAttribute("aria-current", "true");
+
+  // Cloned, the copy's plugin starts as the original is: its settings file is copied to the copy first.
+  const synthId = (await savedSong(page, id)).channels[0].id;
+  const copied = page.waitForRequest((r) => r.url().endsWith("/api/engine/states/copy"));
+  await synth.click({ button: "right" });
+  await page.getByTestId("channel-menu").getByRole("menuitem", { name: "Clone", exact: true }).click();
+  const request = (await copied).postDataJSON();
+  await expect.poll(async () => (await savedSong(page, id)).channels.length).toBe(2);
+  const [original, clone] = (await savedSong(page, id)).channels;
+  expect(request.copies).toEqual([{ from: synthId, to: clone.id }]);
+  expect(clone).toMatchObject({ kind: "plugin", plugin: original.plugin, pitch: 7 });
 });
 
 test("knobs work as in FL Studio, and a channel opens its settings window", async ({ page }) => {
