@@ -317,7 +317,6 @@ function createWindow() {
       backgroundThrottling: false,
     },
   });
-  if (state.maximized) win.maximize();
   win.on("unresponsive", () => log("desktop").warn("the window stopped responding"));
   win.on("responsive", () => log("desktop").info("the window is responding again"));
   // Windows and Linux: no menu bar across the window (FL Studio's is in its toolbar, as ours is the page's).
@@ -329,7 +328,8 @@ function createWindow() {
   const winPanels = new Panels(win, stack, () => void restacker.run());
   winPanels.setState(floatingState);
   panels = winPanels;
-  win.once("ready-to-show", () => win.show());
+  // (Maximised only now: `maximize` shows a window, which would show it empty before its page is drawn.)
+  win.once("ready-to-show", () => (state.maximized ? win.maximize() : win.show()));
   // The page is up (its hooks set): projects waiting to open can now.
   win.webContents.on("did-finish-load", () => {
     void win.webContents

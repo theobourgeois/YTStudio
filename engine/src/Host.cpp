@@ -95,8 +95,9 @@ std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& ownerId, cons
     }
 
     loading[ownerId] = pluginId;
+    // Loading it (and its state) is the message thread's, and some plugins take seconds.
     formats.createPluginInstanceAsync (*description, sampleRate, blockSize,
-                                       [this, stillAlive = alive, ownerId, pluginId, stateFile, ownerName] (std::unique_ptr<juce::AudioPluginInstance> created, const juce::String& error) {
+                                       [this, stillAlive = alive, ownerId, pluginId, stateFile, ownerName, hold = EditorWindow::whileBusy()] (std::unique_ptr<juce::AudioPluginInstance> created, const juce::String& error) {
                                            if (! *stillAlive)
                                                return;
                                            // Asked for something else (or nothing) since.
@@ -563,6 +564,7 @@ juce::Result PluginHost::loadPreset (const juce::String& ownerId, const juce::St
     const auto file = presetFolder (hosted).getChildFile (juce::File::createLegalFileName (name) + ".preset");
     if (! file.existsAsFile() || ! file.loadFileAsData (state) || state.getSize() == 0)
         return juce::Result::fail ("There's no preset \"" + name + "\" for " + hosted.instance->getName() + ".");
+    const auto hold = EditorWindow::whileBusy();
     hosted.instance->setStateInformation (state.getData(), (int) state.getSize());
     hosted.preset = file.getFileNameWithoutExtension();
     presetChanged (hosted);

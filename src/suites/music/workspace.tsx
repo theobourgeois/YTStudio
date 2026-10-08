@@ -605,6 +605,8 @@ function useMusicKeys(enabled: boolean) {
       e.preventDefault();
       // Ours alone: whatever has the focus (a menu's button opens on Alt+Down, a knob turns) doesn't see it too.
       e.stopPropagation();
+      // Held down, a toggle is pressed once (a window's key held a moment opened it and closed it again).
+      if (e.repeat && action.type.startsWith("toggle")) return;
       runKey(action);
     };
     // A typing keyboard key let go: its note ends (wherever the focus went meanwhile).

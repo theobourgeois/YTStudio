@@ -54,6 +54,14 @@ same title bars, snapping, stacking and keys.
 >   (`hookThreadKeys`, `EditorWindow::takeFirst`, FL's default typing keyboard priority).
 >   Panels have no frame of the system's (`thickFrame: false`), so Windows doesn't zoom and fade them in, and
 >   what pops up in them (menus, popovers, tooltips) has no CSS animation: everything appears at once.
+>   **Owning across programs ties them together**: the app's thread then waits for the engine's whenever it moves,
+>   raises or activates a window, and they share their input. So the engine must never block on the app (its
+>   messages go out through a writer thread: a full pipe once froze the app for good, the song still playing),
+>   and its plugin windows belong to nothing while its message thread is busy (`EditorWindow::whileBusy`: a
+>   plugin loading, its editor being made, a sample read), coming back in front when they belong to the app again.
+>   A new plugin window is cloaked (DWM) until it's drawn, so it never shows white first. The menu window is shown
+>   off the screens until it's see-through (shown in place, it was a grey sheet as a song opened), and a panel shown
+>   behind others only has the panels in front of it raised again (the restacker is the Mac's).
 > - **Mac**: the editor's windows are boxes in the page, as in a browser. Native ones gave no hover or keyboard
 >   to the windows beside the one in use. A plugin's window floats over the main window instead and **closes
 >   when one of the app's own windows is used** (`closeEngineWindows`, on the main window's focus). The levels

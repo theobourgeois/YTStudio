@@ -33,6 +33,13 @@ const followsMain = ownedByMain;
  */
 const popupStaysShown = ownedByMain;
 
+/**
+ * Windows draws a transparent window opaque grey until its page has drawn a frame, and the menu window reaches
+ * from a panel's corner to the screen's edges: shown in place, it was a grey sheet over most of the screen as a
+ * song opened. So it's first shown away from every screen, and comes to its place once it's see-through.
+ */
+const POPUP_PARK_MS = 400;
+
 /** A panel's key in the stack of floating windows (stacking.ts). */
 export const panelKey = (name: string) => `panel:${name}`;
 
@@ -87,6 +94,8 @@ export class Panels {
   private readonly placed = new Map<string, Rectangle>();
   /** Where the main window's content was when the panels were last moved along with it. */
   private followed: { x: number; y: number };
+  /** The menu window is shown off the screens until it has drawn itself see-through (`POPUP_PARK_MS`). */
+  private popupParked = false;
 
   /**
    * `stack` is told which panel is used (it has the focus) and which are new; `restack` puts every floating
@@ -161,6 +170,7 @@ export class Panels {
     this.shown.add(name);
     if (name === POPUP_WINDOW) {
       if (popupStaysShown) {
+        this.unparkPopup();
         win.setIgnoreMouseEvents(false);
         if (!win.isVisible()) win.show();
         win.moveTop();
@@ -175,6 +185,18 @@ export class Panels {
     if (!this.state.visible) return;
     if (focus) {
       win.show();
+    } else if (ownedByMain) {
+      win.showInactive();
+      // It's on top of the others for now: the panels the stack has in front of it go back in front, at once.
+      // (Owned windows keep their order: the restacker, which raises every window one at a time with a pause
+      // between them and asks the engine for its own, is for the Mac's levels, and it made the windows of a song
+      // opening shuffle in front of each other.)
+      const order = this.stack.order();
+      for (const key of order.slice(order.indexOf(panelKey(name)) + 1)) {
+        if (!key.startsWith("panel:")) continue;
+        const above = this.windows.get(key.slice("panel:".length));
+        if (above && !above.isDestroyed() && this.shown.has(key.slice("panel:".length)) && above.isVisible()) above.moveTop();
+      }
     } else {
       win.showInactive();
       // It's on top of the others for now: behind the ones in use, where the stack has it.
@@ -216,11 +238,27 @@ export class Panels {
     if (options.resizable !== undefined) win.setResizable(options.resizable);
     if (options.backgroundColor) win.setBackgroundColor(options.backgroundColor);
     if (options.title) win.setTitle(options.title);
-    // The menu window, ready (see-through now): shown for good, empty, letting clicks pass.
+    // The menu window, ready (see-through now): shown for good, empty, letting clicks pass (off the screens, at first).
     if (name === POPUP_WINDOW && popupStaysShown && options.backgroundColor && !win.isVisible()) {
       win.setIgnoreMouseEvents(true);
+      const bounds = win.getBounds();
+      const displays = screen.getAllDisplays().map((d) => d.bounds);
+      const left = Math.min(...displays.map((d) => d.x));
+      const top = Math.min(...displays.map((d) => d.y));
+      this.popupParked = true;
+      win.setBounds({ ...bounds, x: left - bounds.width - 200, y: top - bounds.height - 200 });
       win.showInactive();
+      setTimeout(() => this.unparkPopup(), POPUP_PARK_MS);
     }
+  }
+
+  /** The menu window to where the page last put it. */
+  private unparkPopup() {
+    if (!this.popupParked) return;
+    this.popupParked = false;
+    const win = this.windows.get(POPUP_WINDOW);
+    const bounds = this.placed.get(POPUP_WINDOW);
+    if (win && !win.isDestroyed() && bounds) win.setBounds(bounds);
   }
 
   /**
@@ -235,6 +273,7 @@ export class Panels {
     const dy = followsMain && basis ? this.followed.y - basis.y : 0;
     const bounds = { x: Math.round(rect.x + dx), y: Math.round(rect.y + dy), width: Math.max(1, Math.round(rect.width)), height: Math.max(1, Math.round(rect.height)) };
     this.placed.set(name, bounds);
+    if (name === POPUP_WINDOW && this.popupParked) return;
     win.setBounds(bounds);
   }
 
@@ -249,6 +288,7 @@ export class Panels {
       const was = this.placed.get(name) ?? win.getBounds();
       const bounds = { ...was, x: was.x + dx, y: was.y + dy };
       this.placed.set(name, bounds);
+      if (name === POPUP_WINDOW && this.popupParked) continue;
       win.setBounds(bounds);
     }
   }

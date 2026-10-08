@@ -6,6 +6,8 @@
   #define WIN32_LEAN_AND_MEAN
  #endif
  #include <windows.h>
+ #include <dwmapi.h>
+ #pragma comment(lib, "dwmapi.lib")
 #endif
 
 #include "MacWindow.h"
@@ -120,6 +122,15 @@ void* nativeWindowOf (juce::Component& window)
     return peer != nullptr ? peer->getNativeHandle() : nullptr;
 }
 
+void cloakWindow (juce::Component& window, bool cloaked)
+{
+    if (auto* hwnd = static_cast<HWND> (nativeWindowOf (window)))
+    {
+        const BOOL on = cloaked ? TRUE : FALSE;
+        DwmSetWindowAttribute (hwnd, DWMWA_CLOAK, &on, sizeof (on));
+    }
+}
+
 namespace
 {
 /**
@@ -165,5 +176,6 @@ void* nativeWindowOf (juce::Component& window)
     auto* peer = window.getPeer();
     return peer != nullptr ? peer->getNativeHandle() : nullptr;
 }
+void cloakWindow (juce::Component&, bool) {}
 void keepAwake (bool) {}
 #endif

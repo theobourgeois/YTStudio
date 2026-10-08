@@ -6,6 +6,8 @@
 namespace
 {
 constexpr int barHeight = 24;
+/** How often a new window checks whether it has been drawn yet (`EditorWindow::timerCallback`). */
+constexpr int tickMs = 30;
 
 // The studio theme's dark colours (src/themes/studio.css): a raised bar, darker lines, light text.
 namespace colour
@@ -199,6 +201,7 @@ public:
 
 bool EditorWindow::typingKeyboard = false;
 void* EditorWindow::owner = nullptr;
+int EditorWindow::busy = 0;
 juce::Array<EditorWindow*> EditorWindow::openWindows;
 
 namespace
@@ -225,6 +228,8 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
     setTitleBarHeight (barHeight);
     setTitleBarButtonsRequired (DocumentWindow::closeButton, false);
 
+    // Making a plugin's editor can take a while (Serum's: a second or more), and so can its first appearance.
+    const auto hold = whileBusy();
     juce::AudioProcessorEditor* created = plugin.hasEditor() ? plugin.createEditorIfNeeded() : nullptr;
     if (created == nullptr)
         created = new juce::GenericAudioProcessorEditor (plugin);
@@ -237,6 +242,12 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
     centreWithSize (getWidth(), getHeight());
     if (! addToDesktopFirst)
         addToDesktop();
+   #if JUCE_WINDOWS
+    // Off the screen until it's drawn (white until then); `timerCallback` shows it.
+    cloakWindow (*this, true);
+    cloakedAt = lastTick = juce::Time::getMillisecondCounter();
+    startTimer (tickMs);
+   #endif
     setVisible (true);
 
     openWindows.add (this);
@@ -249,8 +260,21 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
     });
 }
 
+void EditorWindow::timerCallback()
+{
+    const auto now = juce::Time::getMillisecondCounter();
+    // A tick on time means nothing held the message thread up since the last: the drawing is done.
+    calmTicks = now - lastTick <= tickMs + 15 ? calmTicks + 1 : 0;
+    lastTick = now;
+    if (calmTicks < 3 && now - cloakedAt < 1000)
+        return;
+    stopTimer();
+    cloakWindow (*this, false);
+}
+
 EditorWindow::~EditorWindow()
 {
+    stopTimer();
     openWindows.removeFirstMatchingValue (this);
     releaseKeys();
     automate.reset();
@@ -354,7 +378,36 @@ void EditorWindow::setAppWindow (void* window)
 
 void EditorWindow::followAppWindow()
 {
-    setWindowOwner (*this, owner);
+    setWindowOwner (*this, busy > 0 ? nullptr : owner);
+}
+
+std::shared_ptr<void> EditorWindow::whileBusy()
+{
+   #if JUCE_WINDOWS
+    // (The windows are the message thread's: work elsewhere doesn't hold it up.)
+    if (! juce::MessageManager::existsAndIsCurrentThread())
+        return {};
+    if (busy++ == 0)
+        for (auto* window : openWindows)
+            window->followAppWindow();
+    // Let go of later, from the message queue: busy work one after another (a song's samples read one by one,
+    // then its plugins) is one busy stretch, and the windows belong to the app again once it's all done.
+    return std::shared_ptr<void> (nullptr, [] (void*) {
+        juce::MessageManager::callAsync ([] {
+            if (--busy != 0)
+                return;
+            for (auto* window : openWindows)
+            {
+                window->followAppWindow();
+                // One shown meanwhile belonged to nothing, so the app's window (in use) stayed in front of it.
+                if (std::exchange (window->raiseWhenOwned, false) && window->isVisible())
+                    window->toFront (true);
+            }
+        });
+    });
+   #else
+    return {};
+   #endif
 }
 
 int EditorWindow::getDesktopWindowStyleFlags() const
@@ -384,6 +437,8 @@ void EditorWindow::show()
 {
     juce::Process::makeForegroundProcess();
     followAppWindow();
+    // (Windows: while the message thread is busy it belongs to nothing, and comes in front once it belongs to the app.)
+    raiseWhenOwned = busy > 0 && owner != nullptr;
     setVisible (true);
     keepOutOfWindowSwitchers (*this);
     toFront (true);

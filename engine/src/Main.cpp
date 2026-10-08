@@ -36,7 +36,11 @@ public:
             [] { juce::MessageManager::callAsync ([] { quit(); }); });
     }
 
-    void shutdown() override { engine.reset(); }
+    void shutdown() override
+    {
+        engine.reset();
+        protocol::finish();
+    }
 
 private:
     void run (const juce::var& message)
