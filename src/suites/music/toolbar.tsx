@@ -10,7 +10,7 @@ import { songTicks } from "@shared/music/playlist";
 import { DEFAULT_TEMPO, DEFAULT_VOLUME, MAX_TEMPO, MIN_TEMPO, stepsPerBar } from "@shared/music/project";
 import { STEP_TICKS } from "@shared/music/types";
 import { HeaderActions } from "@/components/header/header-actions";
-import { MenuRow } from "@/components/header/menu-row";
+import { MenuBarSlot } from "@/components/home/menu-bar";
 import { ProjectName } from "@/components/header/project-name";
 import { Button } from "@/components/ui/button";
 import {
@@ -56,9 +56,10 @@ import { useWheelValue } from "./wheel";
 const MAIN_VOLUME: AutomationTarget = { kind: "main" };
 
 /**
- * The music editor's header, FL Studio's toolbar (`docs/fl-studio/toolbar.md`), with only what Vaudio does: the
- * menu row every suite has (the title, the menus, FL's hint bar, then the app's own: undo, Settings, Export, the
- * assistant), then the tools in two rows as dense as FL's, every button in them one size (`TOOL`): the transport
+ * The music editor's header, FL Studio's toolbar (`docs/fl-studio/toolbar.md`), with only what Vaudio does, in two
+ * rows to save height: the menus start the first and the song's name and FL's hint bar the second (no menu row of
+ * its own, as other suites have), the app's own (undo, Settings, Export, the assistant) at the first's end; the tools
+ * as dense as FL's, every button in them one size (`TOOL`): the transport
  * (PAT / SONG, play and stop in one pill, record), tempo, position, then the typing keyboard, the count-in and
  * the metronome, the main volume, the windows, the pattern selector and the song position, the engine's output
  * and load; groups apart by grooves.
@@ -68,50 +69,54 @@ export function MusicToolbar() {
   const error = useTransport((s) => s.error);
 
   return (
-    <div className="flex shrink-0 flex-col select-none">
-      <MenuRow
-        name={<ProjectName name={name} onRename={(next) => void useMusic.getState().rename(next)} className="-ml-1 px-1 text-[14px]" />}
-        actions={<Actions />}
-      >
-        <Groove className="mx-1 h-5 self-center" />
+    // Two rows, FL's: the menus then what plays and what it sounds like; the song's name and the hint bar then
+    // what's shown and where in it. The left column is as wide as the menus (the hint cell adds nothing to it).
+    <div className="grid shrink-0 grid-cols-[auto_minmax(0,1fr)] gap-x-1.5 gap-y-1 border-b border-line bg-surface-1 px-3 py-1.5 select-none">
+      <div className="-ml-1 flex h-8 items-center">
+        <MenuBarSlot />
+      </div>
+      <div className="flex h-8 min-w-0 items-center gap-1.5">
+        <Groove className="mx-1 h-7 self-center" />
+        <div className="flex shrink-0 items-center gap-1.5" role="toolbar" aria-label="Transport">
+          <TransportPill />
+          <RecordButton />
+          <TempoLcd />
+          <PositionLcd />
+          {/* After the time, as FL's: the typing keyboard, the count-in and the metronome. */}
+          <div className="flex items-center gap-1">
+            <TypingKeyboardToggle />
+            <CountInToggle />
+            <MetronomeToggle />
+          </div>
+          <MainVolume />
+        </div>
+        <OutputGraph className="w-32 min-w-14 shrink" />
+        <Groove className="mx-1 h-7 self-center" />
+        <CpuGraph className="w-32 min-w-14 shrink" />
+        {error && (
+          <span className="flex max-w-60 min-w-0 items-center gap-1.5 text-xs text-destructive" role="alert" title={error}>
+            <PiWarning className="shrink-0" />
+            <span className="truncate">{error}</span>
+          </span>
+        )}
+        <Actions />
+      </div>
+      {/* It drags the desktop app's window, as the menu row does (the tools don't: the LCDs and the slider drag). */}
+      <div data-titlebar="header" className="flex h-8 w-0 min-w-full items-center gap-2 overflow-hidden">
+        <ProjectName name={name} onRename={(next) => void useMusic.getState().rename(next)} className="-ml-1 max-w-40 shrink-0 px-1 text-[13px] font-semibold" />
+        <span aria-hidden className="text-muted-foreground/50">·</span>
         <HintBar />
-      </MenuRow>
-      {/* Two rows, as before: what plays and what it sounds like, then what's shown and where in it. */}
-      <div className="flex shrink-0 flex-col gap-1 border-b border-line bg-surface-1 px-3 py-1.5">
-        <div className="flex h-8 min-w-0 items-center gap-1.5">
-          <div className="flex shrink-0 items-center gap-1.5" role="toolbar" aria-label="Transport">
-            <TransportPill />
-            <RecordButton />
-            <TempoLcd />
-            <PositionLcd />
-            {/* After the time, as FL's: the typing keyboard, the count-in and the metronome. */}
-            <div className="flex items-center gap-1">
-              <TypingKeyboardToggle />
-              <CountInToggle />
-              <MetronomeToggle />
-            </div>
-            <MainVolume />
-          </div>
-          <OutputGraph className="w-32 min-w-14 shrink" />
-          <Groove className="mx-1 h-7 self-center" />
-          <CpuGraph className="w-32 min-w-14 shrink" />
-          {error && (
-            <span className="flex max-w-60 min-w-0 items-center gap-1.5 text-xs text-destructive" role="alert" title={error}>
-              <PiWarning className="shrink-0" />
-              <span className="truncate">{error}</span>
-            </span>
-          )}
+      </div>
+      <div className="flex h-8 min-w-0 items-center gap-1.5">
+        <Groove className="mx-1 h-7 self-center" />
+        <div className="flex shrink-0 items-center gap-1">
+          <WindowToggles />
         </div>
-        <div className="flex h-8 min-w-0 items-center gap-1.5">
-          <div className="flex shrink-0 items-center gap-1">
-            <WindowToggles />
-          </div>
-          <Groove className="mx-1 h-6 self-center" />
-          <div className="w-60 shrink-0">
-            <PatternPicker />
-          </div>
-          <PositionSlider />
+        <Groove className="mx-1 h-6 self-center" />
+        <div className="w-60 shrink-0">
+          <PatternPicker />
         </div>
+        <PositionSlider />
       </div>
     </div>
   );
