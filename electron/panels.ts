@@ -40,6 +40,12 @@ const popupStaysShown = ownedByMain;
  */
 const POPUP_PARK_MS = 400;
 
+/**
+ * Whether the main window's page can still be told things. As the app quits, its page goes before the window
+ * does, and the panels close with it: each one telling a page that's gone threw ("Object has been destroyed").
+ */
+const pageAlive = (main: BrowserWindow) => !main.isDestroyed() && !main.webContents.isDestroyed();
+
 /** A panel's key in the stack of floating windows (stacking.ts). */
 export const panelKey = (name: string) => `panel:${name}`;
 
@@ -107,7 +113,7 @@ export class Panels {
     private readonly restack: () => void,
   ) {
     const send = () => {
-      if (!main.isDestroyed()) main.webContents.send("panels:content-bounds", main.getContentBounds());
+      if (pageAlive(main)) main.webContents.send("panels:content-bounds", main.getContentBounds());
     };
     for (const event of ["move", "resize", "enter-full-screen", "leave-full-screen", "maximize", "unmaximize"] as const) main.on(event as "move", send);
     this.followed = main.getContentBounds();
@@ -146,7 +152,7 @@ export class Panels {
       this.shown.delete(name);
       this.placed.delete(name);
       if (stacked) this.stack.drop(panelKey(name));
-      if (!this.main.isDestroyed()) this.main.webContents.send("panels:closed", name);
+      if (pageAlive(this.main)) this.main.webContents.send("panels:closed", name);
     });
   }
 
