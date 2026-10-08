@@ -23,7 +23,7 @@ export const videoSuite: ClientSuite<"video"> = {
     return { texts: await layoutTexts(await api.getProject(id), "720p", 0.5) };
   },
   icon: PiFilmSlate,
-  tint: "bg-sky-500/12 text-sky-600 dark:text-sky-400",
+  tint: "bg-red-500/12 text-red-600 dark:text-red-400",
   preview: "video",
   open: (projectId) => useEditor.getState().openProject(projectId),
   close: () => useEditor.getState().closeProject(),

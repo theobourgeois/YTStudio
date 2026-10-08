@@ -43,8 +43,6 @@ export interface SuiteInfo {
   description: string;
   /** What the assistant works in, for its prompt ("a video editor that works like Premiere Pro"). */
   app: string;
-  /** Still being built: the picker says so. */
-  early?: boolean;
 }
 
 /** In the order the New project picker lists them. */
@@ -62,7 +60,6 @@ export const SUITES: Record<SuiteId, SuiteInfo> = {
     noun: "song",
     description: "Make a song: tracks, instruments, plugins and a mixer.",
     app: "a music editor (a DAW that works like FL Studio)",
-    early: true,
   },
   photo: {
     id: "photo",
@@ -70,7 +67,6 @@ export const SUITES: Record<SuiteId, SuiteInfo> = {
     noun: "photo",
     description: "Compose and light images: layers, transforms, light effects. Thumbnails first.",
     app: "a photo editor that works like Photoshop",
-    early: true,
   },
 };
 
