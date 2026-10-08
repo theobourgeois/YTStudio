@@ -30,3 +30,30 @@ export function searchProjects(projects: readonly ProjectSummary[], query: strin
     .sort((a, b) => a.score - b.score || Number(!!a.project.missing) - Number(!!b.project.missing) || lastTouched(b.project) - lastTouched(a.project))
     .map((r) => r.project);
 }
+
+/** The sheet's groups: when each project was last touched, by calendar day (local time), the latest first. */
+export type WhenGroup = "Today" | "Yesterday" | "This week" | "This month" | "Earlier";
+
+/** Projects in their `WhenGroup`s, in the order given; groups with none are left out. */
+export function groupByWhen<T extends ProjectSummary>(projects: readonly T[], now: number): { label: WhenGroup; projects: T[] }[] {
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+  const day = 86_400_000;
+  const groupOf = (then: number): WhenGroup => {
+    if (then >= midnight.getTime()) return "Today";
+    const daysAgo = Math.ceil((midnight.getTime() - then) / day);
+    if (daysAgo <= 1) return "Yesterday";
+    if (daysAgo < 7) return "This week";
+    if (daysAgo < 31) return "This month";
+    return "Earlier";
+  };
+  const order: WhenGroup[] = ["Today", "Yesterday", "This week", "This month", "Earlier"];
+  const groups = new Map<WhenGroup, T[]>();
+  for (const project of projects) {
+    const label = groupOf(lastTouched(project));
+    const group = groups.get(label);
+    if (group) group.push(project);
+    else groups.set(label, [project]);
+  }
+  return order.filter((label) => groups.has(label)).map((label) => ({ label, projects: groups.get(label)! }));
+}

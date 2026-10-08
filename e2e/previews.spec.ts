@@ -35,7 +35,10 @@ test("home cards render saved projects, play on hover one at a time, scrub, and 
   await page.goto("/");
   const songCard = page.locator(`[data-project-id="${song.id}"]`);
   const videoCard = page.locator(`[data-project-id="${video.id}"]`);
-  await expect(songCard.getByRole("img", { name: "Song preview waveform" })).toBeVisible({ timeout: 60_000 });
+  // A song's card draws its pattern (its Playlist once it has clips), and plays it once its preview is made.
+  const songPicture = songCard.getByRole("img", { name: "Song preview", exact: true });
+  await expect(songPicture).toBeVisible();
+  await expect(songCard.locator("audio")).toHaveCount(1, { timeout: 60_000 });
   await expect(videoCard.locator("video")).toHaveCount(1, { timeout: 60_000 });
   // Nothing to press until the pointer rests on a card.
   await expect(page.getByRole("slider")).toHaveCount(0);
@@ -44,7 +47,7 @@ test("home cards render saved projects, play on hover one at a time, scrub, and 
   await expect(videoCard.locator("video")).not.toHaveAttribute("src");
 
   // Resting on the song's card plays it, muted; its button unmutes it, and the card stays closed.
-  await songCard.getByRole("img", { name: "Song preview waveform" }).hover();
+  await songPicture.hover();
   await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => !e.paused && e.currentTime > 0 && e.muted)).toBe(true);
   await songCard.getByRole("button", { name: "Unmute preview of Preview song" }).click();
   await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => e.muted)).toBe(false);
@@ -78,9 +81,9 @@ test("home cards render saved projects, play on hover one at a time, scrub, and 
 
   const cached = await (await page.request.get(`/api/projects/${song.id}/preview`)).json();
   await page.reload();
-  await expect(songCard.getByRole("img", { name: "Song preview waveform" })).toBeVisible();
+  await expect(songCard.locator("audio")).toHaveCount(1);
   expect(await (await page.request.get(`/api/projects/${song.id}/preview`)).json()).toEqual(cached);
-  await songCard.getByRole("img", { name: "Song preview waveform" }).hover();
+  await songPicture.hover();
   await expect.poll(() => songCard.locator("audio").evaluate((e: HTMLAudioElement) => !e.paused)).toBe(true);
   await songCard.getByText("Preview song", { exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/p/${song.id}$`));

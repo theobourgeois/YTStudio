@@ -5,7 +5,7 @@
 import type { AssistantModelInfo, AssistantProvider } from "./assistant.ts";
 import type { BezierPath } from "./path.ts";
 import type { TextLayout } from "./text-drawing.ts";
-import type { SuiteId } from "./suites.ts";
+import type { SongOutline, SuiteId } from "./suites.ts";
 import type { ToolResult } from "./tool-spec.ts";
 
 // ---------------------------------------------------------------------------
@@ -587,6 +587,8 @@ export interface SuiteSummaries {
   };
   music: {
     tempo: number;
+    /** Its arrangement, drawn on its card (absent in summaries kept from before it was). */
+    outline?: SongOutline | null;
   };
   photo: {
     width: number;

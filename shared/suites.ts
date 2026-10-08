@@ -12,9 +12,13 @@
  * The video editor came first and lives at the roots of `shared/`, `server/` and `src/`; every other
  * suite keeps its code in a folder of its own (`shared/music/`, `src/suites/music/`...).
  */
+import type { SongOutline } from "./music/outline.ts";
 import type { MusicProject } from "./music/types.ts";
 import type { PhotoProject } from "./photo/types.ts";
 import type { Project } from "./types.ts";
+
+/** What a song's Home card draws (its playlist in miniature), kept in its summary: `SuiteSummaries` is the platform's. */
+export type { SongOutline };
 
 export type SuiteId = "video" | "music" | "photo";
 
