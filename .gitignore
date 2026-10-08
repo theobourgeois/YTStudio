@@ -11,6 +11,7 @@ transition-sheet.png
 dist-electron
 build/desktop
 build/photo-helper
+build/music-worker
 release
 desktop-smoke.png
 music-window-smoke.png

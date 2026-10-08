@@ -217,7 +217,8 @@ async function dev() {
 /**
  * The photo helper, bundled with sharp's JavaScript into `helper.mjs`, and sharp's native packages for this
  * platform beside it in `native/@img/` (electron-builder leaves out any folder called node_modules, so the bundle's
- * require of the addon is pointed there; the addon finds libvips beside it by its rpath). They're Node-API, so
+ * require of the addon is pointed there; the addon finds libvips beside it). Windows includes libvips DLLs in
+ * the addon package; macOS and Linux use a separate libvips package. They're Node-API, so
  * Electron runs them in Node mode as they are. libvips is LGPL-3.0-or-later, dynamically linked: its package keeps
  * its licence and notices.
  */
@@ -229,7 +230,8 @@ async function photoHelper() {
   const platform = `${process.platform}-${process.arch}`;
   const addon = `@img/sharp-${platform}`;
   const dirs: Record<string, string> = {};
-  for (const name of [addon, `@img/sharp-libvips-${platform}`]) {
+  const nativePackages = process.platform === "win32" ? [addon] : [addon, `@img/sharp-libvips-${platform}`];
+  for (const name of nativePackages) {
     const dir = [path.join(path.dirname(sharpDir), name), path.join(ROOT, "node_modules", name)].find((d) => existsSync(path.join(d, "package.json")));
     if (!dir) throw new Error(`Couldn't find ${name}: run pnpm install.`);
     dirs[name] = realpathSync(dir);

@@ -1,0 +1,367 @@
+# The video editor
+
+The video editor lives at the roots of `shared/`, `server/` and `src/`. Its audio-reactive side, the visualizer, is
+[`docs/claude/visualizer.md`](visualizer.md): read it before touching signals, links, audio shaders, simulations or scenes.
+
+## Layout
+
+```
+shared/
+  types.ts           Domain + HTTP API types; the route list is documented at the bottom.
+  timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
+  normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
+  params.ts          ParamSpec types (number, vec2, boolean, choice, text, color, font…) + sanitize/defaults.
+  keyframes.ts       Keyframe validation, interpolation (easedProgress), setKeyframe.
+  animation.ts       Keyframe edits (stopwatch, navigator, move/delete/easing/Bézier handles, copy/paste, stretch, rove,
+                     a point's spatial handles: `setKeyframeSpatial`, `smoothMotionPath`) and timeline<->keyframe time helpers.
+  sequences.ts       Nested sequences: `sequenceView`/`writeSequence` (a sequence edited as a project), `sequenceAsset`
+                     (a sequence as media, so nested clips trim/retime like videos), nest/break apart, preview slots.
+  time-remap.ts      Time remapping (the Time Remapping effect's keyframes map a clip's clock to source time):
+                     `mediaTime`, `remapSpeed`, freeze/reverse/velocity edits, `remapFromSpeeds`.
+  effects.ts         Effect definitions (Motion, Opacity, Volume, Text, Appearance, then the video effects),
+                     evaluation (motionAt, opacityAt, volumeAt, textStyleAt), edits (setParams, resetParams,
+                     setEffectEnabled, addEffect/removeEffect/moveEffect for video effects).
+  effect-library/    One file per category of GLSL video effects (colour, blur, light, stylize, distort, generate,
+                     keying, glitch...); common.ts has helpers. Also the definitions of what's added to a clip
+                     without being a shader (`stackable`): mask.ts, shape.ts (Shape + operators), text-animator.ts.
+  effect-gl.ts       Video effect shader prelude, effectShader, effectPasses (a clip's effects at a moment).
+  layers.ts          clipLayer: a clip as a compositor layer at a moment (opacity, blend mode, edges, effects, and
+                     motion blur's moments over the shutter); placer (2D affine or 3D projection), track mattes
+                     (withTrackMattes), depth sorting. The preview and the export both build layers here.
+  parenting.ts       Parenting (the pick-whip) and null objects: a child follows its parent's Motion as it moves away
+                     from its pose when linked (`ClipParent.rest`); `placer` applies it (2D affine, or a 3D layer's
+                     placement), the canvas overlay takes it back off drags (`uncarryMotion`).
+  camera.ts          3D: Camera clips (the Camera effect), cameraAt, projectLayer (a 3D layer's homography), defocus.
+  particles.ts       Particle effects' shaders: `Particle particle(int id)` in a vertex shader, instanced quads.
+  presets.ts         Presets (After Effects' Animation Presets): transitions as an adjustment layer across a cut,
+                     moves/looks on clips; applyPresetToClips, addPresetLayer. Definitions in preset-library/.
+  transitions.ts     Transition registry, timing specs, sanitize/patch.
+  transition-library/  One file per category of GLSL transitions; common.ts has shared specs.
+  transition-windows.ts  Where transitions play on the timeline + edits to them.
+  compositor.ts      THE renderer (WebGL2), an After Effects-style layer stack: pictures, solids and vector drawings
+                     (`Placed.vector`, a shape layer: drawn by the browser's 2D canvas at the size shown) after their
+                     masks (`Placed.masks`, also drawn by the 2D canvas) and video effects, placed by an affine or
+                     projective map (3D) + opacity + blend mode (BLEND_MODES)
+                     + edges (mirror/tile) + track matte, adjustment layers (drawAdjustment: the frame so far
+                     through effects and Motion), motion blur (samples averaged in a float buffer), time effects'
+                     frame history (texture arrays) and GPU optical flow, time interpolation between two frames,
+                     particle passes (instanced), Grow Bounds, transitions, YUV in/out. Draws the preview, the
+                     Effects tab's thumbnails and every export frame.
+  scene.ts           What each video track shows at time t (clip + source time, or transition + sides).
+  transition-gl.ts   Transition shader prelude, fragmentSource, uniforms.
+  transform.ts       Where a clip lands on the canvas (fit → scale/rotate around the anchor).
+  path.ts            Bézier paths (AE-style relative handles) for masks, shapes, text on a path, motion paths: shapes,
+                     lengths, bounds, flattening, strokes, hit tests, edits, morphing, triangulation, SVG in/out.
+  shape-ops.ts       Shape operators' geometry on paths: polygon booleans (mergePaths), trimPaths, offsetPath, zigZag,
+                     wigglePath, roundCorners.
+  masks.ts           Masks at a moment (`masksAt` -> the compositor's `MaskShape`s), addMask.
+  shapes.ts          Shape layers at a moment: a clip's Shape effects and operators walked in order into a
+                     `VectorDrawing` (`shapeDrawingAt`), plus its bounds and hit test for the canvas.
+  text-animators.ts  Text animators: units (characters/words/lines), `selectionAmount` (the range and its shape),
+                     `glyphSelections`, the ready-made ones (ANIMATOR_PRESETS, addAnimator).
+  text-drawing.ts    Text: `TextLayout` (measured by the tab), `textDrawing` (layout + style at a moment -> what the
+                     compositor draws), `textUnit`, and validating layouts from an export request.
+  expressions.ts     The expression language: its own tokenizer, parser and interpreter (never `eval`), the AE
+                     helpers (wiggle, loopOut, linear...), `expressionValue`. Effects run it in `effectValuesAt`.
+  markers.ts         Sequence markers (`Project.markers`, timeline time) and clip markers (`Clip.markers`, source
+                     time): add/update/remove, `allMarkers`, `adjacentMarker`.
+  beat-sync.ts       Beat sync: a song's beats as markers on its clip (`Marker.beat`, `setBeatMarkers` replaces only
+                     those) and `cutToMarkers` (clips end on markers, the rest of their track moves along).
+  captions.ts        Auto captions: presets, words → caption cues (fitting the canvas), transcripts → timeline,
+                     edits to every caption at once (style, animation, merge). Spoken animations are text animators.
+  library.ts         The shared Library: folder tree, saved clips (ClipTemplate: normalize, placeTemplate), search.
+  assistant-tools.ts The video editor's tools for AI agents (MCP): names, input schemas, descriptions, kind (look/edit/action).
+  render-files.ts    Render files (Premiere's preview files, docs/render-files.md): the main sequence cut into segments,
+                     each keyed by a hash of what its frames depend on; the tab (the render bar, playback) and the
+                     server (the files' names) run the same function, so they agree.
+  export-formats.ts  What an export can be (V10): H.264, HEVC, ProRes 422 HQ, ProRes 4444, PNG sequences, as data (container,
+                     encoder, readback, quality, alpha); `exportSettings` checks a request's format, quality and alpha.
+server/
+  media.ts, web-media.ts, exports.ts   Services behind the routes.
+  library.ts         LibraryStore: library.json (folders, items) + its own MediaLibrary under data/library/media.
+  render.ts          Export plan (pure, unit-tested): planRender (decoders + per-frame layers, any range of frames), audioArgs.
+  render-inputs.ts   What drawing a project needs from the library (paths, reversed copies, signals) and its plan.
+  render-files.ts    Render files: a video's heavy segments rendered into `<package>/render/<key>.mp4` (drawFrames,
+                     an encoder a segment), listed, served and deleted (`/api/render-files`).
+  encoders.ts        Each export format's encoder (`encoderArgs`), the formats this ffmpeg can make (`availableFormats`).
+  zip.ts             A stored ZIP of files on disk (ZIP64 when it's big): a PNG sequence's download.
+  frame-render.ts + gl-browser.ts   Runs the plan: decoders -> headless Chromium compositor -> encoder.
+  transcription/     Speech to timed words for Auto captions. service.ts (jobs, cache, time mapping), audio.ts
+                     (decode, squeeze out silences, snap words to the sound), engine.ts (the engine interface),
+                     whisper-cpp.ts (local, one-click setup), openai.ts (OpenAI + Groq), fake.ts (e2e).
+  media-analysis.ts  ffmpeg looks into media: a frame as JPEG, silences + loudness, shot changes, music (for the assistant).
+src/
+  stores/editor.ts   THE video document store: project, assets, selection, undo history, gestures, edit commands.
+  stores/autosave.ts, asset-polling.ts   Side effects of the editor store (kept out of it).
+  stores/playback.ts The playback clock (rAF). layout.ts = panel/tool UI state.
+  stores/library.ts  The Library (folders, items, their media) and how its tab is browsed.
+  lib/text-render.ts Text layout (the browser's text engine measures it in any installed font); used by the preview,
+                     the export (`export/layout-texts.ts` sends layouts) and the canvas text editor.
+  components/preview/engine.ts   Imperative preview: drives hidden <video>/<img> and draws with the compositor. At
+                     most two frames are queued on the GPU (`inFlight`), heavy moving frames are drawn smaller
+                     (`adaptive.ts`, After Effects' Adaptive Resolution, the lightning button), and a segment with a
+                     render file is played from it (`renderedPicture`, `stores/render-files.ts`).
+  components/preview/sync.ts, placement.ts   Its pure planners (tested). The engine plans each sequence as a `Level`
+                     (a nested one draws into a compositor group), with media elements per `previewSlots` id.
+  components/properties/graph-editor.tsx   The graph editor (value/speed graphs, Bézier handles; maths in graph-geometry.ts).
+  components/preview/path-overlay.tsx   Paths on the Program monitor (masks, drawn shapes): the pen, rectangle and ellipse
+                     tools, vertices and handles (pure maths in path-geometry.ts; which path is edited: stores/path-editing.ts).
+                     transform-overlay.tsx also draws the motion path (keyframe dots and spatial handles).
+  components/timeline/  Timeline UI; geometry.ts is its pure maths, view-store.ts its interaction-speed state.
+                     markers.tsx: markers on the ruler and on clips, with their editor (stores/markers.ts).
+  components/properties/  Spec-driven properties panel (param-rows.tsx renders any ParamSpec), the stopwatch and
+                     navigator (animation-controls.tsx), the keyframe lanes (keyframe-lanes.tsx, pure maths in
+                     keyframe-geometry.ts, selection and the keyframe clipboard in keyframe-selection.ts) and a
+                     property's expression (expression-row.tsx: the script, its pick-whip, examples).
+  components/captions/   Auto captions window, engine picker/setup, the Captions tab. State in stores/captions.ts.
+  components/library/  The Library tab, its cards, dialogs and the Save to Library window, folder drop targets.
+  components/workspace/video-desktop.tsx   The video editor's windows (`stores/video-windows.ts`), over it: export,
+                     video settings, Auto captions, Save to Library. Its panels stay docked (docs/windows.md).
+  components/effects/  The Effects tab: video effects and transitions (library-grid.tsx is their shared search,
+                     category chips and cards; thumbnails.ts draws every card with one shared compositor).
+  components/workspace/video-workspace.tsx   The video editor's (header, its docked panels, assistant).
+  components/workspace/video-panels.tsx   The video editor's panels (`VIDEO_PANEL_DEFS`): Media (This video | Library,
+                     `MediaSource`), Online (YouTube and pasted links), Effects (Video effects | Presets | Transitions,
+                     `EffectKind`, `KINDS`), Captions, Properties, Program, Timeline. Laid out by `stores/video-dock.ts`
+                     (the default, Théo's: Media, Online, Effects and Captions as tabs on the left, the monitor, Properties on the right, the timeline
+                     below; `VIDEO_WORKSPACES`). Effects and effect presets dropped on Properties go on its clips
+                     (`properties/properties-drop.tsx`). Show one with
+                     `showPanel` (also `showMedia`, `showEffects`), never by assuming where it is: it may be in any
+                     group, or floating. Properties widens to 520 px while its keyframe lanes show (`useVideoPanelMins`).
+  assistant/         Where agents' tool calls run (in the tab): tools.ts (every tool's handler), doc.ts (the video a call
+                     acts on: the open one via the editor store, or a background copy), edits.ts (the pure timeline
+                     edits, tested), describe.ts (what the model reads: timeline, clips, catalogue...), frames.ts
+                     (Program monitor, a background video drawn offscreen, media frames), bridge.ts (the tab's event
+                     stream; one call queue per video), context.ts.
+                     layout.ts: what `get_layout` reports (clips' boxes on the canvas in px, a text's letters).
+```
+
+## Data model (shared/types.ts)
+
+- `Project = { version, name, settings: { aspectRatio, fps }, tracks, clips }`. All times are seconds (floats).
+  Round the results of edits with `roundTime`.
+- `tracks` is in display order: video tracks first (index 0 is drawn **on top**), then audio tracks. There's always at
+  least one video track. Clips are placed freely (gaps allowed), never overlap on a track, and never start before 0.
+- `Clip = { id, assetId, trackId, start, in, out, effects, transitionIn?, transitionOut?, speed?, reversed?, keepPitch? }`.
+  `start` is timeline time; `in`/`out` are **source** time. Duration is `out - in` at normal speed. Stills and text have no source range, so their `in` can be
+  anything, even negative.
+- Speed: `Clip.speed` (absent = 1), `reversed` and `keepPitch: false` (absent = keep). Duration is
+  `(out - in) / speed`, and a reversed clip runs from `out` down to `in`. Never do timeline<->source maths by hand:
+  use `clipDuration`/`clipEnd`, `sourceTime`/`sourceAt` (what's shown), `sourceEdge` (where a cut or trim lands),
+  `timelineTime` (inverse) and `sourceDelta` (in `shared/timeline.ts`). Only video and sound clips have a speed
+  (`canRetime`). `setClipSpeed` ripples the rest of the track; `stretchClip` is the ⌥-drag rate stretch.
+- A reversed clip plays its media's reversed copy (`MediaAsset.reversed`, made on demand by
+  `server/derivatives.ts` `makeReversed`, requested by `requestReversedCopies` in `stores/asset-polling.ts`, awaited by
+  the export). Source time `s` is at `fileTime(clip, s, duration)` in it. Media elements only play forwards, so the
+  preview never plays a reversed clip any other way.
+- Text clip: `assetId: ""` plus the Text and Appearance effects (`isTextClip`). The browser draws text in any installed
+  font: the tab lays it out (`TextLayout`, only it can measure the user's fonts), `shared/text-drawing.ts` turns
+  a layout and the style at a moment into a `TextDrawing`, and the compositor draws that with the 2D canvas at the
+  size it's shown, in the preview and in the export's page alike. The export request carries the layouts
+  (`ExportRequest.texts`), never pictures. Don't switch to ffmpeg `drawtext`.
+- Clip kinds (`clipKind`): media, text, solid (`assetId: ""` + the Solid effect: a colour filling the canvas, drawn by
+  the compositor; generator effects go on it), shape layer (`assetId: ""` + one or more Shape effects, type
+  `vector-shape`, and shape operators between them, applied in order: `shared/shapes.ts`; its frame is the canvas,
+  the canvas overlay's handles go around what it draws; shapes past the frame are drawn too: `VectorDrawing.bleed`) and adjustment layer (`assetId: ""` + `adjustment: true`: its effects,
+  Motion and Opacity apply to everything below it; no transitions, and neighbours can't transition into it). Use
+  `hasMedia` where code needs a media file. Solids and adjustment layers fill the canvas at 100%.
+- Opacity has a `blendMode` and a `trackMatte` (the clip on the video track right above is its matte and isn't drawn);
+  Motion has `edges` (none/mirror/tile/extend: what shows past the frame), `motionBlur` + `shutterAngle`, and
+  `threeD` + `positionZ`/`rotationX`/`rotationY` (a 3D layer, seen through the topmost Camera clip: `camera.ts`).
+  A keyframe's `influence` (0..1, absent = 1/3) is After Effects' ease velocity influence.
+- `Clip.timeInterpolation` (blend | flow; videos only) is Premiere's Time Interpolation: the export decodes such a
+  clip at its media's own frame rate (`RenderSource.native`) and sends the two frames either side of each moment;
+  the preview plays it a frame ahead and keeps the previous frame (`PreviewEngine.keepFrame`). Both go through
+  `Placed.interpolate`.
+- Time effects (`EffectShader.history`: Echo, Posterize Time, Trails, Datamosh, Pixel Motion Blur...) read their
+  earlier inputs, own last output and optical flow; the compositor keeps them per clip/effect by source time. They
+  only exist while playing and in the export (frames drawn in order); paused, the preview shows the frame alone.
+- Particle effects (`EffectShader.particles`) place particles in closed form from their birth, so any frame draws on
+  its own. Effects that draw past the clip's frame ask for room (`EffectShader.grow`, `frameUv` in GLSL).
+- `Effect = { id, type, enabled, params, keyframes? }`. Built-in effects (motion, opacity, volume) are on every clip,
+  and Text/Appearance on text clips. All of these have `id === type`, and code addresses them by type.
+- Video effects (a definition with a `shader`) are the ones the user adds: any number, in the order they're drawn,
+  after the others in `clip.effects`, with ids `type`, `type_2`... Each runs over the clip's own picture before
+  Motion places it (Premiere's standard effects), so blur sizes etc. are fractions of the clip's frame.
+- Effects the user adds (`isAddedEffect`): video effects (a `shader`) and `stackable` ones (masks, a shape layer's
+  shapes and operators, text animators). `orderEffects` keeps each kind together in `clip.effects` (built-ins, what
+  the clip is, Time Remapping, shapes/animators, masks, video effects); `addEffect`/`removeEffect`/`moveEffect` work
+  for all of them; `effectLabel` numbers several of a type ("Mask 2").
+- A `path` parameter (`PathSpec`, a `BezierPath` in fractions of the clip's frame) is animatable: keyframes morph it
+  (`lerpPath`). `ParamValue` includes paths: check `isPath` before treating an object value as anything else.
+- Masks (`mask` effects) cut a clip's picture out before its video effects; on an adjustment layer they say where it
+  changes what's below. `clipLayer` puts them on the layer (`masksAt`), so the preview and the export get them alike.
+- Text animators (`text-animator` effects on text) reach the drawing through `textStyleAt` (`TextStyle.animators`, and
+  `reach`: room the text's frame keeps for them, the same at every moment); `textDrawing` works out each letter's
+  share and the compositor draws letter by letter, per frame, in the export too.
+- Expressions (`Effect.expressions`, by parameter key; numbers and points only, never Volume): anything that draws
+  must read values with `effectValuesAt(def, effect, time, clip)` (or `valuesAt`/`motionAt`..., which do), never
+  `storedValuesAt`, which is the plain value the panel edits. `time` in an expression is the clip's source time.
+  Its `fps` is the sequence's: whatever draws a sequence wraps the work in `atFrameRate(fps, ...)` (the preview's
+  and the export's levels, the canvas overlay); a new place that draws clips must too.
+- A point's keyframes can carry spatial handles (`Keyframe.spatialIn/Out`, the motion path): `keyframeValue` then
+  travels the curve at an even pace by length (`spatialCurve`).
+- Markers: `Project.markers` / `Sequence.markers` (timeline time; a sequence view's `markers` are that sequence's) and
+  `Clip.markers` (source time). `snapPoints` includes them.
+- Keyframes are stored in **source time** (so they stay on their frame when the clip moves, trims or splits). Read
+  values with `sourceTime(clip, playheadTime)`; write them at `keyframeTime(clip, playhead, fps)` (the frame under
+  the playhead, or an existing keyframe within half a frame), which every editing surface uses. A keyframe's `easing`
+  says how it's passed through (Premiere's Ease In/Out, Hold); `easedProgress` is the curve.
+- Transitions are stored on clip edges. At a cut, the outgoing clip's `transitionOut` wins. See
+  `transition-windows.ts` for the rules, and use `storedTransition`/`findWindow`/`refKey` rather than reading fields.
+- Nested sequences (`Project.sequences`, `shared/sequences.ts`): a clip plays one when its `assetId` is the sequence's
+  id (`seq_…`); `sequenceAsset` describes it as a video (in the editor's `assets`, never sent to the server), so
+  nested clips trim, retime and place like media. The editor store holds the whole video in `document` and the open
+  sequence's view in `project` (identical on the main sequence); every edit is a `(Project) => Project` on the view,
+  written back with `writeSequence`; undo history and autosave are documents. Anything that must see every clip
+  (export texts, reversed copies, deleting media) walks `allClips`/`everySequence`. The preview plans nests as levels
+  drawn into compositor groups (`beginGroup`/`endGroup`) and keeps settled nest frames; the export emits `group`
+  frame layers and decodes nested clips natively (`planRender`).
+- Time remapping: a clip with Time Remapping keyframes (`isRemapped`) runs its own clock at 1× (its `in`/`out` and all
+  its keyframes are in it) and shows `mediaTime(clip, s)`. Anything that picks a media frame or sound must go through
+  `mediaTime`/`remapSpeed` (preview `mediaOf`, export native runs and `soundPieces`), never `sourceTime` alone.
+- Parenting (`Clip.parent`, `shared/parenting.ts`) and null objects (`nullObject`): `placer` takes a `parent` delta
+  from `parentAt`; code that places clips must pass it (preview, export, canvas overlay).
+- Dynamic easings (`overshoot`, `spring`, `bounce`; `isDynamic`) shape the stretch *arriving* at their keyframe and
+  leave 0..1 (`dynamicProgress`); a Bézier handle on either side of the stretch takes over (`isDynamicSegment`).
+- Keyframe Bézier handles (`handleIn`/`handleOut`, the graph editor) override easing on their side; `segmentHandles`
+  is the curve's control points and `bezierProgress` evaluates it.
+- Captions are text clips with `caption: true` (only valid on text clips; see `shared/captions.ts`). The Captions tab
+  edits style for all of them (never their text or timing); Properties edits one. A caption's animation is a text
+  animator stepping through its words at the times they're said (`SPOKEN_ANIMATIONS`, hold keyframes), or a
+  transition on its `transitionIn`; only transition-animated captions end one frame before the next.
+- Subclips (`Project.subclips`, `shared/subclips.ts`) are named parts of a media file made in the source preview
+  (In/Out, ⌘U): listed in the Media tab after their file, and added to the timeline as that part. They point at the
+  file (nothing is copied), are undoable edits, and go with their file. Their ids go wherever media ids do
+  (`addAssetsToTimeline`, drag payloads, `useLibrary.addAssets`). While one is open in the source preview, its range
+  is the In/Out there (`components/preview/source-marking.ts`); a file's own marks are browser state, not the video.
+- Media (`MediaAsset`) belongs to one project. `kind` is video | audio | image. Filmstrip and waveform generation
+  finish after import (`status: "processing"`).
+- The Library (`LibraryFolder`, `LibraryItem`) is shared by every project and has its own media (`projectId: null`,
+  a second `MediaLibrary` rooted at `data/library/media`, served at `/files/library`). An item is one file
+  (`kind: "media"`) or saved clips (`kind: "clips"`, a `ClipTemplate`: tracks + clips pointing at Library media).
+  Nothing ever references across: saving copies project media into the Library, and using an item
+  (`POST /api/library/items/:id/use`) copies its media into the project, reusing a copy already there
+  (`MediaAsset.origin`). Library media no item uses is deleted.
+
+## Editing rules (src/stores/editor.ts)
+
+- Every document change is a pure `(Project) => Project` from `shared/`. It returns **the same instance** when nothing
+  changed; that's how no-ops skip the undo stack and autosave.
+- One-shot edit: `useEditor.getState().commit(fn)`. Continuous edit (drag, scrub, typing): use `EditGesture`
+  (`lib/edit-gesture.ts`): `begin` → `apply`* → `end`/`cancel`. The whole gesture is one undo step. Derive every
+  preview from the gesture's base, never from the previous preview.
+- Drags use `startPointerDrag` (`lib/pointer-drag.ts`), or on the timeline `startPointerSession`, which adds lane
+  coordinates and auto-scroll. They handle capture, threshold, Esc/blur cancel and cleanup. Don't hand-roll window
+  listeners.
+- Selection is exactly one of: clips, a gap, a transition. Change it through the store's `select*`/`setSelection`
+  actions, which clear the other kinds; don't `set({ selectedClipIds })` directly.
+- Anything that isn't an undoable edit but changes the document (rename, deleted media) goes through
+  `rewriteHistory` so undo can't bring back the old state.
+- A preview derives from `gestureBase` whenever the edit is relative (e.g. `moveKeyframes` by a delta):
+  `preview(update)` applies `update` to the *current* project.
+- Autosave (`stores/autosave.ts`) saves the project when it changes outside a gesture: debounced, one request at a
+  time, retried, and flushed before switching projects.
+- UI state that changes at pointer speed (ghosts, snap guides, scroll) goes in `timeline/view-store.ts`, never in the
+  editor store.
+- Store subscriptions: select the narrowest value possible. Use `useShallow` for derived arrays, maps or objects.
+  Never subscribe to all of `project` in something that renders during drags or playback.
+
+## Performance (edits with thousands of clips)
+
+Auto captions make hundreds of clips, so everything must scale with the clip count. Check with `scripts/perf.ts`.
+- Nothing ever changes a `clips` array or a clip in place, so queries are cached per clip list (`perClipList` in
+  `shared/timeline.ts`): `trackClips` (sorted, shared: don't mutate it), `clipsById`, `captionClips`. Add new
+  whole-project queries the same way instead of filtering/sorting `project.clips` in a hot path.
+- No O(n²): no per-clip `find` inside a loop over clips, and no `reduce` of one-clip edits (each copies the list).
+  Batch them in one pass, as `setParams`/`updateEffect` do with a set of ids (`ClipIds`). Placement
+  (`findFreeStart`, `moveClips`) sorts blocked intervals (`nearestFree`) rather than trying every edge.
+- Store selectors run on **every** store update (each pointer move of a drag), so they must be cheap. Anything
+  computed from the project belongs in a cached query, not in a per-row selector.
+- The timeline renders only the clips in its visible window (`useVisibleWindow`) plus the one being pressed
+  (`heldClipId`). Don't rely on off-screen clips being in the DOM. The same goes for transition markers.
+- Long lists (the transcript) memoise their rows; each row subscribes to its own state (e.g. whether it's playing),
+  so playback never re-renders the whole list.
+- The preview uses a fixed number of media elements: an A/B pair per video track and per audio track, whatever
+  the clip count.
+
+## How to add…
+
+- **A property on an existing effect**: add a spec to its definition in `shared/effects.ts`. The panel, validation
+  and keyframing (stopwatch, lanes) then work automatically. Then apply the value where clips are drawn: preview
+  (`components/preview/engine.ts` / `placement.ts`) and export (`server/render.ts`: `planRender`'s `draw`,
+  `audioArgs`). Anything drawn should become compositor work (`shared/compositor.ts`) so both get it at once.
+- **A video effect** (added by the user from the Effects tab): add a `videoEffect(...)` to a
+  `shared/effect-library/*.ts` file (time effects in `time.ts`, particles in `particles.ts`). The GLSL defines `vec4 effect(vec2 uv)`; params become uniforms. See the
+  prelude docs in `effect-gl.ts`, and give it `demo` values if its defaults don't read on a card. Then run the
+  effect-sheet script. The panel, keyframes, preview and export then work with no other change.
+- **A built-in effect**: add an `EffectDefinition` to `EFFECTS` (`builtIn` puts it on every clip it `appliesTo`), plus
+  the same preview and export work as a property.
+- **A new kind of parameter**: a spec type and a `sanitizeValue` case in `shared/params.ts`, a row in
+  `components/properties/param-rows.tsx`, and display maths in `properties/display.ts` if it's numeric.
+- **A preset**: add a `PresetDefinition` to `shared/preset-library/transitions.ts` or `effects.ts` (keys are fractions of
+  its length; `common.ts` has the across/throughCut/spike shapes and MOVING). Transitions must end with every moved
+  value back at rest (tested). Run the preset-sheet script and look at it.
+- **A shape operator, or anything else added to clips without a shader**: an `EffectDefinition` with `stackable`
+  (`shape` | `animator` | `mask`) in `shared/effect-library/`, listed in `EFFECTS`; evaluate it where its kind is
+  drawn (`shapes.ts` `itemsAt`, `masks.ts`, `text-animators.ts`) with `effectValuesAt`; list it in the Properties
+  add row (`AddEffectRow`) and in `describeCatalog`. The panel, keyframes, expressions and `add_effect` then work.
+- **An expression function**: a global in `shared/expressions.ts` (`GLOBALS`, with its signature and description,
+  which the assistant's catalogue and the tests read). Keep it pure and repeatable (seeded by the scope).
+- **A transition**: add a definition to a `shared/transition-library/*.ts` file. The GLSL defines
+  `vec4 transition(vec2 uv)`; params become uniforms. See the prelude docs in `transition-gl.ts`. Then run the
+  transition-sheet script. No server change is needed.
+- **A field on Project/Track/Clip**: add it to `types.ts`, **validate it in `shared/normalize.ts`** (otherwise it's
+  silently dropped on load and save), and carry it through `splitClip`/`pasteClips` if it's per-clip.
+- **A keyboard shortcut**: `ShortcutAction` + `resolveShortcut` + `SHORTCUT_KEYS` + `SHORTCUT_GROUPS` in
+  `hooks/shortcuts.ts` (tested), then `run` in `hooks/use-shortcuts.ts`. Add it to `EDITS` if it edits (so it's
+  ignored mid-drag).
+- **A transcription engine** (another API or local model): implement `TranscriptionEngine` (`server/transcription/
+  engine.ts`: 16 kHz mono WAV in, timed words out) and add it to `defaultEngines` in `service.ts`, plus its id to
+  `TranscriptionEngineId`. Decoding, silence squeezing, time mapping and caching are the service's job.
+- **A video editor panel**: its id in `VideoPanel` and `VIDEO_PANELS` (`stores/video-dock.ts`, where the default
+  layout puts it; saved layouts get it in their first group) and its entry in `VIDEO_PANEL_DEFS`
+  (`workspace/video-panels.tsx`). Keep the panels few: a new place to find media is a `MediaSource` (Online is a panel of its own, Théo's call) (and
+  `SOURCES`), and a new kind of effect (video, audio) is an `EffectKind` (and `KINDS`), not a panel.
+- **A clip kind (like text) or a track kind**: there's no registry yet. Clip kinds are branched on in
+  `preview/engine.ts` (`kindOf` and each kind's slots), `preview/stage.tsx`, `preview/placement.ts`,
+  `timeline/timeline-clip.tsx`, `timeline-menus.tsx`, `properties-panel.tsx`, `server/render.ts` and
+  `server/exports.ts` (`clipKind` is the one place that says what a clip is). Track kinds assume video|audio in `shared/timeline.ts` (addTrack, pruneEmptyTrack,
+  canPlaceOnTrack), `normalize.ts`, `timeline/geometry.ts`, `track-headers.tsx`, `lane-overlays.tsx`,
+  `clip-gestures.ts` and `editor.ts` (`addAssetsToTimeline`, `moveSelectedToTrack`). Consider adding a registry
+  before a third kind.
+
+## Product decisions (don't undo)
+
+- The timeline works like Premiere/CapCut: free placement with snapping (the magnet toggle), and unlimited video
+  tracks created by dropping above the top track. There's **no magnetic main track** and no auto-packing.
+  **Auto ripple** (the toolbar's chain toggle, off by default, `autoRipple` in the editor store) is the opt-in
+  exception: deletes close gaps, edge trims and rate stretches move the rest of the track (`rippleClipEdit`), and
+  media dropped at a time pushes it along (`insertClip`). Moves stay free either way.
+- Clip properties are in the Properties panel, docked right of the Program monitor by default (Théo's layout; the
+  user may move it anywhere). The assistant's chat is the app's, outside the dock, at the far right. Video settings (aspect ratio
+  and fps) are in a window opened from the header. The canvas is always black.
+- Clicking a media card previews that file in the Program monitor's place (the source monitor).
+
+## Gotchas
+
+- `createCompositor` and `drawSampleScene` are serialised with `toString()` and injected into the headless
+  export page. They must not reference anything at module level. (Masks and shape layers are drawn there with the
+  page's own 2D canvas: `Path2D`, `OffscreenCanvas`, which the preview has too; text as well, in the fonts installed
+  on this computer, which the page loads before the first frame: `RenderPlan.fonts`.)
+- The export draws every frame in headless Chromium with `shared/compositor.ts`; ffmpeg only decodes (video as YUV
+  4:2:0 at the size it's shown; the compositor converts with the source's matrix), mixes audio and encodes (BT.709).
+  Frames come back as YUV 4:2:0 (H.264, HEVC) or straight RGBA (ProRes, PNG: `readRgbaAsync`; ffmpeg converts with
+  BT.709's matrix said explicitly, as swscale takes RGB as BT.601). An export with `alpha` begins each frame
+  transparent instead of black: the canvas stays black everywhere else (a product decision).
+  Everything animates exactly: Motion/Opacity per frame in `planRender`, volume as an ffmpeg expression of the same
+  curve (`keyframeExpression`), and text drawn by the page itself at every frame (only its layout comes from the
+  tab: one per change of its words, size or font, `TextLayoutAt.from`).
+- After changing the compositor or the export, run the integration tests (`server/integration.test.ts` checks
+  positions, transitions and colours of real exports).
+- Whisper times the word after a long silence early; that's why `audio.ts` squeezes silences out before any engine
+  and snaps words to the sound afterwards. Don't use whisper.cpp's own `--vad`: its token times aren't mapped back.
+- The export numbers each track's frames afresh after `concat` (`setpts=N/...`): a transition's file keeps time in
+  whole ms, and without it every transition pulled the rest of its track a frame early.
+- Saves on unload use `keepalive`, which is capped at about 64 KiB in Chromium, so a very large project may lose its
+  last edit if the tab closes mid-debounce.
