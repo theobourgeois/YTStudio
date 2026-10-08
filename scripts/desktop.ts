@@ -4,7 +4,7 @@
  *   pnpm dev:desktop       Vite (hot reload) + Electron; the main process restarts when electron/ or server/ change
  *   pnpm build:desktop     release/mac-<arch>/YTStudio.app (unsigned), to try the packaged app
  *   pnpm package:desktop   the same as a .dmg and a .zip in release/
- *   pnpm update:desktop    (macOS) build it, engine included, and put it in /Applications in place of the one there
+ *   pnpm update:desktop    build it, engine included, and install it in place of the one installed (macOS, Windows)
  *
  * The main process (electron/main.ts, which runs the server) is bundled with esbuild into one file, so the
  * packaged app ships no node_modules: just that bundle, the preload script and the built web app. The photo
@@ -388,18 +388,29 @@ async function pack(targets: "dir" | "installers") {
   console.log(`[desktop] built into ${path.relative(ROOT, path.join(ROOT, "release"))}/`);
 }
 
-/** Where the installed app lives; its data (userData, ~/Documents/YTStudio) is outside it, so replacing it keeps that. */
+/** Where the installed app lives on a Mac; its data (userData, ~/Documents/YTStudio) is outside it, so replacing it keeps that. */
 const INSTALLED_APP = "/Applications/YTStudio.app";
 const APP_ID = "gg.jestr.ytstudio";
 
+/** Wait for `running` to turn false, so nothing of the old app holds its files. */
+async function untilQuit(running: () => boolean) {
+  const until = Date.now() + 30_000;
+  while (running()) {
+    if (Date.now() > until) throw new Error("YTStudio didn't quit: quit it and run pnpm update:desktop again.");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 /**
- * Build the app and install it over the one in /Applications. The running app is quit (asked, so it saves) only
- * once the build is done, then opened again if it was running.
+ * Build the app and install it in place of the one installed: over /Applications/YTStudio.app on a Mac, by its
+ * own installer, silently, on Windows. The running app is quit (asked, so it saves) only once the build is done,
+ * then opened again if it was running.
  */
 async function update() {
-  if (process.platform !== "darwin") throw new Error("update:desktop installs into /Applications: macOS only.");
+  if (process.platform !== "darwin" && process.platform !== "win32") throw new Error("update:desktop installs on macOS and Windows only.");
   // Incremental: a no-op when the engine hasn't changed.
   await run("pnpm", ["engine:build"]);
+  if (process.platform === "win32") return updateWindows();
   await pack("dir");
   const built = path.join(ROOT, "release", process.arch === "arm64" ? "mac-arm64" : "mac", "YTStudio.app");
   if (!existsSync(built)) throw new Error(`Built app not found at ${built}`);
@@ -408,17 +419,40 @@ async function update() {
   if (wasRunning) {
     console.log("[desktop] quitting YTStudio");
     spawnSync("osascript", ["-e", `tell application id "${APP_ID}" to quit`], { stdio: "inherit" });
-    const until = Date.now() + 30_000;
-    while (running()) {
-      if (Date.now() > until) throw new Error("YTStudio didn't quit: quit it and run pnpm update:desktop again.");
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
+    await untilQuit(running);
   }
   rmSync(INSTALLED_APP, { recursive: true, force: true });
   const copied = spawnSync("ditto", [built, INSTALLED_APP], { stdio: "inherit" });
   if (copied.status !== 0) throw new Error(`Couldn't copy ${built} to ${INSTALLED_APP}`);
   console.log(`[desktop] installed ${INSTALLED_APP}`);
   if (wasRunning) spawnSync("open", [INSTALLED_APP]);
+}
+
+/**
+ * Windows: the NSIS installer, run silently, puts the app where it goes (per user, no admin), keeps the Start menu
+ * shortcut and the file types, and replaces an installed one (or installs it the first time).
+ */
+async function updateWindows() {
+  await pack("installers");
+  const installer = readdirSync(path.join(ROOT, "release"))
+    .filter((name) => name.startsWith("YTStudio Setup ") && name.endsWith(`${pkg.version}.exe`))
+    .map((name) => path.join(ROOT, "release", name))[0];
+  if (!installer) throw new Error(`No YTStudio Setup ${pkg.version}.exe in release/`);
+  const runningImage = (image: string) =>
+    (spawnSync("tasklist", ["/FI", `IMAGENAME eq ${image}`, "/NH"], { encoding: "utf8" }).stdout ?? "").toLowerCase().includes(image.toLowerCase());
+  const running = () => runningImage("YTStudio.exe") || runningImage(engineArtifactName("win32"));
+  const wasRunning = runningImage("YTStudio.exe");
+  if (wasRunning) {
+    console.log("[desktop] quitting YTStudio");
+    // Without /F: its windows are asked to close, so the page saves first (flushBeforeClose), then the engine quits.
+    spawnSync("taskkill", ["/IM", "YTStudio.exe"], { stdio: "inherit" });
+  }
+  await untilQuit(running);
+  console.log(`[desktop] installing ${path.basename(installer)}`);
+  // --force-run: electron-builder's installer starts the app once installed, even silently.
+  const installed = spawnSync(installer, wasRunning ? ["/S", "--force-run"] : ["/S"], { stdio: "inherit" });
+  if (installed.status !== 0) throw new Error(`${path.basename(installer)} exited with ${installed.status}`);
+  console.log("[desktop] installed YTStudio");
 }
 
 const command = process.argv[2];
