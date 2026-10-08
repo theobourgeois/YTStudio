@@ -1,5 +1,7 @@
 import { lazy } from "react";
 import { PiWaveform } from "react-icons/pi";
+import type { MusicProject } from "@shared/music/types";
+import { api } from "@/lib/api";
 import type { ClientSuite } from "../types";
 import { songContext, songTiming } from "./context";
 import { newSongOptions } from "./preferences";
@@ -40,5 +42,23 @@ export const musicSuite: ClientSuite<"music"> = {
     return history ? songContext(history.doc, patternId) : null;
   },
   runTool: runMusicTool,
+  documents: {
+    current: (projectId) => openSong(useMusic.getState(), projectId),
+    useCurrent: (projectId) => useMusic((s) => openSong(s, projectId)),
+    async snapshot(projectId) {
+      const open = openSong(useMusic.getState(), projectId);
+      if (open) return { doc: open, exact: true };
+      // A song that isn't open is edited on the server's copy (its tools load and save it).
+      return { doc: await api.getDocument("music", projectId), exact: false };
+    },
+    restore(projectId, song) {
+      if (useMusic.getState().projectId === projectId) useMusic.getState().restore(song as MusicProject);
+    },
+  },
   newProjectOptions: newSongOptions,
 };
+
+/** The song while it's open; mid-gesture, as it was before it. */
+function openSong(s: ReturnType<typeof useMusic.getState>, projectId: string): MusicProject | null {
+  return s.projectId === projectId && s.history ? (s.history.gestureBase ?? s.history.doc) : null;
+}

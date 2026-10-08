@@ -113,12 +113,11 @@ function gesturesSettled(signal: AbortSignal): Promise<void> {
   });
 }
 
-/** Report an edit: highlight what changed (when it's on screen) and remember it for the turn. */
-function finishEdit(doc: ToolDoc, before: Project, ctx: ToolContext) {
+/** Report an edit: highlight what changed (when it's on screen). */
+function finishEdit(doc: ToolDoc, before: Project) {
   const after = doc.project;
   const changes = clipChanges(before, after);
   if (doc.isOpen) useAssistant.getState().highlight([...changes.added, ...changes.changed]);
-  useAssistant.getState().recordEdit(ctx.turn, doc.projectId, before, after);
   return changes;
 }
 
@@ -146,7 +145,7 @@ const edit =
     });
     doc.commit(out.project);
     if (out.rename) doc.rename(out.rename);
-    return textResult(out.text, finishEdit(doc, before, ctx));
+    return textResult(out.text, finishEdit(doc, before));
   };
 
 function clipsOf(project: Project, ids: string[]): Clip[] {
@@ -386,7 +385,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
       const had = beatMarkerCount(clip);
       if (doc.isOpen) await gesturesSettled(ctx.signal);
       doc.commit(setBeatMarkers(doc.project, clipId, []));
-      return textResult(had ? `Removed ${had} beat markers from ${clipId}.` : `${clipId} has no beat markers.`, finishEdit(doc, before, ctx));
+      return textResult(had ? `Removed ${had} beat markers from ${clipId}.` : `${clipId} has no beat markers.`, finishEdit(doc, before));
     }
     const asset = doc.asset(clip.assetId);
     if (!asset?.hasAudio) throw new ToolError(`${clipId} has no sound. Give the clip with the music.`);
@@ -408,7 +407,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
       `Marked ${times.length} ${which} on ${clipId} "${asset.name}" ${music.bpm ? ` (${Math.round(music.bpm)} BPM${music.confidence < 0.4 ? ", a weak beat: check by ear" : ""})` : ""}. ` +
         `Timeline times: ${times.slice(0, 200).map(secs).join(", ")}${times.length > 200 ? `, … ${times.length - 200} more` : ""}.\n` +
         "They're markers on the clip now (they move with it). cut_to_markers ends clips on them.",
-      finishEdit(doc, before, ctx),
+      finishEdit(doc, before),
     );
   },
   async detect_scenes(input, ctx) {
@@ -538,7 +537,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
       const { added, apply } = await captionsFor(doc.project, job, sources.map((c) => c.id), options);
       if (added) doc.commit(apply(doc.project));
     }
-    const changes = finishEdit(doc, before, ctx);
+    const changes = finishEdit(doc, before);
     const now = captionClips(doc.project);
     if (changes.added.length === 0) return textResult("No speech was found in those clips, so no captions were added.", changes);
     return textResult(
@@ -608,7 +607,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
       await api.deleteMedia(asset.id);
       doc.assetDeleted(asset.id);
     }
-    return textResult(`Deleted "${asset.name}"${uses ? ` and its ${uses} clip${uses === 1 ? "" : "s"}` : ""}.`, finishEdit(doc, before, ctx));
+    return textResult(`Deleted "${asset.name}"${uses ? ` and its ${uses} clip${uses === 1 ? "" : "s"}` : ""}.`, finishEdit(doc, before));
   },
   async library_create_folder(input) {
     const folder = await api.createLibraryFolder({ name: string(input, "name"), parentId: optString(input, "parentId") ?? null });
@@ -709,7 +708,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
       item = used.item;
     }
     await useLibrary.getState().refresh();
-    const changes = finishEdit(doc, before, ctx);
+    const changes = finishEdit(doc, before);
     const project = doc.project;
     const placed = changes.added.map((id) => getClip(project, id)!).map((c) => `${c.id} ${range(c.start, clipEnd(c))}`);
     return textResult(`Added "${item.name}": ${placed.join(", ")}.`, changes);
