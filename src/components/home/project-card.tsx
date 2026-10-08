@@ -161,7 +161,7 @@ export const ProjectCard = memo(function ProjectCard({ project, now, view = "car
       <StatusPill status={status} />
     </div>
   );
-  const { swatch, icon: Icon } = clientSuite(project.suite);
+  const { swatch, tint, icon: Icon } = clientSuite(project.suite);
 
   const body = (() => {
     switch (view) {
@@ -188,9 +188,12 @@ export const ProjectCard = memo(function ProjectCard({ project, now, view = "car
       case "cards":
         return (
           <>
-            <div className={cn("flex h-6 min-w-0 items-center gap-1.5 px-2 text-[12px] font-semibold text-black/85", missing || damaged ? "bg-muted-foreground/50" : swatch)}>
-              <Icon className="size-3.5 shrink-0" />
-              {name}
+            {/* FL's clip title strip, muted: the suite's colour as a line along its top and a wash under its name. */}
+            <div className="relative flex h-7 min-w-0 items-center gap-2 border-b border-line bg-surface-3 px-2.5 text-[12.5px] font-semibold">
+              <span aria-hidden className={cn("absolute inset-0 opacity-[0.16]", missing || damaged ? "bg-muted-foreground" : swatch)} />
+              <span aria-hidden className={cn("absolute inset-x-0 top-0 h-0.5", missing || damaged ? "bg-muted-foreground" : swatch)} />
+              <Icon className={cn("relative size-3.5 shrink-0", textOf(tint))} />
+              <span className="relative flex min-w-0">{name}</span>
             </div>
             <div className="relative">
               <Picture project={project} />
@@ -269,6 +272,9 @@ export const ProjectCard = memo(function ProjectCard({ project, now, view = "car
     </>
   );
 });
+
+/** A suite's tint without its background: its colour for an icon or text. */
+const textOf = (tint: string) => tint.split(" ").filter((c) => !c.startsWith("bg-"));
 
 /** A picture's shape in the sheet: its own, within reason (a panorama doesn't take a whole row). */
 const sheetAspect = (project: ProjectSummary) => clamp(projectAspect(project), 0.5, 2.4);

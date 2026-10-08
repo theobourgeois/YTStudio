@@ -16,13 +16,22 @@ export function songSketch(project: SuiteProjectSummary<"music">, progress: numb
 }
 
 function SongSketch({ outline, progress }: { outline: SongOutline; progress: number }) {
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Song preview" className="absolute inset-0 size-full">
+      {outline.kind === "pattern" ? <StepSequencer outline={outline} /> : <Playlist outline={outline} />}
+      {progress > 0 && <line x1={progress * W} x2={progress * W} y2={H} stroke="var(--piano-time)" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
+    </svg>
+  );
+}
+
+/** Clips on their tracks, over the grid in bars (every fourth in a long song). */
+function Playlist({ outline }: { outline: SongOutline }) {
   const rows = Math.max(outline.rows, 4);
   const rowH = H / rows;
-  // A line a bar, or every 4 in a long song.
   const bars = Math.max(1, Math.min(64, outline.bars || 1));
   const every = bars > 32 ? 4 : 1;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Song preview" className="absolute inset-0 size-full">
+    <>
       {Array.from({ length: rows }, (_, i) => (
         <rect key={i} y={i * rowH} width={W} height={rowH} fill={i % 2 ? "var(--piano-black-row)" : "var(--piano-row)"} />
       ))}
@@ -33,10 +42,7 @@ function SongSketch({ outline, progress }: { outline: SongOutline; progress: num
         const y = row * rowH + rowH * 0.08;
         const h = rowH * 0.84;
         const { kind, color } = outline.styles[style] ?? { kind: "pattern", color: null };
-        if (kind === "note") {
-          return <rect key={i} x={start} y={y + h * 0.2} width={Math.max(4, length - 3)} height={h * 0.6} rx={3} fill={color ?? NOTE.bottom} stroke={NOTE.edge} strokeWidth={1} vectorEffect="non-scaling-stroke" />;
-        }
-        const colours = color ? clipColours(color) : KIND_COLOURS[kind];
+        const colours = color ? clipColours(color) : KIND_COLOURS[kind === "note" ? "pattern" : kind];
         return (
           <g key={i}>
             <rect x={start} y={y} width={Math.max(3, length - 2)} height={h} fill={colours.body} opacity={0.9} />
@@ -44,8 +50,35 @@ function SongSketch({ outline, progress }: { outline: SongOutline; progress: num
           </g>
         );
       })}
-      {progress > 0 && <line x1={progress * W} x2={progress * W} y2={H} stroke="var(--piano-time)" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
-    </svg>
+    </>
+  );
+}
+
+/**
+ * A pattern as FL's step sequencer shows it: a row of pads a channel, a pad a sixteenth, lit where a note
+ * starts; the rows centred, as many as fit a few to the card.
+ */
+function StepSequencer({ outline }: { outline: SongOutline }) {
+  const steps = Math.max(16, Math.min(64, Math.round(outline.bars || 1) * 16));
+  const rowH = H / Math.max(outline.rows, 5);
+  const top = (H - rowH * outline.rows) / 2;
+  const padW = W / steps;
+  const lit = new Set(outline.blocks.map(([row, start]) => `${row}:${Math.min(steps - 1, Math.floor((start / 1000) * steps))}`));
+  return (
+    <>
+      <rect width={W} height={H} fill="var(--piano-black-row)" />
+      {Array.from({ length: outline.rows }, (_, row) =>
+        Array.from({ length: steps }, (_, step) => {
+          const on = lit.has(`${row}:${step}`);
+          // FL's pads alternate in groups of four (a beat).
+          const shade = Math.floor(step / 4) % 2 ? "var(--piano-line)" : "var(--piano-row)";
+          return (
+            <rect key={`${row}:${step}`} x={step * padW + padW * 0.12} y={top + row * rowH + rowH * 0.14} width={padW * 0.76} height={rowH * 0.72} rx={2}
+              fill={on ? NOTE.bottom : shade} stroke={on ? NOTE.edge : "none"} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          );
+        }),
+      )}
+    </>
   );
 }
 

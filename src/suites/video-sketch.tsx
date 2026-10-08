@@ -12,7 +12,7 @@ export function EmptyFrame({ aspect }: { aspect: number }) {
     <div aria-hidden className="absolute inset-0 grid place-items-center bg-sunken">
       <div
         className="rounded-[3px] border border-dashed border-muted-foreground/40"
-        style={aspect < 1.6 ? { height: "72%", aspectRatio: aspect } : { width: "72%", aspectRatio: aspect }}
+        style={aspect < 1.6 ? { height: "78%", aspectRatio: aspect } : { width: "78%", aspectRatio: aspect }}
       />
     </div>
   );

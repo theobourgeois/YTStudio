@@ -195,7 +195,7 @@ export function ProjectPreviewPicture({ project, className = "aspect-[16/10]", c
           </button>
         )}
         {/* A suite with nothing to play (a photo's) has its picture, or its icon: neither is an empty timeline. */}
-        {((plays && empty && !poster && !compact) || (plays && active && (busy || failed)) || playError) && (
+        {((plays && empty && !poster && !compact && !sketch) || (plays && active && (busy || failed)) || playError) && (
           <span className="pointer-events-none absolute right-2 bottom-2 left-2 truncate text-center text-[10px] text-muted-foreground"
             title={playError ?? preview?.error}>
             {playError ?? (empty ? `Empty ${plays === "sound" ? "song" : "timeline"}` : failed ? "Preview unavailable" : "Preparing preview…")}
