@@ -34,9 +34,12 @@ import { wrapTail } from "./wrap.ts";
 import { errorMessage } from "../../shared/errors.ts";
 import { isFiniteNumber } from "../../shared/math.ts";
 import { FFMPEG } from "../config.ts";
+import { elapsed, log } from "../log.ts";
 import { run } from "../process.ts";
 import { type DataPaths, HttpError, isObject, isValidId } from "../storage.ts";
 import type { AudioEngine, SamplePath } from "./engine.ts";
+
+const logger = log("music-export");
 
 export interface MusicExportOptions {
   samplePath: SamplePath;
@@ -220,6 +223,7 @@ export class MusicExports {
         view.media = await this.options.adopt(plan.projectId, mix.file, plan.bounce.name, `bounce:${view.id}`);
         view.state = "done";
         view.seconds = (performance.now() - began) / 1000;
+        logger.info(`${view.id} bounced in ${elapsed(began)}`);
         return;
       }
       // Over full scale (the mix is floating point, a file isn't): every file turned down alike, if asked.
@@ -275,11 +279,13 @@ export class MusicExports {
       view.files.sort((a, b) => (a.track === null ? 0 : 1) - (b.track === null ? 0 : 1) || (a.track ?? "").localeCompare(b.track ?? "") || settings.formats.indexOf(a.format) - settings.formats.indexOf(b.format));
       view.state = "done";
       view.seconds = (performance.now() - began) / 1000;
+      logger.info(`${view.id} done in ${elapsed(began)} (${view.files.length} file${view.files.length === 1 ? "" : "s"})`);
       if (settings.reveal && !plan.keep && view.files[0]?.path) await this.revealFile(view.files[0].path);
     } catch (err) {
       const stopped = job.abort.signal.aborted;
       view.state = stopped ? "aborted" : "failed";
       view.error = stopped ? null : errorMessage(err);
+      if (!stopped) logger.error(`${view.id} failed`, err);
       view.files = [];
       await Promise.all([...written].map((file) => fs.rm(file, { force: true })));
       if (plan.keep) await fs.rm(folder, { recursive: true, force: true });

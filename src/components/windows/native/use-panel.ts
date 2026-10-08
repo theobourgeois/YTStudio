@@ -3,6 +3,9 @@ import { desktopPanels } from "@/lib/desktop";
 import { type PanelWindow, openPanelWindow } from "./panel-window";
 import { contentBounds, onContentBounds, pageScale } from "./bridge";
 import type { Metrics } from "./geometry";
+import { log } from "@/lib/log";
+
+const logger = log("windows");
 
 /**
  * Where the desktop is, for placing native panels on the screen: read on demand (`metrics`), and `subscribe`
@@ -87,7 +90,7 @@ export function usePanelWindow(id: string, title: string, enabled: boolean, onGo
     // Next turn: React's development double-run of an effect opens (and closes) no window.
     const timer = setTimeout(() => {
       made = openPanelWindow(id, titleRef.current);
-      if (!made) return void console.error(`The window "${id}" couldn't be opened as a native window.`);
+      if (!made) return void logger.error(`the window "${id}" couldn't be opened as a native window`);
       made.onGone = () => {
         open.delete(id);
         setPanel(null);

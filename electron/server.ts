@@ -7,6 +7,7 @@ import type { AddressInfo } from "node:net";
 import { type AppOptions, type EditorApp, createApp } from "../server/app.ts";
 import { FFMPEG } from "../server/config.ts";
 import { ffmpegVersion } from "../server/ffmpeg.ts";
+import { log } from "../server/log.ts";
 import { setGlPageOpener } from "../server/gl-browser.ts";
 import { openWindowPage } from "./gl-window.ts";
 
@@ -54,15 +55,16 @@ function listen(server: http.Server, port: number): Promise<number | null> {
 export async function startServer({ dataDir, clientDir, ports, trash, reveal }: ServerOptions): Promise<RunningServer> {
   setGlPageOpener(openWindowPage);
   const version = await ffmpegVersion();
-  if (version) console.log(`[desktop] using ffmpeg ${version}`);
-  else console.warn(`[desktop] ffmpeg not found (tried "${FFMPEG}"): importing and exporting won't work.`);
+  const logger = log("desktop");
+  if (version) logger.info(`using ffmpeg ${version}`);
+  else logger.warn(`ffmpeg not found (tried "${FFMPEG}"): importing and exporting won't work.`);
 
   const { app, shutdown, setHostWindow, onEngineWindow, raiseEngineWindow, closeEngineWindows } = await createApp({ dataDir, clientDir, trash, reveal });
   const server = http.createServer(app);
   for (const candidate of ports) {
     const port = await listen(server, candidate);
     if (port === null) continue;
-    console.log(`[desktop] server on http://127.0.0.1:${port} (data: ${dataDir})`);
+    logger.info(`server on http://127.0.0.1:${port} (data: ${dataDir})`);
     return {
       port,
       setHostWindow,

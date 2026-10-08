@@ -15,6 +15,9 @@ import type {
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
 import { type DataPaths, HttpError, isObject, isValidId, parseName, readJson, writeJson } from "./storage.ts";
+import { log } from "./log.ts";
+
+const logger = log("library");
 
 /** `data/library/library.json`. */
 interface LibraryFile {
@@ -312,7 +315,7 @@ export class LibraryStore {
     const used = new Set([...this.items.values()].flatMap(itemMediaIds));
     for (const id of new Set(ids)) {
       if (used.has(id) || this.held.has(id) || !this.media.find(id)) continue;
-      await this.media.remove(id).catch((err) => console.warn(`[library] couldn't delete ${id}:`, err));
+      await this.media.remove(id).catch((err) => logger.warn(`couldn't delete ${id}`, err));
     }
   }
 

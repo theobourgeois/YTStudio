@@ -42,6 +42,7 @@ import { ApiKeyStore } from "./transcription/settings.ts";
 import { ProjectStore } from "./projects.ts";
 import { assistantRoutes } from "./routes/assistant.ts";
 import { exportRoutes } from "./routes/exports.ts";
+import { logRequests, logRoutes, requestPath } from "./routes/log.ts";
 import { renderFileRoutes } from "./routes/render-files.ts";
 import { libraryRoutes } from "./routes/library.ts";
 import { mediaRoutes } from "./routes/media.ts";
@@ -49,6 +50,8 @@ import { projectRoutes } from "./routes/projects.ts";
 import { suiteBackend } from "./suites/index.ts";
 import { transcriptionRoutes } from "./routes/transcription.ts";
 import { webRoutes } from "./routes/web.ts";
+import { log } from "./log.ts";
+import { revealInFinder } from "./process.ts";
 import { DataPaths, HttpError } from "./storage.ts";
 import { type TranscriptionOptions, TranscriptionService } from "./transcription/service.ts";
 import { WebMediaLibrary } from "./web-media.ts";
@@ -239,6 +242,7 @@ export async function createApp({
 
   const app = express();
   app.disable("x-powered-by");
+  app.use(logRequests());
 
   app.get("/api/health", async (_req, res) => {
     const version = await ffmpegVersion();
@@ -251,6 +255,7 @@ export async function createApp({
     next();
   });
 
+  app.use("/api/log", logRoutes(reveal ?? revealInFinder));
   app.use("/api/projects", projectRoutes(projects, previews, (id) => assistant.remove(id)));
   app.use("/api/media", mediaRoutes(library, projects));
   app.use("/api/web", webRoutes(web, projects));
@@ -327,11 +332,16 @@ export async function createApp({
     });
   }
 
-  const onError: ErrorRequestHandler = (err, _req, res, next) => {
+  const httpLog = log("http");
+  const onError: ErrorRequestHandler = (err, req, res, next) => {
     if (res.headersSent) return next(err);
     const e = err as { status?: number; statusCode?: number; expose?: boolean; message?: string };
     const status = err instanceof HttpError ? err.status : (e.status ?? e.statusCode ?? 500);
-    if (!(err instanceof HttpError) && status >= 500) console.error(err);
+    // A 5xx the code chose (the engine isn't built) is news; one it didn't is a bug, with its stack.
+    if (status >= 500) {
+      if (err instanceof HttpError) httpLog.info(`${req.method} ${requestPath(req)} ${status}: ${err.message}`);
+      else httpLog.error(`${req.method} ${requestPath(req)} failed`, err);
+    }
     const message =
       err instanceof HttpError || e.expose ? (e.message ?? "Request failed") : "Internal server error";
     res.status(status).setHeader("Cache-Control", "no-store").json({ error: message });

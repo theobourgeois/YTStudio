@@ -1083,6 +1083,9 @@ export interface ToolCallProgressRequest {
 //
 //   GET    /api/health                  -> HealthResponse
 //
+//   POST   /api/log  body: { entries: PageLogEntry[] } -> 204: the tab's lines into the app's log (shared/log.ts)
+//   POST   /api/log/reveal              -> 204: the log file shown in Finder (404 when the server keeps none)
+//
 //   GET    /api/projects                -> ProjectSummary[] (this computer's recents, every suite, the
 //                                        latest opened or saved first; missing ones too, flagged `missing`,
 //                                        and ones whose document is damaged, flagged `damaged`)

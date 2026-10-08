@@ -21,6 +21,9 @@ import type { SurfaceUploads } from "../uploads.ts";
 import { type BrushEffect, EffectPass } from "./brush-effects.ts";
 import { BATCH, type RenderContext } from "./context.ts";
 import { FILL, PENDING, VirtualImage } from "./image.ts";
+import { log } from "@/lib/log";
+
+const logger = log("photo");
 
 /** A box of a surface's own pixels. */
 export interface SurfaceRegion {
@@ -233,7 +236,7 @@ export class SurfaceImage {
     if (token !== this.showing || this.destroyed) return;
     this.shown = id;
     this.showManifest(manifest);
-    void this.ensureResident().catch((error: unknown) => console.error("[photo] couldn't fetch a surface's tiles", error));
+    void this.ensureResident().catch((error: unknown) => logger.error("couldn't fetch a surface's tiles", error));
   }
 
   private showManifest(manifest: SurfaceManifest) {

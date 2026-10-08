@@ -3,6 +3,9 @@ import { HttpError, isObject } from "../storage.ts";
 import { Router, json, raw } from "express";
 import { PROJECT_NOTICE_HEADER } from "../../shared/types.ts";
 import { MAX_COVER_BYTES, type ProjectStore } from "../projects.ts";
+import { log } from "../log.ts";
+
+const logger = log("projects");
 
 /** `/api/projects`: the recents, each project's document and its package. `onRemove` cleans up after a deleted one. */
 export function projectRoutes(projects: ProjectStore, previews: ProjectPreviews, onRemove?: (id: string) => Promise<void>): Router {
@@ -96,7 +99,7 @@ export function projectRoutes(projects: ProjectStore, previews: ProjectPreviews,
   router.delete("/:id", async (req, res) => {
     previews.forget(req.params.id);
     await projects.remove(req.params.id);
-    await onRemove?.(req.params.id).catch((err) => console.error(err));
+    await onRemove?.(req.params.id).catch((err) => logger.error("removing its chat failed", err));
     res.sendStatus(204);
   });
   return router;

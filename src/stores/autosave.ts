@@ -8,6 +8,9 @@
 import type { StoreApi } from "zustand";
 import type { Project, ProjectSummary } from "@shared/types";
 import { ApiRequestError, api } from "@/lib/api";
+import { log } from "@/lib/log";
+
+const logger = log("autosave");
 
 /** What autosave needs from the editor store. */
 interface Saveable {
@@ -68,7 +71,7 @@ async function runSaves(): Promise<void> {
       } catch (err) {
         // A deleted project can't be saved; anything else is retried.
         if (err instanceof ApiRequestError && err.status === 404) continue;
-        console.error("Autosave failed; retrying", err);
+        logger.error("failed; retrying", err);
         if (!pendingSaves.has(id)) pendingSaves.set(id, project);
         failed = true;
       } finally {

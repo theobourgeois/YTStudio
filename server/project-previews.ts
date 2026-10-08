@@ -7,6 +7,9 @@ import { errorMessage } from "../shared/errors.ts";
 import { createLimiter } from "./queue.ts";
 import type { ProjectStore } from "./projects.ts";
 import { DataPaths, HttpError, readJson, writeJson } from "./storage.ts";
+import { log } from "./log.ts";
+
+const logger = log("preview");
 
 export interface PreviewInputs { texts?: Record<string, TextLayoutAt[]> }
 export type PreviewInspector = (file: string, folder: string, suite: SuiteId, signal: AbortSignal) => Promise<Pick<ProjectPreview, "duration" | "peaks">>;
@@ -97,7 +100,7 @@ export class ProjectPreviews {
         // Superseded work cannot leave a permanent "rendering" status.
         if (this.jobs.get(id) === job && job.view.state === "rendering") this.jobs.delete(id);
       }
-    }).catch((err) => console.error("[preview]", err));
+    }).catch((err) => logger.error("a cover failed", err));
     return { ...job.view };
   }
 

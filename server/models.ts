@@ -12,6 +12,9 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { errorMessage } from "../shared/errors.ts";
 import { type ModelFile, type ModelSpec, type ModelStatus, modelSize } from "../shared/models.ts";
+import { log } from "./log.ts";
+
+const logger = log("models");
 
 export class DownloadedModel {
   private downloading: { progress: number } | null = null;
@@ -53,7 +56,7 @@ export class DownloadedModel {
     void this.download().then(
       () => (this.downloading = null),
       (error: unknown) => {
-        console.error(`[models] ${this.model.command}'s model's download failed:`, error);
+        logger.error(`${this.model.command}'s model's download failed`, error);
         this.downloading = null;
         this.error = `The download failed: ${errorMessage(error)}`;
       },

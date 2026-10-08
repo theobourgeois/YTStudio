@@ -19,6 +19,9 @@ import { audioArgs, runWithProgress } from "./render.ts";
 import { renderInputs } from "./render-inputs.ts";
 import { type DataPaths, HttpError, isValidId } from "./storage.ts";
 import { writeZip } from "./zip.ts";
+import { elapsed, log } from "./log.ts";
+
+const logger = log("export");
 
 interface JobState {
   job: ExportJob;
@@ -140,7 +143,7 @@ export class ExportManager {
     };
     const state: JobState = { job, project, texts, preview, controller: new AbortController() };
     this.jobs.set(job.id, state);
-    this.limit(() => this.render(state)).catch((err) => console.error("[export]", err));
+    this.limit(() => this.render(state)).catch((err) => logger.error("an export job failed", err));
     return { ...job };
   }
 
@@ -197,6 +200,7 @@ export class ExportManager {
   private async render({ job, project, texts, controller, preview }: JobState): Promise<void> {
     if (job.status !== "queued") return;
     job.status = "rendering";
+    const began = performance.now();
     const format = exportFormat(job.format);
     const sequence = format.id === "png";
     const tmp = this.paths.tmpFile(`.${format.extension}`);
@@ -266,12 +270,13 @@ export class ExportManager {
         url: format.extension === "mp4" ? `/files/exports/${job.id}.mp4` : null,
         downloadUrl: `/api/exports/${job.id}/download`,
       });
+      if (!preview) logger.info(`${job.id} done in ${elapsed(began)} (${format.id}, ${job.width}×${job.height}, ${size} bytes)`);
     } catch (err) {
       await fs.rm(tmp, { force: true });
       if (signal.aborted) return; // cancelled (status already set) or shutting down
       job.status = "error";
       job.error = `Export failed: ${errorMessage(err)}`;
-      console.error(`[export] ${job.id} failed: ${job.error}`);
+      logger.error(`${job.id} failed: ${job.error}`);
     } finally {
       await fs.rm(audio, { force: true });
       if (frames) await fs.rm(frames, { recursive: true, force: true });

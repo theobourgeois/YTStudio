@@ -19,6 +19,9 @@ import { clientSuite } from "@/suites";
 import { SETTINGS_KEYS } from "@/components/settings/settings-window";
 import { showOpenDialog } from "./open-project-dialog";
 import { CLOSE_TAB_KEYS, HOME_KEYS, NEW_PROJECT_KEYS, OPEN_KEYS, PROJECT_SEARCH_KEYS } from "./project-search-dialog";
+import { log } from "@/lib/log";
+
+const logger = log("menus");
 
 /** One of a suite's own menus (Image, Patterns…): its name and its items (`components/ui/dropdown-menu`'s). */
 export interface SuiteMenu {
@@ -83,7 +86,7 @@ export function SuiteMenuBar(menus: SuiteMenus) {
     // The strip's room is worked out from the names the suite declares: they must be these.
     const suite = projectSuite(useProjects.getState().openId);
     const names = ["File", "Edit", "View", ...(menus.menus ?? []).map((m) => m.label), "Window"].join();
-    if (suite && menuNames(suite).join() !== names) console.error(`The ${suite} suite's \`menus\` (${menuNames(suite).join()}) aren't its menu bar's (${names})`);
+    if (suite && menuNames(suite).join() !== names) logger.error(`the ${suite} suite's \`menus\` (${menuNames(suite).join()}) aren't its menu bar's (${names})`);
   }
   useLayoutEffect(() => {
     useMenuSlot.setState({ claimed: true });

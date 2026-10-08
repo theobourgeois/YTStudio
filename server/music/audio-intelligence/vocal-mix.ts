@@ -22,6 +22,9 @@ import { createLimiter } from "../../queue.ts";
 import { HttpError, isValidId, writeJson } from "../../storage.ts";
 import { readWav } from "../wav.ts";
 import type { AudioIntelligence } from "./service.ts";
+import { log } from "../../log.ts";
+
+const logger = log("vocal-mix");
 
 export const VOCAL_SERVER_TOOLS = ["get_vocal_mixing_workflow", "create_vocal_mix_run", "get_vocal_mix_run", "cancel_vocal_mix_run", "retry_vocal_mix_run", "validate_vocal_mix_apply", "conclude_vocal_mix_run"] as const;
 const safe = (id: unknown) => { if (typeof id !== "string" || !/^mixrun_[a-zA-Z0-9_-]{1,64}$/.test(id)) throw new HttpError(400, "Invalid vocal comparison id."); return id; };
@@ -66,7 +69,7 @@ export class VocalMixService {
       this.timers.delete(id);
       if (this.stopped) return;
       try { const run = await this.get(projectId, id); if (run.status === "rendering" || run.status === "analysing") this.watch(projectId, id); }
-      catch (error) { if (!this.stopped) console.error("[vocal-mix] comparison progress failed", error); }
+      catch (error) { if (!this.stopped) logger.error("comparison progress failed", error); }
     }, 300);
     timer.unref(); this.timers.set(id, timer);
   }

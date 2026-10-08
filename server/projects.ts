@@ -10,10 +10,13 @@ import { DEFAULT_PROJECT_NAME, DEFAULT_SUITE, type SuiteDocument, type SuiteId, 
 import type { MediaAsset, ProjectLocation, ProjectSummary, ProjectTemplates } from "../shared/types.ts";
 import type { MediaLibrary } from "./media.ts";
 import { PROJECT_EXTENSION, fileName, isInside, moveToTrash, movePath, namedAfter, packageName, samePath, uniquePackage } from "./packages.ts";
-import { run } from "./process.ts";
+import { revealInFinder } from "./process.ts";
 import { createLimiter } from "./queue.ts";
 import { type DataPaths, HttpError, MAX_NAME_LENGTH, isObject, isValidId, parseName, readJson, writeJson, writeJsonDurably } from "./storage.ts";
 import { type DocStats, suiteBackend } from "./suites/index.ts";
+import { log } from "./log.ts";
+
+const logger = log("projects");
 
 /** `<package>/meta.json`: which project it is and what kind. Written after `project.json`, so it marks a committed one. */
 interface ProjectMeta {
@@ -226,7 +229,7 @@ export class ProjectStore {
     for (const recent of saved.recent) {
       if (this.entries.has(recent.id) || this.missing.has(recent.id)) continue;
       const entry = await this.mount(recent.path, { openedAt: recent.openedAt, follow: "document" }).catch((err) => {
-        console.warn(`[projects] couldn't open ${recent.path}: ${err instanceof Error ? err.message : err}`);
+        logger.warn(`couldn't open ${recent.path}: ${err instanceof Error ? err.message : err}`);
         return null;
       });
       if (!entry) this.missing.set(recent.id, recent);
@@ -289,7 +292,7 @@ export class ProjectStore {
       const fixed = await backend.check!(doc as never, entry.dir);
       if (!fixed) return { doc };
       await this.write(id, fixed.doc);
-      console.warn(`[projects] ${entry.dir} was opened as it could be: ${fixed.notice}`);
+      logger.warn(`${entry.dir} was opened as it could be: ${fixed.notice}`);
       return { doc: fixed.doc, notice: fixed.notice };
     });
   }
@@ -323,7 +326,7 @@ export class ProjectStore {
     let template = input.blank === true ? null : this.templateId(suite);
     if (template && this.entries.get(template)?.damaged) {
       // Its copy can't be made: new projects start blank until the starting point is saved again.
-      console.warn(`[projects] the ${suite} starting point is damaged: starting blank`);
+      logger.warn(`the ${suite} starting point is damaged: starting blank`);
       template = null;
     }
     const backend = suiteBackend(suite);
@@ -406,7 +409,7 @@ export class ProjectStore {
           if (doc && !this.entry(id).damaged) await backend.opened!(doc as never, current.dir);
         });
       } catch (error) {
-        console.warn(`[projects] ${entry.meta.suite} couldn't tidy ${entry.dir} on opening: ${errorMessage(error)}`);
+        logger.warn(`${entry.meta.suite} couldn't tidy ${entry.dir} on opening: ${errorMessage(error)}`);
       }
     }
     this.open.add(id);
@@ -426,8 +429,7 @@ export class ProjectStore {
   /** Show its package in Finder. */
   async reveal(id: string): Promise<void> {
     const { dir } = this.entry(id);
-    const reveal = this.options.reveal ?? (async (target: string) => void (process.platform === "darwin" && (await run("open", ["-R", target]))));
-    await reveal(dir);
+    await (this.options.reveal ?? revealInFinder)(dir);
   }
 
   /**
@@ -680,7 +682,7 @@ export class ProjectStore {
           await movePath(dir, target);
           dir = target;
         } catch (err) {
-          console.warn(`[projects] couldn't rename ${dir}: ${err instanceof Error ? err.message : err}`);
+          logger.warn(`couldn't rename ${dir}: ${err instanceof Error ? err.message : err}`);
         }
       }
     }
@@ -753,7 +755,7 @@ export class ProjectStore {
       await this.options.beforeMove?.(id);
       await movePath(entry.dir, target);
     } catch (err) {
-      console.warn(`[projects] couldn't rename ${entry.dir}: ${err instanceof Error ? err.message : err}`);
+      logger.warn(`couldn't rename ${entry.dir}: ${err instanceof Error ? err.message : err}`);
       return;
     }
     this.entries.set(id, { ...this.entries.get(id)!, dir: target });
@@ -856,7 +858,7 @@ export class ProjectStore {
     let kept: string | null = null;
     if (bytes) {
       kept = await this.keeping(() => keepDamaged(dir, bytes)).catch((err) => {
-        console.warn(`[projects] couldn't keep a copy of ${path.join(dir, DOC_FILE)}: ${errorMessage(err)}`);
+        logger.warn(`couldn't keep a copy of ${path.join(dir, DOC_FILE)}: ${errorMessage(err)}`);
         return null;
       });
     }

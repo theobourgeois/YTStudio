@@ -4,6 +4,10 @@
  * so switching projects never mixes them up. (The video editor's `stores/autosave.ts` predates this.)
  */
 
+import { log } from "@/lib/log";
+
+const logger = log("autosave");
+
 export interface AutosaverOptions<D, R> {
   /** Send a document. `keepalive` is for the page going away: the request must outlive it. */
   save(id: string, doc: D, keepalive: boolean): Promise<R>;
@@ -54,7 +58,7 @@ export function createAutosaver<D, R>({ save, onSaved, isGone, debounceMs = 400 
           onSaved?.(result);
         } catch (err) {
           if (isGone?.(err)) continue;
-          console.error("Autosave failed; retrying", err);
+          logger.error("failed; retrying", err);
           if (!pending.has(id)) pending.set(id, doc);
           failed = true;
         } finally {

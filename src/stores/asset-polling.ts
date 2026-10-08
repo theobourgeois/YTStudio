@@ -8,6 +8,9 @@ import type { StoreApi } from "zustand";
 import type { MediaAsset, Project } from "@shared/types";
 import type { Upload } from "./editor";
 import { ApiRequestError, api } from "@/lib/api";
+import { log } from "@/lib/log";
+
+const logger = log("media");
 
 const POLL_MS = 1000;
 const DOWNLOAD_POLL_MS = 400;
@@ -95,7 +98,7 @@ export function requestReversedCopies(store: StoreApi<{ document: Project; asset
           store.setState({ assets: store.getState().assets.map((a) => (a.id === updated.id ? updated : a)) });
           void pollProcessingAssets(store);
         })
-        .catch((err) => console.warn("Couldn't ask for a reversed copy", err));
+        .catch((err) => logger.warn("couldn't ask for a reversed copy", err));
     }
   };
   store.subscribe((s, prev) => {

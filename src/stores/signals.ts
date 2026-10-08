@@ -11,6 +11,9 @@ import { SIGNALS_VERSION, type SignalData, decodeSignals } from "@shared/signals
 import type { MediaAsset, Project } from "@shared/types";
 import { api } from "@/lib/api";
 import { pollProcessingAssets } from "./asset-polling";
+import { log } from "@/lib/log";
+
+const logger = log("signals");
 
 interface SignalsState {
   /** Loaded signals by media id (a new map whenever one is added). */
@@ -38,7 +41,7 @@ export function loadSignals(asset: MediaAsset): Promise<SignalData | null> {
         return data;
       })
       .catch((err) => {
-        console.warn(`Couldn't read the signals of ${asset.name}`, err);
+        logger.warn(`couldn't read the signals of ${asset.name}`, err);
         return null;
       })
       .finally(() => loading.delete(signals.src));
@@ -80,7 +83,7 @@ export function watchSignals(store: StoreApi<{ document: Project; assets: MediaA
             store.setState({ assets: store.getState().assets.map((a) => (a.id === updated.id ? updated : a)) });
             void pollProcessingAssets(store);
           })
-          .catch((err) => console.warn("Couldn't ask for a file's signals", err));
+          .catch((err) => logger.warn("couldn't ask for a file's signals", err));
       }
     }
   };
