@@ -10,6 +10,7 @@
 #pragma once
 
 #include "ClipPlayer.h"
+#include "PlayHead.h"
 #include "Recorder.h"
 #include "Song.h"
 #include "Workers.h"
@@ -257,6 +258,8 @@ private:
     /** Put a track's sound through an effect, `mix` of it heard against the dry sound. */
     /** A plugin effect on a block, its sidechain input given the key (null: none). */
     void runEffect (HostedPlugin&, float mix, float* left, float* right, int numSamples, const float* keyLeft = nullptr, const float* keyRight = nullptr);
+    /** Tell the song's plugins where it is this block (from `grossClock`): tempo, position, play, loop. Audio thread. */
+    void updatePlayHead();
     /** An effect's key for this block, lined up with its sound (its delay line run), or nulls without one. */
     std::pair<const float*, const float*> keyOf (const Song::Track::Effect&, int numSamples);
     /** Put a track's sound through a Gross Beat (`mix` of it heard against the dry sound), following `grossClock`. */
@@ -389,6 +392,8 @@ private:
     bool playStarted = false;
     /** Where the song is over the block being made, for Gross Beats. */
     gross::Clock grossClock;
+    /** What this block's plugins are told about the song (`updatePlayHead`). */
+    EnginePlayHead playHead;
     double position_ = 0;
     /** The audio thread's count-in: samples of it left and done; a recording waiting for it to end; play not going round the loop. */
     juce::int64 countInLeft = 0, countInDone = 0;
