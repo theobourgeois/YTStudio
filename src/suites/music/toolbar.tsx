@@ -102,8 +102,8 @@ export function MusicToolbar() {
         <Actions />
       </div>
       {/* It drags the desktop app's window, as the menu row does (the tools don't: the LCDs and the slider drag). */}
-      <div data-titlebar="header" className="flex h-8 w-0 min-w-full items-center gap-2 overflow-hidden">
-        <ProjectName name={name} onRename={(next) => void useMusic.getState().rename(next)} className="-ml-1 max-w-40 shrink-0 px-1 text-[13px] font-semibold" />
+      <div data-titlebar="header" className="flex h-8 w-0 min-w-full items-center gap-2">
+        <ProjectName name={name} onRename={(next) => void useMusic.getState().rename(next)} className="-ml-1 h-6 max-w-40 shrink-0 px-1 text-[13px] font-semibold" />
         <span aria-hidden className="text-muted-foreground/50">·</span>
         <HintBar />
       </div>
