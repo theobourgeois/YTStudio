@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { PiSpinnerGap } from "react-icons/pi";
 import { MenuRow } from "@/components/header/menu-row";
+import { WindowButtons } from "@/components/header/window-buttons";
 import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
 
@@ -10,8 +11,9 @@ export function PlainWorkspace({ children }: { children: ReactNode }) {
     <div className="flex min-h-0 flex-1 flex-col">
       <MenuRow
         actions={
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center">
             <SettingsButton />
+            <WindowButtons className="ml-1.5" />
           </div>
         }
       />

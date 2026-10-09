@@ -52,4 +52,9 @@ describe("project tabs", () => {
     expect(tabsVisible(1, false)).toBe(true);
     expect(tabsVisible(2, false)).toBe(true);
   });
+
+  it("never shows the strip when Settings hides it", () => {
+    expect(tabsVisible(2, false, true)).toBe(false);
+    expect(tabsVisible(2, true, true)).toBe(false);
+  });
 });

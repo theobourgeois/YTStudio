@@ -15,8 +15,10 @@ import { FILE_MANAGER } from "@/lib/key-labels";
 import { useLayout } from "@/stores/layout";
 import { projectSuite, useProjects } from "@/stores/projects";
 import { useSettings } from "@/stores/settings";
+import { useWindowChrome } from "@/stores/window-chrome";
 import { SETTINGS_KEYS } from "@/components/settings/settings-window";
 import { showOpenDialog } from "./open-project-dialog";
+import { HomeButton } from "./project-tabs";
 import { CLOSE_TAB_KEYS, HOME_KEYS, NEW_PROJECT_KEYS, OPEN_KEYS, PROJECT_SEARCH_KEYS } from "./project-search-dialog";
 
 /** One of a suite's own menus (Image, Patterns…): its name and its items (`components/ui/dropdown-menu`'s). */
@@ -52,13 +54,17 @@ const setSlot = (slot: HTMLElement | null) => useMenuSlot.setState({ slot });
 
 /**
  * In the menu row (`MenuRow`, under the tabs): the open suite's menus once its workspace gives them
- * (`SuiteMenuBar`), else the app's own (while a project loads).
+ * (`SuiteMenuBar`), else the app's own (while a project loads). Without the tab strip, the Home button starts it.
  */
 export function MenuBarSlot() {
   const claimed = useMenuSlot((s) => s.claimed);
+  const tabsHidden = useWindowChrome((s) => s.tabsHidden);
   return (
-    <div ref={setSlot} className="flex shrink-0 self-center">
-      {!claimed && <MenuBar menus={appMenus()} />}
+    <div className="flex shrink-0 items-center gap-1 self-center">
+      {tabsHidden && <HomeButton />}
+      <div ref={setSlot} className="flex shrink-0">
+        {!claimed && <MenuBar menus={appMenus()} />}
+      </div>
     </div>
   );
 }

@@ -364,10 +364,11 @@ html.desktop :is([data-titlebar="tabs"], [data-titlebar="home"]:not([data-tabs] 
  * A Mac's window buttons start that bar (18 points in, three of 12 points 8 apart: they end 70 points in), and
  * what follows them keeps clear by as much as they keep from the window's edge.
  */
-html.desktop-darwin:not(.fullscreen) {
+html.desktop-darwin:not(.fullscreen, .own-window-buttons) {
   --traffic-lights-end: 86px;
 }
-html.desktop-darwin:not(.fullscreen) [data-titlebar="home"] {
+/* Without the tab strip (Settings › General) the page draws its own at the bar's right end, and the system's go. */
+html.desktop-darwin:not(.fullscreen, .own-window-buttons) [data-titlebar="home"] {
   padding-left: var(--traffic-lights-end);
 }
 /*
@@ -378,7 +379,7 @@ html.desktop-darwin:not(.fullscreen) [data-titlebar="home"] {
 html.desktop-darwin:not(.fullscreen) [data-tabs] [data-titlebar="home"] {
   padding-left: 16px;
 }
-html.desktop-darwin:not(.fullscreen) [data-titlebar="tabs"] {
+html.desktop-darwin:not(.fullscreen, .own-window-buttons) [data-titlebar="tabs"] {
   padding-left: var(--traffic-lights-end);
 }
 /*
@@ -402,6 +403,15 @@ html.desktop-win32:not(.fullscreen) [data-tabs] [data-titlebar="header"] {
 }
 html.desktop-win32:not(.fullscreen) [data-tabs] [data-titlebar="home"] {
   padding-right: 16px;
+}
+/* Without the tab strip, a bar that isn't a title bar (the music toolbar) ends before them too (`WindowButtons`). */
+[data-window-controls-space] {
+  width: var(--window-controls-width, 0px);
+  flex-shrink: 0;
+}
+html.fullscreen [data-window-controls-space],
+[data-titlebar] [data-window-controls-space] {
+  display: none;
 }
 
 /* The clip under the pick-whip while parenting (properties/parent-row.tsx). */

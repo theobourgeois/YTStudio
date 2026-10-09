@@ -6,6 +6,7 @@ import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { WindowButtons } from "./window-buttons";
 import { IS_MAC, keyLabel } from "@/lib/key-labels";
 
 const UNDO_KEYS = keyLabel("⌘Z");
@@ -21,7 +22,8 @@ export interface HeaderExport {
 
 /**
  * The right end of every suite's header, the same in each so moving between them nothing moves: undo and
- * redo, Settings, Export, the assistant. A suite's own controls go before it.
+ * redo, Settings, Export, the assistant (and the window's buttons, when the page draws them). A suite's own
+ * controls go before it.
  */
 export function HeaderActions({
   canUndo,
@@ -47,6 +49,7 @@ export function HeaderActions({
       </div>
       <Separator orientation="vertical" className="mx-1.5 data-[orientation=vertical]:h-5" />
       <AssistantButton />
+      <WindowButtons className="ml-1.5" />
     </div>
   );
 }

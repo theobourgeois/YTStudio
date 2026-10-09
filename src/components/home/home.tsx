@@ -3,6 +3,7 @@ import type { IconType } from "react-icons";
 import { PiFolderOpen, PiImages, PiListBullets, PiMagnifyingGlass, PiSquaresFour, PiUploadSimple } from "react-icons/pi";
 import { appIconUrl } from "@shared/app-icons";
 import { SUITES, SUITE_IDS, type SuiteId, suiteNoun } from "@shared/suites";
+import { WindowButtons } from "@/components/header/window-buttons";
 import { SettingsButton } from "@/components/settings/settings-button";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useNow } from "@/hooks/use-now";
@@ -115,6 +116,7 @@ export function Home() {
           <kbd className="shrink-0 font-sans text-[11px]">{MOD}F</kbd>
         </label>
         <SettingsButton />
+        <WindowButtons className="-ml-1" />
       </header>
 
       <div className="flex min-h-0 flex-1">

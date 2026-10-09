@@ -3,11 +3,12 @@ import { PiSpinnerGap } from "react-icons/pi";
 import { SettingsWindow, useSettingsShortcut } from "@/components/settings/settings-window";
 import { ShortcutsDialog } from "@/components/shortcuts/shortcuts-dialog";
 import { Home } from "@/components/home/home";
-import { noteTabStrip } from "@/lib/desktop";
+import { noteTitleBar } from "@/lib/desktop";
 import { useDesktopCommands } from "@/components/home/desktop-commands";
 import { NewProjectDialog } from "@/components/home/new-project-dialog";
 import { NewProjectWindow } from "@/components/home/new-project-window";
 import { ProjectTabs, useTabsShown } from "@/components/home/project-tabs";
+import { useOwnWindowButtons } from "@/components/header/window-buttons";
 import { OpenProjectDialog } from "@/components/home/open-project-dialog";
 import { ProjectSearchDialog, useProjectShortcuts } from "@/components/home/project-search-dialog";
 import { Toaster } from "@/components/ui/sonner";
@@ -29,13 +30,17 @@ export default function App() {
   const choosing = useProjects((s) => s.choosing !== null);
   const home = useProjects((s) => s.openId === null);
   const tabs = useTabsShown();
+  const ownButtons = useOwnWindowButtons();
 
   useEffect(() => {
     void useProjects.getState().init();
   }, []);
   // Agents (the assistant, or any MCP client) run their tools in this tab.
   useEffect(() => startAssistantBridge(), []);
-  useEffect(() => noteTabStrip(tabs), [tabs]);
+  // The bar that starts the window: the tab strip, else Home's own (taller) or the project's menu row.
+  useEffect(() => noteTitleBar({ height: tabs || !home ? 40 : 52, ownButtons }), [tabs, home, ownButtons]);
+  // Without a Mac's window buttons, the bars don't leave room for them (src/index.css).
+  useEffect(() => void document.documentElement.classList.toggle("own-window-buttons", ownButtons), [ownButtons]);
   useShortcuts();
   useSettingsShortcut();
   useProjectShortcuts();

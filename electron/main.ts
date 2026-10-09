@@ -197,7 +197,7 @@ function openProject(file: string) {
   void mainWindow.webContents.executeJavaScript(`window.editorDesktop?.openFile(${JSON.stringify(file)})`).catch(() => {});
 }
 
-/** Where the Mac's window buttons sit: level with the middle of the page's headers (52px tall), or of its tab strip (40px: src/index.css). */
+/** Where the Mac's window buttons sit: level with the middle of the Home screen's bar (52px tall), or of the tab strip or menu row (40px: src/index.css). */
 const HEADER_BUTTONS = { x: 18, y: 20 };
 const TAB_STRIP_BUTTONS = { x: 18, y: 14 };
 /**
@@ -438,17 +438,31 @@ function answerProjectDialogs() {
     const result = win ? await dialog.showOpenDialog(win, settings) : await dialog.showOpenDialog(settings);
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
-  // The page's tab strip is a shorter bar than its headers: the window buttons sit in the middle of whichever shows.
   // ⌘H / ⌥⌘H the page didn't use (the app menu leaves them to it): macOS's Hide and Hide Others.
   ipcMain.on("hide-app", (_event, which: unknown) => {
     if (!isMac) return;
     if (which === "others") Menu.sendActionToFirstResponder("hideOtherApplications:");
     else app.hide();
   });
-  ipcMain.on("tab-strip", (event, shown: unknown) => {
+  // The bar that starts the window (the tab strip or menu row, or the taller Home bar): the window buttons sit in its
+  // middle. Without the tab strip (Settings › General) a Mac's go, and the page draws its own at the bar's right.
+  ipcMain.on("title-bar", (event, bar: unknown) => {
+    const { height, ownButtons } = (bar ?? {}) as { height?: unknown; ownButtons?: unknown };
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (isMac) win?.setWindowButtonPosition(shown === true ? TAB_STRIP_BUTTONS : HEADER_BUTTONS);
-    if (isWindows && win === mainWindow) win?.setTitleBarOverlay({ height: shown === true ? TAB_STRIP_HEIGHT : HEADER_HEIGHT });
+    if (!win || win !== mainWindow) return;
+    const short = height === TAB_STRIP_HEIGHT;
+    if (isMac) {
+      win.setWindowButtonPosition(short ? TAB_STRIP_BUTTONS : HEADER_BUTTONS);
+      win.setWindowButtonVisibility(ownButtons !== true);
+    }
+    if (isWindows) win.setTitleBarOverlay({ height: short ? TAB_STRIP_HEIGHT : HEADER_HEIGHT });
+  });
+  ipcMain.on("window-action", (event, action: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win !== mainWindow) return;
+    if (action === "minimize") win.minimize();
+    else if (action === "fullscreen") win.setFullScreen(!win.isFullScreen());
+    else if (action === "close") win.close();
   });
   // Windows: the colours of the bar under the window's buttons, and of its text (the theme's), as the page has them.
   ipcMain.on("title-bar-colours", (event, colours: unknown) => {
