@@ -154,4 +154,37 @@ describe.skipIf(!built)("plugin swaps and parameters, offline", () => {
     expect(rms(after)).toBeGreaterThan(0.05);
     expect(largestStep(during)).toBeLessThan(0.05);
   });
+
+  it("keeps each song's plugin to its own state: a channel of another song with the same id is another plugin", async () => {
+    // Songs made from the same starting point have the same channel ids: switching between them used to keep the
+    // first song's plugin, which then played its sound in the second and saved into the first's package.
+    const synth = (await engine.plugins()).find((p) => p.name === "Vaudio Test Synth")!;
+    const other = "proj_0123456789ac";
+    const song = addPluginChannel(createMusicProject("Other", 120), { id: synth.id, name: synth.name, format: synth.format }, CHANNEL);
+    const stateOf = (project: string) => path.join(new DataPaths(dir).projectDir(project), "plugins", `${CHANNEL}.bin`);
+    const loaded = async () => {
+      for (let tries = 0; !(await engine.command("status", {})).channels.loaded.some((c) => c.channel === CHANNEL); tries++) {
+        if (tries > 200) throw new Error("The test synth didn't load.");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    };
+    await setBrightness(0.8);
+    await hear(RATE / 10);
+    await engine.saveStates();
+    const first = await fs.readFile(stateOf(PROJECT));
+
+    await engine.setSong({ projectId: other, song, patternId: null });
+    await loaded();
+    expect((await brightness()).value).not.toBeCloseTo(0.8);
+    await setBrightness(0.3);
+    await hear(RATE / 10);
+    await engine.saveStates();
+    expect(await fs.readFile(stateOf(PROJECT))).toEqual(first);
+
+    // Back to the first song: its plugin as it left it.
+    await engine.setSong({ projectId: PROJECT, song, patternId: null });
+    await loaded();
+    expect((await brightness()).value).toBeCloseTo(0.8);
+  });
 });
+

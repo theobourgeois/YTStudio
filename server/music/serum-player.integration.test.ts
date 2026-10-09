@@ -18,7 +18,8 @@ import { AudioEngine } from "./engine.ts";
 import { type CborMap, decodeCbor } from "./serum/cbor.ts";
 import { readXfer } from "./serum/container.ts";
 import { type FxLinks, presetAsState, readPluginState } from "./serum/plugin-state.ts";
-import { restate } from "./serum/player.ts";
+import { SerumLibrary } from "./serum/library.ts";
+import { restate, SerumPlayer } from "./serum/player.ts";
 import { writeSerumPreset } from "./serum/preset.ts";
 import { editSerumBody, readSoundParts } from "./serum/sound.ts";
 import { readWav } from "./wav.ts";
@@ -174,3 +175,56 @@ describe.skipIf(!available)("the Serum player's engine, on Serum 2", () => {
     expect(readSoundParts(settingsOf(await savedState())).modulation).toMatchObject([{ slot: 1, source: "Macro 1", to: "Main FX 1 Drive" }]);
   }, 60_000);
 });
+
+const AU = "/Library/Audio/Plug-Ins/Components/Serum2.component";
+
+/** The player on Serum 2's Audio Unit, whose state is a property list (`plist.ts`), not the VST3's wrapper. */
+describe.skipIf(!(process.platform === "darwin" && existsSync(ENGINE) && existsSync(AU)))("the Serum player on Serum 2's Audio Unit", () => {
+  let dir: string;
+  let engine: AudioEngine;
+  let player: SerumPlayer;
+  let preset: string;
+  const target = { projectId: PROJECT, channel: CHANNEL };
+  /** A request answered once the engine renders (offline, a swap waits for that). */
+  async function rendering<T>(work: Promise<T>): Promise<T> {
+    let done = false;
+    const answered = work.finally(() => (done = true));
+    for (let i = 0; i < 60 && !done; i++) await engine.render(RATE / 10, path.join(dir, "au.wav"));
+    return answered;
+  }
+
+  beforeAll(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "serum-au-"));
+    engine = new AudioEngine(new DataPaths(dir), { offline: true });
+    await engine.command("scan", {});
+    while ((await engine.command("status", {})).scanning) await new Promise((resolve) => setTimeout(resolve, 100));
+    const serum = (await engine.plugins()).find((p) => p.name === "Serum 2" && p.format === "AudioUnit");
+    if (!serum) throw new Error("Serum 2's Audio Unit wasn't found.");
+    await fs.mkdir(path.join(dir, "library", "Presets"), { recursive: true });
+    preset = path.join(dir, "library", "Presets", "AU Probe.SerumPreset");
+    await fs.writeFile(preset, writeSerumPreset({ name: "AU Probe", macros: { "1": { name: "GRIT", value: 0 } }, modulation: [{ source: "LFO 1", to: "Filter 1 Freq", amount: 30 }] } as never));
+    player = new SerumPlayer({ library: new SerumLibrary({ serum2: path.join(dir, "library"), serum1: null }), engine, hasProject: (id) => id === PROJECT });
+    await engine.setSong({ projectId: PROJECT, song: addPluginChannel(createMusicProject("AU", 120), { id: serum.id, name: serum.name, format: serum.format }, CHANNEL), patternId: null });
+    for (let tries = 0; !(await engine.command("status", {})).channels.loaded.some((c) => c.channel === CHANNEL); tries++) {
+      if (tries > 600) throw new Error("Serum 2's Audio Unit didn't load.");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }, 180_000);
+  afterAll(async () => {
+    engine?.shutdown();
+    if (dir) await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("loads a preset, reads its routes, edits it with its macro names kept, and undoes the edit", async () => {
+    const loaded = await rendering(player.load({ ...target, path: preset }));
+    expect(loaded.preset?.name).toBe("AU Probe");
+    expect(loaded.modulation).toMatchObject([{ slot: 1, source: "LFO 1", to: "Filter 1 Freq" }]);
+    expect(loaded.envelopes).toHaveLength(4);
+    const edited = await rendering(player.edit({ ...target, edits: [{ kind: "route", source: "Macro 1", to: "A Level", amount: 40 }] }));
+    expect(edited.modulation?.map((r) => `${r.source} → ${r.to}`)).toEqual(["LFO 1 → Filter 1 Freq", "Macro 1 → A Level"]);
+    expect(edited.macros[0].name).toBe("GRIT");
+    const undone = await rendering(player.undo(target));
+    expect(undone.modulation?.map((r) => r.to)).toEqual(["Filter 1 Freq"]);
+  }, 120_000);
+});
+
