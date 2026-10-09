@@ -52,3 +52,12 @@ void cloakWindow (juce::Component& window, bool cloaked);
 
 /** Windows: keep the computer from sleeping while the song plays (`playing`), or let it again. Nothing elsewhere. */
 void keepAwake (bool playing);
+
+/**
+ * macOS: hand files to the plugin's view inside `window` as a drag and drop from Finder would, at (x, y), a
+ * fraction of the view's width and height from its top left. It's how a plugin is given a file only its
+ * window takes (Serum 2 reads Serum 1 presets only that way). Says what the view answered at each stage of
+ * the drop; an error elsewhere. Without `perform`, the drag only passes over (x, y) and leaves: whether the
+ * plugin would take the files there.
+ */
+juce::var dropFiles (juce::Component& window, const juce::StringArray& files, double x, double y, bool perform = true);

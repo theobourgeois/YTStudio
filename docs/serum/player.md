@@ -135,16 +135,28 @@ window while `watch.py` saved each state.
 
 A Serum 1 chunk is zlib: 6.5 KB unpacks to 173 KB (parameters and embedded tables).
 
-**The ways to play them, best first:**
+**Solved (step 0, 2026-10-09): the engine drops the file on Serum's invisible window** (`drop*.mts`, `grid.mts`).
 
-1. **Hand Serum the file as if it were dropped on its window.** The engine owns Serum's editor and could open it
-   hidden, then call its view's drop handler with the file, all inside its own process. This is unverified: it's
-   step 0's spike. If it works, any `.fxp` loads in one click, converted by Serum itself.
-2. **Convert once through Serum's window**, as on 2026-10-07: an "Import Serum 1 presets" session opens Serum on the
-   folder, Théo steps through with the arrow keys, and each state Serum shows is kept as a `.SerumPreset`. It's
-   exact but tedious for 900 presets.
-3. **Our own converter.** We already have 86 pairs of `.fxp` and Serum's conversion to check it against. It's a
-   project of its own: Serum 1's parameters are mapped into Serum 2's.
+- **How:** the engine makes Serum's window fully transparent and ignoring the mouse. It then hands Serum's view the
+  file as Finder's drag and drop would (`dropFiles` in `engine/src/MacWindow.cpp`: a pasteboard with the file, an
+  object answering as `NSDraggingInfo`, then `draggingEntered:`, `draggingUpdated:`, `performDragOperation:`).
+- **The pointer matters:** Serum decides where a drop lands from where the real pointer is, not from the drop's
+  point. With the window anywhere else, nowhere in it takes the file. So the invisible window is moved under the
+  pointer first. Then anywhere in it takes an `.fxp`, and nothing on the screen changes.
+- **The result:** 8 of the starred `.fxp`s loaded on the first try, in 20–200 ms, with their names. Each was what
+  Serum's own browser made of it on 2026-10-07. The only differences:
+  - HyperD's LFO phases, which are random on every load;
+  - one control at its default, written out or left out;
+  - macros 5–8 left over from the previous preset in the 10-07 captures (Serum 1 has 4 macros, so a converted
+    preset leaves the others as they were).
+
+  The player sets macros 5–8 to 0 before a Serum 1 preset loads, so they never carry over.
+- **Serum's own path for Serum 2 presets too:** the same drop loads a `.SerumPreset` with its names and everything,
+  exactly as Serum's browser does. Loading from the browser can use it for both kinds; `presetAsState` stays for
+  the player's edits.
+- **macOS only:** Windows needs its own version (an `IDropTarget` call on the plugin's window), later.
+
+So no conversions need keeping: every `.fxp` loads as it is, converted by Serum each time.
 
 ### 2.4 Macro names
 
@@ -317,10 +329,9 @@ New tools in `shared/music/tools.ts`, for parity with the window:
 
 ## 4. The steps
 
-0. **Two short spikes** (a third, where Serum keeps effect knob links, was done on 2026-10-09: §2.1).
-   - Can the engine make Serum load an `.fxp` as if it were dropped on its hidden window (§2.3, way 1)?
-   - A reload while the engine plays live (not offline): does Serum load safely on the message thread, and how long
-     does the audio thread wait?
+0. **Done (2026-10-09).** Effect knob links: §2.1. `.fxp` by a drop on Serum's invisible window: §2.3. A reload
+   while the engine plays live: designed away in step 1, since the audio thread stops calling Serum (after a fade)
+   while it loads, so Serum is never loaded and played at once.
 1. **The engine:**
    - `setParameter`;
    - `setState` with the fade and the held notes played again;
@@ -332,8 +343,7 @@ New tools in `shared/music/tools.ts`, for parity with the window:
 4. **Envelopes and LFOs**, hidden by default.
 5. **Effects:** the racks and cards, their knobs live through linked slots.
 6. **Saving and the assistant's tools.**
-7. **The Serum 1 library:** by step 0's way 1 if it works, else an import session through Serum's window (§2.3,
-   way 2).
+7. **The Serum 1 library:** every `.fxp` in Serum's folders loads by the drop (§2.3), listed with the rest.
 
 ## 5. Questions
 
@@ -353,6 +363,6 @@ Théo's answers (2026-10-09):
   - Writing to Serum's database while Serum is open needs care: it's SQLite, and Serum may hold it.
 - **Q3. Nothing plays by itself.** Browsing only loads. Sound comes from what he plays (a MIDI keyboard, the typing
   keyboard, the Piano roll's keys).
-- **Q4. Converted Serum 1 presets: none, if step 0 works.** Then an `.fxp` loads as it is, converted by Serum
-  each time, as in Serum's own browser. Only if step 0 fails do conversions need keeping somewhere.
+- **Q4. Converted Serum 1 presets: none.** Step 0 worked, so an `.fxp` loads as it is, converted by Serum each time,
+  as in Serum's own browser.
 - **Q5. Later:** a player outside a song, e.g. a Sounds screen on Home to browse and play with no project open?

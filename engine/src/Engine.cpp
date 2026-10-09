@@ -778,7 +778,7 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
 
     auto* slot = bench.slot (params["slot"].toString());
     if (slot == nullptr)
-        return reply (fail (command == "load" || command == "unload" || command == "editor" || command == "saveState" || command == "restoreState"
+        return reply (fail (command == "load" || command == "unload" || command == "editor" || command == "saveState" || command == "restoreState" || command == "dropFiles"
                                 ? juce::String ("\"slot\" must be \"instrument\" or \"effect\".")
                                 : "Unknown command \"" + command + "\"."),
                       {});
@@ -798,6 +798,18 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
     {
         bench.showEditor (*slot, (bool) params["open"]);
         return ok();
+    }
+    if (command == "dropFiles")
+    {
+        juce::StringArray files;
+        if (const auto* list = params["files"].getArray())
+            for (const auto& file : *list)
+                files.add (file.toString());
+        const auto dropped = bench.dropFiles (*slot, files, params.hasProperty ("x") ? (double) params["x"] : 0.5, params.hasProperty ("y") ? (double) params["y"] : 0.5,
+                                          ! params.hasProperty ("perform") || (bool) params["perform"]);
+        if (dropped.isString())
+            return reply (fail (dropped.toString()), {});
+        return reply (juce::Result::ok(), dropped);
     }
     if (command == "saveState" || command == "restoreState")
     {
