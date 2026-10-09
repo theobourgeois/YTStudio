@@ -8,12 +8,14 @@
 export const THEMES = [
   { id: "light", name: "Light", description: "Blue-grey, blue accent", dark: false },
   { id: "dark", name: "Dark", description: "Blue-grey, blue accent", dark: true },
-  { id: "luna", name: "Luna", description: "Windows XP: cream, glossy blue", dark: false },
-  { id: "ultraviolet", name: "Ultraviolet", description: "Deep purple, hot pink", dark: true },
+  { id: "fl", name: "FL Studio", description: "Slate grey, orange and lime", dark: true },
+  { id: "ableton", name: "Ableton", description: "Flat light grey, Live's orange", dark: false },
+  { id: "protools", name: "Pro Tools", description: "Charcoal, Avid blue, green counter", dark: true },
+  { id: "premiere", name: "Premiere", description: "Adobe's dark grey, blue", dark: true },
+  { id: "photoshop", name: "Photoshop", description: "Adobe's light grey, blue", dark: false },
+  { id: "op1", name: "OP-1", description: "Aluminium, black screens, four knob colours", dark: false },
   { id: "synthwave", name: "Synthwave", description: "Night blue, neon pink and cyan", dark: true },
-  { id: "terminal", name: "Terminal", description: "Green phosphor on black", dark: true },
-  { id: "bubblegum", name: "Bubblegum", description: "Pastel pink, raspberry", dark: false },
-  { id: "contrast", name: "High contrast", description: "Black, white, yellow: strongest", dark: true },
+  { id: "luna", name: "Luna", description: "Windows XP: cream, glossy blue", dark: false },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]["id"];

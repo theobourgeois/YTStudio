@@ -1,0 +1,76 @@
+/*
+ * Premiere: Premiere Pro 25's Darkest look, Spectrum 1's `darkest` tokens (which it uses exactly). Panels
+ * #1d1d1d on a black frame, near-black fields, flat controls with small round corners and no bevels;
+ * Spectrum's light blue for scrubbable values, the timecode and the playhead; clips its dark teal-blue,
+ * audio Caribbean. Dark; only what differs from Studio's Dark is here.
+ */
+.theme.theme-premiere {
+  --radius: 4px;
+  --surface-0: #080808;
+  --surface-1: #1d1d1d;
+  --surface-2: #252525;
+  --surface-3: #303030;
+  --sunken: #0e0e0e;
+  --line: #0c0c0c;
+  --line-strong: #000000;
+
+  --foreground: #ebebeb;
+  --muted-foreground: #b4b4b4;
+
+  --bevel-highlight: rgb(255 255 255 / 0.03);
+  --bevel-shadow: #0a0a0a;
+  --raised: linear-gradient(#323232, #323232);
+  --raised-hover: linear-gradient(#3e3e3e, #3e3e3e);
+  --pressed: linear-gradient(#0e0e0e, #0e0e0e);
+  --raised-brand: linear-gradient(#5eaaf7, #5eaaf7);
+  --raised-brand-hover: linear-gradient(#78b9fa, #78b9fa);
+  --pressed-brand: linear-gradient(#4096f3, #4096f3);
+  --brand-edge: #1c5aa8;
+  --brand-highlight: rgb(255 255 255 / 0);
+  --inset: inset 0 0 0 0 transparent;
+  --float-shadow: 0 6px 16px rgb(0 0 0 / 0.6);
+
+  --popover: #2c2c2c;
+  --accent: #005cc8;
+  --brand: #5eaaf7;
+  --brand-foreground: #04101f;
+  --playhead: #3d94ff;
+  --knob-arc: #5eaaf7;
+
+  /* Its clips' default fill (25.x), audio in Caribbean; then Lavender, Rose, Mango. */
+  --clip-video: #0b5878;
+  --clip-audio: #157d6b;
+  --clip-graphic: #a24ca2;
+  --clip-adjustment: #b34a76;
+  --clip-camera: #a8741a;
+  --timeline: #1d1d1d;
+  --stage: #000000;
+
+  --piano-row: #2a2a2a;
+  --piano-black-row: #242424;
+  --piano-line: #202020;
+  --piano-beat-line: #1a1a1a;
+  --piano-bar-line: #0e0e0e;
+  --piano-ruler: #1d1d1d;
+  --piano-ruler-text: #a8a8a8;
+  --piano-time: #3d94ff;
+  --piano-start: #e1c02b;
+  --piano-tool: #5eaaf7;
+  --piano-keys: #0c0c0c;
+  --clip-base: #101010;
+
+  /* The timecode: blue figures on the dark. */
+  --lcd-top: #0e0e0e;
+  --lcd-bottom: #0e0e0e;
+  --lcd-edge: #0a0a0a;
+  --lcd-text: #5eaaf7;
+  --lcd-dim: #8a8a8a;
+
+  --meter-low: #2fb34a;
+  --meter-mid: #e1c02b;
+  --meter-high: #e33a2a;
+  --meter-off: #2a2a2a;
+
+  --mixer-bg: #080808;
+  --mixer-tint-base: #141414;
+}

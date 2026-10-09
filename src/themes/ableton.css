@@ -1,0 +1,95 @@
+/*
+ * Ableton: Live's light grey (between its Light Neutral Medium and the classic Mid Light, from Live's own theme
+ * files). Flat: no gradients, no bevels, square corners, 1px dark frames; neutral greys a small step apart,
+ * fields lighter than the panels, a pale cyan selection, and colour only where something is on: Live's
+ * yellow-orange. That orange can't be text on grey, so the accent (text, primary buttons) is a burnt orange
+ * and the bright one fills what's pressed, lit steps and the knobs' arcs. Light.
+ */
+.theme.theme-ableton {
+  --radius: 1px;
+  --surface-0: #a3a3a3;
+  --surface-1: #b9b9b9;
+  --surface-2: #c4c4c4;
+  --surface-3: #d0d0d0;
+  --sunken: #dedede;
+  --line: #7a7a7a;
+  --line-strong: #4f4f4f;
+
+  --foreground: #000000;
+  --muted-foreground: #2a2a2a;
+
+  --bevel-highlight: rgb(255 255 255 / 0);
+  --bevel-shadow: #4f4f4f;
+  --raised: linear-gradient(#d6d6d6, #d6d6d6);
+  --raised-hover: linear-gradient(#e2e2e2, #e2e2e2);
+  --pressed: linear-gradient(#ffc533, #ffc533);
+  --raised-brand: linear-gradient(#c25700, #c25700);
+  --raised-brand-hover: linear-gradient(#cf6206, #cf6206);
+  --pressed-brand: linear-gradient(#a34b00, #a34b00);
+  --brand-edge: #4f2600;
+  --brand-highlight: rgb(255 255 255 / 0);
+  --inset: inset 0 0 0 0 transparent;
+  --float-shadow: 0 3px 8px rgb(0 0 0 / 0.3);
+
+  --popover: #dadada;
+  --accent: #cdf8ff;
+  --brand: #9c4800;
+  --brand-foreground: #ffffff;
+  --destructive: #a3121c;
+  --destructive-solid: #c0262f;
+  --playhead: #d92b2b;
+  --knob-arc: #f08c00;
+  --knob-well: #b9b9b9;
+  --knob-well-edge: #4f4f4f;
+  --knob-cap-light: #e4e4e4;
+  --knob-cap: #d2d2d2;
+  --knob-cap-dark: #bdbdbd;
+  --knob-cap-edge: #4f4f4f;
+  --knob-notch: #121212;
+
+  --piano-row: #c6c6c6;
+  --piano-black-row: #bababa;
+  --piano-line: #afafaf;
+  --piano-beat-line: #9c9c9c;
+  --piano-bar-line: #676767;
+  --piano-outside: rgb(0 0 0 / 0.12);
+  --piano-ruler: #b9b9b9;
+  --piano-ruler-text: #121212;
+  --piano-ghost: rgb(0 0 0 / 0.14);
+  --piano-time: #d92b2b;
+  --piano-start: #f08c00;
+  --piano-tool: #1a7df1;
+  --piano-keys: #6e6e6e;
+  /* Live's arrangement clips: a pale tint of the clip's colour, dark notes and waveforms. */
+  --clip-base: #e0e0e0;
+  --clip-ink: #121212;
+
+  --step-off-top: #cdcdcd;
+  --step-off-bottom: #cdcdcd;
+  --step-off-hover: #d2d2d2;
+  --step-alt-top: #b4b4b4;
+  --step-alt-bottom: #b4b4b4;
+  --step-alt-hover: #bebebe;
+  --step-on-top: #ffc533;
+  --step-on-bottom: #ffb901;
+  --step-on-edge: #4f4f4f;
+  --step-on-alt-top: #ff9562;
+  --step-on-alt-bottom: #ff7d43;
+  --step-on-alt-edge: #4f4f4f;
+
+  --lcd-top: #dcdcdc;
+  --lcd-bottom: #dcdcdc;
+  --lcd-edge: #4f4f4f;
+  --lcd-text: #121212;
+  --lcd-dim: #4a4a4a;
+
+  --meter-low: #00c94a;
+  --meter-mid: #ffd100;
+  --meter-high: #ff0a0a;
+  --meter-off: #8a8a8a;
+
+  --mixer-tint-base: #c6c6c6;
+  --mixer-led: #ffb901;
+  --mixer-led-edge: #4f4f4f;
+  --fader-groove: #4f4f4f;
+}
