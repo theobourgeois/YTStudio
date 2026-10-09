@@ -128,12 +128,15 @@ function channelsBefore(song: MusicProject): Channel[] {
   return untouched ? song.channels.filter((c) => c !== only) : song.channels;
 }
 
-/** Add sampler channels at the end of the rack, one per sample. */
-export function addChannels(song: MusicProject, samples: { id?: string; name: string; sampleId: string | null }[], at?: number): MusicProject {
+/**
+ * Add sampler channels, one per sample: before channel `at` (a file dropped between two channels), else at
+ * the end of the rack. By id, not position: the rack may hide some channels (audio clips' when Unsorted).
+ */
+export function addChannels(song: MusicProject, samples: { id?: string; name: string; sampleId: string | null }[], at?: string): MusicProject {
   if (!samples.length) return song;
   const before = channelsBefore(song);
-  // Where in the rack they go (a file dropped between two channels); at the end by default.
-  const index = at === undefined ? before.length : clamp(Math.round(at), 0, before.length);
+  const found = at === undefined ? -1 : before.findIndex((c) => c.id === at);
+  const index = found < 0 ? before.length : found;
   const added = samples.map((s) => createChannel(s.name.trim().slice(0, MAX_NAME) || "Channel", s.sampleId, s.id));
   return { ...song, channels: [...before.slice(0, index), ...added, ...before.slice(index)] };
 }

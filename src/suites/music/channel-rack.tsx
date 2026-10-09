@@ -109,11 +109,11 @@ function under(root: Element, x: number, y: number, key: string): HTMLElement | 
   return hit && root.contains(hit) ? hit : null;
 }
 /**
- * Where a file dragged over the rack would go: the index of the channel it goes before (the end past the
- * last) and the line to draw there, in the rack's coordinates. Null over a channel's button, which takes
- * the file itself (it replaces that channel's sample).
+ * Where a file dragged over the rack would go: the channel it goes before (none past the last), the row's
+ * index among those shown, and the line to draw there, in the rack's coordinates. Null over a channel's
+ * button, which takes the file itself (it replaces that channel's sample).
  */
-function dropPlace(rack: HTMLElement, target: EventTarget, y: number): { index: number; top: number } | null {
+function dropPlace(rack: HTMLElement, target: EventTarget, y: number): { index: number; before?: string; top: number } | null {
   if ((target as Element).closest?.("[data-channel-button]")) return null;
   const rows = [...rack.querySelectorAll<HTMLElement>("[data-channel]")];
   const origin = rack.getBoundingClientRect().top;
@@ -124,7 +124,7 @@ function dropPlace(rack: HTMLElement, target: EventTarget, y: number): { index: 
   if (index < 0) index = rows.length;
   if (!rows.length) return { index, top: LIGHTS_H };
   const edge = index < rows.length ? rows[index].getBoundingClientRect().top - ROW_GAP / 2 : rows[rows.length - 1].getBoundingClientRect().bottom + ROW_GAP / 2;
-  return { index, top: edge - origin };
+  return { index, before: rows[index]?.dataset.channel, top: edge - origin };
 }
 
 const stepAt = (root: Element, x: number, y: number) => {
@@ -245,13 +245,17 @@ export function ChannelRack() {
         onDragLeave={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDrop(null);
         }}
+        // Whatever takes a file (the rack or a channel's button), the rack is what's worked on next: it comes to the front.
+        onDropCapture={(e) => {
+          if (carriesSamples(e.dataTransfer)) useMusicUi.getState().setRackOpen(true);
+        }}
         onDrop={(e) => {
           // A file dropped on the rack (but not on a channel's button, which takes it) is a new channel,
           // between the channels it was dropped between; several files, a channel each.
           if (!carriesSamples(e.dataTransfer)) return;
           e.preventDefault();
           e.stopPropagation();
-          const at = dropPlace(e.currentTarget, e.target, e.clientY)?.index;
+          const at = dropPlace(e.currentTarget, e.target, e.clientY)?.before;
           setDrop(null);
           // What's dropped is what's worked on next: the new channels are selected.
           void dropAsChannels(e.dataTransfer, at).then((ids) => ids.length && useMusicUi.getState().setSelection(ids));

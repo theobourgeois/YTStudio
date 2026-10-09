@@ -34,7 +34,7 @@ export function browserPaths(data: DataTransfer): string[] {
 }
 
 /** A drop as new channels, before channel `at` (default: at the end). Returns their ids. */
-export async function dropAsChannels(data: DataTransfer, at?: number): Promise<string[]> {
+export async function dropAsChannels(data: DataTransfer, at?: string): Promise<string[]> {
   const paths = browserPaths(data);
   if (paths.length) return useMusic.getState().addBrowserSamples(paths, at);
   const files = audioFiles(data.files);
