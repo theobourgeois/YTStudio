@@ -28,7 +28,10 @@ import { DEFAULT_REVERB } from "@shared/music/reverb-presets";
 import type { Reverb } from "@shared/music/types";
 import { drawDecay, drawShape, readVerbPalette } from "./reverb/draw";
 import { shapeSpan } from "./reverb/geometry";
+import { EnvelopeCard, LfoCard } from "./serum/envelopes";
+import { ModulationSection } from "./serum/modulation";
 import { Stars } from "./serum/stars";
+import { type SerumControl, type SerumEnvelope, type SerumLfo, type SerumModRoute, SERUM_DEFAULT_LFO_SHAPE, serumEnvelopeParam, serumLfoParam, serumModAmountParam } from "@shared/music/serum-sound";
 
 /** A knob with a value of its own (nothing in the song). */
 function LooseKnob(props: Omit<React.ComponentProps<typeof Knob>, "value" | "onBegin" | "onDrag" | "onEnd" | "onCancel" | "onSet"> & { initial: number }) {
@@ -387,6 +390,71 @@ function SerumStars() {
   );
 }
 
+/** A made-up Serum sound: routes (one bipolar, one bypassed, one with an aux), Env 1 and 2, a drawn LFO and a Lorenz one. */
+function serumGallerySound() {
+  const control = (param: string, value: number): SerumControl => ({ param, value });
+  const route = (slot: number, source: string, to: string, amount: number, extra: Partial<SerumModRoute> = {}): SerumModRoute => ({
+    slot,
+    source,
+    aux: null,
+    to,
+    amount: control(serumModAmountParam(slot), amount),
+    bipolar: false,
+    bypass: false,
+    ...extra,
+  });
+  const routes = [
+    route(1, "Macro 1", "Filter 1 Freq", 0.8),
+    route(2, "Macro 1", "Main FX 1 Drive", 0.65, { bypass: true }),
+    route(3, "LFO 1", "A WT Pos", 0.3, { bipolar: true }),
+    route(4, "Env 2", "B Fine", 0.9, { aux: "Velo" }),
+  ];
+  const env = (index: number, values: number[]): SerumEnvelope => ({
+    index,
+    used: true,
+    controls: Object.fromEntries((["attack", "hold", "decay", "sustain", "release", "attackCurve", "decayCurve", "releaseCurve"] as const).map((f, i) => [f, control(serumEnvelopeParam(index, f), values[i])])) as SerumEnvelope["controls"],
+  });
+  const lfo = (index: number, extra: Partial<SerumLfo>): SerumLfo => ({
+    index,
+    used: true,
+    sync: true,
+    dotted: false,
+    triplets: false,
+    rate10x: false,
+    mode: "retrigger",
+    type: null,
+    shape: SERUM_DEFAULT_LFO_SHAPE,
+    customShape: false,
+    controls: Object.fromEntries((["rate", "smooth", "rise", "delay", "phase"] as const).map((f, i) => [f, control(serumLfoParam(index, f), [0.5, 0.1, 0, 0, 0.25][i])])) as SerumLfo["controls"],
+    ...extra,
+  });
+  return {
+    routes,
+    envelopes: [env(1, [0.25, 0, 0.5, 1, 0.3, 0.5, 0.67, 0.67]), env(2, [0.1, 0.2, 0.45, 0.6, 0.5, 0.3, 0.67, 0.8])],
+    lfos: [
+      lfo(1, { shape: [[0, 1], [0.25, 0.4, 0.2], [0.5, 0], [1, 1]], customShape: true, mode: "free" }),
+      lfo(2, { type: "Lorenz", used: false }),
+    ],
+  };
+}
+
+function SerumSoundControls() {
+  const [sound] = useState(serumGallerySound);
+  return (
+    <div className="flex w-[460px] flex-col gap-2">
+      <div className="rounded-sm border border-line">
+        <ModulationSection channelId="gallery" routes={sound.routes} />
+      </div>
+      {sound.envelopes.map((env) => (
+        <EnvelopeCard key={env.index} channelId="gallery" env={env} drives={env.index === 2 ? ["B Fine"] : []} />
+      ))}
+      {sound.lfos.map((lfo) => (
+        <LfoCard key={lfo.index} channelId="gallery" lfo={lfo} drives={lfo.index === 1 ? ["A WT Pos"] : []} />
+      ))}
+    </div>
+  );
+}
+
 /** The music suite's controls, for the component gallery (`src/gallery/`). */
 export const MUSIC_SECTIONS: GallerySection[] = [
   { id: "music-controls", title: "Music: knobs, LCDs, PAT / SONG, faders and the arm light", source: "suites/music/knob.tsx, lcd.tsx, mode-switch.tsx, mixer/fader.tsx, mixer/arm-button.tsx", render: () => <Controls /> },
@@ -396,5 +464,11 @@ export const MUSIC_SECTIONS: GallerySection[] = [
   { id: "music-pro-c", title: "Music: YT-C's knobs (the key's ring on Threshold, the ratio's dots, a greyed one, Wet's pan ring), arcs, a bar, and its level and knee display", source: "suites/music/pro-c/knob.tsx, draw.ts", render: () => <CompControls /> },
   { id: "music-reverb", title: "Music: YT-R's displays (DECAY: a Hall's T60 shaped by two bands, the Post EQ, the tail's spectrum; SHAPE: a Room, its early taps, its duck)", source: "suites/music/reverb/draw.ts", render: () => <ReverbDisplays /> },
   { id: "music-serum-stars", title: "Music: the Serum player's stars (Serum's own ratings: unrated, a row's, rated)", source: "suites/music/serum/stars.tsx", render: () => <SerumStars /> },
+  {
+    id: "music-serum-sound",
+    title: "Music: the Serum player's sound (mod routes: bipolar, bypassed, an aux; Env 1 and 2's shapes; a drawn LFO and a Lorenz one)",
+    source: "suites/music/serum/modulation.tsx, envelopes.tsx",
+    render: () => <SerumSoundControls />,
+  },
   { id: "music-ott", title: "Music: YT-Multiband's display rows (upward brown, downward green; a band at rest, sounding and hot, its upward off)", source: "suites/music/ott/draw.ts", render: () => <OttRows /> },
 ];

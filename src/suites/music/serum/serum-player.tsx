@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { PiCaretLeft, PiCaretRight, PiMagnifyingGlass, PiSpinnerGap, PiStarFill } from "react-icons/pi";
+import { PiArrowUUpLeft, PiArrowUUpRight, PiCaretLeft, PiCaretRight, PiMagnifyingGlass, PiSpinnerGap, PiStarFill } from "react-icons/pi";
 import { cn } from "cn";
 import {
   SERUM_CATEGORIES,
@@ -9,6 +9,7 @@ import {
   FAVOURITE_RATING,
   findSerumPresets,
 } from "@shared/music/serum-presets";
+import { type SerumModRoute, sourceDrives } from "@shared/music/serum-sound";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,19 +18,22 @@ import { useSong } from "../store";
 import { useTransport } from "../transport";
 import { serumWindow } from "../ui";
 import { MusicWindow, centredOnDesktop } from "../window";
+import { EnvelopesAndLfos } from "./envelopes";
+import { ModulationSection } from "./modulation";
 import { ScopeView } from "./scope-view";
 import { Stars } from "./stars";
 import { useSerumUi } from "./store";
 
-const WIDTH = 780;
-const HEIGHT = 580;
+const WIDTH = 840;
+const HEIGHT = 660;
 const MIN = { minWidth: 560, minHeight: 420 };
 const ALL = "all";
 
 /**
  * A Serum 2 channel's window (`docs/serum/player.md` §3): Serum's whole library in one list to find a preset in,
- * the arrows to step through it (each step loads it, so browsing is hearing), a display of what it's playing, and
- * the preset's macros. Serum's own window is a click away for the rest.
+ * the arrows to step through it (each step loads it, so browsing is hearing), a display of what it's playing, the
+ * preset's macros, its modulation, and (when asked) its envelopes and LFOs. Each change is a step of the player's
+ * own undo. Serum's own window is a click away for the rest.
  */
 export function SerumPlayerWindow({ channelId, index }: { channelId: string; index: number }) {
   const channel = useSong((s) => s.channels.find((c) => c.id === channelId) ?? null);
@@ -205,19 +209,29 @@ const PresetRow = memo(function PresetRow({ channelId, preset, on, loading }: { 
   );
 });
 
-/** The preset the channel's Serum has on, the arrows, Serum's window, and the macros. */
+/** The preset the channel's Serum has on, its history, the arrows, Serum's window, and the sound's controls. */
 function SoundPanel({ channelId }: { channelId: string }) {
   const state = useSerumUi((s) => s.channels[channelId]);
   const entry = useSerumUi((s) => s.presets?.find((p) => p.path === s.channels[channelId]?.path) ?? null);
   const editorOpen = useTransport((s) => s.channels.loaded.some((c) => c.channel === channelId && c.editorOpen));
   const name = entry?.name ?? state?.sound?.preset?.name ?? null;
   const step = (by: number) => void useSerumUi.getState().step(channelId, by);
+  const sound = state?.sound ?? null;
+  const history = sound?.history;
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex items-start gap-2 border-b border-line px-3 py-2.5">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium" data-testid="serum-preset-name">
-            {name || "No preset loaded"}
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate text-sm font-medium" data-testid="serum-preset-name">
+              {name || "No preset loaded"}
+            </span>
+            {sound?.edited && (
+              <span className="shrink-0 text-[11px] text-muted-foreground" data-testid="serum-edited" title="Changed here since the preset was loaded">
+                edited
+              </span>
+            )}
+            {state?.busy && <PiSpinnerGap className="size-3 shrink-0 animate-spin text-muted-foreground" aria-label="Serum is loading the change" />}
           </div>
           <div className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
             {entry ? (
@@ -232,7 +246,27 @@ function SoundPanel({ channelId }: { channelId: string }) {
           {state?.error && <div className="mt-1 text-[11px] text-destructive">{state.error}</div>}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button variant="ghost" size="icon-xs" aria-label="Previous preset" onClick={() => step(-1)}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Undo in the player"
+            title={history?.undo ? `Undo ${history.undo} (⌘Z)` : "Nothing to undo"}
+            disabled={!history?.undo || state?.busy}
+            onClick={() => void useSerumUi.getState().undo(channelId)}
+          >
+            <PiArrowUUpLeft />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Redo in the player"
+            title={history?.redo ? `Redo ${history.redo} (⇧⌘Z)` : "Nothing to redo"}
+            disabled={!history?.redo || state?.busy}
+            onClick={() => void useSerumUi.getState().redo(channelId)}
+          >
+            <PiArrowUUpRight />
+          </Button>
+          <Button variant="ghost" size="icon-xs" className="ml-1" aria-label="Previous preset" onClick={() => step(-1)}>
             <PiCaretLeft />
           </Button>
           <Button variant="ghost" size="icon-xs" aria-label="Next preset" onClick={() => step(1)}>
@@ -243,30 +277,44 @@ function SoundPanel({ channelId }: { channelId: string }) {
           </Button>
         </div>
       </div>
-      <div className="mx-3 mt-3 min-h-44 flex-1 overflow-hidden rounded-md border border-line shadow-inner">
-        <ScopeView channelId={channelId} />
+      <div className="min-h-0 flex-1 overflow-y-auto" data-testid="serum-sound">
+        <div className="mx-3 mt-3 h-40 overflow-hidden rounded-md border border-line shadow-inner">
+          <ScopeView channelId={channelId} />
+        </div>
+        <Macros channelId={channelId} macros={sound?.macros ?? null} routes={sound?.modulation ?? null} />
+        <ModulationSection channelId={channelId} routes={sound?.modulation ?? null} />
+        {sound?.modulation && <EnvelopesAndLfos channelId={channelId} envelopes={sound.envelopes} lfos={sound.lfos} routes={sound.modulation} />}
       </div>
-      <Macros channelId={channelId} macros={state?.sound?.macros ?? null} />
     </div>
   );
 }
 
-function Macros({ channelId, macros }: { channelId: string; macros: SerumMacro[] | null }) {
+/**
+ * The preset's macros, each with what it drives. One its maker left unnamed with nothing on it is hidden (§3.3);
+ * all eight show while the routes aren't known yet.
+ */
+function Macros({ channelId, macros, routes }: { channelId: string; macros: SerumMacro[] | null; routes: SerumModRoute[] | null }) {
   if (!macros) return <p className="p-4 text-xs text-muted-foreground">Waiting for Serum…</p>;
   if (!macros.length) return <p className="p-4 text-xs text-muted-foreground">Serum hasn't said what its macros are.</p>;
+  const drives = (macro: SerumMacro) => (routes ? sourceDrives(routes, `Macro ${macro.index + 1}`) : []);
+  const shown = routes ? macros.filter((m) => drives(m).length || m.name !== `Macro ${m.index + 1}`) : macros;
   return (
     <section className="p-3" aria-label="Macros">
       <h3 className="mb-2 text-[11px] font-medium text-muted-foreground">Macros</h3>
-      <div className="grid grid-cols-4 gap-x-2 gap-y-3" data-testid="serum-macros">
-        {macros.map((macro) => (
-          <MacroKnob key={macro.param} channelId={channelId} macro={macro} />
-        ))}
-      </div>
+      {!shown.length ? (
+        <p className="text-[11px] text-muted-foreground">This preset's maker gave it no macros.</p>
+      ) : (
+        <div className="grid grid-cols-4 gap-x-2 gap-y-3" data-testid="serum-macros">
+          {shown.map((macro) => (
+            <MacroKnob key={macro.param} channelId={channelId} macro={macro} drives={drives(macro)} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
-function MacroKnob({ channelId, macro }: { channelId: string; macro: SerumMacro }) {
+function MacroKnob({ channelId, macro, drives }: { channelId: string; macro: SerumMacro; drives: string[] }) {
   const set = (value: number, gesture?: "begin" | "end") => useSerumUi.getState().setMacro(channelId, macro.param, value, gesture);
   const latest = () => useSerumUi.getState().channels[channelId]?.sound?.macros.find((m) => m.param === macro.param)?.value ?? macro.value;
   return (
@@ -284,14 +332,16 @@ function MacroKnob({ channelId, macro }: { channelId: string; macro: SerumMacro 
         onDrag={(v) => set(v)}
         onEnd={() => set(latest(), "end")}
         onCancel={() => set(latest(), "end")}
-        onSet={(v) => {
-          set(v, "begin");
-          set(v, "end");
-        }}
+        onSet={(v) => useSerumUi.getState().setControl(channelId, macro.param, v, "set", `Turn ${macro.name}`)}
       />
       <span className="max-w-full truncate text-[11px]" title={macro.name}>
         {macro.name}
       </span>
+      {drives.length > 0 && (
+        <span className="max-w-full truncate text-[10px] text-muted-foreground" title={`Drives ${drives.join(", ")}`}>
+          {drives.join(", ")}
+        </span>
+      )}
     </div>
   );
 }
