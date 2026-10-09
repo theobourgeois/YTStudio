@@ -2094,7 +2094,7 @@ void Sequencer::startNote (HostedPlugin& plugin, int key, float velocity, juce::
     if (plugin.numPending >= (int) plugin.pending.size())
         return;
     plugin.midi.addEvent (juce::MidiMessage::noteOn (1, key, juce::jlimit (0.01f, 1.0f, velocity)), delay);
-    plugin.pending[(size_t) plugin.numPending++] = { key, delay + juce::jmax ((juce::int64) 1, lengthSamples) };
+    plugin.pending[(size_t) plugin.numPending++] = { key, delay + juce::jmax ((juce::int64) 1, lengthSamples), juce::jlimit (0.01f, 1.0f, velocity) };
 }
 
 void Sequencer::endNotes (HostedPlugin& plugin, int numSamples)
@@ -2127,6 +2127,42 @@ void Sequencer::silencePlugins()
         }
 }
 
+bool Sequencer::tendSwap (HostedPlugin& plugin, bool playable)
+{
+    using Swap = HostedPlugin::Swap;
+    auto state = plugin.swap.load (std::memory_order_acquire);
+    if (state == Swap::resuming)
+    {
+        // Loaded: the notes still sounding start again, faded in (`fadeSwap`).
+        for (int i = 0; i < plugin.numPending; ++i)
+            plugin.midi.addEvent (juce::MidiMessage::noteOn (1, plugin.pending[(size_t) i].key, plugin.pending[(size_t) i].velocity), 0);
+        plugin.swapGain = 0.0f;
+        // (Unless the message thread has asked for another swap meanwhile: then it's fading out, from silence.)
+        if (plugin.swap.compare_exchange_strong (state, Swap::none, std::memory_order_acq_rel))
+            return false;
+    }
+    if (state == Swap::fadingOut && (! playable || plugin.swapGain <= 0.0f))
+        plugin.swap.store (state = Swap::parked, std::memory_order_release);
+    return state == Swap::parked;
+}
+
+void Sequencer::fadeSwap (HostedPlugin& plugin, juce::AudioBuffer<float>& out)
+{
+    const auto fadingOut = plugin.swap.load (std::memory_order_acquire) == HostedPlugin::Swap::fadingOut;
+    if (! fadingOut && plugin.swapGain >= 1.0f)
+        return;
+    const auto step = (float) (1.0 / juce::jmax (1.0, sampleRate * swapFadeSeconds));
+    for (int i = 0; i < out.getNumSamples(); ++i)
+    {
+        plugin.swapGain = fadingOut ? juce::jmax (0.0f, plugin.swapGain - step) : juce::jmin (1.0f, plugin.swapGain + step);
+        for (int ch = 0; ch < out.getNumChannels(); ++ch)
+            out.getWritePointer (ch)[i] *= plugin.swapGain;
+    }
+    // Silent: the message thread may have it now.
+    if (fadingOut && plugin.swapGain <= 0.0f)
+        plugin.swap.store (HostedPlugin::Swap::parked, std::memory_order_release);
+}
+
 void Sequencer::renderPlugins (int numSamples)
 {
     // Each plugin into its own buffer (at once, for the export), then each added to its track in turn.
@@ -2135,7 +2171,10 @@ void Sequencer::renderPlugins (int numSamples)
     for (size_t c = 0; c < song->channels.size(); ++c)
     {
         auto* plugin = song->channels[c].plugin.get();
-        if (plugin != nullptr && numSamples <= plugin->buffer.getNumSamples() && trackAudio ((int) c).first != nullptr)
+        if (plugin == nullptr)
+            continue;
+        const auto playable = numSamples <= plugin->buffer.getNumSamples() && trackAudio ((int) c).first != nullptr;
+        if (! tendSwap (*plugin, playable) && playable)
             playingPlugins.push_back ((int) c);
     }
     // The costliest first: the caller takes the first item at once, so the slowest plugin isn't left to last.
@@ -2148,6 +2187,7 @@ void Sequencer::renderPlugins (int numSamples)
         juce::AudioBuffer<float> view (plugin.buffer.getArrayOfWritePointers(), plugin.buffer.getNumChannels(), numSamples);
         view.clear();
         plugin.instance->processBlock (view, plugin.midi);
+        fadeSwap (plugin, view);
         plugin.cost = lately (plugin.cost, juce::Time::getHighResolutionTicks() - started);
     });
     for (const auto c : playingPlugins)

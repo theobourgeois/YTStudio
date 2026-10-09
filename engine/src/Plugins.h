@@ -45,6 +45,8 @@ public:
     void showEditor (Slot&, bool open);
     juce::Result saveState (Slot&, const juce::File&);
     juce::Result restoreState (Slot&, const juce::File&);
+    /** Files dropped on the plugin's window, made hidden if it isn't open (`dropFiles`). */
+    juce::var dropFiles (Slot&, const juce::StringArray& files, double x, double y, bool perform);
     /** A note for the instrument, now (or, offline, at the start of the next rendered block). */
     void note (const juce::MidiMessage&, bool offline);
 

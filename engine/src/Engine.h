@@ -178,6 +178,8 @@ private:
         void timerCallback() override { tick(); }
     };
     Ticker exportTicker;
+    /** Live, does plugins' swaps (`PluginHost::swap`) as soon as the audio thread has let go of them. */
+    Ticker swapTicker;
     juce::String exportId;
     /** So an export that ends after the engine has gone does nothing. */
     std::shared_ptr<bool> alive = std::make_shared<bool> (true);

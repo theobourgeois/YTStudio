@@ -1,4 +1,5 @@
 #include "Plugins.h"
+#include "MacWindow.h"
 
 #include "Protocol.h"
 
@@ -185,6 +186,18 @@ void PluginBench::showEditor (Slot& target, bool open)
             });
         });
     target.window->show();
+}
+
+juce::var PluginBench::dropFiles (Slot& target, const juce::StringArray& files, double x, double y, bool perform)
+{
+    if (target.window == nullptr)
+        target.window = std::make_unique<EditorWindow> (*target.plugin, target.plugin->getName(), [this, &target] {
+            juce::MessageManager::callAsync ([this, &target] {
+                target.window.reset();
+                changed();
+            });
+        }, true);
+    return ::dropFiles (*target.window, files, x, y, perform);
 }
 
 juce::Result PluginBench::saveState (Slot& target, const juce::File& file)

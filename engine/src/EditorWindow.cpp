@@ -218,7 +218,7 @@ constexpr bool addToDesktopFirst = true;
 #endif
 }
 
-EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::String& title, std::function<void()> onCloseButton)
+EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::String& title, std::function<void()> onCloseButton, bool hidden)
     : DocumentWindow (title, juce::Colours::black, DocumentWindow::closeButton, addToDesktopFirst),
       onClose (std::move (onCloseButton))
 {
@@ -240,6 +240,11 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
     setContentOwned (created, true);
     setResizable (created->isResizable(), false);
     centreWithSize (getWidth(), getHeight());
+    if (hidden)
+    {
+        setAlpha (0.0f);
+        setInterceptsMouseClicks (false, false);
+    }
     if (! addToDesktopFirst)
         addToDesktop();
    #if JUCE_WINDOWS
@@ -249,6 +254,11 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
     startTimer (tickMs);
    #endif
     setVisible (true);
+    if (hidden)
+    {
+        ignoreMouse (*this);
+        keepOutOfWindowSwitchers (*this);
+    }
 
     openWindows.add (this);
     // (Windows: the keys pressed in a plugin that holds the focus itself; nothing elsewhere.)
