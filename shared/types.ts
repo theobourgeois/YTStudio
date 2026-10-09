@@ -1110,6 +1110,8 @@ export interface ToolCallProgressRequest {
 //   PATCH  /api/projects/:id  body: UpdateProjectRequest -> ProjectSummary (renames it and its package)
 //   POST   /api/projects/:id/opened     -> ProjectSummary (bumps openedAt; the recents are by updatedAt)
 //   POST   /api/projects/:id/closed     -> ProjectSummary: its package takes its name, if it was renamed open
+//   POST   /api/projects/:id/discard    -> { discarded }: its tab was closed; one made by New and left untouched
+//                                        (no save, no media added or removed, no chat, not open) is deleted
 //   POST   /api/projects/:id/reveal     -> 204: shows its package in Finder
 //   POST   /api/projects/:id/duplicate  -> ProjectSummary (201): a copy beside it with its own copy of the
 //                                        media, named "<name> copy" (cloned files; caches left out)

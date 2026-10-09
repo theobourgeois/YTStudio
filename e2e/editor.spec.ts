@@ -2553,6 +2553,16 @@ test("keeps the open projects as tabs: switch, reorder, close", async ({ page })
   await expect(page).toHaveURL(secondUrl);
   await expect(tabs.getByRole("tab")).toHaveCount(1);
 
+  // A new one whose tab is closed with nothing done to it isn't kept.
+  await newVideo(page);
+  await expect.poll(() => page.url()).not.toBe(secondUrl);
+  await expect(tabs.getByRole("tab")).toHaveCount(2);
+  const untouched = page.url().split("/").pop();
+  await page.keyboard.press("ControlOrMeta+w");
+  await expect(tabs.getByRole("tab")).toHaveCount(1);
+  await expect(page).toHaveURL(secondUrl);
+  await expect.poll(async () => (await projectList(page)).some((p: ProjectSummary) => p.id === untouched)).toBe(false);
+
   // Home with one tab still open shows the strip, so it can be gone back to.
   await page.getByRole("button", { name: "Home", exact: true }).click();
   await expect(tabs.getByRole("tab")).toHaveCount(1);

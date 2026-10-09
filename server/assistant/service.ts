@@ -553,6 +553,15 @@ export class AssistantService {
     return snapshot(chat);
   }
 
+  /** Whether anything was said in a project's chat (a project made and left untouched is kept for it). */
+  async hasMessages(projectId: string): Promise<boolean> {
+    if (!isValidId(projectId)) return false;
+    const known = this.chats.get(projectId);
+    if (known) return known.state.messages.length > 0;
+    const saved = await readJson<SavedChat>(this.chatFile(projectId));
+    return !!saved && isObject(saved.state) && Array.isArray(saved.state.messages) && saved.state.messages.length > 0;
+  }
+
   /** Forget a deleted video's chat. */
   async remove(projectId: string): Promise<void> {
     const chat = this.chats.get(projectId);

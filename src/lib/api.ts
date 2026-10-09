@@ -131,6 +131,8 @@ export const api = {
   /** A tab opened it / closed it (its package takes its name, if it was renamed meanwhile). */
   projectOpened: (id: string) => request<ProjectSummary>(`/api/projects/${id}/opened`, { method: "POST" }),
   projectClosed: (id: string) => request<ProjectSummary>(`/api/projects/${id}/closed`, { method: "POST" }),
+  /** Its tab was closed: deleted if it was made by New and nothing was done to it. */
+  discardUntouchedProject: (id: string) => request<{ discarded: boolean }>(`/api/projects/${id}/discard`, { method: "POST" }),
   /** Show its package in Finder. */
   revealProject: (id: string) => request<void>(`/api/projects/${id}/reveal`, { method: "POST" }),
   /** The app's log file (`<data>/logs/ytstudio.log`), shown in Finder. */

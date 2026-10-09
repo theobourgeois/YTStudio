@@ -61,6 +61,8 @@ interface Recent {
   path: string;
   openedAt: number;
   summary: ProjectSummary;
+  /** Made by New and not touched since: its media's ids then (`ProjectStore.untouched`). */
+  untouched?: string[];
 }
 
 interface SavedRecents {
@@ -198,6 +200,11 @@ export class ProjectStore {
   private pending = new Map<string, string>();
   /** Projects a tab has open now. */
   private open = new Set<string>();
+  /**
+   * Projects made by New that nothing was done to since (their media's ids then, a starting point's): closing
+   * one's tab deletes it (`discardUntouched`). Kept with the recents, so one left open when the app quit is too.
+   */
+  private untouched = new Map<string, string[]>();
   /** Serialise writes so an older save can never land after a newer one. */
   private writes = createLimiter(1);
   private recentsWrites = createLimiter(1);
@@ -233,6 +240,7 @@ export class ProjectStore {
         return null;
       });
       if (!entry) this.missing.set(recent.id, recent);
+      else if (Array.isArray(recent.untouched)) this.untouched.set(entry.meta.id, recent.untouched.filter((m) => typeof m === "string"));
     }
     await this.saveRecents();
   }
@@ -330,9 +338,12 @@ export class ProjectStore {
     }
     const backend = suiteBackend(suite);
     const adjust = (doc: SuiteDocument) => (backend.withOptions && input.options !== undefined ? backend.withOptions(doc as never, input.options) : doc);
-    if (template) return this.copy(template, { name, parent: this.location, adjust });
-    const id = createId("project");
-    return this.add(id, suite, adjust(backend.create(name)), this.now(), { dir: uniquePackage(this.location, name) });
+    const summary = template
+      ? await this.copy(template, { name, parent: this.location, adjust })
+      : await this.add(createId("project"), suite, adjust(backend.create(name)), this.now(), { dir: uniquePackage(this.location, name) });
+    this.untouched.set(summary.id, Object.keys(this.library.byId(summary.id)));
+    await this.saveRecents();
+    return summary;
   }
 
   /**
@@ -423,6 +434,33 @@ export class ProjectStore {
     this.open.delete(id);
     await this.writes(() => this.followName(id));
     return this.summary(id);
+  }
+
+  /**
+   * Delete a project made by New that nothing was done to (its tab was closed): no edit, no media added or
+   * removed. It was never more than a click, so it isn't kept (nor put in the Trash). False, and kept, if it was
+   * touched, or a tab has it open again.
+   */
+  async discardUntouched(id: string): Promise<boolean> {
+    if (!this.untouched.has(id)) return false;
+    return this.writes(async () => {
+      const media = this.untouched.get(id);
+      const entry = this.entries.get(id);
+      if (!media || !entry || this.open.has(id) || this.library.busy(id)) return false;
+      const now = Object.keys(this.library.byId(id));
+      if (now.length !== media.length || now.some((m) => !media.includes(m))) {
+        this.untouched.delete(id);
+        await this.saveRecents();
+        return false;
+      }
+      this.entries.delete(id);
+      this.untouched.delete(id);
+      this.library.forgetProject(id);
+      await fs.rm(entry.dir, { recursive: true, force: true, maxRetries: 5 });
+      await this.saveRecents();
+      logger.info(`${entry.dir} was made and left untouched: deleted`);
+      return true;
+    });
   }
 
   /** Show its package in Finder. */
@@ -617,6 +655,7 @@ export class ProjectStore {
       // Forget the project before touching the media so no new upload can land in it.
       this.entries.delete(id);
       this.open.delete(id);
+      this.untouched.delete(id);
       this.library.forgetProject(id);
       if (entry.template || isInside(entry.dir, this.paths.root)) await fs.rm(entry.dir, { recursive: true, force: true, maxRetries: 5 });
       else await (this.options.trash ?? moveToTrash)(entry.dir);
@@ -632,6 +671,7 @@ export class ProjectStore {
     await this.writes(async () => {
       this.entries.delete(id);
       this.open.delete(id);
+      this.untouched.delete(id);
       this.library.forgetProject(id);
       await this.saveRecents();
     });
@@ -767,20 +807,26 @@ export class ProjectStore {
     return entry;
   }
 
-  /** Write a new document (bumps `updatedAt`). Run inside `writes`. */
+  /** Write a new document (bumps `updatedAt`; the project's been touched). Run inside `writes`. */
   private async write(id: string, doc: SuiteDocument) {
     const current = this.entry(id);
     const meta: ProjectMeta = { ...current.meta, updatedAt: this.now() };
     await writeJsonDurably(path.join(current.dir, DOC_FILE), doc);
     await writeJsonDurably(path.join(current.dir, META_FILE), meta);
     this.entries.set(id, { ...current, meta, stats: this.statsOf(meta.suite, doc) });
+    if (this.untouched.delete(id)) await this.saveRecents();
   }
 
   /** Write the recents (and the location), as they are when the write's turn comes. */
   private saveRecents(): Promise<void> {
     return this.recentsWrites(async () => {
       const recent: Recent[] = [
-        ...[...this.entries.values()].filter((e) => !e.template).map((e) => ({ id: e.meta.id, path: e.dir, openedAt: e.openedAt, summary: this.toSummary(e) })),
+        ...[...this.entries.values()]
+          .filter((e) => !e.template)
+          .map((e) => {
+            const untouched = this.untouched.get(e.meta.id);
+            return { id: e.meta.id, path: e.dir, openedAt: e.openedAt, summary: this.toSummary(e), ...(untouched && { untouched }) };
+          }),
         ...this.missing.values(),
       ].sort((a, b) => b.openedAt - a.openedAt);
       const saved: SavedRecents = { ...(this.location !== this.defaultLocation && { location: this.location }), recent };

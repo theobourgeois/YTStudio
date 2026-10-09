@@ -256,7 +256,7 @@ export async function createApp({
   });
 
   app.use("/api/log", logRoutes(reveal ?? revealInFinder));
-  app.use("/api/projects", projectRoutes(projects, previews, (id) => assistant.remove(id)));
+  app.use("/api/projects", projectRoutes(projects, previews, (id) => assistant.remove(id), (id) => assistant.hasMessages(id)));
   app.use("/api/media", mediaRoutes(library, projects));
   app.use("/api/web", webRoutes(web, projects));
   app.use("/api/library", libraryRoutes(shared));

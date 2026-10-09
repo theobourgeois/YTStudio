@@ -7,8 +7,16 @@ import { log } from "../log.ts";
 
 const logger = log("projects");
 
-/** `/api/projects`: the recents, each project's document and its package. `onRemove` cleans up after a deleted one. */
-export function projectRoutes(projects: ProjectStore, previews: ProjectPreviews, onRemove?: (id: string) => Promise<void>): Router {
+/**
+ * `/api/projects`: the recents, each project's document and its package. `onRemove` cleans up after a deleted one;
+ * `hasChat` says whether one was talked about (its chat keeps a project made and left untouched).
+ */
+export function projectRoutes(
+  projects: ProjectStore,
+  previews: ProjectPreviews,
+  onRemove?: (id: string) => Promise<void>,
+  hasChat?: (id: string) => Promise<boolean>,
+): Router {
   const router = Router();
   router.use(json({ limit: "10mb" }));
 
@@ -84,6 +92,12 @@ export function projectRoutes(projects: ProjectStore, previews: ProjectPreviews,
   });
   router.post("/:id/closed", async (req, res) => {
     res.json(await projects.closed(req.params.id));
+  });
+  router.post("/:id/discard", async (req, res) => {
+    const id = req.params.id;
+    const discarded = !(await hasChat?.(id)) && (await projects.discardUntouched(id));
+    if (discarded) previews.forget(id);
+    res.json({ discarded });
   });
   router.post("/:id/reveal", async (req, res) => {
     await projects.reveal(req.params.id);
