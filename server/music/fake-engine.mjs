@@ -49,10 +49,11 @@ const PARAMETERS = {
   "VST3-Serum 2-3": Array.from({ length: 8 }, (_, i) => ({ id: String(7_000_000 + i * 1000), name: `Macro ${i + 1}` })),
 };
 /**
- * Serum 2's other live controls (oscillators 1xxxxxx, envelopes 3xxxxxx, LFOs 4xxxxxx, mod amounts 6xxxxxx), by Serum's ids: the Serum
- * player sets them. Listed once set (the stand-in doesn't know where a state puts them: the player reads that).
+ * Serum 2's other live controls (oscillators 1xxxxxx, envelopes 3xxxxxx, LFOs 4xxxxxx, mod amounts 6xxxxxx, the effect racks' slots
+ * 1700xxxx), by Serum's ids: the Serum player sets them. Listed once set (the stand-in doesn't know where a state puts them: the player
+ * reads that).
  */
-const isSerumControl = (plugin, param) => plugin.id === "VST3-Serum 2-3" && /^[1346]\d{6}$/.test(param);
+const isSerumControl = (plugin, param) => plugin.id === "VST3-Serum 2-3" && /^([1346]\d{6}|170[0-2]\d{4})$/.test(param);
 /** The plugin of a song's channel or effect, by its id. */
 const pluginOf = (owner, id) =>
   owner === "channel" ? song?.channels.find((c) => c.id === id && c.plugin)?.plugin : (song?.tracks ?? []).flatMap((t) => t.effects ?? []).find((e) => e.id === id)?.plugin;
@@ -741,6 +742,8 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       fs.mkdirSync(path.dirname(plugin.state), { recursive: true });
       fs.writeFileSync(plugin.state, state);
     }
+    // A new state is where Serum's controls are now (an effect slot may mean another knob): the ones set before go.
+    if (cmd === "setState") for (const param of [...(parameterValues.get(params.channel)?.keys() ?? [])]) if (isSerumControl(plugin, param)) parameterValues.get(params.channel).delete(param);
     return send({ id, ok: true, result: cmd === "dropFiles" ? { view: "FakeView", performed: true } : null });
   }
   // A parameter touched in a plugin's window, or its Automate button pressed, as if by hand (tests).

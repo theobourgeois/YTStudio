@@ -66,6 +66,7 @@ const ICONS: Record<string, IconType> = {
   set_serum_macros: PiSlidersHorizontal,
   edit_serum_sound: PiSlidersHorizontal,
   set_serum_oscillators: PiSlidersHorizontal,
+  list_serum_effect_chains: PiMagnifyingGlass,
   undo_serum_sound: PiArrowUUpLeft,
   rate_serum_preset: PiStar,
   capture_audio_snapshot: PiWaveform,

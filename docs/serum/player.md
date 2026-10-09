@@ -79,9 +79,8 @@ That means slot 1 is the rack's first effect (`fxID`, its place in the rack), pa
 So the player links the knobs it shows to slots: up to 16 a rack, re-linked whenever a rack changes. Then turning
 them is `setParameter`, live.
 
-Still to check: that a slot set by the host moves the effect's sound, not only its readout. This is step 1's test,
-once `setParameter` exists. And Serum's own Automate on Drive linked parameter 1, which reads Wet: an off-by-one of
-Serum's, or the click landed on Mix.
+A slot set by the host moves the effect's sound, not only its readout (step 1's test: a Distortion's Drive). Linked
+this way, every effect parameter's units were measured too (step 6): what Serum stores and shows across each knob.
 
 ### 2.2 Reloading Serum while it plays
 
@@ -433,7 +432,31 @@ New tools in `shared/music/tools.ts`, for parity with the window:
      Solo. Mute is Serum's own switch for it (`A Enable`…, live; measured: the switch and the level's place read back
      from the state); Solo turns the others off and puts them back when pressed again (`soloOscillator`, tested),
      each one undo step. The assistant's `set_serum_oscillators` does the same.
-6. **Effects:** the racks and cards, their knobs live through linked slots.
+6. **Done (2026-10-09): effects** (`effects.tsx`, its model in `shared/music/serum-effects.ts`, tested).
+   - **Measured first** on Serum 2.1.5 (`fxunits.mts`, `fxtext.mts`, `fxsync.mts` in the probes): each of the 14
+     effects' parameters linked to a slot, the slot swept, the state saved and Serum's text read. What a knob's
+     position stores is one of a few laws (straight, a power, octaves, the position itself, the compressor's ratio
+     and gain), a choice or a count is its index over the count less one, and a synced time or rate is one of
+     Serum's divisions, evenly along the knob (`SERUM_EFFECTS`, `fxStored`, `fxPosition`, `fxParamText`).
+   - **The cards:** the racks as tabs (Main, Bus 1, Bus 2, each with its count), a card an effect in Serum's order:
+     its switch, name, mode (the distortion's, the reverb's type, the filter's type…), a menu (move, remove) and its
+     main knobs; its expand shows the rest. A reverb's controls are named as Serum names its slots, which follow its
+     type.
+   - **Live through the slots:** every state the player loads links the racks' slots (`fxLinksFor`, `planFxSlots`):
+     each effect's switch first, then each card's first knob, its mode, its other knobs, round by round, up to 16 a
+     rack. A preset loaded by a drop is reloaded once with them when its links differ (measured: the knobs then
+     turn live, and what's turned is in the next state). A knob under the expand beyond the 16 is set by a reload
+     when it's let go. Serum's own text shows at rest; ours (the measured laws) while a knob moves.
+   - **Reloads** (`editSerumBody`'s `effect`, `addEffect`, `removeEffect`, `moveEffect`, `effectChain`): settings by
+     their spec names in Serum's units (a choice by its name too), any effect added anywhere, moved in its rack or
+     to another; mod routes aimed at an effect follow it, and go with it when it's removed. **+ Add** also offers
+     Serum's saved effects (`.SerumFX`, put in at the end) and racks (`.SerumFXRack`, replacing the rack), from
+     `Effect Chains` in its preset folder (`SerumLibrary.chains`).
+   - **The assistant:** `get_serum_sound` lists every effect's settings in the units `edit_serum_sound` takes,
+     Serum's text beside them; `edit_serum_sound` has the five effect edits; `list_serum_effect_chains` lists the
+     saved ones.
+   - **The player owns the slots:** links written by Serum's own Automate are replaced on the next load, and a
+     song's automation of `FX Main Param N` follows whatever knob the slot is linked to.
 7. **Saving and the assistant's tools.**
 8. **The Serum 1 library:** every `.fxp` in Serum's folders loads by the drop (§2.3), listed with the rest.
 

@@ -32,12 +32,28 @@ import {
   serumOscillatorParam,
   sourceUsed,
 } from "../../../shared/music/serum-sound.ts";
-import { bodyContext, SpecError, sourceIndex, writeEnvelopesAndLfos } from "./body.ts";
-import { CONTROLS, FX_RACKS, isModuleType, MODULE_PARAMS, OSCILLATOR_TYPES, type OscillatorType } from "./catalogue.ts";
+import {
+  fxInput,
+  fxPosition,
+  fxRange,
+  planFxSlots,
+  SERUM_EFFECTS,
+  SERUM_FX_RACK_LABELS,
+  SERUM_FX_RACKS,
+  type SerumEffectKind,
+  type SerumEffectState,
+  type SerumFxControl,
+  type SerumFxRack,
+  type SerumFxRackId,
+  serumFxSlotParam,
+} from "../../../shared/music/serum-effects.ts";
+import { bodyContext, finalize, SpecError, sourceIndex, writeEffect, writeEnvelopesAndLfos } from "./body.ts";
+import { CONTROLS, FX_RACKS, FX_TYPES, isModuleType, MODULE_PARAMS, OSCILLATOR_TYPES, type OscillatorType } from "./catalogue.ts";
 import { type CborMap, type CborValue, isPlainMap } from "./cbor.ts";
 import { type Destination, destinationName, parseDestination } from "./destinations.ts";
 import { paramsOf } from "./fields.ts";
 import { clone } from "./patch.ts";
+import { FX_SLOTS, type FxLinks } from "./plugin-state.ts";
 import { LFO_DIVISIONS } from "./units.ts";
 
 /** What a module stores, or nothing ("default", absent). */
@@ -54,8 +70,8 @@ function isRouted(slot: CborValue | undefined): slot is CborMap {
 
 const sourceName = (index: CborValue) => (typeof index === "number" ? (SERUM_MOD_SOURCES[index] ?? `Source ${index}`) : "None");
 
-/** The engine's controls by id, for their live positions. */
-export type LiveControls = ReadonlyMap<string, Pick<EngineParameter, "value" | "text">>;
+/** The engine's controls by id, for their live positions (and an effect slot's name: what it's linked to). */
+export type LiveControls = ReadonlyMap<string, Pick<EngineParameter, "value" | "text"> & { name?: string }>;
 
 export function liveControls(parameters: readonly EngineParameter[]): LiveControls {
   return new Map(parameters.map((p) => [p.id, p]));
@@ -230,10 +246,103 @@ export function readOscillators(body: CborMap, live: LiveControls = new Map()): 
   });
 }
 
-/** The routes, envelopes, LFOs and oscillators of Serum's settings, at the engine's live positions. */
-export function readSoundParts(body: CborMap, live: LiveControls = new Map()): { modulation: SerumModRoute[]; envelopes: SerumEnvelope[]; lfos: SerumLfo[]; oscillators: SerumOscillator[] } {
+// ---- Effects ----
+
+/** A rack's list of effects (`FXRack<n>.FX`), made if it has none. */
+function rackList(body: CborMap, rack: number): CborValue[] {
+  const key = `FXRack${rack}`;
+  if (!isPlainMap(body[key])) body[key] = { FX: [], displayName: "", plainParams: "default" };
+  const module = body[key] as CborMap;
+  if (!Array.isArray(module.FX)) module.FX = [];
+  return module.FX as CborValue[];
+}
+
+/** Which of Serum's effects a rack's entry is, by the module it holds. */
+function entryKind(entry: CborValue | undefined): { kind: SerumEffectKind; module: string } | null {
+  if (!isPlainMap(entry)) return null;
+  const found = FX_TYPES.find((t) => Object.hasOwn(entry, t.module));
+  return found ? { kind: found.effect, module: found.module } : null;
+}
+
+/** The engine's name for a linked slot, less Serum's "FX 1: Rev " ("Size"), when it reads as one. */
+function slotName(name: string | undefined): string | undefined {
+  const m = name ? /^FX \d+: \S+ (.+)$/.exec(name.trim()) : null;
+  return m?.[1].trim() || undefined;
+}
+
+function readEffect(entry: CborValue, position: number, rack: number, slotOf: ReadonlyMap<string, number>, live: LiveControls): SerumEffectState {
+  const found = entryKind(entry);
+  if (!found) return { position: position + 1, effect: null, enabled: null, controls: [] };
+  const spec = SERUM_EFFECTS[found.kind];
+  const module = (entry as CborMap)[found.module];
+  const params = stored(module);
+  const controls: SerumFxControl[] = spec.params.map((p, index) => {
+    const slot = slotOf.get(`${position}:${index}`);
+    const param = slot === undefined ? null : serumFxSlotParam(rack, slot);
+    const own = param ? live.get(param) : undefined;
+    const name = spec.serumNames ? slotName(own?.name) : undefined;
+    return {
+      key: p.key,
+      param,
+      value: own ? own.value : fxPosition(p.scale, params[p.key], p.default),
+      ...(own?.text?.trim() && { text: own.text.trim() }),
+      ...(name && { name }),
+    };
+  });
+  const impulse = isPlainMap(module) && typeof module.relativePathToIR === "string" ? fileName(module.relativePathToIR) : "";
+  return { position: position + 1, effect: found.kind, enabled: controls[0], controls: controls.slice(1), ...(impulse && { impulse }) };
+}
+
+/** The three racks' effects, at the engine's live positions where a knob is linked to a slot (`links`, the state's). */
+export function readEffects(body: CborMap, links: FxLinks = {}, live: LiveControls = new Map()): SerumFxRack[] {
+  return SERUM_FX_RACKS.map((rack, r) => {
+    const module = body[`FXRack${r}`];
+    const list = isPlainMap(module) && Array.isArray(module.FX) ? module.FX : [];
+    const slotOf = new Map<string, number>();
+    (links[r as 0 | 1 | 2] ?? []).forEach((link, slot) => {
+      if (link) slotOf.set(`${link.fxID}:${link.paramIndex}`, slot);
+    });
+    return { rack, effects: list.map((entry, i) => readEffect(entry, i, r, slotOf, live)) };
+  });
+}
+
+/** The slots the player links a sound's effect knobs to (`planFxSlots`): written into every state it loads. */
+export function fxLinksFor(body: CborMap): FxLinks {
+  const links: FxLinks = {};
+  SERUM_FX_RACKS.forEach((_, r) => {
+    const module = body[`FXRack${r}`];
+    const list = isPlainMap(module) && Array.isArray(module.FX) ? module.FX : [];
+    const plan = planFxSlots(list.map((entry) => entryKind(entry)?.kind ?? null));
+    if (!plan.length) return;
+    links[r as 0 | 1 | 2] = plan.slice(0, FX_SLOTS).map(({ position, key }) => {
+      const kind = entryKind(list[position])!.kind;
+      return { fxID: position, paramIndex: SERUM_EFFECTS[kind].params.findIndex((p) => p.key === key) };
+    });
+  });
+  return links;
+}
+
+/** Whether two sets of links are the same (a load that kept the player's needs no reload). */
+export function sameLinks(a: FxLinks, b: FxLinks): boolean {
+  const norm = (links: FxLinks) =>
+    JSON.stringify(([0, 1, 2] as const).map((r) => (links[r] ?? []).map((l) => (l ? `${l.fxID}:${l.paramIndex}` : "")).join(",").replace(/,+$/, "")));
+  return norm(a) === norm(b);
+}
+
+/** The routes, envelopes, LFOs, oscillators and effects of Serum's settings, at the engine's live positions. */
+export function readSoundParts(
+  body: CborMap,
+  live: LiveControls = new Map(),
+  links: FxLinks = {},
+): { modulation: SerumModRoute[]; envelopes: SerumEnvelope[]; lfos: SerumLfo[]; oscillators: SerumOscillator[]; effects: SerumFxRack[] } {
   const modulation = readRoutes(body, live);
-  return { modulation, envelopes: readEnvelopes(body, modulation, live), lfos: readLfos(body, modulation, live), oscillators: readOscillators(body, live) };
+  return {
+    modulation,
+    envelopes: readEnvelopes(body, modulation, live),
+    lfos: readLfos(body, modulation, live),
+    oscillators: readOscillators(body, live),
+    effects: readEffects(body, links, live),
+  };
 }
 
 /** Every destination a route can have in this sound, by name: Serum's controls, then its effects' parameters. */
@@ -366,12 +475,161 @@ function editLfo(body: CborMap, edit: Extract<SerumSoundEdit, { kind: "lfo" }>, 
   }
 }
 
+// ---- Effect edits ----
+
+/** One of Serum's saved effects or racks, read (`SerumLibrary.readChain`): its entries as a rack holds them. */
+export interface SerumChain {
+  kind: "effect" | "rack";
+  entries: CborMap[];
+}
+
+const RACK_NAMES = SERUM_FX_RACKS.map((r) => `"${r}"`).join(", ");
+
+function rackOf(rack: unknown, where: string, errors: string[]): number | undefined {
+  const r = SERUM_FX_RACKS.indexOf(rack as SerumFxRackId);
+  if (r < 0) errors.push(`${where}.rack must be ${RACK_NAMES} (Main, Bus 1, Bus 2).`);
+  return r < 0 ? undefined : r;
+}
+
+/** What's in a rack, for an error: "1 distortion, 2 reverb", or that it's empty. */
+function rackContents(list: readonly CborValue[], rack: number): string {
+  const names = list.map((entry, i) => `${i + 1} ${entryKind(entry)?.kind ?? "unknown"}`);
+  return names.length ? `${SERUM_FX_RACK_LABELS[SERUM_FX_RACKS[rack]]} has ${names.join(", ")}` : `${SERUM_FX_RACK_LABELS[SERUM_FX_RACKS[rack]]} is empty`;
+}
+
+/** An effect's switch and settings (spec names, Serum's stored values or an option's name) written onto its entry. */
+function setEffect(entry: CborMap, enabled: unknown, settings: unknown, where: string, errors: string[]) {
+  const found = entryKind(entry);
+  if (!found) {
+    errors.push(`${where}: the player doesn't know this effect, so it can't change it.`);
+    return;
+  }
+  const spec = SERUM_EFFECTS[found.kind];
+  const module = isPlainMap(entry[found.module]) ? (entry[found.module] as CborMap) : (entry[found.module] = {});
+  const params: CborMap = isPlainMap(module.plainParams) ? { ...module.plainParams } : {};
+  if (enabled !== undefined) {
+    if (typeof enabled !== "boolean") errors.push(`${where}.enabled must be true or false.`);
+    else params.kParamEnable = enabled ? 1 : 0;
+  }
+  if (settings !== undefined) {
+    if (!isPlainMap(settings as CborValue)) errors.push(`${where}.settings must be an object of ${found.kind} parameters: { "${spec.params[1]?.spec}": … }.`);
+    else
+      for (const [name, value] of Object.entries(settings as Record<string, unknown>)) {
+        const param = spec.params.find((p) => !p.hidden && p.key !== "kParamEnable" && (p.spec === name || p.key === name));
+        if (!param) {
+          errors.push(`${where}.settings.${name} isn't a ${found.kind} parameter; they are: ${spec.params.filter((p) => !p.hidden && p.key !== "kParamEnable").map((p) => p.spec).join(", ")}.`);
+          continue;
+        }
+        const storedValue = fxInput(param.scale, value);
+        if (storedValue === null) errors.push(`${where}.settings.${name} is ${JSON.stringify(value)}; it must be ${fxRange(param.scale)}.`);
+        else params[param.key] = storedValue;
+      }
+  }
+  module.plainParams = Object.keys(params).length ? params : "default";
+}
+
+/** Where each effect entry is now (by identity): its rack and place. */
+function placesOf(body: CborMap): Map<CborValue, [number, number]> {
+  const places = new Map<CborValue, [number, number]>();
+  SERUM_FX_RACKS.forEach((_, r) => rackList(body, r).forEach((entry, i) => places.set(entry, [r, i])));
+  return places;
+}
+
 /**
- * `edits` applied to Serum's settings (a copy): routes added, changed and removed, envelopes and LFOs set. Values in
- * the spec's units (`preset-format.md`). Throws `SpecError` with every problem, each saying what would do.
+ * The mod routes aimed at effects follow them after a rack changed (`before`: where each entry was): a route to an
+ * effect that moved points at its new place (Serum names it by rack × 100 + place), and one to an effect taken out goes.
  */
-export function editSerumBody(body: CborMap, edits: unknown): CborMap {
-  if (!Array.isArray(edits) || !edits.length) throw new SpecError(['"edits" must be a list of changes: { "kind": "route" | "removeRoute" | "envelope" | "lfo", … }.']);
+function followEffects(body: CborMap, before: Map<CborValue, [number, number]>) {
+  const was = new Map([...before].map(([entry, [r, i]]) => [r * 100 + i, entry]));
+  const now = placesOf(body);
+  for (let n = 0; n < SERUM_MOD_SLOTS; n++) {
+    const slot = body[`ModSlot${n}`];
+    if (!isRouted(slot) || !FX_TYPES.some((t) => t.module === slot.destModuleTypeString)) continue;
+    const entry = was.get(number(slot.destModuleID, -1));
+    const place = entry === undefined ? undefined : now.get(entry);
+    if (!place) body[`ModSlot${n}`] = { plainParams: "default" };
+    else slot.destModuleID = place[0] * 100 + place[1];
+  }
+}
+
+/** A place in a rack (1 up) as an index, if it's one of `count` (or the end, with `orEnd`). */
+function placeIn(at: unknown, count: number, orEnd: boolean): number | undefined {
+  if (at === undefined) return orEnd ? count : undefined;
+  return inRange(at, 1, count + (orEnd ? 1 : 0)) ? at - 1 : undefined;
+}
+
+function editEffects(body: CborMap, edit: SerumSoundEdit, where: string, errors: string[], chains: ReadonlyMap<string, SerumChain>) {
+  if (edit.kind !== "effect" && edit.kind !== "addEffect" && edit.kind !== "removeEffect" && edit.kind !== "moveEffect" && edit.kind !== "effectChain") return;
+  const r = rackOf(edit.rack, where, errors);
+  if (r === undefined) return;
+  const list = rackList(body, r);
+  const before = placesOf(body);
+  const position = (value: unknown, field: string) => {
+    const i = placeIn(value, list.length, false);
+    if (i === undefined) errors.push(`${where}.${field} ${JSON.stringify(value)} isn't an effect's place: ${rackContents(list, r)}.`);
+    return i;
+  };
+  switch (edit.kind) {
+    case "effect": {
+      const i = position(edit.position, "position");
+      if (i !== undefined) setEffect(list[i] as CborMap, edit.enabled, edit.settings, where, errors);
+      return;
+    }
+    case "addEffect": {
+      const at = placeIn(edit.at, list.length, true);
+      if (at === undefined) return void errors.push(`${where}.at must be 1 to ${list.length + 1} (left out: last).`);
+      const entry = writeEffect({ effect: edit.effect }, where, errors);
+      if (!entry) return;
+      setEffect(entry, edit.enabled, edit.settings, where, errors);
+      finalize(entry);
+      list.splice(at, 0, entry);
+      break;
+    }
+    case "removeEffect": {
+      const i = position(edit.position, "position");
+      if (i === undefined) return;
+      list.splice(i, 1);
+      break;
+    }
+    case "moveEffect": {
+      const i = position(edit.position, "position");
+      const r2 = edit.toRack === undefined ? r : rackOf(edit.toRack, `${where}.toRack`, errors);
+      if (i === undefined || r2 === undefined) return;
+      const [entry] = list.splice(i, 1);
+      const target = rackList(body, r2);
+      const to = placeIn(edit.at, target.length, true);
+      if (to === undefined) {
+        list.splice(i, 0, entry);
+        return void errors.push(`${where}.at must be 1 to ${target.length + 1}.`);
+      }
+      target.splice(to, 0, entry);
+      break;
+    }
+    case "effectChain": {
+      const chain = typeof edit.path === "string" ? chains.get(edit.path) : undefined;
+      if (!chain) return void errors.push(`${where}.path ${JSON.stringify(edit.path)} isn't one of Serum's saved effects or racks (list_serum_effect_chains lists them).`);
+      const entries = chain.entries.map((e) => clone(e));
+      if (chain.kind === "rack") list.splice(0, list.length, ...entries);
+      else {
+        const at = placeIn(edit.at, list.length, true);
+        if (at === undefined) return void errors.push(`${where}.at must be 1 to ${list.length + 1} (left out: last).`);
+        list.splice(at, 0, ...entries);
+      }
+      break;
+    }
+  }
+  followEffects(body, before);
+}
+
+const EDIT_KINDS = '"route", "removeRoute", "envelope", "lfo", "effect", "addEffect", "removeEffect", "moveEffect" or "effectChain"';
+
+/**
+ * `edits` applied to Serum's settings (a copy): routes added, changed and removed, envelopes and LFOs set, effects
+ * set, added, removed, moved or put in from Serum's saved ones (`chains`, read beforehand). Values in the spec's units
+ * (`preset-format.md`). Throws `SpecError` with every problem, each saying what would do.
+ */
+export function editSerumBody(body: CborMap, edits: unknown, chains: ReadonlyMap<string, SerumChain> = new Map()): CborMap {
+  if (!Array.isArray(edits) || !edits.length) throw new SpecError([`"edits" must be a list of changes: { "kind": ${EDIT_KINDS}, … }.`]);
   const out = clone(body);
   const errors: string[] = [];
   edits.forEach((edit: SerumSoundEdit, i) => {
@@ -404,8 +662,14 @@ export function editSerumBody(body: CborMap, edits: unknown): CborMap {
       }
       case "lfo":
         return editLfo(out, edit, where, errors);
+      case "effect":
+      case "addEffect":
+      case "removeEffect":
+      case "moveEffect":
+      case "effectChain":
+        return editEffects(out, edit, where, errors, chains);
       default:
-        errors.push(`${where}.kind is ${JSON.stringify((edit as { kind?: unknown }).kind)}; it must be "route", "removeRoute", "envelope" or "lfo".`);
+        errors.push(`${where}.kind is ${JSON.stringify((edit as { kind?: unknown }).kind)}; it must be ${EDIT_KINDS}.`);
     }
   });
   if (errors.length) throw new SpecError(errors);

@@ -679,6 +679,94 @@ test("the Serum player edits the sound: routes added, turned, changed and remove
   await expect(undo).toHaveAttribute("title", /Undo LFO 1: free/);
 });
 
+test("the Serum player's effects: racks as tabs, cards turned live, added, set, moved and removed, Serum's saved ones put in, each an undo step", async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem("e2e-plugins-set")) {
+      localStorage.setItem("vaudio.music.favouritePlugins", JSON.stringify(["VST3-Fake Synth-1", "VST3-Fake Delay-2", "VST3-Serum 2-3"]));
+      sessionStorage.setItem("e2e-plugins-set", "1");
+    }
+  });
+  const id = await openNewSong(page, "Serum effects");
+  await page.getByTestId("channel-rack").getByRole("button", { name: "Add a channel" }).click();
+  await page.getByTestId("channel-picker").getByRole("option", { name: /Serum 2/ }).click();
+  const player = page.getByTestId("serum-player");
+  await player.getByRole("listbox", { name: "Presets" }).getByRole("option", { name: "BA - Stand-in Reese" }).click();
+  await expect(player.getByTestId("serum-preset-name")).toHaveText("BA - Stand-in Reese");
+  let channelId = "";
+  await expect.poll(async () => (channelId = (await savedSong(page, id)).channels.find((c: { name: string }) => c.name === "Serum 2")?.id ?? "")).not.toBe("");
+  const engineValue = async (param: string) =>
+    ((await (await page.request.get(`/api/engine/parameters?owner=channel&id=${channelId}`)).json()) as { id: string; value: number }[]).find((p) => p.id === param)?.value;
+  const undo = player.getByRole("button", { name: "Undo in the player" });
+  const effects = player.getByTestId("serum-effects");
+  await expect(effects).toContainText("No effects");
+  const add = async (rack: string, item: string) => {
+    await effects.getByRole("button", { name: `Add an effect to ${rack}` }).click();
+    await page.getByRole("menuitem", { name: item, exact: true }).click();
+  };
+
+  // A reverb added: a card, its knobs linked to the rack's slots.
+  await add("Main", "Reverb");
+  const reverb = effects.locator("[data-effect='reverb']");
+  await expect(reverb).toHaveAttribute("data-on", "true");
+  await expect(undo).toHaveAttribute("title", /Undo Add Reverb/);
+  const mix = reverb.locator("[data-param='wet']");
+  const slot = (await mix.getAttribute("data-slot"))!;
+  expect(slot).toMatch(/^17000\d{3}$/);
+
+  // Its mix turns live, Serum's own slot, a step of its own.
+  await mix.getByRole("slider", { name: "Reverb mix" }).focus();
+  await page.keyboard.press("ArrowUp");
+  await expect.poll(() => engineValue(slot)).toBeCloseTo(0.21, 5);
+  await expect(undo).toHaveAttribute("title", /Undo Reverb mix/);
+
+  // Its switch and its type are live too.
+  await reverb.getByRole("button", { name: "Bypass Reverb" }).click();
+  await expect(reverb).toHaveAttribute("data-on", "false");
+  await expect(undo).toHaveAttribute("title", /Undo Bypass Reverb/);
+  await reverb.getByRole("button", { name: "Type" }).click();
+  await page.getByRole("menuitem", { name: "Hall" }).click();
+  await expect(reverb.getByRole("button", { name: "Type" })).toHaveText("Hall");
+
+  // The rest is under its expand: not on a slot, Serum takes it as a new state when it's let go.
+  await reverb.getByRole("button", { name: "All Reverb settings" }).click();
+  const lowCut = reverb.locator("[data-param='freq']");
+  await expect(lowCut).not.toHaveAttribute("data-slot");
+  await lowCut.getByRole("slider", { name: "Reverb low cut" }).focus();
+  await page.keyboard.press("ArrowUp");
+  await expect(undo).toHaveAttribute("title", /Undo Reverb low cut/);
+  await expect(lowCut).toContainText("1%");
+
+  // Another effect, moved before the reverb; the order is Serum's.
+  await add("Main", "Distortion");
+  const cards = effects.getByRole("listitem");
+  await expect(cards).toHaveCount(2);
+  await effects.locator("[data-effect='distortion']").getByRole("button", { name: "Distortion menu" }).click();
+  await page.getByRole("menuitem", { name: "Move earlier" }).click();
+  await expect(cards.first()).toHaveAttribute("data-effect", "distortion");
+  await expect(undo).toHaveAttribute("title", /Undo Move Distortion/);
+
+  // A saved rack of Serum's onto Bus 1, in place of what it had.
+  await effects.getByRole("tab", { name: /Bus 1/ }).click();
+  await expect(effects).toContainText("Nothing on Bus 1");
+  await effects.getByRole("button", { name: "Add an effect to Bus 1" }).click();
+  await page.getByRole("menuitem", { name: "Saved racks (replace Bus 1)" }).hover();
+  await page.getByRole("menuitem", { name: "FX Rack" }).hover();
+  await page.getByRole("menuitem", { name: "Stand-in Grit" }).click();
+  await expect(cards).toHaveCount(2);
+  await expect(cards.first()).toHaveAttribute("data-effect", "distortion");
+  await expect(cards.nth(1)).toHaveAttribute("data-effect", "delay");
+  await expect(cards.first().getByRole("button", { name: "Mode" })).toHaveText("Overdrive");
+
+  // Removed, and back with the player's undo.
+  await cards.nth(1).getByRole("button", { name: "Delay menu" }).click();
+  await page.getByRole("menuitem", { name: "Remove" }).click();
+  await expect(cards).toHaveCount(1);
+  await undo.click();
+  await expect(cards).toHaveCount(2);
+  await effects.getByRole("tab", { name: /Main/ }).click();
+  await expect(cards).toHaveCount(2);
+});
+
 test("a plugin channel's settings are FL's wrapper: its knobs, the plugin, its programs and the user's presets for it", async ({ page }) => {
   const id = await openNewSong(page, "Wrapper");
   await page.getByTestId("channel-rack").getByRole("button", { name: "Add a channel" }).click();

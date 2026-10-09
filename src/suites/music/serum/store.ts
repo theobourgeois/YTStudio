@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { errorMessage } from "@shared/errors";
 import { type SerumPresetEntry, type SerumSound, stepSerumPreset } from "@shared/music/serum-presets";
+import { fxParam, fxStored, SERUM_EFFECTS, type SerumChainEntry, type SerumFxRackId } from "@shared/music/serum-effects";
 import { type SerumSolo, type SerumSoundEdit, soloOscillator, withControl } from "@shared/music/serum-sound";
 import { musicApi } from "../api";
 import { useMusic } from "../store";
@@ -24,6 +25,11 @@ export interface SerumChannel {
 
 const EMPTY: SerumChannel = { sound: null, path: null, loading: null, busy: false, error: null, destinations: null, solo: null };
 
+/** An effect of the channel's sound, by its rack and place. */
+export function effectAt(sound: SerumSound | null | undefined, rack: SerumFxRackId, position: number) {
+  return sound?.effects.find((r) => r.rack === rack)?.effects.find((e) => e.position === position) ?? null;
+}
+
 interface SerumUi {
   /** The Serum channels whose players are open. */
   openIds: string[];
@@ -35,6 +41,8 @@ interface SerumUi {
   channels: Record<string, SerumChannel>;
   /** Each open player's list as it shows it (its search and filters): what ↑ ↓ step through. */
   shown: Record<string, string[]>;
+  /** Serum's saved effects and racks (`Effect Chains`), once asked for (+ Add's menu). */
+  chains: SerumChainEntry[] | null;
 
   open: (channelId: string) => void;
   close: (channelId: string) => void;
@@ -69,6 +77,13 @@ interface SerumUi {
   muteOscillator: (channelId: string, index: number) => void;
   /** An oscillator soloed (the others off), or its solo ended (all put back as they were): one undo step. */
   soloOscillator: (channelId: string, index: number) => void;
+  /**
+   * An effect's control set (0 to 1): live through its rack's slot when it's linked to one (a drag: begun, moved,
+   * ended), else Serum loads it as a new state when it's let go (`gesture` "end" or "set"). One undo step.
+   */
+  setEffectControl: (channelId: string, rack: SerumFxRackId, position: number, key: string, value: number, gesture: "begin" | "drag" | "end" | "set") => void;
+  /** Read Serum's saved effects and racks (once). */
+  loadChains: () => Promise<void>;
 }
 
 const projectId = () => useMusic.getState().projectId;
@@ -107,6 +122,7 @@ function controlValue(sound: SerumSound | null | undefined, param: string): numb
     ...sound.envelopes.flatMap((e) => Object.values(e.controls)),
     ...sound.lfos.flatMap((l) => Object.values(l.controls)),
     ...sound.oscillators.flatMap((o) => [o.enabled, o.level]),
+    ...sound.effects.flatMap((r) => r.effects.flatMap((e) => [...(e.enabled ? [e.enabled] : []), ...e.controls])).flatMap((c) => (c.param ? [{ param: c.param, value: c.value }] : [])),
   ];
   return all.find((c) => c.param === param)?.value;
 }
@@ -135,6 +151,7 @@ export const useSerumUi = create<SerumUi>((set, get) => {
     libraryError: null,
     channels: {},
     shown: {},
+    chains: null,
 
     open(channelId) {
       useMusicWindows.getState().focus(serumWindow(channelId));
@@ -268,6 +285,30 @@ export const useSerumUi = create<SerumUi>((set, get) => {
       const { values, solo } = soloOscillator(oscillators, index, now.solo);
       get().setControls(channelId, values, "set", `${solo ? "Solo" : "Unsolo"} ${oscillatorLabel(osc.name)}`);
       patch(channelId, { solo });
+    },
+    setEffectControl(channelId, rack, position, key, value, gesture) {
+      const effect = effectAt(get().channels[channelId]?.sound, rack, position);
+      const param = effect?.effect ? fxParam(effect.effect, key) : undefined;
+      if (!effect?.effect || !param) return;
+      const control = key === "kParamEnable" ? effect.enabled : effect.controls.find((c) => c.key === key);
+      const name = SERUM_EFFECTS[effect.effect].name;
+      const label = key === "kParamEnable" ? `${value >= 0.5 ? "Turn on" : "Bypass"} ${name}` : `${name} ${(control?.name ?? param.label).toLowerCase()}`;
+      if (control?.param) return get().setControl(channelId, control.param, value, gesture, label);
+      // Not on a slot: Serum takes it as a new state, once it's let go.
+      if (gesture !== "end" && gesture !== "set") return;
+      const settings = key === "kParamEnable" ? undefined : { [param.spec]: fxStored(param.scale, value) };
+      const edit: SerumSoundEdit = { kind: "effect", rack, position, ...(settings ? { settings } : { enabled: value >= 0.5 }) };
+      void get()
+        .edit(channelId, [edit], label)
+        .catch(() => {});
+    },
+    async loadChains() {
+      if (get().chains) return;
+      try {
+        set({ chains: await musicApi.serumChains() });
+      } catch {
+        // No saved effects to offer: the menu says so.
+      }
     },
     async loadDestinations(channelId) {
       const project = projectId();

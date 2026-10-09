@@ -16,6 +16,7 @@ import { useSong } from "../store";
 import { useTransport } from "../transport";
 import { serumWindow } from "../ui";
 import { MusicWindow, centredOnDesktop } from "../window";
+import { EffectsSection } from "./effects";
 import { EnvelopesAndLfos } from "./envelopes";
 import { categoryHue, SERUM_TOKENS } from "./look";
 import { ModulationSection } from "./modulation";
@@ -32,8 +33,8 @@ const MIN = { minWidth: 640, minHeight: 460 };
 /**
  * A Serum 2 channel's window (`docs/serum/player.md` §3), a plugin's face as YT-L's is, in Serum's colours: the
  * preset playing and the arrows in its top bar, Serum's whole library down the left (browsing is hearing: each step
- * loads one), and for the sound a display of what it plays, its macros, its modulation, and (when asked) its
- * envelopes and LFOs. Each change is a step of the player's own undo. Serum's own window is a click away for the rest.
+ * loads one), and for the sound a display of what it plays, its macros, oscillators, modulation, effects, and (when
+ * asked) its envelopes and LFOs. Each change is a step of the player's own undo. Serum's own window is a click away for the rest.
  */
 export function SerumPlayerWindow({ channelId, index }: { channelId: string; index: number }) {
   const channel = useSong((s) => s.channels.find((c) => c.id === channelId) ?? null);
@@ -293,7 +294,7 @@ const PresetRow = memo(function PresetRow({ channelId, preset, on, loading }: { 
   );
 });
 
-/** What the channel's Serum plays, its macros, its modulation, its envelopes and LFOs. */
+/** What the channel's Serum plays, its macros, oscillators, modulation, effects, and its envelopes and LFOs. */
 function SoundPanel({ channelId }: { channelId: string }) {
   const state = useSerumUi((s) => s.channels[channelId]);
   const sound = state?.sound ?? null;
@@ -306,6 +307,7 @@ function SoundPanel({ channelId }: { channelId: string }) {
       <Macros channelId={channelId} macros={sound?.macros ?? null} routes={sound?.modulation ?? null} />
       <OscillatorsSection channelId={channelId} oscillators={sound?.oscillators ?? []} />
       <ModulationSection channelId={channelId} routes={sound?.modulation ?? null} />
+      <EffectsSection channelId={channelId} racks={sound?.effects ?? []} />
       {sound?.modulation && <EnvelopesAndLfos channelId={channelId} envelopes={sound.envelopes} lfos={sound.lfos} routes={sound.modulation} />}
     </div>
   );

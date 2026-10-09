@@ -240,5 +240,34 @@ describe.skipIf(!(process.platform === "darwin" && existsSync(ENGINE) && existsS
     const undone = await rendering(player.undo(target));
     expect(undone.modulation?.map((r) => r.to)).toEqual(["Filter 1 Freq"]);
   }, 120_000);
+
+  it("links a loaded preset's effect knobs to the racks' slots, turns them live, and links an added effect's too", async () => {
+    const file = path.join(dir, "library", "Presets", "AU Effects.SerumPreset");
+    await fs.writeFile(file, writeSerumPreset({ name: "AU Effects", fx: { main: [{ effect: "distortion", drive: 20 }, { effect: "reverb", type: "kHall" }] } } as never));
+    const loaded = await rendering(player.load({ ...target, path: file }));
+    const [main] = loaded.effects;
+    expect(main.effects.map((e) => e.effect)).toEqual(["distortion", "reverb"]);
+    const drive = main.effects[0].controls.find((c) => c.key === "kParamDrive")!;
+    // Linked to a slot, Serum says where it is and what it reads.
+    expect(drive.param).toBe("17000002");
+    expect(drive.value).toBeCloseTo(0.2, 3);
+    expect(drive.text).toBe("20");
+    expect(main.effects[1].controls.find((c) => c.key === "kParamType")).toMatchObject({ param: "17000005", text: "Hall" });
+
+    // Turned live: Serum's own Drive moves, no reload.
+    await engine.command("setParameter", { owner: "channel", ownerId: CHANNEL, param: drive.param!, value: 0.7 });
+    await engine.render(RATE / 10, path.join(dir, "au.wav"));
+    const turned = await rendering(player.sound(PROJECT, CHANNEL));
+    expect(turned.effects[0].effects[0].controls.find((c) => c.key === "kParamDrive")!.value).toBeCloseTo(0.7, 3);
+
+    // An effect added is a reload, and its card's knobs are linked too.
+    const added = await rendering(player.edit({ ...target, edits: [{ kind: "addEffect", rack: "main", effect: "chorus" }] }));
+    const chorus = added.effects[0].effects[2];
+    expect(chorus.effect).toBe("chorus");
+    expect(chorus.enabled?.param).not.toBeNull();
+    expect(chorus.controls.find((c) => c.key === "kParamRate")?.param).not.toBeNull();
+    // What was turned live is in the state the reload made.
+    expect(added.effects[0].effects[0].controls.find((c) => c.key === "kParamDrive")!.value).toBeCloseTo(0.7, 3);
+  }, 120_000);
 });
 

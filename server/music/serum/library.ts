@@ -9,12 +9,20 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { inflateSync } from "node:zlib";
+import { naturalCompare } from "../../../shared/music/browser.ts";
+import type { SerumChainEntry } from "../../../shared/music/serum-effects.ts";
 import { type SerumPresetEntry, serumCategory } from "../../../shared/music/serum-presets.ts";
 import { HttpError } from "../../storage.ts";
 import { log } from "../../log.ts";
+import { FX_TYPES } from "./catalogue.ts";
+import { type CborMap, decodeCbor, isPlainMap } from "./cbor.ts";
+import { readXfer } from "./container.ts";
+import type { SerumChain } from "./sound.ts";
 
 const logger = log("serum-library");
 const EXTENSIONS = new Set([".serumpreset", ".fxp"]);
+/** Serum's saved effects (one each) and racks, in `Effect Chains`. */
+const CHAIN_EXTENSIONS = new Set([".serumfx", ".serumfxrack"]);
 
 /** Where Serum 2 keeps its presets (the folder holding `Presets` and `System`), and Serum 1's folder if Serum links it. */
 export interface SerumLibraryPlaces {
@@ -238,6 +246,48 @@ export class SerumLibrary {
   }
 
   /** A preset file of the library's, checked: never a path outside its folders, nor anything but a preset. */
+  /** Serum's saved effects and racks (`Effect Chains` in Serum 2's preset folder), sorted by folder and name. */
+  async chains(): Promise<SerumChainEntry[]> {
+    const root = await this.chainRoot();
+    if (!root) return [];
+    const files: { file: string; folder: string; root: string }[] = [];
+    await walk(root, root, files, CHAIN_EXTENSIONS);
+    const entries = await Promise.all(
+      files.map(async ({ file, folder }): Promise<SerumChainEntry | null> => {
+        const rack = path.extname(file).toLowerCase() === ".serumfxrack";
+        const name = path.basename(file, path.extname(file));
+        if (rack) return { path: file, name, folder, kind: "rack" };
+        const meta = await readPresetHeader(file).catch(() => null);
+        const effect = FX_TYPES.find((t) => t.module === meta?.fxType)?.effect;
+        return effect ? { path: file, name, folder, kind: "effect", effect } : null;
+      }),
+    );
+    return entries.filter((e): e is SerumChainEntry => e !== null).sort((a, b) => naturalCompare(a.folder, b.folder) || naturalCompare(a.name, b.name));
+  }
+
+  /** A saved effect's or rack's entries, as a rack holds them. The file must be one of `chains()`'s. */
+  async readChain(file: unknown): Promise<SerumChain> {
+    const root = await this.chainRoot();
+    const resolved = typeof file === "string" && path.isAbsolute(file) ? path.resolve(file) : null;
+    if (!root || !resolved || !resolved.startsWith(path.resolve(root) + path.sep) || !CHAIN_EXTENSIONS.has(path.extname(resolved).toLowerCase()))
+      throw new HttpError(400, "That isn't one of Serum's saved effects or racks.");
+    const settings = decodeCbor(readXfer(new Uint8Array(await fs.readFile(resolved))).settings);
+    if (!isPlainMap(settings)) throw new HttpError(422, "That saved effect can't be read.");
+    if (path.extname(resolved).toLowerCase() === ".serumfxrack") {
+      const list = isPlainMap(settings.FXRack) ? settings.FXRack.FX : undefined;
+      if (!Array.isArray(list)) throw new HttpError(422, "That saved rack has no effects list.");
+      return { kind: "rack", entries: list.filter((e): e is CborMap => isPlainMap(e)) };
+    }
+    const type = FX_TYPES.find((t) => isPlainMap(settings[t.module]));
+    if (!type) throw new HttpError(422, "That saved effect isn't one Serum's racks hold.");
+    return { kind: "effect", entries: [{ [type.module]: settings[type.module], type: type.type }] };
+  }
+
+  private async chainRoot(): Promise<string | null> {
+    const { serum2 } = await this.places;
+    return serum2 ? path.join(serum2, "Effect Chains") : null;
+  }
+
   async resolve(file: unknown): Promise<string> {
     if (typeof file !== "string" || !path.isAbsolute(file)) throw new HttpError(400, '"path" must be a preset\'s path, as the preset list gives it.');
     const resolved = path.resolve(file);
@@ -251,8 +301,8 @@ export class SerumLibrary {
 /** The key a preset is found by in Serum's index: its folder in the library, its name, its kind. */
 const indexKey = (folder: string, name: string, kind: string) => `${folder}\n${name}\n${kind}`.toLowerCase();
 
-/** Every preset file under `dir`, with its folder relative to `root`. Hidden files and folders are skipped. */
-async function walk(dir: string, root: string, out: { file: string; folder: string; root: string }[]): Promise<void> {
+/** Every preset file (or other `extensions`) under `dir`, with its folder relative to `root`. Hidden files and folders are skipped. */
+async function walk(dir: string, root: string, out: { file: string; folder: string; root: string }[], extensions = EXTENSIONS): Promise<void> {
   let items;
   try {
     items = await fs.readdir(dir, { withFileTypes: true });
@@ -262,8 +312,8 @@ async function walk(dir: string, root: string, out: { file: string; folder: stri
   for (const item of items) {
     if (item.name.startsWith(".")) continue;
     const full = path.join(dir, item.name);
-    if (item.isDirectory()) await walk(full, root, out);
-    else if (item.isFile() && EXTENSIONS.has(path.extname(item.name).toLowerCase()))
+    if (item.isDirectory()) await walk(full, root, out, extensions);
+    else if (item.isFile() && extensions.has(path.extname(item.name).toLowerCase()))
       out.push({ file: full, folder: path.relative(root, dir).split(path.sep).join("/"), root });
   }
 }

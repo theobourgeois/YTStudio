@@ -6,6 +6,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { deflateSync } from "node:zlib";
+import { type CborMap, encodeCbor, isPlainMap } from "./cbor.ts";
+import { writeXfer } from "./container.ts";
 import type { SerumLibraryPlaces } from "./library.ts";
 import { writeSerumPreset } from "./preset.ts";
 
@@ -33,9 +35,31 @@ CREATE TABLE IF NOT EXISTS Presets_Tags( preset_id INTEGER NOT NULL REFERENCES P
 CREATE TABLE IF NOT EXISTS Tags( tag_id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS UserData ( hash TEXT NOT NULL UNIQUE, rating INTEGER);`;
 
+/** A saved effect (`.SerumFX`) or rack (`.SerumFXRack`) as Serum writes one: its settings in Xfer's container. */
+function standInChain(settings: CborMap): Uint8Array {
+  const fileType = isPlainMap(settings.FXRack) ? "SerumFXRack" : "SerumFX";
+  const meta = { fileType, product: "Serum2", vendor: "Xfer Records", version: 3, ...(typeof settings.fxType === "string" && { fxType: settings.fxType }) };
+  return writeXfer(meta, encodeCbor({ ...settings, fileType }));
+}
+
+/** Two of Serum's saved effects and a rack, as Serum keeps them in `Effect Chains`. */
+async function standInChains(dir: string) {
+  const write = async (folder: string, file: string, bytes: Uint8Array) => {
+    await fs.mkdir(path.join(dir, "Effect Chains", folder), { recursive: true });
+    await fs.writeFile(path.join(dir, "Effect Chains", folder, file), bytes);
+  };
+  await write("Reverb/Factory", "Hall - Stand-in Room.SerumFX", standInChain({ FXReverb: { plainParams: { kParamSize: 60, kParamType: "kHall", kParamWet: 25 } }, fxType: "FXReverb", type: 6 }));
+  await write(
+    "FX Rack/Factory",
+    "Stand-in Grit.SerumFXRack",
+    standInChain({ FXRack: { FX: [{ FXDistortion: { plainParams: { kParamDrive: 60, kParamMode: "kOverdrive" } }, type: 0 }, { FXDelay: { plainParams: "default" }, type: 4 }], plainParams: "default" } }),
+  );
+}
+
 /** The stand-in library in `dir` (made once, kept: its ratings are a test's to change). */
 export async function standInSerumLibrary(dir: string): Promise<SerumLibraryPlaces> {
   const presets = path.join(dir, "Presets");
+  if (!(await fs.stat(path.join(dir, "Effect Chains")).then(() => true, () => false))) await standInChains(dir);
   if (await fs.stat(presets).then(() => true, () => false)) return { serum2: dir, serum1: null };
   const write = async (folder: string, file: string, bytes: Uint8Array) => {
     await fs.mkdir(path.join(presets, folder), { recursive: true });

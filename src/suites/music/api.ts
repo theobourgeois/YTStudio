@@ -21,6 +21,7 @@ import type {
   SetSongResponse,
 } from "@shared/music/engine";
 import type { SerumLibraryResponse, SerumSound } from "@shared/music/serum-presets";
+import type { SerumChainEntry } from "@shared/music/serum-effects";
 import type { SerumHistory, SerumSoundEdit } from "@shared/music/serum-sound";
 import type {
   AddBrowserRootRequest,
@@ -88,6 +89,8 @@ export const musicApi = {
   /** The Serum player's last step on a channel undone (or redone). */
   undoSerum: (projectId: string, channel: string, redo = false) =>
     request<SerumSound>(`/api/music/serum/${redo ? "redo" : "undo"}`, { method: "POST", body: JSON.stringify({ projectId, channel }) }),
+  /** Serum's saved effects and racks (`Effect Chains` in its preset folder). */
+  serumChains: () => request<SerumChainEntry[]>("/api/music/serum/chains"),
   /** The destinations a route of a channel's Serum can have, by name. */
   serumDestinations: (projectId: string, channel: string) =>
     request<string[]>(`/api/music/serum/destinations?projectId=${encodeURIComponent(projectId)}&channel=${encodeURIComponent(channel)}`),
