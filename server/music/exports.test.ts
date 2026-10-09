@@ -102,24 +102,28 @@ describe("MusicExports", () => {
     expect(() => exports.file(job.id, "../../secrets")).toThrow(/no such file/);
   });
 
-  it("bounces the mix into the project's media (Render as audio clip), its formats and stems left out", async () => {
+  it("bounces each mixer track's stem into the project's media (Consolidate), its formats and mix left out", async () => {
     const adopted: { projectId: string; name: string; origin: string; bytes: number }[] = [];
     const paths = new DataPaths(dir);
     const bouncing = new MusicExports(paths, engine, {
       samplePath: () => null,
       adopt: async (projectId, file, name, origin) => {
         adopted.push({ projectId, name, origin, bytes: (await fs.stat(file)).size });
-        return { id: "media_bounce", name: `${name}.wav` } as never;
+        return { id: `media_${adopted.length}`, name: `${name}.wav` } as never;
       },
     });
-    const started = await bouncing.start({ projectId: PROJECT, song: song(), patternId: P, selection: { start: 0, end: 384 }, settings: { ...DEFAULT_EXPORT_SETTINGS, formats: ["mp3"], stems: true }, destination: "/tmp/x.wav", bounce: { name: "Beat (rendered)" } });
+    const bounce = { name: "Beat (consolidated)", names: { insert_2: "Bass (consolidated)" } };
+    const started = await bouncing.start({ projectId: PROJECT, song: song(), patternId: P, selection: { start: 0, end: 384 }, settings: { ...DEFAULT_EXPORT_SETTINGS, formats: ["mp3"], stems: false }, destination: "/tmp/x.wav", bounce });
     let job = bouncing.get(started.id);
     while (job.state === "rendering" || job.state === "encoding") {
       await new Promise((resolve) => setTimeout(resolve, 50));
       job = bouncing.get(started.id);
     }
-    expect(job).toMatchObject({ state: "done", files: [], media: { id: "media_bounce" } });
-    expect(adopted).toEqual([{ projectId: PROJECT, name: "Beat (rendered)", origin: `bounce:${job.id}`, bytes: 44 + 96_000 * 8 }]);
+    expect(job).toMatchObject({ state: "done", files: [], bounced: [{ track: "insert_1", media: { id: "media_1" } }, { track: "insert_2", media: { id: "media_2" } }] });
+    expect(adopted).toEqual([
+      { projectId: PROJECT, name: "Beat (consolidated)", origin: `bounce:${job.id}:insert_1`, bytes: 44 + 96_000 * 8 },
+      { projectId: PROJECT, name: "Bass (consolidated)", origin: `bounce:${job.id}:insert_2`, bytes: 44 + 96_000 * 8 },
+    ]);
     bouncing.shutdown();
   });
 

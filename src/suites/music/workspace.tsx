@@ -378,6 +378,8 @@ function runPlaylistKey(action: PlaylistKeyAction) {
       return playlist.quantize();
     case "selectSimilar":
       return playlist.selectSimilar();
+    case "consolidate":
+      return playlist.consolidateSelected();
     case "timeAround":
       return playlist.selectTimeAroundClips();
     case "insertSpace":

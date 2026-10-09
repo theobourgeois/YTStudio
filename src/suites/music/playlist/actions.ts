@@ -3,6 +3,7 @@
  * makes one edit of the song, with the operations of `shared/music/playlist.ts`. As in FL Studio, a command
  * acts on the selected clips, or on all of them when none are selected.
  */
+import { toast } from "sonner";
 import { addMarker, markersOf, updateMarker } from "@shared/music/markers";
 import { clamp } from "@shared/math";
 import { clonePattern, movePatterns, removeChannels, removePatterns, renamePattern, setPatternColor, updateChannel } from "@shared/music/edits";
@@ -37,6 +38,7 @@ import {
 import { stepsPerBar } from "@shared/music/project";
 import { editPoints, updateAutomation } from "@shared/music/automation";
 import { openAutomationWindow } from "../automation/actions";
+import { bounceWithToast } from "./bounce";
 import { type MusicProject, PPQ, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import { openPianoRoll } from "../piano/actions";
 import { snapTick, snapTicks } from "../piano/geometry";
@@ -258,6 +260,13 @@ export function paste() {
 }
 
 /** Ctrl+B: duplicate to the right; the copies are selected, and the time selection moves with them. */
+/** Consolidate the selected clips (Ctrl+Alt+C, FL's Consolidate playlist selection; `bounce.ts`). */
+export function consolidateSelected() {
+  const { selected } = usePlaylist.getState();
+  if (!selected.size) return void toast("Select the clips to consolidate first.");
+  void bounceWithToast(selected, true);
+}
+
 export function duplicate() {
   const p = playlistContext();
   if (!p) return;

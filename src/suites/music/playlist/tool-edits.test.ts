@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { addChannels, setSteps, setTempo } from "@shared/music/edits";
 import { addAudioClips } from "@shared/music/playlist";
+import { placeBounced } from "@shared/music/consolidate";
 import { createMusicProject } from "@shared/music/project";
 import type { MusicProject } from "@shared/music/types";
-import { setMarkersTool, chopClipsTool, describePlaylist, makeClipUniqueTool, placeClipsTool, playlistSummary, removeClipsTool, sliceClipsTool, splitByChannelTool, stretchAudioTool, updateClipsTool, updatePlaylistTrackTool } from "./tool-edits";
+import { setMarkersTool, chopClipsTool, unconsolidateClipsTool, describePlaylist, makeClipUniqueTool, placeClipsTool, playlistSummary, removeClipsTool, sliceClipsTool, splitByChannelTool, stretchAudioTool, updateClipsTool, updatePlaylistTrackTool } from "./tool-edits";
 import { clipContext, clipLength } from "@shared/music/playlist";
 
 const BAR = 384;
@@ -122,6 +123,19 @@ describe("the assistant's playlist tools", () => {
     expect(text).toContain('Audio clips (their channels): "Vox" (id chan_vox).');
     expect(playlistSummary(song)).toBe("Playlist: 3 clips on 2 tracks, 3 bars (get_playlist has them).");
     expect(describePlaylist(beat(), null)).toContain("Nothing is on it yet");
+  });
+});
+
+describe("the assistant's consolidated clips", () => {
+  it("say what they play into and what's inside them, and unconsolidate", () => {
+    const placed = placeClipsTool(beat(), { clips: [{ pattern: "Beat", track: 1, bar: 1 }] }, env).song;
+    const { song } = placeBounced(placed, new Set([1]), [{ into: "master", sampleId: "m9", seconds: 2, name: "Beat (consolidated)" }], "cons_1", () => "chan_beat");
+    expect(describePlaylist(song, null)).toContain('- clip 1: audio "Beat (consolidated)" at bar 1, 1 bars, consolidated (into Master, before its effects; 1 clip inside: unconsolidate_clips, rerender_clip)');
+    const back = unconsolidateClipsTool(song, { ids: [1] });
+    expect(back.text).toBe('Back on the playlist:\n- clip 1: pattern "Beat" at bar 1, 1 bars (its pattern\'s length)');
+    expect(back.song.channels.some((c) => c.id === "chan_beat")).toBe(false);
+    expect(() => unconsolidateClipsTool(placed, { ids: [1] })).toThrow(/None of them is consolidated/);
+    expect(() => unconsolidateClipsTool(song, { ids: [7] })).toThrow(/get_playlist/);
   });
 });
 

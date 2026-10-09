@@ -37,7 +37,7 @@ import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import { ColorSwatches } from "../color-swatches";
-import { bounceWithToast } from "./bounce";
+import { bounceWithToast, rerenderWithToast, unconsolidateClips } from "./bounce";
 import { StretchMenuItems } from "../stretch-menu";
 import { autodetectTempo } from "../stretching";
 import {
@@ -56,6 +56,7 @@ import {
   renameSource,
   selectAll,
   selectSimilar,
+  consolidateSelected,
   setMuted,
   sourceName,
   splitPattern,
@@ -264,6 +265,9 @@ function EditMenu() {
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={quantize}>
           Quick quantize start times <DropdownMenuShortcut>⌘Q</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={consolidateSelected}>
+          Consolidate <DropdownMenuShortcut>⌘⌥C</DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={selectAll}>
@@ -752,12 +756,30 @@ function ClipMenu() {
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         {clip.kind !== "automation" && (
-          <DropdownMenuItem
-            title="Render it (and the clips selected with it) into an audio clip, on the first free track below (FL's Render as audio clip)"
-            onSelect={() => void bounceWithToast(usePlaylist.getState().selected.has(clip.id) ? usePlaylist.getState().selected : only, false)}
-          >
-            Render as audio clip
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuItem
+              title="Render it (and the clips selected with it) into audio clips in their place, one per mixer track they play into, before its effects; the clips go inside them (FL's Consolidate)"
+              onSelect={() => void bounceWithToast(selected.has(clip.id) ? selected : only, true)}
+            >
+              Consolidate <DropdownMenuShortcut>⌘⌥C</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              title="Render it (and the clips selected with it) into audio clips on the first free tracks below, the clips left as they are (FL's Render as audio clip)"
+              onSelect={() => void bounceWithToast(selected.has(clip.id) ? selected : only, false)}
+            >
+              Render as audio clip
+            </DropdownMenuItem>
+          </>
+        )}
+        {clip.consolidated && (
+          <>
+            <DropdownMenuItem title="Render the clips inside it again, as their patterns and instruments are now: its copies and slices play the new file" onSelect={() => void rerenderWithToast(clip.id)}>
+              Re-render
+            </DropdownMenuItem>
+            <DropdownMenuItem title="Put back the clips it was made from, where it is now" onSelect={() => unconsolidateClips(selected.has(clip.id) ? selected : only)}>
+              Unconsolidate
+            </DropdownMenuItem>
+          </>
         )}
         <DropdownMenuItem
           onSelect={() => {

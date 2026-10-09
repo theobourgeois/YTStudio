@@ -135,11 +135,11 @@ export interface ExportSongRequest {
    */
   destination: string | null;
   /**
-   * Render as audio clip / Consolidate (`docs/fl-studio/export.md`): the mix becomes the project's media
-   * (named `name`) instead of files, given back as the job's `media`. Its settings' formats and stems are
-   * ignored.
+   * Render as audio clip / Consolidate (`shared/music/consolidate.ts`): each mixer track's stem becomes the
+   * project's media (named `names[track]`, else `name`) instead of files, given back as the job's `bounced`.
+   * Its settings' formats, stems and mix are ignored.
    */
-  bounce?: { name: string } | null;
+  bounce?: { name: string; names?: Record<string, string> } | null;
 }
 
 /**
@@ -187,8 +187,8 @@ export interface MusicExportJob {
   peakDb: number | null;
   /** How far it was turned down so as not to clip (`preventClipping`), in dB; 0 if it wasn't. */
   gainDb: number;
-  /** A bounce's mix, made the project's media (`ExportSongRequest.bounce`), once it's done. */
-  media?: MediaAsset | null;
+  /** A bounce's stems, each made the project's media (`ExportSongRequest.bounce`), by the mixer track it's of, once it's done. */
+  bounced?: { track: string; media: MediaAsset }[];
 }
 
 /** A name a file can have on any system: no slashes, colons or the like, not too long. */

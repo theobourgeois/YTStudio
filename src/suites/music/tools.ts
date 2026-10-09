@@ -65,7 +65,7 @@ import {
 import { switchMode, useTransport } from "./transport";
 import { armedIn, notesKept, takesOf, useRecording } from "./recording";
 import { midiTarget, useMidi } from "./midi";
-import { bounceClips } from "./playlist/bounce";
+import { type BounceResult, bounceClips, rerenderClip } from "./playlist/bounce";
 import { convertSettings } from "@shared/music/convert";
 import { DEFAULT_STEMS, STEMS, STEM_NAMES, isStem } from "@shared/music/stems";
 import { STEP_TICKS } from "@shared/music/types";
@@ -81,6 +81,7 @@ import {
   chopClipsTool,
   describePlaylist,
   makeClipUniqueTool,
+  unconsolidateClipsTool,
   placeClipsTool,
   removeClipsTool,
   sliceClipsTool,
@@ -1031,9 +1032,19 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     } else throw new Error('Give "ids" (clips) or "track" (a track number, 1 for the first).');
     const result = await bounceClips(new Set(ids), { replace: input.consolidate === true });
     if ("error" in result) throw new Error(result.error);
-    return textResult(
-      `Rendered into "${result.name}" (${result.seconds.toFixed(1)} s): clip ${result.clipId} on track ${result.track + 1} from bar ${(result.start / clipContext(useMusic.getState().history!.doc).barTicks + 1).toFixed(2).replace(/\.00$/, "")}${input.consolidate === true ? "; the clips it replaces are muted" : ""}.`,
-    );
+    return textResult(renderedText(result, input.consolidate === true ? "; the clips are inside them (unconsolidate_clips brings them back)" : ""));
+  },
+  unconsolidate_clips: edit(unconsolidateClipsTool),
+  async rerender_clip(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "Rendering clips");
+    if (typeof input.id !== "number" || !target.song.playlist.clips.some((c) => c.id === input.id && c.consolidated)) {
+      const consolidated = target.song.playlist.clips.filter((c) => c.consolidated).map((c) => c.id);
+      throw new Error(`Clip ${String(input.id)} isn't a consolidated clip. ${consolidated.length ? `The consolidated clips: ${consolidated.join(", ")}.` : "There are none."}`);
+    }
+    const result = await rerenderClip(input.id);
+    if ("error" in result) throw new Error(result.error);
+    return textResult(renderedText(result, ""));
   },
   slice_clips: edit(sliceClipsTool),
   chop_clips: edit(chopClipsTool),
@@ -1166,4 +1177,16 @@ export async function runMusicTool(name: string, input: Input, ctx: ToolRunConte
   const handler = (TOOLS as Record<string, ((input: Input, ctx: ToolRunContext) => Promise<ToolResult>) | undefined>)[name];
   if (!handler) return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   return handler(input, ctx);
+}
+
+/** What a render made, for the model: each new clip, where it is and what it plays into. */
+function renderedText(result: Exclude<BounceResult, { error: string }>, note: string): string {
+  const song = useMusic.getState().history!.doc;
+  const bar = (result.start / clipContext(song).barTicks + 1).toFixed(2).replace(/\.00$/, "");
+  const clips = result.clips.map((c) => {
+    const clip = song.playlist.clips.find((x) => x.id === c.id);
+    const into = clip ? song.channels.find((ch) => ch.id === clip.ref)?.mixerTrack : undefined;
+    return `clip ${c.id} "${c.name}" on track ${c.track + 1}${into ? `, playing into ${trackName(song, into)}` : ""}`;
+  });
+  return `Rendered (${result.seconds.toFixed(1)} s, from bar ${bar}): ${clips.join("; ")}${note}.`;
 }
