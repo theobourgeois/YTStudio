@@ -287,6 +287,18 @@ export interface EngineChannelScope {
   left: number[];
   right: number[];
   peak: [number, number];
+  /**
+   * The notes the plugin was given, for where its envelopes and LFOs are (Serum doesn't say): the keys down, and
+   * seconds since the last went down and since all were let go (-1: not since it was watched). Absent from engines
+   * that don't say.
+   */
+  notes?: EngineScopeNotes;
+}
+
+export interface EngineScopeNotes {
+  held: number;
+  sinceOn: number;
+  sinceOff: number;
 }
 
 /**

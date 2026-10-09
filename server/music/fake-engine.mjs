@@ -144,7 +144,9 @@ const scopes = () => {
       const wave = Array.from({ length: 1024 }, (_, k) => Math.round(1000 * 0.3 * (Math.sin((k / 48000) * 2 * Math.PI * 110 + t * 7) + 0.5 * Math.sin((k / 48000) * 2 * Math.PI * 220))) / 1000);
       const left = Array.from({ length: 256 }, (_, k) => Math.round(1000 * 0.35 * Math.sin(k * 0.21 + t)) / 1000);
       const right = Array.from({ length: 256 }, (_, k) => Math.round(1000 * 0.35 * Math.sin(k * 0.23 + t * 1.4)) / 1000);
-      return [id, { spectrum: Array.from({ length: 480 }, (_, i) => level(i)), wave, left, right, peak: [0.4, 0.38] }];
+      // A key held since play started, re-pressed every bar (2 s at 120): for the player's LFO and envelope lines.
+      const notes = { held: 1, sinceOn: Math.round((t % 2) * 1000) / 1000, sinceOff: -1 };
+      return [id, { spectrum: Array.from({ length: 480 }, (_, i) => level(i)), wave, left, right, peak: [0.4, 0.38], notes }];
     }),
   );
 };

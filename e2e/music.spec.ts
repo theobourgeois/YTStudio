@@ -632,11 +632,12 @@ test("the Serum player edits the sound: routes added, turned, changed and remove
   await player.getByRole("button", { name: "Envelopes and LFOs" }).click();
   const envelopes = player.getByTestId("serum-envelopes");
   await expect(envelopes.getByTestId("serum-env-1")).toHaveAttribute("data-used", "true");
-  await expect(envelopes.getByTestId("serum-lfo-1")).toHaveAttribute("data-used", "false");
+  // Only what's in use: no LFO is routed yet, so none shows.
+  await expect(envelopes.getByTestId("serum-lfo-1")).toHaveCount(0);
   expect(await page.evaluate(() => localStorage.getItem("vaudio.music.serum.envelopesShown"))).toBe("1");
 
   // Env 1's attack, dragged on its shape: live, one step.
-  const attack = envelopes.getByTestId("serum-env-1").getByRole("slider", { name: "Env 1 attack" });
+  const attack = envelopes.getByTestId("serum-env-1").getByRole("slider", { name: "Env 1 attack point" });
   await attack.scrollIntoViewIfNeeded();
   const box = (await attack.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -656,9 +657,8 @@ test("the Serum player edits the sound: routes added, turned, changed and remove
   const area = (await shape.boundingBox())!;
   await page.mouse.dblclick(area.x + area.width * 0.25, area.y + area.height * 0.5);
   await expect.poll(async () => JSON.parse((await shape.getAttribute("data-points"))!).length).toBe(4);
-  await lfo.getByRole("combobox", { name: "LFO 1 mode" }).click();
-  await page.getByRole("option", { name: "Free", exact: true }).click();
-  await expect(lfo.getByRole("combobox", { name: "LFO 1 mode" })).toHaveText("Free");
+  await lfo.getByRole("radiogroup", { name: "LFO 1 mode" }).getByRole("radio", { name: /FREE/ }).click();
+  await expect(lfo.getByRole("radiogroup", { name: "LFO 1 mode" }).getByRole("radio", { name: /FREE/ })).toHaveAttribute("aria-checked", "true");
   await expect(undo).toHaveAttribute("title", /Undo LFO 1: free/);
 });
 

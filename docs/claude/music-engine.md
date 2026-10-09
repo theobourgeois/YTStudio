@@ -31,7 +31,8 @@ Read the music suite's guide (`docs/claude/music.md`) first.
 - **Scopes** (`Scope.h`, `ChannelScope`): the Serum player's display. While a player is open (`channelWatch`), the
   audio thread copies its plugin channel's own sound (before its mixer track) into a scope, and each transport event
   says its spectrum (Pro-Q's `eq::Spectrum`, 480 points), its newest 1024 samples and 256 stereo pairs, and its
-  peaks (`scopes`). Approximate on purpose (a torn sample is a pixel, never a sound); an offline render's answer
+  peaks (`scopes`), and the notes it was given (`notes`: keys down, seconds since the last went down and since all
+  were let go, for where the player draws Serum's envelopes and LFOs). Approximate on purpose (a torn sample is a pixel, never a sound); an offline render's answer
   always carries them (`plugin-swap.integration.test.ts`).
 - **A plugin instance belongs to a channel *and* its state file** (`PluginHost::get`): a song's channel keeps its
   instance across the song's edits, but a channel of the same id in another project (songs made from the same

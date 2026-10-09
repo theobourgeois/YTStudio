@@ -411,10 +411,24 @@ New tools in `shared/music/tools.ts`, for parity with the window:
      taken away by a right-click, each a reload when the drag ends (`shape-model.ts`, tested); mode (Retrigger, Free,
      Envelope) and Sync are reloads; rate, smooth, rise, delay and phase are knobs, live. Path, Lorenz, Rossler and
      RandomSH LFOs say so instead of a shape.
-   - **Only what's in use:** an envelope or LFO nothing is routed from is listed folded (Env 1 never is).
-5. **Effects:** the racks and cards, their knobs live through linked slots.
-6. **Saving and the assistant's tools.**
-7. **The Serum 1 library:** every `.fxp` in Serum's folders loads by the drop (§2.3), listed with the rest.
+   - **Only what's in use** (Théo, 2026-10-09): an envelope or LFO nothing is routed from isn't shown at all (Env 1
+     always is).
+   - **Drawn as Serum draws them** (Théo found the first version "mid"): tabs a source (its count of destinations in
+     a ring), the envelope on a time axis in seconds with its values in blue under it and ATK HOLD DEC SUS REL knobs,
+     curve handles bending each stage; the LFO with its modes down the left, its shape on Serum's 8 × 8 grid, its
+     curve handles, and RATE RISE DELAY SMOOTH PHASE.
+   - **The line running through them while it plays:** Serum doesn't tell a host where its envelopes and LFOs are,
+     so the engine says when the watched channel's last note went down and when all were let go (`ChannelScope`'s
+     `notes`), and the player works out where each is from that, its rate, mode and phase and the song's tempo
+     (`motion.ts`, tested). Close, not exact.
+5. **Done (2026-10-09): the player's face.** Théo wanted it to look like our other plugins (YT-L, YT-Pitch) rather
+   than the app's lists: a plugin's dark face in Serum's colours in every theme (`--serum-*`, `look.ts`), a top bar
+   (SERUM PLAYER, the player's undo, the preset between its arrows with its stars, Open Serum), the library with its
+   kinds as coloured chips and the preset playing lit, big macro knobs (Pro-C's, in Serum's tokens, as YT-L uses
+   them), the mod matrix as Serum's (sources coloured by kind, amounts as bars from the middle), a bottom bar.
+6. **Effects:** the racks and cards, their knobs live through linked slots.
+7. **Saving and the assistant's tools.**
+8. **The Serum 1 library:** every `.fxp` in Serum's folders loads by the drop (§2.3), listed with the rest.
 
 ## 5. Questions
 
