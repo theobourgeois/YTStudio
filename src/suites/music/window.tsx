@@ -1,10 +1,13 @@
 import type { DragEvent, ReactNode } from "react";
-import { Desktop, FloatingWindow, type FloatingWindowProps, cascadedOnDesktop as cascadedOn, centredOnDesktop as centredOn } from "@/components/windows/floating-window";
+import { Desktop, FloatingWindow, type FloatingWindowProps, cascadedOnDesktop as cascadedOn, centredOnDesktop as centredOn, fittedOnDesktop as fittedOn } from "@/components/windows/floating-window";
 import type { WindowPlace } from "@/components/windows/store";
 import { type WindowId, useMusicWindows } from "./ui";
 
 /** Where a small window of this size opens on the music editor's desktop: its middle, a little above. */
 export const centredOnDesktop = (width: number, height: number): WindowPlace => centredOn(width, height, "music");
+
+/** Where a big window opens on the music editor's desktop: the size it likes if there's room, else as big as fits (never below `min`). */
+export const fittedOnDesktop = (want: { width: number; height: number }, min: { width: number; height: number }) => fittedOn(want, min, "music");
 
 /** Where the `index`th of a cascade of windows of this size opens on the music editor's desktop, kept on it. */
 export const cascadedOnDesktop = (index: number, origin: { x: number; y: number }, step: number, size: { width: number; height: number }): WindowPlace =>

@@ -291,3 +291,14 @@ export interface SerumLibraryResponse {
 export function serumFolders(entries: readonly SerumPresetEntry[]): string[] {
   return [...new Set(entries.map((e) => e.folder).filter(Boolean))].sort(naturalCompare);
 }
+
+/**
+ * A preset picked at random from `list` (the player's list as its search and filters leave it), never `current` while
+ * there's another to pick; null when the list is empty. `random` is 0 to 1 (Math.random's).
+ */
+export function randomSerumPreset(list: readonly SerumPresetEntry[], current: string | null, random: () => number = Math.random): SerumPresetEntry | null {
+  const others = list.filter((e) => e.path !== current);
+  const from = others.length ? others : list;
+  if (!from.length) return null;
+  return from[Math.min(from.length - 1, Math.floor(random() * from.length))];
+}

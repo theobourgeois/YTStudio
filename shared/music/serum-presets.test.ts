@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type SerumPresetEntry, findSerumPresets, serumCategory, serumFolders, stepSerumPreset } from "./serum-presets.ts";
+import { type SerumPresetEntry, findSerumPresets, serumCategory, serumFolders, stepSerumPreset, randomSerumPreset } from "./serum-presets.ts";
 
 const preset = (name: string, more: Partial<SerumPresetEntry> = {}): SerumPresetEntry => ({
   path: `/presets/${more.folder ?? ""}/${name}.SerumPreset`,
@@ -76,3 +76,17 @@ describe("finding Serum presets", () => {
     expect(serumFolders(list)).toEqual(["Factory/Keyboard", "Factory/Pad", "Serum Starred Presets"]);
   });
 });
+
+describe("a random preset", () => {
+  const entry = (path: string) => ({ path, name: path, author: "", description: "", tags: [], category: "Lead" as const, folder: "", kind: "serum2" as const, hash: path, rating: 0 });
+  const list = ["a", "b", "c"].map(entry);
+
+  it("comes from the list, never the one playing while there's another", () => {
+    expect(randomSerumPreset(list, "a", () => 0)?.path).toBe("b");
+    expect(randomSerumPreset(list, "a", () => 0.99)?.path).toBe("c");
+    expect(randomSerumPreset(list, null, () => 0.5)?.path).toBe("b");
+    expect(randomSerumPreset([entry("a")], "a")?.path).toBe("a");
+    expect(randomSerumPreset([], null)).toBeNull();
+  });
+});
+

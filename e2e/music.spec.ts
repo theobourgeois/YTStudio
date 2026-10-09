@@ -496,6 +496,11 @@ test("a Serum 2 channel's window is the Serum player: Serum's presets in one lis
   const presets = player.getByRole("listbox", { name: "Presets" }).getByRole("option");
   await expect(presets).toHaveText([/BA - Stand-in Reese/, /LD - Stand-in Lead/, /PD - Stand-in Pad/, /pl - stand-in pluck.*S1/]);
   await expect(player.getByTestId("serum-macros").locator("[data-macro]")).toHaveCount(8);
+  // It opens inside the desktop, however small the screen (smaller than it likes, rather than under the Dock).
+  const desk = (await page.locator("[data-desktop='music']").boundingBox())!;
+  const box = (await player.boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(desk.y + desk.height + 1);
+  expect(box.x + box.width).toBeLessThanOrEqual(desk.x + desk.width + 1);
   // Its display, and the engine told to measure the channel for it.
   await expect(player.getByTestId("serum-scope")).toBeVisible();
 
@@ -516,6 +521,15 @@ test("a Serum 2 channel's window is the Serum player: Serum's presets in one lis
   await page.keyboard.press("ArrowDown");
   await expect(player.getByTestId("serum-preset-name")).toHaveText("PD - Stand-in Pad");
   await player.getByRole("button", { name: "Previous preset" }).click();
+  await expect(player.getByTestId("serum-preset-name")).toHaveText("LD - Stand-in Lead");
+
+  // Shuffle: a random preset of the list as it's filtered, never the one on.
+  await find.fill("stand-in");
+  await player.getByRole("button", { name: "Random preset" }).click();
+  await expect(player.getByTestId("serum-preset-name")).not.toHaveText("LD - Stand-in Lead");
+  await expect(player.getByTestId("serum-preset-name")).toHaveText(/Stand-in|stand-in/);
+  await find.fill("");
+  await player.getByRole("listbox", { name: "Presets" }).getByRole("option", { name: "LD - Stand-in Lead" }).click();
   await expect(player.getByTestId("serum-preset-name")).toHaveText("LD - Stand-in Lead");
 
   // Serum 1 alone; rated, it's starred, in Serum's own index.
