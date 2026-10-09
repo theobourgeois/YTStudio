@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { PiArrowArcLeft, PiArrowArcRight, PiCaretLeftFill, PiCaretRightFill, PiMagnifyingGlass, PiSpinnerGap, PiStarFill, PiX } from "react-icons/pi";
+import { PiArrowArcLeft, PiArrowArcRight, PiCaretDown, PiCaretLeftFill, PiCaretRightFill, PiCheck, PiMagnifyingGlass, PiSpinnerGap, PiStar, PiStarFill, PiX } from "react-icons/pi";
 import { cn } from "cn";
 import {
   SERUM_CATEGORIES,
@@ -10,6 +10,7 @@ import {
   findSerumPresets,
 } from "@shared/music/serum-presets";
 import { type SerumModRoute, sourceDrives } from "@shared/music/serum-sound";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Caption, CompKnob } from "../pro-c/knob";
 import { useSong } from "../store";
 import { useTransport } from "../transport";
@@ -18,6 +19,7 @@ import { MusicWindow, centredOnDesktop } from "../window";
 import { EnvelopesAndLfos } from "./envelopes";
 import { categoryHue, SERUM_TOKENS } from "./look";
 import { ModulationSection } from "./modulation";
+import { OscillatorsSection } from "./oscillators";
 import { ScopeView } from "./scope-view";
 import { SerumSection } from "./section";
 import { Stars } from "./stars";
@@ -57,7 +59,6 @@ export function SerumPlayerWindow({ channelId, index }: { channelId: string; ind
           <PresetBrowser channelId={channelId} />
           <SoundPanel channelId={channelId} />
         </div>
-        <BottomBar channelId={channelId} />
       </div>
     </MusicWindow>
   );
@@ -75,10 +76,6 @@ function TopBar({ channelId }: { channelId: string }) {
   const step = (by: number) => void useSerumUi.getState().step(channelId, by);
   return (
     <div className="flex h-10 shrink-0 items-center gap-1 border-b border-black/60 bg-[var(--serum-bar)] px-2.5">
-      <span className="mr-3 flex items-baseline font-semibold" aria-hidden>
-        <span className="text-[15px] tracking-[0.08em] text-[var(--serum-trace)]">SERUM</span>
-        <span className="ml-1.5 text-[9.5px] font-medium tracking-[0.16em] text-[var(--serum-text-dim)]">PLAYER</span>
-      </span>
       <button type="button" className={barButton} aria-label="Undo in the player" title={history?.undo ? `Undo ${history.undo} (⌘Z)` : "Nothing to undo"} disabled={!history?.undo || state?.busy} onClick={() => void useSerumUi.getState().undo(channelId)}>
         <PiArrowArcLeft className="size-3.5" />
       </button>
@@ -91,7 +88,6 @@ function TopBar({ channelId }: { channelId: string }) {
         </button>
         <div className="flex min-w-[240px] max-w-[380px] flex-col items-center leading-tight">
           <span className="flex max-w-full items-center gap-1.5">
-            {entry && <span className="size-2 shrink-0 rounded-full" style={{ background: categoryHue(entry.category) }} />}
             <span className={cn("truncate text-[14px] font-medium", !name && "text-[var(--serum-text-dim)] italic")} data-testid="serum-preset-name">
               {name || "No preset loaded"}
             </span>
@@ -107,8 +103,8 @@ function TopBar({ channelId }: { channelId: string }) {
               "Pick one in the list: ↑ ↓ step through it."
             )}
             {state?.sound?.edited && (
-              <span className="rounded-sm border border-[var(--serum-hot)]/60 px-1 text-[9px] font-semibold tracking-wider text-[var(--serum-hot)]" data-testid="serum-edited" title="Changed here since the preset was loaded">
-                EDITED
+              <span className="text-[var(--serum-hot)]" data-testid="serum-edited" title="Changed here since the preset was loaded">
+                · edited
               </span>
             )}
           </span>
@@ -121,7 +117,7 @@ function TopBar({ channelId }: { channelId: string }) {
         type="button"
         aria-pressed={editorOpen}
         className={cn(
-          "rounded-[4px] border px-2 py-1 text-[10.5px] font-semibold tracking-[0.08em] outline-none",
+          "rounded-[4px] border px-2 py-1 text-[11px] font-medium outline-none",
           editorOpen ? "border-[var(--serum-trace)] text-[var(--serum-trace)]" : "border-[var(--serum-edge)] text-[var(--serum-text-dim)] hover:text-[var(--serum-text)]",
         )}
         onClick={() => useTransport.getState().showPlugin(channelId, !editorOpen)}
@@ -168,10 +164,10 @@ function PresetBrowser({ channelId }: { channelId: string }) {
   }, [shown, list]);
 
   const rated = (presets ?? []).filter((p) => p.rating >= FAVOURITE_RATING).length;
-  const chip = (on: boolean) =>
+  const filter = (on: boolean) =>
     cn(
-      "flex h-5 items-center gap-1 rounded-full border px-2 text-[10px] font-semibold tracking-[0.06em] uppercase outline-none",
-      on ? "border-[var(--serum-trace)] bg-[var(--serum-trace)]/15 text-[var(--serum-text)]" : "border-[var(--serum-edge)] text-[var(--serum-text-dim)] hover:text-[var(--serum-text)]",
+      "flex h-6 items-center gap-1 rounded-[4px] border border-black/60 px-2 text-[11px] outline-none",
+      on ? "bg-[var(--serum-tab-on)] text-[var(--serum-text)]" : "bg-[var(--serum-tab)] text-[var(--serum-text-dim)] hover:text-[var(--serum-text)]",
     );
   return (
     <div className="flex w-[38%] max-w-[360px] min-w-60 flex-col border-r border-black/60 bg-[var(--serum-panel)]" data-testid="serum-browser">
@@ -200,28 +196,38 @@ function PresetBrowser({ channelId }: { channelId: string }) {
             </button>
           )}
         </label>
-        <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Kind of sound">
-          <button type="button" role="radio" aria-checked={category === null} className={chip(category === null)} onClick={() => setCategory(null)}>
-            All
-          </button>
-          {SERUM_CATEGORIES.filter((c) => counts.has(c)).map((c) => (
-            <button key={c} type="button" role="radio" aria-checked={category === c} title={`${counts.get(c)} ${c.toLowerCase()} presets`} className={chip(category === c)} onClick={() => setCategory(category === c ? null : c)}>
-              <span className="size-1.5 rounded-full" style={{ background: categoryHue(c) }} />
-              {c}
-            </button>
-          ))}
-        </div>
         <div className="flex items-center gap-1.5">
-          <button type="button" aria-pressed={favourites} title={`Only the presets with ${FAVOURITE_RATING} stars or more`} className={chip(favourites)} onClick={() => setFavourites(!favourites)}>
-            <PiStarFill className={cn("size-2.5", favourites && "text-[var(--serum-hot)]")} /> Starred
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" aria-label="Kind of sound" className={cn(filter(category !== null), "min-w-0 flex-1 justify-between")}>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  {category && <span className="size-1.5 shrink-0 rounded-full" style={{ background: categoryHue(category) }} />}
+                  <span className="truncate">{category ?? "Every kind"}</span>
+                </span>
+                <PiCaretDown className="size-2.5 shrink-0 opacity-70" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="max-h-80 w-44 overflow-y-auto border-black/60 bg-[var(--serum-panel)] text-[var(--serum-text)]">
+              {[null, ...SERUM_CATEGORIES.filter((c) => counts.has(c))].map((c) => (
+                <DropdownMenuItem key={c ?? "all"} onSelect={() => setCategory(c)} className="gap-2 text-[12px] focus:bg-white/5 focus:text-[var(--serum-text)]">
+                  <span className="size-1.5 shrink-0 rounded-full" style={{ background: c ? categoryHue(c) : "transparent" }} />
+                  <span className="flex-1">{c ?? "Every kind"}</span>
+                  <span className="text-[10.5px] text-[var(--serum-text-dim)]">{c ? counts.get(c) : presets?.length}</span>
+                  {c === category && <PiCheck className="size-3 text-[var(--serum-trace)]" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <button type="button" aria-pressed={favourites} aria-label="Starred" title={`Only the presets with ${FAVOURITE_RATING} stars or more`} className={cn(filter(favourites), "shrink-0 px-1.5")} onClick={() => setFavourites(!favourites)}>
+            {favourites ? <PiStarFill className="size-3 text-[var(--serum-hot)]" /> : <PiStar className="size-3" />}
           </button>
-          <div className="ml-auto flex overflow-hidden rounded-[4px] border border-[var(--serum-edge)] text-[10.5px]" role="group" aria-label="Serum version">
+          <div className="flex shrink-0 overflow-hidden rounded-[4px] border border-black/60 text-[11px]" role="group" aria-label="Serum version">
             {([null, "serum2", "serum1"] as const).map((k) => (
               <button
                 key={k ?? "both"}
                 type="button"
                 aria-pressed={kind === k}
-                className={cn("px-1.5 py-0.5 whitespace-nowrap outline-none", kind === k ? "bg-[var(--serum-trace)] font-semibold text-black" : "text-[var(--serum-text-dim)] hover:text-[var(--serum-text)]")}
+                className={cn("px-1.5 py-[3px] whitespace-nowrap outline-none", kind === k ? "bg-[var(--serum-tab-on)] text-[var(--serum-text)]" : "bg-[var(--serum-tab)] text-[var(--serum-text-dim)] hover:text-[var(--serum-text)]")}
                 onClick={() => setKind(k)}
               >
                 {k === null ? "Both" : k === "serum2" ? "Serum 2" : "Serum 1"}
@@ -266,11 +272,11 @@ const PresetRow = memo(function PresetRow({ channelId, preset, on, loading }: { 
       data-path={preset.path}
       className={cn(
         "group relative flex h-7 cursor-pointer items-center gap-2 pr-2 pl-3 text-[12px]",
-        on ? "bg-gradient-to-r from-[var(--serum-row-on)] to-transparent text-white" : "text-[var(--serum-text)] hover:bg-white/[0.04]",
+        on ? "bg-[var(--serum-row-on)] text-white" : "text-[var(--serum-text)] hover:bg-white/[0.04]",
       )}
       onClick={() => void useSerumUi.getState().load(channelId, preset)}
     >
-      {on && <span className="absolute inset-y-0.5 left-0 w-[3px] rounded-r-sm bg-[var(--serum-trace)] shadow-[0_0_8px_var(--serum-trace)]" />}
+      {on && <span className="absolute inset-y-0 left-0 w-[2px] bg-[var(--serum-trace)]" />}
       <span className="size-1.5 shrink-0 rounded-full" style={{ background: categoryHue(preset.category) }} title={preset.category} />
       <span className="min-w-0 flex-1 truncate">
         {preset.name}
@@ -294,10 +300,11 @@ function SoundPanel({ channelId }: { channelId: string }) {
   return (
     <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-3" data-testid="serum-sound">
       {state?.error && <div className="mx-3 mt-2 rounded-sm border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">{state.error}</div>}
-      <div className="mx-3 mt-3 h-44 overflow-hidden rounded-[5px] border border-black/70 shadow-[inset_0_1px_8px_rgb(0_0_0/0.6),0_1px_0_rgb(255_255_255/0.04)]">
+      <div className="mx-3 mt-3 h-40 overflow-hidden rounded-[4px] border border-black/70">
         <ScopeView channelId={channelId} />
       </div>
       <Macros channelId={channelId} macros={sound?.macros ?? null} routes={sound?.modulation ?? null} />
+      <OscillatorsSection channelId={channelId} oscillators={sound?.oscillators ?? []} />
       <ModulationSection channelId={channelId} routes={sound?.modulation ?? null} />
       {sound?.modulation && <EnvelopesAndLfos channelId={channelId} envelopes={sound.envelopes} lfos={sound.lfos} routes={sound.modulation} />}
     </div>
@@ -312,7 +319,7 @@ function Macros({ channelId, macros, routes }: { channelId: string; macros: Seru
   const drives = (macro: SerumMacro) => (routes ? sourceDrives(routes, `Macro ${macro.index + 1}`) : []);
   const shown = !macros ? [] : routes ? macros.filter((m) => drives(m).length || m.name !== `Macro ${m.index + 1}`) : macros;
   return (
-    <SerumSection title="MACROS" label="Macros">
+    <SerumSection title="Macros" label="Macros">
       {!macros ? (
         <p className="text-[11px] text-[var(--serum-text-dim)]">Waiting for Serum…</p>
       ) : !macros.length ? (
@@ -320,7 +327,7 @@ function Macros({ channelId, macros, routes }: { channelId: string; macros: Seru
       ) : !shown.length ? (
         <p className="text-[11px] text-[var(--serum-text-dim)]">This preset's maker gave it no macros.</p>
       ) : (
-        <div className="grid grid-cols-4 gap-x-2 gap-y-3 rounded-[5px] border border-black/50 bg-gradient-to-b from-[var(--serum-panel)] to-[var(--serum-bg)] px-2 py-3" data-testid="serum-macros">
+        <div className="grid grid-cols-4 gap-x-2 gap-y-3 rounded-[4px] border border-black/50 bg-[var(--serum-panel)] px-2 py-3" data-testid="serum-macros">
           {shown.map((macro) => (
             <MacroKnob key={macro.param} channelId={channelId} macro={macro} drives={drives(macro)} />
           ))}
@@ -346,24 +353,11 @@ function MacroKnob({ channelId, macro, drives }: { channelId: string; macro: Ser
         onEnd={() => set(latest(), "end")}
         onCancel={() => set(latest(), "end")}
         onSet={(v) => useSerumUi.getState().setControl(channelId, macro.param, v, "set", `Turn ${macro.name}`)}
-        caption={<Caption className="max-w-full truncate">{macro.name}</Caption>}
+        caption={<Caption className="max-w-full truncate text-[11px] tracking-normal normal-case">{macro.name}</Caption>}
       />
-      <span className="mt-1 max-w-full truncate text-[10px] text-[var(--serum-value)]" title={drives.length ? `Drives ${drives.join(", ")}` : undefined}>
-        {drives.join(", ") || " "}
+      <span className="mt-0.5 max-w-full truncate text-[10px] text-[var(--serum-text-dim)]" title={drives.length ? `Drives ${drives.join(", ")}` : undefined}>
+        {drives.length ? `${drives[0]}${drives.length > 1 ? ` +${drives.length - 1}` : ""}` : " "}
       </span>
-    </div>
-  );
-}
-
-/** What's there and how to move through it. */
-function BottomBar({ channelId }: { channelId: string }) {
-  const format = useSong((s) => s.channels.find((c) => c.id === channelId)?.plugin?.format ?? "");
-  const routes = useSerumUi((s) => s.channels[channelId]?.sound?.modulation?.length ?? null);
-  return (
-    <div className="flex h-6 shrink-0 items-center gap-3 border-t border-black/60 bg-[var(--serum-bottom-bar)] px-3 text-[10.5px] text-[var(--serum-text-dim)]">
-      <span>↑ ↓ step through the list · each step loads it</span>
-      <span className="ml-auto">{routes === null ? "" : `${routes} route${routes === 1 ? "" : "s"}`}</span>
-      <span>Serum 2 · {format === "AudioUnit" ? "Audio Unit" : format || "plugin"}</span>
     </div>
   );
 }

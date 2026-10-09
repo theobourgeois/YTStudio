@@ -578,6 +578,23 @@ test("the Serum player edits the sound: routes added, turned, changed and remove
   // The load is a step only when there was a sound before it (the stand-in's Serum had none).
   await expect(undo).toBeDisabled();
 
+  // The oscillators, each muted and soloed live by Serum's own switch: a solo turns the others off, and back.
+  const oscillators = player.getByTestId("serum-oscillators");
+  await expect(oscillators.locator("[data-oscillator]")).toHaveCount(5);
+  await expect(oscillators.locator("[data-oscillator='A']")).toHaveAttribute("data-on", "true");
+  await oscillators.getByRole("button", { name: "Solo Osc B" }).click();
+  await expect.poll(() => engineValue("1000000")).toBe(0);
+  await expect.poll(() => engineValue("1001000")).toBe(1);
+  await expect(oscillators.locator("[data-oscillator='A']")).toHaveAttribute("data-on", "false");
+  await oscillators.getByRole("button", { name: "Solo Osc B" }).click();
+  await expect.poll(() => engineValue("1000000")).toBe(1);
+  await expect.poll(() => engineValue("1001000")).toBe(0);
+  await oscillators.getByRole("button", { name: "Mute Osc A" }).click();
+  await expect.poll(() => engineValue("1000000")).toBe(0);
+  await expect(undo).toHaveAttribute("title", /Undo Mute Osc A/);
+  await undo.click();
+  await expect.poll(() => engineValue("1000000")).toBe(1);
+
   // A route added: a source, then a destination from Serum's list, found by typing.
   async function addRoute(source: string, destination: string) {
     await modulation.getByRole("button", { name: "Add" }).click();
@@ -657,8 +674,8 @@ test("the Serum player edits the sound: routes added, turned, changed and remove
   const area = (await shape.boundingBox())!;
   await page.mouse.dblclick(area.x + area.width * 0.25, area.y + area.height * 0.5);
   await expect.poll(async () => JSON.parse((await shape.getAttribute("data-points"))!).length).toBe(4);
-  await lfo.getByRole("radiogroup", { name: "LFO 1 mode" }).getByRole("radio", { name: /FREE/ }).click();
-  await expect(lfo.getByRole("radiogroup", { name: "LFO 1 mode" }).getByRole("radio", { name: /FREE/ })).toHaveAttribute("aria-checked", "true");
+  await lfo.getByRole("radiogroup", { name: "LFO 1 mode" }).getByRole("radio", { name: /Free/ }).click();
+  await expect(lfo.getByRole("radiogroup", { name: "LFO 1 mode" }).getByRole("radio", { name: /Free/ })).toHaveAttribute("aria-checked", "true");
   await expect(undo).toHaveAttribute("title", /Undo LFO 1: free/);
 });
 

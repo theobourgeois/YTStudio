@@ -25,18 +25,25 @@ const iconButton = "grid size-5 shrink-0 place-items-center rounded-sm text-[var
 export function ModulationSection({ channelId, routes }: { channelId: string; routes: SerumModRoute[] | null }) {
   const busy = useSerumUi((s) => s.channels[channelId]?.busy ?? false);
   return (
-    <SerumSection title="MODULATION" label="Modulation" testId="serum-modulation" aside={routes && <AddRoute channelId={channelId} disabled={busy} />}>
+    <SerumSection
+      title="Modulation"
+      label="Modulation"
+      testId="serum-modulation"
+      aside={
+        routes && (
+          <>
+            {routes.length > 0 && <span className="text-[11px] text-[var(--serum-text-dim)]">{routes.length} route{routes.length === 1 ? "" : "s"}</span>}
+            <AddRoute channelId={channelId} disabled={busy} />
+          </>
+        )
+      }
+    >
       {!routes ? (
         <p className="text-[11px] text-[var(--serum-text-dim)]">Load a preset to see what it modulates.</p>
       ) : !routes.length ? (
         <p className="rounded-[5px] border border-dashed border-[var(--serum-edge)] py-3 text-center text-[11px] text-[var(--serum-text-dim)]">Nothing is modulated: add a route.</p>
       ) : (
         <div className="overflow-hidden rounded-[5px] border border-black/60 bg-[var(--serum-display)]">
-          <div className="flex h-5 items-center gap-2 border-b border-black/50 bg-[var(--serum-panel)] px-2 text-[9px] font-semibold tracking-[0.14em] text-[var(--serum-text-dim)]">
-            <span className="w-[104px]">SOURCE</span>
-            <span className="flex-1 pl-5">DESTINATION</span>
-            <span className="w-[150px]">AMOUNT</span>
-          </div>
           {routesBySource(routes).map((group) => (
             <div key={group.source} role="group" aria-label={group.source} className="border-b border-black/40 last:border-b-0">
               {group.routes.map((route, i) => (
@@ -66,7 +73,7 @@ function RouteRow({ channelId, route, first, disabled }: { channelId: string; ro
           title={`Slot ${route.slot}: change its source`}
           className={cn("flex w-[104px] shrink-0 items-center gap-1.5 rounded-sm px-1.5 py-0.5 text-left outline-none hover:bg-white/5", !first && "opacity-60")}
         >
-          <span className="h-3.5 w-[3px] shrink-0 rounded-full" style={{ background: hue, boxShadow: `0 0 6px ${hue}` }} />
+          <span className="h-3 w-[3px] shrink-0 rounded-full" style={{ background: hue }} />
           <span className="truncate font-semibold" style={{ color: hue }}>
             {route.source}
           </span>
@@ -136,7 +143,7 @@ function RouteRow({ channelId, route, first, disabled }: { channelId: string; ro
   );
 }
 
-const addButton = "flex h-5 items-center gap-1 rounded-[4px] border border-[var(--serum-edge)] px-2 text-[10px] font-semibold tracking-[0.08em] text-[var(--serum-text-dim)] uppercase outline-none hover:border-[var(--serum-trace)] hover:text-[var(--serum-trace)] disabled:opacity-40";
+const addButton = "flex h-5 items-center gap-1 rounded-[4px] border border-black/60 bg-[var(--serum-tab)] px-2 text-[11px] text-[var(--serum-text-dim)] outline-none hover:text-[var(--serum-text)] disabled:opacity-40";
 
 /** + Add: a source, then a destination; the route starts at 50%. */
 function AddRoute({ channelId, disabled }: { channelId: string; disabled: boolean }) {

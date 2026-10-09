@@ -130,3 +130,25 @@ describe("names and destinations", () => {
     expect(names.some((n) => / Param\d+$/.test(n))).toBe(false);
   });
 });
+
+describe("oscillators", () => {
+  it("says what each plays, whether it's on and its level, with Serum's defaults", () => {
+    const oscillators = readSoundParts(
+      body({ oscillators: { A: { level: 50, octave: -1 }, B: { enabled: true, wavetable: "Analog/Basic Shapes.wav" }, noise: { enabled: true }, sub: { enabled: true, shape: "kSaw" } } }),
+    ).oscillators;
+    expect(oscillators.map((o) => [o.name, o.kind, o.plays, o.enabled.value])).toEqual([
+      ["A", "Wavetable", "Default Shapes", 1],
+      ["B", "Wavetable", "Basic Shapes", 1],
+      ["C", "Wavetable", "Default Shapes", 0],
+      ["Noise", "Noise", "AC hum1", 1],
+      ["Sub", "Sub", "Saw", 1],
+    ]);
+    expect(oscillators[0].level.value).toBeCloseTo(0.5);
+    expect(oscillators[0].octave).toBe(-1);
+    expect(oscillators[1].level.value).toBeCloseTo(0.75);
+    expect(oscillators[3].level.value).toBeCloseTo(0.25);
+    expect(oscillators[0].enabled.param).toBe("1000000");
+    expect(oscillators[4].level.param).toBe("1004001");
+  });
+});
+

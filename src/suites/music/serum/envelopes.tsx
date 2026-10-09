@@ -51,10 +51,10 @@ export function EnvelopesAndLfos({ channelId, envelopes, lfos, routes }: { chann
   if (!envelopes.length) return null;
   return (
     <SerumSection
-      title="ENVELOPES & LFOS"
+      title="Envelopes and LFOs"
       label="Envelopes and LFOs"
       aside={
-        <button type="button" aria-expanded={shown} className="flex items-center gap-1 text-[10px] font-semibold tracking-[0.08em] text-[var(--serum-text-dim)] uppercase hover:text-[var(--serum-text)]" onClick={toggle}>
+        <button type="button" aria-expanded={shown} className="flex items-center gap-1 text-[11px] text-[var(--serum-text-dim)] hover:text-[var(--serum-text)]" onClick={toggle}>
           {shown ? <PiCaretDown className="size-3" /> : <PiCaretRight className="size-3" />}
           <span className="sr-only">Envelopes and LFOs</span>
           {shown ? "Hide" : "Show"}
@@ -85,7 +85,7 @@ export function SerumShapes({ channelId, envelopes, lfos, routes }: { channelId:
     <>
       {env && (
         <Panel
-          tabs={envelopes.map((e) => ({ id: e.index, label: `ENV ${e.index}`, count: drives(`Env ${e.index}`).length, title: e.index === 1 ? "Every note's level" : drives(`Env ${e.index}`).join(", ") }))}
+          tabs={envelopes.map((e) => ({ id: e.index, label: `Env ${e.index}`, count: drives(`Env ${e.index}`).length, title: e.index === 1 ? "Every note's level" : drives(`Env ${e.index}`).join(", ") }))}
           on={env.index}
           onTab={setEnvTab}
           label="Envelopes"
@@ -115,7 +115,7 @@ function Panel({ tabs, on, onTab, label, children }: { tabs: { id: number; label
             aria-selected={tab.id === on}
             title={tab.title || undefined}
             className={cn(
-              "relative flex h-7 min-w-0 flex-1 items-center justify-between gap-1 px-2 text-[11px] font-semibold tracking-wide",
+              "relative flex h-7 min-w-0 flex-1 items-center justify-between gap-1 px-2 text-[11.5px] font-medium",
               tab.id === on ? "bg-[var(--serum-tab-on)] text-[var(--serum-text)]" : "bg-[var(--serum-tab)] text-[var(--serum-text-dim)] hover:text-[var(--serum-text)]",
             )}
             onClick={() => onTab(tab.id)}
@@ -398,9 +398,9 @@ function ControlKnob({ channelId, label, short, control, format, latest }: { cha
 
 const LFO_LABELS: Record<SerumLfoField, string> = { rate: "RATE", smooth: "SMOOTH", rise: "RISE", delay: "DELAY", phase: "PHASE" };
 const MODES: { value: SerumLfoMode; label: string; icon: ReactNode; title: string }[] = [
-  { value: "free", label: "FREE", icon: <PiInfinity />, title: "Runs on, whatever the notes" },
-  { value: "retrigger", label: "RETRIG", icon: <PiArrowsClockwise />, title: "Starts again with each note" },
-  { value: "envelope", label: "ENVELOPE", icon: <PiArrowLineRight />, title: "Runs once with each note" },
+  { value: "free", label: "Free", icon: <PiInfinity />, title: "Runs on, whatever the notes" },
+  { value: "retrigger", label: "Retrig", icon: <PiArrowsClockwise />, title: "Starts again with each note" },
+  { value: "envelope", label: "Envelope", icon: <PiArrowLineRight />, title: "Runs once with each note" },
 ];
 /** Serum's LFO grid: 8 by 8. */
 const GRID = 8;
@@ -440,7 +440,7 @@ export function LfoView({ channelId, lfo }: { channelId: string; lfo: SerumLfo }
             disabled={busy}
             title={m.title}
             className={cn(
-              "flex h-7 items-center justify-between rounded-sm px-2 text-[10.5px] font-bold tracking-wide",
+              "flex h-7 items-center justify-between rounded-sm px-2 text-[11.5px] font-medium",
               lfo.mode === m.value ? "bg-[var(--serum-tab-on)] text-[var(--serum-value)]" : "text-[var(--serum-text)] hover:bg-[var(--serum-tab)]",
             )}
             onClick={() => lfo.mode !== m.value && editLfo({ mode: m.value }, `${name}: ${m.value}`)}

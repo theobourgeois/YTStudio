@@ -15,6 +15,7 @@ import {
   SERUM_LFOS,
   SERUM_MOD_SLOTS,
   SERUM_MOD_SOURCES,
+  SERUM_OSCILLATORS,
   SERUM_DEFAULT_LFO_SHAPE,
   type SerumControl,
   type SerumEnvelope,
@@ -23,14 +24,16 @@ import {
   type SerumLfoField,
   type SerumLfoPoint,
   type SerumModRoute,
+  type SerumOscillator,
   type SerumSoundEdit,
   serumEnvelopeParam,
   serumLfoParam,
   serumModAmountParam,
+  serumOscillatorParam,
   sourceUsed,
 } from "../../../shared/music/serum-sound.ts";
 import { bodyContext, SpecError, sourceIndex, writeEnvelopesAndLfos } from "./body.ts";
-import { CONTROLS, FX_RACKS, isModuleType, MODULE_PARAMS } from "./catalogue.ts";
+import { CONTROLS, FX_RACKS, isModuleType, MODULE_PARAMS, OSCILLATOR_TYPES, type OscillatorType } from "./catalogue.ts";
 import { type CborMap, type CborValue, isPlainMap } from "./cbor.ts";
 import { type Destination, destinationName, parseDestination } from "./destinations.ts";
 import { paramsOf } from "./fields.ts";
@@ -181,10 +184,56 @@ export function readLfos(body: CborMap, routes: readonly SerumModRoute[], live: 
   });
 }
 
-/** The routes, envelopes and LFOs of Serum's settings, at the engine's live positions. */
-export function readSoundParts(body: CborMap, live: LiveControls = new Map()): { modulation: SerumModRoute[]; envelopes: SerumEnvelope[]; lfos: SerumLfo[] } {
+/** A file's name without its folders or extension ("S2 Tables/Default Shapes.wav" → "Default Shapes"). */
+const fileName = (path: unknown) => (typeof path === "string" && path ? (path.split(/[\\/]/).pop() ?? path).replace(/\.[^.]+$/, "") : "");
+
+const KIND_NAMES: Record<OscillatorType, string> = { wavetable: "Wavetable", sample: "Sample", multisample: "Multisample", granular: "Granular", spectral: "Spectral" };
+const SUB_SHAPES: Record<string, string> = { kRoundRect: "Round rect", kTriangle: "Triangle", kSaw: "Saw", kSquare: "Square", kPulse: "Pulse" };
+
+/**
+ * Serum's five oscillators: what each plays, whether it's on (Serum's switch: A is on by default, the others off) and
+ * its level (the knob's place, its gain the square: A, B, C and the sub at 75%, the noise at 25% by default).
+ */
+export function readOscillators(body: CborMap, live: LiveControls = new Map()): SerumOscillator[] {
+  return SERUM_OSCILLATORS.map((name, index) => {
+    const osc = isPlainMap(body[`Oscillator${index}`]) ? (body[`Oscillator${index}`] as CborMap) : {};
+    const params = stored(osc);
+    let kind: string;
+    let plays: string;
+    if (index === 3) {
+      kind = "Noise";
+      plays = fileName(isPlainMap(osc.NoiseOsc3) ? osc.NoiseOsc3.relativePathToNoiseSample : undefined) || "Noise";
+    } else if (index === 4) {
+      kind = "Sub";
+      const shape = stored(osc.SubOsc4).kParamShape;
+      plays = (typeof shape === "string" && SUB_SHAPES[shape]) || "Sine";
+    } else {
+      const type = (Object.keys(OSCILLATOR_TYPES) as OscillatorType[]).find((t) => OSCILLATOR_TYPES[t].value === (params.kParamType ?? null)) ?? "wavetable";
+      const module = osc[`${OSCILLATOR_TYPES[type].module}${index}`];
+      kind = KIND_NAMES[type];
+      plays = isPlainMap(module)
+        ? (typeof module.tableDisplayName === "string" && module.tableDisplayName) || fileName(module.relativePathToWT ?? module.samplePathRelative ?? module.sfzPathRelative)
+        : "";
+    }
+    const enabled = number(params.kParamEnable, index === 0 ? 1 : 0) >= 0.5 ? 1 : 0;
+    const gain = number(params.kParamVolume, index === 3 ? 0.0625 : 0.5625);
+    return {
+      index,
+      name,
+      kind,
+      plays,
+      enabled: control(serumOscillatorParam(index, "enable"), enabled, live),
+      level: control(serumOscillatorParam(index, "level"), Math.sqrt(Math.max(0, gain)), live),
+      octave: number(params.kParamOctave, 0),
+      semi: number(params.kParamPitch, 0),
+    };
+  });
+}
+
+/** The routes, envelopes, LFOs and oscillators of Serum's settings, at the engine's live positions. */
+export function readSoundParts(body: CborMap, live: LiveControls = new Map()): { modulation: SerumModRoute[]; envelopes: SerumEnvelope[]; lfos: SerumLfo[]; oscillators: SerumOscillator[] } {
   const modulation = readRoutes(body, live);
-  return { modulation, envelopes: readEnvelopes(body, modulation, live), lfos: readLfos(body, modulation, live) };
+  return { modulation, envelopes: readEnvelopes(body, modulation, live), lfos: readLfos(body, modulation, live), oscillators: readOscillators(body, live) };
 }
 
 /** Every destination a route can have in this sound, by name: Serum's controls, then its effects' parameters. */

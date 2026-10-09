@@ -230,6 +230,8 @@ function describeSerumSound(channelName: string, sound: SerumSound): string {
       ? `Its macros: ${sound.macros.map((m) => `${m.index + 1} "${m.name}" ${Math.round(m.value * 100)}%${drives(`Macro ${m.index + 1}`)}`).join("; ")}.`
       : "Serum hasn't said what its macros are yet.",
   ];
+  if (sound.oscillators.length)
+    lines.push(`Its oscillators: ${sound.oscillators.map((o) => `${o.name} ${o.enabled.value >= 0.5 ? "on" : "off"} (${o.kind}${o.plays && o.plays !== o.kind ? ` "${o.plays}"` : ""}, level ${Math.round(o.level.value * 100)}%)`).join("; ")}.`);
   if (sound.modulation) {
     lines.push(
       routes.length
@@ -480,6 +482,33 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const label = settings.length === 1 ? `Turn ${settings[0].macro.name}` : "Turn the macros";
     await musicApi.serumStep(target.projectId, channel.id, settings.map(({ macro, value }) => ({ param: macro.param, before: macro.value, after: value })), label).catch(() => {});
     // Its player, if it's open, shows them where they are now.
+    await useSerumUi.getState().refresh(channel.id);
+    return textResult(`Set.\n${describeSerumSound(channel.name, await musicApi.serumSound(target.projectId, channel.id))}`);
+  },
+  async set_serum_oscillators(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "A Serum channel's oscillators");
+    const channel = serumChannel(target.song, input.channel);
+    const sound = await musicApi.serumSound(target.projectId, channel.id);
+    if (!sound.oscillators.length) throw new Error(`${channel.name}'s Serum hasn't saved its sound yet: load a preset first.`);
+    const wanted = Array.isArray(input.oscillators) ? (input.oscillators as { oscillator?: unknown; on?: unknown; level?: unknown }[]) : [];
+    if (!wanted.length) throw new Error('"oscillators" must list the oscillators to change: [{ "oscillator": "B", "on": false }].');
+    const changes: { param: string; before: number; after: number }[] = [];
+    for (const { oscillator, on, level } of wanted) {
+      const osc = sound.oscillators.find((o) => o.name.toLowerCase() === String(oscillator ?? "").trim().toLowerCase());
+      if (!osc) throw new Error(`There's no oscillator "${String(oscillator)}": they're A, B, C, Noise and Sub.`);
+      if (on !== undefined) {
+        if (typeof on !== "boolean") throw new Error(`"on" for ${osc.name} must be true or false.`);
+        changes.push({ param: osc.enabled.param, before: osc.enabled.value >= 0.5 ? 1 : 0, after: on ? 1 : 0 });
+      }
+      if (level !== undefined) {
+        if (typeof level !== "number" || !Number.isFinite(level) || level < 0 || level > 100) throw new Error(`"level" for ${osc.name} must be a number from 0 to 100 (%).`);
+        changes.push({ param: osc.level.param, before: osc.level.value, after: level / 100 });
+      }
+    }
+    if (!changes.length) throw new Error('Say what to change: "on" and/or "level".');
+    for (const change of changes) await musicApi.engine("setParameter", { owner: "channel", ownerId: channel.id, param: change.param, value: change.after });
+    await musicApi.serumStep(target.projectId, channel.id, changes, "Change the oscillators").catch(() => {});
     await useSerumUi.getState().refresh(channel.id);
     return textResult(`Set.\n${describeSerumSound(channel.name, await musicApi.serumSound(target.projectId, channel.id))}`);
   },

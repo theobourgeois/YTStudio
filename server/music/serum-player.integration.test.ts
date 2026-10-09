@@ -21,7 +21,7 @@ import { type FxLinks, presetAsState, readPluginState } from "./serum/plugin-sta
 import { SerumLibrary } from "./serum/library.ts";
 import { restate, SerumPlayer } from "./serum/player.ts";
 import { writeSerumPreset } from "./serum/preset.ts";
-import { editSerumBody, readSoundParts } from "./serum/sound.ts";
+import { editSerumBody, readOscillators, readSoundParts } from "./serum/sound.ts";
 import { readWav } from "./wav.ts";
 
 const RATE = 48_000;
@@ -160,6 +160,20 @@ describe.skipIf(!available)("the Serum player's engine, on Serum 2", () => {
       [3, "Filter 1 Freq", 20],
       [6, "A WT Pos", -50],
     ]);
+  }, 60_000);
+
+  it("turns an oscillator on and off live through its own switch, its level the knob's place (its gain the square)", async () => {
+    const settingsOf = (state: Uint8Array) => decodeCbor(readXfer(readPluginState(state).component).settings) as CborMap;
+    await swap(stateOf({ oscillators: { A: { level: 50 }, B: { enabled: false } } }));
+    await engine.command("setParameter", { owner: "channel", ownerId: CHANNEL, param: "1001000", value: 1 });
+    await engine.command("setParameter", { owner: "channel", ownerId: CHANNEL, param: "1000000", value: 0 });
+    await hear(RATE / 10);
+    const oscillators = readOscillators(settingsOf(await savedState()));
+    expect(oscillators.map((o) => o.enabled.value)).toEqual([0, 1, 0, 0, 0]);
+    // Serum's own knob for A's level sits where the player reads it.
+    const level = (await controls()).find((c) => c.id === "1000001")!;
+    expect(level.value).toBeCloseTo(oscillators[0].level.value, 3);
+    expect(level.text.trim()).toMatch(/^50%/);
   }, 60_000);
 
   it("reloads an edited sound with the macro names and effect links Serum's own re-save drops", async () => {
