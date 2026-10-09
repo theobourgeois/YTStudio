@@ -1,0 +1,95 @@
+/*
+ * FL Studio: its default look (FL 21 to 2025), sampled from Image-Line's own screenshots. A cool slate
+ * blue-grey (hue about 200°), mid-dark rather than black, in clear steps from the dark grid up to the
+ * toolbar's buttons; FL's glossy amber-orange for what's on, lime for lights, meters and the playhead, its
+ * pale blue tempo display, its grey and red-grey steps that go pale when on. Dark; only what differs from
+ * Studio's Dark is here.
+ */
+.theme.theme-fl {
+  --radius: 3px;
+  --surface-0: #2a343a;
+  --surface-1: #3a454b;
+  --surface-2: #434e54;
+  --surface-3: #4b555b;
+  --sunken: #252e33;
+  --line: #1c2428;
+  --line-strong: #101518;
+
+  --foreground: #eef4f7;
+  --muted-foreground: #c4ced3;
+
+  --bevel-highlight: rgb(255 255 255 / 0.12);
+  --bevel-shadow: #1b2226;
+  --raised: linear-gradient(to bottom, #646d72, #545d62);
+  --raised-hover: linear-gradient(to bottom, #6f797e, #5d666b);
+  --pressed: linear-gradient(to bottom, #2f383d, #3a4449);
+  /* Its "on" buttons: glossy, pale yellow at the top going to orange. */
+  --raised-brand: linear-gradient(to bottom, #ffe39a, #ffb562 55%, #ff9c3d);
+  --raised-brand-hover: linear-gradient(to bottom, #fff0b8, #ffc277 55%, #ffa74c);
+  --pressed-brand: linear-gradient(to bottom, #f08a2a, #ffa64d);
+  --brand-edge: #8a4a0a;
+  --brand-highlight: rgb(255 255 255 / 0.55);
+  --inset: inset 0 1px 2px rgb(0 0 0 / 0.5);
+  --float-shadow: 0 8px 20px -6px rgb(0 0 0 / 0.6), 0 2px 5px rgb(0 0 0 / 0.35);
+
+  --popover: #47525a;
+  --accent: #5a676e;
+  --brand: #ffa64d;
+  --brand-foreground: #2b1500;
+  --playhead: #8fe33b;
+  --knob-arc: #ffa64d;
+
+  /* The grid: FL's bars shaded in turn, faint beat lines, dark bar lines. */
+  --piano-row: #42545f;
+  --piano-black-row: #3b4d58;
+  --piano-line: #3a4b56;
+  --piano-beat-line: #31424d;
+  --piano-bar-line: #1a2a33;
+  --piano-outside: rgb(10 16 20 / 0.35);
+  --piano-ruler: #2a363f;
+  --piano-ruler-text: #c4ced3;
+  --piano-ghost: rgb(200 230 240 / 0.16);
+  --piano-time: #8fe33b;
+  --piano-start: #ffa64d;
+  --piano-tool: #c3ff5a;
+  --piano-keys: #1a2328;
+  --clip-base: #1b2429;
+
+  --step-off-top: #6b7276;
+  --step-off-bottom: #5c6267;
+  --step-off-hover: #787f83;
+  --step-alt-top: #7b6869;
+  --step-alt-bottom: #6d5a5b;
+  --step-alt-hover: #877374;
+  --step-on-top: #e4f1f8;
+  --step-on-bottom: #b4c6d1;
+  --step-on-edge: #1b2226;
+  --step-on-alt-top: #ffdcde;
+  --step-on-alt-bottom: #f0aeb2;
+  --step-on-alt-edge: #1b2226;
+
+  /* Its tempo display: pale blue, dark digits. */
+  --lcd-top: #cfe6ef;
+  --lcd-bottom: #ecf9ff;
+  --lcd-edge: #1e272c;
+  --lcd-text: #142027;
+  --lcd-dim: #4d6470;
+
+  --meter-low: #b6f03a;
+  --meter-mid: #ffce3b;
+  --meter-high: #ff6135;
+  --meter-off: #2b363c;
+
+  --mixer-bg: #2a343a;
+  --mixer-strip: #3e4e55;
+  --mixer-strip-selected: #4a5b62;
+  --mixer-tint-base: #2a353b;
+  --mixer-led: #8def11;
+  --mixer-led-edge: #3c6a06;
+  --fader-groove: #1a252b;
+  /* The selected track's fader cap: lime, as FL's. */
+  --fader-cap-on-light: #e6ffb8;
+  --fader-cap-on: #b8f560;
+  --fader-cap-on-dark: #7fbf2a;
+  --fader-cap-on-edge: #3e6612;
+}

@@ -1,0 +1,79 @@
+/*
+ * OP-1: Teenage Engineering's synth. Brushed-aluminium greys, white keys with soft corners, black screens,
+ * and its four encoders' colours: blue (the accent), green, white and orange. Playful but plain to read.
+ * Light; only what differs from Studio is here.
+ */
+.theme.theme-op1 {
+  --radius: 6px;
+  --surface-0: #c4c5c1;
+  --surface-1: #d9dad6;
+  --surface-2: #e4e5e1;
+  --surface-3: #f2f2ef;
+  --sunken: #cdcec9;
+  --line: #a2a39e;
+  --line-strong: #6f706b;
+
+  --foreground: #111111;
+  --muted-foreground: #45464a;
+
+  --bevel-highlight: rgb(255 255 255 / 1);
+  --bevel-shadow: #8e8f8a;
+  --raised: linear-gradient(to bottom, #ffffff, #ebebe7);
+  --raised-hover: linear-gradient(to bottom, #ffffff, #f5f5f2);
+  --pressed: linear-gradient(to bottom, #c6c7c2, #d4d5d0);
+  --raised-brand: linear-gradient(to bottom, #3f7fe8, #1d5fd0);
+  --raised-brand-hover: linear-gradient(to bottom, #5590ef, #2a6ad9);
+  --pressed-brand: linear-gradient(to bottom, #164fb3, #1d5fd0);
+  --brand-edge: #0f3c8c;
+  --inset: inset 0 1px 2px rgb(0 0 0 / 0.18);
+  --float-shadow: 0 10px 24px -8px rgb(0 0 0 / 0.35), 0 2px 5px rgb(0 0 0 / 0.12);
+
+  --popover: #f7f7f5;
+  --accent: #d3e0f7;
+  --brand: #1d5fd0;
+  --brand-foreground: #ffffff;
+  --playhead: #ff4d1a;
+  --knob-arc: #ff6a13;
+
+  --piano-row: #f4f4f1;
+  --piano-black-row: #e8e8e4;
+  --piano-line: #dcdcd7;
+  --piano-beat-line: #c7c7c1;
+  --piano-bar-line: #8f908a;
+  --piano-ruler: #e4e5e1;
+  --piano-ruler-text: #111111;
+  --piano-time: #ff4d1a;
+  --piano-start: #ff6a13;
+  --piano-tool: #1d5fd0;
+  --clip-base: #fbfbf9;
+  --clip-ink: #111111;
+
+  /* The steps: white keys, lit orange (and green for the second beat). */
+  --step-off-top: #ffffff;
+  --step-off-bottom: #e6e6e2;
+  --step-off-hover: #ffffff;
+  --step-alt-top: #e2e3df;
+  --step-alt-bottom: #cfd0cb;
+  --step-alt-hover: #ecedea;
+  --step-on-top: #ff9a52;
+  --step-on-bottom: #ff6a13;
+  --step-on-edge: #a63c00;
+  --step-on-alt-top: #5fd17e;
+  --step-on-alt-bottom: #2fae55;
+  --step-on-alt-edge: #1a6a33;
+
+  /* Its screen: black, white figures. */
+  --lcd-top: #050505;
+  --lcd-bottom: #111111;
+  --lcd-edge: #000000;
+  --lcd-text: #ffffff;
+  --lcd-dim: #9aa0a6;
+
+  --meter-low: #2fae55;
+  --meter-mid: #ffb000;
+  --meter-high: #ff4d1a;
+
+  --mixer-tint-base: #eeeeea;
+  --mixer-led: #2fae55;
+  --mixer-led-edge: #1a6a33;
+}

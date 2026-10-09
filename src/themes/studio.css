@@ -293,6 +293,9 @@
   --piano-ruler: #e3e7ec;
   --piano-ruler-text: #4b535d;
   --piano-ghost: rgb(60 76 94 / 0.14);
+  /* The Playlist's clips (`clipColours`): bodies mixed towards the base, their notes and waveforms towards the ink. */
+  --clip-base: #f7f9fb;
+  --clip-ink: #18202a;
 
   /* The mixer's meters (`mixer/meters.ts` reads these): low levels, nearing 0 dB, and over it. */
   --meter-low: #2f9e54;
@@ -479,6 +482,8 @@
   --piano-start: #f2a93b;
   --piano-tool: #6fb6ff;
   --piano-keys: #101215;
+  --clip-base: #101318;
+  --clip-ink: #ffffff;
 
   --meter-low: #4cc46c;
   --meter-mid: #f2b33d;

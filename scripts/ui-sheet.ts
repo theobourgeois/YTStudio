@@ -152,11 +152,12 @@ async function galleryIndex(): Promise<{ SECTIONS: { id: string; shots?: { name:
 }
 
 // The app's screens, on a video and a song made for them.
-const screens = ["home", "new-project", "video", "video-effects", "video-properties", "video-captions", "video-settings", "video-export", "video-auto-captions", "video-save-to-library", "video-dock-drag", "video-dock-effects", "video-dock-floating", "video-clip-menu", "settings-window", "music", "music-piano", "music-settings"];
+const screens = ["home", "new-project", "video", "video-effects", "video-properties", "video-captions", "video-settings", "video-export", "video-auto-captions", "video-save-to-library", "video-dock-drag", "video-dock-effects", "video-dock-floating", "video-clip-menu", "settings-window", "music", "music-piano", "music-playlist", "music-settings"];
 if (screens.some(wanted)) {
   const video = await makeVideo();
   const music: ProjectSummary = await (await fetch(`${api}/projects`, { method: "POST", headers: json, body: JSON.stringify({ suite: "music", name: "Beat" }) })).json();
   let kitAdded = false;
+  let clipsAdded = false;
   for (const theme of THEMES) {
     const suffix = theme;
     const page = await pageIn(theme);
@@ -267,7 +268,7 @@ if (screens.some(wanted)) {
         await page.keyboard.press("Escape");
       }
     }
-    if (wanted("music") || wanted("music-piano") || wanted("music-settings")) {
+    if (wanted("music") || wanted("music-piano") || wanted("music-playlist") || wanted("music-settings")) {
       await page.goto(`${web}/p/${music.id}`);
       await page.getByRole("toolbar", { name: "Transport" }).waitFor();
       if (!kitAdded) {
@@ -287,6 +288,32 @@ if (screens.some(wanted)) {
         await page.waitForTimeout(500);
         await shoot(page, `music-piano-${suffix}`);
         await page.keyboard.press("F7");
+      }
+      // The Playlist in front, with pattern clips on three tracks (Draw, then Paint along two).
+      if (wanted("music-playlist")) {
+        const grid = page.getByTestId("playlist-grid");
+        if (!(await grid.isVisible())) await page.keyboard.press("F5");
+        await grid.waitFor();
+        // The rack, over it as a song opens, closed (F6).
+        if (await page.getByRole("button", { name: "Close Channel rack" }).isVisible()) await page.keyboard.press("F6");
+        if (!clipsAdded) {
+          const box = (await grid.boundingBox())!;
+          const at = (tick: number, track: number) => ({ x: box.x + tick * 0.15 + 2, y: box.y + track * 48 + 28 });
+          await page.mouse.click(at(0, 0).x, at(0, 0).y);
+          await page.keyboard.press("b");
+          for (const [track, bars] of [[1, 4], [2, 2]] as const) {
+            await page.mouse.move(at(0, track).x, at(0, track).y);
+            await page.mouse.down();
+            await page.mouse.move(at(bars * 384 - 100, track).x, at(0, track).y, { steps: 10 });
+            await page.mouse.up();
+          }
+          await page.keyboard.press("p");
+          // One selected, to show its colour.
+          await page.mouse.click(at(384 + 150, 1).x, at(0, 1).y);
+          clipsAdded = true;
+        }
+        await page.waitForTimeout(400);
+        await shoot(page, `music-playlist-${suffix}`);
       }
       if (wanted("music-settings")) {
         await page.keyboard.press("ControlOrMeta+Comma");

@@ -1,0 +1,71 @@
+/*
+ * Photoshop: its Lightest interface (the old Spectrum "midlight" palette it still uses). Panels #f0f0f0,
+ * the tab strips a grey under them, #bfbfbf outlines, white fields, a selected row a neutral grey rather
+ * than blue, flat controls with small corners, and Spectrum's blue for focus and primary buttons. Light;
+ * only what differs from Studio is here.
+ */
+.theme.theme-photoshop {
+  --radius: 4px;
+  --surface-0: #d1d1d1;
+  --surface-1: #e4e4e4;
+  --surface-2: #f0f0f0;
+  --surface-3: #fcfcfc;
+  --sunken: #ffffff;
+  --line: #bfbfbf;
+  --line-strong: #8e8e8e;
+
+  --foreground: #1f1f1f;
+  --muted-foreground: #4b4b4b;
+
+  --bevel-highlight: rgb(255 255 255 / 0);
+  --bevel-shadow: #bfbfbf;
+  --raised: linear-gradient(#fafafa, #fafafa);
+  --raised-hover: linear-gradient(#ffffff, #ffffff);
+  --pressed: linear-gradient(#dcdcdc, #dcdcdc);
+  --raised-brand: linear-gradient(#1473e6, #1473e6);
+  --raised-brand-hover: linear-gradient(#0d66d0, #0d66d0);
+  --pressed-brand: linear-gradient(#095aba, #095aba);
+  --brand-edge: #0a4d9e;
+  --brand-highlight: rgb(255 255 255 / 0);
+  --inset: inset 0 0 0 0 transparent;
+  --float-shadow: 0 4px 14px rgb(0 0 0 / 0.18), 0 1px 3px rgb(0 0 0 / 0.1);
+
+  --popover: #ffffff;
+  /* A selected layer's row: neutral grey, as Photoshop's. */
+  --accent: #c9c9c9;
+  --brand: #1473e6;
+  --brand-foreground: #ffffff;
+  --playhead: #d7373f;
+  --knob-arc: #1473e6;
+
+  --piano-row: #f7f7f7;
+  --piano-black-row: #ececec;
+  --piano-line: #e1e1e1;
+  --piano-beat-line: #cacaca;
+  --piano-bar-line: #9a9a9a;
+  --piano-ruler: #e8e8e8;
+  --piano-ruler-text: #3a3a3a;
+  --piano-tool: #1473e6;
+  --piano-keys: #9a9a9a;
+  --clip-base: #ffffff;
+  --clip-ink: #1d1d1d;
+
+  --step-off-top: #f4f4f4;
+  --step-off-bottom: #e4e4e4;
+  --step-off-hover: #fafafa;
+  --step-alt-top: #e2e2e2;
+  --step-alt-bottom: #d2d2d2;
+  --step-alt-hover: #ebebeb;
+  --step-on-top: #4b9cf5;
+  --step-on-bottom: #1473e6;
+  --step-on-edge: #0a4d9e;
+
+  --lcd-top: #ffffff;
+  --lcd-bottom: #ffffff;
+  --lcd-edge: #b3b3b3;
+  --lcd-text: #1d1d1d;
+  --lcd-dim: #6e6e6e;
+
+  --mixer-tint-base: #f0f0f0;
+  --meter-off: #d6d6d6;
+}

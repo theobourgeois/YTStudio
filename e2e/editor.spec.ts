@@ -1158,10 +1158,10 @@ test("settings: a window; ⌘, opens it on the video editor's tab; themes and fo
   await settings.getByRole("tab", { name: "General" }).click();
   await expect(settings.getByRole("tab", { selected: true })).toHaveText("General");
   await expect(settings.getByRole("radio", { name: "System" })).toHaveAttribute("aria-checked", "true");
-  await settings.getByRole("radio", { name: "Ultraviolet" }).click();
-  await expect(settings.getByRole("radio", { name: "Ultraviolet" })).toHaveAttribute("aria-checked", "true");
+  await settings.getByRole("radio", { name: "FL Studio" }).click();
+  await expect(settings.getByRole("radio", { name: "FL Studio" })).toHaveAttribute("aria-checked", "true");
   // A dark theme is dark everywhere (`dark:` styles, the canvases).
-  await expect(page.locator("html")).toHaveClass(/\btheme-ultraviolet\b.*\bdark\b|\bdark\b.*\btheme-ultraviolet\b/);
+  await expect(page.locator("html")).toHaveClass(/\btheme-fl\b.*\bdark\b|\bdark\b.*\btheme-fl\b/);
   await settings.getByRole("combobox", { name: "Interface font" }).click();
   await page.getByRole("option", { name: "Inter", exact: true }).click();
   await expect(page.getByRole("listbox")).toBeHidden();
@@ -1184,7 +1184,7 @@ test("settings: a window; ⌘, opens it on the video editor's tab; themes and fo
 
   // And after a reload.
   await page.reload();
-  await expect(page.locator("html")).toHaveClass(/\btheme-ultraviolet\b/);
+  await expect(page.locator("html")).toHaveClass(/\btheme-fl\b/);
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain("Inter Variable");
   // ⌘, opens and closes it; the gear does too, on the open project's section.
   await page.keyboard.press("ControlOrMeta+Comma");

@@ -8,7 +8,8 @@ import type { Automation, MusicProject } from "@shared/music/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PERCENT, SongKnob, type ValueUnit, percent } from "../knob";
 import { prepare } from "../piano/draw";
-import { AUTOMATION, clipColours } from "../playlist/draw";
+import { useClipLook } from "../playlist/clip-look";
+import { clipColours, kindColours } from "../playlist/draw";
 import { useMusic, useSong } from "../store";
 import { automationWindow } from "../ui";
 import { MusicWindow } from "../window";
@@ -160,13 +161,14 @@ function ToolsMenu({ automation }: { automation: Automation }) {
 function CurvePreview({ automation }: { automation: Automation }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const barTicks = useSong((s) => clipContext(s).barTicks);
+  const look = useClipLook();
   useEffect(() => {
     const c = canvas.current && prepare(canvas.current, PREVIEW_W, PREVIEW_H);
     if (!c) return;
-    const colours = automation.color ? clipColours(automation.color) : AUTOMATION;
+    const colours = automation.color ? clipColours(automation.color, look) : kindColours("automation", look);
     c.fillStyle = colours.body;
     c.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
     drawCurve(c, automation, { x0: 6, pxPerTick: (PREVIEW_W - 12) / Math.max(1, automation.length), top: 4, height: PREVIEW_H - 8 }, 6, PREVIEW_W - 6, { line: colours.content, point: colours.title }, true, barTicks);
-  }, [automation, barTicks]);
+  }, [automation, barTicks, look]);
   return <canvas ref={canvas} className="sunken block rounded-sm" style={{ width: PREVIEW_W, height: PREVIEW_H }} aria-label={`${automation.name}'s curve`} />;
 }

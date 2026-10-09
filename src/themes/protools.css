@@ -1,0 +1,69 @@
+/*
+ * Pro Tools: its dark theme (the default since 2020.11), sampled from screenshots. Charcoal rather than
+ * black, near-black chrome round a lighter edit area; small square buttons with a little gloss; Avid's
+ * blue for what's on; the counter a black display with green digits; clips a dark shade of their colour
+ * with a bright waveform; meters green to yellow to red, the mixer's strips near black. Dark; only what
+ * differs from Studio's Dark is here.
+ */
+.theme.theme-protools {
+  --radius: 2px;
+  --surface-0: #1b1b1b;
+  --surface-1: #262626;
+  --surface-2: #303030;
+  --surface-3: #3c3c3c;
+  --sunken: #141414;
+  --line: #111111;
+  --line-strong: #000000;
+
+  --foreground: #e6e6e6;
+  --muted-foreground: #a8a8a8;
+
+  --bevel-highlight: rgb(255 255 255 / 0.08);
+  --bevel-shadow: #0c0c0c;
+  --raised: linear-gradient(to bottom, #4a4a4a, #383838);
+  --raised-hover: linear-gradient(to bottom, #555555, #404040);
+  --pressed: linear-gradient(to bottom, #1d1d1d, #292929);
+  --raised-brand: linear-gradient(to bottom, #6cc0ec, #3e9dd0);
+  --raised-brand-hover: linear-gradient(to bottom, #82cbf1, #4fa9da);
+  --pressed-brand: linear-gradient(to bottom, #2f86b6, #3e9dd0);
+  --brand-edge: #0b3b55;
+  --brand-highlight: rgb(255 255 255 / 0.35);
+  --inset: inset 0 1px 2px rgb(0 0 0 / 0.6);
+  --float-shadow: 0 8px 20px -6px rgb(0 0 0 / 0.75), 0 2px 5px rgb(0 0 0 / 0.5);
+
+  --popover: #383838;
+  --accent: #2c4a5a;
+  --brand: #4aa8d8;
+  --brand-foreground: #04121a;
+  --knob-arc: #4aa8d8;
+
+  --piano-row: #464646;
+  --piano-black-row: #3e3e3e;
+  --piano-line: #393939;
+  --piano-beat-line: #313131;
+  --piano-bar-line: #1f1f1f;
+  --piano-ruler: #272727;
+  --piano-ruler-text: #b5b5b5;
+  --piano-keys: #101010;
+  --piano-tool: #5afba2;
+  --clip-base: #121212;
+
+  /* The counter: black, green digits. */
+  --lcd-top: #000000;
+  --lcd-bottom: #070907;
+  --lcd-edge: #000000;
+  --lcd-text: #3ddc84;
+  --lcd-dim: #2a9e5c;
+
+  --meter-low: #2fd05a;
+  --meter-mid: #e8d21c;
+  --meter-high: #e5302a;
+  --meter-off: #2a2a2a;
+
+  --mixer-bg: #0d0d0d;
+  --mixer-strip: #1a1a1a;
+  --mixer-strip-selected: #262626;
+  --mixer-tint-base: #121212;
+  --mixer-solo: #e8d21c;
+  --mixer-armed: #f08a1c;
+}

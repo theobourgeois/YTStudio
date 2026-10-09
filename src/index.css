@@ -20,12 +20,14 @@
  */
 @import "./themes/studio.css";
 @import "./themes/derived.css";
-@import "./themes/luna.css";
-@import "./themes/ultraviolet.css";
+@import "./themes/fl.css";
+@import "./themes/ableton.css";
+@import "./themes/protools.css";
+@import "./themes/premiere.css";
+@import "./themes/photoshop.css";
+@import "./themes/op1.css";
 @import "./themes/synthwave.css";
-@import "./themes/terminal.css";
-@import "./themes/bubblegum.css";
-@import "./themes/contrast.css";
+@import "./themes/luna.css";
 
 @custom-variant dark (&:is(.dark *));
 /*

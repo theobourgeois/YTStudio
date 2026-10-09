@@ -39,6 +39,9 @@ export interface Palette {
   tool: string;
   /** Behind the keyboard's keys (the gaps between them). */
   keys: string;
+  /** What the Playlist's clips are mixed towards: their bodies, and what's drawn in them (`clipColours`). */
+  clipBase: string;
+  clipInk: string;
 }
 
 /** The palette's colours that come from the theme (`--piano-<name>` in `src/themes/`), by field. */
@@ -76,6 +79,8 @@ export function readPalette(element: Element): Palette {
     ...themed,
     dark,
     foreground: style.getPropertyValue("--foreground").trim(),
+    clipBase: style.getPropertyValue("--clip-base").trim() || (dark ? "#101318" : "#ffffff"),
+    clipInk: style.getPropertyValue("--clip-ink").trim() || (dark ? "#ffffff" : "#1c2127"),
     note: NOTE,
     selected: SELECTED,
     muted: MUTED,
