@@ -359,7 +359,8 @@ function readLfo(lfo: CborValue, template: CborValue): SpecObject {
 
 // ---- Modulation ----
 
-function sourceIndex(value: unknown, where: string, errors: string[]): number | undefined {
+/** A mod source by its name (`MOD_SOURCES`, any case) or number; why not in `errors`. */
+export function sourceIndex(value: unknown, where: string, errors: string[]): number | undefined {
   if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
   if (typeof value === "string") {
     const exact = (MOD_SOURCES as readonly string[]).indexOf(value);
@@ -469,6 +470,30 @@ function readModulation(body: CborMap, ctx: DestinationContext): SpecObject[] {
 }
 
 // ---- The whole body ----
+
+/** What a destination's name means in a body as it is (its oscillators' types, its racks' effects): for editing a sound that's playing. */
+export function bodyContext(body: CborMap): DestinationContext {
+  return {
+    oscillatorType: (i) => {
+      const type = storedParams(body[`Oscillator${i}`])?.kParamType;
+      return (Object.keys(OSCILLATOR_TYPES) as OscillatorType[]).find((t) => OSCILLATOR_TYPES[t].value === type) ?? "wavetable";
+    },
+    effectAt: (rack, position) => {
+      const list = isPlainMap(body[`FXRack${rack}`]) ? (body[`FXRack${rack}`] as CborMap).FX : undefined;
+      const entry = Array.isArray(list) ? list[position] : undefined;
+      return isPlainMap(entry) ? FX_TYPES.find((t) => Object.hasOwn(entry, t.module))?.module : undefined;
+    },
+  };
+}
+
+/**
+ * A spec's envelopes and LFOs written onto a body as it is (a sound that's playing, edited by the Serum player:
+ * `sound.ts`), everything else left alone. Problems go in `errors`.
+ */
+export function writeEnvelopesAndLfos(body: CborMap, parts: Pick<SerumPresetSpec, "envelopes" | "lfos">, errors: string[]): void {
+  for (const [i, e] of numbered(parts.envelopes, 4, "envelopes", errors)) writeModule(mod(body, `Env${i}`), e, ENVELOPE_FIELDS, MODULE_PARAMS.Env, `envelopes.${i + 1}`, errors);
+  for (const [i, l] of numbered(parts.lfos, 10, "lfos", errors)) writeLfo(mod(body, `LFO${i}`), l, `lfos.${i + 1}`, errors);
+}
 
 function contextOf(spec: SerumPresetSpec): DestinationContext {
   return {

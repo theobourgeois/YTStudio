@@ -1,7 +1,8 @@
 /**
  * The Serum player's engine work on the real Serum 2 (`docs/serum/player.md`, step 1), offline and silent: an
  * effect knob linked to a host slot moves the sound when the slot is set, a new state under a held key doesn't
- * click, and a preset file dropped on a song's Serum (its window invisible) is loaded as Serum's browser loads it.
+ * click, a preset file dropped on a song's Serum (its window invisible) is loaded as Serum's browser loads it, and
+ * the player's mod amounts and reloads (step 3) are what Serum takes them to be.
  * Skipped without the engine or Serum 2 (`/Library/Audio/Plug-Ins/VST3/Serum2.vst3`).
  */
 import { existsSync } from "node:fs";
@@ -14,10 +15,12 @@ import { createMusicProject } from "../../shared/music/project.ts";
 import { ENGINE } from "../config.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine } from "./engine.ts";
-import { decodeCbor } from "./serum/cbor.ts";
+import { type CborMap, decodeCbor } from "./serum/cbor.ts";
 import { readXfer } from "./serum/container.ts";
 import { type FxLinks, presetAsState, readPluginState } from "./serum/plugin-state.ts";
+import { restate } from "./serum/player.ts";
 import { writeSerumPreset } from "./serum/preset.ts";
+import { editSerumBody, readSoundParts } from "./serum/sound.ts";
 import { readWav } from "./wav.ts";
 
 const RATE = 48_000;
@@ -144,5 +147,30 @@ describe.skipIf(!available)("the Serum player's engine, on Serum 2", () => {
     const state = readPluginState(await savedState());
     expect(readXfer(state.controller!).meta.presetName).toBe("Dropped Probe");
     expect((await controls()).some((c) => c.name === "SPACE")).toBe(true);
+  }, 60_000);
+
+  it("sets a route's amount live through its own slot's control: Mod 6 Amount is slot 6, whatever slots are empty", async () => {
+    const settingsOf = (state: Uint8Array) => decodeCbor(readXfer(readPluginState(state).component).settings) as CborMap;
+    await swap(stateOf({ modulation: [{ slot: 3, source: "LFO 1", to: "Filter 1 Freq", amount: 20 }, { slot: 6, source: "Env 2", to: "A WT Pos", amount: -40 }] }));
+    await engine.command("setParameter", { owner: "channel", ownerId: CHANNEL, param: "6005000", value: 0.25 });
+    await hear(RATE / 10);
+    const { modulation } = readSoundParts(settingsOf(await savedState()));
+    expect(modulation.map((r) => [r.slot, r.to, Math.round((r.amount.value * 2 - 1) * 100)])).toEqual([
+      [3, "Filter 1 Freq", 20],
+      [6, "A WT Pos", -50],
+    ]);
+  }, 60_000);
+
+  it("reloads an edited sound with the macro names and effect links Serum's own re-save drops", async () => {
+    const settingsOf = (state: Uint8Array) => decodeCbor(readXfer(readPluginState(state).component).settings) as CborMap;
+    await swap(stateOf({ macros: { "1": { name: "GRIT", value: 0 } }, fx: { main: [{ effect: "distortion", wet: 100, drive: 0 }] } }, { 0: [{ fxID: 0, paramIndex: 2 }] }));
+    // Serum's re-save has lost the name: reloading it as it is would leave "Macro 1".
+    const saved = await savedState();
+    const edited = editSerumBody(settingsOf(saved), [{ kind: "route", source: "Macro 1", to: "Main FX 1 Drive", amount: 100 }]);
+    await swap(restate(saved, edited, ["GRIT"]));
+    const listed = await controls();
+    expect(listed.find((c) => c.id === "7000000")?.name).toBe("GRIT");
+    expect(listed.some((c) => c.name === "FX 1: Dist Drive")).toBe(true);
+    expect(readSoundParts(settingsOf(await savedState())).modulation).toMatchObject([{ slot: 1, source: "Macro 1", to: "Main FX 1 Drive" }]);
   }, 60_000);
 });
