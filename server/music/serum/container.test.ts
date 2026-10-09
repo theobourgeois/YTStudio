@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { decodeCbor, encodeCbor } from "./cbor.ts";
 import { metadataJson, readXfer, writeXfer } from "./container.ts";
-import { memoryBlockDecode, memoryBlockEncode, presetAsState, readPluginState, stateSettings, writePluginState } from "./plugin-state.ts";
+import { fxLinksOf, memoryBlockDecode, memoryBlockEncode, presetAsState, readPluginState, stateSettings, writePluginState } from "./plugin-state.ts";
+import { type PlistDict, readPlist, writePlist } from "./plist.ts";
 
 describe("Xfer's container", () => {
   it("writes the metadata as Serum does: compact, sorted, whole numbers with .0", () => {
@@ -44,7 +45,7 @@ describe("Serum's plugin state", () => {
     );
     const controller = writeXfer({ component: "controller", presetName: " - Init - " }, encodeCbor({ Macro0: { name: "" } }));
     const xml = `<?xml version="1.0" encoding="UTF-8"?> <VST3PluginState><IComponent>${memoryBlockEncode(processor)}</IComponent><IEditController>${memoryBlockEncode(controller)}</IEditController></VST3PluginState>`;
-    const template = writePluginState({ xml, component: processor, controller }, processor);
+    const template = writePluginState({ format: "vst3", xml, component: processor, controller }, processor);
     const preset = encodeCbor({ Global0: { plainParams: { kParamMasterVolume: 0.5 } }, presetName: "Test" });
     const state = presetAsState(template, preset);
     const settings = decodeCbor(stateSettings(state)) as Record<string, unknown>;
@@ -65,7 +66,7 @@ describe("Serum's plugin state", () => {
       encodeCbor({ Macro0: { default: 0.5, name: "" }, FXRack0: { FX: [], displayName: "", proxyParams: { "3": { fxID: 1, paramIndex: 1 } } } }),
     );
     const xml = `<VST3PluginState><IComponent>${memoryBlockEncode(processor)}</IComponent><IEditController>${memoryBlockEncode(controller)}</IEditController></VST3PluginState>`;
-    const template = writePluginState({ xml, component: processor, controller }, processor);
+    const template = writePluginState({ format: "vst3", xml, component: processor, controller }, processor);
     const preset = encodeCbor({
       presetName: "Kinderjoy",
       presetAuthor: "Someone",
@@ -89,5 +90,33 @@ describe("Serum's plugin state", () => {
     // None given: none at all.
     const unlinked = decodeCbor(readXfer(readPluginState(presetAsState(template, preset)).controller!).settings) as Record<string, Record<string, unknown>>;
     expect(unlinked.FXRack0.proxyParams).toBeUndefined();
+  });
+
+  it("takes the Audio Unit's state too (its ClassInfo), keeping the rest of it", () => {
+    const processor = writeXfer({ component: "processor", version: 11 }, encodeCbor({ component: "processor", Global0: { plainParams: {} } }));
+    const controller = writeXfer(
+      { component: "controller", presetName: " - Init - " },
+      encodeCbor({ Macro0: { name: "" }, FXRack0: { FX: [], proxyParams: { "1": { fxID: 0, paramIndex: 3 } } } }),
+    );
+    const template = writePlist(
+      new Map<string, never>([
+        ["Controller State", controller as never],
+        ["data", new Uint8Array([0, 0, 10]) as never],
+        ["manufacturer", 1481000274 as never],
+        ["name", " - Init - " as never],
+        ["Processor State", processor as never],
+        ["version", 0 as never],
+      ]),
+    );
+    const read = readPluginState(template);
+    expect(read.format).toBe("au");
+    expect(readXfer(read.component).meta.component).toBe("processor");
+    expect(fxLinksOf(template)[0]?.[1]).toEqual({ fxID: 0, paramIndex: 3 });
+    const state = presetAsState(template, encodeCbor({ presetName: "Kinderjoy", Macro0: { name: "CRUSH" }, Global0: { plainParams: { kParamMasterVolume: 0.5 } } }));
+    const plist = readPlist(state) as PlistDict;
+    expect([...plist.keys()]).toEqual(["Controller State", "data", "manufacturer", "name", "Processor State", "version"]);
+    expect(plist.get("data")).toEqual(new Uint8Array([0, 0, 10]));
+    expect(decodeCbor(stateSettings(state))).toMatchObject({ component: "processor", Global0: { plainParams: { kParamMasterVolume: 0.5 } } });
+    expect(decodeCbor(readXfer(readPluginState(state).controller!).settings)).toMatchObject({ presetName: "Kinderjoy", Macro0: { name: "CRUSH" } });
   });
 });

@@ -1,7 +1,9 @@
 /**
- * Serum 2's state as the engine keeps it (a plugin channel's `plugins/<channel>.bin`): JUCE's VST3 wrapper,
- * "VC2!" + u32 LE length + XML + NUL, the XML holding the plugin's component (processor) and controller
- * states as JUCE MemoryBlocks (its own base64). Each of those is an Xfer container (`container.ts`).
+ * Serum 2's state as the engine keeps it (a plugin channel's `plugins/<channel>.bin`), as either of its plugins
+ * gives it: the VST3's in JUCE's wrapper, "VC2!" + u32 LE length + XML + NUL, the XML holding the plugin's component
+ * (processor) and controller states as JUCE MemoryBlocks (its own base64); the Audio Unit's as its ClassInfo, a
+ * binary property list with them as "Processor State" and "Controller State" (`plist.ts`). Each of those is an Xfer
+ * container (`container.ts`).
  *
  * A preset is loaded by putting its settings in the processor's place (`presetAsState`): that's how the
  * verification loads presets into Serum without its window. Its names (the preset's, its macros', its racks') go in
@@ -9,6 +11,7 @@
  */
 import { type CborMap, decodeCbor, encodeCbor, isPlainMap } from "./cbor.ts";
 import { readXfer, writeXfer } from "./container.ts";
+import { isBinaryPlist, type PlistDict, readPlist, writePlist } from "./plist.ts";
 
 const MAGIC = "VC2!";
 const ALPHABET = ".ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+";
@@ -42,29 +45,46 @@ export function memoryBlockEncode(bytes: Uint8Array): string {
   return text;
 }
 
-export interface PluginState {
-  xml: string;
-  component: Uint8Array;
-  controller: Uint8Array | null;
-}
+export type PluginState =
+  /** The VST3's: JUCE's XML. */
+  | { format: "vst3"; xml: string; component: Uint8Array; controller: Uint8Array | null }
+  /** The Audio Unit's: its ClassInfo property list (the rest of it kept as it is). */
+  | { format: "au"; plist: PlistDict; component: Uint8Array; controller: Uint8Array | null };
 
+const AU_COMPONENT = "Processor State";
+const AU_CONTROLLER = "Controller State";
+
+/** Whether `bytes` is a plugin's state this reads: a VST3's (JUCE's wrapper) or an Audio Unit's (a binary property list). */
 export function isPluginState(bytes: Uint8Array): boolean {
-  return Buffer.from(bytes.subarray(0, 4)).toString("latin1") === MAGIC;
+  return Buffer.from(bytes.subarray(0, 4)).toString("latin1") === MAGIC || isBinaryPlist(bytes);
 }
 
 export function readPluginState(bytes: Uint8Array): PluginState {
+  if (isBinaryPlist(bytes)) {
+    const plist = readPlist(bytes);
+    const component = plist instanceof Map ? plist.get(AU_COMPONENT) : undefined;
+    if (!(plist instanceof Map) || !(component instanceof Uint8Array)) throw new Error(`The Audio Unit's state has no "${AU_COMPONENT}": it isn't Serum 2's.`);
+    const controller = plist.get(AU_CONTROLLER);
+    return { format: "au", plist, component, controller: controller instanceof Uint8Array ? controller : null };
+  }
   const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (!isPluginState(buf)) throw new Error('Not a VST3 plugin state: it doesn\'t start with "VC2!".');
+  if (Buffer.from(bytes.subarray(0, 4)).toString("latin1") !== MAGIC) throw new Error('Not a plugin state: it doesn\'t start with "VC2!" (a VST3\'s) or "bplist00" (an Audio Unit\'s).');
   const length = buf.readUInt32LE(4);
   const xml = buf.subarray(8, 8 + length).toString("utf8");
   const component = /<IComponent>([^<]*)<\/IComponent>/.exec(xml);
   if (!component) throw new Error("The plugin state has no component.");
   const controller = /<IEditController>([^<]*)<\/IEditController>/.exec(xml);
-  return { xml, component: memoryBlockDecode(component[1]), controller: controller ? memoryBlockDecode(controller[1]) : null };
+  return { format: "vst3", xml, component: memoryBlockDecode(component[1]), controller: controller ? memoryBlockDecode(controller[1]) : null };
 }
 
-/** `template`'s state with its component replaced, and its controller if one is given. */
+/** `template`'s state with its component replaced, and its controller if one is given, in the template's own format. */
 export function writePluginState(template: PluginState, component: Uint8Array, controller?: Uint8Array): Uint8Array {
+  if (template.format === "au") {
+    const plist: PlistDict = new Map(template.plist);
+    plist.set(AU_COMPONENT, component);
+    if (controller) plist.set(AU_CONTROLLER, controller);
+    return writePlist(plist);
+  }
   let xml = template.xml.replace(/<IComponent>[^<]*<\/IComponent>/, `<IComponent>${memoryBlockEncode(component)}</IComponent>`);
   if (controller) xml = xml.replace(/<IEditController>[^<]*<\/IEditController>/, `<IEditController>${memoryBlockEncode(controller)}</IEditController>`);
   const data = Buffer.from(xml, "utf8");

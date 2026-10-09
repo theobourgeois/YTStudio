@@ -228,7 +228,7 @@ describe("preset files", () => {
     const processor = writeXfer({ component: "processor", version: 11 }, encodeCbor(processorBody));
     const controller = writeXfer({ component: "controller", presetName: " Warm Pad ", presetAuthor: "me" }, encodeCbor({}));
     const xml = `<VST3PluginState><IComponent>${memoryBlockEncode(processor)}</IComponent><IEditController>${memoryBlockEncode(controller)}</IEditController></VST3PluginState>`;
-    const state = writePluginState({ xml, component: processor, controller }, processor);
+    const state = writePluginState({ format: "vst3", xml, component: processor, controller }, processor);
     const { kind, body } = readSerumSettings(state);
     expect(kind).toBe("state");
     expect(body.component).toBeUndefined();

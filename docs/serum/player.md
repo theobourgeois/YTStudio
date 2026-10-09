@@ -395,6 +395,10 @@ New tools in `shared/music/tools.ts`, for parity with the window:
      them takes them away too.
    - **The assistant:** `get_serum_sound` describes the routes, envelopes and LFOs; `edit_serum_sound` (routes,
      envelopes, LFOs, one step) and `undo_serum_sound`; `load_serum_preset` and `set_serum_macros` are steps.
+   - **Serum's Audio Unit too:** its state is its ClassInfo, a binary property list holding the same Xfer containers
+     as "Processor State" and "Controller State" (`plist.ts`, `readPluginState`); the player reads and writes either.
+     Measured on Serum 2.1.5's Audio Unit: a drop loads as on the VST3, and a state with only its Processor State
+     changed loads (its "data" field is left as it was).
 4. **Done (2026-10-09): envelopes and LFOs**, behind **Envelopes and LFOs** (folded at first, remembered on this
    computer: `envelopes.tsx`).
    - **Measured** on Serum 2.1.5: a time's position is (seconds / 32)^⅕ (0.5 is one second); a sustain's is its knob,
