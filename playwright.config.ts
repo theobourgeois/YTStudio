@@ -51,6 +51,8 @@ export default defineConfig({
         EDITOR_PHOTO_MODELS: "stand-in",
         // And for the music suite's Extract stems and Convert to notes: no model, each stem an even share of the file, a made-up melody.
         EDITOR_MUSIC_MODELS: "stand-in",
+        // And for the Serum player's browser: a small library of made-up presets, not this computer's Serum.
+        EDITOR_SERUM_LIBRARY: "stand-in",
         EDITOR_ONLINE_ASSETS: "stand-in",
       },
       url: `http://127.0.0.1:${SERVER_PORT}/api/health`,

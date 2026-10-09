@@ -20,6 +20,7 @@ import type {
   SetSongRequest,
   SetSongResponse,
 } from "@shared/music/engine";
+import type { SerumLibraryResponse, SerumSound } from "@shared/music/serum-presets";
 import type {
   AddBrowserRootRequest,
   BrowserItem,
@@ -67,6 +68,16 @@ export const musicApi = {
   setDevice: (body: SetDeviceRequest) => request<EngineDevices>("/api/engine/devices", { method: "POST", body: JSON.stringify(body) }),
   /** The device's own settings panel (an ASIO driver's), shown by the engine. */
   deviceControlPanel: () => request<{ ok: boolean }>("/api/engine/devices/panel", { method: "POST" }),
+  /** Serum's preset library, for the Serum player's browser (`docs/serum/player.md`). */
+  serumPresets: () => request<SerumLibraryResponse>("/api/music/serum/presets"),
+  /** Serum's stars for a preset (0 takes them away), written where Serum keeps them. */
+  rateSerumPreset: (hash: string, rating: number) => request<void>("/api/music/serum/rating", { method: "POST", body: JSON.stringify({ hash, rating }) }),
+  /** A preset of the library loaded onto a song's Serum channel, as Serum's own browser loads it: what it has on then. */
+  loadSerumPreset: (projectId: string, channel: string, path: string) =>
+    request<SerumSound>("/api/music/serum/load", { method: "POST", body: JSON.stringify({ projectId, channel, path }) }),
+  /** What a song's Serum channel has on now: its preset and its macros. */
+  serumSound: (projectId: string, channel: string) =>
+    request<SerumSound>(`/api/music/serum/sound?projectId=${encodeURIComponent(projectId)}&channel=${encodeURIComponent(channel)}`),
   /** The Browser's folders and favourites (the same in every project). */
   browser: () => request<BrowserState>("/api/browser"),
   addBrowserRoot: (body: AddBrowserRootRequest) => request<BrowserState>("/api/browser/roots", { method: "POST", body: JSON.stringify(body) }),

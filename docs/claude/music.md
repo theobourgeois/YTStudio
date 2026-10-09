@@ -282,8 +282,10 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   container, Serum's CBOR) from a readable spec (`preset-format.md`); `taste.md` is the research on his 118 starred
   presets; his verdicts are in `data/serum-research/feedback.md` (git-ignored, the main checkout's). Serum runs in
   the offline engine to check a preset (`scripts/serum-readout.ts`) and to render a round (`scripts/serum-audition.ts`).
-  The Serum player (a Serum 2 channel's window of our own: browser, macros, modulation, effects) is planned in
-  `docs/serum/player.md`, with what Serum takes live, what a reload does and why `.fxp` files don't load headless.
+  **The Serum player** (`docs/serum/player.md`, step by step): a Serum 2 channel's window is ours
+  (`src/suites/music/serum/`): Serum's library in one list (`server/music/serum/library.ts`, its ratings Serum's own),
+  presets loaded by a drop on Serum's invisible window, the macros live. Its plan says what Serum takes live, what a
+  reload does, and what's built so far.
 - The assistant's tools: specs in `shared/music/tools.ts`, handlers in `src/suites/music/tools.ts`, and their
   edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested); the mixer's in
   `mixer/tool-edits.ts` (`findTrack`: by id, number, "master" or name; `describeMixer` is `get_mixer`). Channels

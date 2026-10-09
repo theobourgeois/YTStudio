@@ -58,6 +58,8 @@ import { EchoBoyWindow } from "./echo-boy/echo-boy-window";
 import { useEchoUi } from "./echo-boy/store";
 import { GrossBeatWindow } from "./gross-beat/gross-beat-window";
 import { PitchWheelWindow } from "./pitch-wheel/pitch-wheel-window";
+import { SerumPlayerWindow } from "./serum/serum-player";
+import { useSerumUi } from "./serum/store";
 import { useWheelUi } from "./pitch-wheel/store";
 import { useGrossUi } from "./gross-beat/store";
 import { ProQWindow } from "./pro-q/pro-q-window";
@@ -152,6 +154,7 @@ function Windows() {
   const openReverbs = useVerbUi((s) => s.openIds);
   const openPanMen = usePanUi((s) => s.openIds);
   const openPitchWheels = useWheelUi((s) => s.openIds);
+  const openSerums = useSerumUi((s) => s.openIds);
   return (
     <MusicDesktop
       // Samples dropped on the desktop itself (not on a window) become channels, as in FL Studio.
@@ -212,6 +215,9 @@ function Windows() {
       {openPitchWheels.map((effectId, index) => (
         <PitchWheelWindow key={effectId} effectId={effectId} index={index} />
       ))}
+      {openSerums.map((channelId, index) => (
+        <SerumPlayerWindow key={channelId} channelId={channelId} index={index} />
+      ))}
     </MusicDesktop>
   );
 }
@@ -246,6 +252,7 @@ function frontWindow(): WindowId | null {
     : id.startsWith("verb:") ? useVerbUi.getState().openIds.includes(id.slice("verb:".length))
     : id.startsWith("panman:") ? usePanUi.getState().openIds.includes(id.slice("panman:".length))
     : id.startsWith("wheel:") ? useWheelUi.getState().openIds.includes(id.slice("wheel:".length))
+    : id.startsWith("serum:") ? useSerumUi.getState().openIds.includes(id.slice("serum:".length))
     : ui.openChannelIds.includes(id.slice("channel:".length));
   return [...useMusicWindows.getState().order].reverse().find(open) ?? null;
 }
@@ -584,6 +591,14 @@ function useMusicKeys(enabled: boolean) {
           e.stopPropagation();
           return runReverbKey(front.slice("verb:".length), own);
         }
+      }
+      // A Serum player's, while it's in front: ↑ ↓ step through its list of presets (each step loads one). A focused
+      // knob (a macro) keeps its own arrows.
+      const keepsArrows = isHtmlElement(e.target) && e.target.closest("[role=slider], [role=spinbutton], [role=combobox]");
+      if (front?.startsWith("serum:") && !keepsArrows && (e.key === "ArrowUp" || e.key === "ArrowDown") && !e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        return void useSerumUi.getState().step(front.slice("serum:".length), e.key === "ArrowDown" ? 1 : -1);
       }
       // The mixer's, while it's in front.
       if (frontWindow() === "mixer") {

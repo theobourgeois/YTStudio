@@ -8,7 +8,8 @@ import { useMusic } from "./store";
 
 /**
  * A window of the music editor: the channel rack, the Piano roll, the Playlist, the mixer, a channel's settings,
- * an automation clip's, a Gross Beat's, an Auto-Tune's, an EchoBoy's, a Pro-Q's, a PanMan's, a Pitch Wheel's, an OTT's, a Pro-C's, a Reverb's, or one of the small ones a command opens (Transpose selected, a note's properties,
+ * an automation clip's, a Gross Beat's, an Auto-Tune's, an EchoBoy's, a Pro-Q's, a PanMan's, a Pitch Wheel's, an OTT's, a Pro-C's, a Reverb's,
+ * a Serum channel's player, or one of the small ones a command opens (Transpose selected, a note's properties,
  * Automate: every control to automate).
  */
 export type WindowId =
@@ -39,7 +40,8 @@ export type WindowId =
   | `ott:${string}`
   | `proc:${string}`
   | `prol:${string}`
-  | `verb:${string}`;
+  | `verb:${string}`
+  | `serum:${string}`;
 
 /**
  * The rack's group filter (FL Studio's): Unsorted is every channel but the audio clips' (the default),
@@ -47,6 +49,8 @@ export type WindowId =
  */
 export type RackGroup = "unsorted" | "audio" | "all";
 export const channelWindow = (channelId: string): WindowId => `channel:${channelId}`;
+/** A Serum 2 channel's player (`serum/serum-player.tsx`), by its channel's id. */
+export const serumWindow = (channelId: string): WindowId => `serum:${channelId}`;
 /** An automation clip's window (`automation/automation-window.tsx`). */
 export const automationWindow = (automationId: string): WindowId => `automation:${automationId}`;
 /** A Gross Beat's window (`gross-beat/gross-beat-window.tsx`), by its effect's id. */

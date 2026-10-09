@@ -72,6 +72,8 @@ import { TrackSelector } from "./mixer/track-selector";
 import { MusicWindow } from "./window";
 import { openConvert } from "./convert/actions";
 import { openExtractStems } from "./stems/actions";
+import { isSerum2 } from "@shared/music/serum-presets";
+import { useSerumUi } from "./serum/store";
 
 /**
  * A step's width and the gaps between steps and between beats (px): the lights, rows and graph share them.
@@ -562,12 +564,14 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
   const isPlugin = channel.kind === "plugin";
   const unreadable = useTransport((s) => s.unreadable.includes(channel.id));
   const settingsOpen = useMusicUi((s) => s.openChannelIds.includes(channel.id));
-  // A plugin channel's window is the plugin's own, which the engine shows.
+  // A plugin channel's window is the plugin's own, which the engine shows; Serum 2's is the Serum player.
+  const serum = isPlugin && isSerum2(channel.plugin);
+  const playerOpen = useSerumUi((s) => serum && s.openIds.includes(channel.id));
   const pluginOpen = useTransport((s) => s.channels.loaded.some((c) => c.channel === channel.id && c.editorOpen));
   const pluginLoading = useTransport((s) => s.channels.loading.includes(channel.id));
   const pluginOpening = useTransport((s) => s.openingEditors.includes(channel.id));
   const pluginError = useTransport((s) => s.channels.failed.find((c) => c.channel === channel.id)?.error ?? null);
-  const open = isPlugin ? pluginOpen : settingsOpen;
+  const open = serum ? playerOpen : isPlugin ? pluginOpen : settingsOpen;
   const silent = isPlugin ? pluginError !== null : unreadable || !channel.sampleId;
   const canPaste = useMusicUi((s) => s.copiedSteps !== null);
   const trackSelectorShown = useMusicUi((s) => s.trackSelectorsShown);
@@ -685,7 +689,8 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
               if (e.metaKey || e.ctrlKey) return useTransport.getState().audition(id);
               // The channel whose window is opened is the one selected, as in FL Studio.
               selectInRack(id);
-              if (isPlugin) useTransport.getState().showPlugin(id, !pluginOpen);
+              if (serum) useSerumUi.getState().toggle(id);
+              else if (isPlugin) useTransport.getState().showPlugin(id, !pluginOpen);
               else useMusicUi.getState().toggleChannelWindow(id, e.altKey);
             }}
             // (Shift+wheel comes sideways on Windows: `wheelTurn` reads it either way.)

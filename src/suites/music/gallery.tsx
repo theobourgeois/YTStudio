@@ -28,6 +28,7 @@ import { DEFAULT_REVERB } from "@shared/music/reverb-presets";
 import type { Reverb } from "@shared/music/types";
 import { drawDecay, drawShape, readVerbPalette } from "./reverb/draw";
 import { shapeSpan } from "./reverb/geometry";
+import { Stars } from "./serum/stars";
 
 /** A knob with a value of its own (nothing in the song). */
 function LooseKnob(props: Omit<React.ComponentProps<typeof Knob>, "value" | "onBegin" | "onDrag" | "onEnd" | "onCancel" | "onSet"> & { initial: number }) {
@@ -370,6 +371,22 @@ function ReverbDisplays() {
   );
 }
 
+/** Serum's stars as the Serum player shows them: unrated (quiet: only on a hovered row), rated, and full. */
+function SerumStars() {
+  const [ratings, setRatings] = useState([0, 0, 3, 5]);
+  const rate = (i: number) => (r: number) => setRatings((now) => now.map((v, j) => (j === i ? r : v)));
+  return (
+    <div className="flex flex-col gap-2">
+      {["Unrated", "Unrated (a row's: shown on hover)", "Three stars", "Five stars"].map((label, i) => (
+        <div key={label} className="group flex items-center gap-4">
+          <span className="w-56 text-xs text-muted-foreground">{label}</span>
+          <Stars rating={ratings[i]} label={label} quiet={i === 1} onRate={rate(i)} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** The music suite's controls, for the component gallery (`src/gallery/`). */
 export const MUSIC_SECTIONS: GallerySection[] = [
   { id: "music-controls", title: "Music: knobs, LCDs, PAT / SONG, faders and the arm light", source: "suites/music/knob.tsx, lcd.tsx, mode-switch.tsx, mixer/fader.tsx, mixer/arm-button.tsx", render: () => <Controls /> },
@@ -378,5 +395,6 @@ export const MUSIC_SECTIONS: GallerySection[] = [
   { id: "music-pro-q", title: "Music: YT-EQ's knobs (the dynamic ring on GAIN) and its shapes", source: "suites/music/pro-q/knob.tsx, shape-icon.tsx", render: () => <EqControls /> },
   { id: "music-pro-c", title: "Music: YT-C's knobs (the key's ring on Threshold, the ratio's dots, a greyed one, Wet's pan ring), arcs, a bar, and its level and knee display", source: "suites/music/pro-c/knob.tsx, draw.ts", render: () => <CompControls /> },
   { id: "music-reverb", title: "Music: YT-R's displays (DECAY: a Hall's T60 shaped by two bands, the Post EQ, the tail's spectrum; SHAPE: a Room, its early taps, its duck)", source: "suites/music/reverb/draw.ts", render: () => <ReverbDisplays /> },
+  { id: "music-serum-stars", title: "Music: the Serum player's stars (Serum's own ratings: unrated, a row's, rated)", source: "suites/music/serum/stars.tsx", render: () => <SerumStars /> },
   { id: "music-ott", title: "Music: YT-Multiband's display rows (upward brown, downward green; a band at rest, sounding and hot, its upward off)", source: "suites/music/ott/draw.ts", render: () => <OttRows /> },
 ];

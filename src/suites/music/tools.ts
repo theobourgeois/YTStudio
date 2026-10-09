@@ -27,12 +27,14 @@ import type { PluginPresets } from "@shared/music/engine";
 import type { MusicToolName } from "@shared/music/tools";
 import { KIT_SOUNDS } from "@shared/music/tools";
 import type { MusicProject } from "@shared/music/types";
+import { FAVOURITE_RATING, type SerumCategory, type SerumPresetEntry, type SerumSound, findSerumPresets, isSerum2 } from "@shared/music/serum-presets";
 import { type ToolResult, textResult } from "@shared/tool-spec";
 import type { AspectRatio, MediaAsset, SignalRole } from "@shared/types";
 import { api } from "@/lib/api";
 import { FILE_MANAGER, keyLabel } from "@/lib/key-labels";
 import type { ToolRunContext } from "../types";
 import { musicApi } from "./api";
+import { useSerumUi } from "./serum/store";
 import { usePluginFavourites } from "./plugin-favourites";
 import { describeSong } from "./context";
 import { useSongExport } from "./export/store";
@@ -186,6 +188,40 @@ function audioTargetOf(song: MusicProject, input: Record<string, unknown>): Audi
   if (input.audio !== undefined) return { channelId: findAudio(song, input.audio).id, clipId: null };
   throw new Error('Give "clip" (an audio clip\'s id, from get_playlist) or "audio" (an audio clip\'s channel).');
 }
+
+/** A Serum 2 channel of the song, by its id or name; the error says which channels are. */
+function serumChannel(song: MusicProject, ref: unknown) {
+  const channel = findChannel(song, ref);
+  if (!isSerum2(channel.plugin)) {
+    const serums = song.channels.filter((c) => isSerum2(c.plugin)).map((c) => `"${c.name}"`);
+    throw new Error(`${channel.name} isn't a Serum 2 channel. ${serums.length ? `The Serum 2 channels: ${serums.join(", ")}.` : "The song has none: add one with add_channel (plugin \"Serum 2\")."}`);
+  }
+  return channel;
+}
+
+/** A preset of Serum's library by its name (and folder, when two share it). */
+async function findSerumPreset(name: unknown, folder: unknown): Promise<SerumPresetEntry> {
+  const { presets } = await musicApi.serumPresets();
+  const wanted = String(name ?? "").trim().toLowerCase();
+  const named = presets.filter((p) => p.name.toLowerCase() === wanted);
+  const inFolder = folder === undefined ? named : named.filter((p) => p.folder.toLowerCase() === String(folder).trim().toLowerCase());
+  if (inFolder.length === 1) return inFolder[0];
+  if (inFolder.length > 1) throw new Error(`${inFolder.length} presets are called "${String(name)}": give "folder", one of ${inFolder.map((p) => `"${p.folder}"`).join(", ")}.`);
+  if (named.length) throw new Error(`"${String(name)}" is in ${named.map((p) => `"${p.folder}"`).join(", ")}, not in "${String(folder)}".`);
+  const close = findSerumPresets(presets, String(name ?? "")).slice(0, 5);
+  throw new Error(`There's no Serum preset "${String(name)}".${close.length ? ` Close: ${close.map((p) => `"${p.name}"`).join(", ")}.` : " search_serum_presets finds them."}`);
+}
+
+/** A preset as a line of search_serum_presets. */
+const serumLine = (p: SerumPresetEntry) =>
+  `- ${p.name} (${p.folder || "top"}) · ${p.category}${p.author ? ` · ${p.author}` : ""}${p.rating ? ` · ${"★".repeat(p.rating)}` : ""}${p.kind === "serum1" ? " · S1" : ""}`;
+
+/** What a Serum channel has on, for the model. */
+const describeSerumSound = (channelName: string, sound: SerumSound) =>
+  [
+    `${channelName} has ${sound.preset?.name ? `"${sound.preset.name}"` : "no preset Serum names"} on.`,
+    sound.macros.length ? `Its macros: ${sound.macros.map((m) => `${m.index + 1} "${m.name}" ${Math.round(m.value * 100)}%`).join(", ")}.` : "Serum hasn't said what its macros are yet.",
+  ].join(" ");
 
 function requireOpen(target: Target, what: string) {
   if (!target.open) throw new Error(`${what} only works on the song open in the editor, and this chat's song isn't open. Ask the user to open it.`);
@@ -364,6 +400,63 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     );
     if (device && taking.some((t) => !channels.length || !inputChoices(channels).some((c) => inputKey(c.input) === inputKey(t.input)))) lines.push("Some of those inputs aren't on this device: they record silence.");
     return textResult(lines.join("\n"));
+  },
+  async search_serum_presets(input) {
+    const { available, presets } = await musicApi.serumPresets();
+    if (!available) return textResult("Serum 2's preset folder isn't on this computer: there are no Serum presets to search.");
+    const found = findSerumPresets(presets, String(input.query ?? ""), {
+      category: (input.category as SerumCategory | undefined) ?? null,
+      favourites: input.starred === true,
+      kind: (input.version as SerumPresetEntry["kind"] | undefined) ?? null,
+    });
+    const limit = Math.max(1, Math.min(200, Number(input.limit) || 30));
+    if (!found.length) return textResult(`No Serum preset matches${input.query ? ` "${String(input.query)}"` : ""} (of ${presets.length}).`);
+    return textResult([`${found.length} of ${presets.length} presets${found.length > limit ? `; the first ${limit}` : ""}:`, ...found.slice(0, limit).map(serumLine)].join("\n"));
+  },
+  async get_serum_sound(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "A Serum channel's sound");
+    const channel = serumChannel(target.song, input.channel);
+    return textResult(describeSerumSound(channel.name, await musicApi.serumSound(target.projectId, channel.id)));
+  },
+  async load_serum_preset(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "Loading a Serum preset");
+    const channel = serumChannel(target.song, input.channel);
+    const preset = await findSerumPreset(input.preset, input.folder);
+    const ui = useSerumUi.getState();
+    await ui.load(channel.id, preset);
+    const after = useSerumUi.getState().channels[channel.id];
+    if (after?.error) throw new Error(after.error);
+    const sound = after?.sound ?? (await musicApi.serumSound(target.projectId, channel.id));
+    return textResult(`Loaded. ${describeSerumSound(channel.name, sound)}`);
+  },
+  async set_serum_macros(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "A Serum channel's macros");
+    const channel = serumChannel(target.song, input.channel);
+    const sound = await musicApi.serumSound(target.projectId, channel.id);
+    const wanted = Array.isArray(input.macros) ? (input.macros as { macro?: unknown; value?: unknown }[]) : [];
+    if (!wanted.length) throw new Error('"macros" must list the macros to set: [{ "macro": 1, "value": 50 }].');
+    const settings = wanted.map(({ macro: ref, value }) => {
+      const key = String(ref ?? "").trim();
+      const macro = /^[1-8]$/.test(key) ? sound.macros.find((m) => m.index === Number(key) - 1) : sound.macros.find((m) => m.name.toLowerCase() === key.toLowerCase());
+      if (!macro) throw new Error(`${channel.name} has no macro "${key}". Its macros: ${sound.macros.map((m) => `${m.index + 1} "${m.name}"`).join(", ")}.`);
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) throw new Error(`The value for macro "${key}" must be a number from 0 to 100 (%).`);
+      return { macro, value: value / 100 };
+    });
+    for (const { macro, value } of settings) await musicApi.engine("setParameter", { owner: "channel", ownerId: channel.id, param: macro.param, value });
+    // Its player, if it's open, shows them where they are now.
+    await useSerumUi.getState().refresh(channel.id);
+    return textResult(`Set. ${describeSerumSound(channel.name, await musicApi.serumSound(target.projectId, channel.id))}`);
+  },
+  async rate_serum_preset(input) {
+    const preset = await findSerumPreset(input.preset, input.folder);
+    const stars = Number(input.stars);
+    if (!Number.isInteger(stars) || stars < 0 || stars > 5) throw new Error('"stars" must be a whole number from 0 to 5.');
+    await useSerumUi.getState().rate(preset, stars);
+    if (useSerumUi.getState().libraryError) throw new Error(useSerumUi.getState().libraryError!);
+    return textResult(stars ? `${preset.name} has ${stars} star${stars === 1 ? "" : "s"} now${stars >= FAVOURITE_RATING ? ": one of the favourites" : ""}.` : `${preset.name} has no stars now.`);
   },
   async plugin_presets(input, ctx) {
     const target = await targetOf(ctx);

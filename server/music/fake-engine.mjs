@@ -8,6 +8,8 @@ import readline from "node:readline";
 const PLUGINS = [
   { id: "VST3-Fake Synth-1", name: "Fake Synth", format: "VST3", manufacturer: "Fake", category: "Instrument", isInstrument: true },
   { id: "VST3-Fake Delay-2", name: "Fake Delay", format: "VST3", manufacturer: "Fake", category: "Fx", isInstrument: false },
+  // Named as Serum 2 is, so its channels' window is the Serum player (`docs/serum/player.md`).
+  { id: "VST3-Serum 2-3", name: "Serum 2", format: "VST3", manufacturer: "Xfer Records", category: "Instrument|Synth", isInstrument: true },
 ];
 const slots = { instrument: null, effect: null };
 const device = { output: "Fake Output", input: null, bufferSize: 256, sampleRate: 48000 };
@@ -43,6 +45,8 @@ const previewNow = () => {
 const PARAMETERS = {
   "VST3-Fake Synth-1": ["Cutoff", "Resonance", "Attack", "Release"],
   "VST3-Fake Delay-2": ["Mix", "Feedback", "Time"],
+  // Serum 2's macros, by Serum's own parameter ids.
+  "VST3-Serum 2-3": Array.from({ length: 8 }, (_, i) => ({ id: String(7_000_000 + i * 1000), name: `Macro ${i + 1}` })),
 };
 /** The plugin of a song's channel or effect, by its id. */
 const pluginOf = (owner, id) =>
@@ -50,9 +54,10 @@ const pluginOf = (owner, id) =>
 /** Parameters set from the app (`setParameter`): by owner id, then parameter id. */
 const parameterValues = new Map();
 const parameterList = (plugin, ownerId) =>
-  (PARAMETERS[plugin.id] ?? []).map((name, index) => {
-    const value = parameterValues.get(ownerId)?.get(name.toLowerCase()) ?? 0.5;
-    return { index, id: name.toLowerCase(), name, value, text: `${Math.round(value * 100)}%` };
+  (PARAMETERS[plugin.id] ?? []).map((entry, index) => {
+    const { id: param, name } = typeof entry === "string" ? { id: entry.toLowerCase(), name: entry } : entry;
+    const value = parameterValues.get(ownerId)?.get(param) ?? 0.5;
+    return { index, id: param, name, value, text: `${Math.round(value * 100)}%` };
   });
 
 /** Each fake plugin's own programs (the synth has some; the delay, one: none to choose). */

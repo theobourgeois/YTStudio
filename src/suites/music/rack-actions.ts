@@ -27,6 +27,8 @@ import { usePiano } from "./piano/store";
 import { currentPattern, useMusic } from "./store";
 import { showPluginWhenLoaded } from "./transport";
 import { selectedIn, useMusicUi } from "./ui";
+import { isSerum2 } from "@shared/music/serum-presets";
+import { useSerumUi } from "./serum/store";
 
 const song = (): MusicProject | null => useMusic.getState().history?.doc ?? null;
 const commit = (update: (song: MusicProject) => MusicProject) => useMusic.getState().commit(update);
@@ -127,6 +129,7 @@ export function replaceInstrument(channelId: string, plugin: PluginRef | null) {
   ui.closeChannelWindow(channelId);
   if (usePiano.getState().channelId === channelId) usePiano.getState().setChannel(id);
   if (!plugin) ui.openChannelWindow(id);
+  else if (isSerum2(plugin)) useSerumUi.getState().open(id);
   else showPluginWhenLoaded(id);
 }
 

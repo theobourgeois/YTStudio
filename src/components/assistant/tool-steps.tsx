@@ -38,6 +38,7 @@ import {
   PiUploadSimple,
   PiWarningCircle,
   PiWaveform,
+  PiStar,
 } from "react-icons/pi";
 import { type ToolPart, describeToolCall } from "@shared/assistant";
 import { toolSpec } from "@shared/suite-tools";
@@ -58,6 +59,11 @@ const ICONS: Record<string, IconType> = {
   analyze_audio: PiWaveform,
   extract_stems: PiStack,
   convert_to_notes: PiMusicNotes,
+  search_serum_presets: PiMagnifyingGlass,
+  get_serum_sound: PiEye,
+  load_serum_preset: PiDownloadSimple,
+  set_serum_macros: PiSlidersHorizontal,
+  rate_serum_preset: PiStar,
   capture_audio_snapshot: PiWaveform,
   get_vocal_mixing_workflow: PiWaveform,
   list_mix_workflows: PiWaveform,
