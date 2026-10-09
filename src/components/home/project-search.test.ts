@@ -22,8 +22,8 @@ describe("the project search", () => {
 
   it("lists every project with nothing typed, the latest first, those that are missing last", () => {
     expect(ids("")).toEqual(["d", "b", "a", "c"]);
-    // Opened counts as much as saved.
-    expect(searchProjects([project("a", "A", 1), { ...project("b", "B", 0), openedAt: 5 }], "").map((p) => p.id)).toEqual(["b", "a"]);
+    // Opening one doesn't move it up: only an edit does.
+    expect(searchProjects([project("a", "A", 1), { ...project("b", "B", 0), openedAt: 5 }], "").map((p) => p.id)).toEqual(["a", "b"]);
   });
 
   it("keeps the projects with every word typed, a name starting with them first, then a word of it", () => {

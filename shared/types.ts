@@ -547,7 +547,7 @@ interface ProjectSummaryBase {
   createdAt: number;
   /** Last time the project document was saved (epoch ms). */
   updatedAt: number;
-  /** Last time it was opened on this computer (epoch ms; when it was made or added, until then). */
+  /** Last time it was opened on this computer (epoch ms; when it was made or added, until then). Not its place in the recents: that's `updatedAt`. */
   openedAt: number;
   /** Its package on this computer (`.../Summer edit.yt`). */
   path: string;
@@ -1108,8 +1108,10 @@ export interface ToolCallProgressRequest {
 //                                        415 not a JPEG or PNG
 //   GET    /api/projects/:id/cover      -> image/jpeg | image/png (404 if none was saved)
 //   PATCH  /api/projects/:id  body: UpdateProjectRequest -> ProjectSummary (renames it and its package)
-//   POST   /api/projects/:id/opened     -> ProjectSummary (bumps openedAt)
+//   POST   /api/projects/:id/opened     -> ProjectSummary (bumps openedAt; the recents are by updatedAt)
 //   POST   /api/projects/:id/closed     -> ProjectSummary: its package takes its name, if it was renamed open
+//   POST   /api/projects/:id/discard    -> { discarded }: its tab was closed; one made by New and left untouched
+//                                        (no save, no media added or removed, no chat, not open) is deleted
 //   POST   /api/projects/:id/reveal     -> 204: shows its package in Finder
 //   POST   /api/projects/:id/duplicate  -> ProjectSummary (201): a copy beside it with its own copy of the
 //                                        media, named "<name> copy" (cloned files; caches left out)

@@ -140,8 +140,10 @@ describe("project packages", () => {
     expect([a.path, b.path]).toEqual([path.join(documents, "Summer edit.yt"), path.join(documents, "Summer edit 2.yt")]);
     expect(readdirSync(a.path).sort()).toEqual(["media", "meta.json", "project.json"]);
 
-    // Opening one makes it the latest.
+    // Opening one doesn't move it up the recents; saving one does.
     await send("POST", `/api/projects/${a.id}/opened`);
+    expect((await list()).map((p) => p.id)).toEqual([b.id, a.id]);
+    await send("PUT", `/api/projects/${a.id}`, (await send<Project>("GET", `/api/projects/${a.id}`)).body);
     expect((await list()).map((p) => p.id)).toEqual([a.id, b.id]);
     await send("POST", `/api/projects/${b.id}/reveal`);
     expect(revealed).toEqual([b.path]);
@@ -274,6 +276,44 @@ describe("project packages", () => {
     expect(await (await fetch(`${base}${media.src}`)).text()).toBe(`data of ${asset.id}`);
     expect(existsSync(path.join(copy, "media", media.id, "source.mp4"))).toBe(true);
     expect((await send<MediaAsset[]>("GET", `/api/media?projectId=${a.id}`)).body.map((m) => m.id)).toEqual([asset.id]);
+  });
+
+  it("deletes a project made by New and left untouched when its tab closes, and keeps any other", async () => {
+    await start();
+    const discard = async (id: string) => (await send<{ discarded: boolean }>("POST", `/api/projects/${id}/discard`)).body.discarded;
+    const left = await create("Left");
+    const renamed = await create("Named");
+    const later = await create("Later");
+    const kept = await create("Kept");
+
+    await send("POST", `/api/projects/${left.id}/opened`);
+    await send("POST", `/api/projects/${left.id}/closed`);
+    expect(await discard(left.id)).toBe(true);
+    expect(existsSync(left.path)).toBe(false);
+    expect(trashed).toEqual([]);
+    expect((await list()).map((p) => p.id)).not.toContain(left.id);
+    expect(await discard(left.id)).toBe(false);
+
+    // Renamed: that's something done to it.
+    await send("PATCH", `/api/projects/${renamed.id}`, { name: "Named it" });
+    expect(await discard(renamed.id)).toBe(false);
+    // Open again (in another tab, or reopened at once): not now.
+    await send("POST", `/api/projects/${later.id}/opened`);
+    expect(await discard(later.id)).toBe(false);
+    await send("POST", `/api/projects/${later.id}/closed`);
+    // A copy, or one opened from a file, wasn't made by New.
+    const copy = (await send<ProjectSummary>("POST", `/api/projects/${kept.id}/duplicate`)).body;
+    expect(await discard(copy.id)).toBe(false);
+    await send("DELETE", `/api/projects/${kept.id}/recent`);
+    const reopened = (await open(kept.path)).body;
+    expect(await discard(reopened.id)).toBe(false);
+
+    // Still untouched after a restart (its tab was open when the app quit).
+    await stop();
+    await start();
+    expect(await discard(later.id)).toBe(true);
+    expect(existsSync(later.path)).toBe(false);
+    expect((await list()).map((p) => p.name).sort()).toEqual(["Kept", "Kept copy", "Named it"]);
   });
 
   it("removes from the recents without deleting, and moves to the Trash", async () => {

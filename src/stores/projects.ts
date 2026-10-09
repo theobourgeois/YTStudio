@@ -40,7 +40,10 @@ interface ProjectsState {
   /** Read the list again (the Home screen, shown or back in front: packages may have moved in Finder meanwhile). */
   refresh: () => Promise<void>;
   open: (projectId: string) => Promise<void>;
-  /** Close a tab: the project stays on disk and in the recents; its neighbour (or Home) shows if it was open. */
+  /**
+   * Close a tab: the project stays on disk and in the recents (unless it was made by New and nothing was done
+   * to it: then it's deleted); its neighbour (or Home) shows if it was open.
+   */
   closeTab: (projectId: string) => Promise<void>;
   /** Show the next or previous tab (wrapping round). */
   cycleTab: (step: 1 | -1) => Promise<void>;
@@ -92,12 +95,12 @@ interface ProjectsState {
   flush: () => Promise<void>;
 }
 
-/** When a project was last touched here: opened or saved. */
-export const lastTouched = (p: ProjectSummary) => Math.max(p.openedAt, p.updatedAt);
+/** When a project was last changed (opening one doesn't count: it doesn't move it up the recents). */
+export const lastEdited = (p: ProjectSummary) => p.updatedAt;
 
-/** The recents, the latest first. */
+/** The recents, the latest edited first. */
 export function recentProjects(projects: readonly ProjectSummary[]): ProjectSummary[] {
-  return [...projects].sort((a, b) => lastTouched(b) - lastTouched(a));
+  return [...projects].sort((a, b) => lastEdited(b) - lastEdited(a));
 }
 
 /** A project's suite, if it's in the list. */
@@ -111,6 +114,8 @@ let openToken = 0;
 /** The suite holding a project (the open one's, or one still loading or closing), and which project. */
 let loadedSuite: SuiteId | null = null;
 let loadedId: string | null = null;
+/** Each project's last `closed` request, so a tab's project is only discarded after the server knows it's closed. */
+const closing = new Map<string, Promise<unknown>>();
 
 export const useProjects = create<ProjectsState>((set, get) => {
   const upsert = (summary: ProjectSummary) =>
@@ -128,18 +133,22 @@ export const useProjects = create<ProjectsState>((set, get) => {
       ...(projectId && suite && { tabs: withTab(get().tabs, projectId) }),
       ...(previous && previous !== projectId && { lastOpenId: previous }),
     });
-    const closing = loadedId !== projectId ? loadedId : null;
+    const leaving = loadedId !== projectId ? loadedId : null;
     if (loadedSuite && (loadedSuite !== suite || !projectId)) {
       const closingSuite = loadedSuite;
       loadedSuite = null;
       await clientSuite(closingSuite).close();
-    } else if (closing && loadedSuite) {
+    } else if (leaving && loadedSuite) {
       // The same suite opens the next one, but this one's last edit is saved first.
       await clientSuite(loadedSuite).flush();
     }
     loadedId = projectId;
     // Closed: its package may now take the name it was given while open.
-    if (closing) void api.projectClosed(closing).then(upsert, () => {});
+    if (leaving) {
+      const request = api.projectClosed(leaving).then(upsert, () => {});
+      closing.set(leaving, request);
+      void request.finally(() => closing.get(leaving) === request && closing.delete(leaving));
+    }
     if (token !== openToken) return;
     if (!projectId || !suite) return;
     loadedSuite = suite;
@@ -151,6 +160,17 @@ export const useProjects = create<ProjectsState>((set, get) => {
   };
 
   const failed = (what: string, err: unknown) => toast.error(what, { description: errorMessage(err) });
+
+  /** Gone from the list (deleted, or discarded): its tab, its pending saves, ⇧⌘H's way back to it. */
+  const dropped = (projectId: string) => {
+    const suite = projectSuite(projectId);
+    if (suite) clientSuite(suite).discard(projectId);
+    set({
+      projects: get().projects.filter((p) => p.id !== projectId),
+      tabs: withoutTab(get().tabs, projectId),
+      lastOpenId: get().lastOpenId === projectId ? null : get().lastOpenId,
+    });
+  };
 
   return {
     projects: [],
@@ -226,9 +246,14 @@ export const useProjects = create<ProjectsState>((set, get) => {
       if (!tabs.includes(projectId)) return;
       const next = tabAfterClose(tabs, projectId);
       set({ tabs: withoutTab(tabs, projectId) });
-      if (openId !== projectId) return;
-      if (next) await get().open(next);
-      else await get().goHome();
+      if (openId === projectId) {
+        if (next) await get().open(next);
+        else await get().goHome();
+      }
+      // Made and left as it was: not worth keeping (the server decides, once it knows the project's closed).
+      await closing.get(projectId);
+      const { discarded } = await api.discardUntouchedProject(projectId).catch(() => ({ discarded: false }));
+      if (discarded) dropped(projectId);
     },
 
     async cycleTab(step) {
@@ -390,7 +415,6 @@ export const useProjects = create<ProjectsState>((set, get) => {
     },
 
     async remove(projectId) {
-      const suite = projectSuite(projectId);
       if (get().openId === projectId) await get().goHome();
       try {
         await api.deleteProject(projectId);
@@ -398,12 +422,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
         failed(`Couldn't move ${noun(projectId)} to the Trash`, err);
         return;
       }
-      if (suite) clientSuite(suite).discard(projectId);
-      set({
-        projects: get().projects.filter((p) => p.id !== projectId),
-        tabs: withoutTab(get().tabs, projectId),
-        lastOpenId: get().lastOpenId === projectId ? null : get().lastOpenId,
-      });
+      dropped(projectId);
     },
 
     async setLocation(path) {
