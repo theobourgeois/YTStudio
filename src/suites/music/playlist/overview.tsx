@@ -2,6 +2,7 @@ import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef } fr
 import { clipContext, songTicks } from "@shared/music/playlist";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { prepare } from "../piano/draw";
+import { useClipLook } from "./clip-look";
 import { useMusic } from "../store";
 import { zoomFloor } from "./actions";
 import { drawOverview } from "./draw";
@@ -25,13 +26,14 @@ export function PlaylistOverview() {
   const width = usePlaylist((s) => s.gridWidth);
   const ctx = useMemo(() => clipContext(song), [song]);
   const span = overviewSpan(view, width, songTicks(song), ctx.barTicks);
+  const { dark } = useClipLook();
   // Drawn only when the song, the selection or the span change: scrolling only moves the window.
   useEffect(() => {
     const c = canvas.current && prepare(canvas.current, width, OVERVIEW_HEIGHT);
     if (!c) return;
     const colors = new Map([...song.patterns, ...song.channels, ...song.automations].flatMap((source) => (source.color ? [[source.id, source.color] as const] : [])));
-    drawOverview(c, { clips: song.playlist.clips, ctx, tracks: song.playlist.tracks, colors, selected, span, width, height: OVERVIEW_HEIGHT });
-  }, [song, ctx, selected, span, width]);
+    drawOverview(c, { clips: song.playlist.clips, ctx, tracks: song.playlist.tracks, colors, selected, span, width, height: OVERVIEW_HEIGHT, dark });
+  }, [song, ctx, selected, span, width, dark]);
 
   const thumb = overviewThumb(view, width, span);
   const drag = (e: ReactPointerEvent<HTMLDivElement>, part: "move" | "start" | "end", beside = false) => {

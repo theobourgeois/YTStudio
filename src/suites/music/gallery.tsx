@@ -4,7 +4,7 @@ import { DEFAULT_LFO } from "@shared/music/project";
 import { type Automation, CURVE_TYPES, type CurveType, EQ_SHAPES } from "@shared/music/types";
 import { drawCurve } from "./automation/draw-curve";
 import { prepare } from "./piano/draw";
-import { AUTOMATION } from "./playlist/draw";
+import { kindColours } from "./playlist/draw";
 import { ContextMenuItem } from "@/components/ui/context-menu";
 import type { GallerySection } from "@/gallery/types";
 import { CENTS, Knob, PERCENT, cents, panText, percent } from "./knob";
@@ -93,6 +93,7 @@ function CurveCard({ curve, tension }: { curve: CurveType; tension: number }) {
       max: 1,
       lfo: DEFAULT_LFO,
     };
+    const AUTOMATION = kindColours("automation");
     c.fillStyle = AUTOMATION.body;
     c.fillRect(0, 0, 132, 44);
     drawCurve(c, automation, { x0: 4, pxPerTick: 124 / 384, top: 2, height: 40 }, 4, 128, { line: AUTOMATION.content, point: AUTOMATION.title }, true, 384);

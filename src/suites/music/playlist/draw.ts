@@ -29,38 +29,74 @@ export interface ClipColours {
 }
 
 /**
- * A clip's colours, FL Studio's way, all from one colour: its title strip that colour, its body a dark
- * shade of it (the grid faint behind), and what's drawn in it (notes, a waveform) a light tint of it, so
- * each clip reads as one hue (Théo). The same in every theme.
+ * What a theme does to clip colours (`--clip-base`, `--clip-ink` in `src/themes/`, read with the palette): a
+ * dark theme gives a clip a dark body with a light drawing in it, as FL does; a light one a pale body with
+ * a deeper drawing, so clips look like the theme they're in rather than dark patches on a light grid.
  */
-export function clipColours(color: string): ClipColours {
-  return { title: color, body: mix(color, "#101318", 0.55), content: mix(color, "#ffffff", 0.62), text: mix(color, "#ffffff", 0.88) };
+export interface ClipLook {
+  dark: boolean;
+  /** What a clip's body is mixed towards (dark: near-black; light: about the grid's own rows). */
+  clipBase: string;
+  /** What its content (notes, a waveform, a curve) is mixed towards. */
+  clipInk: string;
 }
 
-/** FL's own: pattern clips blue-grey, audio clips green, automation clips violet; a selected clip red. */
-export const PATTERN = clipColours("#5a78a6");
-export const AUDIO = clipColours("#4f946c");
-export const AUTOMATION = clipColours(AUTOMATION_COLOR);
+/** Studio's Dark, for what draws before a theme's been read. */
+const DARK_LOOK: ClipLook = { dark: true, clipBase: "#101318", clipInk: "#ffffff" };
 
-/** The usual colours of a kind of clip. */
-export const KIND_COLOURS = { pattern: PATTERN, audio: AUDIO, automation: AUTOMATION } as const;
-const SELECTED = clipColours("#cc5a50");
+/**
+ * A clip's colours, FL Studio's way, all from one colour: its title strip that colour, its body a shade of it
+ * towards the theme's base (the grid faint behind), and what's drawn in it (notes, a waveform) a tint of it
+ * towards the theme's ink, so each clip reads as one hue (Théo) in every theme.
+ */
+export function clipColours(color: string, look: ClipLook = DARK_LOOK): ClipColours {
+  const key = `${color}|${look.dark}|${look.clipBase}|${look.clipInk}`;
+  let colours = clipCache.get(key);
+  if (!colours) {
+    colours = look.dark
+      ? { title: color, body: mix(color, look.clipBase, 0.55), content: mix(color, look.clipInk, 0.62), text: mix(color, "#ffffff", 0.88) }
+      : { title: color, body: mix(color, look.clipBase, 0.68), content: mix(color, look.clipInk, 0.32), text: mix(color, "#ffffff", 0.92) };
+    if (clipCache.size > 512) clipCache.clear();
+    clipCache.set(key, colours);
+  }
+  return colours;
+}
+const clipCache = new Map<string, ClipColours>();
+
+/** FL's own: pattern clips blue-grey, audio clips green, automation clips violet; a selected clip red. */
+const KIND_COLOR = { pattern: "#5a78a6", audio: "#4f946c", automation: AUTOMATION_COLOR } as const;
+
+/** The usual colours of a kind of clip, in a theme. */
+export const kindColours = (kind: keyof typeof KIND_COLOR, look?: ClipLook) => clipColours(KIND_COLOR[kind], look);
+const SELECTED_COLOR = "#cc5a50";
 
 /** How opaque a clip's body is (its title strip and content are solid): the grid shows faintly through, as in FL. */
 const BODY_ALPHA = { light: 0.82, dark: 0.85 };
 /** A clip on a muted track: its colours greyed towards this, and fainter. */
-const MUTED_GREY = "#4a525c";
+const MUTED_GREY = { light: "#a9b0b9", dark: "#4a525c" };
 const MUTED_TRACK_ALPHA = 0.6;
 
-/** A clip's colours on a muted track: greyed and darker, so it reads as off. */
-function onMutedTrack(c: ClipColours): ClipColours {
-  return { body: mix(c.body, MUTED_GREY, 0.6), title: mix(c.title, MUTED_GREY, 0.6), content: mix(c.content, MUTED_GREY, 0.55), text: mix(c.text, MUTED_GREY, 0.35) };
+/** A clip's colours on a muted track: greyed (darker in a dark theme, paler in a light one), so it reads as off. */
+function onMutedTrack(c: ClipColours, dark: boolean): ClipColours {
+  const grey = dark ? MUTED_GREY.dark : MUTED_GREY.light;
+  return { body: mix(c.body, grey, 0.6), title: mix(c.title, grey, 0.6), content: mix(c.content, grey, 0.55), text: mix(c.text, MUTED_GREY.dark, 0.35) };
 }
 
-/** Two "#rrggbb" colours mixed, `amount` of the second. */
+/** A colour as its channels: "#rrggbb", "#rgb" or "rgb(r g b)" / "rgb(r, g, b)" (what a theme's variables hold). */
+function channels(colour: string): [number, number, number] {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(colour.trim());
+  if (hex) {
+    const h = hex[1].length === 3 ? [...hex[1]].map((c) => c + c).join("") : hex[1];
+    return [0, 1, 2].map((i) => parseInt(h.slice(i * 2, i * 2 + 2), 16)) as [number, number, number];
+  }
+  const rgb = /rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(colour);
+  return rgb ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])] : [128, 128, 128];
+}
+
+/** Two colours mixed, `amount` of the second, as "#rrggbb". */
 function mix(a: string, b: string, amount: number): string {
-  const channel = (hex: string, i: number) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
-  const part = (i: number) => Math.round(channel(a, i) * (1 - amount) + channel(b, i) * amount);
+  const [ca, cb] = [channels(a), channels(b)];
+  const part = (i: number) => Math.round(ca[i] * (1 - amount) + cb[i] * amount);
   return `#${[0, 1, 2].map((i) => part(i).toString(16).padStart(2, "0")).join("")}`;
 }
 
@@ -112,7 +148,7 @@ export interface LiveTakeDrawing {
 }
 
 /** A take being recorded: FL's recording red. */
-const RECORDING = clipColours("#c0453c");
+const RECORDING_COLOR = "#c0453c";
 
 /** The grid lines in view: `[tick, weight]`, weight 2 for bars, 1 for beats, 0 for the rest. */
 function gridLines(view: PlaylistView, width: number, barTicks: number, beatTicks: number): [number, number][] {
@@ -427,8 +463,8 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
   const track = scene.tracks[clip.track];
   // Its source's colour, else its track's, else the usual for its kind (FL's order).
   const color = scene.colors.get(clip.ref) ?? track?.color;
-  const own = isSelected ? SELECTED : color ? clipColours(color) : KIND_COLOURS[clip.kind];
-  const colours = track?.muted ? onMutedTrack(own) : own;
+  const own = clipColours(isSelected ? SELECTED_COLOR : (color ?? KIND_COLOR[clip.kind]), palette);
+  const colours = track?.muted ? onMutedTrack(own, palette.dark) : own;
   const fade = (clip.muted ? 0.5 : 1) * (track?.muted ? MUTED_TRACK_ALPHA : 1) * alpha;
   // On whole pixels, edge to edge: clips one after another meet at their outlines, with no gap between.
   const left = Math.round(x);
@@ -579,12 +615,13 @@ function drawLiveTake(ctx: CanvasRenderingContext2D, scene: PlaylistScene, take:
   const across = Math.max(2, right - left);
   const y = Math.round(trackTop(layout, view, take.track));
   const h = Math.round(trackTop(layout, view, take.track + 1)) - y - 1;
+  const recording = clipColours(RECORDING_COLOR, palette);
   ctx.globalAlpha = palette.dark ? BODY_ALPHA.dark : BODY_ALPHA.light;
-  ctx.fillStyle = RECORDING.body;
+  ctx.fillStyle = recording.body;
   ctx.fillRect(left, y, across, h);
   ctx.globalAlpha = 1;
   const title = Math.min(TITLE_HEIGHT, h);
-  ctx.fillStyle = RECORDING.title;
+  ctx.fillStyle = recording.title;
   ctx.fillRect(left, y, across, title);
   // The input so far, as finished clips draw their files: one shape along each peak and back below,
   // mirrored about the middle (a peak every 5 ms, so it's the take's own waveform as it comes).
@@ -599,7 +636,7 @@ function drawLiveTake(ctx: CanvasRenderingContext2D, scene: PlaylistScene, take:
     let last = first;
     while (last < take.ticks.length - 1 && tickToX(view, take.ticks[last]) <= scene.width) last++;
     const height = (i: number) => Math.max(0.5, Math.min(1, take.levels[i]) * half);
-    ctx.fillStyle = RECORDING.content;
+    ctx.fillStyle = recording.content;
     ctx.beginPath();
     ctx.moveTo(tickToX(view, first ? take.ticks[first - 1] : take.from), mid);
     for (let i = first; i <= last; i++) ctx.lineTo(tickToX(view, take.ticks[i]), mid - height(i));
@@ -610,7 +647,7 @@ function drawLiveTake(ctx: CanvasRenderingContext2D, scene: PlaylistScene, take:
   if (across > 16 && title >= 9) {
     ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = RECORDING.text;
+    ctx.fillStyle = recording.text;
     const textX = Math.max(left, 0) + 4;
     ctx.fillText(ellipsize(ctx, `● ${take.label}`, right - textX - 3), textX, y + title / 2 + 0.5);
   }
@@ -734,6 +771,8 @@ export interface OverviewScene {
   span: number;
   width: number;
   height: number;
+  /** A dark theme (a muted track's clips grey darker) or a light one (paler). */
+  dark: boolean;
 }
 
 /** The fewest track rows the overview divides its height into, so a song on one track isn't one thick bar. */
@@ -755,8 +794,8 @@ export function drawOverview(ctx: CanvasRenderingContext2D, scene: OverviewScene
   for (const clip of clips) {
     const track = scene.tracks[clip.track];
     const color = scene.colors.get(clip.ref) ?? track?.color;
-    const own = scene.selected.has(clip.id) ? SELECTED : color ? clipColours(color) : KIND_COLOURS[clip.kind];
-    const colours = track?.muted ? onMutedTrack(own) : own;
+    const own = clipColours(scene.selected.has(clip.id) ? SELECTED_COLOR : (color ?? KIND_COLOR[clip.kind]));
+    const colours = track?.muted ? onMutedTrack(own, scene.dark) : own;
     ctx.globalAlpha = clip.muted || track?.muted ? 0.45 : 1;
     ctx.fillStyle = colours.title;
     const x = clip.start * scale;

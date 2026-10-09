@@ -28,7 +28,8 @@ import {
   splitPattern,
   transposePickedPatterns,
 } from "./actions";
-import { KIND_COLOURS, clipColours, drawAutomationPreview, drawPatternPreview, drawWaveformPreview } from "./draw";
+import { useClipLook } from "./clip-look";
+import { clipColours, drawAutomationPreview, drawPatternPreview, drawWaveformPreview, kindColours } from "./draw";
 import { pickMode } from "./picks";
 import { type ClipSource, type PickerTab as PickerTabId, usePlaylist } from "./store";
 import { clipPeaks, onWaveform } from "./waveforms";
@@ -312,7 +313,7 @@ const carried = (item: Pattern | Channel | Automation): Carried => ({ id: item.i
 function dragBadge(transfer: DataTransfer, source: Element, kind: ClipSource["kind"], items: readonly Carried[]) {
   // Drawn in the window the drag starts in: a native one has a document of its own.
   const document = ownerDocument(source);
-  const colours = (item: Carried) => (item.color ? clipColours(item.color) : KIND_COLOURS[kind]);
+  const colours = (item: Carried) => (item.color ? clipColours(item.color) : kindColours(kind));
   const badge = document.createElement("div");
   badge.style.cssText = "position:fixed;top:-200px;left:0;padding:0 8px 8px 0;font:600 11px/1 var(--font-sans);pointer-events:none";
   const behind = items.slice(1, 3);
@@ -364,7 +365,8 @@ interface PickerItemProps extends Omit<React.ComponentProps<"button">, "onClick"
 /** An item of the Picker, as FL shows one: a small clip, its name on its title strip, its preview under it. */
 function PickerItem({ kind, id, name, color, selected, chosen, onClick, carries, draw, drawKey, gone, ...rest }: PickerItemProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const colours = color ? clipColours(color) : KIND_COLOURS[kind];
+  const look = useClipLook();
+  const colours = color ? clipColours(color, look) : kindColours(kind, look);
   const drawRef = useRef(draw);
   drawRef.current = draw;
   useEffect(() => {

@@ -44,6 +44,8 @@
   --mixer-tint-base: var(--surface-2);
   --meter-off: var(--surface-0);
   --piano-keys: var(--line-strong);
+  --clip-base: var(--piano-row);
+  --clip-ink: var(--foreground);
 }
 
 .theme.dark:where(:not(.theme-light, .theme-dark)) {
@@ -66,4 +68,6 @@
   --mixer-tint-base: var(--surface-0);
   --meter-off: var(--surface-3);
   --piano-keys: var(--surface-0);
+  --clip-base: var(--sunken);
+  --clip-ink: #ffffff;
 }

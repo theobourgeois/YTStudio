@@ -1,7 +1,8 @@
 import type { SongOutline } from "@shared/music/outline";
 import type { SuiteProjectSummary } from "@shared/types";
 import { NOTE } from "./piano/note-colours";
-import { clipColours, KIND_COLOURS } from "./playlist/draw";
+import { useClipLook } from "./playlist/clip-look";
+import { clipColours, kindColours } from "./playlist/draw";
 
 const W = 1000;
 const H = 600;
@@ -30,6 +31,7 @@ function Playlist({ outline }: { outline: SongOutline }) {
   const rowH = H / rows;
   const bars = Math.max(1, Math.min(64, outline.bars || 1));
   const every = bars > 32 ? 4 : 1;
+  const look = useClipLook();
   return (
     <>
       {Array.from({ length: rows }, (_, i) => (
@@ -42,7 +44,7 @@ function Playlist({ outline }: { outline: SongOutline }) {
         const y = row * rowH + rowH * 0.08;
         const h = rowH * 0.84;
         const { kind, color } = outline.styles[style] ?? { kind: "pattern", color: null };
-        const colours = color ? clipColours(color) : KIND_COLOURS[kind === "note" ? "pattern" : kind];
+        const colours = color ? clipColours(color, look) : kindColours(kind === "note" ? "pattern" : kind, look);
         return (
           <g key={i}>
             <rect x={start} y={y} width={Math.max(3, length - 2)} height={h} fill={colours.body} opacity={0.9} />
