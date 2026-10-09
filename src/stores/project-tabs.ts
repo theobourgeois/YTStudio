@@ -51,9 +51,9 @@ export function restoreTabs(saved: unknown, exists: (id: string) => boolean): st
 }
 
 /**
- * Whether the strip shows: always while a project is open (the menus are in it), and on the Home screen while
- * there are tabs to go back to.
+ * Whether the strip shows: always while a project is open, and on the Home screen while there are tabs to go back
+ * to; never when Settings hides it (`hidden`: the menu row starts the window).
  */
-export function tabsVisible(tabCount: number, home: boolean): boolean {
-  return !home || tabCount >= 1;
+export function tabsVisible(tabCount: number, home: boolean, hidden = false): boolean {
+  return !hidden && (!home || tabCount >= 1);
 }

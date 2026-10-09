@@ -14,6 +14,7 @@ import { useAppIcon } from "@/stores/app-icon";
 import { useLayout } from "@/stores/layout";
 import { tabsVisible } from "@/stores/project-tabs";
 import { projectSuite, useProjects } from "@/stores/projects";
+import { useWindowChrome } from "@/stores/window-chrome";
 import { clientSuite } from "@/suites";
 import { CLOSE_TAB_KEYS, HOME_KEYS, NEW_PROJECT_KEYS } from "./project-search-dialog";
 
@@ -28,7 +29,34 @@ function useTabIds(): string[] {
 export function useTabsShown(): boolean {
   const count = useTabIds().length;
   const home = useProjects((s) => s.openId === null);
-  return tabsVisible(count, home);
+  const hidden = useWindowChrome((s) => s.tabsHidden);
+  return tabsVisible(count, home, hidden);
+}
+
+/** The Home screen's button, the app's icon (the one chosen in Settings): the tab strip's start, or the menu row's without it. */
+export function HomeButton({ className }: { className?: string }) {
+  const openId = useProjects((s) => s.openId);
+  const icon = useAppIcon((s) => s.choice);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Home"
+          aria-pressed={openId === null}
+          className={cn("shrink-0", openId === null && "raised", className)}
+          onClick={() => void useProjects.getState().goHome()}
+        >
+          <img src={appIconUrl(icon)} alt="" className="size-5" draggable={false} />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        Home: all your projects
+        <kbd className="ml-2 rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">{HOME_KEYS}</kbd>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 /**
@@ -41,7 +69,6 @@ export function useTabsShown(): boolean {
 export function ProjectTabs() {
   const ids = useTabIds();
   const openId = useProjects((s) => s.openId);
-  const icon = useAppIcon((s) => s.choice);
   const strip = useRef<HTMLDivElement>(null);
   const drop = useFileDrop((files) => void useProjects.getState().startWith(files));
   // While files are dragged over the window, the title bar takes drops rather than moving the window.
@@ -55,24 +82,7 @@ export function ProjectTabs() {
       data-file-drop={drop.active || undefined}
       {...drop.handlers}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Home"
-            aria-pressed={openId === null}
-            className={cn("project-tabs-home mb-0.5 shrink-0", openId === null && "raised")}
-            onClick={() => void useProjects.getState().goHome()}
-          >
-            <img src={appIconUrl(icon)} alt="" className="size-5" draggable={false} />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          Home: all your projects
-          <kbd className="ml-2 rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">{HOME_KEYS}</kbd>
-        </TooltipContent>
-      </Tooltip>
+      <HomeButton className="project-tabs-home mb-0.5" />
 
       <div ref={strip} role="tablist" aria-label="Open projects" className="flex min-w-0 items-end gap-1">
         {ids.map((id) => (

@@ -24,8 +24,11 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
   chooseFolder: (defaultPath?: string) => ipcRenderer.invoke("choose-folder", { defaultPath }) as Promise<string | null>,
   // ⌘H or ⌥⌘H that the page didn't use: macOS's Hide or Hide Others (the menu leaves those keys to the page).
   hideApp: (which: "app" | "others") => ipcRenderer.send("hide-app", which),
-  // The tab strip is showing (or not): the window buttons move to its middle, or back to the header's.
-  tabStrip: (shown: boolean) => ipcRenderer.send("tab-strip", shown),
+  // The bar that starts the window (the tab strip, the menu row or Home's): the window buttons move to its middle,
+  // or a Mac's hide when the page draws its own (no tab strip, Settings › General).
+  titleBar: (bar: { height: number; ownButtons: boolean }) => ipcRenderer.send("title-bar", bar),
+  // The page's own window buttons.
+  windowAction: (action: "minimize" | "fullscreen" | "close") => ipcRenderer.send("window-action", action),
   // A project was opened: the Dock's and File › Open Recent's recent documents list it.
   projectOpened: (path: string) => ipcRenderer.send("project-opened", path),
   // An image dropped on the Dock icon (or opened with YTStudio), which the page starts a photo with.

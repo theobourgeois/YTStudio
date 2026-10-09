@@ -2558,4 +2558,27 @@ test("keeps the open projects as tabs: switch, reorder, close", async ({ page })
   await expect(tabs.getByRole("tab")).toHaveCount(1);
   await tabs.getByRole("tab").click();
   await expect(page).toHaveURL(secondUrl);
+
+  // Settings › General hides the strip: the menu row starts the window, the Home button at its start (a browser
+  // has its own window buttons, so the page draws none).
+  await page.keyboard.press("ControlOrMeta+,");
+  const settings = page.locator("[data-settings]");
+  await settings.getByRole("tab", { name: "General" }).click();
+  await settings.getByRole("switch", { name: "Show tabs" }).click();
+  await page.keyboard.press("Escape");
+  await expect(tabs).toHaveCount(0);
+  await expect(page.locator("[data-tabs]")).toHaveCount(0);
+  await expect(page.locator("[data-window-buttons]")).toHaveCount(0);
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await expect(page.locator("#home-search")).toBeVisible();
+  await expect(tabs).toHaveCount(0);
+  // It stays hidden after a reload, and comes back when it's turned on again.
+  await page.reload();
+  await expect(page.locator("#home-search")).toBeVisible();
+  await expect(tabs).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+,");
+  await settings.getByRole("tab", { name: "General" }).click();
+  await settings.getByRole("switch", { name: "Show tabs" }).click();
+  await page.keyboard.press("Escape");
+  await expect(tabs.getByRole("tab")).toHaveCount(1);
 });

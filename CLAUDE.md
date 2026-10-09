@@ -127,8 +127,10 @@ src/
                      the order and edits in pure `stores/project-tabs.ts`, kept in localStorage): switching is just
                      `open` (the one left is flushed and its store closed, so it reloads: no per-tab state yet). The
                      strip always shows while a project is open, and on Home with tabs; it starts the window (the Home
-                     button and a Mac's window buttons are in it: `[data-tabs]` in index.css, `tab-strip` in
-                     electron/main.ts). ⌘W closes a tab (the File menu's Close Tab; ⇧⌘W the window), ⇧⌘[ / ⇧⌘] and
+                     button and a Mac's window buttons are in it: `[data-tabs]` in index.css, `title-bar` in
+                     electron/main.ts). Settings › General can hide it (`stores/window-chrome.ts`): the menu row then
+                     starts the window, the Home button before its menus, and on a Mac the page draws the window's
+                     buttons at the bar's right (`header/window-buttons.tsx`) in place of the system's. ⌘W closes a tab (the File menu's Close Tab; ⇧⌘W the window), ⇧⌘[ / ⇧⌘] and
                      ⌃Tab go through them.
                      The strip is tabs only. Under it, every suite's header starts with **the menu row**
                      (`components/header/menu-row.tsx` `MenuRow`, 40 px): the project's name (and its format or save

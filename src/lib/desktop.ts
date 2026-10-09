@@ -57,8 +57,10 @@ declare global {
       chooseFolder?: (defaultPath?: string) => Promise<string | null>;
       /** macOS's Hide (⌘H) or Hide Others (⌥⌘H), for those keys when the page didn't use them. */
       hideApp?: (which: "app" | "others") => void;
-      /** The tab strip shows (or not): a Mac's window buttons move to its middle. */
-      tabStrip?: (shown: boolean) => void;
+      /** The bar that starts the window (its height) and who draws the window's buttons: they sit in its middle. */
+      titleBar?: (bar: TitleBar) => void;
+      /** Minimise, full screen or close the window, for the page's own buttons (`WindowButtons`). */
+      windowAction?: (action: WindowAction) => void;
       /** A project was opened: the system's recent documents (the Dock, File › Open Recent) list it. */
       projectOpened?: (path: string) => void;
       /** An image the system handed the app (`editorDesktop.openImages`): its name, type and bytes. */
@@ -180,7 +182,28 @@ async function openImages(paths: string[]) {
   if (!useProjects.getState().startWith(files)) toast.error("YTStudio can't open that file");
 }
 
-/** Tell the desktop app whether the tab strip is showing (it keeps a Mac's window buttons level with the bar). */
-export function noteTabStrip(shown: boolean) {
-  window.editorDesktopInfo?.tabStrip?.(shown);
+/**
+ * The bar that starts the window: the tab strip and the menu row are 40px tall, the Home screen's own bar 52px
+ * (src/index.css). `ownButtons`: the page draws the window's buttons, so a Mac's are hidden.
+ */
+export interface TitleBar {
+  height: 40 | 52;
+  ownButtons: boolean;
+}
+
+/** Tell the desktop app which bar starts the window (it keeps the window's buttons level with it, or hides a Mac's). */
+export function noteTitleBar(bar: TitleBar) {
+  window.editorDesktopInfo?.titleBar?.(bar);
+}
+
+/** What the page's own window buttons do. */
+export type WindowAction = "minimize" | "fullscreen" | "close";
+
+export function windowAction(action: WindowAction) {
+  window.editorDesktopInfo?.windowAction?.(action);
+}
+
+/** Whether the page draws the window's buttons: in a Mac's desktop app, without the tab strip. */
+export function ownWindowButtons(tabsHidden: boolean): boolean {
+  return tabsHidden && window.editorDesktopInfo?.platform === "darwin" && window.editorDesktopInfo.windowAction !== undefined;
 }

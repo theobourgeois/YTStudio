@@ -1,6 +1,10 @@
 import { PiCheckBold } from "react-icons/pi";
 import { cn } from "cn";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { PROJECT_SEARCH_KEYS } from "@/components/home/project-search-dialog";
+import { ownWindowButtons } from "@/lib/desktop";
+import { useWindowChrome } from "@/stores/window-chrome";
 import { type FontChoice, FONTS, MONO_FONTS, THEMES, type ThemeChoice, type ThemeId, themeClasses, useTheme } from "@/stores/theme";
 import { SettingsBlock, SettingsGroup, SettingsRow } from "./settings-ui";
 import { AppIconPicker } from "./app-icon-picker";
@@ -18,6 +22,9 @@ export function GeneralSettings() {
         </SettingsBlock>
       </SettingsGroup>
       <AppIconPicker />
+      <SettingsGroup title="Window">
+        <TabStripRow />
+      </SettingsGroup>
       <SettingsGroup title="Text">
         <FontRow title="Interface font" description="Menus, panels, labels and the assistant's chat." fonts={FONTS} which="font" />
         <FontRow title="Numbers and code" description="Times, values, the position and tempo displays, expressions." fonts={MONO_FONTS} which="monoFont" />
@@ -25,6 +32,18 @@ export function GeneralSettings() {
       </SettingsGroup>
       <LogSettings />
     </>
+  );
+}
+
+/** The tab strip along the window's top, or none: the menu row starts the window (and a Mac's window buttons are the page's). */
+function TabStripRow() {
+  const hidden = useWindowChrome((s) => s.tabsHidden);
+  const buttons = ownWindowButtons(true) ? ", with the window's buttons at their right" : "";
+  const description = `The open projects along the top of the window. Without them the menus start the window${buttons}; ${PROJECT_SEARCH_KEYS} still switches projects.`;
+  return (
+    <SettingsRow title="Show tabs" description={description}>
+      <Switch checked={!hidden} onCheckedChange={(on) => useWindowChrome.getState().setTabsHidden(!on)} aria-label="Show tabs" />
+    </SettingsRow>
   );
 }
 

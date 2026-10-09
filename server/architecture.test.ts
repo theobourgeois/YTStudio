@@ -99,6 +99,8 @@ const PLATFORM = [
   "src/stores/projects.ts",
   // The open projects as tabs (pure).
   "src/stores/project-tabs.ts",
+  // Whether the window starts with the tab strip (Settings › General).
+  "src/stores/window-chrome.ts",
   "src/stores/assistant.ts",
   // The assistant's checkpoints (restore a message, Keep all / Undo all), every suite's.
   "src/lib/checkpoints.ts",
@@ -144,6 +146,8 @@ const PLATFORM = [
   "src/components/header/header-actions.tsx",
   "src/components/header/menu-row.tsx",
   "src/components/header/project-name.tsx",
+  // The window's own buttons, at the end of the bar that starts the window when the tab strip is hidden.
+  "src/components/header/window-buttons.tsx",
   "src/components/settings/",
   "src/components/windows/",
   "src/components/dock/",
