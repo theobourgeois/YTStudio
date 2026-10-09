@@ -7,7 +7,7 @@ Serum's to the sample, and Serum's updates and new sounds arrive by themselves. 
 sounds in it.
 
 This is the plan, written before building, with what was measured on Serum 2.1.5 to make it. §4 says what's
-built so far.
+built: all of its steps, by 2026-10-09. §5's Q5 (a player outside a song) and Windows' drop are what's left.
 
 ## Contents
 
@@ -301,7 +301,7 @@ seconds, and when the window closes).
 ### 3.8 Saving
 
 - **Save** writes a `.SerumPreset` into Serum 2's `User` folder, so the preset also shows in Serum anywhere. It
-  carries the controller part, so names and description show in Serum too.
+  carries the macro names, so they show in Serum too, and Serum is told it has that preset on (§4, step 7).
 - **Save as** asks for a name.
 - **A factory or Serum 1 preset is never overwritten.** Saving an edited one saves a new file.
 - **Unsaved edits** live in the project, as any plugin's settings do.
@@ -317,6 +317,7 @@ New tools in `shared/music/tools.ts`, for parity with the window:
 | `get_serum_sound` | Returns the channel's sound as a spec |
 | `edit_serum_sound` | Applies a spec change: macros, modulation, envelopes, LFOs, effects |
 | `save_serum_preset` | Saves the sound as a preset |
+| `serum_library_folders` | Lists, adds and removes the folders the library lists (step 8) |
 
 - **Errors:** they're the spec's own (`SpecError`), which already say what's allowed.
 - **Taste:** the `serum-presets` skill's research (`taste.md`, the scores in `feedback.md`) is what it designs from.
@@ -460,8 +461,37 @@ New tools in `shared/music/tools.ts`, for parity with the window:
      saved ones.
    - **The player owns the slots:** links written by Serum's own Automate are replaced on the next load, and a
      song's automation of `FX Main Param N` follows whatever knob the slot is linked to.
-7. **Saving and the assistant's tools.**
-8. **The Serum 1 library:** every `.fxp` in Serum's folders loads by the drop (§2.3), listed with the rest.
+7. **Done (2026-10-09): saving** (§3.8; `SerumPlayer.save`, `POST /api/music/serum/save`).
+   - **Save** (⌘S, the top bar's Save) writes the sound over the preset it has on when that's the user's own, a Serum 2
+     preset in Serum 2's `User` folder. Any other (a factory, pack or Serum 1 preset) is never written over: Save asks
+     for a name instead. **Save as** (⇧⌘S, Save's menu) asks for a name, its own to start with, and says when one of
+     that name is in `User` already (its button is then Replace). Names a file can't have are refused
+     (`serumPresetNameProblem`).
+   - **The file** is Serum's settings as the state holds them, made a preset's (`readSerumSettings`), with the macro
+     names Serum's re-save dropped (the player's keeping) and the new name, written as Serum writes one
+     (`presetFile`).
+   - **Then Serum has it on:** a reload of the same sound with the new name and Serum's `selectedPresetPath` pointing
+     at the file (`restate`'s `presetPath`), so the player, the library's lit row and Serum's own window all say the
+     new preset, and the sound isn't "edited" any more. Measured on Serum 2.1.5's Audio Unit
+     (`serum-player.integration.test.ts`): Serum's own re-save keeps the path, and the saved file loaded back has the
+     edit and the macro's name. Saving isn't an undo step: the sound doesn't change.
+   - **The assistant:** `save_serum_preset` (a name for a new one, `overwrite` to replace one of that name in `User`,
+     none to save over the user's own preset on). The tools §3.9 planned are all built.
+8. **Done (2026-10-09): more folders, and Serum 1's library** (`library.ts`, Settings › Music › Serum player:
+   `library-settings.tsx`).
+   - Serum 1's `.fxp` already loaded by the drop (§2.3) and was listed from Serum 1's folder when Serum links it
+     (`~/Documents/Serum Presets`). Théo's Serum 1 library (878 `.fxp`, most of his favourites) is in iCloud Drive,
+     which Serum 2 doesn't look in, so it wasn't listed.
+   - **Folders added** in Settings are listed with Serum's (kept in `data/serum-library.json`, the same for every
+     project): a folder holding ones added before takes their place, one inside a listed folder is refused, a missing
+     one says so and is listed again when it's back. The server reads nothing outside the listed folders, as before.
+   - **Found for you:** Serum 1's library in iCloud Drive (and in Documents when Serum doesn't link it) is offered with
+     an Add button when it's there and not listed (`serumFolderSuggestions`).
+   - **Each preset once:** the same file in two folders (by its hash) is listed from the first: Serum 2's, then Serum
+     1's, then the added ones in order. Ratings are by hash, so stars work on any of them.
+   - Hidden files are skipped (an iCloud file not downloaded yet is a hidden `.name.icloud`), and packages, and the
+     library stops at 100 000 files.
+   - **The assistant:** `serum_library_folders` (list, add, remove).
 
 ## 5. Questions
 

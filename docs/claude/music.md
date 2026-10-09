@@ -284,7 +284,9 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   the offline engine to check a preset (`scripts/serum-readout.ts`) and to render a round (`scripts/serum-audition.ts`).
   **The Serum player** (`docs/serum/player.md`, step by step): a Serum 2 channel's window is ours
   (`src/suites/music/serum/`): Serum's library in one list (`server/music/serum/library.ts`, its ratings Serum's own),
-  presets loaded by a drop on Serum's invisible window, the macros live, the mod matrix, envelopes and LFOs
+  presets loaded by a drop on Serum's invisible window, more folders listed with Serum's (Settings › Music:
+  `data/serum-library.json`, each preset once by its hash), the sound saved as a preset in Serum's `User` folder
+  (never over a factory, pack or Serum 1 one; Serum then told it has it on), the macros live, the mod matrix, envelopes and LFOs
   (`modulation.tsx`, `envelopes.tsx`), the effect racks (`effects.tsx`: every effect's measured units and which knobs
   get the racks' 16 host slots are `shared/music/serum-effects.ts`; every state the player loads links them).
   **Serum's state is the truth**: the server reads what the player shows out of it (`server/music/serum/sound.ts`),
