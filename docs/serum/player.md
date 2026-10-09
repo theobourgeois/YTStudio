@@ -183,6 +183,12 @@ a drop, §2.3, keeps them: Serum loads it as its browser does.)
 the player, a `MusicWindow` like the other windows, instead of Serum's own window. **Open Serum** in its title bar
 shows Serum's window for anything the player doesn't do. Other plugins are unchanged.
 
+**The sound's column** is the display and the macros, always in view (what's played and what's turned while
+playing), then the rest as tabs, one part at a time as in Serum's own window: **Oscillators**, **Modulation**,
+**Env & LFO**, **Effects**. Each tab says how much is in it (oscillators playing, routes, envelopes and LFOs in use,
+effects on the racks), so nothing is out of sight without a sign of it. The tab bar stays at the top while the column
+scrolls; the tab shown is remembered per computer. A preset without macros shows no Macros section at all.
+
 Because it is a channel, it plays in patterns and songs, records, follows automation, and saves with the project. The
 assistant reaches it as it reaches the rest of the song.
 
@@ -190,18 +196,15 @@ assistant reaches it as it reaches the rest of the song.
 ┌ Serum 2 · Lead ───────────────────────────────────────── ★  Save  Open Serum  ✕ ┐
 │ ◀ ▶  MO_SHINJU_LD_Wex · @shinju_09 · Serum 1 · edited                           │
 ├──────────────────────────┬──────────────────────────────────────────────────────┤
-│ 🔍 search…               │  MACROS                                              │
-│ All  ★  Bass Lead Pad …  │  ( FILTER ) ( DIST AMT ) ( ROOM ) ( MOD RATE ) …     │
-│ Pack ▾  Author ▾         │                                                      │
-│ ───────────────────────  │  MODULATION                                          │
-│ ★ MO_SHINJU_LD_Wex   S1  │  LFO 9 (1/4) → Osc A Warp            ━━━━━━○  34%    │
-│   MO_SHINJU_LD_Walker S1 │  Macro 1 FILTER → Filter 1 Cutoff    ━━━○     50%    │
-│ ★ synth [ari]        S1  │  + add                                               │
-│   PL - Chiller…      S2  │                                                      │
-│   …                      │  ▸ Envelopes and LFOs                                │
-│                          │                                                      │
-│                          │  EFFECTS   Main │ Bus 1 │ Bus 2                      │
-│                          │  [Distortion · Rectify]  [Reverb · Hall 18%]  + add  │
+│ 🔍 search…               │  [ display: what it plays ]                          │
+│ All  ★  Bass Lead Pad …  │  MACROS                                              │
+│ Pack ▾  Author ▾         │  ( FILTER ) ( DIST AMT ) ( ROOM ) ( MOD RATE ) …     │
+│ ───────────────────────  │                                                      │
+│ ★ MO_SHINJU_LD_Wex   S1  │  Oscillators 3 │ Modulation 2 │ Env & LFO 2 │ Effects 2 │
+│   MO_SHINJU_LD_Walker S1 │  ━━━━━━━━━━━━━━━                                     │
+│ ★ synth [ari]        S1  │  LFO 9 (1/4) → Osc A Warp            ━━━━━━○  34%    │
+│   PL - Chiller…      S2  │  Macro 1 FILTER → Filter 1 Cutoff    ━━━○     50%    │
+│   …                      │                                              + add   │
 └──────────────────────────┴──────────────────────────────────────────────────────┘
 ```
 
@@ -245,9 +248,9 @@ The mod matrix as readable rows: `source (aux) → destination: amount`, grouped
 - **Add or remove a route, or change its source or destination:** a reload (§2.2).
 - **Names:** Serum's (`destinations.ts`). Destinations are picked from a searchable list, not a tree.
 
-### 3.5 Envelopes and LFOs (hidden by default)
+### 3.5 Envelopes and LFOs
 
-Behind **Envelopes and LFOs**, remembered per computer:
+A tab of their own (it was a section hidden until asked for, before the column had tabs):
 
 - **Envelopes 1–4:** drawn as shapes you can drag (ADSR, hold, curves), all live.
 - **LFOs 1–10:** rate, smooth, rise, delay and phase, live. The shape (points, as the spec's `shape.points`) and

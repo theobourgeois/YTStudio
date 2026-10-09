@@ -34,8 +34,8 @@ const MIN = { minWidth: MIN_SIZE.width, minHeight: MIN_SIZE.height };
 /**
  * A Serum 2 channel's window (`docs/serum/player.md` §3), a plugin's face as YT-L's is, in Serum's colours: the
  * preset playing and the arrows in its top bar, Serum's whole library down the left (browsing is hearing: each step
- * loads one), and for the sound a display of what it plays, its macros, oscillators, modulation, effects, and (when
- * asked) its envelopes and LFOs. Each change is a step of the player's own undo. Serum's own window is a click away for the rest.
+ * loads one), and for the sound a display of what it plays and its macros over tabs for its oscillators, modulation,
+ * envelopes and LFOs, and effects. Each change is a step of the player's own undo. Serum's own window is a click away for the rest.
  */
 export function SerumPlayerWindow({ channelId, index }: { channelId: string; index: number }) {
   const channel = useSong((s) => s.channels.find((c) => c.id === channelId) ?? null);
@@ -306,40 +306,142 @@ const PresetRow = memo(function PresetRow({ channelId, preset, on, loading }: { 
   );
 });
 
-/** What the channel's Serum plays, its macros, oscillators, modulation, effects, and its envelopes and LFOs. */
+/** The sound's tabs, under the display and the macros: one part of the sound at a time, as Serum's own window shows it. */
+const SOUND_TABS = [
+  { id: "oscillators", label: "Oscillators", short: "Oscillators" },
+  { id: "modulation", label: "Modulation", short: "Modulation" },
+  { id: "shapes", label: "Envelopes and LFOs", short: "Env & LFO" },
+  { id: "effects", label: "Effects", short: "Effects" },
+] as const;
+type SoundTab = (typeof SOUND_TABS)[number]["id"];
+
+/** Which tab the player shows: this computer's choice, the same for every Serum channel. */
+const TAB_KEY = "vaudio.music.serum.tab";
+const savedTab = (): SoundTab => {
+  const saved = localStorage.getItem(TAB_KEY);
+  return SOUND_TABS.find((t) => t.id === saved)?.id ?? "oscillators";
+};
+
+/**
+ * What the channel's Serum plays and its macros, always in view; under them its oscillators, modulation, envelopes and
+ * LFOs, and effects as tabs, each saying how much is in it. The tabs stay at the top as the column scrolls.
+ */
 function SoundPanel({ channelId }: { channelId: string }) {
   const state = useSerumUi((s) => s.channels[channelId]);
   const sound = state?.sound ?? null;
+  const [tab, setTab] = useState(savedTab);
+  const scroller = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
+  const choose = (id: SoundTab) => {
+    localStorage.setItem(TAB_KEY, id);
+    setTab(id);
+    // Another tab starts at its top, where the bar is, rather than wherever the last one was scrolled to.
+    const el = scroller.current;
+    const top = bar.current?.offsetTop ?? 0;
+    if (el && el.scrollTop > top) el.scrollTop = top;
+  };
+  const counts: Record<SoundTab, { count: number; title: string } | null> = {
+    oscillators: sound?.oscillators.length ? countOf(sound.oscillators.filter((o) => o.enabled.value >= 0.5).length, `of ${sound.oscillators.length} playing`) : null,
+    modulation: sound?.modulation ? countOf(sound.modulation.length, sound.modulation.length === 1 ? "route" : "routes") : null,
+    shapes: sound?.modulation
+      ? countOf(sound.envelopes.filter((e) => e.used).length + sound.lfos.filter((l) => l.used).length, "in use")
+      : null,
+    effects: sound?.effects.length ? countOf(sound.effects.reduce((n, r) => n + r.effects.length, 0), "on the racks") : null,
+  };
+  const empty = (text: string) => <p className="px-3 pt-3 text-[11px] text-[var(--serum-text-dim)]">{text}</p>;
   return (
-    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-3" data-testid="serum-sound">
+    <div ref={scroller} className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-3" data-testid="serum-sound">
       {state?.error && <div className="mx-3 mt-2 rounded-sm border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">{state.error}</div>}
       <div className="mx-3 mt-3 h-40 overflow-hidden rounded-[4px] border border-black/70">
         <ScopeView channelId={channelId} />
       </div>
       <Macros channelId={channelId} macros={sound?.macros ?? null} routes={sound?.modulation ?? null} />
-      <OscillatorsSection channelId={channelId} oscillators={sound?.oscillators ?? []} />
-      <ModulationSection channelId={channelId} routes={sound?.modulation ?? null} />
-      <EffectsSection channelId={channelId} racks={sound?.effects ?? []} />
-      {sound?.modulation && <EnvelopesAndLfos channelId={channelId} envelopes={sound.envelopes} lfos={sound.lfos} routes={sound.modulation} />}
+      <div ref={bar} className="sticky top-0 z-10 mt-3 bg-[var(--serum-bg)] px-3">
+        <div
+          className="flex border-b border-black/60"
+          role="tablist"
+          aria-label="The sound"
+          onKeyDown={(e) => {
+            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+            e.preventDefault();
+            e.stopPropagation();
+            const at = SOUND_TABS.findIndex((t) => t.id === tab);
+            const next = SOUND_TABS[(at + (e.key === "ArrowRight" ? 1 : SOUND_TABS.length - 1)) % SOUND_TABS.length].id;
+            choose(next);
+            e.currentTarget.querySelector<HTMLElement>(`[data-tab="${next}"]`)?.focus();
+          }}
+        >
+          {SOUND_TABS.map((t) => {
+            const on = t.id === tab;
+            const count = counts[t.id];
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                id={`serum-tab-${channelId}-${t.id}`}
+                aria-selected={on}
+                aria-controls={`serum-panel-${channelId}`}
+                aria-label={t.label}
+                tabIndex={on ? 0 : -1}
+                data-tab={t.id}
+                title={count ? `${t.label}: ${count.title}` : t.label}
+                className={cn(
+                  "relative -mb-px flex h-8 min-w-0 items-center gap-1.5 px-2.5 text-[12px] font-medium whitespace-nowrap outline-none",
+                  on ? "text-[var(--serum-text)]" : "text-[var(--serum-text-dim)] hover:text-[var(--serum-text)]",
+                )}
+                onClick={() => choose(t.id)}
+              >
+                <span className="truncate">{t.short}</span>
+                {!!count?.count && (
+                  <span
+                    className={cn(
+                      "min-w-4 rounded-full px-1 text-center text-[10px] leading-4 tabular-nums",
+                      on ? "bg-[var(--serum-trace)]/20 text-[var(--serum-value)]" : "bg-white/[0.06] text-[var(--serum-text-dim)]",
+                    )}
+                  >
+                    {count.count}
+                  </span>
+                )}
+                {on && <span className="absolute inset-x-1.5 bottom-0 h-[2px] rounded-full bg-[var(--serum-trace)]" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div role="tabpanel" id={`serum-panel-${channelId}`} aria-labelledby={`serum-tab-${channelId}-${tab}`} data-testid="serum-tab-panel" data-tab={tab}>
+        {tab === "oscillators" &&
+          (sound?.oscillators.length ? <OscillatorsSection channelId={channelId} oscillators={sound.oscillators} /> : empty(sound ? "Serum hasn't said what its oscillators are." : "Load a preset to see its oscillators."))}
+        {tab === "modulation" && <ModulationSection channelId={channelId} routes={sound?.modulation ?? null} />}
+        {tab === "shapes" &&
+          (sound?.modulation && sound.envelopes.length ? (
+            <EnvelopesAndLfos channelId={channelId} envelopes={sound.envelopes} lfos={sound.lfos} routes={sound.modulation} />
+          ) : (
+            empty("Load a preset to see its envelopes and LFOs.")
+          ))}
+        {tab === "effects" && (sound?.effects.length ? <EffectsSection channelId={channelId} racks={sound.effects} /> : empty("Load a preset to see its effects."))}
+      </div>
     </div>
   );
 }
 
+const countOf = (count: number, what: string) => ({ count, title: `${count} ${what}` });
+
 /**
- * The preset's macros, big, each with what it drives. One its maker left unnamed with nothing on it is hidden (§3.3);
- * all eight show while the routes aren't known yet.
+ * The preset's macros, big, each with what it drives. One its maker left unnamed with nothing on it is hidden (§3.3),
+ * and the section with them when none is left; all eight show while the routes aren't known yet.
  */
 function Macros({ channelId, macros, routes }: { channelId: string; macros: SerumMacro[] | null; routes: SerumModRoute[] | null }) {
   const drives = (macro: SerumMacro) => (routes ? sourceDrives(routes, `Macro ${macro.index + 1}`) : []);
   const shown = !macros ? [] : routes ? macros.filter((m) => drives(m).length || m.name !== `Macro ${m.index + 1}`) : macros;
+  // A preset whose maker gave it none has nothing to show here: the tabs come straight under the display.
+  if (macros?.length && !shown.length) return null;
   return (
     <SerumSection title="Macros" label="Macros">
       {!macros ? (
         <p className="text-[11px] text-[var(--serum-text-dim)]">Waiting for Serum…</p>
       ) : !macros.length ? (
         <p className="text-[11px] text-[var(--serum-text-dim)]">Serum hasn't said what its macros are.</p>
-      ) : !shown.length ? (
-        <p className="text-[11px] text-[var(--serum-text-dim)]">This preset's maker gave it no macros.</p>
       ) : (
         <div className="grid grid-cols-4 gap-x-2 gap-y-3 rounded-[4px] border border-black/50 bg-[var(--serum-panel)] px-2 py-3" data-testid="serum-macros">
           {shown.map((macro) => (

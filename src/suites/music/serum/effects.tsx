@@ -57,12 +57,11 @@ export function EffectsSection({ channelId, racks }: { channelId: string; racks:
   };
   return (
     <SerumSection
-      title="Effects"
       label="Effects"
       testId="serum-effects"
       aside={
         <>
-          <div className="flex overflow-hidden rounded-[4px] border border-black/60 text-[11px]" role="tablist" aria-label="Effect racks">
+          <div className="mr-auto flex overflow-hidden rounded-[4px] border border-black/60 text-[11px]" role="tablist" aria-label="Effect racks">
             {racks.map((r) => (
               <button
                 key={r.rack}

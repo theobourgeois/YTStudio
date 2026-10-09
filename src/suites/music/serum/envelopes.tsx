@@ -1,5 +1,5 @@
 import { type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
-import { PiArrowLineRight, PiArrowsClockwise, PiCaretDown, PiCaretRight, PiInfinity } from "react-icons/pi";
+import { PiArrowLineRight, PiArrowsClockwise, PiInfinity } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import {
@@ -28,8 +28,6 @@ import { addPoint, curvedStage, curveThrough, movePoint, pointAt, removePoint, s
 import { SerumSection } from "./section";
 import { useSerumUi } from "./store";
 
-/** Whether the envelopes and LFOs are shown: this computer's choice (they're hidden at first, §3.5). */
-const SHOWN_KEY = "vaudio.music.serum.envelopesShown";
 const DISPLAY_HEIGHT = 128;
 
 /** One drag of live controls (several at once for an envelope's point): begun, moved, ended as one undo step. */
@@ -37,39 +35,17 @@ const setControls = (channelId: string, values: Record<string, number>, gesture:
   useSerumUi.getState().setControls(channelId, values, gesture, label);
 
 /**
- * Behind "Envelopes and LFOs" (`docs/serum/player.md` §3.5): the envelopes and LFOs the sound uses (Env 1 always; the
- * rest only when something is routed from them), each a tab as in Serum's window, drawn as Serum draws them, with a
- * line running through while the channel plays.
+ * The player's Envelopes and LFOs tab (`docs/serum/player.md` §3.5): the envelopes and LFOs the sound uses (Env 1
+ * always; the rest only when something is routed from them), each a tab as in Serum's window, drawn as Serum draws
+ * them, with a line running through while the channel plays.
  */
 export function EnvelopesAndLfos({ channelId, envelopes, lfos, routes }: { channelId: string; envelopes: SerumEnvelope[]; lfos: SerumLfo[]; routes: SerumModRoute[] }) {
-  const [shown, setShown] = useState(() => localStorage.getItem(SHOWN_KEY) === "1");
-  const toggle = () => {
-    localStorage.setItem(SHOWN_KEY, shown ? "0" : "1");
-    setShown(!shown);
-  };
-  const used = { envelopes: envelopes.filter((e) => e.used), lfos: lfos.filter((l) => l.used) };
   if (!envelopes.length) return null;
   return (
-    <SerumSection
-      title="Envelopes and LFOs"
-      label="Envelopes and LFOs"
-      aside={
-        <button type="button" aria-expanded={shown} className="flex items-center gap-1 text-[11px] text-[var(--serum-text-dim)] hover:text-[var(--serum-text)]" onClick={toggle}>
-          {shown ? <PiCaretDown className="size-3" /> : <PiCaretRight className="size-3" />}
-          <span className="sr-only">Envelopes and LFOs</span>
-          {shown ? "Hide" : "Show"}
-        </button>
-      }
-    >
-      {shown ? (
-        <div className="flex flex-col gap-2" data-testid="serum-envelopes">
-          <SerumShapes channelId={channelId} envelopes={used.envelopes} lfos={used.lfos} routes={routes} />
-        </div>
-      ) : (
-        <p className="text-[11px] text-[var(--serum-text-dim)]">
-          {used.envelopes.length} envelope{used.envelopes.length === 1 ? "" : "s"} and {used.lfos.length} LFO{used.lfos.length === 1 ? "" : "s"} in use.
-        </p>
-      )}
+    <SerumSection label="Envelopes and LFOs">
+      <div className="flex flex-col gap-2" data-testid="serum-envelopes">
+        <SerumShapes channelId={channelId} envelopes={envelopes.filter((e) => e.used)} lfos={lfos.filter((l) => l.used)} routes={routes} />
+      </div>
     </SerumSection>
   );
 }

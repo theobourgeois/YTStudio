@@ -585,6 +585,10 @@ test("the Serum player edits the sound: routes added, turned, changed and remove
   const engineValue = async (param: string) =>
     ((await (await page.request.get(`/api/engine/parameters?owner=channel&id=${channelId}`)).json()) as { id: string; value: number }[]).find((p) => p.id === param)?.value;
 
+  // The sound's parts are tabs under the display, the oscillators first.
+  const tab = (name: string) => player.getByRole("tab", { name, exact: true });
+  await expect(tab("Oscillators")).toHaveAttribute("aria-selected", "true");
+  await tab("Modulation").click();
   const modulation = player.getByTestId("serum-modulation");
   await expect(modulation).toContainText("Nothing is modulated");
   const undo = player.getByRole("button", { name: "Undo in the player" });
@@ -593,6 +597,7 @@ test("the Serum player edits the sound: routes added, turned, changed and remove
   await expect(undo).toBeDisabled();
 
   // The oscillators, each muted and soloed live by Serum's own switch: a solo turns the others off, and back.
+  await tab("Oscillators").click();
   const oscillators = player.getByTestId("serum-oscillators");
   await expect(oscillators.locator("[data-oscillator]")).toHaveCount(5);
   await expect(oscillators.locator("[data-oscillator='A']")).toHaveAttribute("data-on", "true");
@@ -611,6 +616,7 @@ test("the Serum player edits the sound: routes added, turned, changed and remove
 
   // A route added: a source, then a destination from Serum's list, found by typing.
   async function addRoute(source: string, destination: string) {
+    await tab("Modulation").click();
     await modulation.getByRole("button", { name: "Add" }).click();
     await page.getByRole("textbox", { name: "Find: Source" }).fill(source);
     await page.getByRole("listbox", { name: "Source" }).getByRole("option", { name: source, exact: true }).click();
@@ -623,6 +629,7 @@ test("the Serum player edits the sound: routes added, turned, changed and remove
   await expect(route).toContainText("Macro 1");
   await expect(route).toContainText("Filter 1 Freq");
   await expect(route).toContainText("50%");
+  await expect(tab("Modulation")).toHaveAttribute("title", "Modulation: 1 route");
   await expect(player.getByTestId("serum-edited")).toBeVisible();
   // The macro shows what it drives.
   await expect(player.getByTestId("serum-macros").locator("[data-macro='1']")).toContainText("Filter 1 Freq");
@@ -658,14 +665,14 @@ test("the Serum player edits the sound: routes added, turned, changed and remove
   await undo.click();
   await expect(route).toContainText("A WT Pos");
 
-  // The envelopes and LFOs are hidden until asked for, and remembered.
+  // The envelopes and LFOs have a tab of their own, which this computer remembers.
   await expect(player.getByTestId("serum-envelopes")).toHaveCount(0);
-  await player.getByRole("button", { name: "Envelopes and LFOs" }).click();
+  await tab("Envelopes and LFOs").click();
   const envelopes = player.getByTestId("serum-envelopes");
   await expect(envelopes.getByTestId("serum-env-1")).toHaveAttribute("data-used", "true");
   // Only what's in use: no LFO is routed yet, so none shows.
   await expect(envelopes.getByTestId("serum-lfo-1")).toHaveCount(0);
-  expect(await page.evaluate(() => localStorage.getItem("vaudio.music.serum.envelopesShown"))).toBe("1");
+  expect(await page.evaluate(() => localStorage.getItem("vaudio.music.serum.tab"))).toBe("shapes");
 
   // Env 1's attack, dragged on its shape: live, one step.
   const attack = envelopes.getByTestId("serum-env-1").getByRole("slider", { name: "Env 1 attack point" });
@@ -680,6 +687,7 @@ test("the Serum player edits the sound: routes added, turned, changed and remove
 
   // An LFO routed opens; its shape takes a point by a double-click, and its mode is a reload.
   await addRoute("LFO 1", "A Level");
+  await tab("Envelopes and LFOs").click();
   const lfo = envelopes.getByTestId("serum-lfo-1");
   await expect(lfo).toHaveAttribute("data-used", "true");
   const shape = lfo.getByRole("img", { name: "LFO 1's shape" });
@@ -711,6 +719,7 @@ test("the Serum player's effects: racks as tabs, cards turned live, added, set, 
   const engineValue = async (param: string) =>
     ((await (await page.request.get(`/api/engine/parameters?owner=channel&id=${channelId}`)).json()) as { id: string; value: number }[]).find((p) => p.id === param)?.value;
   const undo = player.getByRole("button", { name: "Undo in the player" });
+  await player.getByRole("tab", { name: "Effects", exact: true }).click();
   const effects = player.getByTestId("serum-effects");
   await expect(effects).toContainText("No effects");
   const add = async (rack: string, item: string) => {
