@@ -55,15 +55,15 @@ interface MusicState {
   addAudioClips: (source: { paths: string[] } | { files: File[] }, at: { start: number; track: number; after?: boolean }) => Promise<number[]>;
   /** Bring audio files into the project and add a channel for each, at the end of the rack or before channel `at`. */
   /** Files as new channels, at the end of the rack or before channel `at`. Returns their ids. */
-  addSamples: (files: File[], at?: number) => Promise<string[]>;
+  addSamples: (files: File[], at?: string) => Promise<string[]>;
   /** Add a channel playing an instrument plugin, or an empty sampler. Returns its id. */
   addChannel: (plugin: PluginRef | null) => string | null;
   /** The starter kit's drums (`public/kit/`), as four channels. */
   addStarterKit: () => Promise<void>;
   /** Give a channel another sample. */
   replaceSample: (channelId: string, file: File) => Promise<void>;
-  /** The Browser's files (by path, or its online clips by URL) as new channels, at the end of the rack or before channel `at`. Returns their ids. */
-  addBrowserSamples: (paths: string[], at?: number) => Promise<string[]>;
+  /** The Browser's files (by path, or its online clips by URL) as new channels, at the end of the rack or before channel `at` (an id). Returns their ids. */
+  addBrowserSamples: (paths: string[], at?: string) => Promise<string[]>;
   /**
    * Give a channel one of the Browser's files. `swap`: trying samples one after another (Shift+Up/Down),
    * each replacing the last as one undo step, so undo goes back to the sample from before.

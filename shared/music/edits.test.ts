@@ -69,9 +69,12 @@ describe("channels", () => {
   it("are added between two channels, where a file is dropped", () => {
     const song = rack();
     const sample = (id: string) => ({ id: `chan_${id}`, name: id, sampleId: null });
-    expect(order(addChannels(song, [sample("snare"), sample("rim")], 1))).toEqual(["kick", "snare", "rim", "hat", "clap"]);
-    expect(order(addChannels(song, [sample("snare")], 0))).toEqual(["snare", "kick", "hat", "clap"]);
-    expect(order(addChannels(song, [sample("snare")], 99))).toEqual(["kick", "hat", "clap", "snare"]);
+    expect(order(addChannels(song, [sample("snare"), sample("rim")], "chan_hat"))).toEqual(["kick", "snare", "rim", "hat", "clap"]);
+    expect(order(addChannels(song, [sample("snare")], "chan_kick"))).toEqual(["snare", "kick", "hat", "clap"]);
+    expect(order(addChannels(song, [sample("snare")], "chan_none"))).toEqual(["kick", "hat", "clap", "snare"]);
+    // Before the channel named, whatever the rack hides around it (audio clips' channels when Unsorted).
+    const withAudio = { ...song, channels: [song.channels[0], createAudioChannel("Vox", "media_vox", "chan_vox"), ...song.channels.slice(1)] };
+    expect(order(addChannels(withAudio, [sample("snare")], "chan_hat"))).toEqual(["kick", "vox", "snare", "hat", "clap"]);
   });
 
   it("are changed within their limits, and not at all by a patch that changes nothing", () => {
