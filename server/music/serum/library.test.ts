@@ -106,4 +106,75 @@ describe("Serum's preset library", () => {
     await expect(library.resolve("relative.fxp")).rejects.toThrow(/path/);
     await expect(library.resolve(path.join(dir, "Presets", "Starred", "gone.fxp"))).rejects.toThrow(/isn't there/);
   });
+
+  it("lists the folders added too, each preset once, remembers them, and hands out their files", async () => {
+    const cloud = await fs.mkdtemp(path.join(os.tmpdir(), "serum-cloud-"));
+    try {
+      await fs.mkdir(path.join(cloud, "Presets", "Leads"), { recursive: true });
+      await fs.writeFile(path.join(cloud, "Presets", "Leads", "LD - Cloud.fxp"), fxp("LD - Cloud"));
+      // The same file as one of Serum's own: listed once, from Serum's folder.
+      await fs.writeFile(path.join(cloud, "Presets", "MO_SHINJU_LD_Wex copy.fxp"), fxp("MO_SHINJU_LD_Wex"));
+      // An iCloud file not downloaded yet, and a package: neither is read.
+      await fs.writeFile(path.join(cloud, "Presets", ".BS - Away.fxp.icloud"), "placeholder");
+      await fs.mkdir(path.join(cloud, "Presets", "Thing.vst3"), { recursive: true });
+      await fs.writeFile(path.join(cloud, "Presets", "Thing.vst3", "Inside.fxp"), fxp("Inside"));
+      const file = path.join(dir, "serum-library.json");
+      const suggestions = [{ path: path.join(cloud, "Presets"), label: "Serum 1's presets in iCloud Drive" }, { path: path.join(cloud, "Nowhere"), label: "Gone" }];
+      library = new SerumLibrary({ serum2: dir, serum1: null }, { file, suggestions });
+
+      const before = await library.folders();
+      expect(before.folders).toEqual([{ path: path.join(dir, "Presets"), source: "serum2", presets: 2, missing: false }]);
+      expect(before.suggested).toEqual([suggestions[0]]);
+
+      const after = await library.addFolder(path.join(cloud, "Presets", "Leads"));
+      expect(after.folders.map((f) => [f.source, f.presets])).toEqual([["serum2", 2], ["added", 1]]);
+      // Its parent takes its place.
+      const parent = await library.addFolder(path.join(cloud, "Presets") + "/");
+      expect(parent.folders.map((f) => [f.path, f.presets])).toEqual([[path.join(dir, "Presets"), 2], [path.join(cloud, "Presets"), 2]]);
+      expect(parent.suggested).toEqual([]);
+      const list = await library.list();
+      expect(list.map((p) => p.name).sort()).toEqual(["KY - Dream Keys", "LD - Cloud", "MO_SHINJU_LD_Wex"]);
+      expect(list.find((p) => p.name === "LD - Cloud")).toMatchObject({ kind: "serum1", folder: "Leads", category: "Lead" });
+      expect(list.find((p) => p.name === "MO_SHINJU_LD_Wex")?.folder).toBe("Starred");
+      const cloudLead = path.join(cloud, "Presets", "Leads", "LD - Cloud.fxp");
+      expect(await library.resolve(cloudLead)).toBe(cloudLead);
+
+      // Kept for the next run.
+      expect(JSON.parse(await fs.readFile(file, "utf8"))).toEqual({ folders: [path.join(cloud, "Presets")] });
+      const again = new SerumLibrary({ serum2: dir, serum1: null }, { file, suggestions });
+      expect((await again.folders()).folders.map((f) => f.source)).toEqual(["serum2", "added"]);
+
+      await expect(library.addFolder(path.join(cloud, "Presets", "Leads"))).rejects.toMatchObject({ status: 409 });
+      await expect(library.addFolder(path.join(dir, "Presets", "Factory"))).rejects.toThrow(/Serum's own/);
+      await expect(library.addFolder(path.join(cloud, "Nowhere"))).rejects.toThrow(/isn't a folder/);
+      await expect(library.addFolder("relative/folder")).rejects.toThrow(/full path/);
+      await expect(library.addFolder("/")).rejects.toThrow(/too big/);
+      await expect(library.removeFolder(path.join(dir, "Presets"))).rejects.toMatchObject({ status: 404 });
+
+      const removed = await library.removeFolder(path.join(cloud, "Presets"));
+      expect(removed.folders.map((f) => f.source)).toEqual(["serum2"]);
+      expect(removed.suggested).toEqual([suggestions[0]]);
+      await expect(library.resolve(cloudLead)).rejects.toThrow(/isn't a preset/);
+    } finally {
+      await fs.rm(cloud, { recursive: true, force: true });
+    }
+  });
+
+  it("lists a folder added without Serum 2, and says it's missing while it isn't there", async () => {
+    const cloud = await fs.mkdtemp(path.join(os.tmpdir(), "serum-cloud-"));
+    try {
+      await fs.writeFile(path.join(cloud, "PL - Cloud.fxp"), fxp("PL - Cloud"));
+      library = new SerumLibrary({ serum2: null, serum1: null }, { suggestions: [] });
+      expect(await library.available()).toBe(false);
+      await library.addFolder(cloud);
+      expect(await library.available()).toBe(true);
+      expect((await library.list()).map((p) => p.name)).toEqual(["PL - Cloud"]);
+      expect(await library.userFolder()).toBeNull();
+      await fs.rm(cloud, { recursive: true, force: true });
+      expect((await library.folders()).folders).toEqual([{ path: cloud, source: "added", presets: 0, missing: true }]);
+      expect(await library.list()).toEqual([]);
+    } finally {
+      await fs.rm(cloud, { recursive: true, force: true });
+    }
+  });
 });

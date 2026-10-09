@@ -20,6 +20,7 @@ import { useInputs } from "./inputs";
 import { ResamplingSelect } from "./resampling-select";
 import { useTransport } from "./transport";
 import { useBrowser } from "./browser/store";
+import { SerumLibrarySettings } from "./serum/library-settings";
 
 /**
  * The music editor's section of Settings, FL Studio's Audio settings (`docs/fl-studio/settings.md`): the
@@ -32,6 +33,7 @@ export default function MusicSettings() {
       <QualitySettings />
       <TransportSettings />
       <BrowserSettings />
+      <SerumLibrarySettings />
       <HearingSettingsPanel />
       <SettingsGroup title="Engine and plugins" description="The audio engine's state, a test tone, and your plugins on a test bench." bare>
         <EnginePanel />

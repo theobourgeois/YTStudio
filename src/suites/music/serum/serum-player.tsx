@@ -1,5 +1,8 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { PiArrowArcLeft, PiArrowArcRight, PiCaretDown, PiCaretLeftFill, PiCaretRightFill, PiCheck, PiMagnifyingGlass, PiShuffle, PiSpinnerGap, PiStar, PiStarFill, PiX } from "react-icons/pi";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { cn } from "cn";
 import {
   SERUM_CATEGORIES,
@@ -8,9 +11,11 @@ import {
   type SerumPresetEntry,
   FAVOURITE_RATING,
   findSerumPresets,
+  isUserSerumPreset,
+  serumPresetNameProblem,
 } from "@shared/music/serum-presets";
 import { type SerumModRoute, sourceDrives } from "@shared/music/serum-sound";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Caption, CompKnob } from "../pro-c/knob";
 import { useSong } from "../store";
 import { useTransport } from "../transport";
@@ -24,7 +29,7 @@ import { OscillatorsSection } from "./oscillators";
 import { ScopeView } from "./scope-view";
 import { SerumSection } from "./section";
 import { Stars } from "./stars";
-import { useSerumUi } from "./store";
+import { presetOn, useSerumUi } from "./store";
 
 const WIDTH = 900;
 const HEIGHT = 700;
@@ -58,6 +63,7 @@ export function SerumPlayerWindow({ channelId, index }: { channelId: string; ind
     <MusicWindow id={serumWindow(channelId)} title={channel.name === "Serum 2" ? "Serum 2" : `${channel.name} (Serum 2)`} initial={initial} resizable={MIN} onClose={() => useSerumUi.getState().close(channelId)}>
       <div className="flex min-h-0 flex-1 flex-col bg-[var(--serum-bg)] text-xs text-[var(--serum-text)] select-none" style={SERUM_TOKENS} data-testid="serum-player" data-channel={channelId}>
         <TopBar channelId={channelId} />
+        <SaveAsDialog channelId={channelId} />
         <div className="flex min-h-0 flex-1">
           <PresetBrowser channelId={channelId} />
           <SoundPanel channelId={channelId} />
@@ -69,7 +75,7 @@ export function SerumPlayerWindow({ channelId, index }: { channelId: string; ind
 
 const barButton = "grid size-6 place-items-center rounded-sm text-[var(--serum-text-dim)] outline-none hover:bg-white/5 hover:text-[var(--serum-text)] disabled:opacity-30 disabled:hover:bg-transparent";
 
-/** The name, the player's undo, the preset playing between its arrows (with its stars), and Serum's own window. */
+/** The player's undo, the preset playing between its arrows (with its stars), Save, and Serum's own window. */
 function TopBar({ channelId }: { channelId: string }) {
   const state = useSerumUi((s) => s.channels[channelId]);
   const entry = useSerumUi((s) => s.presets?.find((p) => p.path === s.channels[channelId]?.path) ?? null);
@@ -116,6 +122,7 @@ function TopBar({ channelId }: { channelId: string }) {
           <PiCaretRightFill className="size-2.5" />
         </button>
       </div>
+      <SaveButton channelId={channelId} />
       <button
         type="button"
         aria-pressed={editorOpen}
@@ -128,6 +135,116 @@ function TopBar({ channelId }: { channelId: string }) {
         {editorOpen ? "Hide Serum" : "Open Serum"}
       </button>
     </div>
+  );
+}
+
+const menuItem = "gap-2 text-[12px] focus:bg-white/5 focus:text-[var(--serum-text)]";
+
+/**
+ * Save (⌘S): over the preset it has on when that's one of the user's, in Serum's `User` folder; any other (a factory,
+ * pack or Serum 1 preset) is saved as a new one, its name asked first. Its menu has Save as (⇧⌘S).
+ */
+function SaveButton({ channelId }: { channelId: string }) {
+  const state = useSerumUi((s) => s.channels[channelId]);
+  const entry = useSerumUi((s) => presetOn(s.presets, s.channels[channelId]));
+  const ready = !!state?.sound?.modulation && !state.busy && !state.saving;
+  const over = isUserSerumPreset(entry);
+  const title = !state?.sound?.modulation
+    ? "Load a preset first"
+    : over
+      ? `Save over "${entry?.name}" in Serum's User folder (⌘S)`
+      : `Save as a new preset in Serum's User folder (⌘S)${entry ? `: "${entry.name}" is ${entry.kind === "serum1" ? "a Serum 1 preset" : "one of Serum's own"}, so it isn't saved over` : ""}`;
+  const edge = "border-[var(--serum-edge)]";
+  return (
+    <div className={cn("mr-1 flex overflow-hidden rounded-[4px] border", edge, state?.sound?.edited && "border-[var(--serum-hot)]/60")}>
+      <button
+        type="button"
+        className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-[var(--serum-text-dim)] outline-none hover:text-[var(--serum-text)] disabled:opacity-40 disabled:hover:text-[var(--serum-text-dim)]"
+        disabled={!ready}
+        title={title}
+        onClick={() => void useSerumUi.getState().save(channelId)}
+      >
+        {state?.saving && <PiSpinnerGap className="size-3 animate-spin" aria-label="Saving" />}
+        Save
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button type="button" aria-label="More ways to save" disabled={!ready} className={cn("border-l px-1 text-[var(--serum-text-dim)] outline-none hover:text-[var(--serum-text)] disabled:opacity-40", edge)}>
+            <PiCaretDown className="size-2.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56 border-black/60 bg-[var(--serum-panel)] text-[var(--serum-text)]">
+          <DropdownMenuItem className={menuItem} onSelect={() => void useSerumUi.getState().save(channelId)}>
+            {over ? `Save over "${entry?.name}"` : "Save"}
+            <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem className={menuItem} onSelect={() => useSerumUi.getState().setNaming(channelId, true)}>
+            Save as a new preset…
+            <DropdownMenuShortcut>⇧⌘S</DropdownMenuShortcut>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+/** Save as's name: a new preset in Serum's `User` folder, replacing one of that name there only when asked to. */
+function SaveAsDialog({ channelId }: { channelId: string }) {
+  const naming = useSerumUi((s) => s.channels[channelId]?.naming ?? false);
+  return (
+    <Dialog open={naming} onOpenChange={(open) => !open && useSerumUi.getState().setNaming(channelId, false)}>
+      {naming && <SaveAsForm channelId={channelId} />}
+    </Dialog>
+  );
+}
+
+function SaveAsForm({ channelId }: { channelId: string }) {
+  const presets = useSerumUi((s) => s.presets);
+  const state = useSerumUi((s) => s.channels[channelId]);
+  const [name, setName] = useState(() => presetOn(useSerumUi.getState().presets, state)?.name ?? state?.sound?.preset?.name ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const problem = serumPresetNameProblem(name);
+  // (A Mac's disk doesn't tell "Bass" from "bass".)
+  const taken = presets?.find((p) => p.kind === "serum2" && p.folder === "User" && p.name.toLowerCase() === name.trim().toLowerCase()) ?? null;
+  const submit = async () => {
+    if (problem || state?.saving) return;
+    setError(null);
+    const ok = await useSerumUi.getState().saveAs(channelId, name.trim(), !!taken);
+    if (!ok) setError(useSerumUi.getState().channels[channelId]?.error ?? "It couldn't be saved.");
+  };
+  return (
+    <DialogContent className="sm:max-w-sm" data-testid="serum-save-as">
+      <DialogTitle>Save as a new preset</DialogTitle>
+      <DialogDescription>In Serum's User folder, so Serum lists it too, with its macros' names.</DialogDescription>
+      <form
+        className="flex flex-col gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <Input
+          autoFocus
+          aria-label="The preset's name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          onKeyDown={(e) => e.stopPropagation()}
+        />
+        <p className={cn("min-h-4 text-[11px]", error || (problem && name) ? "text-destructive" : "text-muted-foreground")}>
+          {error ?? (name && problem) ?? (taken ? `There's a preset "${taken.name}" in User already: saving replaces it.` : " ")}
+        </p>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={() => useSerumUi.getState().setNaming(channelId, false)}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={!!problem || state?.saving}>
+            {state?.saving && <PiSpinnerGap className="animate-spin" />}
+            {taken ? "Replace" : "Save"}
+          </Button>
+        </DialogFooter>
+      </form>
+    </DialogContent>
   );
 }
 
@@ -260,7 +377,7 @@ function PresetBrowser({ channelId }: { channelId: string }) {
             ) : presets === null ? (
               "Reading Serum's presets…"
             ) : !available ? (
-              "Serum 2's preset folder isn't on this computer."
+              "Serum 2's preset folder isn't on this computer. Settings › Music adds other folders of presets."
             ) : query ? (
               `No preset matches "${query}".`
             ) : (

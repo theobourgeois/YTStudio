@@ -20,7 +20,7 @@ import type {
   SetSongRequest,
   SetSongResponse,
 } from "@shared/music/engine";
-import type { SerumLibraryResponse, SerumSound } from "@shared/music/serum-presets";
+import type { SerumLibraryFolders, SerumLibraryResponse, SerumSaveResult, SerumSound } from "@shared/music/serum-presets";
 import type { SerumChainEntry } from "@shared/music/serum-effects";
 import type { SerumHistory, SerumSoundEdit } from "@shared/music/serum-sound";
 import type {
@@ -89,6 +89,16 @@ export const musicApi = {
   /** The Serum player's last step on a channel undone (or redone). */
   undoSerum: (projectId: string, channel: string, redo = false) =>
     request<SerumSound>(`/api/music/serum/${redo ? "redo" : "undo"}`, { method: "POST", body: JSON.stringify({ projectId, channel }) }),
+  /**
+   * A channel's sound saved as a preset in Serum 2's `User` folder: under `name` (`overwrite`: replacing one of that
+   * name), or over the `User` preset it has on.
+   */
+  saveSerumPreset: (projectId: string, channel: string, name?: string, overwrite = false) =>
+    request<SerumSaveResult>("/api/music/serum/save", { method: "POST", body: JSON.stringify({ projectId, channel, name, overwrite }) }),
+  /** The Serum player's library folders (Serum's own and the ones added), and Serum folders found that aren't listed. */
+  serumFolders: () => request<SerumLibraryFolders>("/api/music/serum/folders"),
+  addSerumFolder: (path: string) => request<SerumLibraryFolders>("/api/music/serum/folders", { method: "POST", body: JSON.stringify({ path }) }),
+  removeSerumFolder: (path: string) => request<SerumLibraryFolders>(`/api/music/serum/folders?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
   /** Serum's saved effects and racks (`Effect Chains` in its preset folder). */
   serumChains: () => request<SerumChainEntry[]>("/api/music/serum/chains"),
   /** The destinations a route of a channel's Serum can have, by name. */

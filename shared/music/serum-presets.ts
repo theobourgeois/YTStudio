@@ -285,10 +285,50 @@ export interface SerumSound {
 
 /** `GET /api/music/serum/presets`: the library, or why there's none. */
 export interface SerumLibraryResponse {
-  /** False: Serum 2's preset folder isn't on this computer. */
+  /** False: there's no preset folder at all (no Serum 2, and none added). */
   available: boolean;
   presets: SerumPresetEntry[];
 }
+
+/** A folder the library lists: Serum 2's own, Serum 1's when Serum links it, or one added in Settings. */
+export interface SerumLibraryFolder {
+  path: string;
+  source: "serum2" | "serum1" | "added";
+  /** How many presets are in it (0 while it's missing). */
+  presets: number;
+  /** An added folder that isn't there now (a drive unplugged): listed again when it's back. */
+  missing: boolean;
+}
+
+/** `GET /api/music/serum/folders`: what the library lists, and folders of Serum presets found that it doesn't yet. */
+export interface SerumLibraryFolders {
+  folders: SerumLibraryFolder[];
+  /** E.g. Serum 1's library in iCloud Drive, which Serum 2 doesn't see: added with a click. */
+  suggested: { path: string; label: string }[];
+}
+
+/** `POST /api/music/serum/save`: the sound saved as a preset, and where. */
+export interface SerumSaveResult {
+  sound: SerumSound;
+  /** The `.SerumPreset` written (in Serum 2's `User` folder). */
+  path: string;
+  /** It replaced a preset of that name. */
+  replaced: boolean;
+}
+
+/** Why a preset's name can't be a file's name in Serum's `User` folder, or null if it can. */
+export function serumPresetNameProblem(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return "Give the preset a name.";
+  if (trimmed.length > 100) return "That name is too long: 100 characters at most.";
+  if (/[/\\:*?"<>|\u0000-\u001f]/.test(trimmed)) return 'A preset\'s name can\'t have / \\ : * ? " < > or | in it.';
+  if (trimmed.startsWith(".")) return "A preset's name can't start with a dot.";
+  return null;
+}
+
+/** Whether a preset is one the player saves over (a Serum 2 preset in `User`), rather than saving a new one beside it. */
+export const isUserSerumPreset = (entry: Pick<SerumPresetEntry, "kind" | "folder"> | null | undefined): boolean =>
+  entry?.kind === "serum2" && (entry.folder === "User" || entry.folder.startsWith("User/"));
 
 /** The library's folders, each once, sorted: what the folder filter offers. */
 export function serumFolders(entries: readonly SerumPresetEntry[]): string[] {

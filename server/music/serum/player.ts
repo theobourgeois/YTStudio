@@ -7,22 +7,30 @@
  * `/api/music/serum`.
  *
  * Serum's state is the truth (`plugins/<channel>.bin`, the engine's); beside it the player keeps what Serum's
- * own re-save drops (`<channel>.serum.json`: the preset's macro names, §2.4) and whether it was edited.
+ * own re-save drops (`<channel>.serum.json`: the preset's macro names, §2.4) and whether it was edited. A sound is
+ * saved as a `.SerumPreset` in Serum 2's `User` folder (§3.8), and Serum told it has that preset on.
  */
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Router, json } from "express";
-import { type SerumLibraryResponse, type SerumSound, SERUM_MACRO_PARAMS } from "../../../shared/music/serum-presets.ts";
+import {
+  type SerumLibraryFolders,
+  type SerumLibraryResponse,
+  type SerumSaveResult,
+  type SerumSound,
+  SERUM_MACRO_PARAMS,
+  serumPresetNameProblem,
+} from "../../../shared/music/serum-presets.ts";
 import { SERUM_EFFECTS, type SerumChainEntry } from "../../../shared/music/serum-effects.ts";
 import type { SerumHistory, SerumSoundEdit } from "../../../shared/music/serum-sound.ts";
-import { HttpError, isObject, isValidId, readJson, writeJson } from "../../storage.ts";
+import { HttpError, isObject, isValidId, readJson, writeFileDurably, writeJson } from "../../storage.ts";
 import type { AudioEngine } from "../engine.ts";
 import { SpecError } from "./body.ts";
 import { type CborMap, decodeCbor, encodeCbor, isPlainMap } from "./cbor.ts";
 import { readXfer } from "./container.ts";
 import type { SerumLibrary } from "./library.ts";
 import { fxLinksOf, presetAsState, readPluginState, stateSettings } from "./plugin-state.ts";
-import { readSerumSettings } from "./preset.ts";
+import { presetFile, readSerumSettings } from "./preset.ts";
 import { destinationNames, editSerumBody, fxLinksFor, liveControls, macroNamesOf, readSoundParts, sameLinks, type SerumChain, withMacroNames } from "./sound.ts";
 
 export interface SerumPlayerOptions {
@@ -73,8 +81,8 @@ function settingsOf(state: Uint8Array | null): CborMap | null {
  * `state` with `settings` in it, the preset's macro names written in (Serum names its controls from them) and its
  * effect knobs linked to the racks' slots as the player links them (`fxLinksFor`: the knobs its cards show, live).
  */
-export function restate(state: Uint8Array, settings: CborMap, names: readonly string[]): Uint8Array {
-  return presetAsState(state, encodeCbor(withMacroNames(settings, names)), fxLinksFor(settings));
+export function restate(state: Uint8Array, settings: CborMap, names: readonly string[], presetPath?: string): Uint8Array {
+  return presetAsState(state, encodeCbor(withMacroNames(settings, names)), fxLinksFor(settings), presetPath);
 }
 
 export class SerumPlayer {
@@ -227,6 +235,66 @@ export class SerumPlayer {
     });
   }
 
+  /**
+   * `{ projectId, channel, name?, overwrite? }`: the channel's sound saved as a `.SerumPreset` in Serum 2's `User`
+   * folder, so Serum lists it too, with its macro names, and Serum told it has that preset on now (a reload, as an
+   * edit's). With a `name`, a new preset (`overwrite`: replacing one of that name in `User`); without one, saved over
+   * the preset it has on, which must be one of `User`'s: a factory, pack or Serum 1 preset is never written over.
+   * Not an undo step: the sound doesn't change.
+   */
+  async save(body: unknown): Promise<SerumSaveResult> {
+    const input = isObject(body) ? body : {};
+    const { projectId, channel } = this.target(input.projectId, input.channel);
+    if (input.name !== undefined && typeof input.name !== "string") throw new HttpError(400, '"name" must be the preset\'s name.');
+    const problem = typeof input.name === "string" ? serumPresetNameProblem(input.name) : null;
+    if (problem) throw new HttpError(400, problem);
+    this.requirePlaying(projectId);
+    const userFolder = await this.options.library.userFolder();
+    if (!userFolder) throw new HttpError(404, "Serum 2's preset folder isn't on this computer: there's nowhere to save a preset.");
+    return this.serial(projectId, channel, async () => {
+      const { engine } = this.options;
+      const stateFile = await engine.channelStateFile(projectId, channel);
+      const state = await readState(stateFile);
+      const settings = settingsOf(state);
+      if (!state || !settings) throw new HttpError(409, "Serum hasn't saved its sound yet: load a preset first, or wait a moment.");
+      const current = presetOf(state);
+      let file: string;
+      if (typeof input.name === "string") {
+        file = path.join(userFolder, `${input.name.trim()}.SerumPreset`);
+      } else {
+        const on = current?.path ? path.resolve(current.path) : null;
+        if (!on || !on.startsWith(path.resolve(userFolder) + path.sep) || !/\.SerumPreset$/i.test(on))
+          throw new HttpError(409, `${current?.name ? `"${current.name}"` : "The preset it has on"} isn't one of yours in Serum's User folder, so it isn't saved over: save it as a new preset, with a name.`);
+        file = on;
+      }
+      const replaced = await fs.stat(file).then((s) => s.isFile(), () => false);
+      if (replaced && typeof input.name === "string" && input.overwrite !== true)
+        throw new HttpError(409, `There's a preset "${path.basename(file, ".SerumPreset")}" in Serum's User folder already: replace it (overwrite), or pick another name.`);
+      const name = path.basename(file).replace(/\.SerumPreset$/i, "");
+      const meta = await readMeta(stateFile);
+      // The sound as a preset: Serum's settings with the names its re-save dropped, under its new name.
+      const preset = withMacroNames(readSerumSettings(state).body, meta.macroNames);
+      preset.presetName = name;
+      await writeFileDurably(file, presetFile(preset));
+      await engine.swapState(channel, restate(state, { ...settings, presetName: name }, meta.macroNames, file));
+      await writeMeta(stateFile, { ...meta, edited: false });
+      return { sound: await this.soundNow(projectId, channel), path: file, replaced };
+    });
+  }
+
+  /** The library's folders: Serum's own and the ones added, and folders of Serum presets found that aren't listed. */
+  async folders(): Promise<SerumLibraryFolders> {
+    return this.options.library.folders();
+  }
+
+  async addFolder(body: unknown): Promise<SerumLibraryFolders> {
+    return this.options.library.addFolder(isObject(body) ? body.path : undefined);
+  }
+
+  async removeFolder(folder: unknown): Promise<SerumLibraryFolders> {
+    return this.options.library.removeFolder(folder);
+  }
+
   /** Serum's saved effects and racks (`Effect Chains`), for + Add. */
   async chains(): Promise<SerumChainEntry[]> {
     return this.options.library.chains();
@@ -377,7 +445,7 @@ function presetOf(state: Uint8Array | null): SerumSound["preset"] {
   }
 }
 
-/** `/api/music/serum`: the Serum player's library, ratings, loading, sound, edits and history. */
+/** `/api/music/serum`: the Serum player's library and its folders, ratings, loading, sound, edits, history and saving. */
 export function serumPlayerRoutes(player: SerumPlayer): Router {
   const router = Router();
   router.use((_req, res, next) => {
@@ -408,6 +476,18 @@ export function serumPlayerRoutes(player: SerumPlayer): Router {
   });
   router.post("/redo", json(), async (req, res) => {
     res.json(await player.undo(req.body, true));
+  });
+  router.post("/save", json(), async (req, res) => {
+    res.json(await player.save(req.body));
+  });
+  router.get("/folders", async (_req, res) => {
+    res.json(await player.folders());
+  });
+  router.post("/folders", json(), async (req, res) => {
+    res.json(await player.addFolder(req.body));
+  });
+  router.delete("/folders", async (req, res) => {
+    res.json(await player.removeFolder(req.query.path));
   });
   router.get("/chains", async (_req, res) => {
     res.json(await player.chains());

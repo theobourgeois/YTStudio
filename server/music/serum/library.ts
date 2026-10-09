@@ -1,8 +1,9 @@
 /**
  * Serum's preset library, as the Serum player's browser lists it (`docs/serum/player.md` §3.2): every `.SerumPreset`
- * and `.fxp` in Serum 2's preset folder (and Serum 1's, when Serum links it), with Serum's own categories, tags and
+ * and `.fxp` in Serum 2's preset folder (and Serum 1's, when Serum links it) and in the folders added in Settings
+ * (Serum 1's library in iCloud Drive, a pack's folder), each preset once, with Serum's own categories, tags and
  * ratings from its index (`System/presets.db`). Stars set here are written back there, so Serum shows them too.
- * Files are read once and again only when they change.
+ * Files are read once and again only when they change. Nothing outside these folders is read.
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
@@ -11,8 +12,8 @@ import path from "node:path";
 import { inflateSync } from "node:zlib";
 import { naturalCompare } from "../../../shared/music/browser.ts";
 import type { SerumChainEntry } from "../../../shared/music/serum-effects.ts";
-import { type SerumPresetEntry, serumCategory } from "../../../shared/music/serum-presets.ts";
-import { HttpError } from "../../storage.ts";
+import { type SerumLibraryFolder, type SerumLibraryFolders, type SerumPresetEntry, serumCategory } from "../../../shared/music/serum-presets.ts";
+import { HttpError, isObject, readJson, writeJson } from "../../storage.ts";
 import { log } from "../../log.ts";
 import { FX_TYPES } from "./catalogue.ts";
 import { type CborMap, decodeCbor, isPlainMap } from "./cbor.ts";
@@ -23,6 +24,10 @@ const logger = log("serum-library");
 const EXTENSIONS = new Set([".serumpreset", ".fxp"]);
 /** Serum's saved effects (one each) and racks, in `Effect Chains`. */
 const CHAIN_EXTENSIONS = new Set([".serumfx", ".serumfxrack"]);
+/** No more preset files than this in the library (a whole disk added by mistake stops here). */
+const MAX_FILES = 100_000;
+/** How many folders can be added. */
+const MAX_FOLDERS = 50;
 
 /** Where Serum 2 keeps its presets (the folder holding `Presets` and `System`), and Serum 1's folder if Serum links it. */
 export interface SerumLibraryPlaces {
@@ -67,6 +72,24 @@ export async function findSerumLibrary(): Promise<SerumLibraryPlaces> {
   const serum1Dir = path.join(os.homedir(), "Documents", "Serum Presets", "Presets");
   return { serum2, serum1: linked && (await isDirectory(serum1Dir)) ? serum1Dir : null };
 }
+
+/**
+ * Where Serum 1's presets are often kept but Serum 2 doesn't look: offered in Settings when they're there. Serum 2
+ * links only `~/Documents/Serum Presets`; a Mac whose Documents are in iCloud Drive keeps them there instead.
+ */
+export function serumFolderSuggestions(): { path: string; label: string }[] {
+  const home = os.homedir();
+  if (process.platform === "darwin")
+    return [
+      { path: path.join(home, "Library", "Mobile Documents", "com~apple~CloudDocs", "Documents", "Serum Presets", "Presets"), label: "Serum 1's presets in iCloud Drive" },
+      { path: path.join(home, "Documents", "Serum Presets", "Presets"), label: "Serum 1's presets in Documents" },
+    ];
+  if (process.platform === "win32") return [{ path: path.join(home, "Documents", "Xfer", "Serum Presets", "Presets"), label: "Serum 1's presets in Documents" }];
+  return [];
+}
+
+/** Whether `inner` is `outer` or inside it. */
+const isWithin = (inner: string, outer: string) => inner === outer || inner.startsWith(outer.endsWith(path.sep) ? outer : outer + path.sep);
 
 /** A `.SerumPreset`'s header (`XferJson\0`, a u64 length, then JSON), without its settings. */
 async function readPresetHeader(file: string): Promise<Record<string, unknown>> {
@@ -127,19 +150,106 @@ interface CachedFile {
   entry: Omit<SerumPresetEntry, "rating" | "category"> & { serumCategory: string | null };
 }
 
+export interface SerumLibraryOptions {
+  /** Where the folders added are kept (`data/serum-library.json`); none: only for as long as this runs (tests). */
+  file?: string;
+  /** Folders to offer adding, when they're there (`serumFolderSuggestions` by default). */
+  suggestions?: { path: string; label: string }[];
+}
+
 export class SerumLibrary {
   private cache = new Map<string, CachedFile>();
   private places: Promise<SerumLibraryPlaces>;
+  /** The folders added in Settings, absolute, in the order they were added. */
+  private added: Promise<string[]>;
+  /** One change to the folders at a time. */
+  private changing: Promise<unknown> = Promise.resolve();
 
   /** `places`: where to look (tests and e2e give their own); found as Serum's preferences say otherwise. */
-  constructor(places?: SerumLibraryPlaces | Promise<SerumLibraryPlaces>) {
+  constructor(
+    places?: SerumLibraryPlaces | Promise<SerumLibraryPlaces>,
+    private readonly options: SerumLibraryOptions = {},
+  ) {
     this.places = places ? Promise.resolve(places) : findSerumLibrary();
+    this.added = this.readAdded();
   }
 
-  /** The folders listed, each with whether its presets are Serum 1's. */
-  private async roots(): Promise<{ dir: string; kind: SerumPresetEntry["kind"] }[]> {
+  private async readAdded(): Promise<string[]> {
+    if (!this.options.file) return [];
+    const saved = await readJson<unknown>(this.options.file).catch(() => null);
+    const folders = isObject(saved) && Array.isArray(saved.folders) ? saved.folders : [];
+    return [...new Set(folders.filter((f): f is string => typeof f === "string" && path.isAbsolute(f)).map((f) => path.resolve(f)))].slice(0, MAX_FOLDERS);
+  }
+
+  /** Serum's own folders (Serum 2's, then Serum 1's), then the ones added: a preset in two of them is listed from the first. */
+  private async roots(): Promise<{ dir: string; source: SerumLibraryFolder["source"] }[]> {
     const { serum2, serum1 } = await this.places;
-    return [...(serum2 ? [{ dir: path.join(serum2, "Presets"), kind: "serum2" as const }] : []), ...(serum1 ? [{ dir: serum1, kind: "serum1" as const }] : [])];
+    return [
+      ...(serum2 ? [{ dir: path.join(serum2, "Presets"), source: "serum2" as const }] : []),
+      ...(serum1 ? [{ dir: serum1, source: "serum1" as const }] : []),
+      ...(await this.added).map((dir) => ({ dir, source: "added" as const })),
+    ];
+  }
+
+  /** Every folder listed and how many presets each has, and Serum folders found on this computer that aren't. */
+  async folders(): Promise<SerumLibraryFolders> {
+    const scanned = await this.scan();
+    const counts = new Map<string, number>();
+    for (const { root } of scanned) counts.set(root, (counts.get(root) ?? 0) + 1);
+    const roots = await this.roots();
+    const folders = await Promise.all(
+      roots.map(async ({ dir, source }) => ({ path: dir, source, presets: counts.get(dir) ?? 0, missing: !(await isDirectory(dir)) })),
+    );
+    const suggested = [];
+    for (const suggestion of this.options.suggestions ?? serumFolderSuggestions()) {
+      const dir = path.resolve(suggestion.path);
+      if (roots.some((r) => isWithin(dir, path.resolve(r.dir)) || isWithin(path.resolve(r.dir), dir))) continue;
+      if (await isDirectory(dir)) suggested.push({ path: dir, label: suggestion.label });
+    }
+    return { folders, suggested };
+  }
+
+  /** Another folder of presets listed with Serum's (one holding folders added before takes their place). */
+  async addFolder(raw: unknown): Promise<SerumLibraryFolders> {
+    // "~/Music/Serum", as people (and the assistant) write it.
+    const given = typeof raw === "string" ? raw.trim().replace(/^~(?=$|[/\\])/, os.homedir()) : "";
+    if (!given || !path.isAbsolute(given)) throw new HttpError(400, '"path" must be a folder\'s full path, e.g. "~/Music/Serum Presets".');
+    const folder = path.resolve(given);
+    if (!(await isDirectory(folder))) throw new HttpError(400, `"${folder}" isn't a folder.`);
+    if (path.dirname(folder) === folder || folder === os.homedir()) throw new HttpError(400, "That's too big to add: add the folder your presets are in.");
+    await this.change(async (added) => {
+      const inside = (await this.roots()).find((r) => isWithin(folder, path.resolve(r.dir)));
+      if (inside) throw new HttpError(409, inside.source === "added" ? `"${path.basename(folder)}" is already listed, in "${inside.dir}".` : `"${path.basename(folder)}" is in Serum's own preset folder, which is listed already.`);
+      if (added.length >= MAX_FOLDERS) throw new HttpError(400, `There are ${MAX_FOLDERS} folders already: remove some first.`);
+      return [...added.filter((f) => !isWithin(f, folder)), folder];
+    });
+    return this.folders();
+  }
+
+  /** An added folder no longer listed (its files stay where they are). */
+  async removeFolder(raw: unknown): Promise<SerumLibraryFolders> {
+    const folder = typeof raw === "string" && path.isAbsolute(raw) ? path.resolve(raw) : null;
+    await this.change(async (added) => {
+      if (!folder || !added.includes(folder)) throw new HttpError(404, "That folder isn't one added to the Serum player's library (Serum's own can't be removed).");
+      return added.filter((f) => f !== folder);
+    });
+    return this.folders();
+  }
+
+  private change(edit: (added: string[]) => Promise<string[]>): Promise<void> {
+    const run = this.changing.catch(() => {}).then(async () => {
+      const next = await edit(await this.added);
+      if (this.options.file) await writeJson(this.options.file, { folders: next });
+      this.added = Promise.resolve(next);
+    });
+    this.changing = run;
+    return run;
+  }
+
+  /** Where the player saves presets: Serum 2's `User` folder, so they're Serum's too. Null without Serum 2. */
+  async userFolder(): Promise<string | null> {
+    const { serum2 } = await this.places;
+    return serum2 ? path.join(serum2, "Presets", "User") : null;
   }
 
   private async databaseFile(): Promise<string | null> {
@@ -147,23 +257,36 @@ export class SerumLibrary {
     return serum2 ? path.join(serum2, "System", "presets.db") : null;
   }
 
-  /** Whether Serum's library is on this computer at all. */
+  /** Whether there's a preset folder to list at all (Serum 2's, or one added). */
   async available(): Promise<boolean> {
     return (await this.roots()).length > 0;
   }
 
-  /** Every preset, with Serum's ratings as they are now. */
-  async list(): Promise<SerumPresetEntry[]> {
+  /** Every preset file in the folders, read (from the cache while it hasn't changed), with the folder it was found in. */
+  private async scan(): Promise<{ root: string; entry: CachedFile["entry"] }[]> {
     const files: { file: string; folder: string; root: string }[] = [];
     for (const { dir } of await this.roots()) await walk(dir, dir, files);
     const seen = new Set<string>();
-    const entries: CachedFile["entry"][] = [];
+    const entries: { root: string; entry: CachedFile["entry"] }[] = [];
     // A few at a time: a fresh index reads a thousand files.
-    for (let i = 0; i < files.length; i += 32)
-      for (const read of await Promise.all(files.slice(i, i + 32).map((f) => this.read(f.file, f.folder)))) if (read) entries.push(read);
+    for (let i = 0; i < files.length; i += 32) {
+      const batch = files.slice(i, i + 32);
+      const read = await Promise.all(batch.map((f) => this.read(f.file, f.folder)));
+      read.forEach((entry, j) => entry && entries.push({ root: batch[j].root, entry }));
+    }
     for (const f of files) seen.add(f.file);
     for (const file of this.cache.keys()) if (!seen.has(file)) this.cache.delete(file);
+    return entries;
+  }
 
+  /** Every preset, each once (the same file in two folders is listed from the first), with Serum's ratings as they are now. */
+  async list(): Promise<SerumPresetEntry[]> {
+    const hashes = new Set<string>();
+    const entries = (await this.scan()).flatMap(({ entry }) => {
+      if (hashes.has(entry.hash)) return [];
+      hashes.add(entry.hash);
+      return [entry];
+    });
     const { index, ratings } = await this.readDatabase();
     return entries.map(({ serumCategory: own, ...entry }) => {
       const indexed = index.get(indexKey(entry.folder, entry.name, entry.kind));
@@ -187,7 +310,11 @@ export class SerumLibrary {
       return null;
     }
     const cached = this.cache.get(file);
-    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.entry;
+    // (Its folder is where it was found from: a folder added around another's makes it another.)
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      if (cached.entry.folder !== folder) cached.entry = { ...cached.entry, folder };
+      return cached.entry;
+    }
     try {
       const entry = file.toLowerCase().endsWith(".fxp") ? await readSerum1(file, folder) : await readSerum2(file, folder);
       this.cache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, entry });
@@ -245,7 +372,6 @@ export class SerumLibrary {
     }
   }
 
-  /** A preset file of the library's, checked: never a path outside its folders, nor anything but a preset. */
   /** Serum's saved effects and racks (`Effect Chains` in Serum 2's preset folder), sorted by folder and name. */
   async chains(): Promise<SerumChainEntry[]> {
     const root = await this.chainRoot();
@@ -288,11 +414,12 @@ export class SerumLibrary {
     return serum2 ? path.join(serum2, "Effect Chains") : null;
   }
 
+  /** A preset file of the library's, checked: never a path outside its folders, nor anything but a preset. */
   async resolve(file: unknown): Promise<string> {
     if (typeof file !== "string" || !path.isAbsolute(file)) throw new HttpError(400, '"path" must be a preset\'s path, as the preset list gives it.');
     const resolved = path.resolve(file);
     const inside = (await this.roots()).some(({ dir }) => resolved.startsWith(path.resolve(dir) + path.sep));
-    if (!inside || !EXTENSIONS.has(path.extname(resolved).toLowerCase())) throw new HttpError(400, "That isn't a preset in Serum's preset folder.");
+    if (!inside || !EXTENSIONS.has(path.extname(resolved).toLowerCase())) throw new HttpError(400, "That isn't a preset in the Serum player's library.");
     if (!(await fs.stat(resolved).then((s) => s.isFile(), () => false))) throw new HttpError(404, "That preset isn't there any more.");
     return resolved;
   }
@@ -301,8 +428,12 @@ export class SerumLibrary {
 /** The key a preset is found by in Serum's index: its folder in the library, its name, its kind. */
 const indexKey = (folder: string, name: string, kind: string) => `${folder}\n${name}\n${kind}`.toLowerCase();
 
-/** Every preset file (or other `extensions`) under `dir`, with its folder relative to `root`. Hidden files and folders are skipped. */
+/**
+ * Every preset file (or other `extensions`) under `dir`, with its folder relative to `root`. Hidden files and folders
+ * are skipped (an iCloud file not downloaded yet is a hidden `.name.icloud`), and packages (an app, a plugin).
+ */
 async function walk(dir: string, root: string, out: { file: string; folder: string; root: string }[], extensions = EXTENSIONS): Promise<void> {
+  if (out.length >= MAX_FILES) return;
   let items;
   try {
     items = await fs.readdir(dir, { withFileTypes: true });
@@ -310,7 +441,8 @@ async function walk(dir: string, root: string, out: { file: string; folder: stri
     return;
   }
   for (const item of items) {
-    if (item.name.startsWith(".")) continue;
+    if (item.name.startsWith(".") || /\.(app|vst3?|component|bundle)$/i.test(item.name)) continue;
+    if (out.length >= MAX_FILES) return;
     const full = path.join(dir, item.name);
     if (item.isDirectory()) await walk(full, root, out, extensions);
     else if (item.isFile() && extensions.has(path.extname(item.name).toLowerCase()))

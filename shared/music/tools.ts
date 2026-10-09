@@ -897,6 +897,40 @@ export const MUSIC_TOOLS = [
     ),
   }),
   tool({
+    name: "save_serum_preset",
+    title: "Save a Serum preset",
+    kind: "action",
+    description:
+      "Save a Serum 2 channel's sound as it is now as a .SerumPreset in Serum's User folder, so it's in the Serum player's library and in Serum's own " +
+      "browser, with its macros' names, and the channel then has that preset on. With `name`: a new preset (if one of that name is in User already, " +
+      "say `overwrite` to replace it, else pick another name). Without one: saved over the preset the channel has on, which must be one the user " +
+      "saved in User; a factory, pack or Serum 1 preset is never written over, so give it a name.",
+    inputSchema: obj(
+      {
+        channel: str("A Serum 2 channel: its id or name (get_song lists them)."),
+        name: str('The new preset\'s name, e.g. "BA - Dark Reese" (Serum\'s kinds come from a prefix like BA, LD, PD, PL). No / \\ : * ? " < > |.'),
+        overwrite: bool("Replace a preset of that name in User."),
+      },
+      ["channel"],
+    ),
+  }),
+  tool({
+    name: "serum_library_folders",
+    title: "The Serum library's folders",
+    kind: "action",
+    description:
+      "The folders the Serum player's library lists presets from (search_serum_presets searches them): Serum 2's own, Serum 1's when Serum links " +
+      "it, and folders added (as in Settings › Music), each with how many presets it has, and folders of Serum presets found on this computer that " +
+      'aren\'t listed yet (e.g. Serum 1\'s library in iCloud Drive, which Serum 2 doesn\'t see). "add" lists another folder\'s presets too; "remove" ' +
+      "stops listing an added one (its files stay). Serum's own folders can't be removed.",
+    inputSchema: obj(
+      {
+        action: oneOf(["list", "add", "remove"], "What to do (default list)."),
+        path: str('With "add" and "remove": the folder\'s full path ("~/" is the home folder).'),
+      },
+    ),
+  }),
+  tool({
     name: "list_midi_inputs",
     title: "List the MIDI keyboards",
     kind: "look",
