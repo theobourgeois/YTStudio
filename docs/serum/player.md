@@ -249,7 +249,9 @@ The three racks (Main, Bus 1, Bus 2) as tabs, each a row of cards in order:
   drive, wet…). All of its settings are under the card's expand.
 - **Turning a knob:** live, through the slot it's linked to (§2.1). The player links the knobs shown, up to 16 a
   rack; a knob beyond that reloads when its drag ends.
-- **Add, remove, reorder:** a reload (§2.2), with the links written again.
+- **Add, remove, reorder:** a reload (§2.2), with the links written again. Any of the 13 effects can be added to any
+  rack: the writer already handles them all (`preset-format.md`). **+ add** also offers Serum's saved chains
+  (`Effect Chains` in its preset folder), to drop in a whole rack at once.
 - **The look:** Serum's layout, calmer, in our theme tokens.
 
 ### 3.7 How it works
