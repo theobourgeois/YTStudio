@@ -49,6 +49,11 @@ export const GROQ_API_KEY = process.env.GROQ_API_KEY || null;
 export const CLAUDE = process.env.CLAUDE_PATH || null;
 /** "stand-in": the photo models (Select Subject's, Content-Aware Fill's) are stood in for, never downloaded (the e2e tests). */
 export const PHOTO_MODELS = process.env.EDITOR_PHOTO_MODELS || null;
+/**
+ * Serum 2's preset folder, for the Serum player's browser (the folder holding `Presets` and `System`): default, where
+ * Serum's preferences say. "stand-in" (the e2e tests): a small library of made-up presets in the data folder.
+ */
+export const SERUM_LIBRARY = process.env.EDITOR_SERUM_LIBRARY || null;
 /** "stand-in": the music suite's models (Extract stems', Convert to notes') are stood in for, never downloaded (the e2e tests). */
 export const MUSIC_MODELS = process.env.EDITOR_MUSIC_MODELS || null;
 /** "stand-in": the photo suite's Online panel searches a made-up internet (the e2e tests: `online-stand-in.ts`). */

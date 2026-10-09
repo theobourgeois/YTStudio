@@ -213,7 +213,8 @@ The main fix: every preset on the computer in one flat list.
 - **Where it reads:**
   - Serum 2's preset folder (factory, packs, `User`);
   - Serum 1's folder;
-  - later, folders added in Settings (the kits).
+  - later, folders added in Settings (the kits). The old Serum 1 library in iCloud (`Documents/Serum Presets`,
+    878 `.fxp`) is one: Serum 2 doesn't see it either, since Serum 1's folder would be `~/Documents/Serum Presets`.
 
   As with the Browser's sample folders, the server reads nothing outside these (`server/music/browser.ts`'s rules).
 - **The index (the server's):** built with our reader (`readSerumFile`) and kept up to date while the folders change.
@@ -345,8 +346,32 @@ New tools in `shared/music/tools.ts`, for parity with the window:
      (`MODULE_PARAMS`: the Distortion's 0 Enable, 1 Wet, 2 Drive…).
    - On Serum 2 itself (`serum-player.integration.test.ts`): a Distortion's Drive linked to the main rack's first
      slot, the slot set to 1, makes the saw 30% louder and Serum's own state reads Drive 100.
-2. **The browser, loading and macros:** the index, search and filters, favourites, arrow keys. This is the part that
-   fixes the main pain.
+2. **Done (2026-10-09): the browser, loading and macros.**
+   - **Where:** a Serum 2 channel's button (and adding one, or replacing an instrument with it) opens its player,
+     `src/suites/music/serum/` (`serum-player.tsx`, `store.ts`), instead of Serum's window; **Open Serum** shows
+     Serum's.
+   - **The library** (`server/music/serum/library.ts`): every `.SerumPreset` and `.fxp` in Serum 2's preset folder
+     (where `Serum2Prefs.json` says), and Serum 1's when Serum links it. 821 presets index in about 50 ms, 10 ms
+     once read (only changed files are read again). A preset is listed by its file's name, as Serum lists it (an
+     `.fxp`'s header may say another). Author, tags and Serum's own category come from Serum's index
+     (`System/presets.db`); the categories are ours, from Serum's, else the name, else the folder
+     (`shared/music/serum-presets.ts`, tested).
+   - **Ratings are Serum's own:** its index's `UserData` (a preset's hash and its stars), in SQLite's write-ahead
+     mode while Serum runs, which is why a copy of the file alone looked empty. A `.SerumPreset`'s hash is its
+     header's `hash`. An `.fxp`'s is the MD5 of the file's first N bytes, N being the length of the compressed
+     settings at the start of its chunk (`serum1Hash`; Serum 1's index uses the same). Stars set in the player are
+     written there (`busy_timeout` while Serum writes), so Serum shows them.
+   - **Loading** is a drop on Serum's invisible window (§2.3), so a preset loads exactly as Serum's browser loads it:
+     its names, and Serum's `selectedPresetPath`, which the player reads back (`GET /api/music/serum/sound`).
+   - **The list:** search (names first, then makers, folders, kinds, tags, with a typo), kind, ★ (4 stars or more),
+     Serum 1 / 2. ↑ ↓ (from the search field or the window) step through it, each step a load; ◀ ▶ too.
+   - **Macros:** Serum's 8, by their parameter ids (`SERUM_MACRO_PARAMS`), named as the preset names them, set live.
+   - **The assistant:** `search_serum_presets`, `get_serum_sound`, `load_serum_preset`, `set_serum_macros`,
+     `rate_serum_preset`.
+   - **Tests:** `serum-presets.test.ts`, `library.test.ts`, and `e2e/music.spec.ts` on a stand-in library
+     (`EDITOR_SERUM_LIBRARY=stand-in`: `server/music/serum/stand-in.ts`) and the stand-in engine's "Serum 2".
+   - **Not yet: undo** (§5, Q1). A load and a macro move aren't undo steps; the player's history of the channel's
+     states comes with step 3, where edits begin.
 3. **Modulation:** the rows, live amounts, adding and removing routes.
 4. **Envelopes and LFOs**, hidden by default.
 5. **Effects:** the racks and cards, their knobs live through linked slots.

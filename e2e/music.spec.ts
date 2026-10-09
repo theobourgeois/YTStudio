@@ -435,16 +435,16 @@ test("the Plugin manager stars the plugins the pickers list, as FL Studio's favo
   await expect(picker).toHaveCount(0);
   const manager = page.getByTestId("plugin-manager");
   await expect(manager.getByRole("button", { name: "Instruments" })).toHaveAttribute("aria-pressed", "true");
-  await expect(manager.getByRole("listitem")).toHaveText([/Fake Synth/]);
+  await expect(manager.getByRole("listitem")).toHaveText([/Fake Synth/, /Serum 2/]);
   await manager.getByRole("button", { name: "All" }).click();
-  await expect(manager.getByRole("listitem")).toHaveCount(2);
+  await expect(manager.getByRole("listitem")).toHaveCount(3);
 
   // Unstarred, it's no longer in the picker (only the Sampler, ours, always is).
   await manager.getByRole("button", { name: "Unstar Fake Synth" }).click();
   await expect(manager.getByRole("button", { name: "Star Fake Synth" })).toHaveAttribute("aria-pressed", "false");
   await rack.getByRole("button", { name: "Add a channel" }).click();
   await expect(picker.getByRole("option")).toHaveText([/Sampler/]);
-  await expect(picker).toContainText("1 not starred");
+  await expect(picker).toContainText("2 not starred");
   await page.keyboard.press("Escape");
 
   // The effect slots likewise: the built-in effects, and the starred.
@@ -474,6 +474,79 @@ test("the Plugin manager stars the plugins the pickers list, as FL Studio's favo
   await page.getByRole("button", { name: "Channel rack", exact: true }).click();
   await rack.getByRole("button", { name: "Add a channel" }).click();
   await expect(picker.getByRole("option")).toHaveText([/Sampler/, /Fake Synth/]);
+});
+
+test("a Serum 2 channel's window is the Serum player: Serum's presets in one list, found, stepped through, rated, and its macros", async ({ page }) => {
+  // Serum 2 starred too, so the picker lists it (before openNewSong's own stars, which then leave these be).
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem("e2e-plugins-set")) {
+      localStorage.setItem("vaudio.music.favouritePlugins", JSON.stringify(["VST3-Fake Synth-1", "VST3-Fake Delay-2", "VST3-Serum 2-3"]));
+      sessionStorage.setItem("e2e-plugins-set", "1");
+    }
+  });
+  const id = await openNewSong(page, "Serum player");
+  await page.getByTestId("channel-rack").getByRole("button", { name: "Add a channel" }).click();
+  await page.getByTestId("channel-picker").getByRole("option", { name: /Serum 2/ }).click();
+
+  // Added, it opens its player (not Serum's own window), which lists the library: Serum 2 presets and a Serum 1 one.
+  const player = page.getByTestId("serum-player");
+  await expect(player).toBeVisible();
+  const serum = channelButton(page, "Serum 2");
+  await expect(serum).toHaveAttribute("aria-expanded", "true");
+  const presets = player.getByRole("listbox", { name: "Presets" }).getByRole("option");
+  await expect(presets).toHaveText([/BA - Stand-in Reese/, /LD - Stand-in Lead/, /PD - Stand-in Pad/, /pl - stand-in pluck.*S1/]);
+  await expect(player.getByTestId("serum-macros").locator("[data-macro]")).toHaveCount(8);
+
+  // Found by its maker or its kind, loaded by a click.
+  const find = player.getByRole("textbox", { name: "Find a preset" });
+  await find.fill("somebody");
+  await expect(presets).toHaveText([/PD - Stand-in Pad/]);
+  await find.fill("reese");
+  await presets.first().click();
+  await expect(player.getByTestId("serum-preset-name")).toHaveText("BA - Stand-in Reese");
+  await expect(presets.first()).toHaveAttribute("aria-selected", "true");
+
+  // ↓ steps through the list, from the search field and from the window.
+  await find.fill("");
+  await find.press("ArrowDown");
+  await expect(player.getByTestId("serum-preset-name")).toHaveText("LD - Stand-in Lead");
+  await player.getByTestId("serum-preset-name").click();
+  await page.keyboard.press("ArrowDown");
+  await expect(player.getByTestId("serum-preset-name")).toHaveText("PD - Stand-in Pad");
+  await player.getByRole("button", { name: "Previous preset" }).click();
+  await expect(player.getByTestId("serum-preset-name")).toHaveText("LD - Stand-in Lead");
+
+  // Serum 1 alone; rated, it's starred, in Serum's own index.
+  await player.getByRole("group", { name: "Serum version" }).getByRole("button", { name: "Serum 1" }).click();
+  await expect(presets).toHaveText([/pl - stand-in pluck/]);
+  await presets.first().getByRole("button", { name: "4 stars" }).click();
+  await player.getByRole("group", { name: "Serum version" }).getByRole("button", { name: "Both" }).click();
+  await player.getByRole("button", { name: "Starred" }).click();
+  await expect(presets).toHaveText([/pl - stand-in pluck/]);
+  await expect
+    .poll(async () => ((await (await page.request.get("/api/music/serum/presets")).json()).presets as { name: string; rating: number }[]).find((p) => p.name === "pl - stand-in pluck")?.rating)
+    .toBe(4);
+  await presets.first().getByRole("button", { name: "4 stars" }).click();
+  await expect(presets).toHaveCount(0);
+  await player.getByRole("button", { name: "Starred" }).click();
+
+  // A macro turned is Serum's own control turned.
+  const channelId = (await savedSong(page, id)).channels.find((c: { name: string }) => c.name === "Serum 2").id;
+  await player.getByRole("slider", { name: "Macro 1" }).focus();
+  await page.keyboard.press("ArrowUp");
+  await expect
+    .poll(async () => ((await (await page.request.get(`/api/engine/parameters?owner=channel&id=${channelId}`)).json()) as { id: string; value: number }[]).find((p) => p.id === "7000000")?.value)
+    .not.toBe(0.5);
+  // (The knob kept its arrow: the preset didn't change.)
+  await expect(player.getByTestId("serum-preset-name")).toHaveText("LD - Stand-in Lead");
+
+  // Serum's own window is a click away; the rack's button closes the player.
+  await player.getByRole("button", { name: "Open Serum" }).click();
+  await expect(player.getByRole("button", { name: "Hide Serum" })).toBeVisible();
+  await player.getByRole("button", { name: "Hide Serum" }).click();
+  await serum.click();
+  await expect(player).toHaveCount(0);
+  await expect(serum).toHaveAttribute("aria-expanded", "false");
 });
 
 test("a plugin channel's settings are FL's wrapper: its knobs, the plugin, its programs and the user's presets for it", async ({ page }) => {
@@ -884,7 +957,7 @@ test("settings: ⌘, opens on the music tab, with the device and the plugin benc
 
   // Each slot offers the plugins of its kind.
   await dialog.getByRole("combobox", { name: "Instrument plugin" }).click();
-  await expect(page.getByRole("option")).toHaveCount(1);
+  await expect(page.getByRole("option")).toHaveText([/Fake Synth/, /Serum 2/]);
   await page.getByRole("option", { name: /Fake Synth/ }).click();
   const instrument = dialog.locator('[data-slot-name="instrument"]');
   await instrument.getByRole("button", { name: "Open window" }).click();

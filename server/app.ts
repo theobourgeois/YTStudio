@@ -14,7 +14,7 @@ import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
-import { GALLERY_DL, MODELS_DIR, MUSIC_MODELS, MUSIC_WORKER, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, config } from "./config.ts";
+import { GALLERY_DL, MODELS_DIR, MUSIC_MODELS, MUSIC_WORKER, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, SERUM_LIBRARY, config } from "./config.ts";
 import { photoModels } from "./photo/models.ts";
 import { ExportManager } from "./exports.ts";
 import { RenderFiles } from "./render-files.ts";
@@ -32,6 +32,9 @@ import { musicModels } from "./music/ml.ts";
 import { browserRoutes, engineRoutes, musicExportRoutes, musicModelRoutes, musicVisualizerRoutes, noteRoutes, stemRoutes } from "./music/routes.ts";
 import { StemSeparator } from "./music/stems.ts";
 import { mixerSetupRoutes } from "./music/mixer-setup.ts";
+import { SerumLibrary } from "./music/serum/library.ts";
+import { SerumPlayer, serumPlayerRoutes } from "./music/serum/player.ts";
+import { standInSerumLibrary } from "./music/serum/stand-in.ts";
 import { PhotoHelper } from "./photo/helper.ts";
 import { PhotoLab } from "./photo/lab.ts";
 import { photoLabRoutes, photoRoutes } from "./photo/routes.ts";
@@ -275,6 +278,10 @@ export async function createApp({
   app.use("/api/photo", photoRoutes(photo, photoModels(MODELS_DIR, PHOTO_MODELS === "stand-in"), photoOnline));
   const mixerKeys = new ApiKeyStore(path.join(paths.root, "music-jev-settings.json"));
   await mixerKeys.load();
+  const serumLibrary = new SerumLibrary(
+    SERUM_LIBRARY === "stand-in" ? standInSerumLibrary(path.join(paths.root, "serum-stand-in")) : SERUM_LIBRARY ? { serum2: SERUM_LIBRARY, serum1: null } : undefined,
+  );
+  app.use("/api/music/serum", serumPlayerRoutes(new SerumPlayer({ library: serumLibrary, engine, hasProject: (id) => projects.has(id) })));
   app.use("/api/music/mixer-setup", mixerSetupRoutes({ engine, keys: mixerKeys, hasProject: (id) => projects.has(id), assets: (id) => library.list(id) }));
   app.use("/api/browser", browserRoutes(browser, engine, {
       hasProject: (id) => projects.has(id),

@@ -79,7 +79,7 @@ describe("AudioEngine", () => {
   it("starts the engine on the first command and answers with its status", async () => {
     const status = await engine.command("tone", { on: true });
     expect(status).toMatchObject({ device: "Fake Output", tone: true, instrument: null });
-    expect(await engine.plugins()).toHaveLength(2);
+    expect(await engine.plugins()).toHaveLength(3);
   });
 
   it("reads preset metadata for the loaded project and rejects other tabs or a mid-read switch", async () => {

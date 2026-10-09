@@ -6,6 +6,7 @@ import { HANDOFF_ROLES, VISUALIZER_ASPECTS, VISUALIZER_LOOKS } from "../handoff.
 import { type ToolSpec, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { CHOP_PATTERNS } from "./chop.ts";
 import { CONVERT_KINDS } from "./convert.ts";
+import { FAVOURITE_RATING, SERUM_CATEGORIES } from "./serum-presets.ts";
 import { STEMS } from "./stems.ts";
 import { EXPORT_FORMATS } from "./export.ts";
 import { ECHO_TOOL_CONTROL_NAMES } from "./echo-boy-presets.ts";
@@ -704,6 +705,74 @@ export const MUSIC_TOOLS = [
         name: str('With "load", "save" and "delete": the preset\'s name.'),
       },
       ["action"],
+    ),
+  }),
+  tool({
+    name: "search_serum_presets",
+    title: "Search Serum's presets",
+    kind: "look",
+    description:
+      "Serum 2's preset library on this computer (the Serum player's browser: Serum 2 presets and Serum 1 .fxp ones, which Serum 2 converts as it " +
+      "loads them), best match first. `query` matches names, makers, folders, kinds and tags, typos allowed; leave it out to list by name. Each line: " +
+      "the preset, its folder, kind, maker, Serum's stars and S1 for a Serum 1 preset. Load one onto a Serum 2 channel with load_serum_preset.",
+    inputSchema: obj({
+      query: str("Words to look for, e.g. \"dark reese\", \"shinju lead\", \"granular pad\"."),
+      category: oneOf(SERUM_CATEGORIES, "Only presets of this kind."),
+      starred: bool(`Only the presets with ${FAVOURITE_RATING} stars or more (the user's favourites).`),
+      version: oneOf(["serum2", "serum1"], "Only Serum 2 presets, or only Serum 1 ones."),
+      limit: int("How many to list (default 30, at most 200).", { minimum: 1, maximum: 200 }),
+    }),
+  }),
+  tool({
+    name: "get_serum_sound",
+    title: "What a Serum channel has on",
+    kind: "look",
+    description: "The preset a Serum 2 channel has on (as Serum says), and its eight macros: their names and where they are (0 to 100%).",
+    inputSchema: obj({ channel: str("A Serum 2 channel: its id or name (get_song lists them).") }, ["channel"]),
+  }),
+  tool({
+    name: "load_serum_preset",
+    title: "Load a Serum preset",
+    kind: "action",
+    description:
+      "Load a preset of Serum's library (search_serum_presets finds them) onto a Serum 2 channel, as Serum's own browser loads it (a Serum 1 preset " +
+      "is converted by Serum). It replaces the channel's sound; notes held go on with the new one. Not an undo step yet. Answers with its macros.",
+    inputSchema: obj(
+      {
+        channel: str("A Serum 2 channel: its id or name (get_song lists them)."),
+        preset: str("The preset's name, as search_serum_presets gives it."),
+        folder: str("Its folder, when two presets have the name (search_serum_presets says where each is)."),
+      },
+      ["channel", "preset"],
+    ),
+  }),
+  tool({
+    name: "set_serum_macros",
+    title: "Turn a Serum channel's macros",
+    kind: "action",
+    description:
+      "Set macros of the preset a Serum 2 channel has on (the controls its maker gave it: get_serum_sound lists them), live: what's playing changes " +
+      "as it plays. Each `macro` is its number (1 to 8) or its name; `value` is 0 to 100 (%).",
+    inputSchema: obj(
+      {
+        channel: str("A Serum 2 channel: its id or name."),
+        macros: arr(obj({ macro: str("Its number, 1 to 8, or its name (\"SPACE\")."), value: num("0 to 100 (%).") }, ["macro", "value"]), "The macros to set.", { minItems: 1 }),
+      },
+      ["channel", "macros"],
+    ),
+  }),
+  tool({
+    name: "rate_serum_preset",
+    title: "Rate a Serum preset",
+    kind: "action",
+    description: `Give a preset of Serum's library stars, as Serum does (0 takes them away): ${FAVOURITE_RATING} or more makes it one of the user's favourites. Serum shows them too.`,
+    inputSchema: obj(
+      {
+        preset: str("The preset's name, as search_serum_presets gives it."),
+        folder: str("Its folder, when two presets have the name."),
+        stars: int("0 to 5.", { minimum: 0, maximum: 5 }),
+      },
+      ["preset", "stars"],
     ),
   }),
   tool({
