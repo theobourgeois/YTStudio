@@ -248,7 +248,7 @@ private:
     std::function<void()> changed;
     juce::File presetsRoot;
     std::map<juce::String, std::shared_ptr<HostedPlugin>> loaded;
-    /** Owner id -> the plugin id being loaded for it. */
+    /** Owners whose plugin is loading: its id and the file its state comes from (`pluginId\nstate path`). */
     std::map<juce::String, juce::String> loading;
     std::map<juce::String, juce::String> failed;
     /** The app's state, once the desktop app has said. */

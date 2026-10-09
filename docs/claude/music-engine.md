@@ -33,6 +33,10 @@ Read the music suite's guide (`docs/claude/music.md`) first.
   says its spectrum (Pro-Q's `eq::Spectrum`, 480 points), its newest 1024 samples and 256 stereo pairs, and its
   peaks (`scopes`). Approximate on purpose (a torn sample is a pixel, never a sound); an offline render's answer
   always carries them (`plugin-swap.integration.test.ts`).
+- **A plugin instance belongs to a channel *and* its state file** (`PluginHost::get`): a song's channel keeps its
+  instance across the song's edits, but a channel of the same id in another project (songs made from the same
+  starting point share ids) is another instance, loaded from its own file. Reusing it played one project's sound in
+  another and saved it into the first's package (`plugin-swap.integration.test.ts` keeps it so).
 - Hosted plugins are told where the song is (`PlayHead.h`): each sequencer (playback's, the export's) fills in a
   playhead at the start of every block from the song (tempo, time signature, position, playing, loop) and gives
   it to every plugin it plays, so their synced LFOs and delays follow the song. The tempo is the song's own (with

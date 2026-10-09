@@ -70,7 +70,9 @@ std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& ownerId, cons
 {
     if (const auto found = loaded.find (ownerId); found != loaded.end())
     {
-        if (found->second->pluginId == pluginId)
+        // The same plugin for the same file. A channel of another song can have the same id (songs made from the same
+        // starting point do): it's another instance, with its own state, saved to its own file.
+        if (found->second->pluginId == pluginId && found->second->stateFile == stateFile)
         {
             // Renamed: its window's title says so.
             if (auto& hosted = *found->second; hosted.ownerName != ownerName)
@@ -85,7 +87,9 @@ std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& ownerId, cons
         save (*found->second);
         loaded.erase (found);
     }
-    if (const auto busy = loading.find (ownerId); busy != loading.end() && busy->second == pluginId)
+    // What's loading is a plugin for a file: one asked for another song's file meanwhile is loaded again for this one.
+    const auto loadKey = pluginId + "\n" + stateFile.getFullPathName();
+    if (const auto busy = loading.find (ownerId); busy != loading.end() && busy->second == loadKey)
         return nullptr;
     if (const auto broken = failed.find (ownerId); broken != failed.end())
         return nullptr;
@@ -97,14 +101,14 @@ std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& ownerId, cons
         return nullptr;
     }
 
-    loading[ownerId] = pluginId;
+    loading[ownerId] = loadKey;
     // Loading it (and its state) is the message thread's, and some plugins take seconds.
     formats.createPluginInstanceAsync (*description, sampleRate, blockSize,
-                                       [this, stillAlive = alive, ownerId, pluginId, stateFile, ownerName, hold = EditorWindow::whileBusy()] (std::unique_ptr<juce::AudioPluginInstance> created, const juce::String& error) {
+                                       [this, stillAlive = alive, ownerId, pluginId, loadKey, stateFile, ownerName, hold = EditorWindow::whileBusy()] (std::unique_ptr<juce::AudioPluginInstance> created, const juce::String& error) {
                                            if (! *stillAlive)
                                                return;
                                            // Asked for something else (or nothing) since.
-                                           if (const auto busy = loading.find (ownerId); busy == loading.end() || busy->second != pluginId)
+                                           if (const auto busy = loading.find (ownerId); busy == loading.end() || busy->second != loadKey)
                                                return;
                                            loading.erase (ownerId);
                                            if (created == nullptr)
