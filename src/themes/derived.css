@@ -7,7 +7,10 @@
  * and so win. Only CSS reads these: values a canvas reads (`--piano-*`, `--meter-*`, `--brand`, `--line`)
  * must be plain colours, never `color-mix()`, so each theme sets those itself.
  */
-.theme:where(:not(.theme-light, .theme-dark)) {
+/* Dark themes too: Studio's Dark values are on `.theme.dark`, which would outrank `.theme` alone (its blue
+   accent buttons, ring and plugin colours showing through), so the second selector matches them as strongly. */
+.theme:where(:not(.theme-light, .theme-dark)),
+.theme.dark:where(:not(.theme-light, .theme-dark)) {
   /* A control's face: lit above its surface, a touch darker below. */
   --raised: linear-gradient(to bottom, color-mix(in oklab, var(--surface-3), white 45%), color-mix(in oklab, var(--surface-3), black 4%));
   --raised-hover: linear-gradient(to bottom, white, color-mix(in oklab, var(--surface-3), black 2%));
