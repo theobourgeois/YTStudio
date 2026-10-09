@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { PiArrowArcLeft, PiArrowArcRight, PiCaretDown, PiCaretLeftFill, PiCaretRightFill, PiCheck, PiMagnifyingGlass, PiSpinnerGap, PiStar, PiStarFill, PiX } from "react-icons/pi";
+import { PiArrowArcLeft, PiArrowArcRight, PiCaretDown, PiCaretLeftFill, PiCaretRightFill, PiCheck, PiMagnifyingGlass, PiShuffle, PiSpinnerGap, PiStar, PiStarFill, PiX } from "react-icons/pi";
 import { cn } from "cn";
 import {
   SERUM_CATEGORIES,
@@ -15,7 +15,7 @@ import { Caption, CompKnob } from "../pro-c/knob";
 import { useSong } from "../store";
 import { useTransport } from "../transport";
 import { serumWindow } from "../ui";
-import { MusicWindow, centredOnDesktop } from "../window";
+import { MusicWindow, fittedOnDesktop } from "../window";
 import { EffectsSection } from "./effects";
 import { EnvelopesAndLfos } from "./envelopes";
 import { categoryHue, SERUM_TOKENS } from "./look";
@@ -28,7 +28,8 @@ import { useSerumUi } from "./store";
 
 const WIDTH = 900;
 const HEIGHT = 700;
-const MIN = { minWidth: 640, minHeight: 460 };
+const MIN_SIZE = { width: 640, height: 460 };
+const MIN = { minWidth: MIN_SIZE.width, minHeight: MIN_SIZE.height };
 
 /**
  * A Serum 2 channel's window (`docs/serum/player.md` §3), a plugin's face as YT-L's is, in Serum's colours: the
@@ -39,8 +40,9 @@ const MIN = { minWidth: 640, minHeight: 460 };
 export function SerumPlayerWindow({ channelId, index }: { channelId: string; index: number }) {
   const channel = useSong((s) => s.channels.find((c) => c.id === channelId) ?? null);
   const [initial] = useState(() => {
-    const place = centredOnDesktop(WIDTH, HEIGHT);
-    return { ...place, x: place.x + index * 28, y: Math.max(8, place.y) + index * 28, width: WIDTH, height: HEIGHT };
+    // As big as it likes where there's room, else as big as the desktop takes (a laptop's screen): never under the Dock.
+    const place = fittedOnDesktop({ width: WIDTH, height: HEIGHT }, MIN_SIZE);
+    return { ...place, x: place.x + index * 28, y: place.y + index * 28 };
   });
   const gone = !channel;
   useEffect(() => {
@@ -221,6 +223,16 @@ function PresetBrowser({ channelId }: { channelId: string }) {
           </DropdownMenu>
           <button type="button" aria-pressed={favourites} aria-label="Starred" title={`Only the presets with ${FAVOURITE_RATING} stars or more`} className={cn(filter(favourites), "shrink-0 px-1.5")} onClick={() => setFavourites(!favourites)}>
             {favourites ? <PiStarFill className="size-3 text-[var(--serum-hot)]" /> : <PiStar className="size-3" />}
+          </button>
+          <button
+            type="button"
+            aria-label="Random preset"
+            title="Load a random preset from this list"
+            disabled={!list.length}
+            className={cn(filter(false), "shrink-0 px-1.5 disabled:opacity-40")}
+            onClick={() => void useSerumUi.getState().shuffle(channelId)}
+          >
+            <PiShuffle className="size-3" />
           </button>
           <div className="flex shrink-0 overflow-hidden rounded-[4px] border border-black/60 text-[11px]" role="group" aria-label="Serum version">
             {([null, "serum2", "serum1"] as const).map((k) => (
