@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { errorMessage } from "@shared/errors";
-import { type SerumPresetEntry, type SerumSound, stepSerumPreset } from "@shared/music/serum-presets";
+import { type SerumPresetEntry, type SerumSound, randomSerumPreset, stepSerumPreset } from "@shared/music/serum-presets";
 import { type SerumSolo, type SerumSoundEdit, soloOscillator, withControl } from "@shared/music/serum-sound";
 import { musicApi } from "../api";
 import { useMusic } from "../store";
@@ -47,6 +47,8 @@ interface SerumUi {
   load: (channelId: string, entry: SerumPresetEntry) => Promise<void>;
   /** The next (1) or previous (-1) preset in the player's list. */
   step: (channelId: string, by: number) => Promise<void>;
+  /** A random preset of the player's list as its search and filters leave it (never the one on, if there's another). */
+  shuffle: (channelId: string) => Promise<void>;
   setShown: (channelId: string, paths: string[]) => void;
   /** Serum's stars for a preset (0 takes them away). */
   rate: (entry: SerumPresetEntry, rating: number) => Promise<void>;
@@ -189,6 +191,13 @@ export const useSerumUi = create<SerumUi>((set, get) => {
       const now = get().channels[channelId];
       const next = stepSerumPreset(list, now?.loading ?? now?.path ?? null, by);
       if (next && next.path !== (now?.loading ?? now?.path)) await get().load(channelId, next);
+    },
+    async shuffle(channelId) {
+      const byPath = new Map((get().presets ?? []).map((p) => [p.path, p]));
+      const list = (get().shown[channelId] ?? []).flatMap((p) => byPath.get(p) ?? []);
+      const now = get().channels[channelId];
+      const next = randomSerumPreset(list, now?.loading ?? now?.path ?? null);
+      if (next) await get().load(channelId, next);
     },
     setShown(channelId, paths) {
       set((s) => ({ shown: { ...s.shown, [channelId]: paths } }));

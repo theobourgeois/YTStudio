@@ -518,6 +518,15 @@ test("a Serum 2 channel's window is the Serum player: Serum's presets in one lis
   await player.getByRole("button", { name: "Previous preset" }).click();
   await expect(player.getByTestId("serum-preset-name")).toHaveText("LD - Stand-in Lead");
 
+  // Shuffle: a random preset of the list as it's filtered, never the one on.
+  await find.fill("stand-in");
+  await player.getByRole("button", { name: "Random preset" }).click();
+  await expect(player.getByTestId("serum-preset-name")).not.toHaveText("LD - Stand-in Lead");
+  await expect(player.getByTestId("serum-preset-name")).toHaveText(/Stand-in|stand-in/);
+  await find.fill("");
+  await player.getByRole("listbox", { name: "Presets" }).getByRole("option", { name: "LD - Stand-in Lead" }).click();
+  await expect(player.getByTestId("serum-preset-name")).toHaveText("LD - Stand-in Lead");
+
   // Serum 1 alone; rated, it's starred, in Serum's own index.
   await player.getByRole("group", { name: "Serum version" }).getByRole("button", { name: "Serum 1" }).click();
   await expect(presets).toHaveText([/pl - stand-in pluck/]);

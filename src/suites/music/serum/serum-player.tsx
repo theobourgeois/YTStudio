@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { PiArrowArcLeft, PiArrowArcRight, PiCaretDown, PiCaretLeftFill, PiCaretRightFill, PiCheck, PiMagnifyingGlass, PiSpinnerGap, PiStar, PiStarFill, PiX } from "react-icons/pi";
+import { PiArrowArcLeft, PiArrowArcRight, PiCaretDown, PiCaretLeftFill, PiCaretRightFill, PiCheck, PiMagnifyingGlass, PiShuffle, PiSpinnerGap, PiStar, PiStarFill, PiX } from "react-icons/pi";
 import { cn } from "cn";
 import {
   SERUM_CATEGORIES,
@@ -220,6 +220,16 @@ function PresetBrowser({ channelId }: { channelId: string }) {
           </DropdownMenu>
           <button type="button" aria-pressed={favourites} aria-label="Starred" title={`Only the presets with ${FAVOURITE_RATING} stars or more`} className={cn(filter(favourites), "shrink-0 px-1.5")} onClick={() => setFavourites(!favourites)}>
             {favourites ? <PiStarFill className="size-3 text-[var(--serum-hot)]" /> : <PiStar className="size-3" />}
+          </button>
+          <button
+            type="button"
+            aria-label="Random preset"
+            title="Load a random preset from this list"
+            disabled={!list.length}
+            className={cn(filter(false), "shrink-0 px-1.5 disabled:opacity-40")}
+            onClick={() => void useSerumUi.getState().shuffle(channelId)}
+          >
+            <PiShuffle className="size-3" />
           </button>
           <div className="flex shrink-0 overflow-hidden rounded-[4px] border border-black/60 text-[11px]" role="group" aria-label="Serum version">
             {([null, "serum2", "serum1"] as const).map((k) => (
