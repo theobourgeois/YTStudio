@@ -25,6 +25,7 @@ import { automateParameter } from "./automation/actions";
 import { useMixerView } from "./mixer/view";
 import { useAutomationUi } from "./automation/store";
 import { takeReverbs } from "./reverb/live";
+import { takeScopes, watchScopesAgain } from "./serum/scope";
 
 /**
  * Keeps the audio engine playing the open song: every change of the document (even mid-drag, so a
@@ -167,6 +168,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       takeLimiters(event.limiters);
       // What each Reverb is doing: its meters and its tail's spectrum, likewise.
       takeReverbs(event.reverbs);
+      // What each watched Serum channel sounds like: its player's display, likewise.
+      takeScopes(event.scopes);
       // Each modulator's level: the controls it moves show it.
       takeModulatorLevels(event.modulators);
     } else if (event.event === "midi") {
@@ -216,6 +219,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       useTransport.setState({ playing: false, tick: 0 });
       meterSelection(true);
       midi.resend();
+      watchScopesAgain();
     }
   });
   void send();

@@ -496,6 +496,8 @@ test("a Serum 2 channel's window is the Serum player: Serum's presets in one lis
   const presets = player.getByRole("listbox", { name: "Presets" }).getByRole("option");
   await expect(presets).toHaveText([/BA - Stand-in Reese/, /LD - Stand-in Lead/, /PD - Stand-in Pad/, /pl - stand-in pluck.*S1/]);
   await expect(player.getByTestId("serum-macros").locator("[data-macro]")).toHaveCount(8);
+  // Its display, and the engine told to measure the channel for it.
+  await expect(player.getByTestId("serum-scope")).toBeVisible();
 
   // Found by its maker or its kind, loaded by a click.
   const find = player.getByRole("textbox", { name: "Find a preset" });

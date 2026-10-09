@@ -744,6 +744,10 @@ export class AudioEngine {
           ...(isFiniteNumber(body.scratch) && { scratch: clamp(body.scratch, -GROSS_DEPTH, 0) }),
         };
       }
+      case "channelWatch": {
+        const list = Array.isArray(body.channels) ? body.channels : [];
+        return { channels: list.filter((c): c is string => typeof c === "string" && /^[\w-]{1,64}$/.test(c)).slice(0, 64) };
+      }
       case "eqWatch": {
         const list = Array.isArray(body.effects) ? body.effects : [];
         const effects = list.flatMap((e) =>

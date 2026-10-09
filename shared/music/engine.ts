@@ -138,6 +138,8 @@ export interface EngineTransport {
   reverbs?: Record<string, EngineReverbState>;
   /** Each Pro-Q being watched (`eqWatch`), by effect id: its spectra and its dynamic bands (absent from engines that don't say). */
   eq?: Record<string, EngineEqState>;
+  /** Each plugin channel watched (`channelWatch`: a Serum player's display) that sounded since the last event, by channel id. */
+  scopes?: Record<string, EngineChannelScope>;
   /** Each PanMan in the song (by effect id): where it's put the sound (absent from engines that don't say). */
   panMen?: Record<string, EnginePanState>;
   /** Each Pitch Wheel in the song (by effect id): where its wheels actually are, and its notes (absent from engines that don't say). */
@@ -271,6 +273,20 @@ export interface EngineReverbState {
   clip: boolean;
   frozen: boolean;
   spectrum?: number[] | null;
+}
+
+/**
+ * What a watched plugin channel's own sound is like (the Serum player's display): its spectrum (dB at
+ * `EQ_SPECTRUM_POINTS` log-spaced frequencies from 10 Hz, a full-scale sine reading 0, to a tenth), its newest 1024
+ * samples (`wave`, mid), 256 pairs of them for the stereo picture (`left`, `right`: every fourth), and each side's
+ * peak since the engine last said.
+ */
+export interface EngineChannelScope {
+  spectrum: number[];
+  wave: number[];
+  left: number[];
+  right: number[];
+  peak: [number, number];
 }
 
 /**
@@ -702,6 +718,8 @@ export interface EngineRender {
   meters: EngineMeters;
   /** The watched Pro-Qs' state after these samples (`EngineEqState`, by effect id). */
   eq?: Record<string, EngineEqState>;
+  /** The watched plugin channels' sound over these samples (`EngineChannelScope`, by channel id). */
+  scopes?: Record<string, EngineChannelScope>;
   transport: EngineTransport & { metronome: boolean };
 }
 
@@ -773,6 +791,8 @@ export interface EngineCommands {
    * spectrum): each with its analyzer's FFT length. The rest aren't measured.
    */
   eqWatch: { effects: { effect: string; size: number }[] };
+  /** The plugin channels whose sound is shown (the Serum players open): measured for the transport events' `scopes`. */
+  channelWatch: { channels: string[] };
   /**
    * A Pro-Q band soloed while its solo button is held (null lets go): only the part of the sound it works
    * on is heard, `gain` dB louder or softer (the solo's listening level).

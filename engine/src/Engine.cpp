@@ -521,6 +521,16 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             state->scratch = (float) juce::jlimit (-64.0, 0.0, (double) params["scratch"]);
         return ok();
     }
+    if (command == "channelWatch")
+    {
+        // The Serum players open: their channels' sound is measured for their displays (`scopes`).
+        juce::StringArray ids;
+        if (const auto* list = params["channels"].getArray())
+            for (const auto& id : *list)
+                ids.add (id.toString());
+        plugins.watchScopes (ids);
+        return ok();
+    }
     if (command == "eqWatch")
     {
         // The Pro-Qs whose windows are open: their sound is measured for the analyzer.
@@ -1029,6 +1039,7 @@ void Engine::timerCallback()
                                             { "limiters", limiters.describe (true) },
                                             { "reverbs", reverbs.describe() },
                                             { "eq", eqs.describe() },
+                                            { "scopes", plugins.scopes() },
                                             { "panMen", panMen.describe() },
                                             { "pitchWheels", pitchWheels.describe() },
                                             { "modulators", sequencer.describeModulators() },
@@ -1138,6 +1149,7 @@ void Engine::render (int frames, const juce::File& file, const juce::String& inp
                                { "levels", sequencer.recorder().levels() },
                                // The watched Pro-Qs' spectra and dynamics, as their transport events carry them live.
                                { "eq", eqs.describe() },
+                               { "scopes", plugins.scopes (true) },
                                { "transport", transport() } }));
 }
 
