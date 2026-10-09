@@ -15,7 +15,7 @@ built yet.
 2. [What the checks found](#2-what-the-checks-found)
 3. [The design](#3-the-design)
 4. [The steps](#4-the-steps)
-5. [Open questions](#5-open-questions)
+5. [Questions](#5-questions)
 
 ## 1. What's decided
 
@@ -199,7 +199,7 @@ The main fix: every preset on the computer in one flat list.
 - **Where it reads:**
   - Serum 2's preset folder (factory, packs, `User`);
   - Serum 1's folder;
-  - folders added in Settings, e.g. `Downloads/Serum Starred Presets` and the kits.
+  - later, folders added in Settings (the kits).
 
   As with the Browser's sample folders, the server reads nothing outside these (`server/music/browser.ts`'s rules).
 - **The index (the server's):** built with our reader (`readSerumFile`) and kept up to date while the folders change.
@@ -211,10 +211,10 @@ The main fix: every preset on the computer in one flat list.
   - a hash, so the same preset in two places is listed once.
 - **Search:** typo-tolerant, ranked (the Browser's search in `shared/music/browser.ts`), with filters by category,
   pack, author and Serum 1 / 2.
-- **Favourites (★):** this computer's, kept by the server as the Browser's are. The starred folder seeds them.
+- **Ratings (★):** Serum's own, read from its databases and written back, so the player and Serum agree (§5, Q2).
 - **Keys:** ↑/↓ load the next preset at once, which is a reload (§2.2): browsing *is* hearing. Typing searches.
-- **What a step plays:** whatever is being held or played. With nothing held, a short phrase can play, chosen by
-  the preset's category (§5, Q3).
+- **What a step plays:** nothing by itself. A held note is played again with the new preset; otherwise only what
+  he plays sounds (§5, Q3).
 
 ### 3.3 Macros
 
@@ -335,13 +335,24 @@ New tools in `shared/music/tools.ts`, for parity with the window:
 7. **The Serum 1 library:** by step 0's way 1 if it works, else an import session through Serum's window (§2.3,
    way 2).
 
-## 5. Open questions
+## 5. Questions
 
-- **Q1. Are the player's edits undo steps?** Today what's turned in a plugin's window isn't, as in FL Studio. The
-  player could keep its own undo, a history of states for the channel, since it knows every edit.
-- **Q2. Favourites:** are the starred folder's 118 the starting favourites, or does he star from scratch?
-- **Q3. What plays while browsing with nothing held?** Silence, a phrase chosen by category (bass: low notes, pad: a
-  chord), or the pattern's own notes looped?
-- **Q4. Converted Serum 1 presets:** kept as `.SerumPreset` copies where (Serum's `User/Serum 1`, so Serum sees them
-  too, or a cache of ours), or converted each time they load (only possible with §2.3's way 1)?
+Théo's answers (2026-10-09):
+
+- **Q1. Undo: yes.** Player edits are undo steps. The player keeps a history of the channel's states: a live
+  change is one step when its drag ends, a reload one step too.
+- **Q2. Favourites are Serum's ratings, plus his own.**
+  - **Show:** the stars he gave presets in Serum (4 and 5 stars count as favourites).
+  - **Star in the player:** stars set in the player must show in Serum too.
+  - **The library is what's in Serum's preset folders.** More folders can be added later.
+  - **Where Serum keeps ratings:** Serum 2's `System/presets.db` (`UserData`: a preset's hash and its rating) and
+    Serum 1's `presetdb.dat` (`SerumPresetTable.Rating`). Serum 2 imports Serum 1's (its "Import Preset Ratings
+    from Serum 1" preference is on).
+  - **Both are empty on this Mac** (2026-10-09: no `UserData` rows, all 797 Serum 1 ratings 0). Before step 2,
+    find out where his stars are, e.g. by rating one preset in Serum and seeing what changes.
+  - Writing to Serum's database while Serum is open needs care: it's SQLite, and Serum may hold it.
+- **Q3. Nothing plays by itself.** Browsing only loads. Sound comes from what he plays (a MIDI keyboard, the typing
+  keyboard, the Piano roll's keys).
+- **Q4. Converted Serum 1 presets: none, if step 0 works.** Then an `.fxp` loads as it is, converted by Serum
+  each time, as in Serum's own browser. Only if step 0 fails do conversions need keeping somewhere.
 - **Q5. Later:** a player outside a song, e.g. a Sounds screen on Home to browse and play with no project open?
