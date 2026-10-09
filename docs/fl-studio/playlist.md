@@ -428,7 +428,7 @@ dropped from the Browser or the Finder (Shift: one after another on the track), 
 | Deleting clips | They go | They shrink and fade out where they were, as the Piano roll's notes do |
 | Picker | Sorting, unused, groups, render; patterns reordered by dragging; tabs for patterns, audio and automation clips | Its tabs, as FL's (patterns, audio clips, automation clips, the last with an Automate… button: every control of the song to pick from). Each item drawn as its clips are, in its colour, with its notes or its file's waveform; the clip source marked on its left. Items select as a list does (⌘-click toggles, Shift+click a range) for the menu: patterns' Transpose selected…, Rename, Clone, Move up / down, Delete (every one: an empty Pattern 1 is left); audio clips' Channel settings and Delete. A double-click shows it in the Channel rack. Alt+↑ / ↓ reorders patterns (Théo) |
 | Merge, group, lock to content, track mode, arrangements, performance mode | Yes | No (see what we'll leave out) |
-| Render as audio clip, Consolidate | Clip menu, track menu | The same ([export.md](export.md)) |
+| Render as audio clip, Consolidate | Clip menu, track menu, Tools › Consolidate playlist selection (Ctrl+Alt+C); renders the master's output (fader, pan and master effects baked in) into a clip that plays into the master; the clips muted, for good | Clip menu, track menu, the Edit menu and Ctrl+Alt+C. Rendered before the mixer tracks' effects, a clip per mixer track, each playing back into its track: the song sounds the same and the mixer stays live. Consolidate takes the clips' place with the clips inside it: its menu's **Unconsolidate** brings them back and **Re-render** renders them again (see below) |
 | Time markers | Alt+T, named, with actions | Alt+T adds one where the song is (or plays from), named as it's added; drawn in a band along the ruler's bottom, dragged along it, clicked to play from it, double-clicked to rename; their right-click menu renames, deletes and sets their kind: a marker, Start recording or Stop recording (punch in / out, [recording.md](recording.md)). The export ends at the last one. No loop, skip or pause actions, no Alt+/ jumps; the assistant's `set_time_markers` |
 | The Piano roll's ruler in song mode | Moves the song | Switches to pattern mode, from there |
 | The playhead | In every window | The Playlist's in song mode; the rack's lights and the Piano roll's follow the pattern shown inside the song |
@@ -478,6 +478,34 @@ Théo asked for stretching "in one pass", doing whatever FL Studio does.
 5. **Detect tempo** uses the video editor's beat tracker (`server/beats.ts`, now the platform's), and
    rounds the tempo so the file is a whole number of beats when that's within 4%, which is what makes a
    loop loop.
+
+## Decided for consolidating (2026-10-09)
+
+Théo finds FL's Consolidate and Render as audio clip really useful and asked for them, done better where
+there's a better way. FL's users' complaints (Image-Line's forum): it records the master, so the fader and
+pan are baked in and the master's effects run twice; the new clip plays into the master and every bounce is
+routed by hand; and it can't be undone, only deleted and done again. Built in `shared/music/consolidate.ts`
+(pure, tested), the render in `playlist/bounce.ts`; the real engine checks that a consolidated song sounds the
+same, sample for sample (`export.integration.test.ts`).
+
+1. **Rendered before the mixer tracks' effects** (Théo's choice): the clips' channels as they reach their
+   mixer tracks, with the instrument, the channel's own volume, pan and the rest, but not the track's effects,
+   fader, pan or sends. A clip for each mixer track they play into (a drum pattern on three inserts makes three),
+   each playing back into its track, so the song sounds as it did and the mixer can still change. The render
+   is an ordinary export of a song made for it (`bounceRender`): only the clips and the automation of their
+   channels and the tempo, every mixer track a plain stand-in (no effects, at 0 dB), whose stems are the files.
+   No "include the effects" choice yet.
+2. **The clips go inside the new ones** (Théo's choice, Bitwig's and Ableton's way rather than FL's muted
+   clips): Consolidate takes their place (the first new clip on the highest of their tracks, the others where
+   their clips were or the first free track below) and keeps them, once however many clips it has (its copies, slices), in `Playlist.consolidations`; each clip says which (`PlaylistClip.consolidated`).
+   **Unconsolidate** (the clip's menu, `unconsolidate_clips`) puts them back as far from where they were as the
+   clip has moved, only the part inside it if it was trimmed, with the other mixer tracks' clips of that
+   place; a copy of it elsewhere gives back its own. **Re-render** (`rerender_clip`) renders them again as
+   their patterns and instruments are now, and its channels play the new files, so every copy and slice does.
+3. **Render as audio clip** leaves the clips as they are and puts the new ones on the first free tracks below.
+4. **No "from song start"**: FL offers it so the file lines up with the song; ours starts where the first clip
+   does and is placed there. Plugins are told where the song is (`PlayHead.h`), so synced LFOs and delays are
+   in step anyway.
 
 ## How it's built
 

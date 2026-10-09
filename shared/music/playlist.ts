@@ -287,7 +287,7 @@ export function patternTickInSong(song: Pick<MusicProject, "patterns" | "setting
 // ---------------------------------------------------------------------------
 
 export type NewClip = Pick<PlaylistClip, "kind" | "ref" | "track" | "start"> &
-  Partial<Pick<PlaylistClip, "length" | "offset" | "muted" | "fadeIn" | "fadeOut" | "fadeInTension" | "fadeOutTension" | "gain" | "stretch">>;
+  Partial<Pick<PlaylistClip, "length" | "offset" | "muted" | "fadeIn" | "fadeOut" | "fadeInTension" | "fadeOutTension" | "gain" | "stretch" | "consolidated">>;
 
 /** A new clip list, and the ids of the clips it gained. */
 export interface CreatedClips {
@@ -316,8 +316,9 @@ function tidy(clip: NewClip, id: number): PlaylistClip {
     offset: clip.kind === "audio" ? clamp(clip.offset ?? 0, 0, MAX_AUDIO_OFFSET) : clamp(Math.round(clip.offset ?? 0), 0, MAX_PATTERN_TICKS),
     muted: clip.muted ?? false,
     ...(clip.kind === "audio" && clip.stretch ? { stretch: clip.stretch } : {}),
+    ...(clip.kind === "audio" && clip.consolidated ? { consolidated: clip.consolidated } : {}),
   };
-  // An audio clip's own gain, fades and stretch go with it (copied, pasted, sliced).
+  // An audio clip's own gain, fades, stretch and what it was consolidated from go with it (copied, pasted, sliced).
   return tidied.kind === "audio" && tidied.length !== null ? { ...tidied, ...clipExtras(clip, tidied.length) } : tidied;
 }
 

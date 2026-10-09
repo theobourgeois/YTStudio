@@ -38,6 +38,7 @@ import { STRETCH_MODE_NAMES, isStretchMode, tempoForBeats, tempoOfFile } from "@
 import { MASTER_TRACK_ID, MAX_CLIP_GAIN, MAX_PLAYLIST_TRACKS } from "@shared/music/project";
 import { trackName as mixerTrackName } from "@shared/music/mixer";
 import { linkAudioTracks } from "@shared/music/recording";
+import { insideOf, unconsolidate } from "@shared/music/consolidate";
 import { addMarker, markersOf, removeMarker, updateMarker } from "@shared/music/markers";
 import { findTrack } from "../mixer/tool-edits";
 import { type AudioStretch, type Channel, MARKER_KINDS, type MarkerKind, type MusicProject, PPQ, type PlaylistClip, STEP_TICKS, type StretchMode } from "@shared/music/types";
@@ -95,7 +96,15 @@ function describeClip(song: MusicProject, clip: PlaylistClip, ctx: ClipContext):
   const content = clip.kind === "automation" ? "curve" : "pattern";
   const offset = clip.kind === "audio" ? (clip.offset ? `, from ${round(clip.offset)}s into its file` : "") : clip.offset ? `, from ${barsOf(clip.offset, ctx)} bars into its ${content}` : "";
   const follows = clip.kind !== "audio" && clip.length === null ? ` (its ${content}'s length)` : "";
-  return `- clip ${clip.id}: ${what} at bar ${barOf(clip.start, ctx)}, ${barsOf(length, ctx)} bars${follows}${offset}${audioExtras(clip)}${stretchNote(clip, ctx)}${clip.muted ? ", muted" : ""}`;
+  return `- clip ${clip.id}: ${what} at bar ${barOf(clip.start, ctx)}, ${barsOf(length, ctx)} bars${follows}${offset}${audioExtras(clip)}${stretchNote(clip, ctx)}${consolidatedNote(song, clip)}${clip.muted ? ", muted" : ""}`;
+}
+
+/** A consolidated clip's note for the model: what it plays into and what's inside it. */
+function consolidatedNote(song: MusicProject, clip: PlaylistClip): string {
+  const made = clip.consolidated;
+  if (!made) return "";
+  const n = insideOf(song, made.id).length;
+  return `, consolidated (into ${mixerTrackName(song, made.into) || "a mixer track that's gone"}, before its effects; ${n} clip${n === 1 ? "" : "s"} inside: unconsolidate_clips, rerender_clip)`;
 }
 
 /** An audio clip's own gain and fades, for the model (", +3 dB, fading in over 1 beat..."). */
@@ -381,6 +390,24 @@ export function makeClipUniqueTool(song: MusicProject, input: Input): EditResult
   }
   const made = next.patterns.find((p) => !song.patterns.some((q) => q.id === p.id))!;
   return { song: next, text: `Clip ${clip.id} plays a pattern of its own now: "${made.name}" (id ${made.id}).` };
+}
+
+/** `unconsolidate_clips`: consolidated clips give back the clips inside them (`unconsolidate`). */
+export function unconsolidateClipsTool(song: MusicProject, input: Input): EditResult {
+  const ids = Array.isArray(input.ids) ? input.ids.filter((id): id is number => typeof id === "number") : [];
+  const chosen = song.playlist.clips.filter((c) => ids.includes(c.id));
+  if (!chosen.length) throw new Error("None of those clips is on the playlist: get_playlist has their ids.");
+  if (!chosen.some((c) => c.consolidated)) {
+    const consolidated = song.playlist.clips.filter((c) => c.consolidated).map((c) => c.id);
+    throw new Error(`None of them is consolidated. ${consolidated.length ? `The consolidated clips: ${consolidated.join(", ")}.` : "No clip is: render_clips with consolidate makes one."}`);
+  }
+  const result = unconsolidate(song, new Set(ids));
+  const ctx = clipContext(result.song);
+  const back = result.song.playlist.clips.filter((c) => result.restored.includes(c.id));
+  return {
+    song: result.song,
+    text: back.length ? `Back on the playlist:\n${back.map((c) => describeClip(result.song, c, ctx)).join("\n")}` : "The consolidated clips are gone, but nothing came back: the patterns and channels they were made from were deleted.",
+  };
 }
 
 /** What `stretch_audio` needs of the files: their lengths, and the tempi heard in them (`tempo: "detect"`). */

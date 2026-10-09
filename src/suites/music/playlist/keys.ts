@@ -20,6 +20,8 @@ export type PlaylistKeyAction =
         | "unmute"
         | "quantize"
         | "selectSimilar"
+        /** FL's Ctrl+Alt+C: consolidate the selected clips. */
+        | "consolidate"
         | "timeAround"
         | "insertSpace"
         | "insertSpaceSliced"
@@ -75,6 +77,7 @@ export function resolvePlaylistKey(e: KeyLike): PlaylistKeyAction | null {
     return null;
   }
 
+  if (command && alt && !shift && letter === "C") return { type: "consolidate" };
   if (command && !alt) {
     if (shift) return null;
     const commands: Record<string, PlaylistKeyAction["type"]> = { A: "selectAll", D: "deselect", C: "copy", X: "cut", V: "paste", B: "duplicate", Q: "quantize" };

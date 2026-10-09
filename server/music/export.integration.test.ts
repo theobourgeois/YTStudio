@@ -11,7 +11,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { addChannels, addPluginChannel, setChannelNotes, setSteps, updateChannel } from "../../shared/music/edits.ts";
-import { routeChannels, setEffect, setSend } from "../../shared/music/mixer.ts";
+import { bounceRender, placeBounced } from "../../shared/music/consolidate.ts";
+import { routeChannels, setEffect, setSend, updateMixerTrack } from "../../shared/music/mixer.ts";
 import { updateProC } from "../../shared/music/pro-c.ts";
 import { PRO_C_PLUGIN } from "../../shared/music/pro-c-presets.ts";
 import { setSidechain } from "../../shared/music/sidechain.ts";
@@ -52,7 +53,7 @@ describe.skipIf(!built)("the export, offline", () => {
     engine = new AudioEngine(new DataPaths(dir), {
       offline: true,
       onlyPluginPaths: true,
-      samplePath: (_project, id) => (id === "hit" || id === "long" ? path.join(dir, `${id}.wav`) : null),
+      samplePath: (_project, id) => (id === "hit" || id === "long" || id === "bounced" ? path.join(dir, `${id}.wav`) : null),
       // The test effect delays its sound 20 ms (and says so), and while rendering offline it leaves the sound whole.
       env: { VAUDIO_TEST_EFFECT_LATENCY: String(DELAY), VAUDIO_TEST_EFFECT_OFFLINE: "full" },
     });
@@ -160,6 +161,38 @@ describe.skipIf(!built)("the export, offline", () => {
     for (let ch = 0; ch < 2; ch++)
       for (let i = 0; i < BAR; i++) worst = Math.max(worst, Math.abs(files.insert_1.channels[ch][i] + files.insert_2.channels[ch][i] - files.mix.channels[ch][i]));
     expect(worst).toBeLessThan(1e-6);
+  });
+
+  it("consolidates a track before its mixer track's effects: played back into it, the song sounds the same, sample for sample", async () => {
+    // Kick (and a long sound) into insert 1, through the delaying effect, turned down, panned and sending to insert 2.
+    let song = setSteps(addChannels(kicks([0, 8]), [{ id: "chan_long", name: "Long", sampleId: "long" }]), P, "chan_long", [12], true);
+    song = routeChannels(song, ["chan_kick", "chan_long"], "insert_1");
+    song = setEffect(song, "insert_1", 0, { id: effectId, name: "Vaudio Test Effect", format: "VST3" }, "fx_late");
+    song = setSend(updateMixerTrack(song, "insert_1", { volume: 0.5, pan: -0.5 }), "insert_1", "insert_2", 0.7);
+    song = editClips(song, (clips) => addClips(clips, [{ kind: "pattern", ref: P, start: BAR_TICKS, track: 0 }]).clips);
+    await loaded(song);
+    const before = await exportSong(song, { mode: "song", tail: "ring" });
+
+    const clip = song.playlist.clips[0];
+    const plan = bounceRender(song, [clip])!;
+    const bounce = await exportSong(plan.song, { mode: "song", patternId: null, loop: { start: plan.start, end: plan.end }, mix: false, stems: true, tail: "ring" });
+    expect(Object.keys(bounce.files)).toEqual(["bounce_1"]);
+    const stem = bounce.files.bounce_1;
+    // Before the effect and the fader: the kick whole and on its beat.
+    expect(onsets(stem.channels[0])).toEqual([0, 2 * BEAT, 3 * BEAT]);
+    expect(peakOf(stem.channels[0], 0, HIT)).toBeCloseTo(0.5, 5);
+    // It becomes the song's media as the engine wrote it (32-bit float).
+    await fs.copyFile(path.join(bounce.folder, "bounce_1.wav"), path.join(dir, "bounced.wav"));
+
+    const seconds = stem.channels[0].length / RATE;
+    const consolidated = placeBounced(song, new Set([clip.id]), [{ into: plan.stems[0].into, sampleId: "bounced", seconds, name: "Kick (consolidated)" }], "cons_1").song;
+    expect(consolidated.playlist.clips.map((c) => c.kind)).toEqual(["audio"]);
+    const after = await exportSong(consolidated, { mode: "song", tail: "ring" });
+    const length = Math.min(before.files.mix.channels[0].length, after.files.mix.channels[0].length);
+    expect(length).toBeGreaterThan(2 * BAR);
+    let worst = 0;
+    for (let ch = 0; ch < 2; ch++) for (let i = 0; i < length; i++) worst = Math.max(worst, Math.abs(after.files.mix.channels[ch][i] - before.files.mix.channels[ch][i]));
+    expect(worst).toBeLessThan(1e-5);
   });
 
   it("runs the plugins on every core and sounds the same, sample for sample, as on one", async () => {

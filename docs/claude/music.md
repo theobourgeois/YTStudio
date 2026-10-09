@@ -153,8 +153,11 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   sends the engine a song of that clip alone while it's held (`playlist/preview.ts`). Time markers
   (`Playlist.markers`, `shared/music/markers.ts`; Alt+T, in a band along the ruler) are named ticks, or Start /
   Stop recording markers (`punchRange`: recording keeps only what's between). Render as audio clip and
-  Consolidate (`playlist/bounce.ts`) are an export with `bounce`: the server adopts its mix as the project's
-  media and the tab places it.
+  Consolidate (`shared/music/consolidate.ts`, the render in `playlist/bounce.ts`) render clips as they reach
+  their mixer tracks, before the tracks' effects: a song made for it (`bounceRender`: a plain stand-in track
+  for each) exported with `bounce`, whose stems the server adopts as the project's media; each becomes a clip
+  playing back into its track. A consolidated clip (`PlaylistClip.consolidated`) names the clips it replaced
+  (`Playlist.consolidations`, kept once) for Unconsolidate and Re-render.
 - **Stretching audio clips** (`docs/fl-studio/playlist.md`, Stretching audio clips; `shared/music/stretch.ts`):
   an `AudioStretch` (`mode`: Resample or Stretch, the pitch kept; `tempo`: the song's tempo at which the file
   plays at its own speed, so a stretched clip follows the tempo) is a clip's own (`PlaylistClip.stretch`, FL

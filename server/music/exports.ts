@@ -41,6 +41,20 @@ import type { AudioEngine, SamplePath } from "./engine.ts";
 
 const logger = log("music-export");
 
+/** A bounce's names: the files' (`name`), or a stem's own (`names`, by its track). */
+type Bounce = { name: string; names: Record<string, string> };
+
+const fileName = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim().slice(0, 80) : null);
+
+function bounceOf(input: unknown): Bounce | null {
+  if (!isObject(input)) return null;
+  const name = fileName(input.name);
+  if (!name) return null;
+  const names: Record<string, string> = {};
+  if (isObject(input.names)) for (const [track, value] of Object.entries(input.names)) if (fileName(value)) names[track] = fileName(value)!;
+  return { name, names };
+}
+
 export interface MusicExportOptions {
   samplePath: SamplePath;
   /** Make a rendered file the project's media (a bounce: Render as audio clip, Consolidate), moving it. */
@@ -81,10 +95,10 @@ export class MusicExports {
     const projectId = body.projectId;
     if (!isObject(body.song)) throw new HttpError(400, '"song" must be the song to export.');
     if ([...this.jobs.values()].some((j) => j.view.state === "rendering" || j.view.state === "encoding")) throw new HttpError(409, "A song is being exported already: wait for it, or stop it.");
-    const bounce = isObject(body.bounce) && typeof body.bounce.name === "string" && body.bounce.name.trim() ? { name: body.bounce.name.trim().slice(0, 80) } : null;
+    const bounce = bounceOf(body.bounce);
     if (bounce && !this.options.adopt) throw new HttpError(409, "Rendering into the song can't be done here.");
-    // A bounce is the mix alone, as a WAV that becomes the project's media.
-    const settings = bounce ? { ...normalizeExportSettings(body.settings), formats: ["wav" as const], stems: false, includeMix: true, preventClipping: false } : normalizeExportSettings(body.settings);
+    // A bounce is its mixer tracks' stems alone, as WAVs that become the project's media.
+    const settings = bounce ? { ...normalizeExportSettings(body.settings), formats: ["wav" as const], stems: true, includeMix: false, preventClipping: false } : normalizeExportSettings(body.settings);
     const song = normalizeMusicProject(body.song, (id) => this.options.samplePath(projectId, id) !== null);
     const patternId = typeof body.patternId === "string" ? body.patternId : null;
     const selection = isObject(body.selection) && isFiniteNumber(body.selection.start) && isFiniteNumber(body.selection.end) && body.selection.end > body.selection.start ? { start: body.selection.start, end: body.selection.end } : null;
@@ -171,7 +185,7 @@ export class MusicExports {
       folder: string;
       base: string;
       keep: boolean;
-      bounce: { name: string } | null;
+      bounce: Bounce | null;
     },
   ) {
     const { song, settings, folder, base } = plan;
@@ -216,11 +230,14 @@ export class MusicExports {
           view.length = Math.min(result.frames, frames) / result.sampleRate;
         }
       }
-      // A bounce: its mix is the project's media now; no files to encode.
+      // A bounce: its stems are the project's media now (a silent track's isn't written); no files to encode.
       if (plan.bounce) {
-        const mix = rendered.files.find((f) => f.id === "mix");
-        if (!mix || !this.options.adopt) throw new HttpError(500, "Nothing was rendered.");
-        view.media = await this.options.adopt(plan.projectId, mix.file, plan.bounce.name, `bounce:${view.id}`);
+        const { adopt } = this.options;
+        if (!adopt) throw new HttpError(500, "Nothing was rendered.");
+        const bounce = plan.bounce;
+        const stems = rendered.files.filter((f) => f.id !== "mix");
+        view.bounced = [];
+        for (const stem of stems) view.bounced.push({ track: stem.id, media: await adopt(plan.projectId, stem.file, bounce.names[stem.id] ?? bounce.name, `bounce:${view.id}:${stem.id}`) });
         view.state = "done";
         view.seconds = (performance.now() - began) / 1000;
         logger.info(`${view.id} bounced in ${elapsed(began)}`);

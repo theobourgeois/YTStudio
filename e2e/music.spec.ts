@@ -2048,7 +2048,7 @@ async function playlistPoint(page: Page, tick: number, track: number) {
   return { x: box.x + tick * 0.15 + 2, y: box.y + track * 48 + 28 };
 }
 const BAR_TICKS = 384;
-type SavedClip = { id: number; kind: string; ref: string; track: number; start: number; length: number | null; offset: number; muted: boolean };
+type SavedClip = { id: number; kind: string; ref: string; track: number; start: number; length: number | null; offset: number; muted: boolean; consolidated?: { id: string } };
 const savedClips = async (page: Page, id: string): Promise<SavedClip[]> => (await savedSong(page, id)).playlist.clips;
 const clipsAt = async (page: Page, id: string) => (await savedClips(page, id)).map((c) => [c.track, c.start, c.length]);
 
@@ -2454,7 +2454,7 @@ test("an audio clip's own fades and gain are dragged on it, and reset from its m
   await expect.poll(async () => (await clip()).fadeIn).toBeUndefined();
 });
 
-test("time markers on the ruler (Alt+T): named, dragged, made a Start recording marker; clips rendered as an audio clip and a track consolidated", async ({ page }) => {
+test("time markers on the ruler (Alt+T): named, dragged, made a Start recording marker; clips rendered as an audio clip, a track consolidated and unconsolidated", async ({ page }) => {
   const id = await openNewSong(page, "Markers and bounces");
   await addStarterKit(page);
   for (const n of [1, 5, 9, 13]) await step(page, "Kick", n).click();
@@ -2493,16 +2493,23 @@ test("time markers on the ruler (Alt+T): named, dragged, made a Start recording 
     ["pattern", 0, 0, false],
     ["audio", 1, 0, false],
   ]);
-  // Consolidate this track (its header's menu): rendered onto it, its clips muted.
+  // Consolidate this track (its header's menu): rendered into an audio clip in the pattern's place, the pattern inside it.
+  const firstTrack = async () => {
+    const song = await savedSong(page, id);
+    return (song.playlist.clips as SavedClip[]).filter((c) => c.track === 0).map((c) => [c.kind, c.start, c.consolidated ? song.playlist.consolidations[c.consolidated.id].length : 0]);
+  };
   await page.getByTestId("track-headers").locator('[data-track="0"]').click({ button: "right", position: { x: 40, y: 30 } });
   await page.getByRole("menuitem", { name: "Consolidate this track" }).click();
-  await expect.poll(async () => (await savedClips(page, id)).filter((c) => c.track === 0).map((c) => [c.kind, c.muted])).toEqual([
-    ["pattern", true],
-    ["audio", false],
-  ]);
-  // One undo step: back as it was.
+  await expect.poll(firstTrack).toEqual([["audio", 0, 1]]);
+  // Its menu's Unconsolidate: the pattern back where it was.
+  await page.mouse.click(grid.x + 10, grid.y + 6);
+  await page.getByTestId("clip-menu").getByRole("menuitem", { name: "Unconsolidate" }).click();
+  await expect.poll(firstTrack).toEqual([["pattern", 0, 0]]);
+  // Ctrl+Alt+C consolidates the selection (the pattern, selected as it came back); one undo step brings it back.
+  await page.keyboard.press("ControlOrMeta+Alt+c");
+  await expect.poll(firstTrack).toEqual([["audio", 0, 1]]);
   await page.keyboard.press("ControlOrMeta+z");
-  await expect.poll(async () => (await savedClips(page, id)).filter((c) => c.track === 0).map((c) => [c.kind, c.muted])).toEqual([["pattern", false]]);
+  await expect.poll(firstTrack).toEqual([["pattern", 0, 0]]);
 });
 
 test("audio clips stretch as FL Studio's: with Stretch on (Shift+M) an edge stretches the sound, the clip menu's and the channel's Time stretching", async ({ page }) => {

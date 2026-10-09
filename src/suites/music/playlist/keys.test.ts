@@ -33,6 +33,7 @@ describe("the Playlist's keys", () => {
     expect(press("Backspace", "Backspace")).toEqual({ type: "delete" });
     expect(press("i", "KeyI", { shiftKey: true })).toEqual({ type: "invert" });
     expect(press("c", "KeyC", { shiftKey: true })).toEqual({ type: "selectSimilar" });
+    expect(press("ç", "KeyC", { metaKey: true, altKey: true })).toEqual({ type: "consolidate" });
   });
 
   it("move the selection with Shift and the arrows, and the time selection with Ctrl", () => {

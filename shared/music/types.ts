@@ -1207,6 +1207,23 @@ export interface PlaylistClip {
    * channel's (`Channel.stretch`).
    */
   stretch?: AudioStretch;
+  /** An audio clip Consolidate made, with the clips it replaced kept inside it (`shared/music/consolidate.ts`). */
+  consolidated?: Consolidation;
+}
+
+/**
+ * A consolidated clip's (`shared/music/consolidate.ts`): which consolidation it's of (the clips it replaced are
+ * `Playlist.consolidations[id]`), so Unconsolidate puts them back where the clip is now and Re-render renders
+ * them again. Its copies, slices and chops carry it too: they're all of the same consolidation.
+ */
+export interface Consolidation {
+  /** The consolidation's: every clip it made (one per mixer track the clips played into) has it. */
+  id: string;
+  /** The mixer track (by id) whose input this clip's file is: what the clips played into it, before its effects. */
+  into: string;
+  /** Where the clip's file started and the track the clip was on when it was made: the clips go back as far from where it is now. */
+  start: number;
+  track: number;
 }
 
 /** The song's arrangement: what plays in song mode. */
@@ -1217,6 +1234,11 @@ export interface Playlist {
   clips: PlaylistClip[];
   /** Time markers on its ruler (FL's Alt+T), in order of `tick`. Absent: none. */
   markers?: TimeMarker[];
+  /**
+   * The clips each consolidation replaced, as they were, by its id (`Consolidation.id`): kept once, however
+   * many clips it has. Absent: none.
+   */
+  consolidations?: Record<string, PlaylistClip[]>;
 }
 
 /**

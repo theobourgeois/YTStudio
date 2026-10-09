@@ -42,6 +42,7 @@ import {
   type AutomationTarget,
   CURVE_TYPES,
   type Channel,
+  type Consolidation,
   type CurveType,
   ECHO_CONTROLS,
   OTT_CONTROLS,
@@ -948,32 +949,13 @@ function normalizePlaylist(input: unknown, patterns: Pattern[], channels: Channe
   const unnamed: PlaylistClip[] = [];
   for (const raw of Array.isArray(input.clips) ? input.clips : []) {
     if (clips.length >= MAX_CLIPS) break;
-    if (!isObject(raw) || typeof raw.ref !== "string") continue;
-    const kind = raw.kind === "audio" || raw.kind === "pattern" || raw.kind === "automation" ? raw.kind : null;
-    if (!kind || !refs[kind].has(raw.ref)) continue;
-    if (!isFiniteNumber(raw.start) || !Number.isInteger(raw.track)) continue;
-    const track = raw.track as number;
-    const start = Math.round(raw.start);
-    if (track < 0 || track >= MAX_PLAYLIST_TRACKS || start < 0 || start >= MAX_SONG_TICKS) continue;
-    // Only a pattern or automation clip follows its content's length; an audio clip always has one.
-    const length = kind !== "audio" && raw.length === null ? null : Math.round(number(raw.length, 1, MAX_SONG_TICKS - start, STEP_TICKS * 16));
-    const offset = kind !== "audio" ? Math.round(number(raw.offset, 0, MAX_PATTERN_TICKS, 0)) : number(raw.offset, 0, MAX_AUDIO_OFFSET, 0);
-    const id = Number.isInteger(raw.id) && (raw.id as number) > 0 && !ids.has(raw.id as number) ? (raw.id as number) : 0;
-    const stretch = kind === "audio" ? normalizeStretch(raw.stretch) : undefined;
-    const clip: PlaylistClip = {
-      id,
-      kind,
-      ref: raw.ref,
-      track,
-      start,
-      length,
-      offset,
-      muted: raw.muted === true,
-      ...(stretch ? { stretch } : {}),
-      ...(kind === "audio" && length !== null ? clipExtras(raw, length) : {}),
-    };
-    if (id) ids.add(id);
-    else unnamed.push(clip);
+    const clip = normalizeClip(raw, refs);
+    if (!clip) continue;
+    if (clip.id && !ids.has(clip.id)) ids.add(clip.id);
+    else {
+      clip.id = 0;
+      unnamed.push(clip);
+    }
     clips.push(clip);
   }
   // (A loop, not a spread: a playlist can hold more ids than a call takes arguments.)
@@ -981,7 +963,77 @@ function normalizePlaylist(input: unknown, patterns: Pattern[], channels: Channe
   for (const id of ids) next = Math.max(next, id);
   for (const clip of unnamed) clip.id = ++next;
   const markers = normalizeMarkers(input.markers);
-  return { tracks, clips: clips.sort(byClipStart), ...(markers && { markers }) };
+  const consolidations = normalizeConsolidations(input.consolidations, clips, refs);
+  return { tracks, clips: clips.sort(byClipStart), ...(markers && { markers }), ...(consolidations && { consolidations }) };
+}
+
+type ClipRefs = Record<PlaylistClip["kind"], Set<string>>;
+
+/** A clip of a pattern, audio clip channel or automation clip that's still there, on a track that exists, inside the song's reach; its id is 0 if it has none. */
+function normalizeClip(raw: unknown, refs: ClipRefs): PlaylistClip | null {
+  if (!isObject(raw) || typeof raw.ref !== "string") return null;
+  const kind = raw.kind === "audio" || raw.kind === "pattern" || raw.kind === "automation" ? raw.kind : null;
+  if (!kind || !refs[kind].has(raw.ref)) return null;
+  if (!isFiniteNumber(raw.start) || !Number.isInteger(raw.track)) return null;
+  const track = raw.track as number;
+  const start = Math.round(raw.start);
+  if (track < 0 || track >= MAX_PLAYLIST_TRACKS || start < 0 || start >= MAX_SONG_TICKS) return null;
+  // Only a pattern or automation clip follows its content's length; an audio clip always has one.
+  const length = kind !== "audio" && raw.length === null ? null : Math.round(number(raw.length, 1, MAX_SONG_TICKS - start, STEP_TICKS * 16));
+  const offset = kind !== "audio" ? Math.round(number(raw.offset, 0, MAX_PATTERN_TICKS, 0)) : number(raw.offset, 0, MAX_AUDIO_OFFSET, 0);
+  const id = Number.isInteger(raw.id) && (raw.id as number) > 0 ? (raw.id as number) : 0;
+  const stretch = kind === "audio" ? normalizeStretch(raw.stretch) : undefined;
+  const consolidated = kind === "audio" ? normalizeConsolidation(raw.consolidated) : undefined;
+  return {
+    id,
+    kind,
+    ref: raw.ref,
+    track,
+    start,
+    length,
+    offset,
+    muted: raw.muted === true,
+    ...(stretch ? { stretch } : {}),
+    ...(kind === "audio" && length !== null ? clipExtras(raw, length) : {}),
+    ...(consolidated ? { consolidated } : {}),
+  };
+}
+
+function normalizeConsolidation(raw: unknown): Consolidation | undefined {
+  if (!isObject(raw) || !isId(raw.id) || !isId(raw.into) || !isFiniteNumber(raw.start) || !Number.isInteger(raw.track)) return undefined;
+  return { id: raw.id, into: raw.into, start: clamp(Math.round(raw.start), -MAX_SONG_TICKS, MAX_SONG_TICKS), track: clamp(raw.track as number, 0, MAX_PLAYLIST_TRACKS - 1) };
+}
+
+/**
+ * The clips consolidations replaced: those of the consolidations a clip is of (on the playlist, or inside
+ * another consolidation), whose patterns and channels are still there. A clip whose consolidation has none
+ * left is an ordinary audio clip (its `consolidated` is dropped, in `clips` too).
+ */
+function normalizeConsolidations(input: unknown, clips: PlaylistClip[], refs: ClipRefs): Record<string, PlaylistClip[]> | undefined {
+  const raws = isObject(input) ? input : {};
+  const kept: Record<string, PlaylistClip[]> = {};
+  const visit = (list: PlaylistClip[]) => {
+    for (const clip of list) {
+      const id = clip.consolidated?.id;
+      if (!id || id in kept) continue;
+      const raw = Object.hasOwn(raws, id) ? raws[id] : undefined;
+      const inside: PlaylistClip[] = [];
+      for (const item of Array.isArray(raw) ? raw.slice(0, MAX_CLIPS) : []) {
+        const restored = normalizeClip(item, refs);
+        if (restored && restored.kind !== "automation") inside.push({ ...restored, id: restored.id || inside.length + 1 });
+      }
+      kept[id] = inside;
+      visit(inside);
+    }
+  };
+  visit(clips);
+  const drop = (list: PlaylistClip[]) => {
+    for (const clip of list) if (clip.consolidated && !kept[clip.consolidated.id]?.length) delete clip.consolidated;
+  };
+  drop(clips);
+  for (const list of Object.values(kept)) drop(list);
+  const entries = Object.entries(kept).filter(([, list]) => list.length);
+  return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
 /**

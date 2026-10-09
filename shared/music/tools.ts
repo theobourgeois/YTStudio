@@ -1904,10 +1904,30 @@ export const MUSIC_TOOLS = [
     title: "Render clips to audio",
     kind: "action",
     description:
-      "FL's Render as audio clip and Consolidate: pattern and audio clips (`ids`, or every unmuted one on `track`) rendered through the mixer, as an " +
-      "export renders, into an audio clip (a new audio file of the project) from where they start, with their tail. Without `consolidate`, it goes on " +
-      "the first free track below them; with it, on the first one's track, and they're muted. Takes a few seconds; answers with the new clip.",
-    inputSchema: obj({ ids: clipIds, track: playlistTrack, consolidate: bool("Put it in their place and mute them (FL's Consolidate).") }),
+      "FL's Render as audio clip and Consolidate: pattern and audio clips (`ids`, or every unmuted one on `track`) rendered as they reach their " +
+      "mixer tracks (before those tracks' effects, fader and pan: the mixer stays live), into audio clips (new audio files of the project) from where " +
+      "they start, with their tail: one per mixer track they play into, each playing back into that track, so the song sounds the same. Without " +
+      "`consolidate`, they go on the first free tracks below the clips, which stay; with it, they take the clips' place, and the clips go inside them " +
+      "(unconsolidate_clips brings them back, rerender_clip renders them again). Takes a few seconds; answers with the new clips.",
+    inputSchema: obj({ ids: clipIds, track: playlistTrack, consolidate: bool("Put them in the clips' place, the clips inside them (FL's Consolidate).") }),
+  }),
+  tool({
+    name: "unconsolidate_clips",
+    title: "Unconsolidate clips",
+    kind: "edit",
+    description:
+      "Undo a Consolidate: each consolidated clip (get_playlist says which are) gives back the clips it was made from, moved as far as it was moved, " +
+      "only its part if it was sliced; the other mixer tracks' clips of the same consolidation there go too. Their channels are removed when nothing else plays them.",
+    inputSchema: obj({ ids: clipIds }, ["ids"]),
+  }),
+  tool({
+    name: "rerender_clip",
+    title: "Re-render a consolidated clip",
+    kind: "action",
+    description:
+      "Render a consolidated clip again from the clips inside it, as their patterns and instruments are now (after changing a synth's sound or the " +
+      "notes): every copy and slice of it plays the new file. Takes a few seconds.",
+    inputSchema: obj({ id: int("A consolidated clip's id.") }, ["id"]),
   }),
   tool({
     name: "stretch_audio",
