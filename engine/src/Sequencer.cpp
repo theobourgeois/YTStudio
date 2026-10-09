@@ -2186,6 +2186,9 @@ void Sequencer::renderPlugins (int numSamples)
         const auto started = juce::Time::getHighResolutionTicks();
         juce::AudioBuffer<float> view (plugin.buffer.getArrayOfWritePointers(), plugin.buffer.getNumChannels(), numSamples);
         view.clear();
+        // The notes it's given, for a Serum player's envelopes and LFOs (read before the plugin may change them).
+        if (plugin.watched.load (std::memory_order_acquire))
+            plugin.scope->notes (plugin.midi, numSamples);
         plugin.instance->processBlock (view, plugin.midi);
         fadeSwap (plugin, view);
         // Its own sound, for a Serum player's display.

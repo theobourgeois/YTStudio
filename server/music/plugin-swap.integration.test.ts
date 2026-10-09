@@ -135,6 +135,15 @@ describe.skipIf(!built)("plugin swaps and parameters, offline", () => {
     const loudest = scope!.spectrum.indexOf(Math.max(...scope!.spectrum));
     expect(10 * 3000 ** (loudest / 479)).toBeGreaterThan(240);
     expect(10 * 3000 ** (loudest / 479)).toBeLessThan(285);
+    // The notes it was given, for where its envelopes and LFOs are: one key down a quarter of a second ago.
+    expect(scope!.notes?.held).toBe(1);
+    expect(scope!.notes?.sinceOn).toBeGreaterThan(0.2);
+    expect(scope!.notes?.sinceOn).toBeLessThan(0.3);
+    await hold(false);
+    const released = (await engine.render(RATE / 10)).scopes?.[CHANNEL];
+    expect(released?.notes).toMatchObject({ held: 0 });
+    expect(released!.notes!.sinceOff).toBeGreaterThan(0.05);
+    expect(released!.notes!.sinceOff).toBeLessThan(0.15);
     await engine.command("channelWatch", { channels: [] });
   });
 
