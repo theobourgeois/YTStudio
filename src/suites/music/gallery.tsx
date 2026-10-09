@@ -31,8 +31,21 @@ import { shapeSpan } from "./reverb/geometry";
 import { SerumShapes } from "./serum/envelopes";
 import { SERUM_TOKENS } from "./serum/look";
 import { ModulationSection } from "./serum/modulation";
+import { OscillatorsSection } from "./serum/oscillators";
 import { Stars } from "./serum/stars";
-import { type SerumControl, type SerumEnvelope, type SerumLfo, type SerumModRoute, SERUM_DEFAULT_LFO_SHAPE, serumEnvelopeParam, serumLfoParam, serumModAmountParam } from "@shared/music/serum-sound";
+import {
+  type SerumControl,
+  type SerumEnvelope,
+  type SerumLfo,
+  type SerumModRoute,
+  type SerumOscillator,
+  SERUM_DEFAULT_LFO_SHAPE,
+  SERUM_OSCILLATORS,
+  serumEnvelopeParam,
+  serumLfoParam,
+  serumModAmountParam,
+  serumOscillatorParam,
+} from "@shared/music/serum-sound";
 
 /** A knob with a value of its own (nothing in the song). */
 function LooseKnob(props: Omit<React.ComponentProps<typeof Knob>, "value" | "onBegin" | "onDrag" | "onEnd" | "onCancel" | "onSet"> & { initial: number }) {
@@ -429,8 +442,20 @@ function serumGallerySound() {
     controls: Object.fromEntries((["rate", "smooth", "rise", "delay", "phase"] as const).map((f, i) => [f, control(serumLfoParam(index, f), [0.5, 0.1, 0, 0, 0.25][i])])) as SerumLfo["controls"],
     ...extra,
   });
+  const plays = ["Basic Shapes", "Jno", "Default Shapes", "AC hum1", "Sine"];
+  const oscillators: SerumOscillator[] = SERUM_OSCILLATORS.map((name, index) => ({
+    index,
+    name,
+    kind: index === 3 ? "Noise" : index === 4 ? "Sub" : "Wavetable",
+    plays: plays[index],
+    enabled: control(serumOscillatorParam(index, "enable"), index === 2 ? 0 : 1),
+    level: control(serumOscillatorParam(index, "level"), [0.75, 0.6, 0.75, 0.3, 0.5][index]),
+    octave: index === 4 ? -1 : 0,
+    semi: index === 1 ? 7 : 0,
+  }));
   return {
     routes,
+    oscillators,
     envelopes: [env(1, [0.25, 0, 0.5, 1, 0.3, 0.5, 0.67, 0.67]), env(2, [0.1, 0.2, 0.45, 0.6, 0.5, 0.3, 0.67, 0.8])],
     lfos: [
       lfo(1, { shape: [[0, 1], [0.25, 0.4, 0.2], [0.5, 0], [1, 1]], customShape: true, mode: "free" }),
@@ -443,6 +468,7 @@ function SerumSoundControls() {
   const [sound] = useState(serumGallerySound);
   return (
     <div className="flex w-[520px] flex-col gap-2 bg-[var(--serum-bg)] pb-3 text-xs text-[var(--serum-text)]" style={SERUM_TOKENS}>
+      <OscillatorsSection channelId="gallery" oscillators={sound.oscillators} />
       <ModulationSection channelId="gallery" routes={sound.routes} />
       <div className="flex flex-col gap-2 px-3">
         <SerumShapes channelId="gallery" envelopes={sound.envelopes} lfos={sound.lfos.filter((l) => l.used)} routes={sound.routes} />
@@ -462,8 +488,8 @@ export const MUSIC_SECTIONS: GallerySection[] = [
   { id: "music-serum-stars", title: "Music: the Serum player's stars (Serum's own ratings: unrated, a row's, rated)", source: "suites/music/serum/stars.tsx", render: () => <SerumStars /> },
   {
     id: "music-serum-sound",
-    title: "Music: the Serum player's sound (mod routes: bipolar, bypassed, an aux; Env 1 and 2's shapes; a drawn LFO and a Lorenz one)",
-    source: "suites/music/serum/modulation.tsx, envelopes.tsx",
+    title: "Music: the Serum player's sound (oscillators, one off; mod routes: bipolar, bypassed, an aux; Env 1 and 2's shapes; a drawn LFO)",
+    source: "suites/music/serum/oscillators.tsx, modulation.tsx, envelopes.tsx",
     render: () => <SerumSoundControls />,
   },
   { id: "music-ott", title: "Music: YT-Multiband's display rows (upward brown, downward green; a band at rest, sounding and hot, its upward off)", source: "suites/music/ott/draw.ts", render: () => <OttRows /> },

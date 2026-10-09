@@ -426,6 +426,13 @@ New tools in `shared/music/tools.ts`, for parity with the window:
    (SERUM PLAYER, the player's undo, the preset between its arrows with its stars, Open Serum), the library with its
    kinds as coloured chips and the preset playing lit, big macro knobs (Pro-C's, in Serum's tokens, as YT-L uses
    them), the mod matrix as Serum's (sources coloured by kind, amounts as bars from the middle), a bottom bar.
+   - **Calmer** (Théo, later the same day: "still looks vibecoded"): no capitals in titles, chips or headers, no
+     glow or gradients, one row of filters (a kind menu, the star, Serum 1 / 2), no bottom bar, macro names as the
+     preset writes them.
+   - **Oscillators** (asked for then): A, B, C, Noise and Sub side by side, what each plays, its level, and Mute and
+     Solo. Mute is Serum's own switch for it (`A Enable`…, live; measured: the switch and the level's place read back
+     from the state); Solo turns the others off and puts them back when pressed again (`soloOscillator`, tested),
+     each one undo step. The assistant's `set_serum_oscillators` does the same.
 6. **Effects:** the racks and cards, their knobs live through linked slots.
 7. **Saving and the assistant's tools.**
 8. **The Serum 1 library:** every `.fxp` in Serum's folders loads by the drop (§2.3), listed with the rest.

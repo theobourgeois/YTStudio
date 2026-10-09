@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { errorMessage } from "@shared/errors";
 import { type SerumPresetEntry, type SerumSound, stepSerumPreset } from "@shared/music/serum-presets";
-import { type SerumSoundEdit, withControl } from "@shared/music/serum-sound";
+import { type SerumSolo, type SerumSoundEdit, soloOscillator, withControl } from "@shared/music/serum-sound";
 import { musicApi } from "../api";
 import { useMusic } from "../store";
 import { serumWindow, useMusicWindows } from "../ui";
@@ -18,9 +18,11 @@ export interface SerumChannel {
   error: string | null;
   /** The destinations a route can have in its sound, once asked (the add and change pickers). */
   destinations: string[] | null;
+  /** An oscillator soloed, and how they all were before (put back when it ends). */
+  solo: SerumSolo | null;
 }
 
-const EMPTY: SerumChannel = { sound: null, path: null, loading: null, busy: false, error: null, destinations: null };
+const EMPTY: SerumChannel = { sound: null, path: null, loading: null, busy: false, error: null, destinations: null, solo: null };
 
 interface SerumUi {
   /** The Serum channels whose players are open. */
@@ -63,6 +65,10 @@ interface SerumUi {
   redo: (channelId: string) => Promise<void>;
   /** Ask which destinations a route of the channel's sound can have (once a preset is loaded). */
   loadDestinations: (channelId: string) => Promise<void>;
+  /** An oscillator turned off (muted) or back on: Serum's own switch, live, one undo step. */
+  muteOscillator: (channelId: string, index: number) => void;
+  /** An oscillator soloed (the others off), or its solo ended (all put back as they were): one undo step. */
+  soloOscillator: (channelId: string, index: number) => void;
 }
 
 const projectId = () => useMusic.getState().projectId;
@@ -86,6 +92,9 @@ function sendControl(channelId: string, param: string, value: number, gesture?: 
     });
 }
 
+/** An oscillator as the player names it: "Osc A", "Noise", "Sub". */
+export const oscillatorLabel = (name: string) => (name === "Noise" || name === "Sub" ? name : `Osc ${name}`);
+
 /** Where each control being dragged started (channel and parameter), for its undo step. */
 const dragStarts = new Map<string, number>();
 
@@ -97,6 +106,7 @@ function controlValue(sound: SerumSound | null | undefined, param: string): numb
     ...(sound.modulation ?? []).map((r) => r.amount),
     ...sound.envelopes.flatMap((e) => Object.values(e.controls)),
     ...sound.lfos.flatMap((l) => Object.values(l.controls)),
+    ...sound.oscillators.flatMap((o) => [o.enabled, o.level]),
   ];
   return all.find((c) => c.param === param)?.value;
 }
@@ -113,7 +123,7 @@ export const useSerumUi = create<SerumUi>((set, get) => {
       const sound = await musicApi.undoSerum(project, channelId, redo);
       // An undone load puts back the preset before it: the file it came from if Serum says, else the one listed by its name.
       const named = get().presets?.find((p) => p.path === now.path)?.name === sound.preset?.name;
-      patch(channelId, { sound, busy: false, path: sound.preset?.path ?? (named ? now.path : null), destinations: null });
+      patch(channelId, { sound, busy: false, path: sound.preset?.path ?? (named ? now.path : null), destinations: null, solo: null });
     } catch (err) {
       patch(channelId, { busy: false, error: errorMessage(err) });
     }
@@ -167,7 +177,7 @@ export const useSerumUi = create<SerumUi>((set, get) => {
         const sound = await musicApi.loadSerumPreset(project, channelId, entry.path);
         // Another preset asked for meanwhile (arrows held): that one's answer is the one kept.
         if (get().channels[channelId]?.loading !== entry.path) return;
-        patch(channelId, { sound, path: entry.path, loading: null, destinations: null });
+        patch(channelId, { sound, path: entry.path, loading: null, destinations: null, solo: null });
       } catch (err) {
         if (get().channels[channelId]?.loading === entry.path) patch(channelId, { loading: null, error: errorMessage(err) });
       }
@@ -243,6 +253,21 @@ export const useSerumUi = create<SerumUi>((set, get) => {
     },
     async redo(channelId) {
       await historyStep(channelId, true);
+    },
+    muteOscillator(channelId, index) {
+      const osc = get().channels[channelId]?.sound?.oscillators.find((o) => o.index === index);
+      if (!osc) return;
+      const on = osc.enabled.value >= 0.5;
+      get().setControl(channelId, osc.enabled.param, on ? 0 : 1, "set", `${on ? "Mute" : "Unmute"} ${oscillatorLabel(osc.name)}`);
+    },
+    soloOscillator(channelId, index) {
+      const now = get().channels[channelId];
+      const oscillators = now?.sound?.oscillators;
+      const osc = oscillators?.find((o) => o.index === index);
+      if (!oscillators || !osc) return;
+      const { values, solo } = soloOscillator(oscillators, index, now.solo);
+      get().setControls(channelId, values, "set", `${solo ? "Solo" : "Unsolo"} ${oscillatorLabel(osc.name)}`);
+      patch(channelId, { solo });
     },
     async loadDestinations(channelId) {
       const project = projectId();
