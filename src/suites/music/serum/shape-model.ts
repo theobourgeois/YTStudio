@@ -64,3 +64,35 @@ export function pointAt(points: readonly SerumLfoPoint[], x: number, y: number, 
   });
   return best;
 }
+
+/**
+ * A curved stage of an envelope at `t` (0 to 1), from `y0` to `y1` (levels, 1 the top): `curve` 0.5 is straight, and
+ * further from it bends the stage up or down, as Serum's curve handles do (drawn close to Serum's, not exactly).
+ */
+export function curvedStage(y0: number, y1: number, t: number, curve: number): number {
+  const rising = y1 > y0;
+  const e = 2 ** ((rising ? 0.5 - curve : curve - 0.5) * 4);
+  return rising ? y0 + (y1 - y0) * t ** e : y1 + (y0 - y1) * (1 - t) ** e;
+}
+
+/** The curve that puts a stage's middle at level `middle`: what dragging its curve handle sets. Straight for a flat stage. */
+export function curveThrough(y0: number, y1: number, middle: number): number {
+  if (Math.abs(y1 - y0) < 1e-6) return 0.5;
+  const rising = y1 > y0;
+  const ratio = clamp(rising ? (middle - y0) / (y1 - y0) : (middle - y1) / (y0 - y1), 0.02, 0.98);
+  const e = Math.log(ratio) / Math.log(0.5);
+  return clamp(rising ? 0.5 - Math.log2(e) / 4 : 0.5 + Math.log2(e) / 4, 0, 1);
+}
+
+/** An LFO segment's curve (its start point's third value) that puts its middle at `middle` (y from the top), as `shapePath` draws it. */
+export function segmentCurveThrough(y0: number, y1: number, middle: number): number {
+  if (Math.abs(y1 - y0) < 1e-6) return 0.5;
+  const ratio = clamp((middle - y0) / (y1 - y0), 0.02, 0.98);
+  const power = Math.log(ratio) / Math.log(0.5);
+  return clamp(0.5 + Math.log2(power) / 6, 0, 1);
+}
+
+/** Point `i`'s segment (to the next point) given `curve`: kept as [x, y] when straight. */
+export function withCurve(points: readonly SerumLfoPoint[], i: number, curve: number): SerumLfoPoint[] {
+  return points.map((p, j): SerumLfoPoint => (j !== i ? p : Math.abs(curve - 0.5) < 0.005 ? [p[0], p[1]] : [p[0], p[1], Math.round(curve * 1000) / 1000]));
+}

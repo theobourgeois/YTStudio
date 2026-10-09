@@ -28,7 +28,8 @@ import { DEFAULT_REVERB } from "@shared/music/reverb-presets";
 import type { Reverb } from "@shared/music/types";
 import { drawDecay, drawShape, readVerbPalette } from "./reverb/draw";
 import { shapeSpan } from "./reverb/geometry";
-import { EnvelopeCard, LfoCard } from "./serum/envelopes";
+import { SerumShapes } from "./serum/envelopes";
+import { SERUM_TOKENS } from "./serum/look";
 import { ModulationSection } from "./serum/modulation";
 import { Stars } from "./serum/stars";
 import { type SerumControl, type SerumEnvelope, type SerumLfo, type SerumModRoute, SERUM_DEFAULT_LFO_SHAPE, serumEnvelopeParam, serumLfoParam, serumModAmountParam } from "@shared/music/serum-sound";
@@ -441,16 +442,11 @@ function serumGallerySound() {
 function SerumSoundControls() {
   const [sound] = useState(serumGallerySound);
   return (
-    <div className="flex w-[460px] flex-col gap-2">
-      <div className="rounded-sm border border-line">
-        <ModulationSection channelId="gallery" routes={sound.routes} />
+    <div className="flex w-[520px] flex-col gap-2 bg-[var(--serum-bg)] pb-3 text-xs text-[var(--serum-text)]" style={SERUM_TOKENS}>
+      <ModulationSection channelId="gallery" routes={sound.routes} />
+      <div className="flex flex-col gap-2 px-3">
+        <SerumShapes channelId="gallery" envelopes={sound.envelopes} lfos={sound.lfos.filter((l) => l.used)} routes={sound.routes} />
       </div>
-      {sound.envelopes.map((env) => (
-        <EnvelopeCard key={env.index} channelId="gallery" env={env} drives={env.index === 2 ? ["B Fine"] : []} />
-      ))}
-      {sound.lfos.map((lfo) => (
-        <LfoCard key={lfo.index} channelId="gallery" lfo={lfo} drives={lfo.index === 1 ? ["A WT Pos"] : []} />
-      ))}
     </div>
   );
 }

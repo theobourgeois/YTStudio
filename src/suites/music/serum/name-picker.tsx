@@ -48,12 +48,12 @@ export function NamePicker({
       }}
     >
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent align="start" className="w-64 p-1.5" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <PopoverContent align="start" className="w-64 border-black/60 bg-[var(--serum-panel)] p-1.5 text-[var(--serum-text)]" onOpenAutoFocus={(e) => e.preventDefault()}>
         <Input
           autoFocus
           aria-label={`Find: ${label}`}
           placeholder="Type to find…"
-          className="h-7 text-xs"
+          className="h-7 border-black/60 bg-[var(--serum-display)] text-xs text-[var(--serum-text)]"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -64,9 +64,9 @@ export function NamePicker({
         />
         <div role="listbox" aria-label={label} className="mt-1 max-h-64 overflow-y-auto">
           {options === null ? (
-            <p className="p-2 text-[11px] text-muted-foreground">Asking Serum…</p>
+            <p className="p-2 text-[11px] text-[var(--serum-text-dim)]">Asking Serum…</p>
           ) : !shown.length ? (
-            <p className="p-2 text-[11px] text-muted-foreground">Nothing called that.</p>
+            <p className="p-2 text-[11px] text-[var(--serum-text-dim)]">Nothing called that.</p>
           ) : (
             shown.map((name) => (
               <button
@@ -74,7 +74,7 @@ export function NamePicker({
                 type="button"
                 role="option"
                 aria-selected={name === value}
-                className={cn("block w-full truncate rounded-sm px-2 py-1 text-left text-[12px]", name === value ? "bg-brand/20" : "hover:bg-accent/60")}
+                className={cn("block w-full truncate rounded-sm px-2 py-1 text-left text-[12px]", name === value ? "bg-[var(--serum-row-on)] text-white" : "hover:bg-white/5")}
                 onClick={() => pick(name)}
               >
                 {name}

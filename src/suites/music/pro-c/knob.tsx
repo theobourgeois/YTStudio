@@ -115,6 +115,13 @@ function ControlShell({ value, defaultValue, label, format, parse, typed, disabl
               onPointerEnter={() => setHover(true)}
               onPointerLeave={() => setHover(false)}
               onDoubleClick={() => !disabled && canType && setTyping(typed!(value))}
+              // The arrows turn it a hundredth of its travel (Shift: a thousandth), as our other knobs do.
+              onKeyDown={(e) => {
+                const by = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
+                if (disabled || by === undefined) return;
+                e.preventDefault();
+                onSet(clamp(own + by * (e.shiftKey ? 0.001 : 0.01), 0, 1));
+              }}
               onPointerDown={(e) => {
                 if (disabled || e.button === 2) return;
                 // FabFilter resets with Cmd-click, FL Studio with Alt-click or the middle button: all of them.

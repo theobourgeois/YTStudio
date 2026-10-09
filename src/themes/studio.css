@@ -117,6 +117,45 @@
   --serum-grid: #191c22;
   --serum-axis: #262a32;
   --serum-label: #5c6270;
+  /* Its envelopes and LFOs (`envelopes.tsx`), drawn as Serum draws them: its dark panels, its blue line and values. */
+  --serum-panel: #1d2128;
+  --serum-display: #161a1f;
+  --serum-display-grid: #232930;
+  --serum-display-grid-strong: #313944;
+  --serum-trace: #5ab4ef;
+  --serum-value: #6cbcf2;
+  --serum-tab: #272c34;
+  --serum-tab-on: #343b46;
+  --serum-text: #c9d0d9;
+  --serum-text-dim: #7c8693;
+  /* The player's own face, a plugin's (`serum-player.tsx`): its bars, edges, knobs (Pro-C's, in these), the preset
+     playing's row, and a hue for each kind of sound and of mod source. */
+  --serum-bg: #13171d;
+  --serum-bar: #0c0f13;
+  --serum-bottom-bar: #101419;
+  --serum-edge: #2a313b;
+  --serum-row-on: #1b3044;
+  --serum-knob: #262d38;
+  --serum-knob-light: #3b4555;
+  --serum-knob-dark: #141920;
+  --serum-knob-edge: #485366;
+  --serum-handle-top: #3b4555;
+  --serum-handle-bottom: #262d38;
+  --serum-hot: #ffb84d;
+  --serum-cat-bass: #e8705f;
+  --serum-cat-lead: #f2bd4b;
+  --serum-cat-pad: #9a86f7;
+  --serum-cat-pluck: #4fc9a6;
+  --serum-cat-keys: #5ab4ef;
+  --serum-cat-synth: #e483d2;
+  --serum-cat-rhythm: #86d46e;
+  --serum-cat-chord: #f2924f;
+  --serum-cat-voice: #f483a8;
+  --serum-cat-other: #8a94a3;
+  --serum-src-env: #6fd18a;
+  --serum-src-lfo: #5ab4ef;
+  --serum-src-macro: #f2bd4b;
+  --serum-src-other: #b993f5;
   /*
    * Pro-Q's look (`src/suites/music/pro-q/`): FabFilter's dark display in every theme, as a plugin's
    * window keeps its own. Its canvas reads these, so they're plain colours.

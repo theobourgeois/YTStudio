@@ -3,39 +3,42 @@ import { PiArrowRight, PiPlus, PiPower, PiX } from "react-icons/pi";
 import { cn } from "cn";
 import { errorMessage } from "@shared/errors";
 import { modAmountOf, modAmountToValue, routesBySource, SERUM_MOD_SOURCES, type SerumModRoute, type SerumSoundEdit } from "@shared/music/serum-sound";
-import { Button } from "@/components/ui/button";
-import { Knob } from "../knob";
+import { BarSlider } from "../pro-c/knob";
+import { sourceHue } from "./look";
 import { NamePicker } from "./name-picker";
+import { SerumSection } from "./section";
 import { useSerumUi } from "./store";
 
 /** What a route can come from: every source but None. */
 const SOURCES = SERUM_MOD_SOURCES.slice(1);
-const AMOUNT_UNIT = { scale: 1, unit: "%" };
 
 const edit = (channelId: string, edits: SerumSoundEdit[], label?: string) => void useSerumUi.getState().edit(channelId, edits, label).catch(() => {});
 
+const iconButton = "grid size-5 shrink-0 place-items-center rounded-sm text-[var(--serum-text-dim)] outline-none hover:bg-white/5 hover:text-[var(--serum-text)] disabled:opacity-30";
+
 /**
- * The mod matrix as readable rows (`docs/serum/player.md` §3.4): `source (aux) → destination`, its amount, grouped
- * by source. An amount turns live; the rest (bipolar, bypass, a source or destination changed, a route added or
- * removed) is a reload, which the engine makes without a click.
+ * The mod matrix (`docs/serum/player.md` §3.4), as Serum's matrix reads: a row a route, its source in its kind's
+ * colour (envelopes green, LFOs blue, macros amber), its destination, its amount a bar from the middle. An amount
+ * turns live; the rest (bipolar, bypass, a source or destination changed, a route added or removed) is a reload,
+ * which the engine makes without a click.
  */
 export function ModulationSection({ channelId, routes }: { channelId: string; routes: SerumModRoute[] | null }) {
   const busy = useSerumUi((s) => s.channels[channelId]?.busy ?? false);
   return (
-    <section className="border-t border-line px-3 py-2.5" aria-label="Modulation" data-testid="serum-modulation">
-      <div className="mb-1.5 flex items-center gap-2">
-        <h3 className="text-[11px] font-medium text-muted-foreground">Modulation</h3>
-        {routes && <span className="text-[11px] text-muted-foreground">{routes.length ? `${routes.length} route${routes.length === 1 ? "" : "s"}` : ""}</span>}
-        {routes && <AddRoute channelId={channelId} disabled={busy} />}
-      </div>
+    <SerumSection title="MODULATION" label="Modulation" testId="serum-modulation" aside={routes && <AddRoute channelId={channelId} disabled={busy} />}>
       {!routes ? (
-        <p className="py-1 text-[11px] text-muted-foreground">Load a preset to see what it modulates.</p>
+        <p className="text-[11px] text-[var(--serum-text-dim)]">Load a preset to see what it modulates.</p>
       ) : !routes.length ? (
-        <p className="py-1 text-[11px] text-muted-foreground">Nothing is modulated: add a route.</p>
+        <p className="rounded-[5px] border border-dashed border-[var(--serum-edge)] py-3 text-center text-[11px] text-[var(--serum-text-dim)]">Nothing is modulated: add a route.</p>
       ) : (
-        <div className="flex flex-col gap-1.5">
+        <div className="overflow-hidden rounded-[5px] border border-black/60 bg-[var(--serum-display)]">
+          <div className="flex h-5 items-center gap-2 border-b border-black/50 bg-[var(--serum-panel)] px-2 text-[9px] font-semibold tracking-[0.14em] text-[var(--serum-text-dim)]">
+            <span className="w-[104px]">SOURCE</span>
+            <span className="flex-1 pl-5">DESTINATION</span>
+            <span className="w-[150px]">AMOUNT</span>
+          </div>
           {routesBySource(routes).map((group) => (
-            <div key={group.source} role="group" aria-label={group.source} className="flex flex-col">
+            <div key={group.source} role="group" aria-label={group.source} className="border-b border-black/40 last:border-b-0">
               {group.routes.map((route, i) => (
                 <RouteRow key={route.slot} channelId={channelId} route={route} first={i === 0} disabled={busy} />
               ))}
@@ -43,29 +46,34 @@ export function ModulationSection({ channelId, routes }: { channelId: string; ro
           ))}
         </div>
       )}
-    </section>
+    </SerumSection>
   );
 }
 
 function RouteRow({ channelId, route, first, disabled }: { channelId: string; route: SerumModRoute; first: boolean; disabled: boolean }) {
   const destinations = useSerumUi((s) => s.channels[channelId]?.destinations ?? null);
   const name = `${route.source} → ${route.to}`;
+  const hue = sourceHue(route.source);
   const set = (value: number, gesture: "begin" | "drag" | "end" | "set") => useSerumUi.getState().setControl(channelId, route.amount.param, value, gesture, `${name} amount`);
   const latest = () => useSerumUi.getState().channels[channelId]?.sound?.modulation?.find((r) => r.slot === route.slot)?.amount.value ?? route.amount.value;
+  const amount = Math.round(modAmountOf(route.amount.value));
   return (
-    <div className={cn("flex h-7 items-center gap-1.5 text-[12px]", route.bypass && "opacity-50")} data-slot={route.slot} aria-label={name}>
+    <div className={cn("flex h-8 items-center gap-2 px-2 text-[12px] hover:bg-white/[0.03]", route.bypass && "opacity-45")} data-slot={route.slot} aria-label={name}>
       <NamePicker options={SOURCES} value={route.source} label="Source" onPick={(source) => edit(channelId, [{ kind: "route", slot: route.slot, source }], `${route.to}: from ${source}`)}>
         <button
           type="button"
           disabled={disabled}
           title={`Slot ${route.slot}: change its source`}
-          className={cn("w-24 shrink-0 truncate rounded-sm px-1 text-left hover:bg-accent/60", first ? "font-medium" : "text-muted-foreground/60")}
+          className={cn("flex w-[104px] shrink-0 items-center gap-1.5 rounded-sm px-1.5 py-0.5 text-left outline-none hover:bg-white/5", !first && "opacity-60")}
         >
-          {route.source}
-          {route.aux && <span className="ml-1 text-[10px] text-muted-foreground">× {route.aux}</span>}
+          <span className="h-3.5 w-[3px] shrink-0 rounded-full" style={{ background: hue, boxShadow: `0 0 6px ${hue}` }} />
+          <span className="truncate font-semibold" style={{ color: hue }}>
+            {route.source}
+          </span>
+          {route.aux && <span className="truncate text-[10px] text-[var(--serum-text-dim)]">× {route.aux}</span>}
         </button>
       </NamePicker>
-      <PiArrowRight className="size-3 shrink-0 text-muted-foreground" />
+      <PiArrowRight className="size-3 shrink-0 text-[var(--serum-text-dim)]" />
       <NamePicker
         options={destinations}
         value={route.to}
@@ -73,54 +81,62 @@ function RouteRow({ channelId, route, first, disabled }: { channelId: string; ro
         onOpen={() => void useSerumUi.getState().loadDestinations(channelId)}
         onPick={(to) => edit(channelId, [{ kind: "route", slot: route.slot, to }], `${route.source}: to ${to}`)}
       >
-        <button type="button" disabled={disabled} title="Change its destination" className="min-w-0 flex-1 truncate rounded-sm px-1 text-left hover:bg-accent/60">
+        <button type="button" disabled={disabled} title="Change its destination" className="min-w-0 flex-1 truncate rounded-sm px-1 py-0.5 text-left text-[var(--serum-text)] outline-none hover:bg-white/5">
           {route.to}
         </button>
       </NamePicker>
-      <Knob
-        value={modAmountOf(route.amount.value)}
-        min={-100}
-        max={100}
-        defaultValue={0}
+      <BarSlider
+        value={route.amount.value}
+        defaultValue={0.5}
         bipolar
+        length={92}
+        colour={hue}
         label={`${name} amount`}
-        format={(v) => `${Math.round(v)}%`}
-        unit={AMOUNT_UNIT}
-        size={20}
+        format={(v) => `${Math.round(modAmountOf(v))}%`}
         onBegin={() => set(latest(), "begin")}
-        onDrag={(v) => set(modAmountToValue(v), "drag")}
+        onDrag={(v) => set(v, "drag")}
         onEnd={() => set(latest(), "end")}
         onCancel={() => set(latest(), "end")}
-        onSet={(v) => set(modAmountToValue(v), "set")}
+        onSet={(v) => set(v, "set")}
+        parse={(text) => {
+          const n = Number.parseFloat(text.replace(",", "."));
+          return Number.isFinite(n) ? modAmountToValue(n) : null;
+        }}
+        typed={(v) => String(Math.round(modAmountOf(v)))}
       />
-      <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{Math.round(modAmountOf(route.amount.value))}%</span>
+      <span className={cn("w-9 shrink-0 text-right text-[11px] tabular-nums", amount === 0 ? "text-[var(--serum-text-dim)]" : "text-[var(--serum-value)]")}>{amount}%</span>
       <button
         type="button"
         disabled={disabled}
         aria-pressed={route.bipolar}
         title="Bipolar: the source swings both ways"
-        className={cn("h-5 w-6 shrink-0 rounded-sm border border-line text-[11px]", route.bipolar ? "pressed text-foreground" : "text-muted-foreground hover:text-foreground")}
+        className={cn(
+          "h-5 w-6 shrink-0 rounded-[3px] border text-[11px] font-semibold outline-none",
+          route.bipolar ? "border-[var(--serum-trace)] text-[var(--serum-trace)]" : "border-[var(--serum-edge)] text-[var(--serum-text-dim)] hover:text-[var(--serum-text)]",
+        )}
         onClick={() => edit(channelId, [{ kind: "route", slot: route.slot, bipolar: !route.bipolar }], `${name}: ${route.bipolar ? "unipolar" : "bipolar"}`)}
       >
         ±
       </button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
+      <button
+        type="button"
         disabled={disabled}
         aria-pressed={route.bypass}
         aria-label={`Bypass ${name}`}
         title={route.bypass ? "Bypassed: turn it on" : "Bypass it"}
+        className={iconButton}
         onClick={() => edit(channelId, [{ kind: "route", slot: route.slot, bypass: !route.bypass }], `${name}: ${route.bypass ? "on" : "bypassed"}`)}
       >
-        <PiPower className={route.bypass ? "text-muted-foreground" : "text-foreground"} />
-      </Button>
-      <Button variant="ghost" size="icon-xs" disabled={disabled} aria-label={`Remove ${name}`} title="Remove the route" onClick={() => edit(channelId, [{ kind: "removeRoute", slot: route.slot }], `Remove ${name}`)}>
+        <PiPower className={route.bypass ? "text-[var(--serum-hot)]" : ""} />
+      </button>
+      <button type="button" disabled={disabled} aria-label={`Remove ${name}`} title="Remove the route" className={iconButton} onClick={() => edit(channelId, [{ kind: "removeRoute", slot: route.slot }], `Remove ${name}`)}>
         <PiX />
-      </Button>
+      </button>
     </div>
   );
 }
+
+const addButton = "flex h-5 items-center gap-1 rounded-[4px] border border-[var(--serum-edge)] px-2 text-[10px] font-semibold tracking-[0.08em] text-[var(--serum-text-dim)] uppercase outline-none hover:border-[var(--serum-trace)] hover:text-[var(--serum-trace)] disabled:opacity-40";
 
 /** + Add: a source, then a destination; the route starts at 50%. */
 function AddRoute({ channelId, disabled }: { channelId: string; disabled: boolean }) {
@@ -128,11 +144,17 @@ function AddRoute({ channelId, disabled }: { channelId: string; disabled: boolea
   const [source, setSource] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   return (
-    <div className="ml-auto flex items-center gap-1">
-      {error && <span className="max-w-60 truncate text-[11px] text-destructive" title={error}>{error}</span>}
+    <div className="flex items-center gap-1">
+      {error && (
+        <span className="max-w-60 truncate text-[11px] text-destructive" title={error}>
+          {error}
+        </span>
+      )}
       {source ? (
         <>
-          <span className="text-[11px] text-muted-foreground">{source} →</span>
+          <span className="text-[10.5px] font-semibold" style={{ color: sourceHue(source) }}>
+            {source} →
+          </span>
           <NamePicker
             options={destinations}
             label="Destination"
@@ -146,19 +168,19 @@ function AddRoute({ channelId, disabled }: { channelId: string; disabled: boolea
                 .then(() => setError(null), (err) => setError(errorMessage(err)));
             }}
           >
-            <Button variant="outline" size="sm" className="h-6 px-2 text-[11px]">
+            <button type="button" className={addButton}>
               Pick a destination
-            </Button>
+            </button>
           </NamePicker>
-          <Button variant="ghost" size="icon-xs" aria-label="Don't add a route" onClick={() => setSource(null)}>
+          <button type="button" className={iconButton} aria-label="Don't add a route" onClick={() => setSource(null)}>
             <PiX />
-          </Button>
+          </button>
         </>
       ) : (
         <NamePicker options={SOURCES} label="Source" onPick={(s) => setSource(s)}>
-          <Button variant="outline" size="sm" className="h-6 gap-1 px-2 text-[11px]" disabled={disabled}>
-            <PiPlus className="size-3" /> Add
-          </Button>
+          <button type="button" className={addButton} disabled={disabled}>
+            <PiPlus className="size-2.5" /> Add
+          </button>
         </NamePicker>
       )}
     </div>
