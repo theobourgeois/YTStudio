@@ -19,7 +19,7 @@ export function OscillatorsSection({ channelId, oscillators }: { channelId: stri
   const solo = useSerumUi((s) => s.channels[channelId]?.solo ?? null);
   if (!oscillators.length) return null;
   return (
-    <SerumSection title="Oscillators" label="Oscillators" testId="serum-oscillators">
+    <SerumSection label="Oscillators" testId="serum-oscillators">
       <div className="grid grid-cols-5 gap-1.5">
         {oscillators.map((osc) => (
           <OscillatorCard key={osc.index} channelId={channelId} osc={osc} soloed={solo?.index === osc.index} />

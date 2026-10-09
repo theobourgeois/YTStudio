@@ -26,17 +26,9 @@ export function ModulationSection({ channelId, routes }: { channelId: string; ro
   const busy = useSerumUi((s) => s.channels[channelId]?.busy ?? false);
   return (
     <SerumSection
-      title="Modulation"
       label="Modulation"
       testId="serum-modulation"
-      aside={
-        routes && (
-          <>
-            {routes.length > 0 && <span className="text-[11px] text-[var(--serum-text-dim)]">{routes.length} route{routes.length === 1 ? "" : "s"}</span>}
-            <AddRoute channelId={channelId} disabled={busy} />
-          </>
-        )
-      }
+      aside={routes && <AddRoute channelId={channelId} disabled={busy} />}
     >
       {!routes ? (
         <p className="text-[11px] text-[var(--serum-text-dim)]">Load a preset to see what it modulates.</p>
