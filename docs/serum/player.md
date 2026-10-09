@@ -370,12 +370,12 @@ New tools in `shared/music/tools.ts`, for parity with the window:
      `rate_serum_preset`.
    - **Tests:** `serum-presets.test.ts`, `library.test.ts`, and `e2e/music.spec.ts` on a stand-in library
      (`EDITOR_SERUM_LIBRARY=stand-in`: `server/music/serum/stand-in.ts`) and the stand-in engine's "Serum 2".
-   - **The display** (2026-10-09, asked for before step 3): a big pane above the macros showing what the channel's
-     Serum plays, as light on a night screen (`scope-view.tsx`, its maths in `scope-model.ts`, tested): the
-     spectrum as a range of glowing ridges receding as they age, a glow breathing with the level, the waveform held
-     on its cycle, the stereo picture in a corner, sparks off the loudest peaks; at rest a calm grid. The engine
-     measures the plugin's own sound while the player is open (`channelWatch`, `scopes` on the transport events:
-     `docs/claude/music-engine.md`). Its colours are the `--serum-*` tokens, a dark screen in every theme.
+   - **The display** (2026-10-09, asked for before step 3): a pane above the macros, an oscilloscope of what the
+     channel's Serum plays: one green trace on a dark graticule, held on its cycle and scaled to fill the screen
+     (`scope-view.tsx`, its maths in `scope-model.ts`, tested), flat at rest. Théo found a first version (ridges,
+     glow, sparks, stars) too much: keep it clean. The engine measures the plugin's own sound while the player is
+     open (`channelWatch`, `scopes` on the transport events: `docs/claude/music-engine.md`); the display draws its
+     `wave` (the spectrum and stereo pairs it also sends aren't drawn). Its colours are the `--serum-*` tokens.
    - **Not yet: undo** (§5, Q1). A load and a macro move aren't undo steps; the player's history of the channel's
      states comes with step 3, where edits begin.
 3. **Modulation:** the rows, live amounts, adding and removing routes.
