@@ -4,7 +4,7 @@
  * files (`server/music/serum/library.ts`); the tab and the assistant search the same list the same way.
  */
 import { naturalCompare, withinEdits, wordsOf } from "./browser.ts";
-import type { SerumEnvelope, SerumHistory, SerumLfo, SerumModRoute } from "./serum-sound.ts";
+import type { SerumEnvelope, SerumHistory, SerumLfo, SerumModRoute, SerumOscillator } from "./serum-sound.ts";
 
 /** A preset file in Serum's library: a Serum 2 `.SerumPreset` or a Serum 1 `.fxp` (Serum 2 converts it as it loads it). */
 export interface SerumPresetEntry {
@@ -273,6 +273,8 @@ export interface SerumSound {
   modulation: SerumModRoute[] | null;
   envelopes: SerumEnvelope[];
   lfos: SerumLfo[];
+  /** A, B, C, Noise and Sub (none while Serum's state can't be read). */
+  oscillators: SerumOscillator[];
   /** Changed in the player since the preset was loaded. */
   edited: boolean;
   history: SerumHistory;

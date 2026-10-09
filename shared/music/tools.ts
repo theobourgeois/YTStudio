@@ -728,7 +728,7 @@ export const MUSIC_TOOLS = [
     title: "What a Serum channel has on",
     kind: "look",
     description:
-      "The preset a Serum 2 channel has on (as Serum says), its macros (names, where they are 0 to 100%, what each drives), its mod matrix (each route: " +
+      "The preset a Serum 2 channel has on (as Serum says), its macros (names, where they are 0 to 100%, what each drives), its oscillators (what each plays, on or off, level), its mod matrix (each route: " +
       "slot, source, aux, destination, amount, bipolar, bypassed), its envelopes and LFOs (Env 1 shapes every note; the others and the LFOs only matter " +
       "when routed), whether it was edited since loading, and what undo_serum_sound would undo. edit_serum_sound changes it.",
     inputSchema: obj({ channel: str("A Serum 2 channel: its id or name (get_song lists them).") }, ["channel"]),
@@ -822,6 +822,25 @@ export const MUSIC_TOOLS = [
         ),
       },
       ["channel", "edits"],
+    ),
+  }),
+  tool({
+    name: "set_serum_oscillators",
+    title: "Turn a Serum channel's oscillators on or off",
+    kind: "action",
+    description:
+      "Turn Serum's oscillators (A, B, C, Noise, Sub) on or off and set their levels on a Serum 2 channel, live, as the player's Mute and Solo do " +
+      "(get_serum_sound lists what each plays, whether it's on and its level). To solo one, turn it on and the others off. One undo step.",
+    inputSchema: obj(
+      {
+        channel: str("A Serum 2 channel: its id or name."),
+        oscillators: arr(
+          obj({ oscillator: oneOf(["A", "B", "C", "Noise", "Sub"], "Which."), on: bool("On (true) or off/muted (false)."), level: num("Its level, 0 to 100 (% of the knob; its gain is the square).", { minimum: 0, maximum: 100 }) }, ["oscillator"]),
+          "The oscillators to change.",
+          { minItems: 1 },
+        ),
+      },
+      ["channel", "oscillators"],
     ),
   }),
   tool({

@@ -49,10 +49,10 @@ const PARAMETERS = {
   "VST3-Serum 2-3": Array.from({ length: 8 }, (_, i) => ({ id: String(7_000_000 + i * 1000), name: `Macro ${i + 1}` })),
 };
 /**
- * Serum 2's other live controls (envelopes 3xxxxxx, LFOs 4xxxxxx, mod amounts 6xxxxxx), by Serum's ids: the Serum
+ * Serum 2's other live controls (oscillators 1xxxxxx, envelopes 3xxxxxx, LFOs 4xxxxxx, mod amounts 6xxxxxx), by Serum's ids: the Serum
  * player sets them. Listed once set (the stand-in doesn't know where a state puts them: the player reads that).
  */
-const isSerumControl = (plugin, param) => plugin.id === "VST3-Serum 2-3" && /^[346]\d{6}$/.test(param);
+const isSerumControl = (plugin, param) => plugin.id === "VST3-Serum 2-3" && /^[1346]\d{6}$/.test(param);
 /** The plugin of a song's channel or effect, by its id. */
 const pluginOf = (owner, id) =>
   owner === "channel" ? song?.channels.find((c) => c.id === id && c.plugin)?.plugin : (song?.tracks ?? []).flatMap((t) => t.effects ?? []).find((e) => e.id === id)?.plugin;

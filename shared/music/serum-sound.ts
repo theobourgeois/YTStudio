@@ -302,7 +302,7 @@ export function envelopeOutline(env: Pick<SerumEnvelope, "controls">, stage: num
 }
 
 /** A sound's control moved to a position: the routes', envelopes', LFOs' and macros' copies of it (none if it isn't one of them). */
-export function withControl<S extends { modulation: SerumModRoute[] | null; envelopes: SerumEnvelope[]; lfos: SerumLfo[]; macros: { param: string; value: number }[] }>(
+export function withControl<S extends { modulation: SerumModRoute[] | null; envelopes: SerumEnvelope[]; lfos: SerumLfo[]; macros: { param: string; value: number }[]; oscillators?: SerumOscillator[] }>(
   sound: S,
   param: string,
   value: number,
@@ -324,5 +324,49 @@ export function withControl<S extends { modulation: SerumModRoute[] | null; enve
       return controls === l.controls ? l : { ...l, controls };
     }),
     macros: sound.macros.map((m) => (m.param === param ? { ...m, value } : m)),
+    ...(sound.oscillators && {
+      oscillators: sound.oscillators.map((o) => (o.enabled.param === param ? { ...o, enabled: set(o.enabled) } : o.level.param === param ? { ...o, level: set(o.level) } : o)),
+    }),
   };
+}
+
+// ---- Oscillators ----
+
+/** Serum's five oscillators, by their number in its state (`Oscillator0`…`Oscillator4`). */
+export const SERUM_OSCILLATORS = ["A", "B", "C", "Noise", "Sub"] as const;
+
+/** An oscillator's live control: on or off, its level (the knob's place: its gain is the square), its pan. */
+export const serumOscillatorParam = (index: number, field: "enable" | "level" | "pan") => String(1_000_000 + index * 1000 + { enable: 0, level: 1, pan: 2 }[field]);
+
+export interface SerumOscillator {
+  /** 0 to 4: A, B, C, Noise, Sub. */
+  index: number;
+  name: (typeof SERUM_OSCILLATORS)[number];
+  /** What kind it is: Wavetable, Sample, Multisample, Granular, Spectral, Noise or Sub. */
+  kind: string;
+  /** What it plays: its wavetable's or sample's name, the sub's shape. */
+  plays: string;
+  /** On (1) or off (0): Serum's own switch, which mute and solo set. */
+  enabled: SerumControl;
+  level: SerumControl;
+  octave: number;
+  semi: number;
+}
+
+/** A solo in place: the oscillator soloed, and every oscillator's switch as it was before (put back when it ends). */
+export interface SerumSolo {
+  index: number;
+  before: Record<string, number>;
+}
+
+/**
+ * Soloing an oscillator (as a mixer's solo): it on, the others off, until it's soloed again, which puts every switch
+ * back as it was. Soloing another meanwhile moves the solo, still putting back the first state when it ends. Answers
+ * the switches to set and the solo after.
+ */
+export function soloOscillator(oscillators: readonly SerumOscillator[], index: number, solo: SerumSolo | null): { values: Record<string, number>; solo: SerumSolo | null } {
+  if (solo?.index === index) return { values: { ...solo.before }, solo: null };
+  const before = solo?.before ?? Object.fromEntries(oscillators.map((o) => [o.enabled.param, o.enabled.value >= 0.5 ? 1 : 0]));
+  const values = Object.fromEntries(oscillators.map((o) => [o.enabled.param, o.index === index ? 1 : 0]));
+  return { values, solo: { index, before } };
 }

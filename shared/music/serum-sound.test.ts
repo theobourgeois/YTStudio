@@ -17,6 +17,7 @@ import {
   serumLfoParam,
   serumModAmountParam,
   sourceDrives,
+  soloOscillator,
   sourceUsed,
   withControl,
 } from "./serum-sound.ts";
@@ -148,5 +149,25 @@ describe("envelopeOutline", () => {
       [210, 0.25],
       [235, 0],
     ]);
+  });
+});
+
+describe("soloing an oscillator", () => {
+  const osc = (index: number, on: boolean) =>
+    ({ index, name: "A", kind: "Wavetable", plays: "", enabled: { param: `e${index}`, value: on ? 1 : 0 }, level: { param: `l${index}`, value: 0.75 }, octave: 0, semi: 0 }) as const;
+  const oscillators = [osc(0, true), osc(1, true), osc(2, false), osc(3, false), osc(4, true)];
+
+  it("turns it on and the rest off, then puts every switch back as it was", () => {
+    const first = soloOscillator(oscillators, 1, null);
+    expect(first.values).toEqual({ e0: 0, e1: 1, e2: 0, e3: 0, e4: 0 });
+    expect(first.solo).toEqual({ index: 1, before: { e0: 1, e1: 1, e2: 0, e3: 0, e4: 1 } });
+    expect(soloOscillator(oscillators, 1, first.solo)).toEqual({ values: { e0: 1, e1: 1, e2: 0, e3: 0, e4: 1 }, solo: null });
+  });
+
+  it("moves to another oscillator, still putting back the state from before the first", () => {
+    const first = soloOscillator(oscillators, 1, null);
+    const moved = soloOscillator(oscillators, 2, first.solo);
+    expect(moved.values).toEqual({ e0: 0, e1: 0, e2: 1, e3: 0, e4: 0 });
+    expect(soloOscillator(oscillators, 2, moved.solo).values).toEqual(first.solo!.before);
   });
 });

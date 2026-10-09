@@ -240,7 +240,7 @@ export class SerumPlayer {
       return [{ index, param, name, value: control.value, text: control.text }];
     });
     const settings = settingsOf(state);
-    const parts = settings ? readSoundParts(settings, liveControls(parameters)) : { modulation: null, envelopes: [], lfos: [] };
+    const parts = settings ? readSoundParts(settings, liveControls(parameters)) : { modulation: null, envelopes: [], lfos: [], oscillators: [] };
     return { preset: presetOf(state), macros, ...parts, edited: meta.edited, history: this.historyOf(projectId, channel) };
   }
 
