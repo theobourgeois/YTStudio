@@ -140,8 +140,10 @@ describe("project packages", () => {
     expect([a.path, b.path]).toEqual([path.join(documents, "Summer edit.yt"), path.join(documents, "Summer edit 2.yt")]);
     expect(readdirSync(a.path).sort()).toEqual(["media", "meta.json", "project.json"]);
 
-    // Opening one makes it the latest.
+    // Opening one doesn't move it up the recents; saving one does.
     await send("POST", `/api/projects/${a.id}/opened`);
+    expect((await list()).map((p) => p.id)).toEqual([b.id, a.id]);
+    await send("PUT", `/api/projects/${a.id}`, (await send<Project>("GET", `/api/projects/${a.id}`)).body);
     expect((await list()).map((p) => p.id)).toEqual([a.id, b.id]);
     await send("POST", `/api/projects/${b.id}/reveal`);
     expect(revealed).toEqual([b.path]);

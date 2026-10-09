@@ -92,12 +92,12 @@ interface ProjectsState {
   flush: () => Promise<void>;
 }
 
-/** When a project was last touched here: opened or saved. */
-export const lastTouched = (p: ProjectSummary) => Math.max(p.openedAt, p.updatedAt);
+/** When a project was last changed (opening one doesn't count: it doesn't move it up the recents). */
+export const lastEdited = (p: ProjectSummary) => p.updatedAt;
 
-/** The recents, the latest first. */
+/** The recents, the latest edited first. */
 export function recentProjects(projects: readonly ProjectSummary[]): ProjectSummary[] {
-  return [...projects].sort((a, b) => lastTouched(b) - lastTouched(a));
+  return [...projects].sort((a, b) => lastEdited(b) - lastEdited(a));
 }
 
 /** A project's suite, if it's in the list. */

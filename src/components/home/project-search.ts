@@ -1,7 +1,7 @@
 /**
  * The project search (⌘P, and the Home screen's), pure: which projects match what's typed, best first. Every
  * word typed must be in the project's name (or its suite's); a name starting with the words, then one with a
- * word starting so, comes before one that only has them inside. Then the latest opened or saved first, and
+ * word starting so, comes before one that only has them inside. Then the latest edited first, and
  * the ones that aren't where they were last.
  */
 import type { ProjectSummary } from "@shared/types";
@@ -17,8 +17,6 @@ const rank = (project: ProjectSummary, words: string[], suiteName: string): numb
   return name.includes(first) ? 2 : 3;
 };
 
-const lastTouched = (p: ProjectSummary) => Math.max(p.openedAt, p.updatedAt);
-
 /** The projects matching `query`, best first (`suiteName`: what each project's suite is called, searched too). */
 export function searchProjects(projects: readonly ProjectSummary[], query: string, suiteName: (project: ProjectSummary) => string = () => ""): ProjectSummary[] {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -27,11 +25,11 @@ export function searchProjects(projects: readonly ProjectSummary[], query: strin
       const score = rank(project, words, suiteName(project).toLowerCase());
       return score === null ? [] : [{ project, score }];
     })
-    .sort((a, b) => a.score - b.score || Number(!!a.project.missing) - Number(!!b.project.missing) || lastTouched(b.project) - lastTouched(a.project))
+    .sort((a, b) => a.score - b.score || Number(!!a.project.missing) - Number(!!b.project.missing) || b.project.updatedAt - a.project.updatedAt)
     .map((r) => r.project);
 }
 
-/** The sheet's groups: when each project was last touched, by calendar day (local time), the latest first. */
+/** The sheet's groups: when each project was last edited, by calendar day (local time), the latest first. */
 export type WhenGroup = "Today" | "Yesterday" | "This week" | "This month" | "Earlier";
 
 /** Projects in their `WhenGroup`s, in the order given; groups with none are left out. */
@@ -50,7 +48,7 @@ export function groupByWhen<T extends ProjectSummary>(projects: readonly T[], no
   const order: WhenGroup[] = ["Today", "Yesterday", "This week", "This month", "Earlier"];
   const groups = new Map<WhenGroup, T[]>();
   for (const project of projects) {
-    const label = groupOf(lastTouched(project));
+    const label = groupOf(project.updatedAt);
     const group = groups.get(label);
     if (group) group.push(project);
     else groups.set(label, [project]);

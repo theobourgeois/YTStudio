@@ -38,7 +38,7 @@ import {
 import { cn } from "cn";
 import { FILE_MANAGER } from "@/lib/key-labels";
 import { useAssistant } from "@/stores/assistant";
-import { lastTouched, useProjects } from "@/stores/projects";
+import { lastEdited, useProjects } from "@/stores/projects";
 import { clientSuite, describeProject, projectAspect } from "@/suites";
 import { type ChatStatus, chatStatus } from "./chat-status";
 import { showOpenDialog } from "./open-project-dialog";
@@ -137,7 +137,7 @@ export const ProjectCard = memo(function ProjectCard({ project, now, view = "car
   ) : (
     <span className="truncate">{describeProject(project)}</span>
   );
-  const when = <span className="shrink-0 tabular-nums">{formatRelative(lastTouched(project), now)}</span>;
+  const when = <span className="shrink-0 tabular-nums">{formatRelative(lastEdited(project), now)}</span>;
   const more = (
     <div
       className={cn("opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100", menuOpen && "opacity-100")}

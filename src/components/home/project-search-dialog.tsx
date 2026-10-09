@@ -7,7 +7,7 @@ import type { ProjectSummary } from "@shared/types";
 import { cn } from "cn";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useLayout } from "@/stores/layout";
-import { lastTouched, useProjects } from "@/stores/projects";
+import { lastEdited, useProjects } from "@/stores/projects";
 import { describeProject } from "@/suites";
 import { showOpenDialog } from "./open-project-dialog";
 import { Thumbnail } from "./project-card";
@@ -166,7 +166,7 @@ function Search() {
                 {SUITES[project.suite].label} · {describeProject(project)}
               </span>
             </span>
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{formatRelative(lastTouched(project), now)}</span>
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{formatRelative(lastEdited(project), now)}</span>
           </div>
         ))}
         {found.length === 0 && <p className="px-2.5 py-6 text-center text-[13px] text-muted-foreground">{projects.length ? "Nothing matches." : "No projects yet."}</p>}

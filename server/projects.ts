@@ -242,8 +242,8 @@ export class ProjectStore {
   }
 
   /**
-   * The recents, the latest opened or saved first (starting points aren't projects to work on: they're left
-   * out). One whose package has gone since (moved, renamed or deleted in Finder) is missing from now on.
+   * The recents, the latest saved first: opening one doesn't move it (starting points aren't projects to work on:
+   * they're left out). One whose package has gone since (moved, renamed or deleted in Finder) is missing from now on.
    */
   list(): ProjectSummary[] {
     for (const entry of this.entries.values()) {
@@ -251,8 +251,7 @@ export class ProjectStore {
     }
     const found = [...this.entries.values()].filter((e) => !e.template).map((e) => this.toSummary(e));
     const lost = [...this.missing.values()].map((r) => this.missingSummary(r));
-    const latest = (p: ProjectSummary) => Math.max(p.openedAt, p.updatedAt);
-    return [...found, ...lost].sort((a, b) => latest(b) - latest(a));
+    return [...found, ...lost].sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   summary(id: string): ProjectSummary {
@@ -395,7 +394,7 @@ export class ProjectStore {
     });
   }
 
-  /** A tab opened the project: it's the latest, and its package stays put until it's closed. */
+  /** A tab opened the project: its package stays put until it's closed. */
   async opened(id: string): Promise<ProjectSummary> {
     const entry = this.entry(id);
     const backend = suiteBackend(entry.meta.suite);
