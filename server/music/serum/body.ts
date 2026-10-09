@@ -7,6 +7,7 @@
  * number for number (the units round-trip exactly, `units.ts`), and the writer and the reader can't disagree,
  * because the reader uses the writer to know what's left over.
  */
+import { fxParamName } from "../../../shared/music/serum-effects.ts";
 import { type CborMap, type CborValue, isPlainMap } from "./cbor.ts";
 import { choiceOptions, FX_RACKS, FX_TYPES, MOD_SOURCES, MODULE_PARAMS, OSCILLATOR_TYPES, type OscillatorType } from "./catalogue.ts";
 import { type DestinationContext, destinationName, parseDestination } from "./destinations.ts";
@@ -130,14 +131,7 @@ function setFile(module: CborMap, key: string, path: unknown, folder: "Tables" |
 
 // ---- Effects ----
 
-/** An effect's parameter as the spec names it: kParam dropped, the leading capital (or acronym) lower case. */
-export function fxParamName(param: string): string {
-  const s = param.replace(/^kParam/, "");
-  const caps = /^[A-Z]*/.exec(s)![0].length;
-  if (caps >= s.replace(/[0-9]/g, "").length) return s.toLowerCase();
-  if (caps <= 1) return s.charAt(0).toLowerCase() + s.slice(1);
-  return s.slice(0, caps - 1).toLowerCase() + s.slice(caps - 1);
-}
+export { fxParamName };
 
 const FX_RESERVED = new Set(["effect", "enabled", "ir", "params", "module", "entry"]);
 const FX_NAMES = new Map(
@@ -153,7 +147,8 @@ const FX_NAMES = new Map(
   }),
 );
 
-function writeEffect(spec: unknown, where: string, errors: string[]): CborMap | undefined {
+/** An effect of a spec (`{ effect, enabled?, …parameters }`) as a rack's entry, or undefined with its problems in `errors`. */
+export function writeEffect(spec: unknown, where: string, errors: string[]): CborMap | undefined {
   if (!isObject(spec)) {
     errors.push(`${where} must be an object with "effect".`);
     return undefined;

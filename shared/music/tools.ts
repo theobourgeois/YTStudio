@@ -6,6 +6,7 @@ import { HANDOFF_ROLES, VISUALIZER_ASPECTS, VISUALIZER_LOOKS } from "../handoff.
 import { type ToolSpec, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { CHOP_PATTERNS } from "./chop.ts";
 import { CONVERT_KINDS } from "./convert.ts";
+import { SERUM_EFFECT_KINDS, SERUM_FX_RACKS } from "./serum-effects.ts";
 import { FAVOURITE_RATING, SERUM_CATEGORIES } from "./serum-presets.ts";
 import { STEMS } from "./stems.ts";
 import { EXPORT_FORMATS } from "./export.ts";
@@ -730,7 +731,8 @@ export const MUSIC_TOOLS = [
     description:
       "The preset a Serum 2 channel has on (as Serum says), its macros (names, where they are 0 to 100%, what each drives), its oscillators (what each plays, on or off, level), its mod matrix (each route: " +
       "slot, source, aux, destination, amount, bipolar, bypassed), its envelopes and LFOs (Env 1 shapes every note; the others and the LFOs only matter " +
-      "when routed), whether it was edited since loading, and what undo_serum_sound would undo. edit_serum_sound changes it.",
+      "when routed), its effects (the Main, Bus 1 and Bus 2 racks: each effect by its place, on or off, every setting by its name as Serum stores it, " +
+      "with Serum's text), whether it was edited since loading, and what undo_serum_sound would undo. edit_serum_sound changes it.",
     inputSchema: obj({ channel: str("A Serum 2 channel: its id or name (get_song lists them).") }, ["channel"]),
   }),
   tool({
@@ -781,14 +783,22 @@ export const MUSIC_TOOLS = [
       "attackCurve, decayCurve, releaseCurve (0–100; 50 straight).\n" +
       '- "lfo": `lfo` 1–10 and any of rate (a division "1/4", "1/8.", "1/16 t", "bar", "2 bar" when synced, else Hz), sync, mode ("retrigger", ' +
       '"free" or "envelope": once per note), smooth (0–100), rise and delay (0–4: seconds free, a fraction of bars synced), phase (0–360°), shape ' +
-      "(points [[x, y], [x, y, curve]…], each 0–1, x from 0 rising to 1, y from the top: 0 is full; end at the start's height; null: Serum's triangle).",
+      "(points [[x, y], [x, y, curve]…], each 0–1, x from 0 rising to 1, y from the top: 0 is full; end at the start's height; null: Serum's triangle).\n" +
+      '- "effect": an effect\'s `rack` ("main", "bus1", "bus2") and `position` (1 is first), and `enabled` and/or `settings`: its parameters by the ' +
+      'names get_serum_sound shows, in the units it shows them in (e.g. { "drive": 60, "wet": 40 }; a choice by its name: { "type": "Hall" }, { "mode": "Tape Sat." }).\n' +
+      '- "addEffect": `rack`, `effect` (distortion, flanger, phaser, chorus, delay, compressor, reverb, eq, filter, hyper, bode, convolve, utility, split), ' +
+      "`at` (1 is first; left out: last), and `enabled`/`settings` as above (Serum's defaults otherwise).\n" +
+      '- "removeEffect": `rack`, `position`. "moveEffect": `rack`, `position`, `at` (its new place) and `toRack` to move it to another rack. Routes to ' +
+      "an effect follow it; a removed effect's go.\n" +
+      '- "effectChain": one of Serum\'s saved effects or racks (list_serum_effect_chains lists them) by its `path` into `rack`: a saved effect goes in at ' +
+      "`at` (or last), a saved rack replaces the rack's effects. Bus 1 and Bus 2 only sound when oscillators are sent to them.",
     inputSchema: obj(
       {
         channel: str("A Serum 2 channel: its id or name."),
         edits: arr(
           obj(
             {
-              kind: oneOf(["route", "removeRoute", "envelope", "lfo"], "What to change."),
+              kind: oneOf(["route", "removeRoute", "envelope", "lfo", "effect", "addEffect", "removeEffect", "moveEffect", "effectChain"], "What to change."),
               slot: int("A route's slot, 1 to 64 (get_serum_sound lists them).", { minimum: 1, maximum: 64 }),
               source: str('A route\'s source ("LFO 1", "Macro 2", "Env 2", "Velo").'),
               aux: str('A route\'s aux source, scaling its amount; null takes it away.', { type: ["string", "null"] }),
@@ -814,6 +824,14 @@ export const MUSIC_TOOLS = [
               delay: num("0 to 4."),
               phase: num("Degrees, 0 to 360."),
               shape: arr(arr(num("0 to 1."), "[x, y] or [x, y, curve]."), "The LFO's points, [[x, y] or [x, y, curve], …]; null for Serum's own.", { type: ["array", "null"] }),
+              rack: oneOf(SERUM_FX_RACKS, "An effect rack: main, bus1 or bus2."),
+              position: int("An effect's place in its rack, 1 is first (get_serum_sound lists them).", { minimum: 1 }),
+              at: int("Where an effect goes in its rack, 1 is first; left out: last.", { minimum: 1 }),
+              toRack: oneOf(SERUM_FX_RACKS, "The rack an effect moves to (moveEffect)."),
+              effect: oneOf(SERUM_EFFECT_KINDS, "The effect to add."),
+              enabled: bool("An effect on (true) or bypassed (false)."),
+              settings: { type: "object", description: 'An effect\'s parameters by name, as get_serum_sound shows them: { "drive": 60, "type": "Hall" }.', additionalProperties: { type: ["number", "string", "boolean"] } },
+              path: str("A saved effect's or rack's path, as list_serum_effect_chains gives it."),
             },
             ["kind"],
           ),
@@ -823,6 +841,18 @@ export const MUSIC_TOOLS = [
       },
       ["channel", "edits"],
     ),
+  }),
+  tool({
+    name: "list_serum_effect_chains",
+    title: "List Serum's saved effects",
+    kind: "look",
+    description:
+      "Serum's saved effects (one effect with its settings, e.g. a reverb's Hall preset) and saved racks (a whole chain of effects) on this computer, " +
+      "by folder, with their paths: edit_serum_sound's \"effectChain\" puts one onto a Serum 2 channel's rack.",
+    inputSchema: obj({
+      query: str("Words in its name or folder (\"hall\", \"bass processing\"); empty lists them all."),
+      kind: oneOf(["effect", "rack"], "Only saved effects, or only saved racks."),
+    }),
   }),
   tool({
     name: "set_serum_oscillators",

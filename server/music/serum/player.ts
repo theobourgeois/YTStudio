@@ -1,8 +1,9 @@
 /**
  * The Serum player's server side (`docs/serum/player.md`): Serum's preset library and its ratings, a preset loaded
  * onto a song's Serum channel (dropped on Serum's invisible window, as Serum's own browser loads it: names and all,
- * Serum 1 presets converted by Serum), what a channel's Serum has on now (its macros, mod matrix, envelopes and
- * LFOs), the edits that need Serum to load a new state, and the player's history of each channel's sound.
+ * Serum 1 presets converted by Serum), what a channel's Serum has on now (its macros, mod matrix, envelopes, LFOs,
+ * oscillators and effects), the edits that need Serum to load a new state, and the player's history of each channel's
+ * sound. Every state it loads links the effects' card knobs to the racks' host slots, so they turn live.
  * `/api/music/serum`.
  *
  * Serum's state is the truth (`plugins/<channel>.bin`, the engine's); beside it the player keeps what Serum's
@@ -12,6 +13,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Router, json } from "express";
 import { type SerumLibraryResponse, type SerumSound, SERUM_MACRO_PARAMS } from "../../../shared/music/serum-presets.ts";
+import { SERUM_EFFECTS, type SerumChainEntry } from "../../../shared/music/serum-effects.ts";
 import type { SerumHistory, SerumSoundEdit } from "../../../shared/music/serum-sound.ts";
 import { HttpError, isObject, isValidId, readJson, writeJson } from "../../storage.ts";
 import type { AudioEngine } from "../engine.ts";
@@ -21,7 +23,7 @@ import { readXfer } from "./container.ts";
 import type { SerumLibrary } from "./library.ts";
 import { fxLinksOf, presetAsState, readPluginState, stateSettings } from "./plugin-state.ts";
 import { readSerumSettings } from "./preset.ts";
-import { destinationNames, editSerumBody, liveControls, macroNamesOf, readSoundParts, withMacroNames } from "./sound.ts";
+import { destinationNames, editSerumBody, fxLinksFor, liveControls, macroNamesOf, readSoundParts, sameLinks, type SerumChain, withMacroNames } from "./sound.ts";
 
 export interface SerumPlayerOptions {
   library: SerumLibrary;
@@ -67,9 +69,12 @@ function settingsOf(state: Uint8Array | null): CborMap | null {
   }
 }
 
-/** `state` with `settings` in it, the preset's macro names written in (Serum names its controls from them) and its effect knobs' links kept. */
+/**
+ * `state` with `settings` in it, the preset's macro names written in (Serum names its controls from them) and its
+ * effect knobs linked to the racks' slots as the player links them (`fxLinksFor`: the knobs its cards show, live).
+ */
 export function restate(state: Uint8Array, settings: CborMap, names: readonly string[]): Uint8Array {
-  return presetAsState(state, encodeCbor(withMacroNames(settings, names)), fxLinksOf(state));
+  return presetAsState(state, encodeCbor(withMacroNames(settings, names)), fxLinksFor(settings));
 }
 
 export class SerumPlayer {
@@ -119,6 +124,10 @@ export class SerumPlayer {
         });
       }
       await writeMeta(stateFile, { macroNames, edited: false });
+      // Its effects' card knobs linked to the racks' slots, so they turn live: a reload of what Serum has just loaded.
+      const loaded = await readState(await engine.channelStateFile(projectId, channel));
+      const settings = settingsOf(loaded);
+      if (loaded && settings && !sameLinks(fxLinksOf(loaded), fxLinksFor(settings))) await engine.swapState(channel, restate(loaded, settings, macroNames));
       return this.soundNow(projectId, channel);
     });
   }
@@ -145,7 +154,7 @@ export class SerumPlayer {
       if (!state || !settings) throw new HttpError(409, "Serum hasn't saved its sound yet: load a preset first, or wait a moment.");
       let edited: CborMap;
       try {
-        edited = editSerumBody(settings, input.edits);
+        edited = editSerumBody(settings, input.edits, await this.chainsOf(input.edits));
       } catch (err) {
         if (err instanceof SpecError) throw new HttpError(400, err.message);
         throw err;
@@ -218,6 +227,23 @@ export class SerumPlayer {
     });
   }
 
+  /** Serum's saved effects and racks (`Effect Chains`), for + Add. */
+  async chains(): Promise<SerumChainEntry[]> {
+    return this.options.library.chains();
+  }
+
+  /** The saved effects and racks `edits` put in, read (an unreadable one is left out: the edit then says so). */
+  private async chainsOf(edits: unknown): Promise<Map<string, SerumChain>> {
+    const chains = new Map<string, SerumChain>();
+    if (!Array.isArray(edits)) return chains;
+    for (const edit of edits)
+      if (isObject(edit) && edit.kind === "effectChain" && typeof edit.path === "string" && !chains.has(edit.path)) {
+        const chain = await this.options.library.readChain(edit.path).catch(() => null);
+        if (chain) chains.set(edit.path, chain);
+      }
+    return chains;
+  }
+
   /** The destinations a route of this channel's sound can have, by name (its oscillators and effects decide some). */
   async destinations(projectIdInput: unknown, channelInput: unknown): Promise<string[]> {
     const { projectId, channel } = this.target(projectIdInput, channelInput);
@@ -240,7 +266,7 @@ export class SerumPlayer {
       return [{ index, param, name, value: control.value, text: control.text }];
     });
     const settings = settingsOf(state);
-    const parts = settings ? readSoundParts(settings, liveControls(parameters)) : { modulation: null, envelopes: [], lfos: [], oscillators: [] };
+    const parts = settings && state ? readSoundParts(settings, liveControls(parameters), fxLinksOf(state)) : { modulation: null, envelopes: [], lfos: [], oscillators: [], effects: [] };
     return { preset: presetOf(state), macros, ...parts, edited: meta.edited, history: this.historyOf(projectId, channel) };
   }
 
@@ -294,6 +320,18 @@ function labelOf(edits: SerumSoundEdit[]): string {
       return `Change Env ${edit.envelope}`;
     case "lfo":
       return `Change LFO ${edit.lfo}`;
+    case "effect":
+      return edit.enabled !== undefined && !edit.settings ? `${edit.enabled ? "Turn on" : "Bypass"} an effect` : "Change an effect";
+    case "addEffect":
+      return `Add ${SERUM_EFFECTS[edit.effect]?.name ?? "an effect"}`;
+    case "removeEffect":
+      return "Remove an effect";
+    case "moveEffect":
+      return "Move an effect";
+    case "effectChain":
+      return `Load ${path.basename(String(edit.path)).replace(/\.SerumFX(Rack)?$/i, "")}`;
+    default:
+      return "Change the sound";
   }
 }
 
@@ -370,6 +408,9 @@ export function serumPlayerRoutes(player: SerumPlayer): Router {
   });
   router.post("/redo", json(), async (req, res) => {
     res.json(await player.undo(req.body, true));
+  });
+  router.get("/chains", async (_req, res) => {
+    res.json(await player.chains());
   });
   router.get("/destinations", async (req, res) => {
     res.json(await player.destinations(req.query.projectId, req.query.channel));

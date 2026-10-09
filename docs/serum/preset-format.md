@@ -214,11 +214,12 @@ accepted too. Effect destinations' ids are rack × 100 + place (checked on all 3
 ### Effects
 
 An effect is `{ "effect": …, "enabled"?: bool, …parameters }`: its parameters by Serum's names without "kParam",
-first letter (or acronym) lower case, values as Serum stores them. Serum's effects have no automatable controls,
-so their units can't be read from Serum; the ranges below are Serum's clamps, and the presets studied suggest:
+first letter (or acronym) lower case, values as Serum stores them. Serum's effects have no automatable controls of
+their own, but a knob linked to a rack's host slot can be read and set (`player.md` §2.1): their units were measured
+that way, and `shared/music/serum-effects.ts` has each one's law and range. In short:
 `wet`, `feedback`, `size`, `drive` are %, EQ and crossover `freq…` are Hz, the compressor's `attack`/`release` are
-ms, `levelOut` is 0–1 (0.5 unity, as a filter's level), the effect filter's `freq` is 0–1 (the voice filters' knob,
-by assumption). `ir` is a convolve effect's impulse (path in `Impulses`); `params`, `module` and `entry` keep
+ms, `levelOut` is 0–1 (0.5 unity, +12 dB at 1), the effect filter's and the distortion's `freq` are the knob's
+place, 0–1 (8 Hz to 22 kHz in octaves). `ir` is a convolve effect's impulse (path in `Impulses`); `params`, `module` and `entry` keep
 anything else.
 
 - `distortion` (FXDistortion, type 0): wet, drive, lphp, mode, freq, bw, prePost, levelOut, numStages, keyTrack

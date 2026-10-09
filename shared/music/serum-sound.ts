@@ -5,6 +5,7 @@
  * The mappings were measured on Serum 2.1.5 in the offline engine (a position set, the state saved and read).
  */
 import { clamp } from "../math.ts";
+import type { SerumEffectKind, SerumFxRack, SerumFxRackId } from "./serum-effects.ts";
 
 /**
  * Modulation sources by their id (a mod slot's `source: [main, aux]`; 0 is none). From the presets studied:
@@ -148,7 +149,20 @@ export type SerumSoundEdit =
       phase?: number;
       /** Its points; null: back to Serum's default. */
       shape?: SerumLfoPoint[] | null;
-    };
+    }
+  /**
+   * An effect's settings (`docs/serum/player.md` §3.6): its switch, and parameters by their spec names (`drive`, `wet`),
+   * in what Serum stores (`SERUM_EFFECTS`' scales; a choice by its name or Serum's). `position` counts from 1.
+   */
+  | { kind: "effect"; rack: SerumFxRackId; position: number; enabled?: boolean; settings?: Record<string, number | string | boolean> }
+  /** A new effect at `at` (1 is first; left out: last), Serum's defaults but for `settings`. */
+  | { kind: "addEffect"; rack: SerumFxRackId; effect: SerumEffectKind; at?: number; enabled?: boolean; settings?: Record<string, number | string | boolean> }
+  /** An effect taken out; routes to it go, routes to those after follow them. */
+  | { kind: "removeEffect"; rack: SerumFxRackId; position: number }
+  /** An effect moved to `at` in its rack, or in `toRack`; routes follow it. */
+  | { kind: "moveEffect"; rack: SerumFxRackId; position: number; at: number; toRack?: SerumFxRackId }
+  /** One of Serum's saved effects (`.SerumFX`, put in at `at`, else last) or racks (`.SerumFXRack`, the rack's effects replaced), by its path. */
+  | { kind: "effectChain"; rack: SerumFxRackId; path: string; at?: number };
 
 /** The player's history of a channel's sound: what Undo and Redo would undo and redo, or null. */
 export interface SerumHistory {
@@ -302,7 +316,9 @@ export function envelopeOutline(env: Pick<SerumEnvelope, "controls">, stage: num
 }
 
 /** A sound's control moved to a position: the routes', envelopes', LFOs' and macros' copies of it (none if it isn't one of them). */
-export function withControl<S extends { modulation: SerumModRoute[] | null; envelopes: SerumEnvelope[]; lfos: SerumLfo[]; macros: { param: string; value: number }[]; oscillators?: SerumOscillator[] }>(
+export function withControl<
+  S extends { modulation: SerumModRoute[] | null; envelopes: SerumEnvelope[]; lfos: SerumLfo[]; macros: { param: string; value: number }[]; oscillators?: SerumOscillator[]; effects?: SerumFxRack[] },
+>(
   sound: S,
   param: string,
   value: number,
@@ -326,6 +342,20 @@ export function withControl<S extends { modulation: SerumModRoute[] | null; enve
     macros: sound.macros.map((m) => (m.param === param ? { ...m, value } : m)),
     ...(sound.oscillators && {
       oscillators: sound.oscillators.map((o) => (o.enabled.param === param ? { ...o, enabled: set(o.enabled) } : o.level.param === param ? { ...o, level: set(o.level) } : o)),
+    }),
+    ...(sound.effects && {
+      effects: sound.effects.map((rack) =>
+        rack.effects.some((e) => e.enabled?.param === param || e.controls.some((c) => c.param === param))
+          ? {
+              ...rack,
+              effects: rack.effects.map((e) => ({
+                ...e,
+                enabled: e.enabled?.param === param ? { ...e.enabled, value, text: undefined } : e.enabled,
+                controls: e.controls.map((c) => (c.param === param ? { ...c, value, text: undefined } : c)),
+              })),
+            }
+          : rack,
+      ),
     }),
   };
 }

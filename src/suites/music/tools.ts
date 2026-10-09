@@ -28,6 +28,7 @@ import type { MusicToolName } from "@shared/music/tools";
 import { KIT_SOUNDS } from "@shared/music/tools";
 import type { MusicProject } from "@shared/music/types";
 import { FAVOURITE_RATING, type SerumCategory, type SerumPresetEntry, type SerumSound, findSerumPresets, isSerum2 } from "@shared/music/serum-presets";
+import { describeEffect, SERUM_FX_RACK_LABELS } from "@shared/music/serum-effects";
 import { envelopeText, lfoText, modAmountOf, SERUM_ENVELOPE_FIELDS, SERUM_LFO_FIELDS, type SerumSoundEdit, sourceDrives } from "@shared/music/serum-sound";
 import { type ToolResult, textResult } from "@shared/tool-spec";
 import type { AspectRatio, MediaAsset, SignalRole } from "@shared/types";
@@ -249,6 +250,18 @@ function describeSerumSound(channelName: string, sound: SerumSound): string {
     }
     const idle = [...sound.envelopes.filter((e) => !e.used).map((e) => `Env ${e.index}`), ...sound.lfos.filter((l) => !l.used).map((l) => `LFO ${l.index}`)];
     if (idle.length) lines.push(`Not routed anywhere: ${idle.join(", ")}.`);
+  }
+  if (sound.effects.length) {
+    const racks = sound.effects.filter((r) => r.effects.length);
+    lines.push(
+      racks.length
+        ? `Its effects (rack, place: settings as edit_serum_sound takes them, Serum's text in brackets):\n${racks
+            .flatMap((r) => r.effects.map((e) => `- ${r.rack} ${e.position}: ${describeEffect(e)}`))
+            .join("\n")}`
+        : "It has no effects.",
+    );
+    const empty = sound.effects.filter((r) => !r.effects.length).map((r) => SERUM_FX_RACK_LABELS[r.rack]);
+    if (racks.length && empty.length) lines.push(`Empty: ${empty.join(", ")}.`);
   }
   if (sound.history.undo || sound.history.redo)
     lines.push([sound.history.undo && `undo_serum_sound would undo "${sound.history.undo}"`, sound.history.redo && `redo would redo "${sound.history.redo}"`].filter(Boolean).join("; ") + ".");
@@ -484,6 +497,16 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     // Its player, if it's open, shows them where they are now.
     await useSerumUi.getState().refresh(channel.id);
     return textResult(`Set.\n${describeSerumSound(channel.name, await musicApi.serumSound(target.projectId, channel.id))}`);
+  },
+  async list_serum_effect_chains(input) {
+    const chains = await musicApi.serumChains();
+    if (!chains.length) return textResult("Serum has no saved effects or racks on this computer.");
+    const words = String(input.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+    const found = chains.filter((c) => (!input.kind || c.kind === input.kind) && words.every((w) => `${c.folder} ${c.name}`.toLowerCase().includes(w)));
+    if (!found.length) return textResult(`None of Serum's ${chains.length} saved effects and racks match${input.query ? ` "${String(input.query)}"` : ""}.`);
+    const limit = 120;
+    const line = (c: (typeof chains)[number]) => `- ${c.name} (${c.folder}) · ${c.kind === "rack" ? "a rack" : c.effect} · ${c.path}`;
+    return textResult([`${found.length} of ${chains.length}${found.length > limit ? `; the first ${limit}` : ""}:`, ...found.slice(0, limit).map(line)].join("\n"));
   },
   async set_serum_oscillators(input, ctx) {
     const target = await targetOf(ctx);

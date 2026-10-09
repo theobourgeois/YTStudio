@@ -285,10 +285,11 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   **The Serum player** (`docs/serum/player.md`, step by step): a Serum 2 channel's window is ours
   (`src/suites/music/serum/`): Serum's library in one list (`server/music/serum/library.ts`, its ratings Serum's own),
   presets loaded by a drop on Serum's invisible window, the macros live, the mod matrix, envelopes and LFOs
-  (`modulation.tsx`, `envelopes.tsx`). **Serum's state is the truth**: the server reads what the player shows out of
-  it (`server/music/serum/sound.ts`), writes reload edits onto it (`editSerumBody`) and keeps beside it only what
-  Serum's re-save drops (`plugins/<channel>.serum.json`: the preset's macro names, handed back with every state it
-  loads). A live control is Serum's own parameter (`shared/music/serum-sound.ts`: ids and the measured mappings);
+  (`modulation.tsx`, `envelopes.tsx`), the effect racks (`effects.tsx`: every effect's measured units and which knobs
+  get the racks' 16 host slots are `shared/music/serum-effects.ts`; every state the player loads links them).
+  **Serum's state is the truth**: the server reads what the player shows out of it (`server/music/serum/sound.ts`),
+  writes reload edits onto it (`editSerumBody`) and keeps beside it only what Serum's re-save drops
+  (`plugins/<channel>.serum.json`: the preset's macro names, handed back with every state it loads). A live control is Serum's own parameter (`shared/music/serum-sound.ts`: ids and the measured mappings);
   everything else is a reload through the engine's `swapState`. The player has its own undo (the server's
   `SerumPlayer`, per channel: states for loads and reloads, control positions for drags), not the song's. Its plan
   says what Serum takes live, what a reload does, and what's built so far.

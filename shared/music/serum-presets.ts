@@ -5,6 +5,7 @@
  */
 import { naturalCompare, withinEdits, wordsOf } from "./browser.ts";
 import type { SerumEnvelope, SerumHistory, SerumLfo, SerumModRoute, SerumOscillator } from "./serum-sound.ts";
+import type { SerumFxRack } from "./serum-effects.ts";
 
 /** A preset file in Serum's library: a Serum 2 `.SerumPreset` or a Serum 1 `.fxp` (Serum 2 converts it as it loads it). */
 export interface SerumPresetEntry {
@@ -275,6 +276,8 @@ export interface SerumSound {
   lfos: SerumLfo[];
   /** A, B, C, Noise and Sub (none while Serum's state can't be read). */
   oscillators: SerumOscillator[];
+  /** The three effect racks, Main, Bus 1 and Bus 2 (none while Serum's state can't be read). */
+  effects: SerumFxRack[];
   /** Changed in the player since the preset was loaded. */
   edited: boolean;
   history: SerumHistory;
