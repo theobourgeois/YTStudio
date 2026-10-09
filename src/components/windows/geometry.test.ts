@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cascade, edgeSnap, magnetise, resizeRect, snappedRect, unsnapAt } from "./geometry";
+import { cascade, edgeSnap, magnetise, resizeRect, snappedRect, unsnapAt, fittedRect } from "./geometry";
 
 const desktop = { width: 1000, height: 700 };
 
@@ -90,5 +90,16 @@ describe("cascade", () => {
   it("moves its origin up on a desktop too small for it", () => {
     expect(cascade(3, { x: 120, y: 190 }, 28, size, { width: 1000, height: 350 })).toEqual({ x: 120, y: 50 });
     expect(cascade(3, { x: 120, y: 190 }, 28, size, { width: 300, height: 200 })).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe("fittedRect", () => {
+  it("opens at the size it likes when there's room, centred a little above the middle", () => {
+    expect(fittedRect({ width: 900, height: 700 }, { width: 640, height: 460 }, { width: 1600, height: 1000 })).toEqual({ x: 350, y: 100, width: 900, height: 700 });
+  });
+
+  it("fits a smaller desktop, a margin all round, never below its minimum", () => {
+    expect(fittedRect({ width: 900, height: 700 }, { width: 640, height: 460 }, { width: 1000, height: 600 })).toEqual({ x: 50, y: 11, width: 900, height: 568 });
+    expect(fittedRect({ width: 900, height: 700 }, { width: 640, height: 460 }, { width: 500, height: 300 })).toEqual({ x: 0, y: 0, width: 640, height: 460 });
   });
 });

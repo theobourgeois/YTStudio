@@ -15,7 +15,7 @@ import { Caption, CompKnob } from "../pro-c/knob";
 import { useSong } from "../store";
 import { useTransport } from "../transport";
 import { serumWindow } from "../ui";
-import { MusicWindow, centredOnDesktop } from "../window";
+import { MusicWindow, fittedOnDesktop } from "../window";
 import { EnvelopesAndLfos } from "./envelopes";
 import { categoryHue, SERUM_TOKENS } from "./look";
 import { ModulationSection } from "./modulation";
@@ -27,7 +27,8 @@ import { useSerumUi } from "./store";
 
 const WIDTH = 900;
 const HEIGHT = 700;
-const MIN = { minWidth: 640, minHeight: 460 };
+const MIN_SIZE = { width: 640, height: 460 };
+const MIN = { minWidth: MIN_SIZE.width, minHeight: MIN_SIZE.height };
 
 /**
  * A Serum 2 channel's window (`docs/serum/player.md` §3), a plugin's face as YT-L's is, in Serum's colours: the
@@ -38,8 +39,9 @@ const MIN = { minWidth: 640, minHeight: 460 };
 export function SerumPlayerWindow({ channelId, index }: { channelId: string; index: number }) {
   const channel = useSong((s) => s.channels.find((c) => c.id === channelId) ?? null);
   const [initial] = useState(() => {
-    const place = centredOnDesktop(WIDTH, HEIGHT);
-    return { ...place, x: place.x + index * 28, y: Math.max(8, place.y) + index * 28, width: WIDTH, height: HEIGHT };
+    // As big as it likes where there's room, else as big as the desktop takes (a laptop's screen): never under the Dock.
+    const place = fittedOnDesktop({ width: WIDTH, height: HEIGHT }, MIN_SIZE);
+    return { ...place, x: place.x + index * 28, y: place.y + index * 28 };
   });
   const gone = !channel;
   useEffect(() => {

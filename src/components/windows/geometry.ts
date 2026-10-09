@@ -112,3 +112,14 @@ export function cascade(index: number, origin: { x: number; y: number }, step: n
   const k = Math.max(0, index) % (Math.floor(Math.max(0, room) / step) + 1);
   return { x: x + k * step, y: y + k * step };
 }
+
+/**
+ * Where a window opens that would like `want` but must fit the desktop: as big as it likes up to the desktop less
+ * `margin` all round (never below `min`), centred, a little above the middle. For windows with room to spare (a
+ * plugin's player): on a laptop's screen they open smaller rather than run under the Dock.
+ */
+export function fittedRect(want: { width: number; height: number }, min: { width: number; height: number }, desktop: { width: number; height: number }, margin = 16): Rect {
+  const width = Math.round(Math.max(min.width, Math.min(want.width, desktop.width - margin * 2)));
+  const height = Math.round(Math.max(min.height, Math.min(want.height, desktop.height - margin * 2)));
+  return { x: Math.max(0, Math.round((desktop.width - width) / 2)), y: Math.max(0, Math.round((desktop.height - height) / 3)), width, height };
+}

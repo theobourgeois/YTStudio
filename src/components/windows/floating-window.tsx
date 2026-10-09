@@ -7,7 +7,7 @@ import { PopupContainerProvider, PortalContainerProvider } from "@/components/ui
 import { desktopPanels } from "@/lib/desktop";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { isElement, ownerDocument } from "@/lib/window-events";
-import { type Rect, type ResizeEdge, type WindowSnap, cascade, edgeSnap, magnetise, resizeRect, snappedRect, unsnapAt, EDGE_ZONE } from "./geometry";
+import { type Rect, type ResizeEdge, type WindowSnap, cascade, edgeSnap, fittedRect, magnetise, resizeRect, snappedRect, unsnapAt, EDGE_ZONE } from "./geometry";
 import { workAreas } from "./native/bridge";
 import { acquirePopups, alignPopups, noteWindowRaised, usePopupContainerElement } from "./native/popups";
 import { type DeskTracker, createDeskTracker, openPanels, useDeskVersion, usePanelWindow } from "./native/use-panel";
@@ -605,6 +605,15 @@ export function centredOnDesktop(width: number, height: number, desktop?: string
   const desk = document.querySelector(desktop ? `[data-desktop="${desktop}"]` : "[data-desktop]")?.getBoundingClientRect();
   if (!desk) return { x: 200, y: 120 };
   return { x: Math.max(0, Math.round((desk.width - width) / 2)), y: Math.max(0, Math.round((desk.height - height) / 3)) };
+}
+
+/**
+ * Where a window opens that would like `want` (`fittedRect`): that size if the desktop named `desktop` has room for
+ * it, else as big as fits, never below `min`. Read when the window first shows.
+ */
+export function fittedOnDesktop(want: { width: number; height: number }, min: { width: number; height: number }, desktop?: string): WindowPlace & { width: number; height: number } {
+  const desk = document.querySelector(desktop ? `[data-desktop="${desktop}"]` : "[data-desktop]")?.getBoundingClientRect();
+  return fittedRect(want, min, desk ?? { width: window.innerWidth, height: window.innerHeight });
 }
 
 /**

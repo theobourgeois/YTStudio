@@ -496,6 +496,11 @@ test("a Serum 2 channel's window is the Serum player: Serum's presets in one lis
   const presets = player.getByRole("listbox", { name: "Presets" }).getByRole("option");
   await expect(presets).toHaveText([/BA - Stand-in Reese/, /LD - Stand-in Lead/, /PD - Stand-in Pad/, /pl - stand-in pluck.*S1/]);
   await expect(player.getByTestId("serum-macros").locator("[data-macro]")).toHaveCount(8);
+  // It opens inside the desktop, however small the screen (smaller than it likes, rather than under the Dock).
+  const desk = (await page.locator("[data-desktop='music']").boundingBox())!;
+  const box = (await player.boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(desk.y + desk.height + 1);
+  expect(box.x + box.width).toBeLessThanOrEqual(desk.x + desk.width + 1);
   // Its display, and the engine told to measure the channel for it.
   await expect(player.getByTestId("serum-scope")).toBeVisible();
 
