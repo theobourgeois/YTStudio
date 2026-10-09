@@ -52,6 +52,42 @@ describe("Serum's plugin state", () => {
     expect(settings.scalarCurvesLocked).toEqual([false, false]);
     expect(settings.Global0).toEqual({ plainParams: { kParamMasterVolume: 0.5 } });
     expect(readXfer(readPluginState(state).component).meta.component).toBe("processor");
-    expect(readPluginState(state).controller).toEqual(controller);
+    // The controller keeps the preset's name (it has no macros: theirs are blank).
+    const own = readXfer(readPluginState(state).controller!);
+    expect(own.meta).toMatchObject({ component: "controller", presetName: "Test" });
+    expect(decodeCbor(own.settings)).toMatchObject({ presetName: "Test", Macro0: { name: "" }, Macro7: { name: "" } });
+  });
+
+  it("gives the controller the preset's names and the effect knobs' links", () => {
+    const processor = writeXfer({ component: "processor", version: 11 }, encodeCbor({ component: "processor", Global0: { plainParams: {} } }));
+    const controller = writeXfer(
+      { component: "controller", presetName: " - Init - " },
+      encodeCbor({ Macro0: { default: 0.5, name: "" }, FXRack0: { FX: [], displayName: "", proxyParams: { "3": { fxID: 1, paramIndex: 1 } } } }),
+    );
+    const xml = `<VST3PluginState><IComponent>${memoryBlockEncode(processor)}</IComponent><IEditController>${memoryBlockEncode(controller)}</IEditController></VST3PluginState>`;
+    const template = writePluginState({ xml, component: processor, controller }, processor);
+    const preset = encodeCbor({
+      presetName: "Kinderjoy",
+      presetAuthor: "Someone",
+      Macro0: { name: "CRUSH", plainParams: { kParamValue: 34 } },
+      Macro1: { name: "VERY HIGH " },
+      FXRack1: { displayName: "Space" },
+    });
+    const linked = readPluginState(presetAsState(template, preset, { 0: [{ fxID: 0, paramIndex: 2 }, null, { fxID: 1, paramIndex: 1 }] }));
+    const own = decodeCbor(readXfer(linked.controller!).settings) as Record<string, unknown>;
+    expect(readXfer(linked.controller!).meta).toMatchObject({ presetName: "Kinderjoy", presetAuthor: "Someone" });
+    expect(own).toMatchObject({
+      presetName: "Kinderjoy",
+      Macro0: { default: 0.5, name: "CRUSH" },
+      Macro1: { name: "VERY HIGH " },
+      Macro2: { name: "" },
+      FXRack1: { displayName: "Space" },
+    });
+    // The links replace the template's, as integers (as Serum writes them).
+    expect(own.FXRack0).toEqual({ FX: [], displayName: "", proxyParams: { "0": { fxID: 0, paramIndex: 2 }, "2": { fxID: 1, paramIndex: 1 } } });
+    expect(Buffer.from(readXfer(linked.controller!).settings).toString("hex")).toContain(Buffer.from("fxID").toString("hex") + "00");
+    // None given: none at all.
+    const unlinked = decodeCbor(readXfer(readPluginState(presetAsState(template, preset)).controller!).settings) as Record<string, Record<string, unknown>>;
+    expect(unlinked.FXRack0.proxyParams).toBeUndefined();
   });
 });

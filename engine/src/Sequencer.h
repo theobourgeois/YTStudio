@@ -252,6 +252,15 @@ private:
     void endNotes (HostedPlugin&, int numSamples);
     void silencePlugins();
     void renderPlugins (int numSamples);
+    /**
+     * A plugin's swap (`HostedPlugin::Swap`), at the start of a block: its notes played again once it's been
+     * loaded, parked once it's silent (or isn't played). True while it's parked: it isn't to be processed.
+     */
+    bool tendSwap (HostedPlugin&, bool playable);
+    /** Its sound faded out while a swap waits, or back in after one. */
+    void fadeSwap (HostedPlugin&, juce::AudioBuffer<float>& out);
+    /** How long a plugin fades out before a swap and back in after. */
+    static constexpr double swapFadeSeconds = 0.005;
     void render (Voice& voice, int numSamples);
     /** A voice of a channel with a loop, a filter, or envelopes and LFOs beyond its volume's (`Song::Channel::shaped`). */
     void renderShaped (Voice& voice, int numSamples);

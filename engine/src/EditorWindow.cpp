@@ -254,6 +254,11 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
     startTimer (tickMs);
    #endif
     setVisible (true);
+    if (hidden)
+    {
+        ignoreMouse (*this);
+        keepOutOfWindowSwitchers (*this);
+    }
 
     openWindows.add (this);
     // (Windows: the keys pressed in a plugin that holds the focus itself; nothing elsewhere.)

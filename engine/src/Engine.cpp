@@ -119,12 +119,18 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
     devices.addAudioCallback (this);
     midiInputs = std::make_unique<MidiInputs> (dataDir.getChildFile ("midi.json"), [this] (const juce::MidiMessage& message) { sequencer.midiIn (message); });
     startTimer (transportIntervalMs);
+    swapTicker.tick = [this] {
+        plugins.completeSwaps (true);
+        if (! plugins.swapping())
+            swapTicker.stopTimer();
+    };
 }
 
 Engine::~Engine()
 {
     *alive = false;
     exportTicker.stopTimer();
+    swapTicker.stopTimer();
     exportJob.reset();
     stopTimer();
     midiInputs.reset();
@@ -442,6 +448,47 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         for (const auto& id : applySong())
             ids.add (id);
         return reply (juce::Result::ok(), protocol::object ({ { "unreadable", ids }, { "channels", plugins.describe() }, { "effects", effects.describe() } }));
+    }
+    if (command == "setParameter")
+    {
+        // A plugin's parameter set from the app (the Serum player's macros), as its own window would.
+        auto& host = params["owner"].toString() == "effect" ? effects : plugins;
+        const auto result = host.setParameter (params["ownerId"].toString(), params["param"].toString(), (float) (double) params["value"], params["gesture"].toString());
+        return result.wasOk() ? ok() : reply (result, {});
+    }
+    if (command == "setState" || (command == "dropFiles" && params.hasProperty ("channel")))
+    {
+        // A plugin channel's new state, or files dropped on its window, done while the audio thread has let go of
+        // it (`PluginHost::swap`). Answered once done.
+        std::function<juce::var (HostedPlugin&)> action;
+        if (command == "setState")
+        {
+            juce::MemoryBlock state;
+            if (! juce::File (params["file"].toString()).loadFileAsData (state) || state.getSize() == 0)
+                return reply (fail ("There's no plugin state in " + params["file"].toString() + "."), {});
+            action = [state] (HostedPlugin& hosted) {
+                hosted.instance->setStateInformation (state.getData(), (int) state.getSize());
+                return juce::var();
+            };
+        }
+        else
+        {
+            juce::StringArray files;
+            if (const auto* list = params["files"].getArray())
+                for (const auto& file : *list)
+                    files.add (file.toString());
+            if (files.isEmpty())
+                return reply (fail ("No files to drop."), {});
+            action = [this, files] (HostedPlugin& hosted) { return plugins.dropFiles (hosted, files); };
+        }
+        plugins.swap (params["channel"].toString(), std::move (action), [reply] (const juce::Result& result, const juce::var& value) {
+            if (value.isString())
+                return reply (juce::Result::fail (value.toString()), {});
+            reply (result, value);
+        });
+        if (! offline)
+            swapTicker.startTimer (2);
+        return;
     }
     if (command == "channelEditor")
     {
@@ -1062,6 +1109,9 @@ void Engine::render (int frames, const juce::File& file, const juce::String& inp
                 inputs[(size_t) ch] = testInput.getReadPointer (ch, testInputPosition);
         testInputPosition += block;
         process (channels, 2, block, inputs.data(), testInput.getNumChannels() > 0 && left >= block ? testInput.getNumChannels() : 0);
+        // What live is the swap ticker's: a plugin let go of in this block is loaded before the next.
+        if (plugins.swapping())
+            plugins.completeSwaps (false);
     }
     sequencer.collectGarbage();
     preview.collectGarbage();

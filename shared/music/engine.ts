@@ -752,6 +752,12 @@ export interface EngineCommands {
   raiseEditor: { owner: "channel" | "effect"; target: string };
   /** Show or close the window of a plugin channel's plugin. */
   channelEditor: { channel: string; open: boolean };
+  /**
+   * One of a song's plugin's parameters set from the app, as its own window would (the Serum player's macros):
+   * `param` (its id) and `value` (0 to 1) as `parameters` gives them. `gesture` "begin" holds it (its automation lets go of it
+   * meanwhile, and its window offers to automate it), "end" lets go.
+   */
+  setParameter: { owner: "channel" | "effect"; ownerId: string; param: string; value: number; gesture?: "begin" | "end" };
   /** Show or close the window of an effect in the mixer (by `MixerEffect.id`). */
   effectEditor: { effect: string; open: boolean };
   /**

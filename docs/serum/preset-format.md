@@ -32,11 +32,12 @@ EDITOR_ENGINE_PATH=… pnpm tsx scripts/serum-preset.ts verify --roundtrip <pres
 - **zstd**: one frame with its content size, single segment, no checksum (what Node's `zstdCompressSync` makes).
 - **Settings** (CBOR): a map of modules, keys sorted by their UTF-8 bytes. A float is a 32-bit float when the double
   is exactly one, else 64-bit (never 16); a number is an integer only under these keys: `activeClip(s)`,
-  `baseNote`, `boundary64`, `busID`, `ccNum`, `channel`, `destModuleID`, `destModuleParamID`, `edgeFadeMs`,
+  `baseNote`, `boundary64`, `busID`, `ccNum`, `channel`, `destModuleID`, `destModuleParamID`, `edgeFadeMs`, `fxID`,
   `gridDivision`, `interpolateAfterLoad`, `lfoID`, `lfoType`, `loopback64`, `loopbackPointNum`, `mpeConfig`,
-  `mpePitchBendRange`, `noteNum`, `numChannels`, `numFrames`, `numPoints`, `paramIDs`, `pointID`, `sampleRate`,
-  `scale`, `source`, `subType`, `target`, `type`, `types`. Measured on 118 presets (20 million floats, no
-  exception); re-encoding all 118 gives their bytes back exactly. No map value is ever `null`.
+  `mpePitchBendRange`, `noteNum`, `numChannels`, `numFrames`, `numPoints`, `paramIDs`, `paramIndex`, `pointID`,
+  `sampleRate`, `scale`, `source`, `subType`, `target`, `type`, `types`. Measured on 118 presets (20 million floats,
+  no exception); re-encoding all 118 gives their bytes back exactly. No map value is ever `null`. (`fxID` and
+  `paramIndex` are the controller's effect knob links, `player.md` §2.1, never in a preset.)
 - **Modules**: `Oscillator0..4` (A, B, C, noise, sub), each holding every type's module (`WTOsc0`, `SampleOsc0`,
   `MultiSampleOsc0`, `GranularOsc0`, `SpectralOsc0`; `NoiseOsc3`; `SubOsc4`), `VoiceFilter0/1`, `Env0..3`,
   `LFO0..9`, `ModSlot0..63`, `Macro0..7`, `FXRack0..2` (main, bus 1, bus 2: `FX` is a list of
@@ -301,9 +302,9 @@ and close the loop.
 - **Opening a written `.SerumPreset` in Serum's browser**: that needs Serum's window. The files are laid out as
   Serum's own and their settings load as Serum's state, but the browser's own path is untested; nor whether a
   Serum older than 2.1.5 opens a version 11 preset.
-- **Names kept by Serum's controller** (macro names, rack names, an LFO shape's name): written where Serum's
-  presets keep them (read-back bodies are byte-identical), but Serum's controller didn't take them when handed
-  the settings in the engine, Serum's own presets' names included, so they couldn't be seen.
+- **An LFO shape's name**, kept by Serum's controller: written where Serum's presets keep it, never seen back.
+  (Macro and rack names are: `presetAsState` gives them to the controller, and the host's controls show the macros'
+  names, `player.md` §2.4. Serum's re-save of a state drops them while its window has never been open.)
 - **Effects' units** (no controls to read), the effect filter's cutoff scale, what `unison.detune` is in cents.
 - **Defaults with no stored name**: the LFO mode that restarts per note, the sub's sine, a distortion's and a
   reverb's first types, an oscillator's wavetable type: they're written by leaving the key out.

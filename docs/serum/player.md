@@ -162,10 +162,12 @@ So no conversions need keeping: every `.fxp` loads as it is, converted by Serum 
 
 Serum takes macro names from the controller part of the state we hand it, and **the host sees them as the controls'
 names**: `Macro 1` reads "SPACE" (`macros.mts`). So the earlier note in `preset-format.md` that names couldn't be
-seen was about `presetAsState`, which keeps the template's controller rather than the preset's.
+seen was about `presetAsState`, which kept the template's controller rather than the preset's. Since step 1 it
+writes the preset's names (and the effect knob links) into the controller.
 
 But Serum's own re-save of that state drops the names when its window has never been open. The project's state file
-is that re-save, so the player keeps a preset's names itself and hands them back with each load.
+is that re-save, so the player keeps a preset's names itself and hands them back with each load. (A preset loaded by
+a drop, §2.3, keeps them: Serum loads it as its browser does.)
 
 ### 2.5 What's on disk
 
@@ -332,11 +334,17 @@ New tools in `shared/music/tools.ts`, for parity with the window:
 0. **Done (2026-10-09).** Effect knob links: §2.1. `.fxp` by a drop on Serum's invisible window: §2.3. A reload
    while the engine plays live: designed away in step 1, since the audio thread stops calling Serum (after a fade)
    while it loads, so Serum is never loaded and played at once.
-1. **The engine:**
-   - `setParameter`;
-   - `setState` with the fade and the held notes played again;
-   - `presetAsState` carries a preset's controller part (names, and the effect knobs' links);
-   - test that a slot set by the host moves its effect's sound (§2.1).
+1. **Done (2026-10-09): the engine** (`docs/claude/music-engine.md`, Swaps).
+   - `setParameter` (the tab's `POST /api/engine/setParameter`): a plugin's parameter set as its window would.
+   - `AudioEngine.swapState`: a new state, faded out, loaded while nothing plays the plugin, held notes played again,
+     faded in. Measured: no step across it steeper than the steady note's own, and the note sounds on.
+   - `AudioEngine.dropFiles`: files dropped on a song's Serum, its window invisible, with the same fade. A dropped
+     `.SerumPreset` loads with its names; an `.fxp`, as Serum's browser converts it.
+   - `presetAsState(template, settings, links)` writes the preset's names and the effect knobs' links into the
+     controller. A link's `paramIndex` is the knob's place in its effect's parameters as `catalogue.ts` lists them
+     (`MODULE_PARAMS`: the Distortion's 0 Enable, 1 Wet, 2 Drive…).
+   - On Serum 2 itself (`serum-player.integration.test.ts`): a Distortion's Drive linked to the main rack's first
+     slot, the slot set to 1, makes the saw 30% louder and Serum's own state reads Drive 100.
 2. **The browser, loading and macros:** the index, search and filters, favourites, arrow keys. This is the part that
    fixes the main pain.
 3. **Modulation:** the rows, live amounts, adding and removing routes.

@@ -17,7 +17,8 @@ export interface CborMap {
 
 /**
  * The keys whose numbers Serum writes as integers (in a list under one of them too: `source`, `scale`,
- * `types`, `paramIDs`, `activeClips`). Every one of them holds only integers in the presets measured.
+ * `types`, `paramIDs`, `activeClips`). Every one of them holds only integers in the presets measured, and the
+ * controller's effect knob links (`fxID`, `paramIndex`) in its own state.
  */
 export const SERUM_INTEGER_KEYS: ReadonlySet<string> = new Set([
   "activeClip",
@@ -30,6 +31,7 @@ export const SERUM_INTEGER_KEYS: ReadonlySet<string> = new Set([
   "destModuleID",
   "destModuleParamID",
   "edgeFadeMs",
+  "fxID",
   "gridDivision",
   "interpolateAfterLoad",
   "lfoID",
@@ -43,6 +45,7 @@ export const SERUM_INTEGER_KEYS: ReadonlySet<string> = new Set([
   "numFrames",
   "numPoints",
   "paramIDs",
+  "paramIndex",
   "pointID",
   "sampleRate",
   "scale",

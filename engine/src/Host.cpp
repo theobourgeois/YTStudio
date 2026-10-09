@@ -21,7 +21,10 @@ juce::int64 hashOf (const juce::MemoryBlock& state)
 
 HostedPlugin::~HostedPlugin()
 {
+    if (swapAction != nullptr)
+        std::exchange (swapAction, nullptr) (nullptr);
     window.reset();
+    dropWindow.reset();
     if (instance != nullptr)
     {
         instance->removeListener (&watcher);
@@ -147,6 +150,7 @@ void PluginHost::keepOnly (const juce::StringArray& ownerIds)
         // Its state is kept: undoing the owner's removal brings the plugin back as it was.
         save (*it->second);
         it->second->window.reset();
+        it->second->dropWindow.reset();
         it = loaded.erase (it);
     }
     std::erase_if (loading, [&] (const auto& entry) { return ! ownerIds.contains (entry.first); });
@@ -187,6 +191,8 @@ bool PluginHost::showEditor (const juce::String& ownerId, bool open)
     }
     if (hosted.window == nullptr)
     {
+        // A plugin has one editor: the invisible one goes.
+        hosted.dropWindow.reset();
         hosted.window = std::make_unique<EditorWindow> (*hosted.instance, titleOf (hosted), [this, stillAlive = alive, ownerId] {
             juce::MessageManager::callAsync ([this, stillAlive, ownerId] {
                 if (! *stillAlive)
@@ -275,6 +281,104 @@ void PluginHost::setHost (const juce::var& host)
 
     hostKnown = true;
     placeWindows();
+}
+
+juce::Result PluginHost::setParameter (const juce::String& ownerId, const juce::String& id, float value, const juce::String& gesture)
+{
+    const auto found = loaded.find (ownerId);
+    if (found == loaded.end())
+        return juce::Result::fail ("That plugin isn't loaded (yet).");
+    int index = -1;
+    auto* parameter = findParameter (*found->second->instance, id, -1, index);
+    if (parameter == nullptr)
+        return juce::Result::fail ("The plugin has no parameter \"" + id + "\".");
+    if (gesture == "begin")
+        parameter->beginChangeGesture();
+    parameter->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, value));
+    if (gesture == "end")
+        parameter->endChangeGesture();
+    return juce::Result::ok();
+}
+
+namespace
+{
+/** How long a swap waits for an audio thread to let go of its plugin before taking it as unplayed (no device runs it). */
+constexpr juce::uint32 swapUntendedMs = 250;
+/** How long an invisible window made for dropping files is kept for the next ones. */
+constexpr int dropWindowKeptMs = 10000;
+}
+
+void PluginHost::swap (const juce::String& ownerId, std::function<juce::var (HostedPlugin&)> action, std::function<void (const juce::Result&, const juce::var&)> done)
+{
+    const auto found = loaded.find (ownerId);
+    if (found == loaded.end())
+        return done (juce::Result::fail ("That plugin isn't loaded (yet)."), {});
+    if (exporting)
+        return done (juce::Result::fail ("The song is being exported: wait for it to finish."), {});
+    auto& hosted = *found->second;
+    if (hosted.swapAction != nullptr)
+        std::exchange (hosted.swapAction, nullptr) (nullptr);
+    hosted.swapAction = [act = std::move (action), tell = std::move (done)] (HostedPlugin* plugin) {
+        if (plugin == nullptr)
+            return tell (juce::Result::fail ("Another change to the plugin came first, or it was removed."), {});
+        const auto result = act (*plugin);
+        tell (juce::Result::ok(), result);
+    };
+    hosted.swapAsked = juce::Time::getMillisecondCounter();
+    // From its own level, or from a swap just done that the audio thread hasn't resumed yet.
+    for (auto state = hosted.swap.load(); state == HostedPlugin::Swap::none || state == HostedPlugin::Swap::resuming;)
+        if (hosted.swap.compare_exchange_weak (state, HostedPlugin::Swap::fadingOut))
+            break;
+}
+
+void PluginHost::completeSwaps (bool untended)
+{
+    const auto now = juce::Time::getMillisecondCounter();
+    for (auto& [id, plugin] : loaded)
+    {
+        auto& hosted = *plugin;
+        if (hosted.swapAction == nullptr)
+            continue;
+        auto state = hosted.swap.load();
+        if (state == HostedPlugin::Swap::fadingOut && untended && now - hosted.swapAsked > swapUntendedMs)
+            hosted.swap.compare_exchange_strong (state, HostedPlugin::Swap::parked);
+        if (hosted.swap.load() != HostedPlugin::Swap::parked)
+            continue;
+        const auto hold = EditorWindow::whileBusy();
+        std::exchange (hosted.swapAction, nullptr) (&hosted);
+        hosted.swap.store (HostedPlugin::Swap::resuming);
+    }
+}
+
+bool PluginHost::swapping() const
+{
+    return std::any_of (loaded.begin(), loaded.end(), [] (const auto& entry) { return entry.second->swapAction != nullptr; });
+}
+
+juce::var PluginHost::dropFiles (HostedPlugin& hosted, const juce::StringArray& files)
+{
+    hosted.lastDrop = juce::Time::getMillisecondCounter();
+    if (hosted.window != nullptr)
+    {
+        // Its open window, invisible for the moment of the drop (which moves it under the pointer and back).
+        auto& window = *hosted.window;
+        const auto alpha = window.getAlpha();
+        window.setAlpha (0.0f);
+        const auto result = ::dropFiles (window, files, 0.5, 0.5);
+        window.setAlpha (alpha);
+        return result;
+    }
+    if (hosted.dropWindow == nullptr)
+        hosted.dropWindow = std::make_unique<EditorWindow> (*hosted.instance, titleOf (hosted), [] {}, true);
+    const auto result = ::dropFiles (*hosted.dropWindow, files, 0.5, 0.5);
+    // Kept a while for the next file (making Serum's window takes a moment), then let go of.
+    juce::Timer::callAfterDelay (dropWindowKeptMs + 100, [this, stillAlive = alive, ownerId = hosted.ownerId] {
+        if (! *stillAlive)
+            return;
+        if (const auto it = loaded.find (ownerId); it != loaded.end() && juce::Time::getMillisecondCounter() - it->second->lastDrop >= (juce::uint32) dropWindowKeptMs)
+            it->second->dropWindow.reset();
+    });
+    return result;
 }
 
 void PluginHost::setExporting (bool on)

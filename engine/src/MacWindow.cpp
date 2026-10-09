@@ -205,6 +205,17 @@ DropRect boundsOf (id view)
    #endif
 }
 
+DropRect windowFrameOf (id window)
+{
+   #if defined(__x86_64__)
+    DropRect rect;
+    reinterpret_cast<void (*) (DropRect*, id, SEL)> (objc_msgSend_stret) (&rect, window, sel_registerName ("frame"));
+    return rect;
+   #else
+    return send<DropRect> (window, "frame");
+   #endif
+}
+
 id nsString (const juce::String& text) { return send<id> ((id) objc_getClass ("NSString"), "stringWithUTF8String:", text.toRawUTF8()); }
 
 id nsArray (const std::vector<id>& items)
@@ -242,6 +253,11 @@ Class draggingInfoClass()
         class_addMethod (cls, sel_registerName ("resetSpringLoading"), (IMP) +[] (id, SEL) {}, "v@:");
         class_addMethod (cls, sel_registerName ("enumerateDraggingItemsWithOptions:forView:classes:searchOptions:usingBlock:"),
                          (IMP) +[] (id, SEL, unsigned long, id, id, id, id) {}, "v@:Q@@@@");
+        // Anything else asked of it (AppKit's private questions) answers nothing, rather than throwing.
+        class_addMethod (cls, sel_registerName ("methodSignatureForSelector:"), (IMP) +[] (id, SEL, SEL) {
+            return send<id> ((id) objc_getClass ("NSMethodSignature"), "signatureWithObjCTypes:", "@@:");
+        }, "@@::");
+        class_addMethod (cls, sel_registerName ("forwardInvocation:"), (IMP) +[] (id, SEL, id) {}, "v@:@");
         if (auto* protocol = objc_getProtocol ("NSDraggingInfo"))
             class_addProtocol (cls, protocol);
         objc_registerClassPair (cls);
@@ -250,7 +266,7 @@ Class draggingInfoClass()
     return made;
 }
 
-/** The deepest view under `view` that isn't JUCE's and takes drops: the plugin's own. */
+/** The deepest view under `view` that isn't JUCE's or AppKit's and takes drops: the plugin's own. */
 id pluginDropView (id view, juce::StringArray& seen)
 {
     const juce::String name (object_getClassName (view));
@@ -259,9 +275,17 @@ id pluginDropView (id view, juce::StringArray& seen)
     for (unsigned long i = 0, count = send<unsigned long> (subviews, "count"); i < count; ++i)
         if (auto* found = pluginDropView (send<id> (subviews, "objectAtIndex:", i), seen))
             return found;
-    return ! name.startsWith ("JUCE") && respondsTo (view, "performDragOperation:") ? view : nullptr;
+    const auto ours = name.startsWithIgnoreCase ("juce") || name.startsWith ("NS") || name.startsWith ("_NS");
+    return ! ours && respondsTo (view, "performDragOperation:") ? view : nullptr;
 }
 } // namespace
+
+void ignoreMouse (juce::Component& window)
+{
+    if (auto* peer = window.getPeer())
+        if (auto* nsWindow = send<id> (static_cast<id> (peer->getNativeHandle()), "window"))
+            send<void> (nsWindow, "setIgnoresMouseEvents:", (BOOL) YES);
+}
 
 juce::var dropFiles (juce::Component& window, const juce::StringArray& files, double x, double y, bool perform)
 {
@@ -280,7 +304,9 @@ juce::var dropFiles (juce::Component& window, const juce::StringArray& files, do
     dropWindow = send<id> (view, "window");
     // Plugins hit-test where the pointer really is (Serum does): the (invisible) window goes under it, the drop's
     // point on the pointer.
-    // It never takes the user's clicks meanwhile.
+    // It never takes the user's clicks meanwhile, and goes back where it was after.
+    const auto ignoredMouse = send<BOOL> (dropWindow, "ignoresMouseEvents");
+    const auto frame = windowFrameOf (dropWindow);
     send<void> (dropWindow, "setIgnoresMouseEvents:", (BOOL) YES);
     const auto mouse = send<DropPoint> ((id) objc_getClass ("NSEvent"), "mouseLocation");
     send<void> (dropWindow, "setFrameOrigin:", DropPoint { mouse.x - dropLocation.x, mouse.y - dropLocation.y });
@@ -295,31 +321,47 @@ juce::var dropFiles (juce::Component& window, const juce::StringArray& files, do
     send<BOOL> (dropPasteboard, "setString:forType:", url, nsString ("public.file-url"));
 
     auto* info = send<id> (send<id> ((id) draggingInfoClass(), "alloc"), "init");
-    auto* result = new juce::DynamicObject();
-    result->setProperty ("view", juce::String (object_getClassName (view)));
-    result->setProperty ("width", bounds.size.x);
-    result->setProperty ("height", bounds.size.y);
-    result->setProperty ("entered", (double) send<unsigned long> (view, "draggingEntered:", info));
-    if (respondsTo (view, "draggingUpdated:"))
-        result->setProperty ("updated", (double) send<unsigned long> (view, "draggingUpdated:", info));
-    if (! perform)
+    juce::DynamicObject::Ptr result = new juce::DynamicObject();
+    juce::String thrown;
+    // A plugin's view is foreign code: whatever it throws (an Objective-C exception unwinds as C++'s does) is said.
+    try
     {
-        if (respondsTo (view, "draggingExited:"))
-            send<void> (view, "draggingExited:", info);
+        result->setProperty ("view", juce::String (object_getClassName (view)));
+        result->setProperty ("width", bounds.size.x);
+        result->setProperty ("height", bounds.size.y);
+        result->setProperty ("entered", (double) send<unsigned long> (view, "draggingEntered:", info));
+        if (respondsTo (view, "draggingUpdated:"))
+            result->setProperty ("updated", (double) send<unsigned long> (view, "draggingUpdated:", info));
+        if (! perform)
+        {
+            if (respondsTo (view, "draggingExited:"))
+                send<void> (view, "draggingExited:", info);
+        }
+        else
+        {
+            if (respondsTo (view, "prepareForDragOperation:"))
+                result->setProperty ("prepared", (bool) send<BOOL> (view, "prepareForDragOperation:", info));
+            result->setProperty ("performed", (bool) send<BOOL> (view, "performDragOperation:", info));
+            if (respondsTo (view, "concludeDragOperation:"))
+                send<void> (view, "concludeDragOperation:", info);
+        }
     }
-    else
+    catch (...)
     {
-        if (respondsTo (view, "prepareForDragOperation:"))
-            result->setProperty ("prepared", (bool) send<BOOL> (view, "prepareForDragOperation:", info));
-        result->setProperty ("performed", (bool) send<BOOL> (view, "performDragOperation:", info));
-        if (respondsTo (view, "concludeDragOperation:"))
-            send<void> (view, "concludeDragOperation:", info);
+        thrown = "The plugin's window threw an exception when given the files.";
     }
     send<void> (info, "release");
     send<void> (dropPasteboard, "releaseGlobally");
+    send<void> (dropWindow, "setFrameOrigin:", frame.origin);
+    send<void> (dropWindow, "setIgnoresMouseEvents:", ignoredMouse);
     dropPasteboard = dropWindow = nullptr;
-    return juce::var (result);
+    if (thrown.isNotEmpty())
+        return thrown;
+    if (perform && ! (bool) result->getProperty ("performed"))
+        return "The plugin's window didn't take the files.";
+    return juce::var (result.get());
 }
 #else
+void ignoreMouse (juce::Component&) {}
 juce::var dropFiles (juce::Component&, const juce::StringArray&, double, double, bool) { return "Dropping files on a plugin's window is macOS's only."; }
 #endif

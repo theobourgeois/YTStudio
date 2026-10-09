@@ -17,6 +17,17 @@ Read the music suite's guide (`docs/claude/music.md`) first.
   FL's way to silence the effects' tails: `Engine::silence` lets go of the device as an export does,
   resets every plugin, drops our effects' states (each registry's `clear`) and the delay lines, and makes
   the song again from silence.
+- **Swaps** (`HostedPlugin::Swap`, `PluginHost::swap`): what a plugin can't take while it plays (a whole new state,
+  `setState`; files dropped on its window, `dropFiles`) waits until the audio thread has faded the plugin channel out
+  (5 ms) and stopped processing it (`Sequencer::tendSwap`, `fadeSwap`); the message thread then does it, and the
+  audio thread plays the notes still sounding again (`Pending` keeps their velocity) and fades it back in. So a
+  plugin is never loaded and played at once, and nothing clicks (a bare `setStateInformation` cuts Serum's notes
+  dead). Swaps are done by `swapTicker` live and between rendered blocks offline: offline, a swap only happens
+  when something renders. `setParameter` sets a plugin's parameter as its window would (with a gesture, so
+  automation lets go of it meanwhile). `dropFiles` (`MacWindow.cpp`, macOS) hands files to a plugin's view as
+  Finder's drag and drop would, in a window made invisible, ignoring the mouse and moved under the pointer (Serum
+  hit-tests the real pointer); it's how Serum 2 is given a Serum 1 preset. Tested on the test synth
+  (`plugin-swap.integration.test.ts`) and on Serum 2 itself when it's installed (`serum-player.integration.test.ts`).
 - Hosted plugins are told where the song is (`PlayHead.h`): each sequencer (playback's, the export's) fills in a
   playhead at the start of every block from the song (tempo, time signature, position, playing, loop) and gives
   it to every plugin it plays, so their synced LFOs and delays follow the song. The tempo is the song's own (with

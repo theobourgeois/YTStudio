@@ -55,6 +55,9 @@ struct HostedPlugin
     std::unique_ptr<juce::AudioPluginInstance> instance;
     /** After `instance`, so it goes first. */
     std::unique_ptr<EditorWindow> window;
+    /** Its window made invisible to hand it files (`PluginHost::dropFiles`), while `window` isn't open. */
+    std::unique_ptr<EditorWindow> dropWindow;
+    juce::uint32 lastDrop = 0;
     /** Where its state is kept, and a hash of what was last written there. */
     juce::File stateFile;
     juce::int64 savedHash = 0;
@@ -66,11 +69,12 @@ struct HostedPlugin
     juce::AudioBuffer<float> buffer;
     /** Its sidechain input's first channel in `buffer`, and how many (-1, 0: it has none). Set when it's prepared. */
     int keyChannel = -1, keyChannels = 0;
-    /** Notes sounding, and how many samples until each ends. */
+    /** Notes sounding, how many samples until each ends, and how hard each was played (to play it again). */
     struct Pending
     {
         int key = 0;
         juce::int64 left = 0;
+        float velocity = 0.78f;
     };
     std::array<Pending, 128> pending;
     int numPending = 0;
@@ -87,6 +91,20 @@ struct HostedPlugin
     std::atomic<bool> automating { false };
     /** The message thread's: the touches already said. */
     juce::uint32 touchesSaid = 0;
+
+    /**
+     * Something done to the plugin that it can't take while it plays: a new state, files dropped on it
+     * (`PluginHost::swap`). The audio thread fades it out and then leaves it alone (`parked`); the message thread
+     * does it; the audio thread plays its sounding notes again and fades it back in. So it's never loaded and
+     * played at once, and nothing clicks. A plugin channel's only.
+     */
+    enum class Swap { none, fadingOut, parked, resuming };
+    std::atomic<Swap> swap { Swap::none };
+    /** The audio thread's: where its fade is (1: its own level). */
+    float swapGain = 1.0f;
+    /** The message thread's: what to do once it's parked (given null: it won't be), and since when it's been asked. */
+    std::function<void (HostedPlugin*)> swapAction;
+    juce::uint32 swapAsked = 0;
 };
 
 class PluginHost final
@@ -148,6 +166,30 @@ public:
      * if it isn't loaded.
      */
     juce::var parameters (const juce::String& ownerId) const;
+    /**
+     * Set one of the owner's plugin's parameters (by its id, as `parameters` gives it) to `value` (0 to 1), as its
+     * own window would. `gesture` "begin" holds it (automation leaves it alone meanwhile), "end" lets go.
+     */
+    juce::Result setParameter (const juce::String& ownerId, const juce::String& id, float value, const juce::String& gesture);
+
+    // Swaps (`HostedPlugin::Swap`) -------------------------------------------------------------------
+    /**
+     * Do `action` to the owner's plugin once the audio thread has faded it out and let go of it; the audio thread
+     * then plays its notes again and fades it back in. `done` is told when it's been done (with what `action`
+     * said), or why it won't be. A second swap asked before the first was done replaces it. A plugin channel's only.
+     */
+    void swap (const juce::String& ownerId, std::function<juce::var (HostedPlugin&)> action, std::function<void (const juce::Result&, const juce::var&)> done);
+    /**
+     * Do the swaps whose plugins the audio thread has let go of (`untended`: also those it hasn't after a while,
+     * when no device is running them). Call often while `swapping`; offline, between rendered blocks.
+     */
+    void completeSwaps (bool untended);
+    bool swapping() const;
+    /**
+     * Files dropped on the plugin's window as if from Finder (`::dropFiles`): its window if it's open, else one
+     * made invisible for it (kept a few seconds for the next). Says what the plugin answered. In a swap's action.
+     */
+    juce::var dropFiles (HostedPlugin&, const juce::StringArray& files);
     /**
      * Say which parameter was touched last in each plugin's window, if one was since the last call
      * (`EngineEvent` "touch"), and show it on the window's Automate button. Call regularly.

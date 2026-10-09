@@ -47,7 +47,13 @@ const PARAMETERS = {
 /** The plugin of a song's channel or effect, by its id. */
 const pluginOf = (owner, id) =>
   owner === "channel" ? song?.channels.find((c) => c.id === id && c.plugin)?.plugin : (song?.tracks ?? []).flatMap((t) => t.effects ?? []).find((e) => e.id === id)?.plugin;
-const parameterList = (plugin) => (PARAMETERS[plugin.id] ?? []).map((name, index) => ({ index, id: name.toLowerCase(), name, value: 0.5, text: "50%" }));
+/** Parameters set from the app (`setParameter`): by owner id, then parameter id. */
+const parameterValues = new Map();
+const parameterList = (plugin, ownerId) =>
+  (PARAMETERS[plugin.id] ?? []).map((name, index) => {
+    const value = parameterValues.get(ownerId)?.get(name.toLowerCase()) ?? 0.5;
+    return { index, id: name.toLowerCase(), name, value, text: `${Math.round(value * 100)}%` };
+  });
 
 /** Each fake plugin's own programs (the synth has some; the delay, one: none to choose). */
 const PROGRAMS = { "VST3-Fake Synth-1": ["Init", "Bass", "Lead", "Pad"] };
@@ -650,12 +656,24 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (cmd === "parameters") {
     const plugin = pluginOf(params.owner, params.ownerId);
     if (!plugin || !PARAMETERS[plugin.id]) return fail("That plugin isn't loaded (yet): its parameters can't be listed.");
-    return send({ id, ok: true, result: { parameters: parameterList(plugin) } });
+    return send({ id, ok: true, result: { parameters: parameterList(plugin, params.ownerId) } });
+  }
+  if (cmd === "setParameter") {
+    const plugin = pluginOf(params.owner, params.ownerId);
+    if (!plugin || !parameterList(plugin, params.ownerId).some((p) => p.id === params.param)) return fail(`The plugin has no parameter "${params.param}".`);
+    if (!parameterValues.has(params.ownerId)) parameterValues.set(params.ownerId, new Map());
+    parameterValues.get(params.ownerId).set(params.param, params.value);
+    return send({ id, ok: true, result: {} });
+  }
+  // A plugin channel's new state, or files dropped on its window (the engine fades it out and in around it).
+  if (cmd === "setState" || (cmd === "dropFiles" && params.channel)) {
+    if (!pluginOf("channel", params.channel)) return fail("That plugin isn't loaded (yet).");
+    return send({ id, ok: true, result: cmd === "dropFiles" ? { view: "FakeView", performed: true } : null });
   }
   // A parameter touched in a plugin's window, or its Automate button pressed, as if by hand (tests).
   if (cmd === "touchParameter" || cmd === "pressAutomate") {
     const plugin = pluginOf(params.owner, params.ownerId);
-    const parameter = plugin && parameterList(plugin)[params.index];
+    const parameter = plugin && parameterList(plugin, params.ownerId)[params.index];
     if (!parameter) return fail("No such parameter.");
     send({ event: cmd === "touchParameter" ? "touch" : "automate", owner: params.owner, id: params.ownerId, index: parameter.index, param: parameter.id, name: parameter.name, value: params.value ?? 0.5, text: "" });
   }

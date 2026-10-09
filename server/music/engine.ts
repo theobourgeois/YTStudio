@@ -465,6 +465,33 @@ export class AudioEngine {
     return parameters;
   }
 
+  /**
+   * Give a plugin channel's plugin a whole new state (`stateFile`'s bytes), as loading a preset does. The engine fades
+   * it out, loads it while nothing plays it, plays the notes still sounding again and fades it back in, so nothing
+   * clicks. Answers once it's loaded. The server's own (the Serum player's edits), not the tab's.
+   */
+  async swapState(channel: string, state: Uint8Array): Promise<void> {
+    if (!/^[\w-]{1,64}$/.test(channel)) throw new HttpError(400, '"channel" must be a channel\'s id.');
+    const file = this.paths.tmpFile(".state");
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, state);
+    try {
+      await this.request("setState", { channel, file });
+    } finally {
+      await fs.rm(file, { force: true });
+    }
+  }
+
+  /**
+   * Files dropped on a plugin channel's plugin as if from Finder, its window invisible (macOS): how Serum 2 is given
+   * a Serum 1 preset (`docs/serum/player.md` §2.3). Faded out and in as `swapState` is. Answers with what the
+   * plugin's view said. The server's own: it checks the files first.
+   */
+  async dropFiles(channel: string, files: string[]): Promise<Record<string, unknown>> {
+    if (!/^[\w-]{1,64}$/.test(channel)) throw new HttpError(400, '"channel" must be a channel\'s id.');
+    return (await this.request("dropFiles", { channel, files })) as Record<string, unknown>;
+  }
+
   /** A song's plugin's presets (`PluginPresets`): `owner` "channel" or "effect", by its id. */
   async presets(owner: unknown, id: unknown): Promise<PluginPresets> {
     const { kind, ownerId } = presetOwner(owner, id);
@@ -670,6 +697,14 @@ export class AudioEngine {
       case "channelEditor": {
         if (typeof body.channel !== "string" || !body.channel) throw new HttpError(400, '"channel" must be a channel\'s id.');
         return { channel: body.channel, open: body.open === true };
+      }
+      case "setParameter": {
+        if (body.owner !== "channel" && body.owner !== "effect") throw new HttpError(400, '"owner" must be "channel" or "effect".');
+        if (typeof body.ownerId !== "string" || !/^[\w-]{1,64}$/.test(body.ownerId)) throw new HttpError(400, '"ownerId" must be a channel\'s or an effect\'s id.');
+        if (typeof body.param !== "string" || !body.param || body.param.length > 256) throw new HttpError(400, '"param" must be one of the plugin\'s parameter ids (`GET /api/engine/parameters`).');
+        if (!isFiniteNumber(body.value)) throw new HttpError(400, '"value" must be a number from 0 to 1.');
+        if (body.gesture !== undefined && body.gesture !== "begin" && body.gesture !== "end") throw new HttpError(400, '"gesture" must be "begin" or "end", or left out.');
+        return { owner: body.owner, ownerId: body.ownerId, param: body.param, value: clamp(body.value, 0, 1), ...(body.gesture ? { gesture: body.gesture } : {}) };
       }
       case "meterTracks": {
         const tracks = Array.isArray(body.tracks) ? body.tracks.filter((t): t is string => typeof t === "string" && /^[\w-]{1,64}$/.test(t)) : [];
