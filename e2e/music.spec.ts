@@ -532,9 +532,11 @@ test("a Serum 2 channel's window is the Serum player: Serum's presets in one lis
   await expect(presets).toHaveCount(0);
   await player.getByRole("button", { name: "Starred" }).click();
 
-  // A macro turned is Serum's own control turned.
+  // A macro turned is Serum's own control turned. It's named as the preset names it (Serum's controls say "Macro 1"), and
+  // the macros the preset leaves unnamed and unrouted are hidden.
   const channelId = (await savedSong(page, id)).channels.find((c: { name: string }) => c.name === "Serum 2").id;
-  await player.getByRole("slider", { name: "Macro 1" }).focus();
+  await expect(player.getByTestId("serum-macros").locator("[data-macro]")).toHaveCount(1);
+  await player.getByRole("slider", { name: "SPACE" }).focus();
   await page.keyboard.press("ArrowUp");
   await expect
     .poll(async () => ((await (await page.request.get(`/api/engine/parameters?owner=channel&id=${channelId}`)).json()) as { id: string; value: number }[]).find((p) => p.id === "7000000")?.value)
@@ -549,6 +551,115 @@ test("a Serum 2 channel's window is the Serum player: Serum's presets in one lis
   await serum.click();
   await expect(player).toHaveCount(0);
   await expect(serum).toHaveAttribute("aria-expanded", "false");
+});
+
+test("the Serum player edits the sound: routes added, turned, changed and removed, envelopes and LFOs, each a step of its own undo", async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem("e2e-plugins-set")) {
+      localStorage.setItem("vaudio.music.favouritePlugins", JSON.stringify(["VST3-Fake Synth-1", "VST3-Fake Delay-2", "VST3-Serum 2-3"]));
+      sessionStorage.setItem("e2e-plugins-set", "1");
+    }
+  });
+  const id = await openNewSong(page, "Serum sound");
+  await page.getByTestId("channel-rack").getByRole("button", { name: "Add a channel" }).click();
+  await page.getByTestId("channel-picker").getByRole("option", { name: /Serum 2/ }).click();
+  const player = page.getByTestId("serum-player");
+  await player.getByRole("listbox", { name: "Presets" }).getByRole("option", { name: "BA - Stand-in Reese" }).click();
+  await expect(player.getByTestId("serum-preset-name")).toHaveText("BA - Stand-in Reese");
+  let channelId = "";
+  await expect.poll(async () => (channelId = (await savedSong(page, id)).channels.find((c: { name: string }) => c.name === "Serum 2")?.id ?? "")).not.toBe("");
+  const engineValue = async (param: string) =>
+    ((await (await page.request.get(`/api/engine/parameters?owner=channel&id=${channelId}`)).json()) as { id: string; value: number }[]).find((p) => p.id === param)?.value;
+
+  const modulation = player.getByTestId("serum-modulation");
+  await expect(modulation).toContainText("Nothing is modulated");
+  const undo = player.getByRole("button", { name: "Undo in the player" });
+  const redo = player.getByRole("button", { name: "Redo in the player" });
+  // The load is a step only when there was a sound before it (the stand-in's Serum had none).
+  await expect(undo).toBeDisabled();
+
+  // A route added: a source, then a destination from Serum's list, found by typing.
+  async function addRoute(source: string, destination: string) {
+    await modulation.getByRole("button", { name: "Add" }).click();
+    await page.getByRole("textbox", { name: "Find: Source" }).fill(source);
+    await page.getByRole("listbox", { name: "Source" }).getByRole("option", { name: source, exact: true }).click();
+    await modulation.getByRole("button", { name: "Pick a destination" }).click();
+    await page.getByRole("textbox", { name: "Find: Destination" }).fill(destination);
+    await page.getByRole("listbox", { name: "Destination" }).getByRole("option", { name: destination, exact: true }).click();
+  }
+  await addRoute("Macro 1", "Filter 1 Freq");
+  const route = modulation.locator("[data-slot='1']");
+  await expect(route).toContainText("Macro 1");
+  await expect(route).toContainText("Filter 1 Freq");
+  await expect(route).toContainText("50%");
+  await expect(player.getByTestId("serum-edited")).toBeVisible();
+  // The macro shows what it drives.
+  await expect(player.getByTestId("serum-macros").locator("[data-macro='1']")).toContainText("Filter 1 Freq");
+  await expect(undo).toHaveAttribute("title", /Undo Add Macro 1 → Filter 1 Freq/);
+
+  // Its amount turns live, Serum's own control, and that's a step of its own.
+  const amount = route.getByRole("slider", { name: "Macro 1 → Filter 1 Freq amount" });
+  await amount.focus();
+  await page.keyboard.press("ArrowUp");
+  await expect.poll(() => engineValue("6000000")).toBeGreaterThan(0.75);
+  await expect(undo).toHaveAttribute("title", /Undo Macro 1 → Filter 1 Freq amount/);
+  await undo.click();
+  await expect.poll(() => engineValue("6000000")).toBe(0.75);
+  await expect(redo).toHaveAttribute("title", /Redo Macro 1 → Filter 1 Freq amount/);
+
+  // Bipolar, a new destination: reloads, each a step.
+  await route.getByRole("button", { name: "±" }).click();
+  await expect(route.getByRole("button", { name: "±" })).toHaveAttribute("aria-pressed", "true");
+  await route.getByRole("button", { name: "Filter 1 Freq", exact: true }).click();
+  await page.getByRole("textbox", { name: "Find: Destination" }).fill("a wt pos");
+  await page.getByRole("listbox", { name: "Destination" }).getByRole("option", { name: "A WT Pos", exact: true }).click();
+  await expect(route).toContainText("A WT Pos");
+  await expect(route.getByRole("button", { name: "±" })).toHaveAttribute("aria-pressed", "true");
+
+  // Removed, and back with ⌘Z while the player is in front; ⇧⌘Z takes it away again.
+  await route.getByRole("button", { name: "Remove Macro 1 → A WT Pos" }).click();
+  await expect(modulation).toContainText("Nothing is modulated");
+  await player.getByTestId("serum-preset-name").click();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(route).toContainText("A WT Pos");
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(modulation).toContainText("Nothing is modulated");
+  await undo.click();
+  await expect(route).toContainText("A WT Pos");
+
+  // The envelopes and LFOs are hidden until asked for, and remembered.
+  await expect(player.getByTestId("serum-envelopes")).toHaveCount(0);
+  await player.getByRole("button", { name: "Envelopes and LFOs" }).click();
+  const envelopes = player.getByTestId("serum-envelopes");
+  await expect(envelopes.getByTestId("serum-env-1")).toHaveAttribute("data-used", "true");
+  await expect(envelopes.getByTestId("serum-lfo-1")).toHaveAttribute("data-used", "false");
+  expect(await page.evaluate(() => localStorage.getItem("vaudio.music.serum.envelopesShown"))).toBe("1");
+
+  // Env 1's attack, dragged on its shape: live, one step.
+  const attack = envelopes.getByTestId("serum-env-1").getByRole("slider", { name: "Env 1 attack" });
+  await attack.scrollIntoViewIfNeeded();
+  const box = (await attack.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 40, box.y + box.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => engineValue("3000000")).toBeGreaterThan(0.2);
+  await expect(undo).toHaveAttribute("title", /Undo Env 1 attack/);
+
+  // An LFO routed opens; its shape takes a point by a double-click, and its mode is a reload.
+  await addRoute("LFO 1", "A Level");
+  const lfo = envelopes.getByTestId("serum-lfo-1");
+  await expect(lfo).toHaveAttribute("data-used", "true");
+  const shape = lfo.getByRole("img", { name: "LFO 1's shape" });
+  await expect(shape).toHaveAttribute("data-points", "[[0,1],[0.5,0],[1,1]]");
+  await shape.scrollIntoViewIfNeeded();
+  const area = (await shape.boundingBox())!;
+  await page.mouse.dblclick(area.x + area.width * 0.25, area.y + area.height * 0.5);
+  await expect.poll(async () => JSON.parse((await shape.getAttribute("data-points"))!).length).toBe(4);
+  await lfo.getByRole("combobox", { name: "LFO 1 mode" }).click();
+  await page.getByRole("option", { name: "Free", exact: true }).click();
+  await expect(lfo.getByRole("combobox", { name: "LFO 1 mode" })).toHaveText("Free");
+  await expect(undo).toHaveAttribute("title", /Undo LFO 1: free/);
 });
 
 test("a plugin channel's settings are FL's wrapper: its knobs, the plugin, its programs and the user's presets for it", async ({ page }) => {

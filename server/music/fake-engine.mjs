@@ -48,17 +48,48 @@ const PARAMETERS = {
   // Serum 2's macros, by Serum's own parameter ids.
   "VST3-Serum 2-3": Array.from({ length: 8 }, (_, i) => ({ id: String(7_000_000 + i * 1000), name: `Macro ${i + 1}` })),
 };
+/**
+ * Serum 2's other live controls (envelopes 3xxxxxx, LFOs 4xxxxxx, mod amounts 6xxxxxx), by Serum's ids: the Serum
+ * player sets them. Listed once set (the stand-in doesn't know where a state puts them: the player reads that).
+ */
+const isSerumControl = (plugin, param) => plugin.id === "VST3-Serum 2-3" && /^[346]\d{6}$/.test(param);
 /** The plugin of a song's channel or effect, by its id. */
 const pluginOf = (owner, id) =>
   owner === "channel" ? song?.channels.find((c) => c.id === id && c.plugin)?.plugin : (song?.tracks ?? []).flatMap((t) => t.effects ?? []).find((e) => e.id === id)?.plugin;
 /** Parameters set from the app (`setParameter`): by owner id, then parameter id. */
 const parameterValues = new Map();
-const parameterList = (plugin, ownerId) =>
-  (PARAMETERS[plugin.id] ?? []).map((entry, index) => {
+const parameterList = (plugin, ownerId) => {
+  const listed = (PARAMETERS[plugin.id] ?? []).map((entry, index) => {
     const { id: param, name } = typeof entry === "string" ? { id: entry.toLowerCase(), name: entry } : entry;
     const value = parameterValues.get(ownerId)?.get(param) ?? 0.5;
     return { index, id: param, name, value, text: `${Math.round(value * 100)}%` };
   });
+  const set = [...(parameterValues.get(ownerId) ?? [])].filter(([param]) => isSerumControl(plugin, param));
+  return [...listed, ...set.map(([param, value], i) => ({ index: listed.length + i, id: param, name: `Control ${param}`, value, text: "" }))];
+};
+
+/** JUCE's `MemoryBlock::toBase64Encoding` (`server/music/serum/plugin-state.ts`), for a stand-in Serum state. */
+function memoryBlock(bytes) {
+  const alphabet = ".ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+";
+  let text = `${bytes.length}.`;
+  for (let i = 0; i < bytes.length * 8; i += 6) {
+    let v = 0;
+    for (let b = 0; b < 6; b++) if (i + b < bytes.length * 8 && (bytes[(i + b) >> 3] >> ((i + b) & 7)) & 1) v |= 1 << b;
+    text += alphabet[v];
+  }
+  return text;
+}
+
+/**
+ * A Serum 2 state with a preset's settings in it, as Serum keeps one after a `.SerumPreset` is dropped on it: the
+ * preset's own container as the processor's and the controller's (`VC2!`, JUCE's XML). Enough for the player to read.
+ */
+function standInSerumState(preset) {
+  const xml = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>\n<VST3PluginState><IComponent>${memoryBlock(preset)}</IComponent><IEditController>${memoryBlock(preset)}</IEditController></VST3PluginState>`);
+  const length = Buffer.alloc(4);
+  length.writeUInt32LE(xml.length);
+  return Buffer.concat([Buffer.from("VC2!", "latin1"), length, xml, Buffer.from([0])]);
+}
 
 /** Each fake plugin's own programs (the synth has some; the delay, one: none to choose). */
 const PROGRAMS = { "VST3-Fake Synth-1": ["Init", "Bass", "Lead", "Pad"] };
@@ -691,14 +722,23 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   }
   if (cmd === "setParameter") {
     const plugin = pluginOf(params.owner, params.ownerId);
-    if (!plugin || !parameterList(plugin, params.ownerId).some((p) => p.id === params.param)) return fail(`The plugin has no parameter "${params.param}".`);
+    if (!plugin || !(parameterList(plugin, params.ownerId).some((p) => p.id === params.param) || isSerumControl(plugin, params.param)))
+      return fail(`The plugin has no parameter "${params.param}".`);
     if (!parameterValues.has(params.ownerId)) parameterValues.set(params.ownerId, new Map());
     parameterValues.get(params.ownerId).set(params.param, params.value);
     return send({ id, ok: true, result: {} });
   }
   // A plugin channel's new state, or files dropped on its window (the engine fades it out and in around it).
+  // Its settings file becomes the state given, or a dropped Serum 2 preset's (a Serum 1 preset leaves it be).
   if (cmd === "setState" || (cmd === "dropFiles" && params.channel)) {
-    if (!pluginOf("channel", params.channel)) return fail("That plugin isn't loaded (yet).");
+    const plugin = pluginOf("channel", params.channel);
+    if (!plugin) return fail("That plugin isn't loaded (yet).");
+    const preset = cmd === "dropFiles" ? params.files.find((f) => f.endsWith(".SerumPreset")) : null;
+    const state = cmd === "setState" ? fs.readFileSync(params.file) : preset && plugin.id === "VST3-Serum 2-3" ? standInSerumState(fs.readFileSync(preset)) : null;
+    if (state && plugin.state) {
+      fs.mkdirSync(path.dirname(plugin.state), { recursive: true });
+      fs.writeFileSync(plugin.state, state);
+    }
     return send({ id, ok: true, result: cmd === "dropFiles" ? { view: "FakeView", performed: true } : null });
   }
   // A parameter touched in a plugin's window, or its Automate button pressed, as if by hand (tests).

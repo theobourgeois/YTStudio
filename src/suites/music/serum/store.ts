@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { errorMessage } from "@shared/errors";
 import { type SerumPresetEntry, type SerumSound, stepSerumPreset } from "@shared/music/serum-presets";
+import { type SerumSoundEdit, withControl } from "@shared/music/serum-sound";
 import { musicApi } from "../api";
 import { useMusic } from "../store";
 import { serumWindow, useMusicWindows } from "../ui";
@@ -12,10 +13,14 @@ export interface SerumChannel {
   path: string | null;
   /** A preset being loaded (its path), while it is. */
   loading: string | null;
+  /** An edit, undo or redo Serum is loading, while it is. */
+  busy: boolean;
   error: string | null;
+  /** The destinations a route can have in its sound, once asked (the add and change pickers). */
+  destinations: string[] | null;
 }
 
-const EMPTY: SerumChannel = { sound: null, path: null, loading: null, error: null };
+const EMPTY: SerumChannel = { sound: null, path: null, loading: null, busy: false, error: null, destinations: null };
 
 interface SerumUi {
   /** The Serum channels whose players are open. */
@@ -45,13 +50,26 @@ interface SerumUi {
   rate: (entry: SerumPresetEntry, rating: number) => Promise<void>;
   /** A macro turned (its control's value, 0 to 1); a drag says when it begins and ends. */
   setMacro: (channelId: string, param: string, value: number, gesture?: "begin" | "end") => void;
+  /**
+   * One of Serum's live controls moved (a macro, a mod amount, an envelope's or LFO's), 0 to 1: set as it moves, an
+   * undo step (`label`) when its drag ends. Without a gesture it's set outright: a step of its own.
+   */
+  setControl: (channelId: string, param: string, value: number, gesture: "begin" | "drag" | "end" | "set", label: string) => void;
+  /** Several of them moved by one drag (an envelope's point: its decay and sustain): one undo step. */
+  setControls: (channelId: string, values: Record<string, number>, gesture: "begin" | "drag" | "end" | "set", label: string) => void;
+  /** Changes Serum loads as a new state (`SerumSoundEdit`): one undo step. Rejects with the server's reason. */
+  edit: (channelId: string, edits: SerumSoundEdit[], label?: string) => Promise<void>;
+  undo: (channelId: string) => Promise<void>;
+  redo: (channelId: string) => Promise<void>;
+  /** Ask which destinations a route of the channel's sound can have (once a preset is loaded). */
+  loadDestinations: (channelId: string) => Promise<void>;
 }
 
 const projectId = () => useMusic.getState().projectId;
 
-/** Setting a macro while a drag moves it: one request at a time, the latest value next (a drag sends dozens a second). */
+/** Setting a control while a drag moves it: one request at a time, the latest value next (a drag sends dozens a second). */
 const sending = new Map<string, { value: number; gesture?: "begin" | "end" } | null>();
-function sendMacro(channelId: string, param: string, value: number, gesture?: "begin" | "end") {
+function sendControl(channelId: string, param: string, value: number, gesture?: "begin" | "end") {
   const key = `${channelId}\n${param}`;
   if (sending.has(key) && !gesture) {
     sending.set(key, { value });
@@ -64,13 +82,42 @@ function sendMacro(channelId: string, param: string, value: number, gesture?: "b
     .finally(() => {
       const next = sending.get(key);
       sending.delete(key);
-      if (next) sendMacro(channelId, param, next.value, next.gesture);
+      if (next) sendControl(channelId, param, next.value, next.gesture);
     });
+}
+
+/** Where each control being dragged started (channel and parameter), for its undo step. */
+const dragStarts = new Map<string, number>();
+
+/** Where a control of the channel's sound is now, as the player shows it. */
+function controlValue(sound: SerumSound | null | undefined, param: string): number | undefined {
+  if (!sound) return undefined;
+  const all = [
+    ...sound.macros.map((m) => ({ param: m.param, value: m.value })),
+    ...(sound.modulation ?? []).map((r) => r.amount),
+    ...sound.envelopes.flatMap((e) => Object.values(e.controls)),
+    ...sound.lfos.flatMap((l) => Object.values(l.controls)),
+  ];
+  return all.find((c) => c.param === param)?.value;
 }
 
 export const useSerumUi = create<SerumUi>((set, get) => {
   const patch = (channelId: string, change: Partial<SerumChannel>) =>
     set((s) => ({ channels: { ...s.channels, [channelId]: { ...(s.channels[channelId] ?? EMPTY), ...change } } }));
+  async function historyStep(channelId: string, redo: boolean) {
+    const project = projectId();
+    const now = get().channels[channelId];
+    if (!project || now?.busy || !(redo ? now?.sound?.history.redo : now?.sound?.history.undo)) return;
+    patch(channelId, { busy: true, error: null });
+    try {
+      const sound = await musicApi.undoSerum(project, channelId, redo);
+      // An undone load puts back the preset before it: the file it came from if Serum says, else the one listed by its name.
+      const named = get().presets?.find((p) => p.path === now.path)?.name === sound.preset?.name;
+      patch(channelId, { sound, busy: false, path: sound.preset?.path ?? (named ? now.path : null), destinations: null });
+    } catch (err) {
+      patch(channelId, { busy: false, error: errorMessage(err) });
+    }
+  }
   return {
     openIds: [],
     presets: null,
@@ -120,7 +167,7 @@ export const useSerumUi = create<SerumUi>((set, get) => {
         const sound = await musicApi.loadSerumPreset(project, channelId, entry.path);
         // Another preset asked for meanwhile (arrows held): that one's answer is the one kept.
         if (get().channels[channelId]?.loading !== entry.path) return;
-        patch(channelId, { sound, path: entry.path, loading: null });
+        patch(channelId, { sound, path: entry.path, loading: null, destinations: null });
       } catch (err) {
         if (get().channels[channelId]?.loading === entry.path) patch(channelId, { loading: null, error: errorMessage(err) });
       }
@@ -148,12 +195,63 @@ export const useSerumUi = create<SerumUi>((set, get) => {
       }
     },
     setMacro(channelId, param, value, gesture) {
-      const now = get().channels[channelId];
-      if (now?.sound)
-        patch(channelId, {
-          sound: { ...now.sound, macros: now.sound.macros.map((m) => (m.param === param ? { ...m, value, text: `${Math.round(value * 100)}%` } : m)) },
-        });
-      sendMacro(channelId, param, value, gesture);
+      const name = get().channels[channelId]?.sound?.macros.find((m) => m.param === param)?.name ?? "a macro";
+      get().setControl(channelId, param, value, gesture ?? "drag", `Turn ${name}`);
+    },
+    setControl(channelId, param, value, gesture, label) {
+      get().setControls(channelId, { [param]: value }, gesture, label);
+    },
+    setControls(channelId, values, gesture, label) {
+      const changes: { param: string; before: number; after: number }[] = [];
+      for (const [param, value] of Object.entries(values)) {
+        const key = `${channelId}\n${param}`;
+        const now = get().channels[channelId];
+        if (gesture === "begin" || gesture === "set") dragStarts.set(key, controlValue(now?.sound, param) ?? value);
+        if (now?.sound) patch(channelId, { sound: withControl(now.sound, param, value) });
+        // Set outright, it's touched and let go at once, as the macros' knobs always did (automation recording sees it).
+        if (gesture === "set") sendControl(channelId, param, value, "begin");
+        sendControl(channelId, param, value, gesture === "begin" ? "begin" : gesture === "drag" ? undefined : "end");
+        if (gesture !== "end" && gesture !== "set") continue;
+        const before = dragStarts.get(key);
+        dragStarts.delete(key);
+        if (before !== undefined) changes.push({ param, before, after: value });
+      }
+      const project = projectId();
+      if (!project || !changes.some((c) => c.before !== c.after)) return;
+      void musicApi
+        .serumStep(project, channelId, changes, label)
+        .then((history) => {
+          const sound = get().channels[channelId]?.sound;
+          if (sound) patch(channelId, { sound: { ...sound, history } });
+        })
+        .catch(() => {});
+    },
+    async edit(channelId, edits, label) {
+      const project = projectId();
+      if (!project) return;
+      patch(channelId, { busy: true, error: null });
+      try {
+        const sound = await musicApi.editSerumSound(project, channelId, edits, label);
+        patch(channelId, { sound, busy: false });
+      } catch (err) {
+        patch(channelId, { busy: false, error: errorMessage(err) });
+        throw err;
+      }
+    },
+    async undo(channelId) {
+      await historyStep(channelId, false);
+    },
+    async redo(channelId) {
+      await historyStep(channelId, true);
+    },
+    async loadDestinations(channelId) {
+      const project = projectId();
+      if (!project) return;
+      try {
+        patch(channelId, { destinations: await musicApi.serumDestinations(project, channelId) });
+      } catch {
+        // No sound yet: the picker says so.
+      }
     },
   };
 });

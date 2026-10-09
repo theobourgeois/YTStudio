@@ -147,6 +147,27 @@ function presetController(template: Uint8Array, settings: CborMap, links: FxLink
   return writeXfer(meta, encodeCbor(controller));
 }
 
+/** The effect knobs a state's controller has linked to the host's slots (`presetAsState` writes them; a reload must keep them). */
+export function fxLinksOf(state: Uint8Array): FxLinks {
+  const { controller } = readPluginState(state);
+  if (!controller) return {};
+  const settings = decodeCbor(readXfer(controller).settings);
+  if (!isPlainMap(settings)) return {};
+  const links: FxLinks = {};
+  for (const rack of [0, 1, 2] as const) {
+    const proxy = isPlainMap(settings[`FXRack${rack}`]) ? (settings[`FXRack${rack}`] as CborMap).proxyParams : undefined;
+    if (!isPlainMap(proxy)) continue;
+    const slots: (FxLink | null)[] = Array.from({ length: FX_SLOTS }, () => null);
+    for (const [slot, link] of Object.entries(proxy)) {
+      const n = Number(slot);
+      if (!Number.isInteger(n) || n < 0 || n >= FX_SLOTS || !isPlainMap(link)) continue;
+      if (typeof link.fxID === "number" && typeof link.paramIndex === "number") slots[n] = { fxID: link.fxID, paramIndex: link.paramIndex };
+    }
+    if (slots.some(Boolean)) links[rack] = slots;
+  }
+  return links;
+}
+
 /** The processor's settings (CBOR) in a Serum 2 state. */
 export function stateSettings(state: Uint8Array): Uint8Array {
   return readXfer(readPluginState(state).component).settings;

@@ -455,9 +455,12 @@ function runKey(action: MusicKeyAction) {
       return useTransport.getState().toggle();
     }
     case "undo":
-      return useMusic.getState().undo();
-    case "redo":
-      return useMusic.getState().redo();
+    case "redo": {
+      // A Serum player in front undoes its own steps (Serum's sound isn't the song's: `docs/serum/player.md` §5, Q1).
+      const front = frontWindow();
+      if (front?.startsWith("serum:")) return void useSerumUi.getState()[action.type](front.slice("serum:".length));
+      return action.type === "undo" ? useMusic.getState().undo() : useMusic.getState().redo();
+    }
     case "exportWav":
       return void useSongExport.getState().begin("wav");
     case "exportMp3":

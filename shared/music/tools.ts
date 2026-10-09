@@ -727,7 +727,10 @@ export const MUSIC_TOOLS = [
     name: "get_serum_sound",
     title: "What a Serum channel has on",
     kind: "look",
-    description: "The preset a Serum 2 channel has on (as Serum says), and its eight macros: their names and where they are (0 to 100%).",
+    description:
+      "The preset a Serum 2 channel has on (as Serum says), its macros (names, where they are 0 to 100%, what each drives), its mod matrix (each route: " +
+      "slot, source, aux, destination, amount, bipolar, bypassed), its envelopes and LFOs (Env 1 shapes every note; the others and the LFOs only matter " +
+      "when routed), whether it was edited since loading, and what undo_serum_sound would undo. edit_serum_sound changes it.",
     inputSchema: obj({ channel: str("A Serum 2 channel: its id or name (get_song lists them).") }, ["channel"]),
   }),
   tool({
@@ -736,7 +739,7 @@ export const MUSIC_TOOLS = [
     kind: "action",
     description:
       "Load a preset of Serum's library (search_serum_presets finds them) onto a Serum 2 channel, as Serum's own browser loads it (a Serum 1 preset " +
-      "is converted by Serum). It replaces the channel's sound; notes held go on with the new one. Not an undo step yet. Answers with its macros.",
+      "is converted by Serum). It replaces the channel's sound; notes held go on with the new one. An undo step of the Serum player's (undo_serum_sound). Answers with its sound.",
     inputSchema: obj(
       {
         channel: str("A Serum 2 channel: its id or name (get_song lists them)."),
@@ -752,7 +755,7 @@ export const MUSIC_TOOLS = [
     kind: "action",
     description:
       "Set macros of the preset a Serum 2 channel has on (the controls its maker gave it: get_serum_sound lists them), live: what's playing changes " +
-      "as it plays. Each `macro` is its number (1 to 8) or its name; `value` is 0 to 100 (%).",
+      "as it plays. Each `macro` is its number (1 to 8) or its name; `value` is 0 to 100 (%). One undo step of the Serum player's.",
     inputSchema: obj(
       {
         channel: str("A Serum 2 channel: its id or name."),
@@ -760,6 +763,75 @@ export const MUSIC_TOOLS = [
       },
       ["channel", "macros"],
     ),
+  }),
+  tool({
+    name: "edit_serum_sound",
+    title: "Edit a Serum channel's sound",
+    kind: "action",
+    description:
+      "Change the sound a Serum 2 channel has on (get_serum_sound shows it): its mod matrix, envelopes and LFOs, as the Serum player does. All the edits " +
+      "are applied at once as one undo step: Serum loads the new state, notes held fade out and back in. Each edit has a `kind`:\n" +
+      '- "route": add a route (give `source` and `to`; it takes the first free slot, or `slot`; `amount` defaults to 50) or change one (give its `slot` ' +
+      "and only what changes). `source`/`aux`: Mod Wheel, Env 1–4, LFO 1–10, Velo, Note#, Aftertouch, Macro 1–8, Pitch Bend, NoteOn Rand1, LFO 1 Y… " +
+      '(`aux: null` removes the aux). `to`: a control\'s name, e.g. "Filter 1 Freq", "Filter 1 Res", "A WT Pos", "A Level", "B Fine", "Env 2 Decay", ' +
+      '"LFO 1 Rate", "Macro 3", or an effect\'s parameter by rack and place, "Main FX 2 Wet". `amount` −100 to 100 (% of the destination\'s range); ' +
+      "`bipolar`, `bypass` true or false.\n" +
+      '- "removeRoute": `slot`.\n' +
+      '- "envelope": `envelope` 1–4 and any of attack, hold, decay, release (ms, 0–32000), sustain (% of the knob, 0–100; its level is the square), ' +
+      "attackCurve, decayCurve, releaseCurve (0–100; 50 straight).\n" +
+      '- "lfo": `lfo` 1–10 and any of rate (a division "1/4", "1/8.", "1/16 t", "bar", "2 bar" when synced, else Hz), sync, mode ("retrigger", ' +
+      '"free" or "envelope": once per note), smooth (0–100), rise and delay (0–4: seconds free, a fraction of bars synced), phase (0–360°), shape ' +
+      "(points [[x, y], [x, y, curve]…], each 0–1, x from 0 rising to 1, y from the top: 0 is full; end at the start's height; null: Serum's triangle).",
+    inputSchema: obj(
+      {
+        channel: str("A Serum 2 channel: its id or name."),
+        edits: arr(
+          obj(
+            {
+              kind: oneOf(["route", "removeRoute", "envelope", "lfo"], "What to change."),
+              slot: int("A route's slot, 1 to 64 (get_serum_sound lists them).", { minimum: 1, maximum: 64 }),
+              source: str('A route\'s source ("LFO 1", "Macro 2", "Env 2", "Velo").'),
+              aux: str('A route\'s aux source, scaling its amount; null takes it away.', { type: ["string", "null"] }),
+              to: str('A route\'s destination ("Filter 1 Freq", "A WT Pos", "Main FX 1 Wet").'),
+              amount: num("A route's amount, −100 to 100 (%).", { minimum: -100, maximum: 100 }),
+              bipolar: bool("A route's source swings both ways."),
+              bypass: bool("A route bypassed (kept, doing nothing)."),
+              envelope: int("Which envelope, 1 to 4.", { minimum: 1, maximum: 4 }),
+              lfo: int("Which LFO, 1 to 10.", { minimum: 1, maximum: 10 }),
+              attack: num("ms."),
+              hold: num("ms."),
+              decay: num("ms."),
+              sustain: num("% of the knob, 0 to 100."),
+              release: num("ms."),
+              attackCurve: num("0 to 100."),
+              decayCurve: num("0 to 100."),
+              releaseCurve: num("0 to 100."),
+              rate: str('A division ("1/4") when synced, or Hz as a number.', { type: ["string", "number"] }),
+              sync: bool("Synced to the tempo."),
+              mode: oneOf(["retrigger", "free", "envelope"], "How the LFO runs."),
+              smooth: num("0 to 100."),
+              rise: num("0 to 4."),
+              delay: num("0 to 4."),
+              phase: num("Degrees, 0 to 360."),
+              shape: arr(arr(num("0 to 1."), "[x, y] or [x, y, curve]."), "The LFO's points, [[x, y] or [x, y, curve], …]; null for Serum's own.", { type: ["array", "null"] }),
+            },
+            ["kind"],
+          ),
+          "The changes, applied together.",
+          { minItems: 1 },
+        ),
+      },
+      ["channel", "edits"],
+    ),
+  }),
+  tool({
+    name: "undo_serum_sound",
+    title: "Undo in a Serum channel's player",
+    kind: "action",
+    description:
+      "Undo the Serum player's last step on a Serum 2 channel (a preset loaded, macros turned, edit_serum_sound's changes, the user's own drags in the " +
+      "player), or redo the last one undone. get_serum_sound says what each would do.",
+    inputSchema: obj({ channel: str("A Serum 2 channel: its id or name."), redo: bool("Redo instead of undo.") }, ["channel"]),
   }),
   tool({
     name: "rate_serum_preset",

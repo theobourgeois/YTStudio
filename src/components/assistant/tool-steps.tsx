@@ -39,6 +39,7 @@ import {
   PiWarningCircle,
   PiWaveform,
   PiStar,
+  PiArrowUUpLeft,
 } from "react-icons/pi";
 import { type ToolPart, describeToolCall } from "@shared/assistant";
 import { toolSpec } from "@shared/suite-tools";
@@ -63,6 +64,8 @@ const ICONS: Record<string, IconType> = {
   get_serum_sound: PiEye,
   load_serum_preset: PiDownloadSimple,
   set_serum_macros: PiSlidersHorizontal,
+  edit_serum_sound: PiSlidersHorizontal,
+  undo_serum_sound: PiArrowUUpLeft,
   rate_serum_preset: PiStar,
   capture_audio_snapshot: PiWaveform,
   get_vocal_mixing_workflow: PiWaveform,

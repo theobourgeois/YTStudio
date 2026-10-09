@@ -4,6 +4,7 @@
  * files (`server/music/serum/library.ts`); the tab and the assistant search the same list the same way.
  */
 import { naturalCompare, withinEdits, wordsOf } from "./browser.ts";
+import type { SerumEnvelope, SerumHistory, SerumLfo, SerumModRoute } from "./serum-sound.ts";
 
 /** A preset file in Serum's library: a Serum 2 `.SerumPreset` or a Serum 1 `.fxp` (Serum 2 converts it as it loads it). */
 export interface SerumPresetEntry {
@@ -260,11 +261,21 @@ export interface SerumMacro {
   text: string;
 }
 
-/** What the Serum on a channel has on (`GET /api/music/serum/sound`): its preset as Serum says, and its macros. */
+/**
+ * What the Serum on a channel has on (`GET /api/music/serum/sound`): its preset as Serum says, its macros, and its
+ * mod matrix, envelopes and LFOs (`serum-sound.ts`).
+ */
 export interface SerumSound {
   /** Null before Serum has said (a channel just added). `path`: the file it was loaded from, when Serum knows it. */
   preset: { name: string; path: string | null } | null;
   macros: SerumMacro[];
+  /** The mod matrix's routes; null while Serum's state can't be read (none saved yet). */
+  modulation: SerumModRoute[] | null;
+  envelopes: SerumEnvelope[];
+  lfos: SerumLfo[];
+  /** Changed in the player since the preset was loaded. */
+  edited: boolean;
+  history: SerumHistory;
 }
 
 /** `GET /api/music/serum/presets`: the library, or why there's none. */

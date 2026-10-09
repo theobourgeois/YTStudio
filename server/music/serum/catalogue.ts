@@ -14,6 +14,7 @@
  * Generated tables are below the hand-written part; regenerate them with the probes described in
  * docs/serum/preset-format.md rather than by hand.
  */
+import { SERUM_MOD_SOURCES } from "../../../shared/music/serum-sound.ts";
 
 /** An effect as the spec names it, its module in the file and the `type` number Serum stores beside it. */
 export const FX_TYPES = [
@@ -40,42 +41,9 @@ export type FxRack = (typeof FX_RACKS)[number];
 
 /**
  * Modulation sources by their id (a mod slot's `source: [main, aux]`; 0 is none). From the presets studied:
- * Serum names them so in its matrix.
+ * Serum names them so in its matrix. The player's too, so they're in `shared/music/serum-sound.ts`.
  */
-export const MOD_SOURCES = [
-  "None",
-  "Mod Wheel",
-  ...[1, 2, 3, 4].map((n) => `Env ${n}`),
-  ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => `LFO ${n}`),
-  "Velo",
-  "Note#",
-  "Aftertouch",
-  "Poly AT",
-  "Noise Osc",
-  "NoteOn Rand1",
-  "NoteOn Rand2",
-  "NoteOn Alt",
-  "NoteOn Alt2",
-  ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `Macro ${n}`),
-  "Pitch Bend",
-  "Expr X",
-  "Expr Y",
-  "Expr Z",
-  "Release Velo",
-  "Fixed",
-  ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => `LFO ${n} Y`),
-  "Osc A",
-  "Osc B",
-  "Osc C",
-  "Sub Osc",
-  "Filter 1",
-  "Filter 2",
-  "Active Voices",
-  "Voice Mod 1",
-  "Voice Mod 2",
-  "Voice Index",
-  "NoteOn Rand (Discrete)",
-] as const;
+export const MOD_SOURCES = SERUM_MOD_SOURCES;
 
 /** An oscillator's type (`kParamType`; the wavetable is the default, never stored) and the sub-module it uses. */
 export const OSCILLATOR_TYPES = {

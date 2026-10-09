@@ -28,6 +28,7 @@ import type { MusicToolName } from "@shared/music/tools";
 import { KIT_SOUNDS } from "@shared/music/tools";
 import type { MusicProject } from "@shared/music/types";
 import { FAVOURITE_RATING, type SerumCategory, type SerumPresetEntry, type SerumSound, findSerumPresets, isSerum2 } from "@shared/music/serum-presets";
+import { envelopeText, lfoText, modAmountOf, SERUM_ENVELOPE_FIELDS, SERUM_LFO_FIELDS, type SerumSoundEdit, sourceDrives } from "@shared/music/serum-sound";
 import { type ToolResult, textResult } from "@shared/tool-spec";
 import type { AspectRatio, MediaAsset, SignalRole } from "@shared/types";
 import { api } from "@/lib/api";
@@ -216,12 +217,41 @@ async function findSerumPreset(name: unknown, folder: unknown): Promise<SerumPre
 const serumLine = (p: SerumPresetEntry) =>
   `- ${p.name} (${p.folder || "top"}) · ${p.category}${p.author ? ` · ${p.author}` : ""}${p.rating ? ` · ${"★".repeat(p.rating)}` : ""}${p.kind === "serum1" ? " · S1" : ""}`;
 
-/** What a Serum channel has on, for the model. */
-const describeSerumSound = (channelName: string, sound: SerumSound) =>
-  [
-    `${channelName} has ${sound.preset?.name ? `"${sound.preset.name}"` : "no preset Serum names"} on.`,
-    sound.macros.length ? `Its macros: ${sound.macros.map((m) => `${m.index + 1} "${m.name}" ${Math.round(m.value * 100)}%`).join(", ")}.` : "Serum hasn't said what its macros are yet.",
-  ].join(" ");
+/** What a Serum channel has on, for the model: its preset, macros, mod matrix, envelopes and LFOs, and the player's history. */
+function describeSerumSound(channelName: string, sound: SerumSound): string {
+  const routes = sound.modulation ?? [];
+  const drives = (source: string) => {
+    const to = [...sourceDrives(routes, source), ...sourceDrives(routes, `${source} Y`)];
+    return to.length ? ` → ${to.join(", ")}` : "";
+  };
+  const lines = [
+    `${channelName} has ${sound.preset?.name ? `"${sound.preset.name}"` : "no preset Serum names"} on${sound.edited ? " (edited since it was loaded)" : ""}.`,
+    sound.macros.length
+      ? `Its macros: ${sound.macros.map((m) => `${m.index + 1} "${m.name}" ${Math.round(m.value * 100)}%${drives(`Macro ${m.index + 1}`)}`).join("; ")}.`
+      : "Serum hasn't said what its macros are yet.",
+  ];
+  if (sound.modulation) {
+    lines.push(
+      routes.length
+        ? `Its mod matrix:\n${routes
+            .map((r) => `- slot ${r.slot}: ${r.source}${r.aux ? ` (aux ${r.aux})` : ""} → ${r.to}, ${Math.round(modAmountOf(r.amount.value))}%${r.bipolar ? ", bipolar" : ""}${r.bypass ? ", bypassed" : ""}`)
+            .join("\n")}`
+        : "Its mod matrix is empty.",
+    );
+    for (const env of sound.envelopes.filter((e) => e.used))
+      lines.push(`Env ${env.index}${env.index === 1 ? " (every note's level)" : ""}: ${SERUM_ENVELOPE_FIELDS.map((f) => `${f} ${envelopeText(env.index, f, env.controls[f].value)}`).join(", ")}.`);
+    for (const lfo of sound.lfos.filter((l) => l.used)) {
+      const controls = SERUM_LFO_FIELDS.map((f) => `${f} ${lfoText(lfo, f, lfo.controls[f].value) ?? lfo.controls[f].text ?? `${(lfo.controls[f].value * 4).toFixed(2)} of 4`}`);
+      const shape = lfo.type ? `${lfo.type} motion` : lfo.customShape ? `shape ${JSON.stringify(lfo.shape)}` : "Serum's triangle";
+      lines.push(`LFO ${lfo.index}${drives(`LFO ${lfo.index}`)}: ${lfo.sync ? "synced" : "free rate"}, ${lfo.mode}, ${controls.join(", ")}, ${shape}.`);
+    }
+    const idle = [...sound.envelopes.filter((e) => !e.used).map((e) => `Env ${e.index}`), ...sound.lfos.filter((l) => !l.used).map((l) => `LFO ${l.index}`)];
+    if (idle.length) lines.push(`Not routed anywhere: ${idle.join(", ")}.`);
+  }
+  if (sound.history.undo || sound.history.redo)
+    lines.push([sound.history.undo && `undo_serum_sound would undo "${sound.history.undo}"`, sound.history.redo && `redo would redo "${sound.history.redo}"`].filter(Boolean).join("; ") + ".");
+  return lines.join("\n");
+}
 
 function requireOpen(target: Target, what: string) {
   if (!target.open) throw new Error(`${what} only works on the song open in the editor, and this chat's song isn't open. Ask the user to open it.`);
@@ -429,7 +459,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const after = useSerumUi.getState().channels[channel.id];
     if (after?.error) throw new Error(after.error);
     const sound = after?.sound ?? (await musicApi.serumSound(target.projectId, channel.id));
-    return textResult(`Loaded. ${describeSerumSound(channel.name, sound)}`);
+    return textResult(`Loaded.\n${describeSerumSound(channel.name, sound)}`);
   },
   async set_serum_macros(input, ctx) {
     const target = await targetOf(ctx);
@@ -446,9 +476,33 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
       return { macro, value: value / 100 };
     });
     for (const { macro, value } of settings) await musicApi.engine("setParameter", { owner: "channel", ownerId: channel.id, param: macro.param, value });
+    // One step of the player's undo.
+    const label = settings.length === 1 ? `Turn ${settings[0].macro.name}` : "Turn the macros";
+    await musicApi.serumStep(target.projectId, channel.id, settings.map(({ macro, value }) => ({ param: macro.param, before: macro.value, after: value })), label).catch(() => {});
     // Its player, if it's open, shows them where they are now.
     await useSerumUi.getState().refresh(channel.id);
-    return textResult(`Set. ${describeSerumSound(channel.name, await musicApi.serumSound(target.projectId, channel.id))}`);
+    return textResult(`Set.\n${describeSerumSound(channel.name, await musicApi.serumSound(target.projectId, channel.id))}`);
+  },
+  async edit_serum_sound(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "Editing a Serum channel's sound");
+    const channel = serumChannel(target.song, input.channel);
+    if (!Array.isArray(input.edits) || !input.edits.length) throw new Error('"edits" must list the changes, e.g. [{ "kind": "route", "source": "LFO 1", "to": "Filter 1 Freq", "amount": 30 }].');
+    const sound = await musicApi.editSerumSound(target.projectId, channel.id, input.edits as SerumSoundEdit[]);
+    await useSerumUi.getState().refresh(channel.id);
+    return textResult(`Done (one undo step).\n${describeSerumSound(channel.name, sound)}`);
+  },
+  async undo_serum_sound(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "Undoing in a Serum channel's player");
+    const channel = serumChannel(target.song, input.channel);
+    const redo = input.redo === true;
+    const before = await musicApi.serumSound(target.projectId, channel.id);
+    const step = redo ? before.history.redo : before.history.undo;
+    if (!step) throw new Error(`There's nothing to ${redo ? "redo" : "undo"} in ${channel.name}'s Serum player.`);
+    const sound = await musicApi.undoSerum(target.projectId, channel.id, redo);
+    await useSerumUi.getState().refresh(channel.id);
+    return textResult(`${redo ? "Redid" : "Undid"} "${step}".\n${describeSerumSound(channel.name, sound)}`);
   },
   async rate_serum_preset(input) {
     const preset = await findSerumPreset(input.preset, input.folder);

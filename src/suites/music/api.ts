@@ -21,6 +21,7 @@ import type {
   SetSongResponse,
 } from "@shared/music/engine";
 import type { SerumLibraryResponse, SerumSound } from "@shared/music/serum-presets";
+import type { SerumHistory, SerumSoundEdit } from "@shared/music/serum-sound";
 import type {
   AddBrowserRootRequest,
   BrowserItem,
@@ -75,9 +76,21 @@ export const musicApi = {
   /** A preset of the library loaded onto a song's Serum channel, as Serum's own browser loads it: what it has on then. */
   loadSerumPreset: (projectId: string, channel: string, path: string) =>
     request<SerumSound>("/api/music/serum/load", { method: "POST", body: JSON.stringify({ projectId, channel, path }) }),
-  /** What a song's Serum channel has on now: its preset and its macros. */
+  /** What a song's Serum channel has on now: its preset, macros, mod matrix, envelopes and LFOs, and the player's history. */
   serumSound: (projectId: string, channel: string) =>
     request<SerumSound>(`/api/music/serum/sound?projectId=${encodeURIComponent(projectId)}&channel=${encodeURIComponent(channel)}`),
+  /** Changes Serum loads as a new state (routes, an envelope or LFO set outright, an LFO's shape or mode): one undo step. */
+  editSerumSound: (projectId: string, channel: string, edits: SerumSoundEdit[], label?: string) =>
+    request<SerumSound>("/api/music/serum/edit", { method: "POST", body: JSON.stringify({ projectId, channel, edits, label }) }),
+  /** Live controls the player moved (a drag that ended): one undo step. */
+  serumStep: (projectId: string, channel: string, changes: { param: string; before: number; after: number }[], label: string) =>
+    request<SerumHistory>("/api/music/serum/step", { method: "POST", body: JSON.stringify({ projectId, channel, changes, label }) }),
+  /** The Serum player's last step on a channel undone (or redone). */
+  undoSerum: (projectId: string, channel: string, redo = false) =>
+    request<SerumSound>(`/api/music/serum/${redo ? "redo" : "undo"}`, { method: "POST", body: JSON.stringify({ projectId, channel }) }),
+  /** The destinations a route of a channel's Serum can have, by name. */
+  serumDestinations: (projectId: string, channel: string) =>
+    request<string[]>(`/api/music/serum/destinations?projectId=${encodeURIComponent(projectId)}&channel=${encodeURIComponent(channel)}`),
   /** The Browser's folders and favourites (the same in every project). */
   browser: () => request<BrowserState>("/api/browser"),
   addBrowserRoot: (body: AddBrowserRootRequest) => request<BrowserState>("/api/browser/roots", { method: "POST", body: JSON.stringify(body) }),

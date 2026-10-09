@@ -6,8 +6,8 @@ LFOs and effects). Serum 2 itself makes the sound, hosted by our engine with its
 Serum's to the sample, and Serum's updates and new sounds arrive by themselves. The assistant designs and edits
 sounds in it.
 
-This is the plan, written before building, with what was measured on Serum 2.1.5 to make it. Nothing here is
-built yet.
+This is the plan, written before building, with what was measured on Serum 2.1.5 to make it. §4 says what's
+built so far.
 
 ## Contents
 
@@ -376,10 +376,38 @@ New tools in `shared/music/tools.ts`, for parity with the window:
      in `scope-model.ts`, tested). Théo found a first version (ridges, glow, sparks, stars) too much: keep it clean.
      The engine measures the plugin's own sound while the player is open (`channelWatch`, `scopes` on the transport
      events: `docs/claude/music-engine.md`).
-   - **Not yet: undo** (§5, Q1). A load and a macro move aren't undo steps; the player's history of the channel's
-     states comes with step 3, where edits begin.
-3. **Modulation:** the rows, live amounts, adding and removing routes.
-4. **Envelopes and LFOs**, hidden by default.
+3. **Done (2026-10-09): modulation, and the player's undo.**
+   - **Measured first** (`serum-player.integration.test.ts`): `Mod N Amount` is slot N (`ModSlot` N−1) whatever slots
+     are empty, its position (amount / 100 + 1) / 2. Serum's re-save drops the macro names from both the settings and
+     the controller, so a state reloaded as it is shows "Macro 1"…: the player keeps a preset's names beside its state
+     (`plugins/<channel>.serum.json`, with whether it was edited) and writes them back into every state it loads.
+   - **The rows** (`modulation.tsx`): `source (aux) → destination`, grouped by source, Serum's names
+     (`server/music/serum/sound.ts` reads them out of the state as the engine saved it). The amount is a knob, live;
+     bipolar, bypass, another source or destination (a searchable list: `GET /api/music/serum/destinations`, the
+     sound's own effects' parameters included), a route added (it starts at 50%) or removed are reloads:
+     `POST /api/music/serum/edit` writes them onto Serum's settings as they are (`editSerumBody`) and the engine's
+     `swapState` loads them, the names and effect knob links kept (`restate`).
+   - **The macros** say what each drives; one the preset leaves unnamed and unrouted is hidden.
+   - **Undo** (§5, Q1): the server keeps each channel's history (`SerumPlayer`, 40 steps, in memory: a session's).
+     A load and a reload keep the state before; a live drag that ends (a macro, an amount, an envelope's point) keeps
+     where its controls were (`POST /api/music/serum/step`), undone by setting them back. ⌘Z and ⇧⌘Z while the
+     player is in front, and its own buttons. Changes made in Serum's own window aren't steps: undoing a reload past
+     them takes them away too.
+   - **The assistant:** `get_serum_sound` describes the routes, envelopes and LFOs; `edit_serum_sound` (routes,
+     envelopes, LFOs, one step) and `undo_serum_sound`; `load_serum_preset` and `set_serum_macros` are steps.
+4. **Done (2026-10-09): envelopes and LFOs**, behind **Envelopes and LFOs** (folded at first, remembered on this
+   computer: `envelopes.tsx`).
+   - **Measured** on Serum 2.1.5: a time's position is (seconds / 32)^⅕ (0.5 is one second); a sustain's is its knob,
+     its gain the square (Env 1 shown in dB); curves, smooth and phase are linear; rise and delay are 4 × the
+     position (seconds when free, Serum's own divisions when synced, which only Serum's text gives); a rate's position
+     is (Hz / 100)^¼, synced or not (`shared/music/serum-sound.ts`, tested).
+   - **Envelopes 1–4:** the shape drawn, its points dragged live (the decay's point moves decay and sustain at once,
+     one step), the curves as knobs.
+   - **LFOs 1–10:** the shape drawn as Serum draws it (y from the top), points dragged, added by a double-click and
+     taken away by a right-click, each a reload when the drag ends (`shape-model.ts`, tested); mode (Retrigger, Free,
+     Envelope) and Sync are reloads; rate, smooth, rise, delay and phase are knobs, live. Path, Lorenz, Rossler and
+     RandomSH LFOs say so instead of a shape.
+   - **Only what's in use:** an envelope or LFO nothing is routed from is listed folded (Env 1 never is).
 5. **Effects:** the racks and cards, their knobs live through linked slots.
 6. **Saving and the assistant's tools.**
 7. **The Serum 1 library:** every `.fxp` in Serum's folders loads by the drop (§2.3), listed with the rest.
