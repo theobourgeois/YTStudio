@@ -507,6 +507,23 @@ export class AudioEngine {
     return result;
   }
 
+  /**
+   * A plugin channel of the song playing now, if it's this project's: its plugin's settings file (written first, so
+   * it's as the plugin is now). 409 if another song is playing.
+   */
+  async channelStateFile(projectId: string, channel: string): Promise<string> {
+    if (!/^[\w-]{1,64}$/.test(channel)) throw new HttpError(400, '"channel" must be a channel\'s id.');
+    const states = path.join(this.projectDir(projectId), "plugins");
+    if (this.song?.states !== states) throw new HttpError(409, "This song is not loaded in the audio engine.");
+    await this.saveStates();
+    return path.join(states, `${channel}.bin`);
+  }
+
+  /** Whether `projectId` is the song the engine is playing (its plugins are that song's). */
+  isPlaying(projectId: string): boolean {
+    return this.song?.states === path.join(this.projectDir(projectId), "plugins");
+  }
+
   /** Choose a program, or save, load or delete a preset of the user's (`PresetRequest`): answers with the presets after. */
   async preset(body: unknown): Promise<PluginPresets> {
     const input = isObject(body) ? body : {};
