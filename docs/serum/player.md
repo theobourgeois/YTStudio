@@ -54,16 +54,34 @@ These are **not** controls, so changing them needs a reload (§2.2):
 
 - a mod route's source or destination;
 - an LFO's shape or mode;
-- an effect being added, removed or moved;
-- **any effect knob, for now.**
+- an effect being added, removed or moved (which also changes what the effect slots point at).
 
-The 16 effect slots per rack read 0 whatever the rack holds (`fxparams.mts`). Serum's binary says why: "A maximum of
-%d FX parameters may be automated per FX bus." An effect's knob is *assigned* to a slot in Serum's window.
+**Effect knobs become live once linked to a slot.** The 16 effect slots per rack read 0 whatever the rack holds
+(`fxparams.mts`), because a slot means nothing until an effect's knob is linked to it. In Serum's window that's a
+knob's right-click › **Automate** ("A maximum of %d FX parameters may be automated per FX bus").
 
-None of the 1047 `.SerumPreset` files on this Mac stores such an assignment (`scankeys.mts`), so it's kept in the
-plugin state, probably the controller's (Serum's code has `loadFXParamsFromJson` and `unmapFXParameterFromProxy`).
-To find out, Théo assigns one effect knob in Serum's window once, and we compare the state before and after. If we
-can write assignments ourselves, effect knobs become live too (§4, step 0).
+No preset stores a link (none of the 1047 on this Mac: `scankeys.mts`): the plugin state's controller part does.
+Théo clicked Automate once with Serum's window open (`assign.mts`), and the state then held:
+
+```
+controller › FXRack0 › proxyParams: { "0": { "fxID": 0, "paramIndex": 1 } }
+```
+
+That means slot 1 is the rack's first effect (`fxID`, its place in the rack), parameter 1.
+
+**We can write links ourselves** (`proxy.mts`):
+
+- Twelve links written headless into a state's controller made the host's slots read "FX 1: Dist Enable = On",
+  "FX 1: Dist Wet = 50", "FX 1: Dist Drive = 40", "FX 2: Rev Size = 50"…, each with the knob's current value.
+- Serum's re-save keeps them.
+- A parameter's index is its place in the effect's list (the Distortion's: 0 Enable, 1 Wet, 2 Drive, 3 LPHP…).
+
+So the player links the knobs it shows to slots: up to 16 a rack, re-linked whenever a rack changes. Then turning
+them is `setParameter`, live.
+
+Still to check: that a slot set by the host moves the effect's sound, not only its readout. This is step 1's test,
+once `setParameter` exists. And Serum's own Automate on Drive linked parameter 1, which reads Wet: an off-by-one of
+Serum's, or the click landed on Mix.
 
 ### 2.2 Reloading Serum while it plays
 
@@ -229,8 +247,9 @@ The three racks (Main, Bus 1, Bus 2) as tabs, each a row of cards in order:
 - **A card:** the effect's name and mode, a bypass, and its main controls.
 - **Main controls:** a few chosen for each of the 13 effects (Reverb: type, size, decay, wet; Distortion: mode,
   drive, wet…). All of its settings are under the card's expand.
-- **Add, remove, reorder, change a knob:** a reload (§2.2), applied when the drag ends, until effect knobs can be
-  live (§2.1).
+- **Turning a knob:** live, through the slot it's linked to (§2.1). The player links the knobs shown, up to 16 a
+  rack; a knob beyond that reloads when its drag ends.
+- **Add, remove, reorder:** a reload (§2.2), with the links written again.
 - **The look:** Serum's layout, calmer, in our theme tokens.
 
 ### 3.7 How it works
@@ -296,21 +315,20 @@ New tools in `shared/music/tools.ts`, for parity with the window:
 
 ## 4. The steps
 
-0. **Three short spikes.**
+0. **Two short spikes** (a third, where Serum keeps effect knob links, was done on 2026-10-09: §2.1).
    - Can the engine make Serum load an `.fxp` as if it were dropped on its hidden window (§2.3, way 1)?
-   - Where Serum keeps an effect knob's slot assignment: one assignment by Théo in Serum's window, and the states
-     compared (§2.1).
    - A reload while the engine plays live (not offline): does Serum load safely on the message thread, and how long
      does the audio thread wait?
 1. **The engine:**
    - `setParameter`;
    - `setState` with the fade and the held notes played again;
-   - `presetAsState` carries a preset's controller part (names).
+   - `presetAsState` carries a preset's controller part (names, and the effect knobs' links);
+   - test that a slot set by the host moves its effect's sound (§2.1).
 2. **The browser, loading and macros:** the index, search and filters, favourites, arrow keys. This is the part that
    fixes the main pain.
 3. **Modulation:** the rows, live amounts, adding and removing routes.
 4. **Envelopes and LFOs**, hidden by default.
-5. **Effects:** the racks and cards. Live knobs, if step 0 found how.
+5. **Effects:** the racks and cards, their knobs live through linked slots.
 6. **Saving and the assistant's tools.**
 7. **The Serum 1 library:** by step 0's way 1 if it works, else an import session through Serum's window (§2.3,
    way 2).
