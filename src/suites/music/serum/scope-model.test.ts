@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MOST_GAIN, steady, triggered } from "./scope-model";
+import { MOST_GAIN, SPECTRUM_BINS, follow, spectrumHeights, spectrumX, steady, triggered } from "./scope-model";
 
 describe("the Serum player's oscilloscope", () => {
   it("starts the waveform on a rising zero crossing, so a steady note stands still", () => {
@@ -33,5 +33,22 @@ describe("the Serum player's oscilloscope", () => {
     expect(state.gain).toBeCloseTo(1, 2);
     for (let i = 0; i < 300; i++) state = steady(state.shown, state.gain, null, 1 / 60);
     expect(state.gain).toBeCloseTo(1, 2);
+  });
+
+  it("shows the spectrum as heights: flat for silence, up where the sound is", () => {
+    const db = (peakHz: number | null) => Array.from({ length: 480 }, (_, i) => (peakHz && Math.abs(Math.log2((10 * 3000 ** (i / 479)) / peakHz)) < 0.03 ? -6 : -150));
+    expect([...spectrumHeights(db(null))].every((h) => h === 0)).toBe(true);
+    const heights = spectrumHeights(db(1000));
+    expect(heights[Math.round(spectrumX(1000) * (SPECTRUM_BINS - 1))]).toBeGreaterThan(0.85);
+    expect(heights[Math.round(spectrumX(100) * (SPECTRUM_BINS - 1))]).toBe(0);
+  });
+
+  it("follows the spectrum quickly up and slowly down", () => {
+    const now = new Float32Array([0, 1]);
+    follow(now, new Float32Array([1, 0]), 1 / 60);
+    expect(now[0]).toBeGreaterThan(0.5);
+    expect(now[1]).toBeGreaterThan(0.9);
+    for (let i = 0; i < 120; i++) follow(now, null, 1 / 60);
+    expect(now[0]).toBeLessThan(0.01);
   });
 });

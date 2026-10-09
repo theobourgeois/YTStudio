@@ -111,12 +111,12 @@
   --ott-off: #2a2d33;
   --ott-input: #f2f2f2;
   --ott-output: #f5c518;
-  /* The Serum player's display (`src/suites/music/serum/scope-view.tsx`): an oscilloscope, a green trace on a dark
-     screen in every theme. Its canvas reads these: plain colours. */
-  --serum-screen: #0b100d;
-  --serum-grid: #17211b;
-  --serum-axis: #22332a;
-  --serum-trace: #46e08a;
+  /* The Serum player's display (`src/suites/music/serum/scope-view.tsx`): a dark screen in every theme, its trace the
+     theme's accent (--brand). Its canvas reads these: plain colours. */
+  --serum-screen: #0d0f12;
+  --serum-grid: #191c22;
+  --serum-axis: #262a32;
+  --serum-label: #5c6270;
   /*
    * Pro-Q's look (`src/suites/music/pro-q/`): FabFilter's dark display in every theme, as a plugin's
    * window keeps its own. Its canvas reads these, so they're plain colours.
