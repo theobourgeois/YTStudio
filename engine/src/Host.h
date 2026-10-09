@@ -8,6 +8,7 @@
 #pragma once
 
 #include "EditorWindow.h"
+#include "Scope.h"
 
 #include <array>
 #include <functional>
@@ -99,6 +100,13 @@ struct HostedPlugin
      * played at once, and nothing clicks. A plugin channel's only.
      */
     enum class Swap { none, fadingOut, parked, resuming };
+
+    /**
+     * Its sound for the Serum player's display (`ChannelScope`), while a player shows it (`PluginHost::watchScopes`).
+     * Made on the message thread before `watched` is first set, and kept while the plugin is.
+     */
+    std::unique_ptr<ChannelScope> scope;
+    std::atomic<bool> watched { false };
     std::atomic<Swap> swap { Swap::none };
     /** The audio thread's: where its fade is (1: its own level). */
     float swapGain = 1.0f;
@@ -185,6 +193,12 @@ public:
      */
     void completeSwaps (bool untended);
     bool swapping() const;
+
+    // Scopes (`ChannelScope`) --------------------------------------------------------------------------
+    /** The owners whose sound is to be shown (the Serum players open); the rest aren't measured. */
+    void watchScopes (const juce::StringArray& ownerIds);
+    /** `{ <owner>: ChannelScope::describe }` for those watched that sounded since the last call (`always`: all watched). */
+    juce::var scopes (bool always = false);
     /**
      * Files dropped on the plugin's window as if from Finder (`::dropFiles`): its window if it's open, else one
      * made invisible for it (kept a few seconds for the next). Says what the plugin answered. In a swap's action.
@@ -241,6 +255,7 @@ private:
     bool hostKnown = false, hostFloating = true, hostVisible = true;
     juce::Rectangle<int> hostBounds;
     bool exporting = false;
+    juce::StringArray watchedScopes;
     double sampleRate = 48000.0;
     int blockSize = 512;
     /** So a load that finishes after the host has gone does nothing. */

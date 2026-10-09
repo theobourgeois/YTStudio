@@ -92,6 +92,31 @@ const channels = () => {
 const GROSS_BEAT = "vaudio:gross-beat";
 /** The Gross Beats whose HOLD is held. */
 const holding = new Set();
+/** The plugin channels whose sound is shown (`channelWatch`: the Serum players open). */
+let channelsWatched = [];
+/**
+ * A watched channel's sound while the song plays: a chord's harmonics drifting, as a pad would (the Serum player's
+ * display has something to draw; the real engine measures the plugin).
+ */
+const scopes = () => {
+  if (playingSince === null) return {};
+  const t = (Date.now() - playingSince) / 1000;
+  return Object.fromEntries(
+    channelsWatched.map((id) => {
+      const level = (i) => {
+        const hz = 10 * 3000 ** (i / 479);
+        let db = -95;
+        for (const [root, gain] of [[110, 0], [138.6, -4], [164.8, -6]])
+          for (let h = 1; h <= 16; h++) db = Math.max(db, gain - 3.5 * h + 4 * Math.sin(t * 1.3 + h) - 55 * Math.min(1, Math.abs(Math.log2(hz / (root * h))) * 9));
+        return Math.round(db * 10) / 10;
+      };
+      const wave = Array.from({ length: 1024 }, (_, k) => Math.round(1000 * 0.3 * (Math.sin((k / 48000) * 2 * Math.PI * 110 + t * 7) + 0.5 * Math.sin((k / 48000) * 2 * Math.PI * 220))) / 1000);
+      const left = Array.from({ length: 256 }, (_, k) => Math.round(1000 * 0.35 * Math.sin(k * 0.21 + t)) / 1000);
+      const right = Array.from({ length: 256 }, (_, k) => Math.round(1000 * 0.35 * Math.sin(k * 0.23 + t * 1.4)) / 1000);
+      return [id, { spectrum: Array.from({ length: 480 }, (_, i) => level(i)), wave, left, right, peak: [0.4, 0.38] }];
+    }),
+  );
+};
 /** Pro-Q is ours as well. The ones whose windows are open (`eqWatch`), and a band soloed in each. */
 const PRO_Q = "vaudio:pro-q";
 let eqWatched = [];
@@ -620,6 +645,7 @@ const sendTransport = () =>
     limiters: limiters(),
     reverbs: reverbs(),
     eq: eqs(),
+    scopes: scopes(),
     panMen: panMen(),
     peak: playingSince === null ? 0 : 0.3,
     meters: playingSince === null ? {} : { master: [0.3, 0.3], ...(metered.length ? { "@selection": [0.3, 0.3] } : {}) },
@@ -772,6 +798,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (params.open) editors.add(params.effect);
     else editors.delete(params.effect);
   }
+  if (cmd === "channelWatch") channelsWatched = params.channels ?? [];
   if (cmd === "eqWatch") eqWatched = (params.effects ?? []).map((e) => e.effect);
   if (cmd === "eqSolo") {
     if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.eq))) return fail("The song playing has no such Pro-Q.");

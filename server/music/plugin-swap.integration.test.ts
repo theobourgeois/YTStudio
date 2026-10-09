@@ -120,6 +120,24 @@ describe.skipIf(!built)("plugin swaps and parameters, offline", () => {
     expect(rms(after)).toBeGreaterThan(rms(before) * 1.1);
   });
 
+  it("measures a watched channel's own sound for the Serum player's display", async () => {
+    await engine.command("channelWatch", { channels: [CHANNEL] });
+    // The first render makes its scope; what it measures comes after.
+    await engine.render(RATE / 10);
+    await hold(true);
+    const heard = await engine.render(RATE / 4);
+    const scope = heard.scopes?.[CHANNEL];
+    expect(scope).toBeDefined();
+    expect(scope!.wave).toHaveLength(1024);
+    expect(scope!.left).toHaveLength(256);
+    expect(Math.max(...scope!.peak)).toBeGreaterThan(0.1);
+    // A middle C: the spectrum's loudest point is at 262 Hz (480 points log-spaced from 10 Hz to 30 kHz).
+    const loudest = scope!.spectrum.indexOf(Math.max(...scope!.spectrum));
+    expect(10 * 3000 ** (loudest / 479)).toBeGreaterThan(240);
+    expect(10 * 3000 ** (loudest / 479)).toBeLessThan(285);
+    await engine.command("channelWatch", { channels: [] });
+  });
+
   it("says why a plugin won't take dropped files, and plays on", async () => {
     await hold(true);
     await hear(RATE / 8);

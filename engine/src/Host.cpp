@@ -350,6 +350,33 @@ void PluginHost::completeSwaps (bool untended)
     }
 }
 
+void PluginHost::watchScopes (const juce::StringArray& ownerIds)
+{
+    watchedScopes = ownerIds;
+    for (auto& [id, hosted] : loaded)
+        if (! ownerIds.contains (id))
+            hosted->watched.store (false);
+    // (Those watched get their scope in `scopes`, once they've loaded.)
+}
+
+juce::var PluginHost::scopes (bool always)
+{
+    auto* all = new juce::DynamicObject();
+    for (const auto& id : watchedScopes)
+    {
+        const auto found = loaded.find (id);
+        if (found == loaded.end())
+            continue;
+        auto& hosted = *found->second;
+        if (hosted.scope == nullptr)
+            hosted.scope = std::make_unique<ChannelScope>();
+        hosted.watched.store (true, std::memory_order_release);
+        if (auto said = hosted.scope->describe (sampleRate, always); ! said.isVoid())
+            all->setProperty (id, said);
+    }
+    return juce::var (all);
+}
+
 bool PluginHost::swapping() const
 {
     return std::any_of (loaded.begin(), loaded.end(), [] (const auto& entry) { return entry.second->swapAction != nullptr; });

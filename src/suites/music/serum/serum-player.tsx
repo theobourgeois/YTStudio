@@ -17,18 +17,19 @@ import { useSong } from "../store";
 import { useTransport } from "../transport";
 import { serumWindow } from "../ui";
 import { MusicWindow, centredOnDesktop } from "../window";
+import { ScopeView } from "./scope-view";
 import { Stars } from "./stars";
 import { useSerumUi } from "./store";
 
 const WIDTH = 780;
-const HEIGHT = 500;
-const MIN = { minWidth: 560, minHeight: 360 };
+const HEIGHT = 580;
+const MIN = { minWidth: 560, minHeight: 420 };
 const ALL = "all";
 
 /**
  * A Serum 2 channel's window (`docs/serum/player.md` §3): Serum's whole library in one list to find a preset in,
- * the arrows to step through it (each step loads it, so browsing is hearing), and the preset's macros. Serum's
- * own window is a click away for the rest.
+ * the arrows to step through it (each step loads it, so browsing is hearing), a display of what it's playing, and
+ * the preset's macros. Serum's own window is a click away for the rest.
  */
 export function SerumPlayerWindow({ channelId, index }: { channelId: string; index: number }) {
   const channel = useSong((s) => s.channels.find((c) => c.id === channelId) ?? null);
@@ -241,6 +242,9 @@ function SoundPanel({ channelId }: { channelId: string }) {
             {editorOpen ? "Hide Serum" : "Open Serum"}
           </Button>
         </div>
+      </div>
+      <div className="mx-3 mt-3 min-h-44 flex-1 overflow-hidden rounded-md border border-line shadow-inner">
+        <ScopeView channelId={channelId} />
       </div>
       <Macros channelId={channelId} macros={state?.sound?.macros ?? null} />
     </div>

@@ -28,6 +28,11 @@ Read the music suite's guide (`docs/claude/music.md`) first.
   Finder's drag and drop would, in a window made invisible, ignoring the mouse and moved under the pointer (Serum
   hit-tests the real pointer); it's how Serum 2 is given a Serum 1 preset. Tested on the test synth
   (`plugin-swap.integration.test.ts`) and on Serum 2 itself when it's installed (`serum-player.integration.test.ts`).
+- **Scopes** (`Scope.h`, `ChannelScope`): the Serum player's display. While a player is open (`channelWatch`), the
+  audio thread copies its plugin channel's own sound (before its mixer track) into a scope, and each transport event
+  says its spectrum (Pro-Q's `eq::Spectrum`, 480 points), its newest 1024 samples and 256 stereo pairs, and its
+  peaks (`scopes`). Approximate on purpose (a torn sample is a pixel, never a sound); an offline render's answer
+  always carries them (`plugin-swap.integration.test.ts`).
 - Hosted plugins are told where the song is (`PlayHead.h`): each sequencer (playback's, the export's) fills in a
   playhead at the start of every block from the song (tempo, time signature, position, playing, loop) and gives
   it to every plugin it plays, so their synced LFOs and delays follow the song. The tempo is the song's own (with

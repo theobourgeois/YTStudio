@@ -2188,6 +2188,9 @@ void Sequencer::renderPlugins (int numSamples)
         view.clear();
         plugin.instance->processBlock (view, plugin.midi);
         fadeSwap (plugin, view);
+        // Its own sound, for a Serum player's display.
+        if (plugin.watched.load (std::memory_order_acquire))
+            plugin.scope->write (view.getReadPointer (0), view.getReadPointer (view.getNumChannels() > 1 && plugin.instance->getTotalNumOutputChannels() > 1 ? 1 : 0), numSamples);
         plugin.cost = lately (plugin.cost, juce::Time::getHighResolutionTicks() - started);
     });
     for (const auto c : playingPlugins)
