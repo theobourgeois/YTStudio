@@ -73,7 +73,7 @@ const UserBubble = memo(function UserBubble({
   };
   return (
     <div className={cn("group/user flex flex-col items-end gap-1 pl-8 transition-opacity", faded && "opacity-45")} data-user-message={message.id}>
-      <div className="max-w-full rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-[13px] leading-relaxed break-words whitespace-pre-wrap text-foreground">
+      <div className="max-w-full rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-[13px] leading-relaxed break-words whitespace-pre-wrap text-foreground select-text">
         {message.text}
       </div>
       <div className="flex max-w-full items-center gap-2">
@@ -182,7 +182,7 @@ function ErrorNote({ message }: { message: string }) {
   return (
     <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/8 px-2.5 py-2 text-xs text-destructive">
       <PiWarningCircle className="mt-px size-3.5 shrink-0" />
-      <span className="break-words">{message}</span>
+      <span className="break-words select-text">{message}</span>
     </div>
   );
 }
