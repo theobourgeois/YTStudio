@@ -34,7 +34,7 @@ import { StemSeparator } from "./music/stems.ts";
 import { mixerSetupRoutes } from "./music/mixer-setup.ts";
 import { SerumLibrary } from "./music/serum/library.ts";
 import { SerumPlayer, serumPlayerRoutes } from "./music/serum/player.ts";
-import { standInSerumLibrary } from "./music/serum/stand-in.ts";
+import { standInSerum1Folder, standInSerumLibrary } from "./music/serum/stand-in.ts";
 import { PhotoHelper } from "./photo/helper.ts";
 import { PhotoLab } from "./photo/lab.ts";
 import { photoLabRoutes, photoRoutes } from "./photo/routes.ts";
@@ -278,8 +278,14 @@ export async function createApp({
   app.use("/api/photo", photoRoutes(photo, photoModels(MODELS_DIR, PHOTO_MODELS === "stand-in"), photoOnline));
   const mixerKeys = new ApiKeyStore(path.join(paths.root, "music-jev-settings.json"));
   await mixerKeys.load();
+  const serumStandIn = SERUM_LIBRARY === "stand-in";
   const serumLibrary = new SerumLibrary(
-    SERUM_LIBRARY === "stand-in" ? standInSerumLibrary(path.join(paths.root, "serum-stand-in")) : SERUM_LIBRARY ? { serum2: SERUM_LIBRARY, serum1: null } : undefined,
+    serumStandIn ? standInSerumLibrary(path.join(paths.root, "serum-stand-in")) : SERUM_LIBRARY ? { serum2: SERUM_LIBRARY, serum1: null } : undefined,
+    {
+      file: paths.serumLibraryFile,
+      // The stand-in's Serum 1 library "in iCloud Drive", for the e2e tests; never this computer's own.
+      ...(serumStandIn && { suggestions: [{ path: await standInSerum1Folder(path.join(paths.root, "serum-stand-in-s1")), label: "Serum 1's presets in iCloud Drive" }] }),
+    },
   );
   app.use("/api/music/serum", serumPlayerRoutes(new SerumPlayer({ library: serumLibrary, engine, hasProject: (id) => projects.has(id) })));
   app.use("/api/music/mixer-setup", mixerSetupRoutes({ engine, keys: mixerKeys, hasProject: (id) => projects.has(id), assets: (id) => library.list(id) }));

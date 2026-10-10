@@ -78,3 +78,13 @@ export async function standInSerumLibrary(dir: string): Promise<SerumLibraryPlac
   }
   return { serum2: dir, serum1: null };
 }
+
+/** A stand-in Serum 1 library outside Serum's folders (as one in iCloud Drive is), made once: what the folders added list. */
+export async function standInSerum1Folder(dir: string): Promise<string> {
+  const presets = path.join(dir, "Presets");
+  if (await fs.stat(presets).then(() => true, () => false)) return presets;
+  await fs.mkdir(path.join(presets, "Leads"), { recursive: true });
+  await fs.writeFile(path.join(presets, "Leads", "LD - Stand-in Cloud Lead.fxp"), standInSerum1Preset("LD - Stand-in Cloud Lead"));
+  await fs.writeFile(path.join(presets, "BS - Stand-in Cloud Bass.fxp"), standInSerum1Preset("BS - Stand-in Cloud Bass"));
+  return presets;
+}

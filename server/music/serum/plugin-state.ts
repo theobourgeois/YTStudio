@@ -117,9 +117,10 @@ export const FX_SLOTS = 16;
  * A preset's settings (CBOR) as Serum 2's state, from a state of Serum's (`template`, e.g. its init state):
  * the template's processor metadata and processor-only fields around the preset's settings, and the template's
  * controller with the preset's names in it (preset, author, description, macros, racks) and `links` (none given:
- * none at all).
+ * none at all). `presetPath`: the file Serum is to say the preset came from (its `selectedPresetPath`, which it
+ * keeps), as after a save; otherwise the template's stays.
  */
-export function presetAsState(template: Uint8Array, presetSettings: Uint8Array, links: FxLinks = {}): Uint8Array {
+export function presetAsState(template: Uint8Array, presetSettings: Uint8Array, links: FxLinks = {}, presetPath?: string): Uint8Array {
   const state = readPluginState(template);
   const processor = readXfer(state.component);
   const base = decodeCbor(processor.settings);
@@ -129,11 +130,11 @@ export function presetAsState(template: Uint8Array, presetSettings: Uint8Array, 
   const meta = { ...processor.meta };
   delete meta.hash;
   const component = writeXfer(meta, encodeCbor(settings));
-  return writePluginState(state, component, state.controller ? presetController(state.controller, settings, links) : undefined);
+  return writePluginState(state, component, state.controller ? presetController(state.controller, settings, links, presetPath) : undefined);
 }
 
-/** The controller's state (`template`'s) with a preset's names and the effect knobs' links. */
-function presetController(template: Uint8Array, settings: CborMap, links: FxLinks): Uint8Array {
+/** The controller's state (`template`'s) with a preset's names, the effect knobs' links and (given) the preset's file. */
+function presetController(template: Uint8Array, settings: CborMap, links: FxLinks, presetPath?: string): Uint8Array {
   const container = readXfer(template);
   const controller = decodeCbor(container.settings);
   if (!isPlainMap(controller)) throw new Error("Serum's controller settings must be a map.");
@@ -145,6 +146,7 @@ function presetController(template: Uint8Array, settings: CborMap, links: FxLink
     controller[key] = value;
     meta[key] = value;
   }
+  if (presetPath !== undefined) controller.selectedPresetPath = presetPath;
   for (let i = 0; i < 8; i++) {
     const macro = settings[`Macro${i}`];
     const own = controller[`Macro${i}`];

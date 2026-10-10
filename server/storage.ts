@@ -77,6 +77,10 @@ export class DataPaths {
   get browserFile() {
     return path.join(this.root, "browser.json");
   }
+  /** The Serum player's library: the preset folders added to it (Settings › Music), for every project. */
+  get serumLibraryFile() {
+    return path.join(this.root, "serum-library.json");
+  }
   /** The audio engine's own files: the plugins it has found, and plugin states. */
   get engine() {
     return path.join(this.root, "engine");

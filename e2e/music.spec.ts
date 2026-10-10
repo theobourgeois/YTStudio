@@ -790,6 +790,79 @@ test("the Serum player's effects: racks as tabs, cards turned live, added, set, 
   await expect(cards).toHaveCount(2);
 });
 
+test("the Serum player saves the sound as a preset in Serum's User folder, and lists more folders added in Settings", async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem("e2e-plugins-set")) {
+      localStorage.setItem("vaudio.music.favouritePlugins", JSON.stringify(["VST3-Fake Synth-1", "VST3-Fake Delay-2", "VST3-Serum 2-3"]));
+      sessionStorage.setItem("e2e-plugins-set", "1");
+    }
+  });
+  await openNewSong(page, "Serum saving");
+  await page.getByTestId("channel-rack").getByRole("button", { name: "Add a channel" }).click();
+  await page.getByTestId("channel-picker").getByRole("option", { name: /Serum 2/ }).click();
+  const player = page.getByTestId("serum-player");
+  const list = player.getByRole("listbox", { name: "Presets" });
+  const name = player.getByTestId("serum-preset-name");
+  await list.getByRole("option", { name: "BA - Stand-in Reese" }).click();
+  await expect(name).toHaveText("BA - Stand-in Reese");
+
+  // A factory preset isn't saved over: Save asks for a name, its own to start with.
+  await player.getByRole("button", { name: "Save", exact: true }).click();
+  const saveAs = page.getByTestId("serum-save-as");
+  const field = saveAs.getByRole("textbox", { name: "The preset's name" });
+  await expect(field).toHaveValue("BA - Stand-in Reese");
+  await field.fill("BA/bad");
+  await expect(saveAs.getByRole("button", { name: "Save" })).toBeDisabled();
+  await field.fill("BA - My Reese");
+  await saveAs.getByRole("button", { name: "Save" }).click();
+  await expect(saveAs).toHaveCount(0);
+  // It's on now, listed with the rest, in Serum's User folder.
+  await expect(name).toHaveText("BA - My Reese");
+  await expect(list.getByRole("option", { name: "BA - My Reese" })).toHaveAttribute("aria-selected", "true");
+  const listed = async () => ((await (await page.request.get("/api/music/serum/presets")).json()).presets as { name: string; folder: string }[]).find((p) => p.name === "BA - My Reese");
+  expect(await listed()).toMatchObject({ folder: "User" });
+
+  // Edited, ⌘S saves over it now that it's the user's own: no name asked.
+  await player.getByRole("tab", { name: "Oscillators", exact: true }).click();
+  await player.getByTestId("serum-oscillators").getByRole("button", { name: "Mute Osc A" }).click();
+  await expect(player.getByTestId("serum-edited")).toBeVisible();
+  const saved = page.waitForResponse((r) => r.url().endsWith("/api/music/serum/save") && r.ok());
+  await page.keyboard.press("ControlOrMeta+s");
+  expect(await (await saved).json()).toMatchObject({ replaced: true, sound: { edited: false } });
+  await expect(player.getByTestId("serum-edited")).toHaveCount(0);
+  await expect(saveAs).toHaveCount(0);
+  // ⇧⌘S is Save as: a name that's taken in User says so, and saving replaces it only then.
+  await page.keyboard.press("ControlOrMeta+Shift+s");
+  await expect(field).toHaveValue("BA - My Reese");
+  await expect(saveAs).toContainText("saving replaces it");
+  await expect(saveAs.getByRole("button", { name: "Replace" })).toBeVisible();
+  await saveAs.getByRole("button", { name: "Cancel" }).click();
+  await expect(saveAs).toHaveCount(0);
+
+  // Settings › Music: Serum's own folder, and Serum 1's library found in iCloud Drive (which Serum 2 doesn't see), added with a click.
+  await page.keyboard.press("ControlOrMeta+Comma");
+  const settings = page.getByRole("region", { name: "Settings" });
+  const folders = settings.getByTestId("serum-library-folder");
+  await expect(folders).toHaveCount(1);
+  await expect(folders.first()).toContainText("5 presets");
+  await settings.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(folders).toHaveCount(2);
+  await expect(folders.nth(1)).toContainText("2 presets");
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  // Its presets are in the player's list at once, Serum 1's, and load as any other.
+  await expect(list.getByRole("option", { name: "LD - Stand-in Cloud Lead" })).toContainText("S1");
+  await list.getByRole("option", { name: "BS - Stand-in Cloud Bass" }).click();
+  await expect(name).toHaveText("BS - Stand-in Cloud Bass");
+
+  // Removed again, they're gone from the list (the files stay where they are).
+  await page.keyboard.press("ControlOrMeta+Comma");
+  await settings.getByRole("button", { name: "Remove" }).click();
+  await expect(folders).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(list.getByRole("option", { name: "LD - Stand-in Cloud Lead" })).toHaveCount(0);
+});
+
 test("a plugin channel's settings are FL's wrapper: its knobs, the plugin, its programs and the user's presets for it", async ({ page }) => {
   const id = await openNewSong(page, "Wrapper");
   await page.getByTestId("channel-rack").getByRole("button", { name: "Add a channel" }).click();

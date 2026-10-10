@@ -603,6 +603,14 @@ function useMusicKeys(enabled: boolean) {
         e.stopPropagation();
         return void useSerumUi.getState().step(front.slice("serum:".length), e.key === "ArrowDown" ? 1 : -1);
       }
+      // ⌘S saves its sound as a preset, ⇧⌘S as a new one (`docs/serum/player.md` §3.8).
+      if (front?.startsWith("serum:") && (e.metaKey || e.ctrlKey) && !e.altKey && e.code === "KeyS") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.repeat) return;
+        const channelId = front.slice("serum:".length);
+        return void (e.shiftKey ? useSerumUi.getState().setNaming(channelId, true) : useSerumUi.getState().save(channelId));
+      }
       // The mixer's, while it's in front.
       if (frontWindow() === "mixer") {
         const own = resolveMixerKey(e);

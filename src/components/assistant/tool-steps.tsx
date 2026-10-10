@@ -40,6 +40,7 @@ import {
   PiWaveform,
   PiStar,
   PiArrowUUpLeft,
+  PiFloppyDisk,
 } from "react-icons/pi";
 import { type ToolPart, describeToolCall } from "@shared/assistant";
 import { toolSpec } from "@shared/suite-tools";
@@ -69,6 +70,8 @@ const ICONS: Record<string, IconType> = {
   list_serum_effect_chains: PiMagnifyingGlass,
   undo_serum_sound: PiArrowUUpLeft,
   rate_serum_preset: PiStar,
+  save_serum_preset: PiFloppyDisk,
+  serum_library_folders: PiFolder,
   capture_audio_snapshot: PiWaveform,
   get_vocal_mixing_workflow: PiWaveform,
   list_mix_workflows: PiWaveform,

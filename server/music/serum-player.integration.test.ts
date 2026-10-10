@@ -269,5 +269,31 @@ describe.skipIf(!(process.platform === "darwin" && existsSync(ENGINE) && existsS
     // What was turned live is in the state the reload made.
     expect(added.effects[0].effects[0].controls.find((c) => c.key === "kParamDrive")!.value).toBeCloseTo(0.7, 3);
   }, 120_000);
+
+  it("saves the edited sound as a preset Serum takes back, names and all, and Serum keeps it as the one it has on", async () => {
+    // Loaded as a state (not by a drop: this needs no window), with the names the player keeps beside it.
+    const stateFile = await engine.channelStateFile(PROJECT, CHANNEL);
+    await engine.saveStates();
+    const asState = (now: Uint8Array, preset: Uint8Array) => presetAsState(now, readXfer(preset).settings);
+    const probe = writeSerumPreset({ name: "AU Save Probe", macros: { "1": { name: "GRIT", value: 0 } }, modulation: [{ source: "LFO 1", to: "Filter 1 Freq", amount: 30 }] } as never);
+    await rendering(engine.swapState(CHANNEL, asState(new Uint8Array(await fs.readFile(stateFile)), probe)));
+    await fs.writeFile(stateFile.replace(/\.bin$/, ".serum.json"), JSON.stringify({ macroNames: ["GRIT"], edited: false }));
+    await rendering(player.edit({ ...target, edits: [{ kind: "route", source: "Macro 1", to: "A Level", amount: 40 }] }));
+
+    const saved = await rendering(player.save({ ...target, name: "AU Saved Probe" }));
+    expect(saved.path).toBe(path.join(dir, "library", "Presets", "User", "AU Saved Probe.SerumPreset"));
+    expect(saved.sound).toMatchObject({ preset: { name: "AU Saved Probe", path: saved.path }, edited: false });
+    // Serum's own re-save keeps the file it was told it has on.
+    await engine.saveStates();
+    expect((await rendering(player.sound(PROJECT, CHANNEL))).preset).toEqual({ name: "AU Saved Probe", path: saved.path });
+
+    // Another sound, then the saved preset loaded: Serum takes it, the edit and the macro's name in it.
+    await rendering(engine.swapState(CHANNEL, asState(new Uint8Array(await fs.readFile(stateFile)), writeSerumPreset({ name: "Other" } as never))));
+    await rendering(engine.swapState(CHANNEL, asState(new Uint8Array(await fs.readFile(stateFile)), new Uint8Array(await fs.readFile(saved.path)))));
+    expect((await engine.parameters("channel", CHANNEL)).find((c) => c.id === "7000000")?.name).toBe("GRIT");
+    await engine.saveStates();
+    const back = await rendering(player.sound(PROJECT, CHANNEL));
+    expect(back.modulation?.map((r) => `${r.source} → ${r.to}`)).toEqual(["LFO 1 → Filter 1 Freq", "Macro 1 → A Level"]);
+  }, 120_000);
 });
 

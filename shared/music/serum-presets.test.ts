@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type SerumPresetEntry, findSerumPresets, serumCategory, serumFolders, stepSerumPreset, randomSerumPreset } from "./serum-presets.ts";
+import { type SerumPresetEntry, findSerumPresets, isUserSerumPreset, serumCategory, serumFolders, serumPresetNameProblem, stepSerumPreset, randomSerumPreset } from "./serum-presets.ts";
 
 const preset = (name: string, more: Partial<SerumPresetEntry> = {}): SerumPresetEntry => ({
   path: `/presets/${more.folder ?? ""}/${name}.SerumPreset`,
@@ -90,3 +90,22 @@ describe("a random preset", () => {
   });
 });
 
+describe("saving a preset", () => {
+  it("takes a name a file can have in Serum's User folder", () => {
+    expect(serumPresetNameProblem("BA - Dark Reese")).toBeNull();
+    expect(serumPresetNameProblem("  ")).toMatch(/name/);
+    expect(serumPresetNameProblem("a/b")).toMatch(/can't have/);
+    expect(serumPresetNameProblem('say "hi"')).toMatch(/can't have/);
+    expect(serumPresetNameProblem(".hidden")).toMatch(/dot/);
+    expect(serumPresetNameProblem("x".repeat(101))).toMatch(/too long/);
+  });
+
+  it("saves over the user's own Serum 2 presets only", () => {
+    expect(isUserSerumPreset({ kind: "serum2", folder: "User" })).toBe(true);
+    expect(isUserSerumPreset({ kind: "serum2", folder: "User/Basses" })).toBe(true);
+    expect(isUserSerumPreset({ kind: "serum2", folder: "Factory/Bass" })).toBe(false);
+    expect(isUserSerumPreset({ kind: "serum2", folder: "Users" })).toBe(false);
+    expect(isUserSerumPreset({ kind: "serum1", folder: "User" })).toBe(false);
+    expect(isUserSerumPreset(null)).toBe(false);
+  });
+});

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { errorMessage } from "@shared/errors";
-import { type SerumPresetEntry, type SerumSound, randomSerumPreset, stepSerumPreset } from "@shared/music/serum-presets";
+import { type SerumPresetEntry, type SerumSound, SERUM_MACRO_PARAMS, isUserSerumPreset, randomSerumPreset, stepSerumPreset } from "@shared/music/serum-presets";
 import { fxParam, fxStored, SERUM_EFFECTS, type SerumChainEntry, type SerumFxRackId } from "@shared/music/serum-effects";
 import { type SerumSolo, type SerumSoundEdit, soloOscillator, withControl } from "@shared/music/serum-sound";
 import { musicApi } from "../api";
@@ -21,9 +21,18 @@ export interface SerumChannel {
   destinations: string[] | null;
   /** An oscillator soloed, and how they all were before (put back when it ends). */
   solo: SerumSolo | null;
+  /** Save as's name being asked for. */
+  naming: boolean;
+  /** Being saved as a preset, while it is. */
+  saving: boolean;
 }
 
-const EMPTY: SerumChannel = { sound: null, path: null, loading: null, busy: false, error: null, destinations: null, solo: null };
+const EMPTY: SerumChannel = { sound: null, path: null, loading: null, busy: false, error: null, destinations: null, solo: null, naming: false, saving: false };
+
+/** The preset of the library a channel has on, if it's listed. */
+export function presetOn(presets: readonly SerumPresetEntry[] | null, channel: SerumChannel | undefined): SerumPresetEntry | null {
+  return (channel?.path && presets?.find((p) => p.path === channel.path)) || null;
+}
 
 /** An effect of the channel's sound, by its rack and place. */
 export function effectAt(sound: SerumSound | null | undefined, rack: SerumFxRackId, position: number) {
@@ -86,6 +95,15 @@ interface SerumUi {
   setEffectControl: (channelId: string, rack: SerumFxRackId, position: number, key: string, value: number, gesture: "begin" | "drag" | "end" | "set") => void;
   /** Read Serum's saved effects and racks (once). */
   loadChains: () => Promise<void>;
+  /**
+   * Save: over the preset it has on when that's one of the user's (in Serum's `User` folder), else Save as's name
+   * is asked for (a factory, pack or Serum 1 preset is never saved over).
+   */
+  save: (channelId: string) => Promise<void>;
+  /** Ask for a name to save the sound as a new preset under (or stop asking). */
+  setNaming: (channelId: string, naming: boolean) => void;
+  /** Save the sound as a preset named `name` in `User` (`overwrite`: replacing one of that name). False if it failed (the error says why). */
+  saveAs: (channelId: string, name: string, overwrite: boolean) => Promise<boolean>;
 }
 
 const projectId = () => useMusic.getState().projectId;
@@ -144,6 +162,21 @@ export const useSerumUi = create<SerumUi>((set, get) => {
       patch(channelId, { sound, busy: false, path: sound.preset?.path ?? (named ? now.path : null), destinations: null, solo: null });
     } catch (err) {
       patch(channelId, { busy: false, error: errorMessage(err) });
+    }
+  }
+  async function saveSound(channelId: string, name?: string, overwrite = false): Promise<boolean> {
+    const project = projectId();
+    if (!project) return false;
+    patch(channelId, { saving: true, error: null });
+    try {
+      const saved = await musicApi.saveSerumPreset(project, channelId, name, overwrite);
+      patch(channelId, { sound: saved.sound, path: saved.path, saving: false, naming: false });
+      // Listed with the rest now (in User).
+      await get().loadLibrary();
+      return true;
+    } catch (err) {
+      patch(channelId, { saving: false, error: errorMessage(err) });
+      return false;
     }
   }
   return {
@@ -258,7 +291,9 @@ export const useSerumUi = create<SerumUi>((set, get) => {
         .serumStep(project, channelId, changes, label)
         .then((history) => {
           const sound = get().channels[channelId]?.sound;
-          if (sound) patch(channelId, { sound: { ...sound, history } });
+          // Anything but a macro makes the sound the preset's no more (the server keeps that too).
+          const edited = sound?.edited || changes.some((c) => c.before !== c.after && !SERUM_MACRO_PARAMS.includes(c.param));
+          if (sound) patch(channelId, { sound: { ...sound, history, edited: !!edited } });
         })
         .catch(() => {});
     },
@@ -318,6 +353,18 @@ export const useSerumUi = create<SerumUi>((set, get) => {
       } catch {
         // No saved effects to offer: the menu says so.
       }
+    },
+    async save(channelId) {
+      const now = get().channels[channelId];
+      if (!now?.sound?.modulation || now.busy || now.saving) return;
+      if (!isUserSerumPreset(presetOn(get().presets, now))) return get().setNaming(channelId, true);
+      await saveSound(channelId);
+    },
+    setNaming(channelId, naming) {
+      patch(channelId, { naming });
+    },
+    async saveAs(channelId, name, overwrite) {
+      return saveSound(channelId, name, overwrite);
     },
     async loadDestinations(channelId) {
       const project = projectId();

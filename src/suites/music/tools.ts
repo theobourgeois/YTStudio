@@ -27,7 +27,7 @@ import type { PluginPresets } from "@shared/music/engine";
 import type { MusicToolName } from "@shared/music/tools";
 import { KIT_SOUNDS } from "@shared/music/tools";
 import type { MusicProject } from "@shared/music/types";
-import { FAVOURITE_RATING, type SerumCategory, type SerumPresetEntry, type SerumSound, findSerumPresets, isSerum2 } from "@shared/music/serum-presets";
+import { FAVOURITE_RATING, type SerumCategory, type SerumPresetEntry, type SerumSound, findSerumPresets, isSerum2, serumPresetNameProblem } from "@shared/music/serum-presets";
 import { describeEffect, SERUM_FX_RACK_LABELS } from "@shared/music/serum-effects";
 import { envelopeText, lfoText, modAmountOf, SERUM_ENVELOPE_FIELDS, SERUM_LFO_FIELDS, type SerumSoundEdit, sourceDrives } from "@shared/music/serum-sound";
 import { type ToolResult, textResult } from "@shared/tool-spec";
@@ -563,6 +563,34 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     await useSerumUi.getState().rate(preset, stars);
     if (useSerumUi.getState().libraryError) throw new Error(useSerumUi.getState().libraryError!);
     return textResult(stars ? `${preset.name} has ${stars} star${stars === 1 ? "" : "s"} now${stars >= FAVOURITE_RATING ? ": one of the favourites" : ""}.` : `${preset.name} has no stars now.`);
+  },
+  async save_serum_preset(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "Saving a Serum preset");
+    const channel = serumChannel(target.song, input.channel);
+    if (input.name !== undefined && typeof input.name !== "string") throw new Error('"name" must be the new preset\'s name.');
+    const problem = typeof input.name === "string" ? serumPresetNameProblem(input.name) : null;
+    if (problem) throw new Error(problem);
+    const saved = await musicApi.saveSerumPreset(target.projectId, channel.id, input.name as string | undefined, input.overwrite === true);
+    // Its player, if it's open, shows the new preset on, and the library has it.
+    await useSerumUi.getState().refresh(channel.id);
+    if (useSerumUi.getState().presets) await useSerumUi.getState().loadLibrary();
+    return textResult(`${saved.replaced ? "Saved over" : "Saved as"} "${saved.sound.preset?.name ?? input.name}" in Serum's User folder (${saved.path}).\n${describeSerumSound(channel.name, saved.sound)}`);
+  },
+  async serum_library_folders(input) {
+    const action = input.action ?? "list";
+    if (action !== "list" && typeof input.path !== "string") throw new Error(`"${String(action)}" needs the folder's full "path".`);
+    const folders =
+      action === "add" ? await musicApi.addSerumFolder(input.path as string) : action === "remove" ? await musicApi.removeSerumFolder(input.path as string) : action === "list" ? await musicApi.serumFolders() : null;
+    if (!folders) throw new Error('"action" must be "list", "add" or "remove".');
+    if (action !== "list" && useSerumUi.getState().presets) await useSerumUi.getState().loadLibrary();
+    const source = { serum2: "Serum 2's own", serum1: "Serum 1's (Serum links it)", added: "added" } as const;
+    const lines = [
+      folders.folders.length ? "The library lists presets from:" : "The library lists no folders: Serum 2's preset folder isn't on this computer.",
+      ...folders.folders.map((f) => `- ${f.path} · ${source[f.source]} · ${f.missing ? "not there now" : `${f.presets} preset${f.presets === 1 ? "" : "s"}`}`),
+      ...(folders.suggested.length ? ["Found on this computer, not listed (add with action \"add\"):", ...folders.suggested.map((f) => `- ${f.path} · ${f.label}`)] : []),
+    ];
+    return textResult(lines.join("\n"));
   },
   async plugin_presets(input, ctx) {
     const target = await targetOf(ctx);

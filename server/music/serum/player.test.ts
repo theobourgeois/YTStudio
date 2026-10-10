@@ -6,6 +6,8 @@ import { addPluginChannel } from "../../../shared/music/edits.ts";
 import { createMusicProject } from "../../../shared/music/project.ts";
 import { serumModAmountParam } from "../../../shared/music/serum-sound.ts";
 import { DataPaths } from "../../storage.ts";
+import { readSerumSettings } from "./preset.ts";
+import { macroNamesOf } from "./sound.ts";
 import { AudioEngine } from "../engine.ts";
 import { SerumLibrary } from "./library.ts";
 import { SerumPlayer } from "./player.ts";
@@ -21,12 +23,13 @@ describe("the Serum player's edits and history", () => {
   let engine: AudioEngine;
   let player: SerumPlayer;
   let presets: Record<string, string>;
+  let library: SerumLibrary;
   const target = { projectId: PROJECT, channel: CHANNEL };
 
   beforeEach(async () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), "serum-player-"));
     engine = new AudioEngine(new DataPaths(dir), { command: FAKE, pluginPaths: [] });
-    const library = new SerumLibrary(standInSerumLibrary(path.join(dir, "library")));
+    library = new SerumLibrary(standInSerumLibrary(path.join(dir, "library")), { suggestions: [] });
     player = new SerumPlayer({ library, engine, hasProject: (id) => id === PROJECT });
     presets = Object.fromEntries((await library.list()).map((p) => [p.name, p.path]));
     const song = addPluginChannel(createMusicProject("Serum", 120), { id: "VST3-Serum 2-3", name: "Serum 2", format: "VST3" }, CHANNEL);
@@ -86,5 +89,35 @@ describe("the Serum player's edits and history", () => {
     expect((await player.sound(PROJECT, CHANNEL)).history).toEqual({ undo: null, redo: null });
     expect(await player.destinations(PROJECT, CHANNEL)).toContain("Filter 1 Freq");
     await expect(player.step({ ...target, changes: [{ param: "7000000", before: 0, after: 2 }] })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("saves the sound as a preset in Serum's User folder, its macro names in it, and never over one of Serum's own", async () => {
+    await player.load({ ...target, path: presets["BA - Stand-in Reese"] });
+    await player.edit({ ...target, edits: [{ kind: "route", source: "Macro 1", to: "A WT Pos", amount: 40 }] });
+    // A factory preset isn't saved over: it takes a name.
+    await expect(player.save(target)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/new preset, with a name/) });
+    await expect(player.save({ ...target, name: "bad/name" })).rejects.toMatchObject({ status: 400 });
+
+    const saved = await player.save({ ...target, name: "  BA - My Reese " });
+    const user = path.join(dir, "library", "Presets", "User");
+    expect(saved).toMatchObject({ path: path.join(user, "BA - My Reese.SerumPreset"), replaced: false });
+    // Serum says it has the new one on, unedited, with the history as it was.
+    expect(saved.sound).toMatchObject({ preset: { name: "BA - My Reese", path: saved.path }, edited: false, history: { undo: "Add a route" } });
+    expect(saved.sound.macros[0].name).toBe("GRIT");
+    const { body } = readSerumSettings(new Uint8Array(await fs.readFile(saved.path)));
+    expect(body.presetName).toBe("BA - My Reese");
+    expect(macroNamesOf(body)[0]).toBe("GRIT");
+    expect(body.ModSlot0).toBeTruthy();
+    // Listed with the rest, in User, as Serum lists it.
+    expect((await library.list()).find((p) => p.path === saved.path)).toMatchObject({ name: "BA - My Reese", folder: "User", kind: "serum2", category: "Bass" });
+
+    // Saved over, now that it's one of User's; a new name that's taken asks first.
+    await player.edit({ ...target, edits: [{ kind: "removeRoute", slot: 1 }] });
+    expect((await player.sound(PROJECT, CHANNEL)).edited).toBe(true);
+    const over = await player.save(target);
+    expect(over).toMatchObject({ path: saved.path, replaced: true, sound: { edited: false } });
+    expect(readSerumSettings(new Uint8Array(await fs.readFile(saved.path))).body.ModSlot0).not.toMatchObject({ destModuleID: expect.anything() });
+    await expect(player.save({ ...target, name: "BA - My Reese" })).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/already/) });
+    expect((await player.save({ ...target, name: "BA - My Reese", overwrite: true })).replaced).toBe(true);
   });
 });
