@@ -537,6 +537,35 @@ test("Ctrl (⌘) + middle-button drag zooms the keys, as does a middle-button dr
   await expect(roll).toHaveAttribute("data-row-height", String(ROW / 2));
 });
 
+test("the wheel and a trackpad: Alt+wheel's velocity is one undo step; over the keyboard, ⌘+wheel and a pinch zoom the keys", async ({ page }) => {
+  const id = await openPiano(page, "Wheel", [{ start: 0, pitch: 72, length: 96 }]);
+  const roll = page.getByTestId("piano-roll");
+  const velocity = async () => (await saved(page, id))[0].velocity;
+  const first = await velocity();
+  // A notch a step, the scrolls in a row one change.
+  const note = await at(page, 40, 72);
+  await page.mouse.move(note.x, note.y);
+  await holding(page, "Alt", async () => {
+    for (let i = 0; i < 3; i++) await page.mouse.wheel(0, -100);
+  });
+  await expect.poll(velocity).toBeCloseTo(first + 0.06, 5);
+  await page.waitForTimeout(500);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(velocity).toBeCloseTo(first, 5);
+
+  const keys = (await page.locator('canvas[aria-label="Keyboard"]').boundingBox())!;
+  const rowHeight = async () => Number(await roll.getAttribute("data-row-height"));
+  await page.mouse.move(keys.x + keys.width / 2, keys.y + keys.height / 2);
+  await holding(page, "ControlOrMeta", () => page.mouse.wheel(0, -100));
+  await expect.poll(rowHeight).toBeGreaterThan(ROW);
+  // A pinch comes as a wheel with Ctrl set but no Control key down: the keys grow as the fingers part (here, twice as tall).
+  const before = await rowHeight();
+  await page.locator('canvas[aria-label="Keyboard"]').evaluate((canvas, at) => {
+    canvas.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 * Math.log(2), ctrlKey: true, clientX: at.x, clientY: at.y, bubbles: true, cancelable: true }));
+  }, { x: keys.x + keys.width / 2, y: keys.y + keys.height / 2 });
+  await expect.poll(rowHeight).toBeGreaterThanOrEqual(Math.min(40, before * 2 - 1));
+});
+
 test("a note dragged to the grid's edges scrolls it, along time and down the keys, and goes along", async ({ page }) => {
   const id = await openPiano(page, "Edge scroll", [{ start: 0, pitch: 72 }]);
   const box = (await page.getByTestId("piano-grid").boundingBox())!;

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { byStart } from "@shared/music/project";
 import type { Note } from "@shared/music/types";
 import {
-  wheelZoomFactor,
   zoomToRect,
   EDGE_SPEED,
   edgeSpeed,
@@ -228,17 +227,6 @@ describe("notes on screen", () => {
 });
 
 describe("zooming", () => {
-  it("zooms by the wheel in proportion to how far it turned: a notch at 10%, a pinch faster", () => {
-    expect(wheelZoomFactor(-120)).toBeCloseTo(1.1);
-    expect(wheelZoomFactor(120)).toBeCloseTo(1 / 1.1);
-    // A pinch: small deltas, 10% every 12 px.
-    expect(wheelZoomFactor(-12)).toBeCloseTo(1.1);
-    expect(wheelZoomFactor(6)).toBeCloseTo(1 / Math.sqrt(1.1));
-    expect(wheelZoomFactor(-3, 1)).toBeCloseTo(1.1);
-    expect(wheelZoomFactor(-5000)).toBeCloseTo(1.21);
-    expect(wheelZoomFactor(0)).toBe(1);
-  });
-
   it("keeps the tick under the pointer where it is", () => {
     const zoomed = zoomAt(view, 200, 1);
     expect(zoomed.pxPerTick).toBe(1);
