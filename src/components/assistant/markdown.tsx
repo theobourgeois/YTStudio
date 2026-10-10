@@ -100,7 +100,7 @@ const remarkPlugins = [remarkGfm, remarkTimes];
 /** The assistant's Markdown, styled for the chat. */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
   return (
-    <div className="text-[13px] leading-relaxed break-words text-foreground/90">
+    <div className="text-[13px] leading-relaxed break-words text-foreground/90 select-text">
       <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
         {text}
       </ReactMarkdown>
