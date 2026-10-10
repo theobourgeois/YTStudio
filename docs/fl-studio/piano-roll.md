@@ -304,6 +304,7 @@ shows a miniature of them in the rack, which opens them.
 | Zoom tool | Z | The same (Z): a rectangle zooms to its time and rows, a click zooms out, a right-click back and forth |
 | Look | FL Studio's artwork | Its layout and colours (pale blue notes, Théo's choice where FL's are green; red selected, a blue-grey grid, real piano keys), drawn our way, in a dark and a light version |
 | Scrollbars | Drag their ends to zoom | Drag to scroll only |
+| Trackpad | A mouse's wheel | Made for one too: a pinch zooms along time as the fingers part (over the keyboard, the rows), ⌘ + two-finger scroll zooms as smoothly as it scrolls, a scroll is held to the way it set off (up the keys or along time, unless it's diagonal), the wheel works over the keyboard, ruler and event editor too, and a click may roll a few pixels without moving the note clicked or drawn. Alt+wheel on a note changes its velocity every few pixels of a scroll, and the scrolls in a row are one undo step |
 | Snap | Main, Events, Markers | Not those three |
 | Notes | Colour groups (MIDI channels), slide and portamento | None |
 | Per-note pan | Sent to plugins as the note's pan | Heard on samplers; plugins ignore it for now |

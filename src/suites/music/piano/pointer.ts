@@ -19,6 +19,7 @@ import {
   BLACK_KEY_WIDTH,
   LANE_PAD,
   type PianoView,
+  PRESS_SLOP,
   RESIZE_REACH,
   ROW_ZOOM_DRAG,
   hitNote,
@@ -395,7 +396,7 @@ export function gridPointerDown(e: Press) {
       const end = grab.note.start + grab.note.length;
       show(element, RESIZE_CURSOR);
       startGridDrag(e, element, {
-        threshold: 2,
+        threshold: PRESS_SLOP,
         cursor: "ew-resize",
         onMove(ev) {
           const newEnd = snapTick(end + (at(ev).tick - tick0), gridOf(ev), "line");
@@ -411,7 +412,7 @@ export function gridPointerDown(e: Press) {
     show(element, MOVING_CURSOR);
     keys.to(grab.note.pitch);
     startGridDrag(e, element, {
-      threshold: 2,
+      threshold: PRESS_SLOP,
       onMove(ev) {
         const q = at(ev);
         // Once it's moving, Shift keeps the pitch and Ctrl keeps the time.
@@ -450,6 +451,9 @@ export function gridPointerDown(e: Press) {
   piano.setDrag({ kind: "add", notes: [draft({})] });
   keys.to(fit(pitch0, e));
   const release = () => keys.release();
+  // The note drawn stays where it was pressed until the pointer really moves (not as a trackpad's click rolls).
+  let moving = false;
+  const still = (travel: { x: number; y: number }) => !(moving ||= Math.hypot(travel.x, travel.y) >= PRESS_SLOP);
 
   // The Stamp (FL's): a chord from the note pressed, moved with the pointer until it's let go.
   if (piano.stamp && tool === "draw") {
@@ -459,7 +463,8 @@ export function gridPointerDown(e: Press) {
     piano.setDrag({ kind: "add", notes: chord(start, pitch0, e) });
     startGridDrag(e, element, {
       threshold: 0,
-      onMove(ev) {
+      onMove(ev, travel) {
+        if (still(travel)) return;
         const q = at(ev);
         keys.to(fit(q.pitch, ev));
         usePiano.getState().setDrag({ kind: "add", notes: chord(Math.max(0, start + snapDelta(q.tick - tick0, gridOf(ev))), q.pitch, ev) });
@@ -511,7 +516,8 @@ export function gridPointerDown(e: Press) {
   const stretching = e.shiftKey;
   startGridDrag(e, element, {
     threshold: 0,
-    onMove(ev) {
+    onMove(ev, travel) {
+      if (still(travel)) return;
       const q = at(ev);
       if (stretching) {
         const end = Math.max(start + gridOf(ev), snapTick(q.tick, gridOf(ev), "line"));

@@ -3,7 +3,7 @@ import { addWindowListener } from "@/lib/window-events";
 import { PiCaretDownBold, PiGhost, PiMagnet, PiMagnifyingGlass, PiMusicNotes, PiStamp, PiWrench } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
-import { noteBounds } from "@shared/music/notes";
+import { editNotes, noteBounds } from "@shared/music/notes";
 import type { Note } from "@shared/music/types";
 import { setScale } from "@shared/music/edits";
 import { CHORDS, NOTE_NAMES, SCALES, SCALE_STAMPS, type ScaleId, type StampId, scaleName, stampName } from "@shared/music/scales";
@@ -22,8 +22,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { useMusic } from "../store";
-import { wheelScroll } from "../wheel";
+import { songGesture, useMusic } from "../store";
+import { createRails, isPinch, isPreciseWheel, watchControlKey, wheelScroll, wheelSteps, wheelTurn, wheelZoom } from "../wheel";
 import { patternPositionNow } from "../playhead";
 import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
@@ -33,7 +33,7 @@ import { applyDrag, rectSelection } from "./drag";
 import { heldKeys, useMidi } from "../midi";
 import { type Scene, drawGrid, drawHandle, drawKeys, drawLane, drawRuler, prepare, readPalette, stretchHandle } from "./draw";
 import { onFade, vanishing } from "./fades";
-import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, SNAPS, SNAP_LABELS, type Snap, pitchToY, tickToX, wheelZoomFactor, zoomAt } from "./geometry";
+import { SNAPS, SNAP_LABELS, type Snap, hitNote, pitchToY, scrollViewBy, tickToX, zoomAt, zoomRowsAt } from "./geometry";
 import { gridCursor, gridPointerDown, keysPointerDown, lanePointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
 import { CURSORS } from "./cursors";
 import { carriesSamples, dropAsChannels, dropOnChannel } from "../browser/drops";
@@ -56,8 +56,6 @@ const TOOLS: { tool: PianoTool; label: string; key: string; icon: (props: { clas
   { tool: "zoom", label: "Zoom", key: "Z", icon: ({ className }) => <PiMagnifyingGlass className={className} /> },
   { tool: "playback", label: "Playback", key: "Y", icon: PlaybackIcon },
 ];
-
-const EMPTY: Note[] = [];
 
 /**
  * The Piano roll (FL Studio's, `docs/fl-studio/piano-roll.md`): a window showing one channel's notes
@@ -361,6 +359,7 @@ function PianoBody() {
   const lane = useRef<HTMLCanvasElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
   const gridBox = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const laneHeight = usePiano((s) => s.laneHeight);
   const laneProperty = usePiano((s) => s.lane);
   // The event editor draws with the tool in hand: the pencil's, or else the brush (it paints values).
@@ -533,31 +532,47 @@ function PianoBody() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  // The wheel: up and down the keyboard; Shift (or a sideways wheel) along time; Ctrl zooms about the
-  // pointer; Alt changes the velocity of the note under it.
+  // The wheel, anywhere in the window: up and down the keyboard; Shift (or a sideways wheel) along time,
+  // a trackpad's held to the way it set off; Ctrl, ⌘ or a pinch zooms about the pointer (over the keyboard
+  // or the vertical scrollbar, the rows: Alt there too); Alt over a note changes its velocity.
   useEffect(() => {
+    const element = body.current;
     const box = gridBox.current;
-    if (!box) return;
+    if (!element || !box) return;
+    watchControlKey();
+    const rails = createRails();
+    const velocity = wheelVelocity();
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const piano = usePiano.getState();
       const { view } = piano;
-      const x = e.clientX - box.getBoundingClientRect().left;
-      if (e.ctrlKey || e.metaKey) return piano.setView(zoomAt(view, x, view.pxPerTick * wheelZoomFactor(e.deltaY, e.deltaMode)));
-      if (e.altKey) return wheelVelocity(e, box);
-      const { x: sideways, y: down } = wheelScroll(e);
-      piano.setView({
-        ...view,
-        scrollTick: Math.max(0, view.scrollTick + sideways / view.pxPerTick),
-        topPitch: clamp(view.topPitch - down / view.rowHeight, piano.gridHeight / view.rowHeight - 1, 128),
-      });
+      const rect = box.getBoundingClientRect();
+      const x = clamp(e.clientX - rect.left, 0, rect.width);
+      const y = clamp(e.clientY - rect.top, 0, rect.height);
+      const pinch = isPinch(e);
+      const rows = e.clientX < rect.left || e.clientX > rect.right;
+      if (rows && (e.ctrlKey || e.metaKey || e.altKey)) return piano.setView(zoomRowsAt(view, y, view.rowHeight * wheelZoom(e, pinch)));
+      // Alt (with Ctrl, finer) over a note: its velocity, as FL's.
+      if (e.altKey && !pinch) return velocity(e, box);
+      if (e.ctrlKey || e.metaKey) return piano.setView(zoomAt(view, x, view.pxPerTick * wheelZoom(e, pinch)));
+      const scroll = isPreciseWheel(e) ? rails(wheelScroll(e), e.timeStamp) : wheelScroll(e);
+      const next = scrollViewBy(view, scroll.x, scroll.y, piano.gridHeight);
+      if (next === view) return;
+      piano.setView(next);
+      // What's under the pointer has changed: so does the pointer.
+      const canvas = grid.current;
+      if (canvas && e.target === canvas && !piano.drag) canvas.style.cursor = gridCursor(canvas, e);
     };
-    box.addEventListener("wheel", onWheel, { passive: false });
-    return () => box.removeEventListener("wheel", onWheel);
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      element.removeEventListener("wheel", onWheel);
+      velocity.end();
+    };
   }, []);
 
   return (
     <div
+      ref={body}
       className="grid h-full select-none"
       // minmax(0, 1fr): the canvases never hold the rows open while the window shrinks (they're redrawn at the new size).
       style={{ gridTemplateColumns: `${KEYS_W}px minmax(0, 1fr) ${SCROLLBAR}px`, gridTemplateRows: `${RULER_H}px minmax(0, 1fr) ${laneHeight}px ${SCROLLBAR}px` }}
@@ -646,25 +661,48 @@ function LaneResizer() {
   );
 }
 
-/** Alt+wheel over a note: its velocity (the selection's, if it's in it), a little at a time. */
-function wheelVelocity(e: WheelEvent, box: HTMLElement) {
-  const ctx = pianoContext();
-  if (!ctx) return;
-  const { view } = usePiano.getState();
-  const rect = box.getBoundingClientRect();
-  const tick = view.scrollTick + (e.clientX - rect.left) / view.pxPerTick;
-  const pitch = Math.ceil(view.topPitch - (e.clientY - rect.top) / view.rowHeight);
-  const note = ctx.notes.find((n) => n.pitch === pitch && tick >= n.start && tick < n.start + n.length);
-  if (!note) return;
-  const ids = ctx.selected.has(note.id) ? ctx.selected : new Set([note.id]);
-  const by = (e.deltaY < 0 ? 1 : -1) * (e.ctrlKey || e.metaKey ? 0.005 : 0.02);
-  usePiano.getState().setDrag(null);
-  useMusic.getState().commit((song) => {
-    const pattern = song.patterns.find((p) => p.id === ctx.pattern.id)!;
-    const list = pattern.notes[ctx.channel.id] ?? EMPTY;
-    const next = list.map((n) => (ids.has(n.id) ? { ...n, velocity: clamp(n.velocity + by, 0, 1) } : n));
-    return { ...song, patterns: song.patterns.map((p) => (p === pattern ? { ...p, notes: { ...p.notes, [ctx.channel.id]: next } } : p)) };
-  });
+/** How much a step of Alt+wheel changes a velocity: 2%, with Ctrl (⌘) half a percent. */
+const VELOCITY_STEP = 0.02;
+const FINE_VELOCITY_STEP = 0.005;
+/** How long the wheel is still before its velocity changes so far are one undo step. */
+const VELOCITY_SETTLE_MS = 400;
+
+/**
+ * Alt+wheel over a note: its velocity (the selection's, if it's in it), a step a notch, or every
+ * `WHEEL_STEP` px of a trackpad's scroll (not every one of its many events). The scrolls in a row are
+ * one undo step.
+ */
+function wheelVelocity() {
+  const rest = { current: 0 };
+  let gesture: ReturnType<typeof songGesture> | null = null;
+  let settle: ReturnType<typeof setTimeout> | null = null;
+  const end = () => {
+    if (settle) clearTimeout(settle);
+    settle = null;
+    gesture?.end();
+    gesture = null;
+  };
+  const turn = (e: WheelEvent, box: HTMLElement) => {
+    const ctx = pianoContext();
+    if (!ctx || !box.contains(e.target as Node)) return;
+    const steps = wheelSteps(wheelTurn(e), e.deltaMode, rest);
+    if (!steps) return;
+    const { view } = usePiano.getState();
+    const rect = box.getBoundingClientRect();
+    const note = hitNote(ctx.notes, view, e.clientX - rect.left, e.clientY - rect.top, ctx.selected)?.note;
+    if (!note) return;
+    const ids = ctx.selected.has(note.id) ? ctx.selected : new Set([note.id]);
+    const by = steps * (e.ctrlKey || e.metaKey ? FINE_VELOCITY_STEP : VELOCITY_STEP);
+    usePiano.getState().setDrag(null);
+    if (!gesture) {
+      gesture = songGesture();
+      gesture.begin();
+    }
+    if (settle) clearTimeout(settle);
+    settle = setTimeout(end, VELOCITY_SETTLE_MS);
+    gesture.apply((song) => editNotes(song, ctx.pattern.id, ctx.channel.id, (list) => list.map((n) => (ids.has(n.id) ? { ...n, velocity: clamp(n.velocity + by, 0, 1) } : n))));
+  };
+  return Object.assign(turn, { end });
 }
 
 function HorizontalScrollbar() {
@@ -718,11 +756,6 @@ function VerticalScrollbar() {
             threshold: 0,
             onMove: (ev) => usePiano.getState().setView({ ...usePiano.getState().view, topPitch: clamp(start - (ev.clientY - origin) * perPx, rows - 1, 128) }),
           });
-        }}
-        onWheel={(e) => {
-          if (!e.altKey) return;
-          const rowHeight = clamp(view.rowHeight + (e.deltaY < 0 ? 1 : -1), MIN_ROW_HEIGHT, MAX_ROW_HEIGHT);
-          usePiano.getState().setView({ ...view, rowHeight });
         }}
       />
     </div>

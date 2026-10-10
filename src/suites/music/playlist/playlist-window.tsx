@@ -25,14 +25,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { carriedPaths, carriesSamples, dropAsAudioClips } from "../browser/drops";
 import { type Palette, prepare, readPalette } from "../piano/draw";
-import { SNAPS, SNAP_LABELS, type Snap, snapTick, wheelZoomFactor } from "../piano/geometry";
+import { SNAPS, SNAP_LABELS, type Snap, snapTick } from "../piano/geometry";
 import { DeleteIcon, DrawIcon, MuteIcon, PaintIcon, PlaybackIcon, SelectIcon, SliceIcon } from "../piano/tool-icons";
 import { positionNow } from "../playhead";
 import { liveTakes, useRecording } from "../recording";
 import { liveTakeTracks } from "@shared/music/recording";
 import { trackName as mixerTrackName } from "@shared/music/mixer";
 import { useMusic } from "../store";
-import { wheelScroll } from "../wheel";
+import { createRails, isPinch, isPreciseWheel, watchControlKey, wheelScroll, wheelZoom } from "../wheel";
 import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
@@ -524,23 +524,25 @@ function PlaylistBody() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  // The wheel: up and down the tracks; Shift (or a sideways wheel) along time; Ctrl zooms about the pointer
-  // (with Alt, the tracks' height).
+  // The wheel: up and down the tracks; Shift (or a sideways wheel) along time, a trackpad's held to the way
+  // it set off; Ctrl, ⌘ or a pinch zooms about the pointer (with Alt, the tracks' height).
   useEffect(() => {
     const box = gridBox.current;
     if (!box) return;
+    watchControlKey();
+    const rails = createRails();
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const playlist = usePlaylist.getState();
       const { view } = playlist;
       const rect = box.getBoundingClientRect();
-      if ((e.ctrlKey || e.metaKey) && e.altKey) return playlist.setView(zoomTracksAt(view, e.clientY - rect.top, view.trackHeight * wheelZoomFactor(e.deltaY, e.deltaMode)));
+      if ((e.ctrlKey || e.metaKey) && e.altKey) return playlist.setView(zoomTracksAt(view, e.clientY - rect.top, view.trackHeight * wheelZoom(e, isPinch(e))));
       if (e.ctrlKey || e.metaKey) {
         const min = zoomFloor();
-        return playlist.setView(zoomAt(view, e.clientX - rect.left, Math.min(MAX_PX_PER_TICK, Math.max(min, view.pxPerTick * wheelZoomFactor(e.deltaY, e.deltaMode))), min));
+        return playlist.setView(zoomAt(view, e.clientX - rect.left, Math.min(MAX_PX_PER_TICK, Math.max(min, view.pxPerTick * wheelZoom(e, isPinch(e)))), min));
       }
       const p = playlistContext();
-      const { x: sideways, y: down } = wheelScroll(e);
+      const { x: sideways, y: down } = isPreciseWheel(e) ? rails(wheelScroll(e), e.timeStamp) : wheelScroll(e);
       playlist.setView(scrollViewBy(view, sideways, down, p ? p.layout[p.layout.length - 1] : 0));
     };
     box.addEventListener("wheel", onWheel, { passive: false });
