@@ -124,6 +124,19 @@ export function commitDrag() {
 
 export const cancelDrag = () => usePiano.setState({ drag: null });
 
+/**
+ * The song with the drag in progress applied, for the engine: a note drawn while the song plays is
+ * heard as soon as it's pressed (FL's), not only once it's let go; the document still gets one edit.
+ */
+export function withDragPreview(song: MusicProject): MusicProject {
+  const { drag } = usePiano.getState();
+  if (!drag) return song;
+  const ctx = pianoContext();
+  if (!ctx) return song;
+  const result = applyDrag(ctx.notes, drag);
+  return result.notes === ctx.notes ? song : editNotes(song, ctx.pattern.id, ctx.channel.id, () => result.notes);
+}
+
 // ---------------------------------------------------------------------------
 // Selecting
 // ---------------------------------------------------------------------------

@@ -3,8 +3,8 @@ import { takeModulatorLevels } from "./modulation/store";
 import { errorMessage } from "@shared/errors";
 import type { EngineKey, EngineStatus } from "@shared/music/engine";
 import { musicApi } from "./api";
-import { withChopPreview, withQuantizePreview } from "./piano/actions";
-import { usePiano } from "./piano/store";
+import { withChopPreview, withDragPreview, withQuantizePreview } from "./piano/actions";
+import { type PianoDrag, usePiano } from "./piano/store";
 import { activeDraft, withDraftPattern } from "./patterns";
 import { useMusicPreferences } from "./preferences";
 import { clipPreview } from "./playlist/preview";
@@ -51,8 +51,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       if (stopped || !projectId || !history) break;
       try {
         // The time selection is what loops, while there is one: the Piano roll's in pattern mode, the
-        // Playlist's in song mode. A draft pattern shown plays (empty), and the Chopper's chop is heard while it's open.
-        const song = withQuantizePreview(withChopPreview(withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern))));
+        // Playlist's in song mode. A draft pattern shown plays (empty), and the Chopper's chop is heard while it's open,
+        // as is a Piano roll drag (a note drawn) while it lasts.
+        const song = withQuantizePreview(withChopPreview(withDraftPattern(withDragPreview(history.doc), activeDraft(history.doc, patternId, draftPattern))));
         const loop = playMode === "song" ? usePlaylist.getState().time : usePiano.getState().time;
         // A clip previewed from its menu: the song is only that clip, its time the loop.
         // Convert to notes' Preview: the clip with the notes heard in it.
@@ -114,6 +115,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       (state.chopper !== prev.chopper || state.quantizer !== prev.quantizer || state.selected !== prev.selected || state.snap !== prev.snap || state.view.pxPerTick !== prev.view.pxPerTick || state.channelId !== prev.channelId)
     )
       void send();
+    // A drag is heard while the song plays. Let go, its edit is committed just after the drag is cleared: sent once that's in.
+    if (state.drag !== prev.drag && (editsNotes(state.drag) || editsNotes(prev.drag)) && useTransport.getState().playing) queueMicrotask(() => void send());
   });
   // The mixer's selection meter adds up the selected tracks (or the one its inspector shows).
   let metered = "";
@@ -261,6 +264,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     useTransport.setState({ playing: false, tick: 0, peak: 0, meters: NO_METERS, unreadable: [], channels: NO_CHANNELS, effects: NO_EFFECTS });
   };
 }
+
+/** Whether a Piano roll drag changes notes (a selection rectangle, the playback tool and a zoom don't). */
+const editsNotes = (drag: PianoDrag | null) => drag !== null && drag.kind !== "rect" && drag.kind !== "playback" && drag.kind !== "zoom";
 
 /**
  * Say once when the engine was built before its source last changed (`EngineStatus.outdated`: a pull
