@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ownerDocument, ownerWindow } from "@/lib/window-events";
 import { PiCaretDownBold, PiCaretRightFill, PiChartBar, PiPlugs, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
@@ -132,17 +132,34 @@ const stepAt = (root: Element, x: number, y: number) => {
   return hit ? Number(hit.dataset.step) : null;
 };
 
-/** The channels making a sound now, while the song plays (their selectors light up); updated a frame at a time, only when it changes. */
-function useSoundingChannels(): ReadonlySet<string> {
+/**
+ * What the rack lights while the song plays: the step playing and the channels making a sound. Kept outside
+ * React and read by each light and row for itself (`useLit`), so the rack isn't drawn again on every step:
+ * only the lamps that change are.
+ */
+const lit = { step: null as number | null, sounding: new Set<string>() as ReadonlySet<string> };
+const litListeners = new Set<() => void>();
+const subscribeLit = (listener: () => void) => {
+  litListeners.add(listener);
+  return () => void litListeners.delete(listener);
+};
+function setLit(step: number | null, sounding: ReadonlySet<string>) {
+  if (step === lit.step && sounding === lit.sounding) return;
+  lit.step = step;
+  lit.sounding = sounding;
+  for (const listener of litListeners) listener();
+}
+/** Part of what's lit; the component draws again only when it changes. */
+const useLit = <T,>(pick: (now: typeof lit) => T): T => useSyncExternalStore(subscribeLit, () => pick(lit));
+
+/** While the song plays, follows the step playing and the channels sounding, a frame at a time (`lit`). */
+function useLitDriver() {
   const playing = useTransport((s) => s.playing);
-  const [sounding, setSounding] = useState<ReadonlySet<string>>(NONE_SOUNDING);
   useEffect(() => {
-    if (!playing) {
-      setSounding(NONE_SOUNDING);
-      return;
-    }
+    if (!playing) return setLit(null, NONE_SOUNDING);
     let frame = 0;
     let key = "";
+    let sounding = NONE_SOUNDING;
     const draw = () => {
       frame = requestAnimationFrame(draw);
       const { history, patternId } = useMusic.getState();
@@ -153,13 +170,16 @@ function useSoundingChannels(): ReadonlySet<string> {
       const nextKey = [...next].join(",");
       if (nextKey !== key) {
         key = nextKey;
-        setSounding(next);
+        sounding = next;
       }
+      setLit(tick === null ? null : Math.floor(tick / STEP_TICKS), sounding);
     };
     frame = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      setLit(null, NONE_SOUNDING);
+    };
   }, [playing]);
-  return sounding;
 }
 const NONE_SOUNDING: ReadonlySet<string> = new Set();
 
@@ -182,8 +202,7 @@ export function ChannelRack() {
   const steps = useShownSteps();
   const graph = useMusicUi((s) => s.graphOpen);
   const selectedIdsNow = useMusicUi((s) => s.selectedChannelIds);
-  const sounding = useSoundingChannels();
-  const playingStep = usePlayingStep();
+  useLitDriver();
   const lead = useMusicUi((s) => s.trackSelectorsShown) ? LEAD_WITH_TRACK : LEAD;
   const selected = selectedIn({ channels } as MusicProject, selectedIdsNow);
   const file = useRef<HTMLInputElement>(null);
@@ -272,17 +291,17 @@ export function ChannelRack() {
         <div className="flex">
           <div className={cn("flex shrink-0 flex-col", lead)} style={{ gap: ROW_GAP, paddingTop: LIGHTS_H + ROW_GAP }} role="list" aria-label="Channels">
             {channels.map((channel) => (
-              <ChannelLead key={channel.id} channel={channel} selected={selectedIdsNow.includes(channel.id)} sounding={sounding.has(channel.id)} />
+              <ChannelLead key={channel.id} channel={channel} selected={selectedIdsNow.includes(channel.id)} />
             ))}
           </div>
           <div
             ref={scrollerRef}
             className="ml-1.5 overflow-x-auto pb-1" style={{ maxWidth: room.native ? `${room.width}px` : `min(62vw, ${room.width}px)` }} data-testid="rack-steps">
             <div className="flex flex-col" style={{ gap: ROW_GAP, width: stepsWidth(steps) }}>
-              <StepLights steps={steps} step={playingStep} />
+              <StepLights steps={steps} />
               {/* An audio clip's channel too, as in FL Studio: its file can be played from steps and notes as well as from the playlist. */}
               {channels.map((channel) => (
-                <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} playingStep={playingStep} />
+                <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
               ))}
               {graph && (selected[0] ?? channels[0]) && <GraphEditor channel={selected[0] ?? channels[0]} steps={steps} />}
             </div>
@@ -526,29 +545,9 @@ function RackControls({ graph }: { graph: boolean }) {
   );
 }
 
-/** The step the shown pattern is playing (null when stopped); renders only when it moves on. */
-function usePlayingStep(): number | null {
-  const playing = useTransport((s) => s.playing);
-  const [step, setStep] = useState<number | null>(null);
-  useEffect(() => {
-    if (!playing) {
-      setStep(null);
-      return;
-    }
-    let frame = 0;
-    const draw = () => {
-      const tick = patternPositionNow();
-      setStep(tick === null ? null : Math.floor(tick / STEP_TICKS));
-      frame = requestAnimationFrame(draw);
-    };
-    frame = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frame);
-  }, [playing]);
-  return step;
-}
-
 /** A light per step above the rows; the one playing is lit. */
-function StepLights({ steps, step }: { steps: number; step: number | null }) {
+function StepLights({ steps }: { steps: number }) {
+  const step = useLit((now) => now.step);
   const loop = useCurrentPattern((pattern, song) => lengthOf(song, pattern));
   return (
     <div className="relative shrink-0" style={{ height: LIGHTS_H }} data-playing-step={step ?? undefined} aria-hidden>
@@ -564,7 +563,8 @@ function StepLights({ steps, step }: { steps: number; step: number | null }) {
 }
 
 /** The left of a channel's row: mute light, pan, volume, its button and its selector. */
-const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: { channel: Channel; selected: boolean; sounding: boolean }) {
+const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: Channel; selected: boolean }) {
+  const sounding = useLit((now) => now.sounding.has(channel.id));
   const isPlugin = channel.kind === "plugin";
   const unreadable = useTransport((s) => s.unreadable.includes(channel.id));
   const settingsOpen = useMusicUi((s) => s.openChannelIds.includes(channel.id));
@@ -951,13 +951,13 @@ const EMPTY: Note[] = [];
  * A channel's steps in the current pattern. The left button turns steps on, the right one turns them
  * off, and either paints along the row when dragged: FL Studio's step sequencer.
  */
-const StepRow = memo(function StepRow({ channelId, name, steps, playingStep }: { channelId: string; name: string; steps: number; playingStep: number | null }) {
+const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: string; name: string; steps: number }) {
   const patternId = useCurrentPattern((pattern) => pattern.id);
   const notes = useCurrentPattern((pattern) => pattern.notes[channelId] ?? EMPTY);
   const loop = useCurrentPattern((pattern, song) => lengthOf(song, pattern));
   const on = new Set(notes.filter((n) => n.start % STEP_TICKS === 0).map((n) => n.start / STEP_TICKS));
-  // The step whose lamp is lit: the one playing, if this channel plays on it.
-  const litStep = playingStep !== null && on.has(playingStep) ? playingStep : null;
+  // The step whose lamp is lit: the one playing, if this channel plays on it (drawn again only when that changes).
+  const litStep = useLit((now) => (now.step !== null && notes.some((n) => n.start === now.step! * STEP_TICKS) ? now.step : null));
   const gesture = useRef(songGesture()).current;
 
   // Notes that aren't plain steps (written in the Piano roll): a picture of them instead, as in FL Studio.

@@ -453,7 +453,16 @@ function PlaylistBody() {
       if (!frame) frame = requestAnimationFrame(draw);
     };
     const stops = [
-      useMusic.subscribe(schedule),
+      // Not for what it doesn't draw: a mixer knob turned, a plugin's state, the pattern picked.
+      useMusic.subscribe((state, prev) => {
+        if (state.history !== prev.history) {
+          const a = state.history?.doc;
+          const b = prev.history?.doc;
+          if (!a || !b || a.playlist !== b.playlist || a.patterns !== b.patterns || a.channels !== b.channels || a.automations !== b.automations || a.settings !== b.settings) schedule();
+          return;
+        }
+        schedule();
+      }),
       usePlaylist.subscribe(schedule),
       useTransport.subscribe((s, p) => s.songStartTick !== p.songStartTick && schedule()),
       onWaveform(schedule),
@@ -507,17 +516,38 @@ function PlaylistBody() {
   // Recording, it's red (the takes grow behind it as clips: `drawLiveTake`).
   useEffect(() => {
     let frame = 0;
+    let shown = "";
+    let wasInView = false;
+    let lastTick: number | null = null;
     const move = () => {
       const line = playhead.current;
       if (line) {
-        const tick = useTransport.getState().mode === "song" ? positionNow() : null;
-        const view = usePlaylist.getState().view;
-        const x = tick === null ? -10 : tickToX(view, tick);
-        line.style.transform = `translateX(${x}px)`;
-        line.style.opacity = tick === null ? "0" : "1";
+        const transport = useTransport.getState();
+        const tick = transport.mode === "song" ? positionNow() : null;
+        let view = usePlaylist.getState().view;
+        let x = tick === null ? -10 : tickToX(view, tick);
+        // Playing, the view follows the playhead a page at a time, as FL's: once it runs off the right edge
+        // (from in view: one scrolled away from stays where it was put), and not while something's dragged.
+        const width = usePlaylist.getState().gridWidth;
+        // Gone round the loop back to its start: back there too.
+        const wrapped = tick !== null && lastTick !== null && tick < lastTick - 1 && (x < 0 || x > width - 2);
+        lastTick = tick;
+        if (tick !== null && transport.playing && wasInView && (x > width - 2 || wrapped) && !usePlaylist.getState().drag) {
+          view = { ...view, scrollTick: Math.max(0, tick - (width * 0.02) / view.pxPerTick) };
+          usePlaylist.getState().setView(view);
+          x = tickToX(view, tick);
+        }
+        wasInView = x >= 0 && x <= width - 2;
         const active = useRecording.getState().active;
         const recording = active !== null && tick !== null && performance.now() >= active.movesAt;
-        line.style.background = recording ? "var(--destructive)" : "";
+        // Only what changed is written: stopped, the line stays put and the page has nothing to do.
+        const next = `${x}|${tick === null}|${recording}`;
+        if (next !== shown) {
+          shown = next;
+          line.style.transform = `translateX(${x}px)`;
+          line.style.opacity = tick === null ? "0" : "1";
+          line.style.background = recording ? "var(--destructive)" : "";
+        }
       }
       frame = requestAnimationFrame(move);
     };
