@@ -34,7 +34,9 @@ export type MusicKeyAction =
         | "exportMp3"
         /** FL's numpad + and -: the next pattern (a new one past the last) and the one before. */
         | "nextPattern"
-        | "previousPattern";
+        | "previousPattern"
+        /** FL's F8: the plugin picker, for a new channel's instrument (the rack's +). */
+        | "addChannel";
     }
   /** Mute or solo the nth channel of the rack (0 is the first). */
   | { type: "mute" | "solo"; index: number }
@@ -68,6 +70,7 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
   if (e.key === "F9") return only("toggleMixer");
   // FL's Alt+F8. (F8 alone is FL's plugin picker.)
   if (e.key === "F8" && e.altKey && !command && !e.shiftKey) return { type: "toggleBrowser" };
+  if (e.key === "F8" && !e.altKey && !command && !e.shiftKey) return { type: "addChannel" };
   // The same windows on Alt+1…5, in the F keys' order: a Mac's F keys need Fn.
   if (digit !== undefined && e.altKey && !command && !e.shiftKey) {
     const window = WINDOW_DIGITS[digit];
@@ -125,6 +128,7 @@ const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set([
   "exportMp3",
   "nextPattern",
   "previousPattern",
+  "addChannel",
 ]);
 
 export const isGlobalKey = (action: MusicKeyAction) => GLOBAL_KEYS.has(action.type);

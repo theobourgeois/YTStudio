@@ -17,6 +17,7 @@ import { type MusicKeyAction, isGlobalKey, isTyping, resolveMusicKey, resolvePlu
 import { IS_MAC } from "@/lib/key-labels";
 import { assignFreeTracks, cloneSelected, copySteps, cutSteps, deleteSelected, moveSelected, muteAt, pasteSteps, rotate, selectNeighbour } from "./rack-actions";
 import { useMusic, useSong } from "./store";
+import { useChannelPicker } from "./channel-picker";
 import { MusicToolbar } from "./toolbar";
 import { useRecording } from "./recording";
 import { typingKey, useMidi } from "./midi";
@@ -25,6 +26,7 @@ import * as playlist from "./playlist/actions";
 import { type PlaylistKeyAction, resolvePlaylistKey } from "./playlist/keys";
 import { PlaylistWindow } from "./playlist/playlist-window";
 import { usePlaylist } from "./playlist/store";
+import { sliceUnderPointer } from "./playlist/pointer";
 import { resolvePianoKey, type PianoKeyAction } from "./piano/keys";
 import * as piano from "./piano/actions";
 import { openPianoRoll } from "./piano/actions";
@@ -393,6 +395,8 @@ function runPlaylistKey(action: PlaylistKeyAction) {
       return playlist.insertTimeSpace(false);
     case "insertSpaceSliced":
       return playlist.insertTimeSpace(true);
+    case "sliceUnder":
+      return sliceUnderPointer();
     case "deleteSpace":
       return playlist.deleteTimeSpace();
     case "addMarker":
@@ -475,6 +479,10 @@ function runKey(action: MusicKeyAction) {
       return switchMode(useTransport.getState().mode === "song" ? "pattern" : "song");
     case "toggleRecord":
       return useRecording.getState().setOn(!useRecording.getState().on);
+    case "addChannel":
+      // On the rack's +: the rack shown first.
+      if (!ui.rackOpen) ui.setRackOpen(true);
+      return useChannelPicker.setState({ open: true });
     case "nextPattern":
       return useMusic.getState().stepPattern(1);
     case "previousPattern":

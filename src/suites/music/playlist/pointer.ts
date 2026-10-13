@@ -4,7 +4,8 @@
  * Ctrl selects. Each drag is a `PlaylistDrag` in the store while it lasts, and one edit when it's let go.
  */
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { clipEnd, clipLength } from "@shared/music/playlist";
+import { clipEnd, clipLength, editClips, sliceClips } from "@shared/music/playlist";
+import { useMusic } from "../store";
 import { MAX_CLIP_GAIN, MAX_PLAYLIST_TRACKS } from "@shared/music/project";
 import type { PlaylistClip } from "@shared/music/types";
 import { type DragHandlers, startPointerDrag } from "@/lib/pointer-drag";
@@ -125,6 +126,15 @@ function sweeper(element: HTMLElement, p: PlaylistContext, e: Press) {
   };
 }
 
+/** The last right-press, to tell a double right-click. */
+let lastRight = { at: 0, x: 0, y: 0 };
+function isDoubleRight(e: Press): boolean {
+  const now = performance.now();
+  const double = now - lastRight.at < 400 && Math.hypot(e.clientX - lastRight.x, e.clientY - lastRight.y) < 6;
+  lastRight = double ? { at: 0, x: 0, y: 0 } : { at: now, x: e.clientX, y: e.clientY };
+  return double;
+}
+
 /** Sweep across clips with the right button or the delete tool: each goes as it's touched. */
 function erase(e: Press, element: HTMLElement, p: PlaylistContext, hit: PlaylistClip | null, button: 0 | 2, onClickNothing?: () => void) {
   const erased = new Set<number>();
@@ -199,9 +209,10 @@ export function gridPointerDown(e: Press) {
   // A point or tension handle wins over the clip's edge: the first point is always on its left edge.
   if (hit?.clip.kind === "automation" && !hit.menu && (tool === "draw" || tool === "paint") && (!hit.edge || onCurvePoint(p, view, hit.clip, q0.x, q0.y)) && curvePointerDown(e, element, p, hit.clip, q0.x, q0.y)) return;
 
-  // The right button deletes, sweeping; on nothing, it deselects. With Alt: play from there.
+  // The right button deletes, sweeping; on nothing, it deselects. With Alt: play from there. Twice: the Mute tool (FL's).
   if (e.button === 2) {
     if (e.altKey) return playFrom(snapTick(tick0, p.grid, "cell"));
+    if (isDoubleRight(e)) return playlist.setTool("mute");
     erase(e, element, p, hit?.clip ?? null, 2, deselect);
     return;
   }
@@ -525,8 +536,24 @@ export function trackCurveHover(element: HTMLElement, ev: { clientX: number; cli
   if (next?.automationId !== was?.automationId || next?.index !== was?.index) usePlaylist.setState({ curveHover: next });
 }
 
+/** Where the pointer last was over the tracks (null once it left): what Insert slices. */
+let hovered: { element: Element; clientX: number; clientY: number } | null = null;
+
+/** FL's Insert: slice the clip under the pointer at the grid line nearest it (one undo step). */
+export function sliceUnderPointer() {
+  const p = playlistContext();
+  if (!p || !hovered?.element.isConnected) return;
+  const { view } = usePlaylist.getState();
+  const q = local(hovered.element, hovered);
+  const hit = hitClip(p.clips, p.ctx, p.layout, view, q.x, q.y, p.selected);
+  if (!hit) return;
+  const tick = snapTick(xToTick(view, q.x), p.grid, "line");
+  useMusic.getState().commit((song) => editClips(song, (clips, ctx) => sliceClips(clips, tick, hit.clip.track, hit.clip.track, ctx, new Set([hit.clip.id])).clips));
+}
+
 /** With the slice tool and Shift held, its line shows where a press would cut: every track, the whole height. */
 export function trackSliceHover(element: Element, ev: { clientX: number; clientY: number; altKey: boolean; shiftKey: boolean } | null) {
+  hovered = ev && { element, clientX: ev.clientX, clientY: ev.clientY };
   const playlist = usePlaylist.getState();
   const p = playlist.tool === "slice" && ev?.shiftKey ? playlistContext() : null;
   let next: { tick: number } | null = null;

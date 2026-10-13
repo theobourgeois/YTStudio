@@ -33,7 +33,7 @@ describe("music keys", () => {
 
   it("shows the Browser with Alt+F8, from anywhere", () => {
     expect(press("F8", "F8", { altKey: true })).toEqual({ type: "toggleBrowser" });
-    expect(press("F8", "F8")).toBeNull();
+    expect(press("F8", "F8")).toEqual({ type: "addChannel" });
     expect(resolvePluginWindowKey({ key: "F8", code: "F8", metaKey: false, ctrlKey: false, shiftKey: false, altKey: true })).toEqual({ type: "toggleBrowser" });
   });
 

@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { create } from "zustand";
 import { PiArrowsClockwise, PiPlus, PiSpinnerGap } from "react-icons/pi";
 import type { EnginePlugin } from "@shared/music/engine";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -15,13 +16,17 @@ import { useSerumUi } from "./serum/store";
 const BUILT_IN = "Built in";
 const SAMPLER: PickerItem = { id: "sampler", name: "Sampler", detail: "Plays a sample", group: BUILT_IN, plugin: null };
 
+/** Whether the rack's + is open: F8 opens it too (FL's plugin picker). */
+export const useChannelPicker = create<{ open: boolean }>(() => ({ open: false }));
+
 /**
  * The rack's + (FL Studio's "Add one"): choose the generator a new channel plays, in the plugin picker
  * (`plugin-picker.tsx`): the Sampler, which is ours, then the instrument plugins starred in the Plugin manager
  * (of those the engine has found on this computer, VST3 and Audio Units), by kind, the pinned first.
  */
 export function ChannelPicker() {
-  const [open, setOpen] = useState(false);
+  const open = useChannelPicker((s) => s.open);
+  const setOpen = (next: boolean) => useChannelPicker.setState({ open: next });
   const add = (plugin: EnginePlugin | null) => {
     const id = useMusic.getState().addChannel(plugin && { id: plugin.id, name: plugin.name, format: plugin.format });
     setOpen(false);
