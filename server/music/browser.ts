@@ -38,12 +38,18 @@ const RESCAN_DELAY_MS = 400;
 const MAX_FAVOURITES = 5000;
 
 /** Hidden files and folders, and what's inside a package (an app, a plugin): never a sample. */
-const skipped = (name: string) => name.startsWith(".") || /\.(app|vst3|component|bundle|logicx)$/i.test(name);
+const skipped = (name: string) => name.startsWith(".") || /\.(app|vst3|component|bundle|logicx|yt|vaudio)$/i.test(name);
+/** How many entries of a folder are looked at together (a link's target, on a slow or cloud drive). */
+const STAT_CONCURRENCY = 16;
+/** Past this many folders changed at once, the whole folder added is read again rather than each. */
+const MAX_PARTIAL_RESCANS = 32;
 
 interface IndexedRoot {
   entries: SearchEntry[];
   watcher: FSWatcher | null;
   timer: ReturnType<typeof setTimeout> | null;
+  /** The folders changes were seen in since the last scan (null: one not known, so all of it). */
+  changed: Set<string> | null;
   /** Bumped by every scan, so a slow one finishing after a newer one is dropped. */
   generation: number;
   scanning: boolean;
@@ -179,12 +185,15 @@ export class SampleBrowser {
     const dirents = await fs.readdir(folder, { withFileTypes: true }).catch(() => {
       throw new HttpError(404, `"${path.basename(folder)}" can't be read (was it moved?).`);
     });
+    // Looked at together, a few at a time: one at a time, a folder on a cloud drive (OneDrive's files
+    // on demand are reparse points, which Windows lists as links) took a round trip each.
+    const shown = dirents.filter((d) => !skipped(d.name));
+    const kinds = await mapLimit(shown, STAT_CONCURRENCY, (d) => kindOf(folder, d));
     const items: BrowserItem[] = [];
-    for (const d of dirents) {
-      if (skipped(d.name)) continue;
-      const kind = await kindOf(folder, d);
+    shown.forEach((d, i) => {
+      const kind = kinds[i];
       if (kind) items.push({ path: path.join(folder, d.name), name: d.name, kind });
-    }
+    });
     return sortItems(items);
   }
 
@@ -263,13 +272,13 @@ export class SampleBrowser {
   private startIndexing(root: string): void {
     let indexed = this.index.get(root);
     if (!indexed) {
-      indexed = { entries: [], watcher: null, timer: null, generation: 0, scanning: false, missing: false };
+      indexed = { entries: [], watcher: null, timer: null, changed: new Set(), generation: 0, scanning: false, missing: false };
       this.index.set(root, indexed);
     }
     if (this.watching && !indexed.watcher) {
       try {
         const target = indexed;
-        target.watcher = watch(root, { recursive: true }, () => this.scheduleScan(root, target));
+        target.watcher = watch(root, { recursive: true }, (_event, filename) => this.scheduleScan(root, target, filename ? String(filename) : null));
         target.watcher.on("error", () => {
           target.watcher?.close();
           target.watcher = null;
@@ -281,13 +290,50 @@ export class SampleBrowser {
     void this.scan(root, indexed);
   }
 
-  private scheduleScan(root: string, indexed: IndexedRoot): void {
+  /**
+   * A change seen under `root` (`filename` relative to it, if the system said): once they stop, the folders
+   * they were in are read again (each with what's under it), or the whole of it when there were many.
+   * Changes inside what the Browser never shows (hidden folders, packages) are ignored: a song's autosave
+   * inside a folder added mustn't read it all again.
+   */
+  private scheduleScan(root: string, indexed: IndexedRoot, filename: string | null): void {
     if (this.index.get(root) !== indexed) return;
+    if (filename !== null) {
+      const parts = filename.split(/[\\/]/).filter(Boolean);
+      if (parts.some(skipped)) return;
+      if (indexed.changed) {
+        indexed.changed.add(path.join(root, ...parts.slice(0, -1)));
+        if (indexed.changed.size > MAX_PARTIAL_RESCANS) indexed.changed = null;
+      }
+    } else {
+      indexed.changed = null;
+    }
     if (indexed.timer) clearTimeout(indexed.timer);
     indexed.timer = setTimeout(() => {
       indexed.timer = null;
-      void this.scan(root, indexed);
+      const changed = indexed.changed;
+      indexed.changed = new Set();
+      void (changed && !indexed.scanning ? this.rescanParts(root, indexed, [...changed]) : this.scan(root, indexed));
     }, RESCAN_DELAY_MS);
+  }
+
+  /** Read again only the folders that changed (and what's under each), in place in the index. */
+  private async rescanParts(root: string, indexed: IndexedRoot, folders: string[]): Promise<void> {
+    // The outermost of them: one inside another is read with it.
+    const tops = folders.filter((f) => !folders.some((g) => g !== f && isInside(f, g)));
+    const generation = indexed.generation;
+    const rootName = path.basename(root) || root;
+    const fresh: SearchEntry[] = [];
+    for (const top of tops) {
+      const label = [rootName, ...path.relative(root, top).split(path.sep).filter(Boolean)].join("/");
+      const found = await walk(top, label);
+      // Gone (or unreadable): its parent's change takes it out with the rest.
+      if (found) fresh.push(...found);
+    }
+    // A full scan began meanwhile: it has it all.
+    if (indexed.generation !== generation) return;
+    const replaced = (p: string) => tops.some((top) => p !== top && isInside(p, top));
+    indexed.entries = [...indexed.entries.filter((e) => !replaced(e.path)), ...fresh];
   }
 
   private async scan(root: string, indexed: IndexedRoot): Promise<void> {
@@ -305,19 +351,50 @@ export class SampleBrowser {
 }
 
 function isInside(p: string, folder: string): boolean {
+  // Windows' paths don't care about case (a drive letter comes either way).
+  if (process.platform === "win32") {
+    p = p.toLowerCase();
+    folder = folder.toLowerCase();
+  }
   return p === folder || p.startsWith(folder.endsWith(path.sep) ? folder : folder + path.sep);
 }
 
+type Dirent = { name: string; isDirectory(): boolean; isFile(): boolean; isSymbolicLink(): boolean };
+
 /** A folder, an audio file, or nothing to show. Links are followed to see which. */
-async function kindOf(folder: string, d: { name: string; isDirectory(): boolean; isFile(): boolean; isSymbolicLink(): boolean }) {
+async function kindOf(folder: string, d: Dirent) {
   if (d.isDirectory()) return "folder" as const;
   if (d.isFile()) return isAudioName(d.name) ? ("file" as const) : null;
   if (d.isSymbolicLink()) {
+    // An audio file's name says enough: following it would fetch a cloud file's placeholder.
+    if (isAudioName(d.name)) return "file" as const;
     const stat = await fs.stat(path.join(folder, d.name)).catch(() => null);
     if (stat?.isDirectory()) return "folder" as const;
-    if (stat?.isFile() && isAudioName(d.name)) return "file" as const;
   }
   return null;
+}
+
+/**
+ * Whether a link-looking entry is a plain folder: Windows lists any reparse point as a link (a OneDrive
+ * folder too), and `lstat` tells those from a real link, which isn't followed (it could loop).
+ */
+async function isPlainFolder(full: string): Promise<boolean> {
+  const stat = await fs.lstat(full).catch(() => null);
+  return !!stat && stat.isDirectory() && !stat.isSymbolicLink();
+}
+
+/** `f` over `items`, at most `limit` at once, the results in order. */
+async function mapLimit<T, R>(items: readonly T[], limit: number, f: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await f(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 /**
@@ -325,10 +402,9 @@ async function kindOf(folder: string, d: { name: string; isDirectory(): boolean;
  * first, one folder at a time, so a big library doesn't open thousands of files at once. Links to
  * folders aren't followed (they could loop).
  */
-async function walk(root: string): Promise<SearchEntry[] | null> {
-  const rootName = path.basename(root) || root;
+async function walk(root: string, rootLabel = path.basename(root) || root): Promise<SearchEntry[] | null> {
   const entries: SearchEntry[] = [];
-  const queue: { dir: string; folder: string }[] = [{ dir: root, folder: rootName }];
+  const queue: { dir: string; folder: string }[] = [{ dir: root, folder: rootLabel }];
   let first = true;
   while (queue.length && entries.length < MAX_ENTRIES) {
     const { dir, folder } = queue.shift()!;
@@ -343,7 +419,7 @@ async function walk(root: string): Promise<SearchEntry[] | null> {
     for (const d of dirents) {
       if (skipped(d.name)) continue;
       const full = path.join(dir, d.name);
-      if (d.isDirectory()) {
+      if (d.isDirectory() || (d.isSymbolicLink() && !isAudioName(d.name) && (await isPlainFolder(full)))) {
         entries.push(searchEntry({ path: full, name: d.name, kind: "folder" }, folder));
         queue.push({ dir: full, folder: `${folder}/${d.name}` });
       } else if ((d.isFile() || d.isSymbolicLink()) && isAudioName(d.name)) {

@@ -4,6 +4,20 @@
  * (`server/music/browser.ts`); the search itself is pure and lives here, so it's tested on its own.
  */
 
+/**
+ * Whether `path` is `folder` or inside it, on any system: Windows' paths use \\ (and / too) and its drive
+ * letters may come in either case.
+ */
+export function isInsideFolder(path: string, folder: string): boolean {
+  const norm = (p: string) => {
+    const slashed = p.replace(/\\/g, "/").replace(/\/+$/, "");
+    return /^[a-z]:/i.test(slashed) ? slashed.toLowerCase() : slashed;
+  };
+  const a = norm(path);
+  const b = norm(folder);
+  return a === b || a.startsWith(`${b}/`);
+}
+
 /** A folder the user added to the Browser (dropped from Finder). It stays where it is on disk. */
 export interface BrowserRoot {
   /** Absolute. */

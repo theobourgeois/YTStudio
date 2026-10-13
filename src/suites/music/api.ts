@@ -111,7 +111,7 @@ export const musicApi = {
   setBrowserFavourite: (body: SetBrowserFavouriteRequest) =>
     request<BrowserState>("/api/browser/favourites", { method: "POST", body: JSON.stringify(body) }),
   rescanBrowser: () => request<BrowserState>("/api/browser/rescan", { method: "POST" }),
-  listBrowserFolder: (path: string) => request<BrowserItem[]>(`/api/browser/list?${pathQuery(path)}`),
+  listBrowserFolder: (path: string, signal?: AbortSignal) => request<BrowserItem[]>(`/api/browser/list?${pathQuery(path)}`, { signal }),
   searchBrowser: (q: string, limit?: number) =>
     request<BrowserSearchResult>(`/api/browser/search?q=${encodeURIComponent(q)}${limit ? `&limit=${limit}` : ""}`),
   /** One of the Browser's files as the project's media (copied the first time). */
