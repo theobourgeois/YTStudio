@@ -107,6 +107,8 @@ let pageReady = false;
 let appUrl = "";
 let dataDir = "";
 let closeServer: (() => void) | null = null;
+/** Stop the server's process and wait for it (its engine saves its plugins' states as it goes). */
+let closeServerAndWait: (() => Promise<void>) | null = null;
 let setHostWindow: RunningServer["setHostWindow"] | null = null;
 /** The main window's panels (the editor's windows, one native window each: panels.ts). */
 let panels: Panels | null = null;
@@ -235,16 +237,34 @@ async function start() {
     dataDir = config.dataDir;
     startLogging({ dir: path.join(dataDir, "logs"), level: LOG_LEVEL, console: !app.isPackaged, about: { version: app.getVersion(), packaged: app.isPackaged } });
     watchProcesses();
-    const { startServer } = await import("./server.ts");
     const clientDir = path.join(app.getAppPath(), "dist");
-    const server = await startServer({
+    const serverOptions = {
       dataDir,
       clientDir: DEV_URL ? undefined : existsSync(clientDir) ? clientDir : undefined,
       ports: DEV_URL ? [devPort] : PACKAGED_PORTS,
-      // A project's package goes to the Trash Finder knows (Put Back works), and Show in Finder is Finder's own.
-      trash: (dir) => shell.trashItem(dir),
-      reveal: async (dir) => shell.showItemInFolder(dir),
-    });
+    };
+    let server: RunningServer;
+    if (process.env.EDITOR_SERVER_IN_MAIN) {
+      // The old way, for chasing a problem: the server in this process.
+      const { startServer } = await import("./server.ts");
+      const { openWindowPage } = await import("./gl-window.ts");
+      server = await startServer({
+        ...serverOptions,
+        // A project's package goes to the Trash Finder knows (Put Back works), and Show in Finder is Finder's own.
+        trash: (dir) => shell.trashItem(dir),
+        reveal: async (dir) => shell.showItemInFolder(dir),
+        openGlPage: openWindowPage,
+      });
+    } else {
+      // In a process of its own: this one hands every window its mouse and keyboard, and the server's work here
+      // (songs compiled for the engine, folders indexed, files served) made them lag.
+      const { startServerProcess } = await import("./server-host.ts");
+      const hosted = await startServerProcess(serverOptions, !app.isPackaged);
+      // Started again after dying: the engine it started is new, and must be told where the app's window is.
+      hosted.onRestart(() => void tellEngineWhereWeAre());
+      closeServerAndWait = hosted.closeAndWait;
+      server = hosted;
+    }
     closeServer = server.close;
     setHostWindow = server.setHostWindow;
     raiseEngineWindow = server.raiseEngineWindow;
@@ -696,7 +716,16 @@ app.on("before-quit", () => {
   quitting = true;
 });
 
-app.on("will-quit", () => {
+app.on("will-quit", (event) => {
+  if (closeServerAndWait) {
+    // Once it has stopped, quit again (closeServerAndWait is gone by then).
+    event.preventDefault();
+    const wait = closeServerAndWait;
+    closeServerAndWait = null;
+    closeServer = null;
+    void wait().finally(() => app.quit());
+    return;
+  }
   closeServer?.();
   closeServer = null;
 });

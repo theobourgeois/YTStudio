@@ -36,6 +36,11 @@ export interface LoggingOptions {
   console?: boolean;
   /** Said in the first line: the app's version, what runs it. */
   about?: Record<string, unknown>;
+  /**
+   * Hand each batch of lines to another process to write (the desktop app's server runs in a process of its
+   * own; its lines go in the main process's file, `writeLogLines`): `dir` is then only the file's name.
+   */
+  forward?: (text: string) => void;
 }
 
 const FILE_NAME = "ytstudio.log";
@@ -51,15 +56,15 @@ const BURST_MS = 10_000;
 
 let fileLevel: LogLevel | null = null;
 let consoleLevel: LogLevel | null = "warn";
-let sink: LogFile | null = null;
+let sink: LogFile | ForwardedLog | null = null;
 const loggers = new Map<string, Logger>();
 const bursts = new Map<string, { start: number; count: number; dropped: number }>();
 
 /** Write the log into `dir` from now on (the server's entry points: server/index.ts, the desktop app). */
-export function startLogging({ dir, level = "info", console: print = true, about }: LoggingOptions): void {
+export function startLogging({ dir, level = "info", console: print = true, about, forward }: LoggingOptions): void {
   const first = sink === null;
   sink?.flushSync();
-  sink = new LogFile(dir);
+  sink = forward ? new ForwardedLog(path.join(dir, FILE_NAME), forward) : new LogFile(dir);
   fileLevel = level;
   consoleLevel = print ? level : null;
   if (first) watchProcess();
@@ -202,6 +207,46 @@ function watchProcess() {
     log("app").info(`exiting (${code})`);
     sink?.flushSync();
   });
+}
+
+/** Lines written for another process (`LoggingOptions.forward`), handed on in batches as `LogFile` writes them. */
+class ForwardedLog {
+  private queue: string[] = [];
+  private timer: NodeJS.Timeout | null = null;
+
+  constructor(
+    readonly file: string,
+    private readonly forward: (text: string) => void,
+  ) {}
+
+  push(text: string) {
+    this.queue.push(text);
+    if (this.timer) return;
+    this.timer = setTimeout(() => this.flushSync(), FLUSH_MS);
+    this.timer.unref();
+  }
+
+  flushSync() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    if (!this.queue.length) return;
+    const text = this.queue.join("");
+    this.queue = [];
+    try {
+      this.forward(text);
+    } catch {
+      // nowhere to say so
+    }
+  }
+
+  async settle() {
+    this.flushSync();
+  }
+}
+
+/** Lines another process wrote (`LoggingOptions.forward`), into this one's file. */
+export function writeLogLines(text: string): void {
+  if (text) sink?.push(text);
 }
 
 /** The file, appended to in the background a batch at a time, moved aside when it's grown too big. */
