@@ -55,6 +55,17 @@ export function curveUnder(p: PlaylistContext, view: PlaylistView, clip: Playlis
   return { curve, hit: hitCurve(curve.automation.points, curve.box, x, y, curve.left, curve.right) };
 }
 
+/** Whether a point or tension handle of a clip's curve is under the pointer (it wins over the clip's edges). */
+export function onCurvePoint(p: PlaylistContext, view: PlaylistView, clip: PlaylistClip, x: number, y: number): boolean {
+  return !!curveUnder(p, view, clip, x, y)?.hit;
+}
+
+/** Which point of an automation clip's curve the pointer is over, for its highlight and value (null: none). */
+export function curveHoverAt(p: PlaylistContext, view: PlaylistView, clip: PlaylistClip, x: number, y: number): { automationId: string; index: number } | null {
+  const under = curveUnder(p, view, clip, x, y);
+  return under?.hit?.kind === "point" ? { automationId: under.curve.automation.id, index: under.hit.index } : null;
+}
+
 /** The pointer over a clip's curve: on a point, the plain arrow (as FL's, not a hand); on a tension handle, up and down; in Step mode, a crosshair. Null elsewhere. */
 export function curveCursor(p: PlaylistContext, view: PlaylistView, clip: PlaylistClip, x: number, y: number): string | null {
   const under = curveUnder(p, view, clip, x, y);
@@ -81,7 +92,7 @@ export function curvePointerDown(e: Press, element: HTMLElement, p: PlaylistCont
   // Ctrl on the body selects, as on any clip; on a point or handle it's the curve's.
   if (!hit && (e.ctrlKey || e.metaKey)) return false;
 
-  const show = (points: AutomationPoint[]) => usePlaylist.getState().setDrag({ kind: "curve", automationId: id, points });
+  const show = (points: AutomationPoint[], index?: number) => usePlaylist.getState().setDrag({ kind: "curve", automationId: id, points, index });
   const local = (ev: { clientX: number; clientY: number }) => {
     const rect = element.getBoundingClientRect();
     return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
@@ -101,9 +112,10 @@ export function curvePointerDown(e: Press, element: HTMLElement, p: PlaylistCont
       cursor: "default",
       onMove(ev) {
         const q = local(ev);
-        const tick = ev.shiftKey ? from.tick : tickAt(q.x, ev.altKey);
-        const value = ev.ctrlKey || ev.metaKey ? from.value : curveValueAt(box, q.y);
-        show(move(base, index, tick, value, length));
+        // Shift: only along (its value stays); Ctrl: only up and down (its time stays).
+        const tick = ev.ctrlKey || ev.metaKey ? from.tick : tickAt(q.x, ev.altKey);
+        const value = ev.shiftKey ? from.value : curveValueAt(box, q.y);
+        show(move(base, index, tick, value, length), index);
       },
       onEnd: commitDrag,
       onClick,
@@ -158,7 +170,7 @@ export function curvePointerDown(e: Press, element: HTMLElement, p: PlaylistCont
     const tick = Math.max(0, tickAt(x, e.altKey));
     const added = addPoint(points, tick, e.shiftKey ? curveValue(points, tick) : curveValueAt(box, y), length);
     if (added.index < 0) return true;
-    show(added.points);
+    show(added.points, added.index);
     dragPoint(added.points, added.index, 2, commitDrag);
     return true;
   }

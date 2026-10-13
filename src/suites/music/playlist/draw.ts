@@ -135,6 +135,8 @@ export interface PlaylistScene {
   markers: readonly TimeMarker[];
   /** The slice tool's line (tick and tracks, or `all` of them), while it's dragged or Shift shows it. */
   slice: { tick: number; top: number; bottom: number; all: boolean } | null;
+  /** The automation point under the pointer or being dragged: drawn larger, with its value. */
+  curveFocus: { automationId: string; index: number; label: string } | null;
   palette: Palette;
 }
 
@@ -499,7 +501,7 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
     if (automation) {
       // Its curve from where the clip's window starts on it; past its end, the last value is held (drawn so).
       const box = { x0: x - clip.offset * view.pxPerTick, pxPerTick: view.pxPerTick, top: bodyY, height: bodyH };
-      drawCurve(ctx, automation, box, x + 1, right - 1, { line: colours.content, point: colours.title }, bodyH >= 14 + CURVE_PAD * 2, scene.barTicks);
+      drawCurve(ctx, automation, box, x + 1, right - 1, { line: colours.content, point: colours.title }, bodyH >= 14 + CURVE_PAD * 2, scene.barTicks, scene.curveFocus?.automationId === automation.id ? scene.curveFocus : null);
     }
   } else {
     const data = scene.waveforms.get(clip.ref);

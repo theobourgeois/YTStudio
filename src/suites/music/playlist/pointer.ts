@@ -30,7 +30,7 @@ import {
 import { type ClipHandle, markerAt, paintClipStarts, scrollViewBy, hitClip, xToTick, yToTrack, zoomAt, zoomToRange } from "./geometry";
 import { fadeOutClips } from "./fades";
 import { usePlaylist } from "./store";
-import { curveCursor, curvePointerDown } from "../automation/curve-pointer";
+import { curveCursor, curveHoverAt, curvePointerDown, onCurvePoint } from "../automation/curve-pointer";
 
 type Press = ReactPointerEvent<HTMLElement>;
 
@@ -166,7 +166,8 @@ export function gridPointerDown(e: Press) {
 
   // An automation clip's curve, edited on the clip (FL's): its points and tension handles, and a
   // right-click on its line adds a point. (Its title is the clip's: a right-click there deletes it.)
-  if (hit?.clip.kind === "automation" && !hit.menu && !hit.edge && (tool === "draw" || tool === "paint") && curvePointerDown(e, element, p, hit.clip, q0.x, q0.y)) return;
+  // A point or tension handle wins over the clip's edge: the first point is always on its left edge.
+  if (hit?.clip.kind === "automation" && !hit.menu && (tool === "draw" || tool === "paint") && (!hit.edge || onCurvePoint(p, view, hit.clip, q0.x, q0.y)) && curvePointerDown(e, element, p, hit.clip, q0.x, q0.y)) return;
 
   // The right button deletes, sweeping; on nothing, it deselects. With Alt: play from there.
   if (e.button === 2) {
@@ -469,13 +470,27 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   const q = local(element, ev);
   const hit = hitClip(p.clips, p.ctx, p.layout, view, q.x, q.y, p.selected);
   if (hit?.menu) return "pointer";
-  const onCurve = hit?.clip.kind === "automation" && !hit.edge && (tool === "draw" || tool === "paint") ? curveCursor(p, view, hit.clip, q.x, q.y) : null;
+  const onCurve = hit?.clip.kind === "automation" && (tool === "draw" || tool === "paint") && (!hit.edge || onCurvePoint(p, view, hit.clip, q.x, q.y)) ? curveCursor(p, view, hit.clip, q.x, q.y) : null;
   if (onCurve) return onCurve;
   if (tool === "slip") return hit ? RESIZE_CURSOR : "default";
   if (tool === "select") return hit ? "pointer" : "default";
   if (hit?.handle) return hit.handle === "fadeIn" || hit.handle === "fadeOut" ? RESIZE_CURSOR : "ns-resize";
   if (hit) return hit.edge ? (usePlaylist.getState().stretch && hit.clip.kind === "audio" ? STRETCH_CURSOR : RESIZE_CURSOR) : MOVE_CURSOR;
   return tool === "paint" ? CURSORS.brush : CURSORS.pencil;
+}
+
+/** The automation point under the pointer (the draw and paint tools), drawn larger with its value. */
+export function trackCurveHover(element: HTMLElement, ev: { clientX: number; clientY: number } | null) {
+  const playlist = usePlaylist.getState();
+  let next: { automationId: string; index: number } | null = null;
+  const p = ev && (playlist.tool === "draw" || playlist.tool === "paint") ? playlistContext() : null;
+  if (p && ev) {
+    const q = local(element, ev);
+    const hit = hitClip(p.clips, p.ctx, p.layout, playlist.view, q.x, q.y, p.selected);
+    if (hit?.clip.kind === "automation" && !hit.menu) next = curveHoverAt(p, playlist.view, hit.clip, q.x, q.y);
+  }
+  const was = playlist.curveHover;
+  if (next?.automationId !== was?.automationId || next?.index !== was?.index) usePlaylist.setState({ curveHover: next });
 }
 
 /** With the slice tool and Shift held, its line shows where a press would cut: every track, the whole height. */

@@ -77,9 +77,9 @@ import { clearIncoming, showIncoming } from "./incoming";
 import { holdClipPreview } from "./preview";
 import { openConvert } from "../convert/actions";
 import { openExtractStems } from "../stems/actions";
-import { gridCursor, gridPointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
+import { gridCursor, gridPointerDown, rulerPointerDown, trackCurveHover, trackSliceHover } from "./pointer";
 import { RULER_HEIGHT } from "./geometry";
-import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
+import { type ClipSource, type PlaylistDrag, type PlaylistTool, usePlaylist } from "./store";
 import { TrackHeaders } from "./track-headers";
 import { OVERVIEW_HEIGHT, PlaylistOverview } from "./overview";
 
@@ -436,6 +436,7 @@ function PlaylistBody() {
             : !drag && playlist.sliceHover
               ? { tick: playlist.sliceHover.tick, top: 0, bottom: 0, all: true }
               : null,
+        curveFocus: curveFocusOf(song, drag, playlist.curveHover),
         palette,
       };
       const g = prepare(grid.current, width, height);
@@ -621,8 +622,12 @@ function PlaylistBody() {
             if (e.buttons !== 0) return;
             e.currentTarget.style.cursor = gridCursor(e.currentTarget, e);
             trackSliceHover(e.currentTarget, e);
+            trackCurveHover(e.currentTarget, e);
           }}
-          onPointerLeave={(e) => trackSliceHover(e.currentTarget, null)}
+          onPointerLeave={(e) => {
+            trackSliceHover(e.currentTarget, null);
+            trackCurveHover(e.currentTarget, null);
+          }}
           onPointerUp={(e) => (e.currentTarget.style.cursor = gridCursor(e.currentTarget, e))}
         />
         <div ref={playhead} className="pointer-events-none absolute inset-y-0 left-0 w-px bg-foreground opacity-0" data-testid="playlist-playhead" />
@@ -880,6 +885,17 @@ function MarkerRename() {
 function sourceColor(song: MusicProject, source: ClipSource): string | null {
   const list = source.kind === "pattern" ? song.patterns : source.kind === "automation" ? song.automations : song.channels;
   return list.find((item) => item.id === source.ref)?.color ?? null;
+}
+
+/** The automation point to draw larger with its value: the one being dragged, else the one under the pointer. */
+function curveFocusOf(song: MusicProject, drag: PlaylistDrag | null, hover: { automationId: string; index: number } | null) {
+  const focus = drag?.kind === "curve" ? (drag.index === undefined ? null : { automationId: drag.automationId, index: drag.index, points: drag.points }) : drag ? null : hover;
+  if (!focus) return null;
+  const automation = song.automations.find((a) => a.id === focus.automationId);
+  const point = ("points" in focus ? focus.points : automation?.points)?.[focus.index];
+  if (!automation || !point) return null;
+  const label = controlOf(song, automation.target).format(automation.min + point.value * (automation.max - automation.min));
+  return { automationId: automation.id, index: focus.index, label };
 }
 
 /**
