@@ -443,7 +443,15 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
     // The song ---------------------------------------------------------------
     if (command == "song")
     {
-        lastSong = params["song"];
+        auto song = params["song"];
+        // The same notes as the last song's (a knob turned): the server leaves them out, they're kept.
+        if ((bool) song["sameNotes"])
+            if (auto* object = song.getDynamicObject())
+            {
+                object->setProperty ("notes", lastSong["notes"]);
+                object->removeProperty ("sameNotes");
+            }
+        lastSong = song;
         juce::Array<juce::var> ids;
         for (const auto& id : applySong())
             ids.add (id);

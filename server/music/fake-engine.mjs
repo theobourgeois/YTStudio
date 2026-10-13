@@ -711,7 +711,9 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   }
   if (cmd === "plugins") return send({ id, ok: true, result: PLUGINS });
   if (cmd === "song") {
-    song = params.song;
+    // The same notes as the last song's: kept, not sent again (`sameNotes`, as the engine does).
+    song = params.song.sameNotes ? { ...params.song, notes: song?.notes ?? [] } : params.song;
+    delete song.sameNotes;
     return send({ id, ok: true, result: { unreadable: [], channels: channels(), effects: effects() } });
   }
   if (cmd === "host") host = params;

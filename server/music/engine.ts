@@ -189,6 +189,8 @@ export class AudioEngine {
   private readonly listeners = new Set<(event: EngineEvent) => void>();
   /** The song the engine was last given, to give it again if it restarts. */
   private song: Record<string, unknown> | null = null;
+  /** The notes of the last song sent to the engine, as sent: a song with the same leaves them out (`sameNotes`). */
+  private sentNotes: string | null = null;
   private stateTimer: NodeJS.Timeout | null = null;
   /** The desktop app's window, to tell a restarted engine too. */
   private host: HostWindow | null = null;
@@ -239,7 +241,12 @@ export class AudioEngine {
     this.song = song;
     this.clock = clock;
     this.keepStates(song.channels.some((c) => c.plugin) || song.tracks.some((t) => t.effects.length > 0));
-    const answer = (await this.request("song", { song })) as Omit<SetSongResponse, "loop">;
+    // A knob turned changes no notes, and the notes are most of a song in song mode (its arrangement
+    // flattened): the same as the last sent, they're left out and the engine keeps its own (`sameNotes`).
+    const notes = JSON.stringify(song.notes);
+    const same = notes === this.sentNotes;
+    this.sentNotes = notes;
+    const answer = (await this.request("song", { song: same ? { ...song, notes: undefined, sameNotes: true } : song })) as Omit<SetSongResponse, "loop">;
     return { ...answer, loop: { start: clock.from, ticks: clock.toSong(compiled.loopTicks) } };
   }
 
@@ -938,6 +945,7 @@ export class AudioEngine {
           this.child = child;
           engineLog.info(`started (pid ${child.pid}) in ${Math.round(performance.now() - started)} ms${this.outdated ? ", built before its source last changed" : ""}`);
           // A restarted engine has forgotten the song: give it back before anything else is asked.
+          this.sentNotes = null;
           if (this.song) void this.request("song", { song: this.song }).catch(() => {});
           if (this.host) void this.request("host", { ...this.host }).catch(() => {});
           resolve();

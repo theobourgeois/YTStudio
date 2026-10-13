@@ -116,7 +116,8 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   the same, and test sounds in `server/music/sampler.integration.test.ts`.
 - The tab sends the whole song to the engine on every change, even mid-drag (`engine-sync.ts` →
   `POST /api/engine/song`: the server normalises it, compiles it and turns sample ids into paths). The engine
-  swaps songs without a gap. Where the song is comes back on an event stream (`/api/engine/events`, about 25 a
+  swaps songs without a gap. Notes the same as the last song's (a knob turned; they're most of a song in song
+  mode) are left out and the engine keeps its own (`sameNotes`): a song mode send went from about 50 ms to 16. Where the song is comes back on an event stream (`/api/engine/events`, about 25 a
   second); the tab fills in between (`tickNow`) and shows it late by the output's latency.
 - **Everything is a window** (`window.tsx`: `MusicWindow` on the `MusicDesktop`, the platform's
   `components/windows/`), as in FL Studio: dragged by its title bar, its edges sticking to the desktop's and
