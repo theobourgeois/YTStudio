@@ -77,6 +77,9 @@ export function curveCursor(p: PlaylistContext, view: PlaylistView, clip: Playli
 
 type Press = ReactPointerEvent<HTMLElement>;
 
+/** The last click on a curve's point, to tell a double-click (pointer events don't count clicks). */
+let lastPointClick = { id: "", index: -1, at: 0 };
+
 /**
  * A press on an automation clip's curve (the draw and paint tools). Returns whether it was the curve's: a
  * press elsewhere on the clip (its title, its body away from points with the left button) is the clip's.
@@ -181,10 +184,15 @@ export function curvePointerDown(e: Press, element: HTMLElement, p: PlaylistCont
   if (e.button !== 0 || !hit) return false;
 
   if (hit.kind === "point") {
+    // A second click on it soon after: its value typed in.
+    const now = performance.now();
+    const double = lastPointClick.id === id && lastPointClick.index === hit.index && now - lastPointClick.at < 500;
+    lastPointClick = double ? { id: "", index: -1, at: 0 } : { id, index: hit.index, at: now };
     // Alt+click, not moved: it goes (FL's Right Alt+click). Moved with Alt held, it's off the grid.
     dragPoint(points, hit.index, 0, () => {
       cancelDrag();
       if (e.altKey) commit((list) => deletePoint(list, hit.index));
+      else if (double) usePlaylist.setState({ pointMenu: { automationId: id, index: hit.index, x, y, typing: true } });
     });
     return true;
   }

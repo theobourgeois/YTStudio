@@ -936,9 +936,14 @@ function PointMenu() {
   const menu = usePlaylist((s) => s.pointMenu);
   const automation = useMusic((s) => (menu ? s.history!.doc.automations.find((a) => a.id === menu.automationId) : undefined));
   const [typing, setTyping] = useState<string | null>(null);
-  if (!menu || !automation) return null;
-  const point = automation.points[menu.index];
-  if (!point) return null;
+  // Opened by a double-click on the point: straight to its value.
+  const point = menu && automation?.points[menu.index];
+  const startTyping = !!menu?.typing && !!point && typing === null;
+  useEffect(() => {
+    if (startTyping) setTyping(String(Math.round(point!.value * 1000) / 10));
+  }, [startTyping, point]);
+  if (!menu || !automation || !point) return null;
+  if (menu.typing && typing === null) return null;
   const close = () => usePlaylist.setState({ pointMenu: null });
   const commit = (change: Parameters<typeof editPoints>[2]) => useMusic.getState().commit((song) => editPoints(song, automation.id, change));
   const song = useMusic.getState().history!.doc;

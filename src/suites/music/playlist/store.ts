@@ -121,7 +121,7 @@ interface PlaylistState {
    * A point of an automation clip's curve, its menu open (a right-click on it): which clip's curve and
    * point, and where in the grid.
    */
-  pointMenu: { automationId: string; index: number; x: number; y: number } | null;
+  pointMenu: { automationId: string; index: number; x: number; y: number; typing?: boolean } | null;
   /** The point of an automation clip's curve under the pointer (drawn larger, its value shown). */
   curveHover: { automationId: string; index: number } | null;
   /**
@@ -174,7 +174,7 @@ const INITIAL = {
   audioAnchor: null as string | null,
   automationSelection: new Set<string>() as ReadonlySet<string>,
   automationAnchor: null as string | null,
-  pointMenu: null as { automationId: string; index: number; x: number; y: number } | null,
+  pointMenu: null as { automationId: string; index: number; x: number; y: number; typing?: boolean } | null,
   curveHover: null as { automationId: string; index: number } | null,
   carried: null as readonly ClipSource[] | null,
   transposing: null as readonly string[] | null,
