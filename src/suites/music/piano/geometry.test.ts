@@ -12,6 +12,7 @@ import {
   gridTicks,
   lineTicks,
   hitNote,
+  notesOnSegment,
   isBlackKey,
   keyAt,
   laneTailAt,
@@ -182,6 +183,27 @@ describe("notes on screen", () => {
     expect(hitNote(notes, flat, 603, y(60), undefined, 5)).toMatchObject({ note: { id: 1 }, edge: true });
     expect(hitNote(notes, flat, 606, y(60), undefined, 5)).toBeNull();
     expect(hitNote(notes, flat, 826, y(60), undefined, 5)).toMatchObject({ note: { id: 5 }, edge: true });
+  });
+
+  it("hits a short note as wide as it's drawn, zoomed out", () => {
+    const far: PianoView = { scrollTick: 0, pxPerTick: 0.02, topPitch: 72, rowHeight: 10 };
+    const [tiny] = make([0, 6, 60]);
+    // 6 ticks is 0.12 px, drawn 3 px wide: its 2nd px is still on it.
+    expect(hitNote([tiny], far, 2, pitchToY(far, 60) + 5)?.note.id).toBe(tiny.id);
+    expect(hitNote([tiny], far, 5, pitchToY(far, 60) + 5)).toBeNull();
+  });
+
+  it("finds every note a sweep's segment crosses, in order, even far apart or leaving the grid", () => {
+    const flat: PianoView = { scrollTick: 0, pxPerTick: 1, topPitch: 72, rowHeight: 10 };
+    const y = (pitch: number) => pitchToY(flat, pitch) + 5;
+    // From right to left along C5's row, past both its notes, out over the keyboard (x < 0).
+    expect(notesOnSegment(notes, flat, { x: 900, y: y(60) }, { x: -40, y: y(60) }).map((n) => n.id)).toEqual([5, 1]);
+    // A diagonal through E5's two overlapping notes and G5's.
+    expect(notesOnSegment(notes, flat, { x: 98, y: y(64) }, { x: 420, y: y(67) }).map((n) => n.id).sort()).toEqual([2, 3, 4]);
+    // Nothing between the rows.
+    expect(notesOnSegment(notes, flat, { x: 300, y: y(62) }, { x: 500, y: y(62) })).toEqual([]);
+    // A point (no movement) on a note.
+    expect(notesOnSegment(notes, flat, { x: 10, y: y(60) }, { x: 10, y: y(60) }).map((n) => n.id)).toEqual([1]);
   });
 
   it("places a note's value in the event editor: velocity up from the bottom, pan about the middle", () => {

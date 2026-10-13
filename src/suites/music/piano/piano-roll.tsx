@@ -577,6 +577,7 @@ function PianoBody() {
       // minmax(0, 1fr): the canvases never hold the rows open while the window shrinks (they're redrawn at the new size).
       style={{ gridTemplateColumns: `${KEYS_W}px minmax(0, 1fr) ${SCROLLBAR}px`, gridTemplateRows: `${RULER_H}px minmax(0, 1fr) ${laneHeight}px ${SCROLLBAR}px` }}
       onContextMenu={(e) => e.preventDefault()}
+      data-piano-roll
     >
       <div className="border-r border-b bg-muted" />
       <div className="relative border-b">
