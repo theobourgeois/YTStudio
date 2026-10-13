@@ -127,10 +127,29 @@ function dropPlace(rack: HTMLElement, target: EventTarget, y: number): { index: 
   return { index, before: rows[index]?.dataset.channel, top: edge - origin };
 }
 
-const stepAt = (root: Element, x: number, y: number) => {
-  const hit = under(root, x, y, "step");
-  return hit ? Number(hit.dataset.step) : null;
+/**
+ * The step nearest the pointer along a row (or the graph editor), from where the steps are laid out
+ * (`stepLeft`), not from what's under it: the gaps between steps take the nearest one too, and a drag that
+ * drifts off the row vertically carries on along it. Null well past the first or last.
+ */
+const stepAt = (root: Element, x: number, _y?: number): number | null => {
+  const count = Number((root as HTMLElement).dataset.steps);
+  if (!(count > 0)) return null;
+  const at = x - root.getBoundingClientRect().left;
+  if (at < -STEP_GAP || at > stepLeft(count - 1) + STEP_W + STEP_GAP) return null;
+  return nearestStep(at, count);
 };
+
+/** The step whose middle is nearest `at` (px from the first step's left edge), of `count`. */
+function nearestStep(at: number, count: number): number {
+  const guess = clamp(Math.floor(at / (STEP_W + STEP_GAP + BEAT_GAP / GROUP)), 0, count - 1);
+  let best = guess;
+  for (const step of [guess - 1, guess, guess + 1]) {
+    if (step < 0 || step >= count) continue;
+    if (Math.abs(at - stepLeft(step) - STEP_W / 2) < Math.abs(at - stepLeft(best) - STEP_W / 2)) best = step;
+  }
+  return best;
+}
 
 /**
  * What the rack lights while the song plays: the step playing and the channels making a sound. Kept outside
@@ -607,7 +626,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
             type="button"
             aria-label={channel.muted ? `Unmute ${channel.name}` : `Mute ${channel.name}`}
             aria-pressed={!channel.muted}
-            title={channel.muted ? "Muted (right-click to solo)" : "Mute (right-click to solo)"}
+            title={channel.muted ? "Muted (right-click: Solo)" : "Mute (right-click: Solo)"}
             // A small light in a larger target, so it's easy to hit.
             className="group grid size-5 shrink-0 place-items-center rounded-full"
             // Ctrl or Alt with the click solos, as in FL Studio.
@@ -969,6 +988,7 @@ const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: s
       style={{ height: ROW_H }}
       role="group"
       aria-label={`${name} steps`}
+      data-steps={steps}
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         if (e.button !== 0 && e.button !== 2) return;
@@ -1153,6 +1173,7 @@ function GraphEditor({ channel, steps }: { channel: Channel; steps: number }) {
       <div
         className="sunken relative cursor-ns-resize touch-none rounded-t-sm"
         style={{ height: GRAPH_HEIGHT }}
+        data-steps={steps}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
           if (e.button !== 0 && e.button !== 2) return;

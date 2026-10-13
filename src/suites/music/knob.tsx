@@ -153,16 +153,25 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                   onSet(defaultValue);
                   return;
                 }
-                const origin = e.clientY;
-                const start = toTravel(own);
+                // Each move adds to where it got to (Ctrl: finely), so pressing or letting go of Ctrl
+                // midway doesn't make it jump. The pointer is held where it was pressed and hidden (FL's):
+                // the drag goes on past the screen's edge.
+                let at = toTravel(own);
+                let lastY = 0;
                 startPointerDrag(e, {
                   threshold: 2,
                   cursor: "ns-resize",
+                  lock: true,
                   onStart() {
                     setDragging((element.current?.getBoundingClientRect().top ?? 100) < VALUE_ROOM ? "below" : "above");
                     onBegin();
                   },
-                  onMove: (ev) => onDrag(fromTravel(start + (origin - ev.clientY) / (ev.ctrlKey || ev.metaKey ? DRAG_RANGE * 10 : DRAG_RANGE))),
+                  onMove: (ev, travel) => {
+                    const dy = travel.y - lastY;
+                    lastY = travel.y;
+                    at = clamp(at - dy / (ev.ctrlKey || ev.metaKey ? DRAG_RANGE * 10 : DRAG_RANGE), 0, 1);
+                    onDrag(fromTravel(at));
+                  },
                   onEnd() {
                     setDragging(null);
                     onEnd();

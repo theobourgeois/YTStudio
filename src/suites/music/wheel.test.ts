@@ -1,15 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { WHEEL_STEP, createRails, isPreciseWheel, wheelScroll, wheelSteps, wheelTurn, wheelZoom } from "./wheel";
+import { WHEEL_STEP, createRails, forgetWheelNotch, isPreciseWheel, wheelScroll, wheelSteps, wheelTurn, wheelZoom } from "./wheel";
 
 const event = (deltaY: number, more: { deltaX?: number; deltaMode?: number; shiftKey?: boolean } = {}) => ({ deltaX: 0, deltaMode: 0, shiftKey: false, deltaY, ...more });
 
 describe("wheelSteps", () => {
   it("makes a Windows mouse's notch (100 px) one step, up for more", () => {
+    forgetWheelNotch();
     const rest = { current: 0 };
     expect(wheelSteps(-100, 0, rest)).toBe(1);
     expect(wheelSteps(100, 0, rest)).toBe(-1);
-    // A larger notch (high DPI, faster settings) is still one step.
+    // A quick turn's notches sent as one event (the page was busy): a step each.
+    expect(wheelSteps(-200, 0, rest)).toBe(2);
+  });
+
+  it("takes a larger notch (high DPI, faster settings) as one step", () => {
+    forgetWheelNotch();
+    const rest = { current: 0 };
     expect(wheelSteps(-300, 0, rest)).toBe(1);
+    expect(wheelSteps(300, 0, rest)).toBe(-1);
+    expect(wheelSteps(-600, 0, rest)).toBe(2);
   });
 
   it("adds up a trackpad's small deltas", () => {
