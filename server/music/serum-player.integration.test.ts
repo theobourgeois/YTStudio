@@ -3,7 +3,8 @@
  * effect knob linked to a host slot moves the sound when the slot is set, a new state under a held key doesn't
  * click, a preset file dropped on a song's Serum (its window invisible) is loaded as Serum's browser loads it, and
  * the player's mod amounts and reloads (step 3) are what Serum takes them to be.
- * Skipped without the engine or Serum 2 (`/Library/Audio/Plug-Ins/VST3/Serum2.vst3`).
+ * Skipped without the engine or Serum 2's VST3 (`/Library/Audio/Plug-Ins/VST3/Serum2.vst3`, on Windows
+ * `C:\Program Files\Common Files\VST3\Serum2.vst3`).
  */
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
@@ -18,7 +19,7 @@ import { AudioEngine } from "./engine.ts";
 import { type CborMap, decodeCbor } from "./serum/cbor.ts";
 import { readXfer } from "./serum/container.ts";
 import { type FxLinks, presetAsState, readPluginState } from "./serum/plugin-state.ts";
-import { SerumLibrary } from "./serum/library.ts";
+import { findSerumLibrary, SerumLibrary, serumFolderSuggestions } from "./serum/library.ts";
 import { restate, SerumPlayer } from "./serum/player.ts";
 import { writeSerumPreset } from "./serum/preset.ts";
 import { editSerumBody, readOscillators, readSoundParts } from "./serum/sound.ts";
@@ -27,8 +28,20 @@ import { readWav } from "./wav.ts";
 const RATE = 48_000;
 const PROJECT = "proj_0123456789ab";
 const CHANNEL = "chan_serum";
-const VST3 = "/Library/Audio/Plug-Ins/VST3";
-const available = process.platform === "darwin" && existsSync(ENGINE) && existsSync(path.join(VST3, "Serum2.vst3"));
+const VST3 =
+  process.platform === "win32" ? path.join(process.env.CommonProgramFiles ?? "C:\\Program Files\\Common Files", "VST3") : "/Library/Audio/Plug-Ins/VST3";
+const available = (process.platform === "darwin" || process.platform === "win32") && existsSync(ENGINE) && existsSync(path.join(VST3, "Serum2.vst3"));
+
+/** A real Serum 1 preset (the stand-in `.fxp`s aren't presets): the first in Serum 1's folder, else in Serum 2's library. */
+async function findFxp(): Promise<string | null> {
+  const folders = [...serumFolderSuggestions().map((s) => s.path), (await findSerumLibrary()).serum2].filter((dir): dir is string => Boolean(dir));
+  for (const folder of folders) {
+    const entries = await fs.readdir(folder, { recursive: true }).catch(() => [] as string[]);
+    const found = entries.sort().find((entry) => /\.fxp$/i.test(entry));
+    if (found) return path.join(folder, found);
+  }
+  return null;
+}
 
 function rms(samples: Float32Array, from = 0, to = samples.length): number {
   let sum = 0;
@@ -56,7 +69,11 @@ describe.skipIf(!available)("the Serum player's engine, on Serum 2", () => {
   /** A tenth of a second at a time until `done` (a swap answered: offline, only rendering moves it on), joined. */
   async function hearUntil(done: () => boolean): Promise<Float32Array> {
     const parts: Float32Array[] = [];
-    for (let i = 0; i < 40 && !done(); i++) parts.push(await hear(RATE / 10));
+    // (A drop waits for the plugin's window to be ready before its swap: a pause between renders lets it.)
+    for (let i = 0; i < 200 && !done(); i++) {
+      parts.push(await hear(RATE / 10));
+      if (i >= 4 && !done()) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
     const all = new Float32Array(parts.reduce((n, part) => n + part.length, 0));
     parts.reduce((at, part) => (all.set(part, at), at + part.length), 0);
     return all;
@@ -148,6 +165,27 @@ describe.skipIf(!available)("the Serum player's engine, on Serum 2", () => {
     const state = readPluginState(await savedState());
     expect(readXfer(state.controller!).meta.presetName).toBe("Dropped Probe");
     expect((await controls()).some((c) => c.name === "SPACE")).toBe(true);
+  }, 60_000);
+
+  it("loads a real Serum 1 preset dropped on the channel's Serum, converted by Serum, its macros 5 to 8 at 0", async (context) => {
+    const fxp = await findFxp();
+    if (!fxp) return context.skip();
+    // A Serum 2 preset with every macro up first: Serum 1 has 4, so converting one leaves 5 to 8 as they were.
+    const macros = Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((n) => [String(n), { value: 70 }]));
+    await swap(stateOf({ macros }));
+    const library = path.join(dir, "library");
+    const copy = path.join(library, "Presets", path.basename(fxp));
+    await fs.mkdir(path.dirname(copy), { recursive: true });
+    await fs.copyFile(fxp, copy);
+    const player = new SerumPlayer({ library: new SerumLibrary({ serum2: library, serum1: null }), engine, hasProject: (id) => id === PROJECT });
+    let answered = false;
+    const loading = player.load({ projectId: PROJECT, channel: CHANNEL, path: copy }).finally(() => (answered = true));
+    await hearUntil(() => answered);
+    const loaded = await loading;
+    expect(loaded.preset?.name).toBe(path.basename(fxp, path.extname(fxp)));
+    const state = readPluginState(await savedState());
+    expect(readXfer(state.controller!).meta.presetName).toBe(path.basename(fxp, path.extname(fxp)));
+    expect(loaded.macros.slice(4).map((m) => m.value)).toEqual([0, 0, 0, 0]);
   }, 60_000);
 
   it("sets a route's amount live through its own slot's control: Mod 6 Amount is slot 6, whatever slots are empty", async () => {

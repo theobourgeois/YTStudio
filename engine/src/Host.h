@@ -205,6 +205,13 @@ public:
      */
     juce::var dropFiles (HostedPlugin&, const juce::StringArray& files);
     /**
+     * Get the plugin's window ready to be given `files` (`dropFiles`), then call `ready` (on the message thread),
+     * before the swap that drops them is asked for. Windows: a window just made for it (Serum's) turns files down
+     * for a moment, while its view finishes being made, so it's asked (a drag that only passes over) until it
+     * would take them, for up to `dropReadyMs`. At once elsewhere, and for a plugin that isn't loaded.
+     */
+    void whenDropReady (const juce::String& ownerId, const juce::StringArray& files, std::function<void()> ready);
+    /**
      * Say which parameter was touched last in each plugin's window, if one was since the last call
      * (`EngineEvent` "touch"), and show it on the window's Automate button. Call regularly.
      */
@@ -260,6 +267,10 @@ private:
     int blockSize = 512;
     /** So a load that finishes after the host has gone does nothing. */
     std::shared_ptr<bool> alive = std::make_shared<bool> (true);
+    /** The window files are dropped on: its own if it's open, else one made invisible for it. */
+    EditorWindow& dropWindowOf (HostedPlugin&);
+    /** Note a use of the invisible window, which is let go of `dropWindowKeptMs` after the last. */
+    void keepDropWindow (HostedPlugin&);
 
     JUCE_DECLARE_NON_COPYABLE (PluginHost)
 };

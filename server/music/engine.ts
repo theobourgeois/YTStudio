@@ -483,7 +483,7 @@ export class AudioEngine {
   }
 
   /**
-   * Files dropped on a plugin channel's plugin as if from Finder, its window invisible (macOS): how Serum 2 is given
+   * Files dropped on a plugin channel's plugin as if from Finder or Explorer, its window invisible: how Serum 2 is given
    * a Serum 1 preset (`docs/serum/player.md` §2.3). Faded out and in as `swapState` is. Answers with what the
    * plugin's view said. The server's own: it checks the files first.
    */

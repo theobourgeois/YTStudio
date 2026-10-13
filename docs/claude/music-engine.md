@@ -24,9 +24,12 @@ Read the music suite's guide (`docs/claude/music.md`) first.
   plugin is never loaded and played at once, and nothing clicks (a bare `setStateInformation` cuts Serum's notes
   dead). Swaps are done by `swapTicker` live and between rendered blocks offline: offline, a swap only happens
   when something renders. `setParameter` sets a plugin's parameter as its window would (with a gesture, so
-  automation lets go of it meanwhile). `dropFiles` (`MacWindow.cpp`, macOS) hands files to a plugin's view as
-  Finder's drag and drop would, in a window made invisible, ignoring the mouse and moved under the pointer (Serum
-  hit-tests the real pointer); it's how Serum 2 is given a Serum 1 preset. Tested on the test synth
+  automation lets go of it meanwhile). `dropFiles` (`MacWindow.cpp`) hands files to a plugin's view as
+  Finder's or Explorer's drag and drop would, in a window made invisible and ignoring the mouse; it's how Serum 2 is
+  given a Serum 1 preset. macOS moves the window under the pointer (Serum hit-tests the real pointer there); Windows
+  calls the plugin's own OLE drop target (`IDropTarget`, found by its window) with Explorer's data object at a
+  point, and keeps the window cloaked for its whole life; a window just made turns files down for a moment, so the
+  engine asks it (a drag that only passes over) until it would take them before the swap starts (`whenDropReady`). Tested on the test synth
   (`plugin-swap.integration.test.ts`) and on Serum 2 itself when it's installed (`serum-player.integration.test.ts`).
 - **Scopes** (`Scope.h`, `ChannelScope`): the Serum player's display. While a player is open (`channelWatch`), the
   audio thread copies its plugin channel's own sound (before its mixer track) into a scope, and each transport event

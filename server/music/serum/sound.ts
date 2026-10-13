@@ -378,6 +378,21 @@ export function withMacroNames(body: CborMap, names: readonly string[]): CborMap
   return out;
 }
 
+/**
+ * A Serum 1 preset as Serum 2 converted it, its macros 5 to 8 at 0: Serum 1 has 4, so converting one leaves the
+ * others where the last preset had them (`docs/serum/player.md` §2.3).
+ */
+export function withSerum1Macros(body: CborMap): CborMap {
+  const out = { ...body };
+  for (let i = 4; i < 8; i++) {
+    const macro = out[`Macro${i}`];
+    if (!isPlainMap(macro) || !isPlainMap(macro.plainParams) || !("kParamValue" in macro.plainParams)) continue;
+    const { kParamValue: _, ...params } = macro.plainParams;
+    out[`Macro${i}`] = { ...macro, plainParams: Object.keys(params).length ? params : "default" };
+  }
+  return out;
+}
+
 /** A body's macro names (a preset's, "" where it names none). */
 export function macroNamesOf(body: CborMap): string[] {
   return Array.from({ length: 8 }, (_, i) => {

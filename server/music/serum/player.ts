@@ -31,7 +31,7 @@ import { readXfer } from "./container.ts";
 import type { SerumLibrary } from "./library.ts";
 import { fxLinksOf, presetAsState, readPluginState, stateSettings } from "./plugin-state.ts";
 import { presetFile, readSerumSettings } from "./preset.ts";
-import { destinationNames, editSerumBody, fxLinksFor, liveControls, macroNamesOf, readSoundParts, sameLinks, type SerumChain, withMacroNames } from "./sound.ts";
+import { destinationNames, editSerumBody, fxLinksFor, liveControls, macroNamesOf, readSoundParts, sameLinks, type SerumChain, withMacroNames, withSerum1Macros } from "./sound.ts";
 
 export interface SerumPlayerOptions {
   library: SerumLibrary;
@@ -133,9 +133,12 @@ export class SerumPlayer {
       }
       await writeMeta(stateFile, { macroNames, edited: false });
       // Its effects' card knobs linked to the racks' slots, so they turn live: a reload of what Serum has just loaded.
+      // A Serum 1 preset's always is, its macros 5 to 8 put back at 0.
       const loaded = await readState(await engine.channelStateFile(projectId, channel));
-      const settings = settingsOf(loaded);
-      if (loaded && settings && !sameLinks(fxLinksOf(loaded), fxLinksFor(settings))) await engine.swapState(channel, restate(loaded, settings, macroNames));
+      const serum1 = /\.fxp$/i.test(file);
+      const converted = settingsOf(loaded);
+      const settings = converted && serum1 ? withSerum1Macros(converted) : converted;
+      if (loaded && settings && (serum1 || !sameLinks(fxLinksOf(loaded), fxLinksFor(settings)))) await engine.swapState(channel, restate(loaded, settings, macroNames));
       return this.soundNow(projectId, channel);
     });
   }

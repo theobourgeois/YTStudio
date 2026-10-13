@@ -16,8 +16,8 @@ class EditorWindow final : public juce::DocumentWindow,
 public:
     /** `onCloseButton` is told the window's × was pressed: closing it (deleting it) is the owner's to do. */
     /**
-     * `hidden`: made fully transparent (macOS: on the screen as far as the plugin knows, so its view is attached,
-     * but never seen or clicked), for handing the plugin files by `dropFiles`.
+     * `hidden`: made fully transparent (on the screen as far as the plugin knows, so its view is attached, but never
+     * seen or clicked; Windows: cloaked too, and off the taskbar), for handing the plugin files by `dropFiles`.
      */
     EditorWindow (juce::AudioPluginInstance& plugin, const juce::String& title, std::function<void()> onCloseButton, bool hidden = false);
     ~EditorWindow() override;
@@ -71,6 +71,8 @@ public:
 
 private:
     static void* owner;
+    /** Made for `dropFiles` alone: never seen, clicked or listed (Windows: cloaked for its whole life). */
+    const bool hidden;
     /** How many `whileBusy` holds are out. */
     static int busy;
     /** Shown while busy: brought to the front once the holds are let go. */

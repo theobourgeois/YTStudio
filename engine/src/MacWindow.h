@@ -53,14 +53,20 @@ void cloakWindow (juce::Component& window, bool cloaked);
 /** Windows: keep the computer from sleeping while the song plays (`playing`), or let it again. Nothing elsewhere. */
 void keepAwake (bool playing);
 
-/** macOS: the window lets every click through to what's under it (an invisible window). Nothing elsewhere. */
+/**
+ * The window lets every click through to what's under it (an invisible window). Windows: layered, transparent to the
+ * mouse and never activated, so it never takes the focus. Nothing elsewhere.
+ */
 void ignoreMouse (juce::Component& window);
 
 /**
- * macOS: hand files to the plugin's view inside `window` as a drag and drop from Finder would, at (x, y), a
+ * Hand files to the plugin's view inside `window` as a drag and drop from Finder or Explorer would, at (x, y), a
  * fraction of the view's width and height from its top left. It's how a plugin is given a file only its
  * window takes (Serum 2 reads Serum 1 presets only that way). Says what the view answered at each stage of
- * the drop; an error (a string) if it didn't take them, threw, or there's no plugin view (or elsewhere than macOS). Without `perform`, the drag only passes over (x, y) and leaves: whether the
- * plugin would take the files there.
+ * the drop; an error (a string) if it didn't take them, threw, or there's no plugin view. Without `perform`, the
+ * drag only passes over (x, y) and leaves: whether the plugin would take the files there.
+ * macOS: AppKit's dragging calls on the plugin's NSView, the window moved under the pointer meanwhile. Windows: the
+ * plugin's own `IDropTarget` (its child window's, from OLE), given Explorer's data object for the files at the
+ * point; nothing moves. Neither on other systems.
  */
 juce::var dropFiles (juce::Component& window, const juce::StringArray& files, double x, double y, bool perform = true);

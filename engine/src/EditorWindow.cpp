@@ -220,6 +220,7 @@ constexpr bool addToDesktopFirst = true;
 
 EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::String& title, std::function<void()> onCloseButton, bool hidden)
     : DocumentWindow (title, juce::Colours::black, DocumentWindow::closeButton, addToDesktopFirst),
+      hidden (hidden),
       onClose (std::move (onCloseButton))
 {
     look = std::make_unique<StudioLook>();
@@ -248,10 +249,12 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
     if (! addToDesktopFirst)
         addToDesktop();
    #if JUCE_WINDOWS
-    // Off the screen until it's drawn (white until then); `timerCallback` shows it.
+    // Off the screen until it's drawn (white until then); `timerCallback` shows it. A hidden one stays cloaked:
+    // the plugin still makes its view and takes drops in it.
     cloakWindow (*this, true);
     cloakedAt = lastTick = juce::Time::getMillisecondCounter();
-    startTimer (tickMs);
+    if (! hidden)
+        startTimer (tickMs);
    #endif
     setVisible (true);
     if (hidden)
@@ -423,8 +426,9 @@ std::shared_ptr<void> EditorWindow::whileBusy()
 int EditorWindow::getDesktopWindowStyleFlags() const
 {
     auto style = DocumentWindow::getDesktopWindowStyleFlags();
-    // A window of the app's (Windows): no taskbar button, and not in Alt+Tab (JUCE makes it a tool window).
-    if (owner != nullptr)
+    // A window of the app's (Windows): no taskbar button, and not in Alt+Tab (JUCE makes it a tool window). A hidden
+    // one never has them, whatever it belongs to.
+    if (owner != nullptr || hidden)
         style &= ~juce::ComponentPeer::windowAppearsOnTaskbar;
     return style;
 }

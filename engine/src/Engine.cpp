@@ -461,6 +461,7 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         // A plugin channel's new state, or files dropped on its window, done while the audio thread has let go of
         // it (`PluginHost::swap`). Answered once done.
         std::function<juce::var (HostedPlugin&)> action;
+        juce::StringArray files;
         if (command == "setState")
         {
             juce::MemoryBlock state;
@@ -473,7 +474,6 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         }
         else
         {
-            juce::StringArray files;
             if (const auto* list = params["files"].getArray())
                 for (const auto& file : *list)
                     files.add (file.toString());
@@ -481,13 +481,20 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
                 return reply (fail ("No files to drop."), {});
             action = [this, files] (HostedPlugin& hosted) { return plugins.dropFiles (hosted, files); };
         }
-        plugins.swap (params["channel"].toString(), std::move (action), [reply] (const juce::Result& result, const juce::var& value) {
-            if (value.isString())
-                return reply (juce::Result::fail (value.toString()), {});
-            reply (result, value);
-        });
-        if (! offline)
-            swapTicker.startTimer (2);
+        auto startSwap = [this, channel = params["channel"].toString(), act = std::move (action), reply] () mutable {
+            plugins.swap (channel, std::move (act), [reply] (const juce::Result& result, const juce::var& value) {
+                if (value.isString())
+                    return reply (juce::Result::fail (value.toString()), {});
+                reply (result, value);
+            });
+            if (! offline)
+                swapTicker.startTimer (2);
+        };
+        if (command == "setState")
+            startSwap();
+        else
+            // Its window ready for them first (one just made takes a moment), and the plugin playing on meanwhile.
+            plugins.whenDropReady (params["channel"].toString(), files, std::move (startSwap));
         return;
     }
     if (command == "channelEditor")

@@ -310,6 +310,9 @@ namespace
 constexpr juce::uint32 swapUntendedMs = 250;
 /** How long an invisible window made for dropping files is kept for the next ones. */
 constexpr int dropWindowKeptMs = 10000;
+/** How long a window waits to say it would take dropped files, and how often it's asked meanwhile. */
+constexpr juce::uint32 dropReadyMs = 3000;
+constexpr int dropReadyTickMs = 20;
 }
 
 void PluginHost::swap (const juce::String& ownerId, std::function<juce::var (HostedPlugin&)> action, std::function<void (const juce::Result&, const juce::var&)> done)
@@ -392,16 +395,35 @@ juce::var PluginHost::dropFiles (HostedPlugin& hosted, const juce::StringArray& 
     if (hosted.window != nullptr)
     {
         // Its open window, invisible for the moment of the drop (which moves it under the pointer and back).
+        // (Windows: nothing moves, so it stays as it is and shows the preset it's given.)
         auto& window = *hosted.window;
+       #if JUCE_WINDOWS
+        return ::dropFiles (window, files, 0.5, 0.5);
+       #else
         const auto alpha = window.getAlpha();
         window.setAlpha (0.0f);
         const auto result = ::dropFiles (window, files, 0.5, 0.5);
         window.setAlpha (alpha);
         return result;
+       #endif
     }
+    const auto result = ::dropFiles (dropWindowOf (hosted), files, 0.5, 0.5);
+    keepDropWindow (hosted);
+    return result;
+}
+
+EditorWindow& PluginHost::dropWindowOf (HostedPlugin& hosted)
+{
+    if (hosted.window != nullptr)
+        return *hosted.window;
     if (hosted.dropWindow == nullptr)
         hosted.dropWindow = std::make_unique<EditorWindow> (*hosted.instance, titleOf (hosted), [] {}, true);
-    const auto result = ::dropFiles (*hosted.dropWindow, files, 0.5, 0.5);
+    return *hosted.dropWindow;
+}
+
+void PluginHost::keepDropWindow (HostedPlugin& hosted)
+{
+    hosted.lastDrop = juce::Time::getMillisecondCounter();
     // Kept a while for the next file (making Serum's window takes a moment), then let go of.
     juce::Timer::callAfterDelay (dropWindowKeptMs + 100, [this, stillAlive = alive, ownerId = hosted.ownerId] {
         if (! *stillAlive)
@@ -409,7 +431,39 @@ juce::var PluginHost::dropFiles (HostedPlugin& hosted, const juce::StringArray& 
         if (const auto it = loaded.find (ownerId); it != loaded.end() && juce::Time::getMillisecondCounter() - it->second->lastDrop >= (juce::uint32) dropWindowKeptMs)
             it->second->dropWindow.reset();
     });
-    return result;
+}
+
+void PluginHost::whenDropReady (const juce::String& ownerId, const juce::StringArray& files, std::function<void()> ready)
+{
+   #if JUCE_WINDOWS
+    const auto found = loaded.find (ownerId);
+    if (found == loaded.end() || exporting)
+        return ready();
+    auto& hosted = *found->second;
+    dropWindowOf (hosted);
+    keepDropWindow (hosted);
+    const auto asked = juce::Time::getMillisecondCounter();
+    // Asked again on the message thread's own time, so the plugin's view is made meanwhile (nothing waits here).
+    auto ask = std::make_shared<std::function<void()>>();
+    *ask = [this, stillAlive = alive, ownerId, files, asked, ready, weakAsk = std::weak_ptr<std::function<void()>> (ask)] {
+        if (! *stillAlive)
+            return;
+        const auto it = loaded.find (ownerId);
+        if (it == loaded.end())
+            return ready();
+        const auto said = ::dropFiles (dropWindowOf (*it->second), files, 0.5, 0.5, false);
+        const auto wouldTake = said.isObject() && (int) said["updated"] != 0;
+        if (wouldTake || juce::Time::getMillisecondCounter() - asked >= dropReadyMs)
+            return ready();
+        if (auto again = weakAsk.lock())
+            juce::Timer::callAfterDelay (dropReadyTickMs, [again] { (*again)(); });
+    };
+    // (Holds itself while it waits: each tick keeps the next alive.)
+    juce::Timer::callAfterDelay (0, [ask] { (*ask)(); });
+   #else
+    juce::ignoreUnused (ownerId, files);
+    ready();
+   #endif
 }
 
 void PluginHost::setExporting (bool on)

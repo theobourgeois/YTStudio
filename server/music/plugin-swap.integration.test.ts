@@ -47,7 +47,11 @@ describe.skipIf(!built)("plugin swaps and parameters, offline", () => {
   /** A tenth of a second at a time until `done` (a swap answered: offline, only rendering moves it on), joined. */
   async function hearUntil(done: () => boolean): Promise<Float32Array> {
     const parts: Float32Array[] = [];
-    for (let i = 0; i < 20 && !done(); i++) parts.push(await hear(RATE / 10));
+    // (A drop waits for the plugin's window to be ready before its swap: a pause between renders lets it.)
+    for (let i = 0; i < 100 && !done(); i++) {
+      parts.push(await hear(RATE / 10));
+      if (i >= 4 && !done()) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
     const all = new Float32Array(parts.reduce((n, part) => n + part.length, 0));
     parts.reduce((at, part) => (all.set(part, at), at + part.length), 0);
     return all;
@@ -147,18 +151,22 @@ describe.skipIf(!built)("plugin swaps and parameters, offline", () => {
     await engine.command("channelWatch", { channels: [] });
   });
 
-  it("says why a plugin won't take dropped files, and plays on", async () => {
+  it("drops files on a plugin's window as a swap, and plays on without a click", async () => {
     await hold(true);
     await hear(RATE / 8);
-    // The test synth's window is JUCE's own: nothing in it takes files.
+    const file = path.join(dir, "nothing.fxp");
+    await fs.writeFile(file, "not a preset");
     let answered = false;
-    const dropped = engine.dropFiles(CHANNEL, [path.join(dir, "nothing.fxp")]).then(
-      () => null,
+    const dropped = engine.dropFiles(CHANNEL, [file]).then(
+      (answer) => answer,
       (error: Error) => error,
     );
     void dropped.finally(() => (answered = true));
     const during = await hearUntil(() => answered);
-    expect((await dropped)?.message).toMatch(/No view in the window takes drops|macOS's only/);
+    // The test synth's window is JUCE's generic editor. macOS: no view in it but JUCE's own, which isn't asked, so
+    // the engine says why. Windows: its drop target is asked, and a text box of the editor's takes a file's name.
+    if (process.platform === "darwin") expect((await dropped as Error).message).toMatch(/No view in the window takes drops/);
+    else expect(await dropped).toMatchObject({ performed: true });
     const after = await hear(RATE / 4);
     expect(rms(after)).toBeGreaterThan(0.05);
     expect(largestStep(during)).toBeLessThan(0.05);

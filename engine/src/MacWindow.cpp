@@ -7,7 +7,13 @@
  #endif
  #include <windows.h>
  #include <dwmapi.h>
+ #include <ole2.h>
+ #include <shlobj.h>
+ #include <shobjidl.h>
  #pragma comment(lib, "dwmapi.lib")
+ #pragma comment(lib, "ole32.lib")
+ #pragma comment(lib, "shell32.lib")
+ #pragma comment(lib, "uuid.lib")
 #endif
 
 #include "MacWindow.h"
@@ -361,7 +367,180 @@ juce::var dropFiles (juce::Component& window, const juce::StringArray& files, do
         return "The plugin's window didn't take the files.";
     return juce::var (result.get());
 }
+#elif JUCE_WINDOWS
+namespace
+{
+/** OLE keeps a window's drop target (its `RegisterDragDrop`) under this property, for its own process. */
+constexpr auto dropTargetProperty = L"OleDropTargetInterface";
+
+juce::String classOf (HWND hwnd)
+{
+    wchar_t name[256] {};
+    GetClassNameW (hwnd, name, 256);
+    return juce::String (name);
+}
+
+/** Whether a window is one of the engine's own (a JUCE peer of ours): its drop target is our JUCE's, not the plugin's. */
+bool isOurs (HWND hwnd)
+{
+    for (int i = juce::ComponentPeer::getNumPeers(); --i >= 0;)
+        if (auto* peer = juce::ComponentPeer::getPeer (i); peer != nullptr && peer->getNativeHandle() == hwnd)
+            return true;
+    return false;
+}
+
+BOOL CALLBACK collectWindow (HWND hwnd, LPARAM windows)
+{
+    reinterpret_cast<std::vector<HWND>*> (windows)->push_back (hwnd);
+    return TRUE;
+}
+
+/** The deepest window under `root` that isn't ours and takes drops: the plugin's own (a JUCE plugin's peer). */
+HWND pluginDropWindow (HWND root, juce::StringArray& seen)
+{
+    std::vector<HWND> windows;
+    EnumChildWindows (root, collectWindow, reinterpret_cast<LPARAM> (&windows));
+    const auto depthOf = [root] (HWND hwnd) {
+        int depth = 0;
+        for (; hwnd != nullptr && hwnd != root; hwnd = GetAncestor (hwnd, GA_PARENT))
+            ++depth;
+        return depth;
+    };
+    std::stable_sort (windows.begin(), windows.end(), [&] (HWND a, HWND b) { return depthOf (a) > depthOf (b); });
+    seen.clear();
+    for (auto* hwnd : windows)
+        seen.add (classOf (hwnd));
+    for (auto* hwnd : windows)
+        if (! isOurs (hwnd) && GetPropW (hwnd, dropTargetProperty) != nullptr)
+            return hwnd;
+    return nullptr;
+}
+
+/** Explorer's own data object for the files (CF_HDROP, Shell IDList Array, FileNameW...), or null. */
+IDataObject* shellDataObject (const juce::StringArray& files)
+{
+    std::vector<PIDLIST_ABSOLUTE> ids;
+    auto parsed = true;
+    for (const auto& file : files)
+    {
+        PIDLIST_ABSOLUTE id = nullptr;
+        if (FAILED (SHParseDisplayName (juce::File (file).getFullPathName().toWideCharPointer(), nullptr, &id, 0, nullptr)) || id == nullptr)
+        {
+            parsed = false;
+            break;
+        }
+        ids.push_back (id);
+    }
+    IDataObject* data = nullptr;
+    IShellItemArray* items = nullptr;
+    if (parsed && SUCCEEDED (SHCreateShellItemArrayFromIDLists ((UINT) ids.size(), const_cast<PCIDLIST_ABSOLUTE_ARRAY> (ids.data()), &items)))
+    {
+        items->BindToHandler (nullptr, BHID_DataObject, IID_PPV_ARGS (&data));
+        items->Release();
+    }
+    for (auto* id : ids)
+        ILFree (id);
+    return data;
+}
+
+/** One drop's calls into the plugin's drop target, and what it answered. */
+struct DropCall
+{
+    IDropTarget* target;
+    IDataObject* data;
+    POINTL point;
+    bool perform;
+    DWORD entered, updated, dropped;
+    HRESULT result;
+};
+
+/**
+ * The drag a real one makes: enter, over, then drop (or leave). The plugin's code is foreign, and C++'s `catch`
+ * doesn't take an access violation (MSVC's /EHsc), so it's guarded by SEH: no objects with destructors in here.
+ */
+bool callDropTarget (DropCall& call)
+{
+    __try
+    {
+        constexpr DWORD allowed = DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK;
+        DWORD effect = allowed;
+        call.target->DragEnter (call.data, MK_LBUTTON, call.point, &effect);
+        call.entered = effect;
+        effect = allowed;
+        call.target->DragOver (MK_LBUTTON, call.point, &effect);
+        call.updated = effect;
+        if (! call.perform || call.updated == DROPEFFECT_NONE)
+        {
+            call.target->DragLeave();
+            return true;
+        }
+        // The button is up by the time a real drop happens.
+        effect = allowed;
+        call.result = call.target->Drop (call.data, 0, call.point, &effect);
+        call.dropped = effect;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+} // namespace
+
+void ignoreMouse (juce::Component& window)
+{
+    if (auto* hwnd = static_cast<HWND> (nativeWindowOf (window)))
+    {
+        // Layered and transparent: every click goes through it; never activated, so it never takes the focus.
+        SetWindowLongPtrW (hwnd, GWL_EXSTYLE, GetWindowLongPtrW (hwnd, GWL_EXSTYLE) | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+        SetLayeredWindowAttributes (hwnd, 0, 0, LWA_ALPHA);
+    }
+}
+
+juce::var dropFiles (juce::Component& window, const juce::StringArray& files, double x, double y, bool perform)
+{
+    auto* root = static_cast<HWND> (nativeWindowOf (window));
+    if (root == nullptr || files.isEmpty())
+        return "The window isn't on the screen, or there are no files.";
+    const auto started = juce::Time::getMillisecondCounterHiRes();
+    juce::StringArray seen;
+    auto* hwnd = pluginDropWindow (root, seen);
+    if (hwnd == nullptr)
+        return "No window in the plugin's view takes drops (windows: " + (seen.isEmpty() ? juce::String ("none") : seen.joinIntoString (", ")) + ").";
+    auto* target = static_cast<IDropTarget*> (GetPropW (hwnd, dropTargetProperty));
+    auto* data = shellDataObject (files);
+    if (data == nullptr)
+        return "The files couldn't be made into a drop (are they all there?).";
+    target->AddRef();
+
+    RECT client {};
+    GetClientRect (hwnd, &client);
+    POINT point { client.left + juce::roundToInt (x * (client.right - client.left)), client.top + juce::roundToInt (y * (client.bottom - client.top)) };
+    ClientToScreen (hwnd, &point);
+
+    // Unlike macOS, nothing needs moving under the pointer: Serum takes the drop where it's told (`point`), so a
+    // window the user has open stays as it is, and only shows the preset it's given.
+    DropCall call { target, data, { point.x, point.y }, perform, DROPEFFECT_NONE, DROPEFFECT_NONE, DROPEFFECT_NONE, E_FAIL };
+    const auto called = callDropTarget (call);
+    target->Release();
+    data->Release();
+
+    if (! called)
+        return "The plugin's window threw an exception when given the files.";
+    juce::DynamicObject::Ptr result = new juce::DynamicObject();
+    result->setProperty ("view", classOf (hwnd));
+    result->setProperty ("width", (int) (client.right - client.left));
+    result->setProperty ("height", (int) (client.bottom - client.top));
+    result->setProperty ("entered", (double) call.entered);
+    result->setProperty ("updated", (double) call.updated);
+    if (perform)
+        result->setProperty ("performed", call.result == S_OK && call.dropped != DROPEFFECT_NONE);
+    result->setProperty ("ms", juce::roundToInt (juce::Time::getMillisecondCounterHiRes() - started));
+    if (perform && ! (bool) result->getProperty ("performed"))
+        return "The plugin's window didn't take the files.";
+    return juce::var (result.get());
+}
 #else
 void ignoreMouse (juce::Component&) {}
-juce::var dropFiles (juce::Component&, const juce::StringArray&, double, double, bool) { return "Dropping files on a plugin's window is macOS's only."; }
+juce::var dropFiles (juce::Component&, const juce::StringArray&, double, double, bool) { return "Dropping files on a plugin's window isn't possible on this system."; }
 #endif

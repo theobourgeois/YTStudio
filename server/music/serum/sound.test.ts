@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { serumModAmountParam } from "../../../shared/music/serum-sound.ts";
 import { SpecError, specToBody } from "./body.ts";
 import type { CborMap } from "./cbor.ts";
-import { destinationNames, editSerumBody, fxLinksFor, type SerumChain, liveControls, macroNamesOf, readEffects, readRoutes, readSoundParts, sameLinks, withMacroNames } from "./sound.ts";
+import { destinationNames, editSerumBody, fxLinksFor, type SerumChain, liveControls, macroNamesOf, readEffects, readRoutes, readSoundParts, sameLinks, withMacroNames, withSerum1Macros } from "./sound.ts";
 import type { SerumPresetSpec } from "./spec.ts";
 
 const body = (spec: Partial<SerumPresetSpec> = {}) => specToBody({ name: "Test", ...spec } as SerumPresetSpec);
@@ -120,6 +120,15 @@ describe("names and destinations", () => {
   it("writes the preset's macro names back where Serum reads them", () => {
     const named = withMacroNames(body() as CborMap, ["GRIT", "", "SPACE"]);
     expect(macroNamesOf(named)).toEqual(["GRIT", "", "SPACE", "", "", "", "", ""]);
+  });
+
+  it("puts a converted Serum 1 preset's macros 5 to 8 back at 0, keeping 1 to 4 and the names", () => {
+    const macros = Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((n) => [String(n), { value: 70, ...(n === 6 ? { name: "AIR" } : {}) }]));
+    const reset = withSerum1Macros(body({ macros }) as CborMap);
+    const values = Array.from({ length: 8 }, (_, i) => ((reset[`Macro${i}`] as CborMap).plainParams as CborMap | string));
+    expect(values.slice(0, 4).map((params) => (params as CborMap).kParamValue)).toEqual([70, 70, 70, 70]);
+    expect(values.slice(4)).toEqual(["default", "default", "default", "default"]);
+    expect(macroNamesOf(reset)[5]).toBe("AIR");
   });
 
   it("lists every destination by name: Serum's controls and the sound's effects' parameters", () => {

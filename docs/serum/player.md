@@ -149,11 +149,27 @@ A Serum 1 chunk is zlib: 6.5 KB unpacks to 173 KB (parameters and embedded table
   - macros 5–8 left over from the previous preset in the 10-07 captures (Serum 1 has 4 macros, so a converted
     preset leaves the others as they were).
 
-  The player sets macros 5–8 to 0 before a Serum 1 preset loads, so they never carry over.
+  The player sets macros 5–8 to 0 once a Serum 1 preset has loaded, so they never carry over.
 - **Serum's own path for Serum 2 presets too:** the same drop loads a `.SerumPreset` with its names and everything,
   exactly as Serum's browser does. Loading from the browser can use it for both kinds; `presetAsState` stays for
   the player's edits.
-- **macOS only:** Windows needs its own version (an `IDropTarget` call on the plugin's window), later.
+- **Windows (2026-10-13, on the plugin bench):** the same drop, OLE's way. Serum 2's editor is a
+  VSTGUI child window (`VSTGUI…`) with a drop target of its own (`RegisterDragDrop`, which OLE keeps as the window's
+  `OleDropTargetInterface` property); the engine calls its `DragEnter`, `DragOver` and `Drop` with Explorer's own
+  data object for the file (`SHCreateShellItemArrayFromIDLists`, `BHID_DataObject`). What it found:
+  - **The point decides:** Serum takes the drop at the point it's given, wherever the pointer is, so nothing moves.
+    A window the user has open just shows the new preset.
+  - **A hidden window is enough:** made cloaked (DWM) and never shown, transparent to the mouse, never activated, a
+    tool window (no taskbar button, not in Alt+Tab). The foreground window doesn't change. Just made, and with the
+    computer busy, it turns files down for a moment (Serum's view isn't finished): the engine asks it until it would
+    take them, then starts the swap (`PluginHost::whenDropReady`).
+  - **The load is done inside `Drop`:** the state saved straight after has the preset's name; no message is left to
+    run after it.
+  - **Both kinds load,** `.SerumPreset` and `.fxp`, with their names, in 30–130 ms (the first drop on a new hidden
+    window is the slowest).
+  - The plugin's calls are guarded by SEH (`__try`): a fault inside Serum is said as an exception would be on macOS.
+
+  Serum 1's macros 5–8 are left over on Windows too (`serum-player.integration.test.ts` loads a real `.fxp`).
 
 So no conversions need keeping: every `.fxp` loads as it is, converted by Serum each time.
 
