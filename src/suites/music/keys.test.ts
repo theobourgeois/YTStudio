@@ -113,3 +113,12 @@ describe("the menu keys on Windows", () => {
     expect(takesMenuKey(key("F8"), false)).toBe(false);
   });
 });
+
+describe("the numpad's + and -", () => {
+  it("go to the next and the previous pattern, from any window", () => {
+    const key = (code: string) => resolveMusicKey({ key: code === "NumpadAdd" ? "+" : "-", code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false });
+    expect(key("NumpadAdd")).toEqual({ type: "nextPattern" });
+    expect(key("NumpadSubtract")).toEqual({ type: "previousPattern" });
+    expect(isGlobalKey(key("NumpadAdd")!)).toBe(true);
+  });
+});

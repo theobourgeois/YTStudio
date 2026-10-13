@@ -475,6 +475,10 @@ function runKey(action: MusicKeyAction) {
       return switchMode(useTransport.getState().mode === "song" ? "pattern" : "song");
     case "toggleRecord":
       return useRecording.getState().setOn(!useRecording.getState().on);
+    case "nextPattern":
+      return useMusic.getState().stepPattern(1);
+    case "previousPattern":
+      return useMusic.getState().stepPattern(-1);
     case "toggleTyping":
       return useMidi.getState().setTyping(!useMidi.getState().typing);
     case "toggleMixer":

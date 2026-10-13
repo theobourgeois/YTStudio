@@ -31,7 +31,10 @@ export type MusicKeyAction =
         | "paste"
         /** FL's Ctrl+R and Ctrl+Shift+R: export a WAV, or an MP3 (the save dialog, then the export window). */
         | "exportWav"
-        | "exportMp3";
+        | "exportMp3"
+        /** FL's numpad + and -: the next pattern (a new one past the last) and the one before. */
+        | "nextPattern"
+        | "previousPattern";
     }
   /** Mute or solo the nth channel of the rack (0 is the first). */
   | { type: "mute" | "solo"; index: number }
@@ -57,6 +60,8 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
   const horizontal = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : null;
 
   if (e.code === "Space") return only("togglePlay");
+  if (e.code === "NumpadAdd" && !command && !e.altKey) return { type: "nextPattern" };
+  if (e.code === "NumpadSubtract" && !command && !e.altKey) return { type: "previousPattern" };
   if (e.key === "F5") return only("togglePlaylist");
   if (e.key === "F6") return only("toggleRack");
   if (e.key === "F7") return only("togglePiano");
@@ -118,6 +123,8 @@ const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set([
   "toggleTyping",
   "exportWav",
   "exportMp3",
+  "nextPattern",
+  "previousPattern",
 ]);
 
 export const isGlobalKey = (action: MusicKeyAction) => GLOBAL_KEYS.has(action.type);
