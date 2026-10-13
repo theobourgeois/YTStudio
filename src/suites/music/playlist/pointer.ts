@@ -97,6 +97,34 @@ function isDouble(e: Press): boolean {
   return double;
 }
 
+/**
+ * The sweeping tools' (erase, mute) path: each call gives the clips under every point of the path since
+ * the last call, a few px apart (a fast sweep's pointer events are tens of px apart, and would skip small
+ * clips), in the view as it is now.
+ */
+function sweeper(element: HTMLElement, p: PlaylistContext, e: Press) {
+  let last = local(element, e);
+  let lastEvent: PointerEvent | null = null;
+  return (ev: PointerEvent): PlaylistClip[] => {
+    const view = usePlaylist.getState().view;
+    // The same event again (the grid scrolling under a still pointer): only where it is now.
+    const samples = ev === lastEvent ? [] : (ev.getCoalescedEvents?.() ?? []);
+    lastEvent = ev;
+    const met: PlaylistClip[] = [];
+    for (const q of (samples.length ? samples : [ev]).map((s) => local(element, s))) {
+      const steps = Math.max(1, Math.ceil(Math.hypot(q.x - last.x, q.y - last.y) / 3));
+      for (let i = 1; i <= steps; i++) {
+        const x = last.x + ((q.x - last.x) * i) / steps;
+        const y = last.y + ((q.y - last.y) * i) / steps;
+        const clip = hitClip(p.clips, p.ctx, p.layout, view, x, y)?.clip;
+        if (clip && met.at(-1) !== clip) met.push(clip);
+      }
+      last = q;
+    }
+    return met;
+  };
+}
+
 /** Sweep across clips with the right button or the delete tool: each goes as it's touched. */
 function erase(e: Press, element: HTMLElement, p: PlaylistContext, hit: PlaylistClip | null, button: 0 | 2, onClickNothing?: () => void) {
   const erased = new Set<number>();
@@ -109,12 +137,12 @@ function erase(e: Press, element: HTMLElement, p: PlaylistContext, hit: Playlist
   show(element, CURSORS.eraser);
   usePlaylist.getState().setDrag({ kind: "erase", ids: new Set() });
   take(hit);
+  const sweep = sweeper(element, p, e);
   startGridDrag(e, element, {
     button,
     threshold: 0,
     onMove(ev) {
-      const q = local(element, ev);
-      take(hitClip(p.clips, p.ctx, p.layout, usePlaylist.getState().view, q.x, q.y)?.clip ?? null);
+      for (const clip of sweep(ev)) take(clip);
     },
     onEnd: commitDrag,
     onClick() {
@@ -143,12 +171,15 @@ export function gridPointerDown(e: Press) {
   };
   const finish = { onEnd: commitDrag, onClick: commitDrag, onCancel: cancelDrag };
 
-  // The middle button pans, whatever the tool.
-  if (e.button === 1) {
+  const hit = hitClip(p.clips, p.ctx, p.layout, view, q0.x, q0.y, p.selected);
+  // The middle button pans, whatever the tool; so does Shift+right-drag (FL's), but on an automation
+  // clip's curve, where Shift+right-click adds a point on its line.
+  const shiftPan = e.button === 2 && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && hit?.clip.kind !== "automation";
+  if (e.button === 1 || shiftPan) {
     e.preventDefault();
     show(element, MOVING_CURSOR);
     startPointerDrag(e, {
-      button: 1,
+      button: e.button === 1 ? 1 : 2,
       threshold: 0,
       cursor: "grabbing",
       onMove(ev) {
@@ -159,10 +190,9 @@ export function gridPointerDown(e: Press) {
     return;
   }
 
-  const hit = hitClip(p.clips, p.ctx, p.layout, view, q0.x, q0.y, p.selected);
-
   // The zoom tool (FL's Z): a rectangle zooms to it, a click zooms out, a right-click back and forth.
-  if (tool === "zoom" && (e.button === 0 || e.button === 2)) return zoomTool(e, tick0, track0, q0.x, at);
+  // Ctrl+right-drag is the same rectangle with any tool, and Ctrl+right-click goes back (FL's).
+  if ((tool === "zoom" && (e.button === 0 || e.button === 2)) || (e.button === 2 && (e.ctrlKey || e.metaKey))) return zoomTool(e, tick0, track0, q0.x, at);
 
   // An automation clip's curve, edited on the clip (FL's): its points and tension handles, and a
   // right-click on its line adds a point. (Its title is the clip's: a right-click there deletes it.)
@@ -238,15 +268,17 @@ export function gridPointerDown(e: Press) {
     const swept = new Set<number>(hit ? [hit.clip.id] : []);
     show(element, CURSORS.mute);
     playlist.setDrag({ kind: "mute", ids: new Set(swept), muted });
+    const sweep = sweeper(element, p, e);
     startGridDrag(e, element, {
       threshold: 0,
       onMove(ev) {
-        const q = at(ev);
-        const clip = hitClip(p.clips, p.ctx, p.layout, usePlaylist.getState().view, q.x, q.y)?.clip;
-        if (clip && !swept.has(clip.id)) {
+        let changed = false;
+        for (const clip of sweep(ev)) {
+          if (swept.has(clip.id)) continue;
           swept.add(clip.id);
-          usePlaylist.getState().setDrag({ kind: "mute", ids: new Set(swept), muted });
+          changed = true;
         }
+        if (changed) usePlaylist.getState().setDrag({ kind: "mute", ids: new Set(swept), muted });
       },
       ...finish,
     });
@@ -373,11 +405,11 @@ export function gridPointerDown(e: Press) {
 function zoomTool(e: Press, tick0: number, track0: number, x0: number, at: (ev: PointerEvent) => { tick: number; track: number }) {
   const playlist = usePlaylist.getState();
   const { view } = playlist;
-  if (e.button === 2) {
-    if (playlist.zoomBack) usePlaylist.setState({ view: playlist.zoomBack, zoomBack: view });
-    return;
-  }
+  const back = () => playlist.zoomBack && usePlaylist.setState({ view: playlist.zoomBack, zoomBack: view });
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (e.button === 2 && !ctrl) return void back();
   startPointerDrag(e, {
+    button: e.button === 2 ? 2 : 0,
     threshold: 3,
     cursor: "zoom-in",
     onMove(ev) {
@@ -392,7 +424,7 @@ function zoomTool(e: Press, tick0: number, track0: number, x0: number, at: (ev: 
       const zoomed = zoomToRange(view, Math.min(drag.from, drag.to), Math.max(drag.from, drag.to), usePlaylist.getState().gridWidth, zoomFloor());
       usePlaylist.setState({ zoomBack: view, view: { ...zoomed, scrollY: p.layout[Math.min(drag.top, drag.bottom)] ?? zoomed.scrollY } });
     },
-    onClick: () => usePlaylist.setState({ zoomBack: view, view: zoomAt(view, x0, view.pxPerTick / 2, zoomFloor()) }),
+    onClick: () => (e.button === 2 ? void back() : usePlaylist.setState({ zoomBack: view, view: zoomAt(view, x0, view.pxPerTick / 2, zoomFloor()) })),
     onCancel: cancelDrag,
   });
 }
