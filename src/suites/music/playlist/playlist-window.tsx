@@ -409,17 +409,15 @@ function PlaylistBody() {
         selected: selectionCache!.result,
         tracks: song.playlist.tracks,
         layout: p.layout,
-        patterns: new Map(song.patterns.map((pattern) => [pattern.id, pattern])),
+        patterns: lookups(song).patterns,
         // A curve being shaped is drawn as it would be left.
-        automations: new Map(song.automations.map((a) => [a.id, drag?.kind === "curve" && drag.automationId === a.id ? { ...a, points: drag.points } : a])),
-        names: new Map([
-          ...song.patterns.map((pattern) => [pattern.id, pattern.name] as const),
-          ...song.channels.map((c) => [c.id, c.name] as const),
-          ...song.automations.map((a) => [a.id, a.name] as const),
-          ...(playlist.incoming?.files.map((f, i) => [incoming[i].ref, f.name] as const) ?? []),
-        ]),
+        automations:
+          drag?.kind === "curve"
+            ? new Map(song.automations.map((a) => [a.id, drag.automationId === a.id ? { ...a, points: drag.points } : a]))
+            : lookups(song).automations,
+        names: playlist.incoming ? new Map([...lookups(song).names, ...playlist.incoming.files.map((f, i) => [incoming[i].ref, f.name] as const)]) : lookups(song).names,
         incoming,
-        colors: new Map([...song.patterns, ...song.channels, ...song.automations].flatMap((source) => (source.color ? [[source.id, source.color] as const] : []))),
+        colors: lookups(song).colors,
         waveforms,
         vanishing: fading,
         recording: takes.map(([track, pass], i) => ({ track: takeTracks[i], label: mixerTrackName(song, track), ...pass })),
@@ -915,6 +913,28 @@ function MarkerRename() {
 function sourceColor(song: MusicProject, source: ClipSource): string | null {
   const list = source.kind === "pattern" ? song.patterns : source.kind === "automation" ? song.automations : song.channels;
   return list.find((item) => item.id === source.ref)?.color ?? null;
+}
+
+/** The song's patterns, automations, names and colours by id, for drawing: made again only when they change, not every frame. */
+let lookupCache: { patterns: unknown; channels: unknown; automations: unknown; result: ReturnType<typeof makeLookups> } | null = null;
+function lookups(song: MusicProject) {
+  const c = lookupCache;
+  if (c?.patterns === song.patterns && c.channels === song.channels && c.automations === song.automations) return c.result;
+  const result = makeLookups(song);
+  lookupCache = { patterns: song.patterns, channels: song.channels, automations: song.automations, result };
+  return result;
+}
+function makeLookups(song: MusicProject) {
+  return {
+    patterns: new Map(song.patterns.map((pattern) => [pattern.id, pattern])),
+    automations: new Map(song.automations.map((a) => [a.id, a])),
+    names: new Map<string, string>([
+      ...song.patterns.map((pattern) => [pattern.id, pattern.name] as const),
+      ...song.channels.map((c) => [c.id, c.name] as const),
+      ...song.automations.map((a) => [a.id, a.name] as const),
+    ]),
+    colors: new Map([...song.patterns, ...song.channels, ...song.automations].flatMap((source) => (source.color ? [[source.id, source.color] as const] : []))),
+  };
 }
 
 /** The automation point to draw larger with its value: the one being dragged, else the one under the pointer. */
