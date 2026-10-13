@@ -75,8 +75,13 @@ page, exactly as above (`Desktop`'s `native` only takes effect where there is a 
 
 - **One React tree, several documents.** `FloatingWindow` opens a window with `window.open` (same origin, same
   renderer: Electron's `setWindowOpenHandler` makes it frameless, hidden and floating, `electron/panels.ts`),
-  copies the page's theme and stylesheets into it (`native/styles.ts`, kept in step for hot updates) and draws its
-  chrome and content into it with a portal. Every store, hook and canvas is the page's own; the window is only a
+  copies the page's theme and stylesheets into it (`native/styles.ts`: a stylesheet the page adds or removes, as
+  Radix's scroll lock does for every menu, is added or removed alone; a changed one has them all copied again, for
+  hot updates) and draws its chrome and content into it with a portal. A window of the system is slow to make (its
+  document, 250 KB of styles parsed, its fonts), so a panel closed keeps its window hidden for the next one (up to
+  four) and two are made while the app is idle (`native/panel-window.ts`, `prewarmPanelWindows`); a panel is shown
+  once its fonts are in and it has drawn two frames, and one reused is revealed a moment later (`REUSED_REVEAL_MS`
+  in `electron/panels.ts`), so it never shows the panel it was before. Every store, hook and canvas is the page's own; the window is only a
   place to draw. The page moves it with `moveTo`, or with `panels.place` when its size changes too (a move and a
   resize from the page undo each other); it is resized by its edges by the system, and its title bar drags it
   (`startPointerDrag` on the pointer's place on the *screen*, the edges still sticking to the desktop's and to other

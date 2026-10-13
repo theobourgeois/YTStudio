@@ -119,6 +119,18 @@ test("draws, moves, copies, resizes and deletes notes with the mouse, as in FL S
   await expect.poll(async () => (await saved(page, id)).length).toBeGreaterThan(before);
 });
 
+test("a right-drag erases every note it passes over, however fast, out to the keyboard at the left", async ({ page }) => {
+  const id = await openPiano(page, "Sweep", [{ start: 0, length: STEP }, { start: STEP * 4, length: STEP }, { start: STEP * 8, length: STEP }, { start: 0, pitch: 74 }]);
+  // One jump from right of them all to over the keyboard: no pointer event lands on any of them.
+  const from = await at(page, STEP * 12, 72);
+  const box = (await page.getByTestId("piano-grid").boundingBox())!;
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down({ button: "right" });
+  await page.mouse.move(box.x - 20, from.y, { steps: 1 });
+  await page.mouse.up({ button: "right" });
+  await expectNotes(page, id, [[0, STEP * 4, 74]]);
+});
+
 test("the tools: paint, delete, mute and slice, by their keys", async ({ page }) => {
   const id = await openPiano(page, "Tools");
   // B: paint lays a note per beat along the stroke.

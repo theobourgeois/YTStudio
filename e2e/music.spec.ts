@@ -3203,6 +3203,31 @@ test("automation, as FL Studio's: a knob makes a clip, its curve is shaped on th
   point = (await savedAutomations(page, id))[0].points[1];
   expect(point.value).toBeCloseTo(0.9, 1);
 
+  // The first point, on the clip's left edge, is the curve's (not the edge's): dragged up and down, and
+  // right-clicked for its menu rather than deleting the clip.
+  at = await curvePoint(page, 0, 0.78, 0);
+  const lower = await curvePoint(page, 0, 0.4, 0);
+  await page.mouse.move(at.x + 1, at.y);
+  await page.mouse.down();
+  await page.mouse.move(lower.x + 1, lower.y, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points[0].value).toBeCloseTo(0.4, 1);
+  expect((await savedAutomations(page, id))[0].points[0].tick).toBe(0);
+  at = await curvePoint(page, 0, (await savedAutomations(page, id))[0].points[0].value, 0);
+  await page.mouse.click(at.x + 1, at.y, { button: "right" });
+  await expect(page.getByTestId("point-menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+  expect(await savedClips(page, id)).toHaveLength(1);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points[0].value).toBeCloseTo(0.78, 2);
+
+  // A double-click on a point: its value typed in.
+  at = await curvePoint(page, point.tick, point.value, 0);
+  await page.mouse.dblclick(at.x, at.y);
+  await expect(page.getByTestId("point-value")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("point-value")).toHaveCount(0);
+
   // A right-click on a point: its menu, FL's curve types.
   at = await curvePoint(page, point.tick, point.value, 0);
   await page.mouse.click(at.x, at.y, { button: "right" });
