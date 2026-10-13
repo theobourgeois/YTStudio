@@ -41,6 +41,12 @@ const popupStaysShown = ownedByMain;
 const POPUP_PARK_MS = 400;
 
 /**
+ * A panel hidden and shown again (the page keeps closed panels' windows for the next one) would show the
+ * last frame it drew, another panel's, until it draws again: it's shown see-through for this long first.
+ */
+const REUSED_REVEAL_MS = 50;
+
+/**
  * Whether the main window's page can still be told things. As the app quits, its page goes before the window
  * does, and the panels close with it: each one telling a page that's gone threw ("Object has been destroyed").
  */
@@ -102,6 +108,8 @@ export class Panels {
   private followed: { x: number; y: number };
   /** The menu window is shown off the screens until it has drawn itself see-through (`POPUP_PARK_MS`). */
   private popupParked = false;
+  /** Panels hidden by the page: shown again, they're another panel's (`REUSED_REVEAL_MS`). */
+  private readonly reused = new Set<string>();
 
   /**
    * `stack` is told which panel is used (it has the focus) and which are new; `restack` puts every floating
@@ -150,6 +158,7 @@ export class Panels {
     win.on("closed", () => {
       this.windows.delete(name);
       this.shown.delete(name);
+      this.reused.delete(name);
       this.placed.delete(name);
       if (stacked) this.stack.drop(panelKey(name));
       if (pageAlive(this.main)) this.main.webContents.send("panels:closed", name);
@@ -189,6 +198,10 @@ export class Panels {
     if (focus) this.stack.raise(panelKey(name));
     else this.stack.lower(panelKey(name));
     if (!this.state.visible) return;
+    if (this.reused.delete(name)) {
+      win.setOpacity(0);
+      setTimeout(() => !win.isDestroyed() && win.setOpacity(1), REUSED_REVEAL_MS);
+    }
     if (focus) {
       win.show();
     } else if (ownedByMain) {
@@ -304,6 +317,7 @@ export class Panels {
     if (!win || win.isDestroyed()) return;
     this.shown.delete(name);
     if (name === POPUP_WINDOW && popupStaysShown) return void win.setIgnoreMouseEvents(true);
+    if (win.isVisible()) this.reused.add(name);
     win.hide();
   }
 

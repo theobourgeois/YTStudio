@@ -22,24 +22,33 @@ const isStyle = (node: Node): node is HTMLLinkElement | HTMLStyleElement =>
 
 /**
  * Put the page's stylesheets in the other document. `ready` settles once the linked ones have loaded (or
- * failed, or taken too long), so the panel isn't shown unstyled. They're copied again when the page's change
- * (a hot update), without a gap: the old ones go when the new have loaded.
+ * failed, or taken too long), so the panel isn't shown unstyled. A stylesheet the page adds or removes (a
+ * library's own, as Radix's scroll lock does each time a menu opens) is added or removed there alone; one
+ * that changes (the dev server's hot update) has them all copied again, without a gap: the old ones go when
+ * the new have loaded.
  */
 export function mirrorStyles(from: Document, to: Document): { ready: Promise<void>; stop: () => void } {
   let current: Element[] = [];
+  /** Each of the page's stylesheets, and its copy here. */
+  let copies = new Map<Node, Element>();
+  const cloneOf = (node: HTMLLinkElement | HTMLStyleElement) => {
+    const clone = to.importNode(node, true) as HTMLLinkElement | HTMLStyleElement;
+    // (`instanceof` would be the other window's HTMLLinkElement.)
+    // Whole, not relative to the new document, which an about:blank has no address of its own for.
+    if (clone.localName === "link") clone.setAttribute("href", (node as HTMLLinkElement).href);
+    return clone;
+  };
   const copy = (): Promise<void> => {
     const fresh: Element[] = [];
+    const freshCopies = new Map<Node, Element>();
     const waits: Promise<void>[] = [];
     for (const node of [...from.head.children]) {
       if (!isStyle(node)) continue;
-      const clone = to.importNode(node, true) as HTMLLinkElement | HTMLStyleElement;
-      // (`instanceof` would be the other window's HTMLLinkElement.)
-      const isLink = clone.localName === "link";
-      // Whole, not relative to the new document, which an about:blank has no address of its own for.
-      if (isLink) clone.setAttribute("href", (node as HTMLLinkElement).href);
+      const clone = cloneOf(node);
       fresh.push(clone);
+      freshCopies.set(node, clone);
       to.head.append(clone);
-      if (isLink) {
+      if (clone.localName === "link") {
         waits.push(
           new Promise((resolve) => {
             clone.addEventListener("load", () => resolve(), { once: true });
@@ -50,6 +59,7 @@ export function mirrorStyles(from: Document, to: Document): { ready: Promise<voi
     }
     const old = current;
     current = fresh;
+    copies = freshCopies;
     const settled = Promise.race([Promise.all(waits).then(() => undefined), new Promise<void>((resolve) => setTimeout(resolve, 3000))]);
     void settled.then(() => {
       for (const node of old) node.remove();
@@ -58,8 +68,33 @@ export function mirrorStyles(from: Document, to: Document): { ready: Promise<voi
   };
   const ready = copy();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  // A style the dev server changes is a <style> whose text changes, or one replaced.
-  const observer = new MutationObserver(() => {
+  const observer = new MutationObserver((records) => {
+    // Stylesheets added to or taken from <head> itself: those alone, at once.
+    if (records.every((r) => r.type === "childList" && r.target === from.head)) {
+      for (const record of records) {
+        for (const node of record.removedNodes) {
+          const clone = copies.get(node);
+          if (!clone) continue;
+          clone.remove();
+          copies.delete(node);
+          current = current.filter((c) => c !== clone);
+        }
+        for (const node of record.addedNodes) {
+          if (!isStyle(node) || copies.has(node)) continue;
+          const clone = cloneOf(node);
+          // In the same order as the page's (the cascade depends on it): before the copy of the next one.
+          let next = node.nextSibling;
+          while (next && !copies.has(next)) next = next.nextSibling;
+          const before = next ? copies.get(next)! : null;
+          if (before) to.head.insertBefore(clone, before);
+          else to.head.append(clone);
+          copies.set(node, clone);
+          current.push(clone);
+        }
+      }
+      return;
+    }
+    // A style the dev server changes is a <style> whose text changes, or a link's address.
     clearTimeout(timer);
     timer = setTimeout(() => void copy(), 40);
   });
