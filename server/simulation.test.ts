@@ -82,6 +82,24 @@ describe.skipIf(!session)("simulations reach the same frame however it's reached
     expect(maxDiff(straight, ordered[N])).toBeLessThanOrEqual(2);
   });
 
+  it("World Loop (the picture bent, its echo flowing, zoomed, turned and recoloured): the same however it's reached", async () => {
+    const p = project([
+      [
+        "world-loop",
+        { swirl: 0.4, kaleido: 0.4, warp: 0.3, ripple: 0.2, mirror: 0.3, chroma: 0.3, orbit: 30, amount: 0.85, trailLength: 2, echoZoom: 1.6, echoRotation: 40, echoHue: 90, flowSwirl: 60, flowWarp: 0.4, mode: "screen" },
+      ],
+    ]);
+    const N = 75;
+    const { shaders, frames, alone } = plans(p, N);
+    const ordered = await session!.frames({ ...SIZE, shaders, frames, order: frames.map((_, f) => f) });
+    expect(lit(ordered[N])).toBeGreaterThan(0.05);
+    const [straight] = await session!.frames({ ...SIZE, shaders, frames: [alone], order: [0] });
+    expect(maxDiff(straight, ordered[N])).toBeLessThanOrEqual(2);
+    const order = [N, 31, 64, 40];
+    const seeks = await session!.frames({ ...SIZE, shaders, frames, order, catchUp: true });
+    order.forEach((f, i) => expect(maxDiff(seeks[i], ordered[f]), `frame ${f}`).toBeLessThanOrEqual(2));
+  });
+
   it("a 3D scene (its camera and events stepped in TypeScript) is the same straight to a frame", async () => {
     const p = project([["storm-sea", { weather: "storm" }]]);
     const N = 40;
