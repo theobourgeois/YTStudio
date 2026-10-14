@@ -1,5 +1,5 @@
 import { PiPauseFill, PiPlayFill, PiSkipBackFill, PiSkipForwardFill, PiWarning } from "react-icons/pi";
-import { positionAt } from "@shared/now-playing";
+import { type NowPlayingCommand, type NowPlayingStatus, positionAt } from "@shared/now-playing";
 import { cn } from "cn";
 import { useNow } from "@/hooks/use-now";
 import { useNowPlaying } from "@/stores/now-playing";
@@ -15,6 +15,24 @@ export function NowPlayingPill({ className }: { className?: string }) {
   // The progress line moves on between answers.
   const now = useNow(1000);
   if (!enabled || !status) return null;
+  const { command, openVisualizer } = useNowPlaying.getState();
+  return <NowPlayingPillView status={status} now={now} onCommand={(c) => void command(c)} onOpen={openVisualizer} className={className} />;
+}
+
+/** The pill for a player's answer (the gallery shows its states). */
+export function NowPlayingPillView({
+  status,
+  now,
+  onCommand,
+  onOpen,
+  className,
+}: {
+  status: NowPlayingStatus;
+  now: number;
+  onCommand: (command: NowPlayingCommand) => void;
+  onOpen: () => void;
+  className?: string;
+}) {
 
   if (status.unavailable === "not-allowed") {
     return (
@@ -28,7 +46,6 @@ export function NowPlayingPill({ className }: { className?: string }) {
   if (status.unavailable || !track) return null;
   const playing = status.state === "playing";
   const progress = track.duration > 0 ? positionAt(status, now) / track.duration : 0;
-  const { command, openVisualizer } = useNowPlaying.getState();
 
   return (
     <div
@@ -41,7 +58,7 @@ export function NowPlayingPill({ className }: { className?: string }) {
     >
       <button
         type="button"
-        onClick={openVisualizer}
+        onClick={onOpen}
         title="Open the visualizer"
         className="flex min-w-0 flex-1 items-center gap-2 rounded-sm py-1 pr-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       >
@@ -55,13 +72,13 @@ export function NowPlayingPill({ className }: { className?: string }) {
           {track.artist && <span className="text-muted-foreground"> · {track.artist}</span>}
         </span>
       </button>
-      <PillButton label="Previous" onClick={() => void command({ action: "previous" })} hidden>
+      <PillButton label="Previous" onClick={() => onCommand({ action: "previous" })} hidden>
         <PiSkipBackFill />
       </PillButton>
-      <PillButton label={playing ? "Pause" : "Play"} onClick={() => void command({ action: "toggle" })}>
+      <PillButton label={playing ? "Pause" : "Play"} onClick={() => onCommand({ action: "toggle" })}>
         {playing ? <PiPauseFill /> : <PiPlayFill />}
       </PillButton>
-      <PillButton label="Next" onClick={() => void command({ action: "next" })} hidden>
+      <PillButton label="Next" onClick={() => onCommand({ action: "next" })} hidden>
         <PiSkipForwardFill />
       </PillButton>
       <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-foreground/8">

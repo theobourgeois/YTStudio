@@ -43,8 +43,8 @@ export function HeaderActions({
   // What's playing is in the tab strip when there is one, else here.
   const tabs = useTabsShown();
   return (
-    <div className="ml-auto flex min-w-0 items-center gap-0.5" data-header-actions>
-      {!tabs && <NowPlayingPill className="mr-1.5" />}
+    <div className="ml-auto flex shrink-0 items-center gap-0.5" data-header-actions>
+      {!tabs && <NowPlayingPill className="mr-1.5 max-w-56" />}
       <HistoryButton icon={PiArrowUUpLeft} label="Undo" shortcut={UNDO_KEYS} disabled={!canUndo} onClick={onUndo} />
       <HistoryButton icon={PiArrowUUpRight} label="Redo" shortcut={REDO_KEYS} disabled={!canRedo} onClick={onRedo} />
       <Separator orientation="vertical" className="mx-1.5 data-[orientation=vertical]:h-5" />

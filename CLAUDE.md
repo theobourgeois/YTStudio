@@ -24,6 +24,8 @@ before working on its code** (the suite folders' own CLAUDE.md files load them f
   ([`music-engine.md`](docs/claude/music-engine.md)) and audio intelligence
   ([`audio-intelligence.md`](docs/claude/audio-intelligence.md)) have guides of their own.
 - **The photo suite** ([`docs/claude/photo.md`](docs/claude/photo.md)): a Photoshop-style image editor (WebGPU).
+- **Now Playing** ([`docs/now-playing.md`](docs/now-playing.md)): what Spotify plays, in the top bar of every suite,
+  and a full-window visualizer of it (the video editor's looks, listening to the computer's sound live).
 
 Keep this file to what every suite shares (under 40k characters): a suite's details go in its guide.
 
@@ -39,6 +41,7 @@ pnpm samples      # test media into ./samples
 pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + check transitions
 pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + check video effects
 pnpm tsx scripts/preset-sheet.ts [type|tag ...] [--out f.png]       # render + check presets
+pnpm tsx scripts/now-playing-sheet.ts [look|kind ...] [--song f.mp3]  # Now Playing's looks in the real app, on a song
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
 pnpm tsx scripts/perf.ts --scrub <Project.yt> [--render]        # scrub and play a copy of a real project, GPU and all
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme

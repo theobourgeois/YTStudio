@@ -237,6 +237,8 @@ export default function NowPlayingView() {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) return;
       e.stopImmediatePropagation();
+      // The controls' own lists keep their keys.
+      if ((e.target as HTMLElement | null)?.tagName === "SELECT" && e.key !== "Escape") return;
       const action = visualizerKey(e);
       if (!action) return;
       e.preventDefault();

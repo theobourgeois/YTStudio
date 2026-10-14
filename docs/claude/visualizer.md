@@ -48,3 +48,6 @@ GLSL: each `shared/scenes/<scene>.ts` holds its GLSL, its parameters and its sta
 Monoliths, Cyberspace, Wormhole, Cosmic Web) repeats its world over a long period and wraps the camera in TS, so a long song never runs out of float
 precision. `scripts/scene-sheet.ts` renders them to look at;
 `server/simulation.test.ts` is the gate: a frame the same in order, straight away and seeking.
+**Live**: Now Playing's visualizer (docs/now-playing.md) plays looks of these effects on the computer's sound,
+measured as it's heard (`shared/signals/live.ts`), through a `SignalReader` with a `live` session: its store is new
+every frame but simulations and scenes keep their states (`hearingHash`).

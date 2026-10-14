@@ -54,7 +54,8 @@ interface NowPlayingState {
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;
-let polling = false;
+/** Each `start` is a run of its own: a stopped run's answer arriving late doesn't start polling twice. */
+let run = 0;
 
 const storedOffset = () => {
   const v = Number(localStorage.getItem(OFFSET_KEY));
@@ -73,20 +74,21 @@ export const useNowPlaying = create<NowPlayingState>((set, get) => ({
   offset: storedOffset(),
 
   start() {
-    if (polling) return () => {};
-    polling = true;
+    const mine = ++run;
+    if (timer) clearTimeout(timer);
     const tick = async () => {
       timer = null;
-      if (!polling) return;
+      if (run !== mine) return;
       if (get().enabled) await get().refresh();
-      if (!polling) return;
+      if (run !== mine) return;
       const s = get().status;
       const wait = !get().enabled || !s || s.unavailable ? POLL_MS.away : s.state === "playing" ? POLL_MS.playing : POLL_MS.paused;
       timer = setTimeout(() => void tick(), wait);
     };
     void tick();
     return () => {
-      polling = false;
+      if (run !== mine) return;
+      run++;
       if (timer) clearTimeout(timer);
       timer = null;
     };
