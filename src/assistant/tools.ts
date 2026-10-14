@@ -67,7 +67,7 @@ import {
   strings,
 } from "./input";
 import { log } from "@/lib/log";
-import { LIVE_LOOKS, liveLook } from "@shared/live-looks";
+import { type Frame, LIVE_LOOKS, NO_FX, liveLook } from "@shared/live-looks";
 import { type NowPlayingUnavailable, positionAt } from "@shared/now-playing";
 import { AUTO_SWITCHES, useVisualizerPrefs } from "@/components/now-playing-view/prefs";
 import { useNowPlaying } from "@/stores/now-playing";
@@ -819,6 +819,8 @@ const TOOLS: Record<VideoToolName, Handler> = {
         ? `The visualizer is open, showing ${liveLook(prefs.look)?.name ?? prefs.look} (${prefs.look}); looks change: ${auto.label.toLowerCase()} (${auto.id}); listening: ${listening}.`
         : `The visualizer is closed (its look is ${prefs.look}; looks change: ${auto.id}).`,
     );
+    const fxSet = (Object.keys(NO_FX) as (keyof typeof NO_FX)[]).filter((k) => prefs.fx[k] !== NO_FX[k]);
+    lines.push(`Distort and feedback over the looks: ${fxSet.length ? fxSet.map((k) => `${k} ${prefs.fx[k]}`).join(", ") : "none"}.`);
     // What each suits (step 5 of docs/now-playing.md), so a look can be picked for the music.
     const suits = (l: (typeof LIVE_LOOKS)[number]) => `${l.suits.characters.join("/")}, intensity ${l.suits.energy[0]}–${l.suits.energy[1]}${l.suits.minimal ? ", minimal" : ""}`;
     lines.push(`Looks (id: name, kind, what it suits): ${LIVE_LOOKS.map((l) => `${l.id} (${l.name}, ${l.kind}, ${suits(l)})`).join("; ")}.`);
@@ -832,6 +834,17 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const look = optString(input, "look");
     const auto = optString(input, "auto");
     const roll = optString(input, "roll");
+    const rawFrame = input.frame;
+    if (rawFrame !== undefined && (typeof rawFrame !== "object" || rawFrame === null || Array.isArray(rawFrame))) throw new ToolError("`frame` is an object: repeat, mirror, spin, zoom or reset.");
+    const frameIn = (rawFrame ?? {}) as Record<string, unknown>;
+    const frame: Partial<Frame> = {};
+    if (frameIn.repeat !== undefined) {
+      if (![1, 2, 3, 4].includes(frameIn.repeat as number)) throw new ToolError("`frame.repeat` is 1, 2, 3 or 4.");
+      frame.repeat = frameIn.repeat as Frame["repeat"];
+    }
+    if (frameIn.mirror !== undefined) frame.mirror = frameIn.mirror === true;
+    if (frameIn.spin !== undefined) frame.spin = Math.max(-90, Math.min(90, Number(frameIn.spin) || 0));
+    if (frameIn.zoom !== undefined) frame.zoom = Math.max(0.4, Math.min(2, Number(frameIn.zoom) || 1));
     if (roll !== undefined && roll !== "chaos" && roll !== "mutate") throw new ToolError("`roll` is chaos or mutate.");
     if (action !== undefined && !["play", "pause", "toggle", "next", "previous"].includes(action)) throw new ToolError("`action` is one of play, pause, toggle, next, previous.");
     if (visualizer !== undefined && visualizer !== "open" && visualizer !== "close") throw new ToolError("`visualizer` is open or close.");
@@ -858,6 +871,20 @@ const TOOLS: Record<VideoToolName, Handler> = {
       useVisualizerPrefs.getState().request(look);
       if (!useNowPlaying.getState().visualizer) np.openVisualizer();
       done.push(`showing ${liveLook(look)!.name}`);
+    } else if (input.fx !== undefined) {
+      if (typeof input.fx !== "object" || input.fx === null || Array.isArray(input.fx)) throw new ToolError("`fx` is an object: warp, swirl, ripple, kaleido, pixelate, lens, fold, feedback, trails, echoZoom, echoSpin, echoHue, or wash.");
+      const given = input.fx as Record<string, unknown>;
+      const prefs = useVisualizerPrefs.getState();
+      if (given.wash === true) {
+        prefs.setFx("wash");
+        prefs.requestFrame("reset");
+      } else prefs.setFx(Object.fromEntries(Object.entries(given).filter(([k, v]) => k in NO_FX && typeof v === "number")));
+      if (!useNowPlaying.getState().visualizer) np.openVisualizer();
+      done.push(given.wash === true ? "washed the distortions, feedback and frame" : `set ${Object.keys(given).join(", ")}`);
+    } else if (rawFrame !== undefined) {
+      useVisualizerPrefs.getState().requestFrame(frameIn.reset === true ? "reset" : frame);
+      if (!useNowPlaying.getState().visualizer) np.openVisualizer();
+      done.push(frameIn.reset === true ? "put the frame back as it was" : `reframed the picture (${Object.entries(frame).map(([k, v]) => `${k} ${v}`).join(", ")})`);
     } else if (roll) {
       useVisualizerPrefs.getState().requestRoll(roll);
       if (!useNowPlaying.getState().visualizer) np.openVisualizer();
@@ -870,7 +897,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
       np.closeVisualizer();
       done.push("closed the visualizer");
     }
-    if (!done.length) throw new ToolError("Nothing to do: give `action`, `seek`, `visualizer`, `look`, `roll` or `auto`.");
+    if (!done.length) throw new ToolError("Nothing to do: give `action`, `seek`, `visualizer`, `look`, `frame`, `fx`, `roll` or `auto`.");
     return textResult(`Done: ${done.join(", ")}.`);
   },
   async open_sequence(input, ctx) {

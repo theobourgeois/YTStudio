@@ -85,7 +85,8 @@ for white-outs and black) and `--song some.mp3` to look at it on real music (the
 spectrum by). Watch for white-outs: Feedback in lighten mode, glow and bright colours add up, and more so in a drop.
 
 The keys (`keys.ts`, vaudio's play mode): ← → looks, ↑ ↓ kinds, R random, M another variation, = chaos, - mutate,
-A how looks change, Z X C V punch, flash, split, twist, 1–0 turn the colours, Space play or pause, ⇧← ⇧→ songs,
+A how looks change, Z X C V punch, flash, split, twist, 1–0 turn the colours, T Y [ ] , . the frame (repeat, mirror,
+turn, zoom), Q W E more warp, swirl, ripples (⇧ less), D every setting, ⌫ wash, Space play or pause, ⇧← ⇧→ songs,
 F full screen, H hide the controls, S tap along, I what it hears, ? the list, Esc close. They're the visualizer's alone while it's open (caught before the editor's).
 
 ## Sync
@@ -114,7 +115,8 @@ is, for looks to follow (steps 3 and 5):
   own loud parts, hits a second in each band (each band's own: the loudest band's would hide hats behind kicks), kicks
   a second, the sub-bass's share. Rises in ~0.6 s, falls in ~2 s (Synesthesia's `syn_Intensity` idea).
 - **Presence**: each band (low, mid, high) getting busier or quieter: its last 2 s against the 6 s before.
-- **Sections**: a drop where the low end comes in suddenly (`LiveSignals.findDrop`: a riser growing louder isn't one),
+- **Sections**: a drop where the low end comes in suddenly (`LiveSignals.findDrop`, looked for every frame over the
+  last 0.3 s, so a big one is known a few ms after its kick and placed on it; a riser growing louder isn't one),
   a build-up where intensity climbs or the low end is gone and the highs rise, a breakdown where intensity has fallen
   well under the last 12 s's highest with no kicks. Each held until the song moves on (no flicker).
 - **Character**: chill, groove, hype or heavy, from the song's typical intensity, density, steady beat, sub-bass,
@@ -215,6 +217,35 @@ look plays out of its range longer than a phrase, nor far out longer than a coup
 look. `now-playing-sheet.ts --record 104 --song some.mp3 --auto song` films a whole song followed, with the choices
 beside it (`<out>.txt`).
 
+## Transitions and the frame
+
+How one look gives way to the next, by the music (step 6 of the plan, `switches.ts`, pure and tested), from why it's
+changing (`SwitchReason`, the chooser's or a key's):
+
+- **A drop**: a hard cut on its kick, with a flash. The drop's known a few ms after the kick (`findDrop` every frame),
+  the cut's placed on it, and how late it's drawn is logged (`cut on the drop N ms after its kick`): 0–30 ms on the
+  made-up song and a real one, a frame being 17.
+- **Calm** (a breakdown, a quiet, a new song, a chill song, intensity under 0.35): a slow blend (film, blur, luma or
+  additive dissolve, morph, liquid), two bars (2–4.5 s) landing on the bar, with a **feedback morph**: a World Loop over
+  everything swelling up to the switch and dying away after, so the look going melts into the one coming.
+- **A groove**: a punch a beat long landing on the downbeat (cross-zoom, whip, pull-in, spin, zoom-out, swirl, light
+  leak). **Glitches** (glitch, datamosh, RGB split, VHS, pixelate) only where a glitchy look comes or goes
+  (`LookSuits.glitch`: VHS Séance, Cyberspace, Datamosh).
+- A build-up changes nothing (it lands on the drop); a key's switch is a quick dissolve; chaos (=) a flash.
+
+**The frame** (`Frame`, on the perform layer, over any look: the editor's Transform, as the video editor's Motion has
+it): repeated (2×2, 3×3, 4×4: zoomed out, its edges tiled), mirrored (the copies each beside its reflection; one copy,
+mirrored down the middle), turning, zoomed, eased over a beat (`setFrame`, an expression with `ease()`; a turn carries
+on from where it was: `frameAngle`). Following the music, a look that isn't chaos is reframed after its first phrase
+(`frameFor`: calm, a mirror or a slow turn; a groove, mirrored copies; intense, more copies or a quicker turn) and a
+new look comes as it is; the keys' (T Y [ ] , .) or the panel's frame stays across looks until it's washed.
+
+**The player's settings** (D, the panel `play-panel.tsx`; `LiveFx`, kept in this browser): vaudio's Distort (fluid
+warp, swirl, ripples, kaleidoscope, pixelate, lens, mirror fold) and Feedback (feedback, trail length, echo zoom, echo
+spin, echo hue) panels, in its units, over any look: a World Loop (warp and swirl moving with the sound), a mosaic, a
+bulge. Q W E nudge warp, swirl, ripples as vaudio's do; ⌫ (Wash) puts them and the frame back. The assistant's
+`control_now_playing` takes `frame` and `fx`; `now_playing` says what's set.
+
 ## The plan (v2)
 
 After Théo's feedback (2026-10-14: the looks are milquetoast and ignore the song's mood, transitions read as amateur,
@@ -232,9 +263,9 @@ Only the e2e spec a step touches is run (`e2e/now-playing.spec.ts`), never the w
    the ranges are tuned. Théo also asked for switching every beat and bar (done) and to drop the L readout (done).
 5. **Picking looks by mood** (done): see Following the music. Pass: a test that a look never plays out of its range
    (for longer than a phrase); a log of each choice and why; Théo watches whole songs.
-6. **Musical transitions**: a hard cut on the downbeat at a drop; a slow blend or a feedback morph in calm parts; no
-   cut in a build-up (it lands on the drop); glitches only on glitch looks. Pass: a transition sheet; cuts within a
-   frame of the downbeat (logged); Théo's eyes.
+6. **Musical transitions** (done): see Transitions and the frame; with it, Théo's asks: the frame (repeat, mirror,
+   turn, zoom, as the video editor's Motion) and vaudio's Distort and Feedback panels (D). Pass: drop cuts within a
+   frame or two of their kick (logged); films of whole songs; Théo's eyes.
 7. **Its own window**: a movable, resizable window, from a mini player to full screen; in the desktop app a window
    of the system (on top, or on a second screen). Pass: an e2e test, the desktop smoke test, Théo uses it.
 8. **MilkDrop** (optional): Butterchurn as a source, its presets picked by mood. Pass: licences, 60 fps, Théo decides.

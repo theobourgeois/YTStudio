@@ -523,6 +523,8 @@ export function describeToolCall(rawName: string, input: unknown): string {
       if (action === "play" || action === "toggle") return action === "play" ? "Play the song" : "Play or pause the song";
       if (typeof f("seek") === "number") return `Jump to ${seconds(f("seek"))} in the song`;
       if (typeof f("look") === "string") return "Change the visualizer's look";
+      if (f("frame") !== undefined) return "Reframe the visualizer";
+      if (f("fx") !== undefined) return "Distort the visualizer";
       if (f("roll") === "chaos") return "Roll chaos in the visualizer";
       if (f("roll") === "mutate") return "Mutate the visualizer's look";
       if (f("visualizer") === "close") return "Close the visualizer";

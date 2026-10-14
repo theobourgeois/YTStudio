@@ -9,7 +9,7 @@
  */
 import { defaultEffects } from "./effects.ts";
 import { DEFAULT_RESPONSE } from "./links.ts";
-import { CHAOS_LOOKS } from "./live-chaos.ts";
+import { CHAOS_LOOKS, echoZoom, trailSeconds } from "./live-chaos.ts";
 import {
   BASS,
   COVER_ASSET,
@@ -38,7 +38,7 @@ import {
 import type { AlbumPalette } from "./palette.ts";
 import type { SongCharacter } from "./signals/mood.ts";
 import { ONSET_SCALARS, type OnsetName, SIGNALS_VERSION, SIGNAL_RATE, SCALARS, bandEdges, type Hit, type SignalData } from "./signals/format.ts";
-import type { AspectRatio, Clip, MediaAsset, ParamLink, ParamValues, Project, Sequence, SignalRef, Transition } from "./types.ts";
+import type { AspectRatio, Clip, Effect, MediaAsset, ParamLink, ParamValues, Project, Sequence, SignalRef, Transition } from "./types.ts";
 
 export { COVER_ASSET, type LookContext, type LookLayer, seededRandom } from "./live-kit.ts";
 import { createTransition } from "./transitions.ts";
@@ -198,8 +198,177 @@ export function padSignals(hits: readonly PadHit[]): SignalData {
   };
 }
 
-/** The perform layer (an adjustment over every look): the pads' punches, and the colours turned by `hue` degrees. */
-export function performLayer(hue: number): Clip {
+/**
+ * How the picture's framed, over whatever look plays (step 6 of docs/now-playing.md): the editor's Motion moves, as
+ * the video editor's visualizer has them. Repeated (`repeat` × `repeat` copies, the picture zoomed out with its edges
+ * tiled), mirrored (the copies each beside its reflection; unrepeated, the picture mirrored down its middle), turning
+ * (`spin` degrees a second), zoomed (`zoom`: under 1 out, its edges repeating; over 1 in).
+ */
+export interface Frame {
+  repeat: 1 | 2 | 3 | 4;
+  mirror: boolean;
+  spin: number;
+  zoom: number;
+}
+
+export const PLAIN_FRAME: Frame = { repeat: 1, mirror: false, spin: 0, zoom: 1 };
+
+/** A change of frame: from one to another over `seconds` from `at` (session seconds), turned `angle` degrees then. */
+export interface FrameMove {
+  from: Frame;
+  to: Frame;
+  at: number;
+  seconds: number;
+  angle: number;
+  /** Turned back upright (to the nearest whole turn) as it goes. */
+  upright?: boolean;
+}
+
+const sameFrame = (a: Frame, b: Frame) => a.repeat === b.repeat && a.mirror === b.mirror && a.spin === b.spin && a.zoom === b.zoom;
+export const isPlain = (f: Frame) => sameFrame(f, PLAIN_FRAME);
+
+/** How far a move has turned the picture by `time` (degrees), so the next one carries on from there. */
+export function frameAngle(move: FrameMove | null, time: number): number {
+  if (!move) return 0;
+  if (move.to.spin !== 0) return move.angle + Math.max(0, time - move.at) * move.to.spin;
+  if (!move.upright) return move.angle;
+  const k = Math.min(1, Math.max(0, (time - move.at) / Math.max(1e-3, move.seconds)));
+  const target = Math.round(move.angle / 360) * 360;
+  return move.angle + (target - move.angle) * k * k * (3 - 2 * k);
+}
+
+/** The Transform (and Mirror) that frame the picture as `move` says, eased over its seconds. */
+function frameEffects(move: FrameMove): Effect[] {
+  const { from, to, at, seconds } = move;
+  const end = at + Math.max(0.01, seconds);
+  const scale = (f: Frame) => Math.round((f.zoom / f.repeat) * 1000) / 1000;
+  const angle = Math.round(move.angle * 10) / 10;
+  const rotation =
+    to.spin !== 0
+      ? `${angle} + Math.max(0, time - ${at}) * ${to.spin}`
+      : move.upright
+        ? `ease(time, ${at}, ${end}, ${angle}, ${Math.round(move.angle / 360) * 360})`
+        : `${angle}`;
+  // Past its edges, the picture again: mirrored or tiled (while it's smaller than the frame, or turned).
+  const shows = !isPlain(from) || !isPlain(to) || angle % 360 !== 0;
+  const transform: Effect = {
+    ...fx("transform", { scale: scale(to), rotation: 0, edges: shows ? (to.mirror || from.mirror ? "mirror" : "tile") : "none" }),
+    expressions: { scale: `ease(time, ${at}, ${end}, ${scale(from)}, ${scale(to)})`, rotation },
+  };
+  // Mirrored without copies: down the middle.
+  const halves = to.mirror && to.repeat === 1 && to.zoom >= 1 ? [fx("mirror", { side: "left" })] : [];
+  return [transform, ...halves];
+}
+
+/**
+ * What the player plays over any look (vaudio's layer Distort and world Feedback panels, its units): the picture
+ * warped (fluid), swirled, rippled, kaleidoscoped, pixelated, through a lens (+ bulging, − pinching), folded in a
+ * mirror; and fed back on its echo (`feedback` how much, `trails` how long, the echo zooming, turning, changing hue).
+ * All but `lens`, `echoZoom` and `echoSpin` (−1..1) are 0..1; `trails` is 0.6 when untouched (vaudio's).
+ */
+export interface LiveFx {
+  warp: number;
+  swirl: number;
+  ripple: number;
+  kaleido: number;
+  pixelate: number;
+  lens: number;
+  fold: number;
+  feedback: number;
+  trails: number;
+  echoZoom: number;
+  echoSpin: number;
+  echoHue: number;
+}
+
+export const NO_FX: LiveFx = { warp: 0, swirl: 0, ripple: 0, kaleido: 0, pixelate: 0, lens: 0, fold: 0, feedback: 0, trails: 0.6, echoZoom: 0, echoSpin: 0, echoHue: 0 };
+
+/** Each value's range (vaudio's), its feedback held under 0.93 (more washes out to white). */
+export const FX_RANGES: Record<keyof LiveFx, [number, number]> = {
+  warp: [0, 1],
+  swirl: [0, 1],
+  ripple: [0, 1],
+  kaleido: [0, 1],
+  pixelate: [0, 1],
+  lens: [-1, 1],
+  fold: [0, 1],
+  feedback: [0, 0.93],
+  trails: [0, 1],
+  echoZoom: [-1, 1],
+  echoSpin: [-1, 1],
+  echoHue: [0, 1],
+};
+
+/** `fx` made whole and within its ranges (what's kept in a browser, or given by the assistant, may not be). */
+export function normalizeFx(raw: unknown): LiveFx {
+  const given = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const fx = { ...NO_FX };
+  for (const key of Object.keys(NO_FX) as (keyof LiveFx)[]) {
+    const v = Number(given[key]);
+    if (Number.isFinite(v)) fx[key] = Math.min(FX_RANGES[key][1], Math.max(FX_RANGES[key][0], v));
+  }
+  return fx;
+}
+
+const round3 = (v: number) => Math.round(v * 1000) / 1000;
+
+/** The player's distortions and feedback as effects: a World Loop (bent and fed back), a mosaic, a bulge. */
+function fxEffects(v: LiveFx): Effect[] {
+  const out: Effect[] = [];
+  if (v.warp || v.swirl || v.ripple || v.kaleido || v.fold || v.feedback) out.push(fxWorld(v));
+  if (v.pixelate > 0) out.push(fx("mosaic", { blockSize: round3(0.005 + v.pixelate * 0.03) }));
+  if (v.lens !== 0) out.push(fx("bulge", { amount: round3(v.lens * 0.8), reach: 0.6 }));
+  return out;
+}
+
+/** The World Loop of the player's values (vaudio's units to its), warp and swirl moving with the sound. */
+function fxWorld(v: LiveFx): Effect {
+  const LEVEL_REF: SignalRef = { name: "level" };
+  const follows = { ...DEFAULT_RESPONSE, release: 0.3 };
+  return fx(
+    "world-loop",
+    {
+      warp: round3(v.warp),
+      swirl: round3(v.swirl),
+      ripple: round3(v.ripple),
+      kaleido: round3(v.kaleido),
+      mirror: round3(v.fold),
+      amount: round3(v.feedback),
+      trailLength: Math.round(trailSeconds(v.trails) * 100) / 100,
+      echoZoom: Math.round(echoZoom(v.echoZoom) * 100) / 100,
+      echoRotation: Math.round(v.echoSpin * 189),
+      echoHue: Math.round(v.echoHue * 430),
+      mode: "lighten",
+    },
+    {
+      ...(v.warp > 0 && { warp: { signal: LEVEL_REF, mode: "multiply", amount: 0.5, response: follows } }),
+      ...(v.swirl > 0 && { swirl: { signal: LEVEL_REF, mode: "multiply", amount: 0.5, response: follows } }),
+    },
+  );
+}
+
+/**
+ * A feedback morph (step 6): the World Loop over everything for a calm switch, its echo swelling up to the switch at
+ * `at` and dying away after, so the look going melts into the one coming.
+ */
+function morphEffect(at: number, seconds: number): Effect {
+  const half = Math.max(0.3, seconds / 2);
+  return {
+    ...fx("world-loop", { amount: 0, trailLength: 1.4, echoZoom: 1.25, echoRotation: 8, flowWarp: 0.35, flowSwirl: 20, mode: "lighten" }),
+    expressions: { amount: `time < ${at} ? ease(time, ${at - half}, ${at}, 0, 0.88) : ease(time, ${at}, ${at + half + 1.5}, 0.88, 0)` },
+  };
+}
+
+/**
+ * The perform layer (an adjustment over every look): the pads' punches, the colours turned by `hue` degrees, the
+ * player's distortions and feedback (`play`), the frame (`move`), and a feedback morph around a calm switch (`morph`).
+ */
+export function performLayer(
+  hue: number,
+  move: FrameMove | null = null,
+  morph: { at: number; seconds: number } | null = null,
+  play: LiveFx = NO_FX,
+): Clip {
   const hit = (pad: Pad, mode: ParamLink["mode"], amount: number, decay: number): ParamLink => ({
     signal: padRef(pad),
     mode,
@@ -209,6 +378,9 @@ export function performLayer(hue: number): Clip {
   });
   const effects = withIds([
     ...tweakBuiltIn(defaultEffects(), "motion", {}, { scale: hit("zoom", "multiply", 0.22, 0.32), rotation: hit("twist", "add", 9, 0.45) }),
+    ...(morph ? [morphEffect(morph.at, morph.seconds)] : []),
+    ...fxEffects(play),
+    ...(move ? frameEffects(move) : []),
     fx("twirl", { angle: 0, reach: 0.6 }, { angle: hit("twist", "add", 140, 0.5) }),
     fx("rgb-split", { amount: 0 }, { amount: hit("split", "add", 0.035, 0.3) }),
     fx("flash", { amount: 0, exposure: 1.2, bloom: 0.6 }, { amount: hit("flash", "add", 0.85, 0.22) }),
@@ -238,6 +410,8 @@ export interface LookSuits {
   characters: SongCharacter[];
   energy: [number, number];
   minimal?: true;
+  /** Glitchy itself: glitch transitions only where one comes or goes (step 6). */
+  glitch?: true;
 }
 
 export interface LiveLook {
@@ -371,7 +545,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "cyberspace",
     name: "Cyberspace",
     kind: "world",
-    suits: { characters: ["groove", "hype"], energy: [0.4, 1] },
+    suits: { characters: ["groove", "hype"], energy: [0.4, 1], glitch: true },
     layers: ({ palette: p, random: r }) => world("cyberspace", { style: pick(r, ["tron", "matrix", "synthwave", "redalert"]) }, p, r, { tint: between(r, 0.3, 0.55) }),
   },
   {
@@ -630,7 +804,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "vhs-seance",
     name: "VHS Séance",
     kind: "trip",
-    suits: { characters: ["chill", "groove"], energy: [0.05, 0.75] },
+    suits: { characters: ["chill", "groove"], energy: [0.05, 0.75], glitch: true },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("vhs", { intensity: 0.5, scanlines: 0.5 }),

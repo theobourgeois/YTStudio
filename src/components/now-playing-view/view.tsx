@@ -7,12 +7,13 @@ import {
   PiPauseFill,
   PiPlayFill,
   PiShuffle,
+  PiSlidersHorizontal,
   PiSkipBackFill,
   PiSkipForwardFill,
   PiWaveform,
   PiX,
 } from "react-icons/pi";
-import { LIVE_LOOKS, LOOK_KINDS, SWITCHES, type LookKind, liveLook, seededRandom, switchTransition } from "@shared/live-looks";
+import { type Frame, LIVE_LOOKS, LOOK_KINDS, type LookKind, PLAIN_FRAME, isPlain, liveLook, seededRandom, switchTransition } from "@shared/live-looks";
 import { positionAt } from "@shared/now-playing";
 import { formatDuration } from "@shared/format";
 import type { MusicAnalysis } from "@shared/types";
@@ -27,8 +28,10 @@ import { LiveDirector } from "./director";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
 import { ImageSlots, LiveSource } from "./live-source";
 import { MoodReadout } from "./mood-readout";
+import { PlayPanel } from "./play-panel";
 import { TapSync, type Tapper } from "./sync";
 import { AUTO_SWITCHES, CUT_BEATS, QUALITIES, useVisualizerPrefs } from "./prefs";
+import { type Switch, type SwitchReason, switchFor } from "./switches";
 
 /** Seconds the controls stay after the pointer stops. */
 const IDLE_MS = 2600;
@@ -51,6 +54,16 @@ const barSeconds = (rhythm: MusicAnalysis | null | undefined) => 4 * beatSeconds
 const logger = log("now-playing");
 /** Choices the mood readout (I) shows. */
 const CHOICES_KEPT = 5;
+/** What a switch goes by when nothing's heard yet. */
+const UNHEARD = { intensity: 0.5, character: null, sure: 0 } as const;
+/** The frame keys' steps: turning (degrees a second) and zoom. */
+const SPINS = [-45, -20, -6, 0, 6, 20, 45];
+const ZOOMS = [0.5, 0.65, 0.8, 1, 1.25];
+/** The next step along `steps` from `value` (`by` one up or down), kept at the ends. */
+const stepAlong = (steps: readonly number[], value: number, by: 1 | -1) => {
+  const i = steps.reduce((best, v, k) => (Math.abs(v - value) < Math.abs(steps[best] - value) ? k : best), 0);
+  return steps[Math.max(0, Math.min(steps.length - 1, i + by))];
+};
 
 /** The first beat at or after `after`: the last one heard, carried on at the tempo (else `after`). */
 function onTheBeat(rhythm: MusicAnalysis | null | undefined, after: number): number {
@@ -82,6 +95,8 @@ export default function NowPlayingView() {
   const [chooser] = useState(() => new LookChooser(LIVE_LOOKS));
   const choices = useRef<{ time: number; why: string }[]>([]);
   const variationRef = useRef(0);
+  // The frame set by the keys (or the assistant) stays across looks; the chooser's goes with its look.
+  const frameByKeys = useRef(false);
   // The look shown's song, id and variation, and how many times it's been mutated (`-`).
   const shownKey = useRef("");
   const mutation = useRef({ key: "", n: 0 });
@@ -120,19 +135,28 @@ export default function NowPlayingView() {
     };
   }, []);
 
-  /** Show a look: at once (`cut`), soon through a transition (`switching`, else one at random), or on the next bar. */
-  const show = (lookId: string, how: "cut" | "now" | "bar", time = source.now, switching?: { type: string; seconds: number }) => {
+  /**
+   * Show a look, switching as the music says for why it's changing (`switchFor`: a cut at `time`, a blend with a
+   * feedback morph, a punch or a glitch landing on the next downbeat, a key's quick one), or as `switching` says.
+   */
+  const show = (lookId: string, reason: SwitchReason, time = source.now, switching?: Partial<Switch>) => {
     const look = liveLook(lookId) ?? LIVE_LOOKS[0];
     const { status: s, palette: p, prefs: pr } = latest.current;
     const key = `${s?.track?.id ?? "nothing"}:${look.id}:${variationRef.current}`;
     const random = seededRandom(key);
-    const kind = switching?.type ?? SWITCHES[Math.floor(random() * SWITCHES.length)];
-    const seconds = switching?.seconds ?? (how === "now" ? 0.6 : 1 + random() * 0.8);
-    const rhythm = useNowPlaying.getState().live?.signals.data().header.rhythm;
-    const at = how === "cut" ? time : how === "now" ? time + seconds / 2 + 0.03 : onTheBar(rhythm, time + seconds / 2 + 0.1);
+    const signals = useNowPlaying.getState().live?.signals;
+    const rhythm = signals?.data().header.rhythm;
+    const before = liveLook(director.look ?? "") ?? null;
+    const plan: Switch = { ...switchFor(reason, signals?.mood ?? UNHEARD, before, look, beatSeconds(rhythm), random), ...switching };
+    const at = plan.type === null ? time : plan.lands === "now" ? time + plan.seconds / 2 + 0.03 : onTheBar(rhythm, time + plan.seconds / 2 + 0.1);
     const mutations = mutation.current.key === key ? mutation.current.n : 0;
     shownKey.current = key;
-    director.show(look, { palette: p, random, mutations }, at, how === "cut" ? null : switchTransition(kind, seconds));
+    director.show(look, { palette: p, random, mutations }, at, plan.type === null ? null : switchTransition(plan.type, plan.seconds));
+    if (plan.morph) director.morph(at, plan.seconds);
+    // A new look comes as it is: the chooser's reframing was the last one's (the keys' stays).
+    if (before?.id !== look.id && !frameByKeys.current && !isPlain(director.frame)) {
+      director.setFrame(PLAIN_FRAME, plan.type === null ? at : at - plan.seconds / 2, plan.type === null ? 0.01 : plan.seconds, true);
+    }
     chooser.shown(look.id, at, barSeconds(rhythm));
     songRef.current = s?.track?.id ?? null;
     shownPalette.current = p;
@@ -149,7 +173,7 @@ export default function NowPlayingView() {
     variationRef.current++;
     director.hit("flash", source.now + 0.01, 0.45);
     director.hit("zoom", source.now + 0.01, 0.35);
-    show(lookId ?? pool[Math.floor(Math.random() * pool.length)].id, "now", source.now, { type: "flash", seconds: 0.4 });
+    show(lookId ?? pool[Math.floor(Math.random() * pool.length)].id, "chaos");
   };
 
   /** vaudio's -: the chaos shown, its world nudged, blended in; another way of any other look. */
@@ -159,13 +183,25 @@ export default function NowPlayingView() {
     if (liveLook(current)?.kind === "chaos") {
       mutation.current = { key: shownKey.current, n: (mutation.current.key === shownKey.current ? mutation.current.n : 0) + 1 };
     }
-    show(current, "now", source.now, { type: "additive-dissolve", seconds: 0.8 });
+    show(current, "key", source.now, { type: "additive-dissolve", seconds: 0.8 });
+  };
+
+  /** The frame now, for the panel (it changes outside React). */
+  const frameNow = useCallback(() => director.frame, [director]);
+
+  /** Reframe the picture over a beat (the frame keys, the assistant), kept across looks until it's plain again. */
+  const reframe = (frame: Frame, upright = false) => {
+    const rhythm = useNowPlaying.getState().live?.signals.data().header.rhythm;
+    director.setFrame(frame, source.now, Math.max(0.25, beatSeconds(rhythm)), upright);
+    frameByKeys.current = !isPlain(frame);
   };
 
   /** What the chooser goes by now. */
   const moment = (time: number): Moment | null => {
     const signals = useNowPlaying.getState().live?.signals;
-    return signals ? { time, mood: signals.mood, bar: barSeconds(signals.data().header.rhythm) } : null;
+    if (!signals) return null;
+    const rhythm = signals.data().header.rhythm;
+    return { time, mood: signals.mood, bar: barSeconds(rhythm), drop: rhythm?.drops.at(-1)?.time };
   };
 
   /** A choice of the chooser's, made: said (the log, the readout), then shown, mutated or varied. */
@@ -175,9 +211,24 @@ export default function NowPlayingView() {
     if (often) logger.debug(choice.why);
     else logger.info(choice.why);
     if (choice.how === "mutate") return mutate();
+    if (choice.how === "frame" && choice.frame) {
+      // A reframing lands on the next downbeat, over a beat.
+      const rhythm = useNowPlaying.getState().live?.signals.data().header.rhythm;
+      director.setFrame(choice.frame, onTheBar(rhythm, time + 0.1), Math.max(0.25, beatSeconds(rhythm)));
+      frameByKeys.current = false;
+      return;
+    }
     variationRef.current++;
-    if (choice.how === "vary") return show(choice.look, "now", time, { type: "additive-dissolve", seconds: 1.2 });
-    show(choice.look, choice.how, time);
+    if (choice.how === "vary") return show(choice.look, choice.reason, time, { type: "additive-dissolve", seconds: 1.2, morph: false, lands: "bar" });
+    if (choice.how === "cut") {
+      // On the drop's kick: cut there, with a flash. How late it's drawn is logged (step 6's pass: within a frame).
+      const at = choice.at ?? time;
+      director.hit("flash", at, 0.6);
+      show(choice.look, choice.reason, at, { type: null });
+      logger.info(`cut on the drop ${Math.round(Math.max(0, time - at) * 1000)} ms after its kick (a frame is ${Math.round(1000 / 60)} ms)`);
+      return;
+    }
+    show(choice.look, choice.reason, time);
   };
 
   /** A look not shown lately (of `kind`, if given). */
@@ -197,7 +248,7 @@ export default function NowPlayingView() {
       sessionRef.current = live.session;
       director.reset();
       if (!first) source.restart();
-      show(latest.current.prefs.look, "cut", first ? time : 0);
+      show(latest.current.prefs.look, "key", first ? time : 0, { type: null });
       return;
     }
     director.prune(time);
@@ -215,7 +266,13 @@ export default function NowPlayingView() {
       const label = AUTO_SWITCHES.find((a) => a.id === latest.current.prefs.auto)?.label.toLowerCase() ?? "on time";
       const choice = chooser.pick(now, label);
       const rhythm = live.signals.data().header.rhythm;
-      apply(cuts ? { ...choice, how: "cut" } : choice, cuts ? Math.max(time, onTheBeat(rhythm, due - beatSeconds(rhythm) / 2)) : time, beats <= 16);
+      if (cuts) {
+        // On the beat: no time for a transition.
+        choices.current = [...choices.current, { time, why: choice.why }].slice(-CHOICES_KEPT);
+        logger.debug(choice.why);
+        variationRef.current++;
+        show(choice.look, "schedule", Math.max(time, onTheBeat(rhythm, due - beatSeconds(rhythm) / 2)), { type: null });
+      } else apply(choice, time, beats <= 16);
       return;
     }
     // Following the music: songs, drops, breakdowns, phrases.
@@ -241,9 +298,13 @@ export default function NowPlayingView() {
     const now = moment(source.now);
     // A new song, following the music: something minimal until it's known what kind of song it is.
     if (newSong && prefs.auto !== "off" && now) apply(chooser.song(now), source.now);
-    else show(director.look ?? prefs.look, "now");
+    else show(director.look ?? prefs.look, "key");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [palette]);
+
+  // The player's distortions and feedback, over every look.
+  const fx = prefs.fx;
+  useEffect(() => director.setFx(fx), [director, fx]);
 
   // A look asked for from outside (the assistant), or chaos rolled or mutated.
   const requested = prefs.requested;
@@ -251,7 +312,8 @@ export default function NowPlayingView() {
     if (!requested || !sessionRef.current) return;
     if (requested.roll === "chaos") chaos(requested.look);
     else if (requested.roll === "mutate") mutate();
-    else show(requested.look, "now");
+    else if (requested.frame) reframe(requested.frame === "reset" ? PLAIN_FRAME : { ...director.frame, ...requested.frame }, requested.frame === "reset");
+    else show(requested.look, "key");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requested]);
 
@@ -286,6 +348,8 @@ export default function NowPlayingView() {
   const [hudHidden, setHudHidden] = useState(false);
   const [help, setHelp] = useState(false);
   const [moodShown, setMoodShown] = useState(false);
+  // Every setting the player plays (D).
+  const [panel, setPanel] = useState(false);
   // Tapping along to measure the headphones' delay: Space taps instead of playing and pausing.
   const [syncing, setSyncing] = useState(false);
   const syncingRef = useRef(false);
@@ -322,13 +386,13 @@ export default function NowPlayingView() {
 
   const step = (by: 1 | -1) => {
     const i = LIVE_LOOKS.findIndex((l) => l.id === (director.look ?? prefs.look));
-    show(LIVE_LOOKS[(i + by + LIVE_LOOKS.length) % LIVE_LOOKS.length].id, "now");
+    show(LIVE_LOOKS[(i + by + LIVE_LOOKS.length) % LIVE_LOOKS.length].id, "key");
   };
   const stepGroup = (by: 1 | -1) => {
     const current = liveLook(director.look ?? prefs.look)?.kind ?? "world";
     const k = LOOK_KINDS.findIndex((g) => g.id === current);
     const kind = LOOK_KINDS[(k + by + LOOK_KINDS.length) % LOOK_KINDS.length].id;
-    show(LIVE_LOOKS.find((l) => l.kind === kind)!.id, "now");
+    show(LIVE_LOOKS.find((l) => l.kind === kind)!.id, "key");
   };
 
   // The keys: the visualizer has them all while it's open (the editor's under it don't hear them).
@@ -336,8 +400,10 @@ export default function NowPlayingView() {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) return;
       e.stopImmediatePropagation();
-      // The controls' own lists keep their keys.
-      if ((e.target as HTMLElement | null)?.tagName === "SELECT" && e.key !== "Escape") return;
+      // The controls' own lists and sliders keep their keys.
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "SELECT" && e.key !== "Escape") return;
+      if (tag === "INPUT" && /^(Arrow|Home|End|Page)/.test(e.key)) return;
       // Tapping along: Space taps, Escape stops.
       if (syncingRef.current) {
         if (e.key === " " && !e.repeat) tapper.current?.tap();
@@ -361,12 +427,34 @@ export default function NowPlayingView() {
           return stepGroup(action.step);
         case "random":
           variationRef.current++;
-          return show(another(), "now");
+          return show(another(), "key");
         case "vary":
           variationRef.current++;
-          return show(director.look ?? prefs.look, "now");
+          return show(director.look ?? prefs.look, "key");
         case "chaos":
           return chaos();
+        case "frame": {
+          const f = director.frame;
+          const next: Frame =
+            action.change === "repeat"
+              ? { ...f, repeat: ((f.repeat % 4) + 1) as Frame["repeat"] }
+              : action.change === "mirror"
+                ? { ...f, mirror: !f.mirror }
+                : action.change === "spin-left" || action.change === "spin-right"
+                  ? { ...f, spin: stepAlong(SPINS, f.spin, action.change === "spin-left" ? 1 : -1) }
+                  : action.change === "zoom-out" || action.change === "zoom-in"
+                    ? { ...f, zoom: stepAlong(ZOOMS, f.zoom, action.change === "zoom-in" ? 1 : -1) }
+                    : PLAIN_FRAME;
+          // Backspace is vaudio's wash: the distortions and feedback go too.
+          if (action.change === "reset") useVisualizerPrefs.getState().setFx("wash");
+          return reframe(next, action.change === "reset");
+        }
+        case "fx": {
+          const now = useVisualizerPrefs.getState().fx;
+          return useVisualizerPrefs.getState().setFx({ [action.key]: now[action.key] + action.by });
+        }
+        case "panel":
+          return setPanel((p) => !p);
         case "mutate":
           return mutate();
         case "pad":
@@ -434,6 +522,9 @@ export default function NowPlayingView() {
           <HudButton label="Tap along to sync (S)" onClick={() => setSyncing(true)} active={syncing}>
             <PiMetronome />
           </HudButton>
+          <HudButton label="Distort, feedback and frame (D)" onClick={() => setPanel((p) => !p)} active={panel}>
+            <PiSlidersHorizontal />
+          </HudButton>
           <HudButton label="Keys" onClick={() => setHelp((h) => !h)} active={help}>
             <PiKeyboard />
           </HudButton>
@@ -446,7 +537,7 @@ export default function NowPlayingView() {
         </div>
 
         <div className="pointer-events-auto absolute inset-x-0 bottom-0 bg-linear-to-t from-black/80 via-black/45 to-transparent px-6 pt-16 pb-5">
-          <LookPicker current={showing} onPick={(id) => show(id, "now")} />
+          <LookPicker current={showing} onPick={(id) => show(id, "key")} />
           <div className="mt-3 flex items-center gap-4">
             <Transport />
             <div className="ml-auto flex items-center gap-2">
@@ -454,7 +545,7 @@ export default function NowPlayingView() {
                 label="A look at random (R)"
                 onClick={() => {
                   variationRef.current++;
-                  show(another(), "now");
+                  show(another(), "key");
                 }}
               >
                 <PiShuffle />
@@ -466,6 +557,16 @@ export default function NowPlayingView() {
         </div>
       </div>
 
+      {panel && !hudHidden && (
+        <PlayPanel
+          frame={frameNow}
+          onFrame={(f) => reframe(f)}
+          onWash={() => {
+            useVisualizerPrefs.getState().setFx("wash");
+            reframe(PLAIN_FRAME, true);
+          }}
+        />
+      )}
       {help && <KeysHelp onClose={() => setHelp(false)} />}
       {moodShown && <MoodReadout now={() => source.now} choices={() => choices.current} />}
       {syncing && <TapSync source={source} tapper={tapper} onDone={stopSyncing} />}

@@ -22,17 +22,24 @@ function mood(m: Partial<Mood> = {}): Mood {
 /** A part of a made-up song: its section, its intensity from `from` to `to` over `seconds`. */
 type Part = { section: Section; seconds: number; from: number; to?: number; event?: MoodEvent["kind"] };
 
-/** A song's moods every 0.1 s: its kind known after 8 s, each part's event as it starts. */
-function* song(character: SongCharacter, parts: Part[], start = 0): Generator<{ time: number; mood: Mood }> {
+/**
+ * A song's moods every 0.1 s: its kind known after 8 s, each part's event as it starts, a drop also as the signals
+ * hear it (its kick, 20 ms on).
+ */
+function* song(character: SongCharacter, parts: Part[], start = 0): Generator<{ time: number; mood: Mood; drop?: number }> {
   let at = start;
   const events: MoodEvent[] = [];
+  let drop: number | undefined;
   for (const part of parts) {
     if (part.event) events.push({ kind: part.event, time: at });
+    const dropAt = part.event === "drop" ? at : undefined;
     for (let t = 0; t < part.seconds; t += 0.1) {
       const x = t / part.seconds;
       const time = at + t;
+      if (dropAt !== undefined && time >= dropAt + 0.02) drop = dropAt;
       yield {
         time,
+        drop,
         mood: mood({
           intensity: part.from + ((part.to ?? part.from) - part.from) * x,
           section: part.section,
@@ -60,16 +67,16 @@ const SHAPED = (calm: number, loud: number): Part[] => [
 function follow(character: SongCharacter, parts: Part[], seed = "x") {
   const chooser = new LookChooser(LIVE_LOOKS, seededRandom(seed));
   const bar = (4 * 60) / 128;
-  const shown: { time: number; look: string; why: string; how: string }[] = [];
+  const shown: { time: number; look: string; why: string; how: string; reason: string; at?: number }[] = [];
   const frames = [...song(character, parts)];
   const first = chooser.song({ time: 0, mood: frames[0].mood, bar });
   chooser.shown(first.look, 0, bar);
   shown.push({ time: 0, ...first });
   const timeline: { time: number; mood: Mood; look: string }[] = [];
-  for (const { time, mood: m } of frames) {
-    const choice = chooser.follow({ time, mood: m, bar });
+  for (const { time, mood: m, drop } of frames) {
+    const choice = chooser.follow({ time, mood: m, bar, drop });
     if (choice) {
-      chooser.shown(choice.look, time, bar);
+      chooser.shown(choice.look, choice.at ?? time, bar);
       shown.push({ time, ...choice });
     }
     timeline.push({ time, mood: m, look: chooser.look! });
@@ -152,11 +159,12 @@ describe("following the music", () => {
     for (const { time, look } of timeline) if (time > 20 && time < 30) expect(LIVE_LOOKS.find((l) => l.id === look)!.suits.characters).toContain("heavy");
   });
 
-  it("changes look on the drop, at once, and keeps it through a build-up", () => {
+  it("cuts on the drop's kick as soon as it's heard, and keeps its look through a build-up", () => {
     const { shown } = follow("hype", SHAPED(0.25, 0.9));
-    // The first drop is at 30 s: a change within half a second of it, coming in at once.
+    // The first drop's kick is at 30 s, heard 20 ms on: a cut placed on it, chosen the frame it's heard.
     const onDrop = shown.find((s) => s.time >= 30 && s.time < 30.5);
-    expect(onDrop?.how).toBe("now");
+    expect(onDrop).toMatchObject({ how: "cut", reason: "drop", at: 30 });
+    expect(onDrop!.time).toBeLessThan(30.15);
     expect(onDrop?.why).toContain("the drop");
     // Nothing changes in the build-ups (16-30 s, 80-92 s), but a far-off look... none is let be far off, so none.
     expect(shown.filter((s) => (s.time > 16.5 && s.time < 30) || (s.time > 80.5 && s.time < 92)).filter((s) => s.how !== "mutate" && s.how !== "vary")).toEqual([]);
@@ -171,7 +179,7 @@ describe("following the music", () => {
     expect(quiet && LIVE_LOOKS.find((l) => l.id === quiet.look)!.suits.minimal).toBe(true);
   });
 
-  it("mutates a chaos look each phrase and changes it after 32 bars; varies another after 8 and changes it after 16", () => {
+  it("mutates a chaos look each phrase and changes it after 32 bars; reframes another after 8 and changes it after 16", () => {
     const chooser = new LookChooser(LIVE_LOOKS, seededRandom("phrase"));
     const bar = 2;
     const phrase = PHRASE_BARS * bar;
@@ -192,7 +200,10 @@ describe("following the music", () => {
     expect(chaos[3]).toMatchObject({ how: "bar" });
     expect(chaos[3]!.look).not.toBe("chaos-stargate");
     const other = at("cyberspace", 1000, 2);
-    expect(other[0]).toMatchObject({ look: "cyberspace", how: "vary" });
+    expect(other[0]).toMatchObject({ look: "cyberspace", how: "frame", reason: "phrase" });
+    // Intense: more copies, or a quicker turn (a reframing, never the picture as it is).
+    expect(other[0]!.frame).toBeDefined();
+    expect(other[0]!.frame).not.toEqual({ repeat: 1, mirror: false, spin: 0, zoom: 1 });
     expect(other[1]!.look).not.toBe("cyberspace");
   });
 });

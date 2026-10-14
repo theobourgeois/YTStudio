@@ -252,7 +252,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
   {
     id: "datamosh",
     name: "Datamosh",
-    suits: { characters: ["hype", "heavy"], energy: [0.45, 1] },
+    suits: { characters: ["hype", "heavy"], energy: [0.45, 1], glitch: true },
     world: (r) => ({
       chroma: rand(r, 0.5, 0.85),
       scanlines: rand(r, 0.25, 0.55),
