@@ -86,6 +86,8 @@ const PLATFORM = [
   "server/projects.ts",
   // Now Playing (docs/now-playing.md): what the music player is playing, in every suite's top bar.
   "shared/now-playing.ts",
+  // A cover's colours, by role (a look takes on each song's).
+  "shared/palette.ts",
   "server/now-playing.ts",
   "server/routes/now-playing.ts",
   // Work handed from one suite to another (a song made into a video: Make visualizer).
