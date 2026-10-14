@@ -60,6 +60,9 @@ const KEPT = 0.6;
 /** A drop: the low end this many dB louder than just before (the sound half as much), at most one every `DROP_GAP` seconds. */
 const DROP_RISE_DB = 8;
 const DROP_GAP = 8;
+/** Seconds of sound a drop's rise is measured over (a big one tips it within a few frames), and before it. */
+const DROP_RECENT = 0.3;
+const DROP_BEFORE = 2;
 
 const S = SCALARS.length;
 const INDEX = Object.fromEntries(SCALARS.map((s, i) => [s, i])) as Record<ScalarName, number>;
@@ -146,6 +149,8 @@ export class LiveSignals {
         this.nextSlow += SLOW_EVERY;
         this.updateSlow(scalars, this.checked + 1);
       }
+      // Every frame: a drop's known within a few frames of landing (the visualizer cuts on it).
+      this.findDrop(scalars, this.checked + 1);
     }
     if (frames >= this.nextMood) {
       this.nextMood = frames + MOOD_EVERY;
@@ -383,14 +388,14 @@ export class LiveSignals {
       low[k] = Math.min(3, l / lowRef);
     }
     this.rhythm = this.beat.update(onset, low, (frames - 1) / SIGNAL_RATE);
-    this.findDrop(scalars, frames);
     this.header = null;
   }
 
   /**
-   * A drop where the low end (kick and bass) comes in suddenly: its last three quarters of a second far louder than the
-   * two seconds before, and the sound with it (a riser growing louder over a build-up isn't one). It's placed where
-   * the low end got halfway there, snapped to a beat close by.
+   * A drop where the low end (kick and bass) comes in suddenly: its last moments far louder than the two seconds before,
+   * and the sound with it (a riser growing louder over a build-up isn't one). Looked for every frame, over a short
+   * window, so a big one is known within a few frames of landing (the visualizer cuts on it). It's placed on the first
+   * frame the low end got halfway there, snapped to a beat close by.
    */
   private findDrop(scalars: Float32Array, frames: number): void {
     if (frames < 4 * SIGNAL_RATE) return;
@@ -401,18 +406,22 @@ export class LiveSignals {
       for (let f = Math.max(0, Math.floor(from)); f < to; f++) for (const n of names) power += 10 ** (scalars[f * S + INDEX[n]] / 10);
       return 10 * Math.log10(power / Math.max(1, to - from) + 1e-12);
     };
-    const recent = frames - Math.round(0.75 * SIGNAL_RATE);
-    const before = recent - 2 * SIGNAL_RATE;
+    const recent = frames - Math.round(DROP_RECENT * SIGNAL_RATE);
+    const before = recent - DROP_BEFORE * SIGNAL_RATE;
     const low = ["sub", "bass"] as const;
     const lowRise = meanDb(low, recent, frames) - meanDb(low, before, recent);
     const levelNow = meanDb(["level"], recent, frames);
     if (lowRise < DROP_RISE_DB || levelNow - meanDb(["level"], before, recent) < DROP_RISE_DB / 2 || levelNow < (this.reference.level ?? 0) - 10) return;
-    // Where the low end got halfway there, a quarter of a second at a time.
-    const lowBefore = meanDb(low, before, recent);
-    const span = SIGNAL_RATE / 4;
+    // The first frame the low end got halfway there and stayed (most frames since: a snare in the roll before it
+    // spikes for a frame, and a drop's so loud even a quiet stretch with it averages past halfway).
+    const half = meanDb(low, before, recent) + lowRise / 2;
+    const up = (f: number) => meanDb(low, f, f + 1) >= half;
     let at = recent;
-    for (let f = recent - SIGNAL_RATE; f <= frames - span; f += SIGNAL_RATE / 20) {
-      if (meanDb(low, f, f + span) >= lowBefore + lowRise / 2) {
+    for (let f = recent - Math.round(0.2 * SIGNAL_RATE); f < frames; f++) {
+      if (!up(f)) continue;
+      let count = 0;
+      for (let k = f; k < frames; k++) if (up(k)) count++;
+      if (count >= 0.7 * (frames - f)) {
         at = f;
         break;
       }
@@ -420,7 +429,7 @@ export class LiveSignals {
     let time = at / SIGNAL_RATE;
     const beats = this.rhythm?.beats ?? [];
     const near = beats.reduce((best, b) => (Math.abs(b - time) < Math.abs(best - time) ? b : best), Infinity);
-    if (Math.abs(near - time) < 0.15) time = near;
+    if (Math.abs(near - time) < 0.08) time = near;
     this.drops.push({ time: round(time), rise: round(lowRise) });
   }
 }
