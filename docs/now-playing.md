@@ -74,8 +74,9 @@ are vaudio's world presets (a visualizer fed back into itself). Album shows the 
 view attaches, `ImageSlots`).
 
 To add a look: an entry in `LIVE_LOOKS` (its colours from the palette only: the test checks), then
-`pnpm tsx scripts/now-playing-sheet.ts <id> --song some.mp3` and look at it on real music (the made-up loop is too
-plain to judge a spectrum by). Watch for white-outs: Feedback in lighten mode, glow and bright colours add up.
+`pnpm tsx scripts/now-playing-sheet.ts <id> --moments` (it at the made-up song's breakdown, build-up and drop, checked
+for white-outs and black) and `--song some.mp3` to look at it on real music (the made-up song is too plain to judge a
+spectrum by). Watch for white-outs: Feedback in lighten mode, glow and bright colours add up, and more so in a drop.
 
 The keys (`keys.ts`, vaudio's play mode): ← → looks, ↑ ↓ kinds, R random, M another variation, A how looks change,
 Z X C V punch, flash, split, twist, 1–0 turn the colours, Space play or pause, ⇧← ⇧→ songs, F full screen, H hide
@@ -118,6 +119,32 @@ I shows it all in the visualizer (`mood-readout.tsx`), with the measurements und
 says it too. `mood.test.ts` checks it on made-up music (a pad, a groove, a club track, a half-time heavy track, and
 a song with a build-up, a drop and a breakdown); its numbers are tuned against those, so real music is the real test.
 
+## Energy
+
+How much is going on drives every look, through the mood's intensity (step 3 of the plan):
+
+- **`intensity`** is a signal like the others (`SignalName`, in `BUILT_IN_SIGNALS`), so links, expressions and the
+  assistant read it: `LiveSignals` keeps it four times a second (`SignalData.intensity`), and a file's is worked out
+  once from its signals (`intensitySeries` runs `LiveMood` over them), so a look reads the same live and in the editor.
+- **A link's depth** (`ParamLink.depth`: a signal, a floor, a threshold, `depthOf`): the link moves `floor` of its
+  amount while that signal is under the threshold, all of it at the top. A kick's punch with an intensity depth is a
+  nudge in a breakdown and a slam in a drop. `link_param` takes it.
+- **Every look's punches** (`punch` in `live-looks.ts`) have an intensity depth (a fifth of the punch at the quietest),
+  with headroom (`HEADROOM`, 1.6×): a drop punches harder than the looks did before, a breakdown much less.
+- **The energy layer** on top of every look (`energyLayer`; its strengths by kind in `ENERGY`, a look's own in
+  `LiveLook.energy`): it shakes (intensity past 0.6), strobes on the snares (past 0.72), splits the colours on snares,
+  inverts on the downbeat at the very top (trips only), punches the scale on kicks, and turns the exposure and
+  saturation up with the intensity: a breakdown is a little dimmer and greyer than the look, a drop as bright and
+  richer. Exposure, not Brightness: an offset wipes out a breakdown's faint trails and Contrast whites out a drop.
+- Worlds fly faster and react more as it rises (their scene's speed and reactivity follow it); Echo Tunnel, Hyperdrive
+  and Kaleido Cathedral zoom and turn with it.
+
+The made-up song (`demoSong`) has a song's shape for this: a breakdown, a build-up and a drop, 16 bars at 124 BPM
+(`DEMO_SECTIONS`). `now-playing-sheet.ts --moments` shows every look at each, a sheet per kind, and fails a picture
+blown out to white or crushed to black (three frames a moment, judged by the middle one: a strobe's white frame is
+fine). Its build-up is a white-noise riser, so the spectrums are fuller there than in its sparse drop: judge them on
+real music. A look whose shapes vanish when it's quiet gets a floor (Hard Shards' At Rest) rather than more gain.
+
 ## The plan (v2)
 
 After Théo's feedback (2026-10-14: the looks are milquetoast and ignore the song's mood, transitions read as amateur,
@@ -128,9 +155,8 @@ Only the e2e spec a step touches is run (`e2e/now-playing.spec.ts`), never the w
    under 60 ms), the L readout, and Théo's eyes on a kick-heavy song.
 2. **Reading the mood** (done): the above. Pass: `mood.test.ts` on made-up music; I in the visualizer, and Théo's
    ears agree on real songs.
-3. **Energy drives every look**: one energy control on every look; calm parts drift, drops go off (big punches,
-   shake, strobe on snares, inverts). Pass: each look on one song at a breakdown, a build-up and a drop, clearly
-   different; nothing blown out or black (checked).
+3. **Energy drives every look** (done): see Energy. Pass: each look on one song at a breakdown, a build-up and a drop,
+   clearly different; nothing blown out or black (`now-playing-sheet.ts --moments` checks); Théo's eyes.
 4. **The world stack**: a feedback effect with zoom, rotate, swirl, warp, kaleido, mirror, ripple and hue inside
    the loop (vaudio's and MilkDrop's secret); vaudio's 9 chaos recipes rebuilt (ranges that read well, energy-scaled,
    the cover's colours, guard rails); chaos (C) and mutate (M); sources blended by difference, exclusion,
