@@ -2,17 +2,24 @@ import { create } from "zustand";
 import { LIVE_LOOKS, liveLook } from "@shared/live-looks";
 
 /**
- * When the visualizer changes looks by itself: never, with each song (and on a drop), or every so many bars too.
+ * When the visualizer changes looks by itself: never, with each song (and on a drop), or every beat or so many bars
+ * too (`beats` apart).
  */
-export type AutoSwitch = "off" | "song" | "bars8" | "bars16" | "bars32";
+export type AutoSwitch = "off" | "song" | "beat" | "bars1" | "bars2" | "bars4" | "bars8" | "bars16" | "bars32";
 
-export const AUTO_SWITCHES: { id: AutoSwitch; label: string; bars?: number }[] = [
+export const AUTO_SWITCHES: { id: AutoSwitch; label: string; beats?: number }[] = [
   { id: "off", label: "Stay on this look" },
   { id: "song", label: "Each song and drop" },
-  { id: "bars8", label: "Every 8 bars", bars: 8 },
-  { id: "bars16", label: "Every 16 bars", bars: 16 },
-  { id: "bars32", label: "Every 32 bars", bars: 32 },
+  { id: "beat", label: "Every beat", beats: 1 },
+  { id: "bars1", label: "Every bar", beats: 4 },
+  { id: "bars2", label: "Every 2 bars", beats: 8 },
+  { id: "bars4", label: "Every 4 bars", beats: 16 },
+  { id: "bars8", label: "Every 8 bars", beats: 32 },
+  { id: "bars16", label: "Every 16 bars", beats: 64 },
+  { id: "bars32", label: "Every 32 bars", beats: 128 },
 ];
+/** Switching this often (in beats) or more, a look cuts in on the beat: there's no time for a transition. */
+export const CUT_BEATS = 4;
 
 /** How many pixels it draws: sharp (the screen's), balanced, or fast (for slower computers and big screens). */
 export type Quality = "sharp" | "balanced" | "fast";

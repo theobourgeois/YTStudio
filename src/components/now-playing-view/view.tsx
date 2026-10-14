@@ -26,7 +26,7 @@ import { VISUALIZER_KEYS, visualizerKey } from "./keys";
 import { ImageSlots, LiveSource } from "./live-source";
 import { MoodReadout } from "./mood-readout";
 import { TapSync, type Tapper } from "./sync";
-import { AUTO_SWITCHES, QUALITIES, useVisualizerPrefs } from "./prefs";
+import { AUTO_SWITCHES, CUT_BEATS, QUALITIES, useVisualizerPrefs } from "./prefs";
 
 /** Seconds the controls stay after the pointer stops. */
 const IDLE_MS = 2600;
@@ -43,8 +43,16 @@ function onTheBar(rhythm: MusicAnalysis | null | undefined, after: number, withi
   return next !== undefined && next - after <= within ? next : after;
 }
 
-/** Seconds a bar lasts (two without a beat). */
-const barSeconds = (rhythm: MusicAnalysis | null | undefined) => (rhythm?.bpm ? (4 * 60) / rhythm.bpm : 2);
+/** Seconds a beat lasts (half a second without one). */
+const beatSeconds = (rhythm: MusicAnalysis | null | undefined) => (rhythm?.bpm ? 60 / rhythm.bpm : 0.5);
+
+/** The first beat at or after `after`: the last one heard, carried on at the tempo (else `after`). */
+function onTheBeat(rhythm: MusicAnalysis | null | undefined, after: number): number {
+  const last = rhythm?.beats.findLast((t) => t <= after);
+  if (last === undefined || !rhythm?.bpm) return after;
+  const beat = 60 / rhythm.bpm;
+  return last + Math.ceil((after - last) / beat - 1e-6) * beat;
+}
 
 /**
  * Now Playing's visualizer (docs/now-playing.md): the window filled with a look reacting to what the computer is
@@ -116,8 +124,8 @@ export default function NowPlayingView() {
     shownPalette.current = p;
     historyRef.current = [...historyRef.current.filter((id) => id !== look.id), look.id].slice(-6);
     if (pr.look !== look.id) useVisualizerPrefs.getState().setLook(look.id);
-    const bars = AUTO_SWITCHES.find((a) => a.id === pr.auto)?.bars;
-    dueRef.current = bars ? at + bars * barSeconds(rhythm) : null;
+    const beats = AUTO_SWITCHES.find((a) => a.id === pr.auto)?.beats;
+    dueRef.current = beats ? at + beats * beatSeconds(rhythm) : null;
   };
 
   /** A look not shown lately (of `kind`, if given). */
@@ -142,10 +150,17 @@ export default function NowPlayingView() {
     }
     director.prune(time);
     images.current?.sync(engine, director.project);
-    if (dueRef.current !== null && time >= dueRef.current - 0.6) {
+    const beats = AUTO_SWITCHES.find((a) => a.id === latest.current.prefs.auto)?.beats ?? Infinity;
+    // Every few beats a look cuts in on the beat (a little ahead, so it's ready); less often, through a transition
+    // landing on the bar.
+    const cuts = beats <= CUT_BEATS;
+    if (dueRef.current !== null && time >= dueRef.current - (cuts ? 0.12 : 0.6)) {
+      const due = dueRef.current;
       dueRef.current = null;
       variationRef.current++;
-      show(another(), "bar", time);
+      const rhythm = live.signals.data().header.rhythm;
+      if (cuts) show(another(), "cut", Math.max(time, onTheBeat(rhythm, due - beatSeconds(rhythm) / 2)));
+      else show(another(), "bar", time);
       return;
     }
     // A drop (the sound suddenly louder): a new look on it, if this one's had its moment.
