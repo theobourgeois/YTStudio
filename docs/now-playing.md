@@ -183,7 +183,9 @@ vaudio's chaos (step 4 of the plan), rebuilt in the editor's effects (`shared/li
   (`LookContext.mutations` counts them). On a look that isn't chaos, `-` is another variation.
 
 `now-playing-sheet.ts chaos --rolls 24 --song some.mp3` rolls each recipe 24 times on a song, numbered, a sheet each,
-every roll checked for white and black (about 1 in 100 still just tips over). The stand-in player's covers look like
+every roll checked for white and black (about 1 in 100 still just tips over). `--record 45 --song some.mp3 --from 48
+--every 6.5` films it instead: the canvas as it draws, the song laid under it in step (an mp4), chaos rolled every so
+often (or `--auto bars2`, the looks changing by themselves): for seeing it move, with the music. The stand-in player's covers look like
 covers (a sky, a striped sun, hills, a grid, a title, grain), so a look that bends the cover is tried on something
 like one.
 

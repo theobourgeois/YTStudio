@@ -41,7 +41,7 @@ pnpm samples      # test media into ./samples
 pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + check transitions
 pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + check video effects
 pnpm tsx scripts/preset-sheet.ts [type|tag ...] [--out f.png]       # render + check presets
-pnpm tsx scripts/now-playing-sheet.ts [look|kind ...] [--song f.mp3] [--moments] [--rolls 24]  # Now Playing's looks in the real app
+pnpm tsx scripts/now-playing-sheet.ts [look|kind ...] [--song f.mp3] [--moments] [--rolls 24] [--record 45]  # Now Playing's looks in the real app
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
 pnpm tsx scripts/perf.ts --scrub <Project.yt> [--render]        # scrub and play a copy of a real project, GPU and all
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
