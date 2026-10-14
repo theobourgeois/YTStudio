@@ -114,6 +114,8 @@ export const useNowPlaying = create<NowPlayingState>((set, get) => ({
       const track = status.track;
       if (track && track.id !== get().paletteOf) {
         set({ paletteOf: track.id });
+        // What kind of song it is is found afresh (`LiveMood`).
+        get().live?.signals.newSong();
         // A palette of its own for each song (a look notices the song by its colours changing).
         const palette = track.artwork ? await coverPalette(track.artwork).catch(() => ({ ...DEFAULT_PALETTE })) : { ...DEFAULT_PALETTE };
         // Still the same song.

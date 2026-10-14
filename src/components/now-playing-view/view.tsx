@@ -24,6 +24,7 @@ import { useNowPlaying } from "@/stores/now-playing";
 import { LiveDirector } from "./director";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
 import { ImageSlots, LiveSource } from "./live-source";
+import { MoodReadout } from "./mood-readout";
 import { LatencyReadout, TapSync, type Tapper } from "./sync";
 import { AUTO_SWITCHES, QUALITIES, useVisualizerPrefs } from "./prefs";
 
@@ -214,6 +215,7 @@ export default function NowPlayingView() {
   const [hudHidden, setHudHidden] = useState(false);
   const [help, setHelp] = useState(false);
   const [readout, setReadout] = useState(false);
+  const [moodShown, setMoodShown] = useState(false);
   // Tapping along to measure the headphones' delay: Space taps instead of playing and pausing.
   const [syncing, setSyncing] = useState(false);
   const syncingRef = useRef(false);
@@ -312,6 +314,8 @@ export default function NowPlayingView() {
           return setHelp((h) => !h);
         case "latency":
           return setReadout((r) => !r);
+        case "mood":
+          return setMoodShown((m) => !m);
         case "sync":
           return setSyncing(true);
       }
@@ -392,6 +396,7 @@ export default function NowPlayingView() {
 
       {help && <KeysHelp onClose={() => setHelp(false)} />}
       {readout && <LatencyReadout source={source} />}
+      {moodShown && <MoodReadout now={() => source.now} />}
       {syncing && <TapSync source={source} tapper={tapper} onDone={stopSyncing} />}
     </div>
   );

@@ -807,6 +807,12 @@ const TOOLS: Record<VideoToolName, Handler> = {
           `${formatDuration(Math.floor(positionAt(status, Date.now())))} of ${formatDuration(Math.floor(t.duration))}.`,
       );
     }
+    const mood = useNowPlaying.getState().live?.signals.mood;
+    if (mood?.character) {
+      lines.push(
+        `It sounds ${mood.character} (${Math.round(mood.sure * 100)}% sure), intensity ${mood.intensity.toFixed(2)} of 1, in ${mood.section === "build" ? "a build-up" : mood.section === "steady" ? "a steady part" : `the ${mood.section}`}.`,
+      );
+    }
     const auto = AUTO_SWITCHES.find((a) => a.id === prefs.auto)!;
     lines.push(
       visualizer

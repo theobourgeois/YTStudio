@@ -84,7 +84,7 @@ export function LatencyReadout({ source }: { source: LiveSource }) {
   const live = useNowPlaying.getState().live?.signals;
   const ms = (s: number) => `${Math.round(s * 1000)}`;
   return (
-    <div data-latency className="pointer-events-none absolute top-24 left-6 rounded-md bg-black/70 px-3 py-2 font-mono text-[11px] leading-5 text-white/85 ring-1 ring-white/10">
+    <div data-latency className="pointer-events-none absolute top-20 right-6 rounded-md bg-black/70 px-3 py-2 font-mono text-[11px] leading-5 text-white/85 ring-1 ring-white/10">
       <div>
         picture {ms(l.total + l.ears)} ms after the sound is sent · ears {ms(l.ears)} ms
       </div>
