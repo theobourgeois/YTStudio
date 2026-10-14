@@ -11,7 +11,8 @@
  */
 import { ExpressionError, type SignalScope } from "./expressions.ts";
 import { TIME_REMAP, VOLUME, definitionOf, findEffect, hasLinks, hasMedia, isRemapped, provideLinks, provideSignalScopes, volumeAt } from "./effects.ts";
-import { BEAT_SIGNALS, DEFAULT_HIT, findSignal, follow, hitLevel, hitSpan, isHitSignal, shapeValue } from "./links.ts";
+import { BEAT_SIGNALS, DEFAULT_HIT, depthOf, findSignal, follow, hitLevel, hitSpan, isHitSignal, shapeValue } from "./links.ts";
+import { intensityAt, intensitySeries } from "./signals/mood.ts";
 import { BAND_COUNT, DB_SCALARS, type Hit, ONSET_SCALARS, type OnsetName, SIGNAL_RATE, type ScalarName, type SignalData, byteDb } from "./signals/format.ts";
 import { bandEnergyAt, bandReferenceEnergy, dbPower, powerDb, scalarAt, scalarMax } from "./signals/sample.ts";
 import { isNestedClip, sequenceView } from "./sequences.ts";
@@ -21,6 +22,9 @@ import { type AudioInputs, type AudioRequest, MAX_AUDIO_HITS } from "./composito
 import type { Clip, HitShape, MusicSection, ParamLink, Project, SignalDef, SignalRef, SignalSource, SongTempo, Track } from "./types.ts";
 
 export type { SignalSource };
+
+/** A built-in signal: one the sound's signals measure (`ScalarName`), or one worked out from them (`intensity`). */
+export type SignalName = ScalarName | "intensity";
 
 /** Loaded signals by media id. */
 export type SignalStore = ReadonlyMap<string, SignalData>;
@@ -40,7 +44,7 @@ export interface SignalReader {
 export const MASTER: SignalSource = { kind: "master" };
 
 /** The signals every sound has, by the name expressions and the assistant use. */
-export const BUILT_IN_SIGNALS: { name: ScalarName; description: string }[] = [
+export const BUILT_IN_SIGNALS: { name: SignalName; description: string }[] = [
   { name: "level", description: "how loud, 0..1 (1: as loud as its loud parts)" },
   { name: "peak", description: "its largest samples, 0..1" },
   { name: "sub", description: "20–60 Hz, 0..1" },
@@ -57,9 +61,10 @@ export const BUILT_IN_SIGNALS: { name: ScalarName; description: string }[] = [
   { name: "width", description: "stereo width: 0 mono, 0.5 wide, 1 out of phase" },
   { name: "balance", description: "left (-1) to right (1)" },
   { name: "brightness", description: "where its energy is: 0 dull (100 Hz) to 1 bright (10 kHz)" },
+  { name: "intensity", description: "how much is going on over the last few seconds (loudness, hits, kicks, sub-bass), 0..1: low in a breakdown, high in a drop" },
 ];
 const NAMES = new Set<string>(BUILT_IN_SIGNALS.map((s) => s.name));
-export const isSignalName = (name: string): name is ScalarName => NAMES.has(name);
+export const isSignalName = (name: string): name is SignalName => NAMES.has(name);
 export const isOnsetName = (name: string): name is OnsetName => (ONSET_SCALARS as readonly string[]).includes(name);
 
 /** dB under its loud parts at which a level reads 0. */
@@ -178,10 +183,12 @@ const fromDb = (energy: number, reference: number) =>
  * A built-in signal of `source` at timeline time `t` of a sequence, 0..1 (balance -1..1). `frame` is
  * how long a frame lasts: an onset is its strongest since the frame before, so none falls between frames.
  */
-export function signalValue(reader: SignalReader, sequenceId: string | null, source: SignalSource, name: ScalarName, t: number, frame = 0): number {
+export function signalValue(reader: SignalReader, sequenceId: string | null, source: SignalSource, name: SignalName, t: number, frame = 0): number {
   const sounds: Sounding[] = [];
   soundsAt(reader, viewOf(reader, sequenceId), source, t, 1, sounds);
   if (!sounds.length) return 0;
+  // The most intense of what sounds (as loud as its Volume lets it be).
+  if (name === "intensity") return Math.max(...sounds.map((s) => intensityAt(intensitySeries(s.data), s.time) * Math.min(1, s.gain)));
   if (DB_NAMES.has(name)) {
     let energy = 0;
     let reference = 0;
@@ -835,8 +842,15 @@ function readLink(clipId: string, link: ParamLink, time: number): number {
   const reader = currentSignalReader();
   const found = reader && findClip(reader.document, clipId);
   if (!reader || !found) return 0;
-  return linkLevel(reader, found.sequenceId, link, timelineTime(found.clip, time));
+  const t = timelineTime(found.clip, time);
+  const level = linkLevel(reader, found.sequenceId, link, t);
+  // A depth: as far as another signal says (read as it is, a little smoothed).
+  if (!link.depth || level === 0) return level;
+  return level * depthOf(link.depth, linkLevel(reader, found.sequenceId, { signal: link.depth.signal, response: DEPTH_RESPONSE }, t));
 }
+
+/** How a depth's signal is read: as it is, rising and falling over a few frames (no flicker in what it scales). */
+const DEPTH_RESPONSE = { threshold: 0, curve: 1, attack: 0.05, release: 0.15, invert: false };
 
 provideLinks(readLink);
 

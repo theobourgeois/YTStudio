@@ -31,6 +31,7 @@ const LABELS: Record<string, string> = {
   width: "Stereo width",
   balance: "Balance",
   brightness: "Brightness",
+  intensity: "Intensity",
   beat: "The beat",
   downbeat: "Each bar",
 };

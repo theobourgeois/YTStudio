@@ -6,13 +6,16 @@
  */
 import { clamp, isFiniteNumber, roundTime } from "./math.ts";
 import { ONSET_SCALARS, SCALARS } from "./signals/format.ts";
-import type { Clip, Effect, HitShape, ParamLink, Project, SignalDef, SignalEvent, SignalResponse, SignalRole, SignalSource, SignalRef, Vec2 } from "./types.ts";
+import type { Clip, Effect, HitShape, LinkDepth, ParamLink, Project, SignalDef, SignalEvent, SignalResponse, SignalRole, SignalSource, SignalRef, Vec2 } from "./types.ts";
 
 /** The song's beat as hits: each beat, and each bar's first. */
 export const BEAT_SIGNALS = ["beat", "downbeat"] as const;
 
+/** Signals worked out from the sound's (`audio-signals.ts`): how much is going on (`mood.ts`). */
+export const DERIVED_SIGNALS = ["intensity"] as const;
+
 /** Every built-in signal a link can follow: the sound's own (`BUILT_IN_SIGNALS`), then the beat's. */
-export const LINK_SIGNAL_NAMES: readonly string[] = [...SCALARS, ...BEAT_SIGNALS];
+export const LINK_SIGNAL_NAMES: readonly string[] = [...SCALARS, ...DERIVED_SIGNALS, ...BEAT_SIGNALS];
 const LINKABLE = new Set(LINK_SIGNAL_NAMES);
 export const isLinkSignalName = (name: string) => LINKABLE.has(name);
 
@@ -95,8 +98,21 @@ export function normalizeLink(raw: unknown, point: boolean): ParamLink | undefin
   if (mode === "map") link.to = to;
   const hit = normalizeHit(raw.hit);
   if (hit) link.hit = hit;
+  const depth = normalizeDepth(raw.depth);
+  if (depth) link.depth = depth;
   return link;
 }
+
+/** A link's depth (`LinkDepth`), or undefined when it isn't one. */
+export function normalizeDepth(raw: unknown): LinkDepth | undefined {
+  if (!isObject(raw)) return undefined;
+  const signal = normalizeSignalRef(raw.signal);
+  if (!signal) return undefined;
+  return { signal, floor: num(raw.floor, 0, 0, 1), threshold: num(raw.threshold, 0, 0, 0.99) };
+}
+
+/** How much of its amount a link with this depth moves, `level` being its signal's (0..1). */
+export const depthOf = (depth: LinkDepth, level: number) => depth.floor + (1 - depth.floor) * shapeValue(level, depth.threshold, 1);
 
 function normalizeEvents(raw: unknown): SignalEvent[] {
   const events: SignalEvent[] = [];

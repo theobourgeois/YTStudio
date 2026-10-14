@@ -73,6 +73,7 @@ export function linkText(link: ParamLink): string {
     r.curve !== 1 ? `curve ${r.curve}` : "",
     link.hit ? `hit ${secs(link.hit.attack)}/${secs(link.hit.hold)}/${secs(link.hit.decay)}s` : `attack ${secs(r.attack)}s, release ${secs(r.release)}s`,
     r.invert ? "inverted" : "",
+    link.depth ? `depth ${"id" in link.depth.signal ? `signal ${link.depth.signal.id}` : `"${link.depth.signal.name}"`}${link.depth.floor ? ` from ${link.depth.floor}` : ""}${link.depth.threshold ? ` over ${link.depth.threshold}` : ""}` : "",
   ].filter(Boolean);
   return `${signal} ${how} (${response.join(", ")})`;
 }

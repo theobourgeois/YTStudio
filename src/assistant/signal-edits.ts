@@ -20,7 +20,7 @@ import {
 import { isOnsetName } from "@shared/audio-signals";
 import { errorMessage } from "@shared/errors";
 import { projectDuration } from "@shared/timeline";
-import type { Clip, ParamLink, Project, SignalDef, SignalEvent, SignalSource } from "@shared/types";
+import type { LinkDepth, Clip, ParamLink, Project, SignalDef, SignalEvent, SignalSource } from "@shared/types";
 import { eventTimes } from "./describe-signals";
 import type { EditEnv, EditOutcome } from "./edits";
 import { type Input, ToolError, oneOf, optBoolean, optNumber, optObject, optString, range, secs, string, strings, value } from "./input";
@@ -68,8 +68,17 @@ function linkFrom(view: Project, raw: Input, clip: Clip, point: boolean): ParamL
   if (mode === "map" && raw.to === undefined) throw new ToolError("A map link needs `to`: the value at full signal.");
   const response = { threshold: raw.threshold, curve: raw.curve, attack: raw.attack, release: raw.release, invert: raw.invert };
   const hit = isObject(raw.hit) ? raw.hit : undefined;
+  // A depth: how far it moves follows another signal (a built-in one, or the video's own), on the mix.
+  let depth: LinkDepth | undefined;
+  if (raw.depth !== undefined) {
+    const d = raw.depth;
+    const by = isObject(d) && typeof d.signal === "string" ? d.signal : "";
+    const own = LINK_SIGNAL_NAMES.includes(by) ? undefined : findSignal(view, by);
+    if (!isObject(d) || (!own && !LINK_SIGNAL_NAMES.includes(by))) throw new ToolError(`\`link.depth\` must be { signal, floor?, threshold? } with a signal that exists: ${LINK_SIGNAL_NAMES.join(", ")}, or one of the video's own.`);
+    depth = { signal: own ? { id: own.id } : { name: by }, floor: Number(d.floor ?? 0), threshold: Number(d.threshold ?? 0) };
+  }
   const link = normalizeLink(
-    { signal: custom ? { id: custom.id } : { name, ...(source && source.kind !== "master" && { source }) }, mode, amount, to: raw.to, response, hit },
+    { signal: custom ? { id: custom.id } : { name, ...(source && source.kind !== "master" && { source }) }, mode, amount, to: raw.to, response, hit, depth },
     point,
   );
   if (!link) throw new ToolError(`\`link.amount\` must be a number${point ? " or a point like [0.1, 0]" : ""}${mode === "map" ? " (and `to` too)" : ""}.`);

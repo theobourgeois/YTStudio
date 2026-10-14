@@ -96,6 +96,17 @@ export interface SignalData {
   bands: Uint8Array;
   /** `waveSamples × 2`, left then right, -127..127 (full scale). */
   wave: Int8Array;
+  /**
+   * The sound's intensity over time (`mood.ts`), worked out as it's heard: a live sound carries it; a file's is
+   * worked out when first read (`intensitySeries`), never saved.
+   */
+  intensity?: IntensitySeries;
+}
+
+/** Values `rate` a second, value `k` at `k / rate` seconds. */
+export interface IntensitySeries {
+  rate: number;
+  values: ArrayLike<number>;
 }
 
 /** Longest stretch of a file analysed (seconds): a 30 minute file's signals are about 50 MB. */
