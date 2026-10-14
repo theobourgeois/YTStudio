@@ -107,6 +107,91 @@ vec4 effect(vec2 uv) {
   return mix(now, fed, amount);
 }`,
   }),
+  // vaudio's world (and MilkDrop's): the picture coming in is bent, then laid over its own echo, which flows,
+  // zooms, turns and changes colour a little every frame, so what was drawn keeps evolving after it's gone.
+  videoEffect({
+    type: "world-loop",
+    label: "World Loop",
+    tags: ["time", "stylize", "distort"],
+    params: [
+      // The picture coming in, bent.
+      percent("push", "Push", 0),
+      percent("swirl", "Swirl", 0),
+      percent("kaleido", "Kaleido", 0),
+      percent("ripple", "Ripple", 0),
+      percent("warp", "Warp", 0),
+      percent("mirror", "Mirror", 0),
+      percent("chroma", "Chroma", 0),
+      { kind: "number", key: "speed", label: "Bend Speed", default: 1, min: 0, max: 4, step: 0.05, decimals: 2, slider: true },
+      { kind: "number", key: "orbit", label: "Hue Orbit", default: 0, min: -360, max: 360, unit: "°/s", step: 1, decimals: 0 },
+      // Its echo: the last frame, fed back under it.
+      percent("amount", "Echo", 0.7),
+      seconds("trailLength", "Trail Length", 0.8, 5),
+      { kind: "number", key: "echoZoom", label: "Echo Zoom", default: 1.3, min: 0.25, max: 4, scale: 100, unit: "%/s", step: 1, decimals: 0 },
+      { kind: "number", key: "echoRotation", label: "Echo Rotation", default: 0, min: -360, max: 360, unit: "°/s", step: 1, decimals: 0 },
+      { kind: "number", key: "echoHue", label: "Echo Hue", default: 0, min: -720, max: 720, unit: "°/s", step: 1, decimals: 0 },
+      // Inside the loop: the echo itself swirled and warped, a second's share each frame.
+      { kind: "number", key: "flowSwirl", label: "Flow Swirl", default: 0, min: -360, max: 360, unit: "°/s", step: 1, decimals: 0 },
+      percent("flowWarp", "Flow Warp", 0),
+      {
+        kind: "choice",
+        key: "mode",
+        label: "Mode",
+        default: "lighten",
+        options: [
+          { value: "lighten", label: "Lighten" },
+          { value: "screen", label: "Screen" },
+          { value: "add", label: "Add" },
+        ],
+      },
+    ],
+    demo: { swirl: 0.4, kaleido: 0.45, amount: 0.75, trailLength: 0.7, echoZoom: 1.6, echoRotation: 25, echoHue: 120, flowSwirl: 40 },
+    animated: true,
+    simulation: { memory: (v) => trailMemory(num(v, "trailLength", 0.8)) },
+    glsl: `${HUE_GLSL}
+// The picture coming in, bent as vaudio's world bends it, its colours split from the middle.
+vec4 bent(vec2 uv, float t) {
+  vec2 n = aspect(uv);
+  n *= 1.0 - push * (0.3 + 0.1 * sin(t * 0.7));
+  if (swirl > 0.0) n = rot(swirl * 3.4 * exp(-length(n) * 1.7) * sin(t * 0.23 + 1.9)) * n;
+  if (kaleido > 0.0) {
+    float slice = 2.0 * PI / floor(2.0 + kaleido * 15.0);
+    float a = abs(mod(atan(n.y, n.x) + t * 0.05, slice) - slice * 0.5);
+    n = length(n) * vec2(cos(a), sin(a));
+  }
+  if (ripple > 0.0) {
+    float r = length(n) + 1e-4;
+    n += n / r * sin(r * 26.0 - t * 2.6) * ripple * 0.05;
+  }
+  if (warp > 0.0) n += (vec2(fbm(n * 2.4 + t * 0.16), fbm(n * 2.4 - t * 0.13 + 5.2)) - 0.5) * warp * 0.34;
+  n.x = mix(n.x, abs(n.x), clamp(mirror * 2.0, 0.0, 1.0));
+  n.y = mix(n.y, abs(n.y), clamp(mirror * 2.0 - 1.0, 0.0, 1.0));
+  vec2 at = n / vec2(ratio, 1.0) + 0.5;
+  vec4 c = getColor(at);
+  if (chroma <= 0.0) return c;
+  vec2 d = (at - 0.5) * chroma * 0.05;
+  return vec4(min(vec3(getColor(at + d).r, c.g, getColor(at - d).b), vec3(c.a)), c.a);
+}
+
+vec4 effect(vec2 uv) {
+  float t = time * speed;
+  vec4 now = bent(uv, t);
+  if (orbit != 0.0) now.rgb = clamp(hueRotate(now.rgb, radians(orbit) * time), 0.0, now.a);
+  if (!hasState || amount <= 0.0) return now;
+  // Last frame's picture: flowing (swirled and warped by this frame's share of a second), zoomed and turned.
+  vec2 p = aspect(uv);
+  if (flowSwirl != 0.0) p = rot(radians(flowSwirl) * simStep * exp(-length(p) * 1.7)) * p;
+  if (flowWarp > 0.0) p -= (vec2(fbm(p * 2.4 + t * 0.16), fbm(p * 2.4 - t * 0.13 + 5.2)) - 0.5) * flowWarp * simStep * 1.5;
+  p = rot(radians(echoRotation) * simStep) * p / pow(max(echoZoom, 1e-3), simStep);
+  vec4 prev = getState(p / vec2(ratio, 1.0) + 0.5);
+  prev.rgb = clamp(hueRotate(prev.rgb, radians(echoHue) * simStep), 0.0, prev.a);
+  vec4 echo = prev * pow(0.1, simStep / max(trailLength, 1e-3));
+  // What's faded below a level's step is gone, so a trail ends (and a seek replays only so far back).
+  echo *= step(vec4(1.0 / 255.0), echo);
+  vec4 fed = mode == 0 ? max(now, echo) : mode == 1 ? now + echo - now * echo : min(now + echo, vec4(1.0));
+  return mix(now, fed, amount);
+}`,
+  }),
   videoEffect({
     type: "motion-trace",
     label: "Motion Trace",

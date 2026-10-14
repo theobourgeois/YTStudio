@@ -909,4 +909,63 @@ vec4 effect(vec2 uv) {
 }
 `),
   }),
+  visualizer({
+    // vaudio's Lissajous: the sound against itself a moment later, so any sound draws a closed scribble, its
+    // strokes piling up white-hot where they cross most (the middle).
+    type: "audio-lissajous",
+    label: "Lissajous",
+    tags: ["audio", "generate"],
+    params: [
+      source,
+      number("window", "Window", 0.04, 0.01, 0.2, { scale: 1000, unit: "ms", step: 1, slider: true }),
+      point("center", "Center", [0.5, 0.5]),
+      percent("scale", "Size", 0.3, { max: 1 }),
+      percent("delay", "Delay", 0.18, { min: 0.02, max: 0.5 }),
+      number("gain", "Gain", 1, 0.25, 4, { step: 0.05, decimals: 2, slider: true }),
+      number("thickness", "Thickness", 0.003, 0.001, 0.02, { scale: 1000, unit: "‰", step: 1, slider: true }),
+      percent("glow", "Glow", 0.5),
+      number("hueDrift", "Hue Drift", 24, -180, 180, { unit: "°/s", step: 1 }),
+      colour("color", "Colour", "#4cf2ff"),
+      colour("color2", "Second Colour", "#ff4fd8"),
+      ...blending("over"),
+    ],
+    audio: { request: (v) => request({ window: v.window as number }) },
+    glsl: audio(VAUDIO_GLSL + `
+float mono(float x) { vec2 w = wave(fract(x)); return (w.x + w.y) * 0.5; }
+vec4 effect(vec2 uv) {
+  vec4 base = getColor(uv);
+  vec2 p = sq(uv) - sqPoint(center);
+  float reach = scale * 1.05 + thickness * 6.0;
+  if (max(abs(p.x), abs(p.y)) > reach) return blendGenerated(vec4(0.0), base, opacity);
+  // As loud as it gets, so a quiet sound still fills it (vaudio's auto gain).
+  float peak = 0.0;
+  for (int i = 0; i < 32; i++) peak = max(peak, abs(mono(float(i) / 31.0)));
+  float g = min(5.5, 0.9 / max(peak, 0.08)) * (0.72 + audioLevel * 0.38) * gain * scale;
+  // The delay drifts a little, so the shape keeps turning over (vaudio's).
+  float lag = delay + sin(time * 0.19) * 0.055;
+  mat2 turn = rot(sin(time * 0.13) * 0.12);
+  float strokes = 0.0;
+  float haze = 0.0;
+  float along = 0.0;
+  float best = 1e9;
+  vec2 a = turn * vec2(mono(0.0), mono(lag)) * g;
+  for (int i = 1; i < 128; i++) {
+    float x = float(i) / 127.0;
+    vec2 b = turn * vec2(mono(x), mono(x + lag)) * g;
+    vec2 ab = b - a;
+    float h = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-9), 0.0, 1.0);
+    float d = length(p - a - ab * h);
+    strokes += soft(d - thickness * 0.5);
+    haze += exp(-d / (thickness * 4.0 + 1e-4));
+    if (d < best) { best = d; along = x; }
+    a = b;
+  }
+  vec3 rgb = hueTurn(mix(color, color2, along), hueDrift * time);
+  // Where strokes cross, they add up to white.
+  rgb = mix(rgb, vec3(1.0), clamp((strokes - 1.0) * 0.35, 0.0, 1.0));
+  float alpha = clamp(strokes + glow * haze * 0.06, 0.0, 1.0);
+  return blendGenerated(paint(rgb, alpha), base, opacity);
+}
+`),
+  }),
 ];

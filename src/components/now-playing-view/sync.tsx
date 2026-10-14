@@ -72,30 +72,3 @@ export function TapSync({ source, tapper, onDone }: { source: LiveSource; tapper
     </div>
   );
 }
-
-/** How late the picture is, and what makes it so (L). */
-export function LatencyReadout({ source }: { source: LiveSource }) {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick((n) => n + 1), 250);
-    return () => clearInterval(id);
-  }, []);
-  const l = source.latency;
-  const live = useNowPlaying.getState().live?.signals;
-  const ms = (s: number) => `${Math.round(s * 1000)}`;
-  return (
-    <div data-latency className="pointer-events-none absolute top-20 right-6 rounded-md bg-black/70 px-3 py-2 font-mono text-[11px] leading-5 text-white/85 ring-1 ring-white/10">
-      <div>
-        picture {ms(l.total + l.ears)} ms after the sound is sent · ears {ms(l.ears)} ms
-      </div>
-      <div className="text-white/55">
-        analysis {ms(l.analysis)} · chunks {ms(l.chunks / 2)} · drawing {ms(l.drawing)} · capture ~{ms(l.capture)}
-      </div>
-      <div>{l.wait > 0 ? `waits ${ms(l.wait)} ms for the ears` : `beat shown ${ms(l.lead)} ms early`}</div>
-      <div className="text-white/55">
-        {live?.bpm ? `${live.bpm.toFixed(1)} BPM` : "no beat yet"}
-        {live?.expectingKicks ? " · kicks expected on the beat" : ""}
-      </div>
-    </div>
-  );
-}

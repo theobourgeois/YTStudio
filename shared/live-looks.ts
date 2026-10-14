@@ -7,11 +7,39 @@
  * live ones, `shared/signals/live.ts`). Everything a look does stays an editor effect: a look could be a video's.
  * Pure, and tested.
  */
-import { defaultEffects, effectDefinition, sanitizeEffect, solidEffects } from "./effects.ts";
+import { defaultEffects } from "./effects.ts";
 import { DEFAULT_RESPONSE } from "./links.ts";
+import { CHAOS_LOOKS } from "./live-chaos.ts";
+import {
+  BASS,
+  COVER_ASSET,
+  DOWNBEAT,
+  INTENSITY,
+  KICK,
+  LEVEL,
+  type LookContext,
+  type LookLayer,
+  SNARE,
+  adjust,
+  backdrop,
+  between,
+  coverLayer,
+  drawing,
+  follow,
+  fx,
+  intense,
+  pick,
+  punch,
+  solid,
+  tint,
+  tweakBuiltIn,
+  withIds,
+} from "./live-kit.ts";
 import type { AlbumPalette } from "./palette.ts";
 import { ONSET_SCALARS, type OnsetName, SIGNALS_VERSION, SIGNAL_RATE, SCALARS, bandEdges, type Hit, type SignalData } from "./signals/format.ts";
-import type { AspectRatio, Clip, Effect, LinkDepth, MediaAsset, ParamLink, ParamValues, Project, Sequence, SignalRef, Transition } from "./types.ts";
+import type { AspectRatio, Clip, MediaAsset, ParamLink, ParamValues, Project, Sequence, SignalRef, Transition } from "./types.ts";
+
+export { COVER_ASSET, type LookContext, type LookLayer, seededRandom } from "./live-kit.ts";
 import { createTransition } from "./transitions.ts";
 
 // ---------------------------------------------------------------------------
@@ -22,8 +50,6 @@ import { createTransition } from "./transitions.ts";
 export const LIVE_ASSET = "live";
 /** The keys' punches (`Pad`), as hits of a sound of their own on a muted track. */
 export const PADS_ASSET = "pads";
-/** The song's cover, as an image a look can show (the view gives it as media: `coverAsset`). */
-export const COVER_ASSET = "cover";
 export const PADS_TRACK = "pads";
 const LOOKS_TRACK = "looks";
 const PERFORM_TRACK = "perform";
@@ -194,27 +220,14 @@ export function performLayer(hue: number): Clip {
 // Looks
 // ---------------------------------------------------------------------------
 
-export type LookKind = "spectrum" | "world" | "trip";
+export type LookKind = "spectrum" | "world" | "trip" | "chaos";
 
 export const LOOK_KINDS: { id: LookKind; label: string }[] = [
   { id: "world", label: "Worlds" },
   { id: "spectrum", label: "Spectrums" },
   { id: "trip", label: "Trips" },
+  { id: "chaos", label: "Chaos" },
 ];
-
-/** What a look is made for: a song's colours and a variation of its own. */
-export interface LookContext {
-  palette: AlbumPalette;
-  /** 0..1, the same for the same song and look. */
-  random: () => number;
-}
-
-/** A layer of a look: its effects (with its Motion and Opacity), an adjustment layer or not. */
-export interface LookLayer {
-  effects: Effect[];
-  adjustment?: true;
-  assetId?: string;
-}
 
 export interface LiveLook {
   id: string;
@@ -245,113 +258,8 @@ const ENERGY: Record<LookKind, Energy> = {
   world: { punch: 0.1, shake: 0.45, strobe: 0.2, split: 0.01, invert: 0, lift: 1 },
   spectrum: { punch: 0.14, shake: 0.3, strobe: 0.3, split: 0.016, invert: 0, lift: 1 },
   trip: { punch: 0.2, shake: 0.7, strobe: 0.4, split: 0.028, invert: 0.75, lift: 1 },
+  chaos: { punch: 0.14, shake: 0.4, strobe: 0.25, split: 0.016, invert: 0, lift: 1 },
 };
-
-/** A seeded random number generator: the same look for the same song (`seed` from its id). */
-export function seededRandom(seed: string): () => number {
-  let h = 2166136261;
-  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
-  let s = h >>> 0;
-  return () => {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-    return s / 0x100000000;
-  };
-}
-
-// The kit looks are made of. Signals are the mix's (what the computer plays).
-const KICK: SignalRef = { name: "onsetLow" };
-const SNARE: SignalRef = { name: "onsetMid" };
-const BASS: SignalRef = { name: "bass" };
-const LEVEL: SignalRef = { name: "level" };
-const DOWNBEAT: SignalRef = { name: "downbeat" };
-
-/** Each hit punches: up at once, then down over `decay` seconds. */
-/** How intense the music is (`mood.ts`): what a look's energy follows. */
-const INTENSITY: SignalRef = { name: "intensity" };
-/** A reaction as big as the music is intense: `floor` of it when calm, none under `threshold`. */
-const intense = (floor = 0.2, threshold = 0): LinkDepth => ({ signal: INTENSITY, floor, threshold });
-/**
- * A look's punches are written for a typical moment; at full intensity they're this much bigger (they follow the
- * intensity, `intense`).
- */
-const HEADROOM = 1.6;
-
-/** Each hit punches: up at once, then down over `decay` seconds; as big as the music is intense (none: `depth` null). */
-const punch = (signal: SignalRef, mode: ParamLink["mode"], amount: number, decay = 0.25, depth: LinkDepth | null = intense()): ParamLink => ({
-  signal,
-  mode,
-  amount: depth ? amount * HEADROOM : amount,
-  response: DEFAULT_RESPONSE,
-  hit: { attack: 0.005, hold: 0, decay },
-  ...(depth && { depth }),
-});
-/** Follows a level, falling over `release` seconds (nothing under `threshold`). */
-const follow = (signal: SignalRef, mode: ParamLink["mode"], amount: number, release = 0.2, threshold = 0): ParamLink => ({
-  signal,
-  mode,
-  amount,
-  response: { ...DEFAULT_RESPONSE, release, threshold },
-});
-
-/** An effect of `type` with these values and links (its id is set by the layer). */
-function fx(type: string, params: ParamValues = {}, links?: Record<string, ParamLink>): Effect {
-  const def = effectDefinition(type);
-  if (!def) throw new Error(`No effect ${type}`);
-  return sanitizeEffect(def, { params, ...(links && { links }) }, type);
-}
-
-/** A built-in effect's (Motion, Opacity) values and links changed. */
-function tweakBuiltIn(effects: Effect[], type: string, params: ParamValues, links?: Record<string, ParamLink>): Effect[] {
-  return effects.map((e) => (e.type === type ? sanitizeEffect(effectDefinition(type)!, { ...e, params: { ...e.params, ...params }, links: { ...e.links, ...links } }, e.id) : e));
-}
-
-/** Ids unique within a layer: an effect's type, then `type_2`, `type_3`... */
-function withIds(effects: Effect[]): Effect[] {
-  const seen = new Map<string, number>();
-  return effects.map((e) => {
-    const n = (seen.get(e.type) ?? 0) + 1;
-    seen.set(e.type, n);
-    return { ...e, id: n > 1 ? `${e.type}_${n}` : e.type };
-  });
-}
-
-interface LayerMotion {
-  motion?: { params?: ParamValues; links?: Record<string, ParamLink> };
-  opacity?: { params?: ParamValues; links?: Record<string, ParamLink> };
-}
-
-/** A layer of a solid (`color`) with `more` effects over it. */
-function solid(color: string, more: Effect[] = [], { motion, opacity }: LayerMotion = {}): LookLayer {
-  let effects = solidEffects({ color });
-  if (motion) effects = tweakBuiltIn(effects, "motion", motion.params ?? {}, motion.links);
-  if (opacity) effects = tweakBuiltIn(effects, "opacity", opacity.params ?? {}, opacity.links);
-  return { effects: withIds([...effects, ...more]) };
-}
-
-/** A layer drawing `type` alone (a visualizer or a generator, Blend Mode Replace), then `more` on it. */
-function drawing(type: string, params: ParamValues, more: Effect[] = [], moves: LayerMotion = {}): LookLayer {
-  return solid("#000000", [fx(type, { blendMode: "replace", ...params }), ...more], moves);
-}
-
-/** An adjustment layer: its effects (and its Motion) apply to everything below it. */
-function adjust(effects: Effect[], { motion, opacity }: LayerMotion = {}): LookLayer {
-  let base = defaultEffects();
-  if (motion) base = tweakBuiltIn(base, "motion", motion.params ?? {}, motion.links);
-  if (opacity) base = tweakBuiltIn(base, "opacity", opacity.params ?? {}, opacity.links);
-  return { adjustment: true, effects: withIds([...base, ...effects]) };
-}
-
-/** The song's colours over a picture (its darks the background, its mids the primary, its lights the light). */
-const tint = (p: AlbumPalette, amount: number, mid: string = p.primary) =>
-  fx("gradient-map", { shadows: p.background, midtones: mid, highlights: p.light, amount, midpoint: 0.45 });
-
-/** The cover's deep colour, glowing a little in the middle. */
-const backdrop = (p: AlbumPalette, glow = p.background) =>
-  solid("#000000", [fx("gradient-ramp", { rampShape: "radial", rampStart: [0.5, 0.5], rampEnd: [1.15, 1.15], startColor: glow, endColor: "#000000", blendMode: "replace" })]);
-
-/** A number between `a` and `b`, rounded to `places`. */
-const between = (r: () => number, a: number, b: number, places = 2) => Math.round((a + (b - a) * r()) * 10 ** places) / 10 ** places;
-const pick = <T>(r: () => number, list: readonly T[]): T => list[Math.floor(r() * list.length) % list.length];
 
 /** A 3D scene (it draws the whole frame), coloured by the song and glowing on the bass. */
 function world(type: string, params: ParamValues, p: AlbumPalette, r: () => number, opts: { tint?: number; glow?: number } = {}): LookLayer[] {
@@ -384,14 +292,6 @@ function energyLayer(e: Energy): LookLayer {
     ],
     { motion: { links: { scale: punch(KICK, "multiply", e.punch, 0.28, intense(0.1, 0.25)) } } },
   );
-}
-
-/** A layer of the song's cover (`COVER_ASSET`), fitted to the frame's height, then `more` on it. */
-function coverLayer(more: Effect[], { motion, opacity }: LayerMotion = {}): LookLayer {
-  let effects = defaultEffects();
-  if (motion) effects = tweakBuiltIn(effects, "motion", motion.params ?? {}, motion.links);
-  if (opacity) effects = tweakBuiltIn(effects, "opacity", opacity.params ?? {}, opacity.links);
-  return { assetId: COVER_ASSET, effects: withIds([...effects, ...more]) };
 }
 
 export const LIVE_LOOKS: LiveLook[] = [
@@ -812,6 +712,9 @@ export const LIVE_LOOKS: LiveLook[] = [
     ],
   },
 ];
+
+// Chaos: vaudio's recipes, a roll of one each song and each M (`live-chaos.ts`).
+LIVE_LOOKS.push(...CHAOS_LOOKS);
 
 const byId = new Map(LIVE_LOOKS.map((l) => [l.id, l]));
 export const liveLook = (id: string): LiveLook | undefined => byId.get(id);

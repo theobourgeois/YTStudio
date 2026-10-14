@@ -1,7 +1,8 @@
 /**
  * The visualizer's keys (docs/now-playing.md), vaudio's play mode rebuilt: looks on the arrows, the picture punched
  * by Z X C V (zoom, flash, split, twist), its colours turned by the number row (a hue piano: 1 is the look's own,
- * each key a tenth of the way round), the song on Space and Shift+arrows. Pure, and tested.
+ * each key a tenth of the way round), chaos on = and mutate on - (vaudio's), the song on Space and Shift+arrows.
+ * Pure, and tested.
  */
 import type { Pad } from "@shared/live-looks";
 
@@ -12,6 +13,8 @@ export type VisualizerAction =
   | { kind: "group"; step: 1 | -1 }
   | { kind: "random" }
   | { kind: "vary" }
+  | { kind: "chaos" }
+  | { kind: "mutate" }
   | { kind: "pad"; pad: Pad }
   | { kind: "hue"; degrees: number }
   | { kind: "play" }
@@ -19,7 +22,6 @@ export type VisualizerAction =
   | { kind: "auto" }
   | { kind: "hud" }
   | { kind: "help" }
-  | { kind: "latency" }
   | { kind: "mood" }
   | { kind: "sync" };
 
@@ -42,6 +44,10 @@ export function visualizerKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey"
   if (digit) return { kind: "hue", degrees: ((Number(digit[1]) + 9) % 10) * 36 };
   if (e.code === "Backquote") return { kind: "hue", degrees: 0 };
   switch (e.code) {
+    case "Equal":
+      return { kind: "chaos" };
+    case "Minus":
+      return { kind: "mutate" };
     case "KeyF":
       return { kind: "fullscreen" };
     case "KeyR":
@@ -52,8 +58,6 @@ export function visualizerKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey"
       return { kind: "auto" };
     case "KeyH":
       return { kind: "hud" };
-    case "KeyL":
-      return { kind: "latency" };
     case "KeyI":
       return { kind: "mood" };
     case "KeyS":
@@ -68,6 +72,8 @@ export const VISUALIZER_KEYS: { keys: string; does: string }[] = [
   { keys: "↑ ↓", does: "Worlds, spectrums or trips" },
   { keys: "R", does: "A look at random" },
   { keys: "M", does: "The same look, another way" },
+  { keys: "=", does: "Chaos: a roll of another recipe" },
+  { keys: "-", does: "Mutate: the chaos shown, nudged" },
   { keys: "A", does: "Change looks by themselves" },
   { keys: "Z X C V", does: "Punch in, flash, split, twist" },
   { keys: "1 – 0", does: "Turn the colours (1 is the look's own)" },
@@ -76,7 +82,6 @@ export const VISUALIZER_KEYS: { keys: string; does: string }[] = [
   { keys: "F", does: "Full screen" },
   { keys: "H", does: "Hide the controls" },
   { keys: "S", does: "Tap along to sync (headphones)" },
-  { keys: "L", does: "Show how late the picture is" },
   { keys: "I", does: "Show what it hears (the song's mood)" },
   { keys: "Esc", does: "Close" },
 ];

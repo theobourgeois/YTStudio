@@ -70,17 +70,23 @@ heard, and the pads (a muted track whose "sound" is the keys' hits, `padSignals`
 A **look** (`LIVE_LOOKS`) is layers of editor effects for a palette and a seed (`LookContext`): a song's colours by
 role (`AlbumPalette`: background, primary, secondary, accent, light) and a variation of its own (the song's id, the
 look's, `M` for another). Worlds are the 3D scenes tinted by a Gradient Map; spectrums draw the sound plainly; trips
-are vaudio's world presets (a visualizer fed back into itself). Album shows the cover (`COVER_ASSET`, an image the
-view attaches, `ImageSlots`).
+are vaudio's world presets (a visualizer fed back into itself); chaos is vaudio's chaos (see Chaos). Album shows the
+cover (`COVER_ASSET`, an image the view attaches, `ImageSlots`). The kit looks are built from (signals, punches,
+layers) is `shared/live-kit.ts`.
+
+How looks change by themselves (A, the "Change looks" menu, `AUTO_SWITCHES`): never, each song and drop, or every
+beat, bar, 2, 4, 8, 16 or 32 bars too. Every 4 beats or more often (`CUT_BEATS`) a look cuts in on the beat, carried
+on from the last one heard (`onTheBeat`): there's no time for a transition. Less often, through one landing on the
+bar.
 
 To add a look: an entry in `LIVE_LOOKS` (its colours from the palette only: the test checks), then
 `pnpm tsx scripts/now-playing-sheet.ts <id> --moments` (it at the made-up song's breakdown, build-up and drop, checked
 for white-outs and black) and `--song some.mp3` to look at it on real music (the made-up song is too plain to judge a
 spectrum by). Watch for white-outs: Feedback in lighten mode, glow and bright colours add up, and more so in a drop.
 
-The keys (`keys.ts`, vaudio's play mode): ← → looks, ↑ ↓ kinds, R random, M another variation, A how looks change,
-Z X C V punch, flash, split, twist, 1–0 turn the colours, Space play or pause, ⇧← ⇧→ songs, F full screen, H hide
-the controls, ? the list, Esc close. They're the visualizer's alone while it's open (caught before the editor's).
+The keys (`keys.ts`, vaudio's play mode): ← → looks, ↑ ↓ kinds, R random, M another variation, = chaos, - mutate,
+A how looks change, Z X C V punch, flash, split, twist, 1–0 turn the colours, Space play or pause, ⇧← ⇧→ songs,
+F full screen, H hide the controls, S tap along, I what it hears, ? the list, Esc close. They're the visualizer's alone while it's open (caught before the editor's).
 
 ## Sync
 
@@ -94,7 +100,7 @@ rhythm) and the hits expected on it (`expected`: a beat of the bar that had a ki
 the last four bars expects the next one, placed where those hits fell against the beat; one that doesn't come is
 dropped once it's past). So kicks and snares on the beat are on screen as they're heard (within a frame, on average
 within a few ms); a hit nobody could expect is ~45–60 ms late (it was ~115 before step 1 of the plan). When the ears
-are the later ones (headphones), everything waits for them instead (`wait`). L shows the numbers. The beat holds:
+are the later ones (headphones), everything waits for them instead (`wait`). The beat holds:
 a tempo related to it (half or double time, a 3-3-2 pattern's dotted quarter) takes over only after winning for 10 s
 (`TEMPO_PATIENCE`), an unrelated one (a new song) in 1.5 s; a beat that flips would throw everything on it off.
 `src/components/now-playing-view/latency.test.ts` runs the whole pipeline at 60 fps and checks it.
@@ -145,6 +151,44 @@ blown out to white or crushed to black (three frames a moment, judged by the mid
 fine). Its build-up is a white-noise riser, so the spectrums are fuller there than in its sparse drop: judge them on
 real music. A look whose shapes vanish when it's quiet gets a floor (Hard Shards' At Rest) rather than more gain.
 
+## Chaos
+
+vaudio's chaos (step 4 of the plan), rebuilt in the editor's effects (`shared/live-chaos.ts`):
+
+- **The World Loop** (`world-loop`, a simulation in `effect-library/simulation.ts`): vaudio's world stage. The picture
+  coming in is bent (push, swirl, kaleido, ripple, warp, mirror; its colours split from the middle), then laid over its
+  own echo, which zooms, turns and changes hue a second's share each frame, and also flows: swirled and warped inside
+  the loop (MilkDrop's secret, which vaudio hasn't). Rates are per second, so it's the same at any frame rate;
+  `server/simulation.test.ts` checks a frame is the same however it's reached.
+- **Nine recipes** (`CHAOS_RECIPES`, vaudio's archetypes: Liquid, Tunnel, Fractal Bloom, Datamosh, Acid, Rorschach
+  (its Séance), Neon Skeleton, Vortex, Stargate (its Hyperdrive)), each a look of kind chaos. A roll (`rollChaos`, from
+  the look's random: another each song and each M) draws its world in vaudio's own ranges and units, and one or two
+  layers (vaudio's `randomLayerFx`: a blend from the recipe's, one or two distortions, a colour style, spin, drift,
+  pulse, shimmer), from sources the recipe picks (vaudio rolls the layers you have). The recipe's headline value grows
+  with the intensity (vaudio's random `energy`, live), the rest move with the sound.
+- **What vaudio's frames look like** (a recording of it in play, compared roll by roll): small hot things floating in
+  black, copied round a kaleido or a mirror or in tiles, their colours split wide. So a roll is mostly the void (the
+  cover's darkest colour, nearly black); things sit off the middle, smaller, *where its repeat shows them* (a kaleido
+  takes only a thin wedge just right of the middle, a mirror the right half: elsewhere they're cut away and the frame
+  is black, `direction`); most rolls repeat; colours split wide; the hues are vaudio's harmonies (complementary,
+  triadic...) from the cover's, sometimes posterized. Its scribbles are the Lissajous (`audio-lissajous`: the sound
+  against itself a moment later, white-hot where its strokes cross). The cover is a thing in the frame too, not a
+  backdrop.
+- **Guard rails** (`guarded`, tested over hundreds of rolls): vaudio's (the echo under 0.93; no strobe over a heavy
+  echo) and ours: a frame-filling source's echo under 0.6; Added or Dodged layers held back; nothing near white drawn
+  (the palette's light); the brighter its colours, the less a roll's fed back and exposed (`glareOf`: a yellow cover
+  piles up to white where a blue doesn't); the hue swings about the cover's rather than going round the wheel (but in
+  Acid).
+- **Mutate** (`-`, `mutateWorld`): vaudio's: every world value nudged by up to 0.12, the layers kept, blended in
+  (`LookContext.mutations` counts them). On a look that isn't chaos, `-` is another variation.
+
+`now-playing-sheet.ts chaos --rolls 24 --song some.mp3` rolls each recipe 24 times on a song, numbered, a sheet each,
+every roll checked for white and black (about 1 in 100 still just tips over). `--record 45 --song some.mp3 --from 48
+--every 6.5` films it instead: the canvas as it draws, the song laid under it in step (an mp4), chaos rolled every so
+often (or `--auto bars2`, the looks changing by themselves): for seeing it move, with the music. The stand-in player's covers look like
+covers (a sky, a striped sun, hills, a grid, a title, grain), so a look that bends the cover is tried on something
+like one.
+
 ## The plan (v2)
 
 After Théo's feedback (2026-10-14: the looks are milquetoast and ignore the song's mood, transitions read as amateur,
@@ -152,16 +196,14 @@ the picture is late, and the visualizer should be a window), one step at a time,
 Only the e2e spec a step touches is run (`e2e/now-playing.spec.ts`), never the whole suite.
 
 1. **Sync** (done): see Sync. Pass: `latency.test.ts` (on-beat kicks within a frame, on average within 5 ms; others
-   under 60 ms), the L readout, and Théo's eyes on a kick-heavy song.
+   under 60 ms), the L readout (since removed: Théo didn't want it), and Théo's eyes on a kick-heavy song.
 2. **Reading the mood** (done): the above. Pass: `mood.test.ts` on made-up music; I in the visualizer, and Théo's
    ears agree on real songs.
 3. **Energy drives every look** (done): see Energy. Pass: each look on one song at a breakdown, a build-up and a drop,
    clearly different; nothing blown out or black (`now-playing-sheet.ts --moments` checks); Théo's eyes.
-4. **The world stack**: a feedback effect with zoom, rotate, swirl, warp, kaleido, mirror, ripple and hue inside
-   the loop (vaudio's and MilkDrop's secret); vaudio's 9 chaos recipes rebuilt (ranges that read well, energy-scaled,
-   the cover's colours, guard rails); chaos (C) and mutate (M); sources blended by difference, exclusion,
-   colour-dodge, add. Pass: sheets green; a chaos sheet of 24 rolls a recipe on real music, none white or black;
-   Théo scores a round and the ranges are tuned.
+4. **The world stack** (done): see Chaos. Chaos and mutate are vaudio's own keys (= and -: C and M were taken).
+   Pass: sheets green; a chaos sheet of 24 rolls a recipe on real music, none white or black; Théo scores a round and
+   the ranges are tuned. Théo also asked for switching every beat and bar (done) and to drop the L readout (done).
 5. **Picking looks by mood**: every look tagged with the energy and character it suits; mutate on 8 or 16-bar phrases,
    change on drops and songs; something minimal between songs. Pass: a test that a look never plays out of its
    range; a log of each choice and why; Théo watches whole songs.

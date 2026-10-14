@@ -829,6 +829,8 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const visualizer = optString(input, "visualizer");
     const look = optString(input, "look");
     const auto = optString(input, "auto");
+    const roll = optString(input, "roll");
+    if (roll !== undefined && roll !== "chaos" && roll !== "mutate") throw new ToolError("`roll` is chaos or mutate.");
     if (action !== undefined && !["play", "pause", "toggle", "next", "previous"].includes(action)) throw new ToolError("`action` is one of play, pause, toggle, next, previous.");
     if (visualizer !== undefined && visualizer !== "open" && visualizer !== "close") throw new ToolError("`visualizer` is open or close.");
     if (look !== undefined && !liveLook(look)) throw new ToolError(`There's no look "${look}". Looks: ${LIVE_LOOKS.map((l) => l.id).join(", ")}.`);
@@ -854,6 +856,10 @@ const TOOLS: Record<VideoToolName, Handler> = {
       useVisualizerPrefs.getState().request(look);
       if (!useNowPlaying.getState().visualizer) np.openVisualizer();
       done.push(`showing ${liveLook(look)!.name}`);
+    } else if (roll) {
+      useVisualizerPrefs.getState().requestRoll(roll);
+      if (!useNowPlaying.getState().visualizer) np.openVisualizer();
+      done.push(roll === "chaos" ? "rolled chaos" : "mutated the chaos look");
     } else if (visualizer === "open") {
       np.openVisualizer();
       done.push("opened the visualizer");
@@ -862,7 +868,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
       np.closeVisualizer();
       done.push("closed the visualizer");
     }
-    if (!done.length) throw new ToolError("Nothing to do: give `action`, `seek`, `visualizer`, `look` or `auto`.");
+    if (!done.length) throw new ToolError("Nothing to do: give `action`, `seek`, `visualizer`, `look`, `roll` or `auto`.");
     return textResult(`Done: ${done.join(", ")}.`);
   },
   async open_sequence(input, ctx) {

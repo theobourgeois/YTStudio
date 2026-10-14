@@ -1304,15 +1304,17 @@ export const VIDEO_TOOLS = [
     kind: "action",
     description:
       "Play, pause or skip the song in the music player, seek in it, or open, close and steer the visualizer: " +
-      "`look` (an id from now_playing) shows that look (opening the visualizer), `auto` sets how looks change by " +
-      "themselves (off: stay; song: a new look each song and on a drop; bars8, bars16, bars32: every so many bars too). Only what's " +
-      "given happens: the song first, then the visualizer.",
+      "`look` (an id from now_playing) shows that look (opening the visualizer), `roll` rolls chaos (a random look of one of " +
+      "vaudio's chaos recipes, as = does) or mutates the chaos look shown (its world nudged a little, as - does), `auto` sets how " +
+      "looks change by themselves (off: stay; song: a new look each song and on a drop; beat: every beat too, cutting on it; " +
+      "bars1, bars2, bars4, bars8, bars16, bars32: every so many bars too). Only what's given happens: the song first, then the visualizer.",
     inputSchema: obj({
       action: oneOf(["play", "pause", "toggle", "next", "previous"], "What the player does."),
       seek: num("Go to this many seconds into the song.", { minimum: 0 }),
       visualizer: oneOf(["open", "close"], "Open or close the visualizer."),
       look: str("A look's id (from now_playing) to show."),
-      auto: oneOf(["off", "song", "bars8", "bars16", "bars32"], "How looks change by themselves."),
+      roll: oneOf(["chaos", "mutate"], "chaos: a roll of another chaos recipe; mutate: the chaos look shown, nudged."),
+      auto: oneOf(["off", "song", "beat", "bars1", "bars2", "bars4", "bars8", "bars16", "bars32"], "How looks change by themselves."),
     }),
   }),
 ] as const satisfies readonly ToolSpec[];
