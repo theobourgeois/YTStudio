@@ -37,8 +37,10 @@ class Listening implements LiveAudio {
 }
 
 const SAMPLE_RATE = 48_000;
-/** Frames each message from the audio thread carries (about 11 ms). */
-const CHUNK = 512;
+/** Frames each message from the audio thread carries: one render quantum (under 3 ms), so nothing waits for more. */
+const CHUNK = 128;
+/** Seconds of sound each message carries. */
+export const CHUNK_SECONDS = CHUNK / SAMPLE_RATE;
 
 /** Copies what it hears to the page, stereo interleaved, a chunk at a time (an audio worklet, loaded from a blob). */
 const TAP = `

@@ -37,8 +37,8 @@ interface NowPlayingState {
   /** The visualizer is open (full window). */
   visualizer: boolean;
   /**
-   * Milliseconds the pictures wait for the sound (Settings › General): the sound is heard as the computer sends it,
-   * which headphones play later than speakers do.
+   * How late the ears hear the sound after the computer sends it (ms; Settings › General, measured by tapping
+   * along): about 0 on speakers, 150-250 on Bluetooth headphones. The visualizer waits for it.
    */
   offset: number;
 
@@ -59,7 +59,7 @@ let run = 0;
 
 const storedOffset = () => {
   const v = Number(localStorage.getItem(OFFSET_KEY));
-  return Number.isFinite(v) ? Math.min(500, Math.max(-200, v)) : 0;
+  return Number.isFinite(v) ? Math.min(400, Math.max(0, v)) : 0;
 };
 
 export const useNowPlaying = create<NowPlayingState>((set, get) => ({
@@ -102,7 +102,7 @@ export const useNowPlaying = create<NowPlayingState>((set, get) => ({
   },
 
   setOffset(ms) {
-    const offset = Math.round(Math.min(500, Math.max(-200, ms)));
+    const offset = Math.round(Math.min(400, Math.max(0, ms)));
     localStorage.setItem(OFFSET_KEY, String(offset));
     set({ offset });
   },

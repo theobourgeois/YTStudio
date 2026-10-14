@@ -322,7 +322,17 @@ export class PreviewEngine {
     private readonly source: PreviewSource = editorSource,
     /** Draw moving frames at fewer pixels when they're heavy (the Program monitor; not the assistant's pictures). */
     private readonly adaptiveResolution = false,
+    /**
+     * `lowLatency`: what's drawn should be seen as soon as possible (Now Playing's visualizer, following sound
+     * heard live): one frame on the GPU at a time rather than `MAX_IN_FLIGHT`, on a canvas that skips the page's
+     * compositing where the system allows (`desynchronized`).
+     */
+    private readonly options: { lowLatency?: boolean } = {},
   ) {}
+
+  private get maxInFlight() {
+    return this.options.lowLatency ? 1 : MAX_IN_FLIGHT;
+  }
 
   /** The Program monitor's engine (the open video's) turns off a shader that loses the GPU. */
   private get recovers() {
@@ -418,6 +428,7 @@ export class PreviewEngine {
       premultipliedAlpha: true,
       // Keeps the last frame readable between draws (screenshots, tests); cheap at preview size.
       preserveDrawingBuffer: true,
+      ...(this.options.lowLatency && { desynchronized: true }),
     });
     this.compositor = gl && !gl.isContextLost() ? createCompositor(gl) : null;
     this.timer = this.adaptiveResolution ? (gl?.getExtension("EXT_disjoint_timer_query_webgl2") ?? null) : null;
@@ -823,7 +834,7 @@ export class PreviewEngine {
     }
     // The GPU still drawing the last frames: this one waits for one of them (and is then drawn as it is by then).
     // Meanwhile the monitor shows an earlier moment: catching up, as a simulation stepping to its frame is.
-    if (this.inFlight.length >= MAX_IN_FLIGHT) {
+    if (this.inFlight.length >= this.maxInFlight) {
       this.waiting = true;
       setData(canvas, "frame", "draft");
       setData(canvas, "simulation", "catching-up");
@@ -1048,7 +1059,7 @@ export class PreviewEngine {
       // Frames finish in order.
       while (this.inFlight.length && gl.getSyncParameter(this.inFlight[0].sync, gl.SYNC_STATUS) === gl.SIGNALED) this.finished(gl, this.inFlight.shift()!);
       if (this.inFlight.length) this.watchGpu();
-      if (this.waiting && this.inFlight.length < MAX_IN_FLIGHT) {
+      if (this.waiting && this.inFlight.length < this.maxInFlight) {
         this.waiting = false;
         this.update();
       }

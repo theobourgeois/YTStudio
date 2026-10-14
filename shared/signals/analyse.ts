@@ -143,8 +143,12 @@ export class SignalAnalyser {
   // Samples: absolute indices [start, start + length) of the file (negative: the silence before it).
   private left = new Float32Array(1 << 16);
   private right = new Float32Array(1 << 16);
-  private start = -LONG / 2;
-  private length = LONG / 2;
+  private start: number;
+  private length: number;
+  /** Samples a frame needs after its moment before it can be measured. */
+  private readonly ahead: number;
+  /** How far before its moment a frame's long window (the bands') is centred. */
+  private readonly longShift: number;
   /** The next frame to measure. */
   private frame = 0;
   private scalars = new Float32Array(0);
@@ -156,7 +160,15 @@ export class SignalAnalyser {
   private waveSum = [0, 0];
   private waveCount = 0;
 
-  constructor(readonly sampleRate: number, expectedSeconds = 0) {
+  /**
+   * `live`: the sound is heard as it plays (Now Playing), so a frame is measured as soon as its onset window is all
+   * here (11 ms after its moment rather than 21): its long window, the bands', sits that much earlier.
+   */
+  constructor(readonly sampleRate: number, expectedSeconds = 0, { live = false }: { live?: boolean } = {}) {
+    this.ahead = live ? SHORT / 2 : LONG / 2;
+    this.longShift = LONG / 2 - this.ahead;
+    this.start = -(LONG / 2 + this.longShift);
+    this.length = LONG / 2 + this.longShift;
     this.hop = sampleRate / SIGNAL_RATE;
     if (!Number.isInteger(this.hop)) throw new Error(`Signals need a sample rate that's a multiple of ${SIGNAL_RATE}`);
     this.binHz = sampleRate / LONG;
@@ -247,11 +259,16 @@ export class SignalAnalyser {
     this.waveCount = 0;
   }
 
+  /** Seconds after its moment a frame can be measured (the sound it needs after it). */
+  get delay(): number {
+    return this.ahead / this.sampleRate;
+  }
+
   /** Measure every frame whose window is all here. */
   private measureReady(): void {
-    while ((this.frame * this.hop) + LONG / 2 <= this.start + this.length) this.measure();
+    while (this.frame * this.hop + this.ahead <= this.start + this.length) this.measure();
     // Forget what no frame will need again.
-    const keep = this.frame * this.hop - LONG / 2;
+    const keep = this.frame * this.hop - LONG / 2 - this.longShift;
     const drop = keep - this.start;
     if (drop > this.left.length / 2) {
       this.left.copyWithin(0, drop, this.length);
@@ -327,7 +344,7 @@ export class SignalAnalyser {
     out[row + SCALAR_INDEX.balance] = ll + rr > 1e-12 ? (rr - ll) / (ll + rr) : 0;
 
     // Bands and brightness.
-    this.spectrum(centre, LONG, this.longWindow);
+    this.spectrum(centre - this.longShift, LONG, this.longWindow);
     const power = this.power;
     const bandRow = f * BAND_COUNT;
     for (let b = 0; b < BAND_COUNT; b++) {

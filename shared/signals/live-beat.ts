@@ -33,6 +33,13 @@ const TEMPO_TOLERANCE = 0.04;
 const PHASE_TOLERANCE = 0.2;
 /** Estimates in a row that disagree before the beat jumps to them (a new song, a tempo change). */
 const PATIENCE = 3;
+/**
+ * A tempo related to the beat's (half or double time, a dotted quarter's pull in a 3-3-2 pattern: `RELATED`) shares
+ * its onsets, so which fits better flickers: it takes over only after winning this many estimates in a row (10 s), a
+ * beat that flips being worse than one that stays. An unrelated one (a new song) after `PATIENCE`.
+ */
+const TEMPO_PATIENCE = 20;
+const RELATED = [1 / 2, 2 / 3, 3 / 4, 4 / 3, 3 / 2, 2];
 /** Estimates in a row without a beat before there's none (an estimate every half second). */
 const QUIET_PATIENCE = 6;
 
@@ -155,7 +162,9 @@ export class LiveBeat {
       this.period += TEMPO_GAIN * (measured - this.period);
       this.tempoVotes = 0;
     } else if (this.tempoCandidate && Math.abs(measured - this.tempoCandidate) / this.tempoCandidate < TEMPO_TOLERANCE) {
-      if (++this.tempoVotes >= PATIENCE) {
+      const ratio = measured / this.period;
+      const related = RELATED.some((r) => Math.abs(ratio / r - 1) < TEMPO_TOLERANCE);
+      if (++this.tempoVotes >= (related ? TEMPO_PATIENCE : PATIENCE)) {
         this.lock(measured, phaseAt(measured), now);
         return this.analysis(now);
       }

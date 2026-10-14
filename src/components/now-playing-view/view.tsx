@@ -3,6 +3,7 @@ import {
   PiArrowsInSimple,
   PiArrowsOutSimple,
   PiKeyboard,
+  PiMetronome,
   PiPauseFill,
   PiPlayFill,
   PiShuffle,
@@ -18,10 +19,12 @@ import type { MusicAnalysis } from "@shared/types";
 import { cn } from "cn";
 import { PreviewEngine } from "@/components/preview/engine";
 import { useNow } from "@/hooks/use-now";
+import { CHUNK_SECONDS } from "@/lib/live-audio";
 import { useNowPlaying } from "@/stores/now-playing";
 import { LiveDirector } from "./director";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
 import { ImageSlots, LiveSource } from "./live-source";
+import { LatencyReadout, TapSync, type Tapper } from "./sync";
 import { AUTO_SWITCHES, QUALITIES, useVisualizerPrefs } from "./prefs";
 
 /** Seconds the controls stay after the pointer stops. */
@@ -78,12 +81,14 @@ export default function NowPlayingView() {
           return live ? { signals: live.signals, session: live.session } : null;
         },
         () => useNowPlaying.getState().offset / 1000,
+        CHUNK_SECONDS,
         (time) => tick(time),
         () => useNowPlaying.getState().status?.track?.artwork ?? null,
       ),
   );
   const [noWebGl, setNoWebGl] = useState(false);
-  const [engine] = useState(() => new PreviewEngine(({ noWebGl }) => setNoWebGl(noWebGl), source, true));
+  // Seen as soon as it's drawn: it follows sound heard live.
+  const [engine] = useState(() => new PreviewEngine(({ noWebGl }) => setNoWebGl(noWebGl), source, true, { lowLatency: true }));
   // Pictures the looks show (the cover): an image pair per track, kept as tracks come and go.
   const imageBox = useRef<HTMLDivElement>(null);
   const images = useRef<ImageSlots | null>(null);
@@ -208,6 +213,13 @@ export default function NowPlayingView() {
   const [hudShown, setHudShown] = useState(true);
   const [hudHidden, setHudHidden] = useState(false);
   const [help, setHelp] = useState(false);
+  const [readout, setReadout] = useState(false);
+  // Tapping along to measure the headphones' delay: Space taps instead of playing and pausing.
+  const [syncing, setSyncing] = useState(false);
+  const syncingRef = useRef(false);
+  syncingRef.current = syncing;
+  const tapper = useRef<Tapper | null>(null);
+  const stopSyncing = useCallback(() => setSyncing(false), []);
   const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wake = () => {
     setHudShown(true);
@@ -254,6 +266,13 @@ export default function NowPlayingView() {
       e.stopImmediatePropagation();
       // The controls' own lists keep their keys.
       if ((e.target as HTMLElement | null)?.tagName === "SELECT" && e.key !== "Escape") return;
+      // Tapping along: Space taps, Escape stops.
+      if (syncingRef.current) {
+        if (e.key === " " && !e.repeat) tapper.current?.tap();
+        else if (e.key === "Escape") tapper.current?.cancel();
+        e.preventDefault();
+        return;
+      }
       const action = visualizerKey(e);
       if (!action) return;
       e.preventDefault();
@@ -291,6 +310,10 @@ export default function NowPlayingView() {
           return setHudHidden((h) => !h);
         case "help":
           return setHelp((h) => !h);
+        case "latency":
+          return setReadout((r) => !r);
+        case "sync":
+          return setSyncing(true);
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -332,6 +355,9 @@ export default function NowPlayingView() {
       <div className={cn("pointer-events-none absolute inset-0 transition-opacity duration-500", controls ? "opacity-100" : "opacity-0")}>
         <div className="pointer-events-auto absolute top-4 right-4 flex items-center gap-1">
           <Hearing />
+          <HudButton label="Tap along to sync (S)" onClick={() => setSyncing(true)} active={syncing}>
+            <PiMetronome />
+          </HudButton>
           <HudButton label="Keys" onClick={() => setHelp((h) => !h)} active={help}>
             <PiKeyboard />
           </HudButton>
@@ -365,6 +391,8 @@ export default function NowPlayingView() {
       </div>
 
       {help && <KeysHelp onClose={() => setHelp(false)} />}
+      {readout && <LatencyReadout source={source} />}
+      {syncing && <TapSync source={source} tapper={tapper} onDone={stopSyncing} />}
     </div>
   );
 }
