@@ -22,6 +22,13 @@ describe("visualizerKey", () => {
     expect(key("Digit0", "0")).toEqual({ kind: "hue", degrees: 324 });
   });
 
+  it("rolls chaos on = and mutates it on -, as vaudio does", () => {
+    expect(key("Equal", "=")).toEqual({ kind: "chaos" });
+    expect(key("Equal", "+", { shiftKey: true })).toEqual({ kind: "chaos" });
+    expect(key("Minus", "-")).toEqual({ kind: "mutate" });
+    expect(key("Minus", "-", { metaKey: true })).toBeNull();
+  });
+
   it("leaves the app's own shortcuts alone", () => {
     expect(key("KeyR", "r", { metaKey: true })).toBeNull();
     expect(key("KeyQ", "q")).toBeNull();

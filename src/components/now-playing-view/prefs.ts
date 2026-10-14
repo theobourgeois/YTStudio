@@ -38,10 +38,14 @@ interface VisualizerPrefs {
   look: string;
   auto: AutoSwitch;
   quality: Quality;
-  /** A look asked for from outside the visualizer (the assistant): it shows it (`n` counts the asks). */
-  requested: { look: string; n: number } | null;
+  /**
+   * A look asked for from outside the visualizer (the assistant): it shows it (`n` counts the asks), or rolls chaos
+   * or mutates it (`roll`, as = and - do).
+   */
+  requested: { look: string; n: number; roll?: "chaos" | "mutate" } | null;
   setLook(look: string): void;
   request(look: string): void;
+  requestRoll(roll: "chaos" | "mutate"): void;
   setAuto(auto: AutoSwitch): void;
   setQuality(quality: Quality): void;
 }
@@ -64,6 +68,15 @@ export const useVisualizerPrefs = create<VisualizerPrefs>((set) => ({
   request(look) {
     localStorage.setItem(LOOK_KEY, look);
     set((s) => ({ look, requested: { look, n: (s.requested?.n ?? 0) + 1 } }));
+  },
+  requestRoll(roll) {
+    set((s) => {
+      // Chaos is another recipe's look, kept as the look: a visualizer opening for it starts on it.
+      const pool = LIVE_LOOKS.filter((l) => l.kind === "chaos" && l.id !== s.look);
+      const look = roll === "chaos" ? pool[Math.floor(Math.random() * pool.length)].id : s.look;
+      localStorage.setItem(LOOK_KEY, look);
+      return { look, requested: { look, n: (s.requested?.n ?? 0) + 1, roll } };
+    });
   },
   setAuto(auto) {
     localStorage.setItem(AUTO_KEY, auto);

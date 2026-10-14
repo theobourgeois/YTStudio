@@ -75,6 +75,9 @@ export default function NowPlayingView() {
   // The last drop heard (a look changes on one, unless looks stay).
   const dropRef = useRef<number | null>(null);
   const variationRef = useRef(0);
+  // The look shown's song, id and variation, and how many times it's been mutated (`-`).
+  const shownKey = useRef("");
+  const mutation = useRef({ key: "", n: 0 });
   const historyRef = useRef<string[]>([]);
 
   // What the tick (outside React) needs, as of the last render.
@@ -110,22 +113,45 @@ export default function NowPlayingView() {
     };
   }, []);
 
-  /** Show a look: at once (`cut`), soon through a transition, or on the next bar. */
-  const show = (lookId: string, how: "cut" | "now" | "bar", time = source.now) => {
+  /** Show a look: at once (`cut`), soon through a transition (`switching`, else one at random), or on the next bar. */
+  const show = (lookId: string, how: "cut" | "now" | "bar", time = source.now, switching?: { type: string; seconds: number }) => {
     const look = liveLook(lookId) ?? LIVE_LOOKS[0];
     const { status: s, palette: p, prefs: pr } = latest.current;
-    const random = seededRandom(`${s?.track?.id ?? "nothing"}:${look.id}:${variationRef.current}`);
-    const kind = SWITCHES[Math.floor(random() * SWITCHES.length)];
-    const seconds = how === "now" ? 0.6 : 1 + random() * 0.8;
+    const key = `${s?.track?.id ?? "nothing"}:${look.id}:${variationRef.current}`;
+    const random = seededRandom(key);
+    const kind = switching?.type ?? SWITCHES[Math.floor(random() * SWITCHES.length)];
+    const seconds = switching?.seconds ?? (how === "now" ? 0.6 : 1 + random() * 0.8);
     const rhythm = useNowPlaying.getState().live?.signals.data().header.rhythm;
     const at = how === "cut" ? time : how === "now" ? time + seconds / 2 + 0.03 : onTheBar(rhythm, time + seconds / 2 + 0.1);
-    director.show(look, { palette: p, random }, at, how === "cut" ? null : switchTransition(kind, seconds));
+    const mutations = mutation.current.key === key ? mutation.current.n : 0;
+    shownKey.current = key;
+    director.show(look, { palette: p, random, mutations }, at, how === "cut" ? null : switchTransition(kind, seconds));
     songRef.current = s?.track?.id ?? null;
     shownPalette.current = p;
     historyRef.current = [...historyRef.current.filter((id) => id !== look.id), look.id].slice(-6);
     if (pr.look !== look.id) useVisualizerPrefs.getState().setLook(look.id);
     const beats = AUTO_SWITCHES.find((a) => a.id === pr.auto)?.beats;
     dueRef.current = beats ? at + beats * beatSeconds(rhythm) : null;
+  };
+
+  /** vaudio's =: a roll of another chaos recipe (or `lookId`'s), kicked in with a flash. */
+  const chaos = (lookId?: string) => {
+    const current = director.look ?? prefs.look;
+    const pool = LIVE_LOOKS.filter((l) => l.kind === "chaos" && l.id !== current);
+    variationRef.current++;
+    director.hit("flash", source.now + 0.01, 0.45);
+    director.hit("zoom", source.now + 0.01, 0.35);
+    show(lookId ?? pool[Math.floor(Math.random() * pool.length)].id, "now", source.now, { type: "flash", seconds: 0.4 });
+  };
+
+  /** vaudio's -: the chaos shown, its world nudged, blended in; another way of any other look. */
+  const mutate = () => {
+    const current = director.look ?? prefs.look;
+    variationRef.current += liveLook(current)?.kind === "chaos" ? 0 : 1;
+    if (liveLook(current)?.kind === "chaos") {
+      mutation.current = { key: shownKey.current, n: (mutation.current.key === shownKey.current ? mutation.current.n : 0) + 1 };
+    }
+    show(current, "now", source.now, { type: "additive-dissolve", seconds: 0.8 });
   };
 
   /** A look not shown lately (of `kind`, if given). */
@@ -192,10 +218,13 @@ export default function NowPlayingView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [palette]);
 
-  // A look asked for from outside (the assistant).
+  // A look asked for from outside (the assistant), or chaos rolled or mutated.
   const requested = prefs.requested;
   useEffect(() => {
-    if (requested && sessionRef.current) show(requested.look, "now");
+    if (!requested || !sessionRef.current) return;
+    if (requested.roll === "chaos") chaos(requested.look);
+    else if (requested.roll === "mutate") mutate();
+    else show(requested.look, "now");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requested]);
 
@@ -309,6 +338,10 @@ export default function NowPlayingView() {
         case "vary":
           variationRef.current++;
           return show(director.look ?? prefs.look, "now");
+        case "chaos":
+          return chaos();
+        case "mutate":
+          return mutate();
         case "pad":
           return director.hit(action.pad, source.now + 0.01);
         case "hue":
