@@ -19,8 +19,10 @@ import type { MusicAnalysis } from "@shared/types";
 import { cn } from "cn";
 import { PreviewEngine } from "@/components/preview/engine";
 import { useNow } from "@/hooks/use-now";
+import { log } from "@/lib/log";
 import { CHUNK_SECONDS } from "@/lib/live-audio";
 import { useNowPlaying } from "@/stores/now-playing";
+import { type Choice, LookChooser, type Moment } from "./chooser";
 import { LiveDirector } from "./director";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
 import { ImageSlots, LiveSource } from "./live-source";
@@ -34,8 +36,6 @@ const IDLE_MS = 2600;
 const CARD_MS = 5000;
 /** Listening this long, a new song starts a new session (what's kept grows about 50 kB a second). */
 const SESSION_SECONDS = 600;
-/** Seconds a look stays before a drop may change it. */
-const DROP_SETTLE = 8;
 
 /** The first downbeat at or after `after` within `within` seconds (else `after`): switches land on the bar. */
 function onTheBar(rhythm: MusicAnalysis | null | undefined, after: number, within = 3): number {
@@ -45,6 +45,12 @@ function onTheBar(rhythm: MusicAnalysis | null | undefined, after: number, withi
 
 /** Seconds a beat lasts (half a second without one). */
 const beatSeconds = (rhythm: MusicAnalysis | null | undefined) => (rhythm?.bpm ? 60 / rhythm.bpm : 0.5);
+/** Seconds a bar lasts. */
+const barSeconds = (rhythm: MusicAnalysis | null | undefined) => 4 * beatSeconds(rhythm);
+
+const logger = log("now-playing");
+/** Choices the mood readout (I) shows. */
+const CHOICES_KEPT = 5;
 
 /** The first beat at or after `after`: the last one heard, carried on at the tempo (else `after`). */
 function onTheBeat(rhythm: MusicAnalysis | null | undefined, after: number): number {
@@ -72,8 +78,9 @@ export default function NowPlayingView() {
   const songRef = useRef<string | null>(null);
   const shownPalette = useRef<object | null>(null);
   const dueRef = useRef<number | null>(null);
-  // The last drop heard (a look changes on one, unless looks stay).
-  const dropRef = useRef<number | null>(null);
+  // Which look plays, following the music (`chooser.ts`), and its last choices (the readout's).
+  const [chooser] = useState(() => new LookChooser(LIVE_LOOKS));
+  const choices = useRef<{ time: number; why: string }[]>([]);
   const variationRef = useRef(0);
   // The look shown's song, id and variation, and how many times it's been mutated (`-`).
   const shownKey = useRef("");
@@ -126,6 +133,7 @@ export default function NowPlayingView() {
     const mutations = mutation.current.key === key ? mutation.current.n : 0;
     shownKey.current = key;
     director.show(look, { palette: p, random, mutations }, at, how === "cut" ? null : switchTransition(kind, seconds));
+    chooser.shown(look.id, at, barSeconds(rhythm));
     songRef.current = s?.track?.id ?? null;
     shownPalette.current = p;
     historyRef.current = [...historyRef.current.filter((id) => id !== look.id), look.id].slice(-6);
@@ -154,6 +162,24 @@ export default function NowPlayingView() {
     show(current, "now", source.now, { type: "additive-dissolve", seconds: 0.8 });
   };
 
+  /** What the chooser goes by now. */
+  const moment = (time: number): Moment | null => {
+    const signals = useNowPlaying.getState().live?.signals;
+    return signals ? { time, mood: signals.mood, bar: barSeconds(signals.data().header.rhythm) } : null;
+  };
+
+  /** A choice of the chooser's, made: said (the log, the readout), then shown, mutated or varied. */
+  const apply = (choice: Choice, time: number, often = false) => {
+    choices.current = [...choices.current, { time, why: choice.why }].slice(-CHOICES_KEPT);
+    // Switching every beat or bar, a line each would flood the log.
+    if (often) logger.debug(choice.why);
+    else logger.info(choice.why);
+    if (choice.how === "mutate") return mutate();
+    variationRef.current++;
+    if (choice.how === "vary") return show(choice.look, "now", time, { type: "additive-dissolve", seconds: 1.2 });
+    show(choice.look, choice.how, time);
+  };
+
   /** A look not shown lately (of `kind`, if given). */
   const another = (kind?: LookKind) => {
     const pool = LIVE_LOOKS.filter((l) => (!kind || l.kind === kind) && !historyRef.current.includes(l.id));
@@ -180,24 +206,22 @@ export default function NowPlayingView() {
     // Every few beats a look cuts in on the beat (a little ahead, so it's ready); less often, through a transition
     // landing on the bar.
     const cuts = beats <= CUT_BEATS;
+    const now = moment(time);
+    if (!now) return;
     if (dueRef.current !== null && time >= dueRef.current - (cuts ? 0.12 : 0.6)) {
+      // Every so many bars: a look that suits the music, on time.
       const due = dueRef.current;
       dueRef.current = null;
-      variationRef.current++;
+      const label = AUTO_SWITCHES.find((a) => a.id === latest.current.prefs.auto)?.label.toLowerCase() ?? "on time";
+      const choice = chooser.pick(now, label);
       const rhythm = live.signals.data().header.rhythm;
-      if (cuts) show(another(), "cut", Math.max(time, onTheBeat(rhythm, due - beatSeconds(rhythm) / 2)));
-      else show(another(), "bar", time);
+      apply(cuts ? { ...choice, how: "cut" } : choice, cuts ? Math.max(time, onTheBeat(rhythm, due - beatSeconds(rhythm) / 2)) : time, beats <= 16);
       return;
     }
-    // A drop (the sound suddenly louder): a new look on it, if this one's had its moment.
-    const drop = live.signals.data().header.rhythm?.drops.at(-1)?.time;
-    if (drop !== undefined && drop !== dropRef.current) {
-      dropRef.current = drop;
-      const since = time - (director.lookStart ?? 0);
-      if (latest.current.prefs.auto !== "off" && since > DROP_SETTLE && time - drop < 1.5) {
-        variationRef.current++;
-        show(another(), "now", time);
-      }
+    // Following the music: songs, drops, breakdowns, phrases.
+    if (latest.current.prefs.auto === "song") {
+      const choice = chooser.follow(now);
+      if (choice) apply(choice, time);
     }
   }
 
@@ -214,7 +238,10 @@ export default function NowPlayingView() {
       return;
     }
     if (newSong) variationRef.current = 0;
-    show(newSong && prefs.auto !== "off" ? another() : (director.look ?? prefs.look), "now");
+    const now = moment(source.now);
+    // A new song, following the music: something minimal until it's known what kind of song it is.
+    if (newSong && prefs.auto !== "off" && now) apply(chooser.song(now), source.now);
+    else show(director.look ?? prefs.look, "now");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [palette]);
 
@@ -440,7 +467,7 @@ export default function NowPlayingView() {
       </div>
 
       {help && <KeysHelp onClose={() => setHelp(false)} />}
-      {moodShown && <MoodReadout now={() => source.now} />}
+      {moodShown && <MoodReadout now={() => source.now} choices={() => choices.current} />}
       {syncing && <TapSync source={source} tapper={tapper} onDone={stopSyncing} />}
     </div>
   );

@@ -28,7 +28,7 @@ import {
   seededRandom,
   solid,
 } from "./live-kit.ts";
-import type { Energy, LiveLook } from "./live-looks.ts";
+import type { Energy, LiveLook, LookSuits } from "./live-looks.ts";
 import { type AlbumPalette, rgbToOklab } from "./palette.ts";
 import type { Effect, ParamLink } from "./types.ts";
 
@@ -126,6 +126,8 @@ export interface ChaosRecipe {
   /** Its look is `chaos-<id>`. */
   id: string;
   name: string;
+  /** What its look suits (`LookSuits`). */
+  suits: LookSuits;
   /** Its world, drawn from `r` (vaudio's ranges; what it doesn't say is `DEFAULT_WORLD`'s). */
   world(r: () => number): Partial<ChaosWorld>;
   /** The world values that grow with the music's intensity (vaudio's energy-scaled ones). */
@@ -154,6 +156,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
   {
     id: "liquid",
     name: "Liquid",
+    suits: { characters: ["chill", "groove"], energy: [0.1, 0.8] },
     world: (r) => ({
       warp: rand(r, 0.35, 0.6),
       swirl: rand(r, 0.2, 0.45),
@@ -185,6 +188,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
   {
     id: "tunnel",
     name: "Tunnel",
+    suits: { characters: ["groove", "hype"], energy: [0.4, 1] },
     world: (r) => ({
       zoom: rand(r, 0.25, 0.5),
       feedback: rand(r, 0.7, 0.88),
@@ -216,6 +220,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
     // Kaleido fed back through zoom and turn: petals growing out of petals.
     id: "fractal-bloom",
     name: "Fractal Bloom",
+    suits: { characters: ["chill", "groove", "hype"], energy: [0.2, 1] },
     world: (r) => ({
       kaleido: rand(r, 0.5, 0.85),
       ripple: rand(r, 0.08, 0.22),
@@ -247,6 +252,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
   {
     id: "datamosh",
     name: "Datamosh",
+    suits: { characters: ["hype", "heavy"], energy: [0.45, 1] },
     world: (r) => ({
       chroma: rand(r, 0.5, 0.85),
       scanlines: rand(r, 0.25, 0.55),
@@ -279,6 +285,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
   {
     id: "acid",
     name: "Acid",
+    suits: { characters: ["groove", "hype"], energy: [0.3, 1] },
     world: (r) => ({
       warp: rand(r, 0.5, 0.8),
       ripple: rand(r, 0.25, 0.45),
@@ -310,6 +317,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
     // vaudio's Séance: slow smoke folded through a mirror line, a living Rorschach.
     id: "rorschach",
     name: "Rorschach",
+    suits: { characters: ["chill"], energy: [0, 0.6], minimal: true },
     world: (r) => ({
       feedback: rand(r, 0.85, 0.93),
       trails: rand(r, 0.93, 0.97),
@@ -342,6 +350,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
     // Edges of what's drawn, added over black, trailing light.
     id: "neon-skeleton",
     name: "Neon Skeleton",
+    suits: { characters: ["hype", "heavy"], energy: [0.45, 1] },
     world: (r) => ({
       warp: rand(r, 0.15, 0.35),
       chroma: rand(r, 0.3, 0.55),
@@ -373,6 +382,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
   {
     id: "vortex",
     name: "Vortex",
+    suits: { characters: ["groove", "hype"], energy: [0.35, 1] },
     world: (r) => {
       const turn = sign(r, 0.5);
       return {
@@ -406,6 +416,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
     // vaudio's Hyperdrive: a violent echo zoom, light streaking out of the middle.
     id: "stargate",
     name: "Stargate",
+    suits: { characters: ["hype", "heavy"], energy: [0.5, 1] },
     world: (r) => ({
       zoom: rand(r, 0.2, 0.45),
       feedback: rand(r, 0.75, 0.9),
@@ -882,6 +893,7 @@ export const CHAOS_LOOKS: LiveLook[] = CHAOS_RECIPES.map((recipe) => ({
   id: `chaos-${recipe.id}`,
   name: recipe.name,
   kind: "chaos",
+  suits: recipe.suits,
   ...(recipe.energy && { energy: recipe.energy }),
   layers: (ctx) => chaosLayers(chaosRoll(recipe, ctx), ctx.palette),
 }));
