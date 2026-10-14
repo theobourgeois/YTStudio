@@ -171,12 +171,14 @@ export function paletteFromPixels(rgba: ArrayLike<number>): AlbumPalette {
   const primary = ranked[0];
   // Another hue: a colourful one, else a big faint one (a dark field's green beside a fire's orange).
   const tinted = clusters.filter((c) => c.chroma >= FAINT && c.weight >= 0.15).sort((a, b) => b.weight - a.weight);
-  const secondary = ranked.find((c) => hueGap(c.hue, primary.hue) >= 35) ?? tinted.find((c) => hueGap(c.hue, primary.hue) >= 35);
+  // Else the next most striking, even of a close hue (a fire's amber beside its orange): still the cover's.
+  const secondary =
+    ranked.find((c) => hueGap(c.hue, primary.hue) >= 35) ?? tinted.find((c) => hueGap(c.hue, primary.hue) >= 35) ?? ranked.find((c) => c !== primary && hueGap(c.hue, primary.hue) >= 8);
   const accent = [...colourful]
     .filter((c) => c !== primary && c !== secondary && hueGap(c.hue, primary.hue) >= 25)
     .sort((a, b) => b.chroma * b.lab[0] - a.chroma * a.lab[0])[0];
   // Without colours of their own, a neighbour of the primary's hue (an accent stays the cover's, hotter and lighter).
-  const secondHue = secondary?.hue ?? primary.hue - (40 * Math.PI) / 180;
+  const secondHue = secondary?.hue ?? primary.hue + (30 * Math.PI) / 180;
   const accentHue = accent?.hue ?? primary.hue + (25 * Math.PI) / 180;
   const backgroundHue = darkest.chroma >= GREY ? darkest.hue : primary.hue;
   return {

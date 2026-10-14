@@ -595,6 +595,7 @@ vec4 effect(vec2 uv) {
       boost,
       degrees("hueSpread", "Hue Spread", 120, 0, 360),
       number("hueDrift", "Hue Drift", 28, -180, 180, { unit: "°/s", step: 1 }),
+      number("hueReact", "Hue on the Sound", 40, -180, 180, { unit: "°", step: 1 }),
       percent("glow", "Glow", 0.4),
       colour("color", "Colour", "#ff4fd8"),
       colour("color2", "Loud Colour", "#33d6ff"),
@@ -614,7 +615,7 @@ vec4 effect(vec2 uv) {
   float h = max(v * (0.55 + audioLevel * 0.9) * height, 0.003);
   float barW = ratio / n;
   float d = box(vec2((f - 0.5) * barW, p.y - h * 0.05), vec2(barW * 0.41, h * 0.5), 0.0);
-  vec3 rgb = hueTurn(mix(color, color2, v), (i / n) * hueSpread + hueDrift * time + audioLevel * 40.0) * (0.55 + 0.6 * v);
+  vec3 rgb = hueTurn(mix(color, color2, v), (i / n) * hueSpread + hueDrift * time + audioLevel * hueReact) * (0.55 + 0.6 * v);
   vec4 g = paint(rgb, soft(d) * step(0.0, lx) * step(lx, 1.0));
   // A glow in the middle, growing with the sound.
   float R = 0.08 + audioLevel * 0.18;
@@ -674,9 +675,11 @@ vec4 effect(vec2 uv) {
       source,
       number("rings", "Rings", 19, 4, 32, { slider: true }),
       point("center", "Center", [0.5, 0.5]),
+      percent("size", "Size", 1, { min: 0.1, max: 2 }),
       boost,
       number("wobble", "Wobble", 1, 0, 3, { step: 0.05, decimals: 2, slider: true }),
       number("hueDrift", "Hue Drift", 30, -180, 180, { unit: "°/s", step: 1 }),
+      number("hueReact", "Hue on the Sound", 80, -180, 180, { unit: "°", step: 1 }),
       colour("color", "Inner Colour", "#7c5cff"),
       colour("color2", "Outer Colour", "#33d6ff"),
       ...blending("over"),
@@ -694,12 +697,12 @@ vec4 effect(vec2 uv) {
     float on = step(i, n - 1.0);
     float t = i / (n - 1.0);
     float energy = clamp(spectrum(1.0 - t) * boost, 0.0, 1.0) * (0.5 + audioLevel);
-    float radius = 0.05 + t * 0.55 + sin(time * 2.2 + i * 0.4) * 0.02 * wobble + energy * 0.08;
+    float radius = (0.05 + t * 0.55 + sin(time * 2.2 + i * 0.4) * 0.02 * wobble + energy * 0.08) * size;
     vec2 shift = vec2(sin(time * 0.8 + i * 0.2) * 0.05, cos(time * 0.7 + i * 0.15) * 0.033) * energy * wobble;
     vec2 q = rot(time * 0.15) * (p - shift);
     vec2 axes = vec2(radius * ratio, radius);
     float dist = abs(length(q / axes) - 1.0) * radius - (0.002 + energy * 0.008);
-    vec3 rgb = hueTurn(mix(color, color2, t), hueDrift * time + energy * 80.0);
+    vec3 rgb = hueTurn(mix(color, color2, t), hueDrift * time + energy * hueReact);
     g = over(paint(rgb, soft(dist) * (0.15 + energy * 0.7) * on), g);
   }
   return blendGenerated(g, base, opacity);
@@ -716,6 +719,7 @@ vec4 effect(vec2 uv) {
       number("rows", "Rows", 9, 2, 32, { slider: true }),
       boost,
       number("hueDrift", "Hue Drift", 25, -180, 180, { unit: "°/s", step: 1 }),
+      number("hueReact", "Hue on the Sound", 60, -180, 180, { unit: "°", step: 1 }),
       colour("color", "Colour", "#a3e635"),
       colour("color2", "Second Colour", "#ff4fd8"),
       ...blending("over"),
@@ -735,7 +739,7 @@ vec4 effect(vec2 uv) {
   vec2 cellSize = vec2(ratio, 1.0) / grid;
   // Never quite filling its cell, so the grid always reads.
   float d = box(local * cellSize, cellSize * 0.5 * clamp(s, 0.0, 0.86), 0.0);
-  vec3 rgb = hueTurn(mix(color, color2, n), hueDrift * time + audioBass * 60.0) * (0.6 + 0.5 * clamp(pulse, 0.0, 1.0));
+  vec3 rgb = hueTurn(mix(color, color2, n), hueDrift * time + audioBass * hueReact) * (0.6 + 0.5 * clamp(pulse, 0.0, 1.0));
   return blendGenerated(paint(rgb, soft(d) * clamp(0.2 + pulse * 0.8, 0.0, 1.0)), base, opacity);
 }
 `),
@@ -751,6 +755,7 @@ vec4 effect(vec2 uv) {
       percent("swing", "Swing", 1, { max: 3 }),
       number("thickness", "Thickness", 1, 0.25, 4, { step: 0.05, decimals: 2, slider: true }),
       number("hueDrift", "Hue Drift", 35, -180, 180, { unit: "°/s", step: 1 }),
+      number("hueReact", "Hue on the Sound", 50, -180, 180, { unit: "°", step: 1 }),
       colour("color", "Colour", "#ff5cf0"),
       colour("color2", "Last Colour", "#5cffd6"),
       ...blending("over"),
@@ -778,7 +783,7 @@ vec4 effect(vec2 uv) {
     float band = clamp(spectrum((r + 0.5) / n) * boost, 0.0, 1.0);
     float half_ = (0.0028 + audioLevel * 0.007 + band * 0.011) * thickness;
     float d = abs(p.y - y) / sqrt(1.0 + slope * slope) - half_;
-    vec3 rgb = hueTurn(mix(color, color2, r / max(n - 1.0, 1.0)), hueDrift * time + audioLevel * 50.0);
+    vec3 rgb = hueTurn(mix(color, color2, r / max(n - 1.0, 1.0)), hueDrift * time + audioLevel * hueReact);
     g = over(paint(rgb, soft(d) * (0.35 + audioLevel * 0.45) * on), g);
   }
   return blendGenerated(g, base, opacity);
@@ -796,6 +801,7 @@ vec4 effect(vec2 uv) {
       percent("orbSize", "Size", 1, { max: 3 }),
       percent("spread", "Spread", 1, { max: 2 }),
       number("hueDrift", "Hue Drift", 40, -180, 180, { unit: "°/s", step: 1 }),
+      number("hueReact", "Hue on the Sound", 90, -180, 180, { unit: "°", step: 1 }),
       colour("color", "Colour", "#ff7ae0"),
       colour("color2", "Second Colour", "#7cf7ff"),
       ...blending("over"),
@@ -816,8 +822,8 @@ vec4 effect(vec2 uv) {
     vec2 at = vec2(cos(time * (0.4 + t) + i * 1.7) * orbit * (0.7 + s) * ratio, sin(time * (0.35 + t * 0.8) + i * 1.3) * orbit * (0.55 + s));
     float radius = (0.03 + s * 0.15 + audioLevel * 0.07) * (0.6 + mod(i, 3.0) * 0.2) * orbSize;
     float r = length(p - at) / radius;
-    vec3 inner = hueTurn(mix(color, color2, t), hueDrift * time + s * 90.0);
-    vec3 outer = hueTurn(inner, 40.0);
+    vec3 inner = hueTurn(mix(color, color2, t), hueDrift * time + s * hueReact);
+    vec3 outer = hueTurn(inner, hueReact * 0.45);
     // Bright in the middle, a halo of the next hue, nothing at the edge.
     float a = r < 0.55 ? mix(0.35 + s * 0.55, 0.12 + s * 0.25, r / 0.55) : mix(0.12 + s * 0.25, 0.0, clamp((r - 0.55) / 0.45, 0.0, 1.0));
     vec3 rgb = r < 0.55 ? mix(inner * 1.2, outer, r / 0.55) : outer;
