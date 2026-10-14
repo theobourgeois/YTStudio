@@ -33,7 +33,7 @@ import os from "node:os";
 import path from "node:path";
 import { type Page, chromium } from "@playwright/test";
 import { LIVE_LOOKS, LOOK_KINDS, type LiveLook } from "../shared/live-looks.ts";
-import { DEMO_SECTIONS } from "../shared/signals/demo-sound.ts";
+import { DEMO_SECTIONS, demoSong } from "../shared/signals/demo-sound.ts";
 
 const WEB_PORT = "5350";
 const SERVER_PORT = "5351";
@@ -401,13 +401,38 @@ async function record() {
   );
   await page.close();
   // The picture of a moment is drawn ~35 ms after it's heard (the analysis, a frame): the song starts that early.
+  // Without a song, the made-up one (the tab's, never played) is made again here, the same from its start.
   const mp4 = `${base}.mp4`;
-  const audio = songFile ? ["-ss", String(Math.max(0, heard - 0.035)), "-i", songFile, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "192k", "-shortest"] : [];
+  const sound = songFile ?? writeDemoSong(path.join(dataDir, "demo.wav"), heard + recordSeconds + 5);
+  const audio = ["-ss", String(Math.max(0, heard - 0.035)), "-i", sound, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "192k", "-shortest"];
   const mux = spawnSync("ffmpeg", ["-y", "-v", "error", "-i", webm, ...audio, "-vf", "fps=60", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", mp4]);
   if (mux.status !== 0) throw new Error(`ffmpeg couldn't make the film: ${mux.stderr}`);
   fs.writeFileSync(`${base}.txt`, `${said.join("\n")}\n`);
   console.log(`Wrote ${mp4} and ${base}.txt`);
   report([]);
+}
+
+/** The made-up song (`demoSong`), `seconds` of it from its start, as a 16-bit stereo WAV at `file`. */
+function writeDemoSong(file: string, seconds: number): string {
+  const rate = 48_000;
+  const samples = demoSong(rate).next(Math.ceil(rate * seconds));
+  const data = Buffer.alloc(samples.length * 2);
+  for (let i = 0; i < samples.length; i++) data.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(samples[i] * 32767))), i * 2);
+  const head = Buffer.alloc(44);
+  head.write("RIFF", 0);
+  head.writeUInt32LE(36 + data.length, 4);
+  head.write("WAVEfmt ", 8);
+  head.writeUInt32LE(16, 16);
+  head.writeUInt16LE(1, 20);
+  head.writeUInt16LE(2, 22);
+  head.writeUInt32LE(rate, 24);
+  head.writeUInt32LE(rate * 4, 28);
+  head.writeUInt16LE(4, 32);
+  head.writeUInt16LE(16, 34);
+  head.write("data", 36);
+  head.writeUInt32LE(data.length, 40);
+  fs.writeFileSync(file, Buffer.concat([head, data]));
+  return file;
 }
 
 /** A picture on a sheet, captioned, outlined in red if it fails. */
