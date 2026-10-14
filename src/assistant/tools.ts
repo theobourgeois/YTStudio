@@ -819,7 +819,9 @@ const TOOLS: Record<VideoToolName, Handler> = {
         ? `The visualizer is open, showing ${liveLook(prefs.look)?.name ?? prefs.look} (${prefs.look}); looks change: ${auto.label.toLowerCase()} (${auto.id}); listening: ${listening}.`
         : `The visualizer is closed (its look is ${prefs.look}; looks change: ${auto.id}).`,
     );
-    lines.push(`Looks: ${LIVE_LOOKS.map((l) => `${l.id} (${l.name}, ${l.kind})`).join(", ")}.`);
+    // What each suits (step 5 of docs/now-playing.md), so a look can be picked for the music.
+    const suits = (l: (typeof LIVE_LOOKS)[number]) => `${l.suits.characters.join("/")}, intensity ${l.suits.energy[0]}–${l.suits.energy[1]}${l.suits.minimal ? ", minimal" : ""}`;
+    lines.push(`Looks (id: name, kind, what it suits): ${LIVE_LOOKS.map((l) => `${l.id} (${l.name}, ${l.kind}, ${suits(l)})`).join("; ")}.`);
     return textResult(lines.join("\n"));
   },
   async control_now_playing(input) {

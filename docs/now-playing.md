@@ -74,10 +74,10 @@ are vaudio's world presets (a visualizer fed back into itself); chaos is vaudio'
 cover (`COVER_ASSET`, an image the view attaches, `ImageSlots`). The kit looks are built from (signals, punches,
 layers) is `shared/live-kit.ts`.
 
-How looks change by themselves (A, the "Change looks" menu, `AUTO_SWITCHES`): never, each song and drop, or every
-beat, bar, 2, 4, 8, 16 or 32 bars too. Every 4 beats or more often (`CUT_BEATS`) a look cuts in on the beat, carried
-on from the last one heard (`onTheBeat`): there's no time for a transition. Less often, through one landing on the
-bar.
+How looks change by themselves (A, the "Change looks" menu, `AUTO_SWITCHES`): never, following the music (see
+Following the music), or every beat, bar, 2, 4, 8, 16 or 32 bars, each a look that suits the music. Every 4 beats or
+more often (`CUT_BEATS`) a look cuts in on the beat, carried on from the last one heard (`onTheBeat`): there's no
+time for a transition. Less often, through one landing on the bar.
 
 To add a look: an entry in `LIVE_LOOKS` (its colours from the palette only: the test checks), then
 `pnpm tsx scripts/now-playing-sheet.ts <id> --moments` (it at the made-up song's breakdown, build-up and drop, checked
@@ -189,6 +189,32 @@ often (or `--auto bars2`, the looks changing by themselves): for seeing it move,
 covers (a sky, a striped sun, hills, a grid, a title, grain), so a look that bends the cover is tried on something
 like one.
 
+## Following the music
+
+Which look plays when looks change by themselves (step 5 of the plan, `chooser.ts`, pure and tested):
+
+- **What a look suits** (`LiveLook.suits`): the kinds of song (`LiveMood`'s characters: chill, groove, hype, heavy),
+  the intensities it reads well at (0..1), and whether it's minimal (for between songs). Every look says; a test
+  checks every kind of song has three looks at least at every intensity it's likely to have.
+- **Picking** (`pickLook`): a look that suits the moment (its range, with a margin of 0.08; the song's kind once it's
+  sure of it), not one shown lately, at random weighted to the middle of its range. A drop wants an intense look
+  (even before the intensity has caught up), a breakdown a calm one (by the intensity alone: a hype song's breakdown
+  is calm), a fit isn't a minimal one.
+- **Following** (`LookChooser.follow`, "Follow the music"): a new song starts on something minimal until it's known
+  what kind of song it is, then a look for it; a drop brings an intense look at once, a breakdown a calm one on the
+  bar; a build-up changes nothing (it lands on the drop). Each 8-bar phrase the look's checked: changed if it no
+  longer suits; else a chaos look is mutated (and changed after 32 bars), another varied (and changed after 16: it
+  doesn't evolve as chaos does). Far outside its range (0.2) for a couple of bars, a look's changed then. A long
+  quiet (between songs) goes minimal. The every-so-many-bars switches pick by the music too (`pick`).
+- **Why**: every choice says why (`Choice.why`), in the log (`now-playing`: info, but switching every 4 bars or more
+  often only at debug) and the mood readout (I, the last three). The assistant's `now_playing` lists what each look
+  suits.
+
+The test plays made-up songs of each kind through it (an intro, a build-up, a drop, a breakdown, again) and checks no
+look plays out of its range longer than a phrase, nor far out longer than a couple of bars; a build-up keeps its
+look. `now-playing-sheet.ts --record 104 --song some.mp3 --auto song` films a whole song followed, with the choices
+beside it (`<out>.txt`).
+
 ## The plan (v2)
 
 After Théo's feedback (2026-10-14: the looks are milquetoast and ignore the song's mood, transitions read as amateur,
@@ -204,9 +230,8 @@ Only the e2e spec a step touches is run (`e2e/now-playing.spec.ts`), never the w
 4. **The world stack** (done): see Chaos. Chaos and mutate are vaudio's own keys (= and -: C and M were taken).
    Pass: sheets green; a chaos sheet of 24 rolls a recipe on real music, none white or black; Théo scores a round and
    the ranges are tuned. Théo also asked for switching every beat and bar (done) and to drop the L readout (done).
-5. **Picking looks by mood**: every look tagged with the energy and character it suits; mutate on 8 or 16-bar phrases,
-   change on drops and songs; something minimal between songs. Pass: a test that a look never plays out of its
-   range; a log of each choice and why; Théo watches whole songs.
+5. **Picking looks by mood** (done): see Following the music. Pass: a test that a look never plays out of its range
+   (for longer than a phrase); a log of each choice and why; Théo watches whole songs.
 6. **Musical transitions**: a hard cut on the downbeat at a drop; a slow blend or a feedback morph in calm parts; no
    cut in a build-up (it lands on the drop); glitches only on glitch looks. Pass: a transition sheet; cuts within a
    frame of the downbeat (logged); Théo's eyes.

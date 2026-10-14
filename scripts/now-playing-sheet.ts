@@ -22,7 +22,8 @@
  *
  * `--record` films the visualizer on the first look given for that many seconds (its canvas, 60 fps, as it draws
  * live), the song from `--from` seconds into it, chaos rolled (=) every `--every` seconds or looks changed by
- * themselves (`--auto`, as the menu's), and puts the song under it in step: `<out>.mp4`.
+ * themselves (`--auto`, as the menu's: `song` follows the music), and puts the song under it in step: `<out>.mp4`,
+ * and what the visualizer said as it went (its choices of look, and why) beside it: `<out>.txt`.
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -332,6 +333,13 @@ async function record() {
   const webm = `${base}.webm`;
   fs.writeFileSync(webm, "");
   await page.exposeFunction("saveFilm", (b64: string) => fs.appendFileSync(webm, Buffer.from(b64, "base64")));
+  // What the visualizer says (its choices of look), timed from when filming starts.
+  let filmed = 0;
+  const said: string[] = [];
+  page.on("console", (m) => {
+    const text = m.text();
+    if (text.startsWith("[now-playing]")) said.push(`${filmed ? ((Date.now() - filmed) / 1000).toFixed(1).padStart(6) : "before"} s  ${text.slice(14)}`);
+  });
   // The mood and the trails settle first.
   await page.waitForTimeout(3000);
   const heard = await page.evaluate(async () => {
@@ -355,6 +363,7 @@ async function record() {
     recorder.start(1000);
     return (useNowPlaying.getState().live?.signals.seconds as number | undefined) ?? 0;
   });
+  filmed = Date.now();
   console.log(`  filming ${looks[0].name} from ${heard.toFixed(2)} s into the song`);
   const until = Date.now() + recordSeconds * 1000;
   while (Date.now() < until - 300) {
@@ -375,7 +384,8 @@ async function record() {
   const audio = songFile ? ["-ss", String(Math.max(0, heard - 0.035)), "-i", songFile, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "192k", "-shortest"] : [];
   const mux = spawnSync("ffmpeg", ["-y", "-v", "error", "-i", webm, ...audio, "-vf", "fps=60", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", mp4]);
   if (mux.status !== 0) throw new Error(`ffmpeg couldn't make the film: ${mux.stderr}`);
-  console.log(`Wrote ${mp4}`);
+  fs.writeFileSync(`${base}.txt`, `${said.join("\n")}\n`);
+  console.log(`Wrote ${mp4} and ${base}.txt`);
   report([]);
 }
 

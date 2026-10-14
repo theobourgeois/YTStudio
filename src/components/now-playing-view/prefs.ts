@@ -2,14 +2,14 @@ import { create } from "zustand";
 import { LIVE_LOOKS, liveLook } from "@shared/live-looks";
 
 /**
- * When the visualizer changes looks by itself: never, with each song (and on a drop), or every beat or so many bars
- * too (`beats` apart).
+ * When the visualizer changes looks by itself: never, following the music (looks that suit it, changed on songs,
+ * drops and breakdowns: `chooser.ts`), or every beat or so many bars (`beats` apart), each a look that suits the music.
  */
 export type AutoSwitch = "off" | "song" | "beat" | "bars1" | "bars2" | "bars4" | "bars8" | "bars16" | "bars32";
 
 export const AUTO_SWITCHES: { id: AutoSwitch; label: string; beats?: number }[] = [
   { id: "off", label: "Stay on this look" },
-  { id: "song", label: "Each song and drop" },
+  { id: "song", label: "Follow the music" },
   { id: "beat", label: "Every beat", beats: 1 },
   { id: "bars1", label: "Every bar", beats: 4 },
   { id: "bars2", label: "Every 2 bars", beats: 8 },

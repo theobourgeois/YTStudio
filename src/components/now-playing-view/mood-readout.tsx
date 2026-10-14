@@ -13,7 +13,7 @@ const arrow = (v: number) => (v >= 0.25 ? "↑" : v <= -0.25 ? "↓" : "·");
  * it's done lately, each band rising or falling, and the measurements under them (`LiveMood`). For checking its
  * reading against one's ears (step 2 of the plan).
  */
-export function MoodReadout({ now }: { now: () => number }) {
+export function MoodReadout({ now, choices }: { now: () => number; choices: () => readonly { time: number; why: string }[] }) {
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 250);
@@ -53,6 +53,17 @@ export function MoodReadout({ now }: { now: () => number }) {
       <div className="font-mono text-[11px]">
         low {arrow(m.presence.low)} · mid {arrow(m.presence.mid)} · high {arrow(m.presence.high)}
       </div>
+      {choices().length > 0 && (
+        <div className="mt-1.5 border-t border-white/10 pt-1.5 text-[11px] leading-4 text-white/75">
+          {choices()
+            .slice(-3)
+            .map((c) => (
+              <div key={c.time}>
+                <span className="text-white/45">{ago(c.time)}:</span> {c.why}
+              </div>
+            ))}
+        </div>
+      )}
       <div className="font-mono text-[10px] text-white/50">
         {m.heard.loudness.toFixed(1)} dB · {m.heard.hits.toFixed(1)} hits/s · {m.heard.kicks.toFixed(1)} kicks/s · sub {m.heard.sub.toFixed(2)} · {m.heard.brightness} Hz
         {live.bpm ? ` · ${live.bpm.toFixed(1)} BPM` : ""}

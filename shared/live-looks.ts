@@ -36,6 +36,7 @@ import {
   withIds,
 } from "./live-kit.ts";
 import type { AlbumPalette } from "./palette.ts";
+import type { SongCharacter } from "./signals/mood.ts";
 import { ONSET_SCALARS, type OnsetName, SIGNALS_VERSION, SIGNAL_RATE, SCALARS, bandEdges, type Hit, type SignalData } from "./signals/format.ts";
 import type { AspectRatio, Clip, MediaAsset, ParamLink, ParamValues, Project, Sequence, SignalRef, Transition } from "./types.ts";
 
@@ -229,10 +230,21 @@ export const LOOK_KINDS: { id: LookKind; label: string }[] = [
   { id: "chaos", label: "Chaos" },
 ];
 
+/**
+ * What a look suits (step 5 of docs/now-playing.md): the kinds of song (`LiveMood`'s characters) and the intensities
+ * (0..1) it reads well at, and whether it's minimal (for between songs, and before a song's kind is known).
+ */
+export interface LookSuits {
+  characters: SongCharacter[];
+  energy: [number, number];
+  minimal?: true;
+}
+
 export interface LiveLook {
   id: string;
   name: string;
   kind: LookKind;
+  suits: LookSuits;
   /** Its layers, top first. */
   layers(ctx: LookContext): LookLayer[];
   /** How it goes off with the music, where its kind's (`ENERGY`) doesn't suit it. */
@@ -300,30 +312,35 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "nebula",
     name: "Nebula",
     kind: "world",
+    suits: { characters: ["chill", "groove"], energy: [0, 0.7] },
     layers: ({ palette: p, random: r }) => world("nebula", { palette: pick(r, ["hubble", "cosmic", "natural"]), density: between(r, 0.8, 1.2) }, p, r),
   },
   {
     id: "wormhole",
     name: "Wormhole",
     kind: "world",
+    suits: { characters: ["hype", "heavy"], energy: [0.45, 1] },
     layers: ({ palette: p, random: r }) => world("wormhole", { palette: pick(r, ["stargate", "plasma", "inferno"]), jumps: pick(r, ["bars4", "bars8", "drops"]) }, p, r),
   },
   {
     id: "neon-city",
     name: "Neon City",
     kind: "world",
+    suits: { characters: ["groove", "hype"], energy: [0.3, 1] },
     layers: ({ palette: p, random: r }) => world("neon-city", { palette: pick(r, ["cyberpunk", "bladerunner", "tokyo"]), rain: between(r, 0.6, 1.2) }, p, r, { tint: between(r, 0.25, 0.45) }),
   },
   {
     id: "event-horizon",
     name: "Event Horizon",
     kind: "world",
+    suits: { characters: ["groove", "heavy"], energy: [0.25, 0.9] },
     layers: ({ palette: p, random: r }) => world("event-horizon", { disk: pick(r, ["gargantua", "blue", "ember"]), inclination: between(r, 12, 30, 0) }, p, r),
   },
   {
     id: "galaxy",
     name: "Galaxy",
     kind: "world",
+    suits: { characters: ["chill", "groove"], energy: [0, 0.7] },
     layers: ({ palette: p, random: r }) => [
       drawing("audio-circle", { radius: 0.26, barLength: 0.08, bars: 160, mirror: true, pulse: 0.1, gap: 0.5, color: p.light, color2: p.accent }, [], { opacity: { params: { opacity: 0.55, blendMode: "screen" } } }),
       ...world("galaxy", { palette: pick(r, ["hubble", "andromeda", "neon"]), arms: pick(r, ["two", "three", "four"]) }, p, r),
@@ -333,60 +350,70 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "aurora",
     name: "Aurora",
     kind: "world",
+    suits: { characters: ["chill"], energy: [0, 0.6] },
     layers: ({ palette: p, random: r }) => world("aurora", { colors: pick(r, ["classic", "violet", "fire"]), height: between(r, 0.8, 1.2) }, p, r, { tint: between(r, 0.4, 0.65) }),
   },
   {
     id: "ridgeline",
     name: "Ridgeline",
     kind: "world",
+    suits: { characters: ["groove", "hype"], energy: [0.3, 1] },
     layers: ({ palette: p, random: r }) => world("ridgeline", { style: pick(r, ["dusk", "neon", "night"]), sunHeight: between(r, 0.25, 0.4) }, p, r),
   },
   {
     id: "abyss",
     name: "Abyss",
     kind: "world",
+    suits: { characters: ["chill", "groove"], energy: [0, 0.65] },
     layers: ({ palette: p, random: r }) => world("abyss", { glow: pick(r, ["cyan", "magenta", "gold", "rainbow"]), jellies: Math.round(between(r, 5, 9)) }, p, r),
   },
   {
     id: "cyberspace",
     name: "Cyberspace",
     kind: "world",
+    suits: { characters: ["groove", "hype"], energy: [0.4, 1] },
     layers: ({ palette: p, random: r }) => world("cyberspace", { style: pick(r, ["tron", "matrix", "synthwave", "redalert"]) }, p, r, { tint: between(r, 0.3, 0.55) }),
   },
   {
     id: "ferrofluid",
     name: "Ferrofluid",
     kind: "world",
+    suits: { characters: ["groove", "heavy"], energy: [0.3, 1] },
     layers: ({ palette: p, random: r }) => world("ferrofluid", { finish: pick(r, ["oil", "chrome", "gold"]), spikes: between(r, 0.9, 1.3) }, p, r, { tint: between(r, 0.45, 0.7) }),
   },
   {
     id: "monoliths",
     name: "Monoliths",
     kind: "world",
+    suits: { characters: ["heavy"], energy: [0.35, 1] },
     layers: ({ palette: p, random: r }) => world("monoliths", { style: pick(r, ["obsidian", "synth"]) }, p, r, { glow: 0.35 }),
   },
   {
     id: "storm-sea",
     name: "Storm Sea",
     kind: "world",
+    suits: { characters: ["chill", "heavy"], energy: [0, 0.75] },
     layers: ({ palette: p, random: r }) => world("storm-sea", { weather: "storm", waveHeight: between(r, 0.9, 1.3) }, p, r, { tint: between(r, 0.3, 0.5), glow: 0.35 }),
   },
   {
     id: "cosmic-web",
     name: "Cosmic Web",
     kind: "world",
+    suits: { characters: ["chill", "groove"], energy: [0.1, 0.8] },
     layers: ({ palette: p, random: r }) => world("cosmic-web", { style: pick(r, ["cosmic", "neural", "dark"]) }, p, r),
   },
   {
     id: "infinite-dive",
     name: "Infinite Dive",
     kind: "world",
+    suits: { characters: ["hype", "heavy"], energy: [0.5, 1] },
     layers: ({ palette: p, random: r }) => world("infinite-dive", { form: pick(r, ["portals", "lattice", "spires"]), palette: pick(r, ["iridescent", "gold", "ice", "ember"]) }, p, r),
   },
   {
     id: "collider",
     name: "Collider",
     kind: "world",
+    suits: { characters: ["hype", "heavy"], energy: [0.5, 1] },
     layers: ({ palette: p, random: r }) => world("collider", { style: pick(r, ["display", "neon", "bubble"]) }, p, r, { tint: between(r, 0.4, 0.6) }),
   },
 
@@ -395,6 +422,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "album",
     name: "Album",
     kind: "spectrum",
+    suits: { characters: ["chill", "groove", "hype", "heavy"], energy: [0, 0.65], minimal: true },
     energy: { shake: 0.15, strobe: 0.15 },
     layers: ({ palette: p, random: r }) => [
       adjust([fx("deep-glow", { reach: 0.18, exposure: 0.6, threshold: 0.7, tint: p.accent, tintAmount: 0.3 }, { exposure: follow(BASS, "add", 0.6) }), fx("vignette", { amount: 0.45 })]),
@@ -413,6 +441,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "halo",
     name: "Halo",
     kind: "spectrum",
+    suits: { characters: ["chill", "groove"], energy: [0, 0.7], minimal: true },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("deep-glow", { reach: 0.22, exposure: 0.8, threshold: 0.5, tint: p.accent, tintAmount: 0.35 }, { exposure: follow(BASS, "add", 0.9) }),
@@ -430,6 +459,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "skyline",
     name: "Skyline",
     kind: "spectrum",
+    suits: { characters: ["groove", "hype"], energy: [0.25, 1] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("light-rays", { centre: [0.5, 0.5], intensity: 0.35, reach: 0.25, threshold: 0.7, rayColor: p.accent }, { intensity: follow(BASS, "add", 0.5) }),
@@ -445,6 +475,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "equalizer",
     name: "Equalizer",
     kind: "spectrum",
+    suits: { characters: ["groove", "hype", "heavy"], energy: [0.3, 1] },
     layers: ({ palette: p, random: r }) => [
       adjust([fx("glow", { threshold: 0.65, reach: 0.03, intensity: 0.4 }, { intensity: follow(BASS, "add", 0.5) }), fx("feedback", { amount: 0.45, trailLength: 0.25, zoom: 1, rotation: 0, drift: [0, -0.3], mode: "lighten" })]),
       drawing("audio-wave-bars", { bars: Math.round(between(r, 64, 96)), center: [0.5, 0.6], height: 0.42, boost: 0.75, hueSpread: between(r, 0, 25, 0), hueDrift: 0, hueReact: 10, glow: 0.35, color: p.primary, color2: p.accent }),
@@ -455,6 +486,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "sunburst",
     name: "Sunburst",
     kind: "spectrum",
+    suits: { characters: ["groove", "hype"], energy: [0.35, 1] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("deep-glow", { reach: 0.22, exposure: 0.45, threshold: 0.75, tint: p.secondary, tintAmount: 0.3 }),
@@ -470,6 +502,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "ribbons",
     name: "Ribbons",
     kind: "spectrum",
+    suits: { characters: ["chill", "groove"], energy: [0.05, 0.75] },
     layers: ({ palette: p, random: r }) => [
       adjust([fx("glow", { threshold: 0.55, reach: 0.03, intensity: 0.6 }), fx("feedback", { amount: 0.6, trailLength: 0.45, zoom: 1.03, rotation: 0, drift: [0, 0.12], mode: "lighten" })]),
       drawing("audio-ribbons", { ribbons: Math.round(between(r, 5, 8)), swing: between(r, 0.7, 1.2), thickness: 0.8, boost: 0.8, hueDrift: 0, hueReact: 10, color: p.primary, color2: p.secondary }),
@@ -480,6 +513,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "scope",
     name: "Scope",
     kind: "spectrum",
+    suits: { characters: ["chill", "groove"], energy: [0, 0.55], minimal: true },
     energy: { shake: 0.15 },
     layers: ({ palette: p }) => [
       adjust([fx("crt", { scanlines: 0.4, curvature: 0.2, mask: 0.3, glow: 0.6, flicker: 0.1 }), fx("glow", { threshold: 0.4, reach: 0.03, intensity: 1.1 })]),
@@ -492,6 +526,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "ridges",
     name: "Ridges",
     kind: "spectrum",
+    suits: { characters: ["chill", "groove", "heavy"], energy: [0.15, 0.85] },
     energy: { shake: 0.2 },
     layers: ({ palette: p, random: r }) => [
       adjust([fx("glow", { threshold: 0.55, reach: 0.03, intensity: 0.6 }), fx("vignette", { amount: 0.55 })]),
@@ -507,6 +542,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "lattice",
     name: "Lattice",
     kind: "spectrum",
+    suits: { characters: ["hype", "heavy"], energy: [0.45, 1] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("glow", { threshold: 0.5, reach: 0.04, intensity: 0.8 }),
@@ -523,6 +559,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "liquid-chrome",
     name: "Liquid Chrome",
     kind: "trip",
+    suits: { characters: ["groove", "hype"], energy: [0.3, 1] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("twirl", { angle: between(r, 40, 90, 0), reach: 0.7 }, { angle: follow(BASS, "add", 90, 0.3) }),
@@ -540,6 +577,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "echo-tunnel",
     name: "Echo Tunnel",
     kind: "trip",
+    suits: { characters: ["hype", "heavy"], energy: [0.4, 1] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx(
@@ -559,6 +597,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "kaleido-cathedral",
     name: "Kaleido Cathedral",
     kind: "trip",
+    suits: { characters: ["chill", "groove"], energy: [0.15, 0.8] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("kaleida", { mirroring: pick(r, ["6", "8", "12"]), size: between(r, 0.8, 1.3) }, { rotation: punch(DOWNBEAT, "add", 30, 1.2) }),
@@ -574,6 +613,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "shard-storm",
     name: "Shard Storm",
     kind: "trip",
+    suits: { characters: ["hype", "heavy"], energy: [0.45, 1] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         // Under 100%, so the mirrors take in more of the shards (over it, a quiet moment's few are outside).
@@ -590,6 +630,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "vhs-seance",
     name: "VHS Séance",
     kind: "trip",
+    suits: { characters: ["chill", "groove"], energy: [0.05, 0.75] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("vhs", { intensity: 0.5, scanlines: 0.5 }),
@@ -606,6 +647,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "acid-bath",
     name: "Acid Bath",
     kind: "trip",
+    suits: { characters: ["chill", "groove"], energy: [0.1, 0.65] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("wave-warp", { amplitude: 0.02, wavelength: 0.3, speed: 1.2 }),
@@ -614,7 +656,8 @@ export const LIVE_LOOKS: LiveLook[] = [
         fx("feedback", { amount: 0.35, trailLength: 0.4, zoom: 1.15, rotation: between(r, -25, 25, 0), hueShift: 40, mode: "lighten" }),
       ]),
       // The whole frame, so its hot colour is the secondary: the accent everywhere is white in a drop.
-      drawing("audio-plasma", { pixelSize: pick(r, [0, 0.008, 0.014]), speed: between(r, 0.8, 1.3), hueSpread: 40, hueDrift: 0, color: p.primary, color2: p.secondary }, [], {
+      // Held back: on a loud song the plasma is at its hottest everywhere, one flat colour.
+      drawing("audio-plasma", { boost: 0.55, pixelSize: pick(r, [0, 0.008, 0.014]), speed: between(r, 0.8, 1.3), hueSpread: 40, hueDrift: 0, color: p.primary, color2: p.secondary }, [], {
         motion: { links: { scale: punch(KICK, "multiply", 0.05, 0.3) } },
       }),
       solid(p.background),
@@ -625,6 +668,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "ghost-trails",
     name: "Ghost Trails",
     kind: "trip",
+    suits: { characters: ["chill"], energy: [0, 0.55], minimal: true },
     energy: { strobe: 0, invert: 0, shake: 0.3 },
     layers: ({ palette: p, random: r }) => [
       adjust([
@@ -642,6 +686,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "neon-autopsy",
     name: "Neon Autopsy",
     kind: "trip",
+    suits: { characters: ["groove", "heavy"], energy: [0.3, 0.9] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("glow-edges", { edgeWidth: 0.0025, glow: 1.2, edgeColor: p.accent, darken: 0.85 }),
@@ -655,6 +700,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "prism-storm",
     name: "Prism Storm",
     kind: "trip",
+    suits: { characters: ["hype"], energy: [0.45, 1] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("chromatic-aberration", { amount: 0.01, mode: "radial" }, { amount: punch(SNARE, "add", 0.04, 0.25) }),
@@ -670,6 +716,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "solar-flare",
     name: "Solar Flare",
     kind: "trip",
+    suits: { characters: ["groove", "hype"], energy: [0.3, 1] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("light-rays", { intensity: 1.1, reach: 0.45, threshold: 0.5, rayColor: p.accent }, { intensity: follow(BASS, "add", 1) }),
@@ -684,6 +731,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "hyperdrive",
     name: "Hyperdrive",
     kind: "trip",
+    suits: { characters: ["hype", "heavy"], energy: [0.5, 1] },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("zoom-blur", { amount: 0.15 }, { amount: punch(KICK, "add", 0.25, 0.3) }),
@@ -700,6 +748,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "deep-void",
     name: "Deep Void",
     kind: "trip",
+    suits: { characters: ["chill", "heavy"], energy: [0, 0.6], minimal: true },
     energy: { strobe: 0.1, invert: 0 },
     layers: ({ palette: p, random: r }) => [
       adjust([
