@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, lazy } from "react";
 import { api } from "@/lib/api";
 import { layoutTexts } from "@/components/export/layout-texts";
 import { PiFilmSlate } from "react-icons/pi";
@@ -35,6 +35,8 @@ export const videoSuite: ClientSuite<"video"> = {
   flush: () => flushAutosave(),
   discard: (projectId) => discardPendingSave(projectId),
   Workspace: VideoWorkspace,
+  // Now Playing's visualizer: the looks are the editor's effects (shared/live-looks.ts).
+  NowPlaying: lazy(() => import("@/components/now-playing-view/view")),
   settings: {
     title: "Video editor",
     description: "How the video editor previews, how its timeline behaves, and how new clips start.",

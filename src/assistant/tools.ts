@@ -15,7 +15,7 @@ import { isRemapped } from "@shared/effects";
 import { clipMarkers } from "@shared/markers";
 import { errorMessage } from "@shared/errors";
 import { describeExport, exportFormat, exportSettings } from "@shared/export-formats";
-import { formatBytes } from "@shared/format";
+import { formatBytes, formatDuration } from "@shared/format";
 import { templateFromClips, templateFromSubclip } from "@shared/library";
 import { clamp } from "@shared/math";
 import { getSequence, writeSequence } from "@shared/sequences";
@@ -67,6 +67,19 @@ import {
   strings,
 } from "./input";
 import { log } from "@/lib/log";
+import { LIVE_LOOKS, liveLook } from "@shared/live-looks";
+import { type NowPlayingUnavailable, positionAt } from "@shared/now-playing";
+import { AUTO_SWITCHES, useVisualizerPrefs } from "@/components/now-playing-view/prefs";
+import { useNowPlaying } from "@/stores/now-playing";
+
+/** What the music player's `unavailable` means, for the model. */
+const UNAVAILABLE: Record<NowPlayingUnavailable, string> = {
+  off: "the user turned Now Playing off (Settings › General).",
+  unsupported: "there's no music player this app can ask on this computer (Spotify on a Mac).",
+  "not-running": "Spotify isn't open.",
+  "not-allowed": "macOS hasn't allowed the app to control Spotify (System Settings › Privacy & Security › Automation).",
+  error: "it didn't answer.",
+};
 
 const logger = log("assistant");
 
@@ -779,6 +792,72 @@ const TOOLS: Record<VideoToolName, Handler> = {
     if (job.status !== "done") throw new ToolError(job.error ?? `The render was ${job.status}.`);
     if (job.segments === 0) return textResult("Nothing to render: the heavy parts were rendered already (green), or there are none.");
     return textResult(`Rendered ${job.segments} part${job.segments === 1 ? "" : "s"} in ${secs((Date.now() - started) / 1000)}s: they play back smoothly now.`);
+  },
+  now_playing() {
+    const { status, visualizer, listening } = useNowPlaying.getState();
+    const prefs = useVisualizerPrefs.getState();
+    const lines: string[] = [];
+    if (!status) lines.push("The music player hasn't been asked yet: try again in a second.");
+    else if (status.unavailable) lines.push(`Nothing to read from ${status.player}: ${status.message ?? UNAVAILABLE[status.unavailable]}`);
+    else if (!status.track) lines.push(`${status.player} is open but not playing anything.`);
+    else {
+      const t = status.track;
+      lines.push(
+        `${status.player} is ${status.state === "playing" ? "playing" : "paused on"} "${t.name}"${t.artist ? ` by ${t.artist}` : ""}${t.album ? ` (${t.album})` : ""}, ` +
+          `${formatDuration(Math.floor(positionAt(status, Date.now())))} of ${formatDuration(Math.floor(t.duration))}.`,
+      );
+    }
+    const auto = AUTO_SWITCHES.find((a) => a.id === prefs.auto)!;
+    lines.push(
+      visualizer
+        ? `The visualizer is open, showing ${liveLook(prefs.look)?.name ?? prefs.look} (${prefs.look}); looks change: ${auto.label.toLowerCase()} (${auto.id}); listening: ${listening}.`
+        : `The visualizer is closed (its look is ${prefs.look}; looks change: ${auto.id}).`,
+    );
+    lines.push(`Looks: ${LIVE_LOOKS.map((l) => `${l.id} (${l.name}, ${l.kind})`).join(", ")}.`);
+    return textResult(lines.join("\n"));
+  },
+  async control_now_playing(input) {
+    const np = useNowPlaying.getState();
+    const action = optString(input, "action");
+    const seek = optNumber(input, "seek", { min: 0 });
+    const visualizer = optString(input, "visualizer");
+    const look = optString(input, "look");
+    const auto = optString(input, "auto");
+    if (action !== undefined && !["play", "pause", "toggle", "next", "previous"].includes(action)) throw new ToolError("`action` is one of play, pause, toggle, next, previous.");
+    if (visualizer !== undefined && visualizer !== "open" && visualizer !== "close") throw new ToolError("`visualizer` is open or close.");
+    if (look !== undefined && !liveLook(look)) throw new ToolError(`There's no look "${look}". Looks: ${LIVE_LOOKS.map((l) => l.id).join(", ")}.`);
+    const autoSwitch = auto === undefined ? undefined : AUTO_SWITCHES.find((a) => a.id === auto);
+    if (auto !== undefined && !autoSwitch) throw new ToolError(`\`auto\` is one of ${AUTO_SWITCHES.map((a) => a.id).join(", ")}.`);
+    if ((action !== undefined || seek !== undefined) && (!np.status || np.status.unavailable)) {
+      throw new ToolError(`The music player can't be controlled: ${np.status?.message ?? (np.status?.unavailable ? UNAVAILABLE[np.status.unavailable] : "it hasn't answered yet")}`);
+    }
+    const done: string[] = [];
+    if (action) {
+      await np.command({ action: action as "play" });
+      done.push(`told ${np.status?.player ?? "the player"} to ${action}`);
+    }
+    if (seek !== undefined) {
+      await np.command({ action: "seek", position: seek });
+      done.push(`went to ${formatDuration(seek)} in the song`);
+    }
+    if (autoSwitch) {
+      useVisualizerPrefs.getState().setAuto(autoSwitch.id);
+      done.push(`looks change: ${autoSwitch.label.toLowerCase()}`);
+    }
+    if (look) {
+      useVisualizerPrefs.getState().request(look);
+      if (!useNowPlaying.getState().visualizer) np.openVisualizer();
+      done.push(`showing ${liveLook(look)!.name}`);
+    } else if (visualizer === "open") {
+      np.openVisualizer();
+      done.push("opened the visualizer");
+    }
+    if (visualizer === "close") {
+      np.closeVisualizer();
+      done.push("closed the visualizer");
+    }
+    if (!done.length) throw new ToolError("Nothing to do: give `action`, `seek`, `visualizer`, `look` or `auto`.");
+    return textResult(`Done: ${done.join(", ")}.`);
   },
   async open_sequence(input, ctx) {
     const doc = await ctx.doc();

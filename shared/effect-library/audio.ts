@@ -83,6 +83,16 @@ float driveOf(int d) {
 }
 `;
 
+/** vaudio's visualizers: colours turned round the hue circle (degrees), and coverage of a distance at a pixel's width (inside loops, where `fwidth` can't be trusted). */
+const VAUDIO_GLSL = `
+vec3 hueTurn(vec3 c, float degrees) {
+  const vec3 k = vec3(0.57735);
+  float a = radians(degrees);
+  return c * cos(a) + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - cos(a));
+}
+float soft(float d) { float w = 1.5 / max(resolution.y, 1.0); return clamp(0.5 - d / w, 0.0, 1.0); }
+`;
+
 /** A visualizer's GLSL: the helpers, and for those that draw (a Blend Mode), `blendGenerated`. */
 const audio = (shader: string, draws = true) => (draws ? BLEND_GLSL : "") + AUDIO_GLSL + shader;
 
@@ -569,5 +579,332 @@ vec4 effect(vec2 uv) {
   return withRgb(c, rgb);
 }
 `, false),
+  }),
+
+  // vaudio's visualizers (docs/visualizer/vaudio-port.md), redrawn in GLSL. vaudio drew them on a canvas that
+  // kept its last frame; here they're the moment alone, and their trails are the Feedback effect's.
+  visualizer({
+    type: "audio-wave-bars",
+    label: "Wave Bars",
+    tags: ["audio", "generate"],
+    params: [
+      source,
+      number("bars", "Bars", 96, 8, 160, { slider: true }),
+      point("center", "Center", [0.5, 0.55]),
+      percent("height", "Height", 0.72, { max: 1.5 }),
+      boost,
+      degrees("hueSpread", "Hue Spread", 120, 0, 360),
+      number("hueDrift", "Hue Drift", 28, -180, 180, { unit: "°/s", step: 1 }),
+      number("hueReact", "Hue on the Sound", 40, -180, 180, { unit: "°", step: 1 }),
+      percent("glow", "Glow", 0.4),
+      colour("color", "Colour", "#ff4fd8"),
+      colour("color2", "Loud Colour", "#33d6ff"),
+      ...blending("over"),
+    ],
+    audio: { request: () => request({ fall: 0.12 }) },
+    glsl: audio(VAUDIO_GLSL + `
+vec4 effect(vec2 uv) {
+  vec4 base = getColor(uv);
+  vec2 p = sq(uv) - sqPoint(center);
+  float n = max(4.0, floor(bars));
+  float lx = p.x / ratio + 0.5;
+  float i = clamp(floor(lx * n), 0.0, n - 1.0);
+  float f = lx * n - i;
+  float v = clamp(spectrum(mix(hzX(40.0), hzX(12000.0), (i + 0.5) / n)) * boost, 0.0, 1.0);
+  // Up a little more than down, as vaudio's.
+  float h = max(v * (0.55 + audioLevel * 0.9) * height, 0.003);
+  float barW = ratio / n;
+  float d = box(vec2((f - 0.5) * barW, p.y - h * 0.05), vec2(barW * 0.41, h * 0.5), 0.0);
+  vec3 rgb = hueTurn(mix(color, color2, v), (i / n) * hueSpread + hueDrift * time + audioLevel * hueReact) * (0.55 + 0.6 * v);
+  vec4 g = paint(rgb, soft(d) * step(0.0, lx) * step(lx, 1.0));
+  // A glow in the middle, growing with the sound.
+  float R = 0.08 + audioLevel * 0.18;
+  float r = length(p);
+  g = over(paint(hueTurn(color, hueDrift * time), glow * (0.18 + audioLevel * 0.35) * exp(-(r * r) / (R * R * 1.5))), g);
+  return blendGenerated(g, base, opacity);
+}
+`),
+  }),
+  visualizer({
+    type: "audio-radial",
+    label: "Radial Pulse",
+    tags: ["audio", "generate"],
+    params: [
+      source,
+      number("spokes", "Spokes", 72, 8, 180, { slider: true }),
+      point("center", "Center", [0.5, 0.5]),
+      percent("size", "Size", 0.42, { max: 1.5 }),
+      boost,
+      number("spin", "Spin", 20, -360, 360, { unit: "°/s", step: 1 }),
+      number("thickness", "Thickness", 1, 0.25, 4, { step: 0.05, decimals: 2, slider: true }),
+      degrees("hueSpread", "Hue Spread", 300, 0, 360),
+      number("hueDrift", "Hue Drift", 40, -180, 180, { unit: "°/s", step: 1 }),
+      colour("color", "Colour", "#ff4fd8"),
+      colour("color2", "Outer Colour", "#ffd166"),
+      ...blending("over"),
+    ],
+    audio: { request: () => request({ fall: 0.1 }) },
+    glsl: audio(VAUDIO_GLSL + `
+vec4 effect(vec2 uv) {
+  vec4 base = getColor(uv);
+  vec2 d = sq(uv) - sqPoint(center);
+  float r = length(d);
+  float n = max(4.0, floor(spokes));
+  float t = fract((atan(d.y, d.x) - radians(spin) * time) / (2.0 * PI)) * n;
+  float i = floor(t);
+  float f = t - i;
+  float v = clamp(spectrum(mix(hzX(40.0), hzX(12000.0), (i + 0.5) / n)) * boost, 0.0, 1.0);
+  float inner = size * (0.18 + audioLevel * 0.08);
+  float outer = inner + v * size * (0.55 + audioLevel * 0.55);
+  // Across the spoke (an arc of its angle at this radius), and along it.
+  float across = abs(f - 0.5) * (2.0 * PI / n) * r - (0.003 + 0.007 * v) * thickness;
+  float dist = max(across, max(inner - r, r - outer));
+  vec3 rgb = hueTurn(mix(color, color2, clamp((r - inner) / max(outer - inner, 1e-3), 0.0, 1.0)), (i / n) * hueSpread + hueDrift * time);
+  vec4 g = paint(rgb, soft(dist) * (0.35 + 0.65 * v));
+  float disc = soft(r - size * (0.12 + audioLevel * 0.2)) * (0.12 + audioLevel * 0.35);
+  g = over(g, paint(hueTurn(color2, hueDrift * time * 1.25), disc));
+  return blendGenerated(g, base, opacity);
+}
+`),
+  }),
+  visualizer({
+    type: "audio-tunnel",
+    label: "Signal Tunnel",
+    tags: ["audio", "generate"],
+    params: [
+      source,
+      number("rings", "Rings", 19, 4, 32, { slider: true }),
+      point("center", "Center", [0.5, 0.5]),
+      percent("size", "Size", 1, { min: 0.1, max: 2 }),
+      boost,
+      number("wobble", "Wobble", 1, 0, 3, { step: 0.05, decimals: 2, slider: true }),
+      number("hueDrift", "Hue Drift", 30, -180, 180, { unit: "°/s", step: 1 }),
+      number("hueReact", "Hue on the Sound", 80, -180, 180, { unit: "°", step: 1 }),
+      colour("color", "Inner Colour", "#7c5cff"),
+      colour("color2", "Outer Colour", "#33d6ff"),
+      ...blending("over"),
+    ],
+    audio: { request: () => request({ fall: 0.1 }) },
+    glsl: audio(VAUDIO_GLSL + `
+vec4 effect(vec2 uv) {
+  vec4 base = getColor(uv);
+  vec2 p = sq(uv) - sqPoint(center);
+  vec4 g = vec4(0.0);
+  float n = max(2.0, floor(rings));
+  // The outer rings first, the inner ones over them.
+  for (int k = 31; k >= 0; k--) {
+    float i = float(k);
+    float on = step(i, n - 1.0);
+    float t = i / (n - 1.0);
+    float energy = clamp(spectrum(1.0 - t) * boost, 0.0, 1.0) * (0.5 + audioLevel);
+    float radius = (0.05 + t * 0.55 + sin(time * 2.2 + i * 0.4) * 0.02 * wobble + energy * 0.08) * size;
+    vec2 shift = vec2(sin(time * 0.8 + i * 0.2) * 0.05, cos(time * 0.7 + i * 0.15) * 0.033) * energy * wobble;
+    vec2 q = rot(time * 0.15) * (p - shift);
+    vec2 axes = vec2(radius * ratio, radius);
+    float dist = abs(length(q / axes) - 1.0) * radius - (0.002 + energy * 0.008);
+    vec3 rgb = hueTurn(mix(color, color2, t), hueDrift * time + energy * hueReact);
+    g = over(paint(rgb, soft(dist) * (0.15 + energy * 0.7) * on), g);
+  }
+  return blendGenerated(g, base, opacity);
+}
+`),
+  }),
+  visualizer({
+    type: "audio-lattice",
+    label: "Bass Lattice",
+    tags: ["audio", "generate"],
+    params: [
+      source,
+      number("columns", "Columns", 16, 2, 48, { slider: true }),
+      number("rows", "Rows", 9, 2, 32, { slider: true }),
+      boost,
+      number("hueDrift", "Hue Drift", 25, -180, 180, { unit: "°/s", step: 1 }),
+      number("hueReact", "Hue on the Sound", 60, -180, 180, { unit: "°", step: 1 }),
+      colour("color", "Colour", "#a3e635"),
+      colour("color2", "Second Colour", "#ff4fd8"),
+      ...blending("over"),
+    ],
+    audio: { request: () => request({ fall: 0.12 }) },
+    glsl: audio(VAUDIO_GLSL + `
+vec4 effect(vec2 uv) {
+  vec4 base = getColor(uv);
+  vec2 grid = vec2(max(1.0, floor(columns)), max(1.0, floor(rows)));
+  // Top left first, as vaudio counted them.
+  vec2 at = vec2(uv.x, 1.0 - uv.y) * grid;
+  vec2 cell = min(floor(at), grid - 1.0);
+  vec2 local = fract(at) - 0.5;
+  float n = (cell.x + cell.y * grid.x) / (grid.x * grid.y);
+  float pulse = clamp(spectrum(n) * boost, 0.0, 1.0) * 0.65 + audioBass * (1.0 - abs(cell.x / grid.x - 0.5)) + audioMid * sin(time + cell.x * 0.4 + cell.y * 0.3) * 0.25 + audioHigh * 0.15;
+  float s = max(0.08, pulse) * (0.55 + audioLevel * 0.7);
+  vec2 cellSize = vec2(ratio, 1.0) / grid;
+  // Never quite filling its cell, so the grid always reads.
+  float d = box(local * cellSize, cellSize * 0.5 * clamp(s, 0.0, 0.86), 0.0);
+  vec3 rgb = hueTurn(mix(color, color2, n), hueDrift * time + audioBass * hueReact) * (0.6 + 0.5 * clamp(pulse, 0.0, 1.0));
+  return blendGenerated(paint(rgb, soft(d) * clamp(0.2 + pulse * 0.8, 0.0, 1.0)), base, opacity);
+}
+`),
+  }),
+  visualizer({
+    type: "audio-ribbons",
+    label: "Ribbon Field",
+    tags: ["audio", "generate"],
+    params: [
+      source,
+      number("ribbons", "Ribbons", 7, 1, 12, { slider: true }),
+      boost,
+      percent("swing", "Swing", 1, { max: 3 }),
+      number("thickness", "Thickness", 1, 0.25, 4, { step: 0.05, decimals: 2, slider: true }),
+      number("hueDrift", "Hue Drift", 35, -180, 180, { unit: "°/s", step: 1 }),
+      number("hueReact", "Hue on the Sound", 50, -180, 180, { unit: "°", step: 1 }),
+      colour("color", "Colour", "#ff5cf0"),
+      colour("color2", "Last Colour", "#5cffd6"),
+      ...blending("over"),
+    ],
+    audio: { request: () => request({ fall: 0.12 }) },
+    glsl: audio(VAUDIO_GLSL + `
+float ribbonY(float x, float r, float n) {
+  // Each ribbon reads the spectrum a little further along (not round: a jump would draw a cliff).
+  float s = clamp(spectrum(clamp(x * 0.85 + r * 0.02, 0.0, 1.0)) * boost, 0.0, 1.0);
+  return (r + 1.0) / (n + 1.0) - 0.5 + sin(x * PI * 4.0 + time * (1.2 + r * 0.15) + r) * (0.05 + audioLevel * 0.11) * swing + (s - 0.5) * 0.28;
+}
+vec4 effect(vec2 uv) {
+  vec4 base = getColor(uv);
+  vec2 p = sq(uv);
+  float x = uv.x;
+  float n = max(1.0, floor(ribbons));
+  vec4 g = vec4(0.0);
+  for (int k = 0; k < 12; k++) {
+    float r = float(k);
+    float on = step(r, n - 1.0);
+    // From the top down, as vaudio's.
+    float y = -ribbonY(x, r, n);
+    float e = 0.002;
+    float slope = -(ribbonY(x + e, r, n) - ribbonY(x - e, r, n)) / (2.0 * e * ratio);
+    float band = clamp(spectrum((r + 0.5) / n) * boost, 0.0, 1.0);
+    float half_ = (0.0028 + audioLevel * 0.007 + band * 0.011) * thickness;
+    float d = abs(p.y - y) / sqrt(1.0 + slope * slope) - half_;
+    vec3 rgb = hueTurn(mix(color, color2, r / max(n - 1.0, 1.0)), hueDrift * time + audioLevel * hueReact);
+    g = over(paint(rgb, soft(d) * (0.35 + audioLevel * 0.45) * on), g);
+  }
+  return blendGenerated(g, base, opacity);
+}
+`),
+  }),
+  visualizer({
+    type: "audio-orbs",
+    label: "Orb Bloom",
+    tags: ["audio", "generate"],
+    params: [
+      source,
+      number("orbs", "Orbs", 28, 4, 48, { slider: true }),
+      boost,
+      percent("orbSize", "Size", 1, { max: 3 }),
+      percent("spread", "Spread", 1, { max: 2 }),
+      number("hueDrift", "Hue Drift", 40, -180, 180, { unit: "°/s", step: 1 }),
+      number("hueReact", "Hue on the Sound", 90, -180, 180, { unit: "°", step: 1 }),
+      colour("color", "Colour", "#ff7ae0"),
+      colour("color2", "Second Colour", "#7cf7ff"),
+      ...blending("over"),
+    ],
+    audio: { request: () => request({ fall: 0.15 }) },
+    glsl: audio(VAUDIO_GLSL + `
+vec4 effect(vec2 uv) {
+  vec4 base = getColor(uv);
+  vec2 p = sq(uv);
+  float n = max(1.0, floor(orbs));
+  vec4 g = vec4(0.0);
+  for (int k = 0; k < 48; k++) {
+    float i = float(k);
+    float on = step(i, n - 1.0);
+    float t = i / n;
+    float s = clamp(spectrum(t) * boost, 0.0, 1.0);
+    float orbit = (0.15 + s * 0.35 + audioLevel * 0.12) * spread;
+    vec2 at = vec2(cos(time * (0.4 + t) + i * 1.7) * orbit * (0.7 + s) * ratio, sin(time * (0.35 + t * 0.8) + i * 1.3) * orbit * (0.55 + s));
+    float radius = (0.03 + s * 0.15 + audioLevel * 0.07) * (0.6 + mod(i, 3.0) * 0.2) * orbSize;
+    float r = length(p - at) / radius;
+    vec3 inner = hueTurn(mix(color, color2, t), hueDrift * time + s * hueReact);
+    vec3 outer = hueTurn(inner, hueReact * 0.45);
+    // Bright in the middle, a halo of the next hue, nothing at the edge.
+    float a = r < 0.55 ? mix(0.35 + s * 0.55, 0.12 + s * 0.25, r / 0.55) : mix(0.12 + s * 0.25, 0.0, clamp((r - 0.55) / 0.45, 0.0, 1.0));
+    vec3 rgb = r < 0.55 ? mix(inner * 1.2, outer, r / 0.55) : outer;
+    g = over(paint(min(rgb, vec3(1.0)), a * on), g);
+  }
+  return blendGenerated(g, base, opacity);
+}
+`),
+  }),
+  visualizer({
+    type: "audio-shards",
+    label: "Hard Shards",
+    tags: ["audio", "generate"],
+    params: [
+      source,
+      number("shards", "Shards", 24, 4, 48, { slider: true }),
+      boost,
+      percent("shardSize", "Size", 1, { max: 3 }),
+      degrees("hueSpread", "Hue Spread", 360, 0, 720),
+      number("hueDrift", "Hue Drift", 60, -180, 180, { unit: "°/s", step: 1 }),
+      colour("color", "Colour", "#ff3d6e"),
+      colour("color2", "Second Colour", "#ffd166"),
+      ...blending("over"),
+    ],
+    audio: { request: () => request({ fall: 0.1 }) },
+    glsl: audio(VAUDIO_GLSL + `
+vec4 effect(vec2 uv) {
+  vec4 base = getColor(uv);
+  vec2 p = vec2(uv.x * ratio, 1.0 - uv.y);
+  float n = max(1.0, floor(shards));
+  vec4 g = vec4(0.0);
+  for (int k = 0; k < 48; k++) {
+    float i = float(k);
+    float on = step(i, n - 1.0);
+    float t = i / n;
+    float s = clamp(spectrum(t) * boost, 0.0, 1.0);
+    float energy = s * (0.4 + audioLevel);
+    vec2 at = vec2(((sin(i * 12.9898 + time) * 0.5 + 0.5) * 0.9 + 0.05) * ratio, (cos(i * 78.233 + time * 0.7) * 0.5 + 0.5) * 0.9 + 0.05);
+    float len = (0.055 + energy * 0.33) * shardSize;
+    // A thin triangle, its point at len along its angle.
+    vec2 q = rot(-(time * (0.8 + t) + i * 0.9 + s * 3.0)) * (p - at);
+    float w = len * 0.15;
+    float edge = max(-q.x, abs(q.y) - w * (1.0 - q.x / len));
+    vec3 rgb = hueTurn(mix(color, color2, t), t * hueSpread + hueDrift * time) * (0.6 + energy * 0.6);
+    g = over(paint(min(rgb, vec3(1.0)), soft(edge) * (0.25 + energy * 0.7) * on), g);
+  }
+  return blendGenerated(g, base, opacity);
+}
+`),
+  }),
+  visualizer({
+    type: "audio-plasma",
+    label: "Acid Plasma",
+    tags: ["audio", "generate"],
+    params: [
+      source,
+      boost,
+      number("pixelSize", "Pixel Size", 0.012, 0, 0.05, { scale: 1000, unit: "‰", step: 1, slider: true }),
+      number("speed", "Speed", 1, 0, 4, { step: 0.05, decimals: 2, slider: true }),
+      degrees("hueSpread", "Hue Spread", 140, 0, 360),
+      number("hueDrift", "Hue Drift", 20, -180, 180, { unit: "°/s", step: 1 }),
+      colour("color", "Colour", "#2ee6a8"),
+      colour("color2", "Hot Colour", "#ff4fd8"),
+      ...blending("over"),
+    ],
+    audio: { request: () => request({ fall: 0.12 }) },
+    glsl: audio(VAUDIO_GLSL + `
+vec4 effect(vec2 uv) {
+  vec4 base = getColor(uv);
+  // In blocks, as vaudio drew it (none at 0).
+  vec2 q = pixelSize > 0.0 ? (floor(uv * vec2(ratio, 1.0) / pixelSize) + 0.5) * pixelSize / vec2(ratio, 1.0) : uv;
+  float u = q.x;
+  float v = 1.0 - q.y;
+  float tt = time * speed;
+  float wave = sin(u * 8.0 + tt * 1.4 + audioBass * 4.0) * cos(v * 7.0 - tt * 1.1 + audioMid * 3.0) * 0.5 + 0.5;
+  float spark = clamp(spectrum((u + v) * 0.5) * boost, 0.0, 1.0) * audioHigh;
+  float value = min(1.0, wave * (0.45 + audioLevel * 0.4) + spark * 0.55 + audioBass * 0.2);
+  float shown = smoothstep(0.16, 0.2, value);
+  vec3 rgb = hueTurn(mix(color, color2, value), value * hueSpread + hueDrift * time + audioBass * hueSpread * 0.35) * (0.5 + value * 0.6);
+  return blendGenerated(paint(min(rgb, vec3(1.0)), (0.15 + value * 0.7) * shown), base, opacity);
+}
+`),
   }),
 ];

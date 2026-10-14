@@ -1152,6 +1152,9 @@ export interface ToolCallProgressRequest {
 //   POST   /api/library/items/:id/use  body: UseLibraryItemRequest -> UseLibraryItemResponse
 //   GET    /api/library/media/:id       -> MediaAsset (a Library file)
 //   GET    /api/fonts                   -> FontFamily[] installed on this computer (A to Z)
+//   GET    /api/now-playing             -> NowPlayingStatus: what the music player (Spotify on a Mac) is playing
+//   POST   /api/now-playing  body: NowPlayingCommand -> NowPlayingStatus (400 not a command, 403 macOS said no,
+//                                        503 no player on this computer)
 //   POST   /api/exports   body: ExportRequest -> ExportJob (202)
 //   GET    /api/exports/formats         -> ExportFormat[] (what this computer's ffmpeg can make)
 //   GET    /api/exports/:id             -> ExportJob

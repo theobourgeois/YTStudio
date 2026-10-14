@@ -1271,6 +1271,38 @@ export const VIDEO_TOOLS = [
     description: "Point the user at something: move the playhead to `time` and/or select clips.",
     inputSchema: obj({ time: time("Playhead."), clipIds: arr(str("Clip id"), "Clips to select (empty = none).") }),
   }),
+
+  // -------------------------------------------------------------------------
+  // Now Playing: the computer's music player, and its visualizer (docs/now-playing.md)
+  // -------------------------------------------------------------------------
+  tool({
+    name: "now_playing",
+    title: "Check what's playing",
+    kind: "look",
+    description:
+      "What the computer's music player (Spotify, on a Mac) is playing: the song, artist and album, where it is, " +
+      "and the visualizer (Now Playing's, filling the window, made of this editor's effects and 3D scenes): whether " +
+      "it's open, the look it shows, how looks change, and every look there is (id, name, kind). Read it before " +
+      "control_now_playing.",
+    inputSchema: obj({}),
+  }),
+  tool({
+    name: "control_now_playing",
+    title: "Control what's playing",
+    kind: "action",
+    description:
+      "Play, pause or skip the song in the music player, seek in it, or open, close and steer the visualizer: " +
+      "`look` (an id from now_playing) shows that look (opening the visualizer), `auto` sets how looks change by " +
+      "themselves (off: stay; song: a new look each song and on a drop; bars8, bars16, bars32: every so many bars too). Only what's " +
+      "given happens: the song first, then the visualizer.",
+    inputSchema: obj({
+      action: oneOf(["play", "pause", "toggle", "next", "previous"], "What the player does."),
+      seek: num("Go to this many seconds into the song.", { minimum: 0 }),
+      visualizer: oneOf(["open", "close"], "Open or close the visualizer."),
+      look: str("A look's id (from now_playing) to show."),
+      auto: oneOf(["off", "song", "bars8", "bars16", "bars32"], "How looks change by themselves."),
+    }),
+  }),
 ] as const satisfies readonly ToolSpec[];
 
 export type VideoToolName = (typeof VIDEO_TOOLS)[number]["name"];

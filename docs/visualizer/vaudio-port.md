@@ -16,6 +16,10 @@ modes and most of its distortions already), the unused pointer uniforms, `Math.r
 
 ## The 2D visualizers (`media.ts`) → Audio effects (V4)
 
+Ported 2026-10-14 for Now Playing's visualizer (docs/now-playing.md): classic and bars are one effect (Wave Bars,
+its glow and hue spread say which), the others one each; their hue sweeps are parameters (a look keeps to a song's
+colours), their trails the Feedback effect's.
+
 Each becomes a GLSL `effect(uv)` reading `spectrum()`; their trails become `spectrumAgo()` taps (a few weighted past
 rows) instead of a fading canvas.
 

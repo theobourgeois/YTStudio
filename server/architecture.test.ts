@@ -84,6 +84,16 @@ const PLATFORM = [
   "server/routes/web.ts",
   "src/components/media/use-web-search.ts",
   "server/projects.ts",
+  // Now Playing (docs/now-playing.md): what the music player is playing, in every suite's top bar.
+  "shared/now-playing.ts",
+  // A cover's colours, by role (a look takes on each song's).
+  "shared/palette.ts",
+  // The pill in the top bar, the tab's side (listening to the computer's sound), where the visualizer opens.
+  "src/stores/now-playing.ts",
+  "src/lib/live-audio.ts",
+  "src/components/now-playing/",
+  "server/now-playing.ts",
+  "server/routes/now-playing.ts",
   // Work handed from one suite to another (a song made into a video: Make visualizer).
   "shared/handoff.ts",
   "server/project-previews.ts",

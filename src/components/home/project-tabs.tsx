@@ -3,7 +3,7 @@ import { PiFilePlus, PiPlus, PiX } from "react-icons/pi";
 import { appIconUrl } from "@shared/app-icons";
 import { DEFAULT_SUITE } from "@shared/suites";
 import { cn } from "cn";
-import { useShallow } from "zustand/react/shallow";
+import { NowPlayingPill } from "@/components/now-playing/now-playing-pill";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -12,26 +12,12 @@ import { startPointerDrag } from "@/lib/pointer-drag";
 import { FILE_MANAGER } from "@/lib/key-labels";
 import { useAppIcon } from "@/stores/app-icon";
 import { useLayout } from "@/stores/layout";
-import { tabsVisible } from "@/stores/project-tabs";
 import { projectSuite, useProjects } from "@/stores/projects";
-import { useWindowChrome } from "@/stores/window-chrome";
 import { clientSuite } from "@/suites";
 import { CLOSE_TAB_KEYS, HOME_KEYS, NEW_PROJECT_KEYS } from "./project-search-dialog";
+import { useTabIds, useTabsShown } from "./tabs-shown";
 
-/** The projects open as tabs that can still be shown (a package moved away has nothing to open). */
-function useTabIds(): string[] {
-  return useProjects(
-    useShallow((s) => s.tabs.filter((id) => s.projects.some((p) => p.id === id && !p.missing))),
-  );
-}
-
-/** Whether the strip shows (`tabsVisible`); the Home button gives way to it, and headers lose their room for it. */
-export function useTabsShown(): boolean {
-  const count = useTabIds().length;
-  const home = useProjects((s) => s.openId === null);
-  const hidden = useWindowChrome((s) => s.tabsHidden);
-  return tabsVisible(count, home, hidden);
-}
+export { useTabsShown };
 
 /** The Home screen's button, the app's icon (the one chosen in Settings): the tab strip's start, or the menu row's without it. */
 export function HomeButton({ className }: { className?: string }) {
@@ -112,6 +98,8 @@ export function ProjectTabs() {
           <kbd className="ml-2 rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">{NEW_PROJECT_KEYS}</kbd>
         </TooltipContent>
       </Tooltip>
+
+      <NowPlayingPill className="ml-auto" />
     </div>
   );
 }
