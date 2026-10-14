@@ -2,7 +2,7 @@
  * Every suite's side in the tab (see `shared/suites.ts`), keyed by `SuiteId` so a new suite doesn't
  * build until it's here. Import suites from here, never a suite's own module (they're wired up in order).
  */
-import type { ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { SuiteId } from "@shared/suites";
 import type { ProjectSummary } from "@shared/types";
 import { musicSuite } from "./music";
@@ -34,4 +34,9 @@ export function projectAspect(project: ProjectSummary): number {
 /** What a project's Home card draws while it has no picture (its suite's `sketch`), or null. */
 export function projectSketch(project: ProjectSummary, progress: number): ReactNode {
   return (CLIENT_SUITES[project.suite].sketch as ((p: ProjectSummary, progress: number) => ReactNode) | undefined)?.(project, progress) ?? null;
+}
+
+/** The visualizer of what's playing (Now Playing), from the suite that draws one, or null. */
+export function nowPlayingView(): ComponentType | null {
+  return Object.values(CLIENT_SUITES).find((s) => s.NowPlaying)?.NowPlaying ?? null;
 }

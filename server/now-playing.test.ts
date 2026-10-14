@@ -47,9 +47,9 @@ describe("Spotify's answer", () => {
   });
 
   it("passes the action and its value to the script", async () => {
-    const exec = vi.fn(async () => "");
+    const exec = vi.fn(async (_args: string[], _signal: AbortSignal) => "");
     await spotifyPlayer(exec).command({ action: "seek", position: 42 });
-    expect(exec.mock.calls[0][0].slice(-2)).toEqual(["seek", "42"]);
+    expect(exec.mock.calls[0]?.[0].slice(-2)).toEqual(["seek", "42"]);
   });
 });
 

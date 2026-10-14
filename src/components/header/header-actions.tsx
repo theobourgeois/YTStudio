@@ -2,6 +2,8 @@ import type { IconType } from "react-icons";
 import { PiArrowUUpLeft, PiArrowUUpRight, PiDownloadSimple } from "react-icons/pi";
 import { cn } from "cn";
 import { AssistantButton } from "@/components/assistant/assistant-button";
+import { useTabsShown } from "@/components/home/tabs-shown";
+import { NowPlayingPill } from "@/components/now-playing/now-playing-pill";
 import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -38,8 +40,11 @@ export function HeaderActions({
   onRedo: () => void;
   exportAction: HeaderExport;
 }) {
+  // What's playing is in the tab strip when there is one, else here.
+  const tabs = useTabsShown();
   return (
-    <div className="ml-auto flex shrink-0 items-center gap-0.5" data-header-actions>
+    <div className="ml-auto flex min-w-0 items-center gap-0.5" data-header-actions>
+      {!tabs && <NowPlayingPill className="mr-1.5" />}
       <HistoryButton icon={PiArrowUUpLeft} label="Undo" shortcut={UNDO_KEYS} disabled={!canUndo} onClick={onUndo} />
       <HistoryButton icon={PiArrowUUpRight} label="Redo" shortcut={REDO_KEYS} disabled={!canRedo} onClick={onRedo} />
       <Separator orientation="vertical" className="mx-1.5 data-[orientation=vertical]:h-5" />

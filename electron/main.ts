@@ -9,7 +9,7 @@ import { existsSync, renameSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { engineExecutable } from "../server/engine-path.ts";
-import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, screen, shell, systemPreferences } from "electron";
+import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, screen, session, shell, systemPreferences } from "electron";
 import { log, logFile, startLogging } from "../server/log.ts";
 import type { RunningServer } from "./server.ts";
 import { loadShellPath } from "./shell-path.ts";
@@ -288,6 +288,7 @@ async function start() {
   answerSaveDialogs();
   answerProjectDialogs();
   answerMicrophone();
+  answerListening();
   initializeAppIcon();
   createWindow();
 }
@@ -496,6 +497,15 @@ function answerMicrophone() {
     await systemPreferences.askForMediaAccess("microphone");
     return status();
   });
+}
+
+/**
+ * Now Playing's visualizer listens to what the computer plays (`src/lib/live-audio.ts`): the page asks for a
+ * screen share's sound, and gets the system's (loopback: Core Audio's process tap on a Mac, which asks once, by
+ * `NSAudioCaptureUsageDescription`) with its own page as the picture, so it's never asked to record the screen.
+ */
+function answerListening() {
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => callback({ video: request.frame ?? undefined, audio: "loopback" }));
 }
 
 /**

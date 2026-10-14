@@ -49,6 +49,8 @@ let nextStoreId = 1;
  * the song changes what every simulation heard).
  */
 function hearingHash(reader: SignalReader): string {
+  // A sound heard live is its session's, whatever the document holds (it never plays media of its own).
+  if (reader.live !== undefined) return `live:${reader.live}`;
   let hash = readerHashes.get(reader);
   if (hash === undefined) {
     let store = storeIds.get(reader.store);

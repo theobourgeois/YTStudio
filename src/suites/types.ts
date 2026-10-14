@@ -134,4 +134,10 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
    * `"new-project"`; `lazy`, as the Workspace is.
    */
   NewProject?: ComponentType<NewProjectWindowProps>;
+  /**
+   * The full-window visualizer of what the computer is playing (Now Playing, docs/now-playing.md), from the suite
+   * that draws one (the video editor's looks); `lazy`. The platform opens it over everything
+   * (`useNowPlaying.visualizer`); it closes itself (`closeVisualizer`).
+   */
+  NowPlaying?: ComponentType;
 }

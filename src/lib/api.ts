@@ -49,6 +49,7 @@ import type {
   WebSearchPage,
 } from "@shared/types";
 import { PROJECT_NOTICE_HEADER } from "@shared/types";
+import type { NowPlayingCommand, NowPlayingStatus } from "@shared/now-playing";
 
 export class ApiRequestError extends Error {
   constructor(
@@ -225,6 +226,11 @@ export const api = {
   getLibraryMedia: (id: string) => request<MediaAsset>(`/api/library/media/${id}`),
 
   listFonts: () => request<FontFamily[]>("/api/fonts"),
+
+  /** What the music player (Spotify on a Mac) is playing. */
+  nowPlaying: () => request<NowPlayingStatus>("/api/now-playing"),
+  /** Tell it to play, pause, skip, seek or set its volume. */
+  nowPlayingCommand: (command: NowPlayingCommand) => request<NowPlayingStatus>("/api/now-playing", { method: "POST", body: JSON.stringify(command) }),
 
   startExport: (req: ExportRequest) =>
     request<ExportJob>("/api/exports", { method: "POST", body: JSON.stringify(req) }),

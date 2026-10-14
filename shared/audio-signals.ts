@@ -29,6 +29,12 @@ export type SignalStore = ReadonlyMap<string, SignalData>;
 export interface SignalReader {
   readonly document: Project;
   readonly store: SignalStore;
+  /**
+   * A sound heard live (Now Playing's visualizer): its session. Its signals grow with every frame (a new store
+   * each time, so nothing read from it goes stale), but it's the same sound throughout: what simulations and 3D
+   * scenes have stepped on stays theirs (`simulation.ts`).
+   */
+  readonly live?: string;
 }
 
 export const MASTER: SignalSource = { kind: "master" };
