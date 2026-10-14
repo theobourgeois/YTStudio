@@ -5,10 +5,11 @@
  * offset Settings gives (headphones play later than the computer sends).
  */
 import type { SignalReader } from "@shared/audio-signals";
-import { LIVE_ASSET, PADS_ASSET } from "@shared/live-looks";
-import { sequenceAssets } from "@shared/sequences";
+import { LIVE_ASSET, PADS_ASSET, coverAsset } from "@shared/live-looks";
+import { previewSlots, sequenceAssets } from "@shared/sequences";
 import type { LiveSignals } from "@shared/signals/live";
-import type { PreviewSource } from "@/components/preview/engine";
+import type { MediaAsset, Project } from "@shared/types";
+import type { PreviewEngine, PreviewSource } from "@/components/preview/engine";
 import type { LiveDirector } from "./director";
 
 /** Seconds the picture stays behind the newest sound measured: half a visualizer's waveform window, and a little. */
@@ -32,7 +33,11 @@ export class LiveSource implements PreviewSource {
     private readonly offset: () => number,
     /** Each frame, before it's drawn, with the time it's drawn at. */
     private readonly onTick: (time: number) => void,
+    /** The song's cover (a URL), for looks that show it. */
+    private readonly cover: () => string | null,
   ) {}
+
+  private assets: { project: Project | null; cover: string | null; list: MediaAsset[] } = { project: null, cover: null, list: [] };
 
   /** The time the picture is at (session seconds). */
   get now(): number {
@@ -41,7 +46,12 @@ export class LiveSource implements PreviewSource {
 
   get() {
     const project = this.director.project;
-    return { project, assets: sequenceAssets(project), time: this.time, playing: true };
+    const cover = this.cover();
+    // The same list while nothing in it changes (the engine indexes it again when it does).
+    if (this.assets.project !== project || this.assets.cover !== cover) {
+      this.assets = { project, cover, list: [...sequenceAssets(project), ...(cover ? [coverAsset(cover)] : [])] };
+    }
+    return { project, assets: this.assets.list, time: this.time, playing: true };
   }
 
   subscribe(listener: () => void) {
@@ -94,5 +104,49 @@ export class LiveSource implements PreviewSource {
   /** A new session starts at 0. */
   restart(): void {
     this.time = 0;
+  }
+}
+
+/**
+ * The hidden images the engine draws pictures from (the song's cover, in looks that show it): a pair per video track
+ * of the project, nested ones too (`previewSlots`), made and let go as looks come and go. Read across origins
+ * (Spotify's covers are served with CORS), so the GPU may draw them.
+ */
+export class ImageSlots {
+  private attached = new Map<string, { els: HTMLImageElement[]; release: (() => void)[] }>();
+  private of: readonly string[] | null = null;
+
+  constructor(private readonly box: HTMLElement) {}
+
+  sync(engine: PreviewEngine, project: Project): void {
+    const slots = previewSlots(project).video;
+    if (slots === this.of) return;
+    this.of = slots;
+    for (const [id, slot] of this.attached) {
+      if (slots.includes(id)) continue;
+      for (const release of slot.release) release();
+      for (const el of slot.els) el.remove();
+      this.attached.delete(id);
+    }
+    for (const id of slots) {
+      if (this.attached.has(id)) continue;
+      const els = [0, 1].map(() => {
+        const img = document.createElement("img");
+        img.crossOrigin = "anonymous";
+        img.decoding = "async";
+        img.alt = "";
+        this.box.append(img);
+        return img;
+      });
+      this.attached.set(id, { els, release: els.map((el, i) => engine.attachImage(id, i as 0 | 1, el)) });
+    }
+  }
+
+  dispose(): void {
+    for (const slot of this.attached.values()) {
+      for (const release of slot.release) release();
+      for (const el of slot.els) el.remove();
+    }
+    this.attached.clear();
   }
 }

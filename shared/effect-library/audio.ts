@@ -636,6 +636,7 @@ vec4 effect(vec2 uv) {
       boost,
       number("spin", "Spin", 20, -360, 360, { unit: "°/s", step: 1 }),
       number("thickness", "Thickness", 1, 0.25, 4, { step: 0.05, decimals: 2, slider: true }),
+      degrees("hueSpread", "Hue Spread", 300, 0, 360),
       number("hueDrift", "Hue Drift", 40, -180, 180, { unit: "°/s", step: 1 }),
       colour("color", "Colour", "#ff4fd8"),
       colour("color2", "Outer Colour", "#ffd166"),
@@ -657,7 +658,7 @@ vec4 effect(vec2 uv) {
   // Across the spoke (an arc of its angle at this radius), and along it.
   float across = abs(f - 0.5) * (2.0 * PI / n) * r - (0.003 + 0.007 * v) * thickness;
   float dist = max(across, max(inner - r, r - outer));
-  vec3 rgb = hueTurn(mix(color, color2, clamp((r - inner) / max(outer - inner, 1e-3), 0.0, 1.0)), (i / n) * 300.0 + hueDrift * time);
+  vec3 rgb = hueTurn(mix(color, color2, clamp((r - inner) / max(outer - inner, 1e-3), 0.0, 1.0)), (i / n) * hueSpread + hueDrift * time);
   vec4 g = paint(rgb, soft(dist) * (0.35 + 0.65 * v));
   float disc = soft(r - size * (0.12 + audioLevel * 0.2)) * (0.12 + audioLevel * 0.35);
   g = over(g, paint(hueTurn(color2, hueDrift * time * 1.25), disc));
@@ -732,7 +733,8 @@ vec4 effect(vec2 uv) {
   float pulse = clamp(spectrum(n) * boost, 0.0, 1.0) * 0.65 + audioBass * (1.0 - abs(cell.x / grid.x - 0.5)) + audioMid * sin(time + cell.x * 0.4 + cell.y * 0.3) * 0.25 + audioHigh * 0.15;
   float s = max(0.08, pulse) * (0.55 + audioLevel * 0.7);
   vec2 cellSize = vec2(ratio, 1.0) / grid;
-  float d = box(local * cellSize, cellSize * 0.5 * clamp(s, 0.0, 1.0), 0.0);
+  // Never quite filling its cell, so the grid always reads.
+  float d = box(local * cellSize, cellSize * 0.5 * clamp(s, 0.0, 0.86), 0.0);
   vec3 rgb = hueTurn(mix(color, color2, n), hueDrift * time + audioBass * 60.0) * (0.6 + 0.5 * clamp(pulse, 0.0, 1.0));
   return blendGenerated(paint(rgb, soft(d) * clamp(0.2 + pulse * 0.8, 0.0, 1.0)), base, opacity);
 }
@@ -834,6 +836,7 @@ vec4 effect(vec2 uv) {
       number("shards", "Shards", 24, 4, 48, { slider: true }),
       boost,
       percent("shardSize", "Size", 1, { max: 3 }),
+      degrees("hueSpread", "Hue Spread", 360, 0, 720),
       number("hueDrift", "Hue Drift", 60, -180, 180, { unit: "°/s", step: 1 }),
       colour("color", "Colour", "#ff3d6e"),
       colour("color2", "Second Colour", "#ffd166"),
@@ -858,7 +861,7 @@ vec4 effect(vec2 uv) {
     vec2 q = rot(-(time * (0.8 + t) + i * 0.9 + s * 3.0)) * (p - at);
     float w = len * 0.15;
     float edge = max(-q.x, abs(q.y) - w * (1.0 - q.x / len));
-    vec3 rgb = hueTurn(mix(color, color2, t), i * 17.0 + hueDrift * time) * (0.6 + energy * 0.6);
+    vec3 rgb = hueTurn(mix(color, color2, t), t * hueSpread + hueDrift * time) * (0.6 + energy * 0.6);
     g = over(paint(min(rgb, vec3(1.0)), soft(edge) * (0.25 + energy * 0.7) * on), g);
   }
   return blendGenerated(g, base, opacity);
@@ -874,6 +877,7 @@ vec4 effect(vec2 uv) {
       boost,
       number("pixelSize", "Pixel Size", 0.012, 0, 0.05, { scale: 1000, unit: "‰", step: 1, slider: true }),
       number("speed", "Speed", 1, 0, 4, { step: 0.05, decimals: 2, slider: true }),
+      degrees("hueSpread", "Hue Spread", 140, 0, 360),
       number("hueDrift", "Hue Drift", 20, -180, 180, { unit: "°/s", step: 1 }),
       colour("color", "Colour", "#2ee6a8"),
       colour("color2", "Hot Colour", "#ff4fd8"),
@@ -892,7 +896,7 @@ vec4 effect(vec2 uv) {
   float spark = clamp(spectrum((u + v) * 0.5) * boost, 0.0, 1.0) * audioHigh;
   float value = min(1.0, wave * (0.45 + audioLevel * 0.4) + spark * 0.55 + audioBass * 0.2);
   float shown = smoothstep(0.16, 0.2, value);
-  vec3 rgb = hueTurn(mix(color, color2, value), value * 140.0 + hueDrift * time + audioBass * 50.0) * (0.5 + value * 0.6);
+  vec3 rgb = hueTurn(mix(color, color2, value), value * hueSpread + hueDrift * time + audioBass * hueSpread * 0.35) * (0.5 + value * 0.6);
   return blendGenerated(paint(min(rgb, vec3(1.0)), (0.15 + value * 0.7) * shown), base, opacity);
 }
 `),

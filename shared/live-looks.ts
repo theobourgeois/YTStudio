@@ -11,7 +11,7 @@ import { defaultEffects, effectDefinition, sanitizeEffect, solidEffects } from "
 import { DEFAULT_RESPONSE } from "./links.ts";
 import type { AlbumPalette } from "./palette.ts";
 import { ONSET_SCALARS, type OnsetName, SIGNALS_VERSION, SIGNAL_RATE, SCALARS, bandEdges, type Hit, type SignalData } from "./signals/format.ts";
-import type { AspectRatio, Clip, Effect, ParamLink, ParamValues, Project, Sequence, SignalRef, Transition } from "./types.ts";
+import type { AspectRatio, Clip, Effect, MediaAsset, ParamLink, ParamValues, Project, Sequence, SignalRef, Transition } from "./types.ts";
 import { createTransition } from "./transitions.ts";
 
 // ---------------------------------------------------------------------------
@@ -22,6 +22,8 @@ import { createTransition } from "./transitions.ts";
 export const LIVE_ASSET = "live";
 /** The keys' punches (`Pad`), as hits of a sound of their own on a muted track. */
 export const PADS_ASSET = "pads";
+/** The song's cover, as an image a look can show (the view gives it as media: `coverAsset`). */
+export const COVER_ASSET = "cover";
 export const PADS_TRACK = "pads";
 const LOOKS_TRACK = "looks";
 const PERFORM_TRACK = "perform";
@@ -29,6 +31,29 @@ const SOUND_TRACK = "sound";
 export const LIVE_FPS = 60;
 /** How long clips last: longer than anyone listens without a song changing (sessions restart on one). */
 export const FOREVER = 6 * 3600;
+
+/** The song's cover as media (an image; `url` is Spotify's, served with CORS), for looks that show it. */
+export function coverAsset(url: string): MediaAsset {
+  return {
+    id: COVER_ASSET,
+    projectId: null,
+    name: "Cover",
+    kind: "image",
+    duration: FOREVER,
+    width: 640,
+    height: 640,
+    fps: null,
+    hasVideo: true,
+    hasAudio: false,
+    size: 0,
+    createdAt: 0,
+    status: "ready",
+    src: url,
+    poster: null,
+    filmstrip: null,
+    waveform: null,
+  };
+}
 
 /** A look being shown: its sequence, and the clip playing it on the looks track. */
 export interface Showing {
@@ -303,6 +328,14 @@ function world(type: string, params: ParamValues, p: AlbumPalette, r: () => numb
   ];
 }
 
+/** A layer of the song's cover (`COVER_ASSET`), fitted to the frame's height, then `more` on it. */
+function coverLayer(more: Effect[], { motion, opacity }: LayerMotion = {}): LookLayer {
+  let effects = defaultEffects();
+  if (motion) effects = tweakBuiltIn(effects, "motion", motion.params ?? {}, motion.links);
+  if (opacity) effects = tweakBuiltIn(effects, "opacity", opacity.params ?? {}, opacity.links);
+  return { assetId: COVER_ASSET, effects: withIds([...effects, ...more]) };
+}
+
 export const LIVE_LOOKS: LiveLook[] = [
   // Worlds: the 3D scenes, in the song's colours.
   {
@@ -401,6 +434,23 @@ export const LIVE_LOOKS: LiveLook[] = [
 
   // Spectrums: the sound drawn plainly, made to glow.
   {
+    id: "album",
+    name: "Album",
+    kind: "spectrum",
+    layers: ({ palette: p, random: r }) => [
+      adjust([fx("deep-glow", { reach: 0.18, exposure: 0.6, threshold: 0.7, tint: p.accent, tintAmount: 0.3 }, { exposure: follow(BASS, "add", 0.6) }), fx("vignette", { amount: 0.45 })]),
+      drawing("audio-circle", { radius: 0.235, barLength: 0.14, bars: 144, gap: 0.45, mirror: true, pulse: 0.06, color: p.primary, color2: p.accent }, [], {
+        motion: { links: { scale: punch(KICK, "multiply", 0.05, 0.25) } },
+      }),
+      coverLayer([fx("drop-shadow", { shadowOpacity: 0.7, shadowDistance: 0.012, softness: 0.03 })], { motion: { params: { scale: 0.42 }, links: { scale: punch(KICK, "multiply", 0.05, 0.25) } } }),
+      // The cover again, behind everything: huge, blurred, dark, turning slowly.
+      coverLayer(
+        [fx("gaussian-blur", { blurriness: 0.06 }), fx("brightness-contrast", { brightness: -0.35, contrast: 0.1 }), fx("hue-saturation", { hue: 0, saturation: 1.35, lightness: 0 })],
+        { motion: { params: { scale: 2.1, rotation: between(r, -20, 20, 0) }, links: { scale: follow(BASS, "multiply", 0.06, 0.4) } } },
+      ),
+    ],
+  },
+  {
     id: "halo",
     name: "Halo",
     kind: "spectrum",
@@ -422,9 +472,48 @@ export const LIVE_LOOKS: LiveLook[] = [
     name: "Skyline",
     kind: "spectrum",
     layers: ({ palette: p, random: r }) => [
-      adjust([fx("glow", { threshold: 0.45, reach: 0.05, intensity: 0.8 }, { intensity: follow(BASS, "add", 1.2) }), fx("feedback", { amount: 0.8, trailLength: 0.35, zoom: 1.12, rotation: 0, drift: [0, -0.25], mode: "lighten" })]),
-      drawing("audio-bars", { center: [0.5, 0.86], width: 1.02, height: 0.62, bars: Math.round(between(r, 56, 88)), gap: 0.28, peaks: true, rounded: false, color: p.primary, color2: p.accent }),
-      drawing("audio-line", { center: [0.5, 0.86], width: 1.02, height: 0.7, thickness: 0.003, fill: 0.2, mirror: false, color: p.light, color2: p.secondary, opacity: 0.6 }),
+      adjust([
+        fx("light-rays", { centre: [0.5, 0.5], intensity: 0.35, reach: 0.25, threshold: 0.7, rayColor: p.accent }, { intensity: follow(BASS, "add", 0.5) }),
+        fx("glow", { threshold: 0.6, reach: 0.03, intensity: 0.5 }),
+      ]),
+      drawing("audio-bars", { center: [0.5, 0.5], width: 0.9, height: 0.42, boost: 0.7, bars: Math.round(between(r, 48, 72)), gap: 0.4, mirror: true, peaks: true, rounded: true, color: p.primary, color2: p.accent }, [], {
+        motion: { links: { scale: punch(KICK, "multiply", 0.03, 0.2) } },
+      }),
+      backdrop(p),
+    ],
+  },
+  {
+    id: "equalizer",
+    name: "Equalizer",
+    kind: "spectrum",
+    layers: ({ palette: p, random: r }) => [
+      adjust([fx("glow", { threshold: 0.65, reach: 0.03, intensity: 0.4 }, { intensity: follow(BASS, "add", 0.5) }), fx("feedback", { amount: 0.45, trailLength: 0.25, zoom: 1, rotation: 0, drift: [0, -0.3], mode: "lighten" })]),
+      drawing("audio-wave-bars", { bars: Math.round(between(r, 64, 96)), center: [0.5, 0.6], height: 0.42, boost: 0.75, hueSpread: between(r, 20, 70, 0), hueDrift: between(r, -12, 12, 0), glow: 0.35, color: p.primary, color2: p.accent }),
+      backdrop(p),
+    ],
+  },
+  {
+    id: "sunburst",
+    name: "Sunburst",
+    kind: "spectrum",
+    layers: ({ palette: p, random: r }) => [
+      adjust([
+        fx("deep-glow", { reach: 0.22, exposure: 0.45, threshold: 0.75, tint: p.secondary, tintAmount: 0.3 }),
+        fx("feedback", { amount: 0.6, trailLength: 0.3, zoom: 1.12, rotation: between(r, 10, 25, 0), hueShift: 0, mode: "lighten" }),
+      ]),
+      drawing("audio-radial", { size: 0.4, boost: 0.8, spokes: Math.round(between(r, 60, 96)), spin: between(r, 10, 30, 0), hueSpread: between(r, 0, 40, 0), hueDrift: 0, thickness: 1, color: p.secondary, color2: p.primary }, [], {
+        motion: { links: { scale: punch(KICK, "multiply", 0.06, 0.25) } },
+      }),
+      solid("#000000"),
+    ],
+  },
+  {
+    id: "ribbons",
+    name: "Ribbons",
+    kind: "spectrum",
+    layers: ({ palette: p, random: r }) => [
+      adjust([fx("glow", { threshold: 0.55, reach: 0.03, intensity: 0.6 }), fx("feedback", { amount: 0.6, trailLength: 0.45, zoom: 1.03, rotation: 0, drift: [0, 0.12], mode: "lighten" })]),
+      drawing("audio-ribbons", { ribbons: Math.round(between(r, 5, 8)), swing: between(r, 0.7, 1.2), thickness: 0.8, boost: 0.8, hueDrift: 0, color: p.primary, color2: p.secondary }),
       backdrop(p),
     ],
   },
@@ -433,36 +522,71 @@ export const LIVE_LOOKS: LiveLook[] = [
     name: "Scope",
     kind: "spectrum",
     layers: ({ palette: p }) => [
-      adjust([fx("crt", { scanlines: 0.45, curvature: 0.2, mask: 0.3, glow: 0.6, flicker: 0.15 }), fx("glow", { threshold: 0.4, reach: 0.03, intensity: 1.1 })]),
-      drawing("audio-oscilloscope", { center: [0.5, 0.78], width: 0.95, height: 0.18, gain: 1.6, thickness: 0.004, glow: 0.7, color: p.secondary }),
-      drawing("audio-vectorscope", { center: [0.5, 0.42], scale: 0.32, gain: 1.8, thickness: 0.003, glow: 0.9, color: p.primary }, [fx("feedback", { amount: 1, trailLength: 0.5, zoom: 1.05, rotation: 6, mode: "lighten" })]),
+      adjust([fx("crt", { scanlines: 0.4, curvature: 0.2, mask: 0.3, glow: 0.6, flicker: 0.1 }), fx("glow", { threshold: 0.4, reach: 0.03, intensity: 1.1 })]),
+      drawing("audio-oscilloscope", { center: [0.5, 0.72], width: 0.95, height: 0.22, gain: 1.6, thickness: 0.004, glow: 0.7, color: p.secondary }),
+      drawing("audio-vectorscope", { center: [0.5, 0.38], scale: 0.3, gain: 1.6, thickness: 0.003, glow: 0.9, color: p.primary }, [fx("feedback", { amount: 1, trailLength: 0.25, zoom: 1, rotation: 0, mode: "lighten" })]),
       solid(p.background),
     ],
   },
   {
-    id: "waterfall",
-    name: "Waterfall",
+    id: "ridges",
+    name: "Ridges",
     kind: "spectrum",
     layers: ({ palette: p, random: r }) => [
-      adjust([fx("glow", { threshold: 0.5, reach: 0.03, intensity: 0.7 }), fx("vignette", { amount: 0.55 })]),
-      drawing("audio-spectrogram", { history: between(r, 2.5, 4.5), direction: "up", contrast: 1.8, boost: 1.1, color: p.background, color2: p.accent }, [
-        fx("kaleida", { mirroring: pick(r, ["4", "6"]), size: 1.4 }),
+      adjust([fx("glow", { threshold: 0.55, reach: 0.03, intensity: 0.6 }), fx("vignette", { amount: 0.55 })]),
+      // The spectrum's line, its past drifting up behind it: a range of ridges, the newest in front.
+      drawing("audio-line", { center: [0.5, 0.86], width: 0.7, height: 0.22, boost: 0.85, thickness: 0.003, fill: 0, mirror: false, color: p.light, color2: p.primary }, [
+        fx("feedback", { amount: 1, trailLength: between(r, 1.6, 2.4), zoom: 0.92, rotation: 0, drift: [0, -0.32], mode: "lighten" }),
+        tint(p, 0.55, p.primary),
       ]),
+      backdrop(p),
+    ],
+  },
+  {
+    id: "lattice",
+    name: "Lattice",
+    kind: "spectrum",
+    layers: ({ palette: p, random: r }) => [
+      adjust([
+        fx("glow", { threshold: 0.5, reach: 0.04, intensity: 0.8 }),
+        fx("rgb-split", { amount: 0.002 }, { amount: punch(SNARE, "add", 0.02, 0.2) }),
+        fx("vignette", { amount: 0.5 }),
+      ]),
+      drawing("audio-lattice", { columns: Math.round(between(r, 14, 22)), rows: Math.round(between(r, 8, 12)), boost: 0.6, hueDrift: 0, color: p.primary, color2: p.secondary }),
+      solid("#000000"),
     ],
   },
 
   // Trips: vaudio's world presets, a visualizer fed back into itself.
+  {
+    id: "liquid-chrome",
+    name: "Liquid Chrome",
+    kind: "trip",
+    layers: ({ palette: p, random: r }) => [
+      adjust([
+        fx("twirl", { angle: between(r, 40, 90, 0), reach: 0.7 }, { angle: follow(BASS, "add", 90, 0.3) }),
+        fx("wave-warp", { amplitude: 0.012, wavelength: 0.35, speed: 0.8 }),
+        fx("chromatic-aberration", { amount: 0.006 }, { amount: punch(SNARE, "add", 0.02, 0.2) }),
+        fx("audio-hue", { drive: "beat", amount: 40, saturation: 0.3 }),
+        fx("feedback", { amount: 0.75, trailLength: 0.5, zoom: 1.12, rotation: 6, hueShift: 15, mode: "lighten" }),
+        fx("glow", { threshold: 0.65, reach: 0.03, intensity: 0.5 }),
+      ]),
+      drawing("audio-radial", { size: 0.34, boost: 0.8, spokes: 90, spin: 25, hueSpread: 30, hueDrift: 0, thickness: 1.2, color: p.primary, color2: p.secondary }),
+      solid("#000000"),
+    ],
+  },
   {
     id: "echo-tunnel",
     name: "Echo Tunnel",
     kind: "trip",
     layers: ({ palette: p, random: r }) => [
       adjust([
-        fx("feedback", { amount: 1, trailLength: between(r, 1.2, 2), zoom: between(r, 1.6, 2.4), rotation: between(r, 18, 40, 0) * (r() < 0.5 ? -1 : 1), hueShift: between(r, 20, 60, 0), mode: "lighten" }),
-        fx("chromatic-aberration", { amount: 0.008 }, { amount: punch(SNARE, "add", 0.02, 0.2) }),
-        fx("vignette", { amount: 0.55 }),
+        fx("feedback", { amount: 1, trailLength: between(r, 1, 1.6), zoom: between(r, 1.6, 2.2), rotation: between(r, 15, 35, 0) * (r() < 0.5 ? -1 : 1), hueShift: between(r, 15, 45, 0), mode: "lighten" }),
+        fx("chromatic-aberration", { amount: 0.006 }, { amount: punch(SNARE, "add", 0.02, 0.2) }),
+        fx("glow", { threshold: 0.5, reach: 0.04, intensity: 0.8 }),
+        fx("vignette", { amount: 0.5 }),
       ]),
-      drawing("audio-circle", { radius: 0.09, barLength: 0.12, bars: 96, mirror: true, pulse: 0.4, color: p.primary, color2: p.accent }, [], { motion: { links: { scale: punch(KICK, "multiply", 0.15, 0.3) } } }),
+      drawing("audio-tunnel", { rings: 14, wobble: 1.2, hueDrift: 0, color: p.primary, color2: p.accent }, [], { motion: { params: { scale: 0.7 }, links: { scale: punch(KICK, "multiply", 0.12, 0.3) } } }),
       solid("#000000"),
     ],
   },
@@ -482,18 +606,51 @@ export const LIVE_LOOKS: LiveLook[] = [
     ],
   },
   {
+    id: "shard-storm",
+    name: "Shard Storm",
+    kind: "trip",
+    layers: ({ palette: p, random: r }) => [
+      adjust([
+        fx("kaleida", { mirroring: pick(r, ["4", "6"]), size: between(r, 1, 1.5) }),
+        fx("feedback", { amount: 0.55, trailLength: 0.4, zoom: 1.4, rotation: between(r, -40, 40, 0), hueShift: 20, mode: "lighten" }),
+        fx("audio-strobe", { hits: "snares", mode: "flash", amount: 0.15, decay: 0.08, color: p.light }),
+        fx("vignette", { amount: 0.5 }),
+      ]),
+      drawing("audio-shards", { shards: 22, shardSize: 1.1, boost: 0.8, hueSpread: between(r, 0, 60, 0), hueDrift: 0, color: p.primary, color2: p.secondary }),
+      solid("#000000"),
+    ],
+  },
+  {
     id: "vhs-seance",
     name: "VHS Séance",
     kind: "trip",
     layers: ({ palette: p, random: r }) => [
       adjust([
-        fx("vhs", { intensity: 0.65, scanlines: 0.6 }),
-        fx("film-grain", { amount: 0.35 }),
-        fx("audio-strobe", { hits: "snares", mode: "flash", amount: 0.35, decay: 0.1, color: p.light }),
-        fx("feedback", { amount: 0.7, trailLength: 0.7, zoom: 1.08, rotation: -6, mode: "lighten" }),
+        fx("vhs", { intensity: 0.5, scanlines: 0.5 }),
+        fx("rgb-split", { amount: 0.004 }, { amount: punch(SNARE, "add", 0.02, 0.2) }),
+        fx("film-grain", { amount: 0.2 }),
+        fx("feedback", { amount: 0.75, trailLength: 0.7, zoom: 1.06, rotation: -4, mode: "lighten" }),
+        fx("vignette", { amount: 0.6 }),
       ]),
-      drawing("audio-bars", { center: [0.5, 0.5], width: 0.8, height: 0.5, bars: 48, mirror: true, gap: 0.45, color: p.primary, color2: p.light }, [], { motion: { links: { scale: punch(KICK, "multiply", 0.06, 0.25) } } }),
-      solid(p.background, [fx("wave-warp", { amplitude: 0.01, wavelength: 0.3, speed: between(r, 0.5, 1.2) })]),
+      drawing("audio-ribbons", { ribbons: 5, swing: 1.4, thickness: 1.6, hueDrift: between(r, 5, 15, 0), color: p.primary, color2: p.light }),
+      solid(p.background),
+    ],
+  },
+  {
+    id: "acid-bath",
+    name: "Acid Bath",
+    kind: "trip",
+    layers: ({ palette: p, random: r }) => [
+      adjust([
+        fx("wave-warp", { amplitude: 0.02, wavelength: 0.3, speed: 1.2 }),
+        fx("ripple", { radius: 0.8, waveHeight: 0.01, waveWidth: 0.1, speed: 1.4 }),
+        fx("audio-hue", { drive: "beat", amount: 40, saturation: 0.2 }),
+        fx("feedback", { amount: 0.5, trailLength: 0.5, zoom: 1.15, rotation: between(r, -25, 25, 0), hueShift: 40, mode: "lighten" }),
+      ]),
+      drawing("audio-plasma", { pixelSize: pick(r, [0, 0.008, 0.014]), speed: between(r, 0.8, 1.3), hueSpread: 40, hueDrift: 0, color: p.primary, color2: p.accent }, [], {
+        motion: { links: { scale: punch(KICK, "multiply", 0.05, 0.3) } },
+      }),
+      solid(p.background),
     ],
   },
   {
@@ -513,17 +670,16 @@ export const LIVE_LOOKS: LiveLook[] = [
     ],
   },
   {
-    id: "acid-bath",
-    name: "Acid Bath",
+    id: "neon-autopsy",
+    name: "Neon Autopsy",
     kind: "trip",
     layers: ({ palette: p, random: r }) => [
       adjust([
-        fx("audio-displace", { drive: "bass", amount: 0.5, scale: 3, speed: 0.8, pump: 0.35 }),
-        fx("wave-rgb", { amount: 0.015, frequency: 3, speed: 1.5 }),
-        fx("audio-hue", { drive: "beat", amount: 120, saturation: 0.5 }),
-        fx("feedback", { amount: 0.8, trailLength: 0.9, zoom: 1.25, rotation: between(r, -30, 30, 0), hueShift: 90, mode: "screen" }),
+        fx("glow-edges", { edgeWidth: 0.0025, glow: 1.2, edgeColor: p.accent, darken: 0.85 }),
+        fx("kaleida", { mirroring: "4", size: between(r, 1, 1.6) }),
+        fx("rgb-split", { amount: 0.004 }, { amount: punch(SNARE, "add", 0.03, 0.2) }),
       ]),
-      drawing("cell-pattern", { cellType: "bubbles", cellSize: between(r, 0.1, 0.2), contrast: 1.4 }, [tint(p, 1, p.accent)], { motion: { links: { scale: punch(KICK, "multiply", 0.08, 0.3) } } }),
+      drawing("cell-pattern", { cellType: "crystals", cellSize: between(r, 0.12, 0.22), contrast: 1.6 }, [tint(p, 1)], { motion: { links: { scale: punch(KICK, "multiply", 0.1, 0.3) } } }),
     ],
   },
   {
@@ -545,27 +701,29 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "solar-flare",
     name: "Solar Flare",
     kind: "trip",
-    layers: ({ palette: p }) => [
+    layers: ({ palette: p, random: r }) => [
       adjust([
-        fx("light-rays", { intensity: 1.2, reach: 0.5, threshold: 0.55, rayColor: p.accent }, { intensity: follow(BASS, "add", 1.2) }),
-        fx("deep-glow", { reach: 0.3, exposure: 0.9, threshold: 0.6, tint: p.primary, tintAmount: 0.4 }),
+        fx("light-rays", { intensity: 1.1, reach: 0.45, threshold: 0.5, rayColor: p.accent }, { intensity: follow(BASS, "add", 1) }),
+        fx("deep-glow", { reach: 0.3, exposure: 0.8, threshold: 0.6, tint: p.primary, tintAmount: 0.4 }),
+        fx("feedback", { amount: 0.7, trailLength: 0.5, zoom: 1.2, rotation: between(r, -10, 10, 0), mode: "lighten" }),
       ]),
-      adjust([fx("bokeh", { amount: 0.7, bokehSize: 0.08, density: 0.3, bokehColor: p.secondary, speed: 0.4 }, { amount: follow(LEVEL, "add", 0.3) })]),
-      drawing("audio-circle", { radius: 0.1, barLength: 0.08, bars: 72, mirror: true, pulse: 0.6, color: p.light, color2: p.accent }, [], { motion: { links: { scale: punch(KICK, "multiply", 0.12, 0.3) } } }),
-      backdrop(p, p.background),
+      drawing("audio-orbs", { orbs: 24, orbSize: 1.1, spread: 0.9, hueDrift: 0, color: p.primary, color2: p.accent }, [], { motion: { links: { scale: punch(KICK, "multiply", 0.08, 0.3) } } }),
+      backdrop(p),
     ],
   },
   {
-    id: "neon-autopsy",
-    name: "Neon Autopsy",
+    id: "hyperdrive",
+    name: "Hyperdrive",
     kind: "trip",
     layers: ({ palette: p, random: r }) => [
       adjust([
-        fx("glow-edges", { edgeWidth: 0.0025, glow: 1.2, edgeColor: p.accent, darken: 0.85 }),
-        fx("kaleida", { mirroring: "4", size: between(r, 1, 1.6) }),
-        fx("rgb-split", { amount: 0.004 }, { amount: punch(SNARE, "add", 0.03, 0.2) }),
+        fx("zoom-blur", { amount: 0.15 }, { amount: punch(KICK, "add", 0.25, 0.3) }),
+        fx("feedback", { amount: 1, trailLength: 0.7, zoom: between(r, 2.2, 3), rotation: between(r, -20, 20, 0), hueShift: 25, mode: "lighten" }),
+        fx("rgb-split", { amount: 0.003 }, { amount: punch(KICK, "add", 0.02, 0.2) }),
+        fx("vignette", { amount: 0.4 }),
       ]),
-      drawing("cell-pattern", { cellType: "crystals", cellSize: between(r, 0.12, 0.22), contrast: 1.6 }, [tint(p, 1)], { motion: { links: { scale: punch(KICK, "multiply", 0.1, 0.3) } } }),
+      drawing("audio-tunnel", { rings: 10, wobble: 0.6, hueDrift: 0, color: p.light, color2: p.primary }, [], { motion: { params: { scale: 0.35 } } }),
+      solid("#000000"),
     ],
   },
   {

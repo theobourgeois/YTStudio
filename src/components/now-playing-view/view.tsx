@@ -21,7 +21,7 @@ import { useNow } from "@/hooks/use-now";
 import { useNowPlaying } from "@/stores/now-playing";
 import { LiveDirector } from "./director";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
-import { LiveSource } from "./live-source";
+import { ImageSlots, LiveSource } from "./live-source";
 import { AUTO_SWITCHES, QUALITIES, useVisualizerPrefs } from "./prefs";
 
 /** Seconds the controls stay after the pointer stops. */
@@ -75,10 +75,22 @@ export default function NowPlayingView() {
         },
         () => useNowPlaying.getState().offset / 1000,
         (time) => tick(time),
+        () => useNowPlaying.getState().status?.track?.artwork ?? null,
       ),
   );
   const [noWebGl, setNoWebGl] = useState(false);
   const [engine] = useState(() => new PreviewEngine(({ noWebGl }) => setNoWebGl(noWebGl), source, true));
+  // Pictures the looks show (the cover): an image pair per track, kept as tracks come and go.
+  const imageBox = useRef<HTMLDivElement>(null);
+  const images = useRef<ImageSlots | null>(null);
+  useEffect(() => {
+    const slots = new ImageSlots(imageBox.current!);
+    images.current = slots;
+    return () => {
+      images.current = null;
+      slots.dispose();
+    };
+  }, []);
 
   /** Show a look: at once (`cut`), soon through a transition, or on the next bar. */
   const show = (lookId: string, how: "cut" | "now" | "bar", time = source.now) => {
@@ -119,6 +131,7 @@ export default function NowPlayingView() {
       return;
     }
     director.prune(time);
+    images.current?.sync(engine, director.project);
     if (dueRef.current !== null && time >= dueRef.current - 0.6) {
       dueRef.current = null;
       variationRef.current++;
@@ -284,6 +297,8 @@ export default function NowPlayingView() {
         className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
         style={size}
       />
+
+      <div ref={imageBox} aria-hidden className="pointer-events-none absolute inset-0 opacity-0" />
 
       <SongCard visible={controls} />
 
