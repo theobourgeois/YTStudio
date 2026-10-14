@@ -842,6 +842,8 @@ vec4 effect(vec2 uv) {
       number("shards", "Shards", 24, 4, 48, { slider: true }),
       boost,
       percent("shardSize", "Size", 1, { max: 3 }),
+      // How much of a shard there is with no sound: above 0, a quiet moment still has some to see.
+      percent("rest", "At Rest", 0, { max: 1 }),
       degrees("hueSpread", "Hue Spread", 360, 0, 720),
       number("hueDrift", "Hue Drift", 60, -180, 180, { unit: "°/s", step: 1 }),
       colour("color", "Colour", "#ff3d6e"),
@@ -860,7 +862,7 @@ vec4 effect(vec2 uv) {
     float on = step(i, n - 1.0);
     float t = i / n;
     float s = clamp(spectrum(t) * boost, 0.0, 1.0);
-    float energy = s * (0.4 + audioLevel);
+    float energy = max(rest, s * (0.4 + audioLevel));
     vec2 at = vec2(((sin(i * 12.9898 + time) * 0.5 + 0.5) * 0.9 + 0.05) * ratio, (cos(i * 78.233 + time * 0.7) * 0.5 + 0.5) * 0.9 + 0.05);
     float len = (0.055 + energy * 0.33) * shardSize;
     // A thin triangle, its point at len along its angle.

@@ -49,6 +49,25 @@ describe("LIVE_LOOKS", () => {
     });
   }
 
+  it("goes off with the music: its punches and its energy follow the intensity", () => {
+    for (const look of LIVE_LOOKS) {
+      const seq = lookSequence(look, { palette: RED, random: seededRandom(look.id) }, "seq_e");
+      // On top, its energy: shaking, strobing and brightening as the music gets intense.
+      const top = seq.clips[0];
+      expect(top.adjustment, look.id).toBe(true);
+      const links = top.effects.flatMap((e) => Object.values(e.links ?? {}));
+      expect(links.some((l) => "name" in l.signal && l.signal.name === "intensity")).toBe(true);
+      // Every punch (a hit on the sound) is as big as the music is intense.
+      for (const clip of seq.clips) {
+        for (const e of clip.effects) {
+          for (const link of Object.values(e.links ?? {})) {
+            if (link.hit && "name" in link.signal && link.signal.name !== "downbeat") expect(link.depth?.signal, `${look.id} ${e.type}`).toEqual({ name: "intensity" });
+          }
+        }
+      }
+    }
+  });
+
   it("varies a look by its seed, the same for the same seed", () => {
     const make = (seed: string) => JSON.stringify(lookSequence(LIVE_LOOKS.find((l) => l.id === "echo-tunnel")!, { palette: RED, random: seededRandom(seed) }, "seq_x").clips);
     expect(make("a")).toBe(make("a"));

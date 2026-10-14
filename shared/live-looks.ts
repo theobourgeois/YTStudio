@@ -11,7 +11,7 @@ import { defaultEffects, effectDefinition, sanitizeEffect, solidEffects } from "
 import { DEFAULT_RESPONSE } from "./links.ts";
 import type { AlbumPalette } from "./palette.ts";
 import { ONSET_SCALARS, type OnsetName, SIGNALS_VERSION, SIGNAL_RATE, SCALARS, bandEdges, type Hit, type SignalData } from "./signals/format.ts";
-import type { AspectRatio, Clip, Effect, MediaAsset, ParamLink, ParamValues, Project, Sequence, SignalRef, Transition } from "./types.ts";
+import type { AspectRatio, Clip, Effect, LinkDepth, MediaAsset, ParamLink, ParamValues, Project, Sequence, SignalRef, Transition } from "./types.ts";
 import { createTransition } from "./transitions.ts";
 
 // ---------------------------------------------------------------------------
@@ -84,7 +84,8 @@ export function liveProject(shows: readonly Showing[], perform: Clip, aspectRati
 
 /** A look as a nested sequence: its layers on tracks of their own, top first, each as long as a session. */
 export function lookSequence(look: LiveLook, ctx: LookContext, id: string): Sequence {
-  const layers = look.layers(ctx);
+  // The look's own layers under its energy (how it goes off when the music does).
+  const layers = [energyLayer({ ...ENERGY[look.kind], ...look.energy }), ...look.layers(ctx)];
   const tracks = layers.map((_, i) => ({ id: `${id}:t${i}`, kind: "video" as const, name: `Layer ${layers.length - i}`, muted: false }));
   const clips: Clip[] = layers.map((layer, i) => ({
     id: `${id}:c${i}`,
@@ -221,7 +222,30 @@ export interface LiveLook {
   kind: LookKind;
   /** Its layers, top first. */
   layers(ctx: LookContext): LookLayer[];
+  /** How it goes off with the music, where its kind's (`ENERGY`) doesn't suit it. */
+  energy?: Partial<Energy>;
 }
+
+/**
+ * How a look goes off as the music gets intense (step 3 of docs/now-playing.md), at full intensity: the whole picture
+ * punching in on kicks (`punch`, Motion's scale), the camera shaking (`shake`, once it's intense), a strobe on snares
+ * (`strobe`, in drops), the colours splitting on snares (`split`), an inverted flash on each bar's first beat
+ * (`invert`, at the very top only), and it brightening and saturating (`lift`). Calm, it's dimmer, still, plainer.
+ */
+export interface Energy {
+  punch: number;
+  shake: number;
+  strobe: number;
+  split: number;
+  invert: number;
+  lift: number;
+}
+
+const ENERGY: Record<LookKind, Energy> = {
+  world: { punch: 0.1, shake: 0.45, strobe: 0.2, split: 0.01, invert: 0, lift: 1 },
+  spectrum: { punch: 0.14, shake: 0.3, strobe: 0.3, split: 0.016, invert: 0, lift: 1 },
+  trip: { punch: 0.2, shake: 0.7, strobe: 0.4, split: 0.028, invert: 0.75, lift: 1 },
+};
 
 /** A seeded random number generator: the same look for the same song (`seed` from its id). */
 export function seededRandom(seed: string): () => number {
@@ -242,19 +266,31 @@ const LEVEL: SignalRef = { name: "level" };
 const DOWNBEAT: SignalRef = { name: "downbeat" };
 
 /** Each hit punches: up at once, then down over `decay` seconds. */
-const punch = (signal: SignalRef, mode: ParamLink["mode"], amount: number, decay = 0.25): ParamLink => ({
+/** How intense the music is (`mood.ts`): what a look's energy follows. */
+const INTENSITY: SignalRef = { name: "intensity" };
+/** A reaction as big as the music is intense: `floor` of it when calm, none under `threshold`. */
+const intense = (floor = 0.2, threshold = 0): LinkDepth => ({ signal: INTENSITY, floor, threshold });
+/**
+ * A look's punches are written for a typical moment; at full intensity they're this much bigger (they follow the
+ * intensity, `intense`).
+ */
+const HEADROOM = 1.6;
+
+/** Each hit punches: up at once, then down over `decay` seconds; as big as the music is intense (none: `depth` null). */
+const punch = (signal: SignalRef, mode: ParamLink["mode"], amount: number, decay = 0.25, depth: LinkDepth | null = intense()): ParamLink => ({
   signal,
   mode,
-  amount,
+  amount: depth ? amount * HEADROOM : amount,
   response: DEFAULT_RESPONSE,
   hit: { attack: 0.005, hold: 0, decay },
+  ...(depth && { depth }),
 });
-/** Follows a level, falling over `release` seconds. */
-const follow = (signal: SignalRef, mode: ParamLink["mode"], amount: number, release = 0.2): ParamLink => ({
+/** Follows a level, falling over `release` seconds (nothing under `threshold`). */
+const follow = (signal: SignalRef, mode: ParamLink["mode"], amount: number, release = 0.2, threshold = 0): ParamLink => ({
   signal,
   mode,
   amount,
-  response: { ...DEFAULT_RESPONSE, release },
+  response: { ...DEFAULT_RESPONSE, release, threshold },
 });
 
 /** An effect of `type` with these values and links (its id is set by the layer). */
@@ -297,9 +333,10 @@ function drawing(type: string, params: ParamValues, more: Effect[] = [], moves: 
   return solid("#000000", [fx(type, { blendMode: "replace", ...params }), ...more], moves);
 }
 
-/** An adjustment layer: its effects apply to everything below it. */
-function adjust(effects: Effect[], { opacity }: LayerMotion = {}): LookLayer {
+/** An adjustment layer: its effects (and its Motion) apply to everything below it. */
+function adjust(effects: Effect[], { motion, opacity }: LayerMotion = {}): LookLayer {
   let base = defaultEffects();
+  if (motion) base = tweakBuiltIn(base, "motion", motion.params ?? {}, motion.links);
   if (opacity) base = tweakBuiltIn(base, "opacity", opacity.params ?? {}, opacity.links);
   return { adjustment: true, effects: withIds([...base, ...effects]) };
 }
@@ -324,8 +361,29 @@ function world(type: string, params: ParamValues, p: AlbumPalette, r: () => numb
       fx("glow", { threshold: 0.6, reach: 0.04, intensity: opts.glow ?? 0.6 }, { intensity: follow(BASS, "add", 0.9) }),
       fx("vignette", { amount: 0.45, size: 0.55, feather: 0.7 }),
     ]),
-    solid("#000000", [fx(type, { blendMode: "replace", speed: between(r, 0.85, 1.15), ...params })], { motion: { links: { scale: punch(KICK, "multiply", 0.035, 0.3) } } }),
+    // The world moves faster and reacts harder the more intense the music is (calm: it drifts).
+    solid(
+      "#000000",
+      [fx(type, { blendMode: "replace", speed: between(r, 0.6, 0.8), reactivity: 0.7, ...params }, { speed: follow(INTENSITY, "multiply", 1, 1), reactivity: follow(INTENSITY, "multiply", 0.6, 1) })],
+      { motion: { links: { scale: punch(KICK, "multiply", 0.035, 0.3) } } },
+    ),
   ];
+}
+
+/** A look's energy (`Energy`): an adjustment over all of it. */
+function energyLayer(e: Energy): LookLayer {
+  return adjust(
+    [
+      fx("camera-shake", { strength: 0, speed: 1.4 }, { strength: follow(INTENSITY, "add", e.shake, 0.6, 0.6) }),
+      fx("audio-strobe", { hits: "snares", mode: "flash", amount: 0, decay: 0.08 }, { amount: follow(INTENSITY, "add", e.strobe, 0.6, 0.72) }),
+      fx("rgb-split", { amount: 0 }, { amount: punch(SNARE, "add", e.split, 0.18, intense(0, 0.4)) }),
+      ...(e.invert > 0 ? [fx("invert", { amount: 0 }, { amount: punch(DOWNBEAT, "add", e.invert, 0.12, intense(0, 0.85)) })] : []),
+      // In stops (a gain, not an offset): calm, the faint trails are dimmer but still there; a drop isn't pushed to white.
+      fx("exposure", { exposure: -0.4 }, { exposure: follow(INTENSITY, "add", 0.5 * e.lift, 0.8) }),
+      fx("hue-saturation", { hue: 0, saturation: 0.8, lightness: 0 }, { saturation: follow(INTENSITY, "add", 0.5 * e.lift, 0.8) }),
+    ],
+    { motion: { links: { scale: punch(KICK, "multiply", e.punch, 0.28, intense(0.1, 0.25)) } } },
+  );
 }
 
 /** A layer of the song's cover (`COVER_ASSET`), fitted to the frame's height, then `more` on it. */
@@ -437,6 +495,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "album",
     name: "Album",
     kind: "spectrum",
+    energy: { shake: 0.15, strobe: 0.15 },
     layers: ({ palette: p, random: r }) => [
       adjust([fx("deep-glow", { reach: 0.18, exposure: 0.6, threshold: 0.7, tint: p.accent, tintAmount: 0.3 }, { exposure: follow(BASS, "add", 0.6) }), fx("vignette", { amount: 0.45 })]),
       drawing("audio-circle", { radius: 0.235, barLength: 0.14, bars: 144, gap: 0.45, mirror: true, pulse: 0.06, color: p.primary, color2: p.accent }, [], {
@@ -521,6 +580,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "scope",
     name: "Scope",
     kind: "spectrum",
+    energy: { shake: 0.15 },
     layers: ({ palette: p }) => [
       adjust([fx("crt", { scanlines: 0.4, curvature: 0.2, mask: 0.3, glow: 0.6, flicker: 0.1 }), fx("glow", { threshold: 0.4, reach: 0.03, intensity: 1.1 })]),
       drawing("audio-oscilloscope", { center: [0.5, 0.72], width: 0.95, height: 0.22, gain: 1.6, thickness: 0.004, glow: 0.7, color: p.secondary }),
@@ -532,6 +592,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "ridges",
     name: "Ridges",
     kind: "spectrum",
+    energy: { shake: 0.2 },
     layers: ({ palette: p, random: r }) => [
       adjust([fx("glow", { threshold: 0.55, reach: 0.03, intensity: 0.6 }), fx("vignette", { amount: 0.55 })]),
       // The spectrum's line, its past drifting up behind it: a range of ridges, the newest in front.
@@ -581,7 +642,11 @@ export const LIVE_LOOKS: LiveLook[] = [
     kind: "trip",
     layers: ({ palette: p, random: r }) => [
       adjust([
-        fx("feedback", { amount: 1, trailLength: between(r, 1, 1.6), zoom: between(r, 1.6, 2.2), rotation: between(r, 15, 35, 0) * (r() < 0.5 ? -1 : 1), hueShift: between(r, 6, 16, 0), mode: "lighten" }),
+        fx(
+          "feedback",
+          { amount: 1, trailLength: between(r, 1, 1.6), zoom: between(r, 1.4, 1.8), rotation: between(r, 15, 35, 0) * (r() < 0.5 ? -1 : 1), hueShift: between(r, 6, 16, 0), mode: "lighten" },
+          { zoom: follow(INTENSITY, "multiply", 0.5, 1), rotation: follow(INTENSITY, "multiply", 0.8, 1) },
+        ),
         fx("chromatic-aberration", { amount: 0.006 }, { amount: punch(SNARE, "add", 0.02, 0.2) }),
         fx("glow", { threshold: 0.5, reach: 0.04, intensity: 0.8 }),
         fx("vignette", { amount: 0.5 }),
@@ -597,7 +662,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("kaleida", { mirroring: pick(r, ["6", "8", "12"]), size: between(r, 0.8, 1.3) }, { rotation: punch(DOWNBEAT, "add", 30, 1.2) }),
-        fx("feedback", { amount: 0.85, trailLength: 0.8, zoom: 1.3, rotation: 12, hueShift: 12, mode: "lighten" }),
+        fx("feedback", { amount: 0.85, trailLength: 0.8, zoom: 1.3, rotation: 8, hueShift: 12, mode: "lighten" }, { rotation: follow(INTENSITY, "multiply", 1.5, 1) }),
         fx("glow", { threshold: 0.5, reach: 0.04, intensity: 0.9 }),
       ]),
       drawing("audio-burst", { hits: "any", count: 24, spread: 0.5, life: 0.8, particleSize: 0.01, color: p.light, color2: p.accent }),
@@ -611,12 +676,13 @@ export const LIVE_LOOKS: LiveLook[] = [
     kind: "trip",
     layers: ({ palette: p, random: r }) => [
       adjust([
-        fx("kaleida", { mirroring: pick(r, ["4", "6"]), size: between(r, 1, 1.5) }),
-        fx("feedback", { amount: 0.55, trailLength: 0.4, zoom: 1.4, rotation: between(r, -40, 40, 0), hueShift: 20, mode: "lighten" }),
-        fx("audio-strobe", { hits: "snares", mode: "flash", amount: 0.15, decay: 0.08, color: p.light }),
+        // Under 100%, so the mirrors take in more of the shards (over it, a quiet moment's few are outside).
+        fx("kaleida", { mirroring: pick(r, ["4", "6"]), size: between(r, 0.7, 0.95) }),
+        fx("feedback", { amount: 0.5, trailLength: 0.6, zoom: 1.4, rotation: between(r, -40, 40, 0), hueShift: 20, mode: "lighten" }),
         fx("vignette", { amount: 0.5 }),
       ]),
-      drawing("audio-shards", { shards: 22, shardSize: 1.1, boost: 0.8, hueSpread: between(r, 0, 60, 0), hueDrift: 0, color: p.primary, color2: p.secondary }),
+      // A quiet shard would be a faint sliver: at rest they're still there, drifting.
+      drawing("audio-shards", { shards: 30, shardSize: between(r, 1.1, 1.4), boost: 0.8, rest: 0.3, hueSpread: between(r, 0, 60, 0), hueDrift: 0, color: p.primary, color2: p.secondary }),
       solid("#000000"),
     ],
   },
@@ -645,18 +711,21 @@ export const LIVE_LOOKS: LiveLook[] = [
         fx("wave-warp", { amplitude: 0.02, wavelength: 0.3, speed: 1.2 }),
         fx("ripple", { radius: 0.8, waveHeight: 0.01, waveWidth: 0.1, speed: 1.4 }),
         fx("audio-hue", { drive: "beat", amount: 40, saturation: 0.2 }),
-        fx("feedback", { amount: 0.5, trailLength: 0.5, zoom: 1.15, rotation: between(r, -25, 25, 0), hueShift: 40, mode: "lighten" }),
+        fx("feedback", { amount: 0.35, trailLength: 0.4, zoom: 1.15, rotation: between(r, -25, 25, 0), hueShift: 40, mode: "lighten" }),
       ]),
-      drawing("audio-plasma", { pixelSize: pick(r, [0, 0.008, 0.014]), speed: between(r, 0.8, 1.3), hueSpread: 40, hueDrift: 0, color: p.primary, color2: p.accent }, [], {
+      // The whole frame, so its hot colour is the secondary: the accent everywhere is white in a drop.
+      drawing("audio-plasma", { pixelSize: pick(r, [0, 0.008, 0.014]), speed: between(r, 0.8, 1.3), hueSpread: 40, hueDrift: 0, color: p.primary, color2: p.secondary }, [], {
         motion: { links: { scale: punch(KICK, "multiply", 0.05, 0.3) } },
       }),
       solid(p.background),
     ],
+    energy: { lift: 0.4 },
   },
   {
     id: "ghost-trails",
     name: "Ghost Trails",
     kind: "trip",
+    energy: { strobe: 0, invert: 0, shake: 0.3 },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("feedback", { amount: 1, trailLength: between(r, 2.5, 4), zoom: 1.04, rotation: between(r, -5, 5, 0), mode: "lighten" }),
@@ -718,18 +787,20 @@ export const LIVE_LOOKS: LiveLook[] = [
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("zoom-blur", { amount: 0.15 }, { amount: punch(KICK, "add", 0.25, 0.3) }),
-        fx("feedback", { amount: 1, trailLength: 0.7, zoom: between(r, 2.2, 3), rotation: between(r, -20, 20, 0), hueShift: 10, mode: "lighten" }),
+        fx("feedback", { amount: 0.85, trailLength: 0.6, zoom: between(r, 1.8, 2.4), rotation: between(r, -20, 20, 0), hueShift: 10, mode: "lighten" }, { zoom: follow(INTENSITY, "multiply", 0.25, 1) }),
         fx("rgb-split", { amount: 0.003 }, { amount: punch(KICK, "add", 0.02, 0.2) }),
         fx("vignette", { amount: 0.4 }),
       ]),
-      drawing("audio-tunnel", { rings: 10, size: 0.35, wobble: 0.6, hueDrift: 0, hueReact: 10, color: p.light, color2: p.primary }),
+      drawing("audio-tunnel", { rings: 10, size: 0.35, wobble: 0.6, hueDrift: 0, hueReact: 10, color: p.accent, color2: p.primary }),
       solid("#000000"),
     ],
+    energy: { lift: 0.5 },
   },
   {
     id: "deep-void",
     name: "Deep Void",
     kind: "trip",
+    energy: { strobe: 0.1, invert: 0 },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("feedback", { amount: 1, trailLength: 3, zoom: 1.35, rotation: between(r, -8, 8, 0), hueShift: 8, mode: "lighten" }),
