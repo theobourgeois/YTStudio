@@ -18,7 +18,7 @@ function noise(seed = 1) {
  * A drum loop at `bpm` from `from` seconds: a kick on every beat (a sine falling from 150 to 50 Hz), a snare on 2
  * and 4 (noise), hats on the eighths (noise above 6 kHz or so), quieter before `loudFrom` (only hats and a hush).
  */
-function drums(seconds: number, bpm: number, { from = 0, loudFrom = 0 } = {}): Float32Array {
+function drums(seconds: number, bpm: number, { from = 0, loudFrom = 0, kicksUntil = Infinity } = {}): Float32Array {
   const beat = 60 / bpm;
   const random = noise(3);
   const hatNoise = noise(9);
@@ -34,7 +34,7 @@ function drums(seconds: number, bpm: number, { from = 0, loudFrom = 0 } = {}): F
       const sinceBeat = (t - from) % beat;
       const beatIndex = Math.floor((t - from) / beat);
       const loud = t >= loudFrom;
-      if (loud) {
+      if (loud && t < kicksUntil) {
         const phase = 2 * Math.PI * (50 * sinceBeat + (100 / 30) * (1 - Math.exp(-30 * sinceBeat)));
         v += 0.8 * Math.sin(phase) * Math.exp(-sinceBeat / 0.06);
         if (beatIndex % 2 === 1) v += 0.35 * random() * Math.exp(-sinceBeat / 0.05);
@@ -76,7 +76,86 @@ describe("LiveSignals", () => {
     const hits = live.data().header.hits.onsetLow.map(([t]) => t);
     // After the first two seconds (what counts as loud is still being learned), every kick is a hit, on time.
     for (const kick of kicks.filter((k) => k >= 2 && k < 7.9)) expect(Math.abs(nearest(hits, kick) - kick)).toBeLessThan(0.02);
-    for (const hit of hits.filter((t) => t >= 2)) expect(Math.abs(nearest(kicks, hit) - hit)).toBeLessThan(0.02);
+    for (const hit of hits.filter((t) => t >= 2 && t <= live.seconds)) expect(Math.abs(nearest(kicks, hit) - hit)).toBeLessThan(0.02);
+  });
+
+  it("measures a moment 11 ms after it (its onset window's half)", () => {
+    const live = new LiveSignals(RATE);
+    expect(live.delay).toBeCloseTo(512 / RATE, 6);
+    live.push(new Float32Array(Math.round(RATE * 1) * 2));
+    // The newest frame's moment is the sound pushed, less the delay (to a frame).
+    expect(1 - live.seconds - live.delay).toBeGreaterThanOrEqual(0);
+    expect(1 - live.seconds - live.delay).toBeLessThan(1 / SIGNAL_RATE);
+  });
+
+  it("expects the next kicks on the beat ahead of time, as early as the lead", () => {
+    const bpm = 124;
+    const from = 0.21;
+    const live = listen(drums(12, bpm, { from }));
+    live.lead = 0.03;
+    const kicks = Array.from({ length: 40 }, (_, k) => from + (k * 60) / bpm);
+    const hits = live.data().header.hits.onsetLow.map(([t]) => t);
+    const ahead = hits.filter((t) => t > live.seconds);
+    expect(ahead.length).toBeGreaterThanOrEqual(1);
+    // Each lands on a kick still to come, 30 ms early (within 10 ms).
+    for (const t of ahead) expect(Math.abs(nearest(kicks, t + 0.03) - (t + 0.03))).toBeLessThan(0.01);
+    // The beat moves as early: the grid as heard is `beats`.
+    const shown = live.data().header.rhythm!.beats;
+    expect(shown.at(-1)! + 0.03).toBeCloseTo(live.beats.at(-1)!, 3);
+  });
+
+  it("expects snares where they've been: on 2 and 4, not on every beat", () => {
+    // A high blip on every beat keeps the beat (nothing in the mids); a snare on 2 and 4.
+    const random = noise(5);
+    const samples = new Float32Array(14 * RATE * 2);
+    for (let i = 0; i < samples.length / 2; i++) {
+      const t = i / RATE;
+      const since = t % 0.5;
+      let v = 0.3 * Math.sin(2 * Math.PI * 9000 * since) * Math.min(1, since / 0.002) * Math.exp(-since / 0.015);
+      if (Math.floor(t / 0.5) % 2 === 1) v += 0.5 * random() * Math.exp(-since / 0.06);
+      samples[i * 2] = samples[i * 2 + 1] = v;
+    }
+    const live = listen(samples);
+    const snares = Array.from({ length: 16 }, (_, k) => 0.5 + k);
+    const ahead = live.data().header.hits.onsetMid.map(([t]) => t).filter((t) => t > live.seconds);
+    expect(ahead.length).toBeGreaterThanOrEqual(1);
+    for (const t of ahead) expect(Math.abs(nearest(snares, t) - t)).toBeLessThan(0.015);
+  });
+
+  it("keeps a beat through a syncopated (3-3-2) pattern rather than flipping between its tempos", () => {
+    // Trap at 160 BPM: kicks on eighths 0, 3 and 6 of each bar, a snare on 3 (eighth 4), hats on every eighth.
+    const eighth = 60 / 160 / 2;
+    const random = noise(5);
+    const hats = noise(13);
+    let previous = 0;
+    const samples = new Float32Array(40 * RATE * 2);
+    for (let i = 0; i < samples.length / 2; i++) {
+      const t = i / RATE;
+      const index = Math.floor(t / eighth);
+      const since = t - index * eighth;
+      const n = hats();
+      const high = n - previous;
+      previous = n;
+      let v = since < 0.03 ? 0.15 * high * Math.exp(-since / 0.01) : 0;
+      if ([0, 3, 6].includes(index % 8)) v += 0.8 * Math.sin(2 * Math.PI * (50 * since + (100 / 30) * (1 - Math.exp(-30 * since)))) * Math.exp(-since / 0.08);
+      if (index % 8 === 4) v += 0.4 * random() * Math.exp(-since / 0.06);
+      samples[i * 2] = samples[i * 2 + 1] = v;
+    }
+    const live = new LiveSignals(RATE);
+    const tempos: number[] = [];
+    for (let i = 0; i < samples.length; i += 2048) {
+      live.push(samples.subarray(i, i + 2048));
+      if (live.seconds > 8 && live.bpm && live.bpm !== tempos.at(-1)) tempos.push(live.bpm);
+    }
+    // Nudged a little as it settles, but never to another tempo: within 2% of the first.
+    expect(tempos.length).toBeGreaterThan(0);
+    for (const t of tempos) expect(Math.abs(t / tempos[0] - 1)).toBeLessThan(0.02);
+  });
+
+  it("stops expecting kicks when they stop", () => {
+    const live = listen(drums(13, 124, { kicksUntil: 9 }));
+    const hits = live.data().header.hits.onsetLow.map(([t]) => t);
+    expect(hits.filter((t) => t > 9.7)).toEqual([]);
   });
 
   for (const bpm of [96, 120, 128, 140, 174]) {

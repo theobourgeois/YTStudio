@@ -48,13 +48,13 @@ function NowPlayingGroup() {
         <Switch checked={enabled} onCheckedChange={(on) => useNowPlaying.getState().setEnabled(on)} aria-label="Show what's playing" />
       </SettingsRow>
       <SettingsRow
-        title="Visualizer sync"
-        description="How long the pictures wait for the sound. Raise it if they move before you hear the beat (Bluetooth headphones play late), lower it if after."
+        title="Sound delay"
+        description="How late you hear the sound after the computer sends it: about 0 on speakers, 150–250 ms on Bluetooth headphones. The visualizer waits for it. Tap along in the visualizer (S) to measure it."
       >
         <ScrubNumber
           value={offset}
-          display={{ min: -200, max: 500, step: 10, decimals: 0, unit: "ms" }}
-          label="Visualizer sync"
+          display={{ min: 0, max: 400, step: 10, decimals: 0, unit: "ms" }}
+          label="Sound delay"
           onBegin={() => {}}
           onChange={(ms) => useNowPlaying.getState().setOffset(ms)}
           onEnd={() => {}}

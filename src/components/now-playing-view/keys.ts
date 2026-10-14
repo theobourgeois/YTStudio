@@ -18,7 +18,9 @@ export type VisualizerAction =
   | { kind: "song"; step: 1 | -1 }
   | { kind: "auto" }
   | { kind: "hud" }
-  | { kind: "help" };
+  | { kind: "help" }
+  | { kind: "latency" }
+  | { kind: "sync" };
 
 const PADS: Record<string, Pad> = { KeyZ: "zoom", KeyX: "flash", KeyC: "split", KeyV: "twist" };
 
@@ -49,6 +51,10 @@ export function visualizerKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey"
       return { kind: "auto" };
     case "KeyH":
       return { kind: "hud" };
+    case "KeyL":
+      return { kind: "latency" };
+    case "KeyS":
+      return { kind: "sync" };
   }
   return null;
 }
@@ -66,5 +72,7 @@ export const VISUALIZER_KEYS: { keys: string; does: string }[] = [
   { keys: "⇧← ⇧→", does: "Previous or next song" },
   { keys: "F", does: "Full screen" },
   { keys: "H", does: "Hide the controls" },
+  { keys: "S", does: "Tap along to sync (headphones)" },
+  { keys: "L", does: "Show how late the picture is" },
   { keys: "Esc", does: "Close" },
 ];

@@ -47,6 +47,14 @@ export const REFERENCE_SECONDS = 20;
 const SLOW_EVERY = SIGNAL_RATE / 2;
 /** Seconds of sound needed before the references follow it (a moment of music after silence doesn't reset them). */
 const MIN_SOUNDING_SECONDS = 2;
+/** A kick within this of a beat lands on it. */
+const ON_BEAT = 0.05;
+/** A beat of the bar expects a hit when it had one in this share of the last `BARS_JUDGED` bars. */
+const ON_THE_BEAT = 0.75;
+const BARS_JUDGED = 4;
+/** Seconds of hits expected ahead, and how long an expected one is kept (its punch plays out). */
+const AHEAD = 1;
+const KEPT = 0.6;
 /** A drop: the last second this many dB louder than the four before, at most one every `DROP_GAP` seconds. */
 const DROP_RISE_DB = 6;
 const DROP_GAP = 8;
@@ -86,9 +94,40 @@ export class LiveSignals {
   private nextSlow = SLOW_EVERY;
   /** The header as of the last change (`data` builds the rest each time). */
   private header: SignalsHeader | null = null;
+  private ahead = 0;
+  private expecting = false;
 
   constructor(readonly sampleRate = 48_000) {
-    this.analyser = new SignalAnalyser(sampleRate);
+    this.analyser = new SignalAnalyser(sampleRate, 0, { live: true });
+  }
+
+  /** Seconds after a moment it's measured (the sound the analysis needs after it). */
+  get delay(): number {
+    return this.analyser.delay;
+  }
+
+  /**
+   * Seconds the beat is shown early: what's known ahead of time (the beat, and kicks that land on it) is given that
+   * much before it's heard, so a picture drawn late still lands on it (the visualizer sets it from its own delay).
+   */
+  get lead(): number {
+    return this.ahead;
+  }
+
+  set lead(seconds: number) {
+    if (seconds === this.ahead) return;
+    this.ahead = seconds;
+    this.header = null;
+  }
+
+  /** Whether the next kicks are expected on the beat (the last beats each had one): their punches come on time. */
+  get expectingKicks(): boolean {
+    return this.expecting;
+  }
+
+  /** The beats so far and the next few, as heard (not moved by `lead`). */
+  get beats(): readonly number[] {
+    return this.rhythm?.beats ?? [];
   }
 
   /** Interleaved stereo samples (left, right, left...) or mono, as they're heard. */
@@ -131,8 +170,13 @@ export class LiveSignals {
       scalars: [...SCALARS],
       reference: this.reference,
       bandReference: this.bandReference,
-      hits: this.hits,
-      rhythm: this.rhythm && { ...this.rhythm, drops: this.drops },
+      hits: { ...this.hits, onsetLow: this.expected("onsetLow"), onsetMid: this.expected("onsetMid") },
+      rhythm: this.rhythm && {
+        ...this.rhythm,
+        beats: this.rhythm.beats.map((b) => round(b - this.ahead)),
+        downbeats: this.rhythm.downbeats.map((b) => round(b - this.ahead)),
+        drops: this.drops,
+      },
       waveRate: m.waveRate,
       waveSamples: 0,
     };
@@ -163,6 +207,69 @@ export class LiveSignals {
       out[i] = Math.min(1, Math.max(0, most));
     }
     return out;
+  }
+
+  /**
+   * The hits of a band (kicks, snares): those heard, and those expected on the beat ahead of time (`lead` early),
+   * replacing the heard ones there. A beat of the bar is expected to have one when it had one in nearly every one
+   * of the last bars (four on the floor: every beat; a half-time kick: 1 and 3; a snare: 2 and 4). An expected hit
+   * that didn't come is dropped once it's past (its punch stops short: a breakdown's first beat or two).
+   */
+  private expected(name: "onsetLow" | "onsetMid"): Hit[] {
+    const heard = this.hits[name];
+    const beats = this.rhythm?.beats ?? [];
+    const now = this.seconds;
+    const near = (t: number) => {
+      // The last hit at or before t + ON_BEAT (they're in order).
+      let lo = 0;
+      let hi = heard.length - 1;
+      let found = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (heard[mid][0] <= t + ON_BEAT) {
+          found = mid;
+          lo = mid + 1;
+        } else hi = mid - 1;
+      }
+      return found >= 0 && heard[found][0] >= t - ON_BEAT ? heard[found] : null;
+    };
+    // The last bars' beats whose hits would have been heard by now, by their place in the bar.
+    let last = beats.length - 1;
+    while (last >= 0 && beats[last] > now - ON_BEAT) last--;
+    const first = Math.max(0, last - BARS_JUDGED * 4 + 1);
+    const matched: { offset: number; velocity: number }[] = [];
+    const places = [0, 1, 2, 3].filter((place) => {
+      let tried = 0;
+      let had = 0;
+      for (let i = first; i <= last; i++) {
+        if (i % 4 !== place) continue;
+        tried++;
+        const hit = near(beats[i]);
+        if (hit) {
+          had++;
+          matched.push({ offset: hit[0] - beats[i], velocity: hit[1] });
+        }
+      }
+      return tried >= BARS_JUDGED - 1 && had >= tried * ON_THE_BEAT;
+    });
+    if (name === "onsetLow") this.expecting = places.length > 0;
+    if (!places.length) return heard;
+    const median = (values: number[]) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)];
+    const velocity = median(matched.map((m) => m.velocity));
+    // Where hits fall against the beat (the beat's phase is the tracker's guess; the hits are what's heard).
+    const off = median(matched.map((m) => m.offset));
+    const expected: Hit[] = [];
+    const window = (t: number) => t > now - KEPT && t <= now + AHEAD;
+    for (let i = 0; i < beats.length; i++) {
+      const t = beats[i] + off;
+      if (!places.includes(i % 4) || !window(t)) continue;
+      // Past, and nothing came: it wasn't one.
+      if (t <= now - ON_BEAT && !near(t)) continue;
+      expected.push([round(t - this.ahead), velocity]);
+    }
+    if (!expected.length) return heard;
+    const replaced = (t: number) => beats.some((b, i) => places.includes(i % 4) && window(b + off) && Math.abs(t - b - off) <= ON_BEAT);
+    return [...heard.filter(([t]) => !replaced(t)), ...expected].sort((a, b) => a[0] - b[0]);
   }
 
   /** Whether frame `f - 1` of an onset scalar is a hit, now that frame `f` is here (see `pickHits`, which looks both ways). */

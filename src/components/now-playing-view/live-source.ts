@@ -1,8 +1,12 @@
 /**
  * The preview engine's source for the visualizer (`PreviewSource`): the director's project at the listening
- * session's time, and its sound's signals as they grow (`LiveSignals`). The time follows the clock smoothly and
- * stays a little behind the newest sound measured (a waveform is read either side of its moment), plus the sync
- * offset Settings gives (headphones play later than the computer sends).
+ * session's time, and its sound's signals as they grow (`LiveSignals`).
+ *
+ * Sync (`latencyOf`): the picture of a moment is seen a little after the app hears it (the analysis, the sound
+ * arriving in chunks, drawing; and macOS capturing it before that), while the ears hear it when the speakers or
+ * headphones play it (Bluetooth: ~150-250 ms after the computer sends it: Settings' delay, measured by tapping along).
+ * What's known ahead of time (the beat, and kicks on it) is shown early by the difference (`LiveSignals.lead`);
+ * when the ears are the later ones, everything waits for them instead.
  */
 import type { SignalReader } from "@shared/audio-signals";
 import { LIVE_ASSET, PADS_ASSET, coverAsset } from "@shared/live-looks";
@@ -12,8 +16,35 @@ import type { MediaAsset, Project } from "@shared/types";
 import type { PreviewEngine, PreviewSource } from "@/components/preview/engine";
 import type { LiveDirector } from "./director";
 
-/** Seconds the picture stays behind the newest sound measured: half a visualizer's waveform window, and a little. */
-const BEHIND = 0.045;
+/** Where the picture's delay comes from (seconds), and what's done about it. */
+export interface Latency {
+  /** The analysis needs this much sound after a moment. */
+  analysis: number;
+  /** Sound arrives in chunks this long. */
+  chunks: number;
+  /** A frame waits for its turn (half a frame, on average), then is seen a frame later (one on the GPU at a time). */
+  drawing: number;
+  /** macOS hands the app the sound this late (a guess). */
+  capture: number;
+  /** The ears hear it this much later than the computer sends it (Settings: headphones). */
+  ears: number;
+  /** The picture's delay against the ears: positive, it's late. */
+  total: number;
+  /** What's known ahead (the beat, kicks on it) is shown this early. */
+  lead: number;
+  /** Everything waits this long for the ears (headphones slower than the picture). */
+  wait: number;
+}
+
+/** The latency model: the picture's own delay, against the ears' (see the file's comment). */
+export function latencyOf(parts: Pick<Latency, "analysis" | "chunks" | "drawing" | "capture" | "ears">): Latency {
+  const picture = parts.analysis + parts.chunks / 2 + parts.drawing + parts.capture;
+  const total = picture - parts.ears;
+  return { ...parts, total, lead: Math.max(0, total), wait: Math.max(0, -total) };
+}
+
+/** Seconds macOS takes to hand the app the sound it's sending to the speakers (a guess: it can't be asked). */
+export const CAPTURE_SECONDS = 0.01;
 /** How much of the gap to where it should be the clock closes each frame (smooth, but never far off). */
 const CATCH_UP = 0.08;
 /** Further off than this, it jumps there. */
@@ -25,12 +56,20 @@ export class LiveSource implements PreviewSource {
   private last = 0;
   private frame = 0;
   private running = false;
+  /** A frame's length, smoothed (seconds). */
+  private frameSeconds = 1 / 60;
+  /** The newest sound's moment and when it was seen here (for taps). */
+  private received = { at: 0, sound: 0 };
+  /** The latency as of the last frame. */
+  latency: Latency = latencyOf({ analysis: 0, chunks: 0, drawing: 1.5 / 60, capture: CAPTURE_SECONDS, ears: 0 });
 
   constructor(
     private readonly director: LiveDirector,
     private readonly live: () => { signals: LiveSignals; session: string } | null,
-    /** The sync offset, seconds (the picture this much later). */
-    private readonly offset: () => number,
+    /** How much later the ears hear the sound than the computer sends it (seconds; Settings). */
+    private readonly ears: () => number,
+    /** Seconds of sound each chunk from the audio thread carries. */
+    private readonly chunkSeconds: number,
     /** Each frame, before it's drawn, with the time it's drawn at. */
     private readonly onTick: (time: number) => void,
     /** The song's cover (a URL), for looks that show it. */
@@ -85,11 +124,16 @@ export class LiveSource implements PreviewSource {
       const now = performance.now();
       const dt = Math.min(0.1, (now - this.last) / 1000);
       this.last = now;
+      if (dt > 0) this.frameSeconds += (dt - this.frameSeconds) * 0.05;
       const newest = live.signals.seconds;
-      const target = Math.max(0, newest - BEHIND - this.offset());
+      this.received = { at: now, sound: newest + live.signals.delay };
+      this.latency = latencyOf({ analysis: live.signals.delay, chunks: this.chunkSeconds, drawing: 1.5 * this.frameSeconds, capture: CAPTURE_SECONDS, ears: this.ears() });
+      // In 5 ms steps: a new lead rebuilds the signals' header.
+      live.signals.lead = Math.round(this.latency.lead * 200) / 200;
+      const target = Math.max(0, newest - this.latency.wait);
       this.time = Math.abs(target - this.time) > JUMP ? target : this.time + dt + (target - this.time) * CATCH_UP;
-      // Never past what's been heard.
-      this.time = Math.max(0, Math.min(this.time, newest - 0.02));
+      // Never past what's been measured.
+      this.time = Math.max(0, Math.min(this.time, newest));
       this.onTick(this.time);
       for (const listener of this.listeners) listener();
     };
@@ -104,6 +148,19 @@ export class LiveSource implements PreviewSource {
   /** A new session starts at 0. */
   restart(): void {
     this.time = 0;
+  }
+
+  /**
+   * A tap on the beat at `at` (performance.now): how much later than the computer sends the sound the tapper
+   * heard its nearest beat (seconds), or null without a beat. Headphones' delay is the taps' median.
+   */
+  tap(at: number): number | null {
+    const beats = this.live()?.signals.beats ?? [];
+    if (beats.length < 2) return null;
+    const heard = this.received.sound + (at - this.received.at) / 1000;
+    let nearest = beats[0];
+    for (const b of beats) if (Math.abs(b - heard) < Math.abs(nearest - heard)) nearest = b;
+    return heard - nearest;
   }
 }
 

@@ -907,14 +907,16 @@ export function audioInputs(reader: SignalReader, sequenceId: string | null, sou
     for (let k = 0; k <= steps; k++) bandsInto(at(time - k * FALL_STEP), row, steps ? 1 - (k * FALL_STEP) / request.fall : 1);
     for (let b = 0; b < BAND_COUNT; b++) spectrum.push(round3(row[b]));
   }
-  // The waveform: the sounds' samples summed (a mixdown, as they'd be heard), centred on now.
+  // The waveform: the sounds' samples summed (a mixdown, as they'd be heard), centred on now; up to now for a
+  // sound heard live, which has nothing after it yet.
   const wave = new Array<number>(request.window > 0 ? WAVE_POINTS * 2 : 0).fill(0);
+  const before = reader.live !== undefined ? 1 : 0.5;
   if (request.window > 0) {
     for (const s of at(where.t)) {
       const { waveRate, waveSamples } = s.data.header;
       const rate = clipSpeed(s.clip) * (s.clip.reversed ? -1 : 1);
       for (let i = 0; i < WAVE_POINTS; i++) {
-        const x = (s.time + (i / (WAVE_POINTS - 1) - 0.5) * request.window * rate) * waveRate;
+        const x = (s.time + (i / (WAVE_POINTS - 1) - before) * request.window * rate) * waveRate;
         const j = Math.floor(x);
         if (j < 0 || j + 1 >= waveSamples) continue;
         const f = x - j;
