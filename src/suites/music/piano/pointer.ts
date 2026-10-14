@@ -24,6 +24,7 @@ import {
   ROW_ZOOM_DRAG,
   hitNote,
   keyAt,
+  notesOnSegment,
   edgeSpeed,
   laneTailAt,
   paintStarts,
@@ -171,7 +172,6 @@ function scrub(e: Press, element: HTMLElement, ctx: PianoContext, button: 0 | 2)
 
 /** Sweep across notes with the right button or the delete tool: each is deleted as it's touched. */
 function erase(e: Press, element: HTMLElement, ctx: PianoContext, hit: Note | null, button: 0 | 2, onClickNothing?: () => void) {
-  const { view } = usePiano.getState();
   const erased = new Set<number>();
   const take = (note: Note | null) => {
     if (!note || erased.has(note.id)) return;
@@ -182,12 +182,12 @@ function erase(e: Press, element: HTMLElement, ctx: PianoContext, hit: Note | nu
   show(element, CURSORS.eraser);
   usePiano.getState().setDrag({ kind: "erase", ids: new Set() });
   take(hit);
-  startPointerDrag(e, {
+  const sweep = sweeper(element, e);
+  startGridDrag(e, element, {
     button,
     threshold: 0,
     onMove(ev) {
-      const q = local(element, ev);
-      take(noteAt(ctx.notes, view, q.x, q.y));
+      for (const note of sweep(ctx.notes, ev)) take(note);
     },
     onEnd: commitDrag,
     onClick() {
@@ -199,7 +199,29 @@ function erase(e: Press, element: HTMLElement, ctx: PianoContext, hit: Note | nu
   });
 }
 
-/** The notes under a point, for the sweeping tools (erase, mute). */
+/**
+ * The sweeping tools' (erase, mute) path: each call gives the notes crossed since the last one, every
+ * pointer sample in between (a fast sweep's events are tens of px apart), in the view as it is now.
+ */
+function sweeper(element: HTMLElement, e: Press) {
+  let last = local(element, e);
+  let lastEvent: PointerEvent | null = null;
+  return (notes: readonly Note[], ev: PointerEvent): Note[] => {
+    const view = usePiano.getState().view;
+    // The same event again (the grid scrolling under a still pointer): only where it is now.
+    const samples = ev === lastEvent ? [] : (ev.getCoalescedEvents?.() ?? []);
+    lastEvent = ev;
+    const points = [...(samples.length ? samples : [ev]).map((s) => local(element, s))];
+    const met: Note[] = [];
+    for (const q of points) {
+      met.push(...notesOnSegment(notes, view, last, q));
+      last = q;
+    }
+    return met;
+  };
+}
+
+/** The notes under a point (a ghost under a right-click). */
 const noteAt = (notes: readonly Note[], view: PianoView, x: number, y: number) => hitNote(notes, view, x, y)?.note ?? null;
 
 /** The last press, to tell a second one soon after on the same spot: a double-click. (Pointer events don't count clicks.) */
@@ -272,13 +294,14 @@ export function gridPointerDown(e: Press) {
   // channel. With Alt: the playback tool.
   if (e.button === 2) {
     if (e.altKey) return scrub(e, element, ctx, 2);
+    // Ctrl+right-click: zoom to the selection (or every note), and again back (FL's).
+    if (e.ctrlKey || e.metaKey) return zoomToNotes(ctx);
     if (!hit && piano.ghosts) {
       const ghost = Object.entries(ctx.pattern.notes).find(([id, notes]) => id !== ctx.channel.id && noteAt(notes, view, p.x, p.y));
       if (ghost) {
         const now = performance.now();
-        if (lastGhostClick.channel === ghost[0] && now - lastGhostClick.at < 400) piano.setChannel(ghost[0]);
+        if (lastGhostClick.channel === ghost[0] && now - lastGhostClick.at < 400) return piano.setChannel(ghost[0]);
         lastGhostClick = { at: now, channel: ghost[0] };
-        return;
       }
     }
     erase(e, element, ctx, hit?.note ?? null, 2, deselect);
@@ -353,15 +376,17 @@ export function gridPointerDown(e: Press) {
     const swept = new Set<number>(hit ? [hit.note.id] : []);
     show(element, CURSORS.mute);
     piano.setDrag({ kind: "mute", ids: new Set(swept), muted });
+    const sweep = sweeper(element, e);
     startGridDrag(e, element, {
       threshold: 0,
       onMove(ev) {
-        const q = at(ev);
-        const note = noteAt(ctx.notes, usePiano.getState().view, q.x, q.y);
-        if (note && !swept.has(note.id)) {
+        let changed = false;
+        for (const note of sweep(ctx.notes, ev)) {
+          if (swept.has(note.id)) continue;
           swept.add(note.id);
-          usePiano.getState().setDrag({ kind: "mute", ids: new Set(swept), muted });
+          changed = true;
         }
+        if (changed) usePiano.getState().setDrag({ kind: "mute", ids: new Set(swept), muted });
       },
       ...finish,
     });
@@ -543,6 +568,17 @@ export function gridPointerDown(e: Press) {
   });
 }
 
+/** Zoom to the selected notes (else all of them), with a little room around; from there, back to the view before. */
+function zoomToNotes(ctx: PianoContext) {
+  const { view, zoomBack, gridWidth, gridHeight } = usePiano.getState();
+  const bounds = noteBounds(ctx.notes, ctx.selected.size ? ctx.selected : undefined);
+  const target = bounds && zoomToRect(view, bounds.start, bounds.end, bounds.low - 1, bounds.high + 1, gridWidth, gridHeight);
+  if (zoomBack && (!target || sameView(target, view))) return usePiano.setState({ view: zoomBack, zoomBack: view });
+  if (target) usePiano.setState({ zoomBack: view, view: target });
+}
+
+const sameView = (a: PianoView, b: PianoView) => Math.abs(a.scrollTick - b.scrollTick) < 1 && Math.abs(a.pxPerTick - b.pxPerTick) < 1e-6 && Math.abs(a.topPitch - b.topPitch) < 0.01 && a.rowHeight === b.rowHeight;
+
 /**
  * The zoom tool (FL's Z, `docs/fl-studio/piano-roll.md`): a rectangle dragged is what the view zooms to;
  * a click zooms out about the pointer; a right-click goes back to the view before the last zoom in, and
@@ -683,7 +719,14 @@ function zoomRows(e: Press, element: HTMLElement) {
 export function keysPointerDown(e: Press) {
   if (e.button === 1) return zoomRows(e, e.currentTarget);
   const ctx = pianoContext();
-  if (!ctx || e.button !== 0) return;
+  if (!ctx) return;
+  // The right button sweeps the grid from here (a note at the grid's left edge is reached from the keys).
+  if (e.button === 2) {
+    const grid = e.currentTarget.closest("[data-piano-roll]")?.querySelector<HTMLElement>('[aria-label="Notes"]');
+    if (grid) erase(e, grid, ctx, null, 2);
+    return;
+  }
+  if (e.button !== 0) return;
   const element = e.currentTarget;
   const { view } = usePiano.getState();
   const blackWidth = element.getBoundingClientRect().width * BLACK_KEY_WIDTH;

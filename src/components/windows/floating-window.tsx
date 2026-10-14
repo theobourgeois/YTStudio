@@ -11,6 +11,7 @@ import { type Rect, type ResizeEdge, type WindowSnap, cascade, edgeSnap, fittedR
 import { workAreas } from "./native/bridge";
 import { acquirePopups, alignPopups, noteWindowRaised, usePopupContainerElement } from "./native/popups";
 import { type DeskTracker, createDeskTracker, openPanels, useDeskVersion, usePanelWindow } from "./native/use-panel";
+import { prewarmPanelWindows } from "./native/panel-window";
 import { areaFor, capSize, deskToScreen, keepReachable, pointToDesk, resizeFree, screenToDesk } from "./native/geometry";
 import type { WindowPlace, WindowsStore } from "./store";
 
@@ -249,10 +250,15 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
     placeNative(panel.name, next, m.content);
     if (!shown.current) {
       shown.current = true;
-      const front = windows.getState().order[windows.getState().order.length - 1] === id;
-      if (front) noteWindowRaised();
-      desktopPanels()?.show(panel.name, front);
-      if (front) ref.current?.focus({ preventScroll: true });
+      // Shown once it has drawn itself where it goes: shown at once, it came up empty (its background
+      // colour) and its content a frame or more later.
+      void afterPaint(panel.win).then(() => {
+        if (openPanels().get(id) !== panel) return;
+        const front = windows.getState().order[windows.getState().order.length - 1] === id;
+        if (front) noteWindowRaised();
+        desktopPanels()?.show(panel.name, front);
+        if (front) ref.current?.focus({ preventScroll: true });
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `size` is a function of `place` and `initial`
   }, [panel, desk, deskVersion, snap, resizable, place, measured]);
@@ -647,6 +653,19 @@ interface DesktopProps<Id extends string> {
   onDrop?: (e: DragEvent<HTMLDivElement>) => void;
 }
 
+/** Two of a window's frames (the second is the one after what was drawn reached the screen), or 120 ms at most. */
+function afterPaint(win: Window): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, 120);
+    win.requestAnimationFrame(() =>
+      win.requestAnimationFrame(() => {
+        clearTimeout(timer);
+        resolve();
+      }),
+    );
+  });
+}
+
 /**
  * Whether a `native` desktop's windows are windows of the operating system in the desktop app. On Windows they
  * are: each is owned by the main window, as the plugin windows are (electron/panels.ts), so the two kinds stack
@@ -669,6 +688,8 @@ export function Desktop<Id extends string>({ windows, name, label, overlay, nati
   const ref = useRef<HTMLDivElement>(null);
   const isNative = NATIVE_WINDOWS && !!native && desktopPanels() !== undefined;
   const tracker = useMemo(() => createDeskTracker(ref), []);
+  // Windows made ahead, while idle: the first one opened shows as fast as the next.
+  useEffect(() => (isNative ? prewarmPanelWindows() : undefined), [isNative]);
   return (
     // Its windows are given ids of its own kind (the owner's typed wrapper, as `MusicWindow`, sees to that).
     <WindowsContext.Provider value={windows as unknown as WindowsStore}>

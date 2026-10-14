@@ -233,6 +233,34 @@ describe("AudioEngine", () => {
     expect(((await request("whatSong", {})) as { lanes: unknown[] }).lanes).toEqual([]);
   });
 
+  it("leaves out notes the engine has already (a knob turned changes none), sending them again when they change", async () => {
+    let song = addPluginChannel(createMusicProject("Knob"), { id: "VST3-Fake Synth-1", name: "Fake Synth", format: "VST3" }, "chan_synth");
+    song = { ...song, patterns: song.patterns.map((p) => ({ ...p, notes: { chan_synth: [{ id: 1, start: 0, length: 96, pitch: 60, velocity: 0.8, pan: 0, muted: false }] } })) };
+    const request = (engine as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(engine);
+    const sent: Record<string, unknown>[] = [];
+    // (Started, so its input can be watched.)
+    await request("status", {});
+    const child = (engine as unknown as { child: { stdin: { write(line: string): boolean } } }).child;
+    const write = child.stdin.write.bind(child.stdin);
+    child.stdin.write = (line: string) => {
+      const message = JSON.parse(line) as { cmd: string; song?: Record<string, unknown> };
+      if (message.cmd === "song") sent.push(message.song!);
+      return write(line);
+    };
+    await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });
+    const turned = { ...song, channels: song.channels.map((c) => ({ ...c, volume: 0.3 })) };
+    await engine.setSong({ projectId: "proj_0123456789ab", song: turned, patternId: null });
+    expect(sent.map((s) => [s.sameNotes ?? false, Array.isArray(s.notes)])).toEqual([
+      [false, true],
+      [true, false],
+    ]);
+    // The engine plays the notes it had.
+    expect(((await request("whatSong", {})) as { notes: unknown[] }).notes).toHaveLength(1);
+    const moved = { ...turned, patterns: turned.patterns.map((p) => ({ ...p, notes: { chan_synth: [{ ...p.notes.chan_synth[0], start: 24 }] } })) };
+    await engine.setSong({ projectId: "proj_0123456789ab", song: moved, patternId: null });
+    expect(sent[2].sameNotes).toBeUndefined();
+  });
+
   it("chooses a plugin's programs and keeps the user's presets for it, says when they change, and passes on its wrapper button", async () => {
     const song = addPluginChannel(createMusicProject("Presets"), { id: "VST3-Fake Synth-1", name: "Fake Synth", format: "VST3" }, "chan_synth");
     await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });

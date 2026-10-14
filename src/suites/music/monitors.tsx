@@ -32,6 +32,9 @@ function useRollingGraph(canvas: React.RefObject<HTMLCanvasElement | null>, ever
     let values: number[] = [];
     let last = 0;
     let frame = 0;
+    /** Drawn flat at this value, still so: nothing to draw again until it changes (the app idle). */
+    let flatAt: number | null = null;
+    let colours: { at: number; value: Colours } | null = null;
     const tick = (now: number) => {
       frame = requestAnimationFrame(tick);
       if (now - last < every) return;
@@ -46,12 +49,18 @@ function useRollingGraph(canvas: React.RefObject<HTMLCanvasElement | null>, ever
       }
       // One sample for every two pixels across.
       const count = Math.max(2, Math.floor(width / 2));
-      values = [...values, latest.current.sample(now)].slice(-count);
+      const value = latest.current.sample(now);
+      values = [...values, value].slice(-count);
+      const flat = values.length === count && values.every((v) => v === value);
+      if (flat && flatAt === value) return;
+      flatAt = flat ? value : null;
       const ctx = element.getContext("2d");
       if (!ctx) return;
+      // The theme's colours, read again now and then (a theme switched), not on every frame.
+      if (!colours || now - colours.at > 1000) colours = { at: now, value: readColours(element) };
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       ctx.clearRect(0, 0, width, height);
-      latest.current.draw(ctx, values, width, height, readColours(element));
+      latest.current.draw(ctx, values, width, height, colours.value);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);

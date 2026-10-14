@@ -25,6 +25,8 @@ export type PlaylistKeyAction =
         | "timeAround"
         | "insertSpace"
         | "insertSpaceSliced"
+        /** FL's Insert: slice the clip under the pointer, at the grid line nearest it. */
+        | "sliceUnder"
         | "deleteSpace"
         | "picker"
         | "stretch"
@@ -61,7 +63,7 @@ export function resolvePlaylistKey(e: KeyLike): PlaylistKeyAction | null {
     if (alt && !command && !shift && vertical) return { type: "movePatterns", direction: vertical as -1 | 1 };
     return null;
   }
-  if (e.key === "Insert") return command ? { type: alt ? "insertSpaceSliced" : "insertSpace" } : null;
+  if (e.key === "Insert") return command ? { type: alt ? "insertSpaceSliced" : "insertSpace" } : !shift && !alt ? { type: "sliceUnder" } : null;
   if (e.key === "Delete" || e.key === "Backspace") {
     if (command && !shift && !alt) return { type: "deleteSpace" };
     return !command && !shift && !alt ? { type: "delete" } : null;

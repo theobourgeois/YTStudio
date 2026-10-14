@@ -101,8 +101,11 @@ server/
   log.ts             The app's log (`log(scope)`): JSON lines in `<data>/logs/ytstudio.log`, rotated, written in the
                      background; the tab's lines arrive by `POST /api/log` (`src/lib/log.ts`, `shared/log.ts`).
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
-electron/          The desktop app (YTStudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
-                     main process and shows the page in a window; packaged, data is in userData, in development ./data.
+electron/          The desktop app (YTStudio). main.ts: runs the server (electron/server.ts, the same createApp) in a
+                     utility process of its own (server-process.ts, started by server-host.ts: the main process hands every
+                     window its input, so the server's work there made them lag; the Trash, Show in Folder, the export's
+                     drawing page and its log lines go over its port, server-protocol.ts; EDITOR_SERVER_IN_MAIN=1 runs it
+                     in the main process) and shows the page in a window; packaged, data is in userData, in development ./data.
                      panels.ts: the editor's windows as windows of the system (the page opens them with `window.open`;
                      this makes them frameless and floating, shows, hides and places them). floating.ts: which windows
                      float (the app is in use while one of its windows, or a plugin's, has the focus). stacking.ts: the

@@ -4,7 +4,8 @@
  * Ctrl selects. Each drag is a `PlaylistDrag` in the store while it lasts, and one edit when it's let go.
  */
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { clipEnd, clipLength } from "@shared/music/playlist";
+import { clipEnd, clipLength, editClips, sliceClips } from "@shared/music/playlist";
+import { useMusic } from "../store";
 import { MAX_CLIP_GAIN, MAX_PLAYLIST_TRACKS } from "@shared/music/project";
 import type { PlaylistClip } from "@shared/music/types";
 import { type DragHandlers, startPointerDrag } from "@/lib/pointer-drag";
@@ -30,7 +31,7 @@ import {
 import { type ClipHandle, markerAt, paintClipStarts, scrollViewBy, hitClip, xToTick, yToTrack, zoomAt, zoomToRange } from "./geometry";
 import { fadeOutClips } from "./fades";
 import { usePlaylist } from "./store";
-import { curveCursor, curvePointerDown } from "../automation/curve-pointer";
+import { curveCursor, curveHoverAt, curvePointerDown, onCurvePoint } from "../automation/curve-pointer";
 
 type Press = ReactPointerEvent<HTMLElement>;
 
@@ -97,6 +98,43 @@ function isDouble(e: Press): boolean {
   return double;
 }
 
+/**
+ * The sweeping tools' (erase, mute) path: each call gives the clips under every point of the path since
+ * the last call, a few px apart (a fast sweep's pointer events are tens of px apart, and would skip small
+ * clips), in the view as it is now.
+ */
+function sweeper(element: HTMLElement, p: PlaylistContext, e: Press) {
+  let last = local(element, e);
+  let lastEvent: PointerEvent | null = null;
+  return (ev: PointerEvent): PlaylistClip[] => {
+    const view = usePlaylist.getState().view;
+    // The same event again (the grid scrolling under a still pointer): only where it is now.
+    const samples = ev === lastEvent ? [] : (ev.getCoalescedEvents?.() ?? []);
+    lastEvent = ev;
+    const met: PlaylistClip[] = [];
+    for (const q of (samples.length ? samples : [ev]).map((s) => local(element, s))) {
+      const steps = Math.max(1, Math.ceil(Math.hypot(q.x - last.x, q.y - last.y) / 3));
+      for (let i = 1; i <= steps; i++) {
+        const x = last.x + ((q.x - last.x) * i) / steps;
+        const y = last.y + ((q.y - last.y) * i) / steps;
+        const clip = hitClip(p.clips, p.ctx, p.layout, view, x, y)?.clip;
+        if (clip && met.at(-1) !== clip) met.push(clip);
+      }
+      last = q;
+    }
+    return met;
+  };
+}
+
+/** The last right-press, to tell a double right-click. */
+let lastRight = { at: 0, x: 0, y: 0 };
+function isDoubleRight(e: Press): boolean {
+  const now = performance.now();
+  const double = now - lastRight.at < 400 && Math.hypot(e.clientX - lastRight.x, e.clientY - lastRight.y) < 6;
+  lastRight = double ? { at: 0, x: 0, y: 0 } : { at: now, x: e.clientX, y: e.clientY };
+  return double;
+}
+
 /** Sweep across clips with the right button or the delete tool: each goes as it's touched. */
 function erase(e: Press, element: HTMLElement, p: PlaylistContext, hit: PlaylistClip | null, button: 0 | 2, onClickNothing?: () => void) {
   const erased = new Set<number>();
@@ -109,12 +147,12 @@ function erase(e: Press, element: HTMLElement, p: PlaylistContext, hit: Playlist
   show(element, CURSORS.eraser);
   usePlaylist.getState().setDrag({ kind: "erase", ids: new Set() });
   take(hit);
+  const sweep = sweeper(element, p, e);
   startGridDrag(e, element, {
     button,
     threshold: 0,
     onMove(ev) {
-      const q = local(element, ev);
-      take(hitClip(p.clips, p.ctx, p.layout, usePlaylist.getState().view, q.x, q.y)?.clip ?? null);
+      for (const clip of sweep(ev)) take(clip);
     },
     onEnd: commitDrag,
     onClick() {
@@ -143,12 +181,15 @@ export function gridPointerDown(e: Press) {
   };
   const finish = { onEnd: commitDrag, onClick: commitDrag, onCancel: cancelDrag };
 
-  // The middle button pans, whatever the tool.
-  if (e.button === 1) {
+  const hit = hitClip(p.clips, p.ctx, p.layout, view, q0.x, q0.y, p.selected);
+  // The middle button pans, whatever the tool; so does Shift+right-drag (FL's), but on an automation
+  // clip's curve, where Shift+right-click adds a point on its line.
+  const shiftPan = e.button === 2 && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && hit?.clip.kind !== "automation";
+  if (e.button === 1 || shiftPan) {
     e.preventDefault();
     show(element, MOVING_CURSOR);
     startPointerDrag(e, {
-      button: 1,
+      button: e.button === 1 ? 1 : 2,
       threshold: 0,
       cursor: "grabbing",
       onMove(ev) {
@@ -159,18 +200,19 @@ export function gridPointerDown(e: Press) {
     return;
   }
 
-  const hit = hitClip(p.clips, p.ctx, p.layout, view, q0.x, q0.y, p.selected);
-
   // The zoom tool (FL's Z): a rectangle zooms to it, a click zooms out, a right-click back and forth.
-  if (tool === "zoom" && (e.button === 0 || e.button === 2)) return zoomTool(e, tick0, track0, q0.x, at);
+  // Ctrl+right-drag is the same rectangle with any tool, and Ctrl+right-click goes back (FL's).
+  if ((tool === "zoom" && (e.button === 0 || e.button === 2)) || (e.button === 2 && (e.ctrlKey || e.metaKey))) return zoomTool(e, tick0, track0, q0.x, at);
 
   // An automation clip's curve, edited on the clip (FL's): its points and tension handles, and a
   // right-click on its line adds a point. (Its title is the clip's: a right-click there deletes it.)
-  if (hit?.clip.kind === "automation" && !hit.menu && !hit.edge && (tool === "draw" || tool === "paint") && curvePointerDown(e, element, p, hit.clip, q0.x, q0.y)) return;
+  // A point or tension handle wins over the clip's edge: the first point is always on its left edge.
+  if (hit?.clip.kind === "automation" && !hit.menu && (tool === "draw" || tool === "paint") && (!hit.edge || onCurvePoint(p, view, hit.clip, q0.x, q0.y)) && curvePointerDown(e, element, p, hit.clip, q0.x, q0.y)) return;
 
-  // The right button deletes, sweeping; on nothing, it deselects. With Alt: play from there.
+  // The right button deletes, sweeping; on nothing, it deselects. With Alt: play from there. Twice: the Mute tool (FL's).
   if (e.button === 2) {
     if (e.altKey) return playFrom(snapTick(tick0, p.grid, "cell"));
+    if (isDoubleRight(e)) return playlist.setTool("mute");
     erase(e, element, p, hit?.clip ?? null, 2, deselect);
     return;
   }
@@ -237,15 +279,17 @@ export function gridPointerDown(e: Press) {
     const swept = new Set<number>(hit ? [hit.clip.id] : []);
     show(element, CURSORS.mute);
     playlist.setDrag({ kind: "mute", ids: new Set(swept), muted });
+    const sweep = sweeper(element, p, e);
     startGridDrag(e, element, {
       threshold: 0,
       onMove(ev) {
-        const q = at(ev);
-        const clip = hitClip(p.clips, p.ctx, p.layout, usePlaylist.getState().view, q.x, q.y)?.clip;
-        if (clip && !swept.has(clip.id)) {
+        let changed = false;
+        for (const clip of sweep(ev)) {
+          if (swept.has(clip.id)) continue;
           swept.add(clip.id);
-          usePlaylist.getState().setDrag({ kind: "mute", ids: new Set(swept), muted });
+          changed = true;
         }
+        if (changed) usePlaylist.getState().setDrag({ kind: "mute", ids: new Set(swept), muted });
       },
       ...finish,
     });
@@ -372,11 +416,11 @@ export function gridPointerDown(e: Press) {
 function zoomTool(e: Press, tick0: number, track0: number, x0: number, at: (ev: PointerEvent) => { tick: number; track: number }) {
   const playlist = usePlaylist.getState();
   const { view } = playlist;
-  if (e.button === 2) {
-    if (playlist.zoomBack) usePlaylist.setState({ view: playlist.zoomBack, zoomBack: view });
-    return;
-  }
+  const back = () => playlist.zoomBack && usePlaylist.setState({ view: playlist.zoomBack, zoomBack: view });
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (e.button === 2 && !ctrl) return void back();
   startPointerDrag(e, {
+    button: e.button === 2 ? 2 : 0,
     threshold: 3,
     cursor: "zoom-in",
     onMove(ev) {
@@ -391,7 +435,7 @@ function zoomTool(e: Press, tick0: number, track0: number, x0: number, at: (ev: 
       const zoomed = zoomToRange(view, Math.min(drag.from, drag.to), Math.max(drag.from, drag.to), usePlaylist.getState().gridWidth, zoomFloor());
       usePlaylist.setState({ zoomBack: view, view: { ...zoomed, scrollY: p.layout[Math.min(drag.top, drag.bottom)] ?? zoomed.scrollY } });
     },
-    onClick: () => usePlaylist.setState({ zoomBack: view, view: zoomAt(view, x0, view.pxPerTick / 2, zoomFloor()) }),
+    onClick: () => (e.button === 2 ? void back() : usePlaylist.setState({ zoomBack: view, view: zoomAt(view, x0, view.pxPerTick / 2, zoomFloor()) })),
     onCancel: cancelDrag,
   });
 }
@@ -469,7 +513,7 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   const q = local(element, ev);
   const hit = hitClip(p.clips, p.ctx, p.layout, view, q.x, q.y, p.selected);
   if (hit?.menu) return "pointer";
-  const onCurve = hit?.clip.kind === "automation" && !hit.edge && (tool === "draw" || tool === "paint") ? curveCursor(p, view, hit.clip, q.x, q.y) : null;
+  const onCurve = hit?.clip.kind === "automation" && (tool === "draw" || tool === "paint") && (!hit.edge || onCurvePoint(p, view, hit.clip, q.x, q.y)) ? curveCursor(p, view, hit.clip, q.x, q.y) : null;
   if (onCurve) return onCurve;
   if (tool === "slip") return hit ? RESIZE_CURSOR : "default";
   if (tool === "select") return hit ? "pointer" : "default";
@@ -478,8 +522,38 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   return tool === "paint" ? CURSORS.brush : CURSORS.pencil;
 }
 
+/** The automation point under the pointer (the draw and paint tools), drawn larger with its value. */
+export function trackCurveHover(element: HTMLElement, ev: { clientX: number; clientY: number } | null) {
+  const playlist = usePlaylist.getState();
+  let next: { automationId: string; index: number } | null = null;
+  const p = ev && (playlist.tool === "draw" || playlist.tool === "paint") ? playlistContext() : null;
+  if (p && ev) {
+    const q = local(element, ev);
+    const hit = hitClip(p.clips, p.ctx, p.layout, playlist.view, q.x, q.y, p.selected);
+    if (hit?.clip.kind === "automation" && !hit.menu) next = curveHoverAt(p, playlist.view, hit.clip, q.x, q.y);
+  }
+  const was = playlist.curveHover;
+  if (next?.automationId !== was?.automationId || next?.index !== was?.index) usePlaylist.setState({ curveHover: next });
+}
+
+/** Where the pointer last was over the tracks (null once it left): what Insert slices. */
+let hovered: { element: Element; clientX: number; clientY: number } | null = null;
+
+/** FL's Insert: slice the clip under the pointer at the grid line nearest it (one undo step). */
+export function sliceUnderPointer() {
+  const p = playlistContext();
+  if (!p || !hovered?.element.isConnected) return;
+  const { view } = usePlaylist.getState();
+  const q = local(hovered.element, hovered);
+  const hit = hitClip(p.clips, p.ctx, p.layout, view, q.x, q.y, p.selected);
+  if (!hit) return;
+  const tick = snapTick(xToTick(view, q.x), p.grid, "line");
+  useMusic.getState().commit((song) => editClips(song, (clips, ctx) => sliceClips(clips, tick, hit.clip.track, hit.clip.track, ctx, new Set([hit.clip.id])).clips));
+}
+
 /** With the slice tool and Shift held, its line shows where a press would cut: every track, the whole height. */
 export function trackSliceHover(element: Element, ev: { clientX: number; clientY: number; altKey: boolean; shiftKey: boolean } | null) {
+  hovered = ev && { element, clientX: ev.clientX, clientY: ev.clientY };
   const playlist = usePlaylist.getState();
   const p = playlist.tool === "slice" && ev?.shiftKey ? playlistContext() : null;
   let next: { tick: number } | null = null;

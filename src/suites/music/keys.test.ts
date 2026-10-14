@@ -33,7 +33,7 @@ describe("music keys", () => {
 
   it("shows the Browser with Alt+F8, from anywhere", () => {
     expect(press("F8", "F8", { altKey: true })).toEqual({ type: "toggleBrowser" });
-    expect(press("F8", "F8")).toBeNull();
+    expect(press("F8", "F8")).toEqual({ type: "addChannel" });
     expect(resolvePluginWindowKey({ key: "F8", code: "F8", metaKey: false, ctrlKey: false, shiftKey: false, altKey: true })).toEqual({ type: "toggleBrowser" });
   });
 
@@ -111,5 +111,14 @@ describe("the menu keys on Windows", () => {
     expect(takesMenuKey(key("Alt", { ctrlKey: true }), false)).toBe(false);
     expect(takesMenuKey(key("AltGraph"), false)).toBe(false);
     expect(takesMenuKey(key("F8"), false)).toBe(false);
+  });
+});
+
+describe("the numpad's + and -", () => {
+  it("go to the next and the previous pattern, from any window", () => {
+    const key = (code: string) => resolveMusicKey({ key: code === "NumpadAdd" ? "+" : "-", code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false });
+    expect(key("NumpadAdd")).toEqual({ type: "nextPattern" });
+    expect(key("NumpadSubtract")).toEqual({ type: "previousPattern" });
+    expect(isGlobalKey(key("NumpadAdd")!)).toBe(true);
   });
 });

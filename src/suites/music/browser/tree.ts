@@ -3,7 +3,7 @@
  * of them is open, or the search's results. Pure, so the tree and its keys are tested; the panel draws
  * the rows and the store keeps what's open, loaded and selected.
  */
-import { type BrowserHit, type BrowserItem, type BrowserRoot, isAudioName } from "@shared/music/browser";
+import { type BrowserHit, type BrowserItem, type BrowserRoot, isAudioName, isInsideFolder } from "@shared/music/browser";
 
 /** What's known of a folder's content: read, being read, or unreadable. */
 export type FolderContents = { status: "loaded"; items: BrowserItem[] } | { status: "loading" } | { status: "error"; message: string };
@@ -180,7 +180,7 @@ export function rowRange(rows: readonly Row[], from: string, to: string): string
  * (or to itself, for a folder: it's shown open). Null if it isn't in any of the roots.
  */
 export function foldersToReveal(roots: readonly BrowserRoot[], path: string, isFolder: boolean): string[] | null {
-  const root = roots.find((r) => path === r.path || path.startsWith(`${r.path}/`) || path.startsWith(`${r.path}\\`));
+  const root = roots.find((r) => isInsideFolder(path, r.path));
   if (!root) return null;
   const folders = [root.path];
   const sep = root.path.includes("\\") ? "\\" : "/";

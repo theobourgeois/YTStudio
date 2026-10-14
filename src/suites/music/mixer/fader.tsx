@@ -93,7 +93,9 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
                 // On the handle it's dragged from where it is (its own value, if automation has it elsewhere); on the groove, it's brought there first.
                 const onHandle = e.clientY >= handleY && e.clientY <= handleY + HANDLE_H;
                 const start = onHandle ? own : clamp(1 - (e.clientY - rect.top - HANDLE_H / 2) / travel, 0, 1);
-                const origin = e.clientY;
+                let lastY = e.clientY;
+                // Where the drag has got to: each move adds to it (Ctrl: finely), so Ctrl pressed midway doesn't jump.
+                let at = start;
                 let began = false;
                 const begin = () => {
                   if (began) return;
@@ -110,7 +112,9 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
                   cursor: "ns-resize",
                   onStart: begin,
                   onMove(ev) {
-                    const raw = clamp(start + (origin - ev.clientY) / (travel * (ev.ctrlKey || ev.metaKey ? FINE : 1)), 0, 1);
+                    at = clamp(at + (lastY - ev.clientY) / (travel * (ev.ctrlKey || ev.metaKey ? FINE : 1)), 0, 1);
+                    lastY = ev.clientY;
+                    const raw = at;
                     // It hangs at 0 dB for a few pixels on the way past (Shift: it doesn't).
                     onDrag(ev.shiftKey ? raw : detent(raw, DEFAULT_FADER, HOLD_PX / (travel * (ev.ctrlKey || ev.metaKey ? FINE : 1))));
                   },

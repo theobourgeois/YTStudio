@@ -141,8 +141,12 @@ export function MusicMenus({ run, edit }: { run: (action: MusicKeyAction) => voi
               <DropdownMenuItem onSelect={newPattern}>New Pattern</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => clonePatternShown(patternId)}>Clone Pattern</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => useMusic.getState().stepPattern(-1)}>Previous Pattern</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => useMusic.getState().stepPattern(1)}>Next Pattern</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => useMusic.getState().stepPattern(-1)}>
+                Previous Pattern <DropdownMenuShortcut>Num −</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => useMusic.getState().stepPattern(1)}>
+                Next Pattern <DropdownMenuShortcut>Num +</DropdownMenuShortcut>
+              </DropdownMenuItem>
             </>
           ),
         },

@@ -51,7 +51,7 @@ export type PlaylistDrag =
   /** Clips being drawn or painted, not yet in the song. */
   | { kind: "add"; clips: NewClip[] }
   /** An automation clip's curve being shaped (a point moved or added, a segment bent): its points as they'd be. */
-  | { kind: "curve"; automationId: string; points: AutomationPoint[] }
+  | { kind: "curve"; automationId: string; points: AutomationPoint[]; index?: number }
   /** Clips swept by the right button (or the delete tool): gone when it's let go. */
   | { kind: "erase"; ids: ReadonlySet<number> }
   | { kind: "mute"; ids: ReadonlySet<number>; muted: boolean }
@@ -121,7 +121,9 @@ interface PlaylistState {
    * A point of an automation clip's curve, its menu open (a right-click on it): which clip's curve and
    * point, and where in the grid.
    */
-  pointMenu: { automationId: string; index: number; x: number; y: number } | null;
+  pointMenu: { automationId: string; index: number; x: number; y: number; typing?: boolean } | null;
+  /** The point of an automation clip's curve under the pointer (drawn larger, its value shown). */
+  curveHover: { automationId: string; index: number } | null;
   /**
    * What's being dragged from the Picker, while it's dragged (a drag's data can't be read until it's
    * dropped): the item, or every one selected with it, stacked a track apart from where it's dropped.
@@ -172,7 +174,8 @@ const INITIAL = {
   audioAnchor: null as string | null,
   automationSelection: new Set<string>() as ReadonlySet<string>,
   automationAnchor: null as string | null,
-  pointMenu: null as { automationId: string; index: number; x: number; y: number } | null,
+  pointMenu: null as { automationId: string; index: number; x: number; y: number; typing?: boolean } | null,
+  curveHover: null as { automationId: string; index: number } | null,
   carried: null as readonly ClipSource[] | null,
   transposing: null as readonly string[] | null,
   curveStep: false,

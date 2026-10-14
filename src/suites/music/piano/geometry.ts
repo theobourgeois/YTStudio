@@ -253,6 +253,57 @@ export function visibleRange(notes: readonly Note[], fromTick: number, toTick: n
   return [firstFrom(notes, fromTick - longestNote(notes)), firstFrom(notes, toTick)];
 }
 
+/** The least width (px) a note is drawn at, so a short one zoomed out still shows; it's hit as drawn. */
+export const MIN_NOTE_PX = 3;
+/** Where a note ends on screen, in ticks: its own end, or further while it's drawn wider than it is. */
+const drawnEnd = (view: PianoView, note: Note) => note.start + Math.max(note.length, MIN_NOTE_PX / view.pxPerTick);
+
+/**
+ * Every note whose drawn box the segment from `a` to `b` crosses (or passes within `pad` px of), in the
+ * order they're met from `a`: the sweeping tools (erase, mute) test the path between two pointer
+ * events, so a fast sweep takes every note it went over, and one leaving the grid takes those at its edge.
+ */
+export function notesOnSegment(notes: readonly Note[], view: PianoView, a: { x: number; y: number }, b: { x: number; y: number }, pad = 1): Note[] {
+  const fromTick = xToTick(view, Math.min(a.x, b.x) - pad) - MIN_NOTE_PX / view.pxPerTick;
+  const toTick = xToTick(view, Math.max(a.x, b.x) + pad) + 1;
+  const [from, to] = visibleRange(notes, fromTick, toTick);
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const met: { note: Note; t: number }[] = [];
+  for (let i = from; i < to; i++) {
+    const note = notes[i];
+    const x0 = tickToX(view, note.start) - pad;
+    const x1 = tickToX(view, drawnEnd(view, note)) + pad;
+    const y0 = pitchToY(view, note.pitch) - pad;
+    const y1 = y0 + view.rowHeight + pad * 2;
+    // Liang–Barsky: the part of the segment inside the box, if any.
+    let t0 = 0;
+    let t1 = 1;
+    const clips = [
+      [-dx, a.x - x0],
+      [dx, x1 - a.x],
+      [-dy, a.y - y0],
+      [dy, y1 - a.y],
+    ];
+    let inside = true;
+    for (const [p, q] of clips) {
+      if (p === 0) {
+        if (q < 0) inside = false;
+      } else {
+        const r = q / p;
+        if (p < 0) t0 = Math.max(t0, r);
+        else t1 = Math.min(t1, r);
+      }
+      if (!inside || t0 > t1) {
+        inside = false;
+        break;
+      }
+    }
+    if (inside) met.push({ note, t: t0 });
+  }
+  return met.sort((m, n) => m.t - n.t).map((m) => m.note);
+}
+
 export interface NoteHit {
   note: Note;
   /** The pointer is on its right edge: a drag resizes it. */
@@ -269,14 +320,14 @@ export function hitNote(notes: readonly Note[], view: PianoView, x: number, y: n
   const tick = xToTick(view, x);
   const pitch = yToPitch(view, y);
   const past = reach / view.pxPerTick;
-  const [from, to] = visibleRange(notes, tick - past, tick + 1);
+  const [from, to] = visibleRange(notes, tick - past - MIN_NOTE_PX / view.pxPerTick, tick + 1);
   let best: Note | null = null;
   /** The note whose end is nearest before the point, within `reach`. */
   let tail: Note | null = null;
   for (let i = from; i < to; i++) {
     const note = notes[i];
     if (note.pitch !== pitch || tick < note.start) continue;
-    const end = note.start + note.length;
+    const end = drawnEnd(view, note);
     if (tick >= end) {
       if (tick - end < past && (!tail || end > tail.start + tail.length)) tail = note;
       continue;
@@ -284,8 +335,8 @@ export function hitNote(notes: readonly Note[], view: PianoView, x: number, y: n
     if (!best || selected?.has(note.id) || !selected?.has(best.id)) best = note;
   }
   if (!best) return tail && { note: tail, edge: true };
-  const width = best.length * view.pxPerTick;
-  const fromEnd = tickToX(view, best.start + best.length) - x;
+  const width = Math.max(MIN_NOTE_PX, best.length * view.pxPerTick);
+  const fromEnd = tickToX(view, drawnEnd(view, best)) - x;
   return { note: best, edge: fromEnd <= Math.min(RESIZE_ZONE, width / 2) };
 }
 

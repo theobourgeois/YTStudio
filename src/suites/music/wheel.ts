@@ -135,13 +135,21 @@ export function wheelTurn(e: Pick<WheelEvent, "deltaX" | "deltaY" | "shiftKey">)
   return e.deltaY || (e.shiftKey ? e.deltaX : 0);
 }
 
+/** The least a wheel's notch has been (px): a bigger event is several notches at once (a quick turn, sent together). */
+let notch = Infinity;
+/** Forget the notch learnt (tests). */
+export const forgetWheelNotch = () => void (notch = Infinity);
+
 /** Steps up (+) or down (-) in a wheel event, carrying what's left of a trackpad's deltas in `rest`. */
 export function wheelSteps(deltaY: number, deltaMode: number, rest: { current: number }): number {
   // Lines and pages are a notch at least.
   const delta = deltaMode === 0 ? deltaY : deltaY * WHEEL_STEP;
   if (Math.abs(delta) >= WHEEL_STEP) {
     rest.current = 0;
-    return delta < 0 ? 1 : -1;
+    // Windows sends a quick turn's notches as one event (two notches, 200 px): each is a step.
+    if (deltaMode === 0) notch = Math.min(notch, Math.abs(delta));
+    const steps = deltaMode === 0 ? Math.max(1, Math.round(Math.abs(delta) / notch)) : 1;
+    return delta < 0 ? steps : -steps;
   }
   rest.current += delta;
   const steps = Math.trunc(rest.current / WHEEL_STEP);

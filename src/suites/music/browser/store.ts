@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import type { BrowserSearchResult, BrowserState } from "@shared/music/browser";
+import { type BrowserSearchResult, type BrowserState, isInsideFolder } from "@shared/music/browser";
 import { musicApi } from "../api";
 import { previewRequest } from "./online";
 import { type FolderContents, type FolderPlace, foldersToReveal, nameOf } from "./tree";
@@ -115,6 +115,10 @@ const clampWidth = (width: number) => Math.round(Math.max(MIN_WIDTH, Math.min(MA
 
 const saved = typeof localStorage === "undefined" ? null : readSaved();
 let previews = 0;
+/** The last read asked of each folder, so an older answer never overwrites a newer one. */
+const reads = new Map<string, number>();
+/** A folder that takes longer than this to list shows an error rather than "Reading…" for ever. */
+const LIST_TIMEOUT_MS = 20_000;
 /** Searches answered out of order are dropped: only the last one asked counts. */
 let searches = 0;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -136,12 +140,17 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
       loading.set(path, { status: "loading" });
       set({ contents: loading });
     }
+    const asked = (reads.get(path) ?? 0) + 1;
+    reads.set(path, asked);
     let next: FolderContents;
     try {
-      next = { status: "loaded", items: await musicApi.listBrowserFolder(path) };
+      next = { status: "loaded", items: await musicApi.listBrowserFolder(path, AbortSignal.timeout(LIST_TIMEOUT_MS)) };
     } catch (err) {
-      next = { status: "error", message: errorMessage(err) };
+      const late = err instanceof DOMException && err.name === "TimeoutError";
+      next = { status: "error", message: late ? "Took too long to read: close it and open it again" : errorMessage(err) };
     }
+    // An earlier read answering after a later one is dropped.
+    if (reads.get(path) !== asked) return;
     const contents = new Map(get().contents);
     contents.set(path, next);
     set({ contents });
@@ -183,7 +192,9 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
         // A restarted engine plays previews at full volume until it's told.
         void musicApi.engine("previewVolume", { volume: get().volume }).catch(() => {});
         // The folders left open last time are read again.
-        for (const path of allOpen()) if (state.roots.some((r) => path === r.path || path.startsWith(`${r.path}/`))) void list(path);
+        // (Inside a root or a favourite: one no longer in either isn't read. Windows' paths use \.)
+        const places = [...state.roots.map((r) => r.path), ...state.favourites];
+        for (const path of allOpen()) if (places.some((place) => isInsideFolder(path, place))) void list(path);
       } catch (err) {
         failed("Couldn't read the Browser's folders", err);
       }
@@ -236,8 +247,8 @@ export const useBrowser = create<BrowserStoreState>((set, get) => {
     },
     async rescan() {
       try {
-        set({ state: await musicApi.rescanBrowser() });
-        await Promise.all([...allOpen()].map((path) => list(path)));
+        // The open folders are read again at once, not after the index (which can take a while).
+        await Promise.all([musicApi.rescanBrowser().then((state) => set({ state })), ...[...allOpen()].map((path) => list(path))]);
       } catch (err) {
         failed("Couldn't read the folders again", err);
       }

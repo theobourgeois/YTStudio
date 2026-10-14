@@ -63,6 +63,16 @@ export function pianoChannel(song: MusicProject, channelId: string | null, rackS
   return song.channels.find((c) => c.id === channelId) ?? song.channels.find((c) => rackSelection.includes(c.id)) ?? song.channels[0] ?? null;
 }
 
+/** The selected notes still there, worked out again only when the notes or the selection change (the pointer asks on every move). */
+let selectedCache: { notes: readonly Note[]; selected: ReadonlySet<number>; result: Set<number> } | null = null;
+function liveSelection(notes: readonly Note[], selected: ReadonlySet<number>): Set<number> {
+  if (selectedCache?.notes === notes && selectedCache.selected === selected) return selectedCache.result;
+  const there = new Set(notes.map((n) => n.id));
+  const result = new Set([...selected].filter((id) => there.has(id)));
+  selectedCache = { notes, selected, result };
+  return result;
+}
+
 /** Everything a command needs, as things are now; null with no song or no channel. */
 export function pianoContext(): PianoContext | null {
   const { history, patternId } = useMusic.getState();
@@ -76,7 +86,6 @@ export function pianoContext(): PianoContext | null {
   const [, unit] = song.settings.timeSignature;
   const barTicks = stepsPerBar(song.settings.timeSignature) * STEP_TICKS;
   const beatTicks = (PPQ * 4) / unit;
-  const there = new Set(notes.map((n) => n.id));
   return {
     song,
     pattern,
@@ -85,7 +94,7 @@ export function pianoContext(): PianoContext | null {
     barTicks,
     beatTicks,
     grid: snapTicks(piano.snap, piano.view.pxPerTick, barTicks, beatTicks),
-    selected: new Set([...piano.selected].filter((id) => there.has(id))),
+    selected: liveSelection(notes, piano.selected),
     patternTicks: lengthOf(song, pattern) * STEP_TICKS,
   };
 }

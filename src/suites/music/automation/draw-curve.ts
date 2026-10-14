@@ -14,12 +14,18 @@ export interface CurveColours {
   point: string;
 }
 
+/** A point drawn larger, with its value beside it (the one under the pointer, or being dragged). */
+export interface CurveFocus {
+  index: number;
+  label: string;
+}
+
 /**
  * Draw `automation`'s curve in `box`, from `left` to `right` px (the clip's window onto it). `detail`
  * draws the points and tension handles too (a clip tall enough to edit). `barTicks` is for the LFO,
  * drawn as a faint second line when it's on (what's heard, against the points that are edited).
  */
-export function drawCurve(ctx: CanvasRenderingContext2D, automation: Automation, box: CurveBox, left: number, right: number, colours: CurveColours, detail: boolean, barTicks: number) {
+export function drawCurve(ctx: CanvasRenderingContext2D, automation: Automation, box: CurveBox, left: number, right: number, colours: CurveColours, detail: boolean, barTicks: number, focus?: CurveFocus | null) {
   const from = Math.max(Math.floor(left), 0);
   const to = Math.ceil(right);
   if (to <= from || box.height < 4) return;
@@ -78,13 +84,36 @@ export function drawCurve(ctx: CanvasRenderingContext2D, automation: Automation,
     }
     const x = curveX(box, point.tick);
     if (x < left - 4 || x > right + 4) continue;
+    const focused = focus?.index === i;
     ctx.beginPath();
-    ctx.arc(x, curveY(box, point.value), 3.25, 0, Math.PI * 2);
-    ctx.fillStyle = colours.point;
+    ctx.arc(x, curveY(box, point.value), focused ? 5 : 3.75, 0, Math.PI * 2);
+    ctx.fillStyle = focused ? colours.line : colours.point;
     ctx.fill();
     ctx.strokeStyle = colours.line;
     ctx.lineWidth = 1.25;
     ctx.stroke();
     ctx.lineWidth = 1;
   }
+  const point = focus && points[focus.index];
+  if (point && focus.label) drawValue(ctx, focus.label, curveX(box, point.tick), curveY(box, point.value), box);
+}
+
+/** A point's value, in a small tag beside it (above it, or below when there's no room), kept inside the box. */
+function drawValue(ctx: CanvasRenderingContext2D, label: string, x: number, y: number, box: CurveBox) {
+  ctx.save();
+  ctx.font = "600 10px system-ui, sans-serif";
+  const w = Math.ceil(ctx.measureText(label).width) + 8;
+  const h = 14;
+  const tx = x + 7;
+  const ty = y - h - 4 >= box.top ? y - h - 4 : Math.min(y + 6, box.top + box.height - h);
+  ctx.globalAlpha = 0.92;
+  ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+  ctx.beginPath();
+  ctx.roundRect(tx, ty, w, h, 3);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#fff";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, tx + 4, ty + h / 2 + 0.5);
+  ctx.restore();
 }

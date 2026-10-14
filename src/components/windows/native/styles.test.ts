@@ -44,4 +44,28 @@ describe("a panel's document wears the page's look", () => {
     expect([...panel.head.querySelectorAll("style")].map((s) => s.textContent)).toEqual([".a { color: blue }"]);
     stop();
   });
+
+  it("adds and removes a stylesheet the page adds or removes alone, in its place, the others left as they are", async () => {
+    const a = document.createElement("style");
+    a.textContent = ".a {}";
+    const c = document.createElement("style");
+    c.textContent = ".c {}";
+    document.head.append(a, c);
+    const panel = other();
+    const { ready, stop } = mirrorStyles(document, panel);
+    await ready;
+    const first = panel.head.querySelector("style");
+    // A menu opening: a library's scroll lock adds a <style>, and takes it away as it closes.
+    const b = document.createElement("style");
+    b.textContent = ".b {}";
+    document.head.insertBefore(b, c);
+    await tick(10);
+    expect([...panel.head.querySelectorAll("style")].map((s) => s.textContent)).toEqual([".a {}", ".b {}", ".c {}"]);
+    expect(panel.head.querySelector("style")).toBe(first);
+    b.remove();
+    await tick(10);
+    expect([...panel.head.querySelectorAll("style")].map((s) => s.textContent)).toEqual([".a {}", ".c {}"]);
+    expect(panel.head.querySelector("style")).toBe(first);
+    stop();
+  });
 });

@@ -344,7 +344,10 @@ const QUANTIZE_LABELS: Record<NoteQuantize, string> = {
 function TypingKeyboardToggle() {
   const typing = useMidi((s) => s.typing);
   const lastNoteAt = useMidi((s) => s.lastNoteAt);
-  const [lit, setLit] = useState(false);
+  // Lit while a note is held, and a moment after each one starts.
+  const holding = useMidi((s) => Object.values(s.held).some((keys) => keys.length > 0));
+  const [blink, setLit] = useState(false);
+  const lit = blink || holding;
   useEffect(() => {
     if (!lastNoteAt) return;
     setLit(true);

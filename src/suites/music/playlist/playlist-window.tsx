@@ -77,9 +77,9 @@ import { clearIncoming, showIncoming } from "./incoming";
 import { holdClipPreview } from "./preview";
 import { openConvert } from "../convert/actions";
 import { openExtractStems } from "../stems/actions";
-import { gridCursor, gridPointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
+import { gridCursor, gridPointerDown, rulerPointerDown, trackCurveHover, trackSliceHover } from "./pointer";
 import { RULER_HEIGHT } from "./geometry";
-import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
+import { type ClipSource, type PlaylistDrag, type PlaylistTool, usePlaylist } from "./store";
 import { TrackHeaders } from "./track-headers";
 import { OVERVIEW_HEIGHT, PlaylistOverview } from "./overview";
 
@@ -409,17 +409,15 @@ function PlaylistBody() {
         selected: selectionCache!.result,
         tracks: song.playlist.tracks,
         layout: p.layout,
-        patterns: new Map(song.patterns.map((pattern) => [pattern.id, pattern])),
+        patterns: lookups(song).patterns,
         // A curve being shaped is drawn as it would be left.
-        automations: new Map(song.automations.map((a) => [a.id, drag?.kind === "curve" && drag.automationId === a.id ? { ...a, points: drag.points } : a])),
-        names: new Map([
-          ...song.patterns.map((pattern) => [pattern.id, pattern.name] as const),
-          ...song.channels.map((c) => [c.id, c.name] as const),
-          ...song.automations.map((a) => [a.id, a.name] as const),
-          ...(playlist.incoming?.files.map((f, i) => [incoming[i].ref, f.name] as const) ?? []),
-        ]),
+        automations:
+          drag?.kind === "curve"
+            ? new Map(song.automations.map((a) => [a.id, drag.automationId === a.id ? { ...a, points: drag.points } : a]))
+            : lookups(song).automations,
+        names: playlist.incoming ? new Map([...lookups(song).names, ...playlist.incoming.files.map((f, i) => [incoming[i].ref, f.name] as const)]) : lookups(song).names,
         incoming,
-        colors: new Map([...song.patterns, ...song.channels, ...song.automations].flatMap((source) => (source.color ? [[source.id, source.color] as const] : []))),
+        colors: lookups(song).colors,
         waveforms,
         vanishing: fading,
         recording: takes.map(([track, pass], i) => ({ track: takeTracks[i], label: mixerTrackName(song, track), ...pass })),
@@ -436,6 +434,7 @@ function PlaylistBody() {
             : !drag && playlist.sliceHover
               ? { tick: playlist.sliceHover.tick, top: 0, bottom: 0, all: true }
               : null,
+        curveFocus: curveFocusOf(song, drag, playlist.curveHover),
         palette,
       };
       const g = prepare(grid.current, width, height);
@@ -452,7 +451,16 @@ function PlaylistBody() {
       if (!frame) frame = requestAnimationFrame(draw);
     };
     const stops = [
-      useMusic.subscribe(schedule),
+      // Not for what it doesn't draw: a mixer knob turned, a plugin's state, the pattern picked.
+      useMusic.subscribe((state, prev) => {
+        if (state.history !== prev.history) {
+          const a = state.history?.doc;
+          const b = prev.history?.doc;
+          if (!a || !b || a.playlist !== b.playlist || a.patterns !== b.patterns || a.channels !== b.channels || a.automations !== b.automations || a.settings !== b.settings) schedule();
+          return;
+        }
+        schedule();
+      }),
       usePlaylist.subscribe(schedule),
       useTransport.subscribe((s, p) => s.songStartTick !== p.songStartTick && schedule()),
       onWaveform(schedule),
@@ -506,17 +514,38 @@ function PlaylistBody() {
   // Recording, it's red (the takes grow behind it as clips: `drawLiveTake`).
   useEffect(() => {
     let frame = 0;
+    let shown = "";
+    let wasInView = false;
+    let lastTick: number | null = null;
     const move = () => {
       const line = playhead.current;
       if (line) {
-        const tick = useTransport.getState().mode === "song" ? positionNow() : null;
-        const view = usePlaylist.getState().view;
-        const x = tick === null ? -10 : tickToX(view, tick);
-        line.style.transform = `translateX(${x}px)`;
-        line.style.opacity = tick === null ? "0" : "1";
+        const transport = useTransport.getState();
+        const tick = transport.mode === "song" ? positionNow() : null;
+        let view = usePlaylist.getState().view;
+        let x = tick === null ? -10 : tickToX(view, tick);
+        // Playing, the view follows the playhead a page at a time, as FL's: once it runs off the right edge
+        // (from in view: one scrolled away from stays where it was put), and not while something's dragged.
+        const width = usePlaylist.getState().gridWidth;
+        // Gone round the loop back to its start: back there too.
+        const wrapped = tick !== null && lastTick !== null && tick < lastTick - 1 && (x < 0 || x > width - 2);
+        lastTick = tick;
+        if (tick !== null && transport.playing && wasInView && (x > width - 2 || wrapped) && !usePlaylist.getState().drag) {
+          view = { ...view, scrollTick: Math.max(0, tick - (width * 0.02) / view.pxPerTick) };
+          usePlaylist.getState().setView(view);
+          x = tickToX(view, tick);
+        }
+        wasInView = x >= 0 && x <= width - 2;
         const active = useRecording.getState().active;
         const recording = active !== null && tick !== null && performance.now() >= active.movesAt;
-        line.style.background = recording ? "var(--destructive)" : "";
+        // Only what changed is written: stopped, the line stays put and the page has nothing to do.
+        const next = `${x}|${tick === null}|${recording}`;
+        if (next !== shown) {
+          shown = next;
+          line.style.transform = `translateX(${x}px)`;
+          line.style.opacity = tick === null ? "0" : "1";
+          line.style.background = recording ? "var(--destructive)" : "";
+        }
       }
       frame = requestAnimationFrame(move);
     };
@@ -621,8 +650,12 @@ function PlaylistBody() {
             if (e.buttons !== 0) return;
             e.currentTarget.style.cursor = gridCursor(e.currentTarget, e);
             trackSliceHover(e.currentTarget, e);
+            trackCurveHover(e.currentTarget, e);
           }}
-          onPointerLeave={(e) => trackSliceHover(e.currentTarget, null)}
+          onPointerLeave={(e) => {
+            trackSliceHover(e.currentTarget, null);
+            trackCurveHover(e.currentTarget, null);
+          }}
           onPointerUp={(e) => (e.currentTarget.style.cursor = gridCursor(e.currentTarget, e))}
         />
         <div ref={playhead} className="pointer-events-none absolute inset-y-0 left-0 w-px bg-foreground opacity-0" data-testid="playlist-playhead" />
@@ -882,6 +915,39 @@ function sourceColor(song: MusicProject, source: ClipSource): string | null {
   return list.find((item) => item.id === source.ref)?.color ?? null;
 }
 
+/** The song's patterns, automations, names and colours by id, for drawing: made again only when they change, not every frame. */
+let lookupCache: { patterns: unknown; channels: unknown; automations: unknown; result: ReturnType<typeof makeLookups> } | null = null;
+function lookups(song: MusicProject) {
+  const c = lookupCache;
+  if (c?.patterns === song.patterns && c.channels === song.channels && c.automations === song.automations) return c.result;
+  const result = makeLookups(song);
+  lookupCache = { patterns: song.patterns, channels: song.channels, automations: song.automations, result };
+  return result;
+}
+function makeLookups(song: MusicProject) {
+  return {
+    patterns: new Map(song.patterns.map((pattern) => [pattern.id, pattern])),
+    automations: new Map(song.automations.map((a) => [a.id, a])),
+    names: new Map<string, string>([
+      ...song.patterns.map((pattern) => [pattern.id, pattern.name] as const),
+      ...song.channels.map((c) => [c.id, c.name] as const),
+      ...song.automations.map((a) => [a.id, a.name] as const),
+    ]),
+    colors: new Map([...song.patterns, ...song.channels, ...song.automations].flatMap((source) => (source.color ? [[source.id, source.color] as const] : []))),
+  };
+}
+
+/** The automation point to draw larger with its value: the one being dragged, else the one under the pointer. */
+function curveFocusOf(song: MusicProject, drag: PlaylistDrag | null, hover: { automationId: string; index: number } | null) {
+  const focus = drag?.kind === "curve" ? (drag.index === undefined ? null : { automationId: drag.automationId, index: drag.index, points: drag.points }) : drag ? null : hover;
+  if (!focus) return null;
+  const automation = song.automations.find((a) => a.id === focus.automationId);
+  const point = ("points" in focus ? focus.points : automation?.points)?.[focus.index];
+  if (!automation || !point) return null;
+  const label = controlOf(song, automation.target).format(automation.min + point.value * (automation.max - automation.min));
+  return { automationId: automation.id, index: focus.index, label };
+}
+
 /**
  * A point of an automation clip's curve, its menu (a right-click on it, FL's): the shape of the segment
  * arriving at it (the curve types), its value typed in, its tension straightened, deleting it.
@@ -890,9 +956,14 @@ function PointMenu() {
   const menu = usePlaylist((s) => s.pointMenu);
   const automation = useMusic((s) => (menu ? s.history!.doc.automations.find((a) => a.id === menu.automationId) : undefined));
   const [typing, setTyping] = useState<string | null>(null);
-  if (!menu || !automation) return null;
-  const point = automation.points[menu.index];
-  if (!point) return null;
+  // Opened by a double-click on the point: straight to its value.
+  const point = menu && automation?.points[menu.index];
+  const startTyping = !!menu?.typing && !!point && typing === null;
+  useEffect(() => {
+    if (startTyping) setTyping(String(Math.round(point!.value * 1000) / 10));
+  }, [startTyping, point]);
+  if (!menu || !automation || !point) return null;
+  if (menu.typing && typing === null) return null;
   const close = () => usePlaylist.setState({ pointMenu: null });
   const commit = (change: Parameters<typeof editPoints>[2]) => useMusic.getState().commit((song) => editPoints(song, automation.id, change));
   const song = useMusic.getState().history!.doc;

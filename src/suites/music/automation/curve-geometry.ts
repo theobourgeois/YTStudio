@@ -19,7 +19,7 @@ export interface CurveBox {
 /** Room kept above and below the curve inside its box, so a point at 0 or 1 can be grabbed whole. */
 export const CURVE_PAD = 3;
 /** How near (px) the pointer must be to grab a point or a tension handle. */
-export const GRAB = 5;
+export const GRAB = 7;
 /** A segment this narrow (px) or less shows no tension handle (there's no room to grab it). */
 export const MIN_HANDLE_SEGMENT = 14;
 

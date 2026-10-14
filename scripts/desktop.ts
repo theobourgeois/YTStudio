@@ -62,7 +62,7 @@ function electronApp(): string {
   return binary.slice(0, binary.indexOf(".app") + ".app".length);
 }
 
-/** The bundles for `outdir`: the main process (ESM) and the preload script (CommonJS, as sandboxed preloads must be). */
+/** The bundles for `outdir`: the main process and the server's (ESM) and the preload script (CommonJS, as sandboxed preloads must be). */
 function bundles(outdir: string): BuildOptions[] {
   const common: BuildOptions = {
     bundle: true,
@@ -76,7 +76,8 @@ function bundles(outdir: string): BuildOptions[] {
   return [
     {
       ...common,
-      entryPoints: { main: path.join(ROOT, "electron/main.ts") },
+      // The server runs in a process of its own (electron/server-host.ts), from the file beside main.mjs.
+      entryPoints: { main: path.join(ROOT, "electron/main.ts"), "server-process": path.join(ROOT, "electron/server-process.ts") },
       outdir,
       format: "esm",
       outExtension: { ".js": ".mjs" },

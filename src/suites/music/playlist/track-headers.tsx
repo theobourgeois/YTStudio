@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { memo, useRef } from "react";
 import { NameColorEditor } from "../name-color-editor";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
@@ -48,7 +48,10 @@ import { usePlaylist } from "./store";
  */
 export function TrackHeaders() {
   const playlist = useMusic((s) => s.history!.doc.playlist);
-  const view = usePlaylist((s) => s.view);
+  // Only what places the headers: scrolling along time or zooming it doesn't move them.
+  usePlaylist((s) => s.view.scrollY);
+  usePlaylist((s) => s.view.trackHeight);
+  const view = usePlaylist.getState().view;
   const height = usePlaylist((s) => s.gridHeight);
   usePlaylist((s) => s.renaming);
   const p = playlistContext();
@@ -65,7 +68,7 @@ export function TrackHeaders() {
   );
 }
 
-function TrackHeader({ index, top, height }: { index: number; top: number; height: number }) {
+const TrackHeader = memo(function TrackHeader({ index, top, height }: { index: number; top: number; height: number }) {
   const track = useMusic((s) => trackAt(s.history!.doc, index));
   const name = useMusic((s) => trackName(s.history!.doc, index));
   const renaming = usePlaylist((s) => s.renaming === index);
@@ -190,7 +193,7 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
       </ContextMenuContent>
     </ContextMenu>
   );
-}
+});
 
 /**
  * An audio track's own controls (FL's on-track controls): its mixer track's arm switch, and (with room)

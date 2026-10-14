@@ -1,6 +1,7 @@
 /**
- * The editor's server, run inside the desktop app's main process: the same Express app as `pnpm dev`, on
- * 127.0.0.1. Imported by main.ts only after it has set the environment (server/config.ts reads it on load).
+ * The editor's server: the same Express app as `pnpm dev`, on 127.0.0.1. The desktop app runs it in a
+ * process of its own (server-process.ts); imported only once the environment is set (server/config.ts reads
+ * it on load). Nothing here may use Electron's main-process modules.
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -8,8 +9,7 @@ import { type AppOptions, type EditorApp, createApp } from "../server/app.ts";
 import { FFMPEG } from "../server/config.ts";
 import { ffmpegVersion } from "../server/ffmpeg.ts";
 import { log } from "../server/log.ts";
-import { setGlPageOpener } from "../server/gl-browser.ts";
-import { openWindowPage } from "./gl-window.ts";
+import { type GlPageOpener, setGlPageOpener } from "../server/gl-browser.ts";
 
 export interface ServerOptions {
   dataDir: string;
@@ -20,6 +20,8 @@ export interface ServerOptions {
   /** Put a project's package in the Trash, show one in Finder (the system's own). */
   trash?: AppOptions["trash"];
   reveal?: AppOptions["reveal"];
+  /** The export's drawing page, in the app's own Chromium (a hidden window of the main process's). */
+  openGlPage?: GlPageOpener;
 }
 
 export interface RunningServer {
@@ -52,8 +54,8 @@ function listen(server: http.Server, port: number): Promise<number | null> {
   });
 }
 
-export async function startServer({ dataDir, clientDir, ports, trash, reveal }: ServerOptions): Promise<RunningServer> {
-  setGlPageOpener(openWindowPage);
+export async function startServer({ dataDir, clientDir, ports, trash, reveal, openGlPage }: ServerOptions): Promise<RunningServer> {
+  if (openGlPage) setGlPageOpener(openGlPage);
   const version = await ffmpegVersion();
   const logger = log("desktop");
   if (version) logger.info(`using ffmpeg ${version}`);

@@ -3,6 +3,7 @@ import {
   type BrowserItem,
   type SearchEntry,
   isAudioName,
+  isInsideFolder,
   naturalCompare,
   searchEntries,
   searchEntry,
@@ -110,5 +111,17 @@ describe("searchEntries", () => {
     const started = performance.now();
     for (const q of ["kick", "snre hard", "pack 12 vox", "zzzz"]) searchEntries(big, q);
     expect(performance.now() - started).toBeLessThan(1500);
+  });
+});
+
+describe("isInsideFolder", () => {
+  it("takes Windows' paths, either slash and any drive letter case", () => {
+    expect(isInsideFolder("C:\\Samples\\Drums", "C:\\Samples")).toBe(true);
+    expect(isInsideFolder("c:\\samples\\Drums\\Kicks", "C:\\Samples\\")).toBe(true);
+    expect(isInsideFolder("C:/Samples/Drums", "C:\\Samples")).toBe(true);
+    expect(isInsideFolder("C:\\Samples", "C:\\Samples")).toBe(true);
+    expect(isInsideFolder("C:\\SamplesMore", "C:\\Samples")).toBe(false);
+    expect(isInsideFolder("/Users/me/Samples/Drums", "/Users/me/Samples")).toBe(true);
+    expect(isInsideFolder("/Users/me/samples", "/Users/me/Samples")).toBe(false);
   });
 });
