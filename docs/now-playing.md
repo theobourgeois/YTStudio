@@ -94,7 +94,7 @@ rhythm) and the hits expected on it (`expected`: a beat of the bar that had a ki
 the last four bars expects the next one, placed where those hits fell against the beat; one that doesn't come is
 dropped once it's past). So kicks and snares on the beat are on screen as they're heard (within a frame, on average
 within a few ms); a hit nobody could expect is ~45–60 ms late (it was ~115 before step 1 of the plan). When the ears
-are the later ones (headphones), everything waits for them instead (`wait`). L shows the numbers. The beat holds:
+are the later ones (headphones), everything waits for them instead (`wait`). The beat holds:
 a tempo related to it (half or double time, a 3-3-2 pattern's dotted quarter) takes over only after winning for 10 s
 (`TEMPO_PATIENCE`), an unrelated one (a new song) in 1.5 s; a beat that flips would throw everything on it off.
 `src/components/now-playing-view/latency.test.ts` runs the whole pipeline at 60 fps and checks it.
@@ -152,7 +152,7 @@ the picture is late, and the visualizer should be a window), one step at a time,
 Only the e2e spec a step touches is run (`e2e/now-playing.spec.ts`), never the whole suite.
 
 1. **Sync** (done): see Sync. Pass: `latency.test.ts` (on-beat kicks within a frame, on average within 5 ms; others
-   under 60 ms), the L readout, and Théo's eyes on a kick-heavy song.
+   under 60 ms), the L readout (since removed: Théo didn't want it), and Théo's eyes on a kick-heavy song.
 2. **Reading the mood** (done): the above. Pass: `mood.test.ts` on made-up music; I in the visualizer, and Théo's
    ears agree on real songs.
 3. **Energy drives every look** (done): see Energy. Pass: each look on one song at a breakdown, a build-up and a drop,

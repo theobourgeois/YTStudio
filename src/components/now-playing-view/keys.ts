@@ -19,7 +19,6 @@ export type VisualizerAction =
   | { kind: "auto" }
   | { kind: "hud" }
   | { kind: "help" }
-  | { kind: "latency" }
   | { kind: "mood" }
   | { kind: "sync" };
 
@@ -52,8 +51,6 @@ export function visualizerKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey"
       return { kind: "auto" };
     case "KeyH":
       return { kind: "hud" };
-    case "KeyL":
-      return { kind: "latency" };
     case "KeyI":
       return { kind: "mood" };
     case "KeyS":
@@ -76,7 +73,6 @@ export const VISUALIZER_KEYS: { keys: string; does: string }[] = [
   { keys: "F", does: "Full screen" },
   { keys: "H", does: "Hide the controls" },
   { keys: "S", does: "Tap along to sync (headphones)" },
-  { keys: "L", does: "Show how late the picture is" },
   { keys: "I", does: "Show what it hears (the song's mood)" },
   { keys: "Esc", does: "Close" },
 ];
