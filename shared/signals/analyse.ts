@@ -63,25 +63,25 @@ const FLUX_RELEASE_DB = 20;
  */
 export const ONSET_SHIFT = 0.004;
 /** Hits closer than this are one. */
-const MIN_HIT_GAP = 0.05;
+export const MIN_HIT_GAP = 0.05;
 /** A peak must stand above the mean of this much around it... */
-const HIT_CONTEXT = 0.15;
+export const HIT_CONTEXT = 0.15;
 /** ...by this factor, plus this share of the file's hard hits. */
-const HIT_FACTOR = 1.4;
-const HIT_FLOOR = 0.08;
+export const HIT_FACTOR = 1.4;
+export const HIT_FLOOR = 0.08;
 /** And rise at least this much (dB): a whisper of leakage isn't a hit, however quiet the rest. */
-const MIN_HIT_RISE = 2;
+export const MIN_HIT_RISE = 2;
 /** And reach this share of the strongest rise within `HIT_NEIGHBOURHOOD` seconds: a noisy bed's flicker isn't a hit beside the beat's. */
-const HIT_SHARE = 0.3;
-const HIT_NEIGHBOURHOOD = 1;
+export const HIT_SHARE = 0.3;
+export const HIT_NEIGHBOURHOOD = 1;
 
 // References (auto-gain).
 /** A frame with sound: louder than this. */
-const SOUNDING_DB = -60;
+export const SOUNDING_DB = -60;
 /** References are never quieter than these: auto-gain doesn't make hiss react like music. */
-const MIN_LEVEL_REFERENCE = -45;
-const MIN_BAND_REFERENCE = -60;
-const MIN_FLUX_REFERENCE = 3;
+export const MIN_LEVEL_REFERENCE = -45;
+export const MIN_BAND_REFERENCE = -60;
+export const MIN_FLUX_REFERENCE = 3;
 
 const toDb = (power: number) => (power > 1e-12 ? Math.max(SILENT_DB, 10 * Math.log10(power) + SINE_DB) : SILENT_DB);
 
@@ -192,6 +192,22 @@ export class SignalAnalyser {
     }
     this.length += count;
     this.measureReady();
+  }
+
+  /**
+   * What's been measured so far, as views of the tables (not copies): a sound heard live (`live.ts`) is read as
+   * it grows. Frame `f` is centred on `f / SIGNAL_RATE` seconds from the first sample; the waveform's sample
+   * `i` on `i / waveRate`.
+   */
+  measured(): { frames: number; scalars: Float32Array; bands: Uint8Array; wave: Int8Array; waveSamples: number; waveRate: number } {
+    return {
+      frames: this.frame,
+      scalars: this.scalars.subarray(0, this.frame * S),
+      bands: this.bandBytes.subarray(0, this.frame * BAND_COUNT),
+      wave: this.wave.subarray(0, this.waveLength * 2),
+      waveSamples: this.waveLength,
+      waveRate: this.sampleRate / this.waveSpan,
+    };
   }
 
   /** The file has ended after `total` samples: measure to its end (padded with silence) and give the result. */
