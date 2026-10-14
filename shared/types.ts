@@ -456,6 +456,18 @@ export interface ParamLink {
   response: SignalResponse;
   /** For hits (events, onsets, the beat): the shape each one makes. Absent: they're read as they come. */
   hit?: HitShape;
+  /** How far it moves follows another signal (a punch as big as the music is intense). Absent: all the way. */
+  depth?: LinkDepth;
+}
+
+/**
+ * A link's depth (`ParamLink.depth`): it moves `floor + (1 - floor) × level` of its amount, `level` being the
+ * signal (0..1) shaped by `threshold` (below it, 0; above it, stretched to 1).
+ */
+export interface LinkDepth {
+  signal: SignalRef;
+  floor: number;
+  threshold: number;
 }
 
 /**

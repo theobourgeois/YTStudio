@@ -9,7 +9,7 @@
  * character is what its intensity, density, beat and tone have been since it started, settled after ~20 s and steady.
  * Pure: the tests feed it made-up music.
  */
-import { SCALARS, SIGNAL_RATE, type Hit, type ScalarName, type SignalData } from "./format.ts";
+import { SCALARS, SIGNAL_RATE, type Hit, type IntensitySeries, type ScalarName, type SignalData } from "./format.ts";
 
 export type SongCharacter = "chill" | "groove" | "hype" | "heavy";
 export const SONG_CHARACTERS: readonly SongCharacter[] = ["chill", "groove", "hype", "heavy"];
@@ -295,3 +295,38 @@ export class LiveMood {
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
+
+/** How often intensity is worked out (a second). */
+export const INTENSITY_RATE = 4;
+
+const fileSeries = new WeakMap<SignalData, IntensitySeries>();
+
+/**
+ * A sound's intensity over time: a live sound's as it was heard (`SignalData.intensity`), a file's worked out the
+ * same way (only what came before each moment counts), once, when first read.
+ */
+export function intensitySeries(data: SignalData): IntensitySeries {
+  if (data.intensity) return data.intensity;
+  let series = fileSeries.get(data);
+  if (!series) {
+    const mood = new LiveMood();
+    const values: number[] = [];
+    const end = data.header.frames / SIGNAL_RATE;
+    for (let k = 0; k / INTENSITY_RATE <= end; k++) {
+      mood.update(data, k / INTENSITY_RATE, false);
+      values.push(mood.mood.intensity);
+    }
+    fileSeries.set(data, (series = { rate: INTENSITY_RATE, values }));
+  }
+  return series;
+}
+
+/** A series' value at `t` seconds (between values linearly; past the ends, the end's). */
+export function intensityAt(series: IntensitySeries, t: number): number {
+  const n = series.values.length;
+  if (!n) return 0;
+  const x = Math.min(n - 1, Math.max(0, t * series.rate));
+  const i = Math.floor(x);
+  const a = series.values[i];
+  return i + 1 < n ? a + (series.values[i + 1] - a) * (x - i) : a;
+}

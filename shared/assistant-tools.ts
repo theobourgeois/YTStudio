@@ -779,14 +779,16 @@ export const VIDEO_TOOLS = [
     description:
       "Make a number or point parameter move with the sound, no code (the link button by a stopwatch): it follows a " +
       'signal by an amount. `signal` is a built-in one ("level", "bass", "sub", "mid", "air", "onset", "onsetLow" ' +
-      'kicks, "onsetMid", "onsetHigh" hats, "width", "brightness"..., or "beat" / "downbeat" for the song\'s beat) or ' +
+      'kicks, "onsetMid", "onsetHigh" hats, "width", "brightness", "intensity" (how much is going on: low in a ' +
+      'breakdown, high in a drop)..., or "beat" / "downbeat" for the song\'s beat) or ' +
       "one of the video's own (define_signal) by name. `mode`: add (value + amount × signal, the default), multiply " +
       "(value × (1 + amount × signal): 0.3 is up to 30% more) or map (from the value towards `to`). Amounts are in " +
       "the parameter's own units (see get_catalog; a point's may be a point: [0, -0.05] lifts it). The response " +
       "shapes the 0..1 signal first: below `threshold` nothing moves, `curve` above 1 keeps only the loud parts, " +
       "`attack`/`release` (seconds) smooth its rise and fall, `invert` moves it when it's quiet. For hits (onsets, " +
       "beats, events) give `hit` {attack, hold, decay} to make a punch on each. Inside a nested sequence the mix is " +
-      "the song of the video it's placed in. Wins over keyframes (it moves them), and an expression sees the linked " +
+      "the song of the video it's placed in. `depth` makes how far it moves follow another signal (a kick punch " +
+      'scaled by "intensity"). Wins over keyframes (it moves them), and an expression sees the linked ' +
       "value. It says how far the parameter moves over the clip. `link: null` unlinks. Not on volume.",
     inputSchema: obj(
       {
@@ -815,6 +817,15 @@ export const VIDEO_TOOLS = [
               },
               [],
               "For hits: the shape each one makes (scaled by how hard it is).",
+            ),
+            depth: obj(
+              {
+                signal: str('The signal that sets how far it moves, e.g. "intensity" (a punch as big as the music is intense).'),
+                floor: num("0..1: how much it moves even when that signal is 0 (default 0).", { minimum: 0, maximum: 1 }),
+                threshold: num("0..1: that signal under it counts as 0 (default 0).", { minimum: 0, maximum: 0.99 }),
+              },
+              ["signal"],
+              "How far it moves follows another signal: floor + (1 - floor) × that signal's level.",
             ),
           },
           required: ["signal"],

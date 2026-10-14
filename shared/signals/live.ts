@@ -39,7 +39,7 @@ import {
   byteDb,
 } from "./format.ts";
 import { BEAT_RATE, BEAT_WINDOW, LiveBeat } from "./live-beat.ts";
-import { LiveMood, type Mood } from "./mood.ts";
+import { INTENSITY_RATE, LiveMood, type Mood } from "./mood.ts";
 import type { MusicAnalysis } from "../types.ts";
 
 /** Seconds of the past that say what counts as loud now. */
@@ -96,6 +96,8 @@ export class LiveSignals {
   private nextSlow = SLOW_EVERY;
   private nextMood = MOOD_EVERY;
   private readonly moods = new LiveMood();
+  /** Intensity as it was heard, `INTENSITY_RATE` a second (value k at k / rate seconds). */
+  private readonly intensities: number[] = [];
   /** The header as of the last change (`data` builds the rest each time). */
   private header: SignalsHeader | null = null;
   private ahead = 0;
@@ -148,6 +150,10 @@ export class LiveSignals {
     if (frames >= this.nextMood) {
       this.nextMood = frames + MOOD_EVERY;
       this.moods.update(this.data(), this.seconds, this.expecting);
+      // Each moment's value (a gap filled with the last): what links to intensity read.
+      const k = Math.round(this.seconds * INTENSITY_RATE);
+      const value = this.moods.mood.intensity;
+      while (this.intensities.length <= k) this.intensities.push(value);
     }
   }
 
@@ -203,6 +209,7 @@ export class LiveSignals {
       scalars: m.scalars,
       bands: m.bands,
       wave: m.wave,
+      intensity: { rate: INTENSITY_RATE, values: this.intensities },
     };
   }
 
