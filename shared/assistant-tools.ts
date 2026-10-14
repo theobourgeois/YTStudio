@@ -1293,7 +1293,7 @@ export const VIDEO_TOOLS = [
     description:
       "Play, pause or skip the song in the music player, seek in it, or open, close and steer the visualizer: " +
       "`look` (an id from now_playing) shows that look (opening the visualizer), `auto` sets how looks change by " +
-      "themselves (off: stay; song: a new look each song; bars8, bars16, bars32: every so many bars too). Only what's " +
+      "themselves (off: stay; song: a new look each song and on a drop; bars8, bars16, bars32: every so many bars too). Only what's " +
       "given happens: the song first, then the visualizer.",
     inputSchema: obj({
       action: oneOf(["play", "pause", "toggle", "next", "previous"], "What the player does."),

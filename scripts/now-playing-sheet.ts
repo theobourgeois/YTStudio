@@ -3,8 +3,9 @@
  * with the stand-in player (a made-up song measured as if heard), or a sound file of your own (`--song`, never played,
  * only measured), each look shown for a few seconds and screenshot.
  *
- *   pnpm tsx scripts/now-playing-sheet.ts [look ...] [--song file.mp3] [--seconds 4] [--out sheet.png]
+ *   pnpm tsx scripts/now-playing-sheet.ts [look ...] [--song file.mp3] [--seconds 4] [--track 1|2|3] [--out sheet.png]
  *
+ * `--track` picks the stand-in's song, so its cover's colours (1 magenta, 2 orange, 3 cyan).
  * Writes the sheet and one picture per look beside it (`<out>-<look>.png`).
  */
 import { type ChildProcess, spawn } from "node:child_process";
@@ -26,7 +27,8 @@ const root = path.resolve(import.meta.dirname, "..");
 const out = path.resolve(option("--out") ?? path.join(root, "now-playing-sheet.png"));
 const song = option("--song");
 const seconds = Number(option("--seconds") ?? 4);
-const names = args.filter((a, i) => !a.startsWith("--") && !["--out", "--song", "--seconds"].includes(args[i - 1]));
+const track = Math.max(1, Math.min(3, Number(option("--track") ?? 1)));
+const names = args.filter((a, i) => !a.startsWith("--") && !["--out", "--song", "--seconds", "--track"].includes(args[i - 1]));
 const looks = names.length ? LIVE_LOOKS.filter((l) => names.includes(l.id) || names.includes(l.kind)) : LIVE_LOOKS;
 if (!looks.length) {
   console.error(`No looks match ${names.join(", ")}. Known: ${LIVE_LOOKS.map((l) => l.id).join(", ")}`);
@@ -82,8 +84,11 @@ async function waitFor(url: string) {
 const web = `http://localhost:${WEB_PORT}`;
 await waitFor(`http://127.0.0.1:${SERVER_PORT}/api/health`);
 await waitFor(web);
-// The stand-in player opens when it's told to play.
-await fetch(`http://127.0.0.1:${SERVER_PORT}/api/now-playing`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "play" }) });
+// The stand-in player opens when it's told to play; then on to the song asked for.
+const command = (body: object) =>
+  fetch(`http://127.0.0.1:${SERVER_PORT}/api/now-playing`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+await command({ action: "play" });
+for (let i = 1; i < track; i++) await command({ action: "next" });
 
 // The GPU on (as the export's browser has it): the 3D scenes are too heavy for software rendering.
 const browser = await chromium.launch({ args: ["--ignore-gpu-blocklist", "--enable-unsafe-swiftshader", ...(process.platform === "darwin" ? ["--use-angle=metal", "--enable-gpu"] : [])] });

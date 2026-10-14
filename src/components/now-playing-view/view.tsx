@@ -30,6 +30,8 @@ const IDLE_MS = 2600;
 const CARD_MS = 5000;
 /** Listening this long, a new song starts a new session (what's kept grows about 50 kB a second). */
 const SESSION_SECONDS = 600;
+/** Seconds a look stays before a drop may change it. */
+const DROP_SETTLE = 8;
 
 /** The first downbeat at or after `after` within `within` seconds (else `after`): switches land on the bar. */
 function onTheBar(rhythm: MusicAnalysis | null | undefined, after: number, within = 3): number {
@@ -58,6 +60,8 @@ export default function NowPlayingView() {
   const songRef = useRef<string | null>(null);
   const shownPalette = useRef<object | null>(null);
   const dueRef = useRef<number | null>(null);
+  // The last drop heard (a look changes on one, unless looks stay).
+  const dropRef = useRef<number | null>(null);
   const variationRef = useRef(0);
   const historyRef = useRef<string[]>([]);
 
@@ -136,6 +140,17 @@ export default function NowPlayingView() {
       dueRef.current = null;
       variationRef.current++;
       show(another(), "bar", time);
+      return;
+    }
+    // A drop (the sound suddenly louder): a new look on it, if this one's had its moment.
+    const drop = live.signals.data().header.rhythm?.drops.at(-1)?.time;
+    if (drop !== undefined && drop !== dropRef.current) {
+      dropRef.current = drop;
+      const since = time - (director.lookStart ?? 0);
+      if (latest.current.prefs.auto !== "off" && since > DROP_SETTLE && time - drop < 1.5) {
+        variationRef.current++;
+        show(another(), "now", time);
+      }
     }
   }
 
