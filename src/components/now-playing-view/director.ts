@@ -6,6 +6,7 @@
 import {
   type Frame,
   type FrameMove,
+  type FxMove,
   type LiveFx,
   type LiveLook,
   type LookContext,
@@ -16,6 +17,7 @@ import {
   PLAIN_FRAME,
   endShow,
   frameAngle,
+  fxAt,
   liveProject,
   lookSequence,
   padSignals,
@@ -33,7 +35,7 @@ export class LiveDirector {
   private hueDegrees = 0;
   private move: FrameMove | null = null;
   private morphing: { at: number; seconds: number } | null = null;
-  private play: LiveFx = NO_FX;
+  private play: FxMove | null = null;
   private perform = performLayer(0);
   private hits: PadHit[] = [];
   private padData: SignalData = padSignals([]);
@@ -73,10 +75,24 @@ export class LiveDirector {
     this.rebuildPerform();
   }
 
-  /** The player's distortions and feedback over every look (vaudio's Distort and Feedback panels). */
-  setFx(fx: LiveFx): void {
-    if (fx === this.play) return;
-    this.play = fx;
+  /** The player's distortions and feedback as last asked (where they're going). */
+  get fx(): LiveFx {
+    return this.play?.to ?? NO_FX;
+  }
+
+  /** Where the player's values have got to by `time` (a change eases there). */
+  fxNow(time: number): LiveFx {
+    return fxAt(this.play, time);
+  }
+
+  /**
+   * The player's distortions and feedback over every look (vaudio's Distort and Feedback panels): from where they
+   * are at `at`, eased over `seconds`.
+   */
+  setFx(fx: LiveFx, at: number, seconds: number): void {
+    const from = fxAt(this.play, at);
+    const none = (v: LiveFx) => (Object.keys(NO_FX) as (keyof LiveFx)[]).every((k) => v[k] === NO_FX[k]);
+    this.play = none(from) && none(fx) ? null : { from, to: fx, at, seconds };
     this.rebuildPerform();
   }
 

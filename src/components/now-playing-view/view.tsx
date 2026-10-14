@@ -13,7 +13,7 @@ import {
   PiWaveform,
   PiX,
 } from "react-icons/pi";
-import { type Frame, LIVE_LOOKS, LOOK_KINDS, type LookKind, PLAIN_FRAME, isPlain, liveLook, seededRandom, switchTransition } from "@shared/live-looks";
+import { type Frame, LIVE_LOOKS, LOOK_KINDS, type LookKind, PLAIN_FRAME, liveLook, seededRandom, switchTransition } from "@shared/live-looks";
 import { positionAt } from "@shared/now-playing";
 import { formatDuration } from "@shared/format";
 import type { MusicAnalysis } from "@shared/types";
@@ -24,6 +24,7 @@ import { log } from "@/lib/log";
 import { CHUNK_SECONDS } from "@/lib/live-audio";
 import { useNowPlaying } from "@/stores/now-playing";
 import { type Choice, LookChooser, type Moment } from "./chooser";
+import { EFFECTS_MODES, EffectsEngine } from "./effects-engine";
 import { LiveDirector } from "./director";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
 import { ImageSlots, LiveSource } from "./live-source";
@@ -65,6 +66,14 @@ const stepAlong = (steps: readonly number[], value: number, by: 1 | -1) => {
   return steps[Math.max(0, Math.min(steps.length - 1, i + by))];
 };
 
+/** The first downbeat at or after `after`: the last one heard, carried on a bar at a time (null: none known yet). */
+function nextDownbeat(rhythm: MusicAnalysis | null | undefined, after: number): number | null {
+  const last = rhythm?.downbeats.findLast((t) => t <= after);
+  if (last === undefined || !rhythm?.bpm) return rhythm?.downbeats.find((t) => t >= after) ?? null;
+  const bar = (4 * 60) / rhythm.bpm;
+  return last + Math.ceil((after - last) / bar - 1e-6) * bar;
+}
+
 /** The first beat at or after `after`: the last one heard, carried on at the tempo (else `after`). */
 function onTheBeat(rhythm: MusicAnalysis | null | undefined, after: number): number {
   const last = rhythm?.beats.findLast((t) => t <= after);
@@ -93,10 +102,10 @@ export default function NowPlayingView() {
   const dueRef = useRef<number | null>(null);
   // Which look plays, following the music (`chooser.ts`), and its last choices (the readout's).
   const [chooser] = useState(() => new LookChooser(LIVE_LOOKS));
+  // The effects over the looks, played by the music (`effects-engine.ts`) unless by hand.
+  const [effectsEngine] = useState(() => new EffectsEngine());
   const choices = useRef<{ time: number; why: string }[]>([]);
   const variationRef = useRef(0);
-  // The frame set by the keys (or the assistant) stays across looks; the chooser's goes with its look.
-  const frameByKeys = useRef(false);
   // The look shown's song, id and variation, and how many times it's been mutated (`-`).
   const shownKey = useRef("");
   const mutation = useRef({ key: "", n: 0 });
@@ -153,10 +162,6 @@ export default function NowPlayingView() {
     shownKey.current = key;
     director.show(look, { palette: p, random, mutations }, at, plan.type === null ? null : switchTransition(plan.type, plan.seconds));
     if (plan.morph) director.morph(at, plan.seconds);
-    // A new look comes as it is: the chooser's reframing was the last one's (the keys' stays).
-    if (before?.id !== look.id && !frameByKeys.current && !isPlain(director.frame)) {
-      director.setFrame(PLAIN_FRAME, plan.type === null ? at : at - plan.seconds / 2, plan.type === null ? 0.01 : plan.seconds, true);
-    }
     chooser.shown(look.id, at, barSeconds(rhythm));
     songRef.current = s?.track?.id ?? null;
     shownPalette.current = p;
@@ -186,14 +191,45 @@ export default function NowPlayingView() {
     show(current, "key", source.now, { type: "additive-dissolve", seconds: 0.8 });
   };
 
+  /** The engine's effects for this moment, if it plays them (not by hand): landing on their beats, eased. */
+  const playEffects = (time: number, now: Moment) => {
+    const mode = latest.current.prefs.effects;
+    if (mode === "hand") return;
+    const rhythm = useNowPlaying.getState().live?.signals.data().header.rhythm;
+    const beat = beatSeconds(rhythm);
+    const change = effectsEngine.step(
+      { time, mood: now.mood, beat, nextBeat: onTheBeat(rhythm, time + 0.02), nextBar: nextDownbeat(rhythm, time + 0.02), drop: now.drop, look: liveLook(director.look ?? "") ?? null },
+      mode,
+    );
+    if (!change) return;
+    director.setFrame(change.effects.frame, change.at, Math.max(0.01, change.seconds), change.upright);
+    director.setFx(change.effects.fx, change.at, change.seconds);
+    choices.current = [...choices.current, { time, why: change.why }].slice(-CHOICES_KEPT);
+    if (change.often) logger.debug(change.why);
+    else logger.info(change.why);
+  };
+
+  /**
+   * Played by hand from here (a slider, an effect key, the frame keys): the engine's effects become the panel's, as
+   * they are, and it stops.
+   */
+  const takeOver = () => {
+    const prefs = useVisualizerPrefs.getState();
+    if (prefs.effects === "hand") return;
+    prefs.setFx(director.fxNow(source.now));
+    prefs.setEffects("hand");
+    logger.info("effects by hand");
+  };
+
   /** The frame now, for the panel (it changes outside React). */
   const frameNow = useCallback(() => director.frame, [director]);
+  const fxNow = useCallback(() => director.fxNow(source.now), [director, source]);
 
-  /** Reframe the picture over a beat (the frame keys, the assistant), kept across looks until it's plain again. */
+  /** Reframe the picture over a beat (the frame keys, the panel, the assistant): by hand from then on. */
   const reframe = (frame: Frame, upright = false) => {
+    takeOver();
     const rhythm = useNowPlaying.getState().live?.signals.data().header.rhythm;
     director.setFrame(frame, source.now, Math.max(0.25, beatSeconds(rhythm)), upright);
-    frameByKeys.current = !isPlain(frame);
   };
 
   /** What the chooser goes by now. */
@@ -211,13 +247,6 @@ export default function NowPlayingView() {
     if (often) logger.debug(choice.why);
     else logger.info(choice.why);
     if (choice.how === "mutate") return mutate();
-    if (choice.how === "frame" && choice.frame) {
-      // A reframing lands on the next downbeat, over a beat.
-      const rhythm = useNowPlaying.getState().live?.signals.data().header.rhythm;
-      director.setFrame(choice.frame, onTheBar(rhythm, time + 0.1), Math.max(0.25, beatSeconds(rhythm)));
-      frameByKeys.current = false;
-      return;
-    }
     variationRef.current++;
     if (choice.how === "vary") return show(choice.look, choice.reason, time, { type: "additive-dissolve", seconds: 1.2, morph: false, lands: "bar" });
     if (choice.how === "cut") {
@@ -259,6 +288,7 @@ export default function NowPlayingView() {
     const cuts = beats <= CUT_BEATS;
     const now = moment(time);
     if (!now) return;
+    playEffects(time, now);
     if (dueRef.current !== null && time >= dueRef.current - (cuts ? 0.12 : 0.6)) {
       // Every so many bars: a look that suits the music, on time.
       const due = dueRef.current;
@@ -302,9 +332,13 @@ export default function NowPlayingView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [palette]);
 
-  // The player's distortions and feedback, over every look.
+  // The player's distortions and feedback by hand, over every look; or the engine's, carrying on from them.
   const fx = prefs.fx;
-  useEffect(() => director.setFx(fx), [director, fx]);
+  const effectsMode = prefs.effects;
+  useEffect(() => {
+    if (effectsMode === "hand") director.setFx(fx, source.now, 0.15);
+    else effectsEngine.from({ frame: director.frame, fx: director.fx }, source.now);
+  }, [director, source, effectsEngine, fx, effectsMode]);
 
   // A look asked for from outside (the assistant), or chaos rolled or mutated.
   const requested = prefs.requested;
@@ -446,10 +480,13 @@ export default function NowPlayingView() {
                     ? { ...f, zoom: stepAlong(ZOOMS, f.zoom, action.change === "zoom-in" ? 1 : -1) }
                     : PLAIN_FRAME;
           // Backspace is vaudio's wash: the distortions and feedback go too.
-          if (action.change === "reset") useVisualizerPrefs.getState().setFx("wash");
-          return reframe(next, action.change === "reset");
+          const washing = action.change === "reset";
+          reframe(next, washing);
+          if (washing) useVisualizerPrefs.getState().setFx("wash");
+          return;
         }
         case "fx": {
+          takeOver();
           const now = useVisualizerPrefs.getState().fx;
           return useVisualizerPrefs.getState().setFx({ [action.key]: now[action.key] + action.by });
         }
@@ -551,6 +588,7 @@ export default function NowPlayingView() {
                 <PiShuffle />
               </HudButton>
               <HudSelect label="Change looks" value={prefs.auto} options={AUTO_SWITCHES} onChange={(id) => useVisualizerPrefs.getState().setAuto(id)} />
+              <HudSelect label="Effects" value={prefs.effects} options={EFFECTS_MODES} onChange={(id) => useVisualizerPrefs.getState().setEffects(id)} />
               <HudSelect label="Quality" value={prefs.quality} options={QUALITIES} onChange={(id) => useVisualizerPrefs.getState().setQuality(id)} />
             </div>
           </div>
@@ -560,10 +598,15 @@ export default function NowPlayingView() {
       {panel && !hudHidden && (
         <PlayPanel
           frame={frameNow}
+          fx={fxNow}
           onFrame={(f) => reframe(f)}
+          onFx={(change) => {
+            takeOver();
+            useVisualizerPrefs.getState().setFx(change);
+          }}
           onWash={() => {
-            useVisualizerPrefs.getState().setFx("wash");
             reframe(PLAIN_FRAME, true);
+            useVisualizerPrefs.getState().setFx("wash");
           }}
         />
       )}

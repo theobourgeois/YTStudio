@@ -69,6 +69,7 @@ import {
 import { log } from "@/lib/log";
 import { type Frame, LIVE_LOOKS, NO_FX, liveLook } from "@shared/live-looks";
 import { type NowPlayingUnavailable, positionAt } from "@shared/now-playing";
+import { EFFECTS_MODES } from "@/components/now-playing-view/effects-engine";
 import { AUTO_SWITCHES, useVisualizerPrefs } from "@/components/now-playing-view/prefs";
 import { useNowPlaying } from "@/stores/now-playing";
 
@@ -820,7 +821,12 @@ const TOOLS: Record<VideoToolName, Handler> = {
         : `The visualizer is closed (its look is ${prefs.look}; looks change: ${auto.id}).`,
     );
     const fxSet = (Object.keys(NO_FX) as (keyof typeof NO_FX)[]).filter((k) => prefs.fx[k] !== NO_FX[k]);
-    lines.push(`Distort and feedback over the looks: ${fxSet.length ? fxSet.map((k) => `${k} ${prefs.fx[k]}`).join(", ") : "none"}.`);
+    const effectsBy = EFFECTS_MODES.find((m) => m.id === prefs.effects)!;
+    lines.push(
+      prefs.effects === "hand"
+        ? `Effects over the looks by hand: ${fxSet.length ? fxSet.map((k) => `${k} ${prefs.fx[k]}`).join(", ") : "none"}.`
+        : `Effects over the looks: played by the engine (${effectsBy.label.toLowerCase()}, ${effectsBy.id}).`,
+    );
     // What each suits (step 5 of docs/now-playing.md), so a look can be picked for the music.
     const suits = (l: (typeof LIVE_LOOKS)[number]) => `${l.suits.characters.join("/")}, intensity ${l.suits.energy[0]}–${l.suits.energy[1]}${l.suits.minimal ? ", minimal" : ""}`;
     lines.push(`Looks (id: name, kind, what it suits): ${LIVE_LOOKS.map((l) => `${l.id} (${l.name}, ${l.kind}, ${suits(l)})`).join("; ")}.`);
@@ -834,6 +840,9 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const look = optString(input, "look");
     const auto = optString(input, "auto");
     const roll = optString(input, "roll");
+    const effectsMode = optString(input, "effects");
+    const effects = effectsMode === undefined ? undefined : EFFECTS_MODES.find((m) => m.id === effectsMode);
+    if (effectsMode !== undefined && !effects) throw new ToolError(`\`effects\` is one of ${EFFECTS_MODES.map((m) => m.id).join(", ")}.`);
     const rawFrame = input.frame;
     if (rawFrame !== undefined && (typeof rawFrame !== "object" || rawFrame === null || Array.isArray(rawFrame))) throw new ToolError("`frame` is an object: repeat, mirror, spin, zoom or reset.");
     const frameIn = (rawFrame ?? {}) as Record<string, unknown>;
@@ -863,6 +872,10 @@ const TOOLS: Record<VideoToolName, Handler> = {
       await np.command({ action: "seek", position: seek });
       done.push(`went to ${formatDuration(seek)} in the song`);
     }
+    if (effects) {
+      useVisualizerPrefs.getState().setEffects(effects.id);
+      done.push(`effects: ${effects.label.toLowerCase()}`);
+    }
     if (autoSwitch) {
       useVisualizerPrefs.getState().setAuto(autoSwitch.id);
       done.push(`looks change: ${autoSwitch.label.toLowerCase()}`);
@@ -875,6 +888,8 @@ const TOOLS: Record<VideoToolName, Handler> = {
       if (typeof input.fx !== "object" || input.fx === null || Array.isArray(input.fx)) throw new ToolError("`fx` is an object: warp, swirl, ripple, kaleido, pixelate, lens, fold, feedback, trails, echoZoom, echoSpin, echoHue, or wash.");
       const given = input.fx as Record<string, unknown>;
       const prefs = useVisualizerPrefs.getState();
+      // Set by hand: the engine stops playing them.
+      prefs.setEffects("hand");
       if (given.wash === true) {
         prefs.setFx("wash");
         prefs.requestFrame("reset");
@@ -897,7 +912,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
       np.closeVisualizer();
       done.push("closed the visualizer");
     }
-    if (!done.length) throw new ToolError("Nothing to do: give `action`, `seek`, `visualizer`, `look`, `frame`, `fx`, `roll` or `auto`.");
+    if (!done.length) throw new ToolError("Nothing to do: give `action`, `seek`, `visualizer`, `look`, `frame`, `fx`, `roll`, `auto` or `effects`.");
     return textResult(`Done: ${done.join(", ")}.`);
   },
   async open_sequence(input, ctx) {

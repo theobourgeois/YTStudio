@@ -236,15 +236,33 @@ changing (`SwitchReason`, the chooser's or a key's):
 **The frame** (`Frame`, on the perform layer, over any look: the editor's Transform, as the video editor's Motion has
 it): repeated (2×2, 3×3, 4×4: zoomed out, its edges tiled), mirrored (the copies each beside its reflection; one copy,
 mirrored down the middle), turning, zoomed, eased over a beat (`setFrame`, an expression with `ease()`; a turn carries
-on from where it was: `frameAngle`). Following the music, a look that isn't chaos is reframed after its first phrase
-(`frameFor`: calm, a mirror or a slow turn; a groove, mirrored copies; intense, more copies or a quicker turn) and a
-new look comes as it is; the keys' (T Y [ ] , .) or the panel's frame stays across looks until it's washed.
+on from where it was: `frameAngle`).
 
-**The player's settings** (D, the panel `play-panel.tsx`; `LiveFx`, kept in this browser): vaudio's Distort (fluid
+**The effects engine** (`effects-engine.ts`, pure and tested; the "Effects" menu, `useVisualizerPrefs.effects`) plays
+the frame and the distortions and feedback by itself, by the music, landing on its beats:
+
+- **Follow the music** (the default): calm, something gentle every 4 bars eased over a bar (a mirror fold, a slow
+  warp, soft trails, a soft kaleidoscope); a groove, a set every 4 bars mutated after 2 (mirrored copies, a swirl,
+  ripples, a kaleidoscope, a tunnel); intense, a set every 2 bars mutated on the bar between (copies, a feedback
+  tunnel, pixels, a lens, a quick turn, a colour echo). A build-up tightens bar by bar (a copy more, more kaleidoscope,
+  zooming in, its feedback let go); a drop is clean on its cut (the new look's impact), then goes hard a bar on; a
+  breakdown washes back to gentle over a bar.
+- **Every beat**: a new set on each downbeat, a mutation of it on each beat between (a mirror on or off, a copy more or
+  fewer, a zoom, the turn reversed; never the same twice running). With looks changing every 4 bars it's Théo's "every
+  few beats mutated a bit, the next bar a new effect". **Every bar**: a new set on each downbeat.
+- **By hand**: the panel and the keys. Touching either takes the effects over from the engine as they are.
+
+A chaos look gets no feedback of the engine's (it has its own world); a sparse look (a spectrum, chaos: a thing in the
+middle of black) isn't zoomed out nor copied past 2×2 (specks in the dark); feedback stays under 0.8. Before the music's
+downbeats are known, bars are counted in beats. Every change says why (the log: info, every beat at debug; the I
+readout). Changing a setting doesn't wipe a World Loop's trails: heard live, a simulation's state is kept by its clip's
+id, not its contents (`simulationVersion`), as vaudio's is.
+
+**The player's settings** (D, the panel `play-panel.tsx`; `LiveFx`, kept in this browser; it shows what plays, the engine's too): vaudio's Distort (fluid
 warp, swirl, ripples, kaleidoscope, pixelate, lens, mirror fold) and Feedback (feedback, trail length, echo zoom, echo
 spin, echo hue) panels, in its units, over any look: a World Loop (warp and swirl moving with the sound), a mosaic, a
 bulge. Q W E nudge warp, swirl, ripples as vaudio's do; ⌫ (Wash) puts them and the frame back. The assistant's
-`control_now_playing` takes `frame` and `fx`; `now_playing` says what's set.
+`control_now_playing` takes `frame`, `fx` and `effects` (who plays them); `now_playing` says what's set.
 
 ## The plan (v2)
 
@@ -264,8 +282,9 @@ Only the e2e spec a step touches is run (`e2e/now-playing.spec.ts`), never the w
 5. **Picking looks by mood** (done): see Following the music. Pass: a test that a look never plays out of its range
    (for longer than a phrase); a log of each choice and why; Théo watches whole songs.
 6. **Musical transitions** (done): see Transitions and the frame; with it, Théo's asks: the frame (repeat, mirror,
-   turn, zoom, as the video editor's Motion) and vaudio's Distort and Feedback panels (D). Pass: drop cuts within a
-   frame or two of their kick (logged); films of whole songs; Théo's eyes.
+   turn, zoom, as the video editor's Motion) and vaudio's Distort and Feedback panels (D), played by the effects engine
+   by the music (his: "I want the engine to know when to apply the effects"). Pass: drop cuts within a frame or two of
+   their kick on a clear drop (logged; 80–140 ms on a softer one); films of whole songs; Théo's eyes.
 7. **Its own window**: a movable, resizable window, from a mini player to full screen; in the desktop app a window
    of the system (on top, or on a second screen). Pass: an e2e test, the desktop smoke test, Théo uses it.
 8. **MilkDrop** (optional): Butterchurn as a source, its presets picked by mood. Pass: licences, 60 fps, Théo decides.

@@ -4,18 +4,18 @@
  * (`Mood`). Following the music: something minimal while a new song's kind isn't known yet, then a look for it; an
  * intense one on a drop, a calm one in a breakdown, none changed in a build-up (it lands on the drop); every 8-bar
  * phrase the look's checked against the music (and changed when it no longer suits, sooner when it's far off), a
- * chaos look mutated each phrase and changed after 32 bars, another look reframed after 8 (repeated, mirrored, turning:
- * `frameFor`) and changed after 16 (it doesn't evolve as chaos does: longer, it's a loop). A drop is the kick it lands
+ * chaos look mutated each phrase and changed after 32 bars, another changed after 16 (the effects over it evolve it
+ * meanwhile: `effects-engine.ts`; it doesn't evolve as chaos does: longer, it's a loop). A drop is the kick it lands
  * on, heard at once (`Moment.drop`), and cut to there. Every choice says why, and its reason picks its transition
  * (`switches.ts`).
  * Pure, and tested: the view acts on what it's told.
  */
-import { type Frame, type LiveLook, PLAIN_FRAME } from "@shared/live-looks";
+import type { LiveLook } from "@shared/live-looks";
 import type { Mood } from "@shared/signals/mood";
 import type { SwitchReason } from "./switches";
 
-/** How a choice comes in: cut (at `at`), on the next bar, or the same look mutated (chaos), varied or reframed. */
-export type ChoiceHow = "cut" | "now" | "bar" | "mutate" | "vary" | "frame";
+/** How a choice comes in: cut (at `at`), soon, on the next bar, or the same look mutated (chaos) or varied. */
+export type ChoiceHow = "cut" | "now" | "bar" | "mutate" | "vary";
 
 export interface Choice {
   look: string;
@@ -26,8 +26,6 @@ export interface Choice {
   why: string;
   /** When it cuts (a drop's kick), if not now. */
   at?: number;
-  /** The frame, for a reframing. */
-  frame?: Frame;
 }
 
 /**
@@ -39,31 +37,6 @@ export interface Moment {
   mood: Mood;
   bar: number;
   drop?: number;
-}
-
-/** A frame in words: "repeated 2×2, mirrored, turning 20°/s". */
-export function describeFrame(f: Frame): string {
-  const parts = [
-    f.repeat > 1 && `repeated ${f.repeat}×${f.repeat}`,
-    f.mirror && "mirrored",
-    f.spin !== 0 && `turning ${Math.abs(f.spin)}°/s ${f.spin > 0 ? "left" : "right"}`,
-    f.zoom !== 1 && `zoomed ${f.zoom < 1 ? "out" : "in"} to ${Math.round(f.zoom * 100)}%`,
-  ].filter(Boolean);
-  return parts.length ? parts.join(", ") : "as it is";
-}
-
-/**
- * A reframing for the moment (vaudio's mirror, tile and spin, the editor's Motion moves): calm, a mirror or a slow
- * turn; a groove, mirrored copies; intense, more copies, or a quicker turn.
- */
-export function frameFor(mood: Mood, random: () => number): Frame {
-  const r = random();
-  const side = random() < 0.5 ? 1 : -1;
-  if (mood.intensity < 0.35) return r < 0.5 ? { ...PLAIN_FRAME, mirror: true } : { ...PLAIN_FRAME, spin: 6 * side };
-  if (mood.intensity < 0.7) return r < 0.5 ? { ...PLAIN_FRAME, repeat: 2, mirror: true } : { ...PLAIN_FRAME, mirror: true, zoom: 0.8 };
-  if (r < 0.4) return { ...PLAIN_FRAME, repeat: 2, mirror: random() < 0.5 };
-  if (r < 0.7) return { ...PLAIN_FRAME, repeat: 3, mirror: true };
-  return { ...PLAIN_FRAME, mirror: true, zoom: 0.85, spin: 20 * side };
 }
 
 /** What a look wants of the music when it's picked. */
@@ -256,8 +229,6 @@ export class LookChooser {
         return { look: next.id, how: "bar", reason: "phrase", why: `${most * PHRASE_BARS} bars of ${look.name}: ${next.name} (${heard(mood)})` };
       }
       if (look.kind === "chaos") return { look: look.id, how: "mutate", reason: "phrase", why: `a phrase: ${look.name} mutated` };
-      const frame = frameFor(mood, this.random);
-      return { look: look.id, how: "frame", reason: "phrase", frame, why: `a phrase: ${look.name} ${describeFrame(frame)}` };
     }
     return null;
   }

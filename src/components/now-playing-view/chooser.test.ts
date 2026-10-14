@@ -179,7 +179,7 @@ describe("following the music", () => {
     expect(quiet && LIVE_LOOKS.find((l) => l.id === quiet.look)!.suits.minimal).toBe(true);
   });
 
-  it("mutates a chaos look each phrase and changes it after 32 bars; reframes another after 8 and changes it after 16", () => {
+  it("mutates a chaos look each phrase and changes it after 32 bars; keeps another (its effects evolve it) and changes it after 16", () => {
     const chooser = new LookChooser(LIVE_LOOKS, seededRandom("phrase"));
     const bar = 2;
     const phrase = PHRASE_BARS * bar;
@@ -200,10 +200,7 @@ describe("following the music", () => {
     expect(chaos[3]).toMatchObject({ how: "bar" });
     expect(chaos[3]!.look).not.toBe("chaos-stargate");
     const other = at("cyberspace", 1000, 2);
-    expect(other[0]).toMatchObject({ look: "cyberspace", how: "frame", reason: "phrase" });
-    // Intense: more copies, or a quicker turn (a reframing, never the picture as it is).
-    expect(other[0]!.frame).toBeDefined();
-    expect(other[0]!.frame).not.toEqual({ repeat: 1, mirror: false, spin: 0, zoom: 1 });
+    expect(other[0]).toBeNull();
     expect(other[1]!.look).not.toBe("cyberspace");
   });
 });

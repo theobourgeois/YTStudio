@@ -12,6 +12,7 @@ import {
   NO_FX,
   endShow,
   frameAngle,
+  fxAt,
   normalizeFx,
   liveProject,
   lookSequence,
@@ -137,14 +138,27 @@ describe("the frame", () => {
   });
 
   it("plays the player's distortions and feedback over every look, in vaudio's units", () => {
-    expect(performLayer(0, null, null, NO_FX).effects.some((e) => ["world-loop", "mosaic", "bulge"].includes(e.type))).toBe(false);
-    const played = performLayer(0, null, null, { ...NO_FX, warp: 0.4, kaleido: 0.5, fold: 0.3, feedback: 0.87, trails: 0.76, echoZoom: 0.33, pixelate: 0.29, lens: -0.18 });
+    expect(performLayer(0, null, null, null).effects.some((e) => ["world-loop", "mosaic", "bulge"].includes(e.type))).toBe(false);
+    const set = { ...NO_FX, warp: 0.4, kaleido: 0.5, fold: 0.3, feedback: 0.87, trails: 0.76, echoZoom: 0.33, pixelate: 0.29, lens: -0.18 };
+    const played = performLayer(0, null, null, { from: set, to: set, at: 0, seconds: 0 });
     const world = effect(played, "world-loop")!;
     expect(world.params).toMatchObject({ warp: 0.4, kaleido: 0.5, mirror: 0.3, amount: 0.87, echoRotation: 0, echoHue: 0 });
     expect(world.params.echoZoom).toBeGreaterThan(1);
     expect(world.links?.warp).toBeDefined();
     expect(effect(played, "mosaic")).toBeDefined();
     expect(effect(played, "bulge")?.params.amount).toBeLessThan(0);
+  });
+
+  it("eases the player's values from where they were, its loop's state kept by role", () => {
+    const to = { ...NO_FX, kaleido: 0.6, feedback: 0.7 };
+    const layer = performLayer(0, null, null, { from: NO_FX, to, at: 10, seconds: 2 });
+    const world = effect(layer, "world-loop")!;
+    expect(world.id).toBe("fx-loop");
+    expect(world.expressions?.kaleido).toBe("ease(time, 10, 12, 0, 0.6)");
+    expect(world.expressions?.warp).toBeUndefined();
+    const halfway = fxAt({ from: NO_FX, to, at: 10, seconds: 2 }, 11);
+    expect(halfway.kaleido).toBeCloseTo(0.3);
+    expect(effect(performLayer(0, null, { at: 5, seconds: 2 }, null), "world-loop")?.id).toBe("morph-loop");
   });
 
   it("keeps what's stored or given of the player's values within vaudio's ranges", () => {

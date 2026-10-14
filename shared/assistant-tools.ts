@@ -1345,6 +1345,10 @@ export const VIDEO_TOOLS = [
         "vaudio's Distort and Feedback panels, over any look, in its units: only what's given changes; kept until washed.",
       ),
       auto: oneOf(["off", "song", "beat", "bars1", "bars2", "bars4", "bars8", "bars16", "bars32"], "How looks change by themselves."),
+      effects: oneOf(
+        ["music", "beat", "bar", "hand"],
+        "Who plays the effects over the looks (the frame, distortions, feedback): music: the engine, by the mood (gentle when calm, harder when intense, tightening in a build-up, clean on a drop); beat: a new set each bar, mutated each beat; bar: a new set each bar; hand: only what's set (`frame`, `fx`, the keys).",
+      ),
     }),
   }),
 ] as const satisfies readonly ToolSpec[];

@@ -312,39 +312,78 @@ export function normalizeFx(raw: unknown): LiveFx {
 
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
 
-/** The player's distortions and feedback as effects: a World Loop (bent and fed back), a mosaic, a bulge. */
-function fxEffects(v: LiveFx): Effect[] {
-  const out: Effect[] = [];
-  if (v.warp || v.swirl || v.ripple || v.kaleido || v.fold || v.feedback) out.push(fxWorld(v));
-  if (v.pixelate > 0) out.push(fx("mosaic", { blockSize: round3(0.005 + v.pixelate * 0.03) }));
-  if (v.lens !== 0) out.push(fx("bulge", { amount: round3(v.lens * 0.8), reach: 0.6 }));
+/** A change of the player's values: from one to another over `seconds` from `at` (session seconds), eased. */
+export interface FxMove {
+  from: LiveFx;
+  to: LiveFx;
+  at: number;
+  seconds: number;
+}
+
+/** Where a move has got to by `time` (eased as `ease()` eases), so the next carries on from there. */
+export function fxAt(move: FxMove | null, time: number): LiveFx {
+  if (!move) return NO_FX;
+  const k = Math.min(1, Math.max(0, (time - move.at) / Math.max(1e-3, move.seconds)));
+  const e = k * k * (3 - 2 * k);
+  const out = { ...move.to };
+  for (const key of Object.keys(NO_FX) as (keyof LiveFx)[]) out[key] = move.from[key] + (move.to[key] - move.from[key]) * e;
   return out;
 }
 
-/** The World Loop of the player's values (vaudio's units to its), warp and swirl moving with the sound. */
-function fxWorld(v: LiveFx): Effect {
-  const LEVEL_REF: SignalRef = { name: "level" };
-  const follows = { ...DEFAULT_RESPONSE, release: 0.3 };
-  return fx(
-    "world-loop",
-    {
-      warp: round3(v.warp),
-      swirl: round3(v.swirl),
-      ripple: round3(v.ripple),
-      kaleido: round3(v.kaleido),
-      mirror: round3(v.fold),
-      amount: round3(v.feedback),
-      trailLength: Math.round(trailSeconds(v.trails) * 100) / 100,
-      echoZoom: Math.round(echoZoom(v.echoZoom) * 100) / 100,
-      echoRotation: Math.round(v.echoSpin * 189),
-      echoHue: Math.round(v.echoHue * 430),
-      mode: "lighten",
-    },
-    {
-      ...(v.warp > 0 && { warp: { signal: LEVEL_REF, mode: "multiply", amount: 0.5, response: follows } }),
-      ...(v.swirl > 0 && { swirl: { signal: LEVEL_REF, mode: "multiply", amount: 0.5, response: follows } }),
-    },
-  );
+/** The World Loop's values for the player's (vaudio's units to its). */
+const loopValues = (v: LiveFx) => ({
+  warp: round3(v.warp),
+  swirl: round3(v.swirl),
+  ripple: round3(v.ripple),
+  kaleido: round3(v.kaleido),
+  mirror: round3(v.fold),
+  amount: round3(v.feedback),
+  trailLength: Math.round(trailSeconds(v.trails) * 100) / 100,
+  echoZoom: Math.round(echoZoom(v.echoZoom) * 100) / 100,
+  echoRotation: Math.round(v.echoSpin * 189),
+  echoHue: Math.round(v.echoHue * 430),
+});
+const blockSize = (v: LiveFx) => round3(0.005 + v.pixelate * 0.03);
+const lensAmount = (v: LiveFx) => round3(v.lens * 0.8);
+
+/**
+ * Values eased from `from` to `to` over the move (expressions with `ease()`), or held (a move over, or none): what
+ * changed is written as an expression, the rest as it is.
+ */
+function eased(params: Record<string, number>, before: Record<string, number>, move: FxMove): Record<string, string> {
+  const end = move.at + Math.max(0.01, move.seconds);
+  const out: Record<string, string> = {};
+  for (const [key, to] of Object.entries(params)) if (before[key] !== to) out[key] = `ease(time, ${move.at}, ${end}, ${before[key]}, ${to})`;
+  return out;
+}
+
+/** The player's distortions and feedback as effects (eased as `move` says): a World Loop, a mosaic, a bulge. */
+function fxEffects(move: FxMove | null): Effect[] {
+  if (!move) return [];
+  const { from, to } = move;
+  const out: Effect[] = [];
+  const either = (test: (v: LiveFx) => boolean) => test(from) || test(to);
+  if (either((v) => !!(v.warp || v.swirl || v.ripple || v.kaleido || v.fold || v.feedback))) {
+    const params = loopValues(to);
+    const expressions = eased(params, loopValues(from), move);
+    // Held still, warp and swirl move with the sound (as vaudio's do); easing, they go where they're told.
+    const follows = { ...DEFAULT_RESPONSE, release: 0.3 };
+    const level = (amount: number): ParamLink => ({ signal: { name: "level" }, mode: "multiply", amount, response: follows });
+    const links = {
+      ...(to.warp > 0 && !expressions.warp && { warp: level(0.5) }),
+      ...(to.swirl > 0 && !expressions.swirl && { swirl: level(0.5) }),
+    };
+    out.push({ ...fx("world-loop", { ...params, mode: "lighten" }, links), ...(Object.keys(expressions).length && { expressions }) });
+  }
+  if (either((v) => v.pixelate > 0)) {
+    const expressions = eased({ blockSize: blockSize(to) }, { blockSize: blockSize(from) }, move);
+    out.push({ ...fx("mosaic", { blockSize: blockSize(to) }), ...(Object.keys(expressions).length && { expressions }) });
+  }
+  if (either((v) => v.lens !== 0)) {
+    const expressions = eased({ amount: lensAmount(to) }, { amount: lensAmount(from) }, move);
+    out.push({ ...fx("bulge", { amount: lensAmount(to), reach: 0.6 }), ...(Object.keys(expressions).length && { expressions }) });
+  }
+  return out;
 }
 
 /**
@@ -367,7 +406,7 @@ export function performLayer(
   hue: number,
   move: FrameMove | null = null,
   morph: { at: number; seconds: number } | null = null,
-  play: LiveFx = NO_FX,
+  play: FxMove | null = null,
 ): Clip {
   const hit = (pad: Pad, mode: ParamLink["mode"], amount: number, decay: number): ParamLink => ({
     signal: padRef(pad),
@@ -376,16 +415,22 @@ export function performLayer(
     response: DEFAULT_RESPONSE,
     hit: { attack: 0.004, hold: 0.02, decay },
   });
-  const effects = withIds([
-    ...tweakBuiltIn(defaultEffects(), "motion", {}, { scale: hit("zoom", "multiply", 0.22, 0.32), rotation: hit("twist", "add", 9, 0.45) }),
-    ...(morph ? [morphEffect(morph.at, morph.seconds)] : []),
-    ...fxEffects(play),
-    ...(move ? frameEffects(move) : []),
-    fx("twirl", { angle: 0, reach: 0.6 }, { angle: hit("twist", "add", 140, 0.5) }),
-    fx("rgb-split", { amount: 0 }, { amount: hit("split", "add", 0.035, 0.3) }),
-    fx("flash", { amount: 0, exposure: 1.2, bloom: 0.6 }, { amount: hit("flash", "add", 0.85, 0.22) }),
-    fx("hue-saturation", { hue: ((Math.round(hue) % 360) + 540) % 360 - 180, saturation: 1, lightness: 0 }),
-  ]);
+  // The World Loops' states are kept by their effect's id: theirs by role, so one coming or going doesn't renumber the other.
+  const roles: [Effect, string | null][] = [
+    ...tweakBuiltIn(defaultEffects(), "motion", {}, { scale: hit("zoom", "multiply", 0.22, 0.32), rotation: hit("twist", "add", 9, 0.45) }).map(
+      (e): [Effect, null] => [e, null],
+    ),
+    ...(morph ? [[morphEffect(morph.at, morph.seconds), "morph-loop"] as [Effect, string]] : []),
+    ...fxEffects(play).map((e): [Effect, string | null] => [e, e.type === "world-loop" ? "fx-loop" : null]),
+    ...(move ? frameEffects(move) : []).map((e): [Effect, null] => [e, null]),
+    ...[
+      fx("twirl", { angle: 0, reach: 0.6 }, { angle: hit("twist", "add", 140, 0.5) }),
+      fx("rgb-split", { amount: 0 }, { amount: hit("split", "add", 0.035, 0.3) }),
+      fx("flash", { amount: 0, exposure: 1.2, bloom: 0.6 }, { amount: hit("flash", "add", 0.85, 0.22) }),
+      fx("hue-saturation", { hue: ((Math.round(hue) % 360) + 540) % 360 - 180, saturation: 1, lightness: 0 }),
+    ].map((e): [Effect, null] => [e, null]),
+  ];
+  const effects = withIds(roles.map(([e]) => e)).map((e, k) => (roles[k][1] ? { ...e, id: roles[k][1]! } : e));
   return { id: "perform", assetId: "", trackId: PERFORM_TRACK, start: 0, in: 0, out: FOREVER, effects, adjustment: true };
 }
 

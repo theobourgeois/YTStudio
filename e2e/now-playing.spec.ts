@@ -84,7 +84,10 @@ test("Now Playing: the song in the top bar, controlled from there, and the visua
   const panel = view.locator("[data-play-panel]");
   await expect(panel).toContainText("Fluid warp");
   await expect(panel).toContainText("Echo zoom");
+  // The music plays the effects until they're touched; then they're played by hand.
+  await expect(panel).toContainText("The music plays these");
   await panel.getByRole("button", { name: "2×2" }).click();
+  await expect(panel).not.toContainText("The music plays these");
   await expect(panel.getByRole("button", { name: "2×2" })).toHaveAttribute("aria-pressed", "true");
   await panel.getByRole("slider", { name: "Feedback" }).fill("0.5");
   await expect(panel).toContainText("050");

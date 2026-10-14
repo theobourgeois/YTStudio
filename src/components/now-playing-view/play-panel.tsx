@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { FX_RANGES, type Frame, type LiveFx } from "@shared/live-looks";
 import { cn } from "cn";
+import { EFFECTS_MODES } from "./effects-engine";
 import { useVisualizerPrefs } from "./prefs";
 
 /** vaudio's readout: a 0..1 value as three digits ("038"), a signed one as itself ("-0.18"). */
@@ -28,15 +29,29 @@ const FEEDBACK: { key: keyof LiveFx; label: string }[] = [
  * Every setting the player plays over any look (D): vaudio's Distort and Feedback panels, kept in this browser
  * (`useVisualizerPrefs.fx`), and the frame (repeat, mirror, turn, zoom), eased over a beat. Wash puts it all back.
  */
-export function PlayPanel({ frame, onFrame, onWash }: { frame: () => Frame; onFrame: (frame: Frame) => void; onWash: () => void }) {
-  const fx = useVisualizerPrefs((s) => s.fx);
-  const setFx = useVisualizerPrefs((s) => s.setFx);
-  // The frame changes outside React too (the keys, the chooser's reframings): read a few times a second.
+export function PlayPanel(props: {
+  frame: () => Frame;
+  fx: () => LiveFx;
+  onFrame: (frame: Frame) => void;
+  onFx: (change: Partial<LiveFx>) => void;
+  onWash: () => void;
+}) {
+  const { frame, onFrame, onWash } = props;
+  const mode = useVisualizerPrefs((s) => s.effects);
+  // What plays changes outside React (the engine, the keys): read a few times a second.
   const [shown, setShown] = useState(frame);
+  const [fx, setValues] = useState(props.fx);
   useEffect(() => {
-    const id = setInterval(() => setShown(frame()), 250);
+    const id = setInterval(() => {
+      setShown(frame());
+      setValues(props.fx());
+    }, 120);
     return () => clearInterval(id);
-  }, [frame]);
+  }, [frame, props.fx]);
+  const setFx = (change: Partial<LiveFx>) => {
+    setValues((v) => ({ ...v, ...change }));
+    props.onFx(change);
+  };
   const reframe = (change: Partial<Frame>) => {
     const next = { ...shown, ...change };
     setShown(next);
@@ -51,6 +66,11 @@ export function PlayPanel({ frame, onFrame, onWash }: { frame: () => Frame; onFr
       data-play-panel
       className="pointer-events-auto absolute top-16 right-4 bottom-36 w-72 overflow-y-auto rounded-lg bg-black/75 px-5 py-4 ring-1 ring-white/10 backdrop-blur-md"
     >
+      {mode !== "hand" && (
+        <p className="mb-4 text-[11px] leading-4 text-white/55">
+          The music plays these ({EFFECTS_MODES.find((m) => m.id === mode)?.label.toLowerCase()}). Touch one and they're yours.
+        </p>
+      )}
       <Section title="Distort">{DISTORT.map((d) => slider(d.key, d.label))}</Section>
       <Section title="Feedback">{FEEDBACK.map((d) => slider(d.key, d.label))}</Section>
       <Section title="Frame">
