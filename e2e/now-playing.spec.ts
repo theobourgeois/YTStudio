@@ -79,6 +79,11 @@ test("Now Playing: the song in the top bar, controlled from there, and the visua
   await expect(view.locator("[data-latency]")).toContainText("ms after the sound is sent");
   await page.keyboard.press("l");
   await expect(view.locator("[data-latency]")).toHaveCount(0);
+  // I shows what it hears: the song's mood.
+  await page.keyboard.press("i");
+  await expect(view.locator("[data-mood]")).toContainText("intensity");
+  await page.keyboard.press("i");
+  await expect(view.locator("[data-mood]")).toHaveCount(0);
   await page.keyboard.press("s");
   await expect(view.locator("[data-tap-sync]")).toContainText("Tap Space on the beat");
   await page.keyboard.press(" ");

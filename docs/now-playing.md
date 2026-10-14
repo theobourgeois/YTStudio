@@ -98,17 +98,36 @@ a tempo related to it (half or double time, a 3-3-2 pattern's dotted quarter) ta
 (`TEMPO_PATIENCE`), an unrelated one (a new song) in 1.5 s; a beat that flips would throw everything on it off.
 `src/components/now-playing-view/latency.test.ts` runs the whole pipeline at 60 fps and checks it.
 
+## The mood
+
+`LiveMood` (`shared/signals/mood.ts`, kept by `LiveSignals`, read four times a second) hears what kind of moment it
+is, for looks to follow (steps 3 and 5):
+
+- **Intensity** (0..1): how much is going on over the last 3 s: loudness against full scale and against the song's
+  own loud parts, hits a second in each band (each band's own: the loudest band's would hide hats behind kicks), kicks
+  a second, the sub-bass's share. Rises in ~0.6 s, falls in ~2 s (Synesthesia's `syn_Intensity` idea).
+- **Presence**: each band (low, mid, high) getting busier or quieter: its last 2 s against the 6 s before.
+- **Sections**: a drop where the low end comes in suddenly (`LiveSignals.findDrop`: a riser growing louder isn't one),
+  a build-up where intensity climbs or the low end is gone and the highs rise, a breakdown where intensity has fallen
+  well under the last 12 s's highest with no kicks. Each held until the song moves on (no flicker).
+- **Character**: chill, groove, hype or heavy, from the song's typical intensity, density, steady beat, sub-bass,
+  brightness, loudness and tempo since it started (`newSong`, on a new track), taken as it is for its first 10 s,
+  then another must lead for 6 s to take over. `sure` says how settled and clear the call is.
+
+I shows it all in the visualizer (`mood-readout.tsx`), with the measurements under it; the assistant's `now_playing`
+says it too. `mood.test.ts` checks it on made-up music (a pad, a groove, a club track, a half-time heavy track, and
+a song with a build-up, a drop and a breakdown); its numbers are tuned against those, so real music is the real test.
+
 ## The plan (v2)
 
 After Théo's feedback (2026-10-14: the looks are milquetoast and ignore the song's mood, transitions read as amateur,
 the picture is late, and the visualizer should be a window), one step at a time, each passed by him before the next.
 Only the e2e spec a step touches is run (`e2e/now-playing.spec.ts`), never the whole suite.
 
-1. **Sync** (done): the above. Pass: `latency.test.ts` (on-beat kicks within a frame, on average within 5 ms; others
+1. **Sync** (done): see Sync. Pass: `latency.test.ts` (on-beat kicks within a frame, on average within 5 ms; others
    under 60 ms), the L readout, and Théo's eyes on a kick-heavy song.
-2. **Reading the mood**: intensity over the last few seconds, which bands are getting busier or quieter, build-ups,
-   drops and breakdowns, the song's character (chill, groove, hype, heavy). A readout shows what it thinks. Pass:
-   tests on made-up music; Théo's ears agree on real songs.
+2. **Reading the mood** (done): the above. Pass: `mood.test.ts` on made-up music; I in the visualizer, and Théo's
+   ears agree on real songs.
 3. **Energy drives every look**: one energy control on every look; calm parts drift, drops go off (big punches,
    shake, strobe on snares, inverts). Pass: each look on one song at a breakdown, a build-up and a drop, clearly
    different; nothing blown out or black (checked).

@@ -39,12 +39,14 @@ import {
   byteDb,
 } from "./format.ts";
 import { BEAT_RATE, BEAT_WINDOW, LiveBeat } from "./live-beat.ts";
+import { LiveMood, type Mood } from "./mood.ts";
 import type { MusicAnalysis } from "../types.ts";
 
 /** Seconds of the past that say what counts as loud now. */
 export const REFERENCE_SECONDS = 20;
-/** Frames between updates of the references and the beat (half a second). */
+/** Frames between updates of the references and the beat (half a second), and of the mood (a quarter). */
 const SLOW_EVERY = SIGNAL_RATE / 2;
+const MOOD_EVERY = SIGNAL_RATE / 4;
 /** Seconds of sound needed before the references follow it (a moment of music after silence doesn't reset them). */
 const MIN_SOUNDING_SECONDS = 2;
 /** A kick within this of a beat lands on it. */
@@ -55,8 +57,8 @@ const BARS_JUDGED = 4;
 /** Seconds of hits expected ahead, and how long an expected one is kept (its punch plays out). */
 const AHEAD = 1;
 const KEPT = 0.6;
-/** A drop: the last second this many dB louder than the four before, at most one every `DROP_GAP` seconds. */
-const DROP_RISE_DB = 6;
+/** A drop: the low end this many dB louder than just before (the sound half as much), at most one every `DROP_GAP` seconds. */
+const DROP_RISE_DB = 8;
 const DROP_GAP = 8;
 
 const S = SCALARS.length;
@@ -92,6 +94,8 @@ export class LiveSignals {
   private rhythm: MusicAnalysis | null = null;
   private drops: { time: number; rise: number }[] = [];
   private nextSlow = SLOW_EVERY;
+  private nextMood = MOOD_EVERY;
+  private readonly moods = new LiveMood();
   /** The header as of the last change (`data` builds the rest each time). */
   private header: SignalsHeader | null = null;
   private ahead = 0;
@@ -141,6 +145,20 @@ export class LiveSignals {
         this.updateSlow(scalars, this.checked + 1);
       }
     }
+    if (frames >= this.nextMood) {
+      this.nextMood = frames + MOOD_EVERY;
+      this.moods.update(this.data(), this.seconds, this.expecting);
+    }
+  }
+
+  /** How intense it is, where the song is, what kind of song (`mood.ts`), as of a quarter of a second ago at most. */
+  get mood(): Mood {
+    return this.moods.mood;
+  }
+
+  /** A new song started (its character is found afresh). */
+  newSong(): void {
+    this.moods.newSong(this.seconds);
   }
 
   /** Frames measured so far. */
@@ -363,28 +381,32 @@ export class LiveSignals {
   }
 
   /**
-   * A drop where the last second is suddenly louder than the four before the two before it: where the sound got
-   * halfway there, snapped to a beat close by.
+   * A drop where the low end (kick and bass) comes in suddenly: its last three quarters of a second far louder than the
+   * two seconds before, and the sound with it (a riser growing louder over a build-up isn't one). It's placed where
+   * the low end got halfway there, snapped to a beat close by.
    */
   private findDrop(scalars: Float32Array, frames: number): void {
-    if (frames < 6 * SIGNAL_RATE) return;
+    if (frames < 4 * SIGNAL_RATE) return;
     const now = (frames - 1) / SIGNAL_RATE;
     if (this.drops.length && now - this.drops[this.drops.length - 1].time < DROP_GAP) return;
-    const meanDb = (from: number, to: number) => {
+    const meanDb = (names: readonly ScalarName[], from: number, to: number) => {
       let power = 0;
-      for (let f = from; f < to; f++) power += 10 ** (scalars[f * S + INDEX.level] / 10);
+      for (let f = Math.max(0, Math.floor(from)); f < to; f++) for (const n of names) power += 10 ** (scalars[f * S + INDEX[n]] / 10);
       return 10 * Math.log10(power / Math.max(1, to - from) + 1e-12);
     };
-    const recent = meanDb(frames - SIGNAL_RATE, frames);
-    const before = meanDb(frames - 6 * SIGNAL_RATE, frames - 2 * SIGNAL_RATE);
-    const rise = recent - before;
-    if (rise < DROP_RISE_DB || recent < (this.reference.level ?? 0) - 10) return;
-    // Half a second at a time (a tenth would rise at a single hat), its middle where it gets there.
-    const span = SIGNAL_RATE / 2;
-    let at = frames - SIGNAL_RATE;
-    for (let f = frames - 2 * SIGNAL_RATE - span / 2; f <= frames - span; f += SIGNAL_RATE / 20) {
-      if (meanDb(f, f + span) >= before + rise / 2) {
-        at = f + span / 2;
+    const recent = frames - Math.round(0.75 * SIGNAL_RATE);
+    const before = recent - 2 * SIGNAL_RATE;
+    const low = ["sub", "bass"] as const;
+    const lowRise = meanDb(low, recent, frames) - meanDb(low, before, recent);
+    const levelNow = meanDb(["level"], recent, frames);
+    if (lowRise < DROP_RISE_DB || levelNow - meanDb(["level"], before, recent) < DROP_RISE_DB / 2 || levelNow < (this.reference.level ?? 0) - 10) return;
+    // Where the low end got halfway there, a quarter of a second at a time.
+    const lowBefore = meanDb(low, before, recent);
+    const span = SIGNAL_RATE / 4;
+    let at = recent;
+    for (let f = recent - SIGNAL_RATE; f <= frames - span; f += SIGNAL_RATE / 20) {
+      if (meanDb(low, f, f + span) >= lowBefore + lowRise / 2) {
+        at = f;
         break;
       }
     }
@@ -392,6 +414,6 @@ export class LiveSignals {
     const beats = this.rhythm?.beats ?? [];
     const near = beats.reduce((best, b) => (Math.abs(b - time) < Math.abs(best - time) ? b : best), Infinity);
     if (Math.abs(near - time) < 0.15) time = near;
-    this.drops.push({ time: round(time), rise: round(rise) });
+    this.drops.push({ time: round(time), rise: round(lowRise) });
   }
 }
