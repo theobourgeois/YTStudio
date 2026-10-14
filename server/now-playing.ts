@@ -193,9 +193,27 @@ const STAND_IN_TRACKS: (Omit<NowPlayingTrack, "artwork" | "url"> & { colours: [s
   { id: "stand-in:track:3", name: "Deep Blue", artist: "Tidal", album: "Undertow", duration: 241, colours: ["#22d3ee", "#1e3a8a", "#020617"] },
 ];
 
-/** A made-up cover: a glow over a gradient, in the track's colours. */
-function standInArtwork([a, b, c]: [string, string, string]): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><defs><linearGradient id="g" x2="1" y2="1"><stop offset="0" stop-color="${b}"/><stop offset="1" stop-color="${c}"/></linearGradient><radialGradient id="r"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${a}" stop-opacity="0"/></radialGradient></defs><rect width="300" height="300" fill="url(#g)"/><circle cx="190" cy="120" r="110" fill="url(#r)"/></svg>`;
+/**
+ * A made-up cover, in the track's colours, with what a real one has (shapes, edges, a title, grain), so the looks
+ * that show or bend the cover are tried on something like one: a sky, a striped sun, hills, a grid to the horizon.
+ */
+function standInArtwork([a, b, c]: [string, string, string], title: string): string {
+  // The sun's stripes, wider towards its foot (cut out of it).
+  const stripes = [0, 1, 2, 3, 4].map((i) => `<rect x="60" y="${158 + i * 13}" width="180" height="${2 + i * 1.6}"/>`).join("");
+  const across = [216, 226, 240, 258, 282].map((y) => `<line x1="0" y1="${y}" x2="300" y2="${y}"/>`).join("");
+  const toward = [-300, -150, -50, 50, 150, 250, 350, 450, 600].map((x) => `<line x1="150" y1="208" x2="${x}" y2="300"/>`).join("");
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300"><defs>` +
+    `<linearGradient id="sky" x2="0" y2="1"><stop offset="0" stop-color="${c}"/><stop offset="0.75" stop-color="${b}"/></linearGradient>` +
+    `<linearGradient id="sun" x2="0" y2="1"><stop offset="0" stop-color="#fff1d0"/><stop offset="0.6" stop-color="${a}"/></linearGradient>` +
+    `<mask id="cut"><rect width="300" height="300" fill="#fff"/><g fill="#000">${stripes}</g></mask>` +
+    `<filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope="0.14"/></feComponentTransfer></filter>` +
+    `</defs><rect width="300" height="300" fill="url(#sky)"/>` +
+    `<circle cx="150" cy="150" r="80" fill="url(#sun)" mask="url(#cut)"/>` +
+    `<path d="M0 198 L38 166 L72 186 L112 138 L152 180 L188 154 L228 188 L262 162 L300 182 L300 300 L0 300Z" fill="${c}"/>` +
+    `<g stroke="${a}" stroke-opacity="0.6" stroke-width="1.3">${across}${toward}</g>` +
+    `<text x="150" y="42" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-weight="700" font-size="21" letter-spacing="7" fill="#fff" fill-opacity="0.92">${title.toUpperCase()}</text>` +
+    `<rect width="300" height="300" filter="url(#grain)"/></svg>`;
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 }
 
@@ -212,7 +230,7 @@ export function standInPlayer(now: () => number = Date.now): Player {
   let since = now();
   const trackAt = (i: number): NowPlayingTrack => {
     const { colours, ...track } = STAND_IN_TRACKS[i];
-    return { ...track, artwork: standInArtwork(colours), url: null };
+    return { ...track, artwork: standInArtwork(colours, track.album), url: null };
   };
   const status = (): NowPlayingStatus => {
     const at = now();
