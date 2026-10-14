@@ -58,6 +58,8 @@ export const SERUM_LIBRARY = process.env.EDITOR_SERUM_LIBRARY || null;
 export const MUSIC_MODELS = process.env.EDITOR_MUSIC_MODELS || null;
 /** "stand-in": the photo suite's Online panel searches a made-up internet (the e2e tests: `online-stand-in.ts`). */
 export const ONLINE_ASSETS = process.env.EDITOR_ONLINE_ASSETS || null;
+/** Now Playing's player: "stand-in" plays made-up songs (the e2e tests), "off" asks none; unset: Spotify on a Mac. */
+export const NOW_PLAYING = process.env.EDITOR_NOW_PLAYING || null;
 /** gallery-dl, which reads the pictures of a link pasted into the photo suite's Online panel (optional). */
 export const GALLERY_DL = process.env.GALLERY_DL_PATH || "gallery-dl";
 /** "fake" swaps the local transcription engine for one that makes words up (the e2e tests). */

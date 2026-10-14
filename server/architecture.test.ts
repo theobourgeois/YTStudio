@@ -84,6 +84,10 @@ const PLATFORM = [
   "server/routes/web.ts",
   "src/components/media/use-web-search.ts",
   "server/projects.ts",
+  // Now Playing (docs/now-playing.md): what the music player is playing, in every suite's top bar.
+  "shared/now-playing.ts",
+  "server/now-playing.ts",
+  "server/routes/now-playing.ts",
   // Work handed from one suite to another (a song made into a video: Make visualizer).
   "shared/handoff.ts",
   "server/project-previews.ts",
