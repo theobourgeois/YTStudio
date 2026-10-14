@@ -36,7 +36,8 @@ its state, read back a frame later (`getState`), so frame `f` of a clip is the s
 frame. The compositor keeps two states and checkpoints per simulation (`simulationFrom`, `advance`); the preview catches
 a clip up before drawing it (time-boxed, `data-simulation`), the export draws in order and its plan adds `advance`
 layers for frames it skipped. A simulation's pass carries a `version` (the clip and its sound, hashed): keep anything
-that changes what it steps on in it. Feedback, Motion Trace, Freeze (`effect-library/simulation.ts`). **3D scenes**
+that changes what it steps on in it. Feedback, World Loop (vaudio's world: the picture bent, its echo flowing),
+Motion Trace, Freeze (`effect-library/simulation.ts`). **3D scenes**
 (`EffectShader.scene`, docs/visualizer/scenes.md: Ridgeline, Infinite Dive, Aurora, Storm Sea, Ferrofluid, Event Horizon,
 Neon City, Nebula, Abyss, Monoliths, Cyberspace, Wormhole, Galaxy, Cosmic Web, Collider: the last five light on black, to
 lay over clips) are raymarched

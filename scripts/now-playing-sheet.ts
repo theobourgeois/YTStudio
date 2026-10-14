@@ -4,7 +4,8 @@
  * only measured), each look shown for a few seconds and screenshot.
  *
  *   pnpm tsx scripts/now-playing-sheet.ts [look|kind ...] [--song file.mp3] [--seconds 4] [--track 1|2|3] [--out sheet.png]
- *   pnpm tsx scripts/now-playing-sheet.ts [look|kind ...] --moments [--at 6,11.5,22] [--parallel 4]
+ *   pnpm tsx scripts/now-playing-sheet.ts [look|kind ...] --moments [--at 6,11.5,22] [--parallel 3]
+ *   pnpm tsx scripts/now-playing-sheet.ts chaos --rolls 24 --song file.mp3 [--seconds 4]
  *
  * `--track` picks the stand-in's song, so its cover's colours (1 magenta, 2 orange, 3 cyan).
  * Writes the sheet and one picture per look beside it (`<out>-<look>.png`).
@@ -14,12 +15,15 @@
  * white or crushed to black (it exits 1 if one is). Each moment is three frames, judged by the middle one (a strobe's
  * flash is white for a frame, which is fine; white for a while isn't). Don't edit the app's files while it runs:
  * Tailwind reads them all, so the pages reload.
+ *
+ * `--rolls` shows each look rolled again and again (M between, `--seconds` apart: chaos's recipes, docs/now-playing.md),
+ * numbered, a sheet per look (`<out>-<look>.png`, six across), each roll checked the same way: for scoring a round.
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium } from "@playwright/test";
+import { type Page, chromium } from "@playwright/test";
 import { LIVE_LOOKS, LOOK_KINDS, type LiveLook } from "../shared/live-looks.ts";
 import { DEMO_SECTIONS } from "../shared/signals/demo-sound.ts";
 
@@ -37,6 +41,7 @@ const song = option("--song");
 const seconds = Number(option("--seconds") ?? 4);
 const track = Math.max(1, Math.min(3, Number(option("--track") ?? 1)));
 const moments = args.includes("--moments");
+const rolls = Math.max(0, Number(option("--rolls") ?? 0));
 // More pages at once starve the GPU (the 3D scenes): a page that can't keep up draws black.
 const parallel = Math.max(1, Number(option("--parallel") ?? 3));
 // When in the song each look is shown (seconds after the visualizer opens): well into each part of the made-up song,
@@ -49,7 +54,9 @@ const at = option("--at")?.split(",").map(Number) ?? [
 const MOMENT_NAMES = ["breakdown", "build-up", "drop"];
 /** Frames taken at each moment, this far apart (ms). */
 const FRAMES = [0, 150, 300];
-const names = args.filter((a, i) => !a.startsWith("--") && !["--out", "--song", "--seconds", "--track", "--at", "--parallel"].includes(args[i - 1]));
+/** The page pictures are measured in (`lightOf`). */
+let reader: Page | null = null;
+const names = args.filter((a, i) => !a.startsWith("--") && !["--out", "--song", "--seconds", "--track", "--at", "--parallel", "--rolls"].includes(args[i - 1]));
 const looks = names.length ? LIVE_LOOKS.filter((l) => names.includes(l.id) || names.includes(l.kind)) : LIVE_LOOKS;
 if (!looks.length) {
   console.error(`No looks match ${names.join(", ")}. Known: ${LIVE_LOOKS.map((l) => l.id).join(", ")}`);
@@ -139,8 +146,8 @@ async function visualizer(look: LiveLook) {
   return page;
 }
 
-if (moments) {
-  await showMoments();
+if (moments || rolls) {
+  await (rolls ? showRolls() : showMoments());
   await browser.close();
   process.exit();
 }
@@ -226,45 +233,11 @@ async function showMoments() {
     }),
   );
 
-  // How light each picture is, read off a canvas in a page of its own.
-  const reader = await browser.newPage();
-  const lightOf = (file: string) =>
-    reader.evaluate(async (url): Promise<Light> => {
-      const img = new Image();
-      img.src = url;
-      await img.decode();
-      const canvas = new OffscreenCanvas(320, 180);
-      const g = canvas.getContext("2d")!;
-      g.drawImage(img, 0, 0, 320, 180);
-      const d = g.getImageData(0, 0, 320, 180).data;
-      let sum = 0;
-      let white = 0;
-      let black = 0;
-      for (let i = 0; i < d.length; i += 4) {
-        const y = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
-        sum += y;
-        if (y > 0.94) white++;
-        if (y < 0.03) black++;
-      }
-      const n = d.length / 4;
-      return { mean: sum / n, white: white / n, black: black / n };
-    }, `data:image/png;base64,${fs.readFileSync(file).toString("base64")}`);
-
   const faults: string[] = [];
   const rows: { look: LiveLook; cells: { file: string; light: Light }[] }[] = [];
   for (const look of looks) {
     const cells = [];
-    for (const frames of shots.get(look.id) ?? []) {
-      // The middle frame by lightness is the moment's: kept as `<out>-<look>-<moment>.png`, the others dropped.
-      const lit = [];
-      for (const file of frames) lit.push({ file, light: await lightOf(file) });
-      lit.sort((a, b) => a.light.mean - b.light.mean);
-      const middle = lit[Math.floor(lit.length / 2)];
-      const file = middle.file.replace(/-\d+\.png$/, ".png");
-      fs.renameSync(middle.file, file);
-      for (const other of lit) if (other !== middle) fs.rmSync(other.file);
-      cells.push({ file, light: middle.light });
-    }
+    for (const frames of shots.get(look.id) ?? []) cells.push(await judged(frames));
     rows.push({ look, cells });
     const said = cells.map((c, i) => {
       const problem = fault(c.light);
@@ -279,25 +252,77 @@ async function showMoments() {
     const mine = rows.filter((r) => r.look.kind === kind.id);
     if (!mine.length) continue;
     const head = at.map((s, i) => `<div class="head">${MOMENT_NAMES[i] ?? ""} · ${s.toFixed(1)} s</div>`).join("");
-    const body = mine
-      .map(
-        (r) =>
-          `<div class="name">${r.look.name}</div>` +
-          r.cells
-            .map((c) => `<figure${fault(c.light) ? ' class="bad"' : ""}><img src="data:image/png;base64,${fs.readFileSync(c.file).toString("base64")}"><figcaption>${c.light.mean.toFixed(2)}</figcaption></figure>`)
-            .join(""),
-      )
-      .join("");
-    const sheet = await browser.newPage({ viewport: { width: 140 + at.length * 384, height: 300 } });
-    await sheet.setContent(
-      `<style>body{margin:0;background:#111;color:#ddd;font:13px system-ui;display:grid;grid-template-columns:140px repeat(${at.length},384px)}.head{padding:6px 8px;color:#999}.name{padding:8px;align-self:center}figure{margin:0;position:relative}figure.bad{outline:3px solid #f33;outline-offset:-3px}img{width:384px;height:216px;display:block}figcaption{position:absolute;right:8px;bottom:6px;font:11px ui-monospace;text-shadow:0 1px 3px #000}</style><div></div>${head}${body}`,
-    );
-    const file = `${out.replace(/\.png$/, "")}-${kind.id}.png`;
-    await sheet.screenshot({ path: file, fullPage: true });
-    await sheet.close();
-    console.log(`Wrote ${file}`);
+    const body = mine.map((r) => `<div class="name">${r.look.name}</div>` + r.cells.map((c) => figure(c, c.light.mean.toFixed(2))).join("")).join("");
+    await writeSheet(`${out.replace(/\.png$/, "")}-${kind.id}.png`, `140px repeat(${at.length},384px)`, 140 + at.length * 384, `<div></div>${head}${body}`);
   }
+  report(faults);
+}
 
+/**
+ * Each look rolled again and again (M between), a page per look (a few at once): its first roll once the mood and
+ * its trails have settled, then one every `seconds`. A sheet per look, the rolls numbered for scoring.
+ */
+async function showRolls() {
+  const shots = new Map<string, string[][]>();
+  const queue = [...looks];
+  await Promise.all(
+    Array.from({ length: Math.min(parallel, queue.length) }, async () => {
+      for (let look = queue.shift(); look; look = queue.shift()) {
+        await command({ action: "seek", position: 0 });
+        const page = await visualizer(look);
+        const taken: string[][] = [];
+        for (let i = 0; i < rolls; i++) {
+          if (i > 0) await page.keyboard.press("m");
+          await page.waitForTimeout((i === 0 ? Math.max(seconds, 6) : seconds) * 1000);
+          const frames: string[] = [];
+          for (const [k, ms] of FRAMES.entries()) {
+            if (k > 0) await page.waitForTimeout(ms - FRAMES[k - 1]);
+            const file = `${out.replace(/\.png$/, "")}-${look.id}-${i + 1}-${k}.png`;
+            await page.screenshot({ path: file });
+            frames.push(file);
+          }
+          taken.push(frames);
+        }
+        await page.close();
+        shots.set(look.id, taken);
+        console.log(`  ${look.name}`);
+      }
+    }),
+  );
+
+  const faults: string[] = [];
+  for (const look of looks) {
+    const cells = [];
+    for (const frames of shots.get(look.id) ?? []) cells.push(await judged(frames));
+    cells.forEach((c, i) => {
+      const problem = fault(c.light);
+      if (problem) faults.push(`${look.name} roll ${i + 1}: ${problem}`);
+    });
+    console.log(`  ${look.name.padEnd(20)} ${cells.map((c, i) => `${i + 1}:${c.light.mean.toFixed(2)}${fault(c.light) ? "!" : ""}`).join(" ")}`);
+    const body = cells.map((c, i) => figure(c, `${i + 1}`)).join("");
+    await writeSheet(`${out.replace(/\.png$/, "")}-${look.id}.png`, "repeat(6,320px)", 6 * 320, `<div class="title">${look.name} · ${rolls} rolls</div>${body}`);
+  }
+  report(faults);
+}
+
+/** A picture on a sheet, captioned, outlined in red if it fails. */
+function figure(c: { file: string; light: Light }, caption: string) {
+  return `<figure${fault(c.light) ? ' class="bad"' : ""}><img src="data:image/png;base64,${fs.readFileSync(c.file).toString("base64")}"><figcaption>${caption}</figcaption></figure>`;
+}
+
+/** A sheet of pictures in a grid of `columns`, `width` wide. */
+async function writeSheet(file: string, columns: string, width: number, html: string) {
+  const sheet = await browser.newPage({ viewport: { width, height: 300 } });
+  await sheet.setContent(
+    `<style>body{margin:0;background:#111;color:#ddd;font:13px system-ui;display:grid;grid-template-columns:${columns}}.head{padding:6px 8px;color:#999}.name{padding:8px;align-self:center}.title{grid-column:1/-1;padding:8px 10px;font-size:15px}figure{margin:0;position:relative;aspect-ratio:16/9}figure.bad{outline:3px solid #f33;outline-offset:-3px}img{width:100%;height:100%;display:block}figcaption{position:absolute;right:8px;bottom:6px;font:12px ui-monospace;text-shadow:0 1px 3px #000}</style>${html}`,
+  );
+  await sheet.screenshot({ path: file, fullPage: true });
+  await sheet.close();
+  console.log(`Wrote ${file}`);
+}
+
+/** The pictures that fail and the page's errors, said; either fails the run. */
+function report(faults: string[]) {
   if (faults.length) {
     console.log(`Pictures that fail:\n${faults.map((f) => `  ${f}`).join("\n")}`);
     process.exitCode = 1;
@@ -306,4 +331,41 @@ async function showMoments() {
     console.log(`Problems in the page:\n${problems.map((p) => `  ${p}`).join("\n")}`);
     process.exitCode = 1;
   }
+}
+
+/** A moment's frames judged by the middle one by lightness: kept (without its frame number), the others dropped. */
+async function judged(frames: string[]): Promise<{ file: string; light: Light }> {
+  const lit = [];
+  for (const file of frames) lit.push({ file, light: await lightOf(file) });
+  lit.sort((a, b) => a.light.mean - b.light.mean);
+  const middle = lit[Math.floor(lit.length / 2)];
+  const file = middle.file.replace(/-\d+\.png$/, ".png");
+  fs.renameSync(middle.file, file);
+  for (const other of lit) if (other !== middle) fs.rmSync(other.file);
+  return { file, light: middle.light };
+}
+
+/** How light a picture is, read off a canvas in a page of its own (`reader`). */
+async function lightOf(file: string): Promise<Light> {
+  reader ??= await browser.newPage();
+  return reader.evaluate(async (url): Promise<Light> => {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const canvas = new OffscreenCanvas(320, 180);
+    const g = canvas.getContext("2d")!;
+    g.drawImage(img, 0, 0, 320, 180);
+    const d = g.getImageData(0, 0, 320, 180).data;
+    let sum = 0;
+    let white = 0;
+    let black = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const y = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+      sum += y;
+      if (y > 0.94) white++;
+      if (y < 0.03) black++;
+    }
+    const n = d.length / 4;
+    return { mean: sum / n, white: white / n, black: black / n };
+  }, `data:image/png;base64,${fs.readFileSync(file).toString("base64")}`);
 }
