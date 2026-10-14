@@ -129,6 +129,8 @@ const ICONS: Record<string, IconType> = {
   break_apart: PiStack,
   edit_sequence: PiStack,
   open_sequence: PiStack,
+  now_playing: PiMusicNotes,
+  control_now_playing: PiMusicNotes,
   remap_time: PiGauge,
   apply_preset: PiMagicWand,
   move_clips: PiArrowsLeftRight,

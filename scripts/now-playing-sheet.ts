@@ -82,6 +82,8 @@ async function waitFor(url: string) {
 const web = `http://localhost:${WEB_PORT}`;
 await waitFor(`http://127.0.0.1:${SERVER_PORT}/api/health`);
 await waitFor(web);
+// The stand-in player opens when it's told to play.
+await fetch(`http://127.0.0.1:${SERVER_PORT}/api/now-playing`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "play" }) });
 
 // The GPU on (as the export's browser has it): the 3D scenes are too heavy for software rendering.
 const browser = await chromium.launch({ args: ["--ignore-gpu-blocklist", "--enable-unsafe-swiftshader", ...(process.platform === "darwin" ? ["--use-angle=metal", "--enable-gpu"] : [])] });

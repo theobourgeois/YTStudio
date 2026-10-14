@@ -29,7 +29,10 @@ interface VisualizerPrefs {
   look: string;
   auto: AutoSwitch;
   quality: Quality;
+  /** A look asked for from outside the visualizer (the assistant): it shows it (`n` counts the asks). */
+  requested: { look: string; n: number } | null;
   setLook(look: string): void;
+  request(look: string): void;
   setAuto(auto: AutoSwitch): void;
   setQuality(quality: Quality): void;
 }
@@ -44,9 +47,14 @@ export const useVisualizerPrefs = create<VisualizerPrefs>((set) => ({
   look: liveLook(localStorage.getItem(LOOK_KEY) ?? "")?.id ?? LIVE_LOOKS[0].id,
   auto: stored(AUTO_KEY, AUTO_SWITCHES.map((a) => a.id), "song"),
   quality: stored(QUALITY_KEY, QUALITIES.map((q) => q.id), "balanced"),
+  requested: null,
   setLook(look) {
     localStorage.setItem(LOOK_KEY, look);
     set({ look });
+  },
+  request(look) {
+    localStorage.setItem(LOOK_KEY, look);
+    set((s) => ({ look, requested: { look, n: (s.requested?.n ?? 0) + 1 } }));
   },
   setAuto(auto) {
     localStorage.setItem(AUTO_KEY, auto);

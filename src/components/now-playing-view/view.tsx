@@ -156,6 +156,13 @@ export default function NowPlayingView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [palette]);
 
+  // A look asked for from outside (the assistant).
+  const requested = prefs.requested;
+  useEffect(() => {
+    if (requested && sessionRef.current) show(requested.look, "now");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requested]);
+
   // Drawing.
   const attachCanvas = useCallback((el: HTMLCanvasElement) => engine.attachCanvas(el), [engine]);
   useEffect(() => {

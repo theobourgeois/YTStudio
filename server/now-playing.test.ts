@@ -81,6 +81,9 @@ describe("the stand-in", () => {
   it("plays, pauses, skips and moves on when a song ends", async () => {
     let now = 0;
     const player = standInPlayer(() => now);
+    // Not open until it's told to play.
+    expect((await player.read()).unavailable).toBe("not-running");
+    await player.command({ action: "play" });
     const first = await player.read();
     expect(first).toMatchObject({ state: "playing", demo: true });
     now += 10_000;

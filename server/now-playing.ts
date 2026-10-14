@@ -199,8 +199,12 @@ function standInArtwork([a, b, c]: [string, string, string]): string {
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 }
 
-/** A player that plays made-up songs (a clock, no sound): the tab makes up their sound (`NowPlayingStatus.demo`). */
+/**
+ * A player that plays made-up songs (a clock, no sound): the tab makes up their sound (`NowPlayingStatus.demo`).
+ * It isn't open until it's told to play (so other tests never see it).
+ */
 export function standInPlayer(now: () => number = Date.now): Player {
+  let open = false;
   let index = 0;
   let playing = true;
   // Where the song was at `since`.
@@ -224,8 +228,12 @@ export function standInPlayer(now: () => number = Date.now): Player {
   };
   return {
     name: "Stand-in",
-    read: async () => status(),
+    read: async () => (open ? status() : unavailableStatus("Stand-in", "not-running")),
     async command(command) {
+      if (!open) {
+        open = true;
+        since = now();
+      }
       status();
       if (command.action === "play") playing = true;
       else if (command.action === "pause") playing = false;

@@ -2,6 +2,8 @@ import { PiCheckBold } from "react-icons/pi";
 import { cn } from "cn";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { ScrubNumber } from "@/components/scrub-number";
+import { useNowPlaying } from "@/stores/now-playing";
 import { PROJECT_SEARCH_KEYS } from "@/components/home/project-search-dialog";
 import { ownWindowButtons } from "@/lib/desktop";
 import { useWindowChrome } from "@/stores/window-chrome";
@@ -25,6 +27,7 @@ export function GeneralSettings() {
       <SettingsGroup title="Window">
         <TabStripRow />
       </SettingsGroup>
+      <NowPlayingGroup />
       <SettingsGroup title="Text">
         <FontRow title="Interface font" description="Menus, panels, labels and the assistant's chat." fonts={FONTS} which="font" />
         <FontRow title="Numbers and code" description="Times, values, the position and tempo displays, expressions." fonts={MONO_FONTS} which="monoFont" />
@@ -32,6 +35,32 @@ export function GeneralSettings() {
       </SettingsGroup>
       <LogSettings />
     </>
+  );
+}
+
+/** Now Playing (docs/now-playing.md): the song at the top of the window, and when the visualizer's pictures land. */
+function NowPlayingGroup() {
+  const enabled = useNowPlaying((s) => s.enabled);
+  const offset = useNowPlaying((s) => s.offset);
+  return (
+    <SettingsGroup title="Now Playing" description="What Spotify is playing, at the top of the window (on a Mac). Click it for the visualizer.">
+      <SettingsRow title="Show what's playing" description="Asks Spotify about once a second while the app is open. macOS asks you once to let YTStudio control it.">
+        <Switch checked={enabled} onCheckedChange={(on) => useNowPlaying.getState().setEnabled(on)} aria-label="Show what's playing" />
+      </SettingsRow>
+      <SettingsRow
+        title="Visualizer sync"
+        description="How long the pictures wait for the sound. Raise it if they move before you hear the beat (Bluetooth headphones play late), lower it if after."
+      >
+        <ScrubNumber
+          value={offset}
+          display={{ min: -200, max: 500, step: 10, decimals: 0, unit: "ms" }}
+          label="Visualizer sync"
+          onBegin={() => {}}
+          onChange={(ms) => useNowPlaying.getState().setOffset(ms)}
+          onEnd={() => {}}
+        />
+      </SettingsRow>
+    </SettingsGroup>
   );
 }
 
