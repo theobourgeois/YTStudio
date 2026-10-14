@@ -7,7 +7,7 @@
  *   pnpm tsx scripts/now-playing-sheet.ts [look|kind ...] --moments [--at 6,11.5,22] [--parallel 3]
  *   pnpm tsx scripts/now-playing-sheet.ts chaos --rolls 24 --song file.mp3 [--seconds 4]
  *   pnpm tsx scripts/now-playing-sheet.ts chaos-liquid --record 45 --song file.mp3 [--from 48] [--every 6.5] [--auto bars2]
- *     [--keys "6=t 9=y 12=] 18=Backspace"] [--fx '{"feedback":0.85,"kaleido":0.5}']
+ *     [--keys "6=t 9=y 12=] 18=Backspace"] [--fx '{"feedback":0.85,"kaleido":0.5}'] [--effects music|beat|bar|hand]
  *
  * `--track` picks the stand-in's song, so its cover's colours (1 magenta, 2 orange, 3 cyan).
  * Writes the sheet and one picture per look beside it (`<out>-<look>.png`).
@@ -54,8 +54,9 @@ const recordSeconds = Math.max(0, Number(option("--record") ?? 0));
 const from = Math.max(0, Number(option("--from") ?? 0));
 const every = Math.max(0, Number(option("--every") ?? 0));
 const auto = option("--auto");
-// The player's distortions and feedback to start from (the D panel's values, vaudio's units).
+// The player's distortions and feedback to start from (the D panel's values, vaudio's units), and who plays them.
 const startFx = option("--fx") ?? "";
+const effectsBy = option("--effects") ?? (startFx ? "hand" : "");
 // Keys to press while filming: `seconds=key`, apart by spaces, in order.
 const keysAt = (option("--keys") ?? "")
   .split(/\s+/)
@@ -80,7 +81,7 @@ const MOMENT_NAMES = ["breakdown", "build-up", "drop"];
 const FRAMES = [0, 150, 300];
 /** The page pictures are measured in (`lightOf`). */
 let reader: Page | null = null;
-const names = args.filter((a, i) => !a.startsWith("--") && !["--out", "--song", "--seconds", "--track", "--at", "--parallel", "--rolls", "--record", "--from", "--every", "--auto", "--keys", "--fx"].includes(args[i - 1]));
+const names = args.filter((a, i) => !a.startsWith("--") && !["--out", "--song", "--seconds", "--track", "--at", "--parallel", "--rolls", "--record", "--from", "--every", "--auto", "--keys", "--fx", "--effects"].includes(args[i - 1]));
 const looks = names.length ? LIVE_LOOKS.filter((l) => names.includes(l.id) || names.includes(l.kind)) : LIVE_LOOKS;
 if (!looks.length) {
   console.error(`No looks match ${names.join(", ")}. Known: ${LIVE_LOOKS.map((l) => l.id).join(", ")}`);
@@ -161,14 +162,15 @@ async function visualizer(look: LiveLook) {
   page.on("pageerror", (e) => problems.push(e.message));
   if (songBytes) await page.route("**/now-playing-sheet-song", (route) => route.fulfill({ body: songBytes, contentType: "audio/mpeg" }));
   await page.addInitScript(
-    ([first, file, changes, quality, fx]) => {
+    ([first, file, changes, quality, fx, by]) => {
       localStorage.setItem("editor-visualizer-look", first);
       if (fx) localStorage.setItem("editor-visualizer-fx", fx);
+      if (by) localStorage.setItem("editor-visualizer-effects", by);
       localStorage.setItem("editor-visualizer-auto", changes);
       if (quality) localStorage.setItem("editor-visualizer-quality", quality);
       if (file) localStorage.setItem("editor-now-playing-demo", "/now-playing-sheet-song");
     },
-    [look.id, song ? "yes" : "", (recordSeconds && auto) || "off", recordSeconds ? "sharp" : "", startFx] as const,
+    [look.id, song ? "yes" : "", (recordSeconds && auto) || "off", recordSeconds ? "sharp" : "", startFx, effectsBy] as const,
   );
   await page.goto(web);
   await page.click("[data-now-playing] button[title='Open the visualizer']", { timeout: 30_000 });
