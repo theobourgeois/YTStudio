@@ -1296,7 +1296,7 @@ export const VIDEO_TOOLS = [
       "breakdown), and the visualizer (Now Playing's, filling the window, made of this editor's effects and 3D scenes, and " +
       "MilkDrop's presets, kind milkdrop): whether it's open, the look it shows, how looks change, and every look there is " +
       "(id, name, kind, and whether the user loved or binned it for the kind of song playing: their taste, which the looks " +
-      "picked go by). Read it before " +
+      "picked go by), and the user's clips and pictures melting into MilkDrop's feedback. Read it before " +
       "control_now_playing.",
     inputSchema: obj({}),
   }),
@@ -1310,7 +1310,8 @@ export const VIDEO_TOOLS = [
       "vaudio's chaos recipes, as = does) or mutates the chaos look shown (its world nudged a little, as - does), `auto` sets how " +
       "looks change by themselves (off: stay; song: follow the music, a look that suits the song's kind and intensity, changed on songs, drops and breakdowns; beat: every beat, cutting on it; " +
       "bars1, bars2, bars4, bars8, bars16, bars32: every so many bars, each a look that suits the music), `pace` slows it all down, " +
-      "`rate` loves or bins the look shown for the kind of song playing (as the user's L and B do), `rating` starts or stops the rating mode. Only what's given happens: the song first, then the visualizer.",
+      "`rate` loves or bins the look shown for the kind of song playing (as the user's L and B do), `rating` starts or stops the rating mode, " +
+      "`media` turns the user's own clips and pictures (melting into MilkDrop's feedback) on or off or brings in another. Only what's given happens: the song first, then the visualizer.",
     inputSchema: obj({
       action: oneOf(["play", "pause", "toggle", "next", "previous"], "What the player does."),
       seek: num("Go to this many seconds into the song.", { minimum: 0 }),
@@ -1359,6 +1360,10 @@ export const VIDEO_TOOLS = [
       rate: oneOf(
         ["love", "bin", "clear"],
         "The user's taste, for the look shown (or `look`, shown first) on the kind of song playing: love: picked about three times as often; bin: never picked by itself again (it goes at once); clear: take back what was said of it. Only when the user says so: it's their taste, not yours.",
+      ),
+      media: oneOf(
+        ["on", "off", "next"],
+        "The user's clips and pictures (the Library's Visualizer folder, added by the user from the visualizer's media panel): on, painted into MilkDrop's feedback (a little each frame, more on kicks; the preset's motion warps them in); off; next, another of them now.",
       ),
       rating: oneOf(
         ["start", "stop"],

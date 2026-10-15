@@ -10,7 +10,15 @@ declare module "butterchurn" {
     timeByteArrayR: Uint8Array;
   }
 
+  /** Its renderer's frame buffers: the one drawn last is warped into the next frame (`media-feed.ts` paints into it). */
+  export interface ButterchurnRenderer {
+    targetFrameBuffer: WebGLFramebuffer;
+    texsizeX: number;
+    texsizeY: number;
+  }
+
   export interface ButterchurnVisualizer {
+    renderer: ButterchurnRenderer;
     loadPreset(preset: ButterchurnPreset, blendSeconds?: number): void;
     setRendererSize(width: number, height: number, opts?: { pixelRatio?: number; textureRatio?: number; meshWidth?: number; meshHeight?: number }): void;
     render(opts?: { audioLevels?: ButterchurnAudioLevels; elapsedTime?: number }): void;

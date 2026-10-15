@@ -21,6 +21,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | MilkDrop's looks (Butterchurn's presets picked, what each suits) | `shared/milkdrop-presets.ts`, `live-milkdrop.ts`; bundled by `vite.config.ts`; drawn by `now-playing-view/milkdrop.ts` | video |
 | The visualizer: director, source, keys, view | `src/components/now-playing-view/` | video (`ClientSuite.NowPlaying`) |
 | The looks as the user rated them (Your taste): what a rating is, its file | `shared/look-ratings.ts`, `server/look-ratings.ts` | platform |
+| The user's clips and pictures in MilkDrop's feedback (Your media) | `now-playing-view/media-feed.ts`, `media-mix.ts`, `media-library.ts`, `media-panel.tsx` | video |
 | Its own window (a stage) | `src/components/windows/native/stage-window.ts`, `electron/stage.ts` | platform |
 | vaudio's 2D visualizers | `shared/effect-library/audio.ts` (Wave Bars ... Acid Plasma) | video |
 | The assistant | `now_playing`, `control_now_playing` (`shared/assistant-tools.ts`) | video |
@@ -102,7 +103,7 @@ up top (`LooksMenu`: the look playing on its button; Shuffle, then each kind ope
 that kind first), or the keys and R. There's no list of them along the bottom.
 
 The keys (`keys.ts`, vaudio's play mode): ← → looks, ↑ ↓ kinds, R random, L love it, B bin it, ⇧R rate the looks (see
-Your taste), M another variation, = chaos, - mutate,
+Your taste), N another of your clips, ⇧N your clips on or off (see Your media), M another variation, = chaos, - mutate,
 A how looks change, Z X C V punch, flash, split, twist, 1–0 turn the colours, T Y [ ] , . the frame (repeat, mirror,
 turn, zoom), Q W E more warp, swirl, ripples (⇧ less), D every setting, ⌫ wash, Space play or pause, ⇧← ⇧→ songs,
 F full screen, P the mini player, O its own window, H hide the controls, S tap along, ⇧S slow motion, I what it hears,
@@ -425,6 +426,47 @@ curating it by watching it rather than by sheets), kept on this computer, and go
   more like them among the converted presets not in yet, and move what each suits by where it was loved and binned.
 - **The assistant**: `now_playing` says the counts, the look shown's rating and each look's; `control_now_playing`
   takes `rate` (love, bin, clear: only when the user says so) and `rating` (start, stop).
+
+## Your media
+
+The user's own clips and pictures melting into the looks (Théo, 2026-10-15: "import videos and images… warp them to
+the visualizers… in a way that looks natural, not just overlaid"). Not laid over the picture: **put into the
+feedback**. MilkDrop draws each frame by warping the last one (zoom, swirl, flow) and drawing on it, so after each of
+Butterchurn's frames a little of the clip is painted into the frame it just drew (`media-feed.ts`), and the next frame
+warps it like everything else in it: the clip becomes paint the preset moves, a little more each frame, the old carried
+off. Every preset melts it its own way.
+
+- **Where they are**: the Library's Visualizer folder (`media-library.ts`, made the first time one's added), so they're
+  kept with the Library (the video editor's Library tab shows them) and served from the same origin (the GPU may read
+  them). Added from the media panel (the film-strip button up top: Add, or drop files anywhere on the visualizer), taken
+  out there (deleted from the Library). Clips play muted and looping, at the picture's pace in slow motion.
+- **How they go in** (`media-mix.ts`, pure and tested), picked each time a MilkDrop look comes on, with a clip not shown
+  lately from a moment of it at random: all of it, only its light (its dark parts leave the preset's black alone) or
+  only its edges (outlines as light), in richer colours. A little goes in every frame and more on each kick (`KickHit`,
+  the kick onset's hit falling away over a quarter second), the same at any frame rate (`amountOver`): calm, more of
+  it and steadily (mostly its light, sometimes all of it); a groove, mostly its light, pulsing on the kicks; intense,
+  only its light and edges, flashing in on the kicks. All of a clip's mid-tones fed in muddy a look (Théo bins mud), so
+  all of it is the rarest.
+- **Guard rails** (`media-feed.ts`): the clip's highlights are compressed as it goes in (`BRIGHT`), and a brake
+  (`Brake`) measures the picture every 12 frames fed (16 × 9, on the CPU) and lets less of the clip in while it's
+  blown out or pale (mean over 0.5, or an eighth near white), more again as it clears: some presets brighten their own
+  feedback, and what's painted in piles up to white.
+- **Drawing it** (`MediaFeed`): Butterchurn's own WebGL context, a program and vertex array of its own, drawn into
+  `renderer.targetFrameBuffer` after `render` (the buffer the next frame warps). Butterchurn binds sampler objects of
+  its own (mipmapped) to its texture units: one left bound makes the clip's texture (no mipmaps) read as black, so it's
+  unbound for the draw and put back, as are the blend, framebuffer and the unpack flip.
+- **Keys**: N another clip, ⇧N on or off (kept: `useVisualizerPrefs.media`). The assistant's `control_now_playing`
+  takes `media` (on, off, next); `now_playing` lists them and says which is in.
+- **Only MilkDrop's looks** take them for now (they're nearly all that shows since Théo's ratings: 153 of the looks,
+  and most of ours binned). Ours could: the World Loop is a feedback too, and chaos's `cover` source is where a clip
+  would go.
+- **Seeing it**: `now-playing-sheet.ts milkdrop --media clip.mp4,picture.jpg` adds them before it opens, and says for
+  each MilkDrop look which one it fed in and how many frames.
+
+Next (Théo picked feeding the feedback first, 2026-10-15): the clips' mood (CLIP on a few frames, on the same axes as
+the songs' vibe: a dreamy clip for a dreamy song), their motion matched to the music's (the drop's hardest-moving shots),
+cut-outs (the photo suite's subject model on video, made once at import), the clip's motion pushing the visuals
+(optical flow), cutting between clips on the bars and moshing on drops, and ratings of clips as of looks.
 
 ## The plan (v2)
 
