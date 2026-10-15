@@ -2,7 +2,8 @@
  * Try the packaged desktop app end to end (after `pnpm build:desktop`): launch it on a throwaway data dir, check
  * the editor loads in its window, then export a cross dissolve, which draws in the app's own hidden Chromium
  * window, and check its colours; check projects are files it declares, and that launching it with one (what
- * Finder's double-click does) opens it. Leaves a screenshot of the window.
+ * Finder's double-click does) opens it; and that Now Playing's visualizer pops out into a window of its own, drawn there
+ * (a made-up song, never heard). Leaves a screenshot of the window.
  *
  *   pnpm test:desktop [--out window.png]
  */
@@ -57,7 +58,8 @@ const debugPort = await new Promise<number>((resolve) => {
     probe.close(() => resolve(port));
   });
 });
-const env: NodeJS.ProcessEnv = { ...process.env, EDITOR_DATA_DIR: path.join(tmp, "data"), EDITOR_USER_DATA_DIR: path.join(tmp, "profile") };
+// Now Playing's stand-in player: made-up songs, whose sound is made up too (nothing is heard, Spotify isn't asked).
+const env: NodeJS.ProcessEnv = { ...process.env, EDITOR_DATA_DIR: path.join(tmp, "data"), EDITOR_USER_DATA_DIR: path.join(tmp, "profile"), EDITOR_NOW_PLAYING: "stand-in", EDITOR_VIBE_MODEL: "stand-in" };
 // Terminals inside Electron apps pass this on, and it would make the app a plain Node.js.
 delete env.ELECTRON_RUN_AS_NODE;
 const child = spawn(executablePath, [`--remote-debugging-port=${debugPort}`], { env, stdio: ["ignore", "inherit", "inherit"] });
@@ -215,6 +217,35 @@ try {
     check("sampler playback reaches the real output", playing.peak > 0 && playing.transport.playing, `peak ${playing.peak}`);
     check("Windows sample paths survive save/reopen", (await api<{ channels: { sampleId: string | null }[] }>(`/api/projects/${music.id}`)).channels[0].sampleId === sample.id);
   }
+  // Now Playing's visualizer, out of the app: a window of the system's (framed, so it goes to another screen and full
+  // screen there), drawn by the page, its keys its own.
+  await post("/api/now-playing", { action: "play" });
+  await window.goto(`${base}/`);
+  await window.locator("[data-now-playing] button").first().click();
+  await window.locator("[data-now-playing-view]").waitFor({ timeout: 20_000 });
+  const context = browser.contexts()[0];
+  const popped = context.waitForEvent("page", { timeout: 20_000 });
+  await window.keyboard.press("o");
+  const stage = await popped.catch(() => null);
+  if (stage) {
+    const view = stage.locator('[data-now-playing-view="out"]');
+    const drawn = await view.locator('[data-slot="visualizer-canvas"][data-drawn="clips"]').waitFor({ timeout: 20_000 }).then(() => true, () => false);
+    check("the visualizer pops out into its own window, drawn there", drawn && (await window.locator("[data-now-playing-view]").count()) === 0);
+    const frame = await stage.evaluate(() => self.outerHeight - self.innerHeight);
+    check("its window is the system's own, with a title bar", frame > 0, `${frame} px`);
+    const state = () => fetch(`${base}/api/now-playing`).then((r) => r.json() as Promise<{ state?: string }>).then((s) => s.state);
+    const was = await state();
+    await stage.keyboard.press(" ");
+    let now = was;
+    for (let i = 0; i < 20 && now === was; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      now = await state();
+    }
+    check("its keys are its own", now !== was, `${was} -> ${now}`);
+    const closed = stage.waitForEvent("close", { timeout: 10_000 }).then(() => true, () => false);
+    await stage.keyboard.press("Escape");
+    check("Escape closes it, and its window", await closed);
+  } else check("the visualizer pops out into its own window", false, "no window opened");
   await window.screenshot({ path: SCREENSHOT });
   console.log(`screenshot: ${path.relative(process.cwd(), SCREENSHOT)}`);
 } finally {

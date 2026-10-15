@@ -49,6 +49,8 @@ let nextStoreId = 1;
  * the song changes what every simulation heard).
  */
 function hearingHash(reader: SignalReader): string {
+  // A sound heard live is its session's, whatever the document holds (it never plays media of its own).
+  if (reader.live !== undefined) return `live:${reader.live}`;
   let hash = readerHashes.get(reader);
   if (hash === undefined) {
     let store = storeIds.get(reader.store);
@@ -66,9 +68,14 @@ function hearingHash(reader: SignalReader): string {
 
 /**
  * What a clip's simulations were made from: the clip itself (its effects, timing, everything), the
- * frame rate and the sound it hears. A change makes their kept states stale.
+ * frame rate and the sound it hears. A change makes their kept states stale. Heard live (Now Playing),
+ * only the clip's id counts: time only goes forward there, nothing's replayed, and a setting changed
+ * mid-song (the frame, the feedback) carries on from the picture as it was, as vaudio's does, rather than
+ * wiping its trails.
  */
 export function simulationVersion(clip: Clip, fps: number): string {
+  const live = currentSignalReader();
+  if (live?.live !== undefined) return `${clip.id}:${fps}:${hearingHash(live)}`;
   let hash = clipHashes.get(clip);
   if (hash === undefined) clipHashes.set(clip, (hash = textHash(JSON.stringify(clip))));
   const reader = currentSignalReader();

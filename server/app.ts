@@ -14,7 +14,7 @@ import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
-import { GALLERY_DL, MODELS_DIR, MUSIC_MODELS, MUSIC_WORKER, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, SERUM_LIBRARY, config } from "./config.ts";
+import { GALLERY_DL, MODELS_DIR, MUSIC_MODELS, MUSIC_WORKER, NOW_PLAYING, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, SERUM_LIBRARY, VIBE_MODEL, config } from "./config.ts";
 import { photoModels } from "./photo/models.ts";
 import { ExportManager } from "./exports.ts";
 import { RenderFiles } from "./render-files.ts";
@@ -23,6 +23,7 @@ import { listFonts } from "./fonts.ts";
 import { LibraryStore } from "./library.ts";
 import { type ImageProbe, MediaLibrary } from "./media.ts";
 import { migrateData } from "./migrate.ts";
+import { NowPlaying, type Player, defaultPlayer } from "./now-playing.ts";
 import { AudioEngine, type EngineOptions } from "./music/engine.ts";
 import { SampleBrowser } from "./music/browser.ts";
 import { type MusicExportOptions, MusicExports } from "./music/exports.ts";
@@ -49,6 +50,9 @@ import { logRequests, logRoutes, requestPath } from "./routes/log.ts";
 import { renderFileRoutes } from "./routes/render-files.ts";
 import { libraryRoutes } from "./routes/library.ts";
 import { mediaRoutes } from "./routes/media.ts";
+import { nowPlayingRoutes } from "./routes/now-playing.ts";
+import { DownloadedModel } from "./models.ts";
+import { VIBE_MODEL_SPEC } from "../shared/signals/vibe.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { suiteBackend } from "./suites/index.ts";
 import { transcriptionRoutes } from "./routes/transcription.ts";
@@ -84,6 +88,8 @@ export interface AppOptions {
   trash?: (dir: string) => Promise<void>;
   /** Show a project's package in Finder (default: `open -R`). */
   reveal?: (dir: string) => Promise<void>;
+  /** Now Playing's music player (default: Spotify on a Mac, or what `EDITOR_NOW_PLAYING` says). */
+  nowPlaying?: Player | null;
 }
 
 /** What the engine's plugin windows tell the desktop app (electron/main.ts). */
@@ -129,6 +135,7 @@ export async function createApp({
   projectsDir,
   trash,
   reveal,
+  nowPlaying: player,
 }: AppOptions): Promise<EditorApp> {
   // Asked now (and cached) so the first import doesn't wait for ffmpeg to start (half a second on Windows).
   void ffmpegVersion();
@@ -262,6 +269,8 @@ export async function createApp({
   app.use("/api/projects", projectRoutes(projects, previews, (id) => assistant.remove(id), (id) => assistant.hasMessages(id)));
   app.use("/api/media", mediaRoutes(library, projects));
   app.use("/api/web", webRoutes(web, projects));
+  const vibeModel = new DownloadedModel(MODELS_DIR, VIBE_MODEL === "stand-in", VIBE_MODEL_SPEC);
+  app.use("/api/now-playing", nowPlayingRoutes(new NowPlaying(player === undefined ? defaultPlayer(NOW_PLAYING) : player), vibeModel));
   app.use("/api/library", libraryRoutes(shared));
   app.use("/api/exports", exportRoutes(exports));
   app.use("/api/render-files", renderFileRoutes(renders));

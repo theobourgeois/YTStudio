@@ -55,7 +55,8 @@ type ClipKind = "video" | "image" | "text" | "solid" | "shape" | "adjustment" | 
 /** A picture to draw: the element it comes from (none for what the compositor draws itself: text, solids, shapes), and when in its clip. */
 interface Picture {
   key: string;
-  source: HTMLVideoElement | HTMLImageElement | null;
+  /** A canvas is a live picture (`PreviewSource.livePicture`): drawn anew each frame. */
+  source: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement | null;
   shown: Shown;
   /**
    * A time-interpolated video (`Clip.timeInterpolation`): its slot (whose frames are counted),
@@ -173,6 +174,11 @@ export interface PreviewSource {
   signals?(): SignalReader | null;
   /** The render file showing `time`, if there's one (Premiere's preview files: `stores/render-files.ts`). */
   rendered?(time: number): RenderedAt | null;
+  /**
+   * A picture drawn live, for an image asset's clips: a canvas drawn anew each frame (Now Playing's MilkDrop), taken
+   * as it is on every draw. Null: the asset's own image.
+   */
+  livePicture?(assetId: string): HTMLCanvasElement | null;
 }
 
 /** A segment's render file and the moment in it (seconds); the next segment's too, if it has one, to have ready. */
@@ -322,7 +328,17 @@ export class PreviewEngine {
     private readonly source: PreviewSource = editorSource,
     /** Draw moving frames at fewer pixels when they're heavy (the Program monitor; not the assistant's pictures). */
     private readonly adaptiveResolution = false,
+    /**
+     * `lowLatency`: what's drawn should be seen as soon as possible (Now Playing's visualizer, following sound
+     * heard live): one frame on the GPU at a time rather than `MAX_IN_FLIGHT`, on a canvas that skips the page's
+     * compositing where the system allows (`desynchronized`).
+     */
+    private readonly options: { lowLatency?: boolean } = {},
   ) {}
+
+  private get maxInFlight() {
+    return this.options.lowLatency ? 1 : MAX_IN_FLIGHT;
+  }
 
   /** The Program monitor's engine (the open video's) turns off a shader that loses the GPU. */
   private get recovers() {
@@ -385,9 +401,20 @@ export class PreviewEngine {
     this.update();
   }
 
+  /**
+   * The window the canvas is in: its frames are the ones to draw on, and its screen's pixels (the canvas can be in
+   * another window: the visualizer's own, on another screen).
+   */
+  private get canvasWindow(): Window {
+    return this.canvas?.ownerDocument.defaultView ?? window;
+  }
+
   /** Ref-callback helper: the WebGL canvas everything is drawn on. Returns the cleanup. */
   attachCanvas(el: HTMLCanvasElement) {
     this.canvas = el;
+    // A frame asked of a window the canvas has left (closed with it) never comes: ask again.
+    this.drawQueued = false;
+    this.watchQueued = false;
     const lost = (e: Event) => {
       e.preventDefault(); // lets the context be restored
       this.releaseCompositor(false);
@@ -418,6 +445,7 @@ export class PreviewEngine {
       premultipliedAlpha: true,
       // Keeps the last frame readable between draws (screenshots, tests); cheap at preview size.
       preserveDrawingBuffer: true,
+      ...(this.options.lowLatency && { desynchronized: true }),
     });
     this.compositor = gl && !gl.isContextLost() ? createCompositor(gl) : null;
     this.timer = this.adaptiveResolution ? (gl?.getExtension("EXT_disjoint_timer_query_webgl2") ?? null) : null;
@@ -520,7 +548,7 @@ export class PreviewEngine {
   private requestDraw = () => {
     if (this.drawQueued || this.source.get().playing) return; // playing: every tick draws anyway
     this.drawQueued = true;
-    requestAnimationFrame(() => {
+    this.canvasWindow.requestAnimationFrame(() => {
       this.drawQueued = false;
       this.update();
     });
@@ -588,10 +616,12 @@ export class PreviewEngine {
       /** The picture showing each clip on screen, by clip id. */
       const pictures = new Map<string, Picture>();
 
-      // Text, solids and shape layers are drawn by the compositor itself.
+      // Text, solids and shape layers are drawn by the compositor itself; live pictures are their canvas as it is.
       for (const side of shown) {
         const kind = kindOf(side.clip);
         if (kind === "solid" || kind === "shape" || kind === "text") pictures.set(side.clip.id, { key: "", source: null, shown: side });
+        const live = kind === "image" ? this.source.livePicture?.(side.clip.assetId) : null;
+        if (live) pictures.set(side.clip.id, { key: `live:${side.clip.assetId}`, source: live, shown: side });
       }
 
       // Nested sequences: planned as a level of their own, drawn into a group.
@@ -612,8 +642,10 @@ export class PreviewEngine {
 
       if (layer) {
         const ids = (want: ClipKind) => {
-          const on = shown.filter((s) => kindOf(s.clip) === want).map((s) => s.clip.id);
-          const upcoming = next && kindOf(next) === want && !shown.some((s) => s.clip.id === next.id) ? next.id : null;
+          // (Not a live picture's: it needs no element.)
+          const on = shown.filter((s) => kindOf(s.clip) === want && !pictures.has(s.clip.id)).map((s) => s.clip.id);
+          const live = !!next && !!this.source.livePicture?.(next.assetId);
+          const upcoming = next && kindOf(next) === want && !live && !shown.some((s) => s.clip.id === next.id) ? next.id : null;
           return [on[0] ?? null, on[1] ?? upcoming] as const;
         };
         layer.videoIds = assignSlots(layer.videoIds, ...ids("video"));
@@ -823,7 +855,7 @@ export class PreviewEngine {
     }
     // The GPU still drawing the last frames: this one waits for one of them (and is then drawn as it is by then).
     // Meanwhile the monitor shows an earlier moment: catching up, as a simulation stepping to its frame is.
-    if (this.inFlight.length >= MAX_IN_FLIGHT) {
+    if (this.inFlight.length >= this.maxInFlight) {
       this.waiting = true;
       setData(canvas, "frame", "draft");
       setData(canvas, "simulation", "catching-up");
@@ -837,7 +869,7 @@ export class PreviewEngine {
       this.draft = level < 1;
       this.reportStatus();
     }
-    const dpr = Math.min(2, window.devicePixelRatio || 1) * this.resolution * level;
+    const dpr = Math.min(2, this.canvasWindow.devicePixelRatio || 1) * this.resolution * level;
     const query = this.timer && gl.createQuery();
     if (query) gl.beginQuery(this.timer!.TIME_ELAPSED_EXT, query);
     compositor.resize(this.size.width * dpr, this.size.height * dpr);
@@ -1038,7 +1070,7 @@ export class PreviewEngine {
   private watchGpu() {
     if (this.watchQueued) return;
     this.watchQueued = true;
-    requestAnimationFrame(() => {
+    this.canvasWindow.requestAnimationFrame(() => {
       this.watchQueued = false;
       const gl = this.compositor?.gl;
       if (!gl || gl.isContextLost()) {
@@ -1048,7 +1080,7 @@ export class PreviewEngine {
       // Frames finish in order.
       while (this.inFlight.length && gl.getSyncParameter(this.inFlight[0].sync, gl.SYNC_STATUS) === gl.SIGNALED) this.finished(gl, this.inFlight.shift()!);
       if (this.inFlight.length) this.watchGpu();
-      if (this.waiting && this.inFlight.length < MAX_IN_FLIGHT) {
+      if (this.waiting && this.inFlight.length < this.maxInFlight) {
         this.waiting = false;
         this.update();
       }
@@ -1115,6 +1147,17 @@ export class PreviewEngine {
    */
   private upload(compositor: Compositor, { key, source, interp }: Picture): boolean {
     if (!source) return true;
+    if (source instanceof HTMLCanvasElement) {
+      // A live picture: drawn anew each frame.
+      if (source.width === 0 || source.height === 0) return false;
+      try {
+        compositor.setPicture(key, source);
+      } catch (err) {
+        logger.warn("couldn't draw a live picture", err);
+        return false;
+      }
+      return true;
+    }
     if (interp && source instanceof HTMLVideoElement) this.keepFrame(compositor, key, source, interp.slot);
     let version: string | null;
     let ready: boolean;

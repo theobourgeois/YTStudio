@@ -7,6 +7,7 @@ import { noteTitleBar } from "@/lib/desktop";
 import { useDesktopCommands } from "@/components/home/desktop-commands";
 import { NewProjectDialog } from "@/components/home/new-project-dialog";
 import { NewProjectWindow } from "@/components/home/new-project-window";
+import { NowPlayingHost } from "@/components/now-playing/now-playing-host";
 import { ProjectTabs, useTabsShown } from "@/components/home/project-tabs";
 import { useOwnWindowButtons } from "@/components/header/window-buttons";
 import { OpenProjectDialog } from "@/components/home/open-project-dialog";
@@ -20,6 +21,7 @@ import { usePreventFileNavigation } from "@/hooks/use-prevent-file-navigation";
 import { useShortcuts } from "@/hooks/use-shortcuts";
 import { startAssistantBridge } from "@/assistant/bridge";
 import { useAppWindows } from "@/stores/app-windows";
+import { useNowPlaying } from "@/stores/now-playing";
 import { useProjects } from "@/stores/projects";
 import { useSettings } from "@/stores/settings";
 
@@ -37,6 +39,8 @@ export default function App() {
   }, []);
   // Agents (the assistant, or any MCP client) run their tools in this tab.
   useEffect(() => startAssistantBridge(), []);
+  // What the music player is playing, asked about once a second (the top bar's pill, the visualizer).
+  useEffect(() => useNowPlaying.getState().start(), []);
   // The bar that starts the window: the tab strip, else Home's own (taller) or the project's menu row.
   useEffect(() => noteTitleBar({ height: tabs || !home ? 40 : 52, ownButtons }), [tabs, home, ownButtons]);
   // Without a Mac's window buttons, the bars don't leave room for them (src/index.css).
@@ -79,6 +83,8 @@ export default function App() {
           <NewProjectWindow />
         </Desktop>
       )}
+      {/* The visualizer of what's playing fills the window, over everything. */}
+      <NowPlayingHost />
       <ShortcutsDialog />
       <NewProjectDialog />
       <ProjectSearchDialog />

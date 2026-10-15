@@ -4,6 +4,7 @@ import { PiFolderOpen, PiImages, PiListBullets, PiMagnifyingGlass, PiSquaresFour
 import { appIconUrl } from "@shared/app-icons";
 import { SUITES, SUITE_IDS, type SuiteId, suiteNoun } from "@shared/suites";
 import { WindowButtons } from "@/components/header/window-buttons";
+import { NowPlayingPill } from "@/components/now-playing/now-playing-pill";
 import { SettingsButton } from "@/components/settings/settings-button";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useNow } from "@/hooks/use-now";
@@ -16,6 +17,7 @@ import { folderOf, type HomeView, LIST_COLUMNS, ProjectCard } from "./project-ca
 import { groupByWhen, searchProjects } from "./project-search";
 import { OPEN_KEYS, NEW_PROJECT_KEYS, PROJECT_SEARCH_KEYS } from "./project-search-dialog";
 import { showOpenDialog } from "./open-project-dialog";
+import { useTabsShown } from "./tabs-shown";
 
 const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
 /** Which suite's projects the Home screen lists (all of them by default), kept in this browser. */
@@ -54,6 +56,8 @@ export function Home() {
   const [filter, setFilter] = useState<Filter>(savedFilter);
   const [view, setView] = useState<HomeView>(savedView);
   const now = useNow(30_000);
+  // With the tab strip above, what's playing is shown there.
+  const tabs = useTabsShown();
 
   const shown = useMemo(() => {
     const ofSuite = filter === "all" ? projects : projects.filter((p) => p.suite === filter);
@@ -115,6 +119,7 @@ export function Home() {
           />
           <kbd className="shrink-0 font-sans text-[11px]">{MOD}F</kbd>
         </label>
+        {!tabs && <NowPlayingPill />}
         <SettingsButton />
         <WindowButtons className="-ml-1" />
       </header>

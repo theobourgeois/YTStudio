@@ -366,6 +366,9 @@ async function pack(targets: "dir" | "installers") {
             LSHandlerRank: "Alternate",
           }],
           NSMicrophoneUsageDescription: "YTStudio records your microphone or audio interface when you arm a mixer track.",
+          // Now Playing: the visualizer listens to what the computer plays, and the app asks Spotify what that is.
+          NSAudioCaptureUsageDescription: "YTStudio's visualizer listens to what your computer is playing, to move with it. Nothing is recorded.",
+          NSAppleEventsUsageDescription: "YTStudio asks Spotify what's playing, and plays, pauses or skips when you tell it to.",
           // The project type, a package (a folder Finder shows as one file), declared so macOS knows it.
           UTExportedTypeDeclarations: [
             {

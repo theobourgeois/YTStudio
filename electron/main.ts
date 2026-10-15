@@ -9,7 +9,7 @@ import { existsSync, renameSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { engineExecutable } from "../server/engine-path.ts";
-import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, screen, shell, systemPreferences } from "electron";
+import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, screen, session, shell, systemPreferences } from "electron";
 import { log, logFile, startLogging } from "../server/log.ts";
 import type { RunningServer } from "./server.ts";
 import { loadShellPath } from "./shell-path.ts";
@@ -19,6 +19,7 @@ import { FloatingGroup, type FloatingState } from "./floating.ts";
 import { POPUP_WINDOW } from "../shared/panels.ts";
 import { HoverRelay } from "./hover.ts";
 import { Panels, answerPanelRequests, isPanelName, panelOptions, popupOptions } from "./panels.ts";
+import { Stages, answerStageRequests, isStageName, stageOptions } from "./stage.ts";
 import { Restacker, WindowStack } from "./stacking.ts";
 
 const APP_NAME = "YTStudio";
@@ -112,6 +113,8 @@ let closeServerAndWait: (() => Promise<void>) | null = null;
 let setHostWindow: RunningServer["setHostWindow"] | null = null;
 /** The main window's panels (the editor's windows, one native window each: panels.ts). */
 let panels: Panels | null = null;
+/** The page's stages (the visualizer popped out: stage.ts). */
+const stages = new Stages();
 /** Which of the app's windows float, and the engine's plugin windows with them (floating.ts). */
 let group: FloatingGroup | null = null;
 let floatingState: FloatingState = { floating: false, visible: true };
@@ -305,9 +308,11 @@ async function start() {
   // (Only macOS withholds mouse moves from windows without the focus: elsewhere the 60 Hz poll would be for nothing.)
   if (isMac) relayHover();
   answerPanelRequests(() => (mainWindow && panels ? { main: mainWindow, panels } : null));
+  answerStageRequests(stages, () => mainWindow);
   answerSaveDialogs();
   answerProjectDialogs();
   answerMicrophone();
+  answerListening();
   initializeAppIcon();
   createWindow();
 }
@@ -368,6 +373,8 @@ function createWindow() {
     if (details.isMainFrame && !details.isSameDocument) pageReady = false;
   });
   win.on("closed", () => {
+    // The page that drew them is gone.
+    stages.closeAll();
     if (mainWindow === win) {
       mainWindow = null;
       panels = null;
@@ -519,6 +526,15 @@ function answerMicrophone() {
 }
 
 /**
+ * Now Playing's visualizer listens to what the computer plays (`src/lib/live-audio.ts`): the page asks for a
+ * screen share's sound, and gets the system's (loopback: Core Audio's process tap on a Mac, which asks once, by
+ * `NSAudioCaptureUsageDescription`) with its own page as the picture, so it's never asked to record the screen.
+ */
+function answerListening() {
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => callback({ video: request.frame ?? undefined, audio: "loopback" }));
+}
+
+/**
  * Let the page save its last edit (autosave is debounced) before the window, and maybe the server, goes.
  * Holding the close back cancels a quit in progress, so that's started again once saved.
  */
@@ -558,10 +574,16 @@ function openPanels(win: BrowserWindow, owned: Panels) {
   const isApp = (url: string) => url === "about:blank" || url.startsWith(appUrl);
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
     if (isPanelName(frameName) && isApp(url)) return { action: "allow", overrideBrowserWindowOptions: frameName === POPUP_WINDOW ? popupOptions() : panelOptions() };
+    if (isStageName(frameName) && isApp(url)) return { action: "allow", overrideBrowserWindowOptions: stageOptions() };
     if (/^https?:/.test(url) && !url.startsWith(appUrl)) void shell.openExternal(url);
     return { action: "deny" };
   });
   win.webContents.on("did-create-window", (panel, details) => {
+    if (isStageName(details.frameName)) {
+      stages.adopt(details.frameName, panel);
+      keepLinksOutside(panel);
+      return;
+    }
     if (!isPanelName(details.frameName)) return;
     owned.adopt(details.frameName, panel);
     keepLinksOutside(panel);

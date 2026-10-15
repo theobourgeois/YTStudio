@@ -456,6 +456,18 @@ export interface ParamLink {
   response: SignalResponse;
   /** For hits (events, onsets, the beat): the shape each one makes. Absent: they're read as they come. */
   hit?: HitShape;
+  /** How far it moves follows another signal (a punch as big as the music is intense). Absent: all the way. */
+  depth?: LinkDepth;
+}
+
+/**
+ * A link's depth (`ParamLink.depth`): it moves `floor + (1 - floor) × level` of its amount, `level` being the
+ * signal (0..1) shaped by `threshold` (below it, 0; above it, stretched to 1).
+ */
+export interface LinkDepth {
+  signal: SignalRef;
+  floor: number;
+  threshold: number;
 }
 
 /**
@@ -1152,6 +1164,12 @@ export interface ToolCallProgressRequest {
 //   POST   /api/library/items/:id/use  body: UseLibraryItemRequest -> UseLibraryItemResponse
 //   GET    /api/library/media/:id       -> MediaAsset (a Library file)
 //   GET    /api/fonts                   -> FontFamily[] installed on this computer (A to Z)
+//   GET    /api/now-playing             -> NowPlayingStatus: what the music player (Spotify on a Mac) is playing
+//   POST   /api/now-playing  body: NowPlayingCommand -> NowPlayingStatus (400 not a command, 403 macOS said no,
+//                                        503 no player on this computer)
+//   GET    /api/now-playing/vibe        -> ModelStatus of the vibe's model (CLAP's audio side, shared/signals/vibe.ts)
+//   POST   /api/now-playing/vibe/setup  -> ModelStatus (202): its download starts (the user asked)
+//   GET    /api/now-playing/vibe/file   -> its ONNX file (404 until it's downloaded)
 //   POST   /api/exports   body: ExportRequest -> ExportJob (202)
 //   GET    /api/exports/formats         -> ExportFormat[] (what this computer's ffmpeg can make)
 //   GET    /api/exports/:id             -> ExportJob

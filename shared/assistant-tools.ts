@@ -779,14 +779,16 @@ export const VIDEO_TOOLS = [
     description:
       "Make a number or point parameter move with the sound, no code (the link button by a stopwatch): it follows a " +
       'signal by an amount. `signal` is a built-in one ("level", "bass", "sub", "mid", "air", "onset", "onsetLow" ' +
-      'kicks, "onsetMid", "onsetHigh" hats, "width", "brightness"..., or "beat" / "downbeat" for the song\'s beat) or ' +
+      'kicks, "onsetMid", "onsetHigh" hats, "width", "brightness", "intensity" (how much is going on: low in a ' +
+      'breakdown, high in a drop)..., or "beat" / "downbeat" for the song\'s beat) or ' +
       "one of the video's own (define_signal) by name. `mode`: add (value + amount × signal, the default), multiply " +
       "(value × (1 + amount × signal): 0.3 is up to 30% more) or map (from the value towards `to`). Amounts are in " +
       "the parameter's own units (see get_catalog; a point's may be a point: [0, -0.05] lifts it). The response " +
       "shapes the 0..1 signal first: below `threshold` nothing moves, `curve` above 1 keeps only the loud parts, " +
       "`attack`/`release` (seconds) smooth its rise and fall, `invert` moves it when it's quiet. For hits (onsets, " +
       "beats, events) give `hit` {attack, hold, decay} to make a punch on each. Inside a nested sequence the mix is " +
-      "the song of the video it's placed in. Wins over keyframes (it moves them), and an expression sees the linked " +
+      "the song of the video it's placed in. `depth` makes how far it moves follow another signal (a kick punch " +
+      'scaled by "intensity"). Wins over keyframes (it moves them), and an expression sees the linked ' +
       "value. It says how far the parameter moves over the clip. `link: null` unlinks. Not on volume.",
     inputSchema: obj(
       {
@@ -815,6 +817,15 @@ export const VIDEO_TOOLS = [
               },
               [],
               "For hits: the shape each one makes (scaled by how hard it is).",
+            ),
+            depth: obj(
+              {
+                signal: str('The signal that sets how far it moves, e.g. "intensity" (a punch as big as the music is intense).'),
+                floor: num("0..1: how much it moves even when that signal is 0 (default 0).", { minimum: 0, maximum: 1 }),
+                threshold: num("0..1: that signal under it counts as 0 (default 0).", { minimum: 0, maximum: 0.99 }),
+              },
+              ["signal"],
+              "How far it moves follows another signal: floor + (1 - floor) × that signal's level.",
             ),
           },
           required: ["signal"],
@@ -1270,6 +1281,80 @@ export const VIDEO_TOOLS = [
     kind: "action",
     description: "Point the user at something: move the playhead to `time` and/or select clips.",
     inputSchema: obj({ time: time("Playhead."), clipIds: arr(str("Clip id"), "Clips to select (empty = none).") }),
+  }),
+
+  // -------------------------------------------------------------------------
+  // Now Playing: the computer's music player, and its visualizer (docs/now-playing.md)
+  // -------------------------------------------------------------------------
+  tool({
+    name: "now_playing",
+    title: "Check what's playing",
+    kind: "look",
+    description:
+      "What the computer's music player (Spotify, on a Mac) is playing: the song, artist and album, where it is, " +
+      "how it sounds while the visualizer listens (chill, groove, hype or heavy; its intensity; a build-up, drop or " +
+      "breakdown), and the visualizer (Now Playing's, filling the window, made of this editor's effects and 3D scenes, and " +
+      "MilkDrop's presets, kind milkdrop): whether it's open, the look it shows, how looks change, and every look there is " +
+      "(id, name, kind). Read it before " +
+      "control_now_playing.",
+    inputSchema: obj({}),
+  }),
+  tool({
+    name: "control_now_playing",
+    title: "Control what's playing",
+    kind: "action",
+    description:
+      "Play, pause or skip the song in the music player, seek in it, or open, close and steer the visualizer: " +
+      "`look` (an id from now_playing) shows that look (opening the visualizer), `frame` repeats, mirrors, turns or zooms the picture over any look, `fx` warps, swirls, ripples, kaleidoscopes, lenses, folds and feeds it back (vaudio's), `roll` rolls chaos (a random look of one of " +
+      "vaudio's chaos recipes, as = does) or mutates the chaos look shown (its world nudged a little, as - does), `auto` sets how " +
+      "looks change by themselves (off: stay; song: follow the music, a look that suits the song's kind and intensity, changed on songs, drops and breakdowns; beat: every beat, cutting on it; " +
+      "bars1, bars2, bars4, bars8, bars16, bars32: every so many bars, each a look that suits the music), `pace` slows it all down. Only what's given happens: the song first, then the visualizer.",
+    inputSchema: obj({
+      action: oneOf(["play", "pause", "toggle", "next", "previous"], "What the player does."),
+      seek: num("Go to this many seconds into the song.", { minimum: 0 }),
+      visualizer: oneOf(["open", "close"], "Open or close the visualizer."),
+      look: str("A look's id (from now_playing) to show."),
+      roll: oneOf(["chaos", "mutate"], "chaos: a roll of another chaos recipe; mutate: the chaos look shown, nudged."),
+      frame: obj(
+        {
+          repeat: int("Copies across and down (1: the picture as it is; 2: 2×2...).", { minimum: 1, maximum: 4 }),
+          mirror: bool("Each copy beside its reflection (not repeated: the picture mirrored down its middle)."),
+          spin: num("Turning, degrees a second (+ left, - right, 0 still).", { minimum: -90, maximum: 90 }),
+          zoom: num("1 the frame; under 1 zoomed out (its edges repeat), over 1 in.", { minimum: 0.4, maximum: 2 }),
+          reset: bool("Back as it was (upright, one copy, still)."),
+        },
+        [],
+        "How the picture's framed over any look, eased over a beat: only what's given changes. It stays across looks until reset.",
+      ),
+      fx: obj(
+        {
+          warp: num("Fluid warp, 0..1.", { minimum: 0, maximum: 1 }),
+          swirl: num("Swirl, 0..1.", { minimum: 0, maximum: 1 }),
+          ripple: num("Ripples, 0..1.", { minimum: 0, maximum: 1 }),
+          kaleido: num("Kaleidoscope, 0..1 (more: more segments).", { minimum: 0, maximum: 1 }),
+          lens: num("Lens, -1..1 (+ bulging, - pinching).", { minimum: -1, maximum: 1 }),
+          fold: num("Mirror fold, 0..1 (past 0.5 it folds both ways).", { minimum: 0, maximum: 1 }),
+          feedback: num("How much of the last frame's echo stays, 0..0.93.", { minimum: 0, maximum: 0.93 }),
+          trails: num("How long the echo lasts, 0..1 (0.6 untouched).", { minimum: 0, maximum: 1 }),
+          echoZoom: num("The echo zooming, -1..1 (+ out of the middle, a tunnel; - into it).", { minimum: -1, maximum: 1 }),
+          echoSpin: num("The echo turning, -1..1.", { minimum: -1, maximum: 1 }),
+          echoHue: num("The echo's colours turning, 0..1.", { minimum: 0, maximum: 1 }),
+          echoFlow: num("The echo flowing as it fades (smoke), 0..1.", { minimum: 0, maximum: 1 }),
+          wash: bool("All of them back as they were (and the frame too)."),
+        },
+        [],
+        "vaudio's Distort and Feedback panels, over any look, in its units: only what's given changes; kept until washed.",
+      ),
+      auto: oneOf(["off", "song", "beat", "bars1", "bars2", "bars4", "bars8", "bars16", "bars32"], "How looks change by themselves."),
+      effects: oneOf(
+        ["music", "beat", "bar", "hand"],
+        "Who plays the effects over the looks (the frame, distortions, feedback): music: the engine, by the mood (gentle when calm, harder when intense, tightening in a build-up, clean on a drop); beat: a new set each bar, mutated each beat; bar: a new set each bar; hand: only what's set (`frame`, `fx`, the keys).",
+      ),
+      pace: oneOf(
+        ["music", "slow"],
+        "How fast the looks move: music: as the song goes (slow motion on a slow song only); slow: always in slow motion, every song taken as a slow one (only looks that flow, long blends, calm effects, half speed), for when the music's vibe is too much.",
+      ),
+    }),
   }),
 ] as const satisfies readonly ToolSpec[];
 

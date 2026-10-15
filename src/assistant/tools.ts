@@ -15,7 +15,7 @@ import { isRemapped } from "@shared/effects";
 import { clipMarkers } from "@shared/markers";
 import { errorMessage } from "@shared/errors";
 import { describeExport, exportFormat, exportSettings } from "@shared/export-formats";
-import { formatBytes } from "@shared/format";
+import { formatBytes, formatDuration } from "@shared/format";
 import { templateFromClips, templateFromSubclip } from "@shared/library";
 import { clamp } from "@shared/math";
 import { getSequence, writeSequence } from "@shared/sequences";
@@ -67,6 +67,20 @@ import {
   strings,
 } from "./input";
 import { log } from "@/lib/log";
+import { type Frame, LIVE_LOOKS, NO_FX, liveLook } from "@shared/live-looks";
+import { type NowPlayingUnavailable, positionAt } from "@shared/now-playing";
+import { EFFECTS_MODES } from "@/components/now-playing-view/effects-engine";
+import { AUTO_SWITCHES, PACES, useVisualizerPrefs } from "@/components/now-playing-view/prefs";
+import { useNowPlaying } from "@/stores/now-playing";
+
+/** What the music player's `unavailable` means, for the model. */
+const UNAVAILABLE: Record<NowPlayingUnavailable, string> = {
+  off: "the user turned Now Playing off (Settings › General).",
+  unsupported: "there's no music player this app can ask on this computer (Spotify on a Mac).",
+  "not-running": "Spotify isn't open.",
+  "not-allowed": "macOS hasn't allowed the app to control Spotify (System Settings › Privacy & Security › Automation).",
+  error: "it didn't answer.",
+};
 
 const logger = log("assistant");
 
@@ -779,6 +793,142 @@ const TOOLS: Record<VideoToolName, Handler> = {
     if (job.status !== "done") throw new ToolError(job.error ?? `The render was ${job.status}.`);
     if (job.segments === 0) return textResult("Nothing to render: the heavy parts were rendered already (green), or there are none.");
     return textResult(`Rendered ${job.segments} part${job.segments === 1 ? "" : "s"} in ${secs((Date.now() - started) / 1000)}s: they play back smoothly now.`);
+  },
+  now_playing() {
+    const { status, visualizer, listening } = useNowPlaying.getState();
+    const prefs = useVisualizerPrefs.getState();
+    const lines: string[] = [];
+    if (!status) lines.push("The music player hasn't been asked yet: try again in a second.");
+    else if (status.unavailable) lines.push(`Nothing to read from ${status.player}: ${status.message ?? UNAVAILABLE[status.unavailable]}`);
+    else if (!status.track) lines.push(`${status.player} is open but not playing anything.`);
+    else {
+      const t = status.track;
+      lines.push(
+        `${status.player} is ${status.state === "playing" ? "playing" : "paused on"} "${t.name}"${t.artist ? ` by ${t.artist}` : ""}${t.album ? ` (${t.album})` : ""}, ` +
+          `${formatDuration(Math.floor(positionAt(status, Date.now())))} of ${formatDuration(Math.floor(t.duration))}.`,
+      );
+    }
+    const mood = useNowPlaying.getState().live?.signals.mood;
+    if (mood?.character) {
+      lines.push(
+        `It sounds ${mood.character} (${Math.round(mood.sure * 100)}% sure), intensity ${mood.intensity.toFixed(2)} of 1, in ${mood.section === "build" ? "a build-up" : mood.section === "steady" ? "a steady part" : `the ${mood.section}`}.`,
+      );
+    }
+    if (mood?.vibe) {
+      // What CLAP hears (its axes: -1 the first end, 1 the second, against the music they were centred on).
+      const ends = { energy: "calm–intense", mood: "dark–bright", force: "soft–harsh", pace: "slow–fast", space: "dry–dreamy", dance: "free–groove" };
+      const axes = (Object.keys(ends) as (keyof typeof ends)[]).map((a) => `${ends[a]} ${mood.vibe!.axes[a]}`).join(", ");
+      lines.push(`Its vibe (CLAP): like ${mood.vibe.genres.map((g) => g.name).join(", ")}; ${axes}.`);
+    } else if (useNowPlaying.getState().vibeModel?.status !== "ready") {
+      lines.push("Its vibe isn't heard: the vibe's model (CLAP) isn't downloaded; the user downloads it from the visualizer's offer.");
+    }
+    const auto = AUTO_SWITCHES.find((a) => a.id === prefs.auto)!;
+    lines.push(
+      visualizer
+        ? `The visualizer is open, showing ${liveLook(prefs.look)?.name ?? prefs.look} (${prefs.look}); looks change: ${auto.label.toLowerCase()} (${auto.id}); speed: ${prefs.pace === "slow" ? "slow motion (slow)" : "following the music (music)"}; listening: ${listening}.`
+        : `The visualizer is closed (its look is ${prefs.look}; looks change: ${auto.id}; speed: ${prefs.pace}).`,
+    );
+    const fxSet = (Object.keys(NO_FX) as (keyof typeof NO_FX)[]).filter((k) => prefs.fx[k] !== NO_FX[k]);
+    const effectsBy = EFFECTS_MODES.find((m) => m.id === prefs.effects)!;
+    lines.push(
+      prefs.effects === "hand"
+        ? `Effects over the looks by hand: ${fxSet.length ? fxSet.map((k) => `${k} ${prefs.fx[k]}`).join(", ") : "none"}.`
+        : `Effects over the looks: played by the engine (${effectsBy.label.toLowerCase()}, ${effectsBy.id}).`,
+    );
+    // What each suits (step 5 of docs/now-playing.md), so a look can be picked for the music.
+    const suits = (l: (typeof LIVE_LOOKS)[number]) => `${l.suits.characters.join("/")}, intensity ${l.suits.energy[0]}–${l.suits.energy[1]}${l.suits.minimal ? ", minimal" : ""}`;
+    lines.push(`Looks (id: name, kind, what it suits): ${LIVE_LOOKS.map((l) => `${l.id} (${l.name}, ${l.kind}, ${suits(l)})`).join("; ")}.`);
+    return textResult(lines.join("\n"));
+  },
+  async control_now_playing(input) {
+    const np = useNowPlaying.getState();
+    const action = optString(input, "action");
+    const seek = optNumber(input, "seek", { min: 0 });
+    const visualizer = optString(input, "visualizer");
+    const look = optString(input, "look");
+    const auto = optString(input, "auto");
+    const roll = optString(input, "roll");
+    const effectsMode = optString(input, "effects");
+    const effects = effectsMode === undefined ? undefined : EFFECTS_MODES.find((m) => m.id === effectsMode);
+    if (effectsMode !== undefined && !effects) throw new ToolError(`\`effects\` is one of ${EFFECTS_MODES.map((m) => m.id).join(", ")}.`);
+    const paceId = optString(input, "pace");
+    const pace = paceId === undefined ? undefined : PACES.find((p) => p.id === paceId);
+    if (paceId !== undefined && !pace) throw new ToolError(`\`pace\` is one of ${PACES.map((p) => p.id).join(", ")}.`);
+    const rawFrame = input.frame;
+    if (rawFrame !== undefined && (typeof rawFrame !== "object" || rawFrame === null || Array.isArray(rawFrame))) throw new ToolError("`frame` is an object: repeat, mirror, spin, zoom or reset.");
+    const frameIn = (rawFrame ?? {}) as Record<string, unknown>;
+    const frame: Partial<Frame> = {};
+    if (frameIn.repeat !== undefined) {
+      if (![1, 2, 3, 4].includes(frameIn.repeat as number)) throw new ToolError("`frame.repeat` is 1, 2, 3 or 4.");
+      frame.repeat = frameIn.repeat as Frame["repeat"];
+    }
+    if (frameIn.mirror !== undefined) frame.mirror = frameIn.mirror === true;
+    if (frameIn.spin !== undefined) frame.spin = Math.max(-90, Math.min(90, Number(frameIn.spin) || 0));
+    if (frameIn.zoom !== undefined) frame.zoom = Math.max(0.4, Math.min(2, Number(frameIn.zoom) || 1));
+    if (roll !== undefined && roll !== "chaos" && roll !== "mutate") throw new ToolError("`roll` is chaos or mutate.");
+    if (action !== undefined && !["play", "pause", "toggle", "next", "previous"].includes(action)) throw new ToolError("`action` is one of play, pause, toggle, next, previous.");
+    if (visualizer !== undefined && visualizer !== "open" && visualizer !== "close") throw new ToolError("`visualizer` is open or close.");
+    if (look !== undefined && !liveLook(look)) throw new ToolError(`There's no look "${look}". Looks: ${LIVE_LOOKS.map((l) => l.id).join(", ")}.`);
+    const autoSwitch = auto === undefined ? undefined : AUTO_SWITCHES.find((a) => a.id === auto);
+    if (auto !== undefined && !autoSwitch) throw new ToolError(`\`auto\` is one of ${AUTO_SWITCHES.map((a) => a.id).join(", ")}.`);
+    if ((action !== undefined || seek !== undefined) && (!np.status || np.status.unavailable)) {
+      throw new ToolError(`The music player can't be controlled: ${np.status?.message ?? (np.status?.unavailable ? UNAVAILABLE[np.status.unavailable] : "it hasn't answered yet")}`);
+    }
+    const done: string[] = [];
+    if (action) {
+      await np.command({ action: action as "play" });
+      done.push(`told ${np.status?.player ?? "the player"} to ${action}`);
+    }
+    if (seek !== undefined) {
+      await np.command({ action: "seek", position: seek });
+      done.push(`went to ${formatDuration(seek)} in the song`);
+    }
+    if (effects) {
+      useVisualizerPrefs.getState().setEffects(effects.id);
+      done.push(`effects: ${effects.label.toLowerCase()}`);
+    }
+    if (autoSwitch) {
+      useVisualizerPrefs.getState().setAuto(autoSwitch.id);
+      done.push(`looks change: ${autoSwitch.label.toLowerCase()}`);
+    }
+    if (pace) {
+      useVisualizerPrefs.getState().setPace(pace.id);
+      done.push(`speed: ${pace.label.toLowerCase()}`);
+    }
+    if (look) {
+      useVisualizerPrefs.getState().request(look);
+      if (!useNowPlaying.getState().visualizer) np.openVisualizer();
+      done.push(`showing ${liveLook(look)!.name}`);
+    } else if (input.fx !== undefined) {
+      if (typeof input.fx !== "object" || input.fx === null || Array.isArray(input.fx)) throw new ToolError("`fx` is an object: warp, swirl, ripple, kaleido, pixelate, lens, fold, feedback, trails, echoZoom, echoSpin, echoHue, or wash.");
+      const given = input.fx as Record<string, unknown>;
+      const prefs = useVisualizerPrefs.getState();
+      // Set by hand: the engine stops playing them.
+      prefs.setEffects("hand");
+      if (given.wash === true) {
+        prefs.setFx("wash");
+        prefs.requestFrame("reset");
+      } else prefs.setFx(Object.fromEntries(Object.entries(given).filter(([k, v]) => k in NO_FX && typeof v === "number")));
+      if (!useNowPlaying.getState().visualizer) np.openVisualizer();
+      done.push(given.wash === true ? "washed the distortions, feedback and frame" : `set ${Object.keys(given).join(", ")}`);
+    } else if (rawFrame !== undefined) {
+      useVisualizerPrefs.getState().requestFrame(frameIn.reset === true ? "reset" : frame);
+      if (!useNowPlaying.getState().visualizer) np.openVisualizer();
+      done.push(frameIn.reset === true ? "put the frame back as it was" : `reframed the picture (${Object.entries(frame).map(([k, v]) => `${k} ${v}`).join(", ")})`);
+    } else if (roll) {
+      useVisualizerPrefs.getState().requestRoll(roll);
+      if (!useNowPlaying.getState().visualizer) np.openVisualizer();
+      done.push(roll === "chaos" ? "rolled chaos" : "mutated the chaos look");
+    } else if (visualizer === "open") {
+      np.openVisualizer();
+      done.push("opened the visualizer");
+    }
+    if (visualizer === "close") {
+      np.closeVisualizer();
+      done.push("closed the visualizer");
+    }
+    if (!done.length) throw new ToolError("Nothing to do: give `action`, `seek`, `visualizer`, `look`, `frame`, `fx`, `roll`, `auto` or `effects`.");
+    return textResult(`Done: ${done.join(", ")}.`);
   },
   async open_sequence(input, ctx) {
     const doc = await ctx.doc();

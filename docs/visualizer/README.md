@@ -584,7 +584,8 @@ assistant tools. Gates are what must be true (measured) before the next mileston
 - Tests: the waveform (analyse.test.ts), what a visualizer hears and carries (audio-signals.test.ts), every Audio
   effect compiles and changes the picture (effect sheet), an export of Strobe on Hits flashing on each kick
   (integration), e2e: a Visualizer layer's bars on the Program monitor, its Listens To.
-- Not yet: vaudio's 2D looks (see vaudio-port.md).
+- vaudio's 2D looks came over with Now Playing (docs/now-playing.md, 2026-10-14): Wave Bars, Radial Pulse, Signal
+  Tunnel, Bass Lattice, Ribbon Field, Orb Bloom, Hard Shards, Acid Plasma (`audio-wave-bars`...`audio-plasma`).
 
 - **Gate**: a 1080×1920 sequence with three visualizers plays at 60 fps in the preview (`scripts/perf.ts --visualizers`).
   **Measured** (2026-10-07, an M-series Mac, headless Chromium, a 1920×1200 window at 2×): Spectrum Bars, Circular

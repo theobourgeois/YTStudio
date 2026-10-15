@@ -8,6 +8,7 @@ import {
   follow,
   hitLevel,
   normalizeLink,
+  depthOf,
   normalizeSignalDefs,
   setSignalEvents,
   shapeValue,
@@ -60,6 +61,22 @@ describe("links' validation", () => {
     const loaded = normalizeProject(JSON.parse(JSON.stringify(p)));
     expect(loaded.signals).toEqual([kick]);
     expect(loaded.clips[0].effects.find((e) => e.type === OPACITY.type)?.links).toEqual({ opacity: bass });
+  });
+});
+
+describe("links' depth", () => {
+  it("keeps a depth that names a signal, its floor and threshold in range", () => {
+    const link = normalizeLink({ signal: { name: "onsetLow" }, amount: 0.2, depth: { signal: { name: "intensity" }, floor: 2, threshold: -1 } }, false);
+    expect(link?.depth).toEqual({ signal: { name: "intensity" }, floor: 1, threshold: 0 });
+    expect(normalizeLink({ signal: { name: "bass" }, amount: 1, depth: { signal: { name: "nope" } } }, false)?.depth).toBeUndefined();
+  });
+
+  it("moves its floor at nothing, all the way at full, nothing under its threshold", () => {
+    const depth = { signal: { name: "intensity" }, floor: 0.25, threshold: 0.5 };
+    expect(depthOf(depth, 0)).toBe(0.25);
+    expect(depthOf(depth, 1)).toBe(1);
+    expect(depthOf(depth, 0.4)).toBe(0.25);
+    expect(depthOf(depth, 0.75)).toBeCloseTo(0.625);
   });
 });
 

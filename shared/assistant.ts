@@ -513,6 +513,24 @@ export function describeToolCall(rawName: string, input: unknown): string {
       return f("delete") === true ? "Delete a nested sequence" : "Change a nested sequence";
     case "open_sequence":
       return f("sequenceId") ? "Open a nested sequence" : "Back to the main sequence";
+    case "now_playing":
+      return "Check what's playing";
+    case "control_now_playing": {
+      const action = f("action");
+      if (action === "next") return "Skip to the next song";
+      if (action === "previous") return "Go back a song";
+      if (action === "pause") return "Pause the song";
+      if (action === "play" || action === "toggle") return action === "play" ? "Play the song" : "Play or pause the song";
+      if (typeof f("seek") === "number") return `Jump to ${seconds(f("seek"))} in the song`;
+      if (typeof f("look") === "string") return "Change the visualizer's look";
+      if (f("frame") !== undefined) return "Reframe the visualizer";
+      if (f("fx") !== undefined) return "Distort the visualizer";
+      if (f("roll") === "chaos") return "Roll chaos in the visualizer";
+      if (f("roll") === "mutate") return "Mutate the visualizer's look";
+      if (f("visualizer") === "close") return "Close the visualizer";
+      if (f("visualizer") === "open") return "Open the visualizer";
+      return "Change how the visualizer's looks change";
+    }
     case "remap_time": {
       if (Array.isArray(f("speeds"))) return `Speed ramp a clip`;
       if (f("freeze")) return "Freeze a frame";

@@ -248,6 +248,30 @@ describe("links: parameters that follow a signal", () => {
     expect(opacity(beat, 2.5)).toBe(0);
   });
 
+  it("reads a song's intensity: how much is going on, worked out from its signals", () => {
+    const p = project([songClip(), solid]);
+    // Kicks every half second: something's going on while the clip plays, nothing before it.
+    expect(signalValue(reader(p), null, MASTER, "intensity", 4.5)).toBeGreaterThan(0.2);
+    expect(signalValue(reader(p), null, MASTER, "intensity", 1)).toBe(0);
+    const followed = linked({ signal: { name: "intensity" } });
+    expect(opacity(followed, 4.5)).toBeGreaterThan(0.2);
+  });
+
+  it("moves as far as its depth says: a punch scaled by how intense the music is", () => {
+    const hit = { attack: 0, hold: 0, decay: 0.2 };
+    const full = linked({ signal: { name: "onsetLow" }, hit });
+    const scaled = linked({ signal: { name: "onsetLow" }, hit, depth: { signal: { name: "intensity" }, floor: 0, threshold: 0 } });
+    const floored = linked({ signal: { name: "onsetLow" }, hit, depth: { signal: { name: "intensity" }, floor: 0.5, threshold: 0 } });
+    const gated = linked({ signal: { name: "onsetLow" }, hit, depth: { signal: { name: "intensity" }, floor: 0, threshold: 0.99 } });
+    const t = 4.26;
+    const level = signalValue(reader(full), null, MASTER, "intensity", t);
+    expect(level).toBeGreaterThan(0.1);
+    expect(level).toBeLessThan(0.95);
+    expect(opacity(scaled, t)).toBeLessThan(opacity(full, t) - 0.05);
+    expect(opacity(floored, t)).toBeGreaterThan(opacity(scaled, t));
+    expect(opacity(gated, t)).toBe(0);
+  });
+
   it("inverts, and multiplies or maps", () => {
     expect(opacity(linked({ response: { ...response, invert: true } }), 1)).toBe(1);
     const p = setParams(linked({ mode: "map", to: 0.2 }), "solid", OPACITY.type, { opacity: 1 }, 0);
