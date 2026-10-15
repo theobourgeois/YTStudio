@@ -96,6 +96,7 @@ const PLATFORM = [
   "src/lib/vibe-worker.ts",
   "src/components/now-playing/",
   "server/now-playing.ts",
+  "server/now-playing-windows.ts",
   "server/routes/now-playing.ts",
   // Work handed from one suite to another (a song made into a video: Make visualizer).
   "shared/handoff.ts",

@@ -1164,9 +1164,10 @@ export interface ToolCallProgressRequest {
 //   POST   /api/library/items/:id/use  body: UseLibraryItemRequest -> UseLibraryItemResponse
 //   GET    /api/library/media/:id       -> MediaAsset (a Library file)
 //   GET    /api/fonts                   -> FontFamily[] installed on this computer (A to Z)
-//   GET    /api/now-playing             -> NowPlayingStatus: what the music player (Spotify on a Mac) is playing
+//   GET    /api/now-playing             -> NowPlayingStatus: what the music player (Spotify on a Mac or Windows) is playing
 //   POST   /api/now-playing  body: NowPlayingCommand -> NowPlayingStatus (400 not a command, 403 macOS said no,
 //                                        503 no player on this computer)
+//   GET    /api/now-playing/cover/:hash -> the cover Windows handed over (the status's artwork URL; 404 once it isn't the newest)
 //   GET    /api/now-playing/vibe        -> ModelStatus of the vibe's model (CLAP's audio side, shared/signals/vibe.ts)
 //   POST   /api/now-playing/vibe/setup  -> ModelStatus (202): its download starts (the user asked)
 //   GET    /api/now-playing/vibe/file   -> its ONNX file (404 until it's downloaded)

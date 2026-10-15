@@ -16,6 +16,12 @@ export function nowPlayingRoutes(nowPlaying: NowPlaying, vibe: DownloadedModel):
   router.post("/", json(), async (req, res) => {
     res.json(await nowPlaying.command(req.body));
   });
+  router.get("/cover/:hash", (req, res) => {
+    const cover = nowPlaying.cover(req.params.hash);
+    if (!cover) throw new HttpError(404, "That cover isn't the song playing now: GET /api/now-playing for its URL.");
+    res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+    res.type(cover.type).send(cover.data);
+  });
   router.get("/vibe", async (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.json(await vibe.status());

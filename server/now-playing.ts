@@ -1,7 +1,8 @@
 /**
  * Now Playing (docs/now-playing.md): asks the computer's music player what it's playing, and tells it to play,
  * pause, skip or seek. Spotify on a Mac answers AppleScript (JavaScript for Automation), so nothing needs an
- * account, a key or Premium: macOS asks the user once to let the app control Spotify (Privacy › Automation).
+ * account, a key or Premium: macOS asks the user once to let the app control Spotify (Privacy › Automation). On
+ * Windows it's the system's media controls (`now-playing-windows.ts`).
  * A stand-in player (`EDITOR_NOW_PLAYING=stand-in`) stands in for it in tests.
  */
 import { errorMessage } from "../shared/errors.ts";
@@ -16,6 +17,7 @@ import {
   unavailableStatus,
 } from "../shared/now-playing.ts";
 import { log } from "./log.ts";
+import { windowsPlayer } from "./now-playing-windows.ts";
 import { run } from "./process.ts";
 import { HttpError } from "./storage.ts";
 
@@ -27,6 +29,8 @@ export interface Player {
   readonly name: string;
   read(): Promise<NowPlayingStatus>;
   command(command: NowPlayingCommand): Promise<void>;
+  /** A cover the player hands over itself (Windows'), named by the status's `artwork` URL. */
+  cover?(hash: string): { type: string; data: Buffer } | null;
 }
 
 /** How long one answer serves every tab asking (they poll about once a second). */
@@ -62,6 +66,11 @@ export class NowPlaying {
     await this.player.command(command);
     this.cached = null;
     return this.status();
+  }
+
+  /** A cover the player handed over, or null if it isn't the newest one. */
+  cover(hash: string): { type: string; data: Buffer } | null {
+    return this.player?.cover?.(hash) ?? null;
   }
 
   /** Logs a problem once when it starts (not on every poll). */
@@ -265,9 +274,11 @@ export function standInPlayer(now: () => number = Date.now): Player {
   };
 }
 
-/** The player this computer has: Spotify on a Mac (else none), or the stand-in. */
+/** The player this computer has: Spotify on a Mac or on Windows (else none), or the stand-in. */
 export function defaultPlayer(setting: string | null): Player | null {
   if (setting === "stand-in") return standInPlayer();
   if (setting === "off") return null;
-  return process.platform === "darwin" ? spotifyPlayer() : null;
+  if (process.platform === "darwin") return spotifyPlayer();
+  if (process.platform === "win32") return windowsPlayer();
+  return null;
 }

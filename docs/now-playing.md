@@ -9,7 +9,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 
 | Part | Where | Layer |
 | --- | --- | --- |
-| Asking the player, telling it what to do | `server/now-playing.ts`, `/api/now-playing` (`server/routes/now-playing.ts`) | platform |
+| Asking the player, telling it what to do | `server/now-playing.ts` (Windows: `now-playing-windows.ts`), `/api/now-playing` (`server/routes/now-playing.ts`) | platform |
 | The types, positions, commands | `shared/now-playing.ts` | platform |
 | The pill (the tab strip, else Home's bar; not in a project without the tab strip) | `src/components/now-playing/` | platform |
 | The tab's state: polling, the cover's palette, listening, the visualizer open | `src/stores/now-playing.ts` | platform |
@@ -35,8 +35,17 @@ a second while it plays (slower when paused or closed); answers are shared for 4
 let the app control Spotify (Privacy › Automation, `NSAppleEventsUsageDescription`); if they said no, the pill says
 so (`not-allowed`). Spotify's AppleScript gives `duration` in milliseconds, though its dictionary says seconds.
 
-Only Spotify on a Mac for now. Apple Music answers AppleScript too (its cover is data, not a URL); Windows has a
-now-playing API of its own (GlobalSystemMediaTransportControls). Either is another `Player`.
+On **Windows** it's the system's media controls (GlobalSystemMediaTransportControls, what the volume flyout shows),
+which Spotify's desktop app feeds and any program may read and drive, nothing to allow (`server/now-playing-windows.ts`).
+They're WinRT, so one PowerShell stays open and answers a line at a time (`HELPER`: ~0.8 s to start, ~1 ms a read
+after; started again if it dies or is late). Spotify's session is the one whose app id says `spotify`. Windows gives no
+song id (name, artist and album hashed stand for one), no link and no volume (a volume command does nothing). The
+position is where Spotify last said (`LastUpdatedTime`), moved on since while it plays. The cover is bytes, not a URL:
+looked at on a new song and the next few answers (Spotify swaps it in late), sent once per change, kept by the server
+(the newest only) and served at `/api/now-playing/cover/<hash>` (same origin, so canvases read it). Seen to answer
+late: a pause reads as playing for a few hundred ms.
+
+Apple Music answers AppleScript too (its cover is data, not a URL): another `Player`.
 
 `EDITOR_NOW_PLAYING=stand-in` plays made-up songs (the e2e tests, the sheet): closed until told to play, so other
 specs never see a pill. Its `demo` flag makes the tab measure a made-up drum loop (`demoSong`) instead of listening.
@@ -44,7 +53,7 @@ specs never see a pill. Its `demo` flag makes the tab measure a made-up drum loo
 ## Listening
 
 The tab asks for a screen share's sound (`getDisplayMedia`). The desktop app answers it itself
-(`setDisplayMediaRequestHandler`) with the system's sound (`audio: "loopback"`: Core Audio's process tap on a Mac,
+(`setDisplayMediaRequestHandler`) with the system's sound (`audio: "loopback"`: WASAPI loopback on Windows; Core Audio's process tap on a Mac,
 Electron 39+, which needs `NSAudioCaptureUsageDescription`) and **its own page as the picture**, so it never asks to
 record the screen. In a browser the share picker asks: a screen with its sound, or Spotify's web player's tab.
 
@@ -400,4 +409,4 @@ Only the e2e spec a step touches is run (`e2e/now-playing.spec.ts`), never the w
 
 ## Not yet
 
-Spotify alone in a per-app tap (now: the whole computer's sound), synced lyrics (LRCLIB), Apple Music and Windows, preset rounds scored by Théo.
+Spotify alone in a per-app tap (now: the whole computer's sound), synced lyrics (LRCLIB), Apple Music, preset rounds scored by Théo.
