@@ -1350,9 +1350,9 @@ export const VIDEO_TOOLS = [
         ["music", "beat", "bar", "hand"],
         "Who plays the effects over the looks (the frame, distortions, feedback): music: the engine, by the mood (gentle when calm, harder when intense, tightening in a build-up, clean on a drop); beat: a new set each bar, mutated each beat; bar: a new set each bar; hand: only what's set (`frame`, `fx`, the keys).",
       ),
-      pace: oneOf(
-        ["music", "slow"],
-        "How fast the looks move: music: as the song goes (slow motion on a slow song only); slow: always in slow motion, every song taken as a slow one (only looks that flow, long blends, calm effects, half speed), for when the music's vibe is too much.",
+      pace: num(
+        "How fast the looks move (the Speed slider): 1 as the song goes (slow motion on a slow song only); less, always in slow motion at that speed (0.5 half speed), every song taken as a slow one (only looks that flow, long blends, calm effects), for when the music's vibe is too much.",
+        { minimum: 0.2, maximum: 1 },
       ),
     }),
   }),

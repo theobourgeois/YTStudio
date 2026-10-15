@@ -50,7 +50,7 @@ import { VibeOffer } from "./vibe-offer";
 import { type Area, type Box, type BoxedSize, COMPACT, type Edges, type VisualizerSize, dragBox, placeBox } from "./placement";
 import { PlayPanel } from "./play-panel";
 import { TapSync, type Tapper } from "./sync";
-import { AUTO_SWITCHES, CUT_BEATS, PACES, QUALITIES, useVisualizerPrefs } from "./prefs";
+import { AUTO_SWITCHES, CUT_BEATS, PACE, QUALITIES, SLOW_PACE, paceLabel, useVisualizerPrefs } from "./prefs";
 import { type Switch, type SwitchReason, switchFor } from "./switches";
 
 /** Seconds the controls stay after the pointer stops. */
@@ -72,6 +72,8 @@ const beatSeconds = (rhythm: MusicAnalysis | null | undefined) => (rhythm?.bpm ?
 const barSeconds = (rhythm: MusicAnalysis | null | undefined) => 4 * beatSeconds(rhythm);
 
 const logger = log("now-playing");
+/** Seconds the speed stays put before the looks are made at it (each change makes the look shown again). */
+const PACE_SETTLES = 0.35;
 /** Choices the mood readout (I) shows. */
 const CHOICES_KEPT = 5;
 /** What a switch goes by when nothing's heard yet. */
@@ -129,14 +131,17 @@ export default function NowPlayingView() {
   const shownKey = useRef("");
   const mutation = useRef({ key: "", n: 0 });
   const historyRef = useRef<string[]>([]);
-  // The looks in slow motion (a slow song's): what's shown moves half as fast, its hits swell.
-  const slowMotion = useRef(false);
+  // The looks in slow motion (a slow song's, or the Speed slider's): what's shown moves that much as fast, its hits
+  // swell. The speed the looks are made at, and the one wanted lately (made at once it's settled).
+  const slowMotion = useRef(prefs.pace < 1);
+  const paceShown = useRef(prefs.pace < 1 ? prefs.pace : 1);
+  const paceWanted = useRef({ pace: paceShown.current, since: 0 });
 
   // What the tick (outside React) needs, as of the last render.
   const latest = useRef({ status, palette, prefs });
   latest.current = { status, palette, prefs };
   /** What's heard, as the looks go by it: a slow song's whatever plays, in slow motion by choice (`slowedDown`). */
-  const asHeard = (mood: Mood) => (latest.current.prefs.pace === "slow" ? slowedDown(mood) : mood);
+  const asHeard = (mood: Mood) => (latest.current.prefs.pace < 1 ? slowedDown(mood) : mood);
 
   const [source] = useState(
     () =>
@@ -158,7 +163,7 @@ export default function NowPlayingView() {
   useEffect(() => {
     const drop = new MilkDrop();
     milkdrop.current = drop;
-    source.pictures = (assetId) => (assetId === MILKDROP_ASSET ? drop.canvas : null);
+    source.pictures = (assetId) => (assetId === MILKDROP_ASSET ? drop.picture : null);
     imageBox.current?.append(drop.canvas);
     // Loaded once the visualizer's going (a couple of MB), so a MilkDrop look is ready when one's picked.
     const later = setTimeout(() => void drop.prepare(), 1500);
@@ -197,12 +202,12 @@ export default function NowPlayingView() {
     const signals = useNowPlaying.getState().live?.signals;
     const rhythm = signals?.data().header.rhythm;
     const before = liveLook(director.look ?? "") ?? null;
-    const heard = signals ? asHeard(signals.mood) : { ...UNHEARD, slow: pr.pace === "slow" ? 1 : 0 };
+    const heard = signals ? asHeard(signals.mood) : { ...UNHEARD, slow: pr.pace < 1 ? 1 : 0 };
     const plan: Switch = { ...switchFor(reason, heard, before, look, beatSeconds(rhythm), random), ...switching };
     const at = plan.type === null ? time : plan.lands === "now" ? time + plan.seconds / 2 + 0.03 : onTheBar(rhythm, time + plan.seconds / 2 + 0.1);
     const mutations = mutation.current.key === key ? mutation.current.n : 0;
     shownKey.current = key;
-    const pace = slowMotion.current ? SLOW_MOTION : 1;
+    const pace = paceShown.current;
     director.show(look, { palette: p, random, mutations, pace }, at, plan.type === null ? null : switchTransition(plan.type, plan.seconds));
     if (plan.morph) director.morph(at, plan.seconds);
     chooser.shown(look.id, at, barSeconds(rhythm));
@@ -321,7 +326,7 @@ export default function NowPlayingView() {
     decide(time);
     const seconds = Math.min(0.1, Math.max(0.001, time - lastTick.current));
     lastTick.current = time;
-    milkdrop.current?.draw(time, seconds, director.shownAt(time), useNowPlaying.getState().live?.signals ?? null, slowMotion.current ? SLOW_MOTION : 1);
+    milkdrop.current?.draw(time, seconds, director.shownAt(time), useNowPlaying.getState().live?.signals ?? null, paceShown.current);
   }
 
   /** Start, follow sessions, change looks when it's time. */
@@ -333,6 +338,7 @@ export default function NowPlayingView() {
       const first = sessionRef.current === null;
       sessionRef.current = live.session;
       director.reset();
+      director.setPace(paceShown.current, time);
       if (!first) source.restart();
       show(latest.current.prefs.look, "key", first ? time : 0, { type: null });
       return;
@@ -345,15 +351,18 @@ export default function NowPlayingView() {
     const cuts = beats <= CUT_BEATS;
     const now = moment(time);
     if (!now) return;
-    // A song turning slow, or slow motion set (or not any more): the look shown again in slow motion (or out of it),
-    // melting into itself. (One that doesn't flow is about to go anyway, for one that does, unless it stays.)
-    const slowNow = slowMotionOn(now.mood, slowMotion.current);
-    if (slowNow !== slowMotion.current) {
-      slowMotion.current = slowNow;
-      const set = latest.current.prefs.pace === "slow";
-      logger.info(`${slowNow ? "slow motion" : "out of slow motion"} (${set ? "set" : `slow ${now.mood.slow.toFixed(2)}`})`);
+    // A song turning slow, or the speed set (or not any more): once it's settled, the look shown again at that speed,
+    // melting into itself. (One that doesn't flow, following the music into a slow song, is about to go anyway.)
+    slowMotion.current = slowMotionOn(now.mood, slowMotion.current);
+    const set = latest.current.prefs.pace;
+    const pace = !slowMotion.current ? 1 : set < 1 ? set : SLOW_MOTION;
+    if (pace !== paceWanted.current.pace) paceWanted.current = { pace, since: time };
+    if (pace !== paceShown.current && time - paceWanted.current.since >= PACE_SETTLES) {
+      paceShown.current = pace;
+      director.setPace(pace, time);
+      logger.info(pace < 1 ? `slow motion at ${Math.round(pace * 100)}% (${set < 1 ? "set" : `slow ${now.mood.slow.toFixed(2)}`})` : "out of slow motion");
       const shown = liveLook(director.look ?? "");
-      if (shown && (shown.suits.flows || !slowNow || latest.current.prefs.auto === "off")) show(shown.id, "fit", time, { type: "film-dissolve", seconds: 3, morph: true, lands: "bar" });
+      if (shown && (shown.suits.flows || pace === 1 || set < 1 || latest.current.prefs.auto === "off")) show(shown.id, "fit", time, { type: "film-dissolve", seconds: 3, morph: true, lands: "bar" });
     }
     playEffects(time, now);
     if (dueRef.current !== null && time >= dueRef.current - (cuts ? 0.12 : 0.6)) {
@@ -682,7 +691,7 @@ export default function NowPlayingView() {
           return setSyncing(true);
         case "slow": {
           const prefs = useVisualizerPrefs.getState();
-          prefs.setPace(prefs.pace === "slow" ? "music" : "slow");
+          prefs.setPace(prefs.pace < 1 ? 1 : SLOW_PACE);
           return wake();
         }
       }
@@ -826,7 +835,7 @@ export default function NowPlayingView() {
                 </HudButton>
                 <HudSelect label="Change looks" value={prefs.auto} options={AUTO_SWITCHES} onChange={(id) => useVisualizerPrefs.getState().setAuto(id)} />
                 <HudSelect label="Effects" value={prefs.effects} options={EFFECTS_MODES} onChange={(id) => useVisualizerPrefs.getState().setEffects(id)} />
-                <HudSelect label="Speed" value={prefs.pace} options={PACES} onChange={(id) => useVisualizerPrefs.getState().setPace(id)} />
+                <HudSlider label="Speed" title="Slow motion (⇧S): all the way right follows the music" value={prefs.pace} {...PACE} text={paceLabel(prefs.pace)} onChange={(v) => useVisualizerPrefs.getState().setPace(v)} />
                 <HudSelect label="Quality" value={prefs.quality} options={QUALITIES} onChange={(id) => useVisualizerPrefs.getState().setQuality(id)} />
               </div>
             </div>
@@ -1264,6 +1273,44 @@ function HudButton({ label, onClick, active, children }: { label: string; onClic
     >
       {children}
     </button>
+  );
+}
+
+/** A slider along the controls: its label, the slider, what it's set to. */
+function HudSlider({
+  label,
+  title,
+  value,
+  min,
+  max,
+  step,
+  text,
+  onChange,
+}: {
+  label: string;
+  title: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  text: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label title={title} className="flex items-center gap-2 text-xs text-white/60">
+      {label}
+      <input
+        type="range"
+        aria-label={label}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="h-8 w-28 accent-white outline-none"
+      />
+      <span className="w-24 text-[13px] text-white/85 tabular-nums">{text}</span>
+    </label>
   );
 }
 

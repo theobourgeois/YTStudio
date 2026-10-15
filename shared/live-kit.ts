@@ -19,7 +19,7 @@ export interface LookContext {
   random: () => number;
   /** How many times it's been mutated (`-`), for a look that can be (chaos, `live-chaos.ts`). */
   mutations?: number;
-  /** How fast it moves: 1 as made, less in slow motion (a slow song's: `SLOW_MOTION`, `inSlowMotion`). */
+  /** How fast it moves: 1 as made, less in slow motion (a slow song's `SLOW_MOTION`, or the Speed slider's). */
   pace?: number;
 }
 
@@ -161,8 +161,8 @@ function rateOf(spec: NumberSpec): "speed" | "growth" | null {
 /**
  * Effects in slow motion, at `pace` of their speed: everything that moves by the second moves `pace` as fast (a zoom a
  * second eases towards none), and each hit on the sound swells rather than snaps (rising over `SWELL` at least, falling
- * `1 / pace` as long; what follows a level, as slowly). Applied as a look is made: a shader's time × speed jumps if its
- * speed changes while it plays.
+ * `1 / pace` as long; what follows a level, as slowly). For what isn't slowed by its clip (the perform layer's effects
+ * over every look); applied as they're made: a shader's time × speed jumps if its speed changes while it plays.
  */
 export function inSlowMotion(effects: Effect[], pace: number): Effect[] {
   if (pace >= 1) return effects;
@@ -178,6 +178,16 @@ export function inSlowMotion(effects: Effect[], pace: number): Effect[] {
     const links = e.links && Object.fromEntries(Object.entries(e.links).map(([key, link]) => [key, slowLink(link, pace)]));
     return { ...e, params, ...(links && { links }) };
   });
+}
+
+/**
+ * A look's effects in slow motion by its clip's speed (`showClip`: everything in it already moves `pace` as fast, as
+ * its clock does): each hit on the sound swells rather than snaps, rising over `SWELL` at least (in real seconds).
+ */
+export function swelling(effects: Effect[], pace: number): Effect[] {
+  if (pace >= 1) return effects;
+  const swell = (link: ParamLink): ParamLink => (link.hit ? { ...link, hit: { ...link.hit, attack: Math.max(SWELL * pace, link.hit.attack) } } : link);
+  return effects.map((e) => (e.links ? { ...e, links: Object.fromEntries(Object.entries(e.links).map(([key, link]) => [key, swell(link)])) } : e));
 }
 
 const slowLink = (link: ParamLink, pace: number): ParamLink => ({

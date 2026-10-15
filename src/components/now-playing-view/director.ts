@@ -36,6 +36,7 @@ export class LiveDirector {
   private move: FrameMove | null = null;
   private morphing: { at: number; seconds: number } | null = null;
   private play: FxMove | null = null;
+  private pace = 1;
   private perform = performLayer(0);
   private hits: PadHit[] = [];
   private padData: SignalData = padSignals([]);
@@ -71,7 +72,20 @@ export class LiveDirector {
    * turned as it was), `upright` turning it back to straight as it goes.
    */
   setFrame(frame: Frame, at: number, seconds: number, upright = false): void {
-    this.move = { from: this.frame, to: frame, at, seconds, angle: frameAngle(this.move, at), upright };
+    this.move = { from: this.frame, to: frame, at, seconds, angle: frameAngle(this.move, at), upright, pace: this.pace };
+    this.rebuildPerform();
+  }
+
+  /**
+   * How fast what's over every look moves from `at` (slow motion: the looks themselves are shown at it, `show`): the
+   * frame turning on from where it is, the player's distortions and feedback.
+   */
+  setPace(pace: number, at: number): void {
+    if (pace === this.pace) return;
+    this.pace = pace;
+    const move = this.move;
+    // Turning on from where it's got to (a frame still easing in jumps a little; it's over in a beat).
+    if (move) this.move = at >= move.at + move.seconds ? { from: move.to, to: move.to, at, seconds: 0.01, angle: frameAngle(move, at), pace } : { ...move, pace };
     this.rebuildPerform();
   }
 
@@ -103,7 +117,7 @@ export class LiveDirector {
   }
 
   private rebuildPerform(): void {
-    this.perform = performLayer(this.hueDegrees, this.move, this.morphing, this.play);
+    this.perform = performLayer(this.hueDegrees, this.move, this.morphing, this.play, this.pace);
     this.cached = null;
   }
 
@@ -119,7 +133,7 @@ export class LiveDirector {
   show(look: LiveLook, ctx: LookContext, at: number, transition: Transition | null): void {
     const id = `seq_live${this.next++}`;
     const sequence = lookSequence(look, ctx, id);
-    const clip = showClip(sequence, at, this.shows.length ? transition : null);
+    const clip = showClip(sequence, at, this.shows.length ? transition : null, ctx.pace ?? 1);
     const shows = this.shows.filter((s) => s.clip.start < at);
     const last = shows.at(-1);
     if (last) shows[shows.length - 1] = { ...last, clip: endShow(last.clip, at) };

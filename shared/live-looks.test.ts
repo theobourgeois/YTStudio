@@ -78,24 +78,23 @@ describe("LIVE_LOOKS", () => {
     }
   });
 
-  it("plays a look in slow motion: what moves by the second at half speed, hits swelling, no shaking, strobing, splitting or flashing", () => {
+  it("plays a look in slow motion by its clip's speed: everything in it slowed alike, hits swelling, no shaking, strobing, splitting or flashing", () => {
     for (const look of LIVE_LOOKS) {
       const ctx = (pace: number) => ({ palette: RED, random: seededRandom(look.id), pace });
       const fast = lookSequence(look, ctx(1), "seq_f");
       const slow = lookSequence(look, ctx(SLOW_MOTION), "seq_s");
-      // Its own layers (under its energy), the same effects, slower.
+      // Its own layers (under its energy): the same effects, as made (its clip slows them), each hit swelling (over
+      // 0.12 s at least, in real seconds: its clip's are half as long).
       const own = (seq: typeof fast) => seq.clips.slice(1).map((c) => c.effects.map((e) => e.type));
       expect(own(slow), look.id).toEqual(own(fast));
       slow.clips.slice(1).forEach((clip, k) => {
         const i = k + 1;
         clip.effects.forEach((e, j) => {
           const was = fast.clips[i].effects[j];
-          if (typeof was.params.speed === "number") expect(e.params.speed, `${look.id} ${e.type}`).toBeCloseTo(was.params.speed * SLOW_MOTION);
+          expect(e.params, `${look.id} ${e.type}`).toEqual(was.params);
           for (const [key, link] of Object.entries(e.links ?? {})) {
-            const before = was.links![key];
-            if (link.hit) expect(link.hit.attack, `${look.id} ${e.type}.${key}`).toBeGreaterThanOrEqual(0.12);
-            if (link.hit) expect(link.hit.decay).toBeCloseTo(before.hit!.decay / SLOW_MOTION);
-            expect(link.response.release).toBeCloseTo(before.response.release / SLOW_MOTION);
+            if (link.hit) expect(link.hit.attack / SLOW_MOTION, `${look.id} ${e.type}.${key}`).toBeGreaterThanOrEqual(0.12 - 1e-9);
+            expect(link.response).toEqual(was.links![key].response);
           }
         });
       });
@@ -107,6 +106,25 @@ describe("LIVE_LOOKS", () => {
       }
       expect(energy.some((e) => e.type === "invert")).toBe(false);
     }
+  });
+
+  it("shows a look at its speed, its clock slowed, and ends it where the next takes over", () => {
+    const seq = lookSequence(LIVE_LOOKS[0], { palette: RED, random: seededRandom("x"), pace: 0.5 }, "seq_x");
+    const clip = showClip(seq, 10, null, 0.5);
+    expect(clip.speed).toBe(0.5);
+    expect(showClip(seq, 10, null).speed).toBeUndefined();
+    // Four seconds on screen: two of its own.
+    expect(endShow(clip, 14).out - clip.in).toBeCloseTo(2);
+  });
+
+  it("slows the player's effects over every look, and the frame's turn, by their units", () => {
+    const loop = (pace: number) =>
+      performLayer(0, null, null, { from: NO_FX, to: { ...NO_FX, feedback: 0.6, echoSpin: 0.5, swirl: 0.4 }, at: 0, seconds: 0.01 }, pace).effects.find((e) => e.type === "world-loop")!;
+    expect(loop(0.5).params.echoRotation).toBeCloseTo((loop(1).params.echoRotation as number) * 0.5, 0);
+    expect(loop(0.5).params.amount).toBe(loop(1).params.amount);
+    const spinning = { from: { repeat: 1, mirror: false, spin: 0, zoom: 1 }, to: { repeat: 1, mirror: false, spin: 20, zoom: 1 }, at: 10, seconds: 0.5, angle: 30, pace: 0.5 } as const;
+    expect(frameAngle(spinning, 13)).toBe(60);
+    expect(performLayer(0, spinning, null, null, 0.5).effects.find((e) => e.type === "transform")?.expressions?.rotation).toBe("30 + Math.max(0, time - 10) * 10");
   });
 
   it("slows what moves by the second, eases a zoom a second towards none, and leaves the rest", () => {

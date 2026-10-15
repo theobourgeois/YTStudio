@@ -3,7 +3,9 @@
  * of its own, which the engine takes as a live picture (`MILKDROP_ASSET`). One visualizer for all of them: as a
  * MilkDrop look gives way to another, it blends to the new preset in MilkDrop's own way over the switch (both sides
  * show the one canvas); after any other look, the new preset is there at once. It hears the sound at the picture's
- * time (`LiveSignals.soundAt`), as in sync as the rest; in slow motion its time runs slower. Butterchurn and the presets
+ * time (`LiveSignals.soundAt`), as in sync as the rest. In slow motion it's drawn that much less often (a preset's zoom,
+ * turn and warp are by the frame, so a slower clock alone slows nothing), and what's shown dissolves from one of its
+ * frames to the next as the time between goes (`picture`). Butterchurn and the presets
  * picked (`virtual:milkdrop-presets`, only those) load the first time it's asked (`prepare`); nothing's drawn while no
  * MilkDrop look is on screen.
  */
@@ -48,6 +50,12 @@ export class MilkDrop {
 
   private frames = 0;
   private failedDrawing = false;
+  /** Frames of Butterchurn's owed (`pace` a display frame: one's drawn as it reaches 1), and real seconds since its last. */
+  private owed = 0;
+  private since = 0;
+  /** In slow motion: its last two frames, and what's shown of them (`picture`). */
+  private slow: { before: HTMLCanvasElement; last: HTMLCanvasElement; shown: HTMLCanvasElement } | null = null;
+  private slowed = false;
 
   constructor() {
     this.canvas = document.createElement("canvas");
@@ -56,6 +64,11 @@ export class MilkDrop {
     // Not shown itself (the engine draws it): what it's doing, for the tests.
     this.canvas.hidden = true;
     this.canvas.dataset.milkdrop = "idle";
+  }
+
+  /** What to show: Butterchurn's canvas, or in slow motion its last two frames, dissolving from one to the next. */
+  get picture(): HTMLCanvasElement {
+    return this.slowed && this.slow ? this.slow.shown : this.canvas;
   }
 
   /** Whether it's ready to draw. */
@@ -91,8 +104,8 @@ export class MilkDrop {
 
   /**
    * Draw the frame for `time` (`seconds` after the last) if a MilkDrop look is on screen (`shown`): the newest one's
-   * preset, blended into over what's left of its switch when the one before is MilkDrop's too. `pace`: how fast its
-   * time runs (slow motion's). Whether it drew.
+   * preset, blended into over what's left of its switch when the one before is MilkDrop's too. `pace`: how fast it
+   * goes (slow motion's: a frame of Butterchurn's every `1 / pace` of the display's). Whether it drew.
    */
   draw(time: number, seconds: number, shown: Shown, signals: LiveSignals | null, pace = 1): boolean {
     const on = shown.filter((s) => milkdropPreset(s.look));
@@ -106,7 +119,8 @@ export class MilkDrop {
       if (preset) {
         const blending = this.current !== null && on.some((s) => s.look === this.current);
         try {
-          visualizer.loadPreset(preset, blending ? Math.max(0, newest.full - time) : 0);
+          // (Its blend is in its own time, which runs at `pace`.)
+          visualizer.loadPreset(preset, blending ? Math.max(0, newest.full - time) * pace : 0);
         } catch (err) {
           logger.warn(`MilkDrop couldn't load ${newest.look}: ${errorMessage(err)}`);
         }
@@ -115,6 +129,24 @@ export class MilkDrop {
         this.canvas.dataset.look = newest.look;
       }
     }
+    this.owed += Math.min(1, pace);
+    this.since += seconds;
+    this.slowed = pace < 1;
+    // (How fast it's drawing, for the tests.)
+    if (this.canvas.dataset.pace !== String(pace)) this.canvas.dataset.pace = String(pace);
+    // (Out of slow motion, its frames let go: they'd be old when it's slowed again.)
+    if (!this.slowed) this.slow = null;
+    if (this.owed >= 1) {
+      this.owed -= 1;
+      if (!this.render(visualizer, time, this.since * pace, signals)) return false;
+      this.since = 0;
+    }
+    if (this.slowed) this.dissolve(this.owed);
+    return true;
+  }
+
+  /** One frame of Butterchurn's, hearing the sound at `time`, its clock moved on `seconds`. Whether it drew. */
+  private render(visualizer: ButterchurnVisualizer, time: number, seconds: number, signals: LiveSignals | null): boolean {
     if (signals) signals.soundAt(time, this.left, this.right);
     else {
       this.left.fill(0);
@@ -127,7 +159,7 @@ export class MilkDrop {
       this.levels.timeByteArray[i] = byte((this.left[i] + this.right[i]) / 2);
     }
     try {
-      visualizer.render({ audioLevels: this.levels, elapsedTime: Math.max(0.001, seconds * pace) });
+      visualizer.render({ audioLevels: this.levels, elapsedTime: Math.max(0.001, seconds) });
     } catch (err) {
       if (!this.failedDrawing) logger.warn(`MilkDrop couldn't draw ${this.current}: ${errorMessage(err)}`);
       this.failedDrawing = true;
@@ -135,7 +167,34 @@ export class MilkDrop {
     }
     this.failedDrawing = false;
     if (++this.frames % 30 === 0) this.canvas.dataset.frames = String(this.frames);
+    if (this.slowed) {
+      // Its frame kept beside the one before (the canvas is drawn over by the next): both this one, at first.
+      if (!this.slow) {
+        this.slow = { before: this.blank(), last: this.blank(), shown: this.blank() };
+        this.slow.last.getContext("2d")!.drawImage(this.canvas, 0, 0);
+      }
+      [this.slow.before, this.slow.last] = [this.slow.last, this.slow.before];
+      this.slow.last.getContext("2d")!.drawImage(this.canvas, 0, 0);
+    }
     return true;
+  }
+
+  /** In slow motion, what's shown: its frame before dissolving into its last, `k` of the way (0..1). */
+  private dissolve(k: number): void {
+    const { before, last, shown } = this.slow ?? {};
+    if (!before || !last || !shown) return;
+    const ctx = shown.getContext("2d")!;
+    ctx.globalAlpha = 1;
+    ctx.drawImage(before, 0, 0);
+    ctx.globalAlpha = k;
+    ctx.drawImage(last, 0, 0);
+  }
+
+  private blank(): HTMLCanvasElement {
+    const canvas = document.createElement("canvas");
+    canvas.width = MILKDROP_SIZE.width;
+    canvas.height = MILKDROP_SIZE.height;
+    return canvas;
   }
 
   /** Let go of its GPU context. */

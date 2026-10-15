@@ -25,15 +25,24 @@ export const AUTO_SWITCHES: { id: AutoSwitch; label: string; beats?: number }[] 
 export const CUT_BEATS = 4;
 
 /**
- * How fast the looks move: as the music says (slow motion on a slow song only), or always in slow motion, everything
- * flowing as on a slow song (`slowedDown`): for when the music's vibe is too much.
+ * How fast the looks move (the Speed slider): 1 as the music says (slow motion on a slow song only), less always in
+ * slow motion at that speed, everything flowing as on a slow song (`slowedDown`): for when the music's vibe is too much.
  */
-export type Pace = "music" | "slow";
+export const PACE = { min: 0.2, max: 1, step: 0.05 };
+/** Where ⇧S slows it to, from full speed. */
+export const SLOW_PACE = 0.5;
 
-export const PACES: { id: Pace; label: string }[] = [
-  { id: "music", label: "Follow the music" },
-  { id: "slow", label: "Slow motion" },
-];
+/** A speed as kept, or asked for: within the slider's range, on its steps (once "slow" and "music"). */
+export function paceOf(value: unknown): number {
+  if (value === "slow") return SLOW_PACE;
+  const n = typeof value === "string" ? Number(value) : value;
+  if (typeof n !== "number" || !Number.isFinite(n)) return PACE.max;
+  const steps = Math.round(Math.min(PACE.max, Math.max(PACE.min, n)) / PACE.step);
+  return Math.round(steps * PACE.step * 100) / 100;
+}
+
+/** A speed in words: following the music at full speed, else how fast. */
+export const paceLabel = (pace: number) => (pace >= 1 ? "Follow the music" : `${Math.round(pace * 100)}%`);
 
 /** How many pixels it draws: sharp (the screen's), balanced, or fast (for slower computers and big screens). */
 export type Quality = "sharp" | "balanced" | "fast";
@@ -95,8 +104,8 @@ interface VisualizerPrefs {
   fx: LiveFx;
   /** Who plays the effects over the looks: the engine (following the music, every beat or bar), or you (by hand). */
   effects: EffectsMode;
-  /** How fast the looks move: as the music says, or always in slow motion. */
-  pace: Pace;
+  /** How fast the looks move: 1 as the music says, less always in slow motion at that speed (`PACE`). */
+  pace: number;
   /**
    * A look asked for from outside the visualizer (the assistant): it shows it (`n` counts the asks), or rolls chaos
    * or mutates it (`roll`, as = and - do).
@@ -124,7 +133,7 @@ interface VisualizerPrefs {
   /** Some of the player's values changed (the rest kept), or all back as they were (`"wash"`). */
   setFx(fx: Partial<LiveFx> | "wash"): void;
   setEffects(mode: EffectsMode): void;
-  setPace(pace: Pace): void;
+  setPace(pace: number): void;
 }
 
 const stored = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
@@ -138,7 +147,7 @@ export const useVisualizerPrefs = create<VisualizerPrefs>((set) => ({
   auto: stored(AUTO_KEY, AUTO_SWITCHES.map((a) => a.id), "song"),
   quality: stored(QUALITY_KEY, QUALITIES.map((q) => q.id), "balanced"),
   effects: stored(EFFECTS_KEY, EFFECTS_MODES.map((m) => m.id), "music"),
-  pace: stored(PACE_KEY, PACES.map((p) => p.id), "music"),
+  pace: paceOf(localStorage.getItem(PACE_KEY)),
   fx: (() => {
     try {
       return normalizeFx(JSON.parse(localStorage.getItem(FX_KEY) ?? "null"));
@@ -200,8 +209,9 @@ export const useVisualizerPrefs = create<VisualizerPrefs>((set) => ({
     localStorage.setItem(EFFECTS_KEY, effects);
     set({ effects });
   },
-  setPace(pace) {
-    localStorage.setItem(PACE_KEY, pace);
+  setPace(value) {
+    const pace = paceOf(value);
+    localStorage.setItem(PACE_KEY, String(pace));
     set({ pace });
   },
   setQuality(quality) {

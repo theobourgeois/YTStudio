@@ -38,6 +38,17 @@ describe("LiveDirector", () => {
     expect(director.project.sequences).toHaveLength(1);
   });
 
+  it("in slow motion, shows looks slowed and turns the frame on from where it is, slower", () => {
+    const director = new LiveDirector();
+    director.setFrame({ repeat: 1, mirror: false, spin: 20, zoom: 1 }, 0, 0.5);
+    director.setPace(0.5, 10);
+    director.show(LIVE_LOOKS[0], { ...ctx(), pace: 0.5 }, 10, null);
+    expect(looksOn(director)[0].speed).toBe(0.5);
+    // 200° by the change (20° a second for ten), then 10° a second.
+    const rotation = director.project.clips.find((c) => c.id === "perform")!.effects.find((e) => e.type === "transform")!.expressions!.rotation;
+    expect(rotation).toBe("200 + Math.max(0, time - 10) * 10");
+  });
+
   it("keeps the same project until something changes", () => {
     const director = new LiveDirector();
     director.show(LIVE_LOOKS[0], ctx(), 0, null);

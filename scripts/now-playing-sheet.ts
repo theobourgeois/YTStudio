@@ -7,9 +7,10 @@
  *   pnpm tsx scripts/now-playing-sheet.ts [look|kind ...] --moments [--at 6,11.5,22] [--parallel 3]
  *   pnpm tsx scripts/now-playing-sheet.ts chaos --rolls 24 --song file.mp3 [--seconds 4]
  *   pnpm tsx scripts/now-playing-sheet.ts chaos-liquid --record 45 --song file.mp3 [--from 48] [--every 6.5] [--auto bars2]
- *     [--keys "6=t 9=y 12=] 18=Backspace"] [--fx '{"feedback":0.85,"kaleido":0.5}'] [--effects music|beat|bar|hand]
+ *     [--keys "6=t 9=y 12=] 18=Backspace"] [--fx '{"feedback":0.85,"kaleido":0.5}'] [--effects music|beat|bar|hand] [--pace 0.5]
  *
- * `--track` picks the stand-in's song, so its cover's colours (1 magenta, 2 orange, 3 cyan).
+ * `--track` picks the stand-in's song, so its cover's colours (1 magenta, 2 orange, 3 cyan). `--pace` is the Speed
+ * slider's (1 follows the music, less is slow motion at that speed).
  * Writes the sheet and one picture per look beside it (`<out>-<look>.png`).
  *
  * `--moments` shows each look at the made-up song's breakdown, build-up and drop (`DEMO_SECTIONS`; `--at` says when
@@ -57,6 +58,7 @@ const auto = option("--auto");
 // The player's distortions and feedback to start from (the D panel's values, vaudio's units), and who plays them.
 const startFx = option("--fx") ?? "";
 const effectsBy = option("--effects") ?? (startFx ? "hand" : "");
+const pace = option("--pace") ?? "";
 // Keys to press while filming: `seconds=key`, apart by spaces, in order.
 const keysAt = (option("--keys") ?? "")
   .split(/\s+/)
@@ -163,15 +165,16 @@ async function visualizer(look: LiveLook) {
   page.on("pageerror", (e) => problems.push(e.message));
   if (songBytes) await page.route("**/now-playing-sheet-song", (route) => route.fulfill({ body: songBytes, contentType: "audio/mpeg" }));
   await page.addInitScript(
-    ([first, file, changes, quality, fx, by]) => {
+    ([first, file, changes, quality, fx, by, speed]) => {
       localStorage.setItem("editor-visualizer-look", first);
       if (fx) localStorage.setItem("editor-visualizer-fx", fx);
       if (by) localStorage.setItem("editor-visualizer-effects", by);
       localStorage.setItem("editor-visualizer-auto", changes);
       if (quality) localStorage.setItem("editor-visualizer-quality", quality);
       if (file) localStorage.setItem("editor-now-playing-demo", "/now-playing-sheet-song");
+      if (speed) localStorage.setItem("editor-visualizer-pace", speed);
     },
-    [look.id, song ? "yes" : "", (recordSeconds && auto) || "off", recordSeconds ? "sharp" : "", startFx, effectsBy] as const,
+    [look.id, song ? "yes" : "", (recordSeconds && auto) || "off", recordSeconds ? "sharp" : "", startFx, effectsBy, pace] as const,
   );
   await page.goto(web);
   await page.click("[data-now-playing] button[title='Open the visualizer']", { timeout: 30_000 });
