@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seededRandom } from "@shared/live-looks";
-import { KickHit, type MediaMode, amountOver, mixFor, pickMedia } from "./media-mix";
+import { FLAT_SHARE, KickHit, STILL_FLAT, type MediaMode, amountOver, backdropOf, floatSize, mixFor, pickMedia, placementOf, shownAt } from "./media-mix";
 
 const modes = (intensity: number, slow = 0) => {
   const random = seededRandom(`modes${intensity}${slow}`);
@@ -13,13 +13,21 @@ const modes = (intensity: number, slow = 0) => {
 };
 
 describe("how the user's clips go into the feedback", () => {
-  it("lets more of a clip in when it's calm, only its light and edges when it's intense", () => {
+  it("shows all of a clip most when it's calm, its light and edges more as it gets intense", () => {
     expect(modes(0.2).get("edges") ?? 0).toBe(0);
-    expect(modes(0.2).get("whole")!).toBeGreaterThan(40);
-    expect(modes(0.9).get("whole") ?? 0).toBe(0);
+    expect(modes(0.2).get("whole")!).toBeGreaterThan(240);
+    expect(modes(0.9).get("whole")!).toBeLessThan(200);
     expect(modes(0.9).get("edges")!).toBeGreaterThan(100);
     // A slow song is calm however loud it's mastered.
     expect(modes(0.9, 1).get("edges") ?? 0).toBe(0);
+  });
+
+  it("shows the clip plainly on top, more on a kick, most of all on an intense one", () => {
+    const calm = mixFor({ intensity: 0.2, slow: 0 }, () => 0.1);
+    const intense = mixFor({ intensity: 0.9, slow: 0 }, () => 0.1);
+    expect(shownAt(calm, 0)).toBeGreaterThanOrEqual(0.5);
+    expect(shownAt(intense, 1) - shownAt(intense, 0)).toBeGreaterThan(shownAt(calm, 1) - shownAt(calm, 0));
+    expect(shownAt(intense, 1)).toBeLessThanOrEqual(1);
   });
 
   it("paints in a little all the time and more on a kick: steadier when calm, mostly on the kicks when intense", () => {
@@ -42,6 +50,63 @@ describe("how the user's clips go into the feedback", () => {
     const later = kick.step(0, 0.25);
     expect(later).toBeCloseTo(0.08, 2);
     expect(kick.step(0.5, 1 / 60)).toBe(0.5);
+  });
+});
+
+/** A small frame (RGBA) of `width` × `height` in `background`, with `figure` drawn where `inside` says. */
+function frame(width: number, height: number, background: number[], figure: number[], inside: (x: number, y: number) => boolean): Uint8ClampedArray {
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const c = inside(x, y) ? figure : background;
+      data.set([...c, 255], (y * width + x) * 4);
+    }
+  }
+  return data;
+}
+
+describe("a clip's background", () => {
+  it("takes a flat background as one, even with dancers crossing its edge", () => {
+    // Pale, dancers across the bottom and up the left.
+    const data = frame(32, 32, [200, 196, 200], [40, 30, 90], (x, y) => y > 24 || (x < 3 && y > 10));
+    const backdrop = backdropOf(data, 32, 32);
+    expect(backdrop.flat).toBe(true);
+    expect(backdrop.color.map((v) => Math.round(v * 255))).toEqual([200, 196, 200]);
+    // Black, a face in the middle.
+    expect(backdropOf(frame(32, 32, [3, 3, 3], [200, 200, 210], (x, y) => Math.hypot(x - 16, y - 16) < 9), 32, 32).flat).toBe(true);
+  });
+
+  it("doesn't take footage's edge as a background", () => {
+    // A gradient every way, as footage's edge is.
+    const data = new Uint8ClampedArray(32 * 18 * 4);
+    for (let y = 0; y < 18; y++) for (let x = 0; x < 32; x++) data.set([x * 8, y * 14, (x * y) % 255, 255], (y * 32 + x) * 4);
+    expect(backdropOf(data, 32, 18).flat).toBe(false);
+  });
+
+  it("keeps a background taken as flat unless it's clearly not any more (no flicker as the clip moves)", () => {
+    // Under half its edge the background (grey, between a dark and a light figure): not enough to start, enough to stay.
+    const half = new Uint8ClampedArray(32 * 32 * 4);
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) half.set([...(y > 14 ? (x < 16 ? [20, 20, 30] : [235, 230, 240]) : [128, 128, 128]), 255], (y * 32 + x) * 4);
+    const { share, color } = backdropOf(half, 32, 32);
+    expect(color.map((v) => Math.round(v * 255))).toEqual([128, 128, 128]);
+    expect(share).toBeLessThan(FLAT_SHARE);
+    expect(share).toBeGreaterThan(STILL_FLAT);
+    expect(backdropOf(half, 32, 32).flat).toBe(false);
+    expect(backdropOf(half, 32, 32, { color: [0.5, 0.5, 0.5], share: 0.9, flat: true }).flat).toBe(true);
+  });
+
+  it("floats a clip on a flat background or of another shape, and fills the frame with footage of its shape", () => {
+    expect(placementOf(16 / 9, false, 16 / 9)).toBe("fill");
+    expect(placementOf(16 / 9, true, 16 / 9)).toBe("float");
+    expect(placementOf(1, false, 16 / 9)).toBe("float");
+    expect(placementOf(9 / 16, false, 16 / 9)).toBe("float");
+  });
+
+  it("floats a clip at its own shape, no wider than the frame lets it", () => {
+    const [w, h] = floatSize(1, 16 / 9, 0.8);
+    expect(h).toBeCloseTo(0.8);
+    expect(w).toBeCloseTo(0.45);
+    expect(floatSize(3, 16 / 9, 0.8)[0]).toBeCloseTo(0.92);
   });
 });
 

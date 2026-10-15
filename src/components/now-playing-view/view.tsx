@@ -1162,7 +1162,7 @@ export default function NowPlayingView() {
           }}
         />
       )}
-      {mediaPanel && !hudHidden && !compact && <MediaPanel />}
+      {mediaPanel && !hudHidden && !compact && <MediaPanel milkdrop={!!milkdropPreset(showing)} />}
       {rating && !hudHidden && (
         <RatingBar
           look={rating.look}

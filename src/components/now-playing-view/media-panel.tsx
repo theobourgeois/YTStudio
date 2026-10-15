@@ -9,7 +9,7 @@ import { useVisualizerPrefs } from "./prefs";
  * Visualizer folder, the one melting into the feedback now marked; added from here or dropped on the visualizer, taken
  * out, turned on or off, another one asked for.
  */
-export function MediaPanel() {
+export function MediaPanel({ milkdrop }: { milkdrop: boolean }) {
   const media = useVisualizerMedia((s) => s.media);
   const feeding = useVisualizerMedia((s) => s.feeding);
   const adding = useVisualizerMedia((s) => s.adding);
@@ -25,9 +25,15 @@ export function MediaPanel() {
         <span className="h-px flex-1 bg-white/15" />
       </h3>
       <p className="mb-3 text-[11px] leading-4 text-white/55">
-        Clips and pictures that melt into MilkDrop's looks: painted into the feedback, a little more on each kick, and carried off by the preset's own motion. Drop
-        them anywhere on the visualizer. They're kept in the Library's {MEDIA_FOLDER} folder.
+        Clips and pictures in MilkDrop's looks: shown in the look (a plain background, white or black or a colour, taken out), punching on the kicks, and
+        painted into its feedback, so its trails stream off them. One at a time, another each look. Drop them anywhere on the visualizer. They're kept in
+        the Library's {MEDIA_FOLDER} folder.
       </p>
+      {on && media.length > 0 && !milkdrop && (
+        <p data-media-note className="mb-3 rounded-md bg-white/10 px-3 py-2 text-[11px] leading-4 text-white/80">
+          This look isn't one of MilkDrop's, so it shows none: the next MilkDrop look will (↑ ↓ to MilkDrop, or the looks menu).
+        </p>
+      )}
       <div className="mb-3 grid grid-cols-2 gap-1">
         <Choice on={on} onClick={() => useVisualizerPrefs.getState().setMedia(true)}>
           In the feedback

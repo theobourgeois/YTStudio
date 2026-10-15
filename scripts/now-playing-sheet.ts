@@ -218,7 +218,7 @@ for (const look of looks) {
   await page.screenshot({ path: file });
   shots.push({ id: look.id, name: look.name, file });
   // With clips of your own: which one MilkDrop's feeding in, and how many frames of it so far.
-  const fed = mediaFiles.length && look.kind === "milkdrop" ? await page.locator("canvas[data-milkdrop]").evaluate((c) => ` (${c.dataset.media || "no media"}, ${c.dataset.fed ?? 0} frames fed)`) : "";
+  const fed = mediaFiles.length && look.kind === "milkdrop" ? await page.locator("canvas[data-milkdrop]").evaluate((c) => ` (${c.dataset.media || "no media"}, ${c.dataset.fed ?? 0} frames fed, at ${c.dataset.mediaGain ?? 1} for the picture's sake, background out: ${c.dataset.mediaKeyed})`) : "";
   console.log(`  ${look.name}${fed}`);
 }
 
