@@ -24,6 +24,17 @@ export const AUTO_SWITCHES: { id: AutoSwitch; label: string; beats?: number }[] 
 /** Switching this often (in beats) or more, a look cuts in on the beat: there's no time for a transition. */
 export const CUT_BEATS = 4;
 
+/**
+ * How fast the looks move: as the music says (slow motion on a slow song only), or always in slow motion, everything
+ * flowing as on a slow song (`slowedDown`): for when the music's vibe is too much.
+ */
+export type Pace = "music" | "slow";
+
+export const PACES: { id: Pace; label: string }[] = [
+  { id: "music", label: "Follow the music" },
+  { id: "slow", label: "Slow motion" },
+];
+
 /** How many pixels it draws: sharp (the screen's), balanced, or fast (for slower computers and big screens). */
 export type Quality = "sharp" | "balanced" | "fast";
 
@@ -38,6 +49,7 @@ const AUTO_KEY = "editor-visualizer-auto";
 const QUALITY_KEY = "editor-visualizer-quality";
 const FX_KEY = "editor-visualizer-fx";
 const EFFECTS_KEY = "editor-visualizer-effects";
+const PACE_KEY = "editor-visualizer-pace";
 const PLACE_KEY = "editor-visualizer-place";
 const VIBE_OFFER_KEY = "editor-visualizer-vibe-offer";
 
@@ -83,6 +95,8 @@ interface VisualizerPrefs {
   fx: LiveFx;
   /** Who plays the effects over the looks: the engine (following the music, every beat or bar), or you (by hand). */
   effects: EffectsMode;
+  /** How fast the looks move: as the music says, or always in slow motion. */
+  pace: Pace;
   /**
    * A look asked for from outside the visualizer (the assistant): it shows it (`n` counts the asks), or rolls chaos
    * or mutates it (`roll`, as = and - do).
@@ -110,6 +124,7 @@ interface VisualizerPrefs {
   /** Some of the player's values changed (the rest kept), or all back as they were (`"wash"`). */
   setFx(fx: Partial<LiveFx> | "wash"): void;
   setEffects(mode: EffectsMode): void;
+  setPace(pace: Pace): void;
 }
 
 const stored = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
@@ -123,6 +138,7 @@ export const useVisualizerPrefs = create<VisualizerPrefs>((set) => ({
   auto: stored(AUTO_KEY, AUTO_SWITCHES.map((a) => a.id), "song"),
   quality: stored(QUALITY_KEY, QUALITIES.map((q) => q.id), "balanced"),
   effects: stored(EFFECTS_KEY, EFFECTS_MODES.map((m) => m.id), "music"),
+  pace: stored(PACE_KEY, PACES.map((p) => p.id), "music"),
   fx: (() => {
     try {
       return normalizeFx(JSON.parse(localStorage.getItem(FX_KEY) ?? "null"));
@@ -183,6 +199,10 @@ export const useVisualizerPrefs = create<VisualizerPrefs>((set) => ({
   setEffects(effects) {
     localStorage.setItem(EFFECTS_KEY, effects);
     set({ effects });
+  },
+  setPace(pace) {
+    localStorage.setItem(PACE_KEY, pace);
+    set({ pace });
   },
   setQuality(quality) {
     localStorage.setItem(QUALITY_KEY, quality);

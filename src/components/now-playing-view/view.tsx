@@ -27,7 +27,7 @@ import {
 import { type Frame, LIVE_LOOKS, LOOK_KINDS, type LookKind, PLAIN_FRAME, SLOW_MOTION, liveLook, ofMany, seededRandom, switchTransition } from "@shared/live-looks";
 import { MILKDROP_ASSET } from "@shared/live-milkdrop";
 import { positionAt } from "@shared/now-playing";
-import { isSlow } from "@shared/signals/mood";
+import { type Mood, isSlow } from "@shared/signals/mood";
 import { formatDuration } from "@shared/format";
 import type { MusicAnalysis } from "@shared/types";
 import { cn } from "cn";
@@ -39,7 +39,7 @@ import { CHUNK_SECONDS } from "@/lib/live-audio";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { addWindowListener, isElement, ownerWindow } from "@/lib/window-events";
 import { useNowPlaying } from "@/stores/now-playing";
-import { type Choice, LookChooser, type Moment, slowMotionOn } from "./chooser";
+import { type Choice, LookChooser, type Moment, slowMotionOn, slowedDown } from "./chooser";
 import { EFFECTS_MODES, EffectsEngine } from "./effects-engine";
 import { LiveDirector } from "./director";
 import { MilkDrop } from "./milkdrop";
@@ -50,7 +50,7 @@ import { VibeOffer } from "./vibe-offer";
 import { type Area, type Box, type BoxedSize, COMPACT, type Edges, type VisualizerSize, dragBox, placeBox } from "./placement";
 import { PlayPanel } from "./play-panel";
 import { TapSync, type Tapper } from "./sync";
-import { AUTO_SWITCHES, CUT_BEATS, QUALITIES, useVisualizerPrefs } from "./prefs";
+import { AUTO_SWITCHES, CUT_BEATS, PACES, QUALITIES, useVisualizerPrefs } from "./prefs";
 import { type Switch, type SwitchReason, switchFor } from "./switches";
 
 /** Seconds the controls stay after the pointer stops. */
@@ -135,6 +135,8 @@ export default function NowPlayingView() {
   // What the tick (outside React) needs, as of the last render.
   const latest = useRef({ status, palette, prefs });
   latest.current = { status, palette, prefs };
+  /** What's heard, as the looks go by it: a slow song's whatever plays, in slow motion by choice (`slowedDown`). */
+  const asHeard = (mood: Mood) => (latest.current.prefs.pace === "slow" ? slowedDown(mood) : mood);
 
   const [source] = useState(
     () =>
@@ -195,7 +197,8 @@ export default function NowPlayingView() {
     const signals = useNowPlaying.getState().live?.signals;
     const rhythm = signals?.data().header.rhythm;
     const before = liveLook(director.look ?? "") ?? null;
-    const plan: Switch = { ...switchFor(reason, signals?.mood ?? UNHEARD, before, look, beatSeconds(rhythm), random), ...switching };
+    const heard = signals ? asHeard(signals.mood) : { ...UNHEARD, slow: pr.pace === "slow" ? 1 : 0 };
+    const plan: Switch = { ...switchFor(reason, heard, before, look, beatSeconds(rhythm), random), ...switching };
     const at = plan.type === null ? time : plan.lands === "now" ? time + plan.seconds / 2 + 0.03 : onTheBar(rhythm, time + plan.seconds / 2 + 0.1);
     const mutations = mutation.current.key === key ? mutation.current.n : 0;
     shownKey.current = key;
@@ -221,10 +224,10 @@ export default function NowPlayingView() {
     show(lookId ?? pool[Math.floor(Math.random() * pool.length)].id, "chaos");
   };
 
-  /** Whether the song is a slow one (its looks flow into each other). */
+  /** Whether the song is a slow one, or taken as one (its looks flow into each other). */
   const slowSong = () => {
     const mood = useNowPlaying.getState().live?.signals.mood;
-    return !!mood && isSlow(mood);
+    return !!mood && isSlow(asHeard(mood));
   };
 
   /** vaudio's -: the chaos shown, its world nudged, blended in (slowly, on a slow song); another way of any other look. */
@@ -283,7 +286,7 @@ export default function NowPlayingView() {
     const signals = useNowPlaying.getState().live?.signals;
     if (!signals) return null;
     const rhythm = signals.data().header.rhythm;
-    return { time, mood: signals.mood, bar: barSeconds(rhythm), drop: rhythm?.drops.at(-1)?.time };
+    return { time, mood: asHeard(signals.mood), bar: barSeconds(rhythm), drop: rhythm?.drops.at(-1)?.time };
   };
 
   /** A choice of the chooser's, made: said (the log, the readout), then shown, mutated or varied. */
@@ -342,14 +345,15 @@ export default function NowPlayingView() {
     const cuts = beats <= CUT_BEATS;
     const now = moment(time);
     if (!now) return;
-    // A song turning slow (or not any more): the look shown again in slow motion (or out of it), melting into itself.
-    // (One that doesn't flow is about to go anyway, for one that does.)
+    // A song turning slow, or slow motion set (or not any more): the look shown again in slow motion (or out of it),
+    // melting into itself. (One that doesn't flow is about to go anyway, for one that does, unless it stays.)
     const slowNow = slowMotionOn(now.mood, slowMotion.current);
     if (slowNow !== slowMotion.current) {
       slowMotion.current = slowNow;
-      logger.info(`${slowNow ? "slow motion" : "out of slow motion"} (slow ${now.mood.slow.toFixed(2)})`);
+      const set = latest.current.prefs.pace === "slow";
+      logger.info(`${slowNow ? "slow motion" : "out of slow motion"} (${set ? "set" : `slow ${now.mood.slow.toFixed(2)}`})`);
       const shown = liveLook(director.look ?? "");
-      if (shown && (shown.suits.flows || !slowNow)) show(shown.id, "fit", time, { type: "film-dissolve", seconds: 3, morph: true, lands: "bar" });
+      if (shown && (shown.suits.flows || !slowNow || latest.current.prefs.auto === "off")) show(shown.id, "fit", time, { type: "film-dissolve", seconds: 3, morph: true, lands: "bar" });
     }
     playEffects(time, now);
     if (dueRef.current !== null && time >= dueRef.current - (cuts ? 0.12 : 0.6)) {
@@ -676,6 +680,11 @@ export default function NowPlayingView() {
           return setMoodShown((m) => !m);
         case "sync":
           return setSyncing(true);
+        case "slow": {
+          const prefs = useVisualizerPrefs.getState();
+          prefs.setPace(prefs.pace === "slow" ? "music" : "slow");
+          return wake();
+        }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -817,6 +826,7 @@ export default function NowPlayingView() {
                 </HudButton>
                 <HudSelect label="Change looks" value={prefs.auto} options={AUTO_SWITCHES} onChange={(id) => useVisualizerPrefs.getState().setAuto(id)} />
                 <HudSelect label="Effects" value={prefs.effects} options={EFFECTS_MODES} onChange={(id) => useVisualizerPrefs.getState().setEffects(id)} />
+                <HudSelect label="Speed" value={prefs.pace} options={PACES} onChange={(id) => useVisualizerPrefs.getState().setPace(id)} />
                 <HudSelect label="Quality" value={prefs.quality} options={QUALITIES} onChange={(id) => useVisualizerPrefs.getState().setQuality(id)} />
               </div>
             </div>
@@ -1105,6 +1115,9 @@ function LooksMenu({
   const item = "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-white/85 hover:bg-white/10 [&_svg]:size-3.5 [&_svg]:shrink-0";
   const tick = (on: boolean) => <span className="grid size-3.5 shrink-0 place-items-center">{on && <PiCheck />}</span>;
   const label = LOOK_KINDS.find((g) => g.id === kind)?.label;
+  // The kind's looks (MilkDrop's, hundreds of them, by name).
+  const listed = LIVE_LOOKS.filter((l) => l.kind === kind);
+  if (kind === "milkdrop") listed.sort((a, b) => a.name.localeCompare(b.name));
   return (
     <div ref={box} data-looks-menu className="relative">
       <button
@@ -1150,7 +1163,7 @@ function LooksMenu({
                 Shuffle {label}
               </button>
               <div className="my-1 h-px bg-white/10" />
-              {LIVE_LOOKS.filter((l) => l.kind === kind).map((l) => (
+              {listed.map((l) => (
                 <button
                   key={l.id}
                   type="button"

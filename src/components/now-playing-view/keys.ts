@@ -3,7 +3,7 @@
  * by Z X C V (zoom, flash, split, twist), its colours turned by the number row (a hue piano: 1 is the look's own,
  * each key a tenth of the way round), chaos on = and mutate on - (vaudio's), the frame on T Y [ ] , . and Backspace
  * (repeat, mirror, turn, zoom, as it was), the song on Space and Shift+arrows, the mini player on P and its own window on
- * O. Pure, and tested.
+ * O, slow motion on Shift+S. Pure, and tested.
  */
 import type { Pad } from "@shared/live-looks";
 
@@ -26,6 +26,7 @@ export type VisualizerAction =
   | { kind: "play" }
   | { kind: "song"; step: 1 | -1 }
   | { kind: "auto" }
+  | { kind: "slow" }
   | { kind: "hud" }
   | { kind: "help" }
   | { kind: "mood" }
@@ -92,7 +93,7 @@ export function visualizerKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey"
     case "KeyI":
       return { kind: "mood" };
     case "KeyS":
-      return { kind: "sync" };
+      return e.shiftKey ? { kind: "slow" } : { kind: "sync" };
   }
   return null;
 }
@@ -120,6 +121,7 @@ export const VISUALIZER_KEYS: { keys: string; does: string }[] = [
   { keys: "P", does: "The mini player (again: back as it was)" },
   { keys: "O", does: "Its own window, out of the app (again: back in)" },
   { keys: "H", does: "Hide the controls" },
+  { keys: "⇧S", does: "Slow motion (again: following the music)" },
   { keys: "S", does: "Tap along to sync (headphones)" },
   { keys: "I", does: "Show what it hears (the song's mood)" },
   { keys: "Esc", does: "Close" },

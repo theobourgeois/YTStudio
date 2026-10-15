@@ -18,7 +18,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | A cover's colours by role | `shared/palette.ts` | platform |
 | The vibe (CLAP): its vocabulary, features, model; hearing it in a worker | `shared/signals/vibe.ts`, `clap.ts`; `src/lib/vibe.ts`, `vibe-worker.ts` | platform |
 | The looks, the project they play in, the pads | `shared/live-looks.ts` | video |
-| MilkDrop's looks (Butterchurn's presets picked, what each suits) | `shared/live-milkdrop.ts`; drawn by `now-playing-view/milkdrop.ts` | video |
+| MilkDrop's looks (Butterchurn's presets picked, what each suits) | `shared/milkdrop-presets.ts`, `live-milkdrop.ts`; bundled by `vite.config.ts`; drawn by `now-playing-view/milkdrop.ts` | video |
 | The visualizer: director, source, keys, view | `src/components/now-playing-view/` | video (`ClientSuite.NowPlaying`) |
 | Its own window (a stage) | `src/components/windows/native/stage-window.ts`, `electron/stage.ts` | platform |
 | vaudio's 2D visualizers | `shared/effect-library/audio.ts` (Wave Bars ... Acid Plasma) | video |
@@ -94,9 +94,9 @@ that kind first), or the keys and R. There's no list of them along the bottom.
 The keys (`keys.ts`, vaudio's play mode): ← → looks, ↑ ↓ kinds, R random, M another variation, = chaos, - mutate,
 A how looks change, Z X C V punch, flash, split, twist, 1–0 turn the colours, T Y [ ] , . the frame (repeat, mirror,
 turn, zoom), Q W E more warp, swirl, ripples (⇧ less), D every setting, ⌫ wash, Space play or pause, ⇧← ⇧→ songs,
-F full screen, P the mini player, O its own window, H hide the controls, S tap along, I what it hears, ? the list,
-Esc close. They're the visualizer's alone while it fills the app (caught before the editor's); in a box over the app,
-once it's been clicked (until something else is); out of the app, in its own window.
+F full screen, P the mini player, O its own window, H hide the controls, S tap along, ⇧S slow motion, I what it hears,
+? the list, Esc close. They're the visualizer's alone while it fills the app (caught before the editor's); in a box
+over the app, once it's been clicked (until something else is); out of the app, in its own window.
 
 ## Where it is
 
@@ -161,6 +161,11 @@ is, for looks to follow (steps 3 and 5):
   picture would leave the sound): the motion is, as a look is made, since a shader's time × speed jumps if its speed
   changes as it plays. Slow motion starts at a slow song and stops under 0.4 (no flicker on the line), the look shown
   then melting into itself made again (`slowMotionOn`).
+- **Slow motion by choice** (Théo: "if the normal vibes are too much"): Speed along the bottom (Follow the music or
+  Slow motion, `Pace` in `prefs.ts`), ⇧S, or the assistant's `control_now_playing` `pace`. Set, every song is taken as
+  a slow one (`slowedDown`: `slow` 1, and a hype song as the kind it most is after hype, since a slow song is never
+  hype): everything above, the flowing looks, the blends, the calm effects, half speed. Staying on one look (looks
+  changing off), it's made again in slow motion even if it doesn't flow.
 
 I shows it all in the visualizer (`mood-readout.tsx`), with the measurements under it; the assistant's `now_playing`
 says it too. `mood.test.ts` checks it on made-up music (a pad, a groove, a club track, a half-time heavy track, a loud
@@ -339,12 +344,15 @@ units, over any look: a World Loop (warp and swirl moving with the sound) and a 
 
 ## MilkDrop
 
-Step 8 of the plan: MilkDrop 2's presets, drawn by Butterchurn (WebGL 2), as looks (`kind: "milkdrop"`). 115 of its
-packs' 395 (`MILKDROP_PRESETS`), picked from `scripts/milkdrop-sheet.ts`'s sheets: every preset played on real songs in
-headless Chromium on the GPU and measured (what a frame costs, how bright, how much white or black, how colourful, how
-fast it moves), then looked at. Out: anything mostly black (72), blown out (16), slow to draw (19: over 4 ms a frame),
-garish or muddy. In: shapes and light in a black void, kaleidoscopes, feedback, calm scenes. The intensities each suits
-are from how fast it moves; its kinds of song, and whether it flows (slow songs) or is minimal, by eye.
+Step 8 of the plan: MilkDrop 2's presets, drawn by Butterchurn (WebGL 2), as looks (`kind: "milkdrop"`). 259 of the
+1,754 `butterchurn-presets` has converted (`MILKDROP_PRESETS` in `shared/milkdrop-presets.ts`), picked from
+`scripts/milkdrop-sheet.ts`'s sheets: every preset played on real songs in headless Chromium on the GPU and measured
+(what a frame costs, how bright, how much white or black, how colourful, how fast it moves), then looked at. Out:
+anything mostly black, blown out, slow to draw (over 4 ms a frame), still or strobing, garish, muddy, dim, washed out or
+noisy. In: shapes and light in a black void, kaleidoscopes, feedback, calm scenes. The intensities each suits are from
+how fast it moves; its kinds of song, and whether it flows (slow songs) or is minimal, by eye. The first 115 are from
+its four packs' 395 (2026-10-14); 144 more (Théo wanted more variety) from the 1,360 in no pack (2026-10-15: 293 out on
+the numbers, 1,067 looked at on `--resheet` sheets of those left). The menu lists them by name.
 
 - **Drawing** (`milkdrop.ts`): one Butterchurn of its own on a canvas of its own (1280 × 720), which the preview engine
   takes as a live picture each frame (`PreviewSource.livePicture`, `MILKDROP_ASSET`): the editor's energy layer,
@@ -353,8 +361,10 @@ are from how fast it moves; its kinds of song, and whether it flows (slow songs)
   (both sides show the one canvas); from any other look, the preset's there at once.
 - **Sound**: it hears what the rest does, at the picture's time (`LiveSignals.soundAt`: the last two seconds of the
   sound kept), so it's as in sync; in slow motion its time runs at half speed.
-- **Cost**: 1.2 ms a frame on average (3.6 at most) on a Mac's GPU, on top of the engine's. Butterchurn and the four
-  packs (about 2 MB) load a moment after the visualizer opens.
+- **Cost**: 1.3 ms a frame on average (3.7 at most) on a Mac's GPU, on top of the engine's. Butterchurn and the presets
+  load a moment after the visualizer opens: exactly those picked, one module of about 1.3 MB (less than the four packs
+  were) made from their files by `vite.config.ts` (`virtual:milkdrop-presets`), so adding one is a line in
+  `milkdrop-presets.ts`.
 - **Picking**: the chooser picks them as any look, each kind as likely as another however many looks it has. In the
   looks menu they're a kind as any other (Shuffle MilkDrop, then each by name); the arrows don't step through them, and
   ↑ ↓ landing on MilkDrop shuffles. They keep their own colours (not the cover's), and the effects engine plays only

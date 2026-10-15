@@ -1308,7 +1308,7 @@ export const VIDEO_TOOLS = [
       "`look` (an id from now_playing) shows that look (opening the visualizer), `frame` repeats, mirrors, turns or zooms the picture over any look, `fx` warps, swirls, ripples, kaleidoscopes, lenses, folds and feeds it back (vaudio's), `roll` rolls chaos (a random look of one of " +
       "vaudio's chaos recipes, as = does) or mutates the chaos look shown (its world nudged a little, as - does), `auto` sets how " +
       "looks change by themselves (off: stay; song: follow the music, a look that suits the song's kind and intensity, changed on songs, drops and breakdowns; beat: every beat, cutting on it; " +
-      "bars1, bars2, bars4, bars8, bars16, bars32: every so many bars, each a look that suits the music). Only what's given happens: the song first, then the visualizer.",
+      "bars1, bars2, bars4, bars8, bars16, bars32: every so many bars, each a look that suits the music), `pace` slows it all down. Only what's given happens: the song first, then the visualizer.",
     inputSchema: obj({
       action: oneOf(["play", "pause", "toggle", "next", "previous"], "What the player does."),
       seek: num("Go to this many seconds into the song.", { minimum: 0 }),
@@ -1349,6 +1349,10 @@ export const VIDEO_TOOLS = [
       effects: oneOf(
         ["music", "beat", "bar", "hand"],
         "Who plays the effects over the looks (the frame, distortions, feedback): music: the engine, by the mood (gentle when calm, harder when intense, tightening in a build-up, clean on a drop); beat: a new set each bar, mutated each beat; bar: a new set each bar; hand: only what's set (`frame`, `fx`, the keys).",
+      ),
+      pace: oneOf(
+        ["music", "slow"],
+        "How fast the looks move: music: as the song goes (slow motion on a slow song only); slow: always in slow motion, every song taken as a slow one (only looks that flow, long blends, calm effects, half speed), for when the music's vibe is too much.",
       ),
     }),
   }),

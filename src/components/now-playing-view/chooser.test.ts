@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LIVE_LOOKS, seededRandom } from "@shared/live-looks";
 import { SONG_CHARACTERS, type Mood, type MoodEvent, type Section, type SongCharacter } from "@shared/signals/mood";
-import { FAR, LookChooser, MARGIN, PHRASE_BARS, SLOW_MOST, outOfRange, pickLook, slowMotionOn, suits } from "./chooser";
+import { FAR, LookChooser, MARGIN, PHRASE_BARS, SLOW_MOST, outOfRange, pickLook, slowMotionOn, slowedDown, suits } from "./chooser";
 
 /** A mood: what's given, the rest quiet and unremarkable. */
 function mood(m: Partial<Mood> = {}): Mood {
@@ -67,11 +67,12 @@ const SHAPED = (calm: number, loud: number): Part[] => [
 ];
 
 /** A song played through the chooser, following the music, as the view does: every look it showed, and when. */
-function follow(character: SongCharacter, parts: Part[], seed = "x", { slow = 0, bpm = 128 } = {}) {
+/** `slowed`: in slow motion by choice (the Speed setting), as the view takes what's heard then. */
+function follow(character: SongCharacter, parts: Part[], seed = "x", { slow = 0, bpm = 128, slowed = false } = {}) {
   const chooser = new LookChooser(LIVE_LOOKS, seededRandom(seed));
   const bar = (4 * 60) / bpm;
   const shown: { time: number; look: string; why: string; how: string; reason: string; at?: number }[] = [];
-  const frames = [...song(character, parts, 0, slow)];
+  const frames = [...song(character, parts, 0, slow)].map((f) => (slowed ? { ...f, mood: slowedDown(f.mood) } : f));
   const first = chooser.song({ time: 0, mood: frames[0].mood, bar });
   chooser.shown(first.look, 0, bar);
   shown.push({ time: 0, ...first });
@@ -213,6 +214,21 @@ describe("following the music", () => {
     // Its loudness isn't taken for intensity: no look is changed for being out of range at 0.85.
     expect(shown.filter((s) => s.why.includes("far from the music"))).toEqual([]);
     expect(SLOW_MOST).toBeLessThan(0.85);
+  });
+
+  it("slowed down by choice, a hype song plays as a slow one: in slow motion, only looks that flow, nothing cut", () => {
+    const { shown, timeline, bar } = follow("hype", SHAPED(0.25, 0.9), "slowed", { slowed: true });
+    for (const { mood: m } of timeline) expect(slowMotionOn(m, false)).toBe(true);
+    for (const { time, look } of timeline) if (time > 8 + 2 * bar + 0.5) expect(LIVE_LOOKS.find((l) => l.id === look)!.suits.flows, `${look} at ${time.toFixed(1)}`).toBe(true);
+    expect(shown.filter((s) => s.how === "cut")).toEqual([]);
+    expect(shown.find((s) => s.reason === "drop")).toMatchObject({ how: "now" });
+  });
+
+  it("takes a hype song slowed down as the kind it most is after hype, and leaves the rest as they are", () => {
+    const scores = { chill: 0.2, groove: 0.5, hype: 0.9, heavy: 0.6 };
+    expect(slowedDown(mood({ character: "hype", sure: 0.8, scores }))).toMatchObject({ character: "heavy", slow: 1, sure: 0.8 });
+    expect(slowedDown(mood({ character: "groove", scores }))).toMatchObject({ character: "groove", slow: 1 });
+    expect(slowedDown(mood({ character: null }))).toMatchObject({ character: null, slow: 1 });
   });
 
   it("plays slow motion from a slow song on, until it's clearly not (no flicker on the line)", () => {

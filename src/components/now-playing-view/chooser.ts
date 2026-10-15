@@ -12,7 +12,7 @@
  * Pure, and tested: the view acts on what it's told.
  */
 import type { LiveLook } from "@shared/live-looks";
-import { type Mood, SLOW, isSlow } from "@shared/signals/mood";
+import { type Mood, SLOW, SONG_CHARACTERS, isSlow } from "@shared/signals/mood";
 import type { SwitchReason } from "./switches";
 
 /** How a choice comes in: cut (at `at`), soon, on the next bar, or the same look mutated (chaos) or varied. */
@@ -72,6 +72,17 @@ const SLOW_MOTION_OFF = 0.1;
 /** Whether the looks play in slow motion now, given whether they did: from a slow song on, until it's clearly not. */
 export function slowMotionOn(mood: Pick<Mood, "slow">, was: boolean): boolean {
   return was ? mood.slow >= SLOW - SLOW_MOTION_OFF : isSlow(mood);
+}
+
+/**
+ * What's heard, taken as a slow song's whatever plays (the Slow motion setting, `Pace`: for when the music's vibe is
+ * too much): everything flows and moves at half speed, as on a slow song. A slow song is never hype (`mood.ts`), so a
+ * hype one is taken as the kind it most is after that.
+ */
+export function slowedDown(mood: Mood): Mood {
+  const character =
+    mood.character === "hype" ? SONG_CHARACTERS.filter((c) => c !== "hype").reduce((a, b) => (mood.scores[b] > mood.scores[a] ? b : a)) : mood.character;
+  return { ...mood, slow: Math.max(mood.slow, 1), character };
 }
 
 /** Whether a look moves as the song does: on a slow song, only one that flows. */

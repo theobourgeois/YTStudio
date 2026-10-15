@@ -3,11 +3,12 @@
  * of its own, which the engine takes as a live picture (`MILKDROP_ASSET`). One visualizer for all of them: as a
  * MilkDrop look gives way to another, it blends to the new preset in MilkDrop's own way over the switch (both sides
  * show the one canvas); after any other look, the new preset is there at once. It hears the sound at the picture's
- * time (`LiveSignals.soundAt`), as in sync as the rest; in slow motion its time runs slower. Butterchurn and the packs
- * the presets are in load the first time it's asked (`prepare`); nothing's drawn while no MilkDrop look is on screen.
+ * time (`LiveSignals.soundAt`), as in sync as the rest; in slow motion its time runs slower. Butterchurn and the presets
+ * picked (`virtual:milkdrop-presets`, only those) load the first time it's asked (`prepare`); nothing's drawn while no
+ * MilkDrop look is on screen.
  */
 import type { ButterchurnAudioLevels, ButterchurnPreset, ButterchurnVisualizer } from "butterchurn";
-import { MILKDROP_PRESETS, MILKDROP_SIZE, type MilkdropPack, milkdropPreset } from "@shared/live-milkdrop";
+import { MILKDROP_PRESETS, MILKDROP_SIZE, milkdropPreset } from "@shared/live-milkdrop";
 import type { LiveSignals } from "@shared/signals/live";
 import { errorMessage } from "@shared/errors";
 import { log } from "@/lib/log";
@@ -16,16 +17,6 @@ const logger = log("now-playing");
 
 /** Samples a channel Butterchurn hears each frame (its analysis's size). */
 const SAMPLES = 1024;
-
-type Pack = { getPresets(): Record<string, ButterchurnPreset> };
-
-/** Each pack, loaded on its own (only those the presets picked are in). */
-const PACKS: Record<MilkdropPack, () => Promise<unknown>> = {
-  butterchurnPresets: () => import("butterchurn-presets/lib/butterchurnPresets.min.js"),
-  butterchurnPresetsExtra: () => import("butterchurn-presets/lib/butterchurnPresetsExtra.min.js"),
-  butterchurnPresetsExtra2: () => import("butterchurn-presets/lib/butterchurnPresetsExtra2.min.js"),
-  butterchurnPresetsMD1: () => import("butterchurn-presets/lib/butterchurnPresetsMD1.min.js"),
-};
 
 /** A CommonJS module as the bundler hands it over: its exports, wrapped in `default` once or twice. */
 function exportsOf<T>(mod: unknown, has: string): T {
@@ -72,7 +63,7 @@ export class MilkDrop {
     return this.visualizer !== null;
   }
 
-  /** Load Butterchurn and the presets' packs (once; it draws nothing until they're in). */
+  /** Load Butterchurn and the presets (once; it draws nothing until they're in). */
   prepare(): Promise<void> {
     this.loading ??= this.load().catch((err) => {
       this.canvas.dataset.milkdrop = "failed";
@@ -87,13 +78,9 @@ export class MilkDrop {
     // Its drawing kept until the next, so the engine can take it after (Butterchurn is given this same context).
     this.gl = this.canvas.getContext("webgl2", { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: true });
     if (!this.gl) throw new Error("WebGL 2 isn't available");
-    const packs = [...new Set(MILKDROP_PRESETS.map((p) => p.pack))];
-    const [butterchurn, ...loaded] = await Promise.all([import("butterchurn"), ...packs.map((p) => PACKS[p]())]);
+    const [butterchurn, { default: all }] = await Promise.all([import("butterchurn"), import("virtual:milkdrop-presets")]);
     if (this.disposed) return;
-    packs.forEach((pack, i) => {
-      const all = exportsOf<Pack>(loaded[i], "getPresets").getPresets();
-      for (const p of MILKDROP_PRESETS) if (p.pack === pack && all[p.name]) this.presets.set(p.name, all[p.name]);
-    });
+    for (const p of MILKDROP_PRESETS) if (all[p.name]) this.presets.set(p.name, all[p.name]);
     const missing = MILKDROP_PRESETS.filter((p) => !this.presets.has(p.name));
     if (missing.length) logger.warn(`MilkDrop presets not found: ${missing.map((p) => p.name).join(", ")}`);
     const { createVisualizer } = exportsOf<{ createVisualizer: typeof import("butterchurn").default.createVisualizer }>(butterchurn, "createVisualizer");
