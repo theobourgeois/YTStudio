@@ -108,9 +108,15 @@ interface VisualizerPrefs {
   pace: number;
   /**
    * A look asked for from outside the visualizer (the assistant): it shows it (`n` counts the asks), or rolls chaos
-   * or mutates it (`roll`, as = and - do).
+   * or mutates it (`roll`, as = and - do), or rates the look shown (`rate`, as L and B do).
    */
-  requested: { look: string; n: number; roll?: "chaos" | "mutate"; frame?: Partial<Frame> | "reset" } | null;
+  requested: {
+    look: string;
+    n: number;
+    roll?: "chaos" | "mutate";
+    frame?: Partial<Frame> | "reset";
+    rate?: "love" | "bin" | "clear";
+  } | null;
   /** Where it is: its size in the app, or out in its own window. */
   place: Place;
   /** The vibe's model was offered and the user said not now (it isn't offered again). */
@@ -128,6 +134,8 @@ interface VisualizerPrefs {
   requestRoll(roll: "chaos" | "mutate"): void;
   /** Reframe the picture (some of a frame, over what it is), or back as it was. */
   requestFrame(frame: Partial<Frame> | "reset"): void;
+  /** Love, bin, or take back the rating of the look shown (`look`, if given, shown first). */
+  requestRate(rate: "love" | "bin" | "clear", look?: string): void;
   setAuto(auto: AutoSwitch): void;
   setQuality(quality: Quality): void;
   /** Some of the player's values changed (the rest kept), or all back as they were (`"wash"`). */
@@ -184,6 +192,10 @@ export const useVisualizerPrefs = create<VisualizerPrefs>((set) => ({
   },
   requestFrame(frame) {
     set((s) => ({ requested: { look: s.look, n: (s.requested?.n ?? 0) + 1, frame } }));
+  },
+  requestRate(rate, look) {
+    if (look) localStorage.setItem(LOOK_KEY, look);
+    set((s) => ({ look: look ?? s.look, requested: { look: look ?? s.look, n: (s.requested?.n ?? 0) + 1, rate } }));
   },
   requestRoll(roll) {
     set((s) => {

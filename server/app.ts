@@ -23,6 +23,7 @@ import { listFonts } from "./fonts.ts";
 import { LibraryStore } from "./library.ts";
 import { type ImageProbe, MediaLibrary } from "./media.ts";
 import { migrateData } from "./migrate.ts";
+import { LookRatings } from "./look-ratings.ts";
 import { NowPlaying, type Player, defaultPlayer } from "./now-playing.ts";
 import { AudioEngine, type EngineOptions } from "./music/engine.ts";
 import { SampleBrowser } from "./music/browser.ts";
@@ -270,7 +271,8 @@ export async function createApp({
   app.use("/api/media", mediaRoutes(library, projects));
   app.use("/api/web", webRoutes(web, projects));
   const vibeModel = new DownloadedModel(MODELS_DIR, VIBE_MODEL === "stand-in", VIBE_MODEL_SPEC);
-  app.use("/api/now-playing", nowPlayingRoutes(new NowPlaying(player === undefined ? defaultPlayer(NOW_PLAYING) : player), vibeModel));
+  const lookRatings = new LookRatings(paths.lookRatingsFile);
+  app.use("/api/now-playing", nowPlayingRoutes(new NowPlaying(player === undefined ? defaultPlayer(NOW_PLAYING) : player), vibeModel, lookRatings));
   app.use("/api/library", libraryRoutes(shared));
   app.use("/api/exports", exportRoutes(exports));
   app.use("/api/render-files", renderFileRoutes(renders));

@@ -3,7 +3,8 @@
  * by Z X C V (zoom, flash, split, twist), its colours turned by the number row (a hue piano: 1 is the look's own,
  * each key a tenth of the way round), chaos on = and mutate on - (vaudio's), the frame on T Y [ ] , . and Backspace
  * (repeat, mirror, turn, zoom, as it was), the song on Space and Shift+arrows, the mini player on P and its own window on
- * O, slow motion on Shift+S. Pure, and tested.
+ * O, slow motion on Shift+S; the look loved on L or binned on B, and the rating mode (the looks one after another) on
+ * Shift+R. Pure, and tested.
  */
 import type { Pad } from "@shared/live-looks";
 
@@ -27,6 +28,8 @@ export type VisualizerAction =
   | { kind: "song"; step: 1 | -1 }
   | { kind: "auto" }
   | { kind: "slow" }
+  | { kind: "rate"; verdict: "love" | "bin" }
+  | { kind: "rating" }
   | { kind: "hud" }
   | { kind: "help" }
   | { kind: "mood" }
@@ -83,7 +86,11 @@ export function visualizerKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey"
     case "KeyD":
       return { kind: "panel" };
     case "KeyR":
-      return { kind: "random" };
+      return e.shiftKey ? { kind: "rating" } : { kind: "random" };
+    case "KeyL":
+      return { kind: "rate", verdict: "love" };
+    case "KeyB":
+      return { kind: "rate", verdict: "bin" };
     case "KeyM":
       return { kind: "vary" };
     case "KeyA":
@@ -103,6 +110,9 @@ export const VISUALIZER_KEYS: { keys: string; does: string }[] = [
   { keys: "← →", does: "Previous or next look" },
   { keys: "↑ ↓", does: "Worlds, spectrums, trips, chaos, or MilkDrop at random" },
   { keys: "R", does: "A look at random" },
+  { keys: "L", does: "Love the look: shown more (again: take it back)" },
+  { keys: "B", does: "Bin it: never shown again (again: take it back)" },
+  { keys: "⇧R", does: "Rate the looks, one after another (→ next, ← back)" },
   { keys: "M", does: "The same look, another way" },
   { keys: "=", does: "Chaos: a roll of another recipe" },
   { keys: "-", does: "Mutate: the chaos shown, nudged" },

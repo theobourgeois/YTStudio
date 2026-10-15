@@ -8,11 +8,12 @@
  * meanwhile: `effects-engine.ts`; it doesn't evolve as chaos does: longer, it's a loop). A drop is the kick it lands
  * on, heard at once (`Moment.drop`), and cut to there. A slow song (`isSlow`) only has looks that flow, its loudness
  * not taken for intensity, and nothing cut: its drop blends in too. Every choice says why, and its reason picks its
- * transition (`switches.ts`).
+ * transition (`switches.ts`). The user's taste goes into every pick (`Appeal`): a binned look is never picked, a loved
+ * one more often.
  * Pure, and tested: the view acts on what it's told.
  */
 import type { LiveLook } from "@shared/live-looks";
-import { type Mood, SLOW, SONG_CHARACTERS, isSlow } from "@shared/signals/mood";
+import { type Mood, SLOW, SONG_CHARACTERS, type SongCharacter, isSlow } from "@shared/signals/mood";
 import type { SwitchReason } from "./switches";
 
 /** How a choice comes in: cut (at `at`), soon, on the next bar, or the same look mutated (chaos) or varied. */
@@ -42,6 +43,27 @@ export interface Moment {
 
 /** What a look wants of the music when it's picked. */
 type Want = "fit" | "minimal" | "intense" | "calm";
+
+/**
+ * How much the user wants a look on a kind of song (`Taste.appeal`, from their ratings): 0 never (binned), 1 as any
+ * other, more if loved.
+ */
+export type Appeal = (look: string, character: SongCharacter | null) => number;
+/** No ratings: every look as wanted as another. */
+export const ANY_APPEAL: Appeal = () => 1;
+
+/**
+ * One of `pool` at random, as much more likely as the user wants it, never a binned one (unless they all are): the
+ * shuffles, R, chaos rolled.
+ */
+export function pickWanted<T extends { id: string }>(pool: readonly T[], appeal: Appeal, character: SongCharacter | null, random: () => number): T | undefined {
+  const weights = pool.map((l) => Math.max(0, appeal(l.id, character)));
+  const total = weights.reduce((a, b) => a + b, 0);
+  if (!total) return pool[Math.floor(random() * pool.length)];
+  let left = random() * total;
+  for (let i = 0; i < pool.length; i++) if (weights[i] > 0 && (left -= weights[i]) <= 0) return pool[i];
+  return pool.findLast((_, i) => weights[i] > 0);
+}
 
 /** How far outside its range the intensity may stray before a look no longer suits it. */
 export const MARGIN = 0.08;
@@ -115,9 +137,20 @@ const heard = (mood: Mood) => `${known(mood) ? mood.character : "not sure yet"}$
  * whatever its kind (so mostly MilkDrop's, which are most: Théo's call). A calm moment (a breakdown) or an
  * intense one (a drop) goes by the intensity alone, not the song's kind (a hype song's breakdown is calm, a song with a
  * quiet intro reads chill until its drop), and prefers looks made for it. A slow song has only looks that flow. Short
- * of any, the preferences are let go, then what was shown lately, then all but the nearest range.
+ * of any, the preferences are let go, then what was shown lately, then all but the nearest range. The user's taste
+ * weighs in (`appeal`): never one they binned (unless every look is), loved ones more often.
  */
-export function pickLook(looks: readonly LiveLook[], mood: Mood, recent: readonly string[], random: () => number, want: Want = "fit"): LiveLook {
+export function pickLook(
+  looks: readonly LiveLook[],
+  mood: Mood,
+  recent: readonly string[],
+  random: () => number,
+  want: Want = "fit",
+  appeal: Appeal = ANY_APPEAL,
+): LiveLook {
+  const liked = looks.filter((l) => appeal(l.id, mood.character) > 0);
+  const from = liked.length ? liked : looks;
+  const wantedSo = (l: LiveLook) => (liked.length ? appeal(l.id, mood.character) : 1);
   // What it's picked for: a drop is intense even before the intensity has caught up, a breakdown calm.
   const intensity = felt(mood, want === "intense" ? Math.max(mood.intensity, 0.7) : want === "calm" ? Math.min(mood.intensity, 0.35) : mood.intensity);
   const inRange = (l: LiveLook) => outOfRange(l, intensity) <= MARGIN;
@@ -138,18 +171,18 @@ export function pickLook(looks: readonly LiveLook[], mood: Mood, recent: readonl
     (l) => pace(l) && inRange(l),
   ];
   for (const ok of tries) {
-    const pool = looks.filter(ok);
+    const pool = from.filter(ok);
     if (!pool.length) continue;
     const weights = pool.map((l) => {
       const [lo, hi] = l.suits.energy;
-      return 1.2 - Math.min(1, Math.abs(intensity - (lo + hi) / 2) / Math.max(0.1, (hi - lo) / 2));
+      return (1.2 - Math.min(1, Math.abs(intensity - (lo + hi) / 2) / Math.max(0.1, (hi - lo) / 2))) * wantedSo(l);
     });
     let left = random() * weights.reduce((a, b) => a + b, 0);
     for (let i = 0; i < pool.length; i++) if ((left -= weights[i]) <= 0) return pool[i];
     return pool[pool.length - 1];
   }
-  const flowing = looks.filter(pace);
-  return [...(flowing.length ? flowing : looks)].sort((a, b) => outOfRange(a, intensity) - outOfRange(b, intensity))[0];
+  const flowing = from.filter(pace);
+  return [...(flowing.length ? flowing : from)].sort((a, b) => outOfRange(a, intensity) - outOfRange(b, intensity))[0];
 }
 
 /** Following the music: which look, when, and why. */
@@ -165,6 +198,8 @@ export class LookChooser {
   private farSince: number | null = null;
   private quietSince: number | null = null;
   private recent: string[] = [];
+  /** The user's taste (their ratings, as they change): binned looks never picked, loved ones more often. */
+  appeal: Appeal = ANY_APPEAL;
 
   constructor(
     private readonly looks: readonly LiveLook[],
@@ -195,13 +230,13 @@ export class LookChooser {
     this.settled = false;
     this.lastEvent = Math.max(this.lastEvent, ...m.mood.events.map((e) => e.time));
     this.lastDrop = Math.max(this.lastDrop, m.drop ?? -Infinity);
-    const look = pickLook(this.looks, m.mood, this.recent, this.random, "minimal");
+    const look = pickLook(this.looks, m.mood, this.recent, this.random, "minimal", this.appeal);
     return { look: look.id, how: "now", reason: "song", why: `a new song: ${look.name}, minimal, until it's known what kind of song it is` };
   }
 
   /** A look for the moment, the rest left as it is (the every-so-many-bars switches). */
   pick(m: Moment, why: string): Choice {
-    const look = pickLook(this.looks, m.mood, this.recent, this.random);
+    const look = pickLook(this.looks, m.mood, this.recent, this.random, "fit", this.appeal);
     return { look: look.id, how: "bar", reason: "schedule", why: `${why}: ${look.name} (${heard(m.mood)}; it suits ${look.suits.characters.join("/")}, ${range(look)})` };
   }
 
@@ -213,14 +248,14 @@ export class LookChooser {
     // Between songs (or a long silence): something minimal.
     this.quietSince = mood.intensity < QUIET ? (this.quietSince ?? time) : null;
     if (this.quietSince !== null && time - this.quietSince > 2 && !look.suits.minimal) {
-      const next = pickLook(this.looks, mood, this.recent, this.random, "minimal");
+      const next = pickLook(this.looks, mood, this.recent, this.random, "minimal", this.appeal);
       return { look: next.id, how: "bar", reason: "quiet", why: `quiet (between songs): ${next.name}, minimal` };
     }
     // The song's kind known: a look for it.
     if (!this.settled && ((known(mood) && time - this.songAt > 4) || time - this.songAt > SETTLE_SECONDS)) {
       this.settled = true;
       if (!suits(look, mood) || look.suits.minimal) {
-        const next = pickLook(this.looks, mood, this.recent, this.random);
+        const next = pickLook(this.looks, mood, this.recent, this.random, "fit", this.appeal);
         return { look: next.id, how: "bar", reason: "fit", why: `the song is ${heard(mood)}: ${next.name} (suits ${next.suits.characters.join("/")}, ${range(next)})` };
       }
     }
@@ -228,7 +263,7 @@ export class LookChooser {
     if (m.drop !== undefined && m.drop > this.lastDrop) {
       this.lastDrop = m.drop;
       if (time - this.since > SETTLE_LOOK && time - m.drop < 1) {
-        const next = pickLook(this.looks, mood, this.recent, this.random, "intense");
+        const next = pickLook(this.looks, mood, this.recent, this.random, "intense", this.appeal);
         if (isSlow(mood)) return { look: next.id, how: "now", reason: "drop", why: `the drop (${heard(mood)}): ${next.name} (${range(next)}), blended in` };
         return { look: next.id, how: "cut", reason: "drop", at: m.drop, why: `the drop (${heard(mood)}): ${next.name} (${range(next)}), cut on its kick` };
       }
@@ -238,7 +273,7 @@ export class LookChooser {
     if (event && event.time > this.lastEvent) {
       this.lastEvent = event.time;
       if (event.kind === "breakdown" && time - this.since > SETTLE_LOOK && time - event.time < 2) {
-        const next = pickLook(this.looks, mood, this.recent, this.random, "calm");
+        const next = pickLook(this.looks, mood, this.recent, this.random, "calm", this.appeal);
         return { look: next.id, how: "bar", reason: "breakdown", why: `a breakdown (${heard(mood)}): ${next.name} (${range(next)})` };
       }
     }
@@ -247,7 +282,7 @@ export class LookChooser {
     const off = still ? 1 : outOfRange(look, felt(mood));
     this.farSince = off > FAR ? (this.farSince ?? time) : null;
     if (this.farSince !== null && time - this.farSince > 2 * m.bar && mood.section !== "build") {
-      const next = pickLook(this.looks, mood, this.recent, this.random);
+      const next = pickLook(this.looks, mood, this.recent, this.random, "fit", this.appeal);
       const why = still ? "doesn't flow, and the song is slow" : `is far from the music (intensity ${mood.intensity.toFixed(2)}, it suits ${range(look)})`;
       return { look: next.id, how: "bar", reason: "fit", why: `${look.name} ${why}: ${next.name}` };
     }
@@ -256,13 +291,17 @@ export class LookChooser {
       this.phrases++;
       this.phraseAt = time + PHRASE_BARS * m.bar;
       if (mood.section === "build") return null;
+      if (this.appeal(look.id, mood.character) === 0) {
+        const next = pickLook(this.looks, mood, this.recent, this.random, "fit", this.appeal);
+        return { look: next.id, how: "bar", reason: "fit", why: `${look.name} is binned for ${mood.character ?? "this"} songs: ${next.name}` };
+      }
       if (!suits(look, mood)) {
-        const next = pickLook(this.looks, mood, this.recent, this.random);
+        const next = pickLook(this.looks, mood, this.recent, this.random, "fit", this.appeal);
         return { look: next.id, how: "bar", reason: "fit", why: `${look.name} no longer suits the music (${heard(mood)}; it suits ${look.suits.characters.join("/")}, ${range(look)}): ${next.name}` };
       }
       const most = look.kind === "chaos" ? MOST_PHRASES.chaos : MOST_PHRASES.other;
       if (this.phrases >= most) {
-        const next = pickLook(this.looks, mood, this.recent.length ? this.recent : [look.id], this.random);
+        const next = pickLook(this.looks, mood, this.recent.length ? this.recent : [look.id], this.random, "fit", this.appeal);
         return { look: next.id, how: "bar", reason: "phrase", why: `${most * PHRASE_BARS} bars of ${look.name}: ${next.name} (${heard(mood)})` };
       }
       if (look.kind === "chaos") return { look: look.id, how: "mutate", reason: "phrase", why: `a phrase: ${look.name} mutated` };

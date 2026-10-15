@@ -1171,6 +1171,8 @@ export interface ToolCallProgressRequest {
 //   GET    /api/now-playing/vibe        -> ModelStatus of the vibe's model (CLAP's audio side, shared/signals/vibe.ts)
 //   POST   /api/now-playing/vibe/setup  -> ModelStatus (202): its download starts (the user asked)
 //   GET    /api/now-playing/vibe/file   -> its ONNX file (404 until it's downloaded)
+//   GET    /api/now-playing/ratings     -> { ratings: LookRating[] }: the visualizer's looks as rated, oldest first
+//   POST   /api/now-playing/ratings  body: LookRatingInput -> LookRating (201; 400 not a rating)
 //   POST   /api/exports   body: ExportRequest -> ExportJob (202)
 //   GET    /api/exports/formats         -> ExportFormat[] (what this computer's ffmpeg can make)
 //   GET    /api/exports/:id             -> ExportJob

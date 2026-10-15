@@ -56,6 +56,13 @@ describe("visualizerKey", () => {
     expect(key("KeyS", "S", { shiftKey: true })).toEqual({ kind: "slow" });
   });
 
+  it("loves the look on L, bins it on B, and rates the looks one after another on Shift+R", () => {
+    expect(key("KeyL", "l")).toEqual({ kind: "rate", verdict: "love" });
+    expect(key("KeyB", "b")).toEqual({ kind: "rate", verdict: "bin" });
+    expect(key("KeyR", "R", { shiftKey: true })).toEqual({ kind: "rating" });
+    expect(key("KeyR", "r")).toEqual({ kind: "random" });
+  });
+
   it("leaves the app's own shortcuts alone", () => {
     expect(key("KeyR", "r", { metaKey: true })).toBeNull();
     expect(key("KeyG", "g")).toBeNull();

@@ -343,3 +343,73 @@ test("Now Playing's vibe: its model offered while it isn't here, downloaded on a
   await page.mouse.move(400, 300);
   await expect(offer).toHaveCount(0);
 });
+
+test("Now Playing's ratings: L loves a look, B bins it (it goes), and the rating mode goes through the looks", async ({ page }) => {
+  await page.request.post("/api/now-playing", { data: { action: "play" } });
+  await page.goto("/");
+  await page.locator("[data-now-playing] button").first().click();
+  const view = page.locator("[data-now-playing-view]");
+  await expect(view.locator('[data-slot="visualizer-canvas"]')).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
+  // What the server keeps (skips aside: what the music put up and was left soon after).
+  type Kept = { look: string; verdict: string; rating?: true; song: { name: string } | null };
+  const said = async () => ((await (await page.request.get("/api/now-playing/ratings")).json()).ratings as Kept[]).filter((r) => r.verdict !== "skip");
+
+  // Staying on one look: L loves it (kept, with the song), shown on its heart and in the looks menu; L again takes it back.
+  await page.mouse.move(400, 300);
+  await view.getByLabel("Change looks").selectOption("off");
+  const menu = view.locator("[data-looks-menu]");
+  const looksButton = menu.getByRole("button", { name: /^Looks:/ });
+  await looksButton.click();
+  await menu.locator('[data-kind="spectrum"]').click();
+  await menu.locator('[data-look="halo"]').click();
+  await expect(view).toHaveAttribute("data-showing", "halo");
+  await page.keyboard.press("l");
+  await expect(view.locator("[data-rated]")).toHaveAttribute("data-rated", "love");
+  await expect(view.locator("[data-rated]")).toContainText("Loved Halo");
+  await expect.poll(async () => (await said()).map((r) => `${r.look} ${r.verdict}`)).toEqual(["halo love"]);
+  expect((await said())[0].song?.name).toBeTruthy();
+  await page.mouse.move(410, 310);
+  await expect(view.getByRole("button", { name: /^Loved: shown more/ })).toBeVisible();
+  await looksButton.click();
+  await menu.locator('[data-kind="spectrum"]').click();
+  await expect(menu.locator('[data-look="halo"]')).toHaveAttribute("data-verdict", "love");
+  await looksButton.click();
+  await page.keyboard.press("l");
+  await expect(view.locator("[data-rated]")).toHaveAttribute("data-rated", "clear");
+  await expect.poll(async () => (await said()).map((r) => r.verdict)).toEqual(["love", "clear"]);
+
+  // B bins it: it goes at once.
+  await page.keyboard.press("b");
+  await expect(view.locator("[data-rated]")).toHaveAttribute("data-rated", "bin");
+  await expect.poll(() => view.getAttribute("data-showing")).not.toBe("halo");
+  await expect.poll(async () => (await said()).map((r) => r.verdict)).toEqual(["love", "clear", "bin"]);
+
+  // The rating mode (⇧R): the looks one after another, a judged one never; L and B rate and move on, → passes over
+  // it, ← goes back, Esc stops (the visualizer stays).
+  await page.keyboard.press("Shift+KeyR");
+  await expect(view).toHaveAttribute("data-rating", "on");
+  const bar = view.locator("[data-rating-bar]");
+  await expect(bar).toContainText("to go");
+  const shownInBar = () => bar.getAttribute("data-rating-bar");
+  const first = (await shownInBar())!;
+  expect(first).not.toBe("halo");
+  await expect(view).toHaveAttribute("data-showing", first);
+  await page.keyboard.press("l");
+  await expect.poll(shownInBar).not.toBe(first);
+  const second = (await shownInBar())!;
+  await bar.locator('[data-rate="bin"]').click();
+  await expect.poll(shownInBar).not.toBe(second);
+  const third = (await shownInBar())!;
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(shownInBar).not.toBe(third);
+  await page.keyboard.press("ArrowLeft");
+  await expect(bar).toHaveAttribute("data-rating-bar", third);
+  await expect
+    .poll(async () => (await said()).slice(3).map((r) => `${r.look} ${r.verdict}${r.rating ? " (rating)" : ""}`))
+    .toEqual([`${first} love (rating)`, `${second} bin (rating)`, `${third} pass (rating)`]);
+  await page.keyboard.press("Escape");
+  await expect(view).not.toHaveAttribute("data-rating", "on");
+  await expect(bar).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(view).toHaveCount(0);
+});

@@ -81,6 +81,10 @@ export class DataPaths {
   get serumLibraryFile() {
     return path.join(this.root, "serum-library.json");
   }
+  /** Now Playing's visualizer: the looks rated (loved, binned, skipped), every rating in the order given. */
+  get lookRatingsFile() {
+    return path.join(this.root, "look-ratings.json");
+  }
   /** The audio engine's own files: the plugins it has found, and plugin states. */
   get engine() {
     return path.join(this.root, "engine");
