@@ -413,3 +413,68 @@ test("Now Playing's ratings: L loves a look, B bins it (it goes), and the rating
   await page.keyboard.press("Escape");
   await expect(view).toHaveCount(0);
 });
+
+test("Now Playing's media: clips and pictures of the user's, melting into MilkDrop's feedback", async ({ page }) => {
+  await page.request.post("/api/now-playing", { data: { action: "play" } });
+  await page.goto("/");
+  await page.locator("[data-now-playing] button").first().click();
+  const view = page.locator("[data-now-playing-view]");
+  await expect(view.locator('[data-slot="visualizer-canvas"]')).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
+
+  // Staying on a MilkDrop look: nothing of the user's goes in while there's nothing.
+  await page.mouse.move(400, 300);
+  await view.getByLabel("Change looks").selectOption("off");
+  const menu = view.locator("[data-looks-menu]");
+  await menu.getByRole("button", { name: /^Looks:/ }).click();
+  await menu.locator('[data-kind="milkdrop"]').click();
+  await menu.locator('[data-shuffle="milkdrop"]').click();
+  await menu.getByRole("button", { name: /^Looks:/ }).click();
+  const milkdrop = page.locator("canvas[data-milkdrop]");
+  await expect(milkdrop).toHaveAttribute("data-milkdrop", "ready", { timeout: 20_000 });
+  await expect(milkdrop).toHaveAttribute("data-media", "");
+
+  // A picture added from the media panel: kept in the Library's Visualizer folder, and fed into the look's feedback.
+  await page.mouse.move(410, 310);
+  await view.getByRole("button", { name: "Your clips and pictures, in the feedback" }).click();
+  const panel = view.locator("[data-media-panel]");
+  await expect(panel).toContainText("Nothing yet");
+  const png = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 320;
+    canvas.height = 180;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#ff2266";
+    ctx.fillRect(0, 0, 320, 180);
+    ctx.fillStyle = "#22ddff";
+    ctx.beginPath();
+    ctx.arc(160, 90, 60, 0, Math.PI * 2);
+    ctx.fill();
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await panel.getByLabel("Add clips or pictures").setInputFiles({ name: "glow.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+  const item = panel.locator("[data-media]");
+  await expect(item).toHaveCount(1);
+  const id = (await item.getAttribute("data-media"))!;
+  await expect(milkdrop).toHaveAttribute("data-media", id);
+  await expect(item).toHaveAttribute("data-feeding", "true");
+  await expect.poll(async () => Number(await milkdrop.getAttribute("data-fed")), { timeout: 10_000 }).toBeGreaterThan(30);
+  const library = await (await page.request.get("/api/library")).json();
+  const folder = library.folders.find((f: { name: string }) => f.name === "Visualizer");
+  expect(library.items.some((i: { folderId: string; mediaId: string }) => i.folderId === folder?.id && i.mediaId === id)).toBe(true);
+
+  // ⇧N takes them out of the feedback and back; N with only one brings the same one in again.
+  await page.keyboard.press("Shift+KeyN");
+  await expect(milkdrop).toHaveAttribute("data-media", "");
+  await page.keyboard.press("Shift+KeyN");
+  await expect(milkdrop).toHaveAttribute("data-media", id);
+  await page.keyboard.press("n");
+  await expect(milkdrop).toHaveAttribute("data-media", id);
+
+  // Taken out: gone from the folder and the feedback.
+  await item.hover();
+  await item.getByRole("button", { name: /^Take glow/ }).click();
+  await expect(panel).toContainText("Nothing yet");
+  await expect(milkdrop).toHaveAttribute("data-media", "");
+  await page.keyboard.press("Escape");
+  await expect(view).toHaveCount(0);
+});

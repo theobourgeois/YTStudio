@@ -13,6 +13,7 @@ import {
   PiCheck,
   PiCornersIn,
   PiCornersOut,
+  PiFilmStrip,
   PiHeart,
   PiHeartFill,
   PiKeyboard,
@@ -32,7 +33,8 @@ import {
   PiX,
 } from "react-icons/pi";
 import { type Frame, LIVE_LOOKS, LOOK_KINDS, type LookKind, PLAIN_FRAME, SLOW_MOTION, liveLook, ofMany, seededRandom, switchTransition } from "@shared/live-looks";
-import { MILKDROP_ASSET } from "@shared/live-milkdrop";
+import { MILKDROP_ASSET, milkdropPreset } from "@shared/live-milkdrop";
+import { MASTER, signalValue } from "@shared/audio-signals";
 import type { LookVerdict, RatingVerdict } from "@shared/look-ratings";
 import { positionAt } from "@shared/now-playing";
 import { type Mood, type SongCharacter, isSlow } from "@shared/signals/mood";
@@ -50,7 +52,10 @@ import { useNowPlaying } from "@/stores/now-playing";
 import { type Choice, LookChooser, type Moment, pickWanted, slowMotionOn, slowedDown } from "./chooser";
 import { EFFECTS_MODES, EffectsEngine } from "./effects-engine";
 import { LiveDirector } from "./director";
-import { MilkDrop } from "./milkdrop";
+import { type Feeding, MilkDrop } from "./milkdrop";
+import { useVisualizerMedia } from "./media-library";
+import { KickHit, mixFor, pickMedia } from "./media-mix";
+import { MediaPanel } from "./media-panel";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
 import { useLookRatings } from "./look-ratings";
 import { ImageSlots, LiveSource } from "./live-source";
@@ -166,6 +171,10 @@ export default function NowPlayingView() {
     ratingRef.current = next;
     setRatingState(next);
   };
+  // The user's clip melting into the MilkDrop look shown (`media-feed.ts`), and those shown lately; a kick's hit.
+  const feedingRef = useRef<{ look: string; feeding: Omit<Feeding, "hit"> } | null>(null);
+  const recentMedia = useRef<string[]>([]);
+  const [kick] = useState(() => new KickHit());
   // What was just rated, for the note saying so (`n` counts them, so the same one twice shows again).
   const [rated, setRated] = useState<{ look: string; verdict: RatingVerdict | "done"; character: SongCharacter | null; n: number } | null>(null);
   // The looks in slow motion (a slow song's, or the Speed slider's): what's shown moves that much as fast, its hits
@@ -252,6 +261,7 @@ export default function NowPlayingView() {
     shownPalette.current = p;
     historyRef.current = [...historyRef.current.filter((id) => id !== look.id), look.id].slice(-6);
     if (look.id !== shownSince.current.look) shownSince.current = { look: look.id, at: Date.now(), by: by ?? (PUT_UP.has(reason) ? "music" : null) };
+    feedFor(look.id);
     if (pr.look !== look.id) useVisualizerPrefs.getState().setLook(look.id);
     const beats = AUTO_SWITCHES.find((a) => a.id === pr.auto)?.beats;
     dueRef.current = beats ? at + beats * beatSeconds(rhythm) : null;
@@ -271,6 +281,30 @@ export default function NowPlayingView() {
   const characterNow = () => {
     const mood = useNowPlaying.getState().live?.signals.mood;
     return mood ? asHeard(mood).character : null;
+  };
+
+  /**
+   * The user's clip for the MilkDrop look `lookId` (`again`: another, even for the same look): not one shown lately, from
+   * a moment of it at random, going in as the moment says (`mixFor`). None for any other look, or with none, or off.
+   */
+  const feedFor = (lookId: string, again = false) => {
+    const list = useVisualizerMedia.getState().media;
+    if (!useVisualizerPrefs.getState().media || !list.length || !milkdropPreset(lookId)) {
+      if (feedingRef.current) feedingRef.current = null;
+      useVisualizerMedia.getState().setFeeding(null);
+      return;
+    }
+    if (!again && feedingRef.current?.look === lookId) return;
+    const choices = list.map((m) => ({ id: m.asset.id, kind: m.asset.kind === "video" ? ("video" as const) : ("image" as const), duration: m.asset.duration }));
+    const picked = pickMedia(choices, recentMedia.current, Math.random);
+    const asset = list.find((m) => m.asset.id === picked?.id)?.asset;
+    if (!picked || !asset) return;
+    const mood = useNowPlaying.getState().live?.signals.mood;
+    const mix = mixFor(mood ? asHeard(mood) : { intensity: 0.5, slow: latest.current.prefs.pace < 1 ? 1 : 0 }, Math.random);
+    feedingRef.current = { look: lookId, feeding: { media: { id: asset.id, src: asset.src, kind: asset.kind === "video" ? "video" : "image", from: picked.from }, mix } };
+    recentMedia.current = [...recentMedia.current.filter((id) => id !== asset.id), asset.id].slice(-4);
+    useVisualizerMedia.getState().setFeeding(asset.id);
+    logger.debug(`${asset.name} into ${liveLook(lookId)?.name ?? lookId}'s feedback (${mix.mode}, ${picked.from} s in)`);
   };
 
   /** Whether the song is a slow one, or taken as one (its looks flow into each other). */
@@ -461,7 +495,16 @@ export default function NowPlayingView() {
     decide(time);
     const seconds = Math.min(0.1, Math.max(0.001, time - lastTick.current));
     lastTick.current = time;
-    milkdrop.current?.draw(time, seconds, director.shownAt(time), useNowPlaying.getState().live?.signals ?? null, paceShown.current);
+    const shown = director.shownAt(time);
+    // The user's clip, while its MilkDrop look's on screen, pulsing in on the kicks.
+    const feeding = feedingRef.current;
+    let fed: Feeding | null = null;
+    if (feeding && shown.some((s) => s.look === feeding.look)) {
+      const reader = source.signals();
+      const hit = kick.step(reader ? signalValue(reader, null, MASTER, "onsetLow", time, seconds) : 0, seconds);
+      fed = { ...feeding.feeding, hit };
+    }
+    milkdrop.current?.draw(time, seconds, shown, useNowPlaying.getState().live?.signals ?? null, paceShown.current, fed);
   }
 
   /** Start, follow sessions, change looks when it's time. */
@@ -559,6 +602,26 @@ export default function NowPlayingView() {
     else effectsEngine.from({ frame: director.frame, fx: director.fx }, source.now);
   }, [director, source, effectsEngine, fx, effectsMode]);
 
+  // The user's clips and pictures (the Library's Visualizer folder): read once it opens; another when asked, and the
+  // one for the look shown chosen again as they come and go or are turned on or off.
+  useEffect(() => {
+    void useVisualizerMedia.getState().load();
+    return () => useVisualizerMedia.getState().setFeeding(null);
+  }, []);
+  const mediaList = useVisualizerMedia((s) => s.media);
+  const mediaOn = prefs.media;
+  const nextMedia = prefs.nextMedia;
+  const mediaChanged = useRef({ list: mediaList, on: mediaOn, next: nextMedia });
+  useEffect(() => {
+    const was = mediaChanged.current;
+    mediaChanged.current = { list: mediaList, on: mediaOn, next: nextMedia };
+    const look = director.look;
+    if (!look) return;
+    const gone = feedingRef.current && !mediaList.some((m) => m.asset.id === feedingRef.current!.feeding.media.id);
+    if (nextMedia !== was.next || mediaOn !== was.on || gone || (!feedingRef.current && mediaList.length)) feedFor(look, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mediaList, mediaOn, nextMedia]);
+
   // The user's ratings (kept on this computer), for the looks picked; the rating mode's off once it's closed.
   useEffect(() => {
     void useLookRatings.getState().load();
@@ -650,8 +713,17 @@ export default function NowPlayingView() {
   const [hudHidden, setHudHidden] = useState(false);
   const [help, setHelp] = useState(false);
   const [moodShown, setMoodShown] = useState(false);
-  // Every setting the player plays (D).
-  const [panel, setPanel] = useState(false);
+  // Every setting the player plays (D), or the user's clips and pictures (one panel at a time).
+  const [panel, setPanelOpen] = useState(false);
+  const [mediaPanel, setMediaPanelOpen] = useState(false);
+  const setPanel = (open: boolean | ((was: boolean) => boolean)) => {
+    setPanelOpen(open);
+    setMediaPanelOpen(false);
+  };
+  const setMediaPanel = (open: boolean | ((was: boolean) => boolean)) => {
+    setMediaPanelOpen(open);
+    setPanelOpen(false);
+  };
   // Tapping along to measure the headphones' delay: Space taps instead of playing and pausing.
   const [syncing, setSyncing] = useState(false);
   const syncingRef = useRef(false);
@@ -835,6 +907,18 @@ export default function NowPlayingView() {
           return rate(action.verdict);
         case "rating":
           return round.current ? stopRating() : startRating();
+        case "media": {
+          const prefs = useVisualizerPrefs.getState();
+          if (!useVisualizerMedia.getState().media.length) {
+            setMediaPanel(true);
+            return wake();
+          }
+          if (action.next) {
+            if (!prefs.media) prefs.setMedia(true);
+            else prefs.requestNextMedia();
+          } else prefs.setMedia(!prefs.media);
+          return wake();
+        }
         case "frame": {
           const f = director.frame;
           const next: Frame =
@@ -976,6 +1060,19 @@ export default function NowPlayingView() {
       )}
       style={at ? { left: at.x, top: at.y, width: at.width, height: at.height } : undefined}
       onPointerMove={wake}
+      onDragOver={(e) => {
+        if (![...e.dataTransfer.types].includes("Files")) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }}
+      onDrop={(e) => {
+        const files = [...e.dataTransfer.files];
+        if (!files.length) return;
+        e.preventDefault();
+        setMediaPanel(true);
+        wake();
+        void useVisualizerMedia.getState().add(files);
+      }}
       onPointerDown={(e) => {
         wake();
         drag(e, null);
@@ -1017,6 +1114,9 @@ export default function NowPlayingView() {
             </HudButton>
             <HudButton label="Distort, feedback and frame (D)" onClick={() => setPanel((p) => !p)} active={panel}>
               <PiSlidersHorizontal />
+            </HudButton>
+            <HudButton label="Your clips and pictures, in the feedback" onClick={() => setMediaPanel((p) => !p)} active={mediaPanel}>
+              <PiFilmStrip />
             </HudButton>
             <HudButton label="Keys" onClick={() => setHelp((h) => !h)} active={help}>
               <PiKeyboard />
@@ -1062,6 +1162,7 @@ export default function NowPlayingView() {
           }}
         />
       )}
+      {mediaPanel && !hudHidden && !compact && <MediaPanel />}
       {rating && !hudHidden && (
         <RatingBar
           look={rating.look}
@@ -1120,7 +1221,7 @@ const HANDLES: { edges: Edges; className: string; cursor: string }[] = [
 
 /** What's pressed is one of its controls (which a press doesn't move it by). */
 const isControl = (target: EventTarget | null) =>
-  isElement(target) && target.closest("button, input, select, label, a, [data-play-panel], [data-looks-menu], [data-resize]") !== null;
+  isElement(target) && target.closest("button, input, select, label, a, [data-play-panel], [data-media-panel], [data-looks-menu], [data-resize]") !== null;
 
 /** The app's window's size (CSS px), as it changes. */
 function useViewport(): Area {

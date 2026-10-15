@@ -7,13 +7,16 @@
  * turn and warp are by the frame, so a slower clock alone slows nothing), and what's shown dissolves from one of its
  * frames to the next as the time between goes (`picture`). Butterchurn and the presets
  * picked (`virtual:milkdrop-presets`, only those) load the first time it's asked (`prepare`); nothing's drawn while no
- * MilkDrop look is on screen.
+ * MilkDrop look is on screen. The user's clips and pictures go into its feedback (`feed`, `media-feed.ts`): painted into
+ * each frame it draws, for the next to warp.
  */
 import type { ButterchurnAudioLevels, ButterchurnPreset, ButterchurnVisualizer } from "butterchurn";
 import { MILKDROP_PRESETS, MILKDROP_SIZE, milkdropPreset } from "@shared/live-milkdrop";
 import type { LiveSignals } from "@shared/signals/live";
 import { errorMessage } from "@shared/errors";
 import { log } from "@/lib/log";
+import { MediaFeed } from "./media-feed";
+import { type MediaMix, amountOver } from "./media-mix";
 
 const logger = log("now-playing");
 
@@ -30,6 +33,13 @@ function exportsOf<T>(mod: unknown, has: string): T {
 
 /** What's on screen, oldest first (`LiveDirector.shownAt`). */
 export type Shown = readonly { look: string; from: number; full: number }[];
+
+/** The clip or picture going into its feedback, how, and how far into a kick the music is (0..1). */
+export interface Feeding {
+  media: { id: string; src: string; kind: "video" | "image"; from: number };
+  mix: MediaMix;
+  hit: number;
+}
 
 export class MilkDrop {
   readonly canvas: HTMLCanvasElement;
@@ -56,6 +66,9 @@ export class MilkDrop {
   /** In slow motion: its last two frames, and what's shown of them (`picture`). */
   private slow: { before: HTMLCanvasElement; last: HTMLCanvasElement; shown: HTMLCanvasElement } | null = null;
   private slowed = false;
+  /** The user's clips and pictures, painted into its feedback. */
+  private feed: MediaFeed | null = null;
+  private feeding: Feeding | null = null;
 
   constructor() {
     this.canvas = document.createElement("canvas");
@@ -98,6 +111,7 @@ export class MilkDrop {
     if (missing.length) logger.warn(`MilkDrop presets not found: ${missing.map((p) => p.name).join(", ")}`);
     const { createVisualizer } = exportsOf<{ createVisualizer: typeof import("butterchurn").default.createVisualizer }>(butterchurn, "createVisualizer");
     this.visualizer = createVisualizer(null, this.canvas, { ...MILKDROP_SIZE, pixelRatio: 1, textureRatio: 1 });
+    this.feed = new MediaFeed(this.gl);
     this.canvas.dataset.milkdrop = "ready";
     logger.info(`MilkDrop ready: ${this.presets.size} presets in ${Math.round(performance.now() - started)} ms`);
   }
@@ -107,7 +121,7 @@ export class MilkDrop {
    * preset, blended into over what's left of its switch when the one before is MilkDrop's too. `pace`: how fast it
    * goes (slow motion's: a frame of Butterchurn's every `1 / pace` of the display's). Whether it drew.
    */
-  draw(time: number, seconds: number, shown: Shown, signals: LiveSignals | null, pace = 1): boolean {
+  draw(time: number, seconds: number, shown: Shown, signals: LiveSignals | null, pace = 1, feeding: Feeding | null = null): boolean {
     const on = shown.filter((s) => milkdropPreset(s.look));
     if (!on.length || this.disposed) return false;
     void this.prepare();
@@ -129,6 +143,9 @@ export class MilkDrop {
         this.canvas.dataset.look = newest.look;
       }
     }
+    this.feeding = feeding;
+    this.feed?.show(feeding ? { ...feeding.media, rate: pace } : null);
+    this.feed?.setRate(pace);
     this.owed += Math.min(1, pace);
     this.since += seconds;
     this.slowed = pace < 1;
@@ -166,6 +183,16 @@ export class MilkDrop {
       return false;
     }
     this.failedDrawing = false;
+    // The user's clip painted into what it just drew: the next frame warps it in.
+    const feeding = this.feeding;
+    if (feeding && this.feed?.feed(visualizer.renderer, feeding.mix, amountOver(feeding.mix, feeding.hit, seconds), this.canvas)) {
+      if (this.feed.frames % 30 === 1) {
+        this.canvas.dataset.fed = String(this.feed.frames);
+        this.canvas.dataset.mediaGain = this.feed.gain.toFixed(2);
+      }
+    }
+    const fed = this.feed?.showing ?? "";
+    if (this.canvas.dataset.media !== fed) this.canvas.dataset.media = fed;
     if (++this.frames % 30 === 0) this.canvas.dataset.frames = String(this.frames);
     if (this.slowed) {
       // Its frame kept beside the one before (the canvas is drawn over by the next): both this one, at first.
@@ -200,6 +227,8 @@ export class MilkDrop {
   /** Let go of its GPU context. */
   dispose(): void {
     this.disposed = true;
+    this.feed?.dispose();
+    this.feed = null;
     this.visualizer = null;
     this.gl?.getExtension("WEBGL_lose_context")?.loseContext();
     this.gl = null;

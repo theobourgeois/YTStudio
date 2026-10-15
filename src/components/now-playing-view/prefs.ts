@@ -61,6 +61,7 @@ const EFFECTS_KEY = "editor-visualizer-effects";
 const PACE_KEY = "editor-visualizer-pace";
 const PLACE_KEY = "editor-visualizer-place";
 const VIBE_OFFER_KEY = "editor-visualizer-vibe-offer";
+const MEDIA_KEY = "editor-visualizer-media";
 
 /** Where it is (`placement.ts`), kept so it opens there again. */
 interface Place {
@@ -119,6 +120,12 @@ interface VisualizerPrefs {
   } | null;
   /** Where it is: its size in the app, or out in its own window. */
   place: Place;
+  /** The user's clips and pictures go into MilkDrop's feedback (`media-feed.ts`): on unless turned off. */
+  media: boolean;
+  /** Asks for another clip (`n` counts them: N, the media panel, the assistant). */
+  nextMedia: number;
+  setMedia(on: boolean): void;
+  requestNextMedia(): void;
   /** The vibe's model was offered and the user said not now (it isn't offered again). */
   vibeDeclined: boolean;
   declineVibe(): void;
@@ -164,6 +171,15 @@ export const useVisualizerPrefs = create<VisualizerPrefs>((set) => ({
     }
   })(),
   requested: null,
+  media: localStorage.getItem(MEDIA_KEY) !== "off",
+  nextMedia: 0,
+  setMedia(on) {
+    localStorage.setItem(MEDIA_KEY, on ? "on" : "off");
+    set({ media: on });
+  },
+  requestNextMedia() {
+    set((s) => ({ nextMedia: s.nextMedia + 1 }));
+  },
   place: keptPlace(),
   vibeDeclined: localStorage.getItem(VIBE_OFFER_KEY) === "declined",
   declineVibe() {
