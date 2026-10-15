@@ -229,7 +229,7 @@ changing (`SwitchReason`, the chooser's or a key's):
   additive dissolve, morph, liquid), two bars (2–4.5 s) landing on the bar, with a **feedback morph**: a World Loop over
   everything swelling up to the switch and dying away after, so the look going melts into the one coming.
 - **A groove**: a punch a beat long landing on the downbeat (cross-zoom, whip, pull-in, spin, zoom-out, swirl, light
-  leak). **Glitches** (glitch, datamosh, RGB split, VHS, pixelate) only where a glitchy look comes or goes
+  leak). **Glitches** (glitch, datamosh, RGB split, VHS) only where a glitchy look comes or goes
   (`LookSuits.glitch`: VHS Séance, Cyberspace, Datamosh).
 - A build-up changes nothing (it lands on the drop); a key's switch is a quick dissolve; chaos (=) a flash.
 
@@ -241,27 +241,30 @@ on from where it was: `frameAngle`).
 **The effects engine** (`effects-engine.ts`, pure and tested; the "Effects" menu, `useVisualizerPrefs.effects`) plays
 the frame and the distortions and feedback by itself, by the music, landing on its beats:
 
-- **Follow the music** (the default): calm, something gentle every 4 bars eased over a bar (a mirror fold, a slow
-  warp, soft trails, a soft kaleidoscope); a groove, a set every 4 bars mutated after 2 (mirrored copies, a swirl,
-  ripples, a kaleidoscope, a tunnel); intense, a set every 2 bars mutated on the bar between (copies, a feedback
-  tunnel, pixels, a lens, a quick turn, a colour echo). A build-up tightens bar by bar (a copy more, more kaleidoscope,
-  zooming in, its feedback let go); a drop is clean on its cut (the new look's impact), then goes hard a bar on; a
-  breakdown washes back to gentle over a bar.
-- **Every beat**: a new set on each downbeat, a mutation of it on each beat between (a mirror on or off, a copy more or
-  fewer, a zoom, the turn reversed; never the same twice running). With looks changing every 4 bars it's Théo's "every
-  few beats mutated a bit, the next bar a new effect". **Every bar**: a new set on each downbeat.
+- **Follow the music** (the default): every set has a feedback move, Théo's favourites (soft trails, smoke: the echo
+  flowing as it fades, a tunnel, a sinking echo, a colour echo, a deep tunnel), and a few others: calm, something
+  gentle every 4 bars eased over a bar (a mirror, a mirror fold, a slow warp, a soft kaleidoscope); a groove, a set
+  every 4 bars mutated after 2 (a swirl, ripples, a kaleidoscope, a warp); intense, a set every 2 bars mutated on the
+  bar between (a kaleidoscope, a swirl, a lens, a warp). A build-up tightens bar by bar (more kaleidoscope and swirl,
+  the echo drawn in); a drop is clean on its cut (the new look's impact), then goes hard a bar on; a breakdown washes
+  back to gentle over a bar. It never turns the picture, repeats it or zooms out: a mirror only mirrors (Théo found
+  the turning too much).
+- **Every beat**: a new set on each downbeat, a mutation of it on each beat between (mirrored or not, the echo sinking
+  or rising, its colour on, its trails longer or shorter, a kaleidoscope in or out; never the same twice running).
+  With looks changing every 4 bars it's Théo's "every few beats mutated a bit, the next bar a new effect". **Every
+  bar**: a new set on each downbeat.
 - **By hand**: the panel and the keys. Touching either takes the effects over from the engine as they are.
 
-A chaos look gets no feedback of the engine's (it has its own world); a sparse look (a spectrum, chaos: a thing in the
-middle of black) isn't zoomed out nor copied past 2×2 (specks in the dark); feedback stays under 0.8. Before the music's
+A chaos look gets no feedback of the engine's (it has its own world: it gets one more of the other moves instead);
+feedback stays under 0.8. Before the music's
 downbeats are known, bars are counted in beats. Every change says why (the log: info, every beat at debug; the I
 readout). Changing a setting doesn't wipe a World Loop's trails: heard live, a simulation's state is kept by its clip's
 id, not its contents (`simulationVersion`), as vaudio's is.
 
 **The player's settings** (D, the panel `play-panel.tsx`; `LiveFx`, kept in this browser; it shows what plays, the engine's too): vaudio's Distort (fluid
-warp, swirl, ripples, kaleidoscope, pixelate, lens, mirror fold) and Feedback (feedback, trail length, echo zoom, echo
-spin, echo hue) panels, in its units, over any look: a World Loop (warp and swirl moving with the sound), a mosaic, a
-bulge. Q W E nudge warp, swirl, ripples as vaudio's do; ⌫ (Wash) puts them and the frame back. The assistant's
+warp, swirl, ripples, kaleidoscope, lens, mirror fold: no pixelate, Théo had it out) and Feedback (feedback, trail
+length, echo zoom, echo spin, echo hue, and echo flow: MilkDrop's smoke, the echo warped as it fades) panels, in its
+units, over any look: a World Loop (warp and swirl moving with the sound) and a bulge. Q W E nudge warp, swirl, ripples as vaudio's do; ⌫ (Wash) puts them and the frame back. The assistant's
 `control_now_playing` takes `frame`, `fx` and `effects` (who plays them); `now_playing` says what's set.
 
 ## The plan (v2)

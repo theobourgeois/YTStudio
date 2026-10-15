@@ -138,14 +138,14 @@ describe("the frame", () => {
   });
 
   it("plays the player's distortions and feedback over every look, in vaudio's units", () => {
-    expect(performLayer(0, null, null, null).effects.some((e) => ["world-loop", "mosaic", "bulge"].includes(e.type))).toBe(false);
-    const set = { ...NO_FX, warp: 0.4, kaleido: 0.5, fold: 0.3, feedback: 0.87, trails: 0.76, echoZoom: 0.33, pixelate: 0.29, lens: -0.18 };
+    expect(performLayer(0, null, null, null).effects.some((e) => ["world-loop", "bulge"].includes(e.type))).toBe(false);
+    const set = { ...NO_FX, warp: 0.4, kaleido: 0.5, fold: 0.3, feedback: 0.87, trails: 0.76, echoZoom: 0.33, echoFlow: 0.5, lens: -0.18 };
     const played = performLayer(0, null, null, { from: set, to: set, at: 0, seconds: 0 });
     const world = effect(played, "world-loop")!;
     expect(world.params).toMatchObject({ warp: 0.4, kaleido: 0.5, mirror: 0.3, amount: 0.87, echoRotation: 0, echoHue: 0 });
     expect(world.params.echoZoom).toBeGreaterThan(1);
+    expect(world.params.flowWarp).toBeCloseTo(0.3);
     expect(world.links?.warp).toBeDefined();
-    expect(effect(played, "mosaic")).toBeDefined();
     expect(effect(played, "bulge")?.params.amount).toBeLessThan(0);
   });
 

@@ -45,26 +45,35 @@ describe("composeSet", () => {
     }
   });
 
-  it("is gentle when calm (no copies, pixels or lens), harder when intense", () => {
+  it("always feeds back (but on a chaos look), and never turns, repeats or zooms the picture", () => {
     const r = seededRandom("tiers");
     for (let i = 0; i < 200; i++) {
-      const calm = composeSet("calm", liveLook("nebula")!, r).effects;
-      expect(calm.frame.repeat).toBe(1);
-      expect(calm.fx.pixelate).toBe(0);
-      expect(calm.fx.lens).toBe(0);
+      for (const tier of ["calm", "groove", "intense"] as const) {
+        const set = composeSet(tier, liveLook("nebula")!, r).effects;
+        expect(set.fx.feedback, tier).toBeGreaterThan(0);
+        expect(set.frame).toMatchObject({ repeat: 1, spin: 0, zoom: 1 });
+        expect(set.fx.echoSpin).toBe(0);
+        const m = mutateSet(set, r).effects;
+        expect(m.frame).toMatchObject({ repeat: 1, spin: 0, zoom: 1 });
+      }
     }
-    const intense = Array.from({ length: 200 }, () => composeSet("intense", liveLook("nebula")!, r).effects);
-    expect(intense.some((e) => e.frame.repeat >= 2)).toBe(true);
-    expect(intense.some((e) => e.fx.kaleido >= 0.5 || e.fx.swirl >= 0.5)).toBe(true);
+    // Calm is gentle: no lens, a little warp at most.
+    for (let i = 0; i < 100; i++) {
+      const calm = composeSet("calm", liveLook("nebula")!, r).effects;
+      expect(calm.fx.lens).toBe(0);
+      expect(calm.fx.warp).toBeLessThanOrEqual(0.3);
+    }
   });
 
-  it("mutates a set a little: its frame only", () => {
+  it("mutates a set a little: one thing, never the one just played", () => {
     const r = seededRandom("mutate");
     const set = composeSet("groove", liveLook("nebula")!, r).effects;
+    let last = "";
     for (let i = 0; i < 20; i++) {
-      const m = mutateSet(set, r);
-      expect(m.effects.fx).toEqual(set.fx);
-      expect(m.effects.frame).not.toEqual(set.frame);
+      const m = mutateSet(set, r, null, last);
+      expect(m.name).not.toBe(last);
+      expect(m.effects).not.toEqual(set);
+      last = m.name;
     }
   });
 });
@@ -100,9 +109,12 @@ describe("EffectsEngine", () => {
     // Never the same mutation two beats running (from the same set it'd show no change).
     const beats = changes.filter((c) => c.why.startsWith("a beat"));
     for (let i = 1; i < beats.length; i++) if (Math.abs(beats[i].at - beats[i - 1].at - BEAT) < 1e-6) expect(beats[i].why).not.toBe(beats[i - 1].why);
-    // Within a bar, only the frame changes (the bar's set stays).
+    // Within a bar, each beat varies the bar's own set (one thing changed from it, not piled up).
     const bar = changes.filter((c) => c.at >= BAR && c.at < 2 * BAR);
-    for (const c of bar.slice(1)) expect(c.effects.fx).toEqual(bar[0].effects.fx);
+    for (const c of bar.slice(1)) {
+      const changed = (Object.keys(c.effects.fx) as (keyof typeof c.effects.fx)[]).filter((k) => c.effects.fx[k] !== bar[0].effects.fx[k]).length + (c.effects.frame.mirror !== bar[0].effects.frame.mirror ? 1 : 0);
+      expect(changed).toBeLessThanOrEqual(1);
+    }
   });
 
   it("counts bars in beats before the music's downbeats are known", () => {
@@ -117,28 +129,12 @@ describe("EffectsEngine", () => {
     expect(whys.filter((w) => w.startsWith("a beat")).length).toBeGreaterThanOrEqual(5);
   });
 
-  it("never zooms out a sparse look (a thing in black), nor copies it past 2×2", () => {
-    const r = seededRandom("sparse");
-    for (const look of ["halo", "chaos-liquid"]) {
-      for (let i = 0; i < 200; i++) {
-        for (const tier of ["calm", "groove", "intense"] as const) {
-          const set = composeSet(tier, liveLook(look)!, r).effects;
-          expect(set.frame.zoom).toBeGreaterThanOrEqual(1);
-          expect(set.frame.repeat).toBeLessThanOrEqual(2);
-          const m = mutateSet(set, r, liveLook(look)!).effects;
-          expect(m.frame.zoom).toBeGreaterThanOrEqual(1);
-          expect(m.frame.repeat).toBeLessThanOrEqual(2);
-        }
-      }
-    }
-  });
-
   it("is clean on a drop's cut, and tightens bar by bar through a build-up", () => {
     const drop = run("music", (t) => ({ mood: mood(0.9), drop: t >= 10.02 ? 10 : undefined }), 14);
     const onDrop = drop.find((c) => c.why.startsWith("the drop"))!;
     expect(onDrop.at).toBe(10);
     expect(onDrop.effects.fx.feedback).toBe(0);
-    expect(onDrop.effects.frame.repeat).toBe(1);
+    expect(onDrop.effects.frame.mirror).toBe(false);
     const build = run("music", () => ({ mood: mood(0.6, "build") }), 10).filter((c) => c.why.startsWith("the build-up"));
     expect(build.length).toBeGreaterThanOrEqual(4);
     expect(build.at(-1)!.effects.fx.kaleido).toBeGreaterThan(build[0].effects.fx.kaleido);
@@ -148,7 +144,7 @@ describe("EffectsEngine", () => {
     const changes = run("music", (t) => ({ mood: mood(t < 8 ? 0.9 : 0.3, t < 8 ? "drop" : "breakdown", t >= 8 ? [{ kind: "breakdown", time: 8 }] : []) }), 12);
     const breakdown = changes.find((c) => c.why.startsWith("a breakdown"))!;
     expect(breakdown).toBeDefined();
-    expect(breakdown.effects.frame.repeat).toBe(1);
+    expect(breakdown.effects.fx.lens).toBe(0);
     expect(breakdown.seconds).toBeCloseTo(BAR);
   });
 });

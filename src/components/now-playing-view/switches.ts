@@ -27,7 +27,7 @@ export const BLENDS = ["film-dissolve", "blur-dissolve", "luma-dissolve", "addit
 /** A beat long, moving, for a groove. */
 export const PUNCHES = ["cross-zoom", "whip", "pull-in", "spin", "zoom-out", "swirl", "light-leak"] as const;
 /** Only where a glitchy look comes or goes. */
-export const GLITCHES = ["glitch", "datamosh", "rgb-split", "vhs", "pixelate"] as const;
+export const GLITCHES = ["glitch", "datamosh", "rgb-split", "vhs"] as const;
 /** Under this intensity it's calm. */
 const CALM = 0.35;
 

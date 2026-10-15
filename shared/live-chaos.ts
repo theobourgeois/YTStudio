@@ -96,7 +96,7 @@ const range = (key: keyof ChaosWorld): [number, number] =>
 /** How a layer's colours are styled (vaudio's). */
 export type ColourStyle = "vivid" | "mono" | "psycho" | "neon" | "glitch";
 /** A layer's distortions (vaudio's), each an editor effect (`distortion`). */
-export type Distortion = "warp" | "swirl" | "bulge" | "kaleido" | "ripple" | "pixelate" | "mirror" | "smear";
+export type Distortion = "warp" | "swirl" | "bulge" | "kaleido" | "ripple" | "mirror" | "smear";
 /** What a layer draws: one of the editor's visualizers or generators, or the cover. */
 export type ChaosSource =
   | "plasma"
@@ -208,7 +208,6 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
     distorts: [
       { key: "bulge", weight: 2.5, min: 0.3, max: 0.7 },
       { key: "warp", weight: 2, min: 0.2, max: 0.5 },
-      { key: "pixelate", weight: 1, min: 0.1, max: 0.35 },
     ],
     motion: 0.6,
     colour: "vivid",
@@ -271,10 +270,9 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
     headline: ["chroma"],
     blends: ["hard-light", "difference", "exclusion", "luminosity"],
     distorts: [
-      { key: "pixelate", weight: 3, min: 0.25, max: 0.7 },
+      { key: "smear", weight: 3, min: 0.2, max: 0.5 },
       { key: "mirror", weight: 1.5, min: 0.2, max: 0.5 },
       { key: "warp", weight: 1.5, min: 0.15, max: 0.4 },
-      { key: "smear", weight: 1.5, min: 0.2, max: 0.5 },
     ],
     motion: 0.8,
     colour: "glitch",
@@ -436,7 +434,6 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
     distorts: [
       { key: "warp", weight: 2.5, min: 0.2, max: 0.5 },
       { key: "bulge", weight: 2, min: 0.35, max: 0.7 },
-      { key: "pixelate", weight: 1, min: 0.1, max: 0.3 },
     ],
     motion: 1,
     colour: "vivid",
@@ -803,8 +800,6 @@ function distortion(key: Distortion, v: number): Effect {
       return fx("kaleida", { mirroring: v < 0.4 ? "4" : v < 0.55 ? "6" : v < 0.7 ? "8" : "12", size: 1 });
     case "ripple":
       return fx("ripple", { radius: 1.2, waveHeight: Math.abs(v) * 0.03, waveWidth: 0.08, speed: 1.5 });
-    case "pixelate":
-      return fx("mosaic", { blockSize: 0.005 + Math.abs(v) * 0.03 });
     case "mirror":
       return fx("mirror", { side: v < 0.35 ? "left" : "corner" });
     case "smear":

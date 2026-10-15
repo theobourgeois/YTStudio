@@ -12,7 +12,6 @@ const DISTORT: { key: keyof LiveFx; label: string }[] = [
   { key: "swirl", label: "Swirl" },
   { key: "ripple", label: "Ripples" },
   { key: "kaleido", label: "Kaleidoscope" },
-  { key: "pixelate", label: "Pixelate" },
   { key: "lens", label: "Lens" },
   { key: "fold", label: "Mirror fold" },
 ];
@@ -23,6 +22,7 @@ const FEEDBACK: { key: keyof LiveFx; label: string }[] = [
   { key: "echoZoom", label: "Echo zoom" },
   { key: "echoSpin", label: "Echo spin" },
   { key: "echoHue", label: "Echo hue" },
+  { key: "echoFlow", label: "Echo flow" },
 ];
 
 /**

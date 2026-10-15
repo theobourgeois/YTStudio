@@ -262,7 +262,7 @@ function frameEffects(move: FrameMove): Effect[] {
 
 /**
  * What the player plays over any look (vaudio's layer Distort and world Feedback panels, its units): the picture
- * warped (fluid), swirled, rippled, kaleidoscoped, pixelated, through a lens (+ bulging, − pinching), folded in a
+ * warped (fluid), swirled, rippled, kaleidoscoped, through a lens (+ bulging, − pinching), folded in a
  * mirror; and fed back on its echo (`feedback` how much, `trails` how long, the echo zooming, turning, changing hue).
  * All but `lens`, `echoZoom` and `echoSpin` (−1..1) are 0..1; `trails` is 0.6 when untouched (vaudio's).
  */
@@ -271,7 +271,7 @@ export interface LiveFx {
   swirl: number;
   ripple: number;
   kaleido: number;
-  pixelate: number;
+
   lens: number;
   fold: number;
   feedback: number;
@@ -279,9 +279,11 @@ export interface LiveFx {
   echoZoom: number;
   echoSpin: number;
   echoHue: number;
+  /** The echo itself flowing as it fades (warped a little each frame: MilkDrop's smoke), 0..1. */
+  echoFlow: number;
 }
 
-export const NO_FX: LiveFx = { warp: 0, swirl: 0, ripple: 0, kaleido: 0, pixelate: 0, lens: 0, fold: 0, feedback: 0, trails: 0.6, echoZoom: 0, echoSpin: 0, echoHue: 0 };
+export const NO_FX: LiveFx = { warp: 0, swirl: 0, ripple: 0, kaleido: 0, lens: 0, fold: 0, feedback: 0, trails: 0.6, echoZoom: 0, echoSpin: 0, echoHue: 0, echoFlow: 0 };
 
 /** Each value's range (vaudio's), its feedback held under 0.93 (more washes out to white). */
 export const FX_RANGES: Record<keyof LiveFx, [number, number]> = {
@@ -289,7 +291,6 @@ export const FX_RANGES: Record<keyof LiveFx, [number, number]> = {
   swirl: [0, 1],
   ripple: [0, 1],
   kaleido: [0, 1],
-  pixelate: [0, 1],
   lens: [-1, 1],
   fold: [0, 1],
   feedback: [0, 0.93],
@@ -297,6 +298,7 @@ export const FX_RANGES: Record<keyof LiveFx, [number, number]> = {
   echoZoom: [-1, 1],
   echoSpin: [-1, 1],
   echoHue: [0, 1],
+  echoFlow: [0, 1],
 };
 
 /** `fx` made whole and within its ranges (what's kept in a browser, or given by the assistant, may not be). */
@@ -342,8 +344,8 @@ const loopValues = (v: LiveFx) => ({
   echoZoom: Math.round(echoZoom(v.echoZoom) * 100) / 100,
   echoRotation: Math.round(v.echoSpin * 189),
   echoHue: Math.round(v.echoHue * 430),
+  flowWarp: round3(v.echoFlow * 0.6),
 });
-const blockSize = (v: LiveFx) => round3(0.005 + v.pixelate * 0.03);
 const lensAmount = (v: LiveFx) => round3(v.lens * 0.8);
 
 /**
@@ -357,13 +359,13 @@ function eased(params: Record<string, number>, before: Record<string, number>, m
   return out;
 }
 
-/** The player's distortions and feedback as effects (eased as `move` says): a World Loop, a mosaic, a bulge. */
+/** The player's distortions and feedback as effects (eased as `move` says): a World Loop and a bulge. */
 function fxEffects(move: FxMove | null): Effect[] {
   if (!move) return [];
   const { from, to } = move;
   const out: Effect[] = [];
   const either = (test: (v: LiveFx) => boolean) => test(from) || test(to);
-  if (either((v) => !!(v.warp || v.swirl || v.ripple || v.kaleido || v.fold || v.feedback))) {
+  if (either((v) => !!(v.warp || v.swirl || v.ripple || v.kaleido || v.fold || v.feedback || v.echoFlow))) {
     const params = loopValues(to);
     const expressions = eased(params, loopValues(from), move);
     // Held still, warp and swirl move with the sound (as vaudio's do); easing, they go where they're told.
@@ -374,10 +376,6 @@ function fxEffects(move: FxMove | null): Effect[] {
       ...(to.swirl > 0 && !expressions.swirl && { swirl: level(0.5) }),
     };
     out.push({ ...fx("world-loop", { ...params, mode: "lighten" }, links), ...(Object.keys(expressions).length && { expressions }) });
-  }
-  if (either((v) => v.pixelate > 0)) {
-    const expressions = eased({ blockSize: blockSize(to) }, { blockSize: blockSize(from) }, move);
-    out.push({ ...fx("mosaic", { blockSize: blockSize(to) }), ...(Object.keys(expressions).length && { expressions }) });
   }
   if (either((v) => v.lens !== 0)) {
     const expressions = eased({ amount: lensAmount(to) }, { amount: lensAmount(from) }, move);

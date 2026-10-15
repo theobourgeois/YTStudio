@@ -1,19 +1,21 @@
 /**
  * The effects the player plays over the looks by itself (the "Effects" menu, docs/now-playing.md): the frame
- * (repeat, mirror, turn, zoom) and vaudio's distortions and feedback, chosen by the music, landing on its beats.
+ * (a mirror) and vaudio's distortions and feedback, chosen by the music, landing on its beats.
  *
- * - **Following the music**: calm, something gentle every 4 bars, eased over a bar (a mirror fold, a slow warp, soft
- *   trails); a groove, mirrored copies, swirls, ripples, a kaleidoscope every 4 bars, mutated after 2; intense, more
- *   copies, a feedback tunnel, pixels, a lens, a quick turn every 2 bars, mutated on the bar between. A build-up tightens bar by bar (more copies, more kaleidoscope,
- *   zooming in); a drop is clean on its cut (the look's impact), then goes hard a bar on; a breakdown washes back to
- *   gentle.
+ * - **Following the music**: every set has a feedback move (Théo's favourites: soft trails, smoke, a tunnel, a sinking
+ *   echo, a colour echo), with others: calm, something gentle every 4 bars, eased over a bar (a mirror, a mirror fold,
+ *   a slow warp); a groove every 4 bars, mutated after 2 (a swirl, ripples, a kaleidoscope); intense every 2 bars,
+ *   mutated on the bar between (a kaleidoscope, a swirl, a lens, a deep tunnel). A build-up tightens bar by bar (more
+ *   kaleidoscope and swirl, the echo drawn in); a drop is clean on its cut (the look's impact), then goes hard a bar
+ *   on; a breakdown washes back to gentle. It never turns the picture, repeats it or zooms out (Théo: a mirror only
+ *   mirrors).
  * - **Every bar**: a new set on each downbeat. **Every beat**: a new set on each downbeat, and on each beat between a
- *   mutation of it (a mirror on or off, a copy more or fewer, a zoom, the turn reversed).
+ *   mutation of it (a mirror on or off, the echo sinking or rising, its colour on, its trails longer or shorter, a
+ *   kaleidoscope in or out).
  * - **By hand**: none (the panel, the keys).
  *
  * A chaos look has a world of its own, so it's played frames and light distortions only (no more feedback on its
- * own); a look that's a thing in the middle of black (a spectrum, chaos) isn't zoomed out or copied past 2×2 (it'd be
- * specks in the dark). Before the music's downbeats are known, bars are counted in beats. Every change says why. Pure
+ * own). Before the music's downbeats are known, bars are counted in beats. Every change says why. Pure
  * (its random given), and tested.
  */
 import { type Frame, type LiveFx, type LiveLook, NO_FX, PLAIN_FRAME } from "@shared/live-looks";
@@ -77,8 +79,6 @@ export const MOST_FEEDBACK = 0.8;
 const EVERY_BARS: Record<Tier, number> = { calm: 4, groove: 4, intense: 2 };
 const MUTATE_BARS: Record<Tier, number> = { calm: Infinity, groove: 2, intense: 1 };
 
-/** A look that's a thing in the middle of black: zoomed out or copied much, it's specks in the dark. */
-const sparse = (look: LiveLook | null) => look?.kind === "spectrum" || look?.kind === "chaos";
 /** A change is decided this early (seconds), so it's ready when its beat lands. */
 const LEAD = 0.08;
 
@@ -95,48 +95,55 @@ interface Move {
 
 const MOVES: Record<Tier, Move[]> = {
   calm: [
+    { name: "mirrored", make: () => ({ frame: { mirror: true } }) },
     { name: "a mirror fold", make: (r) => ({ fx: { fold: rand(r, 0.3, 0.55) } }) },
     { name: "a slow warp", make: (r) => ({ fx: { warp: rand(r, 0.15, 0.3) } }) },
-    { name: "a slow turn", make: (r) => ({ frame: { spin: 6 * side(r) } }) },
-    { name: "soft trails", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.4, 0.6), trails: 0.75, echoZoom: rand(r, 0.05, 0.15) } }) },
     { name: "a soft kaleidoscope", make: (r) => ({ fx: { kaleido: rand(r, 0.2, 0.35) } }) },
-    { name: "mirrored", make: () => ({ frame: { mirror: true } }) },
+    { name: "soft trails", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.45, 0.6), trails: 0.8, echoZoom: rand(r, 0.05, 0.12), echoFlow: rand(r, 0.2, 0.35) } }) },
+    { name: "smoke", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.5, 0.65), trails: 0.85, echoFlow: rand(r, 0.4, 0.6), echoZoom: rand(r, 0.02, 0.08) } }) },
   ],
   groove: [
-    { name: "mirrored copies", make: () => ({ frame: { repeat: 2, mirror: true } }) },
+    { name: "mirrored", make: () => ({ frame: { mirror: true } }) },
     { name: "a swirl", make: (r) => ({ fx: { swirl: rand(r, 0.3, 0.5) } }) },
     { name: "ripples", make: (r) => ({ fx: { ripple: rand(r, 0.25, 0.45) } }) },
     { name: "a kaleidoscope", make: (r) => ({ fx: { kaleido: rand(r, 0.35, 0.55) } }) },
-    { name: "a tunnel", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.55, 0.7), echoZoom: rand(r, 0.15, 0.3), trails: 0.8 } }) },
     { name: "a warp", make: (r) => ({ fx: { warp: rand(r, 0.3, 0.5) } }) },
-    { name: "zoomed out, mirrored", make: () => ({ frame: { zoom: 0.8, mirror: true } }) },
-    { name: "a turning echo", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.5, 0.65), echoSpin: rand(r, 0.1, 0.2) * side(r) } }) },
+    { name: "a tunnel", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.55, 0.72), echoZoom: rand(r, 0.15, 0.3), trails: 0.8 } }) },
+    { name: "a sinking echo", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.55, 0.7), echoZoom: -rand(r, 0.15, 0.25), trails: 0.8 } }) },
+    { name: "smoke", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.55, 0.7), trails: 0.85, echoFlow: rand(r, 0.4, 0.7) } }) },
+    { name: "a colour echo", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.55, 0.7), trails: 0.8, echoHue: rand(r, 0.08, 0.2), echoZoom: rand(r, 0.05, 0.15) } }) },
   ],
   intense: [
-    { name: "copies", make: (r) => ({ frame: { repeat: r() < 0.5 ? 2 : 3, mirror: r() < 0.5 } }) },
-    { name: "a tunnel", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.65, MOST_FEEDBACK), echoZoom: rand(r, 0.25, 0.45), trails: 0.85 } }) },
+    { name: "mirrored", make: () => ({ frame: { mirror: true } }) },
     { name: "a kaleidoscope", make: (r) => ({ fx: { kaleido: rand(r, 0.5, 0.8) } }) },
     { name: "a swirl", make: (r) => ({ fx: { swirl: rand(r, 0.5, 0.8) } }) },
-    { name: "pixels", make: (r) => ({ fx: { pixelate: rand(r, 0.2, 0.4) } }) },
     { name: "a lens", make: (r) => ({ fx: { lens: rand(r, 0.3, 0.5) * side(r) } }) },
-    { name: "a quick turn", make: (r) => ({ frame: { spin: (r() < 0.5 ? 20 : 45) * side(r), zoom: 0.85, mirror: true } }) },
     { name: "a warp", make: (r) => ({ fx: { warp: rand(r, 0.45, 0.7) } }) },
-    { name: "a colour echo", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.6, 0.75), echoHue: rand(r, 0.1, 0.25) } }) },
+    { name: "a deep tunnel", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.68, MOST_FEEDBACK), echoZoom: rand(r, 0.3, 0.45), trails: 0.88 } }) },
+    { name: "a colour tunnel", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.65, 0.78), echoZoom: rand(r, 0.2, 0.35), echoHue: rand(r, 0.15, 0.3), trails: 0.85 } }) },
+    { name: "a sinking echo", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.65, 0.78), echoZoom: -rand(r, 0.25, 0.35), trails: 0.85 } }) },
+    { name: "smoke", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.65, 0.78), trails: 0.88, echoFlow: rand(r, 0.6, 0.9), echoZoom: rand(r, 0.05, 0.15) } }) },
   ],
 };
 
-/** How many moves a set has. */
-const MOVES_IN_SET: Record<Tier, [number, number]> = { calm: [1, 2], groove: [2, 3], intense: [2, 4] };
+/** How many moves a set has besides its feedback. */
+const MOVES_IN_SET: Record<Tier, [number, number]> = { calm: [0, 1], groove: [1, 2], intense: [1, 3] };
 
-/** A set of effects for a tier: a few of its moves (none of `last`'s first, none feeding back on a chaos look). */
+/**
+ * A set of effects for a tier: a feedback move (Théo's favourites; none on a chaos look, which has its own) and a few
+ * of the others, none of `last`'s first. Never turning, nor repeated, nor zoomed out: mirrored is a mirror.
+ */
 export function composeSet(tier: Tier, look: LiveLook | null, r: () => number, last: readonly string[] = []): { effects: Effects; names: string[] } {
-  const pool = MOVES[tier].filter((m) => !(m.feeds && look?.kind === "chaos"));
+  const chaos = look?.kind === "chaos";
+  const feeding = MOVES[tier].filter((m) => m.feeds && m.name !== last[0]);
+  const others = MOVES[tier].filter((m) => !m.feeds);
+  const picked: Move[] = chaos || !feeding.length ? [] : [feeding[Math.floor(r() * feeding.length)]];
   const [lo, hi] = MOVES_IN_SET[tier];
-  const count = lo + Math.floor(r() * (hi - lo + 1));
-  const fresh = pool.filter((m) => m.name !== last[0]);
-  const picked: Move[] = [];
-  const from = [...(fresh.length >= count ? fresh : pool)];
-  while (picked.length < count && from.length) picked.push(from.splice(Math.floor(r() * from.length), 1)[0]);
+  // A chaos look gets a move more of the others, in place of the feedback it doesn't get.
+  const count = lo + Math.floor(r() * (hi - lo + 1)) + (chaos ? 1 : 0);
+  const fresh = others.filter((m) => m.name !== last[0]);
+  const from = [...(fresh.length >= count ? fresh : others)];
+  while (picked.length < count + (chaos ? 0 : 1) && from.length) picked.push(from.splice(Math.floor(r() * from.length), 1)[0]);
   const effects: Effects = { frame: { ...PLAIN_FRAME }, fx: { ...NO_FX } };
   for (const move of picked) {
     const { frame, fx } = move.make(r);
@@ -144,38 +151,45 @@ export function composeSet(tier: Tier, look: LiveLook | null, r: () => number, l
     Object.assign(effects.fx, fx);
   }
   effects.fx.feedback = Math.min(effects.fx.feedback, MOST_FEEDBACK);
-  if (sparse(look)) {
-    effects.frame.zoom = Math.max(1, effects.frame.zoom);
-    effects.frame.repeat = Math.min(2, effects.frame.repeat) as Frame["repeat"];
-  }
   return { effects, names: picked.map((m) => m.name) };
 }
 
 /**
- * A set a little changed (a beat, or a bar between sets): a mirror on or off, a copy more or fewer, a zoom, the turn
- * reversed. A sparse look isn't zoomed out, nor copied past 2×2.
+ * A set a little changed (a beat, or a bar between sets): mirrored or not, the echo turned inside out (a tunnel
+ * sinking, or back), its colour moved on, its trails longer or shorter, a kaleidoscope in or out. Not the one just
+ * played (`avoid`: from the same set it'd look the same).
  */
-export function mutateSet(effects: Effects, r: () => number, look: LiveLook | null = null, avoid = ""): { effects: Effects; name: string } {
-  const f = effects.frame;
-  const most = sparse(look) ? 2 : 3;
-  const options: { name: string; frame: Partial<Frame> }[] = [
-    { name: f.mirror ? "the mirror off" : "mirrored", frame: { mirror: !f.mirror } },
-    { name: f.repeat >= most ? "a copy fewer" : "a copy more", frame: { repeat: (f.repeat >= most ? f.repeat - 1 : f.repeat + 1) as Frame["repeat"] } },
-    ...(sparse(look) ? [] : [{ name: f.zoom < 1 ? "zoomed back in" : "zoomed out", frame: { zoom: f.zoom < 1 ? 1 : 0.8 } }]),
-    ...(f.spin !== 0 ? [{ name: "the turn reversed", frame: { spin: -f.spin } }] : [{ name: "a turn", frame: { spin: 20 * side(r) } }]),
+export function mutateSet(effects: Effects, r: () => number, _look: LiveLook | null = null, avoid = ""): { effects: Effects; name: string } {
+  const { frame, fx } = effects;
+  const options: { name: string; frame?: Partial<Frame>; fx?: Partial<LiveFx> }[] = [
+    { name: frame.mirror ? "the mirror off" : "mirrored", frame: { mirror: !frame.mirror } },
+    { name: fx.kaleido > 0 ? "the kaleidoscope out" : "a kaleidoscope", fx: { kaleido: fx.kaleido > 0 ? 0 : 0.4 } },
+    ...(fx.feedback > 0
+      ? [
+          { name: fx.echoZoom >= 0 ? "the echo sinking" : "the echo rising", fx: { echoZoom: fx.echoZoom === 0 ? -0.2 : -fx.echoZoom } },
+          { name: "the echo's colour on", fx: { echoHue: (fx.echoHue + 0.12) % 1 } },
+          { name: fx.trails > 0.82 ? "shorter trails" : "longer trails", fx: { trails: fx.trails > 0.82 ? 0.72 : 0.9 } },
+        ]
+      : []),
   ];
-  // Not the one just played (from the same set it'd look the same: no change on the beat).
   const fresh = options.filter((o) => o.name !== avoid);
   const from = fresh.length ? fresh : options;
   const pick = from[Math.floor(r() * from.length)];
-  return { effects: { frame: { ...f, ...pick.frame }, fx: effects.fx }, name: pick.name };
+  return { effects: { frame: { ...frame, ...pick.frame }, fx: { ...fx, ...pick.fx } }, name: pick.name };
 }
 
-/** A build-up's next bar: tighter (a copy more, more kaleidoscope, zoomed in a little), feedback let go of. */
+/** A build-up's next bar: tighter (more kaleidoscope, more swirl, mirrored, the echo drawn in), as it goes. */
 function tighten(effects: Effects, step: number): Effects {
   return {
-    frame: { ...effects.frame, repeat: Math.min(3, 1 + Math.floor(step / 2)) as Frame["repeat"], mirror: true, spin: 0, zoom: Math.min(1.25, 1 + step * 0.05) },
-    fx: { ...effects.fx, kaleido: Math.min(0.8, 0.2 + step * 0.12), feedback: 0, swirl: Math.min(0.6, step * 0.1) },
+    frame: { ...PLAIN_FRAME, mirror: true },
+    fx: {
+      ...effects.fx,
+      kaleido: Math.min(0.8, 0.2 + step * 0.12),
+      swirl: Math.min(0.6, step * 0.1),
+      feedback: Math.min(0.7, 0.4 + step * 0.05),
+      echoZoom: -Math.min(0.35, 0.1 + step * 0.04),
+      trails: 0.8,
+    },
   };
 }
 
