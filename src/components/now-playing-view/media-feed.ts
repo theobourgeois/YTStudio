@@ -1,13 +1,15 @@
 /**
- * The user's clips and pictures fed into MilkDrop's feedback (docs/now-playing.md, "Your media"): after each frame of
- * Butterchurn's, a little of the clip is painted into the frame it just drew, which the next frame warps (zooms,
- * swirls, smears) like everything else in it. So the clip is never shown on top: it's paint the preset moves, a
- * little more each frame, the old carried off. How much and which of it (`MediaMix`: all of it, only its light, only
- * its edges) is the music's (`media-mix.ts`). Drawn with Butterchurn's own WebGL context, into its own buffer, leaving
- * its state as it was.
+ * The user's clips and pictures in MilkDrop's looks (docs/now-playing.md, "Your media"): after each frame of
+ * Butterchurn's, the clip is painted into the frame it just drew, which the next frame warps (zooms, swirls, smears)
+ * like everything else in it, and over what it showed. So the clip is plainly there, and what went in before streams
+ * off it as trails in the preset's own motion (a preset warps all of its buffer every frame: what's only in it is soon
+ * unrecognisable). A clip on a flat background has it taken out (`backdropOf`, measured on the clip every so often) and floats
+ * at its own shape; footage fills the frame. How much and which of it (`MediaMix`: all of it, only its light, only its
+ * edges) is the music's (`media-mix.ts`). Drawn with Butterchurn's own WebGL context, into its own buffer, leaving its
+ * state as it was.
  */
 import type { ButterchurnRenderer } from "butterchurn";
-import type { MediaMix } from "./media-mix";
+import { type Backdrop, type MediaMix, amountOver, backdropOf, floatSize, placementOf, shownAt } from "./media-mix";
 
 const VERTEX = `#version 300 es
 in vec2 corner;
@@ -18,37 +20,56 @@ void main() {
 }`;
 
 /**
- * The clip, filling the frame (`fit`: how much of its width and height it shows, kept to its shape, and `zoom`d), as
- * much of it as the mode lets through: all of it, its light (dark parts let the preset's black through), or its edges
- * (outlines that glow); its colours a little richer.
+ * The clip, filling the frame (`place` 0: `fit` is how much of its width and height it shows, kept to its shape) or
+ * floating in the middle at its own shape (1: `size` is its rectangle, of the frame; its edges soft unless its
+ * background's taken out), its background taken out if it's flat (`keyed`: near `bg` goes), and as much of the rest
+ * as the mode lets through: all of it, its light (dark parts let the preset's black through), or its edges (outlines
+ * that glow); its colours a little richer.
  */
 const FRAGMENT = `#version 300 es
 precision highp float;
 in vec2 uv;
 uniform sampler2D media;
+uniform int place;
 uniform vec2 fit;
+uniform vec2 size;
 uniform vec2 texel;
 uniform float amount;
 uniform int mode;
 uniform vec2 key;
+uniform int keyed;
+uniform vec3 bg;
 uniform float saturation;
 uniform float bright;
 out vec4 color;
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 vec3 at(vec2 p) { return texture(media, p).rgb; }
 void main() {
-  vec2 p = (uv - 0.5) * fit + 0.5;
+  vec2 p;
+  float inside = 1.0;
+  if (place == 0) p = (uv - 0.5) * fit + 0.5;
+  else {
+    p = (uv - 0.5) / size + 0.5;
+    float e = min(min(p.x, 1.0 - p.x), min(p.y, 1.0 - p.y));
+    inside = keyed == 1 ? smoothstep(0.0, 0.01, e) : smoothstep(0.0, 0.1, e);
+  }
+  if (inside <= 0.0) {
+    color = vec4(0.0);
+    return;
+  }
   vec3 c = at(p);
   float l = luma(c);
-  float keep = 1.0;
-  if (mode == 1) keep = smoothstep(key.x, key.y, l);
+  float keep = inside;
+  // Its flat background taken out (soft, for compression's noise about it).
+  if (keyed == 1) keep *= smoothstep(0.2, 0.38, distance(c, bg));
+  if (mode == 1) keep *= smoothstep(key.x, key.y, l);
   else if (mode == 2) {
     float tl = luma(at(p + texel * vec2(-1, 1))), t = luma(at(p + texel * vec2(0, 1))), tr = luma(at(p + texel * vec2(1, 1)));
     float ml = luma(at(p + texel * vec2(-1, 0))), mr = luma(at(p + texel * vec2(1, 0)));
     float bl = luma(at(p + texel * vec2(-1, -1))), b = luma(at(p + texel * vec2(0, -1))), br = luma(at(p + texel * vec2(1, -1)));
     float gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
     float gy = (tl + 2.0 * t + tr) - (bl + 2.0 * b + br);
-    keep = smoothstep(key.x, key.y, length(vec2(gx, gy)));
+    keep *= smoothstep(key.x, key.y, length(vec2(gx, gy)));
     // Its outlines as light, in its own colours.
     c = c / max(max(c.r, max(c.g, c.b)), 0.25);
   }
@@ -62,6 +83,10 @@ void main() {
 const BRIGHT = 1.2;
 /** Every this many frames fed, how light the picture is (`Brake`). */
 const MEASURE_EVERY = 12;
+/** Footage (no background to take out) shows this much as much on top as a clip floating does. */
+const FOOTAGE_ON_TOP = 0.55;
+/** Every this many frames fed, a clip's background looked at again (a picture's once). */
+const BACKDROP_EVERY = 90;
 
 /**
  * Less of the clip while the picture is turning white or pale (some presets brighten their feedback: what's painted in
@@ -76,7 +101,7 @@ export class Brake {
     this.small.height = 9;
   }
 
-  /** How much of the clip goes in (0.1..1). */
+  /** How much of the clip goes in (0.35..1: it never goes altogether). */
   get gain(): number {
     return this.value;
   }
@@ -96,8 +121,8 @@ export class Brake {
     }
     const mean = sum / (data.length / 4);
     const whiteShare = white / (data.length / 4);
-    // (Washed out, as much as blown out: pale pictures are what Théo bins.)
-    this.value = mean > 0.5 || whiteShare > 0.12 ? Math.max(0.1, this.value * 0.6) : Math.min(1, this.value * 1.1);
+    // (Washed out, as much as blown out: pale pictures are what Théo bins; but the clip stays plainly there.)
+    this.value = mean > 0.6 || whiteShare > 0.22 ? Math.max(0.35, this.value * 0.7) : Math.min(1, this.value * 1.1);
   }
 }
 
@@ -111,6 +136,8 @@ interface Fed {
   loaded: boolean;
   /** The video's time when its frame was last taken (a new one is taken when it moves on). */
   taken: number;
+  /** Its background (null: not looked at yet). */
+  backdrop: Backdrop | null;
 }
 
 export class MediaFeed {
@@ -121,6 +148,8 @@ export class MediaFeed {
   private fed: Fed | null = null;
   private failed = false;
   private readonly brake = new Brake();
+  /** A frame of the clip, small, to see its background by. */
+  private readonly small = document.createElement("canvas");
   /** Frames it has fed (for the tests). */
   frames = 0;
 
@@ -134,7 +163,7 @@ export class MediaFeed {
     }
     this.release();
     if (!media) return;
-    const fed: Fed = { id: media.id, el: media.kind === "video" ? document.createElement("video") : new Image(), width: 0, height: 0, loaded: false, taken: -1 };
+    const fed: Fed = { id: media.id, el: media.kind === "video" ? document.createElement("video") : new Image(), width: 0, height: 0, loaded: false, taken: -1, backdrop: null };
     if (fed.el instanceof HTMLVideoElement) {
       const video = fed.el;
       video.muted = true;
@@ -174,25 +203,34 @@ export class MediaFeed {
   }
 
   /**
-   * Paint `amount` of it into the frame Butterchurn just drew (its next frame warps it in), less while the picture
-   * (`canvas`) is turning white. Whether it did.
+   * The clip into the frame Butterchurn just drew (its next frame warps it in) and on top of what it showed, as `mix`
+   * says for `hit` into a kick over `seconds`; less of both while the picture (`canvas`) is turning white or pale.
+   * Whether it did.
    */
-  feed(renderer: ButterchurnRenderer, mix: MediaMix, amount: number, canvas?: HTMLCanvasElement): boolean {
+  feed(renderer: ButterchurnRenderer, mix: MediaMix, hit: number, seconds: number, canvas?: HTMLCanvasElement): boolean {
     if (canvas && this.frames % MEASURE_EVERY === 0) this.brake.measure(canvas);
-    amount *= this.brake.gain;
     const fed = this.fed;
-    if (!fed || this.failed || amount <= 0 || !fed.width || !fed.height) return false;
+    if (!fed || this.failed || !fed.width || !fed.height) return false;
     const gl = this.gl;
     if (!this.program && !this.build()) return false;
     if (!this.upload(fed)) return false;
+    if (!fed.backdrop || (fed.el instanceof HTMLVideoElement && this.frames % BACKDROP_EVERY === 0)) fed.backdrop = this.backdropOf(fed);
     const frameAspect = renderer.texsizeX / renderer.texsizeY;
     const mediaAspect = fed.width / fed.height;
+    const keyed = fed.backdrop?.flat ?? false;
+    const place = placementOf(mediaAspect, keyed, frameAspect);
+    // Punched in a little on each kick.
+    const punch = 1 + 0.06 * Math.max(0, Math.min(1, hit));
     // Filling the frame, kept to its shape: the wider of the two shows less of its width.
     const fit = mediaAspect > frameAspect ? [frameAspect / mediaAspect, 1] : [1, mediaAspect / frameAspect];
-    const zoom = Math.max(1, mix.zoom);
+    const zoom = Math.max(1, mix.zoom) * punch;
+    const size = floatSize(mediaAspect, frameAspect, mix.size).map((v) => v * punch);
+    // On a background taken out, its light is all of it (what's left is the subject). On top, footage shows only its
+    // light or its edges: the look shows through its darks (all of it on top would hide the look).
+    const into = keyed && mix.mode === "light" ? "whole" : mix.mode;
+    const onTop = keyed ? (mix.mode === "edges" ? "edges" : "whole") : mix.mode === "whole" ? "light" : mix.mode;
+    const gain = this.brake.gain;
     const blend = gl.getParameter(gl.BLEND) as boolean;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.targetFrameBuffer);
-    gl.viewport(0, 0, renderer.texsizeX, renderer.texsizeY);
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);
     gl.activeTexture(gl.TEXTURE0);
@@ -201,17 +239,31 @@ export class MediaFeed {
     const sampler = gl.getParameter(gl.SAMPLER_BINDING) as WebGLSampler | null;
     gl.bindSampler(0, null);
     gl.uniform1i(this.uniforms.media, 0);
+    gl.uniform1i(this.uniforms.place, place === "fill" ? 0 : 1);
     gl.uniform2f(this.uniforms.fit, fit[0] / zoom, fit[1] / zoom);
+    gl.uniform2f(this.uniforms.size, size[0], size[1]);
+    gl.uniform1i(this.uniforms.keyed, keyed ? 1 : 0);
+    const bg = fed.backdrop?.color ?? [0, 0, 0];
+    gl.uniform3f(this.uniforms.bg, bg[0], bg[1], bg[2]);
     gl.uniform2f(this.uniforms.texel, 1.5 / fed.width, 1.5 / fed.height);
-    gl.uniform1f(this.uniforms.amount, Math.min(1, amount));
-    gl.uniform1i(this.uniforms.mode, mix.mode === "light" ? 1 : mix.mode === "edges" ? 2 : 0);
-    gl.uniform2f(this.uniforms.key, mix.key[0], mix.key[1]);
     gl.uniform1f(this.uniforms.saturation, mix.saturation);
     gl.uniform1f(this.uniforms.bright, BRIGHT);
     gl.enable(gl.BLEND);
     gl.blendEquation(gl.FUNC_ADD);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    const pass = (target: WebGLFramebuffer | null, width: number, height: number, mode: string, amount: number, key: readonly number[]) => {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target);
+      gl.viewport(0, 0, width, height);
+      gl.uniform2f(this.uniforms.key, key[0], key[1]);
+      gl.uniform1f(this.uniforms.amount, Math.min(1, amount * gain));
+      gl.uniform1i(this.uniforms.mode, mode === "light" ? 1 : mode === "edges" ? 2 : 0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    };
+    // Into the feedback (the next frame warps it in), then on top of what was shown.
+    pass(renderer.targetFrameBuffer, renderer.texsizeX, renderer.texsizeY, into, amountOver(mix, hit, seconds), mix.key);
+    // Footage on top: less of it, and only its brighter light (all of a frame's mids on top wash the look pale).
+    const footage = !keyed && onTop === "light";
+    pass(null, gl.drawingBufferWidth, gl.drawingBufferHeight, onTop, shownAt(mix, hit) * (keyed ? 1 : FOOTAGE_ON_TOP), footage ? [0.4, 0.85] : mix.key);
     // Butterchurn's state as it left it (it sets the rest itself each frame).
     gl.bindVertexArray(null);
     gl.bindTexture(gl.TEXTURE_2D, null);
@@ -226,6 +278,27 @@ export class MediaFeed {
   /** How much it's holding back for the picture's sake (1: none). */
   get gain(): number {
     return this.brake.gain;
+  }
+
+  /** How the clip fed is placed: its background taken out or not (null: nothing fed, or not looked at yet). */
+  get keyed(): boolean | null {
+    return this.fed?.backdrop ? this.fed.backdrop.flat : null;
+  }
+
+  /** The clip's background, from a small copy of its frame now. */
+  private backdropOf(fed: Fed): Backdrop | null {
+    const width = 32;
+    const height = Math.max(8, Math.round(width / (fed.width / fed.height)));
+    this.small.width = width;
+    this.small.height = height;
+    const ctx = this.small.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    try {
+      ctx.drawImage(fed.el, 0, 0, width, height);
+      return backdropOf(ctx.getImageData(0, 0, width, height).data, width, height, fed.backdrop);
+    } catch {
+      return null;
+    }
   }
 
   /** Its frame on the GPU: a picture once, a clip whenever it has moved on. */
@@ -268,7 +341,7 @@ export class MediaFeed {
       gl.linkProgram(program);
       if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? "program");
       this.program = program;
-      for (const name of ["media", "fit", "texel", "amount", "mode", "key", "saturation", "bright"]) this.uniforms[name] = gl.getUniformLocation(program, name);
+      for (const name of ["media", "place", "fit", "size", "texel", "amount", "mode", "key", "keyed", "bg", "saturation", "bright"]) this.uniforms[name] = gl.getUniformLocation(program, name);
       // Its own vertex array: Butterchurn's attributes are left alone.
       this.vao = gl.createVertexArray();
       gl.bindVertexArray(this.vao);

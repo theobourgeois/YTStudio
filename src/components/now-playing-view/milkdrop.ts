@@ -16,7 +16,7 @@ import type { LiveSignals } from "@shared/signals/live";
 import { errorMessage } from "@shared/errors";
 import { log } from "@/lib/log";
 import { MediaFeed } from "./media-feed";
-import { type MediaMix, amountOver } from "./media-mix";
+import type { MediaMix } from "./media-mix";
 
 const logger = log("now-playing");
 
@@ -185,10 +185,11 @@ export class MilkDrop {
     this.failedDrawing = false;
     // The user's clip painted into what it just drew: the next frame warps it in.
     const feeding = this.feeding;
-    if (feeding && this.feed?.feed(visualizer.renderer, feeding.mix, amountOver(feeding.mix, feeding.hit, seconds), this.canvas)) {
+    if (feeding && this.feed?.feed(visualizer.renderer, feeding.mix, feeding.hit, seconds, this.canvas)) {
       if (this.feed.frames % 30 === 1) {
         this.canvas.dataset.fed = String(this.feed.frames);
         this.canvas.dataset.mediaGain = this.feed.gain.toFixed(2);
+        this.canvas.dataset.mediaKeyed = String(this.feed.keyed);
       }
     }
     const fed = this.feed?.showing ?? "";
