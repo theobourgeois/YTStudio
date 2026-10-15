@@ -164,17 +164,22 @@ is, for looks to follow (steps 3 and 5):
   "less abrupt, just flow into each other"): only looks that flow (`LookSuits.flows`: no bars or waveforms bouncing,
   no rushing worlds), its intensity held to 0.65 for them, every change a long blend with a feedback morph (3–6 s on
   the bar; its drop a shorter one, not a cut), the effects calm throughout. And it's in **slow motion** (Théo: "even
-  slow songs go through a bunch of fast effects"): its looks are made at half speed (`ctx.pace`, `inSlowMotion`:
-  everything a second, as its unit says, a zoom a second eased towards none), its hits swell (rising over 0.12 s at
-  least, falling twice as long), and its energy doesn't shake, strobe, split or flash. The clock isn't slowed (the
-  picture would leave the sound): the motion is, as a look is made, since a shader's time × speed jumps if its speed
-  changes as it plays. Slow motion starts at a slow song and stops under 0.4 (no flicker on the line), the look shown
-  then melting into itself made again (`slowMotionOn`).
-- **Slow motion by choice** (Théo: "if the normal vibes are too much"): Speed along the bottom (Follow the music or
-  Slow motion, `Pace` in `prefs.ts`), ⇧S, or the assistant's `control_now_playing` `pace`. Set, every song is taken as
-  a slow one (`slowedDown`: `slow` 1, and a hype song as the kind it most is after hype, since a slow song is never
-  hype): everything above, the flowing looks, the blends, the calm effects, half speed. Staying on one look (looks
-  changing off), it's made again in slow motion even if it doesn't flow.
+  slow songs go through a bunch of fast effects"), at half speed (`SLOW_MOTION`): a look's clip plays its nested
+  sequence that much as fast (`showClip`'s speed), so everything in it slows alike, shaders, scenes and simulations,
+  while it hears the sound when it's heard (`nestedHearing` maps its time back: the picture doesn't leave the sound).
+  Its hits swell (rising over 0.12 s at least), and its energy doesn't shake, strobe, split or flash. What's over every
+  look, not in a clip (the perform layer: the effects engine's or the player's distortions and feedback, the frame's
+  turn), moves by its units at that speed (`inSlowMotion`, `FrameMove.pace`). MilkDrop is drawn that much less often,
+  dissolving from one of its frames to the next (a preset's zoom, turn and warp are by the frame: a slower clock alone
+  slowed nothing, Théo found). Slow motion starts at a slow song and stops under 0.4 (no flicker on the line); the
+  look shown is made again at the new speed once it's settled (0.35 s), melting into itself (`slowMotionOn`).
+  Measured on films of looks at full and half speed: what changes from frame to frame falls to 53–74% (85% on a
+  spectrum, which is the sound; the hits on the beat stay in time).
+- **Slow motion by choice** (Théo: "if the normal vibes are too much"): the Speed slider along the bottom (20–100%,
+  all the way right following the music; `PACE` in `prefs.ts`), ⇧S (half speed, or back), or the assistant's
+  `control_now_playing` `pace`. Under 100%, every song is taken as a slow one (`slowedDown`: `slow` 1, and a hype song
+  as the kind it most is after hype, since a slow song is never hype): everything above, the flowing looks, the
+  blends, the calm effects, at that speed. The look shown is made again at it at once, even one that doesn't flow.
 
 I shows it all in the visualizer (`mood-readout.tsx`), with the measurements under it; the assistant's `now_playing`
 says it too. `mood.test.ts` checks it on made-up music (a pad, a groove, a club track, a half-time heavy track, a loud
@@ -332,7 +337,8 @@ the frame and the distortions and feedback by itself, by the music, landing on i
   bar between (a kaleidoscope, a swirl, a lens, a warp). A build-up tightens bar by bar (more kaleidoscope and swirl,
   the echo drawn in); a drop is clean on its cut (the new look's impact), then goes hard a bar on; a breakdown washes
   back to gentle over a bar. It never turns the picture, repeats it or zooms out: a mirror only mirrors (Théo found
-  the turning too much).
+  the turning too much). Kaleidoscopes are gentle (0.45 at most) and never over a chaos or MilkDrop look (Théo found
+  them too much: with MilkDrop most of what's shown, one was on half the time; now about 5%).
 - **Every beat**: a new set on each downbeat, a mutation of it on each beat between (mirrored or not, the echo sinking
   or rising, its colour on, its trails longer or shorter, a kaleidoscope in or out; never the same twice running).
   With looks changing every 4 bars it's Théo's "every few beats mutated a bit, the next bar a new effect". **Every
@@ -369,15 +375,17 @@ the numbers, 1,067 looked at on `--resheet` sheets of those left). The menu list
   (`LiveDirector.shownAt`). One look giving way to another, both MilkDrop's, is MilkDrop's own blend over the switch
   (both sides show the one canvas); from any other look, the preset's there at once.
 - **Sound**: it hears what the rest does, at the picture's time (`LiveSignals.soundAt`: the last two seconds of the
-  sound kept), so it's as in sync; in slow motion its time runs at half speed.
+  sound kept), so it's as in sync; in slow motion it's drawn less often, dissolving between its frames (see Slow).
 - **Cost**: 1.3 ms a frame on average (3.7 at most) on a Mac's GPU, on top of the engine's. Butterchurn and the presets
   load a moment after the visualizer opens: exactly those picked, one module of about 1.3 MB (less than the four packs
   were) made from their files by `vite.config.ts` (`virtual:milkdrop-presets`), so adding one is a line in
   `milkdrop-presets.ts`.
-- **Picking**: the chooser picks them as any look, each kind as likely as another however many looks it has. In the
-  looks menu they're a kind as any other (Shuffle MilkDrop, then each by name); the arrows don't step through them, and
-  ↑ ↓ landing on MilkDrop shuffles. They keep their own colours (not the cover's), and the effects engine plays only
-  frames and light distortions over them, as over chaos (they feed back into themselves).
+- **Picking**: the chooser picks them as any look, each look as likely as another whatever its kind, so mostly
+  MilkDrop's (Théo's call: about 80% of the time; with each kind as likely, as it was, any one of ours showed 20 times
+  as often as any one preset). In the looks menu they're a kind as any other (Shuffle MilkDrop, then each by name); the
+  arrows don't step through them, and ↑ ↓ landing on MilkDrop shuffles. They keep their own colours (not the cover's),
+  and the effects engine plays only frames and light distortions over them, as over chaos (they feed back into
+  themselves).
 - **Licences**: Butterchurn and `butterchurn-presets` are MIT; the presets are MilkDrop's community's, shipped in that
   package.
 

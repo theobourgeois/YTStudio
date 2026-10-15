@@ -33,6 +33,7 @@ import {
   pick,
   punch,
   solid,
+  swelling,
   tint,
   tweakBuiltIn,
   withIds,
@@ -40,6 +41,7 @@ import {
 import type { AlbumPalette } from "./palette.ts";
 import type { SongCharacter } from "./signals/mood.ts";
 import { ONSET_SCALARS, type OnsetName, SIGNALS_VERSION, SIGNAL_RATE, SCALARS, bandEdges, type Hit, type SignalData } from "./signals/format.ts";
+import { clipSpeed } from "./timeline.ts";
 import type { AspectRatio, Clip, Effect, MediaAsset, ParamLink, ParamValues, Project, Sequence, SignalRef, Transition } from "./types.ts";
 
 export { COVER_ASSET, type LookContext, type LookLayer, SLOW_MOTION, seededRandom } from "./live-kit.ts";
@@ -113,15 +115,15 @@ export function liveProject(shows: readonly Showing[], perform: Clip, aspectRati
 
 /**
  * A look as a nested sequence: its layers on tracks of their own, top first, each as long as a session. In slow motion
- * (`ctx.pace`, a slow song's), it moves that much as fast, its hits swell, and its energy doesn't shake, strobe, split
- * or flash: it only brightens, and punches in half as far.
+ * (`ctx.pace`: a slow song's, or the Speed slider's) its clip plays it that much as fast (`showClip`), its hits swell,
+ * and its energy doesn't shake, strobe, split or flash: it only brightens, and punches in half as far.
  */
 export function lookSequence(look: LiveLook, ctx: LookContext, id: string): Sequence {
   const pace = ctx.pace ?? 1;
   const energy = { ...ENERGY[look.kind], ...look.energy };
   const calm = pace < 1 ? { ...energy, punch: energy.punch / 2, shake: 0, strobe: 0, split: 0, invert: 0 } : energy;
   // The look's own layers under its energy (how it goes off when the music does).
-  const layers = [energyLayer(calm), ...look.layers(ctx)].map((layer) => (pace < 1 ? { ...layer, effects: inSlowMotion(layer.effects, pace) } : layer));
+  const layers = [energyLayer(calm), ...look.layers(ctx)].map((layer) => (pace < 1 ? { ...layer, effects: swelling(layer.effects, pace) } : layer));
   const tracks = layers.map((_, i) => ({ id: `${id}:t${i}`, kind: "video" as const, name: `Layer ${layers.length - i}`, muted: false }));
   const clips: Clip[] = layers.map((layer, i) => ({
     id: `${id}:c${i}`,
@@ -136,8 +138,12 @@ export function lookSequence(look: LiveLook, ctx: LookContext, id: string): Sequ
   return { id, name: look.name, settings: { aspectRatio: "16:9", fps: LIVE_FPS }, tracks, clips, duration: FOREVER };
 }
 
-/** The clip showing `sequence` from `start`, coming in through `transition` (none: a cut). */
-export function showClip(sequence: Sequence, start: number, transition: Transition | null): Clip {
+/**
+ * The clip showing `sequence` from `start`, coming in through `transition` (none: a cut), at `speed` (slow motion: its
+ * clock slowed, so everything in it is, shaders and simulations alike, while it hears the sound when it's heard:
+ * `nestedHearing` maps its time back).
+ */
+export function showClip(sequence: Sequence, start: number, transition: Transition | null, speed = 1): Clip {
   // A transition centred on the cut shows the look half its length before it starts: room for that.
   const lead = transition ? transition.duration : 0;
   return {
@@ -148,13 +154,14 @@ export function showClip(sequence: Sequence, start: number, transition: Transiti
     in: lead,
     out: FOREVER,
     effects: defaultEffects(),
+    ...(speed !== 1 && { speed }),
     ...(transition && { transitionIn: { ...transition, alignment: "center" as const } }),
   };
 }
 
 /** A shown look's clip ending at `time` (where the next one takes over). */
 export function endShow(clip: Clip, time: number): Clip {
-  return { ...clip, out: clip.in + Math.max(0.1, time - clip.start) };
+  return { ...clip, out: clip.in + Math.max(0.1, time - clip.start) * clipSpeed(clip) };
 }
 
 /** The transitions looks switch through: quick, and made for music videos. */
@@ -231,6 +238,8 @@ export interface FrameMove {
   angle: number;
   /** Turned back upright (to the nearest whole turn) as it goes. */
   upright?: boolean;
+  /** How fast it turns: 1 as asked, less in slow motion. */
+  pace?: number;
 }
 
 const sameFrame = (a: Frame, b: Frame) => a.repeat === b.repeat && a.mirror === b.mirror && a.spin === b.spin && a.zoom === b.zoom;
@@ -239,7 +248,7 @@ export const isPlain = (f: Frame) => sameFrame(f, PLAIN_FRAME);
 /** How far a move has turned the picture by `time` (degrees), so the next one carries on from there. */
 export function frameAngle(move: FrameMove | null, time: number): number {
   if (!move) return 0;
-  if (move.to.spin !== 0) return move.angle + Math.max(0, time - move.at) * move.to.spin;
+  if (move.to.spin !== 0) return move.angle + Math.max(0, time - move.at) * move.to.spin * (move.pace ?? 1);
   if (!move.upright) return move.angle;
   const k = Math.min(1, Math.max(0, (time - move.at) / Math.max(1e-3, move.seconds)));
   const target = Math.round(move.angle / 360) * 360;
@@ -254,7 +263,7 @@ function frameEffects(move: FrameMove): Effect[] {
   const angle = Math.round(move.angle * 10) / 10;
   const rotation =
     to.spin !== 0
-      ? `${angle} + Math.max(0, time - ${at}) * ${to.spin}`
+      ? `${angle} + Math.max(0, time - ${at}) * ${Math.round(to.spin * (move.pace ?? 1) * 1000) / 1000}`
       : move.upright
         ? `ease(time, ${at}, ${end}, ${angle}, ${Math.round(move.angle / 360) * 360})`
         : `${angle}`;
@@ -368,15 +377,24 @@ function eased(params: Record<string, number>, before: Record<string, number>, m
   return out;
 }
 
-/** The player's distortions and feedback as effects (eased as `move` says): a World Loop and a bulge. */
-function fxEffects(move: FxMove | null): Effect[] {
+/** The World Loop's values for `v`, in slow motion at `pace` (`inSlowMotion`: what moves by the second, slower). */
+function pacedLoop(v: LiveFx, pace: number): Record<string, number> {
+  const values = loopValues(v);
+  if (pace >= 1) return values;
+  const [slowed] = inSlowMotion([fx("world-loop", values)], pace);
+  const keys = [...Object.keys(values), ...("speed" in slowed.params ? ["speed"] : [])];
+  return Object.fromEntries(keys.map((k) => [k, Math.round((slowed.params[k] as number) * 1000) / 1000]));
+}
+
+/** The player's distortions and feedback as effects (eased as `move` says), at `pace`: a World Loop and a bulge. */
+function fxEffects(move: FxMove | null, pace: number): Effect[] {
   if (!move) return [];
   const { from, to } = move;
   const out: Effect[] = [];
   const either = (test: (v: LiveFx) => boolean) => test(from) || test(to);
   if (either((v) => !!(v.warp || v.swirl || v.ripple || v.kaleido || v.fold || v.feedback || v.echoFlow))) {
-    const params = loopValues(to);
-    const expressions = eased(params, loopValues(from), move);
+    const params = pacedLoop(to, pace);
+    const expressions = eased(params, pacedLoop(from, pace), move);
     // Held still, warp and swirl move with the sound (as vaudio's do); easing, they go where they're told.
     const follows = { ...DEFAULT_RESPONSE, release: 0.3 };
     const level = (amount: number): ParamLink => ({ signal: { name: "level" }, mode: "multiply", amount, response: follows });
@@ -407,13 +425,15 @@ function morphEffect(at: number, seconds: number): Effect {
 
 /**
  * The perform layer (an adjustment over every look): the pads' punches, the colours turned by `hue` degrees, the
- * player's distortions and feedback (`play`), the frame (`move`), and a feedback morph around a calm switch (`morph`).
+ * player's distortions and feedback (`play`), the frame (`move`), and a feedback morph around a calm switch (`morph`),
+ * what moves of them by the second at `pace` (slow motion: the looks are slowed by their clips, this isn't in one).
  */
 export function performLayer(
   hue: number,
   move: FrameMove | null = null,
   morph: { at: number; seconds: number } | null = null,
   play: FxMove | null = null,
+  pace = 1,
 ): Clip {
   const hit = (pad: Pad, mode: ParamLink["mode"], amount: number, decay: number): ParamLink => ({
     signal: padRef(pad),
@@ -427,8 +447,8 @@ export function performLayer(
     ...tweakBuiltIn(defaultEffects(), "motion", {}, { scale: hit("zoom", "multiply", 0.22, 0.32), rotation: hit("twist", "add", 9, 0.45) }).map(
       (e): [Effect, null] => [e, null],
     ),
-    ...(morph ? [[morphEffect(morph.at, morph.seconds), "morph-loop"] as [Effect, string]] : []),
-    ...fxEffects(play).map((e): [Effect, string | null] => [e, e.type === "world-loop" ? "fx-loop" : null]),
+    ...(morph ? [[inSlowMotion([morphEffect(morph.at, morph.seconds)], pace)[0], "morph-loop"] as [Effect, string]] : []),
+    ...fxEffects(play, pace).map((e): [Effect, string | null] => [e, e.type === "world-loop" ? "fx-loop" : null]),
     ...(move ? frameEffects(move) : []).map((e): [Effect, null] => [e, null]),
     ...[
       fx("twirl", { angle: 0, reach: 0.6 }, { angle: hit("twist", "add", 140, 0.5) }),

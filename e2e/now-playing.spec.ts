@@ -294,16 +294,18 @@ test("Now Playing's MilkDrop looks: Butterchurn's presets drawn live, as any loo
   await expect(menu.getByRole("menu")).toHaveCount(0);
   await expect(view).toHaveAttribute("data-showing", named!);
 
-  // Slow motion by choice (Speed, or ⇧S): kept, and MilkDrop goes on drawing in it.
+  // Slow motion by choice (the Speed slider, or ⇧S): kept, and MilkDrop drawn at that speed, going on.
   const pace = () => page.evaluate(() => localStorage.getItem("editor-visualizer-pace"));
   await page.mouse.move(420, 320);
-  await view.getByLabel("Speed").selectOption("slow");
-  await expect.poll(pace).toBe("slow");
+  await view.getByLabel("Speed").fill("0.5");
+  await expect.poll(pace).toBe("0.5");
+  await expect(milkdrop).toHaveAttribute("data-pace", "0.5");
   const frames = Number(await milkdrop.getAttribute("data-frames"));
   await expect.poll(async () => Number(await milkdrop.getAttribute("data-frames"))).toBeGreaterThan(frames);
   await page.keyboard.press("Shift+KeyS");
-  await expect.poll(pace).toBe("music");
-  await expect(view.getByLabel("Speed")).toHaveValue("music");
+  await expect.poll(pace).toBe("1");
+  await expect(view.getByLabel("Speed")).toHaveValue("1");
+  await expect(milkdrop).toHaveAttribute("data-pace", "1");
   await page.keyboard.press("Escape");
   await expect(view).toHaveCount(0);
 });

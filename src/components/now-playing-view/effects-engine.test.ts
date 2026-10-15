@@ -67,6 +67,21 @@ describe("composeSet", () => {
     }
   });
 
+  it("plays no kaleidoscope over a look of its own world (chaos, MilkDrop), and a gentle one over the rest", () => {
+    const random = seededRandom("kaleido");
+    const own = [liveLook("chaos-tunnel")!, liveLook("md-neon-coils")!];
+    for (let i = 0; i < 300; i++) {
+      for (const tier of ["calm", "groove", "intense"] as const) {
+        for (const look of own) expect(composeSet(tier, look, random).effects.fx.kaleido).toBe(0);
+        expect(composeSet(tier, liveLook("cyberspace")!, random).effects.fx.kaleido).toBeLessThanOrEqual(0.45);
+      }
+      expect(mutateSet(composeSet("intense", own[1], random).effects, random, own[1]).effects.fx.kaleido).toBe(0);
+    }
+    // Through a build-up too.
+    const building = run("music", (t) => ({ mood: mood(0.6, t < 1 ? "steady" : "build") }), 20, "md-neon-coils");
+    expect(building.every((c) => c.effects.fx.kaleido === 0)).toBe(true);
+  });
+
   it("mutates a set a little: one thing, never the one just played", () => {
     const r = seededRandom("mutate");
     const set = composeSet("groove", liveLook("nebula")!, r).effects;
