@@ -91,6 +91,9 @@ const PLATFORM = [
   // The pill in the top bar, the tab's side (listening to the computer's sound), where the visualizer opens.
   "src/stores/now-playing.ts",
   "src/lib/live-audio.ts",
+  // Hearing what's playing's vibe (CLAP), for Now Playing.
+  "src/lib/vibe.ts",
+  "src/lib/vibe-worker.ts",
   "src/components/now-playing/",
   "server/now-playing.ts",
   "server/routes/now-playing.ts",

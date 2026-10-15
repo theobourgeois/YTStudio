@@ -59,7 +59,7 @@ const debugPort = await new Promise<number>((resolve) => {
   });
 });
 // Now Playing's stand-in player: made-up songs, whose sound is made up too (nothing is heard, Spotify isn't asked).
-const env: NodeJS.ProcessEnv = { ...process.env, EDITOR_DATA_DIR: path.join(tmp, "data"), EDITOR_USER_DATA_DIR: path.join(tmp, "profile"), EDITOR_NOW_PLAYING: "stand-in" };
+const env: NodeJS.ProcessEnv = { ...process.env, EDITOR_DATA_DIR: path.join(tmp, "data"), EDITOR_USER_DATA_DIR: path.join(tmp, "profile"), EDITOR_NOW_PLAYING: "stand-in", EDITOR_VIBE_MODEL: "stand-in" };
 // Terminals inside Electron apps pass this on, and it would make the app a plain Node.js.
 delete env.ELECTRON_RUN_AS_NODE;
 const child = spawn(executablePath, [`--remote-debugging-port=${debugPort}`], { env, stdio: ["ignore", "inherit", "inherit"] });

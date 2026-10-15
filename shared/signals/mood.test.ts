@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LiveSignals } from "./live.ts";
 import { SLOW, isSlow, slowness } from "./mood.ts";
+import type { Vibe } from "./vibe.ts";
 
 const RATE = 48_000;
 
@@ -172,6 +173,31 @@ describe("LiveMood", () => {
     expect(slow.character).not.toBe("hype");
     expect(slow.scores.hype).toBeLessThan(slow.scores.chill);
     expect(listen(song(club(40, 128, 0.55))).mood.slow).toBeLessThan(0.1);
+  });
+
+  it("takes its kind mostly from what CLAP hears, once it's heard ten seconds of the song", () => {
+    const calm: Vibe = { axes: { energy: -0.8, mood: -0.3, force: -0.7, pace: -0.6, space: 0.4, dance: -0.2 }, genres: [{ name: "ambient", likeness: 0.5 }, { name: "lo-fi", likeness: 0.45 }, { name: "folk", likeness: 0.4 }] };
+    const samples = song(club(40, 128, 0.55));
+    const live = new LiveSignals(RATE);
+    live.newSong();
+    let next = 5;
+    let early: unknown = undefined;
+    for (let i = 0; i < samples.length; i += 2048) {
+      live.push(samples.subarray(i, i + 2048));
+      // CLAP's reading every five seconds, as the tab hears it.
+      if (live.seconds >= next) {
+        live.hearVibe(calm, live.seconds);
+        if (next === 5) early = live.mood.vibe;
+        next += 5;
+      }
+    }
+    // The first reading (its ten seconds mostly before the song) didn't count.
+    expect(early).toBeNull();
+    expect(live.mood.vibe?.genres[0].name).toBe("ambient");
+    // A loud, busy club track the rules call hype: CLAP heard it calm, and it says most.
+    expect(live.mood.character).toBe("chill");
+    // And it's less intense than its loudness says (the same track without the vibe).
+    expect(live.mood.intensity).toBeLessThan(listen(samples).mood.intensity - 0.1);
   });
 
   it("follows a song's shape: a build-up, the drop on its downbeat, a breakdown", () => {

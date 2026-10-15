@@ -43,6 +43,7 @@ pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + c
 pnpm tsx scripts/preset-sheet.ts [type|tag ...] [--out f.png]       # render + check presets
 pnpm tsx scripts/now-playing-sheet.ts [look|kind ...] [--song f.mp3] [--moments] [--rolls 24] [--record 45]  # Now Playing's looks in the real app
 pnpm tsx scripts/milkdrop-sheet.ts --songs a.mp3,b.mp3 [--only "name|name"]   # every MilkDrop preset measured and laid out, for picking
+pnpm tsx scripts/clap-vibe.ts --songs a.mp3,b.mp3,...   # Now Playing's vibe vocabulary (CLAP's text side) into shared/signals/vibe.json
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
 pnpm tsx scripts/perf.ts --scrub <Project.yt> [--render]        # scrub and play a copy of a real project, GPU and all
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme

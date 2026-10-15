@@ -56,6 +56,7 @@ export default defineConfig({
         EDITOR_ONLINE_ASSETS: "stand-in",
         // And for Now Playing: made-up songs, never this computer's Spotify.
         EDITOR_NOW_PLAYING: "stand-in",
+        EDITOR_VIBE_MODEL: "stand-in",
       },
       url: `http://127.0.0.1:${SERVER_PORT}/api/health`,
       reuseExistingServer: false,

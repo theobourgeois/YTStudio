@@ -16,6 +16,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | Listening to the computer's sound | `src/lib/live-audio.ts`, the grant in `electron/main.ts` (`answerListening`) | platform |
 | Live signals (the analysis as it's heard), the live beat | `shared/signals/live.ts`, `live-beat.ts` | platform |
 | A cover's colours by role | `shared/palette.ts` | platform |
+| The vibe (CLAP): its vocabulary, features, model; hearing it in a worker | `shared/signals/vibe.ts`, `clap.ts`; `src/lib/vibe.ts`, `vibe-worker.ts` | platform |
 | The looks, the project they play in, the pads | `shared/live-looks.ts` | video |
 | MilkDrop's looks (Butterchurn's presets picked, what each suits) | `shared/live-milkdrop.ts`; drawn by `now-playing-view/milkdrop.ts` | video |
 | The visualizer: director, source, keys, view | `src/components/now-playing-view/` | video (`ClientSuite.NowPlaying`) |
@@ -165,6 +166,36 @@ I shows it all in the visualizer (`mood-readout.tsx`), with the measurements und
 says it too. `mood.test.ts` checks it on made-up music (a pad, a groove, a club track, a half-time heavy track, a loud
 ballad, and a song with a build-up, a drop and a breakdown); its numbers are tuned against those, so real music is the
 real test. Slowness was checked on 19 real songs: the slow ones (70–77 BPM, sparse) read 0.8–0.95, the rest under 0.3.
+
+## The vibe
+
+What the rules above can't hear (a slow song mastered loud reads as intense; trap, a ballad and techno look alike to
+loudness and hits) a model can: **CLAP** (LAION's larger CLAP for music and speech, Apache-2.0, as Xenova's ONNX
+export), run on this computer. CLAP puts sound and text in one space, near when they match; so ten seconds of the
+song are placed:
+
+- **On axes**, each two opposite descriptions (`VIBE_AXES`): calm–intense, dark–bright, soft–harsh, slow–fast,
+  dry–dreamy, free–groove; by which end the sound is nearer, centred on how real music reads (21 of Théo's songs,
+  three windows each: `vibe.json`'s calibration), ±1 at two spreads. Pairs, because a single description that's near
+  every sound (CLAP's "a euphoric festival EDM drop") would always win.
+- **Among genres** (`VIBE_GENRES`, 24): its nearest three.
+
+The song's vibe is its readings blended (from 8 s into it, so the song before isn't in it). It says **70% of the
+song's kind** (`vibeCharacters`: chill is calm, soft and slow; groove the middle, not harsh, with a groove; hype
+intense, bright and fast; heavy aggressive, intense and dark), the rules the rest; and it moves the **intensity** up
+or down by as much as 0.2 (a calm song mastered loud is calmer than its loudness). On Théo's songs the rules called
+nearly everything hype; with the vibe they're chill (need, goodmix1, kozdz, Untitled), groove (twentythree, sowhat,
+botvox), hype (DIATRIBE, swagdemo2, leakssped) and heavy (drakhorse).
+
+- **Where it runs**: in a worker (`src/lib/vibe-worker.ts`), ONNX Runtime Web on the CPU (WebAssembly, one thread:
+  about 630 ms a reading on a Mac; WebGPU would take 25 ms, but the GPU is the visualizer's), a reading every 5 s while
+  listening (`VibeHearing`). The features are CLAP's log-mel spectrogram (`clap.ts`, checked against transformers.js's
+  to 0.0001 dB). Only the audio side ships: the text side ran once (`scripts/clap-vibe.ts` made `vibe.json`: run it
+  again with songs to change the axes or genres, or centre them on other music).
+- **The model**: 282 MB, downloaded once when the user says yes (the visualizer's offer, `vibe-offer.tsx`; Not now is
+  kept), into the models folder (`/api/now-playing/vibe`, the platform's `DownloadedModel`). Without it, the rules
+  alone. The tests stand in for it (`EDITOR_VIBE_MODEL=stand-in`: a made-up vibe).
+- **Seen**: I shows its genres and axes; the assistant's `now_playing` says them.
 
 ## Energy
 

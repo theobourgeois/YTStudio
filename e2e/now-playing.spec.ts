@@ -80,6 +80,8 @@ test("Now Playing: the song in the top bar, controlled from there, and the visua
   // I shows what it hears: the song's mood.
   await page.keyboard.press("i");
   await expect(view.locator("[data-mood]")).toContainText("intensity");
+  // And what CLAP hears (here its stand-in: a made-up vibe, every few seconds).
+  await expect(view.locator("[data-vibe]")).toContainText("stand-in", { timeout: 30_000 });
   await page.keyboard.press("i");
   await expect(view.locator("[data-mood]")).toHaveCount(0);
   // D: every setting the player plays (distort, feedback, the frame); Wash puts them back.
@@ -293,4 +295,38 @@ test("Now Playing's MilkDrop looks: Butterchurn's presets drawn live, as any loo
   await expect(view).toHaveAttribute("data-showing", named!);
   await page.keyboard.press("Escape");
   await expect(view).toHaveCount(0);
+});
+
+test("Now Playing's vibe: its model offered while it isn't here, downloaded on asking, or not offered again", async ({ page }) => {
+  // The server's answers made up: the model missing, then downloading once asked.
+  let status: object = { status: "missing", progress: null, size: 281_749_092, error: null, standIn: false };
+  await page.route("**/api/now-playing/vibe", (route) => route.fulfill({ json: status }));
+  await page.route("**/api/now-playing/vibe/setup", (route) => {
+    status = { ...status, status: "downloading", progress: 0.25 };
+    return route.fulfill({ status: 202, json: status });
+  });
+  await page.request.post("/api/now-playing", { data: { action: "play" } });
+  await page.goto("/");
+  const open = page.locator("[data-now-playing] button").first();
+  await open.click();
+  const view = page.locator("[data-now-playing-view]");
+  await page.mouse.move(400, 300);
+  const offer = view.locator("[data-vibe-offer]");
+  await expect(offer).toContainText("Hear each song's vibe");
+  await offer.getByRole("button", { name: "Download (282 MB)" }).click();
+  await expect(offer).toHaveAttribute("data-vibe-offer", "downloading");
+  await expect(offer).toContainText("25%");
+  // Missing again (say the download was stopped): offered again, until the user says not now, for good.
+  status = { ...status, status: "missing", progress: null };
+  await page.keyboard.press("Escape");
+  await open.click();
+  await page.mouse.move(420, 320);
+  await expect(offer).toHaveAttribute("data-vibe-offer", "missing");
+  await offer.getByRole("button", { name: "Not now" }).first().click();
+  await expect(offer).toHaveCount(0);
+  await page.reload();
+  await page.locator("[data-now-playing] button").first().click();
+  await expect(view.locator('[data-slot="visualizer-canvas"]')).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
+  await page.mouse.move(400, 300);
+  await expect(offer).toHaveCount(0);
 });

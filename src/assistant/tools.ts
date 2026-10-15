@@ -814,6 +814,14 @@ const TOOLS: Record<VideoToolName, Handler> = {
         `It sounds ${mood.character} (${Math.round(mood.sure * 100)}% sure), intensity ${mood.intensity.toFixed(2)} of 1, in ${mood.section === "build" ? "a build-up" : mood.section === "steady" ? "a steady part" : `the ${mood.section}`}.`,
       );
     }
+    if (mood?.vibe) {
+      // What CLAP hears (its axes: -1 the first end, 1 the second, against the music they were centred on).
+      const ends = { energy: "calm–intense", mood: "dark–bright", force: "soft–harsh", pace: "slow–fast", space: "dry–dreamy", dance: "free–groove" };
+      const axes = (Object.keys(ends) as (keyof typeof ends)[]).map((a) => `${ends[a]} ${mood.vibe!.axes[a]}`).join(", ");
+      lines.push(`Its vibe (CLAP): like ${mood.vibe.genres.map((g) => g.name).join(", ")}; ${axes}.`);
+    } else if (useNowPlaying.getState().vibeModel?.status !== "ready") {
+      lines.push("Its vibe isn't heard: the vibe's model (CLAP) isn't downloaded; the user downloads it from the visualizer's offer.");
+    }
     const auto = AUTO_SWITCHES.find((a) => a.id === prefs.auto)!;
     lines.push(
       visualizer

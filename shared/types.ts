@@ -1167,6 +1167,9 @@ export interface ToolCallProgressRequest {
 //   GET    /api/now-playing             -> NowPlayingStatus: what the music player (Spotify on a Mac) is playing
 //   POST   /api/now-playing  body: NowPlayingCommand -> NowPlayingStatus (400 not a command, 403 macOS said no,
 //                                        503 no player on this computer)
+//   GET    /api/now-playing/vibe        -> ModelStatus of the vibe's model (CLAP's audio side, shared/signals/vibe.ts)
+//   POST   /api/now-playing/vibe/setup  -> ModelStatus (202): its download starts (the user asked)
+//   GET    /api/now-playing/vibe/file   -> its ONNX file (404 until it's downloaded)
 //   POST   /api/exports   body: ExportRequest -> ExportJob (202)
 //   GET    /api/exports/formats         -> ExportFormat[] (what this computer's ffmpeg can make)
 //   GET    /api/exports/:id             -> ExportJob
