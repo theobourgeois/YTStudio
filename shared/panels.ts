@@ -11,3 +11,10 @@ export const PANEL_PREFIX = "vaudio-panel:";
  * display from the corner of the panel in use (`src/components/windows/native/overlay.ts`).
  */
 export const POPUP_WINDOW = `${PANEL_PREFIX}popups`;
+
+/**
+ * A stage: a window of its own for a picture to fill (the Now Playing visualizer popped out of the app). Unlike a
+ * panel it's an ordinary window of the system's, framed: it goes to another screen, full screen there, and only
+ * floats over other programs when asked (`electron/stage.ts`).
+ */
+export const STAGE_PREFIX = "vaudio-stage:";

@@ -395,9 +395,20 @@ export class PreviewEngine {
     this.update();
   }
 
+  /**
+   * The window the canvas is in: its frames are the ones to draw on, and its screen's pixels (the canvas can be in
+   * another window: the visualizer's own, on another screen).
+   */
+  private get canvasWindow(): Window {
+    return this.canvas?.ownerDocument.defaultView ?? window;
+  }
+
   /** Ref-callback helper: the WebGL canvas everything is drawn on. Returns the cleanup. */
   attachCanvas(el: HTMLCanvasElement) {
     this.canvas = el;
+    // A frame asked of a window the canvas has left (closed with it) never comes: ask again.
+    this.drawQueued = false;
+    this.watchQueued = false;
     const lost = (e: Event) => {
       e.preventDefault(); // lets the context be restored
       this.releaseCompositor(false);
@@ -531,7 +542,7 @@ export class PreviewEngine {
   private requestDraw = () => {
     if (this.drawQueued || this.source.get().playing) return; // playing: every tick draws anyway
     this.drawQueued = true;
-    requestAnimationFrame(() => {
+    this.canvasWindow.requestAnimationFrame(() => {
       this.drawQueued = false;
       this.update();
     });
@@ -848,7 +859,7 @@ export class PreviewEngine {
       this.draft = level < 1;
       this.reportStatus();
     }
-    const dpr = Math.min(2, window.devicePixelRatio || 1) * this.resolution * level;
+    const dpr = Math.min(2, this.canvasWindow.devicePixelRatio || 1) * this.resolution * level;
     const query = this.timer && gl.createQuery();
     if (query) gl.beginQuery(this.timer!.TIME_ELAPSED_EXT, query);
     compositor.resize(this.size.width * dpr, this.size.height * dpr);
@@ -1049,7 +1060,7 @@ export class PreviewEngine {
   private watchGpu() {
     if (this.watchQueued) return;
     this.watchQueued = true;
-    requestAnimationFrame(() => {
+    this.canvasWindow.requestAnimationFrame(() => {
       this.watchQueued = false;
       const gl = this.compositor?.gl;
       if (!gl || gl.isContextLost()) {
