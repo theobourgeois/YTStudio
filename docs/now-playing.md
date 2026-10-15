@@ -21,7 +21,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | MilkDrop's looks (Butterchurn's presets picked, what each suits) | `shared/milkdrop-presets.ts`, `live-milkdrop.ts`; bundled by `vite.config.ts`; drawn by `now-playing-view/milkdrop.ts` | video |
 | The visualizer: director, source, keys, view | `src/components/now-playing-view/` | video (`ClientSuite.NowPlaying`) |
 | The looks as the user rated them (Your taste): what a rating is, its file | `shared/look-ratings.ts`, `server/look-ratings.ts` | platform |
-| The user's clips and pictures in MilkDrop's feedback (Your media) | `now-playing-view/media-feed.ts`, `media-mix.ts`, `media-library.ts`, `media-panel.tsx` | video |
+| The user's clips and pictures in MilkDrop's looks and feedback (Your media) | `now-playing-view/media-feed.ts`, `media-mix.ts`, `media-library.ts`, `media-panel.tsx` | video |
 | Its own window (a stage) | `src/components/windows/native/stage-window.ts`, `electron/stage.ts` | platform |
 | vaudio's 2D visualizers | `shared/effect-library/audio.ts` (Wave Bars ... Acid Plasma) | video |
 | The assistant | `now_playing`, `control_now_playing` (`shared/assistant-tools.ts`) | video |
@@ -429,12 +429,16 @@ curating it by watching it rather than by sheets), kept on this computer, and go
 
 ## Your media
 
-The user's own clips and pictures melting into the looks (Théo, 2026-10-15: "import videos and images… warp them to
-the visualizers… in a way that looks natural, not just overlaid"). Not laid over the picture: **put into the
-feedback**. MilkDrop draws each frame by warping the last one (zoom, swirl, flow) and drawing on it, so after each of
-Butterchurn's frames a little of the clip is painted into the frame it just drew (`media-feed.ts`), and the next frame
-warps it like everything else in it: the clip becomes paint the preset moves, a little more each frame, the old carried
-off. Every preset melts it its own way.
+The user's own clips and pictures in the looks (Théo, 2026-10-15: "import videos and images… warp them to the
+visualizers… in a way that looks natural, not just overlaid"). Twice a frame, after each of Butterchurn's
+(`media-feed.ts`): **into the feedback** (painted into the frame it just drew, which the next frame warps like
+everything else in it), so trails of it stream off in the preset's own motion; and **on top** of what it showed, so the
+clip is plainly there. Only in the feedback, it was unrecognisable (Théo: "none of them are showing up"): a preset warps
+all of its buffer every frame, so what's only in it is a smear of colour within a few frames. A clip on a **flat
+background** (white, black, a colour: `backdropOf`, its edge measured on a small copy of a frame every 90 fed) has it
+taken out and **floats** in the look at its own shape (`placementOf`, `floatSize`: 62–85% of the frame's height), as
+does one of another shape (a square or tall clip filling the frame would be cut and blown up); footage of the frame's
+shape fills it, and shows only its light or edges on top, at a little over half (all of it on top hides the look).
 
 - **Where they are**: the Library's Visualizer folder (`media-library.ts`, made the first time one's added), so they're
   kept with the Library (the video editor's Library tab shows them) and served from the same origin (the GPU may read
@@ -442,17 +446,18 @@ off. Every preset melts it its own way.
   out there (deleted from the Library). Clips play muted and looping, at the picture's pace in slow motion.
 - **How they go in** (`media-mix.ts`, pure and tested), picked each time a MilkDrop look comes on, with a clip not shown
   lately from a moment of it at random: all of it, only its light (its dark parts leave the preset's black alone) or
-  only its edges (outlines as light), in richer colours. A little goes in every frame and more on each kick (`KickHit`,
-  the kick onset's hit falling away over a quarter second), the same at any frame rate (`amountOver`): calm, more of
-  it and steadily (mostly its light, sometimes all of it); a groove, mostly its light, pulsing on the kicks; intense,
-  only its light and edges, flashing in on the kicks. All of a clip's mid-tones fed in muddy a look (Théo bins mud), so
-  all of it is the rarest.
+  only its edges (outlines as light), in richer colours, punched in a little on each kick (`KickHit`, the kick onset's
+  hit falling away over a quarter second). On top (`show`, `showKick`): 0.8 calm, 0.7 a groove (more on the kicks),
+  0.55 intense (flashing to 0.95 on them). Into the feedback (`base`, `kick` a 60th of a second, the same at any frame
+  rate: `amountOver`): 0.15 calm, 0.14 a groove, 0.12 intense, more on the kicks. All of it the most when calm; its
+  light and edges more as it gets intense.
 - **Guard rails** (`media-feed.ts`): the clip's highlights are compressed as it goes in (`BRIGHT`), and a brake
   (`Brake`) measures the picture every 12 frames fed (16 × 9, on the CPU) and lets less of the clip in while it's
-  blown out or pale (mean over 0.5, or an eighth near white), more again as it clears: some presets brighten their own
-  feedback, and what's painted in piles up to white.
+  blown out or pale (mean over 0.6, or over a fifth near white), down to 0.35 (it never goes), more again as it clears:
+  some presets brighten their own feedback, and what's painted in piles up to white. A background's taken as flat once
+  half its edge is near its middle colour (0.22 RGB), and stays so down to 0.35 (no flicker as dancers cross it).
 - **Drawing it** (`MediaFeed`): Butterchurn's own WebGL context, a program and vertex array of its own, drawn into
-  `renderer.targetFrameBuffer` after `render` (the buffer the next frame warps). Butterchurn binds sampler objects of
+  `renderer.targetFrameBuffer` after `render` (the buffer the next frame warps), then into the canvas (on top). Butterchurn binds sampler objects of
   its own (mipmapped) to its texture units: one left bound makes the clip's texture (no mipmaps) read as black, so it's
   unbound for the draw and put back, as are the blend, framebuffer and the unpack flip.
 - **Keys**: N another clip, ⇧N on or off (kept: `useVisualizerPrefs.media`). The assistant's `control_now_playing`
@@ -461,7 +466,8 @@ off. Every preset melts it its own way.
   and most of ours binned). Ours could: the World Loop is a feedback too, and chaos's `cover` source is where a clip
   would go.
 - **Seeing it**: `now-playing-sheet.ts milkdrop --media clip.mp4,picture.jpg` adds them before it opens, and says for
-  each MilkDrop look which one it fed in and how many frames.
+  each MilkDrop look which one it fed in, how many frames, how much the brake held back, and whether its background
+  was taken out. The media panel says so when the look shown isn't MilkDrop's (it shows none).
 
 Next (Théo picked feeding the feedback first, 2026-10-15): the clips' mood (CLIP on a few frames, on the same axes as
 the songs' vibe: a dreamy clip for a dreamy song), their motion matched to the music's (the drop's hardest-moving shots),
