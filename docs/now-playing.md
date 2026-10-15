@@ -94,9 +94,9 @@ that kind first), or the keys and R. There's no list of them along the bottom.
 The keys (`keys.ts`, vaudio's play mode): ← → looks, ↑ ↓ kinds, R random, M another variation, = chaos, - mutate,
 A how looks change, Z X C V punch, flash, split, twist, 1–0 turn the colours, T Y [ ] , . the frame (repeat, mirror,
 turn, zoom), Q W E more warp, swirl, ripples (⇧ less), D every setting, ⌫ wash, Space play or pause, ⇧← ⇧→ songs,
-F full screen, P the mini player, O its own window, H hide the controls, S tap along, I what it hears, ? the list,
-Esc close. They're the visualizer's alone while it fills the app (caught before the editor's); in a box over the app,
-once it's been clicked (until something else is); out of the app, in its own window.
+F full screen, P the mini player, O its own window, H hide the controls, S tap along, ⇧S slow motion, I what it hears,
+? the list, Esc close. They're the visualizer's alone while it fills the app (caught before the editor's); in a box
+over the app, once it's been clicked (until something else is); out of the app, in its own window.
 
 ## Where it is
 
@@ -161,6 +161,11 @@ is, for looks to follow (steps 3 and 5):
   picture would leave the sound): the motion is, as a look is made, since a shader's time × speed jumps if its speed
   changes as it plays. Slow motion starts at a slow song and stops under 0.4 (no flicker on the line), the look shown
   then melting into itself made again (`slowMotionOn`).
+- **Slow motion by choice** (Théo: "if the normal vibes are too much"): Speed along the bottom (Follow the music or
+  Slow motion, `Pace` in `prefs.ts`), ⇧S, or the assistant's `control_now_playing` `pace`. Set, every song is taken as
+  a slow one (`slowedDown`: `slow` 1, and a hype song as the kind it most is after hype, since a slow song is never
+  hype): everything above, the flowing looks, the blends, the calm effects, half speed. Staying on one look (looks
+  changing off), it's made again in slow motion even if it doesn't flow.
 
 I shows it all in the visualizer (`mood-readout.tsx`), with the measurements under it; the assistant's `now_playing`
 says it too. `mood.test.ts` checks it on made-up music (a pad, a groove, a club track, a half-time heavy track, a loud

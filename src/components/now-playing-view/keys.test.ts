@@ -51,6 +51,11 @@ describe("visualizerKey", () => {
     expect(key("KeyO", "o")).toEqual({ kind: "out" });
   });
 
+  it("taps along on S, and turns slow motion on and off on Shift+S", () => {
+    expect(key("KeyS", "s")).toEqual({ kind: "sync" });
+    expect(key("KeyS", "S", { shiftKey: true })).toEqual({ kind: "slow" });
+  });
+
   it("leaves the app's own shortcuts alone", () => {
     expect(key("KeyR", "r", { metaKey: true })).toBeNull();
     expect(key("KeyG", "g")).toBeNull();

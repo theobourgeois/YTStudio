@@ -70,7 +70,7 @@ import { log } from "@/lib/log";
 import { type Frame, LIVE_LOOKS, NO_FX, liveLook } from "@shared/live-looks";
 import { type NowPlayingUnavailable, positionAt } from "@shared/now-playing";
 import { EFFECTS_MODES } from "@/components/now-playing-view/effects-engine";
-import { AUTO_SWITCHES, useVisualizerPrefs } from "@/components/now-playing-view/prefs";
+import { AUTO_SWITCHES, PACES, useVisualizerPrefs } from "@/components/now-playing-view/prefs";
 import { useNowPlaying } from "@/stores/now-playing";
 
 /** What the music player's `unavailable` means, for the model. */
@@ -825,8 +825,8 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const auto = AUTO_SWITCHES.find((a) => a.id === prefs.auto)!;
     lines.push(
       visualizer
-        ? `The visualizer is open, showing ${liveLook(prefs.look)?.name ?? prefs.look} (${prefs.look}); looks change: ${auto.label.toLowerCase()} (${auto.id}); listening: ${listening}.`
-        : `The visualizer is closed (its look is ${prefs.look}; looks change: ${auto.id}).`,
+        ? `The visualizer is open, showing ${liveLook(prefs.look)?.name ?? prefs.look} (${prefs.look}); looks change: ${auto.label.toLowerCase()} (${auto.id}); speed: ${prefs.pace === "slow" ? "slow motion (slow)" : "following the music (music)"}; listening: ${listening}.`
+        : `The visualizer is closed (its look is ${prefs.look}; looks change: ${auto.id}; speed: ${prefs.pace}).`,
     );
     const fxSet = (Object.keys(NO_FX) as (keyof typeof NO_FX)[]).filter((k) => prefs.fx[k] !== NO_FX[k]);
     const effectsBy = EFFECTS_MODES.find((m) => m.id === prefs.effects)!;
@@ -851,6 +851,9 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const effectsMode = optString(input, "effects");
     const effects = effectsMode === undefined ? undefined : EFFECTS_MODES.find((m) => m.id === effectsMode);
     if (effectsMode !== undefined && !effects) throw new ToolError(`\`effects\` is one of ${EFFECTS_MODES.map((m) => m.id).join(", ")}.`);
+    const paceId = optString(input, "pace");
+    const pace = paceId === undefined ? undefined : PACES.find((p) => p.id === paceId);
+    if (paceId !== undefined && !pace) throw new ToolError(`\`pace\` is one of ${PACES.map((p) => p.id).join(", ")}.`);
     const rawFrame = input.frame;
     if (rawFrame !== undefined && (typeof rawFrame !== "object" || rawFrame === null || Array.isArray(rawFrame))) throw new ToolError("`frame` is an object: repeat, mirror, spin, zoom or reset.");
     const frameIn = (rawFrame ?? {}) as Record<string, unknown>;
@@ -887,6 +890,10 @@ const TOOLS: Record<VideoToolName, Handler> = {
     if (autoSwitch) {
       useVisualizerPrefs.getState().setAuto(autoSwitch.id);
       done.push(`looks change: ${autoSwitch.label.toLowerCase()}`);
+    }
+    if (pace) {
+      useVisualizerPrefs.getState().setPace(pace.id);
+      done.push(`speed: ${pace.label.toLowerCase()}`);
     }
     if (look) {
       useVisualizerPrefs.getState().request(look);
