@@ -1295,7 +1295,8 @@ export const VIDEO_TOOLS = [
       "how it sounds while the visualizer listens (chill, groove, hype or heavy; its intensity; a build-up, drop or " +
       "breakdown), and the visualizer (Now Playing's, filling the window, made of this editor's effects and 3D scenes, and " +
       "MilkDrop's presets, kind milkdrop): whether it's open, the look it shows, how looks change, and every look there is " +
-      "(id, name, kind). Read it before " +
+      "(id, name, kind, and whether the user loved or binned it for the kind of song playing: their taste, which the looks " +
+      "picked go by). Read it before " +
       "control_now_playing.",
     inputSchema: obj({}),
   }),
@@ -1308,7 +1309,8 @@ export const VIDEO_TOOLS = [
       "`look` (an id from now_playing) shows that look (opening the visualizer), `frame` repeats, mirrors, turns or zooms the picture over any look, `fx` warps, swirls, ripples, kaleidoscopes, lenses, folds and feeds it back (vaudio's), `roll` rolls chaos (a random look of one of " +
       "vaudio's chaos recipes, as = does) or mutates the chaos look shown (its world nudged a little, as - does), `auto` sets how " +
       "looks change by themselves (off: stay; song: follow the music, a look that suits the song's kind and intensity, changed on songs, drops and breakdowns; beat: every beat, cutting on it; " +
-      "bars1, bars2, bars4, bars8, bars16, bars32: every so many bars, each a look that suits the music), `pace` slows it all down. Only what's given happens: the song first, then the visualizer.",
+      "bars1, bars2, bars4, bars8, bars16, bars32: every so many bars, each a look that suits the music), `pace` slows it all down, " +
+      "`rate` loves or bins the look shown for the kind of song playing (as the user's L and B do), `rating` starts or stops the rating mode. Only what's given happens: the song first, then the visualizer.",
     inputSchema: obj({
       action: oneOf(["play", "pause", "toggle", "next", "previous"], "What the player does."),
       seek: num("Go to this many seconds into the song.", { minimum: 0 }),
@@ -1353,6 +1355,14 @@ export const VIDEO_TOOLS = [
       pace: num(
         "How fast the looks move (the Speed slider): 1 as the song goes (slow motion on a slow song only); less, always in slow motion at that speed (0.5 half speed), every song taken as a slow one (only looks that flow, long blends, calm effects), for when the music's vibe is too much.",
         { minimum: 0.2, maximum: 1 },
+      ),
+      rate: oneOf(
+        ["love", "bin", "clear"],
+        "The user's taste, for the look shown (or `look`, shown first) on the kind of song playing: love: picked about three times as often; bin: never picked by itself again (it goes at once); clear: take back what was said of it. Only when the user says so: it's their taste, not yours.",
+      ),
+      rating: oneOf(
+        ["start", "stop"],
+        "The rating mode: the looks one after another, those nobody has rated first, each for 10 seconds and suiting what's playing, for the user to love (L) or bin (B) as they pass (each moves on; → the next with nothing said, ← back, Esc stops).",
       ),
     }),
   }),

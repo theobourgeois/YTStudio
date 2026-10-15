@@ -71,6 +71,7 @@ import { type Frame, LIVE_LOOKS, NO_FX, liveLook } from "@shared/live-looks";
 import { type NowPlayingUnavailable, positionAt } from "@shared/now-playing";
 import { EFFECTS_MODES } from "@/components/now-playing-view/effects-engine";
 import { AUTO_SWITCHES, PACE, paceLabel, paceOf, useVisualizerPrefs } from "@/components/now-playing-view/prefs";
+import { useLookRatings } from "@/components/now-playing-view/look-ratings";
 import { useNowPlaying } from "@/stores/now-playing";
 
 /** What the music player's `unavailable` means, for the model. */
@@ -794,7 +795,8 @@ const TOOLS: Record<VideoToolName, Handler> = {
     if (job.segments === 0) return textResult("Nothing to render: the heavy parts were rendered already (green), or there are none.");
     return textResult(`Rendered ${job.segments} part${job.segments === 1 ? "" : "s"} in ${secs((Date.now() - started) / 1000)}s: they play back smoothly now.`);
   },
-  now_playing() {
+  async now_playing() {
+    await useLookRatings.getState().load();
     const { status, visualizer, listening } = useNowPlaying.getState();
     const prefs = useVisualizerPrefs.getState();
     const lines: string[] = [];
@@ -835,9 +837,27 @@ const TOOLS: Record<VideoToolName, Handler> = {
         ? `Effects over the looks by hand: ${fxSet.length ? fxSet.map((k) => `${k} ${prefs.fx[k]}`).join(", ") : "none"}.`
         : `Effects over the looks: played by the engine (${effectsBy.label.toLowerCase()}, ${effectsBy.id}).`,
     );
+    // The user's taste (their ratings: docs/now-playing.md, "Your taste"), for the kind of song playing.
+    const { taste, rating } = useLookRatings.getState();
+    const character = mood?.character ?? null;
+    const counts = taste.counts();
+    const verdictOf = (id: string) => {
+      const { verdict, here } = taste.verdict(id, character);
+      return verdict === "love" ? (here ? "loved" : "loved on other kinds of song") : verdict === "bin" ? "binned" : null;
+    };
+    lines.push(
+      `The user's ratings: ${counts.loved} looks loved, ${counts.binned} binned (${counts.ratings} ratings, skips included); ` +
+        `the look shown is ${verdictOf(prefs.look) ?? "not rated"}${character ? ` for ${character} songs` : ""}. ` +
+        (rating ? `The rating mode is on: ${rating.left} looks nobody has judged yet.` : "The rating mode is off."),
+    );
     // What each suits (step 5 of docs/now-playing.md), so a look can be picked for the music.
     const suits = (l: (typeof LIVE_LOOKS)[number]) => `${l.suits.characters.join("/")}, intensity ${l.suits.energy[0]}–${l.suits.energy[1]}${l.suits.minimal ? ", minimal" : ""}`;
-    lines.push(`Looks (id: name, kind, what it suits): ${LIVE_LOOKS.map((l) => `${l.id} (${l.name}, ${l.kind}, ${suits(l)})`).join("; ")}.`);
+    lines.push(
+      `Looks (id: name, kind, what it suits, the user's rating): ${LIVE_LOOKS.map((l) => {
+        const said = verdictOf(l.id);
+        return `${l.id} (${l.name}, ${l.kind}, ${suits(l)}${said ? `, ${said}` : ""})`;
+      }).join("; ")}.`,
+    );
     return textResult(lines.join("\n"));
   },
   async control_now_playing(input) {
@@ -852,6 +872,10 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const effects = effectsMode === undefined ? undefined : EFFECTS_MODES.find((m) => m.id === effectsMode);
     if (effectsMode !== undefined && !effects) throw new ToolError(`\`effects\` is one of ${EFFECTS_MODES.map((m) => m.id).join(", ")}.`);
     const pace = optNumber(input, "pace", { min: PACE.min, max: PACE.max });
+    const rate = optString(input, "rate");
+    if (rate !== undefined && rate !== "love" && rate !== "bin" && rate !== "clear") throw new ToolError("`rate` is love, bin or clear.");
+    const ratingMode = optString(input, "rating");
+    if (ratingMode !== undefined && ratingMode !== "start" && ratingMode !== "stop") throw new ToolError("`rating` is start or stop.");
     const rawFrame = input.frame;
     if (rawFrame !== undefined && (typeof rawFrame !== "object" || rawFrame === null || Array.isArray(rawFrame))) throw new ToolError("`frame` is an object: repeat, mirror, spin, zoom or reset.");
     const frameIn = (rawFrame ?? {}) as Record<string, unknown>;
@@ -893,7 +917,27 @@ const TOOLS: Record<VideoToolName, Handler> = {
       useVisualizerPrefs.getState().setPace(pace);
       done.push(`speed: ${paceLabel(paceOf(pace)).toLowerCase()}`);
     }
-    if (look) {
+    if (rate) {
+      const ratings = useLookRatings.getState();
+      await ratings.load();
+      const target = look ?? useVisualizerPrefs.getState().look;
+      const name = liveLook(target)?.name ?? target;
+      if (np.visualizer) useVisualizerPrefs.getState().requestRate(rate, look);
+      else {
+        // Closed: rated as it is (the visualizer, opening, shows what it's told next).
+        const was = ratings.taste.verdict(target, null);
+        if (rate === "clear" && !was.here) throw new ToolError(`${name} has no rating to take back.`);
+        const track = np.status?.track;
+        ratings.rate({ look: target, verdict: rate, seconds: 0, song: track ? { id: track.id, name: track.name, artist: track.artist } : null, mood: null });
+      }
+      done.push(rate === "love" ? `loved ${name}` : rate === "bin" ? `binned ${name} (it won't be picked again)` : `took back the rating of ${name}`);
+    }
+    if (ratingMode) {
+      useLookRatings.getState().ask(ratingMode === "start");
+      if (ratingMode === "start" && !useNowPlaying.getState().visualizer) np.openVisualizer();
+      done.push(ratingMode === "start" ? "started the rating mode (the looks one after another: L loves, B bins, → next)" : "stopped the rating mode");
+    }
+    if (look && !rate) {
       useVisualizerPrefs.getState().request(look);
       if (!useNowPlaying.getState().visualizer) np.openVisualizer();
       done.push(`showing ${liveLook(look)!.name}`);
@@ -925,7 +969,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
       np.closeVisualizer();
       done.push("closed the visualizer");
     }
-    if (!done.length) throw new ToolError("Nothing to do: give `action`, `seek`, `visualizer`, `look`, `frame`, `fx`, `roll`, `auto` or `effects`.");
+    if (!done.length) throw new ToolError("Nothing to do: give `action`, `seek`, `visualizer`, `look`, `frame`, `fx`, `roll`, `auto`, `effects`, `pace`, `rate` or `rating`.");
     return textResult(`Done: ${done.join(", ")}.`);
   },
   async open_sequence(input, ctx) {
