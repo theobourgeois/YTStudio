@@ -8,9 +8,11 @@
  *   pnpm tsx scripts/now-playing-sheet.ts chaos --rolls 24 --song file.mp3 [--seconds 4]
  *   pnpm tsx scripts/now-playing-sheet.ts chaos-liquid --record 45 --song file.mp3 [--from 48] [--every 6.5] [--auto bars2]
  *     [--keys "6=t 9=y 12=] 18=Backspace"] [--fx '{"feedback":0.85,"kaleido":0.5}'] [--effects music|beat|bar|hand] [--pace 0.5]
+ *   pnpm tsx scripts/now-playing-sheet.ts milkdrop --media clip.mp4,picture.jpg [--seconds 6]
  *
  * `--track` picks the stand-in's song, so its cover's colours (1 magenta, 2 orange, 3 cyan). `--pace` is the Speed
- * slider's (1 follows the music, less is slow motion at that speed).
+ * slider's (1 follows the music, less is slow motion at that speed). `--media` adds clips and pictures of your own to
+ * the visualizer's (the Library's Visualizer folder) before it opens: MilkDrop's looks melt them into their feedback.
  * Writes the sheet and one picture per look beside it (`<out>-<look>.png`).
  *
  * `--moments` shows each look at the made-up song's breakdown, build-up and drop (`DEMO_SECTIONS`; `--at` says when
@@ -59,6 +61,7 @@ const auto = option("--auto");
 const startFx = option("--fx") ?? "";
 const effectsBy = option("--effects") ?? (startFx ? "hand" : "");
 const pace = option("--pace") ?? "";
+const mediaFiles = (option("--media") ?? "").split(",").filter(Boolean);
 // Keys to press while filming: `seconds=key`, apart by spaces, in order.
 const keysAt = (option("--keys") ?? "")
   .split(/\s+/)
@@ -83,7 +86,7 @@ const MOMENT_NAMES = ["breakdown", "build-up", "drop"];
 const FRAMES = [0, 150, 300];
 /** The page pictures are measured in (`lightOf`). */
 let reader: Page | null = null;
-const names = args.filter((a, i) => !a.startsWith("--") && !["--out", "--song", "--seconds", "--track", "--at", "--parallel", "--rolls", "--record", "--from", "--every", "--auto", "--keys", "--fx", "--effects"].includes(args[i - 1]));
+const names = args.filter((a, i) => !a.startsWith("--") && !["--out", "--song", "--seconds", "--track", "--at", "--parallel", "--rolls", "--record", "--from", "--every", "--auto", "--keys", "--fx", "--effects", "--pace", "--media"].includes(args[i - 1]));
 const looks = names.length ? LIVE_LOOKS.filter((l) => names.includes(l.id) || names.includes(l.kind)) : LIVE_LOOKS;
 if (!looks.length) {
   console.error(`No looks match ${names.join(", ")}. Known: ${LIVE_LOOKS.map((l) => l.id).join(", ")}`);
@@ -145,6 +148,15 @@ const command = (body: object) =>
   fetch(`http://127.0.0.1:${SERVER_PORT}/api/now-playing`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 await command({ action: "play" });
 for (let i = 1; i < track; i++) await command({ action: "next" });
+// Clips and pictures of your own, into the visualizer's folder of the Library (as its media panel adds them).
+if (mediaFiles.length) {
+  const api = `http://127.0.0.1:${SERVER_PORT}/api/library`;
+  const folder = (await (await fetch(`${api}/folders`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Visualizer" }) })).json()) as { id: string };
+  for (const file of mediaFiles) {
+    const added = await fetch(`${api}/items?folderId=${folder.id}&name=${encodeURIComponent(path.basename(file))}`, { method: "POST", body: fs.readFileSync(file) });
+    if (!added.ok) throw new Error(`couldn't add ${file}: ${await added.text()}`);
+  }
+}
 
 // The GPU on (as the export's browser has it): the 3D scenes are too heavy for software rendering.
 const browser = await chromium.launch({ args: ["--ignore-gpu-blocklist", "--enable-unsafe-swiftshader", ...(process.platform === "darwin" ? ["--use-angle=metal", "--enable-gpu"] : [])] });
@@ -195,16 +207,19 @@ const page = await visualizer(looks[0]);
 const shots: { id: string; name: string; file: string }[] = [];
 for (const look of looks) {
   if (look !== looks[0]) {
-    // The controls are hidden (H), not gone: their group, then the look.
-    const group = LOOK_KINDS.find((k) => k.id === look.kind)!.label;
-    await page.click(`[data-look-picker] button:text-is("${group}")`, { force: true });
-    await page.click(`[data-look="${look.id}"]`, { force: true });
+    // The controls are hidden (H), not gone: the looks menu, the look's kind, then the look.
+    const menu = page.locator("[data-looks-menu]");
+    await menu.getByRole("button", { name: /^Looks:/ }).click({ force: true });
+    await menu.locator(`[data-kind="${look.kind}"]`).click({ force: true });
+    await menu.locator(`[data-look="${look.id}"]`).click({ force: true });
   }
   await page.waitForTimeout(seconds * 1000);
   const file = `${out.replace(/\.png$/, "")}-${look.id}.png`;
   await page.screenshot({ path: file });
   shots.push({ id: look.id, name: look.name, file });
-  console.log(`  ${look.name}`);
+  // With clips of your own: which one MilkDrop's feeding in, and how many frames of it so far.
+  const fed = mediaFiles.length && look.kind === "milkdrop" ? await page.locator("canvas[data-milkdrop]").evaluate((c) => ` (${c.dataset.media || "no media"}, ${c.dataset.fed ?? 0} frames fed)`) : "";
+  console.log(`  ${look.name}${fed}`);
 }
 
 // The sheet: every look, labelled, four across.
