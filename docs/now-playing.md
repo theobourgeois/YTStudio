@@ -20,6 +20,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | The looks, the project they play in, the pads | `shared/live-looks.ts` | video |
 | MilkDrop's looks (Butterchurn's presets picked, what each suits) | `shared/milkdrop-presets.ts`, `live-milkdrop.ts`; bundled by `vite.config.ts`; drawn by `now-playing-view/milkdrop.ts` | video |
 | The visualizer: director, source, keys, view | `src/components/now-playing-view/` | video (`ClientSuite.NowPlaying`) |
+| The looks as the user rated them (Your taste): what a rating is, its file | `shared/look-ratings.ts`, `server/look-ratings.ts` | platform |
 | Its own window (a stage) | `src/components/windows/native/stage-window.ts`, `electron/stage.ts` | platform |
 | vaudio's 2D visualizers | `shared/effect-library/audio.ts` (Wave Bars ... Acid Plasma) | video |
 | The assistant | `now_playing`, `control_now_playing` (`shared/assistant-tools.ts`) | video |
@@ -100,7 +101,8 @@ The looks are picked by the music (it's what the visualizer's for: Théo's); pic
 up top (`LooksMenu`: the look playing on its button; Shuffle, then each kind opening its looks beside it, Shuffle of
 that kind first), or the keys and R. There's no list of them along the bottom.
 
-The keys (`keys.ts`, vaudio's play mode): ← → looks, ↑ ↓ kinds, R random, M another variation, = chaos, - mutate,
+The keys (`keys.ts`, vaudio's play mode): ← → looks, ↑ ↓ kinds, R random, L love it, B bin it, ⇧R rate the looks (see
+Your taste), M another variation, = chaos, - mutate,
 A how looks change, Z X C V punch, flash, split, twist, 1–0 turn the colours, T Y [ ] , . the frame (repeat, mirror,
 turn, zoom), Q W E more warp, swirl, ripples (⇧ less), D every setting, ⌫ wash, Space play or pause, ⇧← ⇧→ songs,
 F full screen, P the mini player, O its own window, H hide the controls, S tap along, ⇧S slow motion, I what it hears,
@@ -389,6 +391,36 @@ the numbers, 1,067 looked at on `--resheet` sheets of those left). The menu list
 - **Licences**: Butterchurn and `butterchurn-presets` are MIT; the presets are MilkDrop's community's, shipped in that
   package.
 
+## Your taste
+
+Which looks the user likes, said as they play (Théo, 2026-10-15: the visualizer was cool for a second, then got old;
+curating it by watching it rather than by sheets), kept on this computer, and gone by whenever a look is picked:
+
+- **Love and bin**: L loves the look shown, B bins it, each again takes it back (the hearts and bins up top, by the
+  looks menu; the menu marks each look). A rating is for the kind of song playing (`Mood.character`, as the looks hear
+  it): a look loved on chill songs and binned on hype ones shows only on chill ones. A bin counts everywhere but where
+  the look's loved; one given before the song's kind is known is the look's as a whole. A binned look goes at once.
+- **Skips**: a look the visualizer put up itself (following the music, or at random: R, the shuffles) that the user
+  leaves within `SKIP_SECONDS` (8) is skipped, a small thumbs-down (each 0.7× as likely, down to a quarter, until it's
+  given a verdict). Looks picked by name or stepped to with the arrows aren't counted, nor anything in the rating mode.
+- **Picking** (`chooser.ts`'s `Appeal`, `pickWanted`): never a binned look (unless every look is), a loved one three
+  times as often where it was loved (1.5× on other kinds of song). The music's picks, R, the shuffles and chaos go by
+  it; the arrows skip binned looks; a look binned while it plays (following the music) changes at the phrase's end.
+- **The rating mode** (⇧R, the cards button along the bottom; `rating.ts`): the looks one after another, each for
+  `RATE_SECONDS` (10), those nobody has judged first, then those only passed over, each one that suits what's playing
+  (so it's judged where it would be shown). L and B rate and move on, → passes (nothing said, kept as a `pass`), ←
+  goes back, Esc stops; the bar says how many are left. Looks don't change by themselves meanwhile.
+- **Kept**: every rating in the order given, in `look-ratings.json` in the data folder (the packaged app's:
+  `~/Library/Application Support/YTStudio/data/`), each with when, how long the look had shown, the song, and the kind
+  of song and intensity (`shared/look-ratings.ts`, `server/look-ratings.ts`, `/api/now-playing/ratings`). The tab
+  counts a rating at once and sends it to be kept (`now-playing-view/look-ratings.ts`); the log says each (info, skips
+  and passes at debug).
+- **Tuning by them**: read the file over and change the looks: take the binned out of `MILKDROP_PRESETS` (or our
+  looks), look at what the loved ones have in common (`milkdrop-sheet.ts` measures speed, brightness, colour) and find
+  more like them among the converted presets not in yet, and move what each suits by where it was loved and binned.
+- **The assistant**: `now_playing` says the counts, the look shown's rating and each look's; `control_now_playing`
+  takes `rate` (love, bin, clear: only when the user says so) and `rating` (start, stop).
+
 ## The plan (v2)
 
 After Théo's feedback (2026-10-14: the looks are milquetoast and ignore the song's mood, transitions read as amateur,
@@ -417,4 +449,5 @@ Only the e2e spec a step touches is run (`e2e/now-playing.spec.ts`), never the w
 
 ## Not yet
 
-Spotify alone in a per-app tap (now: the whole computer's sound), synced lyrics (LRCLIB), Apple Music, preset rounds scored by Théo.
+Spotify alone in a per-app tap (now: the whole computer's sound), synced lyrics (LRCLIB), Apple Music, a pass over Théo's
+ratings (see Your taste).
