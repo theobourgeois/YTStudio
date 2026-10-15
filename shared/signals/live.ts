@@ -40,6 +40,7 @@ import {
 } from "./format.ts";
 import { BEAT_RATE, BEAT_WINDOW, LiveBeat } from "./live-beat.ts";
 import { INTENSITY_RATE, LiveMood, type Mood } from "./mood.ts";
+import type { Vibe } from "./vibe.ts";
 import type { MusicAnalysis } from "../types.ts";
 
 /** Seconds of the past that say what counts as loud now. */
@@ -64,8 +65,8 @@ const DROP_GAP = 8;
 const DROP_RECENT = 0.3;
 const DROP_BEFORE = 2;
 
-/** Seconds of the sound itself kept, as heard (MilkDrop draws its waves from it). */
-const SOUND_KEPT = 2;
+/** Seconds of the sound itself kept, as heard (MilkDrop draws its waves from it; the vibe hears ten seconds). */
+const SOUND_KEPT = 12;
 
 const S = SCALARS.length;
 const INDEX = Object.fromEntries(SCALARS.map((s, i) => [s, i])) as Record<ScalarName, number>;
@@ -187,6 +188,30 @@ export class LiveSignals {
       left[i] = this.sound[at];
       right[i] = this.sound[at + 1];
     }
+  }
+
+  /**
+   * The newest sound, mono, filling `out` (the last `out.length` samples heard; silence before the first): for the
+   * vibe (`vibe.ts`). Returns the session's time it ends at.
+   */
+  lastSound(out: Float32Array): number {
+    const ring = this.sound.length / 2;
+    const first = this.soundFrames - out.length;
+    for (let i = 0; i < out.length; i++) {
+      const frame = first + i;
+      if (frame < 0 || frame < this.soundFrames - ring) {
+        out[i] = 0;
+        continue;
+      }
+      const at = (frame % ring) * 2;
+      out[i] = (this.sound[at] + this.sound[at + 1]) / 2;
+    }
+    return this.soundFrames / this.sampleRate;
+  }
+
+  /** What CLAP heard of the ten seconds up to `time` (session seconds): the song's vibe takes it in (`LiveMood`). */
+  hearVibe(vibe: Vibe, time: number): void {
+    this.moods.hearVibe(vibe, time);
   }
 
   private keepSound(samples: Float32Array, channels: 1 | 2): void {

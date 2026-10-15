@@ -39,6 +39,7 @@ const QUALITY_KEY = "editor-visualizer-quality";
 const FX_KEY = "editor-visualizer-fx";
 const EFFECTS_KEY = "editor-visualizer-effects";
 const PLACE_KEY = "editor-visualizer-place";
+const VIBE_OFFER_KEY = "editor-visualizer-vibe-offer";
 
 /** Where it is (`placement.ts`), kept so it opens there again. */
 interface Place {
@@ -89,6 +90,9 @@ interface VisualizerPrefs {
   requested: { look: string; n: number; roll?: "chaos" | "mutate"; frame?: Partial<Frame> | "reset" } | null;
   /** Where it is: its size in the app, or out in its own window. */
   place: Place;
+  /** The vibe's model was offered and the user said not now (it isn't offered again). */
+  vibeDeclined: boolean;
+  declineVibe(): void;
   /** A size in the app (out of its own window, if it was). */
   setSize(size: VisualizerSize): void;
   /** Into its own window, or back into the app. */
@@ -128,6 +132,11 @@ export const useVisualizerPrefs = create<VisualizerPrefs>((set) => ({
   })(),
   requested: null,
   place: keptPlace(),
+  vibeDeclined: localStorage.getItem(VIBE_OFFER_KEY) === "declined",
+  declineVibe() {
+    localStorage.setItem(VIBE_OFFER_KEY, "declined");
+    set({ vibeDeclined: true });
+  },
   setSize(size) {
     set((s) => keepPlace({ ...s.place, size, before: size === s.place.size ? s.place.before : s.place.size, out: false }));
   },

@@ -49,6 +49,7 @@ import type {
   WebSearchPage,
 } from "@shared/types";
 import { PROJECT_NOTICE_HEADER } from "@shared/types";
+import type { ModelStatus } from "@shared/models";
 import type { NowPlayingCommand, NowPlayingStatus } from "@shared/now-playing";
 
 export class ApiRequestError extends Error {
@@ -231,6 +232,9 @@ export const api = {
   nowPlaying: () => request<NowPlayingStatus>("/api/now-playing"),
   /** Tell it to play, pause, skip, seek or set its volume. */
   nowPlayingCommand: (command: NowPlayingCommand) => request<NowPlayingStatus>("/api/now-playing", { method: "POST", body: JSON.stringify(command) }),
+  /** Whether the vibe's model (CLAP's audio side) is here; its download, which the user asked for. */
+  vibeModel: () => request<ModelStatus>("/api/now-playing/vibe"),
+  setUpVibeModel: () => request<ModelStatus>("/api/now-playing/vibe/setup", { method: "POST" }),
 
   startExport: (req: ExportRequest) =>
     request<ExportJob>("/api/exports", { method: "POST", body: JSON.stringify(req) }),

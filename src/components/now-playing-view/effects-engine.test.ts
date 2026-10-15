@@ -16,6 +16,7 @@ function mood(intensity: number, section: Section = "steady", events: MoodEvent[
     sure: 0.8,
     scores: { chill: 0, groove: 0, hype: 0, heavy: 0 },
     slow,
+    vibe: null,
     events,
     heard: { loudness: -10, hits: 4, kicks: 2, sub: 0.3, brightness: 3000 },
   };

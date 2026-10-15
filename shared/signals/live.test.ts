@@ -69,10 +69,10 @@ describe("LiveSignals", () => {
     expect(data.header.waveSamples).toBeGreaterThan(3.9 * data.header.waveRate);
   });
 
-  it("keeps the last seconds of the sound itself, read around a moment (silence for what isn't kept)", () => {
+  it("keeps the last twelve seconds of the sound itself, read around a moment (silence for what isn't kept)", () => {
     const live = new LiveSignals(48_000);
-    // Three seconds: each sample's left is its frame's number, its right the negative.
-    const n = 3 * 48_000;
+    // Fourteen seconds: each sample's left is its frame's number, its right the negative.
+    const n = 14 * 48_000;
     const samples = new Float32Array(n * 2);
     for (let i = 0; i < n; i++) {
       samples[i * 2] = i;
@@ -81,14 +81,18 @@ describe("LiveSignals", () => {
     for (let i = 0; i < samples.length; i += 9600) live.push(samples.subarray(i, i + 9600));
     const left = new Float32Array(4);
     const right = new Float32Array(4);
-    live.soundAt(2.5, left, right);
-    expect([...left]).toEqual([119_998, 119_999, 120_000, 120_001]);
-    expect([...right]).toEqual([-119_998, -119_999, -120_000, -120_001]);
-    // Over two seconds ago is gone; what hasn't come yet is silence.
-    live.soundAt(0.5, left, right);
+    live.soundAt(13.5, left, right);
+    expect([...left]).toEqual([647_998, 647_999, 648_000, 648_001]);
+    expect([...right]).toEqual([-647_998, -647_999, -648_000, -648_001]);
+    // Over twelve seconds ago is gone; what hasn't come yet is silence.
+    live.soundAt(1, left, right);
     expect([...left]).toEqual([0, 0, 0, 0]);
-    live.soundAt(3, left, right);
-    expect([...left]).toEqual([143_998, 143_999, 0, 0]);
+    live.soundAt(14, left, right);
+    expect([...left]).toEqual([671_998, 671_999, 0, 0]);
+    // The newest, mono (left and right averaged: here 0), for the vibe: when it ends, too.
+    const mono = new Float32Array(3);
+    expect(live.lastSound(mono)).toBe(14);
+    expect([...mono]).toEqual([0, 0, 0]);
   });
 
   it("finds each kick as it happens", () => {

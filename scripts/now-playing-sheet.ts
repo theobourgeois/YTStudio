@@ -103,6 +103,7 @@ const env = {
   EDITOR_SERVER_PORT: SERVER_PORT,
   EDITOR_WEB_PORT: WEB_PORT,
   EDITOR_NOW_PLAYING: "stand-in",
+  EDITOR_VIBE_MODEL: "stand-in",
   EDITOR_ENGINE_PATH: path.join(root, "server/music/fake-engine.mjs"),
 };
 const children: ChildProcess[] = [

@@ -1,17 +1,36 @@
 import { useEffect, useState } from "react";
 import { SLOW, SONG_CHARACTERS, type Section } from "@shared/signals/mood";
+import { VIBE_AXIS_NAMES, type VibeAxis } from "@shared/signals/vibe";
 import { cn } from "cn";
 import { useNowPlaying } from "@/stores/now-playing";
 
+/** Why there's no vibe yet. */
+function vibeStatus(): string {
+  const model = useNowPlaying.getState().vibeModel;
+  if (!model || model.status === "missing" || model.status === "error") return "no vibe: its model isn't downloaded";
+  if (model.status === "downloading") return `no vibe yet: its model's downloading (${Math.round((model.progress ?? 0) * 100)}%)`;
+  return "the vibe: listening…";
+}
+
 const SECTIONS: Record<Section, string> = { intro: "the start", steady: "going along", build: "a build-up", drop: "the drop", breakdown: "a breakdown" };
+
+/** Each vibe axis's two ends, as the readout says them. */
+const ENDS: Record<VibeAxis, [string, string]> = {
+  energy: ["calm", "intense"],
+  mood: ["dark", "bright"],
+  force: ["soft", "harsh"],
+  pace: ["slow", "fast"],
+  space: ["dry", "dreamy"],
+  dance: ["free", "groove"],
+};
 
 /** An arrow for a band's presence: rising, falling or level. */
 const arrow = (v: number) => (v >= 0.25 ? "↑" : v <= -0.25 ? "↓" : "·");
 
 /**
  * What the visualizer hears (I): the song's character and how sure it is, the intensity, where the song is and what
- * it's done lately, each band rising or falling, and the measurements under them (`LiveMood`). For checking its
- * reading against one's ears (step 2 of the plan).
+ * it's done lately, each band rising or falling, the measurements under them (`LiveMood`), and what CLAP hears (the
+ * vibe: its genres and axes, `vibe.ts`). For checking its reading against one's ears.
  */
 export function MoodReadout({ now, choices }: { now: () => number; choices: () => readonly { time: number; why: string }[] }) {
   const [, setTick] = useState(0);
@@ -61,6 +80,30 @@ export function MoodReadout({ now, choices }: { now: () => number; choices: () =
       </div>
       <div className="font-mono text-[11px]">
         low {arrow(m.presence.low)} · mid {arrow(m.presence.mid)} · high {arrow(m.presence.high)}
+      </div>
+      <div data-vibe className="mt-1.5 border-t border-white/10 pt-1.5">
+        {m.vibe ? (
+          <>
+            <div>
+              <span className="text-white/60">vibe</span> {m.vibe.genres.map((g) => g.name).join(" · ")}
+            </div>
+            {VIBE_AXIS_NAMES.map((a) => {
+              const v = m.vibe!.axes[a];
+              return (
+                <div key={a} className="flex items-center gap-2 text-[11px]">
+                  <span className="w-12 text-right text-white/55">{ENDS[a][0]}</span>
+                  <span className="relative h-1.5 flex-1 rounded-full bg-white/15">
+                    <span className="absolute inset-y-0 left-1/2 w-px bg-white/30" />
+                    <span className="absolute inset-y-0 rounded-full bg-white" style={v >= 0 ? { left: "50%", width: `${v * 50}%` } : { right: "50%", width: `${-v * 50}%` }} />
+                  </span>
+                  <span className="w-12 text-white/55">{ENDS[a][1]}</span>
+                </div>
+              );
+            })}
+          </>
+        ) : (
+          <span className="text-white/50">{vibeStatus()}</span>
+        )}
       </div>
       {choices().length > 0 && (
         <div className="mt-1.5 border-t border-white/10 pt-1.5 text-[11px] leading-4 text-white/75">

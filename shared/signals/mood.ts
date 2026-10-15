@@ -5,12 +5,14 @@
  *
  * Intensity is Synesthesia's idea: not how loud this instant is, but how much is going on over the last few seconds
  * (loudness against full scale and against the song's own loud parts, hits a second in each band, kicks a second, the
- * sub-bass's share), rising fast and falling slowly. Presence is a band's activity rising or falling, not each sound. The song's
+ * sub-bass's share), rising fast and falling slowly, moved up or down a little by the song's vibe (CLAP's: a calm
+ * song mastered loud isn't intense). Presence is a band's activity rising or falling, not each sound. The song's
  * character is what its intensity, density, beat and tone have been since it started, settled after ~20 s and steady;
  * how slow it is (`slowness`) is apart from it: a slow song is never hype, and the visualizer flows on one.
  * Pure: the tests feed it made-up music.
  */
 import { SCALARS, SIGNAL_RATE, type Hit, type IntensitySeries, type ScalarName, type SignalData } from "./format.ts";
+import { type Vibe, blendVibes, vibeCharacters } from "./vibe.ts";
 
 export type SongCharacter = "chill" | "groove" | "hype" | "heavy";
 export const SONG_CHARACTERS: readonly SongCharacter[] = ["chill", "groove", "hype", "heavy"];
@@ -40,6 +42,11 @@ export interface Mood {
   scores: Record<SongCharacter, number>;
   /** How slow the song is, 0..1 (`slowness`; 0 until its beat is known): a slow one flows (`isSlow`). */
   slow: number;
+  /**
+   * What CLAP hears of the song so far (`vibe.ts`: how intense, bright, aggressive, fast, spacious and danceable, its
+   * genres), its kind mostly from it: null without the model, or before ten seconds of the song are heard.
+   */
+  vibe: Vibe | null;
   /** The section changes so far, newest last (the last few). */
   events: MoodEvent[];
   /**
@@ -76,6 +83,18 @@ const INDEX = Object.fromEntries(SCALARS.map((s, i) => [s, i])) as Record<Scalar
 /** Hits a second (all bands) that are a busy track, kicks a second that are a driving one. */
 const BUSY = 10;
 const DRIVING = 2.2;
+/** Seconds into a song before what CLAP hears is of it (its ten seconds would hold the song before). */
+const VIBE_SETTLES = 8;
+/** CLAP's readings a song's vibe is made of, the newest (a reading every few seconds: a couple of minutes). */
+const VIBES_KEPT = 24;
+/** How much of a song's kind its vibe says, once there is one (the rules say the rest: the beat, the tempo). */
+const VIBE_SAYS = 0.7;
+/**
+ * How far a song's vibe moves its intensity, up or down at its ends: a calm song mastered loud is calmer than its
+ * loudness says, an intense one quietly mixed more intense (the rises and falls within it are the measure's).
+ */
+const VIBE_LIFTS = 0.2;
+
 /** A song this much slow or more is a slow one (`slowness`). */
 export const SLOW = 0.5;
 /** Tempos (BPM, as felt) from not slow to all slow; and hits a second from sparse (slow) to too busy to be. */
@@ -181,6 +200,8 @@ export class LiveMood {
   private scores: Record<SongCharacter, number> = { chill: 0, groove: 0, hype: 0, heavy: 0 };
   private sure = 0;
   private slow = 0;
+  private vibes: Vibe[] = [];
+  private vibe: Vibe | null = null;
   private presence = { low: 0, mid: 0, high: 0 };
   private heard = { loudness: -120, hits: 0, kicks: 0, sub: 0, brightness: 0 };
   private started = -Infinity;
@@ -192,6 +213,15 @@ export class LiveMood {
     this.challenger = null;
     this.sure = 0;
     this.slow = 0;
+    this.vibes = [];
+    this.vibe = null;
+  }
+
+  /** What CLAP heard of the ten seconds up to `time`: part of the song's vibe, unless it's mostly the song before. */
+  hearVibe(vibe: Vibe, time: number): void {
+    if (time - this.song.since < VIBE_SETTLES) return;
+    this.vibes = [...this.vibes, vibe].slice(-VIBES_KEPT);
+    this.vibe = blendVibes(this.vibes);
   }
 
   /** The mood as of the last update. */
@@ -205,6 +235,7 @@ export class LiveMood {
       sure: Math.round(this.sure * 100) / 100,
       scores: this.scores,
       slow: this.slow,
+      vibe: this.vibe,
       events: this.events,
       heard: this.heard,
     };
@@ -234,7 +265,8 @@ export class LiveMood {
     this.heard = { loudness: round2(loud), hits: round2(density), kicks: round2(kicks), sub: round2(sub), brightness: Math.round(brightness) };
     const measured = clamp01(0.25 * loudAgainstFull + 0.15 * loudAgainstSong + 0.35 * clamp01(density / BUSY) + 0.15 * clamp01(kicks / DRIVING) + 0.1 * sub);
     const silent = loud < -60;
-    const target = silent ? 0 : measured;
+    const lifted = this.vibe ? clamp01(measured + VIBE_LIFTS * this.vibe.axes.energy) : measured;
+    const target = silent ? 0 : lifted;
     if (dt === 0) this.intensity = target;
     else this.intensity += (target - this.intensity) * (1 - Math.exp(-dt / (target > this.intensity ? RISE : FALL)));
 
@@ -325,6 +357,11 @@ export class LiveMood {
       hype: clamp01(typical * (0.2 + 0.8 * t.density) * (0.6 + 0.4 * Math.max(fast, t.kicks)) * 1.4 * (1 - 0.7 * this.slow)),
       heavy: clamp01(typical * t.sub * (1 - t.bright * 0.5) * (0.5 + 0.5 * t.loud) * 2),
     };
+    // What CLAP hears says most of it, once it's heard the song.
+    if (this.vibe) {
+      const heard = vibeCharacters(this.vibe);
+      for (const c of SONG_CHARACTERS) scores[c] = VIBE_SAYS * heard[c] + (1 - VIBE_SAYS) * scores[c];
+    }
     this.scores = Object.fromEntries(SONG_CHARACTERS.map((c) => [c, round2(scores[c])])) as Record<SongCharacter, number>;
     const ranked = [...SONG_CHARACTERS].sort((a, b) => scores[b] - scores[a]);
     const leader = ranked[0];

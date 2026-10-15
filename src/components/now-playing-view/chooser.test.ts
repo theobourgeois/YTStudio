@@ -14,6 +14,7 @@ function mood(m: Partial<Mood> = {}): Mood {
     sure: 0,
     scores: { chill: 0, groove: 0, hype: 0, heavy: 0 },
     slow: 0,
+    vibe: null,
     events: [],
     heard: { loudness: -20, hits: 2, kicks: 1, sub: 0.2, brightness: 2000 },
     ...m,

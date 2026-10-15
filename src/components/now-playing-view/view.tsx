@@ -46,6 +46,7 @@ import { MilkDrop } from "./milkdrop";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
 import { ImageSlots, LiveSource } from "./live-source";
 import { MoodReadout } from "./mood-readout";
+import { VibeOffer } from "./vibe-offer";
 import { type Area, type Box, type BoxedSize, COMPACT, type Edges, type VisualizerSize, dragBox, placeBox } from "./placement";
 import { PlayPanel } from "./play-panel";
 import { TapSync, type Tapper } from "./sync";
@@ -773,6 +774,7 @@ export default function NowPlayingView() {
       <SongCard visible={controls} compact={compact} />
 
       {listening !== "on" && <ListenPrompt compact={compact} />}
+      {!compact && !hudHidden && <VibeOffer />}
       {noWebGl && <p className="absolute inset-x-0 top-1/2 text-center text-sm text-white/70">This browser can't draw the visualizer: it needs WebGL 2.</p>}
 
       {compact ? (
