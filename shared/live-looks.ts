@@ -27,6 +27,7 @@ import {
   drawing,
   follow,
   fx,
+  inSlowMotion,
   intense,
   pick,
   punch,
@@ -40,7 +41,7 @@ import type { SongCharacter } from "./signals/mood.ts";
 import { ONSET_SCALARS, type OnsetName, SIGNALS_VERSION, SIGNAL_RATE, SCALARS, bandEdges, type Hit, type SignalData } from "./signals/format.ts";
 import type { AspectRatio, Clip, Effect, MediaAsset, ParamLink, ParamValues, Project, Sequence, SignalRef, Transition } from "./types.ts";
 
-export { COVER_ASSET, type LookContext, type LookLayer, seededRandom } from "./live-kit.ts";
+export { COVER_ASSET, type LookContext, type LookLayer, SLOW_MOTION, seededRandom } from "./live-kit.ts";
 import { createTransition } from "./transitions.ts";
 
 // ---------------------------------------------------------------------------
@@ -109,10 +110,17 @@ export function liveProject(shows: readonly Showing[], perform: Clip, aspectRati
   };
 }
 
-/** A look as a nested sequence: its layers on tracks of their own, top first, each as long as a session. */
+/**
+ * A look as a nested sequence: its layers on tracks of their own, top first, each as long as a session. In slow motion
+ * (`ctx.pace`, a slow song's), it moves that much as fast, its hits swell, and its energy doesn't shake, strobe, split
+ * or flash: it only brightens, and punches in half as far.
+ */
 export function lookSequence(look: LiveLook, ctx: LookContext, id: string): Sequence {
+  const pace = ctx.pace ?? 1;
+  const energy = { ...ENERGY[look.kind], ...look.energy };
+  const calm = pace < 1 ? { ...energy, punch: energy.punch / 2, shake: 0, strobe: 0, split: 0, invert: 0 } : energy;
   // The look's own layers under its energy (how it goes off when the music does).
-  const layers = [energyLayer({ ...ENERGY[look.kind], ...look.energy }), ...look.layers(ctx)];
+  const layers = [energyLayer(calm), ...look.layers(ctx)].map((layer) => (pace < 1 ? { ...layer, effects: inSlowMotion(layer.effects, pace) } : layer));
   const tracks = layers.map((_, i) => ({ id: `${id}:t${i}`, kind: "video" as const, name: `Layer ${layers.length - i}`, muted: false }));
   const clips: Clip[] = layers.map((layer, i) => ({
     id: `${id}:c${i}`,

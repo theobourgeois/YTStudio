@@ -21,7 +21,7 @@ import {
   PiWaveform,
   PiX,
 } from "react-icons/pi";
-import { type Frame, LIVE_LOOKS, LOOK_KINDS, type LookKind, PLAIN_FRAME, liveLook, seededRandom, switchTransition } from "@shared/live-looks";
+import { type Frame, LIVE_LOOKS, LOOK_KINDS, type LookKind, PLAIN_FRAME, SLOW_MOTION, liveLook, seededRandom, switchTransition } from "@shared/live-looks";
 import { positionAt } from "@shared/now-playing";
 import { isSlow } from "@shared/signals/mood";
 import { formatDuration } from "@shared/format";
@@ -35,7 +35,7 @@ import { CHUNK_SECONDS } from "@/lib/live-audio";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { addWindowListener, isElement, ownerWindow } from "@/lib/window-events";
 import { useNowPlaying } from "@/stores/now-playing";
-import { type Choice, LookChooser, type Moment } from "./chooser";
+import { type Choice, LookChooser, type Moment, slowMotionOn } from "./chooser";
 import { EFFECTS_MODES, EffectsEngine } from "./effects-engine";
 import { LiveDirector } from "./director";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
@@ -123,6 +123,8 @@ export default function NowPlayingView() {
   const shownKey = useRef("");
   const mutation = useRef({ key: "", n: 0 });
   const historyRef = useRef<string[]>([]);
+  // The looks in slow motion (a slow song's): what's shown moves half as fast, its hits swell.
+  const slowMotion = useRef(false);
 
   // What the tick (outside React) needs, as of the last render.
   const latest = useRef({ status, palette, prefs });
@@ -173,7 +175,8 @@ export default function NowPlayingView() {
     const at = plan.type === null ? time : plan.lands === "now" ? time + plan.seconds / 2 + 0.03 : onTheBar(rhythm, time + plan.seconds / 2 + 0.1);
     const mutations = mutation.current.key === key ? mutation.current.n : 0;
     shownKey.current = key;
-    director.show(look, { palette: p, random, mutations }, at, plan.type === null ? null : switchTransition(plan.type, plan.seconds));
+    const pace = slowMotion.current ? SLOW_MOTION : 1;
+    director.show(look, { palette: p, random, mutations, pace }, at, plan.type === null ? null : switchTransition(plan.type, plan.seconds));
     if (plan.morph) director.morph(at, plan.seconds);
     chooser.shown(look.id, at, barSeconds(rhythm));
     songRef.current = s?.track?.id ?? null;
@@ -307,6 +310,15 @@ export default function NowPlayingView() {
     const cuts = beats <= CUT_BEATS;
     const now = moment(time);
     if (!now) return;
+    // A song turning slow (or not any more): the look shown again in slow motion (or out of it), melting into itself.
+    // (One that doesn't flow is about to go anyway, for one that does.)
+    const slowNow = slowMotionOn(now.mood, slowMotion.current);
+    if (slowNow !== slowMotion.current) {
+      slowMotion.current = slowNow;
+      logger.info(`${slowNow ? "slow motion" : "out of slow motion"} (slow ${now.mood.slow.toFixed(2)})`);
+      const shown = liveLook(director.look ?? "");
+      if (shown && (shown.suits.flows || !slowNow)) show(shown.id, "fit", time, { type: "film-dissolve", seconds: 3, morph: true, lands: "bar" });
+    }
     playEffects(time, now);
     if (dueRef.current !== null && time >= dueRef.current - (cuts ? 0.12 : 0.6)) {
       // Every so many bars: a look that suits the music, on time.

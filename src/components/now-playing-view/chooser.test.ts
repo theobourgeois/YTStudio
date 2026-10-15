@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LIVE_LOOKS, seededRandom } from "@shared/live-looks";
 import { SONG_CHARACTERS, type Mood, type MoodEvent, type Section, type SongCharacter } from "@shared/signals/mood";
-import { FAR, LookChooser, MARGIN, PHRASE_BARS, SLOW_MOST, outOfRange, pickLook, suits } from "./chooser";
+import { FAR, LookChooser, MARGIN, PHRASE_BARS, SLOW_MOST, outOfRange, pickLook, slowMotionOn, suits } from "./chooser";
 
 /** A mood: what's given, the rest quiet and unremarkable. */
 function mood(m: Partial<Mood> = {}): Mood {
@@ -198,6 +198,13 @@ describe("following the music", () => {
     // Its loudness isn't taken for intensity: no look is changed for being out of range at 0.85.
     expect(shown.filter((s) => s.why.includes("far from the music"))).toEqual([]);
     expect(SLOW_MOST).toBeLessThan(0.85);
+  });
+
+  it("plays slow motion from a slow song on, until it's clearly not (no flicker on the line)", () => {
+    let on = false;
+    const seen: boolean[] = [];
+    for (const slow of [0.2, 0.49, 0.5, 0.45, 0.42, 0.5, 0.39, 0.45]) seen.push((on = slowMotionOn({ slow }, on)));
+    expect(seen).toEqual([false, false, true, true, true, true, false, false]);
   });
 
   it("goes minimal between songs (a long quiet)", () => {

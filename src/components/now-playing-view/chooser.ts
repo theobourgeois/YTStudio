@@ -12,7 +12,7 @@
  * Pure, and tested: the view acts on what it's told.
  */
 import type { LiveLook } from "@shared/live-looks";
-import { type Mood, isSlow } from "@shared/signals/mood";
+import { type Mood, SLOW, isSlow } from "@shared/signals/mood";
 import type { SwitchReason } from "./switches";
 
 /** How a choice comes in: cut (at `at`), soon, on the next bar, or the same look mutated (chaos) or varied. */
@@ -66,6 +66,14 @@ export const SLOW_MOST = 0.65;
 
 /** The intensity a look's range is held to: a slow song's held down (see `SLOW_MOST`). */
 const felt = (mood: Mood, intensity = mood.intensity) => (isSlow(mood) ? Math.min(intensity, SLOW_MOST) : intensity);
+/** How far under `SLOW` a song falls before slow motion stops (it doesn't flicker on the line). */
+const SLOW_MOTION_OFF = 0.1;
+
+/** Whether the looks play in slow motion now, given whether they did: from a slow song on, until it's clearly not. */
+export function slowMotionOn(mood: Pick<Mood, "slow">, was: boolean): boolean {
+  return was ? mood.slow >= SLOW - SLOW_MOTION_OFF : isSlow(mood);
+}
+
 /** Whether a look moves as the song does: on a slow song, only one that flows. */
 const paced = (look: LiveLook, mood: Mood) => !isSlow(mood) || !!look.suits.flows;
 

@@ -148,7 +148,13 @@ is, for looks to follow (steps 3 and 5):
   mastered (and real songs are: their intensity is 0.65–0.9), and leans chill. On a slow song everything flows (Théo:
   "less abrupt, just flow into each other"): only looks that flow (`LookSuits.flows`: no bars or waveforms bouncing,
   no rushing worlds), its intensity held to 0.65 for them, every change a long blend with a feedback morph (3–6 s on
-  the bar; its drop a shorter one, not a cut), the effects calm throughout.
+  the bar; its drop a shorter one, not a cut), the effects calm throughout. And it's in **slow motion** (Théo: "even
+  slow songs go through a bunch of fast effects"): its looks are made at half speed (`ctx.pace`, `inSlowMotion`:
+  everything a second, as its unit says, a zoom a second eased towards none), its hits swell (rising over 0.12 s at
+  least, falling twice as long), and its energy doesn't shake, strobe, split or flash. The clock isn't slowed (the
+  picture would leave the sound): the motion is, as a look is made, since a shader's time × speed jumps if its speed
+  changes as it plays. Slow motion starts at a slow song and stops under 0.4 (no flicker on the line), the look shown
+  then melting into itself made again (`slowMotionOn`).
 
 I shows it all in the visualizer (`mood-readout.tsx`), with the measurements under it; the assistant's `now_playing`
 says it too. `mood.test.ts` checks it on made-up music (a pad, a groove, a club track, a half-time heavy track, a loud

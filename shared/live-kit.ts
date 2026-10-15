@@ -6,6 +6,7 @@
 import { defaultEffects, effectDefinition, sanitizeEffect, solidEffects } from "./effects.ts";
 import { DEFAULT_RESPONSE } from "./links.ts";
 import type { AlbumPalette } from "./palette.ts";
+import type { NumberSpec } from "./params.ts";
 import type { Effect, LinkDepth, ParamLink, ParamValues, SignalRef } from "./types.ts";
 
 /** The song's cover, as an image a look can show (the view gives it as media: `coverAsset`). */
@@ -18,6 +19,8 @@ export interface LookContext {
   random: () => number;
   /** How many times it's been mutated (`-`), for a look that can be (chaos, `live-chaos.ts`). */
   mutations?: number;
+  /** How fast it moves: 1 as made, less in slow motion (a slow song's: `SLOW_MOTION`, `inSlowMotion`). */
+  pace?: number;
 }
 
 /** A layer of a look: its effects (with its Motion and Opacity), an adjustment layer or not. */
@@ -139,3 +142,47 @@ export function coverLayer(more: Effect[], { motion, opacity }: LayerMotion = {}
   if (opacity) effects = tweakBuiltIn(effects, "opacity", opacity.params ?? {}, opacity.links);
   return { assetId: COVER_ASSET, effects: withIds([...effects, ...more]) };
 }
+
+/** A slow song's looks move this much as fast (docs/now-playing.md, "Slow"). */
+export const SLOW_MOTION = 0.5;
+/** In slow motion a hit rises over this long at least: a swell, not a snap. */
+const SWELL = 0.12;
+/** Things a second that are how many, not how fast: slow motion doesn't make fewer of them. */
+const COUNTS = new Set(["birthRate"]);
+
+/** How a number moves things by the second, as its unit says: a speed (a spin, a drift, a scroll), a growth (a zoom a second, 1 being none), or not at all. */
+function rateOf(spec: NumberSpec): "speed" | "growth" | null {
+  if (COUNTS.has(spec.key)) return null;
+  const unit = spec.unit?.trim() ?? "";
+  if (unit === "%/s") return "growth";
+  return spec.key === "speed" || unit.endsWith("/s") ? "speed" : null;
+}
+
+/**
+ * Effects in slow motion, at `pace` of their speed: everything that moves by the second moves `pace` as fast (a zoom a
+ * second eases towards none), and each hit on the sound swells rather than snaps (rising over `SWELL` at least, falling
+ * `1 / pace` as long; what follows a level, as slowly). Applied as a look is made: a shader's time × speed jumps if its
+ * speed changes while it plays.
+ */
+export function inSlowMotion(effects: Effect[], pace: number): Effect[] {
+  if (pace >= 1) return effects;
+  return effects.map((e) => {
+    const params = { ...e.params };
+    for (const spec of effectDefinition(e.type)?.params ?? []) {
+      if (spec.kind !== "number") continue;
+      const rate = rateOf(spec);
+      const value = params[spec.key] ?? spec.default;
+      if (!rate || typeof value !== "number") continue;
+      params[spec.key] = rate === "speed" ? value * pace : Math.sign(value) * Math.abs(value) ** pace;
+    }
+    const links = e.links && Object.fromEntries(Object.entries(e.links).map(([key, link]) => [key, slowLink(link, pace)]));
+    return { ...e, params, ...(links && { links }) };
+  });
+}
+
+const slowLink = (link: ParamLink, pace: number): ParamLink => ({
+  ...link,
+  response: { ...link.response, attack: link.response.attack / pace, release: link.response.release / pace },
+  ...(link.hit && { hit: { attack: Math.max(SWELL, link.hit.attack / pace), hold: link.hit.hold / pace, decay: link.hit.decay / pace } }),
+});
+
