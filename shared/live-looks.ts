@@ -448,15 +448,15 @@ export function performLayer(
 export type LookKind = "spectrum" | "world" | "trip" | "chaos" | "milkdrop";
 
 /**
- * The kinds of look, as the picker groups them. A kind with a menu of its own isn't in the picker: its looks (many,
- * MilkDrop's) are a menu up top, shuffled or picked by name (Théo's).
+ * The kinds of look, as the looks menu groups them. A kind of many looks (MilkDrop's) is too many to step through: the
+ * arrows skip it, and ↑ ↓ onto it plays one of its looks at random.
  */
-export const LOOK_KINDS: { id: LookKind; label: string; menu?: true }[] = [
+export const LOOK_KINDS: { id: LookKind; label: string; many?: true }[] = [
   { id: "world", label: "Worlds" },
   { id: "spectrum", label: "Spectrums" },
   { id: "trip", label: "Trips" },
   { id: "chaos", label: "Chaos" },
-  { id: "milkdrop", label: "MilkDrop", menu: true },
+  { id: "milkdrop", label: "MilkDrop", many: true },
 ];
 
 /**
@@ -1009,5 +1009,5 @@ LIVE_LOOKS.push(...MILKDROP_LOOKS);
 const byId = new Map(LIVE_LOOKS.map((l) => [l.id, l]));
 export const liveLook = (id: string): LiveLook | undefined => byId.get(id);
 
-/** Whether a look is in a menu of its kind's own (`LOOK_KINDS`), not the picker. */
-export const inMenu = (look: LiveLook) => LOOK_KINDS.some((k) => k.id === look.kind && k.menu);
+/** Whether a look is of a kind of many (`LOOK_KINDS`): not stepped through by the arrows. */
+export const ofMany = (look: LiveLook) => LOOK_KINDS.some((k) => k.id === look.kind && k.many);

@@ -58,14 +58,17 @@ test("Now Playing: the song in the top bar, controlled from there, and the visua
   const before = await picture();
   await expect.poll(picture).not.toBe(before);
 
-  // The looks: the arrows step through them, the picker picks one, keys punch the picture.
-  const pressed = () => view.locator("[data-look][aria-pressed='true']").getAttribute("data-look");
-  const first = await pressed();
+  // The looks: the arrows step through them, the looks menu up top picks one (by kind), keys punch the picture.
+  const showing = () => view.getAttribute("data-showing");
+  const first = await showing();
   await page.keyboard.press("ArrowRight");
-  await expect.poll(pressed).not.toBe(first);
-  await view.getByRole("button", { name: "Spectrums", exact: true }).click();
-  await view.locator('[data-look="halo"]').click();
-  await expect(view.locator('[data-look="halo"]')).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(showing).not.toBe(first);
+  const looks = view.locator("[data-looks-menu]");
+  await looks.getByRole("button", { name: /^Looks:/ }).click();
+  await looks.locator('[data-kind="spectrum"]').click();
+  await looks.locator('[data-look="halo"]').click();
+  await expect(view).toHaveAttribute("data-showing", "halo");
+  await expect(looks.getByRole("menu")).toHaveCount(0);
   for (const key of ["z", "x", "c", "v", "3"]) await page.keyboard.press(key);
   await expect(canvas).toHaveAttribute("data-drawn", "clips");
 
@@ -248,10 +251,10 @@ test("Now Playing's MilkDrop looks: Butterchurn's presets drawn live, as any loo
   // A MilkDrop look, picked (staying on it): Butterchurn loads, draws its preset, and the visualizer shows it.
   await page.mouse.move(400, 300);
   await view.getByLabel("Change looks").selectOption("off");
-  // Its presets are a menu up top (not the picker's): Shuffle, or one by name.
-  await expect(view.locator("[data-look-picker]").getByText("MilkDrop")).toHaveCount(0);
-  const menu = view.locator('[data-looks-menu="milkdrop"]');
-  await menu.getByRole("button", { name: "MilkDrop" }).click();
+  // In the looks menu up top, by kind: Shuffle MilkDrop, or one by name.
+  const menu = view.locator("[data-looks-menu]");
+  await menu.getByRole("button", { name: /^Looks:/ }).click();
+  await menu.locator('[data-kind="milkdrop"]').click();
   const shuffle = menu.locator('[data-shuffle="milkdrop"]');
   await shuffle.click();
   const milkdrop = page.locator("canvas[data-milkdrop]");
@@ -287,6 +290,7 @@ test("Now Playing's MilkDrop looks: Butterchurn's presets drawn live, as any loo
   await other.click();
   await expect(milkdrop).toHaveAttribute("data-look", named!);
   await expect(menu.getByRole("menu")).toHaveCount(0);
+  await expect(view).toHaveAttribute("data-showing", named!);
   await page.keyboard.press("Escape");
   await expect(view).toHaveCount(0);
 });

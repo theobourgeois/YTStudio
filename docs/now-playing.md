@@ -86,6 +86,10 @@ To add a look: an entry in `LIVE_LOOKS` (its colours from the palette only: the 
 for white-outs and black) and `--song some.mp3` to look at it on real music (the made-up song is too plain to judge a
 spectrum by). Watch for white-outs: Feedback in lighten mode, glow and bright colours add up, and more so in a drop.
 
+The looks are picked by the music (it's what the visualizer's for: Théo's); picking one yourself is the **looks menu**
+up top (`LooksMenu`: the look playing on its button; Shuffle, then each kind opening its looks beside it, Shuffle of
+that kind first), or the keys and R. There's no list of them along the bottom.
+
 The keys (`keys.ts`, vaudio's play mode): ← → looks, ↑ ↓ kinds, R random, M another variation, = chaos, - mutate,
 A how looks change, Z X C V punch, flash, split, twist, 1–0 turn the colours, T Y [ ] , . the frame (repeat, mirror,
 turn, zoom), Q W E more warp, swirl, ripples (⇧ less), D every setting, ⌫ wash, Space play or pause, ⇧← ⇧→ songs,
@@ -321,8 +325,8 @@ are from how fast it moves; its kinds of song, and whether it flows (slow songs)
 - **Cost**: 1.2 ms a frame on average (3.6 at most) on a Mac's GPU, on top of the engine's. Butterchurn and the four
   packs (about 2 MB) load a moment after the visualizer opens.
 - **Picking**: the chooser picks them as any look, each kind as likely as another however many looks it has. In the
-  visualizer they're a menu of their own up top (Théo's: not the picker's list), Shuffle first, then each by name; ↑ ↓
-  landing on MilkDrop shuffles. They keep their own colours (not the cover's), and the effects engine plays only
+  looks menu they're a kind as any other (Shuffle MilkDrop, then each by name); the arrows don't step through them, and
+  ↑ ↓ landing on MilkDrop shuffles. They keep their own colours (not the cover's), and the effects engine plays only
   frames and light distortions over them, as over chaos (they feed back into themselves).
 - **Licences**: Butterchurn and `butterchurn-presets` are MIT; the presets are MilkDrop's community's, shipped in that
   package.
