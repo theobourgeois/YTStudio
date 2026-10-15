@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LIVE_LOOKS, seededRandom } from "@shared/live-looks";
 import { SONG_CHARACTERS, type Mood, type MoodEvent, type Section, type SongCharacter } from "@shared/signals/mood";
-import { FAR, LookChooser, MARGIN, PHRASE_BARS, SLOW_MOST, outOfRange, pickLook, slowMotionOn, slowedDown, suits } from "./chooser";
+import { FAR, LookChooser, MANY_SHARE, MARGIN, PHRASE_BARS, SLOW_MOST, outOfRange, pickLook, slowMotionOn, slowedDown, suits } from "./chooser";
 
 /** A mood: what's given, the rest quiet and unremarkable. */
 function mood(m: Partial<Mood> = {}): Mood {
@@ -132,18 +132,24 @@ describe("what looks suit", () => {
     expect(outOfRange(drop, 0.7)).toBeLessThanOrEqual(MARGIN);
   });
 
-  it("gives each kind as good a chance as another, however many looks it has (MilkDrop's are many)", () => {
+  it("gives MilkDrop about half the picks and the other kinds the rest alike, however many looks each has", () => {
     const random = seededRandom("kinds");
     const m = mood({ character: "groove", sure: 0.8, intensity: 0.55 });
     const kinds = new Map<string, number>();
-    for (let i = 0; i < 3000; i++) {
+    for (let i = 0; i < 4000; i++) {
       const kind = pickLook(LIVE_LOOKS, m, [], random).kind;
       kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
     }
-    const shares = [...kinds.values()].map((n) => n / 3000);
+    const share = (kind: string) => (kinds.get(kind) ?? 0) / 4000;
     expect(kinds.size).toBe(5);
-    for (const share of shares) expect(share).toBeGreaterThan(0.12);
-    for (const share of shares) expect(share).toBeLessThan(0.3);
+    expect(share("milkdrop")).toBeGreaterThan(MANY_SHARE - 0.08);
+    expect(share("milkdrop")).toBeLessThan(MANY_SHARE + 0.08);
+    for (const kind of ["world", "spectrum", "trip", "chaos"]) {
+      expect(share(kind), kind).toBeGreaterThan(0.06);
+      expect(share(kind), kind).toBeLessThan(0.2);
+    }
+    // Each of ours, being few, still comes up more often than any one MilkDrop preset.
+    expect(share("chaos") / LIVE_LOOKS.filter((l) => l.kind === "chaos").length).toBeGreaterThan(share("milkdrop") / LIVE_LOOKS.filter((l) => l.kind === "milkdrop").length);
   });
 
   it("doesn't pick what was shown lately while there's another", () => {

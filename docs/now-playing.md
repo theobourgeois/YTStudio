@@ -365,10 +365,12 @@ the numbers, 1,067 looked at on `--resheet` sheets of those left). The menu list
   load a moment after the visualizer opens: exactly those picked, one module of about 1.3 MB (less than the four packs
   were) made from their files by `vite.config.ts` (`virtual:milkdrop-presets`), so adding one is a line in
   `milkdrop-presets.ts`.
-- **Picking**: the chooser picks them as any look, each kind as likely as another however many looks it has. In the
-  looks menu they're a kind as any other (Shuffle MilkDrop, then each by name); the arrows don't step through them, and
-  ↑ ↓ landing on MilkDrop shuffles. They keep their own colours (not the cover's), and the effects engine plays only
-  frames and light distortions over them, as over chaos (they feed back into themselves).
+- **Picking**: the chooser picks them as any look, MilkDrop's about half the time, the other kinds sharing the rest
+  alike, however many looks each has (`MANY_SHARE`, Théo's call: at a fifth, as each kind was, any one of ours showed
+  20 times as often as any one of 259 presets). In the looks menu they're a kind as any other (Shuffle MilkDrop, then
+  each by name); the arrows don't step through them, and ↑ ↓ landing on MilkDrop shuffles. They keep their own colours
+  (not the cover's), and the effects engine plays only frames and light distortions over them, as over chaos (they
+  feed back into themselves).
 - **Licences**: Butterchurn and `butterchurn-presets` are MIT; the presets are MilkDrop's community's, shipped in that
   package.
 

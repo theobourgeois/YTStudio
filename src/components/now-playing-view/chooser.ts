@@ -11,7 +11,7 @@
  * transition (`switches.ts`).
  * Pure, and tested: the view acts on what it's told.
  */
-import type { LiveLook } from "@shared/live-looks";
+import { type LiveLook, ofMany } from "@shared/live-looks";
 import { type Mood, SLOW, SONG_CHARACTERS, isSlow } from "@shared/signals/mood";
 import type { SwitchReason } from "./switches";
 
@@ -61,6 +61,12 @@ const SETTLE_LOOK = 4;
 const QUIET = 0.06;
 /** Looks shown lately, not picked again soon. */
 const RECENT = 6;
+/**
+ * The share of picks MilkDrop's looks get (a kind of many: `ofMany`), however many there are, while another kind
+ * suits too: about half (Théo's call). The other kinds share the rest alike, so each of theirs, being few, still comes
+ * up more often than any one preset.
+ */
+export const MANY_SHARE = 0.5;
 /** A slow song's intensity, as its looks take it: however loud it's mastered, it's never more than this. */
 export const SLOW_MOST = 0.65;
 
@@ -111,7 +117,8 @@ const heard = (mood: Mood) => `${known(mood) ? mood.character : "not sure yet"}$
 
 /**
  * A look for the moment: one that suits it (minimal, or for an intense or calm moment, if asked), not shown lately,
- * picked at random weighted by how near the middle of its range the intensity is, each kind as likely as another. A calm moment (a breakdown) or an
+ * picked at random weighted by how near the middle of its range the intensity is, MilkDrop's half the time and the
+ * other kinds alike (`MANY_SHARE`), however many looks each has. A calm moment (a breakdown) or an
  * intense one (a drop) goes by the intensity alone, not the song's kind (a hype song's breakdown is calm, a song with a
  * quiet intro reads chill until its drop), and prefers looks made for it. A slow song has only looks that flow. Short
  * of any, the preferences are let go, then what was shown lately, then all but the nearest range.
@@ -139,12 +146,15 @@ export function pickLook(looks: readonly LiveLook[], mood: Mood, recent: readonl
   for (const ok of tries) {
     const pool = looks.filter(ok);
     if (!pool.length) continue;
-    // Each kind as likely as another, however many looks it has (MilkDrop's are many).
+    // Each kind's share (MilkDrop's `MANY_SHARE`, the rest alike, however many looks each has), split among its looks.
     const ofKind = new Map<string, number>();
     for (const l of pool) ofKind.set(l.kind, (ofKind.get(l.kind) ?? 0) + 1);
+    const manyKinds = new Set(pool.filter(ofMany).map((l) => l.kind)).size;
+    const fewKinds = ofKind.size - manyKinds;
+    const share = (l: LiveLook) => (!manyKinds || !fewKinds ? 1 / ofKind.size : ofMany(l) ? MANY_SHARE / manyKinds : (1 - MANY_SHARE) / fewKinds);
     const weights = pool.map((l) => {
       const [lo, hi] = l.suits.energy;
-      return (1.2 - Math.min(1, Math.abs(intensity - (lo + hi) / 2) / Math.max(0.1, (hi - lo) / 2))) / ofKind.get(l.kind)!;
+      return ((1.2 - Math.min(1, Math.abs(intensity - (lo + hi) / 2) / Math.max(0.1, (hi - lo) / 2))) * share(l)) / ofKind.get(l.kind)!;
     });
     let left = random() * weights.reduce((a, b) => a + b, 0);
     for (let i = 0; i < pool.length; i++) if ((left -= weights[i]) <= 0) return pool[i];
