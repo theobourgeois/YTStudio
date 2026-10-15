@@ -132,7 +132,7 @@ describe("what looks suit", () => {
     expect(outOfRange(drop, 0.7)).toBeLessThanOrEqual(MARGIN);
   });
 
-  it("gives each kind as good a chance as another, however many looks it has (MilkDrop's are many)", () => {
+  it("gives each look as good a chance as another whatever its kind: MilkDrop's, being most, most of the time", () => {
     const random = seededRandom("kinds");
     const m = mood({ character: "groove", sure: 0.8, intensity: 0.55 });
     const kinds = new Map<string, number>();
@@ -140,10 +140,8 @@ describe("what looks suit", () => {
       const kind = pickLook(LIVE_LOOKS, m, [], random).kind;
       kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
     }
-    const shares = [...kinds.values()].map((n) => n / 3000);
     expect(kinds.size).toBe(5);
-    for (const share of shares) expect(share).toBeGreaterThan(0.12);
-    for (const share of shares) expect(share).toBeLessThan(0.3);
+    expect(kinds.get("milkdrop")! / 3000).toBeGreaterThan(0.7);
   });
 
   it("doesn't pick what was shown lately while there's another", () => {
