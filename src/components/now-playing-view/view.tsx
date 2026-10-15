@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  PiArrowLeft,
+  PiArrowRight,
   PiArrowSquareIn,
   PiArrowSquareOut,
   PiArrowsInSimple,
   PiArrowsOutSimple,
   PiCaretDown,
   PiCaretLeft,
+  PiCards,
   PiCheck,
   PiCornersIn,
   PiCornersOut,
+  PiHeart,
+  PiHeartFill,
   PiKeyboard,
   PiMetronome,
   PiPauseFill,
@@ -21,13 +26,16 @@ import {
   PiSlidersHorizontal,
   PiSkipBackFill,
   PiSkipForwardFill,
+  PiTrash,
+  PiTrashFill,
   PiWaveform,
   PiX,
 } from "react-icons/pi";
 import { type Frame, LIVE_LOOKS, LOOK_KINDS, type LookKind, PLAIN_FRAME, SLOW_MOTION, liveLook, ofMany, seededRandom, switchTransition } from "@shared/live-looks";
 import { MILKDROP_ASSET } from "@shared/live-milkdrop";
+import type { LookVerdict, RatingVerdict } from "@shared/look-ratings";
 import { positionAt } from "@shared/now-playing";
-import { type Mood, isSlow } from "@shared/signals/mood";
+import { type Mood, type SongCharacter, isSlow } from "@shared/signals/mood";
 import { formatDuration } from "@shared/format";
 import type { MusicAnalysis } from "@shared/types";
 import { cn } from "cn";
@@ -39,16 +47,18 @@ import { CHUNK_SECONDS } from "@/lib/live-audio";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { addWindowListener, isElement, ownerWindow } from "@/lib/window-events";
 import { useNowPlaying } from "@/stores/now-playing";
-import { type Choice, LookChooser, type Moment, slowMotionOn, slowedDown } from "./chooser";
+import { type Choice, LookChooser, type Moment, pickWanted, slowMotionOn, slowedDown } from "./chooser";
 import { EFFECTS_MODES, EffectsEngine } from "./effects-engine";
 import { LiveDirector } from "./director";
 import { MilkDrop } from "./milkdrop";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
+import { useLookRatings } from "./look-ratings";
 import { ImageSlots, LiveSource } from "./live-source";
 import { MoodReadout } from "./mood-readout";
 import { VibeOffer } from "./vibe-offer";
 import { type Area, type Box, type BoxedSize, COMPACT, type Edges, type VisualizerSize, dragBox, placeBox } from "./placement";
 import { PlayPanel } from "./play-panel";
+import { RATE_SECONDS, RatingRound, SKIP_SECONDS } from "./rating";
 import { TapSync, type Tapper } from "./sync";
 import { AUTO_SWITCHES, CUT_BEATS, PACE, QUALITIES, SLOW_PACE, paceLabel, useVisualizerPrefs } from "./prefs";
 import { type Switch, type SwitchReason, switchFor } from "./switches";
@@ -87,6 +97,16 @@ const stepAlong = (steps: readonly number[], value: number, by: 1 | -1) => {
   return steps[Math.max(0, Math.min(steps.length - 1, i + by))];
 };
 
+/** What a rating says, for the log. */
+const VERDICT_WORDS: Record<RatingVerdict, string> = { love: "loved", bin: "binned", clear: "took back the rating of", pass: "passed over", skip: "skipped" };
+/** Seconds the note saying what was rated shows. */
+const RATED_MS = 1800;
+/** Why a look changes when the visualizer picks it itself (the music's reasons): left soon after, it's a skip. */
+const PUT_UP: ReadonlySet<SwitchReason> = new Set(["drop", "breakdown", "song", "quiet", "fit", "phrase", "schedule"]);
+
+/** The user's taste as it is now (their ratings), for a look on a kind of song. */
+const appealNow = (look: string, character: SongCharacter | null) => useLookRatings.getState().taste.appeal(look, character);
+
 /** The first downbeat at or after `after`: the last one heard, carried on a bar at a time (null: none known yet). */
 function nextDownbeat(rhythm: MusicAnalysis | null | undefined, after: number): number | null {
   const last = rhythm?.downbeats.findLast((t) => t <= after);
@@ -122,7 +142,11 @@ export default function NowPlayingView() {
   const shownPalette = useRef<object | null>(null);
   const dueRef = useRef<number | null>(null);
   // Which look plays, following the music (`chooser.ts`), and its last choices (the readout's).
-  const [chooser] = useState(() => new LookChooser(LIVE_LOOKS));
+  const [chooser] = useState(() => {
+    const following = new LookChooser(LIVE_LOOKS);
+    following.appeal = appealNow;
+    return following;
+  });
   // The effects over the looks, played by the music (`effects-engine.ts`) unless by hand.
   const [effectsEngine] = useState(() => new EffectsEngine());
   const choices = useRef<{ time: number; why: string }[]>([]);
@@ -131,6 +155,19 @@ export default function NowPlayingView() {
   const shownKey = useRef("");
   const mutation = useRef({ key: "", n: 0 });
   const historyRef = useRef<string[]>([]);
+  // The look shown, since when (ms), and whether the visualizer put it up itself (following the music, or at random):
+  // one the user leaves within a few seconds is skipped (a small thumbs-down, `SKIP_SECONDS`).
+  const shownSince = useRef<{ look: string; at: number; by: "music" | "random" | null }>({ look: "", at: 0, by: null });
+  // The rating mode (⇧R): the looks one after another (`rating.ts`), the one showing and when it moves on.
+  const round = useRef<RatingRound | null>(null);
+  const [rating, setRatingState] = useState<{ look: string; until: number } | null>(null);
+  const ratingRef = useRef(rating);
+  const setRating = (next: { look: string; until: number } | null) => {
+    ratingRef.current = next;
+    setRatingState(next);
+  };
+  // What was just rated, for the note saying so (`n` counts them, so the same one twice shows again).
+  const [rated, setRated] = useState<{ look: string; verdict: RatingVerdict | "done"; character: SongCharacter | null; n: number } | null>(null);
   // The looks in slow motion (a slow song's, or the Speed slider's): what's shown moves that much as fast, its hits
   // swell. The speed the looks are made at, and the one wanted lately (made at once it's settled).
   const slowMotion = useRef(prefs.pace < 1);
@@ -194,7 +231,7 @@ export default function NowPlayingView() {
    * Show a look, switching as the music says for why it's changing (`switchFor`: a cut at `time`, a blend with a
    * feedback morph, a punch or a glitch landing on the next downbeat, a key's quick one), or as `switching` says.
    */
-  const show = (lookId: string, reason: SwitchReason, time = source.now, switching?: Partial<Switch>) => {
+  const show = (lookId: string, reason: SwitchReason, time = source.now, switching?: Partial<Switch>, by?: "music" | "random") => {
     const look = liveLook(lookId) ?? LIVE_LOOKS[0];
     const { status: s, palette: p, prefs: pr } = latest.current;
     const key = `${s?.track?.id ?? "nothing"}:${look.id}:${variationRef.current}`;
@@ -214,6 +251,7 @@ export default function NowPlayingView() {
     songRef.current = s?.track?.id ?? null;
     shownPalette.current = p;
     historyRef.current = [...historyRef.current.filter((id) => id !== look.id), look.id].slice(-6);
+    if (look.id !== shownSince.current.look) shownSince.current = { look: look.id, at: Date.now(), by: by ?? (PUT_UP.has(reason) ? "music" : null) };
     if (pr.look !== look.id) useVisualizerPrefs.getState().setLook(look.id);
     const beats = AUTO_SWITCHES.find((a) => a.id === pr.auto)?.beats;
     dueRef.current = beats ? at + beats * beatSeconds(rhythm) : null;
@@ -226,7 +264,13 @@ export default function NowPlayingView() {
     variationRef.current++;
     director.hit("flash", source.now + 0.01, 0.45);
     director.hit("zoom", source.now + 0.01, 0.35);
-    show(lookId ?? pool[Math.floor(Math.random() * pool.length)].id, "chaos");
+    show(lookId ?? pickWanted(pool, appealNow, characterNow(), Math.random)!.id, "chaos");
+  };
+
+  /** The kind of song playing, as the looks hear it (null: not known yet, or nothing heard). */
+  const characterNow = () => {
+    const mood = useNowPlaying.getState().live?.signals.mood;
+    return mood ? asHeard(mood).character : null;
   };
 
   /** Whether the song is a slow one, or taken as one (its looks flow into each other). */
@@ -314,11 +358,102 @@ export default function NowPlayingView() {
     show(choice.look, choice.reason, time);
   };
 
-  /** A look not shown lately (of `kind`, if given). */
+  /** A look not shown lately (of `kind`, if given), by the user's taste (never one they binned, loved ones more). */
   const another = (kind?: LookKind) => {
     const pool = LIVE_LOOKS.filter((l) => (!kind || l.kind === kind) && !historyRef.current.includes(l.id));
-    const from = pool.length ? pool : LIVE_LOOKS;
-    return from[Math.floor(Math.random() * from.length)].id;
+    return pickWanted(pool.length ? pool : LIVE_LOOKS, appealNow, characterNow(), Math.random)!.id;
+  };
+
+  /** A rating of `look`, with the moment it's given: how long it showed, the song, the kind of song and how intense. */
+  const record = (look: string, verdict: RatingVerdict, inRound = false) => {
+    const mood = useNowPlaying.getState().live?.signals.mood;
+    const heard = mood ? asHeard(mood) : null;
+    const track = latest.current.status?.track;
+    const since = shownSince.current;
+    useLookRatings.getState().rate({
+      look,
+      verdict,
+      ...(inRound && { rating: true as const }),
+      seconds: since.look === look ? (Date.now() - since.at) / 1000 : 0,
+      song: track ? { id: track.id, name: track.name, artist: track.artist } : null,
+      mood: heard ? { character: heard.character, intensity: heard.intensity, slow: heard.slow } : null,
+    });
+    const line = `${VERDICT_WORDS[verdict]} ${liveLook(look)?.name ?? look}${heard ? ` (${heard.character ?? "not sure yet"}, intensity ${heard.intensity.toFixed(2)})` : ""}`;
+    if (verdict === "skip" || verdict === "pass") logger.debug(line);
+    else logger.info(line);
+  };
+
+  /** The user's moving off the look shown: one the visualizer put up, left within a few seconds, is skipped. */
+  const leaving = () => {
+    const shown = shownSince.current;
+    if (!shown.by || round.current || shown.look !== director.look) return;
+    shown.by = null;
+    if (Date.now() - shown.at < SKIP_SECONDS * 1000) record(shown.look, "skip");
+  };
+
+  /** Another look at once, as the music says (at random, before it's heard): the one shown was binned. */
+  const moveOn = (why: string) => {
+    const now = moment(source.now);
+    variationRef.current++;
+    show(now ? chooser.pick(now, why).look : another(), "key", source.now, undefined, "music");
+  };
+
+  /**
+   * L and B (and the assistant): the look shown loved or binned for this kind of song, or taken back if it was
+   * already (`toggle`: a key pressed again) or asked (`clear`). A binned look goes at once; in the rating mode, the next
+   * look comes.
+   */
+  const rate = (verdict: "love" | "bin" | "clear", toggle = true) => {
+    const look = director.look ?? latest.current.prefs.look;
+    const character = characterNow();
+    const was = useLookRatings.getState().taste.verdict(look, character);
+    const said = verdict === "clear" || (toggle && was.here && was.verdict === verdict) ? "clear" : verdict;
+    if (said === "clear" && !was.here) return;
+    record(look, said, !!round.current);
+    shownSince.current.by = null;
+    setRated((r) => ({ look, verdict: said, character, n: (r?.n ?? 0) + 1 }));
+    if (round.current) {
+      if (said !== "clear") nextToRate();
+      return;
+    }
+    if (said === "bin") moveOn("binned");
+  };
+
+  /** The rating mode (⇧R): the looks one after another, those nobody has judged first, each suiting what's playing. */
+  const startRating = () => {
+    if (round.current) return;
+    round.current = new RatingRound(LIVE_LOOKS);
+    logger.info("rating the looks");
+    nextToRate();
+  };
+  const stopRating = (done = false) => {
+    if (!round.current) return;
+    round.current = null;
+    setRating(null);
+    useLookRatings.getState().setRating(null);
+    logger.info(done ? "every look's rated" : "stopped rating the looks");
+    if (done) setRated((r) => ({ look: "", verdict: "done", character: null, n: (r?.n ?? 0) + 1 }));
+  };
+  /** The next look to rate (`passed`: the one showing goes by with nothing said of it); none left, it's done. */
+  const nextToRate = (passed = false) => {
+    const r = round.current;
+    if (!r) return;
+    const showing = ratingRef.current?.look;
+    if (passed && showing && showing === director.look && !useLookRatings.getState().taste.judged(showing)) record(showing, "pass", true);
+    const mood = useNowPlaying.getState().live?.signals.mood;
+    const look = r.next(useLookRatings.getState().taste, mood ? asHeard(mood) : null);
+    if (!look) return stopRating(true);
+    showToRate(look);
+  };
+  const showToRate = (look: string) => {
+    variationRef.current++;
+    show(look, "key");
+    setRating({ look, until: Date.now() + RATE_SECONDS * 1000 });
+    useLookRatings.getState().setRating({ left: round.current!.left(useLookRatings.getState().taste) });
+  };
+  const backToRate = () => {
+    const look = round.current?.back();
+    if (look) showToRate(look);
   };
 
   /** Each frame, before it's drawn: what's decided (`decide`), then MilkDrop's frame, if one of its looks is on screen. */
@@ -341,6 +476,12 @@ export default function NowPlayingView() {
       director.setPace(paceShown.current, time);
       if (!first) source.restart();
       show(latest.current.prefs.look, "key", first ? time : 0, { type: null });
+      // The rating mode, asked for before it could start (the assistant opening the visualizer for it).
+      const asked = useLookRatings.getState().asked;
+      if (asked !== null) {
+        useLookRatings.getState().ask(null);
+        if (asked) startRating();
+      }
       return;
     }
     director.prune(time);
@@ -365,6 +506,8 @@ export default function NowPlayingView() {
       if (shown && (shown.suits.flows || pace === 1 || set < 1 || latest.current.prefs.auto === "off")) show(shown.id, "fit", time, { type: "film-dissolve", seconds: 3, morph: true, lands: "bar" });
     }
     playEffects(time, now);
+    // Rating the looks: they change as the rating mode says, not by themselves.
+    if (round.current) return;
     if (dueRef.current !== null && time >= dueRef.current - (cuts ? 0.12 : 0.6)) {
       // Every so many bars: a look that suits the music, on time.
       const due = dueRef.current;
@@ -403,7 +546,7 @@ export default function NowPlayingView() {
     if (newSong) variationRef.current = 0;
     const now = moment(source.now);
     // A new song, following the music: something minimal until it's known what kind of song it is.
-    if (newSong && prefs.auto !== "off" && now) apply(chooser.song(now), source.now);
+    if (newSong && prefs.auto !== "off" && now && !round.current) apply(chooser.song(now), source.now);
     else show(director.look ?? prefs.look, "key");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [palette]);
@@ -416,11 +559,42 @@ export default function NowPlayingView() {
     else effectsEngine.from({ frame: director.frame, fx: director.fx }, source.now);
   }, [director, source, effectsEngine, fx, effectsMode]);
 
+  // The user's ratings (kept on this computer), for the looks picked; the rating mode's off once it's closed.
+  useEffect(() => {
+    void useLookRatings.getState().load();
+    return () => useLookRatings.getState().setRating(null);
+  }, []);
+  // The rating mode asked for by the assistant, once the visualizer's going (before, it starts when it is).
+  const asked = useLookRatings((s) => s.asked);
+  useEffect(() => {
+    if (asked === null || !sessionRef.current) return;
+    useLookRatings.getState().ask(null);
+    if (asked) startRating();
+    else stopRating();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asked]);
+  // The rating mode: on to the next look when this one's time is up, nothing said of it.
+  useEffect(() => {
+    if (!rating) return;
+    const t = setTimeout(() => nextToRate(true), Math.max(0, rating.until - Date.now()));
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rating]);
+  // The note saying what was rated goes after a moment.
+  useEffect(() => {
+    if (!rated) return;
+    const t = setTimeout(() => setRated(null), RATED_MS);
+    return () => clearTimeout(t);
+  }, [rated]);
+
   // A look asked for from outside (the assistant), or chaos rolled or mutated.
   const requested = prefs.requested;
   useEffect(() => {
     if (!requested || !sessionRef.current) return;
-    if (requested.roll === "chaos") chaos(requested.look);
+    if (requested.rate) {
+      if (requested.look !== director.look) show(requested.look, "key");
+      rate(requested.rate, false);
+    } else if (requested.roll === "chaos") chaos(requested.look);
     else if (requested.roll === "mutate") mutate();
     else if (requested.frame) reframe(requested.frame === "reset" ? PLAIN_FRAME : { ...director.frame, ...requested.frame }, requested.frame === "reset");
     else show(requested.look, "key");
@@ -571,30 +745,42 @@ export default function NowPlayingView() {
     else resize(place.size === "full" ? before() : "full");
   };
 
-  /** A look of `kind` at random, not the one shown (the looks menu's Shuffle of a kind). */
+  /** A look of `kind` at random, not the one shown, by the user's taste (the looks menu's Shuffle of a kind). */
   const shuffle = (kind: LookKind) => {
     const pool = LIVE_LOOKS.filter((l) => l.kind === kind && l.id !== director.look);
     if (!pool.length) return;
+    leaving();
     variationRef.current++;
-    show(pool[Math.floor(Math.random() * pool.length)].id, "key");
+    show(pickWanted(pool, appealNow, characterNow(), Math.random)!.id, "key", undefined, undefined, "random");
   };
   /** A look at random, of any kind, not shown lately (R, the shuffle button, the looks menu's Shuffle). */
   const shuffleAny = () => {
+    leaving();
     variationRef.current++;
-    show(another(), "key");
+    show(another(), "key", undefined, undefined, "random");
   };
-  // The arrows step through the looks but a kind of many's (MilkDrop's).
+  /** A look picked by name (the looks menu). */
+  const pick = (id: string) => {
+    leaving();
+    show(id, "key");
+  };
+  // The arrows step through the looks but a kind of many's (MilkDrop's), and those the user binned.
   const stepped = LIVE_LOOKS.filter((l) => !ofMany(l));
+  const kept = (l: (typeof LIVE_LOOKS)[number]) => l.id === director.look || appealNow(l.id, characterNow()) > 0;
   const step = (by: 1 | -1) => {
-    const i = stepped.findIndex((l) => l.id === (director.look ?? prefs.look));
-    show(stepped[(i + by + stepped.length) % stepped.length].id, "key");
+    const looks = stepped.filter(kept);
+    const i = looks.findIndex((l) => l.id === (director.look ?? prefs.look));
+    leaving();
+    show(looks[(i + by + looks.length) % looks.length].id, "key");
   };
   const stepGroup = (by: 1 | -1) => {
     const current = liveLook(director.look ?? prefs.look)?.kind ?? "world";
     const k = LOOK_KINDS.findIndex((g) => g.id === current);
     const kind = LOOK_KINDS[(k + by + LOOK_KINDS.length) % LOOK_KINDS.length];
-    if (kind.many) shuffle(kind.id);
-    else show(LIVE_LOOKS.find((l) => l.kind === kind.id)!.id, "key");
+    if (kind.many) return shuffle(kind.id);
+    leaving();
+    const ofKind = LIVE_LOOKS.filter((l) => l.kind === kind.id);
+    show((ofKind.find(kept) ?? ofKind[0]).id, "key");
   };
 
   // The keys: the visualizer has them all while it fills the app (the editor's under it don't hear them), in a box
@@ -621,6 +807,9 @@ export default function NowPlayingView() {
       e.preventDefault();
       if (e.repeat && action.kind !== "pad") return;
       const np = useNowPlaying.getState();
+      // Rating the looks: → the next (nothing said), ← back, Esc stops.
+      if (round.current && action.kind === "close" && !doc().fullscreenElement) return stopRating();
+      if (round.current && action.kind === "look") return action.step === 1 ? nextToRate(true) : backToRate();
       switch (action.kind) {
         case "close":
           return doc().fullscreenElement ? void doc().exitFullscreen() : close();
@@ -640,7 +829,12 @@ export default function NowPlayingView() {
           variationRef.current++;
           return show(director.look ?? prefs.look, "key");
         case "chaos":
+          leaving();
           return chaos();
+        case "rate":
+          return rate(action.verdict);
+        case "rating":
+          return round.current ? stopRating() : startRating();
         case "frame": {
           const f = director.frame;
           const next: Frame =
@@ -709,6 +903,11 @@ export default function NowPlayingView() {
 
   const showing = useCurrentLook(director, prefs.look);
   const controls = hudShown && !hudHidden;
+  // The look shown, as rated for the kind of song playing (the hearts and bins).
+  const taste = useLookRatings((s) => s.taste);
+  const left = useLookRatings((s) => s.rating?.left ?? 0);
+  const character = characterNow();
+  const shownVerdict = taste.verdict(showing, character);
   // Small (the mini player, a small window): only its few controls.
   const compact = area.width < COMPACT.width || area.height < COMPACT.height;
 
@@ -767,6 +966,7 @@ export default function NowPlayingView() {
       ref={setRoot}
       data-now-playing-view={place.out ? "out" : place.size}
       data-showing={showing}
+      data-rating={rating ? "on" : undefined}
       data-engaged={boxed ? engaged : undefined}
       className={cn(
         "fixed z-[70] overflow-hidden bg-black text-white select-none",
@@ -809,7 +1009,8 @@ export default function NowPlayingView() {
       ) : (
         <div className={cn("pointer-events-none absolute inset-0 transition-opacity duration-500", controls ? "opacity-100" : "opacity-0")}>
           <div className="pointer-events-auto absolute top-4 right-4 flex items-center gap-1">
-            <LooksMenu current={showing} onPick={(id) => show(id, "key")} onShuffle={shuffle} onShuffleAny={shuffleAny} />
+            <LooksMenu current={showing} verdictOf={(id) => taste.verdict(id, character)} onPick={pick} onShuffle={shuffle} onShuffleAny={shuffleAny} />
+            <RateButtons verdict={shownVerdict} onRate={rate} />
             <Hearing />
             <HudButton label="Tap along to sync (S)" onClick={() => setSyncing(true)} active={syncing}>
               <PiMetronome />
@@ -830,6 +1031,9 @@ export default function NowPlayingView() {
             <div className="flex items-center gap-4">
               <Transport />
               <div className="ml-auto flex items-center gap-2">
+                <HudButton label={rating ? "Stop rating the looks (Esc)" : "Rate the looks, one after another (⇧R)"} active={!!rating} onClick={() => (rating ? stopRating() : startRating())}>
+                  <PiCards />
+                </HudButton>
                 <HudButton label="A look at random (R)" onClick={shuffleAny}>
                   <PiShuffle />
                 </HudButton>
@@ -858,6 +1062,20 @@ export default function NowPlayingView() {
           }}
         />
       )}
+      {rating && !hudHidden && (
+        <RatingBar
+          look={rating.look}
+          until={rating.until}
+          left={left}
+          verdict={shownVerdict}
+          compact={compact}
+          onRate={rate}
+          onNext={() => nextToRate(true)}
+          onBack={backToRate}
+          onStop={() => stopRating()}
+        />
+      )}
+      {rated && <RatedNote key={rated.n} {...rated} />}
       {help && !compact && <KeysHelp onClose={() => setHelp(false)} />}
       {moodShown && !compact && <MoodReadout now={() => source.now} choices={() => choices.current} />}
       {syncing && <TapSync source={source} tapper={tapper} onDone={stopSyncing} />}
@@ -1091,11 +1309,14 @@ function Hearing() {
  */
 function LooksMenu({
   current,
+  verdictOf,
   onPick,
   onShuffle,
   onShuffleAny,
 }: {
   current: string;
+  /** How each look's rated for the kind of song playing (a heart, a bin). */
+  verdictOf: (id: string) => LookVerdict;
   onPick: (id: string) => void;
   onShuffle: (kind: LookKind) => void;
   onShuffleAny: () => void;
@@ -1172,27 +1393,159 @@ function LooksMenu({
                 Shuffle {label}
               </button>
               <div className="my-1 h-px bg-white/10" />
-              {listed.map((l) => (
-                <button
-                  key={l.id}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={l.id === current}
-                  data-look={l.id}
-                  onClick={() => {
-                    onPick(l.id);
-                    close();
-                  }}
-                  className={item}
-                >
-                  {tick(l.id === current)}
-                  <span className="truncate">{l.name}</span>
-                </button>
-              ))}
+              {listed.map((l) => {
+                const { verdict } = verdictOf(l.id);
+                return (
+                  <button
+                    key={l.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={l.id === current}
+                    data-look={l.id}
+                    data-verdict={verdict ?? undefined}
+                    title={verdict === "bin" ? "Binned: never shown by itself" : verdict === "love" ? "Loved: shown more" : undefined}
+                    onClick={() => {
+                      onPick(l.id);
+                      close();
+                    }}
+                    className={cn(item, verdict === "bin" && "text-white/40")}
+                  >
+                    {tick(l.id === current)}
+                    <span className="flex-1 truncate">{l.name}</span>
+                    {verdict === "love" && <PiHeartFill className="text-white/70" />}
+                    {verdict === "bin" && <PiTrash className="text-white/40" />}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Love or bin the look shown (L, B), each again to take it back. */
+function RateButtons({ verdict, onRate }: { verdict: LookVerdict; onRate: (verdict: "love" | "bin") => void }) {
+  const loved = verdict.here && verdict.verdict === "love";
+  const binned = verdict.here && verdict.verdict === "bin";
+  return (
+    <>
+      <HudButton label={loved ? "Loved: shown more (L takes it back)" : "Love this look: shown more (L)"} active={loved} onClick={() => onRate("love")}>
+        {loved ? <PiHeartFill /> : <PiHeart />}
+      </HudButton>
+      <HudButton label={binned ? "Binned (B takes it back)" : "Bin this look: never shown again (B)"} active={binned} onClick={() => onRate("bin")}>
+        {binned ? <PiTrashFill /> : <PiTrash />}
+      </HudButton>
+    </>
+  );
+}
+
+/**
+ * The rating mode's bar (⇧R): the look to rate, love or bin it (each moving on), back or on with nothing said, how
+ * many are left, and how long until the next comes by itself.
+ */
+function RatingBar({
+  look,
+  until,
+  left,
+  verdict,
+  compact,
+  onRate,
+  onNext,
+  onBack,
+  onStop,
+}: {
+  look: string;
+  until: number;
+  left: number;
+  verdict: LookVerdict;
+  compact: boolean;
+  onRate: (verdict: "love" | "bin") => void;
+  onNext: () => void;
+  onBack: () => void;
+  onStop: () => void;
+}) {
+  const now = useNow(100);
+  const share = Math.max(0, Math.min(1, (until - now) / (RATE_SECONDS * 1000)));
+  const l = liveLook(look);
+  const kind = LOOK_KINDS.find((k) => k.id === l?.kind)?.label;
+  const loved = verdict.here && verdict.verdict === "love";
+  const binned = verdict.here && verdict.verdict === "bin";
+  const big = "flex h-9 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-white/90 hover:bg-white/10 [&_svg]:size-4";
+  return (
+    <div
+      data-rating-bar={look}
+      className={cn(
+        "absolute left-1/2 z-10 -translate-x-1/2 overflow-hidden rounded-xl bg-black/75 ring-1 ring-white/10 backdrop-blur-md",
+        compact ? "bottom-14" : "bottom-28",
+      )}
+    >
+      <div className={cn("flex items-center", compact ? "gap-0.5 p-0.5" : "gap-1 py-1.5 pr-1.5 pl-4")}>
+        {!compact && (
+          <div className="mr-3 min-w-0">
+            <p className="text-[11px] tracking-wide text-white/50 uppercase">Rating the looks · {left} to go</p>
+            <p className="max-w-64 truncate text-sm font-medium">
+              {l?.name ?? look}
+              {kind && <span className="font-normal text-white/50"> · {kind}</span>}
+            </p>
+          </div>
+        )}
+        <HudButton label="Back to the one before (←)" onClick={onBack}>
+          <PiArrowLeft />
+        </HudButton>
+        <button type="button" data-rate="love" aria-pressed={loved} title="Love it: shown more (L)" onClick={() => onRate("love")} className={cn(big, loved && "bg-white/15")}>
+          {loved ? <PiHeartFill /> : <PiHeart />}
+          {!compact && (
+            <>
+              Love <Key>L</Key>
+            </>
+          )}
+        </button>
+        <button type="button" data-rate="bin" aria-pressed={binned} title="Bin it: never shown again (B)" onClick={() => onRate("bin")} className={cn(big, binned && "bg-white/15")}>
+          {binned ? <PiTrashFill /> : <PiTrash />}
+          {!compact && (
+            <>
+              Bin <Key>B</Key>
+            </>
+          )}
+        </button>
+        <HudButton label="Next, nothing said (→)" onClick={onNext}>
+          <PiArrowRight />
+        </HudButton>
+        {!compact && (
+          <button type="button" onClick={onStop} title="Stop rating (Esc)" className="ml-1 h-9 rounded-md px-3 text-[13px] text-white/70 hover:bg-white/10 hover:text-white">
+            Done
+          </button>
+        )}
+      </div>
+      <div className="h-0.5 bg-white/10">
+        <div className="h-full bg-white/60" style={{ width: `${share * 100}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function Key({ children }: { children: React.ReactNode }) {
+  return <kbd className="rounded bg-white/15 px-1 font-mono text-[11px] leading-4 font-normal text-white/70">{children}</kbd>;
+}
+
+/** What was just rated, said for a moment. */
+function RatedNote({ look, verdict, character }: { look: string; verdict: RatingVerdict | "done"; character: SongCharacter | null }) {
+  const name = liveLook(look)?.name ?? look;
+  const on = character ? ` on ${character} songs` : "";
+  const text =
+    verdict === "love"
+      ? `Loved ${name}: shown more${on}`
+      : verdict === "bin"
+        ? `Binned ${name}: it won't come back${on}`
+        : verdict === "clear"
+          ? `${name}: as any other look again`
+          : "That's every look rated";
+  return (
+    <div data-rated={verdict} className="pointer-events-none absolute top-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-sm text-white/90 ring-1 ring-white/10 backdrop-blur-md [&_svg]:size-4">
+      {verdict === "love" ? <PiHeartFill /> : verdict === "bin" ? <PiTrashFill /> : verdict === "done" ? <PiCheck /> : <PiHeart />}
+      <span className="max-w-[60vw] truncate">{text}</span>
     </div>
   );
 }
