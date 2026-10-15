@@ -525,6 +525,9 @@ export function describeToolCall(rawName: string, input: unknown): string {
       if (f("rate") === "love") return "Love the visualizer's look";
       if (f("rate") === "bin") return "Bin the visualizer's look";
       if (f("rate") === "clear") return "Take back a look's rating";
+      if (f("media") === "next") return "Bring in another clip";
+      if (f("media") === "on") return "Melt your clips into the visualizer";
+      if (f("media") === "off") return "Take your clips out of the visualizer";
       if (f("rating") === "start") return "Rate the visualizer's looks";
       if (f("rating") === "stop") return "Stop rating the looks";
       if (typeof f("look") === "string") return "Change the visualizer's look";

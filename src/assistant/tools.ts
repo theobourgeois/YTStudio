@@ -72,6 +72,7 @@ import { type NowPlayingUnavailable, positionAt } from "@shared/now-playing";
 import { EFFECTS_MODES } from "@/components/now-playing-view/effects-engine";
 import { AUTO_SWITCHES, PACE, paceLabel, paceOf, useVisualizerPrefs } from "@/components/now-playing-view/prefs";
 import { useLookRatings } from "@/components/now-playing-view/look-ratings";
+import { useVisualizerMedia } from "@/components/now-playing-view/media-library";
 import { useNowPlaying } from "@/stores/now-playing";
 
 /** What the music player's `unavailable` means, for the model. */
@@ -797,6 +798,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
   },
   async now_playing() {
     await useLookRatings.getState().load();
+    if (!useVisualizerMedia.getState().loaded) await useVisualizerMedia.getState().load();
     const { status, visualizer, listening } = useNowPlaying.getState();
     const prefs = useVisualizerPrefs.getState();
     const lines: string[] = [];
@@ -850,6 +852,14 @@ const TOOLS: Record<VideoToolName, Handler> = {
         `the look shown is ${verdictOf(prefs.look) ?? "not rated"}${character ? ` for ${character} songs` : ""}. ` +
         (rating ? `The rating mode is on: ${rating.left} looks nobody has judged yet.` : "The rating mode is off."),
     );
+    // The user's clips and pictures, melting into MilkDrop's feedback.
+    const { media, feeding } = useVisualizerMedia.getState();
+    const fed = media.find((m) => m.asset.id === feeding)?.asset.name;
+    lines.push(
+      media.length
+        ? `The user's clips and pictures (${media.length}: ${media.map((m) => `${m.asset.name} (${m.asset.kind})`).join(", ")}) melt into MilkDrop's feedback: ${prefs.media ? (fed ? `${fed} now` : "on, none in the look shown") : "turned off"}.`
+        : "The user has no clips or pictures in the visualizer (they add them from its media panel, or drop them on it).",
+    );
     // What each suits (step 5 of docs/now-playing.md), so a look can be picked for the music.
     const suits = (l: (typeof LIVE_LOOKS)[number]) => `${l.suits.characters.join("/")}, intensity ${l.suits.energy[0]}–${l.suits.energy[1]}${l.suits.minimal ? ", minimal" : ""}`;
     lines.push(
@@ -875,6 +885,8 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const rate = optString(input, "rate");
     if (rate !== undefined && rate !== "love" && rate !== "bin" && rate !== "clear") throw new ToolError("`rate` is love, bin or clear.");
     const ratingMode = optString(input, "rating");
+    const mediaAsk = optString(input, "media");
+    if (mediaAsk !== undefined && mediaAsk !== "on" && mediaAsk !== "off" && mediaAsk !== "next") throw new ToolError("`media` is on, off or next.");
     if (ratingMode !== undefined && ratingMode !== "start" && ratingMode !== "stop") throw new ToolError("`rating` is start or stop.");
     const rawFrame = input.frame;
     if (rawFrame !== undefined && (typeof rawFrame !== "object" || rawFrame === null || Array.isArray(rawFrame))) throw new ToolError("`frame` is an object: repeat, mirror, spin, zoom or reset.");
@@ -932,6 +944,18 @@ const TOOLS: Record<VideoToolName, Handler> = {
       }
       done.push(rate === "love" ? `loved ${name}` : rate === "bin" ? `binned ${name} (it won't be picked again)` : `took back the rating of ${name}`);
     }
+    if (mediaAsk) {
+      const vis = useVisualizerMedia.getState();
+      if (!vis.loaded) await vis.load();
+      if (mediaAsk !== "off" && !useVisualizerMedia.getState().media.length) throw new ToolError("The user has no clips or pictures in the visualizer yet: they add them from its media panel (or drop them on it).");
+      const prefs = useVisualizerPrefs.getState();
+      if (mediaAsk === "next") {
+        if (!prefs.media) prefs.setMedia(true);
+        else prefs.requestNextMedia();
+      } else prefs.setMedia(mediaAsk === "on");
+      if (mediaAsk !== "off" && !useNowPlaying.getState().visualizer) np.openVisualizer();
+      done.push(mediaAsk === "next" ? "brought in another clip" : mediaAsk === "on" ? "melting the user's clips into MilkDrop's looks" : "took the user's clips out of the visualizer");
+    }
     if (ratingMode) {
       useLookRatings.getState().ask(ratingMode === "start");
       if (ratingMode === "start" && !useNowPlaying.getState().visualizer) np.openVisualizer();
@@ -969,7 +993,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
       np.closeVisualizer();
       done.push("closed the visualizer");
     }
-    if (!done.length) throw new ToolError("Nothing to do: give `action`, `seek`, `visualizer`, `look`, `frame`, `fx`, `roll`, `auto`, `effects`, `pace`, `rate` or `rating`.");
+    if (!done.length) throw new ToolError("Nothing to do: give `action`, `seek`, `visualizer`, `look`, `frame`, `fx`, `roll`, `auto`, `effects`, `pace`, `rate`, `rating` or `media`.");
     return textResult(`Done: ${done.join(", ")}.`);
   },
   async open_sequence(input, ctx) {
