@@ -1,4 +1,4 @@
-import { PiPauseFill, PiPlayFill, PiSkipBackFill, PiSkipForwardFill, PiWarning } from "react-icons/pi";
+import { PiPauseFill, PiPlayFill, PiSkipBackFill, PiSkipForwardFill, PiWarning, PiWaveform } from "react-icons/pi";
 import { type NowPlayingCommand, type NowPlayingStatus, positionAt } from "@shared/now-playing";
 import { cn } from "cn";
 import { useNow } from "@/hooks/use-now";
@@ -7,8 +7,9 @@ import { useNowPlaying } from "@/stores/now-playing";
 /**
  * What the music player is playing (docs/now-playing.md), at the right of the tab strip (or Home's bar, without one;
  * in a project without the tab strip it isn't shown: Théo's): the cover, the song and how far it's got; previous,
- * play and pause, next. Clicking it opens the visualizer. Nothing shows when nothing plays (or Settings › General says
- * not to).
+ * play and pause, next. Clicking it opens the visualizer. When nothing plays, a button still opens the visualizer on
+ * whatever the computer is playing (it listens to the system's sound, whichever program makes it). Nothing shows when
+ * Settings › General says not to.
  */
 export function NowPlayingPill({ className }: { className?: string }) {
   const enabled = useNowPlaying((s) => s.enabled);
@@ -44,7 +45,25 @@ export function NowPlayingPillView({
     );
   }
   const track = status.track;
-  if (status.unavailable || !track) return null;
+  if (status.unavailable || !track) {
+    // No song to show, but the visualizer listens to the computer's sound, not to the player: offer it anyway.
+    return (
+      <button
+        type="button"
+        data-visualize-sound
+        data-no-drag
+        onClick={onOpen}
+        title="Visualize the computer's sound"
+        className={cn(
+          "flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12px] text-muted-foreground outline-none hover:bg-foreground/10 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 [&_svg]:size-4",
+          className,
+        )}
+      >
+        <PiWaveform />
+        Visualizer
+      </button>
+    );
+  }
   const playing = status.state === "playing";
   const progress = track.duration > 0 ? positionAt(status, now) / track.duration : 0;
 

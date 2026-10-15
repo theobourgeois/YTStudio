@@ -255,7 +255,8 @@ export function standInPlayer(now: () => number = Date.now): Player {
   };
   return {
     name: "Stand-in",
-    read: async () => (open ? status() : unavailableStatus("Stand-in", "not-running")),
+    // Closed, the visualizer still opens (on the computer's sound): made up too.
+    read: async () => (open ? status() : { ...unavailableStatus("Stand-in", "not-running"), demo: true }),
     async command(command) {
       if (!open) {
         open = true;

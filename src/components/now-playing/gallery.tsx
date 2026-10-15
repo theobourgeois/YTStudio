@@ -17,7 +17,7 @@ const playing: NowPlayingStatus = {
   repeating: false,
 };
 
-/** The pill's states: playing, paused, a long name, no cover, and macOS not letting the app ask Spotify. */
+/** The pill's states: playing, paused, a long name, no cover, macOS not letting the app ask Spotify, and nothing playing. */
 const STATES: { label: string; status: NowPlayingStatus }[] = [
   { label: "Playing", status: playing },
   { label: "Paused", status: { ...playing, state: "paused", position: 150 } },
@@ -27,6 +27,7 @@ const STATES: { label: string; status: NowPlayingStatus }[] = [
   },
   { label: "No cover", status: { ...playing, track: { ...playing.track!, artwork: null } } },
   { label: "Not allowed", status: { ...playing, unavailable: "not-allowed", message: "Allow YTStudio to control Spotify in System Settings › Privacy & Security › Automation.", track: null } },
+  { label: "Nothing playing", status: { ...playing, unavailable: "not-running", state: "stopped", track: null } },
 ];
 
 export const NOW_PLAYING_SECTIONS: GallerySection[] = [

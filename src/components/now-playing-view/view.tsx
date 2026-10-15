@@ -1656,7 +1656,7 @@ function Transport({ compact = false }: { compact?: boolean }) {
   const status = useNowPlaying((s) => s.status);
   const now = useNow(500);
   const track = status?.track;
-  if (!status || !track) return <div className="text-sm text-white/50">Nothing's playing</div>;
+  if (!status || !track) return <div className="text-sm text-white/50">Listening to the computer's sound</div>;
   const playing = status.state === "playing";
   const position = positionAt(status, now);
   const { command } = useNowPlaying.getState();
