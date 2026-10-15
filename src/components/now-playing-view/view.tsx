@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
+  PiArrowSquareIn,
+  PiArrowSquareOut,
   PiArrowsInSimple,
   PiArrowsOutSimple,
+  PiCornersIn,
+  PiCornersOut,
   PiKeyboard,
   PiMetronome,
   PiPauseFill,
+  PiPictureInPicture,
   PiPlayFill,
+  PiPushPin,
+  PiPushPinFill,
   PiShuffle,
   PiSlidersHorizontal,
   PiSkipBackFill,
@@ -19,9 +27,12 @@ import { formatDuration } from "@shared/format";
 import type { MusicAnalysis } from "@shared/types";
 import { cn } from "cn";
 import { PreviewEngine } from "@/components/preview/engine";
+import { type StageWindow, openStageWindow } from "@/components/windows/native/stage-window";
 import { useNow } from "@/hooks/use-now";
 import { log } from "@/lib/log";
 import { CHUNK_SECONDS } from "@/lib/live-audio";
+import { startPointerDrag } from "@/lib/pointer-drag";
+import { addWindowListener, isElement, ownerWindow } from "@/lib/window-events";
 import { useNowPlaying } from "@/stores/now-playing";
 import { type Choice, LookChooser, type Moment } from "./chooser";
 import { EFFECTS_MODES, EffectsEngine } from "./effects-engine";
@@ -29,6 +40,7 @@ import { LiveDirector } from "./director";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
 import { ImageSlots, LiveSource } from "./live-source";
 import { MoodReadout } from "./mood-readout";
+import { type Area, type Box, type BoxedSize, COMPACT, type Edges, type VisualizerSize, dragBox, placeBox } from "./placement";
 import { PlayPanel } from "./play-panel";
 import { TapSync, type Tapper } from "./sync";
 import { AUTO_SWITCHES, CUT_BEATS, QUALITIES, useVisualizerPrefs } from "./prefs";
@@ -364,15 +376,33 @@ export default function NowPlayingView() {
   const quality = QUALITIES.find((q) => q.id === prefs.quality) ?? QUALITIES[1];
   useEffect(() => engine.setResolution(quality.scale), [engine, quality.scale]);
 
-  // The canvas covers the window at 16:9 (a 16:10 screen loses a sliver top and bottom).
-  const box = useRef<HTMLDivElement>(null);
+  // Where it is (`placement.ts`): filling the app, a window over it, the mini player, or out in its own window.
+  const place = prefs.place;
+  const viewport = useViewport();
+  const stage = useStage(place.out);
+  useEffect(() => source.drawIn(stage?.win ?? window), [source, stage]);
+  const track = status?.track;
+  useEffect(() => {
+    if (stage) stage.win.document.title = track ? `${track.name} · ${track.artist}` : "Now Playing";
+  }, [stage, track?.name, track?.artist]); // eslint-disable-line react-hooks/exhaustive-deps
+  const boxed = !place.out && place.size !== "full";
+  const boxedSize = place.size as BoxedSize;
+  // A box being moved or resized (kept once it's let go).
+  const [dragging, setDragging] = useState<Box | null>(null);
+  const at = boxed ? (dragging ?? placeBox(boxedSize, place.boxes[boxedSize], viewport)) : null;
+
+  // Its element, in whichever window it's in. The canvas covers it at 16:9 (a 16:10 screen loses a sliver top and
+  // bottom).
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const [area, setArea] = useState({ width: window.innerWidth, height: window.innerHeight });
   useLayoutEffect(() => {
-    const node = box.current!;
-    const observer = new ResizeObserver(([entry]) => setArea({ width: entry.contentRect.width, height: entry.contentRect.height }));
-    observer.observe(node);
+    if (!root) return;
+    // (The window's own observer: another's doesn't look while that one isn't drawn.)
+    const Observer = (ownerWindow(root) as unknown as typeof globalThis).ResizeObserver;
+    const observer = new Observer(([entry]) => setArea({ width: entry.contentRect.width, height: entry.contentRect.height }));
+    observer.observe(root);
     return () => observer.disconnect();
-  }, []);
+  }, [root]);
   const scale = Math.max(area.width / 16, area.height / 9);
   const size = { width: Math.round(16 * scale), height: Math.round(9 * scale) };
   useLayoutEffect(() => engine.setCanvasSize(size), [engine, size.width, size.height]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -403,19 +433,78 @@ export default function NowPlayingView() {
     };
   }, []);
 
+  // Full screen: the screen its window is on (its own window's, out of the app).
+  const doc = () => root?.ownerDocument ?? document;
   const [fullscreen, setFullscreen] = useState(!!document.fullscreenElement);
   useEffect(() => {
-    const on = () => setFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", on);
-    return () => document.removeEventListener("fullscreenchange", on);
-  }, []);
+    if (!root) return;
+    const d = root.ownerDocument;
+    const on = () => setFullscreen(!!d.fullscreenElement);
+    on();
+    d.addEventListener("fullscreenchange", on);
+    return () => d.removeEventListener("fullscreenchange", on);
+  }, [root]);
   const toggleFullscreen = () => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void box.current?.requestFullscreen().catch(() => {});
+    if (doc().fullscreenElement) void doc().exitFullscreen();
+    else void root?.requestFullscreen().catch(() => {});
   };
   const close = () => {
-    if (document.fullscreenElement) void document.exitFullscreen();
+    if (doc().fullscreenElement) void doc().exitFullscreen();
     useNowPlaying.getState().closeVisualizer();
+  };
+
+  // In a box over the app, its keys are its own once it's been clicked, until something else is (the app's are the
+  // app's). It's just been opened, so it starts with them.
+  const [engaged, setEngaged] = useState(true);
+  const engagedRef = useRef(engaged);
+  engagedRef.current = engaged;
+  useEffect(() => {
+    if (!boxed || !root) return;
+    return addWindowListener("pointerdown", (e) => setEngaged(root.contains(e.target as Node)), true);
+  }, [boxed, root]);
+
+  /** To a size in the app (from its own window too). */
+  const resize = (size: VisualizerSize) => {
+    if (doc().fullscreenElement) void doc().exitFullscreen();
+    useVisualizerPrefs.getState().setSize(size);
+    setEngaged(true);
+    wake();
+  };
+  /** Out into its own window, or back into the app. */
+  const popOut = (out: boolean) => {
+    if (doc().fullscreenElement) void doc().exitFullscreen();
+    useVisualizerPrefs.getState().setOut(out);
+    setEngaged(true);
+  };
+  /** The size it was before (double-click and P go back to it). */
+  const before = () => (place.before !== place.size ? place.before : place.size === "full" ? "window" : "full");
+  const toggleMini = () => (place.out || place.size !== "mini" ? resize("mini") : resize(before()));
+
+  /** Move the box (from anywhere but its controls), or resize it by its edges. */
+  const drag = (e: React.PointerEvent, edges: Edges | null) => {
+    if (!at || (!edges && isControl(e.target))) return;
+    const start = at;
+    const size = boxedSize;
+    const from = { x: e.clientX, y: e.clientY };
+    let now = start;
+    startPointerDrag(e, {
+      threshold: edges ? 0 : 4,
+      cursor: edges ? HANDLES.find((h) => h.edges === edges)?.cursor : "grabbing",
+      onMove: (ev) => {
+        now = dragBox(start, edges, ev.clientX - from.x, ev.clientY - from.y, viewport);
+        setDragging(now);
+      },
+      onEnd: () => {
+        useVisualizerPrefs.getState().setBox(size, now);
+        setDragging(null);
+      },
+      onCancel: () => setDragging(null),
+    });
+  };
+  const onDoubleClick = (e: React.MouseEvent) => {
+    if (isControl(e.target)) return;
+    if (place.out) toggleFullscreen();
+    else resize(place.size === "full" ? before() : "full");
   };
 
   const step = (by: 1 | -1) => {
@@ -429,10 +518,13 @@ export default function NowPlayingView() {
     show(LIVE_LOOKS.find((l) => l.kind === kind)!.id, "key");
   };
 
-  // The keys: the visualizer has them all while it's open (the editor's under it don't hear them).
+  // The keys: the visualizer has them all while it fills the app (the editor's under it don't hear them), in a box
+  // over it once it's been clicked, and out of the app, in its own window.
   useEffect(() => {
+    const win = root ? ownerWindow(root) : window;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) return;
+      if (boxed && !engagedRef.current) return;
       e.stopImmediatePropagation();
       // The controls' own lists and sliders keep their keys.
       const tag = (e.target as HTMLElement | null)?.tagName;
@@ -452,9 +544,13 @@ export default function NowPlayingView() {
       const np = useNowPlaying.getState();
       switch (action.kind) {
         case "close":
-          return document.fullscreenElement ? void document.exitFullscreen() : close();
+          return doc().fullscreenElement ? void doc().exitFullscreen() : close();
         case "fullscreen":
           return toggleFullscreen();
+        case "mini":
+          return toggleMini();
+        case "out":
+          return popOut(!place.out);
         case "look":
           return step(action.step);
         case "group":
@@ -518,26 +614,89 @@ export default function NowPlayingView() {
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (!e.metaKey && !e.ctrlKey) e.stopImmediatePropagation();
+      if (!e.metaKey && !e.ctrlKey && !(boxed && !engagedRef.current)) e.stopImmediatePropagation();
     };
-    window.addEventListener("keydown", onKey, { capture: true });
-    window.addEventListener("keyup", onKeyUp, { capture: true });
+    win.addEventListener("keydown", onKey, { capture: true });
+    win.addEventListener("keyup", onKeyUp, { capture: true });
     return () => {
-      window.removeEventListener("keydown", onKey, { capture: true });
-      window.removeEventListener("keyup", onKeyUp, { capture: true });
+      win.removeEventListener("keydown", onKey, { capture: true });
+      win.removeEventListener("keyup", onKeyUp, { capture: true });
     };
   });
 
   const showing = useCurrentLook(director, prefs.look);
   const controls = hudShown && !hudHidden;
+  // Small (the mini player, a small window): only its few controls.
+  const compact = area.width < COMPACT.width || area.height < COMPACT.height;
 
-  return (
+  const placeButtons = place.out ? (
+    <>
+      {stage?.pin && (
+        <HudButton
+          label={place.pinned ? "Stop keeping it on top" : "Keep it on top of other windows"}
+          active={place.pinned}
+          onClick={() => {
+            stage.pin!(!place.pinned);
+            useVisualizerPrefs.getState().setPinned(!place.pinned);
+          }}
+        >
+          {place.pinned ? <PiPushPinFill /> : <PiPushPin />}
+        </HudButton>
+      )}
+      <HudButton label="Back into the app (O)" onClick={() => popOut(false)}>
+        <PiArrowSquareIn />
+      </HudButton>
+    </>
+  ) : (
+    <>
+      {place.size !== "mini" && (
+        <HudButton label="Mini player (P)" onClick={() => resize("mini")}>
+          <PiPictureInPicture />
+        </HudButton>
+      )}
+      {place.size === "full" ? (
+        <HudButton label="A window over the app" onClick={() => resize("window")}>
+          <PiCornersIn />
+        </HudButton>
+      ) : (
+        <HudButton label="Fill the app" onClick={() => resize("full")}>
+          <PiCornersOut />
+        </HudButton>
+      )}
+      <HudButton label="Its own window (O)" onClick={() => popOut(true)}>
+        <PiArrowSquareOut />
+      </HudButton>
+    </>
+  );
+  const fullscreenButton = (
+    <HudButton label={fullscreen ? "Leave full screen (F)" : "Full screen (F)"} onClick={toggleFullscreen}>
+      {fullscreen ? <PiArrowsInSimple /> : <PiArrowsOutSimple />}
+    </HudButton>
+  );
+  const closeButton = (
+    <HudButton label="Close (Esc)" onClick={close}>
+      <PiX />
+    </HudButton>
+  );
+
+  const content = (
     <div
-      ref={box}
-      data-now-playing-view
-      className={cn("fixed inset-0 z-[70] overflow-hidden bg-black text-white select-none", !controls && "cursor-none")}
+      ref={setRoot}
+      data-now-playing-view={place.out ? "out" : place.size}
+      data-engaged={boxed ? engaged : undefined}
+      className={cn(
+        "fixed z-[70] overflow-hidden bg-black text-white select-none",
+        at ? "rounded-lg shadow-2xl ring-1 shadow-black/60" : "inset-0",
+        at && (engaged ? "ring-white/35" : "ring-white/15"),
+        !controls && "cursor-none",
+      )}
+      style={at ? { left: at.x, top: at.y, width: at.width, height: at.height } : undefined}
       onPointerMove={wake}
-      onPointerDown={wake}
+      onPointerDown={(e) => {
+        wake();
+        drag(e, null);
+      }}
+      onDoubleClick={onDoubleClick}
     >
       <canvas
         ref={attachCanvas}
@@ -546,56 +705,65 @@ export default function NowPlayingView() {
         style={size}
       />
 
-      <div ref={imageBox} aria-hidden className="pointer-events-none absolute inset-0 opacity-0" />
+      <SongCard visible={controls} compact={compact} />
 
-      <SongCard visible={controls} />
-
-      {listening !== "on" && <ListenPrompt />}
+      {listening !== "on" && <ListenPrompt compact={compact} />}
       {noWebGl && <p className="absolute inset-x-0 top-1/2 text-center text-sm text-white/70">This browser can't draw the visualizer: it needs WebGL 2.</p>}
 
-      <div className={cn("pointer-events-none absolute inset-0 transition-opacity duration-500", controls ? "opacity-100" : "opacity-0")}>
-        <div className="pointer-events-auto absolute top-4 right-4 flex items-center gap-1">
-          <Hearing />
-          <HudButton label="Tap along to sync (S)" onClick={() => setSyncing(true)} active={syncing}>
-            <PiMetronome />
-          </HudButton>
-          <HudButton label="Distort, feedback and frame (D)" onClick={() => setPanel((p) => !p)} active={panel}>
-            <PiSlidersHorizontal />
-          </HudButton>
-          <HudButton label="Keys" onClick={() => setHelp((h) => !h)} active={help}>
-            <PiKeyboard />
-          </HudButton>
-          <HudButton label={fullscreen ? "Leave full screen (F)" : "Full screen (F)"} onClick={toggleFullscreen}>
-            {fullscreen ? <PiArrowsInSimple /> : <PiArrowsOutSimple />}
-          </HudButton>
-          <HudButton label="Close (Esc)" onClick={close}>
-            <PiX />
-          </HudButton>
+      {compact ? (
+        <div className={cn("pointer-events-none absolute inset-0 transition-opacity duration-300", controls ? "opacity-100" : "opacity-0")}>
+          <div className="pointer-events-auto absolute top-1.5 right-1.5 flex items-center">
+            {placeButtons}
+            {fullscreenButton}
+            {closeButton}
+          </div>
+          <div className="pointer-events-auto absolute inset-x-0 bottom-0 flex justify-center bg-linear-to-t from-black/75 to-transparent pt-10 pb-2.5">
+            <Transport compact />
+          </div>
         </div>
+      ) : (
+        <div className={cn("pointer-events-none absolute inset-0 transition-opacity duration-500", controls ? "opacity-100" : "opacity-0")}>
+          <div className="pointer-events-auto absolute top-4 right-4 flex items-center gap-1">
+            <Hearing />
+            <HudButton label="Tap along to sync (S)" onClick={() => setSyncing(true)} active={syncing}>
+              <PiMetronome />
+            </HudButton>
+            <HudButton label="Distort, feedback and frame (D)" onClick={() => setPanel((p) => !p)} active={panel}>
+              <PiSlidersHorizontal />
+            </HudButton>
+            <HudButton label="Keys" onClick={() => setHelp((h) => !h)} active={help}>
+              <PiKeyboard />
+            </HudButton>
+            <span aria-hidden className="mx-1 h-5 w-px bg-white/20" />
+            {placeButtons}
+            {fullscreenButton}
+            {closeButton}
+          </div>
 
-        <div className="pointer-events-auto absolute inset-x-0 bottom-0 bg-linear-to-t from-black/80 via-black/45 to-transparent px-6 pt-16 pb-5">
-          <LookPicker current={showing} onPick={(id) => show(id, "key")} />
-          <div className="mt-3 flex items-center gap-4">
-            <Transport />
-            <div className="ml-auto flex items-center gap-2">
-              <HudButton
-                label="A look at random (R)"
-                onClick={() => {
-                  variationRef.current++;
-                  show(another(), "key");
-                }}
-              >
-                <PiShuffle />
-              </HudButton>
-              <HudSelect label="Change looks" value={prefs.auto} options={AUTO_SWITCHES} onChange={(id) => useVisualizerPrefs.getState().setAuto(id)} />
-              <HudSelect label="Effects" value={prefs.effects} options={EFFECTS_MODES} onChange={(id) => useVisualizerPrefs.getState().setEffects(id)} />
-              <HudSelect label="Quality" value={prefs.quality} options={QUALITIES} onChange={(id) => useVisualizerPrefs.getState().setQuality(id)} />
+          <div className="pointer-events-auto absolute inset-x-0 bottom-0 bg-linear-to-t from-black/80 via-black/45 to-transparent px-6 pt-16 pb-5">
+            <LookPicker current={showing} onPick={(id) => show(id, "key")} />
+            <div className="mt-3 flex items-center gap-4">
+              <Transport />
+              <div className="ml-auto flex items-center gap-2">
+                <HudButton
+                  label="A look at random (R)"
+                  onClick={() => {
+                    variationRef.current++;
+                    show(another(), "key");
+                  }}
+                >
+                  <PiShuffle />
+                </HudButton>
+                <HudSelect label="Change looks" value={prefs.auto} options={AUTO_SWITCHES} onChange={(id) => useVisualizerPrefs.getState().setAuto(id)} />
+                <HudSelect label="Effects" value={prefs.effects} options={EFFECTS_MODES} onChange={(id) => useVisualizerPrefs.getState().setEffects(id)} />
+                <HudSelect label="Quality" value={prefs.quality} options={QUALITIES} onChange={(id) => useVisualizerPrefs.getState().setQuality(id)} />
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {panel && !hudHidden && (
+      {panel && !hudHidden && !compact && (
         <PlayPanel
           frame={frameNow}
           fx={fxNow}
@@ -610,11 +778,111 @@ export default function NowPlayingView() {
           }}
         />
       )}
-      {help && <KeysHelp onClose={() => setHelp(false)} />}
-      {moodShown && <MoodReadout now={() => source.now} choices={() => choices.current} />}
+      {help && !compact && <KeysHelp onClose={() => setHelp(false)} />}
+      {moodShown && !compact && <MoodReadout now={() => source.now} choices={() => choices.current} />}
       {syncing && <TapSync source={source} tapper={tapper} onDone={stopSyncing} />}
+
+      {at &&
+        HANDLES.map((h) => (
+          <div
+            key={`${h.edges.x},${h.edges.y}`}
+            data-resize={`${h.edges.x},${h.edges.y}`}
+            aria-hidden
+            className={cn("absolute z-20", h.className)}
+            style={{ cursor: h.cursor }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              drag(e, h.edges);
+            }}
+          />
+        ))}
     </div>
   );
+
+  return (
+    <>
+      {/* The pictures the looks show: in the app's page wherever the visualizer is. */}
+      <div ref={imageBox} aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden opacity-0" />
+      {place.out ? stage && createPortal(content, stage.container) : content}
+    </>
+  );
+}
+
+/** Its edges and corners, to resize it by when it's a box over the app. */
+const HANDLES: { edges: Edges; className: string; cursor: string }[] = [
+  { edges: { x: -1, y: 0 }, className: "inset-y-3 left-0 w-1.5", cursor: "ew-resize" },
+  { edges: { x: 1, y: 0 }, className: "inset-y-3 right-0 w-1.5", cursor: "ew-resize" },
+  { edges: { x: 0, y: -1 }, className: "inset-x-3 top-0 h-1.5", cursor: "ns-resize" },
+  { edges: { x: 0, y: 1 }, className: "inset-x-3 bottom-0 h-1.5", cursor: "ns-resize" },
+  { edges: { x: -1, y: -1 }, className: "top-0 left-0 size-3", cursor: "nwse-resize" },
+  { edges: { x: 1, y: 1 }, className: "right-0 bottom-0 size-3", cursor: "nwse-resize" },
+  { edges: { x: 1, y: -1 }, className: "top-0 right-0 size-3", cursor: "nesw-resize" },
+  { edges: { x: -1, y: 1 }, className: "bottom-0 left-0 size-3", cursor: "nesw-resize" },
+];
+
+/** What's pressed is one of its controls (which a press doesn't move it by). */
+const isControl = (target: EventTarget | null) =>
+  isElement(target) && target.closest("button, input, select, label, a, [data-play-panel], [data-look-picker], [data-resize]") !== null;
+
+/** The app's window's size (CSS px), as it changes. */
+function useViewport(): Area {
+  const [area, setArea] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  useEffect(() => {
+    const on = () => setArea({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return area;
+}
+
+/**
+ * Its own window while it's out of the app (`openStageWindow`), once that has the page's styles; null in the app.
+ * Refused (a browser's blocker), it stays in the app. Closing the window closes the visualizer: it opens out again
+ * next time.
+ */
+function useStage(out: boolean): StageWindow | null {
+  const [stage, setStage] = useState<StageWindow | null>(null);
+  // Held across React running an effect twice in development (StrictMode), so one window opens, not two.
+  const held = useRef<{ stage: StageWindow; closing: ReturnType<typeof setTimeout> | null } | null>(null);
+  useEffect(() => {
+    if (!out) return;
+    let kept = held.current;
+    if (kept?.closing) {
+      clearTimeout(kept.closing);
+      kept.closing = null;
+    } else {
+      const { place } = useVisualizerPrefs.getState();
+      const track = useNowPlaying.getState().status?.track;
+      const opened = openStageWindow(track ? `${track.name} · ${track.artist}` : "Now Playing", place.stage);
+      if (!opened) {
+        logger.warn("its own window was refused: it stays in the app");
+        useVisualizerPrefs.getState().setOut(false);
+        return;
+      }
+      if (place.pinned) opened.pin?.(true);
+      opened.onGone = () => {
+        useVisualizerPrefs.getState().setBox("stage", opened.bounds());
+        held.current = null;
+        setStage(null);
+        useNowPlaying.getState().closeVisualizer();
+      };
+      kept = held.current = { stage: opened, closing: null };
+      logger.info("in its own window");
+    }
+    const holding = kept;
+    let current = true;
+    void holding.stage.ready.then(() => current && setStage(holding.stage));
+    return () => {
+      current = false;
+      holding.closing = setTimeout(() => {
+        useVisualizerPrefs.getState().setBox("stage", holding.stage.bounds());
+        holding.stage.close();
+        if (held.current === holding) held.current = null;
+        setStage(null);
+      });
+    };
+  }, [out]);
+  return out ? stage : null;
 }
 
 /** The look shown, as the director says (it changes outside React: checked a few times a second). */
@@ -628,7 +896,7 @@ function useCurrentLook(director: LiveDirector, fallback: string): string {
 }
 
 /** The song: big when it starts (for a few seconds), small in the corner while the controls are up. */
-function SongCard({ visible }: { visible: boolean }) {
+function SongCard({ visible, compact }: { visible: boolean; compact: boolean }) {
   const track = useNowPlaying((s) => s.status?.track ?? null);
   const [fresh, setFresh] = useState(true);
   useEffect(() => {
@@ -637,26 +905,27 @@ function SongCard({ visible }: { visible: boolean }) {
     return () => clearTimeout(t);
   }, [track?.id]);
   if (!track) return null;
-  const big = fresh;
+  const big = fresh && !compact;
   return (
     <div
       data-song-card={big ? "big" : "small"}
       className={cn(
-        "pointer-events-none absolute top-6 left-6 flex items-center gap-4 transition-all duration-700",
-        big || visible ? "opacity-100" : "opacity-0",
+        "pointer-events-none absolute flex items-center transition-all duration-700",
+        compact ? "top-2.5 left-3 gap-2.5" : "top-6 left-6 gap-4",
+        fresh || visible ? "opacity-100" : "opacity-0",
       )}
     >
       {track.artwork && (
         <img
           src={track.artwork}
           alt=""
-          className={cn("rounded-md object-cover shadow-2xl ring-1 shadow-black/60 ring-white/10 transition-all duration-700", big ? "size-28" : "size-14")}
+          className={cn("rounded-md object-cover shadow-2xl ring-1 shadow-black/60 ring-white/10 transition-all duration-700", big ? "size-28" : compact ? "size-9" : "size-14")}
           draggable={false}
         />
       )}
       <div className="min-w-0 drop-shadow-[0_2px_8px_rgb(0_0_0/0.8)]">
-        <p className={cn("truncate font-semibold tracking-tight transition-all duration-700", big ? "max-w-[60vw] text-4xl" : "max-w-[40vw] text-lg")}>{track.name}</p>
-        <p className={cn("truncate text-white/75 transition-all duration-700", big ? "mt-1 text-lg" : "text-sm")}>
+        <p className={cn("truncate font-semibold tracking-tight transition-all duration-700", big ? "max-w-[60vw] text-4xl" : compact ? "max-w-40 text-sm" : "max-w-[40vw] text-lg")}>{track.name}</p>
+        <p className={cn("truncate text-white/75 transition-all duration-700", big ? "mt-1 text-lg" : compact ? "max-w-40 text-xs" : "text-sm")}>
           {track.artist}
           {track.album && big && <span className="text-white/50"> · {track.album}</span>}
         </p>
@@ -666,13 +935,18 @@ function SongCard({ visible }: { visible: boolean }) {
 }
 
 /** Asks to listen (the computer's sound is shared once per opening), or says why it can't. */
-function ListenPrompt() {
+function ListenPrompt({ compact }: { compact: boolean }) {
   const listening = useNowPlaying((s) => s.listening);
   const error = useNowPlaying((s) => s.listenError);
   return (
     <div className="absolute inset-0 grid place-items-center">
-      <div className="flex max-w-sm flex-col items-center gap-3 rounded-xl bg-black/60 px-7 py-6 text-center ring-1 ring-white/10 backdrop-blur-md">
-        <PiWaveform className="size-7 text-white/80" />
+      <div
+        className={cn(
+          "flex max-w-sm flex-col items-center rounded-xl bg-black/60 text-center ring-1 ring-white/10 backdrop-blur-md",
+          compact ? "mx-3 gap-2 px-4 py-3 [&_p]:text-xs" : "gap-3 px-7 py-6",
+        )}
+      >
+        <PiWaveform className={compact ? "size-5 text-white/80" : "size-7 text-white/80"} />
         {listening === "starting" ? (
           <p className="text-sm text-white/80">Listening to what your computer plays…</p>
         ) : (
@@ -702,8 +976,9 @@ function Hearing() {
     if (!listening) return;
     let frame = 0;
     const smooth = [0, 0, 0, 0, 0];
+    const win = ownerWindow(bars.current);
     const draw = () => {
-      frame = requestAnimationFrame(draw);
+      frame = win.requestAnimationFrame(draw);
       const live = useNowPlaying.getState().live;
       const levels = live ? live.signals.meter(smooth.length) : smooth.map(() => 0);
       const spans = bars.current?.children;
@@ -714,7 +989,7 @@ function Hearing() {
       });
     };
     draw();
-    return () => cancelAnimationFrame(frame);
+    return () => win.cancelAnimationFrame(frame);
   }, [listening]);
   if (!listening) return null;
   return (
@@ -770,7 +1045,7 @@ function LookPicker({ current, onPick }: { current: string; onPick: (id: string)
 }
 
 /** The song's place, and play, pause and skip. */
-function Transport() {
+function Transport({ compact = false }: { compact?: boolean }) {
   const status = useNowPlaying((s) => s.status);
   const now = useNow(500);
   const track = status?.track;
@@ -778,6 +1053,27 @@ function Transport() {
   const playing = status.state === "playing";
   const position = positionAt(status, now);
   const { command } = useNowPlaying.getState();
+  if (compact) {
+    return (
+      <div className="flex items-center gap-2">
+        <HudButton label="Previous song (⇧←)" onClick={() => void command({ action: "previous" })}>
+          <PiSkipBackFill />
+        </HudButton>
+        <button
+          type="button"
+          aria-label={playing ? "Pause" : "Play"}
+          title={playing ? "Pause (Space)" : "Play (Space)"}
+          onClick={() => void command({ action: "toggle" })}
+          className="grid size-8 shrink-0 place-items-center rounded-full bg-white text-black hover:bg-white/90 [&_svg]:size-3.5"
+        >
+          {playing ? <PiPauseFill /> : <PiPlayFill />}
+        </button>
+        <HudButton label="Next song (⇧→)" onClick={() => void command({ action: "next" })}>
+          <PiSkipForwardFill />
+        </HudButton>
+      </div>
+    );
+  }
   return (
     <div className="flex min-w-0 flex-1 items-center gap-3">
       <HudButton label="Previous song (⇧←)" onClick={() => void command({ action: "previous" })}>

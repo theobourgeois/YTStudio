@@ -60,6 +60,10 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
       return () => void ipcRenderer.removeListener("panels:closed", on);
     },
   },
+  // Stages: windows of their own the page fills (the visualizer popped out, electron/stage.ts).
+  stage: {
+    pin: (name: string, on: boolean) => ipcRenderer.send("stage:pin", name, on),
+  },
   // Whether the engine may read inputs (recording): macOS asks YTStudio, which started it.
   microphone: {
     status: () => ipcRenderer.invoke("microphone-status") as Promise<string>,

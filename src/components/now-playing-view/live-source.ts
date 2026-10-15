@@ -56,6 +56,9 @@ export class LiveSource implements PreviewSource {
   private last = 0;
   private frame = 0;
   private running = false;
+  /** The window whose frames it ticks on: the one the picture is in (`drawIn`). */
+  private frames: Window = window;
+  private tickFrame: (() => void) | null = null;
   /** A frame's length, smoothed (seconds). */
   private frameSeconds = 1 / 60;
   /** The newest sound's moment and when it was seen here (for taps). */
@@ -118,7 +121,7 @@ export class LiveSource implements PreviewSource {
     this.last = performance.now();
     const tick = () => {
       if (!this.running) return;
-      this.frame = requestAnimationFrame(tick);
+      this.frame = this.frames.requestAnimationFrame(tick);
       const live = this.live();
       if (!live) return;
       const now = performance.now();
@@ -137,12 +140,32 @@ export class LiveSource implements PreviewSource {
       this.onTick(this.time);
       for (const listener of this.listeners) listener();
     };
-    this.frame = requestAnimationFrame(tick);
+    this.tickFrame = tick;
+    this.frame = this.frames.requestAnimationFrame(tick);
   }
 
   stop(): void {
     this.running = false;
-    cancelAnimationFrame(this.frame);
+    this.cancelFrame();
+  }
+
+  /**
+   * Tick on `win`'s frames: the window the picture is in (its own, popped out of the app). A window only has frames
+   * while it's seen, and one that's closed has none.
+   */
+  drawIn(win: Window): void {
+    if (win === this.frames) return;
+    this.cancelFrame();
+    this.frames = win;
+    if (this.running && this.tickFrame) this.frame = win.requestAnimationFrame(this.tickFrame);
+  }
+
+  private cancelFrame() {
+    try {
+      this.frames.cancelAnimationFrame(this.frame);
+    } catch {
+      // its window is gone
+    }
   }
 
   /** A new session starts at 0. */

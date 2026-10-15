@@ -47,6 +47,8 @@ declare global {
     editorDesktopInfo?: {
       platform: string;
       panels?: DesktopPanels;
+      /** Stages: windows of their own the page fills (electron/stage.ts). Pin one over other programs, or not. */
+      stage?: { pin(name: string, on: boolean): void };
       appIcon?: { get(): Promise<AppIconId>; set(id: AppIconId): Promise<void> };
       pathForFile?: (file: File) => string;
       saveFile?: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
@@ -86,6 +88,9 @@ export const isDesktop = typeof window !== "undefined" && window.editorDesktopIn
 
 /** The native windows' side of the desktop app, if this is it (a browser tab keeps its windows in the page). */
 export const desktopPanels = (): DesktopPanels | undefined => (typeof window === "undefined" ? undefined : window.editorDesktopInfo?.panels);
+
+/** Pinning a stage over other programs: only the desktop app can (undefined in a browser). */
+export const desktopStage = () => (typeof window === "undefined" ? undefined : window.editorDesktopInfo?.stage);
 
 /** Where a file dropped from Finder is on disk: only the desktop app can say (empty when it can't). */
 export function droppedPath(file: File): string {

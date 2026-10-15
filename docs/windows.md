@@ -117,6 +117,10 @@ page, exactly as above (`Desktop`'s `native` only takes effect where there is a 
   isn't shown on a full-screen Space of the main window (the engine's can't be told to: it would take macOS calls
   of our own). The snap preview (dragging a window to the desktop's edge) is drawn in the main window, under the
   panels. A modal dialog opened from a small panel is limited to that panel.
+- **Stages.** A window of its own for a picture to fill (Now Playing's visualizer out of the app: `stage-window.ts`,
+  `electron/stage.ts`, docs/now-playing.md). Drawn by the page as a panel is, but an ordinary framed window: in the
+  Window menu, full screen on its own screen, over other programs only when pinned, a popup in a browser. What's
+  drawn in one asks its window for frames, not the page's: the main window may be minimised while it plays.
 
 ## Where it goes next
 

@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { type Frame, LIVE_LOOKS, type LiveFx, NO_FX, liveLook, normalizeFx } from "@shared/live-looks";
+import type { ScreenRect } from "@/lib/desktop";
 import { EFFECTS_MODES, type EffectsMode } from "./effects-engine";
+import { type Box, type BoxedSize, type VisualizerSize, readBox } from "./placement";
 
 /**
  * When the visualizer changes looks by itself: never, following the music (looks that suit it, changed on songs,
@@ -36,6 +38,41 @@ const AUTO_KEY = "editor-visualizer-auto";
 const QUALITY_KEY = "editor-visualizer-quality";
 const FX_KEY = "editor-visualizer-fx";
 const EFFECTS_KEY = "editor-visualizer-effects";
+const PLACE_KEY = "editor-visualizer-place";
+
+/** Where it is (`placement.ts`), kept so it opens there again. */
+interface Place {
+  size: VisualizerSize;
+  /** The size it was before (double-click and P go back to it). */
+  before: VisualizerSize;
+  /** In its own window, outside the app. */
+  out: boolean;
+  /** Its own window kept over other programs (the desktop app). */
+  pinned: boolean;
+  /** Where the window and the mini player were left in the app. */
+  boxes: Record<BoxedSize, Box | null>;
+  /** Where its own window was left on the screen. */
+  stage: ScreenRect | null;
+}
+
+const SIZES: VisualizerSize[] = ["full", "window", "mini"];
+const keptPlace = (): Place => {
+  let kept: Partial<Place> = {};
+  try {
+    kept = JSON.parse(localStorage.getItem(PLACE_KEY) ?? "{}") ?? {};
+  } catch {
+    // a fresh start
+  }
+  const size = (v: unknown, fallback: VisualizerSize) => (SIZES.includes(v as VisualizerSize) ? (v as VisualizerSize) : fallback);
+  return {
+    size: size(kept.size, "full"),
+    before: size(kept.before, "window"),
+    out: kept.out === true,
+    pinned: kept.pinned === true,
+    boxes: { window: readBox(kept.boxes?.window), mini: readBox(kept.boxes?.mini) },
+    stage: readBox(kept.stage),
+  };
+};
 
 interface VisualizerPrefs {
   look: string;
@@ -50,6 +87,15 @@ interface VisualizerPrefs {
    * or mutates it (`roll`, as = and - do).
    */
   requested: { look: string; n: number; roll?: "chaos" | "mutate"; frame?: Partial<Frame> | "reset" } | null;
+  /** Where it is: its size in the app, or out in its own window. */
+  place: Place;
+  /** A size in the app (out of its own window, if it was). */
+  setSize(size: VisualizerSize): void;
+  /** Into its own window, or back into the app. */
+  setOut(out: boolean): void;
+  setPinned(pinned: boolean): void;
+  /** Where a size was left in the app, or its own window on the screen. */
+  setBox(size: BoxedSize | "stage", box: Box): void;
   setLook(look: string): void;
   request(look: string): void;
   requestRoll(roll: "chaos" | "mutate"): void;
@@ -81,6 +127,19 @@ export const useVisualizerPrefs = create<VisualizerPrefs>((set) => ({
     }
   })(),
   requested: null,
+  place: keptPlace(),
+  setSize(size) {
+    set((s) => keepPlace({ ...s.place, size, before: size === s.place.size ? s.place.before : s.place.size, out: false }));
+  },
+  setOut(out) {
+    set((s) => keepPlace({ ...s.place, out }));
+  },
+  setPinned(pinned) {
+    set((s) => keepPlace({ ...s.place, pinned }));
+  },
+  setBox(size, box) {
+    set((s) => keepPlace(size === "stage" ? { ...s.place, stage: box } : { ...s.place, boxes: { ...s.place.boxes, [size]: box } }));
+  },
   setLook(look) {
     localStorage.setItem(LOOK_KEY, look);
     set({ look });
@@ -121,3 +180,8 @@ export const useVisualizerPrefs = create<VisualizerPrefs>((set) => ({
     set({ quality });
   },
 }));
+
+function keepPlace(place: Place): { place: Place } {
+  localStorage.setItem(PLACE_KEY, JSON.stringify(place));
+  return { place };
+}
