@@ -337,7 +337,8 @@ the frame and the distortions and feedback by itself, by the music, landing on i
   bar between (a kaleidoscope, a swirl, a lens, a warp). A build-up tightens bar by bar (more kaleidoscope and swirl,
   the echo drawn in); a drop is clean on its cut (the new look's impact), then goes hard a bar on; a breakdown washes
   back to gentle over a bar. It never turns the picture, repeats it or zooms out: a mirror only mirrors (Théo found
-  the turning too much).
+  the turning too much). Kaleidoscopes are gentle (0.45 at most) and never over a chaos or MilkDrop look (Théo found
+  them too much: with MilkDrop most of what's shown, one was on half the time; now about 5%).
 - **Every beat**: a new set on each downbeat, a mutation of it on each beat between (mirrored or not, the echo sinking
   or rising, its colour on, its trails longer or shorter, a kaleidoscope in or out; never the same twice running).
   With looks changing every 4 bars it's Théo's "every few beats mutated a bit, the next bar a new effect". **Every

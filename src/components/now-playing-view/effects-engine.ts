@@ -15,8 +15,9 @@
  * - **By hand**: none (the panel, the keys).
  *
  * A chaos look has a world of its own (a MilkDrop one too), so it's played frames and light distortions only (no more
- * feedback on its own). Before the music's downbeats are known, bars are counted in beats. Every change says why. Pure
- * (its random given), and tested.
+ * feedback on its own, and no kaleidoscope: many of MilkDrop's are one already, and Théo found it too much). Over the
+ * rest a kaleidoscope is a gentle one. Before the music's downbeats are known, bars are counted in beats. Every change
+ * says why. Pure (its random given), and tested.
  */
 import { type Frame, type LiveFx, type LiveLook, NO_FX, PLAIN_FRAME } from "@shared/live-looks";
 import { type Mood, isSlow } from "@shared/signals/mood";
@@ -91,6 +92,8 @@ interface Move {
   name: string;
   /** Feedback of its own: not on a chaos look (it has a world of its own). */
   feeds?: true;
+  /** A kaleidoscope: not on a chaos look either. */
+  kaleido?: true;
   make(r: () => number): { frame?: Partial<Frame>; fx?: Partial<LiveFx> };
 }
 
@@ -99,7 +102,7 @@ const MOVES: Record<Tier, Move[]> = {
     { name: "mirrored", make: () => ({ frame: { mirror: true } }) },
     { name: "a mirror fold", make: (r) => ({ fx: { fold: rand(r, 0.3, 0.55) } }) },
     { name: "a slow warp", make: (r) => ({ fx: { warp: rand(r, 0.15, 0.3) } }) },
-    { name: "a soft kaleidoscope", make: (r) => ({ fx: { kaleido: rand(r, 0.2, 0.35) } }) },
+    { name: "a soft kaleidoscope", kaleido: true, make: (r) => ({ fx: { kaleido: rand(r, 0.15, 0.25) } }) },
     { name: "soft trails", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.45, 0.6), trails: 0.8, echoZoom: rand(r, 0.05, 0.12), echoFlow: rand(r, 0.2, 0.35) } }) },
     { name: "smoke", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.5, 0.65), trails: 0.85, echoFlow: rand(r, 0.4, 0.6), echoZoom: rand(r, 0.02, 0.08) } }) },
   ],
@@ -107,7 +110,7 @@ const MOVES: Record<Tier, Move[]> = {
     { name: "mirrored", make: () => ({ frame: { mirror: true } }) },
     { name: "a swirl", make: (r) => ({ fx: { swirl: rand(r, 0.3, 0.5) } }) },
     { name: "ripples", make: (r) => ({ fx: { ripple: rand(r, 0.25, 0.45) } }) },
-    { name: "a kaleidoscope", make: (r) => ({ fx: { kaleido: rand(r, 0.35, 0.55) } }) },
+    { name: "a kaleidoscope", kaleido: true, make: (r) => ({ fx: { kaleido: rand(r, 0.2, 0.35) } }) },
     { name: "a warp", make: (r) => ({ fx: { warp: rand(r, 0.3, 0.5) } }) },
     { name: "a tunnel", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.55, 0.72), echoZoom: rand(r, 0.15, 0.3), trails: 0.8 } }) },
     { name: "a sinking echo", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.55, 0.7), echoZoom: -rand(r, 0.15, 0.25), trails: 0.8 } }) },
@@ -116,7 +119,7 @@ const MOVES: Record<Tier, Move[]> = {
   ],
   intense: [
     { name: "mirrored", make: () => ({ frame: { mirror: true } }) },
-    { name: "a kaleidoscope", make: (r) => ({ fx: { kaleido: rand(r, 0.5, 0.8) } }) },
+    { name: "a kaleidoscope", kaleido: true, make: (r) => ({ fx: { kaleido: rand(r, 0.3, 0.45) } }) },
     { name: "a swirl", make: (r) => ({ fx: { swirl: rand(r, 0.5, 0.8) } }) },
     { name: "a lens", make: (r) => ({ fx: { lens: rand(r, 0.3, 0.5) * side(r) } }) },
     { name: "a warp", make: (r) => ({ fx: { warp: rand(r, 0.45, 0.7) } }) },
@@ -127,6 +130,9 @@ const MOVES: Record<Tier, Move[]> = {
   ],
 };
 
+/** A look with a world of its own (chaos's, MilkDrop's presets: they feed back into themselves). */
+const ownWorld = (look: LiveLook | null) => look?.kind === "chaos" || look?.kind === "milkdrop";
+
 /** How many moves a set has besides its feedback. */
 const MOVES_IN_SET: Record<Tier, [number, number]> = { calm: [0, 1], groove: [1, 2], intense: [1, 3] };
 
@@ -135,10 +141,9 @@ const MOVES_IN_SET: Record<Tier, [number, number]> = { calm: [0, 1], groove: [1,
  * of the others, none of `last`'s first. Never turning, nor repeated, nor zoomed out: mirrored is a mirror.
  */
 export function composeSet(tier: Tier, look: LiveLook | null, r: () => number, last: readonly string[] = []): { effects: Effects; names: string[] } {
-  // (MilkDrop's presets feed back into themselves too.)
-  const chaos = look?.kind === "chaos" || look?.kind === "milkdrop";
+  const chaos = ownWorld(look);
   const feeding = MOVES[tier].filter((m) => m.feeds && m.name !== last[0]);
-  const others = MOVES[tier].filter((m) => !m.feeds);
+  const others = MOVES[tier].filter((m) => !m.feeds && !(chaos && m.kaleido));
   const picked: Move[] = chaos || !feeding.length ? [] : [feeding[Math.floor(r() * feeding.length)]];
   const [lo, hi] = MOVES_IN_SET[tier];
   // A chaos look gets a move more of the others, in place of the feedback it doesn't get.
@@ -158,14 +163,14 @@ export function composeSet(tier: Tier, look: LiveLook | null, r: () => number, l
 
 /**
  * A set a little changed (a beat, or a bar between sets): mirrored or not, the echo turned inside out (a tunnel
- * sinking, or back), its colour moved on, its trails longer or shorter, a kaleidoscope in or out. Not the one just
- * played (`avoid`: from the same set it'd look the same).
+ * sinking, or back), its colour moved on, its trails longer or shorter, a kaleidoscope in or out (only out over a look
+ * of its own world). Not the one just played (`avoid`: from the same set it'd look the same).
  */
-export function mutateSet(effects: Effects, r: () => number, _look: LiveLook | null = null, avoid = ""): { effects: Effects; name: string } {
+export function mutateSet(effects: Effects, r: () => number, look: LiveLook | null = null, avoid = ""): { effects: Effects; name: string } {
   const { frame, fx } = effects;
   const options: { name: string; frame?: Partial<Frame>; fx?: Partial<LiveFx> }[] = [
     { name: frame.mirror ? "the mirror off" : "mirrored", frame: { mirror: !frame.mirror } },
-    { name: fx.kaleido > 0 ? "the kaleidoscope out" : "a kaleidoscope", fx: { kaleido: fx.kaleido > 0 ? 0 : 0.4 } },
+    ...(fx.kaleido > 0 || !ownWorld(look) ? [{ name: fx.kaleido > 0 ? "the kaleidoscope out" : "a kaleidoscope", fx: { kaleido: fx.kaleido > 0 ? 0 : 0.25 } }] : []),
     ...(fx.feedback > 0
       ? [
           { name: fx.echoZoom >= 0 ? "the echo sinking" : "the echo rising", fx: { echoZoom: fx.echoZoom === 0 ? -0.2 : -fx.echoZoom } },
@@ -180,13 +185,16 @@ export function mutateSet(effects: Effects, r: () => number, _look: LiveLook | n
   return { effects: { frame: { ...frame, ...pick.frame }, fx: { ...fx, ...pick.fx } }, name: pick.name };
 }
 
-/** A build-up's next bar: tighter (more kaleidoscope, more swirl, mirrored, the echo drawn in), as it goes. */
-function tighten(effects: Effects, step: number): Effects {
+/**
+ * A build-up's next bar: tighter (more kaleidoscope, more swirl, mirrored, the echo drawn in), as it goes; no
+ * kaleidoscope over a look of its own world.
+ */
+function tighten(effects: Effects, step: number, look: LiveLook | null): Effects {
   return {
     frame: { ...PLAIN_FRAME, mirror: true },
     fx: {
       ...effects.fx,
-      kaleido: Math.min(0.8, 0.2 + step * 0.12),
+      kaleido: ownWorld(look) ? 0 : Math.min(0.45, 0.15 + step * 0.06),
       swirl: Math.min(0.6, step * 0.1),
       feedback: Math.min(0.7, 0.4 + step * 0.05),
       echoZoom: -Math.min(0.35, 0.1 + step * 0.04),
@@ -269,7 +277,7 @@ export class EffectsEngine {
       this.building++;
       this.next = nextBar + bar;
       this.nextMutation = Infinity;
-      this.set = this.current = tighten(this.current, this.building);
+      this.set = this.current = tighten(this.current, this.building, p.look);
       return { effects: this.current, at: nextBar, seconds: p.beat, why: `the build-up tightening (bar ${this.building})` };
     }
     this.building = 0;
