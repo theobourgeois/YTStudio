@@ -5,9 +5,10 @@ import { useNow } from "@/hooks/use-now";
 import { useNowPlaying } from "@/stores/now-playing";
 
 /**
- * What the music player is playing (docs/now-playing.md), at the right of the window's top bar: the cover, the
- * song and how far it's got; play and pause, and skipping on hover. Clicking it opens the visualizer. Nothing shows
- * when nothing plays (or Settings › General says not to).
+ * What the music player is playing (docs/now-playing.md), at the right of the tab strip (or Home's bar, without one;
+ * in a project without the tab strip it isn't shown: Théo's): the cover, the song and how far it's got; previous,
+ * play and pause, next. Clicking it opens the visualizer. Nothing shows when nothing plays (or Settings › General says
+ * not to).
  */
 export function NowPlayingPill({ className }: { className?: string }) {
   const enabled = useNowPlaying((s) => s.enabled);
@@ -52,7 +53,7 @@ export function NowPlayingPillView({
       data-now-playing={status.state}
       data-no-drag
       className={cn(
-        "group relative flex h-8 max-w-80 min-w-0 shrink items-center gap-0.5 overflow-hidden rounded-md border border-line/60 bg-surface-1/70 pr-0.5 pl-1",
+        "relative flex h-8 max-w-80 min-w-0 shrink items-center gap-0.5 overflow-hidden rounded-md border border-line/60 bg-surface-1/70 pr-0.5 pl-1",
         className,
       )}
     >
@@ -72,13 +73,13 @@ export function NowPlayingPillView({
           {track.artist && <span className="text-muted-foreground"> · {track.artist}</span>}
         </span>
       </button>
-      <PillButton label="Previous" onClick={() => onCommand({ action: "previous" })} hidden>
+      <PillButton label="Previous" onClick={() => onCommand({ action: "previous" })}>
         <PiSkipBackFill />
       </PillButton>
       <PillButton label={playing ? "Pause" : "Play"} onClick={() => onCommand({ action: "toggle" })}>
         {playing ? <PiPauseFill /> : <PiPlayFill />}
       </PillButton>
-      <PillButton label="Next" onClick={() => onCommand({ action: "next" })} hidden>
+      <PillButton label="Next" onClick={() => onCommand({ action: "next" })}>
         <PiSkipForwardFill />
       </PillButton>
       <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-foreground/8">
@@ -88,18 +89,14 @@ export function NowPlayingPillView({
   );
 }
 
-function PillButton({ label, onClick, hidden, children }: { label: string; onClick: () => void; hidden?: boolean; children: React.ReactNode }) {
+function PillButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={cn(
-        "grid size-6 shrink-0 place-items-center rounded-sm text-muted-foreground outline-none hover:bg-foreground/10 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 [&_svg]:size-3",
-        // Previous and next only while the pointer's on it, so a narrow strip keeps the song's name.
-        hidden && "hidden group-hover:grid group-focus-within:grid",
-      )}
+      className="grid size-6 shrink-0 place-items-center rounded-sm text-muted-foreground outline-none hover:bg-foreground/10 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 [&_svg]:size-3"
     >
       {children}
     </button>
