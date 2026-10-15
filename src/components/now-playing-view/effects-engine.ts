@@ -7,8 +7,8 @@
  *   a slow warp); a groove every 4 bars, mutated after 2 (a swirl, ripples, a kaleidoscope); intense every 2 bars,
  *   mutated on the bar between (a kaleidoscope, a swirl, a lens, a deep tunnel). A build-up tightens bar by bar (more
  *   kaleidoscope and swirl, the echo drawn in); a drop is clean on its cut (the look's impact), then goes hard a bar
- *   on; a breakdown washes back to gentle. It never turns the picture, repeats it or zooms out (Théo: a mirror only
- *   mirrors).
+ *   on; a breakdown washes back to gentle. A slow song is calm throughout, its drop not cut (`isSlow`). It never
+ *   turns the picture, repeats it or zooms out (Théo: a mirror only mirrors).
  * - **Every bar**: a new set on each downbeat. **Every beat**: a new set on each downbeat, and on each beat between a
  *   mutation of it (a mirror on or off, the echo sinking or rising, its colour on, its trails longer or shorter, a
  *   kaleidoscope in or out).
@@ -19,7 +19,7 @@
  * (its random given), and tested.
  */
 import { type Frame, type LiveFx, type LiveLook, NO_FX, PLAIN_FRAME } from "@shared/live-looks";
-import type { Mood } from "@shared/signals/mood";
+import { type Mood, isSlow } from "@shared/signals/mood";
 
 /** How the effects change by themselves: following the music, every beat, every bar, or by hand. */
 export type EffectsMode = "music" | "beat" | "bar" | "hand";
@@ -68,8 +68,9 @@ export interface Pulse {
 type Tier = "calm" | "groove" | "intense";
 
 /** How much is going on: calm (or a chill song), a groove, intense. */
-export function tierOf(mood: Pick<Mood, "intensity" | "character" | "sure">): Tier {
-  if (mood.intensity < 0.35 || (mood.character === "chill" && mood.sure >= 0.4 && mood.intensity < 0.7)) return "calm";
+export function tierOf(mood: Pick<Mood, "intensity" | "character" | "sure" | "slow">): Tier {
+  // A slow song is calm however loud it's mastered: its effects ease in and stay.
+  if (isSlow(mood) || mood.intensity < 0.35 || (mood.character === "chill" && mood.sure >= 0.4 && mood.intensity < 0.7)) return "calm";
   return mood.intensity < 0.7 ? "groove" : "intense";
 }
 
@@ -231,11 +232,11 @@ export class EffectsEngine {
     const bar = 4 * p.beat;
     // The next downbeat: the music's, or (none known yet) the next beat, its bars counted in beats.
     const nextBar = p.nextBar ?? p.nextBeat;
-    // A drop: clean on the cut (the new look's impact), then hard a bar on.
+    // A drop: clean on the cut (the new look's impact), then hard a bar on. (A slow song's isn't cut: it flows on.)
     if (p.drop !== undefined && p.drop > this.lastDrop) {
       this.lastDrop = p.drop;
       this.building = 0;
-      if (time - p.drop < 1) {
+      if (time - p.drop < 1 && !isSlow(mood)) {
         this.next = p.drop + bar - LEAD;
         this.nextMutation = Infinity;
         return this.land(PLAIN_EFFECTS, [], p.drop, 0.01, "the drop: clean on its cut", true);

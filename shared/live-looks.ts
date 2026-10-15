@@ -27,6 +27,7 @@ import {
   drawing,
   follow,
   fx,
+  inSlowMotion,
   intense,
   pick,
   punch,
@@ -40,7 +41,7 @@ import type { SongCharacter } from "./signals/mood.ts";
 import { ONSET_SCALARS, type OnsetName, SIGNALS_VERSION, SIGNAL_RATE, SCALARS, bandEdges, type Hit, type SignalData } from "./signals/format.ts";
 import type { AspectRatio, Clip, Effect, MediaAsset, ParamLink, ParamValues, Project, Sequence, SignalRef, Transition } from "./types.ts";
 
-export { COVER_ASSET, type LookContext, type LookLayer, seededRandom } from "./live-kit.ts";
+export { COVER_ASSET, type LookContext, type LookLayer, SLOW_MOTION, seededRandom } from "./live-kit.ts";
 import { createTransition } from "./transitions.ts";
 
 // ---------------------------------------------------------------------------
@@ -109,10 +110,17 @@ export function liveProject(shows: readonly Showing[], perform: Clip, aspectRati
   };
 }
 
-/** A look as a nested sequence: its layers on tracks of their own, top first, each as long as a session. */
+/**
+ * A look as a nested sequence: its layers on tracks of their own, top first, each as long as a session. In slow motion
+ * (`ctx.pace`, a slow song's), it moves that much as fast, its hits swell, and its energy doesn't shake, strobe, split
+ * or flash: it only brightens, and punches in half as far.
+ */
 export function lookSequence(look: LiveLook, ctx: LookContext, id: string): Sequence {
+  const pace = ctx.pace ?? 1;
+  const energy = { ...ENERGY[look.kind], ...look.energy };
+  const calm = pace < 1 ? { ...energy, punch: energy.punch / 2, shake: 0, strobe: 0, split: 0, invert: 0 } : energy;
   // The look's own layers under its energy (how it goes off when the music does).
-  const layers = [energyLayer({ ...ENERGY[look.kind], ...look.energy }), ...look.layers(ctx)];
+  const layers = [energyLayer(calm), ...look.layers(ctx)].map((layer) => (pace < 1 ? { ...layer, effects: inSlowMotion(layer.effects, pace) } : layer));
   const tracks = layers.map((_, i) => ({ id: `${id}:t${i}`, kind: "video" as const, name: `Layer ${layers.length - i}`, muted: false }));
   const clips: Clip[] = layers.map((layer, i) => ({
     id: `${id}:c${i}`,
@@ -447,7 +455,8 @@ export const LOOK_KINDS: { id: LookKind; label: string }[] = [
 
 /**
  * What a look suits (step 5 of docs/now-playing.md): the kinds of song (`LiveMood`'s characters) and the intensities
- * (0..1) it reads well at, and whether it's minimal (for between songs, and before a song's kind is known).
+ * (0..1) it reads well at, whether it's minimal (for between songs, and before a song's kind is known), and whether it
+ * flows (for slow songs).
  */
 export interface LookSuits {
   characters: SongCharacter[];
@@ -455,6 +464,11 @@ export interface LookSuits {
   minimal?: true;
   /** Glitchy itself: glitch transitions only where one comes or goes (step 6). */
   glitch?: true;
+  /**
+   * It flows: slow, smooth movement, nothing bouncing (no bars or waveforms, no rushing worlds). A slow song's looks
+   * are only these (`isSlow`), changed by blending into each other.
+   */
+  flows?: true;
 }
 
 export interface LiveLook {
@@ -529,7 +543,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "nebula",
     name: "Nebula",
     kind: "world",
-    suits: { characters: ["chill", "groove"], energy: [0, 0.7] },
+    suits: { characters: ["chill", "groove"], energy: [0, 0.7], flows: true },
     layers: ({ palette: p, random: r }) => world("nebula", { palette: pick(r, ["hubble", "cosmic", "natural"]), density: between(r, 0.8, 1.2) }, p, r),
   },
   {
@@ -550,14 +564,14 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "event-horizon",
     name: "Event Horizon",
     kind: "world",
-    suits: { characters: ["groove", "heavy"], energy: [0.25, 0.9] },
+    suits: { characters: ["groove", "heavy"], energy: [0.25, 0.9], flows: true },
     layers: ({ palette: p, random: r }) => world("event-horizon", { disk: pick(r, ["gargantua", "blue", "ember"]), inclination: between(r, 12, 30, 0) }, p, r),
   },
   {
     id: "galaxy",
     name: "Galaxy",
     kind: "world",
-    suits: { characters: ["chill", "groove"], energy: [0, 0.7] },
+    suits: { characters: ["chill", "groove"], energy: [0, 0.7], flows: true },
     layers: ({ palette: p, random: r }) => [
       drawing("audio-circle", { radius: 0.26, barLength: 0.08, bars: 160, mirror: true, pulse: 0.1, gap: 0.5, color: p.light, color2: p.accent }, [], { opacity: { params: { opacity: 0.55, blendMode: "screen" } } }),
       ...world("galaxy", { palette: pick(r, ["hubble", "andromeda", "neon"]), arms: pick(r, ["two", "three", "four"]) }, p, r),
@@ -567,7 +581,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "aurora",
     name: "Aurora",
     kind: "world",
-    suits: { characters: ["chill"], energy: [0, 0.6] },
+    suits: { characters: ["chill"], energy: [0, 0.6], flows: true },
     layers: ({ palette: p, random: r }) => world("aurora", { colors: pick(r, ["classic", "violet", "fire"]), height: between(r, 0.8, 1.2) }, p, r, { tint: between(r, 0.4, 0.65) }),
   },
   {
@@ -581,7 +595,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "abyss",
     name: "Abyss",
     kind: "world",
-    suits: { characters: ["chill", "groove"], energy: [0, 0.65] },
+    suits: { characters: ["chill", "groove"], energy: [0, 0.65], flows: true },
     layers: ({ palette: p, random: r }) => world("abyss", { glow: pick(r, ["cyan", "magenta", "gold", "rainbow"]), jellies: Math.round(between(r, 5, 9)) }, p, r),
   },
   {
@@ -609,14 +623,14 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "storm-sea",
     name: "Storm Sea",
     kind: "world",
-    suits: { characters: ["chill", "heavy"], energy: [0, 0.75] },
+    suits: { characters: ["chill", "heavy"], energy: [0, 0.75], flows: true },
     layers: ({ palette: p, random: r }) => world("storm-sea", { weather: "storm", waveHeight: between(r, 0.9, 1.3) }, p, r, { tint: between(r, 0.3, 0.5), glow: 0.35 }),
   },
   {
     id: "cosmic-web",
     name: "Cosmic Web",
     kind: "world",
-    suits: { characters: ["chill", "groove"], energy: [0.1, 0.8] },
+    suits: { characters: ["chill", "groove"], energy: [0.1, 0.8], flows: true },
     layers: ({ palette: p, random: r }) => world("cosmic-web", { style: pick(r, ["cosmic", "neural", "dark"]) }, p, r),
   },
   {
@@ -639,7 +653,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "album",
     name: "Album",
     kind: "spectrum",
-    suits: { characters: ["chill", "groove", "hype", "heavy"], energy: [0, 0.65], minimal: true },
+    suits: { characters: ["chill", "groove", "hype", "heavy"], energy: [0, 0.65], minimal: true, flows: true },
     energy: { shake: 0.15, strobe: 0.15 },
     layers: ({ palette: p, random: r }) => [
       adjust([fx("deep-glow", { reach: 0.18, exposure: 0.6, threshold: 0.7, tint: p.accent, tintAmount: 0.3 }, { exposure: follow(BASS, "add", 0.6) }), fx("vignette", { amount: 0.45 })]),
@@ -814,7 +828,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "kaleido-cathedral",
     name: "Kaleido Cathedral",
     kind: "trip",
-    suits: { characters: ["chill", "groove"], energy: [0.15, 0.8] },
+    suits: { characters: ["chill", "groove"], energy: [0.15, 0.8], flows: true },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("kaleida", { mirroring: pick(r, ["6", "8", "12"]), size: between(r, 0.8, 1.3) }, { rotation: punch(DOWNBEAT, "add", 30, 1.2) }),
@@ -864,7 +878,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "acid-bath",
     name: "Acid Bath",
     kind: "trip",
-    suits: { characters: ["chill", "groove"], energy: [0.1, 0.65] },
+    suits: { characters: ["chill", "groove"], energy: [0.1, 0.65], flows: true },
     layers: ({ palette: p, random: r }) => [
       adjust([
         fx("wave-warp", { amplitude: 0.02, wavelength: 0.3, speed: 1.2 }),
@@ -885,7 +899,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "ghost-trails",
     name: "Ghost Trails",
     kind: "trip",
-    suits: { characters: ["chill"], energy: [0, 0.55], minimal: true },
+    suits: { characters: ["chill"], energy: [0, 0.55], minimal: true, flows: true },
     energy: { strobe: 0, invert: 0, shake: 0.3 },
     layers: ({ palette: p, random: r }) => [
       adjust([
@@ -965,7 +979,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     id: "deep-void",
     name: "Deep Void",
     kind: "trip",
-    suits: { characters: ["chill", "heavy"], energy: [0, 0.6], minimal: true },
+    suits: { characters: ["chill", "heavy"], energy: [0, 0.6], minimal: true, flows: true },
     energy: { strobe: 0.1, invert: 0 },
     layers: ({ palette: p, random: r }) => [
       adjust([

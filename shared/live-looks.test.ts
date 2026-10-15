@@ -8,6 +8,7 @@ import {
   LOOK_KINDS,
   PADS_ASSET,
   PADS_TRACK,
+  SLOW_MOTION,
   SWITCHES,
   NO_FX,
   endShow,
@@ -22,6 +23,7 @@ import {
   showClip,
   switchTransition,
 } from "./live-looks.ts";
+import { fx, inSlowMotion } from "./live-kit.ts";
 import { DEFAULT_PALETTE } from "./palette.ts";
 import { isSequenceId } from "./sequences.ts";
 import { transitionDefinition } from "./transitions.ts";
@@ -70,6 +72,46 @@ describe("LIVE_LOOKS", () => {
         }
       }
     }
+  });
+
+  it("plays a look in slow motion: what moves by the second at half speed, hits swelling, no shaking, strobing, splitting or flashing", () => {
+    for (const look of LIVE_LOOKS) {
+      const ctx = (pace: number) => ({ palette: RED, random: seededRandom(look.id), pace });
+      const fast = lookSequence(look, ctx(1), "seq_f");
+      const slow = lookSequence(look, ctx(SLOW_MOTION), "seq_s");
+      // Its own layers (under its energy), the same effects, slower.
+      const own = (seq: typeof fast) => seq.clips.slice(1).map((c) => c.effects.map((e) => e.type));
+      expect(own(slow), look.id).toEqual(own(fast));
+      slow.clips.slice(1).forEach((clip, k) => {
+        const i = k + 1;
+        clip.effects.forEach((e, j) => {
+          const was = fast.clips[i].effects[j];
+          if (typeof was.params.speed === "number") expect(e.params.speed, `${look.id} ${e.type}`).toBeCloseTo(was.params.speed * SLOW_MOTION);
+          for (const [key, link] of Object.entries(e.links ?? {})) {
+            const before = was.links![key];
+            if (link.hit) expect(link.hit.attack, `${look.id} ${e.type}.${key}`).toBeGreaterThanOrEqual(0.12);
+            if (link.hit) expect(link.hit.decay).toBeCloseTo(before.hit!.decay / SLOW_MOTION);
+            expect(link.response.release).toBeCloseTo(before.response.release / SLOW_MOTION);
+          }
+        });
+      });
+      // Its energy only brightens (and punches in, softly): nothing shakes, strobes, splits or flashes.
+      const energy = slow.clips[0].effects;
+      for (const type of ["camera-shake", "audio-strobe", "rgb-split"]) {
+        const e = energy.find((x) => x.type === type)!;
+        expect(Object.values(e.links ?? {}).every((l) => l.amount === 0), `${look.id} ${type}`).toBe(true);
+      }
+      expect(energy.some((e) => e.type === "invert")).toBe(false);
+    }
+  });
+
+  it("slows what moves by the second, eases a zoom a second towards none, and leaves the rest", () => {
+    const [loop] = inSlowMotion([fx("world-loop", { speed: 1, orbit: 40, echoZoom: 1.44, warp: 0.5 })], 0.5);
+    expect(loop.params).toMatchObject({ speed: 0.5, orbit: 20, warp: 0.5 });
+    expect(loop.params.echoZoom).toBeCloseTo(1.2);
+    // As made, at full speed.
+    const same = [fx("world-loop", { speed: 1 })];
+    expect(inSlowMotion(same, 1)).toBe(same);
   });
 
   it("varies a look by its seed, the same for the same seed", () => {

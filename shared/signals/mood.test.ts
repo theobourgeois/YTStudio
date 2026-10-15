@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LiveSignals } from "./live.ts";
+import { SLOW, isSlow, slowness } from "./mood.ts";
 
 const RATE = 48_000;
 
@@ -89,6 +90,22 @@ function heavy(seconds: number, gain: number): Part {
   };
 }
 
+/** A ballad: a soft kick on 1 and 3, a snare on 2 and 4, a chord held under it; slow, and loud as songs are mastered. */
+function ballad(seconds: number, bpm: number, gain: number): Part {
+  const beat = 60 / bpm;
+  const snare = noise(13);
+  const chord = pad(seconds, 0.6);
+  return {
+    seconds,
+    play: (t) => {
+      const index = Math.floor(t / beat);
+      const since = t - index * beat;
+      const hit = index % 2 === 0 ? 0.8 * kick(since) : 0.4 * snare() * Math.exp(-since / 0.15);
+      return gain * (hit + chord.play(t));
+    },
+  };
+}
+
 /** A build-up: no kick, a snare roll speeding up and a noise riser growing louder and brighter. */
 function build(seconds: number, bpm: number, gain: number): Part {
   const beat = 60 / bpm;
@@ -147,6 +164,14 @@ describe("LiveMood", () => {
     const { mood } = listen(song(heavy(30, 0.55)));
     expect(mood.character).toBe("heavy");
     expect(mood.intensity).toBeGreaterThan(0.5);
+  });
+
+  it("hears a slow song as slow however loud it's mastered (calm, never hype), and a club track as not", () => {
+    const slow = listen(song(ballad(40, 72, 0.6))).mood;
+    expect(slow.slow).toBeGreaterThanOrEqual(SLOW);
+    expect(slow.character).not.toBe("hype");
+    expect(slow.scores.hype).toBeLessThan(slow.scores.chill);
+    expect(listen(song(club(40, 128, 0.55))).mood.slow).toBeLessThan(0.1);
   });
 
   it("follows a song's shape: a build-up, the drop on its downbeat, a breakdown", () => {
@@ -212,3 +237,19 @@ describe("LiveMood", () => {
     expect(live.mood.presence.high).toBeGreaterThan(0.3);
   });
 });
+
+describe("slowness", () => {
+  it("is a slow tempo, as felt, and only if it's sparse", () => {
+    expect(slowness(72, 0.6, 4)).toBe(1);
+    expect(slowness(128, 2.1, 12)).toBe(0);
+    // A ballad's beat read at double speed (few kicks on its beats): half time.
+    expect(slowness(144, 0.6, 4)).toBe(1);
+    // Busy at a slow tempo (a trap song's hats) isn't slow.
+    expect(slowness(75, 1.5, 14)).toBe(0);
+    // Not known yet: not slow.
+    expect(slowness(0, 0, 0)).toBe(0);
+    expect(isSlow({ slow: 0.5 })).toBe(true);
+    expect(isSlow({ slow: 0.4 })).toBe(false);
+  });
+});
+

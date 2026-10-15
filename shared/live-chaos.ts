@@ -156,7 +156,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
   {
     id: "liquid",
     name: "Liquid",
-    suits: { characters: ["chill", "groove"], energy: [0.1, 0.8] },
+    suits: { characters: ["chill", "groove"], energy: [0.1, 0.8], flows: true },
     world: (r) => ({
       warp: rand(r, 0.35, 0.6),
       swirl: rand(r, 0.2, 0.45),
@@ -219,7 +219,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
     // Kaleido fed back through zoom and turn: petals growing out of petals.
     id: "fractal-bloom",
     name: "Fractal Bloom",
-    suits: { characters: ["chill", "groove", "hype"], energy: [0.2, 1] },
+    suits: { characters: ["chill", "groove", "hype"], energy: [0.2, 1], flows: true },
     world: (r) => ({
       kaleido: rand(r, 0.5, 0.85),
       ripple: rand(r, 0.08, 0.22),
@@ -315,7 +315,7 @@ export const CHAOS_RECIPES: ChaosRecipe[] = [
     // vaudio's Séance: slow smoke folded through a mirror line, a living Rorschach.
     id: "rorschach",
     name: "Rorschach",
-    suits: { characters: ["chill"], energy: [0, 0.6], minimal: true },
+    suits: { characters: ["chill"], energy: [0, 0.6], minimal: true, flows: true },
     world: (r) => ({
       feedback: rand(r, 0.85, 0.93),
       trails: rand(r, 0.93, 0.97),

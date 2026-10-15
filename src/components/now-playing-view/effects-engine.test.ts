@@ -6,7 +6,7 @@ import { type EffectsChange, EffectsEngine, type EffectsMode, MOST_FEEDBACK, com
 const BEAT = 0.5;
 const BAR = 4 * BEAT;
 
-function mood(intensity: number, section: Section = "steady", events: MoodEvent[] = []): Mood {
+function mood(intensity: number, section: Section = "steady", events: MoodEvent[] = [], slow = 0): Mood {
   return {
     intensity,
     presence: { low: 0, mid: 0, high: 0 },
@@ -15,6 +15,7 @@ function mood(intensity: number, section: Section = "steady", events: MoodEvent[
     character: "hype",
     sure: 0.8,
     scores: { chill: 0, groove: 0, hype: 0, heavy: 0 },
+    slow,
     events,
     heard: { loudness: -10, hits: 4, kicks: 2, sub: 0.3, brightness: 3000 },
   };
@@ -146,5 +147,15 @@ describe("EffectsEngine", () => {
     expect(breakdown).toBeDefined();
     expect(breakdown.effects.fx.lens).toBe(0);
     expect(breakdown.seconds).toBeCloseTo(BAR);
+  });
+
+  it("is calm throughout a slow song, however loud: eased over a bar every 4, nothing mutated, its drop not cut", () => {
+    const changes = run("music", (t) => ({ mood: mood(0.9, "steady", [], 0.8), drop: t >= 10.02 ? 10 : undefined }), 20);
+    expect(changes.length).toBeGreaterThanOrEqual(2);
+    for (const c of changes) {
+      expect(c.why, c.why).toMatch(/^4 bars, calm/);
+      expect(c.seconds).toBeCloseTo(BAR);
+    }
+    expect(changes.find((c) => c.why.startsWith("the drop"))).toBeUndefined();
   });
 });

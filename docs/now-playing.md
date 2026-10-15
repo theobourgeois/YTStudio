@@ -141,10 +141,25 @@ is, for looks to follow (steps 3 and 5):
 - **Character**: chill, groove, hype or heavy, from the song's typical intensity, density, steady beat, sub-bass,
   brightness, loudness and tempo since it started (`newSong`, on a new track), taken as it is for its first 10 s,
   then another must lead for 6 s to take over. `sure` says how settled and clear the call is.
+- **Slow** (`slowness`, `isSlow` at 0.5): how slow the song feels, apart from its character. Its tempo as felt (under
+  98 BPM some, under 78 all; a fast beat with few kicks on it is half time, as a ballad's at 72 read at 144), and only
+  if it's sparse (7 hits a second some, 14 none: a trap song's hats at 75 aren't slow), followed over the last 6 s (a
+  tempo read wrong for a while, at 3:2, or for a moment, doesn't stick). A slow song is never hype however loud it's
+  mastered (and real songs are: their intensity is 0.65–0.9), and leans chill. On a slow song everything flows (Théo:
+  "less abrupt, just flow into each other"): only looks that flow (`LookSuits.flows`: no bars or waveforms bouncing,
+  no rushing worlds), its intensity held to 0.65 for them, every change a long blend with a feedback morph (3–6 s on
+  the bar; its drop a shorter one, not a cut), the effects calm throughout. And it's in **slow motion** (Théo: "even
+  slow songs go through a bunch of fast effects"): its looks are made at half speed (`ctx.pace`, `inSlowMotion`:
+  everything a second, as its unit says, a zoom a second eased towards none), its hits swell (rising over 0.12 s at
+  least, falling twice as long), and its energy doesn't shake, strobe, split or flash. The clock isn't slowed (the
+  picture would leave the sound): the motion is, as a look is made, since a shader's time × speed jumps if its speed
+  changes as it plays. Slow motion starts at a slow song and stops under 0.4 (no flicker on the line), the look shown
+  then melting into itself made again (`slowMotionOn`).
 
 I shows it all in the visualizer (`mood-readout.tsx`), with the measurements under it; the assistant's `now_playing`
-says it too. `mood.test.ts` checks it on made-up music (a pad, a groove, a club track, a half-time heavy track, and
-a song with a build-up, a drop and a breakdown); its numbers are tuned against those, so real music is the real test.
+says it too. `mood.test.ts` checks it on made-up music (a pad, a groove, a club track, a half-time heavy track, a loud
+ballad, and a song with a build-up, a drop and a breakdown); its numbers are tuned against those, so real music is the
+real test. Slowness was checked on 19 real songs: the slow ones (70–77 BPM, sparse) read 0.8–0.95, the rest under 0.3.
 
 ## Energy
 
