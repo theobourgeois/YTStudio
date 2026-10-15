@@ -18,6 +18,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | A cover's colours by role | `shared/palette.ts` | platform |
 | The looks, the project they play in, the pads | `shared/live-looks.ts` | video |
 | The visualizer: director, source, keys, view | `src/components/now-playing-view/` | video (`ClientSuite.NowPlaying`) |
+| Its own window (a stage) | `src/components/windows/native/stage-window.ts`, `electron/stage.ts` | platform |
 | vaudio's 2D visualizers | `shared/effect-library/audio.ts` (Wave Bars ... Acid Plasma) | video |
 | The assistant | `now_playing`, `control_now_playing` (`shared/assistant-tools.ts`) | video |
 
@@ -87,7 +88,25 @@ spectrum by). Watch for white-outs: Feedback in lighten mode, glow and bright co
 The keys (`keys.ts`, vaudio's play mode): ← → looks, ↑ ↓ kinds, R random, M another variation, = chaos, - mutate,
 A how looks change, Z X C V punch, flash, split, twist, 1–0 turn the colours, T Y [ ] , . the frame (repeat, mirror,
 turn, zoom), Q W E more warp, swirl, ripples (⇧ less), D every setting, ⌫ wash, Space play or pause, ⇧← ⇧→ songs,
-F full screen, H hide the controls, S tap along, I what it hears, ? the list, Esc close. They're the visualizer's alone while it's open (caught before the editor's).
+F full screen, P the mini player, O its own window, H hide the controls, S tap along, I what it hears, ? the list,
+Esc close. They're the visualizer's alone while it fills the app (caught before the editor's); in a box over the app,
+once it's been clicked (until something else is); out of the app, in its own window.
+
+## Where it is
+
+Four places (`placement.ts`, kept in `useVisualizerPrefs.place`, so the pill opens it where it was left): **filling the
+app** (the first time), **a window** over it, **the mini player** (360 × 203 in the bottom right corner), both moved by
+dragging them and resized by their edges, kept inside the app; and **out**, in a window of its own (O). Double-click goes
+between filling the app and the box it was; P between the mini player and what it was. Small (under 640 × 300) it shows
+only the mini player's controls: the song, play and skip, where it is, full screen, close.
+
+Out, it's a **stage** (`openStageWindow`, `STAGE_PREFIX`): opened with `window.open`, the page draws into it as it does
+a panel (one script, one set of stores: the view is a portal into it, the canvas made again there). Unlike a panel it's
+an ordinary window, a browser's popup too; in the desktop app a framed window of the system's (`electron/stage.ts`):
+it goes to another screen and full screen there (F), and is pinned over other programs on asking (the pin, kept). The
+engine draws on the frames of its canvas's window, and the source ticks on them (`drawIn`): a window only has frames
+while it's seen. Closing its window closes the visualizer; it opens out again next time. Refused (a browser's popup
+blocker, which wants a click), it stays in the app.
 
 ## Sync
 
@@ -288,11 +307,11 @@ Only the e2e spec a step touches is run (`e2e/now-playing.spec.ts`), never the w
    turn, zoom, as the video editor's Motion) and vaudio's Distort and Feedback panels (D), played by the effects engine
    by the music (his: "I want the engine to know when to apply the effects"). Pass: drop cuts within a frame or two of
    their kick on a clear drop (logged; 80–140 ms on a softer one); films of whole songs; Théo's eyes.
-7. **Its own window**: a movable, resizable window, from a mini player to full screen; in the desktop app a window
-   of the system (on top, or on a second screen). Pass: an e2e test, the desktop smoke test, Théo uses it.
+7. **Its own window** (done): see Where it is. Pass: an e2e test (the mini player, moved and resized, its keys
+   scoped, opened where it was left; out in its own window, drawn there, back in), the desktop smoke test (a framed
+   window of the system's, drawn, its keys its own), Théo uses it.
 8. **MilkDrop** (optional): Butterchurn as a source, its presets picked by mood. Pass: licences, 60 fps, Théo decides.
 
 ## Not yet
 
-Spotify alone in a per-app tap (now: the whole computer's sound), the visualizer on a second screen (the visualizer
-plan's V9), synced lyrics (LRCLIB), Apple Music and Windows, preset rounds scored by Théo.
+Spotify alone in a per-app tap (now: the whole computer's sound), synced lyrics (LRCLIB), Apple Music and Windows, preset rounds scored by Théo.

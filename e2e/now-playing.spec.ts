@@ -119,3 +119,120 @@ test("Now Playing: the song in the top bar, controlled from there, and the visua
   await page.getByRole("switch", { name: "Show what's playing" }).click();
   await expect(page.locator("[data-now-playing]")).toHaveCount(1);
 });
+
+test("Now Playing's visualizer: the mini player, a window over the app, and its own window", async ({ page }) => {
+  await page.request.post("/api/now-playing", { data: { action: "play" } });
+  await page.goto("/");
+  const pill = page.locator("[data-now-playing]");
+  if ((await pill.getAttribute("data-now-playing")) !== "playing") await pill.getByRole("button", { name: "Play" }).click();
+  await expect(pill).toHaveAttribute("data-now-playing", "playing");
+  // (The song's button: its title is the app's tooltip while the pointer's on it.)
+  const open = pill.locator("button").first();
+  await open.click();
+  const view = page.locator("[data-now-playing-view]");
+  await expect(view).toHaveAttribute("data-now-playing-view", "full");
+  await expect(view.locator('[data-slot="visualizer-canvas"]')).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
+
+  // The mini player: small, in the bottom right corner, over the app (which goes on under it).
+  await page.mouse.move(400, 300);
+  await view.getByRole("button", { name: "Mini player (P)" }).click();
+  await expect(view).toHaveAttribute("data-now-playing-view", "mini");
+  const screen = page.viewportSize()!;
+  const mini = (await view.boundingBox())!;
+  expect(mini.width).toBeCloseTo(360, -1);
+  expect(mini.x + mini.width).toBeCloseTo(screen.width - 16, -1);
+  expect(mini.y + mini.height).toBeCloseTo(screen.height - 16, -1);
+  await expect(pill).toBeVisible();
+
+  // Its keys are its own only once it's been clicked: the app's are the app's.
+  await open.click();
+  await expect(view).toHaveAttribute("data-engaged", "false");
+  await page.keyboard.press("p");
+  await expect(view).toHaveAttribute("data-now-playing-view", "mini");
+  await view.click();
+  await expect(view).toHaveAttribute("data-engaged", "true");
+  await page.keyboard.press(" ");
+  await expect(pill).toHaveAttribute("data-now-playing", "paused");
+  await page.keyboard.press(" ");
+  await expect(pill).toHaveAttribute("data-now-playing", "playing");
+
+  // Moved by dragging it, resized by a corner (the opposite one staying put).
+  const drag = async (from: { x: number; y: number }, by: { x: number; y: number }) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + by.x, from.y + by.y, { steps: 6 });
+    await page.mouse.up();
+  };
+  await drag({ x: mini.x + mini.width / 2, y: mini.y + mini.height / 2 }, { x: -300, y: -200 });
+  const moved = (await view.boundingBox())!;
+  expect(moved.x).toBeCloseTo(mini.x - 300, -1);
+  expect(moved.y).toBeCloseTo(mini.y - 200, -1);
+  const corner = (await view.locator('[data-resize="-1,-1"]').boundingBox())!;
+  await drag({ x: corner.x + 3, y: corner.y + 3 }, { x: -120, y: -60 });
+  const bigger = (await view.boundingBox())!;
+  expect(bigger.width).toBeCloseTo(moved.width + 120, -1);
+  expect(bigger.height).toBeCloseTo(moved.height + 60, -1);
+  expect(bigger.x + bigger.width).toBeCloseTo(moved.x + moved.width, 0);
+
+  // Double-click: it fills the app; again, it's back where it was.
+  await view.dblclick();
+  await expect(view).toHaveAttribute("data-now-playing-view", "full");
+  await view.dblclick();
+  await expect(view).toHaveAttribute("data-now-playing-view", "mini");
+  expect((await view.boundingBox())!.x).toBeCloseTo(bigger.x, 0);
+
+  // Closed and opened again, it's where it was left.
+  await page.keyboard.press("Escape");
+  await expect(view).toHaveCount(0);
+  await open.click();
+  await expect(view).toHaveAttribute("data-now-playing-view", "mini");
+  expect((await view.boundingBox())!.width).toBeCloseTo(bigger.width, 0);
+
+  // Its own window: the picture leaves the app for a window of its own, and is drawn there.
+  await view.hover();
+  const opened = page.waitForEvent("popup");
+  await view.getByRole("button", { name: "Its own window (O)" }).click();
+  const stage = await opened;
+  const out = stage.locator("[data-now-playing-view]");
+  await expect(out).toHaveAttribute("data-now-playing-view", "out");
+  await expect(view).toHaveCount(0);
+  const canvas = out.locator('[data-slot="visualizer-canvas"]');
+  await expect(canvas).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
+  const picture = () =>
+    canvas.evaluate((el: HTMLCanvasElement) => {
+      const small = document.createElement("canvas");
+      small.width = 64;
+      small.height = 36;
+      const ctx = small.getContext("2d")!;
+      ctx.drawImage(el, 0, 0, 64, 36);
+      const data = ctx.getImageData(0, 0, 64, 36).data;
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 4) sum += data[i] + data[i + 1] + data[i + 2];
+      return sum;
+    });
+  await expect.poll(picture, { timeout: 20_000 }).toBeGreaterThan(64 * 36 * 6);
+  const before = await picture();
+  await expect.poll(picture).not.toBe(before);
+  // Its keys are its own there: Space pauses the song.
+  await stage.keyboard.press(" ");
+  await expect(pill).toHaveAttribute("data-now-playing", "paused");
+  await stage.keyboard.press(" ");
+  await expect(pill).toHaveAttribute("data-now-playing", "playing");
+
+  // Back into the app: its window closes, and it's the mini player again.
+  await stage.mouse.move(200, 200);
+  const gone = stage.waitForEvent("close");
+  await out.getByRole("button", { name: "Back into the app (O)" }).click();
+  await gone;
+  await expect(view).toHaveAttribute("data-now-playing-view", "mini");
+  await expect(view.locator('[data-slot="visualizer-canvas"]')).toHaveAttribute("data-drawn", "clips");
+
+  // Out again, closing its window closes the visualizer.
+  const reopened = page.waitForEvent("popup");
+  await page.keyboard.press("o");
+  const again = await reopened;
+  await expect(again.locator("[data-now-playing-view]")).toHaveAttribute("data-now-playing-view", "out");
+  await again.close();
+  await expect(view).toHaveCount(0);
+  await expect(page.locator("[data-now-playing-view]")).toHaveCount(0);
+});

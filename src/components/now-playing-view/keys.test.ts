@@ -46,6 +46,11 @@ describe("visualizerKey", () => {
     expect(key("KeyD", "d")).toEqual({ kind: "panel" });
   });
 
+  it("makes it the mini player on P, its own window on O", () => {
+    expect(key("KeyP", "p")).toEqual({ kind: "mini" });
+    expect(key("KeyO", "o")).toEqual({ kind: "out" });
+  });
+
   it("leaves the app's own shortcuts alone", () => {
     expect(key("KeyR", "r", { metaKey: true })).toBeNull();
     expect(key("KeyG", "g")).toBeNull();

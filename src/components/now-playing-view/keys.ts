@@ -2,13 +2,16 @@
  * The visualizer's keys (docs/now-playing.md), vaudio's play mode rebuilt: looks on the arrows, the picture punched
  * by Z X C V (zoom, flash, split, twist), its colours turned by the number row (a hue piano: 1 is the look's own,
  * each key a tenth of the way round), chaos on = and mutate on - (vaudio's), the frame on T Y [ ] , . and Backspace
- * (repeat, mirror, turn, zoom, as it was), the song on Space and Shift+arrows. Pure, and tested.
+ * (repeat, mirror, turn, zoom, as it was), the song on Space and Shift+arrows, the mini player on P and its own window on
+ * O. Pure, and tested.
  */
 import type { Pad } from "@shared/live-looks";
 
 export type VisualizerAction =
   | { kind: "close" }
   | { kind: "fullscreen" }
+  | { kind: "mini" }
+  | { kind: "out" }
   | { kind: "look"; step: 1 | -1 }
   | { kind: "group"; step: 1 | -1 }
   | { kind: "random" }
@@ -72,6 +75,10 @@ export function visualizerKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey"
       return { kind: "mutate" };
     case "KeyF":
       return { kind: "fullscreen" };
+    case "KeyP":
+      return { kind: "mini" };
+    case "KeyO":
+      return { kind: "out" };
     case "KeyD":
       return { kind: "panel" };
     case "KeyR":
@@ -110,6 +117,8 @@ export const VISUALIZER_KEYS: { keys: string; does: string }[] = [
   { keys: "Space", does: "Play or pause the song" },
   { keys: "⇧← ⇧→", does: "Previous or next song" },
   { keys: "F", does: "Full screen" },
+  { keys: "P", does: "The mini player (again: back as it was)" },
+  { keys: "O", does: "Its own window, out of the app (again: back in)" },
   { keys: "H", does: "Hide the controls" },
   { keys: "S", does: "Tap along to sync (headphones)" },
   { keys: "I", does: "Show what it hears (the song's mood)" },
