@@ -361,7 +361,7 @@ units, over any look: a World Loop (warp and swirl moving with the sound) and a 
 
 ## MilkDrop
 
-Step 8 of the plan: MilkDrop 2's presets, drawn by Butterchurn (WebGL 2), as looks (`kind: "milkdrop"`). 259 of the
+Step 8 of the plan: MilkDrop 2's presets, drawn by Butterchurn (WebGL 2), as looks (`kind: "milkdrop"`). 153 of the
 1,754 `butterchurn-presets` has converted (`MILKDROP_PRESETS` in `shared/milkdrop-presets.ts`), picked from
 `scripts/milkdrop-sheet.ts`'s sheets: every preset played on real songs in headless Chromium on the GPU and measured
 (what a frame costs, how bright, how much white or black, how colourful, how fast it moves), then looked at. Out:
@@ -369,7 +369,12 @@ anything mostly black, blown out, slow to draw (over 4 ms a frame), still or str
 noisy. In: shapes and light in a black void, kaleidoscopes, feedback, calm scenes. The intensities each suits are from
 how fast it moves; its kinds of song, and whether it flows (slow songs) or is minimal, by eye. The first 115 are from
 its four packs' 395 (2026-10-14); 144 more (Théo wanted more variety) from the 1,360 in no pack (2026-10-15: 293 out on
-the numbers, 1,067 looked at on `--resheet` sheets of those left). The menu lists them by name.
+the numbers, 1,067 looked at on `--resheet` sheets of those left). Théo then rated all 259 (see Your taste: 111 loved,
+148 binned and taken out) and 42 more like the loved were added: what he loved is vivid and saturated (bold rainbows or
+hot single shapes), crisp shapes and light on black, painterly liquid, at a steady pace; what he binned is frantic, dim
+scattered dust, grey, brown or muddy, or a flat wash of one colour. The measurements barely tell them apart (a model on
+them: 0.58 AUC; loved ones are darker, a little more colourful and slower), so the 42 were the best of those numbers,
+then judged by eye against his. The menu lists them by name.
 
 - **Drawing** (`milkdrop.ts`): one Butterchurn of its own on a canvas of its own (1280 × 720), which the preview engine
   takes as a live picture each frame (`PreviewSource.livePicture`, `MILKDROP_ASSET`): the editor's energy layer,
