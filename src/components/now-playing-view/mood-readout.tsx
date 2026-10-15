@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SONG_CHARACTERS, type Section } from "@shared/signals/mood";
+import { SLOW, SONG_CHARACTERS, type Section } from "@shared/signals/mood";
 import { cn } from "cn";
 import { useNowPlaying } from "@/stores/now-playing";
 
@@ -28,7 +28,9 @@ export function MoodReadout({ now, choices }: { now: () => number; choices: () =
     <div data-mood className="pointer-events-none absolute top-24 left-6 w-80 rounded-md bg-black/70 px-3 py-2.5 text-[12px] leading-5 text-white/85 ring-1 ring-white/10">
       <div className="flex items-baseline justify-between">
         <span className="text-base font-semibold">{m.character ?? "listening…"}</span>
-        <span className="text-white/55">sure {Math.round(m.sure * 100)}%</span>
+        <span className="text-white/55">
+          {m.slow >= SLOW && "slow · "}sure {Math.round(m.sure * 100)}%
+        </span>
       </div>
       <div className="mb-1.5 flex gap-2 font-mono text-[10px] text-white/55">
         {SONG_CHARACTERS.map((c) => (
@@ -43,6 +45,13 @@ export function MoodReadout({ now, choices }: { now: () => number; choices: () =
           <span className="block h-full rounded-full bg-white" style={{ width: `${m.intensity * 100}%` }} />
         </span>
         <span className="w-9 text-right font-mono">{m.intensity.toFixed(2)}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="w-16 text-white/60">slow</span>
+        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/15">
+          <span className={cn("block h-full rounded-full", m.slow >= SLOW ? "bg-white" : "bg-white/50")} style={{ width: `${m.slow * 100}%` }} />
+        </span>
+        <span className="w-9 text-right font-mono">{m.slow.toFixed(2)}</span>
       </div>
       <div>
         <span className="text-white/60">in</span> {SECTIONS[m.section]} <span className="text-white/45">for {Math.max(0, Math.round(t - m.sectionSince))} s</span>

@@ -2,10 +2,11 @@
  * How one look gives way to the next, by the music (docs/now-playing.md, step 6): a hard cut on a drop (the kick it
  * lands on); a slow blend in calm parts (a breakdown, a quiet, a song starting, a chill song), its looks melting into
  * each other through a feedback morph; a short punch on the beat in a steady groove; glitches only when a glitchy look
- * comes or goes. Lengths are in beats, so a switch lands on the bar. A key's switch is quick and plain. Pure, and tested.
+ * comes or goes. A slow song (`isSlow`) only blends, its drop too: its looks flow into each other. Lengths are in
+ * beats, so a switch lands on the bar. A key's switch is quick and plain. Pure, and tested.
  */
 import type { LiveLook } from "@shared/live-looks";
-import type { Mood } from "@shared/signals/mood";
+import { type Mood, isSlow } from "@shared/signals/mood";
 
 /** Why a look changes: the chooser's reasons, a schedule's, a key's, chaos rolled. */
 export type SwitchReason = "drop" | "breakdown" | "song" | "quiet" | "fit" | "phrase" | "schedule" | "key" | "chaos";
@@ -36,16 +37,21 @@ const pick = <T>(random: () => number, list: readonly T[]): T => list[Math.floor
 /** The switch for a change of look: by why it's changing, what's heard, the looks, and a beat's length (seconds). */
 export function switchFor(
   reason: SwitchReason,
-  mood: Pick<Mood, "intensity" | "character" | "sure">,
+  mood: Pick<Mood, "intensity" | "character" | "sure" | "slow">,
   from: LiveLook | null,
   to: LiveLook,
   beat: number,
   random: () => number,
 ): Switch {
-  if (reason === "drop") return { type: null, seconds: 0, morph: false, lands: "now", kind: "cut" };
   if (reason === "key") return { type: "cross-dissolve", seconds: 0.35, morph: false, lands: "now", kind: "quick" };
   // vaudio's = is a kick of a flash.
   if (reason === "chaos") return { type: "flash", seconds: 0.4, morph: false, lands: "now", kind: "quick" };
+  if (isSlow(mood)) {
+    // Its looks flow into each other: two bars (as long as reads well), a drop's a bar from where it is.
+    const seconds = reason === "drop" ? Math.min(3, Math.max(1.5, 4 * beat)) : Math.min(6, Math.max(3, 8 * beat));
+    return { type: pick(random, BLENDS), seconds, morph: true, lands: reason === "drop" ? "now" : "bar", kind: "blend" };
+  }
+  if (reason === "drop") return { type: null, seconds: 0, morph: false, lands: "now", kind: "cut" };
   const chill = mood.character === "chill" && mood.sure >= 0.4;
   if (reason === "breakdown" || reason === "quiet" || reason === "song" || mood.intensity < CALM || chill) {
     // Two bars, within reason (a slow song's two bars are long).

@@ -23,6 +23,7 @@ import {
 } from "react-icons/pi";
 import { type Frame, LIVE_LOOKS, LOOK_KINDS, type LookKind, PLAIN_FRAME, liveLook, seededRandom, switchTransition } from "@shared/live-looks";
 import { positionAt } from "@shared/now-playing";
+import { isSlow } from "@shared/signals/mood";
 import { formatDuration } from "@shared/format";
 import type { MusicAnalysis } from "@shared/types";
 import { cn } from "cn";
@@ -68,7 +69,7 @@ const logger = log("now-playing");
 /** Choices the mood readout (I) shows. */
 const CHOICES_KEPT = 5;
 /** What a switch goes by when nothing's heard yet. */
-const UNHEARD = { intensity: 0.5, character: null, sure: 0 } as const;
+const UNHEARD = { intensity: 0.5, character: null, sure: 0, slow: 0 } as const;
 /** The frame keys' steps: turning (degrees a second) and zoom. */
 const SPINS = [-45, -20, -6, 0, 6, 20, 45];
 const ZOOMS = [0.5, 0.65, 0.8, 1, 1.25];
@@ -193,14 +194,20 @@ export default function NowPlayingView() {
     show(lookId ?? pool[Math.floor(Math.random() * pool.length)].id, "chaos");
   };
 
-  /** vaudio's -: the chaos shown, its world nudged, blended in; another way of any other look. */
+  /** Whether the song is a slow one (its looks flow into each other). */
+  const slowSong = () => {
+    const mood = useNowPlaying.getState().live?.signals.mood;
+    return !!mood && isSlow(mood);
+  };
+
+  /** vaudio's -: the chaos shown, its world nudged, blended in (slowly, on a slow song); another way of any other look. */
   const mutate = () => {
     const current = director.look ?? prefs.look;
     variationRef.current += liveLook(current)?.kind === "chaos" ? 0 : 1;
     if (liveLook(current)?.kind === "chaos") {
       mutation.current = { key: shownKey.current, n: (mutation.current.key === shownKey.current ? mutation.current.n : 0) + 1 };
     }
-    show(current, "key", source.now, { type: "additive-dissolve", seconds: 0.8 });
+    show(current, "key", source.now, { type: "additive-dissolve", seconds: slowSong() ? 2.5 : 0.8 });
   };
 
   /** The engine's effects for this moment, if it plays them (not by hand): landing on their beats, eased. */
@@ -260,7 +267,7 @@ export default function NowPlayingView() {
     else logger.info(choice.why);
     if (choice.how === "mutate") return mutate();
     variationRef.current++;
-    if (choice.how === "vary") return show(choice.look, choice.reason, time, { type: "additive-dissolve", seconds: 1.2, morph: false, lands: "bar" });
+    if (choice.how === "vary") return show(choice.look, choice.reason, time, { type: "additive-dissolve", seconds: slowSong() ? 2.5 : 1.2, morph: false, lands: "bar" });
     if (choice.how === "cut") {
       // On the drop's kick: cut there, with a flash. How late it's drawn is logged (step 6's pass: within a frame).
       const at = choice.at ?? time;

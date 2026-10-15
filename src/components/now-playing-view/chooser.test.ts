@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LIVE_LOOKS, seededRandom } from "@shared/live-looks";
 import { SONG_CHARACTERS, type Mood, type MoodEvent, type Section, type SongCharacter } from "@shared/signals/mood";
-import { FAR, LookChooser, MARGIN, PHRASE_BARS, outOfRange, pickLook, suits } from "./chooser";
+import { FAR, LookChooser, MARGIN, PHRASE_BARS, SLOW_MOST, outOfRange, pickLook, suits } from "./chooser";
 
 /** A mood: what's given, the rest quiet and unremarkable. */
 function mood(m: Partial<Mood> = {}): Mood {
@@ -13,6 +13,7 @@ function mood(m: Partial<Mood> = {}): Mood {
     character: null,
     sure: 0,
     scores: { chill: 0, groove: 0, hype: 0, heavy: 0 },
+    slow: 0,
     events: [],
     heard: { loudness: -20, hits: 2, kicks: 1, sub: 0.2, brightness: 2000 },
     ...m,
@@ -26,7 +27,7 @@ type Part = { section: Section; seconds: number; from: number; to?: number; even
  * A song's moods every 0.1 s: its kind known after 8 s, each part's event as it starts, a drop also as the signals
  * hear it (its kick, 20 ms on).
  */
-function* song(character: SongCharacter, parts: Part[], start = 0): Generator<{ time: number; mood: Mood; drop?: number }> {
+function* song(character: SongCharacter, parts: Part[], start = 0, slow = 0): Generator<{ time: number; mood: Mood; drop?: number }> {
   let at = start;
   const events: MoodEvent[] = [];
   let drop: number | undefined;
@@ -45,6 +46,7 @@ function* song(character: SongCharacter, parts: Part[], start = 0): Generator<{ 
           section: part.section,
           character: time - start > 8 ? character : null,
           sure: time - start > 8 ? 0.7 : 0.1,
+          slow: time - start > 8 ? slow : 0,
           events: [...events],
         }),
       };
@@ -64,11 +66,11 @@ const SHAPED = (calm: number, loud: number): Part[] => [
 ];
 
 /** A song played through the chooser, following the music, as the view does: every look it showed, and when. */
-function follow(character: SongCharacter, parts: Part[], seed = "x") {
+function follow(character: SongCharacter, parts: Part[], seed = "x", { slow = 0, bpm = 128 } = {}) {
   const chooser = new LookChooser(LIVE_LOOKS, seededRandom(seed));
-  const bar = (4 * 60) / 128;
+  const bar = (4 * 60) / bpm;
   const shown: { time: number; look: string; why: string; how: string; reason: string; at?: number }[] = [];
-  const frames = [...song(character, parts)];
+  const frames = [...song(character, parts, 0, slow)];
   const first = chooser.song({ time: 0, mood: frames[0].mood, bar });
   chooser.shown(first.look, 0, bar);
   shown.push({ time: 0, ...first });
@@ -96,6 +98,21 @@ describe("what looks suit", () => {
     }
     // Minimal ones, for between songs.
     expect(LIVE_LOOKS.filter((l) => l.suits.minimal).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("has looks that flow for a slow song of every kind but hype (it's never), however loud it's mastered", () => {
+    for (const character of ["chill", "groove", "heavy"] as const) {
+      for (let i = 0; i <= 1 + 1e-9; i += 0.05) {
+        const m = mood({ character, sure: 0.8, intensity: i, slow: 0.8 });
+        const flowing = LIVE_LOOKS.filter((l) => suits(l, m));
+        expect(flowing.length, `a slow ${character} song at ${i.toFixed(2)}`).toBeGreaterThanOrEqual(3);
+        for (const l of flowing) expect(l.suits.flows, l.id).toBe(true);
+      }
+    }
+    // No bars or waveforms: the spectrums but the cover don't flow.
+    expect(LIVE_LOOKS.filter((l) => l.kind === "spectrum" && l.suits.flows).map((l) => l.id)).toEqual(["album"]);
+    // Minimal ones, for a slow song's start and between.
+    expect(LIVE_LOOKS.filter((l) => l.suits.minimal && l.suits.flows).length).toBeGreaterThanOrEqual(3);
   });
 
   it("picks a look that suits the moment, and one for the moment asked for", () => {
@@ -168,6 +185,19 @@ describe("following the music", () => {
     expect(onDrop?.why).toContain("the drop");
     // Nothing changes in the build-ups (16-30 s, 80-92 s), but a far-off look... none is let be far off, so none.
     expect(shown.filter((s) => (s.time > 16.5 && s.time < 30) || (s.time > 80.5 && s.time < 92)).filter((s) => s.how !== "mutate" && s.how !== "vary")).toEqual([]);
+  });
+
+  it("a slow song, however loud: only looks that flow (once it's known slow), every change blended, its drop too", () => {
+    const { shown, timeline, bar } = follow("chill", SHAPED(0.45, 0.85), "slow", { slow: 0.85, bpm: 72 });
+    // Its first look (before it's known slow) is changed within a couple of bars of knowing.
+    for (const { time, look } of timeline) if (time > 8 + 2 * bar + 0.5) expect(LIVE_LOOKS.find((l) => l.id === look)!.suits.flows, `${look} at ${time.toFixed(1)}`).toBe(true);
+    expect(shown.filter((s) => s.how === "cut")).toEqual([]);
+    const drop = shown.find((s) => s.reason === "drop");
+    expect(drop).toMatchObject({ how: "now" });
+    expect(drop!.why).toContain("blended in");
+    // Its loudness isn't taken for intensity: no look is changed for being out of range at 0.85.
+    expect(shown.filter((s) => s.why.includes("far from the music"))).toEqual([]);
+    expect(SLOW_MOST).toBeLessThan(0.85);
   });
 
   it("goes minimal between songs (a long quiet)", () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { LIVE_LOOKS, liveLook, seededRandom } from "@shared/live-looks";
 import { BLENDS, GLITCHES, PUNCHES, type SwitchReason, switchFor } from "./switches";
 
-const mood = (intensity: number, character: "chill" | "groove" | "hype" | "heavy" | null = "hype") => ({ intensity, character, sure: 0.8 });
+const mood = (intensity: number, character: "chill" | "groove" | "hype" | "heavy" | null = "hype", slow = 0) => ({ intensity, character, sure: 0.8, slow });
 const look = (id: string) => liveLook(id)!;
 const BEAT = 60 / 128;
 
@@ -48,5 +48,22 @@ describe("switchFor", () => {
     const glitchy = LIVE_LOOKS.filter((l) => l.suits.glitch);
     expect(glitchy.length).toBeGreaterThan(0);
     for (const g of glitchy) expect(GLITCHES).toContain(switchFor("phrase", mood(0.75), look("nebula"), g, BEAT, r).type);
+  });
+
+  it("only blends on a slow song, however loud: its looks flow into each other, its drop too (a bar from where it is)", () => {
+    const r = seededRandom("slow");
+    const beat = 60 / 72;
+    for (const reason of ["fit", "phrase", "schedule", "song", "breakdown", "quiet"] as SwitchReason[]) {
+      const s = switchFor(reason, mood(0.85, "chill", 0.8), look("nebula"), look("cyberspace"), beat, r);
+      expect(s, reason).toMatchObject({ kind: "blend", morph: true, lands: "bar" });
+      expect(BLENDS).toContain(s.type);
+      expect(s.seconds).toBeGreaterThanOrEqual(3);
+      expect(s.seconds).toBeLessThanOrEqual(6);
+    }
+    const drop = switchFor("drop", mood(0.9, "heavy", 0.8), look("nebula"), look("storm-sea"), beat, r);
+    expect(drop).toMatchObject({ kind: "blend", morph: true, lands: "now" });
+    expect(drop.seconds).toBeLessThanOrEqual(3);
+    // A key is still quick: it's the player's.
+    expect(switchFor("key", mood(0.9, "chill", 0.8), look("nebula"), look("galaxy"), beat, r)).toMatchObject({ kind: "quick" });
   });
 });

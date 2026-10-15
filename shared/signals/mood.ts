@@ -6,7 +6,8 @@
  * Intensity is Synesthesia's idea: not how loud this instant is, but how much is going on over the last few seconds
  * (loudness against full scale and against the song's own loud parts, hits a second in each band, kicks a second, the
  * sub-bass's share), rising fast and falling slowly. Presence is a band's activity rising or falling, not each sound. The song's
- * character is what its intensity, density, beat and tone have been since it started, settled after ~20 s and steady.
+ * character is what its intensity, density, beat and tone have been since it started, settled after ~20 s and steady;
+ * how slow it is (`slowness`) is apart from it: a slow song is never hype, and the visualizer flows on one.
  * Pure: the tests feed it made-up music.
  */
 import { SCALARS, SIGNAL_RATE, type Hit, type IntensitySeries, type ScalarName, type SignalData } from "./format.ts";
@@ -37,6 +38,8 @@ export interface Mood {
   sure: number;
   /** Each character's score, 0..1 (what `character` is the highest of). */
   scores: Record<SongCharacter, number>;
+  /** How slow the song is, 0..1 (`slowness`; 0 until its beat is known): a slow one flows (`isSlow`). */
+  slow: number;
   /** The section changes so far, newest last (the last few). */
   events: MoodEvent[];
   /**
@@ -73,6 +76,31 @@ const INDEX = Object.fromEntries(SCALARS.map((s, i) => [s, i])) as Record<Scalar
 /** Hits a second (all bands) that are a busy track, kicks a second that are a driving one. */
 const BUSY = 10;
 const DRIVING = 2.2;
+/** A song this much slow or more is a slow one (`slowness`). */
+export const SLOW = 0.5;
+/** Tempos (BPM, as felt) from not slow to all slow; and hits a second from sparse (slow) to too busy to be. */
+const SLOW_BPM = [98, 78] as const;
+const SLOW_HITS = [7, 14] as const;
+/** Seconds a song's slowness takes to follow what's heard (most of the way). */
+const SLOW_FOLLOWS = 6;
+/** Fewer kicks than this on each of the beat's beats: it's half time (a ballad's beat read at double speed). */
+const HALF_TIME_KICKS = 0.35;
+
+/**
+ * How slow a song feels, 0..1: its tempo as felt (the beat's halved when it's fast with few kicks on it, as a ballad's
+ * at 70 is read at 140), and only if it's sparse (a busy track at 90 isn't slow). 0 while the tempo isn't known.
+ */
+export function slowness(bpm: number, kicksPerSecond: number, hitsPerSecond: number): number {
+  if (!(bpm > 0)) return 0;
+  const felt = bpm >= 120 && kicksPerSecond / (bpm / 60) < HALF_TIME_KICKS ? bpm / 2 : bpm;
+  const tempo = clamp01((SLOW_BPM[0] - felt) / (SLOW_BPM[0] - SLOW_BPM[1]));
+  const sparse = 1 - clamp01((hitsPerSecond - SLOW_HITS[0]) / (SLOW_HITS[1] - SLOW_HITS[0]));
+  return Math.round(tempo * sparse * 100) / 100;
+}
+
+/** Whether a song is a slow one: its looks flow, and change by blending into each other. */
+export const isSlow = (mood: Pick<Mood, "slow">) => mood.slow >= SLOW;
+
 /** Seconds of kicks that say whether there are any lately (a breakdown has none). */
 const KICKS_LATELY = 1.5;
 /** No build-up in listening's first seconds (intensity rises from nothing). */
@@ -121,9 +149,23 @@ interface SongTally {
   bright: number;
   loud: number;
   bpm: number;
+  /** How slow it's been lately (`slowness`, followed over `SLOW_FOLLOWS` while the beat's known). */
+  slow: number;
 }
 
-const newTally = (since: number): SongTally => ({ since, updates: 0, intensity: [], density: 0, kicks: 0, steadyBeat: 0, sub: 0, bright: 0, loud: 0, bpm: 0 });
+const newTally = (since: number): SongTally => ({
+  since,
+  updates: 0,
+  intensity: [],
+  density: 0,
+  kicks: 0,
+  steadyBeat: 0,
+  sub: 0,
+  bright: 0,
+  loud: 0,
+  bpm: 0,
+  slow: 0,
+});
 
 /** Follows a sound's mood (see the file's comment): `update` every quarter of a second or so. */
 export class LiveMood {
@@ -138,6 +180,7 @@ export class LiveMood {
   private challenger: { character: SongCharacter; since: number } | null = null;
   private scores: Record<SongCharacter, number> = { chill: 0, groove: 0, hype: 0, heavy: 0 };
   private sure = 0;
+  private slow = 0;
   private presence = { low: 0, mid: 0, high: 0 };
   private heard = { loudness: -120, hits: 0, kicks: 0, sub: 0, brightness: 0 };
   private started = -Infinity;
@@ -148,6 +191,7 @@ export class LiveMood {
     this.song = newTally(time);
     this.challenger = null;
     this.sure = 0;
+    this.slow = 0;
   }
 
   /** The mood as of the last update. */
@@ -160,6 +204,7 @@ export class LiveMood {
       character: this.character,
       sure: Math.round(this.sure * 100) / 100,
       scores: this.scores,
+      slow: this.slow,
       events: this.events,
       heard: this.heard,
     };
@@ -214,7 +259,12 @@ export class LiveMood {
       t.sub += (sub - t.sub) * blend;
       t.bright += (clamp01(Math.log(Math.max(1, brightness) / 300) / Math.log(30)) - t.bright) * blend;
       t.loud += (loudAgainstFull - t.loud) * blend;
-      if (data.header.rhythm?.bpm) t.bpm = data.header.rhythm.bpm;
+      if (data.header.rhythm?.bpm) {
+        t.bpm = data.header.rhythm.bpm;
+        // Followed, not taken as it is: the beat's tempo can be wrong for a while (read at 3:2), or for a moment.
+        // (What's heard lately, not the song's means, which are capped: a busy song is never sparse.)
+        t.slow += (slowness(t.bpm, kicks, density) - t.slow) * (1 - Math.exp(-dt / SLOW_FOLLOWS));
+      }
     }
     this.judgeCharacter(now);
   }
@@ -265,12 +315,14 @@ export class LiveMood {
     const sorted = [...t.intensity].sort((a, b) => a - b);
     const typical = sorted[Math.floor(sorted.length / 2)];
     const fast = clamp01((t.bpm - 95) / 45) || 0;
+    this.slow = round2(t.slow);
     // Each kind scored on what makes it that kind (each 0..1): calm and sparse; a steady beat, in the middle;
-    // intense, busy and driving; intense with the sub-bass on top and dark.
+    // intense, busy and driving; intense with the sub-bass on top and dark. A slow song (however loud it's mastered)
+    // leans calm, and is never hype.
     const scores: Record<SongCharacter, number> = {
-      chill: clamp01((1 - typical) * (1 - t.density) * 1.5),
-      groove: clamp01(t.steadyBeat * (1 - Math.abs(typical - 0.55) * 2.2) * (1 - t.sub * 0.5)),
-      hype: clamp01(typical * (0.2 + 0.8 * t.density) * (0.6 + 0.4 * Math.max(fast, t.kicks)) * 1.4),
+      chill: clamp01((1 - typical) * (1 - t.density) * 1.5 + 0.3 * this.slow),
+      groove: clamp01(t.steadyBeat * (1 - Math.abs(typical - 0.55) * 2.2) * (1 - t.sub * 0.5) * (1 - 0.4 * this.slow)),
+      hype: clamp01(typical * (0.2 + 0.8 * t.density) * (0.6 + 0.4 * Math.max(fast, t.kicks)) * 1.4 * (1 - 0.7 * this.slow)),
       heavy: clamp01(typical * t.sub * (1 - t.bright * 0.5) * (0.5 + 0.5 * t.loud) * 2),
     };
     this.scores = Object.fromEntries(SONG_CHARACTERS.map((c) => [c, round2(scores[c])])) as Record<SongCharacter, number>;

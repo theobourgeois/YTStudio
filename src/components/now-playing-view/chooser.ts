@@ -6,12 +6,13 @@
  * phrase the look's checked against the music (and changed when it no longer suits, sooner when it's far off), a
  * chaos look mutated each phrase and changed after 32 bars, another changed after 16 (the effects over it evolve it
  * meanwhile: `effects-engine.ts`; it doesn't evolve as chaos does: longer, it's a loop). A drop is the kick it lands
- * on, heard at once (`Moment.drop`), and cut to there. Every choice says why, and its reason picks its transition
- * (`switches.ts`).
+ * on, heard at once (`Moment.drop`), and cut to there. A slow song (`isSlow`) only has looks that flow, its loudness
+ * not taken for intensity, and nothing cut: its drop blends in too. Every choice says why, and its reason picks its
+ * transition (`switches.ts`).
  * Pure, and tested: the view acts on what it's told.
  */
 import type { LiveLook } from "@shared/live-looks";
-import type { Mood } from "@shared/signals/mood";
+import { type Mood, isSlow } from "@shared/signals/mood";
 import type { SwitchReason } from "./switches";
 
 /** How a choice comes in: cut (at `at`), soon, on the next bar, or the same look mutated (chaos) or varied. */
@@ -60,6 +61,13 @@ const SETTLE_LOOK = 4;
 const QUIET = 0.06;
 /** Looks shown lately, not picked again soon. */
 const RECENT = 6;
+/** A slow song's intensity, as its looks take it: however loud it's mastered, it's never more than this. */
+export const SLOW_MOST = 0.65;
+
+/** The intensity a look's range is held to: a slow song's held down (see `SLOW_MOST`). */
+const felt = (mood: Mood, intensity = mood.intensity) => (isSlow(mood) ? Math.min(intensity, SLOW_MOST) : intensity);
+/** Whether a look moves as the song does: on a slow song, only one that flows. */
+const paced = (look: LiveLook, mood: Mood) => !isSlow(mood) || !!look.suits.flows;
 
 /** How far the intensity is outside a look's range (0: inside). */
 export function outOfRange(look: LiveLook, intensity: number): number {
@@ -70,25 +78,28 @@ export function outOfRange(look: LiveLook, intensity: number): number {
 /** Whether the song's kind is known well enough to go by. */
 const known = (mood: Mood) => mood.character !== null && mood.sure >= SURE;
 
-/** Whether a look suits what's heard: the intensity within its range (and margin), the song's kind if it's known. */
+/**
+ * Whether a look suits what's heard: the intensity within its range (and margin), the song's kind if it's known, and
+ * flowing on a slow song.
+ */
 export function suits(look: LiveLook, mood: Mood, margin = MARGIN): boolean {
-  if (outOfRange(look, mood.intensity) > margin) return false;
+  if (!paced(look, mood) || outOfRange(look, felt(mood)) > margin) return false;
   return !known(mood) || look.suits.characters.includes(mood.character!);
 }
 
 const range = (look: LiveLook) => `${look.suits.energy[0]}–${look.suits.energy[1]}`;
-const heard = (mood: Mood) => `${known(mood) ? mood.character : "not sure yet"}, intensity ${mood.intensity.toFixed(2)}`;
+const heard = (mood: Mood) => `${known(mood) ? mood.character : "not sure yet"}${isSlow(mood) ? ", slow" : ""}, intensity ${mood.intensity.toFixed(2)}`;
 
 /**
  * A look for the moment: one that suits it (minimal, or for an intense or calm moment, if asked), not shown lately,
  * picked at random weighted by how near the middle of its range the intensity is. A calm moment (a breakdown) or an
  * intense one (a drop) goes by the intensity alone, not the song's kind (a hype song's breakdown is calm, a song with a
- * quiet intro reads chill until its drop), and prefers looks made for it. Short of any, the preferences are let go, then what was shown lately, then
- * all but the nearest range.
+ * quiet intro reads chill until its drop), and prefers looks made for it. A slow song has only looks that flow. Short
+ * of any, the preferences are let go, then what was shown lately, then all but the nearest range.
  */
 export function pickLook(looks: readonly LiveLook[], mood: Mood, recent: readonly string[], random: () => number, want: Want = "fit"): LiveLook {
   // What it's picked for: a drop is intense even before the intensity has caught up, a breakdown calm.
-  const intensity = want === "intense" ? Math.max(mood.intensity, 0.7) : want === "calm" ? Math.min(mood.intensity, 0.35) : mood.intensity;
+  const intensity = felt(mood, want === "intense" ? Math.max(mood.intensity, 0.7) : want === "calm" ? Math.min(mood.intensity, 0.35) : mood.intensity);
   const inRange = (l: LiveLook) => outOfRange(l, intensity) <= MARGIN;
   const wanted = (l: LiveLook) => want !== "minimal" || !!l.suits.minimal;
   // A drop or a breakdown goes by the moment, not the song's kind (a quiet intro reads chill; its drop isn't).
@@ -97,12 +108,14 @@ export function pickLook(looks: readonly LiveLook[], mood: Mood, recent: readonl
   const made = (l: LiveLook) =>
     (want !== "calm" || l.suits.energy[1] <= 0.8) && (want !== "intense" || l.suits.energy[0] >= 0.3) && (want === "minimal" || !l.suits.minimal);
   const fresh = (l: LiveLook) => !recent.includes(l.id);
+  const pace = (l: LiveLook) => paced(l, mood);
   const tries: ((l: LiveLook) => boolean)[] = [
-    (l) => wanted(l) && inRange(l) && kind(l) && made(l) && fresh(l),
-    (l) => wanted(l) && inRange(l) && kind(l) && made(l),
-    (l) => wanted(l) && inRange(l) && kind(l) && fresh(l),
-    (l) => wanted(l) && inRange(l) && kind(l),
-    (l) => wanted(l) && inRange(l),
+    (l) => pace(l) && wanted(l) && inRange(l) && kind(l) && made(l) && fresh(l),
+    (l) => pace(l) && wanted(l) && inRange(l) && kind(l) && made(l),
+    (l) => pace(l) && wanted(l) && inRange(l) && kind(l) && fresh(l),
+    (l) => pace(l) && wanted(l) && inRange(l) && kind(l),
+    (l) => pace(l) && wanted(l) && inRange(l),
+    (l) => pace(l) && inRange(l),
   ];
   for (const ok of tries) {
     const pool = looks.filter(ok);
@@ -115,7 +128,8 @@ export function pickLook(looks: readonly LiveLook[], mood: Mood, recent: readonl
     for (let i = 0; i < pool.length; i++) if ((left -= weights[i]) <= 0) return pool[i];
     return pool[pool.length - 1];
   }
-  return [...looks].sort((a, b) => outOfRange(a, intensity) - outOfRange(b, intensity))[0];
+  const flowing = looks.filter(pace);
+  return [...(flowing.length ? flowing : looks)].sort((a, b) => outOfRange(a, intensity) - outOfRange(b, intensity))[0];
 }
 
 /** Following the music: which look, when, and why. */
@@ -190,11 +204,12 @@ export class LookChooser {
         return { look: next.id, how: "bar", reason: "fit", why: `the song is ${heard(mood)}: ${next.name} (suits ${next.suits.characters.join("/")}, ${range(next)})` };
       }
     }
-    // A drop, heard as its kick lands: cut to an intense look there.
+    // A drop, heard as its kick lands: cut to an intense look there (a slow song's blends in).
     if (m.drop !== undefined && m.drop > this.lastDrop) {
       this.lastDrop = m.drop;
       if (time - this.since > SETTLE_LOOK && time - m.drop < 1) {
         const next = pickLook(this.looks, mood, this.recent, this.random, "intense");
+        if (isSlow(mood)) return { look: next.id, how: "now", reason: "drop", why: `the drop (${heard(mood)}): ${next.name} (${range(next)}), blended in` };
         return { look: next.id, how: "cut", reason: "drop", at: m.drop, why: `the drop (${heard(mood)}): ${next.name} (${range(next)}), cut on its kick` };
       }
     }
@@ -207,12 +222,14 @@ export class LookChooser {
         return { look: next.id, how: "bar", reason: "breakdown", why: `a breakdown (${heard(mood)}): ${next.name} (${range(next)})` };
       }
     }
-    // Far outside its range for a couple of bars: changed now, not at the phrase's end.
-    const off = outOfRange(look, mood.intensity);
+    // Far outside its range (or not flowing, on a slow song) for a couple of bars: changed now, not at the phrase's end.
+    const still = !paced(look, mood);
+    const off = still ? 1 : outOfRange(look, felt(mood));
     this.farSince = off > FAR ? (this.farSince ?? time) : null;
     if (this.farSince !== null && time - this.farSince > 2 * m.bar && mood.section !== "build") {
       const next = pickLook(this.looks, mood, this.recent, this.random);
-      return { look: next.id, how: "bar", reason: "fit", why: `${look.name} is far from the music (intensity ${mood.intensity.toFixed(2)}, it suits ${range(look)}): ${next.name}` };
+      const why = still ? "doesn't flow, and the song is slow" : `is far from the music (intensity ${mood.intensity.toFixed(2)}, it suits ${range(look)})`;
+      return { look: next.id, how: "bar", reason: "fit", why: `${look.name} ${why}: ${next.name}` };
     }
     // A phrase's end: checked against the music, else mutated, varied, or after a while another look.
     if (time >= this.phraseAt) {
