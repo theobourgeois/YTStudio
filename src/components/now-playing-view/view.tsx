@@ -5,6 +5,8 @@ import {
   PiArrowSquareOut,
   PiArrowsInSimple,
   PiArrowsOutSimple,
+  PiCaretDown,
+  PiCheck,
   PiCornersIn,
   PiCornersOut,
   PiKeyboard,
@@ -21,7 +23,7 @@ import {
   PiWaveform,
   PiX,
 } from "react-icons/pi";
-import { type Frame, LIVE_LOOKS, LOOK_KINDS, type LookKind, PLAIN_FRAME, SLOW_MOTION, liveLook, seededRandom, switchTransition } from "@shared/live-looks";
+import { type Frame, LIVE_LOOKS, LOOK_KINDS, type LookKind, PLAIN_FRAME, SLOW_MOTION, inMenu, liveLook, seededRandom, switchTransition } from "@shared/live-looks";
 import { MILKDROP_ASSET } from "@shared/live-milkdrop";
 import { positionAt } from "@shared/now-playing";
 import { isSlow } from "@shared/signals/mood";
@@ -554,15 +556,25 @@ export default function NowPlayingView() {
     else resize(place.size === "full" ? before() : "full");
   };
 
+  /** A look of `kind` at random, not the one shown (a menu's Shuffle: MilkDrop's). */
+  const shuffle = (kind: LookKind) => {
+    const pool = LIVE_LOOKS.filter((l) => l.kind === kind && l.id !== director.look);
+    if (!pool.length) return;
+    variationRef.current++;
+    show(pool[Math.floor(Math.random() * pool.length)].id, "key");
+  };
+  // The arrows step through the picker's looks (a menu's are its own).
+  const stepped = LIVE_LOOKS.filter((l) => !inMenu(l));
   const step = (by: 1 | -1) => {
-    const i = LIVE_LOOKS.findIndex((l) => l.id === (director.look ?? prefs.look));
-    show(LIVE_LOOKS[(i + by + LIVE_LOOKS.length) % LIVE_LOOKS.length].id, "key");
+    const i = stepped.findIndex((l) => l.id === (director.look ?? prefs.look));
+    show(stepped[(i + by + stepped.length) % stepped.length].id, "key");
   };
   const stepGroup = (by: 1 | -1) => {
     const current = liveLook(director.look ?? prefs.look)?.kind ?? "world";
     const k = LOOK_KINDS.findIndex((g) => g.id === current);
-    const kind = LOOK_KINDS[(k + by + LOOK_KINDS.length) % LOOK_KINDS.length].id;
-    show(LIVE_LOOKS.find((l) => l.kind === kind)!.id, "key");
+    const kind = LOOK_KINDS[(k + by + LOOK_KINDS.length) % LOOK_KINDS.length];
+    if (kind.menu) shuffle(kind.id);
+    else show(LIVE_LOOKS.find((l) => l.kind === kind.id)!.id, "key");
   };
 
   // The keys: the visualizer has them all while it fills the app (the editor's under it don't hear them), in a box
@@ -771,6 +783,9 @@ export default function NowPlayingView() {
       ) : (
         <div className={cn("pointer-events-none absolute inset-0 transition-opacity duration-500", controls ? "opacity-100" : "opacity-0")}>
           <div className="pointer-events-auto absolute top-4 right-4 flex items-center gap-1">
+            {LOOK_KINDS.filter((g) => g.menu).map((g) => (
+              <LooksMenu key={g.id} kind={g.id} label={g.label} current={showing} onPick={(id) => show(id, "key")} onShuffle={shuffle} />
+            ))}
             <Hearing />
             <HudButton label="Tap along to sync (S)" onClick={() => setSyncing(true)} active={syncing}>
               <PiMetronome />
@@ -1051,15 +1066,20 @@ function Hearing() {
   );
 }
 
-/** The looks, by kind: pick one. */
+/** The looks, by kind: pick one. (A kind with a menu of its own isn't here: `LooksMenu`.) */
 function LookPicker({ current, onPick }: { current: string; onPick: (id: string) => void }) {
-  const kind = liveLook(current)?.kind ?? "world";
-  const [group, setGroup] = useState<LookKind>(kind);
-  useEffect(() => setGroup(kind), [kind]);
+  const look = liveLook(current);
+  const kind = look?.kind ?? "world";
+  const listed = !look || !inMenu(look);
+  const [group, setGroup] = useState<LookKind>(listed ? kind : "world");
+  // (A menu's look playing leaves the group shown as it was.)
+  useEffect(() => {
+    if (listed) setGroup(kind);
+  }, [kind, listed]);
   return (
     <div data-look-picker className="flex flex-col gap-2">
       <div className="flex items-center gap-1">
-        {LOOK_KINDS.map((g) => (
+        {LOOK_KINDS.filter((g) => !g.menu).map((g) => (
           <button
             key={g.id}
             type="button"
@@ -1087,6 +1107,68 @@ function LookPicker({ current, onPick }: { current: string; onPick: (id: string)
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A kind's looks as a menu of their own, up top (MilkDrop's: many): Shuffle (one at random, again for another; the menu
+ * stays), then each by name, the one playing ticked.
+ */
+function LooksMenu({ kind, label, current, onPick, onShuffle }: { kind: LookKind; label: string; current: string; onPick: (id: string) => void; onShuffle: (kind: LookKind) => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  // A press anywhere else closes it (in the window it's in).
+  useEffect(() => {
+    if (!open) return;
+    const win = ownerWindow(box.current);
+    const away = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    win.addEventListener("pointerdown", away, true);
+    return () => win.removeEventListener("pointerdown", away, true);
+  }, [open]);
+  const on = liveLook(current)?.kind === kind;
+  const item = "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-white/85 hover:bg-white/10 [&_svg]:size-3.5";
+  return (
+    <div ref={box} data-looks-menu={kind} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={`${label}'s looks`}
+        onClick={() => setOpen((o) => !o)}
+        className={cn("flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium hover:bg-white/10 [&_svg]:size-3", on ? "bg-white/15 text-white" : "text-white/80")}
+      >
+        {label}
+        <PiCaretDown />
+      </button>
+      {open && (
+        <div role="menu" className="absolute top-9 right-0 z-30 max-h-[60vh] w-72 overflow-y-auto rounded-lg bg-black/85 p-1 ring-1 ring-white/10 backdrop-blur-md">
+          <button type="button" role="menuitem" data-shuffle={kind} onClick={() => onShuffle(kind)} className={item}>
+            <PiShuffle />
+            {on ? "Shuffle (another)" : "Shuffle"}
+          </button>
+          <div className="my-1 h-px bg-white/10" />
+          {LIVE_LOOKS.filter((l) => l.kind === kind).map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={l.id === current}
+              data-look={l.id}
+              onClick={() => {
+                onPick(l.id);
+                setOpen(false);
+              }}
+              className={item}
+            >
+              <span className="grid size-3.5 shrink-0 place-items-center">{l.id === current && <PiCheck />}</span>
+              <span className="truncate">{l.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

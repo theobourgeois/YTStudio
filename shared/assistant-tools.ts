@@ -1293,8 +1293,9 @@ export const VIDEO_TOOLS = [
     description:
       "What the computer's music player (Spotify, on a Mac) is playing: the song, artist and album, where it is, " +
       "how it sounds while the visualizer listens (chill, groove, hype or heavy; its intensity; a build-up, drop or " +
-      "breakdown), and the visualizer (Now Playing's, filling the window, made of this editor's effects and 3D scenes): whether " +
-      "it's open, the look it shows, how looks change, and every look there is (id, name, kind). Read it before " +
+      "breakdown), and the visualizer (Now Playing's, filling the window, made of this editor's effects and 3D scenes, and " +
+      "MilkDrop's presets, kind milkdrop): whether it's open, the look it shows, how looks change, and every look there is " +
+      "(id, name, kind). Read it before " +
       "control_now_playing.",
     inputSchema: obj({}),
   }),

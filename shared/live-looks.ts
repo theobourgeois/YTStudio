@@ -447,12 +447,16 @@ export function performLayer(
 
 export type LookKind = "spectrum" | "world" | "trip" | "chaos" | "milkdrop";
 
-export const LOOK_KINDS: { id: LookKind; label: string }[] = [
+/**
+ * The kinds of look, as the picker groups them. A kind with a menu of its own isn't in the picker: its looks (many,
+ * MilkDrop's) are a menu up top, shuffled or picked by name (Théo's).
+ */
+export const LOOK_KINDS: { id: LookKind; label: string; menu?: true }[] = [
   { id: "world", label: "Worlds" },
   { id: "spectrum", label: "Spectrums" },
   { id: "trip", label: "Trips" },
   { id: "chaos", label: "Chaos" },
-  { id: "milkdrop", label: "MilkDrop" },
+  { id: "milkdrop", label: "MilkDrop", menu: true },
 ];
 
 /**
@@ -1004,3 +1008,6 @@ LIVE_LOOKS.push(...MILKDROP_LOOKS);
 
 const byId = new Map(LIVE_LOOKS.map((l) => [l.id, l]));
 export const liveLook = (id: string): LiveLook | undefined => byId.get(id);
+
+/** Whether a look is in a menu of its kind's own (`LOOK_KINDS`), not the picker. */
+export const inMenu = (look: LiveLook) => LOOK_KINDS.some((k) => k.id === look.kind && k.menu);

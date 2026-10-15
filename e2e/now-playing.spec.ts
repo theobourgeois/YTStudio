@@ -17,12 +17,12 @@ test("Now Playing: the song in the top bar, controlled from there, and the visua
   if ((await pill.getAttribute("data-now-playing")) !== "playing") await pill.getByRole("button", { name: "Play" }).click();
   await expect(pill).toHaveAttribute("data-now-playing", "playing");
 
-  // Pause and play, and skip (shown on hover).
+  // Pause and play, and skip (always there, not only on hover).
   await pill.getByRole("button", { name: "Pause" }).click();
   await expect(pill).toHaveAttribute("data-now-playing", "paused");
   await pill.getByRole("button", { name: "Play" }).click();
   await expect(pill).toHaveAttribute("data-now-playing", "playing");
-  await pill.hover();
+  await expect(pill.getByRole("button", { name: "Previous" })).toBeVisible();
   await pill.getByRole("button", { name: "Next" }).click();
   await expect(pill).toContainText("Golden Hour");
 
@@ -248,12 +248,16 @@ test("Now Playing's MilkDrop looks: Butterchurn's presets drawn live, as any loo
   // A MilkDrop look, picked (staying on it): Butterchurn loads, draws its preset, and the visualizer shows it.
   await page.mouse.move(400, 300);
   await view.getByLabel("Change looks").selectOption("off");
-  await view.getByRole("button", { name: "MilkDrop", exact: true }).click();
-  await view.locator('[data-look="md-cauldron"]').click();
-  await expect(view.locator('[data-look="md-cauldron"]')).toHaveAttribute("aria-pressed", "true");
+  // Its presets are a menu up top (not the picker's): Shuffle, or one by name.
+  await expect(view.locator("[data-look-picker]").getByText("MilkDrop")).toHaveCount(0);
+  const menu = view.locator('[data-looks-menu="milkdrop"]');
+  await menu.getByRole("button", { name: "MilkDrop" }).click();
+  const shuffle = menu.locator('[data-shuffle="milkdrop"]');
+  await shuffle.click();
   const milkdrop = page.locator("canvas[data-milkdrop]");
   await expect(milkdrop).toHaveAttribute("data-milkdrop", "ready", { timeout: 20_000 });
-  await expect(milkdrop).toHaveAttribute("data-look", "md-cauldron");
+  await expect(milkdrop).toHaveAttribute("data-look", /^md-/);
+  const first = await milkdrop.getAttribute("data-look");
   await expect.poll(async () => Number(await milkdrop.getAttribute("data-frames")), { timeout: 10_000 }).toBeGreaterThan(30);
   const sum = (selector: string) =>
     page.locator(selector).evaluate((el: HTMLCanvasElement) => {
@@ -273,11 +277,16 @@ test("Now Playing's MilkDrop looks: Butterchurn's presets drawn live, as any loo
   await expect.poll(() => sum("canvas[data-milkdrop]")).not.toBe(before);
   await expect(canvas).toHaveAttribute("data-drawn", "clips");
 
-  // Another MilkDrop look blends to its preset; the one canvas draws it. (The music may have moved on to another kind.)
-  await page.mouse.move(420, 320);
-  await view.getByRole("button", { name: "MilkDrop", exact: true }).click();
-  await view.locator('[data-look="md-sherwin"]').click();
-  await expect(milkdrop).toHaveAttribute("data-look", "md-sherwin");
+  // Shuffle again (the menu stays): another preset, blended to; the one canvas draws it. Then one by name.
+  await shuffle.click();
+  await expect.poll(() => milkdrop.getAttribute("data-look")).not.toBe(first);
+  await expect(milkdrop).toHaveAttribute("data-look", /^md-/);
+  const shown = await milkdrop.getAttribute("data-look");
+  const other = menu.locator(`[data-look^="md-"]:not([data-look="${shown}"])`).first();
+  const named = await other.getAttribute("data-look");
+  await other.click();
+  await expect(milkdrop).toHaveAttribute("data-look", named!);
+  await expect(menu.getByRole("menu")).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(view).toHaveCount(0);
 });

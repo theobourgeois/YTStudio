@@ -100,7 +100,7 @@ export function visualizerKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey"
 /** The keys as the help lists them. */
 export const VISUALIZER_KEYS: { keys: string; does: string }[] = [
   { keys: "← →", does: "Previous or next look" },
-  { keys: "↑ ↓", does: "Worlds, spectrums or trips" },
+  { keys: "↑ ↓", does: "Worlds, spectrums, trips, chaos, or MilkDrop at random" },
   { keys: "R", does: "A look at random" },
   { keys: "M", does: "The same look, another way" },
   { keys: "=", does: "Chaos: a roll of another recipe" },

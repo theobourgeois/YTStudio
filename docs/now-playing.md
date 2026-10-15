@@ -11,12 +11,13 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | --- | --- | --- |
 | Asking the player, telling it what to do | `server/now-playing.ts`, `/api/now-playing` (`server/routes/now-playing.ts`) | platform |
 | The types, positions, commands | `shared/now-playing.ts` | platform |
-| The pill (tab strip, else Home's bar or the menu row) | `src/components/now-playing/` | platform |
+| The pill (the tab strip, else Home's bar; not in a project without the tab strip) | `src/components/now-playing/` | platform |
 | The tab's state: polling, the cover's palette, listening, the visualizer open | `src/stores/now-playing.ts` | platform |
 | Listening to the computer's sound | `src/lib/live-audio.ts`, the grant in `electron/main.ts` (`answerListening`) | platform |
 | Live signals (the analysis as it's heard), the live beat | `shared/signals/live.ts`, `live-beat.ts` | platform |
 | A cover's colours by role | `shared/palette.ts` | platform |
 | The looks, the project they play in, the pads | `shared/live-looks.ts` | video |
+| MilkDrop's looks (Butterchurn's presets picked, what each suits) | `shared/live-milkdrop.ts`; drawn by `now-playing-view/milkdrop.ts` | video |
 | The visualizer: director, source, keys, view | `src/components/now-playing-view/` | video (`ClientSuite.NowPlaying`) |
 | Its own window (a stage) | `src/components/windows/native/stage-window.ts`, `electron/stage.ts` | platform |
 | vaudio's 2D visualizers | `shared/effect-library/audio.ts` (Wave Bars ... Acid Plasma) | video |
@@ -301,6 +302,31 @@ length, echo zoom, echo spin, echo hue, and echo flow: MilkDrop's smoke, the ech
 units, over any look: a World Loop (warp and swirl moving with the sound) and a bulge. Q W E nudge warp, swirl, ripples as vaudio's do; ⌫ (Wash) puts them and the frame back. The assistant's
 `control_now_playing` takes `frame`, `fx` and `effects` (who plays them); `now_playing` says what's set.
 
+## MilkDrop
+
+Step 8 of the plan: MilkDrop 2's presets, drawn by Butterchurn (WebGL 2), as looks (`kind: "milkdrop"`). 115 of its
+packs' 395 (`MILKDROP_PRESETS`), picked from `scripts/milkdrop-sheet.ts`'s sheets: every preset played on real songs in
+headless Chromium on the GPU and measured (what a frame costs, how bright, how much white or black, how colourful, how
+fast it moves), then looked at. Out: anything mostly black (72), blown out (16), slow to draw (19: over 4 ms a frame),
+garish or muddy. In: shapes and light in a black void, kaleidoscopes, feedback, calm scenes. The intensities each suits
+are from how fast it moves; its kinds of song, and whether it flows (slow songs) or is minimal, by eye.
+
+- **Drawing** (`milkdrop.ts`): one Butterchurn of its own on a canvas of its own (1280 × 720), which the preview engine
+  takes as a live picture each frame (`PreviewSource.livePicture`, `MILKDROP_ASSET`): the editor's energy layer,
+  effects, frame and transitions go over it as over any look. It draws only while a MilkDrop look is on screen
+  (`LiveDirector.shownAt`). One look giving way to another, both MilkDrop's, is MilkDrop's own blend over the switch
+  (both sides show the one canvas); from any other look, the preset's there at once.
+- **Sound**: it hears what the rest does, at the picture's time (`LiveSignals.soundAt`: the last two seconds of the
+  sound kept), so it's as in sync; in slow motion its time runs at half speed.
+- **Cost**: 1.2 ms a frame on average (3.6 at most) on a Mac's GPU, on top of the engine's. Butterchurn and the four
+  packs (about 2 MB) load a moment after the visualizer opens.
+- **Picking**: the chooser picks them as any look, each kind as likely as another however many looks it has. In the
+  visualizer they're a menu of their own up top (Théo's: not the picker's list), Shuffle first, then each by name; ↑ ↓
+  landing on MilkDrop shuffles. They keep their own colours (not the cover's), and the effects engine plays only
+  frames and light distortions over them, as over chaos (they feed back into themselves).
+- **Licences**: Butterchurn and `butterchurn-presets` are MIT; the presets are MilkDrop's community's, shipped in that
+  package.
+
 ## The plan (v2)
 
 After Théo's feedback (2026-10-14: the looks are milquetoast and ignore the song's mood, transitions read as amateur,
@@ -325,7 +351,7 @@ Only the e2e spec a step touches is run (`e2e/now-playing.spec.ts`), never the w
 7. **Its own window** (done): see Where it is. Pass: an e2e test (the mini player, moved and resized, its keys
    scoped, opened where it was left; out in its own window, drawn there, back in), the desktop smoke test (a framed
    window of the system's, drawn, its keys its own), Théo uses it.
-8. **MilkDrop** (optional): Butterchurn as a source, its presets picked by mood. Pass: licences, 60 fps, Théo decides.
+8. **MilkDrop** (done): see MilkDrop. Pass: licences (MIT), 60 fps (1.2 ms a frame, 3.6 at most), Théo decides.
 
 ## Not yet
 

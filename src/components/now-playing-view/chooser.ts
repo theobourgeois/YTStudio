@@ -100,7 +100,7 @@ const heard = (mood: Mood) => `${known(mood) ? mood.character : "not sure yet"}$
 
 /**
  * A look for the moment: one that suits it (minimal, or for an intense or calm moment, if asked), not shown lately,
- * picked at random weighted by how near the middle of its range the intensity is. A calm moment (a breakdown) or an
+ * picked at random weighted by how near the middle of its range the intensity is, each kind as likely as another. A calm moment (a breakdown) or an
  * intense one (a drop) goes by the intensity alone, not the song's kind (a hype song's breakdown is calm, a song with a
  * quiet intro reads chill until its drop), and prefers looks made for it. A slow song has only looks that flow. Short
  * of any, the preferences are let go, then what was shown lately, then all but the nearest range.
@@ -128,9 +128,12 @@ export function pickLook(looks: readonly LiveLook[], mood: Mood, recent: readonl
   for (const ok of tries) {
     const pool = looks.filter(ok);
     if (!pool.length) continue;
+    // Each kind as likely as another, however many looks it has (MilkDrop's are many).
+    const ofKind = new Map<string, number>();
+    for (const l of pool) ofKind.set(l.kind, (ofKind.get(l.kind) ?? 0) + 1);
     const weights = pool.map((l) => {
       const [lo, hi] = l.suits.energy;
-      return 1.2 - Math.min(1, Math.abs(intensity - (lo + hi) / 2) / Math.max(0.1, (hi - lo) / 2));
+      return (1.2 - Math.min(1, Math.abs(intensity - (lo + hi) / 2) / Math.max(0.1, (hi - lo) / 2))) / ofKind.get(l.kind)!;
     });
     let left = random() * weights.reduce((a, b) => a + b, 0);
     for (let i = 0; i < pool.length; i++) if ((left -= weights[i]) <= 0) return pool[i];

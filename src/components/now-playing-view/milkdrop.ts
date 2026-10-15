@@ -56,6 +56,7 @@ export class MilkDrop {
   };
 
   private frames = 0;
+  private failedDrawing = false;
 
   constructor() {
     this.canvas = document.createElement("canvas");
@@ -117,7 +118,12 @@ export class MilkDrop {
       const preset = this.presets.get(milkdropPreset(newest.look)!.name);
       if (preset) {
         const blending = this.current !== null && on.some((s) => s.look === this.current);
-        visualizer.loadPreset(preset, blending ? Math.max(0, newest.full - time) : 0);
+        try {
+          visualizer.loadPreset(preset, blending ? Math.max(0, newest.full - time) : 0);
+        } catch (err) {
+          logger.warn(`MilkDrop couldn't load ${newest.look}: ${errorMessage(err)}`);
+        }
+        // (Not tried again each frame, if it failed.)
         this.current = newest.look;
         this.canvas.dataset.look = newest.look;
       }
@@ -133,7 +139,14 @@ export class MilkDrop {
       this.levels.timeByteArrayR[i] = byte(this.right[i]);
       this.levels.timeByteArray[i] = byte((this.left[i] + this.right[i]) / 2);
     }
-    visualizer.render({ audioLevels: this.levels, elapsedTime: Math.max(0.001, seconds * pace) });
+    try {
+      visualizer.render({ audioLevels: this.levels, elapsedTime: Math.max(0.001, seconds * pace) });
+    } catch (err) {
+      if (!this.failedDrawing) logger.warn(`MilkDrop couldn't draw ${this.current}: ${errorMessage(err)}`);
+      this.failedDrawing = true;
+      return false;
+    }
+    this.failedDrawing = false;
     if (++this.frames % 30 === 0) this.canvas.dataset.frames = String(this.frames);
     return true;
   }
