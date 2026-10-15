@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { LIVE_LOOKS, seededRandom } from "@shared/live-looks";
 import { SONG_CHARACTERS, type Mood, type MoodEvent, type Section, type SongCharacter } from "@shared/signals/mood";
-import { FAR, LookChooser, MARGIN, PHRASE_BARS, SLOW_MOST, outOfRange, pickLook, slowMotionOn, slowedDown, suits } from "./chooser";
+import { type LookRating, tasteOf } from "@shared/look-ratings";
+import { type Appeal, FAR, LookChooser, MARGIN, PHRASE_BARS, SLOW_MOST, outOfRange, pickLook, pickWanted, slowMotionOn, slowedDown, suits } from "./chooser";
 
 /** A mood: what's given, the rest quiet and unremarkable. */
 function mood(m: Partial<Mood> = {}): Mood {
@@ -150,6 +151,73 @@ describe("what looks suit", () => {
     const suiting = LIVE_LOOKS.filter((l) => suits(l, m)).map((l) => l.id);
     const recent = suiting.slice(0, -1);
     for (let i = 0; i < 20; i++) expect(recent).not.toContain(pickLook(LIVE_LOOKS, m, recent, random).id);
+  });
+});
+
+describe("the user's taste", () => {
+  const rating = (look: string, verdict: LookRating["verdict"], character: SongCharacter | null = null): LookRating => ({
+    look,
+    verdict,
+    at: 0,
+    seconds: 3,
+    song: null,
+    mood: { character, intensity: 0.5, slow: 0 },
+  });
+  const appealOf = (ratings: LookRating[]): Appeal => tasteOf(ratings).appeal;
+
+  it("never picks a binned look while there's another, and picks a loved one more often", () => {
+    const random = seededRandom("taste");
+    const m = mood({ character: "hype", sure: 0.8, intensity: 0.85 });
+    const suiting = LIVE_LOOKS.filter((l) => suits(l, m));
+    const [loved, ...rest] = suiting;
+    const binned = rest.slice(0, Math.floor(rest.length / 2)).map((l) => l.id);
+    const appeal = appealOf([rating(loved.id, "love", "hype"), ...binned.map((id) => rating(id, "bin"))]);
+    const counts = new Map<string, number>();
+    for (let i = 0; i < 4000; i++) {
+      const id = pickLook(LIVE_LOOKS, m, [], random, "fit", appeal).id;
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    for (const id of binned) expect(counts.get(id) ?? 0, id).toBe(0);
+    const others = [...counts].filter(([id]) => id !== loved.id).map(([, n]) => n);
+    expect(counts.get(loved.id)!).toBeGreaterThan((2 * others.reduce((a, b) => a + b, 0)) / others.length);
+  });
+
+  it("goes by what was said for the kind of song playing", () => {
+    const random = seededRandom("kind");
+    const m = mood({ character: "chill", sure: 0.8, intensity: 0.3 });
+    const suiting = LIVE_LOOKS.filter((l) => suits(l, m));
+    const appeal = appealOf(suiting.slice(1).map((l) => rating(l.id, "bin", "hype")).concat(suiting.slice(1).map((l) => rating(l.id, "love", "chill"))));
+    const picked = new Set(Array.from({ length: 200 }, () => pickLook(LIVE_LOOKS, m, [], random, "fit", appeal).id));
+    expect([...picked].some((id) => suiting.slice(1).some((l) => l.id === id))).toBe(true);
+  });
+
+  it("picks a binned look only if every look is", () => {
+    const m = mood({ character: "groove", sure: 0.8, intensity: 0.5 });
+    const appeal = appealOf(LIVE_LOOKS.map((l) => rating(l.id, "bin")));
+    expect(LIVE_LOOKS).toContain(pickLook(LIVE_LOOKS, m, [], seededRandom("all"), "fit", appeal));
+  });
+
+  it("changes a look binned while it plays at the phrase's end, following the music", () => {
+    const chooser = new LookChooser(LIVE_LOOKS, seededRandom("phrase"));
+    const bar = 2;
+    const m = mood({ character: "groove", sure: 0.8, intensity: 0.5 });
+    const look = LIVE_LOOKS.find((l) => suits(l, m) && !l.suits.minimal)!;
+    chooser.shown(look.id, 0, bar);
+    expect(chooser.follow({ time: 1, mood: m, bar })).toBeNull();
+    chooser.appeal = appealOf([rating(look.id, "bin", "groove")]);
+    const choice = chooser.follow({ time: PHRASE_BARS * bar + 0.1, mood: m, bar });
+    expect(choice?.look).not.toBe(look.id);
+    expect(choice?.why).toContain("binned");
+  });
+
+  it("shuffles by the user's taste: never a binned one, loved ones more", () => {
+    const random = seededRandom("shuffle");
+    const pool = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    const appeal = appealOf([rating("a", "bin"), rating("b", "love")]);
+    const picks = Array.from({ length: 600 }, () => pickWanted(pool, appeal, null, random)!.id);
+    expect(picks).not.toContain("a");
+    expect(picks.filter((p) => p === "b").length).toBeGreaterThan(2 * picks.filter((p) => p === "c").length);
+    expect(pickWanted([{ id: "a" }], appeal, null, random)?.id).toBe("a");
   });
 });
 
