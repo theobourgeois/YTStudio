@@ -14,8 +14,8 @@
  *   kaleidoscope in or out).
  * - **By hand**: none (the panel, the keys).
  *
- * A chaos look has a world of its own, so it's played frames and light distortions only (no more feedback on its
- * own). Before the music's downbeats are known, bars are counted in beats. Every change says why. Pure
+ * A chaos look has a world of its own (a MilkDrop one too), so it's played frames and light distortions only (no more
+ * feedback on its own). Before the music's downbeats are known, bars are counted in beats. Every change says why. Pure
  * (its random given), and tested.
  */
 import { type Frame, type LiveFx, type LiveLook, NO_FX, PLAIN_FRAME } from "@shared/live-looks";
@@ -135,7 +135,8 @@ const MOVES_IN_SET: Record<Tier, [number, number]> = { calm: [0, 1], groove: [1,
  * of the others, none of `last`'s first. Never turning, nor repeated, nor zoomed out: mirrored is a mirror.
  */
 export function composeSet(tier: Tier, look: LiveLook | null, r: () => number, last: readonly string[] = []): { effects: Effects; names: string[] } {
-  const chaos = look?.kind === "chaos";
+  // (MilkDrop's presets feed back into themselves too.)
+  const chaos = look?.kind === "chaos" || look?.kind === "milkdrop";
   const feeding = MOVES[tier].filter((m) => m.feeds && m.name !== last[0]);
   const others = MOVES[tier].filter((m) => !m.feeds);
   const picked: Move[] = chaos || !feeding.length ? [] : [feeding[Math.floor(r() * feeding.length)]];

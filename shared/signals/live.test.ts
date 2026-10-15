@@ -69,6 +69,28 @@ describe("LiveSignals", () => {
     expect(data.header.waveSamples).toBeGreaterThan(3.9 * data.header.waveRate);
   });
 
+  it("keeps the last seconds of the sound itself, read around a moment (silence for what isn't kept)", () => {
+    const live = new LiveSignals(48_000);
+    // Three seconds: each sample's left is its frame's number, its right the negative.
+    const n = 3 * 48_000;
+    const samples = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      samples[i * 2] = i;
+      samples[i * 2 + 1] = -i;
+    }
+    for (let i = 0; i < samples.length; i += 9600) live.push(samples.subarray(i, i + 9600));
+    const left = new Float32Array(4);
+    const right = new Float32Array(4);
+    live.soundAt(2.5, left, right);
+    expect([...left]).toEqual([119_998, 119_999, 120_000, 120_001]);
+    expect([...right]).toEqual([-119_998, -119_999, -120_000, -120_001]);
+    // Over two seconds ago is gone; what hasn't come yet is silence.
+    live.soundAt(0.5, left, right);
+    expect([...left]).toEqual([0, 0, 0, 0]);
+    live.soundAt(3, left, right);
+    expect([...left]).toEqual([143_998, 143_999, 0, 0]);
+  });
+
   it("finds each kick as it happens", () => {
     const bpm = 120;
     const live = listen(drums(8, bpm));

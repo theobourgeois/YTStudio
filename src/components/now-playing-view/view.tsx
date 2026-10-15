@@ -22,6 +22,7 @@ import {
   PiX,
 } from "react-icons/pi";
 import { type Frame, LIVE_LOOKS, LOOK_KINDS, type LookKind, PLAIN_FRAME, SLOW_MOTION, liveLook, seededRandom, switchTransition } from "@shared/live-looks";
+import { MILKDROP_ASSET } from "@shared/live-milkdrop";
 import { positionAt } from "@shared/now-playing";
 import { isSlow } from "@shared/signals/mood";
 import { formatDuration } from "@shared/format";
@@ -38,6 +39,7 @@ import { useNowPlaying } from "@/stores/now-playing";
 import { type Choice, LookChooser, type Moment, slowMotionOn } from "./chooser";
 import { EFFECTS_MODES, EffectsEngine } from "./effects-engine";
 import { LiveDirector } from "./director";
+import { MilkDrop } from "./milkdrop";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
 import { ImageSlots, LiveSource } from "./live-source";
 import { MoodReadout } from "./mood-readout";
@@ -144,6 +146,24 @@ export default function NowPlayingView() {
         () => useNowPlaying.getState().status?.track?.artwork ?? null,
       ),
   );
+  // MilkDrop's looks: Butterchurn's canvas, a live picture the engine takes each frame.
+  const milkdrop = useRef<MilkDrop | null>(null);
+  const lastTick = useRef(0);
+  useEffect(() => {
+    const drop = new MilkDrop();
+    milkdrop.current = drop;
+    source.pictures = (assetId) => (assetId === MILKDROP_ASSET ? drop.canvas : null);
+    imageBox.current?.append(drop.canvas);
+    // Loaded once the visualizer's going (a couple of MB), so a MilkDrop look is ready when one's picked.
+    const later = setTimeout(() => void drop.prepare(), 1500);
+    return () => {
+      clearTimeout(later);
+      drop.dispose();
+      drop.canvas.remove();
+      if (milkdrop.current === drop) milkdrop.current = null;
+      source.pictures = () => null;
+    };
+  }, [source]);
   const [noWebGl, setNoWebGl] = useState(false);
   // Seen as soon as it's drawn: it follows sound heard live.
   const [engine] = useState(() => new PreviewEngine(({ noWebGl }) => setNoWebGl(noWebGl), source, true, { lowLatency: true }));
@@ -289,8 +309,16 @@ export default function NowPlayingView() {
     return from[Math.floor(Math.random() * from.length)].id;
   };
 
-  /** Each frame, before it's drawn: start, follow sessions, change looks when it's time. */
+  /** Each frame, before it's drawn: what's decided (`decide`), then MilkDrop's frame, if one of its looks is on screen. */
   function tick(time: number) {
+    decide(time);
+    const seconds = Math.min(0.1, Math.max(0.001, time - lastTick.current));
+    lastTick.current = time;
+    milkdrop.current?.draw(time, seconds, director.shownAt(time), useNowPlaying.getState().live?.signals ?? null, slowMotion.current ? SLOW_MOTION : 1);
+  }
+
+  /** Start, follow sessions, change looks when it's time. */
+  function decide(time: number) {
     const live = useNowPlaying.getState().live;
     if (!live) return;
     if (sessionRef.current !== live.session) {

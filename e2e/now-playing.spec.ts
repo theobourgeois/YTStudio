@@ -236,3 +236,48 @@ test("Now Playing's visualizer: the mini player, a window over the app, and its 
   await expect(view).toHaveCount(0);
   await expect(page.locator("[data-now-playing-view]")).toHaveCount(0);
 });
+
+test("Now Playing's MilkDrop looks: Butterchurn's presets drawn live, as any look", async ({ page }) => {
+  await page.request.post("/api/now-playing", { data: { action: "play" } });
+  await page.goto("/");
+  await page.locator("[data-now-playing] button").first().click();
+  const view = page.locator("[data-now-playing-view]");
+  const canvas = view.locator('[data-slot="visualizer-canvas"]');
+  await expect(canvas).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
+
+  // A MilkDrop look, picked (staying on it): Butterchurn loads, draws its preset, and the visualizer shows it.
+  await page.mouse.move(400, 300);
+  await view.getByLabel("Change looks").selectOption("off");
+  await view.getByRole("button", { name: "MilkDrop", exact: true }).click();
+  await view.locator('[data-look="md-cauldron"]').click();
+  await expect(view.locator('[data-look="md-cauldron"]')).toHaveAttribute("aria-pressed", "true");
+  const milkdrop = page.locator("canvas[data-milkdrop]");
+  await expect(milkdrop).toHaveAttribute("data-milkdrop", "ready", { timeout: 20_000 });
+  await expect(milkdrop).toHaveAttribute("data-look", "md-cauldron");
+  await expect.poll(async () => Number(await milkdrop.getAttribute("data-frames")), { timeout: 10_000 }).toBeGreaterThan(30);
+  const sum = (selector: string) =>
+    page.locator(selector).evaluate((el: HTMLCanvasElement) => {
+      const small = document.createElement("canvas");
+      small.width = 64;
+      small.height = 36;
+      const ctx = small.getContext("2d")!;
+      ctx.drawImage(el, 0, 0, 64, 36);
+      const data = ctx.getImageData(0, 0, 64, 36).data;
+      let total = 0;
+      for (let i = 0; i < data.length; i += 4) total += data[i] + data[i + 1] + data[i + 2];
+      return total;
+    });
+  // Butterchurn draws something (not black), and it moves.
+  await expect.poll(() => sum("canvas[data-milkdrop]"), { timeout: 10_000 }).toBeGreaterThan(64 * 36 * 6);
+  const before = await sum("canvas[data-milkdrop]");
+  await expect.poll(() => sum("canvas[data-milkdrop]")).not.toBe(before);
+  await expect(canvas).toHaveAttribute("data-drawn", "clips");
+
+  // Another MilkDrop look blends to its preset; the one canvas draws it. (The music may have moved on to another kind.)
+  await page.mouse.move(420, 320);
+  await view.getByRole("button", { name: "MilkDrop", exact: true }).click();
+  await view.locator('[data-look="md-sherwin"]').click();
+  await expect(milkdrop).toHaveAttribute("data-look", "md-sherwin");
+  await page.keyboard.press("Escape");
+  await expect(view).toHaveCount(0);
+});

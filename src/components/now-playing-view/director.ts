@@ -127,6 +127,21 @@ export class LiveDirector {
     this.cached = null;
   }
 
+  /**
+   * The looks on screen at `time`, oldest first: each from when it starts showing (half its transition before its
+   * cut) until the next has come in, and when it's fully in.
+   */
+  shownAt(time: number): { look: string; from: number; full: number }[] {
+    const on: { look: string; from: number; full: number }[] = [];
+    this.shows.forEach((s, i) => {
+      const half = (s.clip.transitionIn?.duration ?? 0) / 2;
+      const next = this.shows[i + 1];
+      const until = next ? next.clip.start + (next.clip.transitionIn?.duration ?? 0) / 2 : Infinity;
+      if (time >= s.clip.start - half && time < until) on.push({ look: s.look, from: s.clip.start - half, full: s.clip.start + half });
+    });
+    return on;
+  }
+
   /** Let go of looks that ended before `now` (a second's grace), of pads' hits long past, and of a morph played out. */
   prune(now: number): void {
     if (this.morphing && now > this.morphing.at + this.morphing.seconds + 2) {

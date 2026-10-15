@@ -64,6 +64,9 @@ const DROP_GAP = 8;
 const DROP_RECENT = 0.3;
 const DROP_BEFORE = 2;
 
+/** Seconds of the sound itself kept, as heard (MilkDrop draws its waves from it). */
+const SOUND_KEPT = 2;
+
 const S = SCALARS.length;
 const INDEX = Object.fromEntries(SCALARS.map((s, i) => [s, i])) as Record<ScalarName, number>;
 const EDGES = bandEdges().map((e) => Math.round(e * 1000) / 1000);
@@ -105,9 +108,13 @@ export class LiveSignals {
   private header: SignalsHeader | null = null;
   private ahead = 0;
   private expecting = false;
+  /** The last `SOUND_KEPT` seconds of the sound, interleaved stereo, a ring; and how many frames have come. */
+  private readonly sound: Float32Array;
+  private soundFrames = 0;
 
   constructor(readonly sampleRate = 48_000) {
     this.analyser = new SignalAnalyser(sampleRate, 0, { live: true });
+    this.sound = new Float32Array(Math.round(SOUND_KEPT * sampleRate) * 2);
   }
 
   /** Seconds after a moment it's measured (the sound the analysis needs after it). */
@@ -142,6 +149,7 @@ export class LiveSignals {
   /** Interleaved stereo samples (left, right, left...) or mono, as they're heard. */
   push(samples: Float32Array, channels: 1 | 2 = 2): void {
     this.analyser.push(samples, channels);
+    this.keepSound(samples, channels);
     const { frames, scalars } = this.analyser.measured();
     for (; this.checked < frames; this.checked++) {
       this.findHits(scalars, this.checked);
@@ -160,6 +168,36 @@ export class LiveSignals {
       const value = this.moods.mood.intensity;
       while (this.intensities.length <= k) this.intensities.push(value);
     }
+  }
+
+  /**
+   * The sound itself around `time` (session seconds), `left.length` samples a channel centred on it, as heard (from
+   * the last `SOUND_KEPT` seconds; silence for what isn't kept, or hasn't come yet).
+   */
+  soundAt(time: number, left: Float32Array, right: Float32Array): void {
+    const ring = this.sound.length / 2;
+    const first = Math.round(time * this.sampleRate) - (left.length >> 1);
+    for (let i = 0; i < left.length; i++) {
+      const frame = first + i;
+      if (frame < 0 || frame >= this.soundFrames || frame < this.soundFrames - ring) {
+        left[i] = right[i] = 0;
+        continue;
+      }
+      const at = (frame % ring) * 2;
+      left[i] = this.sound[at];
+      right[i] = this.sound[at + 1];
+    }
+  }
+
+  private keepSound(samples: Float32Array, channels: 1 | 2): void {
+    const ring = this.sound.length / 2;
+    const frames = samples.length / channels;
+    for (let i = 0; i < frames; i++) {
+      const at = ((this.soundFrames + i) % ring) * 2;
+      this.sound[at] = samples[i * channels];
+      this.sound[at + 1] = samples[i * channels + channels - 1];
+    }
+    this.soundFrames += frames;
   }
 
   /** How intense it is, where the song is, what kind of song (`mood.ts`), as of a quarter of a second ago at most. */
