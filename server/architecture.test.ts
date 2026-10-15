@@ -86,6 +86,9 @@ const PLATFORM = [
   "server/projects.ts",
   // Now Playing (docs/now-playing.md): what the music player is playing, in every suite's top bar.
   "shared/now-playing.ts",
+  // The visualizer's looks as the user rated them (ids: whose looks they are is the visualizer's).
+  "shared/look-ratings.ts",
+  "server/look-ratings.ts",
   // A cover's colours, by role (a look takes on each song's).
   "shared/palette.ts",
   // The pill in the top bar, the tab's side (listening to the computer's sound), where the visualizer opens.

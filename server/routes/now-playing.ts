@@ -1,13 +1,15 @@
 import { Router, json } from "express";
+import type { LookRatings } from "../look-ratings.ts";
 import type { DownloadedModel } from "../models.ts";
 import type { NowPlaying } from "../now-playing.ts";
 import { HttpError } from "../storage.ts";
 
 /**
  * `/api/now-playing`: what the computer's music player is playing, and telling it what to do; and the vibe's model
- * (CLAP's audio side, `shared/signals/vibe.ts`): whether it's here, its download (asked for by the user), its file.
+ * (CLAP's audio side, `shared/signals/vibe.ts`): whether it's here, its download (asked for by the user), its file; and
+ * the visualizer's looks as rated (`shared/look-ratings.ts`).
  */
-export function nowPlayingRoutes(nowPlaying: NowPlaying, vibe: DownloadedModel): Router {
+export function nowPlayingRoutes(nowPlaying: NowPlaying, vibe: DownloadedModel, ratings: LookRatings): Router {
   const router = Router();
   router.get("/", async (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -34,6 +36,13 @@ export function nowPlayingRoutes(nowPlaying: NowPlaying, vibe: DownloadedModel):
     const file = await vibe.file();
     if (!file) throw new HttpError(404, "The vibe's model isn't downloaded: POST /api/now-playing/vibe/setup first.");
     res.sendFile(file, { headers: { "Cache-Control": "no-cache" }, dotfiles: "allow" }, (error) => error && next(error));
+  });
+  router.get("/ratings", async (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ ratings: await ratings.list() });
+  });
+  router.post("/ratings", json(), async (req, res) => {
+    res.status(201).json(await ratings.add(req.body));
   });
   return router;
 }

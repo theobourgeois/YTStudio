@@ -51,6 +51,7 @@ import type {
 import { PROJECT_NOTICE_HEADER } from "@shared/types";
 import type { ModelStatus } from "@shared/models";
 import type { NowPlayingCommand, NowPlayingStatus } from "@shared/now-playing";
+import type { LookRating, LookRatingInput } from "@shared/look-ratings";
 
 export class ApiRequestError extends Error {
   constructor(
@@ -235,6 +236,9 @@ export const api = {
   /** Whether the vibe's model (CLAP's audio side) is here; its download, which the user asked for. */
   vibeModel: () => request<ModelStatus>("/api/now-playing/vibe"),
   setUpVibeModel: () => request<ModelStatus>("/api/now-playing/vibe/setup", { method: "POST" }),
+  /** The visualizer's looks as rated (loved, binned, skipped), oldest first; a rating kept. */
+  lookRatings: () => request<{ ratings: LookRating[] }>("/api/now-playing/ratings"),
+  rateLook: (rating: LookRatingInput) => request<LookRating>("/api/now-playing/ratings", { method: "POST", body: JSON.stringify(rating) }),
 
   startExport: (req: ExportRequest) =>
     request<ExportJob>("/api/exports", { method: "POST", body: JSON.stringify(req) }),
