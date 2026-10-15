@@ -24,6 +24,7 @@ import {
   switchTransition,
 } from "./live-looks.ts";
 import { fx, inSlowMotion } from "./live-kit.ts";
+import { MILKDROP_ASSET } from "./live-milkdrop.ts";
 import { DEFAULT_PALETTE } from "./palette.ts";
 import { isSequenceId } from "./sequences.ts";
 import { transitionDefinition } from "./transitions.ts";
@@ -38,7 +39,7 @@ describe("LIVE_LOOKS", () => {
   });
 
   for (const look of LIVE_LOOKS) {
-    it(`${look.name}: layers of known effects, in the song's colours`, () => {
+    it(`${look.name}: layers of known effects, in the song's colours (MilkDrop's in its own)`, () => {
       const seq = lookSequence(look, { palette: RED, random: seededRandom(`song:${look.id}`) }, "seq_test");
       expect(seq.tracks.length).toBe(seq.clips.length);
       expect(seq.clips.length).toBeGreaterThan(0);
@@ -46,8 +47,11 @@ describe("LIVE_LOOKS", () => {
         expect(clip.out).toBe(FOREVER);
         expect([...new Set(clip.effects.map((e) => e.id))]).toHaveLength(clip.effects.length);
         for (const effect of clip.effects) expect(definitionOf(effect), effect.type).toBeDefined();
-        if (clip.assetId) expect(clip.assetId).toBe(COVER_ASSET);
+        // The cover, or MilkDrop's picture (drawn live).
+        if (clip.assetId) expect(clip.assetId).toBe(look.kind === "milkdrop" ? MILKDROP_ASSET : COVER_ASSET);
       }
+      // MilkDrop's presets keep their own colours.
+      if (look.kind === "milkdrop") return;
       // Some colour of the song's is in it (a look follows the cover), and none of the default palette's.
       const text = JSON.stringify(seq.clips);
       expect(Object.values(RED).some((c) => typeof c === "string" && text.includes(c))).toBe(true);

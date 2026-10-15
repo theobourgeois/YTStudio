@@ -10,6 +10,7 @@
 import { defaultEffects } from "./effects.ts";
 import { DEFAULT_RESPONSE } from "./links.ts";
 import { CHAOS_LOOKS, echoZoom, trailSeconds } from "./live-chaos.ts";
+import { MILKDROP_LOOKS } from "./live-milkdrop.ts";
 import {
   BASS,
   COVER_ASSET,
@@ -444,13 +445,18 @@ export function performLayer(
 // Looks
 // ---------------------------------------------------------------------------
 
-export type LookKind = "spectrum" | "world" | "trip" | "chaos";
+export type LookKind = "spectrum" | "world" | "trip" | "chaos" | "milkdrop";
 
-export const LOOK_KINDS: { id: LookKind; label: string }[] = [
+/**
+ * The kinds of look, as the looks menu groups them. A kind of many looks (MilkDrop's) is too many to step through: the
+ * arrows skip it, and ↑ ↓ onto it plays one of its looks at random.
+ */
+export const LOOK_KINDS: { id: LookKind; label: string; many?: true }[] = [
   { id: "world", label: "Worlds" },
   { id: "spectrum", label: "Spectrums" },
   { id: "trip", label: "Trips" },
   { id: "chaos", label: "Chaos" },
+  { id: "milkdrop", label: "MilkDrop", many: true },
 ];
 
 /**
@@ -502,6 +508,8 @@ const ENERGY: Record<LookKind, Energy> = {
   spectrum: { punch: 0.14, shake: 0.3, strobe: 0.3, split: 0.016, invert: 0, lift: 1 },
   trip: { punch: 0.2, shake: 0.7, strobe: 0.4, split: 0.028, invert: 0.75, lift: 1 },
   chaos: { punch: 0.14, shake: 0.4, strobe: 0.25, split: 0.016, invert: 0, lift: 1 },
+  // MilkDrop goes off with the music by itself: a little punch and shake over it, no strobe, its own colours kept.
+  milkdrop: { punch: 0.08, shake: 0.25, strobe: 0, split: 0.01, invert: 0, lift: 0.5 },
 };
 
 /** A 3D scene (it draws the whole frame), coloured by the song and glowing on the bass. */
@@ -995,6 +1003,11 @@ export const LIVE_LOOKS: LiveLook[] = [
 
 // Chaos: vaudio's recipes, a roll of one each song and each M (`live-chaos.ts`).
 LIVE_LOOKS.push(...CHAOS_LOOKS);
+// MilkDrop: Butterchurn's presets, drawn live (`live-milkdrop.ts`).
+LIVE_LOOKS.push(...MILKDROP_LOOKS);
 
 const byId = new Map(LIVE_LOOKS.map((l) => [l.id, l]));
 export const liveLook = (id: string): LiveLook | undefined => byId.get(id);
+
+/** Whether a look is of a kind of many (`LOOK_KINDS`): not stepped through by the arrows. */
+export const ofMany = (look: LiveLook) => LOOK_KINDS.some((k) => k.id === look.kind && k.many);

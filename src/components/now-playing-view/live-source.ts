@@ -10,6 +10,7 @@
  */
 import type { SignalReader } from "@shared/audio-signals";
 import { LIVE_ASSET, PADS_ASSET, coverAsset } from "@shared/live-looks";
+import { milkdropAsset } from "@shared/live-milkdrop";
 import { previewSlots, sequenceAssets } from "@shared/sequences";
 import type { LiveSignals } from "@shared/signals/live";
 import type { MediaAsset, Project } from "@shared/types";
@@ -80,6 +81,12 @@ export class LiveSource implements PreviewSource {
   ) {}
 
   private assets: { project: Project | null; cover: string | null; list: MediaAsset[] } = { project: null, cover: null, list: [] };
+  /** Pictures drawn live (MilkDrop's canvas), by asset: the engine takes them as they are each frame. */
+  pictures: (assetId: string) => HTMLCanvasElement | null = () => null;
+
+  livePicture(assetId: string): HTMLCanvasElement | null {
+    return this.pictures(assetId);
+  }
 
   /** The time the picture is at (session seconds). */
   get now(): number {
@@ -91,7 +98,7 @@ export class LiveSource implements PreviewSource {
     const cover = this.cover();
     // The same list while nothing in it changes (the engine indexes it again when it does).
     if (this.assets.project !== project || this.assets.cover !== cover) {
-      this.assets = { project, cover, list: [...sequenceAssets(project), ...(cover ? [coverAsset(cover)] : [])] };
+      this.assets = { project, cover, list: [...sequenceAssets(project), milkdropAsset(), ...(cover ? [coverAsset(cover)] : [])] };
     }
     return { project, assets: this.assets.list, time: this.time, playing: true };
   }

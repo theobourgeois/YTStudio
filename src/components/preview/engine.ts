@@ -55,7 +55,8 @@ type ClipKind = "video" | "image" | "text" | "solid" | "shape" | "adjustment" | 
 /** A picture to draw: the element it comes from (none for what the compositor draws itself: text, solids, shapes), and when in its clip. */
 interface Picture {
   key: string;
-  source: HTMLVideoElement | HTMLImageElement | null;
+  /** A canvas is a live picture (`PreviewSource.livePicture`): drawn anew each frame. */
+  source: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement | null;
   shown: Shown;
   /**
    * A time-interpolated video (`Clip.timeInterpolation`): its slot (whose frames are counted),
@@ -173,6 +174,11 @@ export interface PreviewSource {
   signals?(): SignalReader | null;
   /** The render file showing `time`, if there's one (Premiere's preview files: `stores/render-files.ts`). */
   rendered?(time: number): RenderedAt | null;
+  /**
+   * A picture drawn live, for an image asset's clips: a canvas drawn anew each frame (Now Playing's MilkDrop), taken
+   * as it is on every draw. Null: the asset's own image.
+   */
+  livePicture?(assetId: string): HTMLCanvasElement | null;
 }
 
 /** A segment's render file and the moment in it (seconds); the next segment's too, if it has one, to have ready. */
@@ -610,10 +616,12 @@ export class PreviewEngine {
       /** The picture showing each clip on screen, by clip id. */
       const pictures = new Map<string, Picture>();
 
-      // Text, solids and shape layers are drawn by the compositor itself.
+      // Text, solids and shape layers are drawn by the compositor itself; live pictures are their canvas as it is.
       for (const side of shown) {
         const kind = kindOf(side.clip);
         if (kind === "solid" || kind === "shape" || kind === "text") pictures.set(side.clip.id, { key: "", source: null, shown: side });
+        const live = kind === "image" ? this.source.livePicture?.(side.clip.assetId) : null;
+        if (live) pictures.set(side.clip.id, { key: `live:${side.clip.assetId}`, source: live, shown: side });
       }
 
       // Nested sequences: planned as a level of their own, drawn into a group.
@@ -634,8 +642,10 @@ export class PreviewEngine {
 
       if (layer) {
         const ids = (want: ClipKind) => {
-          const on = shown.filter((s) => kindOf(s.clip) === want).map((s) => s.clip.id);
-          const upcoming = next && kindOf(next) === want && !shown.some((s) => s.clip.id === next.id) ? next.id : null;
+          // (Not a live picture's: it needs no element.)
+          const on = shown.filter((s) => kindOf(s.clip) === want && !pictures.has(s.clip.id)).map((s) => s.clip.id);
+          const live = !!next && !!this.source.livePicture?.(next.assetId);
+          const upcoming = next && kindOf(next) === want && !live && !shown.some((s) => s.clip.id === next.id) ? next.id : null;
           return [on[0] ?? null, on[1] ?? upcoming] as const;
         };
         layer.videoIds = assignSlots(layer.videoIds, ...ids("video"));
@@ -1137,6 +1147,17 @@ export class PreviewEngine {
    */
   private upload(compositor: Compositor, { key, source, interp }: Picture): boolean {
     if (!source) return true;
+    if (source instanceof HTMLCanvasElement) {
+      // A live picture: drawn anew each frame.
+      if (source.width === 0 || source.height === 0) return false;
+      try {
+        compositor.setPicture(key, source);
+      } catch (err) {
+        logger.warn("couldn't draw a live picture", err);
+        return false;
+      }
+      return true;
+    }
     if (interp && source instanceof HTMLVideoElement) this.keepFrame(compositor, key, source, interp.slot);
     let version: string | null;
     let ready: boolean;
