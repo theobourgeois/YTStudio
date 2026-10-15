@@ -26,8 +26,8 @@ declare module "butterchurn" {
   export default butterchurn;
 }
 
-/** A pack of Butterchurn's presets, by name. */
-declare module "butterchurn-presets/lib/*.min.js" {
-  const pack: { getPresets(): Record<string, import("butterchurn").ButterchurnPreset> };
-  export default pack;
+/** MilkDrop's presets picked (shared/milkdrop-presets.ts), by name: made by vite.config.ts. */
+declare module "virtual:milkdrop-presets" {
+  const presets: Record<string, import("butterchurn").ButterchurnPreset>;
+  export default presets;
 }

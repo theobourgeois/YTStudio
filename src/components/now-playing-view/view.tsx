@@ -1115,6 +1115,9 @@ function LooksMenu({
   const item = "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-white/85 hover:bg-white/10 [&_svg]:size-3.5 [&_svg]:shrink-0";
   const tick = (on: boolean) => <span className="grid size-3.5 shrink-0 place-items-center">{on && <PiCheck />}</span>;
   const label = LOOK_KINDS.find((g) => g.id === kind)?.label;
+  // The kind's looks (MilkDrop's, hundreds of them, by name).
+  const listed = LIVE_LOOKS.filter((l) => l.kind === kind);
+  if (kind === "milkdrop") listed.sort((a, b) => a.name.localeCompare(b.name));
   return (
     <div ref={box} data-looks-menu className="relative">
       <button
@@ -1160,7 +1163,7 @@ function LooksMenu({
                 Shuffle {label}
               </button>
               <div className="my-1 h-px bg-white/10" />
-              {LIVE_LOOKS.filter((l) => l.kind === kind).map((l) => (
+              {listed.map((l) => (
                 <button
                   key={l.id}
                   type="button"

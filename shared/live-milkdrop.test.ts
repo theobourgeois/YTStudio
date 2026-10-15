@@ -1,18 +1,13 @@
-import { createRequire } from "node:module";
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { MILKDROP_LOOKS, MILKDROP_PACKS, MILKDROP_PRESETS, milkdropPreset } from "./live-milkdrop.ts";
-
-const require = createRequire(import.meta.url);
+import { MILKDROP_DIR, MILKDROP_LOOKS, MILKDROP_PRESETS, milkdropPreset } from "./live-milkdrop.ts";
 
 describe("MilkDrop's presets", () => {
-  it("are each in the pack it says, once", () => {
-    const packs = Object.fromEntries(
-      MILKDROP_PACKS.map((pack) => {
-        const m = require(`butterchurn-presets/lib/${pack}.min.js`) as { default?: { getPresets(): object }; getPresets?(): object };
-        return [pack, (m.getPresets ? m : m.default!).getPresets!() as Record<string, unknown>];
-      }),
-    );
-    for (const p of MILKDROP_PRESETS) expect(packs[p.pack][p.name], `${p.title}: ${p.name} in ${p.pack}`).toBeDefined();
+  it("are each a converted preset of butterchurn-presets', once", () => {
+    const dir = path.resolve(import.meta.dirname, "../node_modules", MILKDROP_DIR);
+    for (const p of MILKDROP_PRESETS) expect(fs.existsSync(path.join(dir, `${p.name}.json`)), `${p.title}: ${p.name}`).toBe(true);
+    expect(new Set(MILKDROP_PRESETS.map((p) => p.name)).size).toBe(MILKDROP_PRESETS.length);
     expect(new Set(MILKDROP_PRESETS.map((p) => p.id)).size).toBe(MILKDROP_PRESETS.length);
     expect(new Set(MILKDROP_PRESETS.map((p) => p.title)).size).toBe(MILKDROP_PRESETS.length);
   });
