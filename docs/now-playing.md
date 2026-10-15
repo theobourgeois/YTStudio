@@ -48,9 +48,15 @@ late: a pause reads as playing for a few hundred ms.
 Apple Music answers AppleScript too (its cover is data, not a URL): another `Player`.
 
 `EDITOR_NOW_PLAYING=stand-in` plays made-up songs (the e2e tests, the sheet): closed until told to play, so other
-specs never see a pill. Its `demo` flag makes the tab measure a made-up drum loop (`demoSong`) instead of listening.
+specs never see a pill (only the Visualizer button, below). Its `demo` flag makes the tab measure a made-up drum loop (`demoSong`) instead of listening.
 
 ## Listening
+
+The visualizer listens to the computer's sound, not to the player, so it doesn't need a song: when nothing plays
+(Spotify closed, paused on nothing, or a computer it can't ask), the pill's place has a **Visualizer** button
+(`data-visualize-sound`) that opens it on whatever the computer is playing (a browser tab, a game, another player).
+The song's parts of the view (its name, the transport) say it's listening instead, and the colours are the default
+palette's.
 
 The tab asks for a screen share's sound (`getDisplayMedia`). The desktop app answers it itself
 (`setDisplayMediaRequestHandler`) with the system's sound (`audio: "loopback"`: WASAPI loopback on Windows; Core Audio's process tap on a Mac,

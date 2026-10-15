@@ -4,6 +4,20 @@ import { expect, test } from "@playwright/test";
 // measures a made-up sound instead of the computer's: nothing here is ever heard.
 test.describe.configure({ mode: "serial" });
 
+test("Now Playing with nothing playing: the visualizer still opens, on the computer's sound", async ({ page }) => {
+  // The stand-in is closed until the next test tells it to play.
+  await page.goto("/");
+  await expect(page.locator("[data-now-playing]")).toHaveCount(0);
+  const button = page.locator("[data-visualize-sound]");
+  await expect(button).toBeVisible();
+  await button.click();
+  const view = page.locator("[data-now-playing-view]");
+  await expect(view).toBeVisible();
+  await expect(view).toContainText("Listening to the computer's sound");
+  await page.keyboard.press("Escape");
+  await expect(view).toBeHidden();
+});
+
 test("Now Playing: the song in the top bar, controlled from there, and the visualizer of it", async ({ page }) => {
   // The stand-in isn't open until it's told to play (the other specs never see it).
   await page.request.post("/api/now-playing", { data: { action: "play" } });
