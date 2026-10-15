@@ -4,12 +4,20 @@
  * engine plays (`liveProject`). Looks already past are let go. Times are the listening session's seconds.
  */
 import {
+  type Frame,
+  type FrameMove,
+  type FxMove,
+  type LiveFx,
   type LiveLook,
   type LookContext,
   type Pad,
   type PadHit,
   type Showing,
+  NO_FX,
+  PLAIN_FRAME,
   endShow,
+  frameAngle,
+  fxAt,
   liveProject,
   lookSequence,
   padSignals,
@@ -25,6 +33,9 @@ const PAD_MEMORY = 4;
 export class LiveDirector {
   private shows: Showing[] = [];
   private hueDegrees = 0;
+  private move: FrameMove | null = null;
+  private morphing: { at: number; seconds: number } | null = null;
+  private play: FxMove | null = null;
   private perform = performLayer(0);
   private hits: PadHit[] = [];
   private padData: SignalData = padSignals([]);
@@ -50,6 +61,52 @@ export class LiveDirector {
     return this.hueDegrees;
   }
 
+  /** How the picture's framed (repeated, mirrored, turning, zoomed), as last asked. */
+  get frame(): Frame {
+    return this.move?.to ?? PLAIN_FRAME;
+  }
+
+  /**
+   * Frame the picture as `frame` says, from `at` over `seconds` (eased; carrying on from where the last left it,
+   * turned as it was), `upright` turning it back to straight as it goes.
+   */
+  setFrame(frame: Frame, at: number, seconds: number, upright = false): void {
+    this.move = { from: this.frame, to: frame, at, seconds, angle: frameAngle(this.move, at), upright };
+    this.rebuildPerform();
+  }
+
+  /** The player's distortions and feedback as last asked (where they're going). */
+  get fx(): LiveFx {
+    return this.play?.to ?? NO_FX;
+  }
+
+  /** Where the player's values have got to by `time` (a change eases there). */
+  fxNow(time: number): LiveFx {
+    return fxAt(this.play, time);
+  }
+
+  /**
+   * The player's distortions and feedback over every look (vaudio's Distort and Feedback panels): from where they
+   * are at `at`, eased over `seconds`.
+   */
+  setFx(fx: LiveFx, at: number, seconds: number): void {
+    const from = fxAt(this.play, at);
+    const none = (v: LiveFx) => (Object.keys(NO_FX) as (keyof LiveFx)[]).every((k) => v[k] === NO_FX[k]);
+    this.play = none(from) && none(fx) ? null : { from, to: fx, at, seconds };
+    this.rebuildPerform();
+  }
+
+  /** A feedback morph about a switch at `at` (`seconds` long): the looks melt into each other. */
+  morph(at: number, seconds: number): void {
+    this.morphing = { at, seconds };
+    this.rebuildPerform();
+  }
+
+  private rebuildPerform(): void {
+    this.perform = performLayer(this.hueDegrees, this.move, this.morphing, this.play);
+    this.cached = null;
+  }
+
   /** The pads' hits, as a sound's signals. */
   get pads(): SignalData {
     return this.padData;
@@ -70,8 +127,12 @@ export class LiveDirector {
     this.cached = null;
   }
 
-  /** Let go of looks that ended before `now` (a second's grace), and of pads' hits long past. */
+  /** Let go of looks that ended before `now` (a second's grace), of pads' hits long past, and of a morph played out. */
   prune(now: number): void {
+    if (this.morphing && now > this.morphing.at + this.morphing.seconds + 2) {
+      this.morphing = null;
+      this.rebuildPerform();
+    }
     const keep = this.shows.filter((s, i) => i === this.shows.length - 1 || s.clip.start + (s.clip.out - s.clip.in) > now - 1);
     if (keep.length !== this.shows.length) {
       this.shows = keep;
@@ -92,14 +153,16 @@ export class LiveDirector {
   /** Turn the colours by `degrees` (the hue keys). */
   setHue(degrees: number): void {
     this.hueDegrees = ((degrees % 360) + 360) % 360;
-    this.perform = performLayer(this.hueDegrees);
-    this.cached = null;
+    this.rebuildPerform();
   }
 
   /** Start again from nothing (a new listening session: its time starts again at 0). */
   reset(): void {
     this.shows = [];
     this.hits = [];
+    this.move = null;
+    this.morphing = null;
+    this.rebuildPerform();
     this.padData = padSignals([]);
     this.cached = null;
   }

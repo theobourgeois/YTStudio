@@ -9,7 +9,11 @@ import {
   PADS_ASSET,
   PADS_TRACK,
   SWITCHES,
+  NO_FX,
   endShow,
+  frameAngle,
+  fxAt,
+  normalizeFx,
   liveProject,
   lookSequence,
   padSignals,
@@ -100,6 +104,72 @@ describe("liveProject", () => {
 
   it("switches only through transitions that exist", () => {
     for (const type of SWITCHES) expect(transitionDefinition(type), type).toBeDefined();
+  });
+});
+
+describe("the frame", () => {
+  const plain = { repeat: 1, mirror: false, spin: 0, zoom: 1 } as const;
+  const effect = (clip: ReturnType<typeof performLayer>, type: string) => clip.effects.find((e) => e.type === type);
+
+  it("leaves the picture as it is unless it's reframed", () => {
+    expect(effect(performLayer(0), "transform")).toBeUndefined();
+    const move = { from: plain, to: plain, at: 0, seconds: 0.5, angle: 0 };
+    expect(effect(performLayer(0, move), "transform")?.params.edges).toBe("none");
+  });
+
+  it("repeats the picture in tiles (or mirrored), easing there over the move", () => {
+    const tiled = effect(performLayer(0, { from: plain, to: { ...plain, repeat: 3 }, at: 10, seconds: 0.5, angle: 0 }), "transform")!;
+    expect(tiled.params.edges).toBe("tile");
+    expect(tiled.expressions?.scale).toBe("ease(time, 10, 10.5, 1, 0.333)");
+    const mirrored = effect(performLayer(0, { from: plain, to: { ...plain, repeat: 2, mirror: true }, at: 0, seconds: 1, angle: 0 }), "transform")!;
+    expect(mirrored.params.edges).toBe("mirror");
+    // Mirrored without copies: down the middle.
+    expect(effect(performLayer(0, { from: plain, to: { ...plain, mirror: true }, at: 0, seconds: 1, angle: 0 }), "mirror")).toBeDefined();
+  });
+
+  it("turns on from where it was, and back upright to the nearest whole turn", () => {
+    const spinning = { from: plain, to: { ...plain, spin: 20 }, at: 10, seconds: 0.5, angle: 30 };
+    expect(frameAngle(spinning, 10)).toBe(30);
+    expect(frameAngle(spinning, 13)).toBe(90);
+    expect(effect(performLayer(0, spinning), "transform")?.expressions?.rotation).toBe("30 + Math.max(0, time - 10) * 20");
+    const upright = { from: spinning.to, to: plain, at: 20, seconds: 1, angle: 350, upright: true };
+    expect(frameAngle(upright, 20)).toBe(350);
+    expect(frameAngle(upright, 21)).toBeCloseTo(360);
+  });
+
+  it("plays the player's distortions and feedback over every look, in vaudio's units", () => {
+    expect(performLayer(0, null, null, null).effects.some((e) => ["world-loop", "bulge"].includes(e.type))).toBe(false);
+    const set = { ...NO_FX, warp: 0.4, kaleido: 0.5, fold: 0.3, feedback: 0.87, trails: 0.76, echoZoom: 0.33, echoFlow: 0.5, lens: -0.18 };
+    const played = performLayer(0, null, null, { from: set, to: set, at: 0, seconds: 0 });
+    const world = effect(played, "world-loop")!;
+    expect(world.params).toMatchObject({ warp: 0.4, kaleido: 0.5, mirror: 0.3, amount: 0.87, echoRotation: 0, echoHue: 0 });
+    expect(world.params.echoZoom).toBeGreaterThan(1);
+    expect(world.params.flowWarp).toBeCloseTo(0.3);
+    expect(world.links?.warp).toBeDefined();
+    expect(effect(played, "bulge")?.params.amount).toBeLessThan(0);
+  });
+
+  it("eases the player's values from where they were, its loop's state kept by role", () => {
+    const to = { ...NO_FX, kaleido: 0.6, feedback: 0.7 };
+    const layer = performLayer(0, null, null, { from: NO_FX, to, at: 10, seconds: 2 });
+    const world = effect(layer, "world-loop")!;
+    expect(world.id).toBe("fx-loop");
+    expect(world.expressions?.kaleido).toBe("ease(time, 10, 12, 0, 0.6)");
+    expect(world.expressions?.warp).toBeUndefined();
+    const halfway = fxAt({ from: NO_FX, to, at: 10, seconds: 2 }, 11);
+    expect(halfway.kaleido).toBeCloseTo(0.3);
+    expect(effect(performLayer(0, null, { at: 5, seconds: 2 }, null), "world-loop")?.id).toBe("morph-loop");
+  });
+
+  it("keeps what's stored or given of the player's values within vaudio's ranges", () => {
+    expect(normalizeFx(null)).toEqual(NO_FX);
+    expect(normalizeFx({ feedback: 2, lens: -5, warp: "x", swirl: 0.5 })).toEqual({ ...NO_FX, feedback: 0.93, lens: -1, swirl: 0.5 });
+  });
+
+  it("melts one look into the next with a feedback morph about a calm switch", () => {
+    const morph = effect(performLayer(0, null, { at: 30, seconds: 3 }), "world-loop")!;
+    expect(morph.expressions?.amount).toContain("ease(time");
+    expect(effect(performLayer(0), "world-loop")).toBeUndefined();
   });
 });
 

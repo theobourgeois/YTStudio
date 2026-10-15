@@ -167,6 +167,27 @@ describe("LiveMood", () => {
     expect(at(45).intensity).toBeLessThan(at(30).intensity - 0.3);
   });
 
+  it("hears a drop as its first kick lands, not half a second on (the visualizer cuts on it)", () => {
+    const samples = song(club(12, 126, 0.3, { busy: false }), build(10, 126, 0.5), club(14, 126, 0.55));
+    const live = new LiveSignals(RATE);
+    live.newSong();
+    let heardAt: number | null = null;
+    let drop: number | null = null;
+    // A tab's chunks are small: 128 frames.
+    for (let i = 0; i < samples.length && heardAt === null; i += 256) {
+      live.push(samples.subarray(i, i + 256));
+      const found = live.data().header.rhythm?.drops.find((d) => d.time > 20);
+      if (found) {
+        heardAt = live.seconds;
+        drop = found.time;
+      }
+    }
+    // The drop is the first kick at 22 s: placed on it, and known within a few frames of it.
+    expect(drop).not.toBeNull();
+    expect(Math.abs(drop! - 22)).toBeLessThan(0.03);
+    expect(heardAt! - 22).toBeLessThan(0.05);
+  });
+
   it("finds a new song's character afresh", () => {
     const samples = song(pad(25), club(30, 128, 0.55));
     const live = new LiveSignals(RATE);

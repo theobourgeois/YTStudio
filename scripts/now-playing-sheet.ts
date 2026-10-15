@@ -7,6 +7,7 @@
  *   pnpm tsx scripts/now-playing-sheet.ts [look|kind ...] --moments [--at 6,11.5,22] [--parallel 3]
  *   pnpm tsx scripts/now-playing-sheet.ts chaos --rolls 24 --song file.mp3 [--seconds 4]
  *   pnpm tsx scripts/now-playing-sheet.ts chaos-liquid --record 45 --song file.mp3 [--from 48] [--every 6.5] [--auto bars2]
+ *     [--keys "6=t 9=y 12=] 18=Backspace"] [--fx '{"feedback":0.85,"kaleido":0.5}'] [--effects music|beat|bar|hand]
  *
  * `--track` picks the stand-in's song, so its cover's colours (1 magenta, 2 orange, 3 cyan).
  * Writes the sheet and one picture per look beside it (`<out>-<look>.png`).
@@ -22,7 +23,8 @@
  *
  * `--record` films the visualizer on the first look given for that many seconds (its canvas, 60 fps, as it draws
  * live), the song from `--from` seconds into it, chaos rolled (=) every `--every` seconds or looks changed by
- * themselves (`--auto`, as the menu's: `song` follows the music), and puts the song under it in step: `<out>.mp4`,
+ * themselves (`--auto`, as the menu's: `song` follows the music), keys pressed at film times (`--keys`, `seconds=key`
+ * apart by spaces: the frame's T Y [ ] , . Backspace, any of its keys), and puts the song under it in step: `<out>.mp4`,
  * and what the visualizer said as it went (its choices of look, and why) beside it: `<out>.txt`.
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
@@ -31,7 +33,7 @@ import os from "node:os";
 import path from "node:path";
 import { type Page, chromium } from "@playwright/test";
 import { LIVE_LOOKS, LOOK_KINDS, type LiveLook } from "../shared/live-looks.ts";
-import { DEMO_SECTIONS } from "../shared/signals/demo-sound.ts";
+import { DEMO_SECTIONS, demoSong } from "../shared/signals/demo-sound.ts";
 
 const WEB_PORT = "5350";
 const SERVER_PORT = "5351";
@@ -52,6 +54,19 @@ const recordSeconds = Math.max(0, Number(option("--record") ?? 0));
 const from = Math.max(0, Number(option("--from") ?? 0));
 const every = Math.max(0, Number(option("--every") ?? 0));
 const auto = option("--auto");
+// The player's distortions and feedback to start from (the D panel's values, vaudio's units), and who plays them.
+const startFx = option("--fx") ?? "";
+const effectsBy = option("--effects") ?? (startFx ? "hand" : "");
+// Keys to press while filming: `seconds=key`, apart by spaces, in order.
+const keysAt = (option("--keys") ?? "")
+  .split(/\s+/)
+  .filter(Boolean)
+  .map((pair) => {
+    const [at, ...key] = pair.split("=");
+    return { at: Number(at), key: key.join("=") };
+  })
+  .filter((k) => Number.isFinite(k.at) && k.key)
+  .sort((a, b) => a.at - b.at);
 // More pages at once starve the GPU (the 3D scenes): a page that can't keep up draws black.
 const parallel = Math.max(1, Number(option("--parallel") ?? 3));
 // When in the song each look is shown (seconds after the visualizer opens): well into each part of the made-up song,
@@ -66,7 +81,7 @@ const MOMENT_NAMES = ["breakdown", "build-up", "drop"];
 const FRAMES = [0, 150, 300];
 /** The page pictures are measured in (`lightOf`). */
 let reader: Page | null = null;
-const names = args.filter((a, i) => !a.startsWith("--") && !["--out", "--song", "--seconds", "--track", "--at", "--parallel", "--rolls", "--record", "--from", "--every", "--auto"].includes(args[i - 1]));
+const names = args.filter((a, i) => !a.startsWith("--") && !["--out", "--song", "--seconds", "--track", "--at", "--parallel", "--rolls", "--record", "--from", "--every", "--auto", "--keys", "--fx", "--effects"].includes(args[i - 1]));
 const looks = names.length ? LIVE_LOOKS.filter((l) => names.includes(l.id) || names.includes(l.kind)) : LIVE_LOOKS;
 if (!looks.length) {
   console.error(`No looks match ${names.join(", ")}. Known: ${LIVE_LOOKS.map((l) => l.id).join(", ")}`);
@@ -147,13 +162,15 @@ async function visualizer(look: LiveLook) {
   page.on("pageerror", (e) => problems.push(e.message));
   if (songBytes) await page.route("**/now-playing-sheet-song", (route) => route.fulfill({ body: songBytes, contentType: "audio/mpeg" }));
   await page.addInitScript(
-    ([first, file, changes, quality]) => {
+    ([first, file, changes, quality, fx, by]) => {
       localStorage.setItem("editor-visualizer-look", first);
+      if (fx) localStorage.setItem("editor-visualizer-fx", fx);
+      if (by) localStorage.setItem("editor-visualizer-effects", by);
       localStorage.setItem("editor-visualizer-auto", changes);
       if (quality) localStorage.setItem("editor-visualizer-quality", quality);
       if (file) localStorage.setItem("editor-now-playing-demo", "/now-playing-sheet-song");
     },
-    [look.id, song ? "yes" : "", (recordSeconds && auto) || "off", recordSeconds ? "sharp" : ""] as const,
+    [look.id, song ? "yes" : "", (recordSeconds && auto) || "off", recordSeconds ? "sharp" : "", startFx, effectsBy] as const,
   );
   await page.goto(web);
   await page.click("[data-now-playing] button[title='Open the visualizer']", { timeout: 30_000 });
@@ -366,9 +383,15 @@ async function record() {
   filmed = Date.now();
   console.log(`  filming ${looks[0].name} from ${heard.toFixed(2)} s into the song`);
   const until = Date.now() + recordSeconds * 1000;
+  let nextRoll = every ? filmed + every * 1000 : Infinity;
+  const pending = [...keysAt];
   while (Date.now() < until - 300) {
-    await page.waitForTimeout(Math.min(every ? every * 1000 : 1000, until - Date.now()));
-    if (every && Date.now() < until - 1000) await page.keyboard.press("=");
+    await page.waitForTimeout(Math.max(10, Math.min(nextRoll, pending[0] ? filmed + pending[0].at * 1000 : Infinity, until) - Date.now()));
+    if (Date.now() >= nextRoll && Date.now() < until - 1000) {
+      await page.keyboard.press("=");
+      nextRoll += every * 1000;
+    }
+    while (pending[0] && Date.now() >= filmed + pending[0].at * 1000) await page.keyboard.press(pending.shift()!.key);
   }
   await page.evaluate(
     () =>
@@ -380,13 +403,38 @@ async function record() {
   );
   await page.close();
   // The picture of a moment is drawn ~35 ms after it's heard (the analysis, a frame): the song starts that early.
+  // Without a song, the made-up one (the tab's, never played) is made again here, the same from its start.
   const mp4 = `${base}.mp4`;
-  const audio = songFile ? ["-ss", String(Math.max(0, heard - 0.035)), "-i", songFile, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "192k", "-shortest"] : [];
+  const sound = songFile ?? writeDemoSong(path.join(dataDir, "demo.wav"), heard + recordSeconds + 5);
+  const audio = ["-ss", String(Math.max(0, heard - 0.035)), "-i", sound, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "192k", "-shortest"];
   const mux = spawnSync("ffmpeg", ["-y", "-v", "error", "-i", webm, ...audio, "-vf", "fps=60", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", mp4]);
   if (mux.status !== 0) throw new Error(`ffmpeg couldn't make the film: ${mux.stderr}`);
   fs.writeFileSync(`${base}.txt`, `${said.join("\n")}\n`);
   console.log(`Wrote ${mp4} and ${base}.txt`);
   report([]);
+}
+
+/** The made-up song (`demoSong`), `seconds` of it from its start, as a 16-bit stereo WAV at `file`. */
+function writeDemoSong(file: string, seconds: number): string {
+  const rate = 48_000;
+  const samples = demoSong(rate).next(Math.ceil(rate * seconds));
+  const data = Buffer.alloc(samples.length * 2);
+  for (let i = 0; i < samples.length; i++) data.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(samples[i] * 32767))), i * 2);
+  const head = Buffer.alloc(44);
+  head.write("RIFF", 0);
+  head.writeUInt32LE(36 + data.length, 4);
+  head.write("WAVEfmt ", 8);
+  head.writeUInt32LE(16, 16);
+  head.writeUInt16LE(1, 20);
+  head.writeUInt16LE(2, 22);
+  head.writeUInt32LE(rate, 24);
+  head.writeUInt32LE(rate * 4, 28);
+  head.writeUInt16LE(4, 32);
+  head.writeUInt16LE(16, 34);
+  head.write("data", 36);
+  head.writeUInt32LE(data.length, 40);
+  fs.writeFileSync(file, Buffer.concat([head, data]));
+  return file;
 }
 
 /** A picture on a sheet, captioned, outlined in red if it fails. */

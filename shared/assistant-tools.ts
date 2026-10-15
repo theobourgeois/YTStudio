@@ -1304,7 +1304,7 @@ export const VIDEO_TOOLS = [
     kind: "action",
     description:
       "Play, pause or skip the song in the music player, seek in it, or open, close and steer the visualizer: " +
-      "`look` (an id from now_playing) shows that look (opening the visualizer), `roll` rolls chaos (a random look of one of " +
+      "`look` (an id from now_playing) shows that look (opening the visualizer), `frame` repeats, mirrors, turns or zooms the picture over any look, `fx` warps, swirls, ripples, kaleidoscopes, lenses, folds and feeds it back (vaudio's), `roll` rolls chaos (a random look of one of " +
       "vaudio's chaos recipes, as = does) or mutates the chaos look shown (its world nudged a little, as - does), `auto` sets how " +
       "looks change by themselves (off: stay; song: follow the music, a look that suits the song's kind and intensity, changed on songs, drops and breakdowns; beat: every beat, cutting on it; " +
       "bars1, bars2, bars4, bars8, bars16, bars32: every so many bars, each a look that suits the music). Only what's given happens: the song first, then the visualizer.",
@@ -1314,7 +1314,41 @@ export const VIDEO_TOOLS = [
       visualizer: oneOf(["open", "close"], "Open or close the visualizer."),
       look: str("A look's id (from now_playing) to show."),
       roll: oneOf(["chaos", "mutate"], "chaos: a roll of another chaos recipe; mutate: the chaos look shown, nudged."),
+      frame: obj(
+        {
+          repeat: int("Copies across and down (1: the picture as it is; 2: 2×2...).", { minimum: 1, maximum: 4 }),
+          mirror: bool("Each copy beside its reflection (not repeated: the picture mirrored down its middle)."),
+          spin: num("Turning, degrees a second (+ left, - right, 0 still).", { minimum: -90, maximum: 90 }),
+          zoom: num("1 the frame; under 1 zoomed out (its edges repeat), over 1 in.", { minimum: 0.4, maximum: 2 }),
+          reset: bool("Back as it was (upright, one copy, still)."),
+        },
+        [],
+        "How the picture's framed over any look, eased over a beat: only what's given changes. It stays across looks until reset.",
+      ),
+      fx: obj(
+        {
+          warp: num("Fluid warp, 0..1.", { minimum: 0, maximum: 1 }),
+          swirl: num("Swirl, 0..1.", { minimum: 0, maximum: 1 }),
+          ripple: num("Ripples, 0..1.", { minimum: 0, maximum: 1 }),
+          kaleido: num("Kaleidoscope, 0..1 (more: more segments).", { minimum: 0, maximum: 1 }),
+          lens: num("Lens, -1..1 (+ bulging, - pinching).", { minimum: -1, maximum: 1 }),
+          fold: num("Mirror fold, 0..1 (past 0.5 it folds both ways).", { minimum: 0, maximum: 1 }),
+          feedback: num("How much of the last frame's echo stays, 0..0.93.", { minimum: 0, maximum: 0.93 }),
+          trails: num("How long the echo lasts, 0..1 (0.6 untouched).", { minimum: 0, maximum: 1 }),
+          echoZoom: num("The echo zooming, -1..1 (+ out of the middle, a tunnel; - into it).", { minimum: -1, maximum: 1 }),
+          echoSpin: num("The echo turning, -1..1.", { minimum: -1, maximum: 1 }),
+          echoHue: num("The echo's colours turning, 0..1.", { minimum: 0, maximum: 1 }),
+          echoFlow: num("The echo flowing as it fades (smoke), 0..1.", { minimum: 0, maximum: 1 }),
+          wash: bool("All of them back as they were (and the frame too)."),
+        },
+        [],
+        "vaudio's Distort and Feedback panels, over any look, in its units: only what's given changes; kept until washed.",
+      ),
       auto: oneOf(["off", "song", "beat", "bars1", "bars2", "bars4", "bars8", "bars16", "bars32"], "How looks change by themselves."),
+      effects: oneOf(
+        ["music", "beat", "bar", "hand"],
+        "Who plays the effects over the looks (the frame, distortions, feedback): music: the engine, by the mood (gentle when calm, harder when intense, tightening in a build-up, clean on a drop); beat: a new set each bar, mutated each beat; bar: a new set each bar; hand: only what's set (`frame`, `fx`, the keys).",
+      ),
     }),
   }),
 ] as const satisfies readonly ToolSpec[];

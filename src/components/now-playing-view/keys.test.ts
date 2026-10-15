@@ -29,9 +29,26 @@ describe("visualizerKey", () => {
     expect(key("Minus", "-", { metaKey: true })).toBeNull();
   });
 
+  it("reframes on T Y [ ] , . and Backspace", () => {
+    expect(key("KeyT", "t")).toEqual({ kind: "frame", change: "repeat" });
+    expect(key("KeyY", "y")).toEqual({ kind: "frame", change: "mirror" });
+    expect(key("BracketLeft", "[")).toEqual({ kind: "frame", change: "spin-left" });
+    expect(key("BracketRight", "]")).toEqual({ kind: "frame", change: "spin-right" });
+    expect(key("Comma", ",")).toEqual({ kind: "frame", change: "zoom-out" });
+    expect(key("Period", ".")).toEqual({ kind: "frame", change: "zoom-in" });
+    expect(key("Backspace", "Backspace")).toEqual({ kind: "frame", change: "reset" });
+  });
+
+  it("nudges warp, swirl and ripples on Q W E (Shift less), opens the panel on D", () => {
+    expect(key("KeyQ", "q")).toEqual({ kind: "fx", key: "warp", by: 0.08 });
+    expect(key("KeyW", "W", { shiftKey: true })).toEqual({ kind: "fx", key: "swirl", by: -0.08 });
+    expect(key("KeyE", "e")).toEqual({ kind: "fx", key: "ripple", by: 0.08 });
+    expect(key("KeyD", "d")).toEqual({ kind: "panel" });
+  });
+
   it("leaves the app's own shortcuts alone", () => {
     expect(key("KeyR", "r", { metaKey: true })).toBeNull();
-    expect(key("KeyQ", "q")).toBeNull();
+    expect(key("KeyG", "g")).toBeNull();
     expect(key("Escape", "Escape")).toEqual({ kind: "close" });
   });
 });

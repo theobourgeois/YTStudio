@@ -79,6 +79,23 @@ test("Now Playing: the song in the top bar, controlled from there, and the visua
   await expect(view.locator("[data-mood]")).toContainText("intensity");
   await page.keyboard.press("i");
   await expect(view.locator("[data-mood]")).toHaveCount(0);
+  // D: every setting the player plays (distort, feedback, the frame); Wash puts them back.
+  await page.keyboard.press("d");
+  const panel = view.locator("[data-play-panel]");
+  await expect(panel).toContainText("Fluid warp");
+  await expect(panel).toContainText("Echo zoom");
+  // The music plays the effects until they're touched; then they're played by hand.
+  await expect(panel).toContainText("The music plays these");
+  await panel.getByRole("button", { name: "2×2" }).click();
+  await expect(panel).not.toContainText("The music plays these");
+  await expect(panel.getByRole("button", { name: "2×2" })).toHaveAttribute("aria-pressed", "true");
+  await panel.getByRole("slider", { name: "Feedback" }).fill("0.5");
+  await expect(panel).toContainText("050");
+  await panel.getByRole("button", { name: "Wash (⌫)" }).click();
+  await expect(panel.getByRole("button", { name: "1", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(canvas).toHaveAttribute("data-drawn", "clips");
+  await page.keyboard.press("d");
+  await expect(panel).toHaveCount(0);
   // S taps along to sync (Escape stops it, the visualizer stays).
   await page.keyboard.press("s");
   await expect(view.locator("[data-tap-sync]")).toContainText("Tap Space on the beat");
