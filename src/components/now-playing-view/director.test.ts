@@ -38,6 +38,30 @@ describe("LiveDirector", () => {
     expect(director.project.sequences).toHaveLength(1);
   });
 
+  it("keeps a look in slow motion until the one after it has come in (its sequence plays slower than the timeline)", () => {
+    // Théo: the picture dipped to black at every change in slow motion, the look going let go of long before its end.
+    const director = new LiveDirector();
+    director.show(LIVE_LOOKS[0], { ...ctx(), pace: 0.5 }, 0, null);
+    director.show(LIVE_LOOKS[1], ctx(), 30, switchTransition("film-dissolve", 3));
+    director.prune(28);
+    expect(looksOn(director)).toHaveLength(2);
+    expect(director.shownAt(28).map((s) => s.look)).toEqual([LIVE_LOOKS[0].id]);
+    director.prune(32.5);
+    expect(looksOn(director)).toHaveLength(1);
+  });
+
+  it("keeps the look going until a long blend into the next has played out", () => {
+    const director = new LiveDirector();
+    director.show(LIVE_LOOKS[0], ctx(), 0, null);
+    director.show(LIVE_LOOKS[1], ctx(), 10, switchTransition("film-dissolve", 5));
+    // Centred on the cut, the blend shows the first look until 12.5.
+    director.prune(12);
+    expect(looksOn(director)).toHaveLength(2);
+    expect(director.shownAt(12).map((s) => s.look)).toEqual([LIVE_LOOKS[0].id, LIVE_LOOKS[1].id]);
+    director.prune(13.6);
+    expect(looksOn(director)).toHaveLength(1);
+  });
+
   it("in slow motion, shows looks slowed and turns the frame on from where it is, slower", () => {
     const director = new LiveDirector();
     director.setFrame({ repeat: 1, mirror: false, spin: 20, zoom: 1 }, 0, 0.5);
