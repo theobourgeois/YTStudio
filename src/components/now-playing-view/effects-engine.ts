@@ -2,21 +2,24 @@
  * The effects the player plays over the looks by itself (the "Effects" menu, docs/now-playing.md): the frame
  * (a mirror) and vaudio's distortions and feedback, chosen by the music, landing on its beats.
  *
- * - **Following the music**: every set has a feedback move (Théo's favourites: soft trails, smoke, a tunnel, a sinking
- *   echo, a colour echo), with others: calm, something gentle every 4 bars, eased over a bar (a mirror, a mirror fold,
- *   a slow warp); a groove every 4 bars, mutated after 2 (a swirl, ripples, a kaleidoscope); intense every 2 bars,
- *   mutated on the bar between (a kaleidoscope, a swirl, a lens, a deep tunnel). A build-up tightens bar by bar (more
+ * - **Following the music**: every set has a feedback move, half the echo kept at least (Théo's favourites: soft
+ *   trails, smoke, a tunnel, a sinking echo, a colour echo; over every look, MilkDrop's too: Théo, "it should at least
+ *   be at 50% pretty much all the time"), with others: calm, something gentle every 4 bars, eased over a bar (a mirror
+ *   fold, a slow warp); a groove every 4 bars, mutated after 2 (a swirl, ripples, a kaleidoscope, now and then tiled);
+ *   intense every 2 bars, mutated on the bar between (a kaleidoscope, a swirl, a lens, a deep tunnel). The picture's
+ *   seldom mirrored (Théo: "sometimes we don't want to split it at all"): a mirror's a rarer pick, and a change of a
+ *   mirrored set more likely takes it off than a plain one's puts it on. A build-up tightens bar by bar (more
  *   kaleidoscope and swirl, the echo drawn in); a drop is clean on its cut (the look's impact), then goes hard a bar
  *   on; a breakdown washes back to gentle. A slow song is calm throughout, its drop not cut (`isSlow`). It never
- *   turns the picture, repeats it or zooms out (Théo: a mirror only mirrors).
+ *   turns the picture or zooms out.
  * - **Every bar**: a new set on each downbeat. **Every beat**: a new set on each downbeat, and on each beat between a
  *   mutation of it (a mirror on or off, the echo sinking or rising, its colour on, its trails longer or shorter, a
  *   kaleidoscope in or out).
  * - **By hand**: none (the panel, the keys).
  *
- * A chaos look has a world of its own (a MilkDrop one too), so it's played frames and light distortions only (no more
- * feedback on its own, and no kaleidoscope: many of MilkDrop's are one already, and Théo found it too much). Over the
- * rest a kaleidoscope is a gentle one. Before the music's downbeats are known, bars are counted in beats. Every change
+ * A chaos look has a world of its own (a MilkDrop one too): no kaleidoscope over it (many of MilkDrop's are one
+ * already, and Théo found it too much), and its feedback held a little lower (its own piles up with it). Over the rest
+ * a kaleidoscope is a gentle one. Before the music's downbeats are known, bars are counted in beats. Every change
  * says why. Pure (its random given), and tested.
  */
 import { type Frame, type LiveFx, type LiveLook, NO_FX, PLAIN_FRAME } from "@shared/live-looks";
@@ -77,6 +80,10 @@ export function tierOf(mood: Pick<Mood, "intensity" | "character" | "sure" | "sl
 
 /** Feedback the engine never goes past: a look's own brightness on top of more whitens it out. */
 export const MOST_FEEDBACK = 0.8;
+/** Over a look of its own world (it feeds back into itself already): MilkDrop's, and chaos's World Loop. */
+export const OWN_WORLD_FEEDBACK = { milkdrop: 0.7, chaos: 0.6 };
+/** The echo kept at least, in every set but a drop's clean cut (Théo: at least 50%, pretty much all the time). */
+export const LEAST_FEEDBACK = 0.5;
 /** Bars between new sets following the music, and between their mutations (none for calm). */
 const EVERY_BARS: Record<Tier, number> = { calm: 4, groove: 4, intense: 2 };
 const MUTATE_BARS: Record<Tier, number> = { calm: Infinity, groove: 2, intense: 1 };
@@ -90,6 +97,8 @@ const side = (r: () => number) => (r() < 0.5 ? 1 : -1);
 /** A move: some of a set (frame and values), and its name for the log. */
 interface Move {
   name: string;
+  /** How likely it's picked against the others (1, unless said: a mirror's rarer). */
+  weight?: number;
   /** Feedback of its own: not on a chaos look (it has a world of its own). */
   feeds?: true;
   /** A kaleidoscope: not on a chaos look either. */
@@ -97,17 +106,29 @@ interface Move {
   make(r: () => number): { frame?: Partial<Frame>; fx?: Partial<LiveFx> };
 }
 
+/** A mirror's chance against another move's (Théo: "sometimes we don't want to split it at all"). */
+const MIRROR_WEIGHT = 0.2;
+
+/** One of `list` at random, by their weights (1 each, unless said). */
+function weighted<T extends { weight?: number }>(list: readonly T[], r: () => number): number {
+  const total = list.reduce((a, m) => a + (m.weight ?? 1), 0);
+  let left = r() * total;
+  for (let i = 0; i < list.length; i++) if ((left -= list[i].weight ?? 1) <= 0) return i;
+  return list.length - 1;
+}
+
 const MOVES: Record<Tier, Move[]> = {
   calm: [
-    { name: "mirrored", make: () => ({ frame: { mirror: true } }) },
-    { name: "a mirror fold", make: (r) => ({ fx: { fold: rand(r, 0.3, 0.55) } }) },
+    { name: "mirrored", weight: MIRROR_WEIGHT, make: () => ({ frame: { mirror: true } }) },
+    { name: "a mirror fold", weight: 0.5, make: (r) => ({ fx: { fold: rand(r, 0.3, 0.55) } }) },
     { name: "a slow warp", make: (r) => ({ fx: { warp: rand(r, 0.15, 0.3) } }) },
     { name: "a soft kaleidoscope", kaleido: true, make: (r) => ({ fx: { kaleido: rand(r, 0.15, 0.25) } }) },
-    { name: "soft trails", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.45, 0.6), trails: 0.8, echoZoom: rand(r, 0.05, 0.12), echoFlow: rand(r, 0.2, 0.35) } }) },
+    { name: "soft trails", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.5, 0.6), trails: 0.8, echoZoom: rand(r, 0.05, 0.12), echoFlow: rand(r, 0.2, 0.35) } }) },
     { name: "smoke", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.5, 0.65), trails: 0.85, echoFlow: rand(r, 0.4, 0.6), echoZoom: rand(r, 0.02, 0.08) } }) },
   ],
   groove: [
-    { name: "mirrored", make: () => ({ frame: { mirror: true } }) },
+    { name: "mirrored", weight: MIRROR_WEIGHT, make: () => ({ frame: { mirror: true } }) },
+    { name: "tiled 2×2", weight: 0.35, make: () => ({ frame: { repeat: 2 } }) },
     { name: "a swirl", make: (r) => ({ fx: { swirl: rand(r, 0.3, 0.5) } }) },
     { name: "ripples", make: (r) => ({ fx: { ripple: rand(r, 0.25, 0.45) } }) },
     { name: "a kaleidoscope", kaleido: true, make: (r) => ({ fx: { kaleido: rand(r, 0.2, 0.35) } }) },
@@ -118,7 +139,9 @@ const MOVES: Record<Tier, Move[]> = {
     { name: "a colour echo", feeds: true, make: (r) => ({ fx: { feedback: rand(r, 0.55, 0.7), trails: 0.8, echoHue: rand(r, 0.08, 0.2), echoZoom: rand(r, 0.05, 0.15) } }) },
   ],
   intense: [
-    { name: "mirrored", make: () => ({ frame: { mirror: true } }) },
+    { name: "mirrored", weight: MIRROR_WEIGHT, make: () => ({ frame: { mirror: true } }) },
+    { name: "tiled 2×2", weight: 0.35, make: () => ({ frame: { repeat: 2 } }) },
+    { name: "tiled 3×3", weight: 0.12, make: () => ({ frame: { repeat: 3 } }) },
     { name: "a kaleidoscope", kaleido: true, make: (r) => ({ fx: { kaleido: rand(r, 0.3, 0.45) } }) },
     { name: "a swirl", make: (r) => ({ fx: { swirl: rand(r, 0.5, 0.8) } }) },
     { name: "a lens", make: (r) => ({ fx: { lens: rand(r, 0.3, 0.5) * side(r) } }) },
@@ -133,43 +156,48 @@ const MOVES: Record<Tier, Move[]> = {
 /** A look with a world of its own (chaos's, MilkDrop's presets: they feed back into themselves). */
 const ownWorld = (look: LiveLook | null) => look?.kind === "chaos" || look?.kind === "milkdrop";
 
+/** The most feedback over `look`: less over one of its own world. */
+const mostFeedback = (look: LiveLook | null) => (look?.kind === "milkdrop" ? OWN_WORLD_FEEDBACK.milkdrop : look?.kind === "chaos" ? OWN_WORLD_FEEDBACK.chaos : MOST_FEEDBACK);
+
 /** How many moves a set has besides its feedback. */
 const MOVES_IN_SET: Record<Tier, [number, number]> = { calm: [0, 1], groove: [1, 2], intense: [1, 3] };
 
 /**
- * A set of effects for a tier: a feedback move (Théo's favourites; none on a chaos look, which has its own) and a few
- * of the others, none of `last`'s first. Never turning, nor repeated, nor zoomed out: mirrored is a mirror.
+ * A set of effects for a tier: a feedback move (Théo's favourites, half the echo kept at least, over every look; held
+ * lower over one of its own world) and a few of the others by their weights (a mirror seldom, tiles now and then), none
+ * of `last`'s first. Never turning, nor zoomed out.
  */
 export function composeSet(tier: Tier, look: LiveLook | null, r: () => number, last: readonly string[] = []): { effects: Effects; names: string[] } {
-  const chaos = ownWorld(look);
+  const own = ownWorld(look);
   const feeding = MOVES[tier].filter((m) => m.feeds && m.name !== last[0]);
-  const others = MOVES[tier].filter((m) => !m.feeds && !(chaos && m.kaleido));
-  const picked: Move[] = chaos || !feeding.length ? [] : [feeding[Math.floor(r() * feeding.length)]];
+  const others = MOVES[tier].filter((m) => !m.feeds && !(own && m.kaleido));
+  const picked: Move[] = feeding.length ? [feeding[Math.floor(r() * feeding.length)]] : [];
   const [lo, hi] = MOVES_IN_SET[tier];
-  // A chaos look gets a move more of the others, in place of the feedback it doesn't get.
-  const count = lo + Math.floor(r() * (hi - lo + 1)) + (chaos ? 1 : 0);
+  const count = lo + Math.floor(r() * (hi - lo + 1));
   const fresh = others.filter((m) => m.name !== last[0]);
   const from = [...(fresh.length >= count ? fresh : others)];
-  while (picked.length < count + (chaos ? 0 : 1) && from.length) picked.push(from.splice(Math.floor(r() * from.length), 1)[0]);
+  for (let i = 0; i < count && from.length; i++) picked.push(...from.splice(weighted(from, r), 1));
   const effects: Effects = { frame: { ...PLAIN_FRAME }, fx: { ...NO_FX } };
   for (const move of picked) {
     const { frame, fx } = move.make(r);
     Object.assign(effects.frame, frame);
     Object.assign(effects.fx, fx);
   }
-  effects.fx.feedback = Math.min(effects.fx.feedback, MOST_FEEDBACK);
+  effects.fx.feedback = Math.min(Math.max(effects.fx.feedback, LEAST_FEEDBACK), mostFeedback(look));
   return { effects, names: picked.map((m) => m.name) };
 }
 
 /**
- * A set a little changed (a beat, or a bar between sets): mirrored or not, the echo turned inside out (a tunnel
- * sinking, or back), its colour moved on, its trails longer or shorter, a kaleidoscope in or out (only out over a look
- * of its own world). Not the one just played (`avoid`: from the same set it'd look the same).
+ * A set a little changed (a beat, or a bar between sets): the mirror off (likely) or on (seldom), tiles in or out, the
+ * echo turned inside out (a tunnel sinking, or back), its colour moved on, its trails longer or shorter, a kaleidoscope
+ * in or out (only out over a look of its own world). Not the one just played (`avoid`: from the same set it'd look the
+ * same).
  */
 export function mutateSet(effects: Effects, r: () => number, look: LiveLook | null = null, avoid = ""): { effects: Effects; name: string } {
   const { frame, fx } = effects;
-  const options: { name: string; frame?: Partial<Frame>; fx?: Partial<LiveFx> }[] = [
-    { name: frame.mirror ? "the mirror off" : "mirrored", frame: { mirror: !frame.mirror } },
+  const options: { name: string; weight?: number; frame?: Partial<Frame>; fx?: Partial<LiveFx> }[] = [
+    { name: frame.mirror ? "the mirror off" : "mirrored", weight: frame.mirror ? 1.5 : MIRROR_WEIGHT, frame: { mirror: !frame.mirror } },
+    { name: frame.repeat > 1 ? "the tiles out" : "tiled 2×2", weight: frame.repeat > 1 ? 1.2 : 0.2, frame: { repeat: frame.repeat > 1 ? 1 : 2 } },
     ...(fx.kaleido > 0 || !ownWorld(look) ? [{ name: fx.kaleido > 0 ? "the kaleidoscope out" : "a kaleidoscope", fx: { kaleido: fx.kaleido > 0 ? 0 : 0.25 } }] : []),
     ...(fx.feedback > 0
       ? [
@@ -181,22 +209,22 @@ export function mutateSet(effects: Effects, r: () => number, look: LiveLook | nu
   ];
   const fresh = options.filter((o) => o.name !== avoid);
   const from = fresh.length ? fresh : options;
-  const pick = from[Math.floor(r() * from.length)];
+  const pick = from[weighted(from, r)];
   return { effects: { frame: { ...frame, ...pick.frame }, fx: { ...fx, ...pick.fx } }, name: pick.name };
 }
 
 /**
- * A build-up's next bar: tighter (more kaleidoscope, more swirl, mirrored, the echo drawn in), as it goes; no
- * kaleidoscope over a look of its own world.
+ * A build-up's next bar: tighter (more kaleidoscope, more swirl, the echo drawn in), as it goes, framed as it was (not
+ * mirrored for it: Théo found the picture split too often); no kaleidoscope over a look of its own world.
  */
 function tighten(effects: Effects, step: number, look: LiveLook | null): Effects {
   return {
-    frame: { ...PLAIN_FRAME, mirror: true },
+    frame: { ...effects.frame, spin: 0, zoom: 1 },
     fx: {
       ...effects.fx,
       kaleido: ownWorld(look) ? 0 : Math.min(0.45, 0.15 + step * 0.06),
       swirl: Math.min(0.6, step * 0.1),
-      feedback: Math.min(0.7, 0.4 + step * 0.05),
+      feedback: Math.min(mostFeedback(look), LEAST_FEEDBACK + step * 0.04),
       echoZoom: -Math.min(0.35, 0.1 + step * 0.04),
       trails: 0.8,
     },

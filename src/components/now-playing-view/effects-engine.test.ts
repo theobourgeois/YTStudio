@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { liveLook, seededRandom } from "@shared/live-looks";
 import type { Mood, MoodEvent, Section } from "@shared/signals/mood";
-import { type EffectsChange, EffectsEngine, type EffectsMode, MOST_FEEDBACK, composeSet, mutateSet } from "./effects-engine";
+import { type EffectsChange, EffectsEngine, type EffectsMode, LEAST_FEEDBACK, MOST_FEEDBACK, OWN_WORLD_FEEDBACK, composeSet, mutateSet } from "./effects-engine";
 
 const BEAT = 0.5;
 const BAR = 4 * BEAT;
@@ -37,28 +37,55 @@ function run(mode: EffectsMode, at: (t: number) => { mood: Mood; drop?: number }
 }
 
 describe("composeSet", () => {
-  it("never feeds back past its most, nor at all on a chaos look (it has a world of its own)", () => {
+  it("feeds back over every look, half the echo at least, never past its most (less over a look of its own world)", () => {
+    // Théo: feedback "should at least be at 50% pretty much all the time", MilkDrop's looks too.
     const r = seededRandom("sets");
     for (let i = 0; i < 300; i++) {
       for (const tier of ["calm", "groove", "intense"] as const) {
-        expect(composeSet(tier, liveLook("nebula")!, r).effects.fx.feedback).toBeLessThanOrEqual(MOST_FEEDBACK);
-        expect(composeSet(tier, liveLook("chaos-stargate")!, r).effects.fx.feedback).toBe(0);
+        for (const [look, most] of [["nebula", MOST_FEEDBACK], ["md-neon-coils", OWN_WORLD_FEEDBACK.milkdrop], ["chaos-stargate", OWN_WORLD_FEEDBACK.chaos]] as const) {
+          const { feedback } = composeSet(tier, liveLook(look)!, r).effects.fx;
+          expect(feedback, `${tier} ${look}`).toBeGreaterThanOrEqual(LEAST_FEEDBACK);
+          expect(feedback, `${tier} ${look}`).toBeLessThanOrEqual(most);
+        }
       }
     }
   });
 
-  it("always feeds back (but on a chaos look), and never turns, repeats or zooms the picture", () => {
+  it("seldom mirrors the picture, and more likely takes a mirror off than puts one on", () => {
+    // Théo: "it's always split down the half… sometimes we don't want to split it at all".
+    const r = seededRandom("mirror");
+    for (const tier of ["calm", "groove", "intense"] as const) {
+      const sets = Array.from({ length: 1000 }, () => composeSet(tier, liveLook("md-neon-coils")!, r).effects);
+      expect(sets.filter((s) => s.frame.mirror).length / sets.length, tier).toBeLessThan(0.15);
+    }
+    const plain = composeSet("groove", liveLook("md-neon-coils")!, r).effects;
+    const mirrored = { ...plain, frame: { ...plain.frame, mirror: true } };
+    const on = Array.from({ length: 1000 }, () => mutateSet({ ...plain, frame: { ...plain.frame, mirror: false } }, r).effects.frame.mirror).filter(Boolean).length;
+    const off = Array.from({ length: 1000 }, () => mutateSet(mirrored, r).effects.frame.mirror).filter((m) => !m).length;
+    expect(off).toBeGreaterThan(3 * on);
+    // A build-up doesn't mirror it either.
+    const building = run("music", (t) => ({ mood: mood(0.6, t < 1 ? "steady" : "build") }), 20, "md-neon-coils").filter((c) => c.why.startsWith("the build-up"));
+    expect(building.some((c) => !c.effects.frame.mirror)).toBe(true);
+  });
+
+  it("tiles the picture now and then when it's going (never calm), and never turns or zooms it", () => {
     const r = seededRandom("tiers");
-    for (let i = 0; i < 200; i++) {
+    const tiled = { calm: 0, groove: 0, intense: 0 };
+    for (let i = 0; i < 400; i++) {
       for (const tier of ["calm", "groove", "intense"] as const) {
         const set = composeSet(tier, liveLook("nebula")!, r).effects;
-        expect(set.fx.feedback, tier).toBeGreaterThan(0);
-        expect(set.frame).toMatchObject({ repeat: 1, spin: 0, zoom: 1 });
+        expect(set.frame).toMatchObject({ spin: 0, zoom: 1 });
+        expect([1, 2, 3]).toContain(set.frame.repeat);
+        if (set.frame.repeat > 1) tiled[tier]++;
         expect(set.fx.echoSpin).toBe(0);
         const m = mutateSet(set, r).effects;
-        expect(m.frame).toMatchObject({ repeat: 1, spin: 0, zoom: 1 });
+        expect(m.frame).toMatchObject({ spin: 0, zoom: 1 });
       }
     }
+    expect(tiled.calm).toBe(0);
+    expect(tiled.groove).toBeGreaterThan(10);
+    expect(tiled.intense).toBeGreaterThan(10);
+    expect(tiled.groove + tiled.intense).toBeLessThan(400);
     // Calm is gentle: no lens, a little warp at most.
     for (let i = 0; i < 100; i++) {
       const calm = composeSet("calm", liveLook("nebula")!, r).effects;
