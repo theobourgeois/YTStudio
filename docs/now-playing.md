@@ -339,14 +339,18 @@ on from where it was: `frameAngle`).
 **The effects engine** (`effects-engine.ts`, pure and tested; the "Effects" menu, `useVisualizerPrefs.effects`) plays
 the frame and the distortions and feedback by itself, by the music, landing on its beats:
 
-- **Follow the music** (the default): every set has a feedback move, Théo's favourites (soft trails, smoke: the echo
-  flowing as it fades, a tunnel, a sinking echo, a colour echo, a deep tunnel), and a few others: calm, something
-  gentle every 4 bars eased over a bar (a mirror, a mirror fold, a slow warp, a soft kaleidoscope); a groove, a set
-  every 4 bars mutated after 2 (a swirl, ripples, a kaleidoscope, a warp); intense, a set every 2 bars mutated on the
-  bar between (a kaleidoscope, a swirl, a lens, a warp). A build-up tightens bar by bar (more kaleidoscope and swirl,
-  the echo drawn in); a drop is clean on its cut (the new look's impact), then goes hard a bar on; a breakdown washes
-  back to gentle over a bar. It never turns the picture, repeats it or zooms out: a mirror only mirrors (Théo found
-  the turning too much). Kaleidoscopes are gentle (0.45 at most) and never over a chaos or MilkDrop look (Théo found
+- **Follow the music** (the default): every set has a feedback move over every look, half the echo kept at least
+  (`LEAST_FEEDBACK`; Théo: "it should at least be at 50% pretty much all the time", MilkDrop's looks too), Théo's
+  favourites (soft trails, smoke: the echo flowing as it fades, a tunnel, a sinking echo, a colour echo, a deep
+  tunnel), and a few others by their weights: calm, something gentle every 4 bars eased over a bar (a mirror fold, a
+  slow warp, a soft kaleidoscope); a groove, a set every 4 bars mutated after 2 (a swirl, ripples, a kaleidoscope, a
+  warp, now and then tiled 2×2); intense, a set every 2 bars mutated on the bar between (a kaleidoscope, a swirl, a
+  lens, a warp, tiled 2×2 now and then, 3×3 seldom). The picture's seldom mirrored (Théo: "it's always split down the
+  half… sometimes we don't want to split it at all": `MIRROR_WEIGHT`, under a set in seven, and a change of a mirrored
+  set more likely takes it off than a plain one's puts it on). A build-up tightens bar by bar (more kaleidoscope and
+  swirl, the echo drawn in; framed as it was, not mirrored for it); a drop is clean on its cut (the new look's impact),
+  then goes hard a bar on; a breakdown washes back to gentle over a bar. It never turns the picture or zooms out (Théo
+  found the turning too much). Kaleidoscopes are gentle (0.45 at most) and never over a chaos or MilkDrop look (Théo found
   them too much: with MilkDrop most of what's shown, one was on half the time; now about 5%).
 - **Every beat**: a new set on each downbeat, a mutation of it on each beat between (mirrored or not, the echo sinking
   or rising, its colour on, its trails longer or shorter, a kaleidoscope in or out; never the same twice running).
@@ -360,8 +364,9 @@ it shows the look going for half its length after it): let go sooner, the screen
 in, and that came in from black (Théo: "it dips to black, comes slowly back, then dips again"; at every change in slow
 motion, and at the end of every long blend).
 
-A chaos look gets no feedback of the engine's (it has its own world: it gets one more of the other moves instead);
-feedback stays under 0.8. Before the music's
+Over a look of its own world (it feeds back into itself already) the engine's feedback is held lower: 0.7 over
+MilkDrop's, 0.6 over chaos's (`OWN_WORLD_FEEDBACK`); over the rest under 0.8. (Two of MilkDrop's, Acid Cycle and
+Daydreamer, blow out at the made-up song's build-up and drop with no effects at all: the presets', not the feedback's.) Before the music's
 downbeats are known, bars are counted in beats. Every change says why (the log: info, every beat at debug; the I
 readout). Changing a setting doesn't wipe a World Loop's trails: heard live, a simulation's state is kept by its clip's
 id, not its contents (`simulationVersion`), as vaudio's is.
@@ -404,8 +409,8 @@ then judged by eye against his. The menu lists them by name.
   MilkDrop's (Théo's call: about 80% of the time; with each kind as likely, as it was, any one of ours showed 20 times
   as often as any one preset). In the looks menu they're a kind as any other (Shuffle MilkDrop, then each by name); the
   arrows don't step through them, and ↑ ↓ landing on MilkDrop shuffles. They keep their own colours (not the cover's),
-  and the effects engine plays only frames and light distortions over them, as over chaos (they feed back into
-  themselves).
+  and the effects engine plays its feedback over them too, held a little lower (0.7 at most: they feed back into
+  themselves), but no kaleidoscope.
 - **Licences**: Butterchurn and `butterchurn-presets` are MIT; the presets are MilkDrop's community's, shipped in that
   package.
 
