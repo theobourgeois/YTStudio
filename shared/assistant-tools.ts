@@ -1311,7 +1311,7 @@ export const VIDEO_TOOLS = [
       "looks change by themselves (off: stay; song: follow the music, a look that suits the song's kind and intensity, changed on songs, drops and breakdowns; beat: every beat, cutting on it; " +
       "bars1, bars2, bars4, bars8, bars16, bars32: every so many bars, each a look that suits the music), `pace` slows it all down, " +
       "`rate` loves or bins the look shown for the kind of song playing (as the user's L and B do), `rating` starts or stops the rating mode, " +
-      "`media` turns the user's own clips and pictures (melting into MilkDrop's feedback) on or off or brings in another. Only what's given happens: the song first, then the visualizer.",
+      "`media` turns the user's own clips and pictures (melting into MilkDrop's feedback) on or off or brings in another, `mediaSet` feeds from another of their sets of clips. Only what's given happens: the song first, then the visualizer.",
     inputSchema: obj({
       action: oneOf(["play", "pause", "toggle", "next", "previous"], "What the player does."),
       seek: num("Go to this many seconds into the song.", { minimum: 0 }),
@@ -1363,7 +1363,10 @@ export const VIDEO_TOOLS = [
       ),
       media: oneOf(
         ["on", "off", "next"],
-        "The user's clips and pictures (the Library's Visualizer folder, added by the user from the visualizer's media panel): on, painted into MilkDrop's feedback (a little each frame, more on kicks; the preset's motion warps them in); off; next, another of them now.",
+        "The user's clips and pictures (the Library's Visualizer folder, added by the user from the visualizer's media panel): on, painted into MilkDrop's feedback (a little each frame, more on kicks; the preset's motion warps them in); off; next, another of them now (from the set in use).",
+      ),
+      mediaSet: str(
+        "The name of one of the user's sets of clips (from now_playing: friends for a music video, nature...) to feed from now on, turning their clips on. Pick one whose name suits the song when the user asks for clips that fit.",
       ),
       rating: oneOf(
         ["start", "stop"],

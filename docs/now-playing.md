@@ -21,7 +21,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | MilkDrop's looks (Butterchurn's presets picked, what each suits) | `shared/milkdrop-presets.ts`, `live-milkdrop.ts`; bundled by `vite.config.ts`; drawn by `now-playing-view/milkdrop.ts` | video |
 | The visualizer: director, source, keys, view | `src/components/now-playing-view/` | video (`ClientSuite.NowPlaying`) |
 | The looks as the user rated them (Your taste): what a rating is, its file | `shared/look-ratings.ts`, `server/look-ratings.ts` | platform |
-| The user's clips and pictures in MilkDrop's looks and feedback (Your media), found online too | `now-playing-view/media-feed.ts`, `media-mix.ts`, `media-library.ts`, `media-panel.tsx`; `LibraryStore.addFromWeb` | video |
+| The user's clips and pictures in MilkDrop's looks and feedback (Your media), found online too, in sets | `now-playing-view/media-feed.ts`, `media-mix.ts`, `media-library.ts`, `media-sets.ts`, `media-panel.tsx`; `LibraryStore.addFromWeb` | video |
 | Its own window (a stage) | `src/components/windows/native/stage-window.ts`, `electron/stage.ts` | platform |
 | vaudio's 2D visualizers | `shared/effect-library/audio.ts` (Wave Bars ... Acid Plasma) | video |
 | The assistant | `now_playing`, `control_now_playing` (`shared/assistant-tools.ts`) | video |
@@ -466,6 +466,14 @@ shows only its outlines: all of it washes a look out.
   visualizer; or **Online**, the video editor's search, `useWebSearch`: YouTube, or a pasted link from TikTok, Instagram,
   X…), taken out there (deleted from the Library). One just added shows next (`wanted`). Clips play muted and looping,
   at the picture's pace in slow motion.
+- **Sets** (Théo, 2026-10-16: "a batch of one type of clip then a batch of another… select one to make it the current
+  clips it feeds from"): the Visualizer folder's own folders (`media-sets.ts`, pure and tested), friends for a music
+  video, nature for another vibe; the visualizer feeds from one at a time (`setId`, kept in this browser: else the
+  oldest). The media panel's chips pick one (with how many are in it), **+** makes one (in use at once, so what's added
+  goes into it), the pencil renames and the bin deletes the one in use (with its clips, asked first), and a clip's
+  arrow moves it into another. **K** goes on to the next set, round to the first (a note says which, and how many).
+  What's in the Visualizer folder itself (from before sets, or put there in the Library) moves into **My clips**
+  (`FIRST_SET`) when they're read, made for it if need be; a set's own folders count as its.
 - **Found online** (`POST /api/library/items/web`, `LibraryStore.addFromWeb`): the link's picture only (no sound, up to
   720p: `WebMediaLibrary.downloadVideo`, `PICTURE_FORMAT_ARGS`), a video over 6 minutes only its first 4
   (`--download-sections`, `LONG_VIDEO`, `LONG_TAKES`), its progress the Online tab's (`/api/web/progress`, polled), one
@@ -488,8 +496,9 @@ shows only its outlines: all of it washes a look out.
   `renderer.targetFrameBuffer` after `render` (the buffer the next frame warps), then into the canvas (on top). Butterchurn binds sampler objects of
   its own (mipmapped) to its texture units: one left bound makes the clip's texture (no mipmaps) read as black, so it's
   unbound for the draw and put back, as are the blend, framebuffer and the unpack flip.
-- **Keys**: N another clip, ⇧N on or off (kept: `useVisualizerPrefs.media`). The assistant's `control_now_playing`
-  takes `media` (on, off, next); `now_playing` lists them and says which is in.
+- **Keys**: N another clip, ⇧N on or off (kept: `useVisualizerPrefs.media`), K the next set. The assistant's
+  `control_now_playing` takes `media` (on, off, next) and `mediaSet` (a set's name: it feeds from that one, turned on);
+  `now_playing` lists the sets and the clips of the one in use, and says which is in.
 - **Only MilkDrop's looks** take them for now (they're nearly all that shows since Théo's ratings: 153 of the looks,
   and most of ours binned). Ours could: the World Loop is a feedback too, and chaos's `cover` source is where a clip
   would go.

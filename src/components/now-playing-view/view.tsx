@@ -54,6 +54,7 @@ import { EFFECTS_MODES, EffectsEngine } from "./effects-engine";
 import { LiveDirector } from "./director";
 import { type Feeding, MilkDrop } from "./milkdrop";
 import { useVisualizerMedia } from "./media-library";
+import { nextSet } from "./media-sets";
 import { KickHit, mixFor, pickMedia } from "./media-mix";
 import { MediaPanel } from "./media-panel";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
@@ -615,6 +616,19 @@ export default function NowPlayingView() {
   }, []);
   const mediaList = useVisualizerMedia((s) => s.media);
   const wantedMedia = useVisualizerMedia((s) => s.wanted);
+  // Another set of clips (K, the media panel, the assistant): said for a moment, with how many are in it.
+  const mediaSetId = useVisualizerMedia((s) => s.setId);
+  const mediaSetWas = useRef(mediaSetId);
+  const [setNote, setSetNote] = useState<{ name: string; count: number; n: number } | null>(null);
+  useEffect(() => {
+    const was = mediaSetWas.current;
+    mediaSetWas.current = mediaSetId;
+    const set = useVisualizerMedia.getState().sets.find((s) => s.id === mediaSetId);
+    if (!was || !set || was === mediaSetId) return;
+    setSetNote((note) => ({ name: set.name, count: set.media.length, n: (note?.n ?? 0) + 1 }));
+    const t = setTimeout(() => setSetNote(null), RATED_MS);
+    return () => clearTimeout(t);
+  }, [mediaSetId]);
   const mediaOn = prefs.media;
   const nextMedia = prefs.nextMedia;
   const mediaChanged = useRef({ list: mediaList, on: mediaOn, next: nextMedia });
@@ -934,6 +948,17 @@ export default function NowPlayingView() {
           } else prefs.setMedia(!prefs.media);
           return wake();
         }
+        case "mediaSet": {
+          const vis = useVisualizerMedia.getState();
+          const next = nextSet(vis.sets, vis.setId);
+          if (!next || next.id === vis.setId) {
+            setMediaPanel(true);
+            return wake();
+          }
+          vis.useSet(next.id);
+          if (!useVisualizerPrefs.getState().media) useVisualizerPrefs.getState().setMedia(true);
+          return;
+        }
         case "frame": {
           const f = director.frame;
           const next: Frame =
@@ -1192,6 +1217,7 @@ export default function NowPlayingView() {
         />
       )}
       {rated && <RatedNote key={rated.n} {...rated} />}
+      {setNote && !rated && <SetNote key={setNote.n} {...setNote} />}
       {help && !compact && <KeysHelp onClose={() => setHelp(false)} />}
       {moodShown && !compact && <MoodReadout now={() => source.now} choices={() => choices.current} />}
       {syncing && <TapSync source={source} tapper={tapper} onDone={stopSyncing} />}
@@ -1662,6 +1688,18 @@ function RatedNote({ look, verdict, character }: { look: string; verdict: Rating
     <div data-rated={verdict} className="pointer-events-none absolute top-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-sm text-white/90 ring-1 ring-white/10 backdrop-blur-md [&_svg]:size-4">
       {verdict === "love" ? <PiHeartFill /> : verdict === "bin" ? <PiTrashFill /> : verdict === "done" ? <PiCheck /> : <PiHeart />}
       <span className="max-w-[60vw] truncate">{text}</span>
+    </div>
+  );
+}
+
+/** The set of the user's clips the visualizer has gone on to, and how many are in it. */
+function SetNote({ name, count }: { name: string; count: number }) {
+  return (
+    <div data-set-note className="pointer-events-none absolute top-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-sm text-white/90 ring-1 ring-white/10 backdrop-blur-md [&_svg]:size-4">
+      <PiFilmStrip />
+      <span className="max-w-[60vw] truncate">
+        {name}: {count ? `${count} clip${count === 1 ? "" : "s"}` : "nothing in it yet"}
+      </span>
     </div>
   );
 }
