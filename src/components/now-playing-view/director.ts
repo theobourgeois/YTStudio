@@ -25,6 +25,7 @@ import {
   showClip,
 } from "@shared/live-looks";
 import type { SignalData } from "@shared/signals/format";
+import { clipEnd } from "@shared/timeline";
 import type { Project, Transition } from "@shared/types";
 
 /** Seconds a pad's hit is kept (long after its punch has died away). */
@@ -156,13 +157,22 @@ export class LiveDirector {
     return on;
   }
 
-  /** Let go of looks that ended before `now` (a second's grace), of pads' hits long past, and of a morph played out. */
+  /**
+   * Let go of looks that ended before `now` (a second's grace) and whose part in the switch after them is over, of pads'
+   * hits long past, and of a morph played out.
+   */
   prune(now: number): void {
     if (this.morphing && now > this.morphing.at + this.morphing.seconds + 2) {
       this.morphing = null;
       this.rebuildPerform();
     }
-    const keep = this.shows.filter((s, i) => i === this.shows.length - 1 || s.clip.start + (s.clip.out - s.clip.in) > now - 1);
+    // Not before the switch after it has played out (centred on the cut, it shows the look going for half its length
+    // after it), nor before it ends on the timeline (in slow motion a look's sequence plays slower than its source):
+    // let go sooner, the screen went black until the next came in, and that came in from black (Théo saw it).
+    const keep = this.shows.filter((s, i) => {
+      const next = this.shows[i + 1];
+      return !next || Math.max(clipEnd(s.clip), next.clip.start + (next.clip.transitionIn?.duration ?? 0) / 2) > now - 1;
+    });
     if (keep.length !== this.shows.length) {
       this.shows = keep;
       this.cached = null;

@@ -2,8 +2,10 @@
 /**
  * A stand-in for yt-dlp in the e2e tests (`YTDLP_PATH`), so they never reach the web: a search answers
  * with two clips (one for "many…" has 40, given a page at a time by `-I`), a link with a clip of its own,
- * and a download is a short tone, written as a WAV.
+ * and a download is a short tone, written as a WAV; a video's (`--merge-output-format`) two seconds of a test picture
+ * (ffmpeg's), as an MP4.
  */
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -53,6 +55,13 @@ for (let i = 0; i < samples; i++) wav.writeInt16LE(Math.round(Math.sin((i / rate
 
 const dir = args[args.indexOf("-P") + 1];
 fs.mkdirSync(dir, { recursive: true });
+if (args.includes("--merge-output-format")) {
+  const video = path.join(dir, args[args.indexOf("-o") + 1].replace("%(ext)s", "mp4"));
+  const made = spawnSync(process.env.FFMPEG_PATH || "ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=15:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", video]);
+  if (made.status !== 0) process.exit(1);
+  console.log(video);
+  process.exit(0);
+}
 const out = path.join(dir, args[args.indexOf("-o") + 1].replace("%(ext)s", "wav"));
 fs.writeFileSync(out, wav);
 console.log(out);

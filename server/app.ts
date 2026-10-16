@@ -273,7 +273,7 @@ export async function createApp({
   const vibeModel = new DownloadedModel(MODELS_DIR, VIBE_MODEL === "stand-in", VIBE_MODEL_SPEC);
   const lookRatings = new LookRatings(paths.lookRatingsFile);
   app.use("/api/now-playing", nowPlayingRoutes(new NowPlaying(player === undefined ? defaultPlayer(NOW_PLAYING) : player), vibeModel, lookRatings));
-  app.use("/api/library", libraryRoutes(shared));
+  app.use("/api/library", libraryRoutes(shared, web));
   app.use("/api/exports", exportRoutes(exports));
   app.use("/api/render-files", renderFileRoutes(renders));
   app.use("/api/transcription", transcriptionRoutes(transcription));

@@ -13,6 +13,7 @@ import type {
   UseLibraryItemResponse,
 } from "../shared/types.ts";
 import type { MediaLibrary } from "./media.ts";
+import type { WebMediaLibrary } from "./web-media.ts";
 import { createLimiter } from "./queue.ts";
 import { type DataPaths, HttpError, isObject, isValidId, parseName, readJson, writeJson } from "./storage.ts";
 import { log } from "./log.ts";
@@ -150,6 +151,31 @@ export class LibraryStore {
     this.folder(folderId);
     const asset = await this.media.ingest(body, rawName, null, () => true);
     return this.addItem({ kind: "media", mediaId: asset.id, name: asset.name, folderId }, [asset]);
+  }
+
+  /**
+   * A link's video into a folder (the visualizer's clips: docs/now-playing.md, "Your media"), downloaded (`web`); one
+   * the Library has from the same link already is that one, put in the folder if it isn't. `most`: only a long video's
+   * first so many seconds.
+   */
+  async addFromWeb(body: unknown, web: WebMediaLibrary): Promise<LibraryEntry> {
+    if (!isObject(body)) throw new HttpError(400, "Expected { url, folderId?, title?, most? }.");
+    const folderId = parseFolderId(body.folderId) ?? null;
+    this.folder(folderId);
+    const origin = web.videoOrigin(body.url);
+    const known = this.media.list().find((m) => m.origin === origin);
+    if (known) {
+      const item = [...this.items.values()].find((i) => i.kind === "media" && i.mediaId === known.id && i.folderId === folderId);
+      return item ? { item, media: [known] } : this.addItem({ kind: "media", mediaId: known.id, name: known.name, folderId }, [known]);
+    }
+    const most = typeof body.most === "number" && Number.isFinite(body.most) && body.most > 0 ? Math.min(3600, body.most) : undefined;
+    const download = await web.downloadVideo(body.url, { title: body.title, most });
+    try {
+      const asset = await this.media.add(download.file, download.name, null, () => true, origin);
+      return await this.addItem({ kind: "media", mediaId: asset.id, name: asset.name, folderId }, [asset]);
+    } finally {
+      await download.done();
+    }
   }
 
   /** Add a project's media file to the Library. */

@@ -9,6 +9,7 @@
  *   pnpm tsx scripts/now-playing-sheet.ts chaos-liquid --record 45 --song file.mp3 [--from 48] [--every 6.5] [--auto bars2]
  *     [--keys "6=t 9=y 12=] 18=Backspace"] [--fx '{"feedback":0.85,"kaleido":0.5}'] [--effects music|beat|bar|hand] [--pace 0.5]
  *   pnpm tsx scripts/now-playing-sheet.ts milkdrop --media clip.mp4,picture.jpg [--seconds 6]
+ *   pnpm tsx scripts/now-playing-sheet.ts milkdrop --trace 60 --song file.mp3 [--auto song] [--media clip.mp4] [--pace 0.5]
  *
  * `--track` picks the stand-in's song, so its cover's colours (1 magenta, 2 orange, 3 cyan). `--pace` is the Speed
  * slider's (1 follows the music, less is slow motion at that speed). `--media` adds clips and pictures of your own to
@@ -20,6 +21,11 @@
  * white or crushed to black (it exits 1 if one is). Each moment is three frames, judged by the middle one (a strobe's
  * flash is white for a frame, which is fine; white for a while isn't). Don't edit the app's files while it runs:
  * Tailwind reads them all, so the pages reload.
+ *
+ * `--trace` watches the picture for that many seconds as it plays (looks changing by themselves with `--auto`), ten times
+ * a second: how light it is, each change of look or clip, and every dip to black (under 4% light) and how long it
+ * took to come back (`TRACE_ALL=1`: every reading, MilkDrop's own canvas's beside it), keys pressed at times as when
+ * filming (`--keys`). For chasing a picture that goes dark.
  *
  * `--rolls` shows each look rolled again and again (M between, `--seconds` apart: chaos's recipes, docs/now-playing.md),
  * numbered, a sheet per look (`<out>-<look>.png`, six across), each roll checked the same way: for scoring a round.
@@ -54,6 +60,7 @@ const track = Math.max(1, Math.min(3, Number(option("--track") ?? 1)));
 const moments = args.includes("--moments");
 const rolls = Math.max(0, Number(option("--rolls") ?? 0));
 const recordSeconds = Math.max(0, Number(option("--record") ?? 0));
+const traceSeconds = Math.max(0, Number(option("--trace") ?? 0));
 const from = Math.max(0, Number(option("--from") ?? 0));
 const every = Math.max(0, Number(option("--every") ?? 0));
 const auto = option("--auto");
@@ -86,7 +93,7 @@ const MOMENT_NAMES = ["breakdown", "build-up", "drop"];
 const FRAMES = [0, 150, 300];
 /** The page pictures are measured in (`lightOf`). */
 let reader: Page | null = null;
-const names = args.filter((a, i) => !a.startsWith("--") && !["--out", "--song", "--seconds", "--track", "--at", "--parallel", "--rolls", "--record", "--from", "--every", "--auto", "--keys", "--fx", "--effects", "--pace", "--media"].includes(args[i - 1]));
+const names = args.filter((a, i) => !a.startsWith("--") && !["--out", "--song", "--seconds", "--track", "--at", "--parallel", "--rolls", "--record", "--from", "--every", "--auto", "--keys", "--fx", "--effects", "--pace", "--media", "--trace"].includes(args[i - 1]));
 const looks = names.length ? LIVE_LOOKS.filter((l) => names.includes(l.id) || names.includes(l.kind)) : LIVE_LOOKS;
 if (!looks.length) {
   console.error(`No looks match ${names.join(", ")}. Known: ${LIVE_LOOKS.map((l) => l.id).join(", ")}`);
@@ -186,7 +193,7 @@ async function visualizer(look: LiveLook) {
       if (file) localStorage.setItem("editor-now-playing-demo", "/now-playing-sheet-song");
       if (speed) localStorage.setItem("editor-visualizer-pace", speed);
     },
-    [look.id, song ? "yes" : "", (recordSeconds && auto) || "off", recordSeconds ? "sharp" : "", startFx, effectsBy, pace] as const,
+    [look.id, song ? "yes" : "", ((recordSeconds || traceSeconds) && auto) || "off", recordSeconds ? "sharp" : "", startFx, effectsBy, pace] as const,
   );
   await page.goto(web);
   await page.click("[data-now-playing] button[title='Open the visualizer']", { timeout: 30_000 });
@@ -197,8 +204,8 @@ async function visualizer(look: LiveLook) {
   return page;
 }
 
-if (moments || rolls || recordSeconds) {
-  await (recordSeconds ? record() : rolls ? showRolls() : showMoments());
+if (moments || rolls || recordSeconds || traceSeconds) {
+  await (traceSeconds ? trace() : recordSeconds ? record() : rolls ? showRolls() : showMoments());
   await browser.close();
   process.exit();
 }
@@ -239,6 +246,72 @@ if (problems.length) {
 await browser.close();
 // The server and web app are children: exiting stops them (`cleanUp`).
 process.exit();
+
+/**
+ * Watch the picture as it plays (`--trace`): ten times a second its light, read off the canvas small; each change of
+ * look or clip said as it comes, every dip to black (under 4% light) with how long it lasted, and a count at the end.
+ */
+async function trace() {
+  const page = await visualizer(looks[0]);
+  await page.waitForSelector('[data-slot="visualizer-canvas"][data-drawn="clips"]', { timeout: 30_000 });
+  const started = Date.now();
+  let was = { look: "", media: "" };
+  let dark: number | null = null;
+  const dips: { at: number; seconds: number; look: string }[] = [];
+  const lights: number[] = [];
+  const keys = [...keysAt];
+  while (Date.now() - started < traceSeconds * 1000) {
+    const t = (Date.now() - started) / 1000;
+    // Keys pressed as it goes (`--keys`, `seconds=key`), as when filming.
+    while (keys.length && keys[0].at <= t) {
+      const { key } = keys.shift()!;
+      console.log(`  ${t.toFixed(1)} s  pressed ${key}`);
+      await page.keyboard.press(key);
+    }
+    const now = await page.evaluate(() => {
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-slot="visualizer-canvas"]')!;
+      const small = document.createElement("canvas");
+      small.width = 64;
+      small.height = 36;
+      const g = small.getContext("2d")!;
+      g.drawImage(canvas, 0, 0, 64, 36);
+      const d = g.getImageData(0, 0, 64, 36).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+      const milkdrop = document.querySelector<HTMLCanvasElement>("canvas[data-milkdrop]");
+      // MilkDrop's own canvas too: dark there or only in the picture says which.
+      let own = -1;
+      if (milkdrop) {
+        g.drawImage(milkdrop, 0, 0, 64, 36);
+        const m = g.getImageData(0, 0, 64, 36).data;
+        own = 0;
+        for (let i = 0; i < m.length; i += 4) own += (0.2126 * m[i] + 0.7152 * m[i + 1] + 0.0722 * m[i + 2]) / 255 / (m.length / 4);
+      }
+      return {
+        own,
+        light: sum / (d.length / 4),
+        look: document.querySelector("[data-now-playing-view]")?.getAttribute("data-showing") ?? "",
+        media: milkdrop?.dataset.media ?? "",
+        gain: milkdrop?.dataset.mediaGain ?? "",
+        pace: milkdrop?.dataset.pace ?? "",
+      };
+    });
+    lights.push(now.light);
+    if (process.env.TRACE_ALL) console.log(`    ${t.toFixed(1)} ${now.light.toFixed(3)} milkdrop ${now.own.toFixed(3)} pace ${now.pace}`);
+    if (now.look !== was.look || now.media !== was.media) console.log(`  ${t.toFixed(1)} s  ${now.look}${now.media ? ` + ${now.media} (at ${now.gain || 1})` : ""}  light ${now.light.toFixed(3)}`);
+    was = { look: now.look, media: now.media };
+    if (now.light < 0.04 && dark === null) dark = t;
+    if (now.light >= 0.04 && dark !== null) {
+      dips.push({ at: dark, seconds: t - dark, look: now.look });
+      console.log(`  ${dark.toFixed(1)} s  dark for ${(t - dark).toFixed(1)} s (${now.look})`);
+      dark = null;
+    }
+    await page.waitForTimeout(100);
+  }
+  const mean = lights.reduce((a, b) => a + b, 0) / Math.max(1, lights.length);
+  console.log(`${dips.length} dips to black in ${traceSeconds} s (light ${mean.toFixed(3)} on average)${dark !== null ? `, and dark at the end since ${dark.toFixed(1)} s` : ""}`);
+  if (problems.length) console.log(`Problems in the page:\n${problems.map((p) => `  ${p}`).join("\n")}`);
+}
 
 /** How light a picture is: its mean luma, and the share of it near white and near black (0..1). */
 interface Light {

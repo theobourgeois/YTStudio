@@ -21,7 +21,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | MilkDrop's looks (Butterchurn's presets picked, what each suits) | `shared/milkdrop-presets.ts`, `live-milkdrop.ts`; bundled by `vite.config.ts`; drawn by `now-playing-view/milkdrop.ts` | video |
 | The visualizer: director, source, keys, view | `src/components/now-playing-view/` | video (`ClientSuite.NowPlaying`) |
 | The looks as the user rated them (Your taste): what a rating is, its file | `shared/look-ratings.ts`, `server/look-ratings.ts` | platform |
-| The user's clips and pictures in MilkDrop's looks and feedback (Your media) | `now-playing-view/media-feed.ts`, `media-mix.ts`, `media-library.ts`, `media-panel.tsx` | video |
+| The user's clips and pictures in MilkDrop's looks and feedback (Your media), found online too | `now-playing-view/media-feed.ts`, `media-mix.ts`, `media-library.ts`, `media-panel.tsx`; `LibraryStore.addFromWeb` | video |
 | Its own window (a stage) | `src/components/windows/native/stage-window.ts`, `electron/stage.ts` | platform |
 | vaudio's 2D visualizers | `shared/effect-library/audio.ts` (Wave Bars ... Acid Plasma) | video |
 | The assistant | `now_playing`, `control_now_playing` (`shared/assistant-tools.ts`) | video |
@@ -354,6 +354,12 @@ the frame and the distortions and feedback by itself, by the music, landing on i
   bar**: a new set on each downbeat.
 - **By hand**: the panel and the keys. Touching either takes the effects over from the engine as they are.
 
+A look is let go (`LiveDirector.prune`) only once it's ended on the timeline (in slow motion its sequence plays slower
+than its source, so it lasts longer than its source says) and the switch after it has played out (centred on the cut,
+it shows the look going for half its length after it): let go sooner, the screen went black until the next look came
+in, and that came in from black (Théo: "it dips to black, comes slowly back, then dips again"; at every change in slow
+motion, and at the end of every long blend).
+
 A chaos look gets no feedback of the engine's (it has its own world: it gets one more of the other moves instead);
 feedback stays under 0.8. Before the music's
 downbeats are known, bars are counted in beats. Every change says why (the log: info, every beat at debug; the I
@@ -442,14 +448,24 @@ everything else in it), so trails of it stream off in the preset's own motion; a
 clip is plainly there. Only in the feedback, it was unrecognisable (Théo: "none of them are showing up"): a preset warps
 all of its buffer every frame, so what's only in it is a smear of colour within a few frames. A clip on a **flat
 background** (white, black, a colour: `backdropOf`, its edge measured on a small copy of a frame every 90 fed) has it
-taken out and **floats** in the look at its own shape (`placementOf`, `floatSize`: 62–85% of the frame's height), as
-does one of another shape (a square or tall clip filling the frame would be cut and blown up); footage of the frame's
-shape fills it, and shows only its light or edges on top, at a little over half (all of it on top hides the look).
+taken out. A clip of the frame's shape **fills** it, background or not (floated, a 16:9 clip read as a box in the
+middle, Théo found), footage showing only its light or edges on top, at a little over half (all of it on top hides the
+look); one of another shape **floats** in the middle at its own shape (`placementOf`, `floatSize`: 62–85% of the
+frame's height; a square or tall clip filling the frame would be cut and blown up), its edges fading (an ellipse's,
+unless its background's taken out). A pale clip whose background can't be taken out (`Backdrop.light` over `PALE`)
+shows only its outlines: all of it washes a look out.
 
 - **Where they are**: the Library's Visualizer folder (`media-library.ts`, made the first time one's added), so they're
   kept with the Library (the video editor's Library tab shows them) and served from the same origin (the GPU may read
-  them). Added from the media panel (the film-strip button up top: Add, or drop files anywhere on the visualizer), taken
-  out there (deleted from the Library). Clips play muted and looping, at the picture's pace in slow motion.
+  them). Added from the media panel (the film-strip button up top: Yours, with Add files, or drop files anywhere on the
+  visualizer; or **Online**, the video editor's search, `useWebSearch`: YouTube, or a pasted link from TikTok, Instagram,
+  X…), taken out there (deleted from the Library). One just added shows next (`wanted`). Clips play muted and looping,
+  at the picture's pace in slow motion.
+- **Found online** (`POST /api/library/items/web`, `LibraryStore.addFromWeb`): the link's picture only (no sound, up to
+  720p: `WebMediaLibrary.downloadVideo`, `PICTURE_FORMAT_ARGS`), a video over 6 minutes only its first 4
+  (`--download-sections`, `LONG_VIDEO`, `LONG_TAKES`), its progress the Online tab's (`/api/web/progress`, polled), one
+  the Library has from the same link already that one (`origin` `web:video:<key>`). Typing in the search is typing, not
+  the visualizer's keys (Escape leaves it).
 - **How they go in** (`media-mix.ts`, pure and tested), picked each time a MilkDrop look comes on, with a clip not shown
   lately from a moment of it at random: all of it, only its light (its dark parts leave the preset's black alone) or
   only its edges (outlines as light), in richer colours, punched in a little on each kick (`KickHit`, the kick onset's
@@ -461,7 +477,8 @@ shape fills it, and shows only its light or edges on top, at a little over half 
   (`Brake`) measures the picture every 12 frames fed (16 × 9, on the CPU) and lets less of the clip in while it's
   blown out or pale (mean over 0.6, or over a fifth near white), down to 0.35 (it never goes), more again as it clears:
   some presets brighten their own feedback, and what's painted in piles up to white. A background's taken as flat once
-  half its edge is near its middle colour (0.22 RGB), and stays so down to 0.35 (no flicker as dancers cross it).
+  half its edge is near its middle colour (0.22 RGB), and stays so down to 0.35 (no flicker as dancers cross it); a new
+  clip's looked at every 15 frames fed for its first 8 looks (a dancer may cover its edge the first time), then every 90.
 - **Drawing it** (`MediaFeed`): Butterchurn's own WebGL context, a program and vertex array of its own, drawn into
   `renderer.targetFrameBuffer` after `render` (the buffer the next frame warps), then into the canvas (on top). Butterchurn binds sampler objects of
   its own (mipmapped) to its texture units: one left bound makes the clip's texture (no mipmaps) read as black, so it's
@@ -473,7 +490,9 @@ shape fills it, and shows only its light or edges on top, at a little over half 
   would go.
 - **Seeing it**: `now-playing-sheet.ts milkdrop --media clip.mp4,picture.jpg` adds them before it opens, and says for
   each MilkDrop look which one it fed in, how many frames, how much the brake held back, and whether its background
-  was taken out. The media panel says so when the look shown isn't MilkDrop's (it shows none).
+  was taken out. The media panel says so when the look shown isn't MilkDrop's (it shows none). `--trace 60` watches the
+  picture's light as it plays (`TRACE_ALL=1`: every reading, MilkDrop's own canvas's beside it; `--keys` at times), for
+  a picture that goes dark.
 
 Next (Théo picked feeding the feedback first, 2026-10-15): the clips' mood (CLIP on a few frames, on the same axes as
 the songs' vibe: a dreamy clip for a dreamy song), their motion matched to the music's (the drop's hardest-moving shots),

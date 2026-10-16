@@ -289,14 +289,19 @@ export default function NowPlayingView() {
    */
   const feedFor = (lookId: string, again = false) => {
     const list = useVisualizerMedia.getState().media;
-    if (!useVisualizerPrefs.getState().media || !list.length || !milkdropPreset(lookId)) {
+    if (!useVisualizerPrefs.getState().media || !list.length) {
       if (feedingRef.current) feedingRef.current = null;
       useVisualizerMedia.getState().setFeeding(null);
       return;
     }
+    // Not a MilkDrop look: none for it (the clip of the one going stays while that's on screen: `tick`).
+    if (!milkdropPreset(lookId)) return;
     if (!again && feedingRef.current?.look === lookId) return;
     const choices = list.map((m) => ({ id: m.asset.id, kind: m.asset.kind === "video" ? ("video" as const) : ("image" as const), duration: m.asset.duration }));
-    const picked = pickMedia(choices, recentMedia.current, Math.random);
+    // One just added comes first (from its start), else one not shown lately.
+    const wanted = useVisualizerMedia.getState().wanted;
+    if (wanted) useVisualizerMedia.getState().setWanted(null);
+    const picked = wanted && choices.some((c) => c.id === wanted) ? { id: wanted, from: 0 } : pickMedia(choices, recentMedia.current, Math.random);
     const asset = list.find((m) => m.asset.id === picked?.id)?.asset;
     if (!picked || !asset) return;
     const mood = useNowPlaying.getState().live?.signals.mood;
@@ -609,6 +614,7 @@ export default function NowPlayingView() {
     return () => useVisualizerMedia.getState().setFeeding(null);
   }, []);
   const mediaList = useVisualizerMedia((s) => s.media);
+  const wantedMedia = useVisualizerMedia((s) => s.wanted);
   const mediaOn = prefs.media;
   const nextMedia = prefs.nextMedia;
   const mediaChanged = useRef({ list: mediaList, on: mediaOn, next: nextMedia });
@@ -618,9 +624,9 @@ export default function NowPlayingView() {
     const look = director.look;
     if (!look) return;
     const gone = feedingRef.current && !mediaList.some((m) => m.asset.id === feedingRef.current!.feeding.media.id);
-    if (nextMedia !== was.next || mediaOn !== was.on || gone || (!feedingRef.current && mediaList.length)) feedFor(look, true);
+    if (nextMedia !== was.next || mediaOn !== was.on || gone || wantedMedia || (!feedingRef.current && mediaList.length)) feedFor(look, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mediaList, mediaOn, nextMedia]);
+  }, [mediaList, mediaOn, nextMedia, wantedMedia]);
 
   // The user's ratings (kept on this computer), for the looks picked; the rating mode's off once it's closed.
   useEffect(() => {
@@ -863,8 +869,17 @@ export default function NowPlayingView() {
       if (e.metaKey || e.ctrlKey) return;
       if (boxed && !engagedRef.current) return;
       e.stopImmediatePropagation();
+      // Typing in a field (the media panel's search) is typing: Escape leaves it.
+      const target = e.target as HTMLElement | null;
+      const typing =
+        !!target &&
+        (target.isContentEditable || target.tagName === "TEXTAREA" || (target.tagName === "INPUT" && /^(text|search|url|email|password|number)$/.test((target as HTMLInputElement).type)));
+      if (typing) {
+        if (e.key === "Escape") target.blur();
+        return;
+      }
       // The controls' own lists and sliders keep their keys.
-      const tag = (e.target as HTMLElement | null)?.tagName;
+      const tag = target?.tagName;
       if (tag === "SELECT" && e.key !== "Escape") return;
       if (tag === "INPUT" && /^(Arrow|Home|End|Page)/.test(e.key)) return;
       // Tapping along: Space taps, Escape stops.

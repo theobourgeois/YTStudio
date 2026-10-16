@@ -400,6 +400,33 @@ describe.skipIf(!ffmpegAvailable)("web media routes (fake yt-dlp)", () => {
     expect(readdirSync(path.join(dataDir, "tmp"))).toEqual([]);
   });
 
+  it("downloads a link's picture into a Library folder (the visualizer's), once", async () => {
+    const folder = (await (await post("/api/library/folders", { name: "Visualizer" })).json()) as { id: string };
+    const url = "https://www.tiktok.com/@someone/video/7300000000000000009";
+    const res = await post("/api/library/items/web", { url, folderId: folder.id, title: "dance" });
+    expect(res.status).toBe(201);
+    const { item, media } = (await res.json()) as { item: { id: string; folderId: string; mediaId: string }; media: MediaAsset[] };
+    expect(item.folderId).toBe(folder.id);
+    expect(media[0]).toMatchObject({ id: item.mediaId, kind: "video", hasVideo: true });
+    expect(media[0].origin).toMatch(/^web:video:x[0-9a-f]{16}$/);
+    // The picture only, up to 720p: it plays muted, drawn at 720p.
+    const argv = downloads().at(-1)!;
+    expect(argv.join(" ")).toContain("bv*/b");
+    expect(argv.join(" ")).toContain("res:720");
+    expect(argv).not.toContain("--download-sections");
+    // Again: the one it has, no download.
+    const count = downloads().length;
+    const again = (await (await post("/api/library/items/web", { url, folderId: folder.id })).json()) as { item: { id: string } };
+    expect(again.item.id).toBe(item.id);
+    expect(downloads().length).toBe(count);
+    // A long one: only its first minutes.
+    await post("/api/library/items/web", { url: url.replace(/9$/, "8"), folderId: folder.id, most: 240 });
+    const long = downloads().at(-1)!;
+    expect(long.slice(long.indexOf("--download-sections"), long.indexOf("--download-sections") + 2)).toEqual(["--download-sections", "*0-240"]);
+    expect(readdirSync(path.join(dataDir, "tmp"))).toEqual([]);
+    expect((await post("/api/library/items/web", { url: "nope", folderId: folder.id })).status).toBe(400);
+  });
+
   it("reports a download's progress while it runs", async () => {
     const url = "https://www.tiktok.com/@someone/video/7300000000000000001?slow=1";
     const progress = async () =>
