@@ -9,7 +9,7 @@
  * state as it was.
  */
 import type { ButterchurnRenderer } from "butterchurn";
-import { type Backdrop, type MediaMix, amountOver, backdropOf, floatSize, placementOf, shownAt } from "./media-mix";
+import { type Backdrop, type MediaMix, PALE, amountOver, backdropOf, floatSize, placementOf, shownAt } from "./media-mix";
 
 const VERTEX = `#version 300 es
 in vec2 corner;
@@ -21,8 +21,8 @@ void main() {
 
 /**
  * The clip, filling the frame (`place` 0: `fit` is how much of its width and height it shows, kept to its shape) or
- * floating in the middle at its own shape (1: `size` is its rectangle, of the frame; its edges soft unless its
- * background's taken out), its background taken out if it's flat (`keyed`: near `bg` goes), and as much of the rest
+ * floating in the middle at its own shape (1: `size` is its rectangle, of the frame; its edges fading, an ellipse's
+ * unless its background's taken out: no box), its background taken out if it's flat (`keyed`: near `bg` goes), and as much of the rest
  * as the mode lets through: all of it, its light (dark parts let the preset's black through), or its edges (outlines
  * that glow); its colours a little richer.
  */
@@ -51,7 +51,9 @@ void main() {
   else {
     p = (uv - 0.5) / size + 0.5;
     float e = min(min(p.x, 1.0 - p.x), min(p.y, 1.0 - p.y));
-    inside = keyed == 1 ? smoothstep(0.0, 0.01, e) : smoothstep(0.0, 0.1, e);
+    // Its background taken out, its edge only softened (what's left is the subject); else it fades out from the middle
+    // as an ellipse, so it reads as a glow, not a box.
+    inside = keyed == 1 ? smoothstep(0.0, 0.06, e) : (1.0 - smoothstep(0.55, 1.0, length((p - 0.5) * 2.0))) * smoothstep(0.0, 0.02, e);
   }
   if (inside <= 0.0) {
     color = vec4(0.0);
@@ -85,8 +87,12 @@ const BRIGHT = 1.2;
 const MEASURE_EVERY = 12;
 /** Footage (no background to take out) shows this much as much on top as a clip floating does. */
 const FOOTAGE_ON_TOP = 0.55;
-/** Every this many frames fed, a clip's background looked at again (a picture's once). */
+/**
+ * Every this many frames fed, a clip's background looked at again (a picture's once): often at first, until it's been
+ * seen a few times (a dancer may cover its edge in the frame it's first looked at), then now and then.
+ */
 const BACKDROP_EVERY = 90;
+const BACKDROP_FIRST = { every: 15, times: 8 };
 
 /**
  * Less of the clip while the picture is turning white or pale (some presets brighten their feedback: what's painted in
@@ -101,7 +107,7 @@ export class Brake {
     this.small.height = 9;
   }
 
-  /** How much of the clip goes in (0.35..1: it never goes altogether). */
+  /** How much of the clip goes in (0.15..1: it never goes altogether). */
   get gain(): number {
     return this.value;
   }
@@ -122,7 +128,7 @@ export class Brake {
     const mean = sum / (data.length / 4);
     const whiteShare = white / (data.length / 4);
     // (Washed out, as much as blown out: pale pictures are what Théo bins; but the clip stays plainly there.)
-    this.value = mean > 0.6 || whiteShare > 0.22 ? Math.max(0.35, this.value * 0.7) : Math.min(1, this.value * 1.1);
+    this.value = mean > 0.6 || whiteShare > 0.22 ? Math.max(0.15, this.value * 0.7) : Math.min(1, this.value * 1.1);
   }
 }
 
@@ -136,8 +142,9 @@ interface Fed {
   loaded: boolean;
   /** The video's time when its frame was last taken (a new one is taken when it moves on). */
   taken: number;
-  /** Its background (null: not looked at yet). */
+  /** Its background (null: not looked at yet), and how many times it's been looked at. */
   backdrop: Backdrop | null;
+  looked: number;
 }
 
 export class MediaFeed {
@@ -163,7 +170,7 @@ export class MediaFeed {
     }
     this.release();
     if (!media) return;
-    const fed: Fed = { id: media.id, el: media.kind === "video" ? document.createElement("video") : new Image(), width: 0, height: 0, loaded: false, taken: -1, backdrop: null };
+    const fed: Fed = { id: media.id, el: media.kind === "video" ? document.createElement("video") : new Image(), width: 0, height: 0, loaded: false, taken: -1, backdrop: null, looked: 0 };
     if (fed.el instanceof HTMLVideoElement) {
       const video = fed.el;
       video.muted = true;
@@ -214,11 +221,16 @@ export class MediaFeed {
     const gl = this.gl;
     if (!this.program && !this.build()) return false;
     if (!this.upload(fed)) return false;
-    if (!fed.backdrop || (fed.el instanceof HTMLVideoElement && this.frames % BACKDROP_EVERY === 0)) fed.backdrop = this.backdropOf(fed);
+    const every = fed.looked < BACKDROP_FIRST.times ? BACKDROP_FIRST.every : BACKDROP_EVERY;
+    if (!fed.backdrop || (fed.el instanceof HTMLVideoElement && this.frames % every === 0)) {
+      // (Once its background's been seen as flat it stays so unless it's clearly not: a dancer crossing it is no change.)
+      fed.backdrop = this.backdropOf(fed) ?? fed.backdrop;
+      fed.looked++;
+    }
     const frameAspect = renderer.texsizeX / renderer.texsizeY;
     const mediaAspect = fed.width / fed.height;
     const keyed = fed.backdrop?.flat ?? false;
-    const place = placementOf(mediaAspect, keyed, frameAspect);
+    const place = placementOf(mediaAspect, frameAspect);
     // Punched in a little on each kick.
     const punch = 1 + 0.06 * Math.max(0, Math.min(1, hit));
     // Filling the frame, kept to its shape: the wider of the two shows less of its width.
@@ -227,8 +239,10 @@ export class MediaFeed {
     const size = floatSize(mediaAspect, frameAspect, mix.size).map((v) => v * punch);
     // On a background taken out, its light is all of it (what's left is the subject). On top, footage shows only its
     // light or its edges: the look shows through its darks (all of it on top would hide the look).
-    const into = keyed && mix.mode === "light" ? "whole" : mix.mode;
-    const onTop = keyed ? (mix.mode === "edges" ? "edges" : "whole") : mix.mode === "whole" ? "light" : mix.mode;
+    // A pale clip whose background can't be taken out washes the look out: only its outlines.
+    const pale = !keyed && (fed.backdrop?.light ?? 0) > PALE;
+    const into = pale ? "edges" : keyed && mix.mode === "light" ? "whole" : mix.mode;
+    const onTop = pale ? "edges" : keyed ? (mix.mode === "edges" ? "edges" : "whole") : mix.mode === "whole" ? "light" : mix.mode;
     const gain = this.brake.gain;
     const blend = gl.getParameter(gl.BLEND) as boolean;
     gl.useProgram(this.program);

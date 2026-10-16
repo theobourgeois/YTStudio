@@ -3,8 +3,9 @@
  * `media-feed.ts`): twice a frame, on top so it's plainly there (the dancer, the face: `show`), and into the feedback
  * (`base`, `kick`), so the preset's own motion streams trails off it. Which of it (all of it, only its light, only its
  * edges), how much, where, and which clip, by the music; more on each kick, so it punches in on the beat. A clip on a
- * flat background (white, black, a colour: `backdropOf`) has it taken out and floats in the look at its own shape;
- * footage fills the frame, only its light or edges on top (the look shows through its darks). Calm, steadier; intense,
+ * flat background (white, black, a colour: `backdropOf`) has it taken out; one of the frame's shape fills it (footage
+ * only its light or edges on top: the look shows through its darks), one of another floats in the middle at its own
+ * shape, its edges fading. Calm, steadier; intense,
  * its light and edges more, flashing in on kicks.
  * Pure, and tested.
  */
@@ -127,7 +128,12 @@ export interface Backdrop {
   color: [number, number, number];
   share: number;
   flat: boolean;
+  /** How light the whole frame is (0..1): a pale clip whose background can't be taken out washes a look out. */
+  light: number;
 }
+
+/** Lighter than this on average, a clip is pale. */
+export const PALE = 0.6;
 
 /**
  * How close (RGB, 0..1 a channel) a pixel of the edge must be to its middle colour to count as the background (a pale
@@ -155,20 +161,23 @@ export function backdropOf(data: ArrayLike<number>, width: number, height: numbe
       edge.push([data[i] / 255, data[i + 1] / 255, data[i + 2] / 255]);
     }
   }
-  if (!edge.length) return { color: [0, 0, 0], share: 0, flat: false };
+  if (!edge.length) return { color: [0, 0, 0], share: 0, flat: false, light: 0 };
+  let light = 0;
+  for (let i = 0; i < width * height * 4; i += 4) light += (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+  light /= width * height;
   const median = (k: 0 | 1 | 2) => [...edge.map((c) => c[k])].sort((a, b) => a - b)[Math.floor(edge.length / 2)];
   const color: [number, number, number] = [median(0), median(1), median(2)];
   const share = edge.filter((c) => Math.hypot(c[0] - color[0], c[1] - color[1], c[2] - color[2]) <= NEAR).length / edge.length;
-  return { color, share, flat: share >= (was?.flat ? STILL_FLAT : FLAT_SHARE) };
+  return { color, share, flat: share >= (was?.flat ? STILL_FLAT : FLAT_SHARE), light };
 }
 
 /**
- * Where a clip goes: filling the frame (footage of about its shape), or floating at its own shape in the middle (one
- * on a flat background, taken out, or of another shape: a square or tall clip filling the frame would be cut and
- * blown up). `aspect`s are width over height.
+ * Where a clip goes: filling the frame (one of about its shape, its background taken out or not: floated, a 16:9 clip
+ * read as a box in the middle, Théo found), or floating at its own shape in the middle, its edges fading (a square or
+ * tall clip filling the frame would be cut and blown up). `aspect`s are width over height.
  */
-export function placementOf(aspect: number, flat: boolean, frameAspect: number): "fill" | "float" {
-  return flat || Math.abs(Math.log(aspect / frameAspect)) > 0.25 ? "float" : "fill";
+export function placementOf(aspect: number, frameAspect: number): "fill" | "float" {
+  return Math.abs(Math.log(aspect / frameAspect)) > 0.25 ? "float" : "fill";
 }
 
 /** A clip floating in the frame: its rectangle's width and height, as shares of the frame's, `height` tall at most. */

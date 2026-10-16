@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seededRandom } from "@shared/live-looks";
-import { FLAT_SHARE, KickHit, STILL_FLAT, type MediaMode, amountOver, backdropOf, floatSize, mixFor, pickMedia, placementOf, shownAt } from "./media-mix";
+import { FLAT_SHARE, KickHit, PALE, STILL_FLAT, type MediaMode, amountOver, backdropOf, floatSize, mixFor, pickMedia, placementOf, shownAt } from "./media-mix";
 
 const modes = (intensity: number, slow = 0) => {
   const random = seededRandom(`modes${intensity}${slow}`);
@@ -71,6 +71,7 @@ describe("a clip's background", () => {
     const data = frame(32, 32, [200, 196, 200], [40, 30, 90], (x, y) => y > 24 || (x < 3 && y > 10));
     const backdrop = backdropOf(data, 32, 32);
     expect(backdrop.flat).toBe(true);
+    expect(backdrop.light).toBeGreaterThan(PALE);
     expect(backdrop.color.map((v) => Math.round(v * 255))).toEqual([200, 196, 200]);
     // Black, a face in the middle.
     expect(backdropOf(frame(32, 32, [3, 3, 3], [200, 200, 210], (x, y) => Math.hypot(x - 16, y - 16) < 9), 32, 32).flat).toBe(true);
@@ -92,14 +93,14 @@ describe("a clip's background", () => {
     expect(share).toBeLessThan(FLAT_SHARE);
     expect(share).toBeGreaterThan(STILL_FLAT);
     expect(backdropOf(half, 32, 32).flat).toBe(false);
-    expect(backdropOf(half, 32, 32, { color: [0.5, 0.5, 0.5], share: 0.9, flat: true }).flat).toBe(true);
+    expect(backdropOf(half, 32, 32, { color: [0.5, 0.5, 0.5], share: 0.9, flat: true, light: 0.5 }).flat).toBe(true);
   });
 
-  it("floats a clip on a flat background or of another shape, and fills the frame with footage of its shape", () => {
-    expect(placementOf(16 / 9, false, 16 / 9)).toBe("fill");
-    expect(placementOf(16 / 9, true, 16 / 9)).toBe("float");
-    expect(placementOf(1, false, 16 / 9)).toBe("float");
-    expect(placementOf(9 / 16, false, 16 / 9)).toBe("float");
+  it("fills the frame with a clip of its shape, background or not (no box in the middle), and floats one of another", () => {
+    expect(placementOf(16 / 9, 16 / 9)).toBe("fill");
+    expect(placementOf(1920 / 1080, 16 / 9)).toBe("fill");
+    expect(placementOf(1, 16 / 9)).toBe("float");
+    expect(placementOf(9 / 16, 16 / 9)).toBe("float");
   });
 
   it("floats a clip at its own shape, no wider than the frame lets it", () => {
