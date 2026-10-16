@@ -31,6 +31,11 @@ const BASE_ARGS = ["--ignore-config", "--no-warnings"];
  * preferring H.264/AAC, which every browser decodes and seeks quickly.
  */
 const VIDEO_FORMAT_ARGS = ["-f", "bv*+ba/b", "-S", "res:1080,vcodec:h264,acodec:aac", "--merge-output-format", "mp4"];
+/**
+ * For the visualizer (`downloadVideo`): the picture only (it plays muted), up to 720p (what it's drawn at), H.264 first;
+ * a file with its sound if that's all there is.
+ */
+const PICTURE_FORMAT_ARGS = ["-f", "bv*/b", "-S", "res:720,vcodec:h264", "--merge-output-format", "mp4"];
 /** The best audio-only stream (AAC in MP4 when there is one), else the audio of the best file. */
 const AUDIO_FORMAT_ARGS = ["-f", "bestaudio[ext=m4a]/bestaudio/best", "-x"];
 /**
@@ -380,6 +385,31 @@ export class WebMediaLibrary {
     }
   }
 
+  /** What a link's video is kept as having come from: a file from it says so, so it's found when it's added again. */
+  videoOrigin(rawUrl: unknown): string {
+    return `web:video:${parseLink(rawUrl).key}`;
+  }
+
+  /**
+   * A link's picture, downloaded into a folder of its own (`done` deletes it), for a store that keeps its own copy (the
+   * Library's, for the visualizer): no sound, up to 720p, only its first `most` seconds if given (a long video's).
+   * Its progress is the video's (`progress(url, "video")`).
+   */
+  async downloadVideo(rawUrl: unknown, options: { title?: unknown; most?: number } = {}): Promise<{ file: string; name: string; origin: string; done: () => Promise<void> }> {
+    const link = parseLink(rawUrl);
+    const named = text(options.title) ?? (await this.resolve(link.url, null).then((clip) => clip.title, () => undefined));
+    const title = (named ?? "Download").replace(/[\\/]/g, "-").slice(0, 150);
+    const dir = this.paths.tmpFile(".ytdl");
+    const most = options.most && options.most > 0 ? Math.round(options.most) : 0;
+    try {
+      const file = await this.limit(() => this.download(link.url, link.key, "video", dir, [...PICTURE_FORMAT_ARGS, ...(most ? ["--download-sections", `*0-${most}`] : [])]));
+      return { file, name: `${title}${path.extname(file)}`, origin: `web:video:${link.key}`, done: () => fs.rm(dir, { recursive: true, force: true }) };
+    } catch (err) {
+      await fs.rm(dir, { recursive: true, force: true });
+      throw err;
+    }
+  }
+
   /** Kill running downloads (server shutdown). */
   shutdown(): void {
     this.stopping.abort();
@@ -389,8 +419,8 @@ export class WebMediaLibrary {
     return AbortSignal.any([...(request ? [request] : []), this.stopping.signal, AbortSignal.timeout(timeoutMs)]);
   }
 
-  /** Download into `dir` and return the file's path. */
-  private async download(url: string, key: string, kind: WebMediaKind, dir: string): Promise<string> {
+  /** Download into `dir` and return the file's path (`format`: what to take, else the kind's usual). */
+  private async download(url: string, key: string, kind: WebMediaKind, dir: string, format?: string[]): Promise<string> {
     const progress = new DownloadProgress();
     const running = progressKey(kind, key);
     this.running.set(running, progress);
@@ -406,7 +436,7 @@ export class WebMediaLibrary {
         [
           ...BASE_ARGS,
           "--no-playlist",
-          ...(kind === "audio" ? AUDIO_FORMAT_ARGS : VIDEO_FORMAT_ARGS),
+          ...(format ?? (kind === "audio" ? AUDIO_FORMAT_ARGS : VIDEO_FORMAT_ARGS)),
           ...(FFMPEG !== "ffmpeg" ? ["--ffmpeg-location", FFMPEG] : []),
           ...PROGRESS_ARGS,
           "-P", dir,

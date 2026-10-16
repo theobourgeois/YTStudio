@@ -1,9 +1,10 @@
 import { Router, json } from "express";
 import type { LibraryStore } from "../library.ts";
+import type { WebMediaLibrary } from "../web-media.ts";
 import { queryString } from "./util.ts";
 
 /** `/api/library`: media and saved clips shared by every project. */
-export function libraryRoutes(library: LibraryStore): Router {
+export function libraryRoutes(library: LibraryStore, web: WebMediaLibrary): Router {
   const router = Router();
   const body = json({ limit: "10mb" });
 
@@ -27,6 +28,9 @@ export function libraryRoutes(library: LibraryStore): Router {
   router.post("/items", async (req, res) => {
     const folderId = queryString(req.query.folderId) || null;
     res.status(201).json(await library.upload(req, queryString(req.query.name), folderId));
+  });
+  router.post("/items/web", body, async (req, res) => {
+    res.status(201).json(await library.addFromWeb(req.body, web));
   });
   router.post("/items/media", body, async (req, res) => {
     res.status(201).json(await library.addMedia(req.body));

@@ -276,7 +276,6 @@ test("Now Playing's MilkDrop looks: Butterchurn's presets drawn live, as any loo
   const milkdrop = page.locator("canvas[data-milkdrop]");
   await expect(milkdrop).toHaveAttribute("data-milkdrop", "ready", { timeout: 20_000 });
   await expect(milkdrop).toHaveAttribute("data-look", /^md-/);
-  const first = await milkdrop.getAttribute("data-look");
   await expect.poll(async () => Number(await milkdrop.getAttribute("data-frames")), { timeout: 10_000 }).toBeGreaterThan(30);
   const sum = (selector: string) =>
     page.locator(selector).evaluate((el: HTMLCanvasElement) => {
@@ -290,7 +289,11 @@ test("Now Playing's MilkDrop looks: Butterchurn's presets drawn live, as any loo
       for (let i = 0; i < data.length; i += 4) total += data[i] + data[i + 1] + data[i + 2];
       return total;
     });
-  // Butterchurn draws something (not black), and it moves.
+  // Butterchurn draws something (not black), and it moves: on a bright preset (a shuffle may land on a nearly black one).
+  await menu.locator('[data-look="md-firestorm"]').click();
+  await expect(milkdrop).toHaveAttribute("data-look", "md-firestorm");
+  await menu.getByRole("button", { name: /^Looks:/ }).click();
+  await menu.locator('[data-kind="milkdrop"]').click();
   await expect.poll(() => sum("canvas[data-milkdrop]"), { timeout: 10_000 }).toBeGreaterThan(64 * 36 * 6);
   const before = await sum("canvas[data-milkdrop]");
   await expect.poll(() => sum("canvas[data-milkdrop]")).not.toBe(before);
@@ -298,7 +301,7 @@ test("Now Playing's MilkDrop looks: Butterchurn's presets drawn live, as any loo
 
   // Shuffle again (the menu stays): another preset, blended to; the one canvas draws it. Then one by name.
   await shuffle.click();
-  await expect.poll(() => milkdrop.getAttribute("data-look")).not.toBe(first);
+  await expect.poll(() => milkdrop.getAttribute("data-look")).not.toBe("md-firestorm");
   await expect(milkdrop).toHaveAttribute("data-look", /^md-/);
   const shown = await milkdrop.getAttribute("data-look");
   const other = menu.locator(`[data-look^="md-"]:not([data-look="${shown}"])`).first();
@@ -489,6 +492,21 @@ test("Now Playing's media: clips and pictures of the user's, melting into MilkDr
   await item.getByRole("button", { name: /^Take glow/ }).click();
   await expect(panel).toContainText("Nothing yet");
   await expect(milkdrop).toHaveAttribute("data-media", "");
+
+  // Found online (the video editor's Online search, a stand-in yt-dlp): typed into the search, not the visualizer's
+  // keys (its A would have changed how looks change); a result's picture downloaded into the folder and shown at once.
+  await panel.getByRole("tab", { name: "Online" }).click();
+  const search = panel.getByLabel("Search YouTube or paste a link");
+  await search.pressSequentially("amen");
+  await expect(view.getByLabel("Change looks")).toHaveValue("off");
+  const result = panel.locator('li[data-url*="amenbreak01"]');
+  await expect(result).toBeVisible();
+  await result.getByRole("button", { name: /^Into the visualizer/ }).click();
+  const online = panel.locator("[data-media]");
+  await expect(online).toHaveCount(1, { timeout: 30_000 });
+  await expect(milkdrop).toHaveAttribute("data-media", (await online.getAttribute("data-media"))!);
+  const after = await (await page.request.get("/api/library")).json();
+  expect(after.media.some((m: { origin?: string; kind: string }) => m.origin === "web:video:amenbreak01" && m.kind === "video")).toBe(true);
   await page.keyboard.press("Escape");
   await expect(view).toHaveCount(0);
 });

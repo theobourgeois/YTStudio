@@ -895,6 +895,16 @@ export interface WebDownloadProgress {
   progress: number | null;
 }
 
+/** A link's video for the Library (the visualizer's clips): its picture only, up to 720p. */
+export interface AddWebToLibraryRequest {
+  url: string;
+  folderId: string | null;
+  /** Its name (default: the link's own title). */
+  title?: string;
+  /** Only its first so many seconds (a long video's). */
+  most?: number;
+}
+
 export interface ImportWebMediaRequest {
   projectId: string;
   url: string;
@@ -1157,6 +1167,7 @@ export interface ToolCallProgressRequest {
 //   PATCH  /api/library/folders/:id  body: UpdateLibraryFolderRequest -> LibraryFolder (rename/move)
 //   DELETE /api/library/folders/:id     -> 204 (with everything in it)
 //   POST   /api/library/items?folderId=<id>&name=<file name>  body: raw file bytes -> LibraryEntry (201)
+//   POST   /api/library/items/web  body: AddWebToLibraryRequest -> LibraryEntry (201): a link's video downloaded into a folder
 //   POST   /api/library/items/media  body: SaveMediaToLibraryRequest -> LibraryEntry (201)
 //   POST   /api/library/items/clips  body: SaveClipsToLibraryRequest -> LibraryEntry (201)
 //   PATCH  /api/library/items/:id  body: UpdateLibraryItemRequest -> LibraryItem

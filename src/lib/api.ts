@@ -2,6 +2,7 @@ import type { AssistantProvider, ChatSnapshot } from "@shared/assistant";
 import type { SuiteDocument, SuiteId } from "@shared/suites";
 import type { ToolResult } from "@shared/tool-spec";
 import type {
+  AddWebToLibraryRequest,
   ApiError,
   AssistantStatus,
   CreateLibraryFolderRequest,
@@ -215,6 +216,8 @@ export const api = {
       file,
       onProgress,
     ),
+  /** A link's video downloaded into a Library folder (the visualizer's clips); its progress is `webDownloadProgress(url, "video")`. */
+  addWebToLibrary: (body: AddWebToLibraryRequest) => request<LibraryEntry>("/api/library/items/web", { method: "POST", body: JSON.stringify(body) }),
   saveMediaToLibrary: (body: SaveMediaToLibraryRequest) =>
     request<LibraryEntry>("/api/library/items/media", { method: "POST", body: JSON.stringify(body) }),
   saveClipsToLibrary: (body: SaveClipsToLibraryRequest) =>
