@@ -1,8 +1,8 @@
 # CLAUDE.md
 
 A local creative suite that runs in the browser (and as a desktop app): a React app (`src/`) plus a local Express +
-ffmpeg server (`server/`), sharing pure domain logic (`shared/`). README.md is the user-facing guide. This file is for
-working on the code.
+ffmpeg server (`server/`), sharing pure domain logic (`shared/`). README.md is the front page (pictures),
+docs/guide.md the user-facing guide. This file is for working on the code.
 
 Every project belongs to one app, a *suite* (`SuiteId`: video, music, photo), picked on the Home screen or in the New
 project picker. **Every project is a file of its own**, a `.yt` package on disk (see "Projects are files"). The video
