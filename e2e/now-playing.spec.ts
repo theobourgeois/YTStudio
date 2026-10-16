@@ -476,8 +476,14 @@ test("Now Playing's media: clips and pictures of the user's, melting into MilkDr
   await expect(item).toHaveAttribute("data-feeding", "true");
   await expect.poll(async () => Number(await milkdrop.getAttribute("data-fed")), { timeout: 10_000 }).toBeGreaterThan(30);
   const library = await (await page.request.get("/api/library")).json();
-  const folder = library.folders.find((f: { name: string }) => f.name === "Visualizer");
-  expect(library.items.some((i: { folderId: string; mediaId: string }) => i.folderId === folder?.id && i.mediaId === id)).toBe(true);
+  type Folder = { id: string; name: string; parentId: string | null };
+  const inSet = (lib: { folders: Folder[]; items: { folderId: string; mediaId: string }[] }, set: string) => {
+    const root = lib.folders.find((f) => f.name === "Visualizer" && f.parentId === null);
+    const folder = lib.folders.find((f) => f.name === set && f.parentId === root?.id);
+    return lib.items.some((i) => i.folderId === folder?.id && i.mediaId === id);
+  };
+  // In the first set, made for it.
+  expect(inSet(library, "My clips")).toBe(true);
 
   // ⇧N takes them out of the feedback and back; N with only one brings the same one in again.
   await page.keyboard.press("Shift+KeyN");
@@ -487,10 +493,44 @@ test("Now Playing's media: clips and pictures of the user's, melting into MilkDr
   await page.keyboard.press("n");
   await expect(milkdrop).toHaveAttribute("data-media", id);
 
-  // Taken out: gone from the folder and the feedback.
+  // Sets: a new one is in use at once, and empty (nothing goes in); K goes on to the next, round to the first.
+  const sets = panel.locator("[data-media-sets]");
+  await expect(sets.getByRole("radio", { name: /My clips/ })).toHaveAttribute("aria-checked", "true");
+  await sets.getByRole("button", { name: "A new set" }).click();
+  const naming = panel.getByLabel("The new set's name");
+  await naming.fill("Nature");
+  await naming.press("Enter");
+  await expect(sets.getByRole("radio", { name: /Nature/ })).toHaveAttribute("aria-checked", "true");
+  await expect(panel).toContainText("Nothing in this set yet");
+  await expect(milkdrop).toHaveAttribute("data-media", "");
+  await page.keyboard.press("k");
+  await expect(view.locator("[data-set-note]")).toContainText("My clips: 1 clip");
+  await expect(sets.getByRole("radio", { name: /My clips/ })).toHaveAttribute("aria-checked", "true");
+  await expect(milkdrop).toHaveAttribute("data-media", id);
+
+  // Moved into another set: out of this one, in that one when it's picked.
+  await item.hover();
+  await item.getByRole("button", { name: /^Move glow/ }).click();
+  await panel.locator("[data-moving]").getByRole("button", { name: "Nature" }).click();
+  await expect(panel).toContainText("Nothing in this set yet");
+  await expect(milkdrop).toHaveAttribute("data-media", "");
+  await sets.getByRole("radio", { name: /Nature/ }).click();
+  await expect(item).toHaveCount(1);
+  await expect(milkdrop).toHaveAttribute("data-media", id);
+  expect(inSet(await (await page.request.get("/api/library")).json(), "Nature")).toBe(true);
+
+  // The empty set deleted (asked first): the sets left go on.
+  await sets.getByRole("radio", { name: /My clips/ }).click();
+  await sets.getByRole("button", { name: "Delete My clips" }).click();
+  await panel.locator("[data-deleting]").getByRole("button", { name: "Delete" }).click();
+  await expect(sets.getByRole("radio")).toHaveCount(1);
+  await expect(sets.getByRole("radio", { name: /Nature/ })).toHaveAttribute("aria-checked", "true");
+  await expect(milkdrop).toHaveAttribute("data-media", id);
+
+  // Taken out: gone from the set and the feedback.
   await item.hover();
   await item.getByRole("button", { name: /^Take glow/ }).click();
-  await expect(panel).toContainText("Nothing yet");
+  await expect(panel).toContainText("Nothing in this set yet");
   await expect(milkdrop).toHaveAttribute("data-media", "");
 
   // Found online (the video editor's Online search, a stand-in yt-dlp): typed into the search, not the visualizer's

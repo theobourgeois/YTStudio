@@ -66,6 +66,7 @@ describe("visualizerKey", () => {
   it("brings in another of the user's clips on N, and turns them on or off on Shift+N", () => {
     expect(key("KeyN", "n")).toEqual({ kind: "media", next: true });
     expect(key("KeyN", "N", { shiftKey: true })).toEqual({ kind: "media", next: false });
+    expect(key("KeyK", "k")).toEqual({ kind: "mediaSet" });
   });
 
   it("leaves the app's own shortcuts alone", () => {

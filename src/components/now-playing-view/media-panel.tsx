@@ -1,17 +1,32 @@
 import { useEffect, useRef, useState } from "react";
-import { PiCheck, PiFilmStrip, PiGlobe, PiImage, PiMagnifyingGlass, PiPlus, PiShuffle, PiSpinnerGap, PiX, PiXCircleFill } from "react-icons/pi";
+import {
+  PiArrowBendUpRight,
+  PiCheck,
+  PiFilmStrip,
+  PiGlobe,
+  PiImage,
+  PiMagnifyingGlass,
+  PiPencilSimple,
+  PiPlus,
+  PiShuffle,
+  PiSpinnerGap,
+  PiTrash,
+  PiX,
+  PiXCircleFill,
+} from "react-icons/pi";
 import { formatDuration } from "@shared/format";
 import type { WebClip, WebDownloadProgress } from "@shared/types";
 import { cn } from "cn";
 import { useEndOfList, useWebSearch } from "@/components/media/use-web-search";
 import { LONG_TAKES, LONG_VIDEO, MEDIA_FOLDER, useVisualizerMedia } from "./media-library";
+import { newSetName } from "./media-sets";
 import { useVisualizerPrefs } from "./prefs";
 
 type Tab = "yours" | "online";
 
 /**
  * The user's clips and pictures for the visualizer (docs/now-playing.md, "Your media"): what's in the Library's
- * Visualizer folder, the one in the look now marked; added from here (files, or found online: the video editor's Online
+ * Visualizer folder, in sets (its folders: one in use at a time), the one in the look now marked; added from here (files, or found online: the video editor's Online
  * search, its picture downloaded into the folder) or dropped on the visualizer, taken out, turned on or off, another
  * one asked for.
  */
@@ -42,19 +57,23 @@ export function MediaPanel({ milkdrop }: { milkdrop: boolean }) {
   );
 }
 
-/** What's in the folder: on or off, each clip (the one in the look marked), add, another. */
+/** What's in the set in use: on or off, the sets, each clip (the one in the look marked), add, another. */
 function Yours() {
   const media = useVisualizerMedia((s) => s.media);
+  const sets = useVisualizerMedia((s) => s.sets);
   const feeding = useVisualizerMedia((s) => s.feeding);
   const adding = useVisualizerMedia((s) => s.adding);
   const on = useVisualizerPrefs((s) => s.media);
   const input = useRef<HTMLInputElement>(null);
+  // A clip being moved into another set (its item).
+  const [moving, setMoving] = useState<string | null>(null);
+  const moved = media.find((m) => m.itemId === moving);
   return (
     <>
       <p className="mb-3 text-[11px] leading-4 text-white/55">
         Clips and pictures in MilkDrop's looks: shown in the look (a plain background, white or black or a colour, taken out), punching on the kicks, and
-        painted into its feedback, so its trails stream off them. One at a time, another each look. Drop them anywhere on the visualizer, or find them
-        online. They're kept in the Library's {MEDIA_FOLDER} folder.
+        painted into its feedback, so its trails stream off them. One at a time, another each look, from the set in use (K the next). Drop them anywhere on
+        the visualizer, or find them online. They're kept in the Library's {MEDIA_FOLDER} folder, a folder a set.
       </p>
       <div className="mb-3 grid grid-cols-2 gap-1">
         <Choice on={on} onClick={() => useVisualizerPrefs.getState().setMedia(true)}>
@@ -64,6 +83,31 @@ function Yours() {
           Off (⇧N)
         </Choice>
       </div>
+      <Sets />
+      {moved && (
+        <div data-moving className="mb-3 rounded-md bg-white/10 px-3 py-2 ring-1 ring-white/15">
+          <p className="mb-2 truncate text-[11px] text-white/75">Move {moved.asset.name} to</p>
+          <div className="flex flex-wrap gap-1">
+            {sets
+              .filter((s) => !s.media.some((m) => m.itemId === moved.itemId))
+              .map((s) => (
+                <Chip
+                  key={s.id}
+                  on={false}
+                  onClick={() => {
+                    setMoving(null);
+                    void useVisualizerMedia.getState().move(moved.itemId, s.id);
+                  }}
+                >
+                  {s.name}
+                </Chip>
+              ))}
+            <Chip on={false} onClick={() => setMoving(null)}>
+              Cancel
+            </Chip>
+          </div>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {media.length ? (
           <div className="grid grid-cols-3 gap-1.5">
@@ -79,6 +123,17 @@ function Yours() {
                   <img src={asset.poster ?? asset.src} alt="" draggable={false} className="size-full object-cover" />
                 )}
                 <span className="absolute bottom-0.5 left-1 text-white/80 drop-shadow [&_svg]:size-3">{asset.kind === "video" ? <PiFilmStrip /> : <PiImage />}</span>
+                {sets.length > 1 && (
+                  <button
+                    type="button"
+                    aria-label={`Move ${asset.name} to another set`}
+                    title="Move it to another set"
+                    onClick={() => setMoving(itemId)}
+                    className="absolute top-0.5 left-0.5 hidden size-5 place-items-center rounded bg-black/70 text-white/85 group-hover:grid hover:bg-black [&_svg]:size-3"
+                  >
+                    <PiArrowBendUpRight />
+                  </button>
+                )}
                 <button
                   type="button"
                   aria-label={`Take ${asset.name} out`}
@@ -92,7 +147,9 @@ function Yours() {
             ))}
           </div>
         ) : (
-          <p className="rounded-md bg-white/5 px-3 py-4 text-center text-[12px] text-white/60 ring-1 ring-white/10">Nothing yet: add a few clips or pictures.</p>
+          <p className="rounded-md bg-white/5 px-3 py-4 text-center text-[12px] text-white/60 ring-1 ring-white/10">
+            {sets.length ? "Nothing in this set yet: add a few clips or pictures." : "Nothing yet: add a few clips or pictures."}
+          </p>
         )}
       </div>
       {adding > 0 && <p className="mt-2 text-[11px] text-white/60">Adding {adding}…</p>}
@@ -120,6 +177,148 @@ function Yours() {
         }}
       />
     </>
+  );
+}
+
+/**
+ * The sets of clips (the Visualizer folder's folders: friends for a music video, nature for another vibe...): the one
+ * in use marked, another picked, a new one made (what's added goes in it), the one in use renamed or deleted.
+ */
+function Sets() {
+  const sets = useVisualizerMedia((s) => s.sets);
+  const setId = useVisualizerMedia((s) => s.setId);
+  const loaded = useVisualizerMedia((s) => s.loaded);
+  // Naming a new set (null) or the one in use (its id).
+  const [naming, setNaming] = useState<{ id: string | null; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const current = sets.find((s) => s.id === setId);
+  useEffect(() => setDeleting(false), [setId]);
+  if (!loaded) return null;
+  const store = useVisualizerMedia.getState();
+  return (
+    <div data-media-sets className="mb-3">
+      <div className="mb-1.5 flex items-center gap-1 text-[11px] text-white/55">
+        <span className="mr-auto">Sets{sets.length > 1 ? " (K the next)" : ""}</span>
+        {current && !naming && (
+          <>
+            <IconButton label={`Rename ${current.name}`} onClick={() => setNaming({ id: current.id, name: current.name })}>
+              <PiPencilSimple />
+            </IconButton>
+            <IconButton label={`Delete ${current.name}`} onClick={() => setDeleting((d) => !d)}>
+              <PiTrash />
+            </IconButton>
+          </>
+        )}
+      </div>
+      {naming ? (
+        <form
+          className="flex gap-1"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const name = naming.name.trim();
+            setNaming(null);
+            if (!name) return;
+            if (naming.id) void store.renameSet(naming.id, name);
+            else void store.createSet(name);
+          }}
+        >
+          <input
+            autoFocus
+            value={naming.name}
+            onChange={(e) => setNaming({ ...naming, name: e.target.value })}
+            onFocus={(e) => e.target.select()}
+            // Escape (the visualizer blurs the field) or a click away: as it was.
+            onBlur={() => setNaming(null)}
+            aria-label={naming.id ? "The set's name" : "The new set's name"}
+            spellCheck={false}
+            className="h-7 min-w-0 flex-1 rounded bg-white/10 px-2 text-[12px] text-white ring-1 ring-white/25 outline-none focus:ring-white/50"
+          />
+          <button
+            type="submit"
+            aria-label={naming.id ? "Rename it" : "Make it"}
+            onMouseDown={(e) => e.preventDefault()}
+            className="grid h-7 w-8 place-items-center rounded bg-white text-black [&_svg]:size-3.5"
+          >
+            <PiCheck />
+          </button>
+        </form>
+      ) : (
+        <div role="radiogroup" aria-label="Sets of clips" className="flex flex-wrap gap-1">
+          {sets.map((s) => (
+            <Chip key={s.id} role="radio" on={s.id === setId} onClick={() => store.useSet(s.id)} data-set={s.name}>
+              {s.name}
+              <span className="ml-1 opacity-55">{s.media.length}</span>
+            </Chip>
+          ))}
+          <Chip on={false} label="A new set" onClick={() => setNaming({ id: null, name: newSetName(sets) })}>
+            <PiPlus />
+            {sets.length ? null : "New set"}
+          </Chip>
+        </div>
+      )}
+      {deleting && current && (
+        <div data-deleting className="mt-2 flex items-center gap-1 rounded-md bg-white/10 px-2 py-1.5 ring-1 ring-white/15">
+          <span className="mr-auto min-w-0 truncate text-[11px] text-white/80">
+            Delete {current.name}
+            {current.media.length ? ` and its ${current.media.length} clip${current.media.length === 1 ? "" : "s"}` : ""}?
+          </span>
+          <Chip
+            on
+            onClick={() => {
+              setDeleting(false);
+              void store.deleteSet(current.id);
+            }}
+          >
+            Delete
+          </Chip>
+          <Chip on={false} onClick={() => setDeleting(false)}>
+            Keep
+          </Chip>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Chip({
+  on,
+  onClick,
+  role,
+  label,
+  children,
+  ...data
+}: {
+  on: boolean;
+  onClick: () => void;
+  role?: "radio";
+  label?: string;
+  children: React.ReactNode;
+  "data-set"?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role={role}
+      aria-checked={role ? on : undefined}
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      {...data}
+      className={cn(
+        "flex h-6 max-w-full items-center gap-1 truncate rounded px-2 text-[11px] ring-1 ring-white/15 [&_svg]:size-3",
+        on ? "bg-white text-black" : "bg-white/5 text-white/75 hover:bg-white/10",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" aria-label={label} title={label} onClick={onClick} className="grid size-5 place-items-center rounded text-white/60 hover:bg-white/10 hover:text-white [&_svg]:size-3">
+      {children}
+    </button>
   );
 }
 

@@ -16,7 +16,7 @@ import { clipMarkers } from "@shared/markers";
 import { errorMessage } from "@shared/errors";
 import { describeExport, exportFormat, exportSettings } from "@shared/export-formats";
 import { formatBytes, formatDuration } from "@shared/format";
-import { templateFromClips, templateFromSubclip } from "@shared/library";
+import { sameName, templateFromClips, templateFromSubclip } from "@shared/library";
 import { clamp } from "@shared/math";
 import { getSequence, writeSequence } from "@shared/sequences";
 import { getSubclip } from "@shared/subclips";
@@ -852,13 +852,17 @@ const TOOLS: Record<VideoToolName, Handler> = {
         `the look shown is ${verdictOf(prefs.look) ?? "not rated"}${character ? ` for ${character} songs` : ""}. ` +
         (rating ? `The rating mode is on: ${rating.left} looks nobody has judged yet.` : "The rating mode is off."),
     );
-    // The user's clips and pictures, melting into MilkDrop's feedback.
-    const { media, feeding } = useVisualizerMedia.getState();
+    // The user's clips and pictures, melting into MilkDrop's feedback, from one of their sets.
+    const { media, feeding, sets, setId } = useVisualizerMedia.getState();
     const fed = media.find((m) => m.asset.id === feeding)?.asset.name;
+    const inUse = sets.find((s) => s.id === setId);
+    if (sets.length > 1) lines.push(`The user's sets of clips (mediaSet): ${sets.map((s) => `${s.name} (${s.media.length}${s.id === setId ? ", in use" : ""})`).join(", ")}.`);
     lines.push(
       media.length
-        ? `The user's clips and pictures (${media.length}: ${media.map((m) => `${m.asset.name} (${m.asset.kind})`).join(", ")}) melt into MilkDrop's feedback: ${prefs.media ? (fed ? `${fed} now` : "on, none in the look shown") : "turned off"}.`
-        : "The user has no clips or pictures in the visualizer (they add them from its media panel, or drop them on it).",
+        ? `The user's clips and pictures${inUse ? ` in ${inUse.name}` : ""} (${media.length}: ${media.map((m) => `${m.asset.name} (${m.asset.kind})`).join(", ")}) melt into MilkDrop's feedback: ${prefs.media ? (fed ? `${fed} now` : "on, none in the look shown") : "turned off"}.`
+        : inUse
+          ? `The user's set of clips in use (${inUse.name}) is empty: they add clips to it from the visualizer's media panel.`
+          : "The user has no clips or pictures in the visualizer (they add them from its media panel, or drop them on it).",
     );
     // What each suits (step 5 of docs/now-playing.md), so a look can be picked for the music.
     const suits = (l: (typeof LIVE_LOOKS)[number]) => `${l.suits.characters.join("/")}, intensity ${l.suits.energy[0]}–${l.suits.energy[1]}${l.suits.minimal ? ", minimal" : ""}`;
@@ -887,6 +891,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const ratingMode = optString(input, "rating");
     const mediaAsk = optString(input, "media");
     if (mediaAsk !== undefined && mediaAsk !== "on" && mediaAsk !== "off" && mediaAsk !== "next") throw new ToolError("`media` is on, off or next.");
+    const mediaSetName = optString(input, "mediaSet");
     if (ratingMode !== undefined && ratingMode !== "start" && ratingMode !== "stop") throw new ToolError("`rating` is start or stop.");
     const rawFrame = input.frame;
     if (rawFrame !== undefined && (typeof rawFrame !== "object" || rawFrame === null || Array.isArray(rawFrame))) throw new ToolError("`frame` is an object: repeat, mirror, spin, zoom or reset.");
@@ -943,6 +948,25 @@ const TOOLS: Record<VideoToolName, Handler> = {
         ratings.rate({ look: target, verdict: rate, seconds: 0, song: track ? { id: track.id, name: track.name, artist: track.artist } : null, mood: null });
       }
       done.push(rate === "love" ? `loved ${name}` : rate === "bin" ? `binned ${name} (it won't be picked again)` : `took back the rating of ${name}`);
+    }
+    if (mediaSetName !== undefined) {
+      const vis = useVisualizerMedia.getState();
+      if (!vis.loaded) await vis.load();
+      const { sets } = useVisualizerMedia.getState();
+      const wanted = sets.find((s) => sameName(s.name, mediaSetName));
+      if (!wanted) {
+        throw new ToolError(
+          sets.length
+            ? `There's no set of clips called "${mediaSetName}". Sets: ${sets.map((s) => s.name).join(", ")}.`
+            : "The user has no sets of clips yet: they make them in the visualizer's media panel.",
+        );
+      }
+      useVisualizerMedia.getState().useSet(wanted.id);
+      if (mediaAsk !== "off") {
+        useVisualizerPrefs.getState().setMedia(true);
+        if (!useNowPlaying.getState().visualizer) np.openVisualizer();
+      }
+      done.push(`feeding from the ${wanted.name} clips (${wanted.media.length})`);
     }
     if (mediaAsk) {
       const vis = useVisualizerMedia.getState();

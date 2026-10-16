@@ -4,7 +4,7 @@
  * each key a tenth of the way round), chaos on = and mutate on - (vaudio's), the frame on T Y [ ] , . and Backspace
  * (repeat, mirror, turn, zoom, as it was), the song on Space and Shift+arrows, the mini player on P and its own window on
  * O, slow motion on Shift+S; the look loved on L or binned on B, and the rating mode (the looks one after another) on
- * Shift+R; the user's clips in the feedback on Shift+N, another clip on N. Pure, and tested.
+ * Shift+R; the user's clips in the feedback on Shift+N, another clip on N, the next set of them on K. Pure, and tested.
  */
 import type { Pad } from "@shared/live-looks";
 
@@ -31,6 +31,7 @@ export type VisualizerAction =
   | { kind: "rate"; verdict: "love" | "bin" }
   | { kind: "rating" }
   | { kind: "media"; next: boolean }
+  | { kind: "mediaSet" }
   | { kind: "hud" }
   | { kind: "help" }
   | { kind: "mood" }
@@ -90,6 +91,8 @@ export function visualizerKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey"
       return e.shiftKey ? { kind: "rating" } : { kind: "random" };
     case "KeyN":
       return { kind: "media", next: !e.shiftKey };
+    case "KeyK":
+      return { kind: "mediaSet" };
     case "KeyL":
       return { kind: "rate", verdict: "love" };
     case "KeyB":
@@ -118,6 +121,7 @@ export const VISUALIZER_KEYS: { keys: string; does: string }[] = [
   { keys: "⇧R", does: "Rate the looks, one after another (→ next, ← back)" },
   { keys: "N", does: "Another of your clips, melting into the feedback" },
   { keys: "⇧N", does: "Your clips in the feedback, on or off" },
+  { keys: "K", does: "The next set of your clips (friends, nature...)" },
   { keys: "M", does: "The same look, another way" },
   { keys: "=", does: "Chaos: a roll of another recipe" },
   { keys: "-", does: "Mutate: the chaos shown, nudged" },
