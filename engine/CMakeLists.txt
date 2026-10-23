@@ -63,14 +63,14 @@ juce_add_gui_app(
   PLIST_TO_MERGE "<plist><dict><key>LSUIElement</key><true/></dict></plist>"
   NEEDS_WEBVIEW2 TRUE)
 
-target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/AutoTune.cpp src/ClipPlayer.cpp src/Convolver.cpp src/EchoBoy.cpp src/EditorWindow.cpp src/Engine.cpp src/EqDesign.cpp src/Export.cpp src/FilePreview.cpp src/GrossBeat.cpp src/Host.cpp src/MacWindow.cpp src/MidiInputs.cpp src/Ott.cpp src/PanMan.cpp src/PitchWheel.cpp src/Plugins.cpp src/ProC.cpp src/ProL.cpp src/ProQ.cpp src/Protocol.cpp src/Reverb.cpp src/ReverbNetwork.cpp src/ReverbSettings.cpp src/Recorder.cpp src/Sequencer.cpp src/ShellWindow.cpp src/Song.cpp src/Spectrum.cpp)
+target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/AutoTune.cpp src/ClipPlayer.cpp src/Convolver.cpp src/EchoBoy.cpp src/EditorWindow.cpp src/Engine.cpp src/EqDesign.cpp src/Export.cpp src/FilePreview.cpp src/GrossBeat.cpp src/Host.cpp src/MacWindow.cpp src/MidiInputs.cpp src/Ott.cpp src/PanMan.cpp src/PitchWheel.cpp src/Plugins.cpp src/ProC.cpp src/ProL.cpp src/ProQ.cpp src/Protocol.cpp src/Reverb.cpp src/ReverbNetwork.cpp src/ReverbSettings.cpp src/Recorder.cpp src/Sequencer.cpp src/ShellWindow.cpp src/Song.cpp src/Spectrum.cpp src/WebView.cpp)
 
 target_compile_definitions(
   VaudioEngine
   PRIVATE JUCE_PLUGINHOST_VST3=1
           $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
-          JUCE_WEB_BROWSER=1
-          $<$<PLATFORM_ID:Windows>:JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1>
+          # JUCE's web view is the shell's on macOS; on Windows the engine hosts WebView2 itself (WebView.cpp).
+          $<IF:$<PLATFORM_ID:Darwin>,JUCE_WEB_BROWSER=1,JUCE_WEB_BROWSER=0>
           JUCE_USE_CURL=0
           JUCE_DISPLAY_SPLASH_SCREEN=0)
 

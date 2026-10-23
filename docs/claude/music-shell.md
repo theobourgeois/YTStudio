@@ -20,8 +20,14 @@ shows every suite there.
 - The server starts the engine at once with `--window <url>` (`server/app.ts`, `AudioEngine`'s `window`). The engine
   opens `ShellWindow` and shows the page there.
 - The page still talks to the server for everything except the few commands it sends straight to the engine:
-  `directCommands` in `ShellWindow.cpp`, which is `preview` (a key played) for now. That goes through JUCE's
-  native function `engine` (`src/suites/music/shell.ts`, used by `transport.preview`).
+  `directCommands` in `ShellWindow.cpp`, which is `preview` (a key played) for now (`src/suites/music/shell.ts`, used
+  by `transport.preview`): WebView2's messages on Windows, JUCE's native function `engine` on macOS.
+- On Windows the engine hosts WebView2 itself (`WebView.cpp`, docs/apps.md step 3), not through JUCE's
+  `WebBrowserComponent`. Windowed hosting by default; `VAUDIO_WEBVIEW_HOSTING=composition` draws it through
+  DirectComposition and hands it the mouse, so no window of WebView2's browser or GPU process is inside ours.
+  Measured on 2026-10-23 (Serum 2 open on a 5-Serum song playing, its window dragged, 20 clicks between it and the
+  page): neither froze, and both were as quick (a click reached the page in about 10 ms, a drag step moved the
+  window in under 1 ms, no thread stalled over 40 ms, no dropouts). Windowed hosting stays the default.
 - Plugin windows are owned by the shell (`EditorWindow::setShellWindow`): an owned window on Windows, a child window
   on macOS (`setWindowOwner`, MacWindow.cpp). They stay over it, move with it and never ask another program
   anything, so `whileBusy` does nothing there.
