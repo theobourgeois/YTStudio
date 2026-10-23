@@ -1,12 +1,13 @@
 import { create } from "zustand";
-import { type AppIconId, appIconUrl, isAppIconId } from "@shared/app-icons";
+import { type AppIconId, appIconUrl, defaultAppIcon, isAppIconId } from "@shared/app-icons";
+import { currentApp } from "@/lib/app";
 import type {} from "@/lib/desktop";
 
 const KEY = "editor-app-icon";
 
 function savedIcon(): AppIconId {
   const saved = localStorage.getItem(KEY);
-  return isAppIconId(saved) ? saved : "original";
+  return isAppIconId(saved) ? saved : defaultAppIcon(currentApp().id);
 }
 
 function applyFavicon(id: AppIconId) {
@@ -17,7 +18,7 @@ function applyFavicon(id: AppIconId) {
     document.head.append(link);
   }
   link.type = "image/png";
-  link.href = appIconUrl(id);
+  link.href = appIconUrl(id, currentApp().id);
 }
 
 interface AppIconState {
@@ -36,7 +37,7 @@ export const useAppIcon = create<AppIconState>((set, get) => ({
     try {
       const desktop = window.editorDesktopInfo?.appIcon;
       const saved = desktop ? await desktop.get() : savedIcon();
-      const choice = isAppIconId(saved) ? saved : "original";
+      const choice = isAppIconId(saved) ? saved : defaultAppIcon(currentApp().id);
       applyFavicon(choice);
       set({ choice, busy: false });
     } catch {

@@ -50,4 +50,17 @@ describe("desktop app icons", () => {
     (await import("./app-icon")).initializeAppIcon();
     expect(mock.paths.at(-1)).toBe(path.join("/packaged/app", "dist", "app-icons", "original.png"));
   });
+
+  it("starts one of the apps on its own icon, and YTStudio's own choice on YTStudio's", async () => {
+    (await import("./app-icon")).initializeAppIcon("visualizer");
+    expect(mock.handlers.get("app-icon-get")!()).toBe("app");
+    expect(mock.paths.at(-1)).toContain(path.join("app-icons", "apps", "visualizer.png"));
+    mock.handlers.get("app-icon-set")!(null, "midnight");
+    expect(mock.paths.at(-1)).toContain(path.join("app-icons", "midnight.png"));
+    vi.resetModules();
+    mock.handlers.clear();
+    rmSync(path.join(mock.directory, "app-icon.json"));
+    (await import("./app-icon")).initializeAppIcon(null);
+    expect(mock.handlers.get("app-icon-get")!()).toBe("original");
+  });
 });

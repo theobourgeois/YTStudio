@@ -4,13 +4,17 @@
  * continuous-corner tile on a 1024 px canvas), rendered to PNG by headless Chromium.
  *
  *   pnpm tsx scripts/make-icon.ts [--design yt|wave] [--variant light|dark] [--out dir]
+ *   pnpm tsx scripts/make-icon.ts --app video|music|photo|visualizer|all
  *
  * Writes icon.svg and icon.png (1024 px, what electron-builder turns into .icns/.ico) into resources/ by default,
- * and the light one as the web app's favicon (public/favicon.png).
+ * and the light one as the web app's favicon (public/favicon.png). `--app` draws an app's own (docs/apps.md): the
+ * banner in its colours, with a silver tressure, into resources/apps/<app>.svg and .png.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import sharp from "sharp";
+import { type AppId, APPS, isAppId } from "../shared/apps.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const arg = (name: string) => {
@@ -205,10 +209,42 @@ function iconSvg(p: (typeof PALETTES)[keyof typeof PALETTES]): string {
 </svg>`;
 }
 
+/**
+ * The banner's colours: the tile, the lines, the yen, and what fills the lilies and the band between the lines (the
+ * tile's own colour, or silver: a light gradient, lines of grey). `picture` is drawn on the tile under it all.
+ */
+interface YtPalette {
+  tile: string;
+  line: string;
+  yen: string;
+  silver?: boolean;
+  picture?: string;
+}
+
 const YT_PALETTES = {
   light: { tile: "#ffffff", line: "#000000", yen: "#8418f5" },
   dark: { tile: "#000000", line: "#ffffff", yen: "#8418f5" },
-} as const;
+} satisfies Record<string, YtPalette>;
+
+/** Each app's colours (Théo's recolourings of the banner): the yen in its own colour on a field of another. */
+const APP_PALETTES: Record<AppId, YtPalette> = {
+  video: { tile: "#2b1c8f", line: "#7e7f88", yen: "#f6f1dc", silver: true },
+  music: { tile: "#000000", line: "#7e7f88", yen: "#7a22f0", silver: true },
+  photo: { tile: "#6a22e4", line: "#7e7f88", yen: "#ffffff", silver: true },
+  // A frame of its own looks (the README's picture of Now Playing) for the field.
+  visualizer: { tile: "#000000", line: "#7e7f88", yen: "#ffffff", silver: true, picture: "visualizer" },
+};
+
+/** The Visualizer's field: a square of one of its looks, darkened at the edges so the silver reads on it. */
+async function visualizerPicture(): Promise<string> {
+  const jpeg = await sharp(path.join(ROOT, "docs", "readme", "now-playing.jpg"))
+    .extract({ left: 960, top: 0, width: 480, height: 450 })
+    .resize(TILE, TILE)
+    .modulate({ saturation: 1.15 })
+    .jpeg({ quality: 92 })
+    .toBuffer();
+  return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+}
 
 /**
  * The banner's lily, traced from it (each piece is a region its outline encloses, out to the middle of the line), so
@@ -260,7 +296,7 @@ function outlineFromTop(inset: number): [number, number][] {
  * of four lines following the tile's corners, flory-counter-flory, and the yen in the middle. No shading: the
  * banner is line art, and so is this.
  */
-function ytSvg(p: (typeof YT_PALETTES)[keyof typeof YT_PALETTES], LINES: number): string {
+function ytSvg(p: YtPalette, LINES: number): string {
   const tile = squircle(INSET, INSET, TILE);
   const weight = 5;
   const first = 96; // the outermost line, in from the tile's edge
@@ -307,22 +343,53 @@ function ytSvg(p: (typeof YT_PALETTES)[keyof typeof YT_PALETTES], LINES: number)
   const yenX = SIZE / 2 - ((1133 - 3) / 2) * yenScale - -3 * yenScale;
   const yenY = SIZE / 2 + (1466 / 2) * yenScale;
 
+  // Silver: lit from above, as metal is.
+  const fill = p.silver ? "url(#silver)" : p.tile;
+  const field = p.picture
+    ? `<g clip-path="url(#tileClip)">
+    <image href="${p.picture}" x="${INSET}" y="${INSET}" width="${TILE}" height="${TILE}" preserveAspectRatio="xMidYMid slice"/>
+    <path d="${tile}" fill="url(#vignette)"/>
+  </g>`
+    : "";
+
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">
+  <defs>
+    <linearGradient id="silver" gradientUnits="userSpaceOnUse" x1="0" y1="${INSET}" x2="0" y2="${INSET + TILE}">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.5" stop-color="#e4e5ea"/>
+      <stop offset="1" stop-color="#c3c5cc"/>
+    </linearGradient>
+    <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.72">
+      <stop offset="0.45" stop-color="#000" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.75"/>
+    </radialGradient>
+    <clipPath id="tileClip"><path d="${tile}"/></clipPath>
+    <filter id="lift" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="16"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.85"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
   <path d="${tile}" fill="${p.tile}"/>
-  <g fill="${p.tile}" stroke="${p.line}" stroke-linejoin="round">
+  ${field}
+  <g fill="${fill}" stroke="${p.line}" stroke-linejoin="round">
     ${fleurs}
   </g>
-  <path d="${ring(first)} ${ring(last)}" fill="${p.tile}" fill-rule="evenodd"/>
+  <path d="${ring(first)} ${ring(last)}" fill="${fill}" fill-rule="evenodd"/>
   <g fill="none" stroke="${p.line}" stroke-width="${weight}">${lines}</g>
   <path d="${ARIAL_YEN}" transform="translate(${yenX.toFixed(2)} ${yenY.toFixed(2)}) scale(${yenScale.toFixed(5)} ${(-yenScale).toFixed(5)})"
-    fill="${p.yen}" stroke="${p.line}" stroke-width="${((weight * 2) / yenScale).toFixed(2)}" stroke-linejoin="miter" paint-order="stroke"/>
+    fill="${p.yen}" stroke="${p.line}" stroke-width="${((weight * 2) / yenScale).toFixed(2)}" stroke-linejoin="miter" paint-order="stroke"${p.picture ? ' filter="url(#lift)"' : ""}/>
 </svg>`;
 }
 
-mkdirSync(outDir, { recursive: true });
-const svg = design === "yt" ? ytSvg(YT_PALETTES[variant], Number(arg("lines") ?? 2)) : iconSvg(PALETTES[variant]);
-const suffix = (design === "yt" ? "" : `-${design}`) + (variant === "light" ? "" : `-${variant}`);
-writeFileSync(path.join(outDir, `icon${suffix}.svg`), svg);
+/** Draw an SVG to a PNG of its size. */
+async function render(page: import("playwright-core").Page, svg: string, file: string, size = SIZE) {
+  await page.setViewportSize({ width: size, height: size });
+  await page.setContent(`<html><body style="margin:0;background:transparent">${svg}</body></html>`);
+  await page.waitForLoadState("load");
+  await page.screenshot({ path: file, omitBackground: true, clip: { x: 0, y: 0, width: size, height: size } });
+  console.log(`Wrote ${path.relative(process.cwd(), file)}`);
+}
 
 let browser;
 try {
@@ -331,16 +398,38 @@ try {
   browser = await chromium.launch({ channel: "chrome" });
 }
 const page = await browser.newPage({ viewport: { width: SIZE, height: SIZE } });
-await page.setContent(`<html><body style="margin:0;background:transparent">${svg}</body></html>`);
-await page.screenshot({ path: path.join(outDir, `icon${suffix}.png`), omitBackground: true, clip: { x: 0, y: 0, width: SIZE, height: SIZE } });
-console.log(`Wrote ${path.relative(process.cwd(), path.join(outDir, `icon${suffix}.png`))}`);
-// The web app's favicon is the light icon too, drawn small rather than scaled down from the PNG.
-if (design === "yt" && variant === "light" && !arg("out")) {
-  const FAVICON = 128;
-  const small = svg.replace(`width="${SIZE}" height="${SIZE}"`, `width="${FAVICON}" height="${FAVICON}"`);
-  await page.setViewportSize({ width: FAVICON, height: FAVICON });
-  await page.setContent(`<html><body style="margin:0;background:transparent">${small}</body></html>`);
-  await page.screenshot({ path: path.join(ROOT, "public", "favicon.png"), omitBackground: true, clip: { x: 0, y: 0, width: FAVICON, height: FAVICON } });
-  console.log("Wrote public/favicon.png");
+
+const appArg = arg("app");
+if (appArg) {
+  const apps = appArg === "all" ? (Object.keys(APPS) as AppId[]) : [appArg];
+  const dir = path.resolve(arg("out") ?? path.join(ROOT, "resources", "apps"));
+  mkdirSync(dir, { recursive: true });
+  for (const id of apps) {
+    if (!isAppId(id)) throw new Error(`No app called ${id}: ${Object.keys(APPS).join(", ")} or all.`);
+    const palette = APP_PALETTES[id];
+    const picture = palette.picture ? await visualizerPicture() : undefined;
+    const svg = ytSvg({ ...palette, picture }, Number(arg("lines") ?? 2));
+    writeFileSync(path.join(dir, `${id}.svg`), svg);
+    await render(page, svg, path.join(dir, `${id}.png`));
+    // The page's copy: the Dock's and Settings' "Its own" icon (shared/app-icons.ts), smaller.
+    if (!arg("out")) {
+      const PAGE = 512;
+      mkdirSync(path.join(ROOT, "public", "app-icons", "apps"), { recursive: true });
+      const small = svg.replace(`width="${SIZE}" height="${SIZE}"`, `width="${PAGE}" height="${PAGE}"`);
+      await render(page, small, path.join(ROOT, "public", "app-icons", "apps", `${id}.png`), PAGE);
+    }
+  }
+} else {
+  mkdirSync(outDir, { recursive: true });
+  const svg = design === "yt" ? ytSvg(YT_PALETTES[variant], Number(arg("lines") ?? 2)) : iconSvg(PALETTES[variant]);
+  const suffix = (design === "yt" ? "" : `-${design}`) + (variant === "light" ? "" : `-${variant}`);
+  writeFileSync(path.join(outDir, `icon${suffix}.svg`), svg);
+  await render(page, svg, path.join(outDir, `icon${suffix}.png`));
+  // The web app's favicon is the light icon too, drawn small rather than scaled down from the PNG.
+  if (design === "yt" && variant === "light" && !arg("out")) {
+    const FAVICON = 128;
+    const small = svg.replace(`width="${SIZE}" height="${SIZE}"`, `width="${FAVICON}" height="${FAVICON}"`);
+    await render(page, small, path.join(ROOT, "public", "favicon.png"), FAVICON);
+  }
 }
 await browser.close();

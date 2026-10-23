@@ -18,17 +18,22 @@ export interface AppInfo {
   suites: SuiteId[];
   /** Whether it has Now Playing's full-window visualizer. */
   visualizer: boolean;
+  /**
+   * The desktop app's id (macOS's bundle id, Windows' app user model id). Every suite at once keeps YTStudio's,
+   * so the installed one stays itself (and keeps the permissions the Mac gave it) until Music has its own app.
+   */
+  bundleId: string;
 }
 
 export const APPS: Record<AppId, AppInfo> = {
-  video: { id: "video", name: "YTStudio Video", suites: ["video"], visualizer: false },
-  music: { id: "music", name: "YTStudio Music", suites: ["music"], visualizer: false },
-  photo: { id: "photo", name: "YTStudio Photo", suites: ["photo"], visualizer: false },
-  visualizer: { id: "visualizer", name: "YTStudio Visualizer", suites: [], visualizer: true },
+  video: { id: "video", name: "YTStudio Video", suites: ["video"], visualizer: false, bundleId: "gg.jestr.ytstudio.video" },
+  music: { id: "music", name: "YTStudio Music", suites: ["music"], visualizer: false, bundleId: "gg.jestr.ytstudio.music" },
+  photo: { id: "photo", name: "YTStudio Photo", suites: ["photo"], visualizer: false, bundleId: "gg.jestr.ytstudio.photo" },
+  visualizer: { id: "visualizer", name: "YTStudio Visualizer", suites: [], visualizer: true, bundleId: "gg.jestr.ytstudio.visualizer" },
 };
 
 /** Every suite in one app, as YTStudio was: what runs with no `EDITOR_APP`. */
-export const EVERY_APP: AppInfo = { id: null, name: "YTStudio", suites: SUITE_IDS, visualizer: true };
+export const EVERY_APP: AppInfo = { id: null, name: "YTStudio", suites: SUITE_IDS, visualizer: true, bundleId: "gg.jestr.ytstudio" };
 
 export const isAppId = (v: unknown): v is AppId => typeof v === "string" && Object.hasOwn(APPS, v);
 

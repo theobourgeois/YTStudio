@@ -39,11 +39,6 @@ own folders, and `server/architecture.test.ts` keeps them from importing each ot
 
 ## Still to decide (each before its step)
 
-- **The apps' names.** "YT Music" is YouTube's. Perhaps YTStudio Music, YTStudio Video and so on. Needed for step 2.
-- **Who gets the current bundle id** (`gg.jestr.ytstudio`). The Mac's permissions are kept per id (the microphone,
-  audio capture, Spotify's Apple Events). It goes to Video or Visualizer; Music asks for the microphone afresh.
-- **Settings and layouts on the move.** They're in the page's storage, which a new app or web view starts empty. Either
-  they're set once again, or step 1 moves what matters (theme, fonts, preferences) into each app's data folder.
 - **A plugin crash.** Today a crashing plugin kills the engine and the server starts it again. In the music app the
   engine is the app, so a crash closes it, as in FL without its bridge. Autosave and reopening on the next launch
   cover the work. Running plugins in a process of their own (FL's "Make bridged") can come later, if needed.
@@ -76,6 +71,27 @@ for every suite, which is what `pnpm dev`, the e2e suite and the gallery keep us
   becomes `.ytvid`; the suite e2e specs pass with every suite.
 
 ### 2. Video, Photo and Visualizer as Electron apps
+
+**Done** (2026-10-23). As built:
+- **Names and ids.** YTStudio Video, YTStudio Photo, YTStudio Visualizer (and YTStudio Music, for step 4), each with a
+  bundle id of its own (`gg.jestr.ytstudio.<app>`, `AppInfo.bundleId`), so each asks the Mac for its permissions
+  once. YTStudio, every suite at once, keeps `gg.jestr.ytstudio` and stays installed as the music app until step 4.
+- **Icons.** `pnpm tsx scripts/make-icon.ts --app all` draws each one's (the yen in its colours; the Visualizer's over
+  a frame of its own looks) into `resources/apps/` for packaging and `public/app-icons/apps/` for the page, where
+  Settings › App icon offers it as **Its own**, the app's default.
+- **Which app.** The packaged app's `package.json` says (`ytstudioApp`); electron/main.ts sets `EDITOR_APP` from it,
+  names the app, its userData folder (`~/Library/Application Support/YTStudio Video`), its ports (Video 5621, Photo
+  5631, Visualizer 5641, Music 5651; YTStudio keeps 5611) and its File menu (New for its suites only).
+- **Moving over.** On its first launch an app starts with YTStudio's recents of its own suites (`EDITOR_RECENTS_FROM`,
+  `adoptRecents`) and with everything YTStudio's page kept: theme, fonts, layouts, preferences (`electron/carry-over.ts`
+  reads YTStudio's localStorage from a copy of its profile). Projects stay where they are, in ~/Documents/YTStudio.
+- **Files.** Each app declares only its suites' types (`gg.jestr.ytstudio.<suite>.project`), and `.yt`/`.vaudio` as a
+  second choice; YTStudio declares the separate apps' types as a second choice too, so Finder opens them in theirs.
+  Images dropped on the Dock go to Photo.
+- **Building.** `pnpm build:desktop video photo visualizer` (into `release/<app>/`), `pnpm update:desktop` installs
+  YTStudio and the three side by side, `pnpm test:desktop --app <app>` tries one, `pnpm dev:desktop <app>` runs one.
+
+The plan, as it was:
 
 `scripts/desktop.ts` builds one app per name, each with its own:
 - app id, name and icon;

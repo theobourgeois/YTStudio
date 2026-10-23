@@ -5,7 +5,10 @@
  * Finder's double-click does) opens it; and that Now Playing's visualizer pops out into a window of its own, drawn there
  * (a made-up song, never heard). Leaves a screenshot of the window.
  *
- *   pnpm test:desktop [--out window.png]
+ * One of the apps (docs/apps.md: `pnpm build:desktop video`) is tried on what it does: Video exports, Photo draws
+ * and encodes, the Visualizer pops out; each shows only its own suites and declares only their files.
+ *
+ *   pnpm test:desktop [--app video|photo|visualizer|music] [--out window.png]
  */
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -21,19 +24,26 @@ import { addChannels, setSteps } from "../shared/music/edits.ts";
 import { createMusicProject, FIRST_PATTERN_ID } from "../shared/music/project.ts";
 import type { EngineStatus } from "../shared/music/engine.ts";
 import type { CompareResult, SourceInfo, SourceLayout } from "../shared/photo/lab.ts";
+import { EVERY_APP, appInfo, isAppId } from "../shared/apps.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const outIndex = process.argv.indexOf("--out");
 const SCREENSHOT = outIndex > 0 ? path.resolve(process.argv[outIndex + 1]) : path.join(ROOT, "desktop-smoke.png");
+const appIndex = process.argv.indexOf("--app");
+const appArg = appIndex > 0 ? process.argv[appIndex + 1] : null;
+if (appArg !== null && !isAppId(appArg)) throw new Error(`No app called ${appArg}.`);
+const TRIED = appArg ? appInfo(appArg) : EVERY_APP;
+const opens = (suite: string) => TRIED.suites.some((s) => s === suite);
+const dir = TRIED.id ? `release/${TRIED.id}` : "release";
 const APP = {
-  darwin: `release/mac-${process.arch}/YTStudio.app/Contents/MacOS/YTStudio`,
-  linux: "release/linux-unpacked/ytstudio",
-  win32: "release/win-unpacked/YTStudio.exe",
+  darwin: `${dir}/mac-${process.arch}/${TRIED.name}.app/Contents/MacOS/${TRIED.name}`,
+  linux: `${dir}/linux-unpacked/${TRIED.id ? `ytstudio-${TRIED.id}` : "ytstudio"}`,
+  win32: `${dir}/win-unpacked/${TRIED.name}.exe`,
 }[process.platform as "darwin" | "linux" | "win32"];
 
 const executablePath = process.env.EDITOR_DESKTOP_APP_PATH || (APP && path.join(ROOT, APP));
 if (!executablePath || !existsSync(executablePath)) {
-  console.error(`No packaged app at ${APP}: run \`pnpm build:desktop\` first.`);
+  console.error(`No packaged app at ${APP}: run \`pnpm build:desktop${TRIED.id ? ` ${TRIED.id}` : ""}\` first.`);
   process.exit(1);
 }
 
@@ -87,6 +97,7 @@ try {
   console.log(`app at ${base}, data in ${tmp}`);
   check("marked as the desktop app", await window.evaluate(() => document.documentElement.classList.contains("desktop")));
   check("can flush autosave on close", await window.evaluate(() => typeof (window as { editorDesktop?: { flush?: unknown } }).editorDesktop?.flush === "function"));
+  check(`is ${TRIED.name}`, (await window.title()) === TRIED.name, await window.title());
 
   const api = async <T>(p: string, init?: RequestInit) => {
     const res = await fetch(base + p, init);
@@ -99,98 +110,111 @@ try {
   const health = await api<{ ffmpeg: { available: boolean } }>("/api/health");
   check("finds ffmpeg (login shell PATH)", health.ffmpeg.available);
 
-  // The photo suite: WebGPU in the app's window, and its helper (sharp, shipped in the app's resources) decoding and
-  // encoding through the app's own server, an image's samples coming back exactly.
-  const gpu = await window.evaluate(async () => {
-    const adapter = await navigator.gpu?.requestAdapter();
-    return adapter ? `${adapter.info.vendor} ${adapter.info.architecture}${(adapter.info as { isFallbackAdapter?: boolean }).isFallbackAdapter ? " (fallback)" : ""}` : null;
-  });
-  check("WebGPU in the window", gpu !== null && !gpu.includes("fallback"), gpu ?? "no adapter");
+  // The photo helper (sharp, shipped in every app's resources: every app's media are probed by it).
   const photoHelper = await api<{ decoder: string | null }>("/api/photo/lab/helper");
   check("the photo helper runs from the app's resources", /^sharp /.test(photoHelper.decoder ?? ""), photoHelper.decoder ?? "");
-  const still = path.join(tmp, "photo.png");
-  ffmpeg("-f", "lavfi", "-i", "testsrc2=size=320x240", "-frames:v", "1", "-pix_fmt", "rgba", still);
-  const source = await api<SourceInfo>("/api/photo/lab/sources?name=photo.png", { method: "POST", body: readFileSync(still) });
-  const layout = await api<SourceLayout>(`/api/photo/lab/sources/${source.key}/layout?tile=256`);
-  const tiles = new Uint8Array(await (await fetch(`${base}/api/photo/lab/sources/${source.key}/raw?tile=256`)).arrayBuffer());
-  const rows = new Uint8Array(layout.width * layout.height * 4);
-  for (let y = 0; y < layout.height; y++) {
-    for (let tx = 0; tx < layout.tilesX; tx++) {
-      const width = Math.min(256, layout.width - tx * 256);
-      const from = (Math.floor(y / 256) * layout.tilesX + tx) * layout.tileBytes + (y % 256) * 256 * 4;
-      rows.set(tiles.subarray(from, from + width * 4), (y * layout.width + tx * 256) * 4);
+  if (opens("photo")) {
+    // The photo suite: WebGPU in the app's window, and its helper (sharp, shipped in the app's resources) decoding and
+    // encoding through the app's own server, an image's samples coming back exactly.
+    const gpu = await window.evaluate(async () => {
+      const adapter = await navigator.gpu?.requestAdapter();
+      return adapter ? `${adapter.info.vendor} ${adapter.info.architecture}${(adapter.info as { isFallbackAdapter?: boolean }).isFallbackAdapter ? " (fallback)" : ""}` : null;
+    });
+    check("WebGPU in the window", gpu !== null && !gpu.includes("fallback"), gpu ?? "no adapter");
+    const still = path.join(tmp, "photo.png");
+    ffmpeg("-f", "lavfi", "-i", "testsrc2=size=320x240", "-frames:v", "1", "-pix_fmt", "rgba", still);
+    const source = await api<SourceInfo>("/api/photo/lab/sources?name=photo.png", { method: "POST", body: readFileSync(still) });
+    const layout = await api<SourceLayout>(`/api/photo/lab/sources/${source.key}/layout?tile=256`);
+    const tiles = new Uint8Array(await (await fetch(`${base}/api/photo/lab/sources/${source.key}/raw?tile=256`)).arrayBuffer());
+    const rows = new Uint8Array(layout.width * layout.height * 4);
+    for (let y = 0; y < layout.height; y++) {
+      for (let tx = 0; tx < layout.tilesX; tx++) {
+        const width = Math.min(256, layout.width - tx * 256);
+        const from = (Math.floor(y / 256) * layout.tilesX + tx) * layout.tileBytes + (y % 256) * 256 * 4;
+        rows.set(tiles.subarray(from, from + width * 4), (y * layout.width + tx * 256) * 4);
+      }
     }
+    const { id: exportId } = await post<{ id: string }>("/api/photo/lab/exports", { name: "smoke.png", width: layout.width, height: layout.height, bits: 8, format: "png" });
+    await fetch(`${base}/api/photo/lab/exports/${exportId}/rows?from=0`, { method: "PUT", body: rows });
+    await api(`/api/photo/lab/exports/${exportId}/finish`, { method: "POST" });
+    const compared = await api<CompareResult>(`/api/photo/lab/exports/smoke.png/compare?source=${source.key}`);
+    check("the photo helper decodes and encodes exactly", layout.width === 320 && compared.differing === 0, `${layout.decoder}, ${compared.differing} samples differ`);
+    // A photo project with that image as a layer opens in the window and its image reaches the GPU.
+    const photo = await post<ProjectSummary>("/api/projects", { suite: "photo", name: "Desktop photo" });
+    const image = await api<MediaAsset>(`/api/media?projectId=${photo.id}&name=photo.png`, { method: "POST", body: readFileSync(still) });
+    const doc = await api<Record<string, unknown> & { canvas: { width: number; height: number } }>(`/api/projects/${photo.id}`);
+    const layer = { id: "layer_smoke", kind: "image", name: "Smoke", visible: true, opacity: 1, mediaId: image.id, transform: { x: doc.canvas.width / 2, y: doc.canvas.height / 2, scaleX: 1, scaleY: 1, rotation: 0 } };
+    await api(`/api/projects/${photo.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...doc, layers: [layer] }) });
+    await window.goto(`${base}/p/${photo.id}`);
+    const drawn = await window.locator('[data-layer][data-source="ready"]').waitFor({ timeout: 20_000 }).then(() => true, () => false);
+    const state = drawn
+      ? ""
+      : await window.evaluate(() => {
+          const row = document.querySelector("[data-layer]");
+          const canvas = document.querySelector("[data-photo-canvas]");
+          return `layer: ${row?.getAttribute("data-source") ?? "none"}; ${row?.querySelector("[aria-label^=Image]")?.getAttribute("aria-label") ?? ""} ${canvas?.textContent?.slice(0, 300) ?? `no canvas: ${location.pathname} ${document.body.innerText.slice(0, 300)}`}`;
+        });
+    check("a photo opens and its image is drawn by the GPU in the window", drawn, state);
+    await window.goto(`${base}/`);
   }
-  const { id: exportId } = await post<{ id: string }>("/api/photo/lab/exports", { name: "smoke.png", width: layout.width, height: layout.height, bits: 8, format: "png" });
-  await fetch(`${base}/api/photo/lab/exports/${exportId}/rows?from=0`, { method: "PUT", body: rows });
-  await api(`/api/photo/lab/exports/${exportId}/finish`, { method: "POST" });
-  const compared = await api<CompareResult>(`/api/photo/lab/exports/smoke.png/compare?source=${source.key}`);
-  check("the photo helper decodes and encodes exactly", layout.width === 320 && compared.differing === 0, `${layout.decoder}, ${compared.differing} samples differ`);
-  // A photo project with that image as a layer opens in the window and its image reaches the GPU.
-  const photo = await post<ProjectSummary>("/api/projects", { suite: "photo", name: "Desktop photo" });
-  const image = await api<MediaAsset>(`/api/media?projectId=${photo.id}&name=photo.png`, { method: "POST", body: readFileSync(still) });
-  const doc = await api<Record<string, unknown> & { canvas: { width: number; height: number } }>(`/api/projects/${photo.id}`);
-  const layer = { id: "layer_smoke", kind: "image", name: "Smoke", visible: true, opacity: 1, mediaId: image.id, transform: { x: doc.canvas.width / 2, y: doc.canvas.height / 2, scaleX: 1, scaleY: 1, rotation: 0 } };
-  await api(`/api/projects/${photo.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...doc, layers: [layer] }) });
-  await window.goto(`${base}/p/${photo.id}`);
-  const drawn = await window.locator('[data-layer][data-source="ready"]').waitFor({ timeout: 20_000 }).then(() => true, () => false);
-  const state = drawn
-    ? ""
-    : await window.evaluate(() => {
-        const row = document.querySelector("[data-layer]");
-        const canvas = document.querySelector("[data-photo-canvas]");
-        return `layer: ${row?.getAttribute("data-source") ?? "none"}; ${row?.querySelector("[aria-label^=Image]")?.getAttribute("aria-label") ?? ""} ${canvas?.textContent?.slice(0, 300) ?? `no canvas: ${location.pathname} ${document.body.innerText.slice(0, 300)}`}`;
-      });
-  check("a photo opens and its image is drawn by the GPU in the window", drawn, state);
-  await window.goto(`${base}/`);
 
-  const project = await post<ProjectSummary>("/api/projects", { name: "Desktop smoke" });
-  const colour = async (name: string) => {
-    const file = path.join(tmp, `${name}.png`);
-    ffmpeg("-f", "lavfi", "-i", `color=${name}:size=100x50`, "-frames:v", "1", file);
-    return post<MediaAsset>("/api/media/import-file", { projectId: project.id, path: file });
-  };
-  const [red, blue] = await Promise.all([colour("red"), colour("blue")]);
-  const clip = (asset: MediaAsset, start: number): Clip => ({
-    id: `clip_${asset.id.slice(-8)}`, assetId: asset.id, trackId: "main", start, in: 0, out: 2, effects: defaultEffects(),
-  });
-  const dissolve = { type: "cross-dissolve", duration: 1, alignment: "center" as const, params: {} };
-  const timeline: Project = { ...createDefaultProject(), clips: [{ ...clip(red, 0), transitionOut: dissolve }, clip(blue, 2)] };
-
-  // The editor opens the video, then the export draws it.
-  await window.reload();
-  await window.getByText("Desktop smoke").first().waitFor({ timeout: 20_000 });
-  const started = Date.now();
-  let job = await post<ExportJob>("/api/exports", { project: timeline, resolution: "720p" });
-  while (job.status === "queued" || job.status === "rendering") {
-    await new Promise((r) => setTimeout(r, 250));
-    job = await api<ExportJob>(`/api/exports/${job.id}`);
-  }
-  check("exports", job.status === "done", job.error ?? `${((Date.now() - started) / 1000).toFixed(1)} s`);
-  if (job.status === "done") {
-    const output = path.join(tmp, "data", "exports", `${job.id}.mp4`);
-    const near = (actual: number[], expected: number[]) => actual.every((v, i) => Math.abs(v - expected[i]) < 40);
-    const mid = pixelAt(output, 2, 360, 640);
-    check("the transition is drawn by the app's Chromium", near(pixelAt(output, 1.2, 360, 640), [255, 0, 0]) && near(mid, [128, 0, 128]) && near(pixelAt(output, 2.7, 360, 640), [0, 0, 255]), `mid ${mid}`);
-  }
   // Projects are files: a package in the data folder's Documents/YTStudio (the user's own Documents/YTStudio when no
-  // data folder is given), a type the app declares, opened by launching the app with it.
-  const summary = (await api<ProjectSummary[]>("/api/projects")).find((p) => p.id === project.id);
-  const expected = path.join(tmp, "data", "Documents", "YTStudio", "Desktop smoke.ytvid");
-  check("the project is a package", summary?.path === expected && existsSync(path.join(expected, "project.json")), summary?.path);
+  // data folder is given), a type the app declares (each app only its own suites'), opened by launching the app with it.
   if (process.platform === "darwin") {
     const plist = path.join(path.dirname(path.dirname(executablePath)), "Info.plist");
-    const types = execFileSync("plutil", ["-extract", "CFBundleDocumentTypes", "json", "-o", "-", plist], { encoding: "utf8" });
-    check("associates the exported project types with YTStudio", /"LSItemContentTypes":\["gg\.jestr\.ytstudio\.video",/.test(types));
-    check("declares .ytvid packages", /"ytvid"/.test(types) && /"LSTypeIsPackage":true/.test(types));
+    const declared = (() => {
+      try {
+        return execFileSync("plutil", ["-extract", "CFBundleDocumentTypes", "json", "-o", "-", plist], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+      } catch {
+        return "";
+      }
+    })();
+    for (const suite of ["video", "music", "photo"]) {
+      check(`${opens(suite) ? "declares" : "leaves"} ${suite}'s files`, declared.includes(`"gg.jestr.ytstudio.${suite}.project"`) === opens(suite));
+    }
+    if (opens("video")) check("declares .ytvid packages", /"ytvid"/.test(declared) && /"LSTypeIsPackage":true/.test(declared));
   }
-  await window.goto(`${base}/`);
-  await window.getByRole("heading", { name: "Recent" }).waitFor({ timeout: 20_000 });
-  const second = spawn(executablePath, [expected], { env, stdio: "ignore" });
-  const opened = await window.waitForURL(`**/p/${project.id}`, { timeout: 20_000 }).then(() => true, () => false);
-  check("opens a project it's launched with", opened);
-  second.kill();
-  if (process.argv.includes("--music")) {
+  if (opens("video")) {
+    const project = await post<ProjectSummary>("/api/projects", { name: "Desktop smoke" });
+    const colour = async (name: string) => {
+      const file = path.join(tmp, `${name}.png`);
+      ffmpeg("-f", "lavfi", "-i", `color=${name}:size=100x50`, "-frames:v", "1", file);
+      return post<MediaAsset>("/api/media/import-file", { projectId: project.id, path: file });
+    };
+    const [red, blue] = await Promise.all([colour("red"), colour("blue")]);
+    const clip = (asset: MediaAsset, start: number): Clip => ({
+      id: `clip_${asset.id.slice(-8)}`, assetId: asset.id, trackId: "main", start, in: 0, out: 2, effects: defaultEffects(),
+    });
+    const dissolve = { type: "cross-dissolve", duration: 1, alignment: "center" as const, params: {} };
+    const timeline: Project = { ...createDefaultProject(), clips: [{ ...clip(red, 0), transitionOut: dissolve }, clip(blue, 2)] };
+
+    // The editor opens the video, then the export draws it.
+    await window.reload();
+    await window.getByText("Desktop smoke").first().waitFor({ timeout: 20_000 });
+    const started = Date.now();
+    let job = await post<ExportJob>("/api/exports", { project: timeline, resolution: "720p" });
+    while (job.status === "queued" || job.status === "rendering") {
+      await new Promise((r) => setTimeout(r, 250));
+      job = await api<ExportJob>(`/api/exports/${job.id}`);
+    }
+    check("exports", job.status === "done", job.error ?? `${((Date.now() - started) / 1000).toFixed(1)} s`);
+    if (job.status === "done") {
+      const output = path.join(tmp, "data", "exports", `${job.id}.mp4`);
+      const near = (actual: number[], expected: number[]) => actual.every((v, i) => Math.abs(v - expected[i]) < 40);
+      const mid = pixelAt(output, 2, 360, 640);
+      check("the transition is drawn by the app's Chromium", near(pixelAt(output, 1.2, 360, 640), [255, 0, 0]) && near(mid, [128, 0, 128]) && near(pixelAt(output, 2.7, 360, 640), [0, 0, 255]), `mid ${mid}`);
+    }
+    const summary = (await api<ProjectSummary[]>("/api/projects")).find((p) => p.id === project.id);
+    const expected = path.join(tmp, "data", "Documents", "YTStudio", "Desktop smoke.ytvid");
+    check("the project is a package", summary?.path === expected && existsSync(path.join(expected, "project.json")), summary?.path);
+    await window.goto(`${base}/`);
+    await window.getByRole("heading", { name: "Recent" }).waitFor({ timeout: 20_000 });
+    const second = spawn(executablePath, [expected], { env, stdio: "ignore" });
+    const opened = await window.waitForURL(`**/p/${project.id}`, { timeout: 20_000 }).then(() => true, () => false);
+    check("opens a project it's launched with", opened);
+    second.kill();
+  }
+  if (opens("music") && process.argv.includes("--music")) {
     const music = await post<ProjectSummary>("/api/projects", { suite: "music", name: "Windows music smoke" });
     const file = path.join(tmp, "Quiet sample.wav");
     ffmpeg("-f", "lavfi", "-i", "sine=frequency=220:duration=0.4", "-af", "volume=0.08", file);
@@ -219,33 +243,36 @@ try {
   }
   // Now Playing's visualizer, out of the app: a window of the system's (framed, so it goes to another screen and full
   // screen there), drawn by the page, its keys its own.
-  await post("/api/now-playing", { action: "play" });
-  await window.goto(`${base}/`);
-  await window.locator("[data-visualize-sound]").click();
-  await window.locator("[data-now-playing-view]").waitFor({ timeout: 20_000 });
-  const context = browser.contexts()[0];
-  const popped = context.waitForEvent("page", { timeout: 20_000 });
-  await window.keyboard.press("o");
-  const stage = await popped.catch(() => null);
-  if (stage) {
-    const view = stage.locator('[data-now-playing-view="out"]');
-    const drawn = await view.locator('[data-slot="visualizer-canvas"][data-drawn="clips"]').waitFor({ timeout: 20_000 }).then(() => true, () => false);
-    check("the visualizer pops out into its own window, drawn there", drawn && (await window.locator("[data-now-playing-view]").count()) === 0);
-    const frame = await stage.evaluate(() => self.outerHeight - self.innerHeight);
-    check("its window is the system's own, with a title bar", frame > 0, `${frame} px`);
-    const state = () => fetch(`${base}/api/now-playing`).then((r) => r.json() as Promise<{ state?: string }>).then((s) => s.state);
-    const was = await state();
-    await stage.keyboard.press(" ");
-    let now = was;
-    for (let i = 0; i < 20 && now === was; i++) {
-      await new Promise((r) => setTimeout(r, 100));
-      now = await state();
-    }
-    check("its keys are its own", now !== was, `${was} -> ${now}`);
-    const closed = stage.waitForEvent("close", { timeout: 10_000 }).then(() => true, () => false);
-    await stage.keyboard.press("Escape");
-    check("Escape closes it, and its window", await closed);
-  } else check("the visualizer pops out into its own window", false, "no window opened");
+  if (TRIED.visualizer) {
+    await post("/api/now-playing", { action: "play" });
+    await window.goto(`${base}/`);
+    // The Visualizer app opens on it; YTStudio's Home has a button for it.
+    if (TRIED.suites.length > 0) await window.locator("[data-visualize-sound]").click();
+    await window.locator("[data-now-playing-view]").waitFor({ timeout: 20_000 });
+    const context = browser.contexts()[0];
+    const popped = context.waitForEvent("page", { timeout: 20_000 });
+    await window.keyboard.press("o");
+    const stage = await popped.catch(() => null);
+    if (stage) {
+      const view = stage.locator('[data-now-playing-view="out"]');
+      const drawn = await view.locator('[data-slot="visualizer-canvas"][data-drawn="clips"]').waitFor({ timeout: 20_000 }).then(() => true, () => false);
+      check("the visualizer pops out into its own window, drawn there", drawn && (await window.locator("[data-now-playing-view]").count()) === 0);
+      const frame = await stage.evaluate(() => self.outerHeight - self.innerHeight);
+      check("its window is the system's own, with a title bar", frame > 0, `${frame} px`);
+      const state = () => fetch(`${base}/api/now-playing`).then((r) => r.json() as Promise<{ state?: string }>).then((s) => s.state);
+      const was = await state();
+      await stage.keyboard.press(" ");
+      let now = was;
+      for (let i = 0; i < 20 && now === was; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        now = await state();
+      }
+      check("its keys are its own", now !== was, `${was} -> ${now}`);
+      const closed = stage.waitForEvent("close", { timeout: 10_000 }).then(() => true, () => false);
+      await stage.keyboard.press("Escape");
+      check("Escape closes it, and its window", await closed);
+    } else check("the visualizer pops out into its own window", false, "no window opened");
+  }
   await window.screenshot({ path: SCREENSHOT });
   console.log(`screenshot: ${path.relative(process.cwd(), SCREENSHOT)}`);
 } finally {

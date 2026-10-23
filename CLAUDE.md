@@ -50,10 +50,10 @@ pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a lo
 pnpm tsx scripts/perf.ts --scrub <Project.ytvid> [--render]        # scrub and play a copy of a real project, GPU and all
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
 pnpm dev:shell    # every suite in the engine's own window (docs/claude/music-shell.md)
-pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
-pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/YTStudio.app, then launch it, export, check
-pnpm update:desktop  # build it (engine too), quit the installed one, replace it (macOS: /Applications; Windows: its installer, silently), reopen
-pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
+pnpm dev:desktop [app]  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
+pnpm build:desktop [app…] && pnpm test:desktop [--app <app>]   # release/mac-<arch>/YTStudio.app (an app's in release/<app>/), then launch it, export, check
+pnpm update:desktop [app…]  # build YTStudio + Video, Photo, Visualizer (engine too), quit the installed ones, replace them (macOS: /Applications; Windows: their installers, silently), reopen
+pnpm tsx scripts/make-icon.ts [--variant dark] [--app all]   # redraw the app icon (or each app's) into resources/
 ```
 
 **Verify every change** with `pnpm typecheck && pnpm test`, and also the e2e specs of what you touched for anything
@@ -197,7 +197,10 @@ says which this is, and the page asks (`GET /api/app`, `src/lib/app.ts`, before 
 says what each opens: its suites (Home, the tabs, New, Settings' tabs and Open… show only those; another app's file is
 turned down, naming its app) and whether it has the visualizer. With no `EDITOR_APP` it's every suite (`pnpm dev`, the
 e2e suite, the gallery). An app's data is its own (`data/apps/<app>`, which starts with the checkout's recents). Ask
-`appSuites()`/`appOpens()`, never an app's id.
+`appSuites()`/`appOpens()`, never an app's id. Video, Photo and the Visualizer are desktop apps of their own
+(`pnpm build:desktop <app>`: their name, bundle id, icon, ports, userData and file types; YTStudio, every suite,
+stays as the music app until it has its own); a new one starts with YTStudio's recents and page storage
+(`electron/carry-over.ts`).
 
 ## Suites
 

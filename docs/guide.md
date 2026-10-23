@@ -23,7 +23,13 @@ The same editor in its own window (Electron), with the server running inside the
 ```bash
 pnpm dev:desktop         # a window with hot reload, using ./data like pnpm dev (don't run both at once)
 pnpm build:desktop       # release/mac-arm64/YTStudio.app: drag it into Applications (unsigned: right-click → Open the first time)
+pnpm update:desktop      # build and install YTStudio, YTStudio Video, YTStudio Photo and YTStudio Visualizer in /Applications
 ```
+
+YTStudio is becoming four apps (see [apps.md](apps.md)): **YTStudio Video**, **YTStudio Photo** and **YTStudio
+Visualizer** are already apps of their own, each with its own icon, opening only its own files; YTStudio, with every
+suite, stays for music until YTStudio Music comes. The first time one opens it starts with YTStudio's theme, layouts,
+preferences and its own kind of recent projects. `pnpm build:desktop video` builds just one (into `release/video/`).
 
 Projects are files of their own, in `~/Documents/YTStudio` by default (see below). The built app keeps the rest (its
 recents, the Library, settings) in `~/Library/Application Support/YTStudio/data` (Help → Show Data Folder), separate
@@ -574,7 +580,8 @@ MP3/AAC/WAV/FLAC/Ogg/Opus audio, and PNG/JPEG/WebP/BMP (or single-frame GIF) ima
 | `pnpm build && pnpm start` | production build served by the server on :5311 |
 | `pnpm samples` | generate test media into `./samples` |
 | `pnpm dev:desktop` | the desktop app with hot reload |
-| `pnpm build:desktop` / `pnpm package:desktop` | `release/`: YTStudio.app / a .dmg and .zip |
-| `pnpm test:desktop` | launch the built app on throwaway data, export a transition, check it |
+| `pnpm build:desktop [app…]` / `pnpm package:desktop [app…]` | `release/`: YTStudio.app / a .dmg and .zip (an app's in `release/<app>/`) |
+| `pnpm update:desktop [app…]` | build and install the apps in place of the ones installed |
+| `pnpm test:desktop [--app <app>]` | launch the built app on throwaway data, export a transition, check it |
 
 Working on the code (architecture, conventions, how to add things): see [CLAUDE.md](../CLAUDE.md).
