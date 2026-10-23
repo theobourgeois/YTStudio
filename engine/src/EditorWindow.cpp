@@ -201,6 +201,7 @@ public:
 
 bool EditorWindow::typingKeyboard = false;
 void* EditorWindow::owner = nullptr;
+bool EditorWindow::shell = false;
 int EditorWindow::busy = 0;
 juce::Array<EditorWindow*> EditorWindow::openWindows;
 
@@ -382,11 +383,21 @@ void EditorWindow::activeWindowStatusChanged()
 
 void EditorWindow::setAppWindow (void* window)
 {
+    if (shell)
+        return;
    #if JUCE_WINDOWS
     owner = window;
    #else
     juce::ignoreUnused (window);
    #endif
+}
+
+void EditorWindow::setShellWindow (void* window)
+{
+    shell = window != nullptr;
+    owner = window;
+    for (auto* open : openWindows)
+        open->followAppWindow();
 }
 
 void EditorWindow::followAppWindow()
@@ -397,8 +408,9 @@ void EditorWindow::followAppWindow()
 std::shared_ptr<void> EditorWindow::whileBusy()
 {
    #if JUCE_WINDOWS
-    // (The windows are the message thread's: work elsewhere doesn't hold it up.)
-    if (! juce::MessageManager::existsAndIsCurrentThread())
+    // (The windows are the message thread's: work elsewhere doesn't hold it up. In the shell they belong to a window
+    // of this program's, which waits for nothing.)
+    if (shell || ! juce::MessageManager::existsAndIsCurrentThread())
         return {};
     if (busy++ == 0)
         for (auto* window : openWindows)

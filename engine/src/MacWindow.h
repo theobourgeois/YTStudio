@@ -24,8 +24,9 @@ void* appWindowFromHandle (const juce::String& handle);
  * Windows: make a window (once it has a peer) belong to `owner`, a window of the desktop app's (null: to
  * none), as FL Studio's plugin windows belong to its own: always above it, never above another program's
  * windows, hidden while it's minimised. Across programs this is allowed, and the two share their input
- * state while it lasts (which is what lets a plugin's window take the focus from the app). Nothing
- * elsewhere: macOS has window levels instead (`setAlwaysOnTop`).
+ * state while it lasts (which is what lets a plugin's window take the focus from the app). macOS: a child window
+ * of `owner`'s (a view of this program's own, the shell's: `ShellWindow`); the desktop app's windows are another
+ * program's there, so they have window levels instead (`setAlwaysOnTop`). Nothing elsewhere.
  */
 void setWindowOwner (juce::Component& window, void* owner);
 

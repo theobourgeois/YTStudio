@@ -76,6 +76,11 @@ const ENGINE_BUILD = path.join(REPO_ROOT, "engine", "build");
 export const ENGINE =
   process.env.EDITOR_ENGINE_PATH ||
   engineExecutable(path.join(ENGINE_BUILD, "VaudioEngine_artefacts", "Release"));
+/**
+ * The music shell (docs/claude/music-shell.md): the address of the app the engine shows in a window of its own
+ * (`pnpm dev:shell` sets it). The engine is then started with the server, and closing its window stops the server.
+ */
+export const ENGINE_WINDOW = process.env.EDITOR_ENGINE_WINDOW || null;
 /** The photo suite's helper process (decodes and encodes image files); the desktop app ships its own build. */
 export const PHOTO_HELPER = process.env.EDITOR_PHOTO_HELPER_PATH || path.join(REPO_ROOT, "server", "photo", "helper-process.mjs");
 /** The music suite's models' process (runs them with ONNX Runtime's native build); the desktop app ships its own build. */

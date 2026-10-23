@@ -271,8 +271,14 @@ void PluginHost::setHost (const juce::var& host)
 
     const auto bounds = host["bounds"];
     const juce::Rectangle<int> now ((int) bounds["x"], (int) bounds["y"], (int) bounds["width"], (int) bounds["height"]);
-    // Moved (not resized, maximised or made full screen): its plugin windows go along.
-    if (hostKnown && bounds.isObject() && ! hostBounds.isEmpty() && now.getWidth() == hostBounds.getWidth() && now.getHeight() == hostBounds.getHeight())
+    // Moved (not resized, maximised or made full screen): its plugin windows go along. (The shell's child windows
+    // on macOS go by themselves.)
+   #if JUCE_MAC
+    const auto moveAlong = ! EditorWindow::inShell();
+   #else
+    const auto moveAlong = true;
+   #endif
+    if (moveAlong && hostKnown && bounds.isObject() && ! hostBounds.isEmpty() && now.getWidth() == hostBounds.getWidth() && now.getHeight() == hostBounds.getHeight())
     {
         const auto delta = now.getPosition() - hostBounds.getPosition();
         if (delta != juce::Point<int>())
