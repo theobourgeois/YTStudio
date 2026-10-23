@@ -22,6 +22,7 @@ constexpr UINT_PTR subclassId = 0x59545354; // "YTST"
 struct Dressing
 {
     std::function<void (unsigned int, juce::Point<int>)> forward;
+    std::function<void()> focused;
     /** The pointer is over the maximise button (the page was told it's there). */
     bool overMaximise = false;
 };
@@ -76,6 +77,13 @@ LRESULT CALLBACK windowProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
             }
             break;
 
+        case WM_SETFOCUS:
+        {
+            const auto result = DefSubclassProc (hwnd, message, wParam, lParam);
+            dressing.focused();
+            return result;
+        }
+
         case WM_NCDESTROY:
             RemoveWindowSubclass (hwnd, &windowProc, subclassId);
             delete &dressing;
@@ -88,7 +96,7 @@ LRESULT CALLBACK windowProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
 }
 } // namespace
 
-void dress (juce::Component& window, std::function<void (unsigned int, juce::Point<int>)> forward)
+void dress (juce::Component& window, std::function<void (unsigned int, juce::Point<int>)> forward, std::function<void()> focused)
 {
     auto* peer = window.getPeer();
     auto* hwnd = peer != nullptr ? static_cast<HWND> (peer->getNativeHandle()) : nullptr;
@@ -97,10 +105,10 @@ void dress (juce::Component& window, std::function<void (unsigned int, juce::Poi
     DWORD_PTR existing = 0;
     if (GetWindowSubclass (hwnd, &windowProc, subclassId, &existing))
     {
-        reinterpret_cast<Dressing*> (existing)->forward = std::move (forward);
+        *reinterpret_cast<Dressing*> (existing) = { std::move (forward), std::move (focused) };
         return;
     }
-    SetWindowSubclass (hwnd, &windowProc, subclassId, reinterpret_cast<DWORD_PTR> (new Dressing { std::move (forward) }));
+    SetWindowSubclass (hwnd, &windowProc, subclassId, reinterpret_cast<DWORD_PTR> (new Dressing { std::move (forward), std::move (focused) }));
 }
 
 void noteRecent (const juce::String& path)

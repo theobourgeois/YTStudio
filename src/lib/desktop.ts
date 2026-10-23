@@ -18,8 +18,8 @@ export interface ScreenRect {
 
 /**
  * What only the page's host can do for the editor's native windows (panels): the page opens each one with
- * `window.open` and draws into it and moves it itself (`components/windows/native/`). No host gives it yet:
- * Electron's went with step 5 (docs/apps.md), and the music app's on Windows comes with step 3.
+ * `window.open` and draws into it and moves it itself (`components/windows/native/`). Only the music app on Windows
+ * gives it (src/lib/host.ts: the engine's `PanelWindow`s); Electron's went with step 5 (docs/apps.md).
  */
 export interface DesktopPanels {
   show(name: string, focus: boolean): void;

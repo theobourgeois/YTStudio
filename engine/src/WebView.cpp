@@ -5,6 +5,7 @@
  #include <windows.h>
  #include <windowsx.h>
  #include <dcomp.h>
+ #include <dwmapi.h>
  #include <ole2.h>
  #include <shellapi.h>
  #include <shlobj.h>
@@ -12,6 +13,7 @@
  #include <WebView2.h>
  #include <WebView2EnvironmentOptions.h>
  #pragma comment(lib, "dcomp.lib")
+ #pragma comment(lib, "dwmapi.lib")
  #pragma comment(lib, "ole32.lib")
  #pragma comment(lib, "shell32.lib")
 #endif
@@ -37,6 +39,12 @@ juce::String take (LPWSTR text)
     const auto result = text != nullptr ? juce::String (text) : juce::String();
     CoTaskMemFree (text);
     return result;
+}
+
+/** Whether pages are drawn through DirectComposition (WebView.h). */
+bool composes()
+{
+    return juce::SystemStats::getEnvironmentVariable ("VAUDIO_WEBVIEW_HOSTING", {}) != "windowed";
 }
 
 void failed (const char* what, HRESULT result)
@@ -74,8 +82,9 @@ juce::StringArray filesIn (IDataObject* data)
 } // namespace
 
 /**
- * The window WebView2 lives in (a child of the shell's, through `HWNDComponent`), and WebView2 itself. Everything
- * here runs on the message thread; WebView2 calls back on it too.
+ * The window WebView2 lives in, and WebView2 itself: the page's (a child of the shell's window, through
+ * `HWNDComponent`) or a window the page opened (a `PanelWindow`'s: a window of its own). Everything here runs on the
+ * message thread; WebView2 calls back on it too.
  */
 class WebView::Host
 {
@@ -84,18 +93,9 @@ public:
         : url (urlToShow),
           background (backgroundToUse),
           onCommand (std::move (handler)),
-          composition (juce::SystemStats::getEnvironmentVariable ("VAUDIO_WEBVIEW_HOSTING", {}) != "windowed")
+          composition (composes())
     {
-        static const auto registered = [] {
-            WNDCLASSEXW type {};
-            type.cbSize = sizeof (type);
-            type.style = CS_DBLCLKS;
-            type.lpfnWndProc = &Host::windowProc;
-            type.hInstance = GetModuleHandleW (nullptr);
-            type.lpszClassName = windowClass;
-            return RegisterClassExW (&type) != 0;
-        }();
-        juce::ignoreUnused (registered);
+        registerClass();
         hwnd = CreateWindowExW (0, windowClass, L"", WS_POPUP | WS_CLIPCHILDREN, 0, 0, 0, 0, nullptr, nullptr, GetModuleHandleW (nullptr), nullptr);
         SetWindowLongPtrW (hwnd, GWLP_USERDATA, (LONG_PTR) this);
         // (Drag and drop: OLE, on this thread. Counted, so JUCE's own is undisturbed.)
@@ -118,20 +118,57 @@ public:
             failed ("CreateCoreWebView2EnvironmentWithOptions", result);
     }
 
+    /**
+     * A window the page opened (`NewWindowRequested`, its `request` deferred until this is ready): a window of its
+     * own with no frame, owned by `owner`, which the page is given as the window it opened, its own document in it.
+     */
+    Host (ICoreWebView2Environment* environmentToUse, HWND owner, juce::Colour backgroundToUse,
+          ComPtr<ICoreWebView2NewWindowRequestedEventArgs> request, ComPtr<ICoreWebView2Deferral> deferral)
+        : background (backgroundToUse),
+          composition (composes()),
+          openedBy (std::move (request)),
+          openedWhenReady (std::move (deferral))
+    {
+        registerClass();
+        // A tool window: no taskbar button or Alt+Tab entry, as the plugin windows. (Composed: see-through where the
+        // page is, the shared window for menus.)
+        hwnd = CreateWindowExW (WS_EX_TOOLWINDOW | (composition ? WS_EX_NOREDIRECTIONBITMAP : 0), windowClass, L"", WS_POPUP | WS_CLIPCHILDREN,
+                                0, 0, 480, 320, owner, nullptr, GetModuleHandleW (nullptr), nullptr);
+        SetWindowLongPtrW (hwnd, GWLP_USERDATA, (LONG_PTR) this);
+        // Shown and hidden at once, as the page's windows are (Windows fades and zooms windows in otherwise).
+        const BOOL off = TRUE;
+        DwmSetWindowAttribute (hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, &off, sizeof (off));
+        oleStarted = SUCCEEDED (OleInitialize (nullptr));
+        createController (environmentToUse);
+    }
+
     ~Host()
     {
         alive.reset();
         if (dropTarget != nullptr)
             RevokeDragDrop (hwnd);
         SetWindowLongPtrW (hwnd, GWLP_USERDATA, 0);
+        if (openedWhenReady != nullptr)
+            openedWhenReady->Complete();
         if (controller != nullptr)
             controller->Close();
+        // (The page's is destroyed by `HWNDComponent`; an opened window is its own.)
+        if (openedBy != nullptr)
+            DestroyWindow (hwnd);
         if (oleStarted)
             OleUninitialize();
     }
 
     HWND window() const { return hwnd; }
     bool composited() const { return composition; }
+
+    void setBackground (juce::Colour colour)
+    {
+        background = colour;
+        if (ComPtr<ICoreWebView2Controller2> controller2; controller != nullptr && SUCCEEDED (controller.As (&controller2)))
+            controller2->put_DefaultBackgroundColor ({ colour.getAlpha(), colour.getRed(), colour.getGreen(), colour.getBlue() });
+        InvalidateRect (hwnd, nullptr, TRUE);
+    }
 
     void focus()
     {
@@ -177,8 +214,28 @@ public:
 
     std::function<bool (POINT)> nonClient;
     std::function<void (const juce::StringArray&)> dragged;
+    std::function<bool (const juce::String&)> acceptsWindow;
+    std::function<void (const juce::String&, std::unique_ptr<PanelWindow>)> windowOpened;
+    std::function<void()> leaving;
+    /** An opened window was closed by something other than the page (Alt+F4, `window.close`). */
+    std::function<void()> closed;
 
 private:
+    static void registerClass()
+    {
+        static const auto registered = [] {
+            WNDCLASSEXW type {};
+            type.cbSize = sizeof (type);
+            type.style = CS_DBLCLKS;
+            type.lpfnWndProc = &Host::windowProc;
+            type.hInstance = GetModuleHandleW (nullptr);
+            type.hCursor = LoadCursor (nullptr, IDC_ARROW);
+            type.lpszClassName = windowClass;
+            return RegisterClassExW (&type) != 0;
+        }();
+        juce::ignoreUnused (registered);
+    }
+
     /**
      * Composition: Explorer's drags reach our window, not WebView2's, so they're handed on (WebView2APISample's
      * `DropTarget`), saying first where the files are (`dragged`), with the system's picture of what's dragged.
@@ -303,6 +360,9 @@ private:
         settings->put_IsStatusBarEnabled (FALSE);
         // Ctrl+wheel zooms the Piano roll and the Playlist, not the page.
         settings->put_IsZoomControlEnabled (FALSE);
+        // The keys are the page's, FL Studio's: F5 is the Playlist, not a reload (nor Ctrl+R, Ctrl+F, Ctrl+P...).
+        if (ComPtr<ICoreWebView2Settings3> settings3; SUCCEEDED (settings.As (&settings3)))
+            settings3->put_AreBrowserAcceleratorKeysEnabled (FALSE);
         // (Not WebView2's own drag regions, `IsNonClientRegionSupportEnabled`: the page sends them again on nearly every
         // frame while it animates, and its browser process fell behind, growing by 50 MB a second while a song played.
         // The page says where its bars are itself: `host.dragRegions`.)
@@ -311,7 +371,7 @@ private:
         // { id, command, params } -> { id, ok, result } or { id, ok: false, error }.
         webView->add_WebMessageReceived (Callback<ICoreWebView2WebMessageReceivedEventHandler> ([this] (ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) {
             LPWSTR json = nullptr;
-            if (FAILED (args->get_WebMessageAsJson (&json)))
+            if (onCommand == nullptr || FAILED (args->get_WebMessageAsJson (&json)))
                 return S_OK;
             const auto message = juce::JSON::parse (take (json));
             const auto id = message["id"];
@@ -324,12 +384,45 @@ private:
             });
             return S_OK;
         }).Get(), &token);
-        // What the page opens in a new window (a link, Help's pages) goes to the computer's browser.
-        webView->add_NewWindowRequested (Callback<ICoreWebView2NewWindowRequestedEventHandler> ([] (ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) {
+        // A window of the app's the page opens (a panel) is one of ours, its document the page's own; anything else (a
+        // link, Help's pages) goes to the computer's browser.
+        webView->add_NewWindowRequested (Callback<ICoreWebView2NewWindowRequestedEventHandler> ([this] (ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) {
+            LPWSTR name = nullptr;
+            ComPtr<ICoreWebView2NewWindowRequestedEventArgs2> named;
+            const auto windowName = SUCCEEDED (args->QueryInterface (IID_PPV_ARGS (&named))) && SUCCEEDED (named->get_Name (&name)) ? take (name) : juce::String();
+            if (acceptsWindow != nullptr && windowOpened != nullptr && acceptsWindow (windowName))
+            {
+                ComPtr<ICoreWebView2Deferral> deferral;
+                args->GetDeferral (&deferral);
+                auto opened = std::make_unique<Host> (environment.Get(), GetAncestor (hwnd, GA_ROOTOWNER), background, args, deferral);
+                windowOpened (windowName, std::make_unique<PanelWindow> (std::move (opened)));
+                return S_OK;
+            }
             LPWSTR uri = nullptr;
             if (SUCCEEDED (args->get_Uri (&uri)))
                 juce::URL (take (uri)).launchInDefaultBrowser();
             args->put_Handled (TRUE);
+            return S_OK;
+        }).Get(), &token);
+        if (openedBy != nullptr)
+        {
+            // The page's `window.close`, or its document went.
+            webView->add_WindowCloseRequested (Callback<ICoreWebView2WindowCloseRequestedEventHandler> ([this] (ICoreWebView2*, IUnknown*) {
+                if (closed != nullptr)
+                    closed();
+                return S_OK;
+            }).Get(), &token);
+            resize();
+            controller->put_IsVisible (TRUE);
+            // The page's window now: it draws its document into it.
+            openedBy->put_NewWindow (webView.Get());
+            std::exchange (openedWhenReady, nullptr)->Complete();
+            return;
+        }
+        // A reload, or another address: what the page opened goes with it.
+        webView->add_NavigationStarting (Callback<ICoreWebView2NavigationStartingEventHandler> ([this] (ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs*) {
+            if (leaving != nullptr)
+                leaving();
             return S_OK;
         }).Get(), &token);
         // The app's dev server may not be up yet when the engine starts: try again until it is.
@@ -421,6 +514,21 @@ private:
             resize();
             return 0;
         }
+        if (openedBy != nullptr)
+        {
+            // (Composed, WebView2 knows where it is on the screen only when told: a panel's drag reads `screenX`.)
+            if (message == WM_MOVE)
+                parentMoved();
+            // Alt+F4 on a panel: the page closes it (or keeps it hidden for the next).
+            if (message == WM_CLOSE)
+            {
+                if (closed != nullptr)
+                    closed();
+                return 0;
+            }
+            if (message == WM_ACTIVATE && LOWORD (wParam) != WA_INACTIVE)
+                focus();
+        }
         if (message == WM_SETFOCUS)
         {
             focus();
@@ -428,6 +536,8 @@ private:
         }
         if (message == WM_ERASEBKGND)
         {
+            if (background.getAlpha() == 0)
+                return 1;
             RECT area;
             GetClientRect (hwnd, &area);
             auto* brush = CreateSolidBrush (RGB (background.getRed(), background.getGreen(), background.getBlue()));
@@ -463,9 +573,12 @@ private:
     }
 
     juce::String url;
-    const juce::Colour background;
+    juce::Colour background;
     const CommandHandler onCommand;
     const bool composition;
+    /** A window the page opened: what asked for it, and what holds it back until WebView2 is in it. */
+    ComPtr<ICoreWebView2NewWindowRequestedEventArgs> openedBy;
+    ComPtr<ICoreWebView2Deferral> openedWhenReady;
     std::shared_ptr<bool> alive = std::make_shared<bool> (true);
     HWND hwnd = nullptr;
     bool oleStarted = false;
@@ -488,6 +601,15 @@ WebView::WebView (const juce::String& url, const juce::File& userDataFolder, juc
     host->dragged = [this] (const juce::StringArray& paths) {
         if (onDragPaths != nullptr)
             onDragPaths (paths);
+    };
+    host->acceptsWindow = [this] (const juce::String& name) { return acceptsWindow != nullptr && acceptsWindow (name); };
+    host->windowOpened = [this] (const juce::String& name, std::unique_ptr<PanelWindow> window) {
+        if (onWindowOpened != nullptr)
+            onWindowOpened (name, std::move (window));
+    };
+    host->leaving = [this] {
+        if (onLeaving != nullptr)
+            onLeaving();
     };
     setHWND (host->window());
 }
@@ -531,5 +653,77 @@ void WebView::setNonClient (std::function<bool (juce::Point<int>)> isNonClient)
 void WebView::forwardMouse (unsigned int message, juce::Point<int> screen)
 {
     host->forwardMouse (message, { screen.x, screen.y });
+}
+
+PanelWindow::PanelWindow (std::unique_ptr<WebView::Host> hostToUse) : host (std::move (hostToUse))
+{
+    host->closed = [this] {
+        if (onClosed != nullptr)
+            onClosed();
+    };
+    host->dragged = [this] (const juce::StringArray& paths) {
+        if (onDragPaths != nullptr)
+            onDragPaths (paths);
+    };
+}
+
+PanelWindow::~PanelWindow() = default;
+
+void PanelWindow::show (bool focus)
+{
+    if (focus)
+    {
+        ShowWindow (host->window(), SW_SHOW);
+        SetForegroundWindow (host->window());
+        return;
+    }
+    // Without the keyboard: behind the window in use, if it's one of the app's own (a panel, a plugin's), else in
+    // front of the others. (Shown later than the one in front, a song's windows opening came up in front of it.)
+    auto* inUse = GetForegroundWindow();
+    const auto app = GetAncestor (host->window(), GA_ROOTOWNER);
+    const auto behind = inUse != nullptr && inUse != host->window() && inUse != app && GetAncestor (inUse, GA_ROOTOWNER) == app;
+    SetWindowPos (host->window(), behind ? inUse : HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+}
+
+void PanelWindow::raise()
+{
+    if (! IsWindowVisible (host->window()))
+        return;
+    SetWindowPos (host->window(), HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    SetForegroundWindow (host->window());
+}
+
+void PanelWindow::hide()
+{
+    ShowWindow (host->window(), SW_HIDE);
+}
+
+bool PanelWindow::isShown() const
+{
+    return IsWindowVisible (host->window()) != FALSE;
+}
+
+void PanelWindow::place (juce::Rectangle<int> bounds)
+{
+    const auto physical = juce::Desktop::getInstance().getDisplays().logicalToPhysical (bounds);
+    SetWindowPos (host->window(), nullptr, physical.getX(), physical.getY(), juce::jmax (1, physical.getWidth()), juce::jmax (1, physical.getHeight()),
+                  SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+}
+
+void PanelWindow::moveBy (juce::Point<int> delta)
+{
+    RECT frame;
+    if (GetWindowRect (host->window(), &frame))
+        SetWindowPos (host->window(), nullptr, frame.left + delta.x, frame.top + delta.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+}
+
+void PanelWindow::setBackground (juce::Colour colour)
+{
+    host->setBackground (colour);
+}
+
+void PanelWindow::setTitle (const juce::String& title)
+{
+    SetWindowTextW (host->window(), title.toWideCharPointer());
 }
 #endif

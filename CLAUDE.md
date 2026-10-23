@@ -321,8 +321,8 @@ as the music app until its installer is built.
 ## Windows (the page can be in several)
 
 The music editor's windows and Settings can be windows of the operating system, drawn by the same React tree, where
-the page's host gives it `panels` (`desktopPanels()`): only the music app on Windows will, with step 3's Windows half
-(`NATIVE_WINDOWS` in `floating-window.tsx`, `docs/windows.md`); everywhere else they're boxes in the page. `window` and `document` are always the main page's, so code that runs inside a
+the page's host gives it `panels` (`desktopPanels()`): only the music app on Windows does (the engine's own windows,
+`PanelWindow`; `NATIVE_WINDOWS` in `floating-window.tsx`, `docs/windows.md`); everywhere else they're boxes in the page. `window` and `document` are always the main page's, so code that runs inside a
 window must say which one it means: `addWindowListener` for what the editor wants in every window (shortcuts, a
 drag's end), `ownerWindow` / `ownerDocument(event.target)` (`elementFromPoint`, `devicePixelRatio`, `activeElement`,
 `getSelection`), `isElement` / `isHtmlElement` instead of `instanceof Element` (another window's elements aren't

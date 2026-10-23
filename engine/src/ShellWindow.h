@@ -10,6 +10,7 @@
 #include <map>
 
 class Engine;
+class PanelWindow;
 
 class ShellWindow final : public juce::DocumentWindow
 {
@@ -63,6 +64,16 @@ private:
     void* dressedPeer = nullptr;
     /** How tall the bar that starts the window is (`host.titleBar`, points): the page's window buttons are as tall. */
     int titleBarHeight = 40;
+    /**
+     * The page's panels (the music editor's windows, Settings: `DesktopPanels` in src/lib/desktop.ts), windows of the
+     * system's it opened by name and places itself (`host.panel`). Owned by this one, as the plugin windows are.
+     */
+    std::map<juce::String, std::unique_ptr<PanelWindow>> panels;
+    bool panelCommand (const juce::var& params);
+    /** Where the window is, in physical pixels, when its panels last went along with it. */
+    juce::Rectangle<int> panelsFollowed;
+    /** Where the window is, in points, and the displays' usable areas: what the page places its panels by. */
+    juce::var screenAreas();
     /** Whether the page was last told the window is maximised (`maximized`). */
     bool saidMaximised = false;
     /**

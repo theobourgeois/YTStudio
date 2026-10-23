@@ -9,7 +9,7 @@
  * Imported first by main.tsx: `isDesktop` (lib/desktop.ts) is decided when that module loads, from what this sets.
  * So it imports nothing of the app's (types only).
  */
-import type { DesktopCommand } from "@/lib/desktop";
+import type { DesktopCommand, DesktopPanels, ScreenRect } from "@/lib/desktop";
 
 /** What JUCE's web view puts on the page (juce_WebBrowserComponent's script, as of JUCE 8). */
 interface JuceBackend {
@@ -35,7 +35,7 @@ type Reply = { ok: true; result: unknown } | { ok: false; error: string };
 
 /**
  * What the engine tells the page unasked: `command`, `fullscreen` and `zoom` only on macOS (`ShellWindow::menu`,
- * `macShell::Listener`), `maximized` only on Windows.
+ * `macShell::Listener`), `maximized`, `screen` and `panelClosed` only on Windows.
  */
 type HostEvent =
   | { event: "flush"; request: number }
@@ -43,6 +43,8 @@ type HostEvent =
   | { event: "command"; name: string }
   | { event: "fullscreen"; on: boolean }
   | { event: "maximized"; on: boolean }
+  | { event: "screen"; screen: Screen }
+  | { event: "panelClosed"; name: string }
   | { event: "zoom"; factor: number }
   | { event: "dragPaths"; paths: string[] };
 
@@ -84,6 +86,8 @@ function received(event: HostEvent) {
   else if (event.event === "command") window.editorDesktop?.command(event.name as DesktopCommand);
   else if (event.event === "fullscreen") document.documentElement.classList.toggle("fullscreen", event.on);
   else if (event.event === "maximized") markMaximized(event.on);
+  else if (event.event === "screen") movedTo(event.screen);
+  else if (event.event === "panelClosed") for (const listener of closedListeners) listener(event.name);
   else if (event.event === "zoom") markZoom(event.factor);
   else if (event.event === "dragPaths") dragged = event.paths;
 }
@@ -92,6 +96,43 @@ function received(event: HostEvent) {
 function markZoom(factor: number) {
   document.documentElement.style.setProperty("--desktop-zoom", String(factor));
 }
+
+/** Where the window is (points), and the displays' usable areas: the engine says so as it moves (`screenAreas`). */
+interface Screen {
+  content: ScreenRect;
+  workAreas: ScreenRect[];
+}
+let screen: Screen | null = null;
+const boundsListeners = new Set<(bounds: ScreenRect) => void>();
+const closedListeners = new Set<(name: string) => void>();
+function movedTo(now: Screen) {
+  screen = now;
+  for (const listener of boundsListeners) listener(now.content);
+}
+
+/**
+ * Windows: the page's panels as windows of the engine's own (`PanelWindow`, owned by the app's window as the plugin
+ * windows are, so the two stack among each other by use, as FL Studio's do). The page opens each with `window.open`
+ * (WebView.cpp makes it, its document the page's own) and places it; this tells the engine the rest.
+ */
+const panels: DesktopPanels = {
+  show: (name, focus) => void hostCommand("host.panel", { action: "show", name, focus }),
+  raise: (name) => void hostCommand("host.panel", { action: "raise", name }),
+  hide: (name) => void hostCommand("host.panel", { action: "hide", name }),
+  place: (name, rect, basis) => void hostCommand("host.panel", { action: "place", name, rect, basis }),
+  configure: (name, options) => void hostCommand("host.panel", { action: "configure", name, options }),
+  close: (name) => void hostCommand("host.panel", { action: "close", name }),
+  contentBounds: () => screen?.content ?? null,
+  workAreas: () => screen?.workAreas ?? [],
+  onContentBounds(listener) {
+    boundsListeners.add(listener);
+    return () => void boundsListeners.delete(listener);
+  },
+  onClosed(listener) {
+    closedListeners.add(listener);
+    return () => void closedListeners.delete(listener);
+  },
+};
 
 /** Windows: the window is maximised (`CaptionButtons` shows restore rather than maximise). */
 function markMaximized(on: boolean) {
@@ -141,7 +182,7 @@ if (hosted)
     // By its name among what Finder or Explorer said it's dragging (`dragPaths`), which comes before the drop.
     pathForFile: (file) => dragged.find((path) => baseName(path) === file.name) ?? "",
     ...(mac && { hideApp: (which) => void hostCommand("host.hide", { which }) }),
-    ...(windows && { captionButtons: true }),
+    ...(windows && { captionButtons: true, panels }),
   };
 
 /**
@@ -223,8 +264,10 @@ if (mac) {
  */
 export async function startHost(): Promise<void> {
   if (!hosted) return;
-  const { files, zoom, maximized } = (await hostCommand("host.ready")) as { files: string[]; zoom?: number; maximized?: boolean };
-  if (mac && zoom) markZoom(zoom);
-  if (windows) markMaximized(maximized === true);
+  const ready = (await hostCommand("host.ready")) as { files: string[]; zoom?: number; maximized?: boolean; screen?: Screen };
+  if (mac && ready.zoom) markZoom(ready.zoom);
+  if (windows) markMaximized(ready.maximized === true);
+  if (windows && ready.screen) movedTo(ready.screen);
+  const { files } = ready;
   for (const path of files) await window.editorDesktop?.openFile(path);
 }

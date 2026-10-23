@@ -12,6 +12,8 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 
 #if JUCE_WINDOWS
+class PanelWindow;
+
 class WebView : public juce::HWNDComponent
 {
 public:
@@ -51,8 +53,52 @@ public:
     /** Files dragged from Explorer over the page: where they are, which the page can't know (`droppedPath`). */
     std::function<void (const juce::StringArray& paths)> onDragPaths;
 
-private:
+    /**
+     * The page opens a window (`window.open`) named `name`: whether it's one of the app's (a panel's,
+     * src/components/windows/native/), shown in a `PanelWindow` handed to `onWindowOpened`. Others (a link) go to the
+     * computer's browser.
+     */
+    std::function<bool (const juce::String& name)> acceptsWindow;
+    std::function<void (const juce::String& name, std::unique_ptr<PanelWindow> window)> onWindowOpened;
+    /** The page is going (a reload, another address): the windows it opened have no one to draw them. */
+    std::function<void()> onLeaving;
+
     class Host;
+
+private:
     std::unique_ptr<Host> host;
+};
+
+/**
+ * A window the page opened (`window.open` with a panel's name: src/components/windows/native/): a window of the
+ * system's with no frame, owned by the shell's window (above it, minimised with it, no taskbar button), whose document
+ * is the page's own (same renderer: the page draws into it and places it). Drawn by WebView2 as the page is.
+ */
+class PanelWindow
+{
+public:
+    explicit PanelWindow (std::unique_ptr<WebView::Host> host);
+    ~PanelWindow();
+
+    /** Shown, given the keyboard (`focus`) or not. */
+    void show (bool focus);
+    /** In front of the app's other windows, with the keyboard. */
+    void raise();
+    void hide();
+    bool isShown() const;
+    /** Where it is, in points (JUCE's logical pixels, as the page's `ScreenRect`s). */
+    void place (juce::Rectangle<int> bounds);
+    /** Moved by physical pixels: the shell's window moved, and its panels go along (as plugin windows do). */
+    void moveBy (juce::Point<int> delta);
+    void setBackground (juce::Colour colour);
+    void setTitle (const juce::String& title);
+
+    /** It was closed by something other than the page (Alt+F4, the page's `window.close`). */
+    std::function<void()> onClosed;
+    /** Files dragged from Explorer over it: where they are (`WebView::onDragPaths`). */
+    std::function<void (const juce::StringArray& paths)> onDragPaths;
+
+private:
+    std::unique_ptr<WebView::Host> host;
 };
 #endif

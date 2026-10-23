@@ -73,6 +73,13 @@ is linked statically. Its profile is kept in `<data>/engine/webview`.
 - **Explorer's drops** go to WebView2 through `DropTarget` (with the system's drag picture), and the page is told the
   files' paths first (`dragPaths`, `pathForFile`), as on a Mac. Meanwhile the page's bars are the page's (a song
   dropped on the tab strip). A project opened is added to Windows' recent documents (`host.recent`).
+- **The keys are the page's**: WebView2's own (F5 reloads, Ctrl+F finds, Ctrl+P prints) are off
+  (`AreBrowserAcceleratorKeysEnabled`), and the keyboard Windows gives the window (Alt+Tab, a plugin's window closed)
+  goes on to the page (`winShell::dress`), which JUCE's window otherwise kept until the page was clicked.
+- **Panels are the engine's windows** (`PanelWindow`, docs/windows.md): the page's `window.open` with a panel's name
+  makes one (`NewWindowRequested`), and `host.panel` shows, places, hides and closes it; the page is told where the
+  window is and the displays' work areas (`screen`, with `host.ready` and as it moves) and when a panel was closed
+  by something else (`panelClosed`). A reload closes them all.
 - **The playhead doesn't stop while a window is dragged** (`dragWithoutPause`, MacWindow.cpp, the app's window and
   the plugins'): a press on a title bar goes straight into the system's move loop, where the message loop runs on.
   JUCE handed it to `DefWindowProc` once the mouse moved, which then waited up to half a second to see it move on,
@@ -121,4 +128,4 @@ does for the other apps (`electron/main.ts`), so the page can't tell them apart.
 told to run this checkout's server through tsx and show Vite's page, so the page reloads as it's edited; the server
 isn't watched: a C++ or server change means quitting and running it again). `pnpm dev:shell` is every suite there.
 
-**Still to do** (docs/apps.md): on Windows panels as owned windows, packaging (step 3's Windows half).
+**Still to do** (docs/apps.md): packaging on Windows (step 3's Windows half).

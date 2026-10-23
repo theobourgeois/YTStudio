@@ -43,18 +43,20 @@ same title bars, snapping, stacking and keys.
 
 ## Native windows (for the music app on Windows)
 
-> **Nowhere yet.** The page can draw a desktop's windows as windows of the system (`components/windows/native/`),
-> but only where its host hands it `panels` (`DesktopPanels`, `desktopPanels()`), and today none does: Electron's
-> (`electron/panels.ts`, with its floating levels, restacking and hover relay) went when the music editor left the
-> Electron apps (docs/apps.md, step 5), and the music app (the engine is the app) gives them on Windows with step 3's
-> Windows half (`NATIVE_WINDOWS` in `components/windows/floating-window.tsx` is Windows only). Everywhere else the
-> editor's windows are boxes in the page, as above. There, each panel will be a window owned by the shell window, as
-> the plugin windows are (`EditorWindow::setShellWindow`): owned windows are always above their owner, minimised with
-> it and stacked among each other by use, so the Piano roll comes in front of Serum when it's clicked and Serum in
-> front of it, as in FL Studio, with no window levels and no restacking. One program, so none of the waiting across
-> programs that owning Electron's windows from the engine caused.
+> **Only in the music app on Windows.** The page draws a desktop's windows as windows of the system
+> (`components/windows/native/`) where its host hands it `panels` (`DesktopPanels`, `desktopPanels()`): the music app
+> on Windows (the engine is the app: `src/lib/host.ts`, `host.panel`), whose engine makes each window the page opens
+> with a panel's name (`NewWindowRequested` in `engine/src/WebView.cpp`: a `PanelWindow`, its own WebView2 given to the
+> page as the window it opened). Each is owned by the shell window, as the plugin windows are
+> (`EditorWindow::setShellWindow`): owned windows are always above their owner, minimised with it and stacked among
+> each other by use, so the Piano roll comes in front of Serum when it's clicked and Serum in front of it, as in FL
+> Studio, with no window levels and no restacking; one shown without the keyboard goes behind the one in use. They
+> move with the shell window at once (by its physical pixels, as the plugin windows), and are shown and hidden with no
+> fade (DWM's transitions off). One program, so none of the waiting across programs that owning Electron's windows
+> from the engine caused (Electron's, `electron/panels.ts`, went with docs/apps.md's step 5). Everywhere else the
+> editor's windows are boxes in the page, as above.
 
-What the page's side does, kept for that host:
+What the page's side does:
 
 - **One React tree, several documents.** `FloatingWindow` opens a window with `window.open` (same origin, same
   renderer; the host makes it frameless and hidden), copies the page's theme and stylesheets into it
