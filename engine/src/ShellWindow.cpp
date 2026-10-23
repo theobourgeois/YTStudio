@@ -393,6 +393,7 @@ void ShellWindow::dressPeer()
     if (native == nullptr || native == dressedPeer)
         return;
     dressedPeer = native;
+    dragWithoutPause (*this);
     winShell::dress (*this, [this] (unsigned int message, juce::Point<int> screen) { page->forwardMouse (message, screen); });
 }
 #endif

@@ -398,6 +398,7 @@ void EditorWindow::parentHierarchyChanged()
 {
     DocumentWindow::parentHierarchyChanged();
     followAppWindow();
+    dragWithoutPause (*this);
 }
 
 void EditorWindow::centreOver (juce::Rectangle<int> area)
@@ -412,6 +413,7 @@ void EditorWindow::show()
 {
     juce::Process::makeForegroundProcess();
     followAppWindow();
+    dragWithoutPause (*this);
     setVisible (true);
     keepOutOfWindowSwitchers (*this);
     toFront (true);

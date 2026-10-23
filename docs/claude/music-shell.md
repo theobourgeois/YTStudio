@@ -73,6 +73,11 @@ is linked statically. Its profile is kept in `<data>/engine/webview`.
 - **Explorer's drops** go to WebView2 through `DropTarget` (with the system's drag picture), and the page is told the
   files' paths first (`dragPaths`, `pathForFile`), as on a Mac. Meanwhile the page's bars are the page's (a song
   dropped on the tab strip). A project opened is added to Windows' recent documents (`host.recent`).
+- **The playhead doesn't stop while a window is dragged** (`dragWithoutPause`, MacWindow.cpp, the app's window and
+  the plugins'): a press on a title bar goes straight into the system's move loop, where the message loop runs on.
+  JUCE handed it to `DefWindowProc` once the mouse moved, which then waited up to half a second to see it move on,
+  dispatching nothing meanwhile: no timers, so no transport events (measured: 537 ms with the mouse held still after
+  the first move; about 100 ms now).
 
 Plugin windows are owned by the window (`EditorWindow::setShellWindow`): an owned window on Windows, a child window
 on macOS (`setWindowOwner`, MacWindow.cpp). They stay over it, move with it and never ask another program anything.

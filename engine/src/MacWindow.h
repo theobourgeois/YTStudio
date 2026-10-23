@@ -51,6 +51,13 @@ void moveWindowBy (juce::Component& window, juce::Point<int> delta);
  */
 void cloakWindow (juce::Component& window, bool cloaked);
 
+/**
+ * Windows: a press on the window's title bar moves it at once, in the system's move loop, rather than after the
+ * system has waited to see whether the mouse goes on moving (the message loop stops meanwhile, and with it every
+ * timer: the playhead). Call once it has a peer, and again for a new one (it's done once a peer). Nothing elsewhere.
+ */
+void dragWithoutPause (juce::Component& window);
+
 /** Windows: keep the computer from sleeping while the song plays (`playing`), or let it again. Nothing elsewhere. */
 void keepAwake (bool playing);
 
