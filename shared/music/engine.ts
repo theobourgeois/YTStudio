@@ -479,13 +479,6 @@ export type EngineEvent =
       recording?: { id: string; levels: Record<string, number[] | number> } | null;
     } & EngineTransport)
   | { event: "status"; status: EngineStatus }
-  /**
-   * The engine became the app in front (`on`: one of its plugin windows has the focus), or stopped being:
-   * the desktop app stacks its own floating windows by it (`electron/floating.ts`).
-   */
-  | { event: "foreground"; on: boolean }
-  /** A plugin's window became the active one (`owner`: "channel" or "effect"; `id` the channel's or effect's). */
-  | { event: "editorFocus"; owner: "channel" | "effect"; id: string }
   | ({ event: "key" } & EngineKey)
   | ({ event: "touch" | "automate" } & PluginParameter)
   /**
@@ -559,25 +552,6 @@ export type EngineExportEvent = { event: "export"; id: string } & (
   | { state: "failed"; error: string; missing: string[] }
   | { state: "aborted"; missing: string[] }
 );
-
-/**
- * What the desktop app tells the engine about itself whenever it changes, so plugin windows act as
- * windows of its own, stacked among its floating ones (`docs/fl-studio/plugin-window.md`).
- */
-export interface HostWindow {
-  /**
-   * The app is the one in use (one of its windows, or a plugin's, has the focus): its floating windows,
-   * the plugins' too, are above the other apps' windows and stack among each other by use. Otherwise
-   * they're ordinary windows, behind whatever app was switched to.
-   */
-  floating: boolean;
-  /** The app's window isn't minimised or hidden: if it is, plugin windows hide with it. */
-  visible: boolean;
-  /** Where its window is on the screen, in points: plugin windows move when it does. */
-  bounds: { x: number; y: number; width: number; height: number };
-  /** Windows: its HWND, as a decimal number: plugin windows belong to it (above it only, no taskbar button). */
-  handle?: string;
-}
 
 /** The song to play (`POST /api/engine/song`): the tab's copy of the document, saved or not. */
 /**
@@ -778,8 +752,6 @@ export interface EngineCommands {
    * middle C): played on the MIDI target and told back in `midi` events. The typing keyboard's notes.
    */
   midiIn: { messages: number[][] };
-  /** A plugin's window in front of the other windows, without the keyboard (the app puts its windows back in order). */
-  raiseEditor: { owner: "channel" | "effect"; target: string };
   /** Show or close the window of a plugin channel's plugin. */
   channelEditor: { channel: string; open: boolean };
   /**

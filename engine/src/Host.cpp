@@ -104,7 +104,7 @@ std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& ownerId, cons
     loading[ownerId] = loadKey;
     // Loading it (and its state) is the message thread's, and some plugins take seconds.
     formats.createPluginInstanceAsync (*description, sampleRate, blockSize,
-                                       [this, stillAlive = alive, ownerId, pluginId, loadKey, stateFile, ownerName, hold = EditorWindow::whileBusy()] (std::unique_ptr<juce::AudioPluginInstance> created, const juce::String& error) {
+                                       [this, stillAlive = alive, ownerId, pluginId, loadKey, stateFile, ownerName] (std::unique_ptr<juce::AudioPluginInstance> created, const juce::String& error) {
                                            if (! *stillAlive)
                                                return;
                                            // Asked for something else (or nothing) since.
@@ -210,8 +210,6 @@ bool PluginHost::showEditor (const juce::String& ownerId, bool open)
         hosted.window->onStep = [this, ownerId] (int direction) { stepPreset (ownerId, direction); };
         hosted.window->onSettings = [this, ownerId] { protocol::send (protocol::object ({ { "event", "wrapper" }, { "owner", ownerKey }, { "id", ownerId } })); };
         hosted.window->setPreset (presetLabel (hosted), hosted.instance->getNumPrograms() > 1 || ! presetNames (hosted).isEmpty());
-        // The app keeps the order its floating windows (and ours) are in, so it knows which one was used last.
-        hosted.window->onActivated = [this, ownerId] { protocol::send (protocol::object ({ { "event", "editorFocus" }, { "owner", ownerKey }, { "id", ownerId } })); };
         // Its Automate button: the tab makes an automation clip of the parameter last touched in it.
         hosted.window->onAutomate = [this, ownerId] (int index) {
             if (const auto described = describeParameter (ownerId, index); described.isObject())
@@ -222,38 +220,14 @@ bool PluginHost::showEditor (const juce::String& ownerId, bool open)
         };
         if (const auto touched = hosted.watcher.touched.load(); touched >= 0)
             hosted.window->setTouched (touched, hosted.instance->getParameters()[touched]->getName (64));
-       #if JUCE_WINDOWS
         // Over the app's window, as FL opens its plugins, rather than in the middle of the main screen.
-        if (hostKnown && ! hostBounds.isEmpty())
+        if (! hostBounds.isEmpty())
             hosted.window->centreOver (hostBounds);
-       #endif
     }
-    placeWindows();
-    hosted.window->show();
-    placeWindows();
+    // Plugin windows are hidden while a song exports (`setExporting` shows them again after).
+    if (! exporting)
+        hosted.window->show();
     return true;
-}
-
-bool PluginHost::raiseEditor (const juce::String& ownerId)
-{
-    const auto found = loaded.find (ownerId);
-    if (found == loaded.end() || found->second->window == nullptr)
-        return false;
-    // In front of the other windows, without taking the focus: the app puts its windows back in order after another app was in use.
-    found->second->window->toFront (false);
-    return true;
-}
-
-juce::String PluginHost::focusedEditor() const
-{
-    auto* focused = juce::Component::getCurrentlyFocusedComponent();
-    auto* top = focused != nullptr ? focused->getTopLevelComponent() : juce::TopLevelWindow::getActiveTopLevelWindow();
-    if (top == nullptr)
-        return {};
-    for (const auto& [id, hosted] : loaded)
-        if (hosted->window.get() == top)
-            return id;
-    return {};
 }
 
 juce::String PluginHost::titleOf (const HostedPlugin& hosted)
@@ -264,21 +238,14 @@ juce::String PluginHost::titleOf (const HostedPlugin& hosted)
 
 void PluginHost::setHost (const juce::var& host)
 {
-    hostFloating = host.hasProperty ("floating") ? (bool) host["floating"] : true;
-    hostVisible = host.hasProperty ("visible") ? (bool) host["visible"] : true;
-    // Windows: its main window's handle, which plugin windows then belong to (null: the window is gone, or a browser).
-    EditorWindow::setAppWindow (appWindowFromHandle (host["handle"].toString()));
-
     const auto bounds = host["bounds"];
+    if (! bounds.isObject())
+        return;
     const juce::Rectangle<int> now ((int) bounds["x"], (int) bounds["y"], (int) bounds["width"], (int) bounds["height"]);
     // Moved (not resized, maximised or made full screen): its plugin windows go along. (The shell's child windows
     // on macOS go by themselves.)
-   #if JUCE_MAC
-    const auto moveAlong = ! EditorWindow::inShell();
-   #else
-    const auto moveAlong = true;
-   #endif
-    if (moveAlong && hostKnown && bounds.isObject() && ! hostBounds.isEmpty() && now.getWidth() == hostBounds.getWidth() && now.getHeight() == hostBounds.getHeight())
+   #if ! JUCE_MAC
+    if (! hostBounds.isEmpty() && now.getWidth() == hostBounds.getWidth() && now.getHeight() == hostBounds.getHeight())
     {
         const auto delta = now.getPosition() - hostBounds.getPosition();
         if (delta != juce::Point<int>())
@@ -286,11 +253,8 @@ void PluginHost::setHost (const juce::var& host)
                 if (hosted->window != nullptr)
                     hosted->window->setTopLeftPosition (hosted->window->getPosition() + delta);
     }
-    if (bounds.isObject())
-        hostBounds = now;
-
-    hostKnown = true;
-    placeWindows();
+   #endif
+    hostBounds = now;
 }
 
 juce::Result PluginHost::setParameter (const juce::String& ownerId, const juce::String& id, float value, const juce::String& gesture)
@@ -357,7 +321,6 @@ void PluginHost::completeSwaps (bool untended)
             hosted.swap.compare_exchange_strong (state, HostedPlugin::Swap::parked);
         if (hosted.swap.load() != HostedPlugin::Swap::parked)
             continue;
-        const auto hold = EditorWindow::whileBusy();
         std::exchange (hosted.swapAction, nullptr) (&hosted);
         hosted.swap.store (HostedPlugin::Swap::resuming);
     }
@@ -481,7 +444,6 @@ void PluginHost::setExporting (bool on)
         if (hosted->window != nullptr)
             hosted->window->setVisible (! on);
     }
-    placeWindows();
 }
 
 void PluginHost::reset()
@@ -492,38 +454,6 @@ void PluginHost::reset()
         hosted->numPending = 0;
         hosted->midi.clear();
     }
-}
-
-void PluginHost::placeWindows()
-{
-    if (exporting)
-    {
-        for (auto& [id, hosted] : loaded)
-            if (hosted->window != nullptr && hosted->window->isVisible())
-                hosted->window->setVisible (false);
-        return;
-    }
-    if (! hostKnown)
-        return;
-    for (auto& [id, hosted] : loaded)
-        if (auto* window = hosted->window.get())
-        {
-            // Windows: a window of the app's (owned by its main window, or by none once that's gone).
-            window->followAppWindow();
-            if (EditorWindow::appWindow() != nullptr)
-            {
-                // That keeps it above the app's window and only that one, so no level is needed (always on top
-                // would put it over every other program's windows).
-                if (window->isAlwaysOnTop())
-                    window->setAlwaysOnTop (false);
-            }
-            // At the level of the app's own floating windows (so they stack among each other by use, a click
-            // raising the one it lands on), or at the ordinary level once the app is no longer the one in use.
-            else if (window->isAlwaysOnTop() != hostFloating)
-                window->setAlwaysOnTop (hostFloating);
-            if (window->isVisible() != hostVisible)
-                window->setVisible (hostVisible);
-        }
 }
 
 void PluginHost::configure (HostedPlugin& hosted) const
@@ -759,7 +689,6 @@ juce::Result PluginHost::loadPreset (const juce::String& ownerId, const juce::St
     const auto file = presetFolder (hosted).getChildFile (juce::File::createLegalFileName (name) + ".preset");
     if (! file.existsAsFile() || ! file.loadFileAsData (state) || state.getSize() == 0)
         return juce::Result::fail ("There's no preset \"" + name + "\" for " + hosted.instance->getName() + ".");
-    const auto hold = EditorWindow::whileBusy();
     hosted.instance->setStateInformation (state.getData(), (int) state.getSize());
     hosted.preset = file.getFileNameWithoutExtension();
     presetChanged (hosted);

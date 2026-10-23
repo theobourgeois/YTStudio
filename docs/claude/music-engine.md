@@ -82,22 +82,16 @@ Read the music suite's guide (`docs/claude/music.md`) first.
   checks where each hit lands, to the sample.
 - A plugin's window is the engine's (`EditorWindow`), so it can't be inside the app's; it acts as if it were
   (`docs/fl-studio/plugin-window.md`): our own title bar; keys the plugin doesn't use come back as an `EngineEvent`
-  "key" and the tab runs its editor-wide shortcuts (`resolvePluginWindowKey`: Space plays); and the desktop app
-  tells the engine about itself (`HostWindow`, `followByPluginWindows` in `electron/main.ts` →
-  `PluginHost::setHost`): plugin windows are at the **floating level**, the same as the app's own windows in the
-  desktop app (the music editor's windows are windows of the system there, "Windows" in CLAUDE.md and `docs/windows.md`),
-  so they stack among each other by use: a click raises whichever it lands on, and the rack can be in front of a
-  plugin that is in front of the Playlist. While another program is in use they all drop to the ordinary level;
-  they hide with the main window and move with it. The engine says when one of its windows is used (`EngineEvent`
-  "editorFocus", and "foreground": the engine became the app in front) and raises one on request (`raiseEditor`;
-  a request's parameters are flattened into the message with `id` and `cmd`, so a parameter can't be called `id`);
-  `electron/stacking.ts` keeps the order of all of them and puts it back after the app was away. **On Windows**
-  there are no levels: the desktop app sends its main window's HWND (`HostWindow.handle`), and plugin windows
-  become that window's owned windows (`setWindowOwner` in `MacWindow.cpp`, the engine's one platform file): above
-  it, not above other programs, minimised with it, no taskbar button (`EditorWindow::getDesktopWindowStyleFlags`).
-  Owned across programs, the app's thread waits for ours, so slow work on the message thread holds
-  `EditorWindow::whileBusy()` (plugin loads, editors made, presets and samples read): the windows belong to nothing
-  meanwhile. Wrap any new slow message-thread work the same way.
+  "key" and the tab runs its editor-wide shortcuts (`resolvePluginWindowKey`: Space plays). A request's parameters
+  are flattened into the message with `id` and `cmd`, so a parameter can't be called `id`. **In the music app** (the
+  engine is the app, `docs/claude/music-shell.md`) plugin windows belong to the shell window
+  (`EditorWindow::setShellWindow` → `setWindowOwner` in `MacWindow.cpp`, the engine's one platform file): a child
+  window on macOS, an owned window on Windows (above it, not above other programs, minimised with it, no taskbar
+  button: `EditorWindow::getDesktopWindowStyleFlags`). One program, so nothing waits on another's thread. The shell
+  tells `PluginHost::setHost` where its window is (the `host` command, `{ bounds }`), so a plugin's window opens
+  centred over it and, on Windows, moves along with it. A new plugin window is cloaked (DWM) until it's drawn, so it
+  never shows white first. Started by a server with `--data` (the Electron apps' offline previews, the tests) it has
+  no window to belong to, and a plugin's window is an ordinary one.
 - Keep it portable (it runs on Windows too): only JUCE's APIs, paths from the server. What a platform needs beyond
   them stays in its files: `MacWindow.cpp` (plugin windows, both systems), and the music app's window `ShellMac.mm`
   (macOS) and `WebView.cpp` (Windows).

@@ -4,10 +4,9 @@
  * compiled for the engine, folders indexed, files served, exports) made the windows lag while it ran there.
  *
  * What the server needs of the main process (the Trash, Show in Folder, the export's drawing page in a hidden
- * window) and what the main process asks of the server (where its window is, plugin windows) go over the
- * process's port as calls (`ServerMessage`); its log lines go to the main process's file.
+ * window) goes over the process's port as calls (`ServerMessage`); its log lines go to the main process's file.
  */
-import { type ServerCall, type ServerMessage, type ServerStart, type HostCall, describeError } from "./server-protocol.ts";
+import { type ServerMessage, type ServerStart, type HostCall, describeError } from "./server-protocol.ts";
 
 type Port = { postMessage(message: unknown): void; on(event: "message", listener: (event: { data: unknown }) => void): void };
 const port = (process as unknown as { parentPort: Port }).parentPort;
@@ -46,21 +45,7 @@ async function start({ options, env }: ServerStart) {
       };
     },
   });
-  running.onEngineWindow((event) => send({ type: "engineWindow", event }));
   send({ type: "ready", port: running.port });
-}
-
-/** A call from the main process (`ServerCall`). */
-async function answer(call: ServerCall): Promise<unknown> {
-  if (!running) throw new Error("The server isn't running yet.");
-  switch (call.method) {
-    case "setHostWindow":
-      return running.setHostWindow(call.host);
-    case "raiseEngineWindow":
-      return running.raiseEngineWindow(call.owner, call.id);
-    case "closeEngineWindows":
-      return running.closeEngineWindows();
-  }
 }
 
 port.on("message", ({ data }) => {
@@ -72,11 +57,6 @@ port.on("message", ({ data }) => {
     waiting.delete(message.id);
     if (message.ok) pending?.resolve(message.value);
     else pending?.reject(new Error(message.error));
-  } else if (message.type === "call") {
-    answer(message.call as ServerCall).then(
-      (value) => send({ type: "reply", id: message.id, ok: true, value }),
-      (err) => send({ type: "reply", id: message.id, ok: false, error: describeError(err) }),
-    );
   } else if (message.type === "close") {
     running?.close();
     running = null;

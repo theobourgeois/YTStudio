@@ -1,6 +1,6 @@
 /**
- * Opening a panel: a window of the operating system, made with `window.open` (the desktop app makes it
- * frameless and floating: electron/panels.ts), dressed in the page's theme and styles and given an element
+ * Opening a panel: a window of the operating system, made with `window.open` (the page's host makes it
+ * frameless: `DesktopPanels`), dressed in the page's theme and styles and given an element
  * to draw into. Same origin and same renderer, so the page's React draws straight into it and moves it
  * with `moveTo`/`resizeTo`: one script, one set of stores, several documents.
  *

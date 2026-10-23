@@ -141,7 +141,7 @@ void PluginBench::load (Slot& target, const juce::String& pluginId, std::functio
         return done (juce::Result::fail ("That plugin isn't in the list: scan for plugins first."));
 
     formats.createPluginInstanceAsync (*description, sampleRate, blockSize,
-                                       [this, &target, pluginId, finish = std::move (done), hold = EditorWindow::whileBusy()] (std::unique_ptr<juce::AudioPluginInstance> created, const juce::String& error) {
+                                       [this, &target, pluginId, finish = std::move (done)] (std::unique_ptr<juce::AudioPluginInstance> created, const juce::String& error) {
                                            if (created == nullptr)
                                                return finish (juce::Result::fail (error.isNotEmpty() ? error : "The plugin couldn't be loaded."));
                                            configure (*created);

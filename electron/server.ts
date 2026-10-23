@@ -5,7 +5,7 @@
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { type AppOptions, type EditorApp, createApp } from "../server/app.ts";
+import { type AppOptions, createApp } from "../server/app.ts";
 import { APP, FFMPEG, RECENTS_FROM } from "../server/config.ts";
 import { ffmpegVersion } from "../server/ffmpeg.ts";
 import { log } from "../server/log.ts";
@@ -28,13 +28,6 @@ export interface RunningServer {
   port: number;
   /** Stop background work and renders, and close the server. */
   close(): void;
-  /** The app changed (in use or not, minimised, moved): plugin windows follow it. */
-  setHostWindow: EditorApp["setHostWindow"];
-  /** The engine's plugin windows took the focus from the app's, or gave it back, or one was used. */
-  onEngineWindow: EditorApp["onEngineWindow"];
-  raiseEngineWindow: EditorApp["raiseEngineWindow"];
-  /** Close every plugin window. */
-  closeEngineWindows: EditorApp["closeEngineWindows"];
 }
 
 function listen(server: http.Server, port: number): Promise<number | null> {
@@ -61,7 +54,7 @@ export async function startServer({ dataDir, clientDir, ports, trash, reveal, op
   if (version) logger.info(`using ffmpeg ${version}`);
   else logger.warn(`ffmpeg not found (tried "${FFMPEG}"): importing and exporting won't work.`);
 
-  const { app, shutdown, setHostWindow, onEngineWindow, raiseEngineWindow, closeEngineWindows } = await createApp({ dataDir, clientDir, trash, reveal, app: APP, recentsFrom: RECENTS_FROM });
+  const { app, shutdown } = await createApp({ dataDir, clientDir, trash, reveal, app: APP, recentsFrom: RECENTS_FROM });
   const server = http.createServer(app);
   for (const candidate of ports) {
     const port = await listen(server, candidate);
@@ -69,10 +62,6 @@ export async function startServer({ dataDir, clientDir, ports, trash, reveal, op
     logger.info(`server on http://127.0.0.1:${port} (data: ${dataDir})`);
     return {
       port,
-      setHostWindow,
-      onEngineWindow,
-      raiseEngineWindow,
-      closeEngineWindows,
       close() {
         shutdown();
         server.close();

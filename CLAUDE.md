@@ -114,12 +114,8 @@ electron/          The desktop app (YTStudio). main.ts: runs the server (electro
                      window its input, so the server's work there made them lag; the Trash, Show in Folder, the export's
                      drawing page and its log lines go over its port, server-protocol.ts; EDITOR_SERVER_IN_MAIN=1 runs it
                      in the main process) and shows the page in a window; packaged, data is in userData, in development ./data.
-                     panels.ts: the editor's windows as windows of the system (the page opens them with `window.open`;
-                     this makes them frameless and floating, shows, hides and places them). floating.ts: which windows
-                     float (the app is in use while one of its windows, or a plugin's, has the focus). stacking.ts: the
-                     order of the floating windows, ours and the engine's, put back after the app was away.
-                     hover.ts: macOS gives a window without the focus no mouse-moved events, so the pointer is told to the
-                     window of ours under it (the main window's toolbar shows hover while a panel is in use).
+                     The music editor's plugin windows aren't Electron's business: they belong to the music app's
+                     window (the engine is that app, docs/claude/music-shell.md); here the music suite is boxes in the page.
                      gl-window.ts: the export's compositor page in a hidden window (`setGlPageOpener`), so no Playwright.
                      shell-path.ts: the login shell's PATH (Finder-launched apps get a bare one). preload.ts only marks
                      the page (`html.desktop`: drag regions, room for the window buttons in src/index.css). On
@@ -324,15 +320,16 @@ as the music app until its installer is built.
 
 ## Windows (the page can be in several)
 
-In the desktop app the music editor's windows and Settings can be windows of the operating system (on on Windows, where they and the plugin windows are all owned by the main window; off on a Mac: `NATIVE_WINDOWS` in `floating-window.tsx`, `docs/windows.md`), drawn by the same
-React tree (`docs/windows.md`). `window` and `document` are always the main page's, so code that runs inside a
+The music editor's windows and Settings can be windows of the operating system, drawn by the same React tree, where
+the page's host gives it `panels` (`desktopPanels()`): only the music app on Windows will, with step 3's Windows half
+(`NATIVE_WINDOWS` in `floating-window.tsx`, `docs/windows.md`); everywhere else they're boxes in the page. `window` and `document` are always the main page's, so code that runs inside a
 window must say which one it means: `addWindowListener` for what the editor wants in every window (shortcuts, a
 drag's end), `ownerWindow` / `ownerDocument(event.target)` (`elementFromPoint`, `devicePixelRatio`, `activeElement`,
 `getSelection`), `isElement` / `isHtmlElement` instead of `instanceof Element` (another window's elements aren't
 instances of this one's), `queryAnywhere` to look in all of them; `startPointerDrag` already uses the window the
 press was in. A Radix portal in `components/ui` takes a container from `usePopupContainer()` (menus, selects,
-popovers: the shared popup window) or `usePortalContainer()` (tooltips, dialogs). Native windows only exist in the
-desktop app; e2e (a browser) tests the boxes in the page, and `pnpm test:desktop:music` the native ones.
+popovers: the shared popup window) or `usePortalContainer()` (tooltips, dialogs). e2e (a browser) tests the boxes in
+the page.
 
 ## Gotchas
 

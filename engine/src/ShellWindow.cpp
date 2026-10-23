@@ -312,8 +312,6 @@ void ShellWindow::tellHost()
     if (! isOnDesktop())
         return;
     const auto bounds = getScreenBounds();
-    const auto host = protocol::object ({ { "floating", true },
-                                          { "visible", true },
-                                          { "bounds", protocol::object ({ { "x", bounds.getX() }, { "y", bounds.getY() }, { "width", bounds.getWidth() }, { "height", bounds.getHeight() } }) } });
+    const auto host = protocol::object ({ { "bounds", protocol::object ({ { "x", bounds.getX() }, { "y", bounds.getY() }, { "width", bounds.getWidth() }, { "height", bounds.getHeight() } }) } });
     engine.handle ("host", host, [] (const juce::Result&, const juce::var&) {});
 }

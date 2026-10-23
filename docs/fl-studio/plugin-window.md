@@ -55,17 +55,16 @@ A plugin window with the focus doesn't stop FL's shortcuts working: **Space stil
 
 ## Where YTStudio differs today
 
-A plugin runs in the audio engine, a program of its own (so a plugin that crashes takes the engine
-down, not the app), and a window can't be put inside another program's window on a Mac. So the
-plugin's window is the engine's, made to act like part of the app (`engine/src/EditorWindow.h`,
-`PluginHost::setHost`). The app's own windows (the rack, the Piano roll, the Playlist, the mixer...) are windows of
-the system too, in the desktop app, so the two kinds stack among each other as FL's windows do
-(`docs/windows.md`, Native windows):
+A plugin runs in the audio engine, and in the music app the engine is the app (`docs/claude/music-shell.md`): the
+page is in the engine's own window and the plugin's window is another of its windows, made to act like part of the
+app (`engine/src/EditorWindow.h`, `EditorWindow::setShellWindow`). The app's own windows (the rack, the Piano roll,
+the Playlist, the mixer...) are boxes in the page for now (`docs/windows.md`; on Windows they become windows owned by
+the app's window, as the plugins' are):
 
 | FL Studio | YTStudio |
 | --- | --- |
-| Inside FL's window, above the playlist, below whatever was used since | A window of its own, at the same (floating) level as the app's windows, so a click brings it in front of any of them and a click on one of them in front of it: the rack can be in front of a plugin that is in front of the Playlist. The app's main window (its toolbar) is below them all. While another app is in use the windows go to the ordinary level (behind it, as an app's windows are) and come back, in the order they were, with the app. In the desktop app they're hidden while the app's window is minimised or hidden, and move along when it moves. In a browser tab (`pnpm dev`) the plugin's is an ordinary window, and the app's windows are boxes in the page |
-| On Windows: never behind FL, minimised with it, no taskbar button of its own | The same on Windows, and the editor's windows (rack, Piano roll, Playlist, mixer) are native windows owned by the main window too, so a click brings any of them in front of a plugin and the plugin back in front of them; a plugin's window never closes because the app was clicked. The details: the desktop app gives the engine its main window's handle (`HostWindow.handle`) and the plugin's window becomes that window's own (`setWindowOwner`, `engine/src/MacWindow.cpp`): always above it, never above another program, hidden while it's minimised, opened over it, with no taskbar button or Alt+Tab entry (a tool window). No always-on-top level there. Without the handle (a browser tab) it's an ordinary window with a taskbar button |
+| Inside FL's window, above the playlist, below whatever was used since | A window of its own over the app's, never behind it: a child window of the app's on a Mac, an owned one on Windows. It opens centred over the app's window, moves along with it and is hidden while it's minimised. The app's windows (boxes in the page) can't come in front of it yet. Outside the music app (the music suite in YTStudio's Electron window, or a browser tab with `pnpm dev`) it's an ordinary window of the engine's |
+| On Windows: never behind FL, minimised with it, no taskbar button of its own | The same in the music app on Windows: owned by its window (`setWindowOwner`, `engine/src/MacWindow.cpp`), always above it, never above another program, with no taskbar button or Alt+Tab entry (a tool window), and a plugin's window never closes because the app was clicked. Once the editor's windows are owned windows too, a click brings any of them in front of a plugin and the plugin back in front of them |
 | FL's title bar | Ours, in the studio theme's dark colours: "Serum 2 (Chorus)", the preset browser (arrows and the preset's name: the plugin's programs if it has several, else the user's presets), Automate "…" once a parameter is touched, the wrapper button (the channel's settings, in the app) and a close button. No plugin menu or keyboard priority |
 | The wrapper's tabs inside the plugin's window | The channel's settings are an app window (Channel settings… on the channel's menu, or the wrapper button): ON, PAN, VOL, PITCH, TRACK over the plugin (shown or hidden from there) and its presets |
 | Presets: the plugin's programs and FL's `.fst` files, in the Browser | Its programs (when it has more than one: most VST3s keep theirs in their own window) and the user's presets: its whole state saved under a name in the engine's data folder (`presets/<format>/<plugin>/<name>.preset`), the same in every song, listed in the channel's settings, loaded, deleted. Not in the Browser |
