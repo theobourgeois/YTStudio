@@ -110,6 +110,20 @@ public:
             controller->NotifyParentWindowPositionChanged();
     }
 
+    void post (const juce::var& message)
+    {
+        if (webView != nullptr)
+            webView->PostWebMessageAsJson (juce::JSON::toString (message, true).toWideCharPointer());
+    }
+
+    void navigate (const juce::String& newUrl)
+    {
+        url = newUrl;
+        // (Not made yet: it goes to `url` once it is.)
+        if (webView != nullptr)
+            webView->Navigate (url.toWideCharPointer());
+    }
+
 private:
     void createController (ICoreWebView2Environment* environmentMade)
     {
@@ -208,20 +222,6 @@ private:
         resize();
         controller->put_IsVisible (TRUE);
         webView->Navigate (url.toWideCharPointer());
-    }
-
-    void post (const juce::var& message)
-    {
-        if (webView != nullptr)
-            webView->PostWebMessageAsJson (juce::JSON::toString (message, true).toWideCharPointer());
-    }
-
-    void navigate (const juce::String& newUrl)
-    {
-        url = newUrl;
-        // (Not made yet: it goes to `url` once it is.)
-        if (webView != nullptr)
-            webView->Navigate (url.toWideCharPointer());
     }
 
     /** Composition: WebView2 draws into a visual of ours, shown in our window by DirectComposition. */
