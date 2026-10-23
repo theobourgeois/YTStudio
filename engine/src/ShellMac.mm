@@ -150,15 +150,20 @@ void preparePage (WKWebView* webView)
     return YES;
 }
 
-- (NSView*)hitTest:(NSPoint)point
+/** Whether this point (in its own coordinates) is on a part of the plugin the page's windows leave showing. */
+- (BOOL)shows:(NSPoint)local
 {
     if ([self isHidden])
-        return nil;
-    const auto local = [self convertPoint:point fromView:[self superview]];
+        return NO;
     for (const auto& rect : visibleRects)
         if (NSPointInRect (local, rect))
-            return [super hitTest:point];
-    return nil;
+            return YES;
+    return NO;
+}
+
+- (NSView*)hitTest:(NSPoint)point
+{
+    return [self shows:[self convertPoint:point fromView:[self superview]]] ? [super hitTest:point] : nil;
 }
 @end
 
@@ -326,17 +331,17 @@ void dress (juce::Component& window, const juce::String& appName, Listener newLi
             [lastMouseDown release];
             lastMouseDown = [event retain];
         }
-        // A press in a plugin's view: its frame comes to the front.
-        if (listener.pluginPressed && [event window] != nil)
-        {
-            NSView* content = [[event window] contentView];
-            for (NSView* view = [content hitTest:[content convertPoint:[event locationInWindow] fromView:nil]]; view != nil; view = [view superview])
-                if ([view isKindOfClass:[YTStudioPluginView class]])
+        // A press in a plugin's view: its frame comes to the front. (Each view is asked, front to back, rather than
+        // the window's hitTest, which the plugins' and JUCE's own views answer as they like.)
+        auto* page = [event window] != nil ? webViewIn ([[event window] contentView]) : nil;
+        if (listener.pluginPressed && page != nil)
+            for (NSView* view in [[[page superview] subviews] reverseObjectEnumerator])
+                if ([view isKindOfClass:[YTStudioPluginView class]]
+                    && [(YTStudioPluginView*) view shows:[view convertPoint:[event locationInWindow] fromView:nil]])
                 {
                     listener.pluginPressed (view);
                     break;
                 }
-        }
         return event;
     }];
 
