@@ -177,7 +177,33 @@ void keepAwake (bool playing)
 }
 #else
 void* appWindowFromHandle (const juce::String&) { return nullptr; }
+#if JUCE_MAC
+void setWindowOwner (juce::Component& window, void* owner)
+{
+    // macOS's owned windows are child windows: above their parent only, moved and minimised with it. (Only the
+    // shell's window owns plugin windows here: the desktop app's is another program's, which has levels instead.)
+    auto* peer = window.getPeer();
+    if (peer == nullptr || peer->getNativeHandle() == nullptr)
+        return;
+    using Get = id (*) (id, SEL);
+    using Set = void (*) (id, SEL, id);
+    using Add = void (*) (id, SEL, id, long);
+    const auto get = reinterpret_cast<Get> (objc_msgSend);
+    auto* child = get (static_cast<id> (peer->getNativeHandle()), sel_registerName ("window"));
+    // `owner` is the shell's view (`nativeWindowOf`): its window is the parent.
+    auto* parent = owner != nullptr ? get (static_cast<id> (owner), sel_registerName ("window")) : nullptr;
+    auto* current = child != nullptr ? get (child, sel_registerName ("parentWindow")) : nullptr;
+    if (child == nullptr || current == parent)
+        return;
+    if (current != nullptr)
+        reinterpret_cast<Set> (objc_msgSend) (current, sel_registerName ("removeChildWindow:"), child);
+    constexpr long above = 1; // NSWindowAbove
+    if (parent != nullptr)
+        reinterpret_cast<Add> (objc_msgSend) (parent, sel_registerName ("addChildWindow:ordered:"), child, above);
+}
+#else
 void setWindowOwner (juce::Component&, void*) {}
+#endif
 void hookThreadKeys (KeyHook) {}
 void* nativeWindowOf (juce::Component& window)
 {

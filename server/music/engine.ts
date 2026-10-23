@@ -93,6 +93,10 @@ export interface EngineOptions {
   adoptTake?: AdoptTake;
   /** A project's package, where its plugins' settings and recordings are kept (default: the data folder's old layout, for tests). */
   projectDir?: (projectId: string) => string;
+  /** The shell (docs/claude/music-shell.md): the engine shows the app at this address in a window of its own. */
+  window?: string;
+  /** The shell's window was closed (the engine quits with it). */
+  onWindowClosed?: () => void;
 }
 
 /** A recording in progress: whose it is and what its takes are called. */
@@ -195,6 +199,7 @@ export class AudioEngine {
   /** The desktop app's window, to tell a restarted engine too. */
   private host: HostWindow | null = null;
   private readonly adoptTake: AdoptTake | null;
+  private readonly onWindowClosed: (() => void) | null;
   private readonly projectDir: (projectId: string) => string;
   /** The engine running was built before its source last changed (a checkout's, after a pull without `pnpm engine:build`). */
   private outdated = false;
@@ -219,7 +224,12 @@ export class AudioEngine {
     this.env = options.env;
     this.adoptTake = options.adoptTake ?? null;
     this.projectDir = options.projectDir ?? ((id) => this.paths.projectDir(id));
-    this.flags = [...(options.offline ? ["--offline"] : []), ...(options.onlyPluginPaths ? ["--only-plugin-paths"] : [])];
+    this.flags = [
+      ...(options.offline ? ["--offline"] : []),
+      ...(options.onlyPluginPaths ? ["--only-plugin-paths"] : []),
+      ...(options.window ? ["--window", options.window] : []),
+    ];
+    this.onWindowClosed = options.onWindowClosed ?? null;
   }
 
   /** Run a command from the tab (`POST /api/engine/:command`): validates it, and answers with the status. */
@@ -965,6 +975,10 @@ export class AudioEngine {
           message.event === "midi"
         ) {
           this.emit(this.inSongTicks(message as unknown as EngineEvent));
+        } else if (message.event === "shellClosed") {
+          // It's quitting: that isn't a crash to start it again after.
+          this.stopping = true;
+          this.onWindowClosed?.();
         } else if (message.event === "status" && isObject(message.status)) {
           void this.withSaved(message.status as unknown as RawStatus).then((status) => this.emit({ event: "status", status }));
         }

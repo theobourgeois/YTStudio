@@ -36,6 +36,14 @@ public:
      */
     static void setAppWindow (void* window);
     static void* appWindow() { return owner; }
+    /**
+     * The shell's window (`ShellWindow`: the app's page in a window of this program's own). Plugin windows belong
+     * to it on every system (Windows: owned; macOS: its child windows), as FL Studio's belong to its main window,
+     * and the desktop app's window (`setAppWindow`) is ignored from then on. In one program nothing waits across
+     * programs, so `whileBusy` holds nothing.
+     */
+    static void setShellWindow (void* window);
+    static bool inShell() { return shell; }
     /** Belong to the app's window as it is now (Windows; nothing elsewhere). */
     void followAppWindow();
     /**
@@ -71,6 +79,7 @@ public:
 
 private:
     static void* owner;
+    static bool shell;
     /** Made for `dropFiles` alone: never seen, clicked or listed (Windows: cloaked for its whole life). */
     const bool hidden;
     /** How many `whileBusy` holds are out. */

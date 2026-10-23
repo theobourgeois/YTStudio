@@ -47,6 +47,7 @@ pnpm tsx scripts/clap-vibe.ts --songs a.mp3,b.mp3,...   # Now Playing's vibe voc
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
 pnpm tsx scripts/perf.ts --scrub <Project.yt> [--render]        # scrub and play a copy of a real project, GPU and all
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
+pnpm dev:shell    # the music shell, an experiment: the page in the engine's own window (docs/claude/music-shell.md)
 pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
 pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/YTStudio.app, then launch it, export, check
 pnpm update:desktop  # build it (engine too), quit the installed one, replace it (macOS: /Applications; Windows: its installer, silently), reopen

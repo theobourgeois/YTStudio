@@ -8,6 +8,7 @@
     "dev:web": "vite",
     "dev:server": "tsx watch --clear-screen=false server/index.ts",
     "dev:desktop": "tsx scripts/desktop.ts dev",
+    "dev:shell": "tsx scripts/shell.ts",
     "build": "tsc -b && vite build",
     "start": "tsx scripts/start.ts",
     "build:desktop": "tsx scripts/desktop.ts build",

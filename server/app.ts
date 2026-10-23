@@ -14,7 +14,7 @@ import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
-import { GALLERY_DL, MODELS_DIR, MUSIC_MODELS, MUSIC_WORKER, NOW_PLAYING, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, SERUM_LIBRARY, VIBE_MODEL, config } from "./config.ts";
+import { ENGINE_WINDOW, GALLERY_DL, MODELS_DIR, MUSIC_MODELS, MUSIC_WORKER, NOW_PLAYING, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, SERUM_LIBRARY, VIBE_MODEL, config } from "./config.ts";
 import { photoModels } from "./photo/models.ts";
 import { ExportManager } from "./exports.ts";
 import { RenderFiles } from "./render-files.ts";
@@ -182,7 +182,15 @@ export async function createApp({
   };
   // A take recorded is moved into the project's media (the music suite doesn't reach into the media library itself).
   const adoptTake = (projectId: string, file: string, name: string, origin: string) => library.add(file, `${name}.wav`, projectId, () => projects.has(projectId), origin);
-  const engine = new AudioEngine(paths, { samplePath, adoptTake, projectDir: (id) => projects.dir(id), ...engineOptions });
+  const engine = new AudioEngine(paths, {
+    samplePath,
+    adoptTake,
+    projectDir: (id) => projects.dir(id),
+    // The shell: the engine's window is the app, so it starts with the server, and the server goes when it closes.
+    ...(ENGINE_WINDOW ? { window: ENGINE_WINDOW, onWindowClosed: () => process.emit("SIGTERM", "SIGTERM") } : {}),
+    ...engineOptions,
+  });
+  if (ENGINE_WINDOW) void engine.command("status", {}).catch(() => {});
   saveStates = () => engine.saveStates().catch(() => {});
   const musicExports = new MusicExports(paths, engine, { samplePath: engineOptions?.samplePath ?? samplePath, adopt: adoptTake, ...musicExportOptions });
   // Make visualizer: a song handed over to the video suite as a project of its own.
