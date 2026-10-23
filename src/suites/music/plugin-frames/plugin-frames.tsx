@@ -3,10 +3,13 @@ import { PiCaretLeft, PiCaretRight, PiChartLine, PiSlidersHorizontal } from "rea
 import { type HostPlugin, type PluginPlace, embedsPlugins, hostPlugins, hostZoom, onHostPlugins, placePlugins, pluginAction } from "@/lib/host";
 import { useMusicWindows } from "../ui";
 import { MusicWindow, centredOnDesktop } from "../window";
-import { type Box, rounded, visibleParts } from "./visible";
+import { type Box, lingering, rounded, visibleParts } from "./visible";
 
 /** The title bar's height (px), as `FloatingWindow` draws it. */
 const TITLE_HEIGHT = 28;
+
+/** How long a part of a plugin a window has just covered keeps showing, till WebKit has drawn the window (ms). */
+const LINGER_MS = 100;
 
 const BUTTON = "grid size-5.5 place-items-center rounded-sm border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground active:pressed";
 
@@ -53,7 +56,7 @@ function PluginFrame({ plugin }: { plugin: HostPlugin }) {
       onClose={() => pluginAction(plugin.key, "close")}
       controls={<PluginControls plugin={plugin} />}
     >
-      <div data-plugin-body={plugin.key} className="bg-black" style={{ width, height }} />
+      <div data-plugin-body={plugin.key} style={{ width, height }} />
     </MusicWindow>
   );
 }
@@ -137,8 +140,9 @@ function places(): PluginPlace[] {
 /** Tells the engine where the plugins go whenever that changes, checking every frame (windows move by transform, menus open). */
 function startPlacing(): () => void {
   let last = "";
-  let frame = requestAnimationFrame(function tick() {
-    const now = places();
+  const settle = lingering<PluginPlace>(LINGER_MS);
+  let frame = requestAnimationFrame(function tick(time) {
+    const now = settle(places(), time);
     const text = JSON.stringify(now);
     if (text !== last) {
       last = text;

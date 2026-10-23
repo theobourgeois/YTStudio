@@ -89,8 +89,11 @@ does for the other apps (`electron/main.ts`), so the page can't tell them apart.
   draws its frame as one of the music desktop's windows (`src/suites/music/plugin-frames/`, `plugin:<key>`) and, each
   frame drawn, says where its body is and which parts the windows, menus and toasts in front leave showing
   (`host.placePlugins`); the view is moved there, masked to those parts (a `CAShapeLayer`) and only hit there, and the
-  views are stacked as the page's windows are. The engine tells the page what's open (`plugin`, `pluginGone`, and
-  `pluginFront` when one is clicked); the frame's buttons are `host.pluginAction`. The PluginBench, Windows and a
+  views are stacked as the page's windows are. A part just covered keeps showing for 100 ms (`lingering`): WebKit
+  draws the window in front a frame or two after the page knows, and hiding the plugin at once left a hole. The
+  engine tells the page what's open (`plugin`, `pluginGone`, and `pluginFront` when one is pressed: a mouse monitor
+  asks each plugin view, front to back, whether the press is on a part of it that shows); the frame's buttons are
+  `host.pluginAction`. The PluginBench, Windows and a
   file dropped on an open plugin (it'd move the whole window) still use windows of their own.
 - **Focus.** The window activated (⌘Tab, a plugin window closed) makes the web view first responder, so the keys go
   to the page (`focusPage`). Safari's Web Inspector works on it (`isInspectable`, Inspect Element).

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { intersect, rounded, subtract, visibleParts } from "./visible";
+import { intersect, lingering, rounded, subtract, visibleParts } from "./visible";
 
 const box = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
 const area = (boxes: { width: number; height: number }[]) => boxes.reduce((sum, b) => sum + b.width * b.height, 0);
@@ -46,5 +46,33 @@ describe("visibleParts", () => {
 describe("rounded", () => {
   it("snaps out to whole pixels", () => {
     expect(rounded(box(1.4, 2.6, 10, 10))).toEqual(box(1, 2, 11, 11));
+  });
+});
+
+describe("lingering", () => {
+  const body = box(0, 0, 100, 100);
+  const place = (visible: ReturnType<typeof box>[], at = body) => ({ key: "p", body: at, visible });
+
+  it("keeps a part that's just been covered showing for a while, then lets it go", () => {
+    const settle = lingering(100);
+    settle([place([body])], 0);
+    expect(settle([place([box(0, 0, 50, 100)])], 16)[0].visible).toEqual([body]);
+    expect(settle([place([box(0, 0, 50, 100)])], 120)[0].visible).toEqual([box(0, 0, 50, 100)]);
+  });
+  it("shows what comes into view at once", () => {
+    const settle = lingering(100);
+    settle([place([box(0, 0, 50, 100)])], 0);
+    expect(settle([place([body])], 16)[0].visible).toEqual([body]);
+  });
+  it("lets go of what showed where a plugin was before it moved", () => {
+    const settle = lingering(100);
+    settle([place([body])], 0);
+    const moved = box(10, 0, 100, 100);
+    expect(settle([place([box(10, 0, 50, 100)], moved)], 16)[0].visible).toEqual([box(10, 0, 50, 100)]);
+  });
+  it("lists a part once however long it shows", () => {
+    const settle = lingering(100);
+    for (let at = 0; at < 200; at += 16) settle([place([body])], at);
+    expect(settle([place([body])], 208)[0].visible).toEqual([body]);
   });
 });
