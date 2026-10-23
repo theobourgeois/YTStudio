@@ -53,6 +53,11 @@ endif()
 # app's window shows it again).
 # Recording reads the microphone, which macOS only allows an app that says why (YTStudio, which starts
 # the engine, says so too: scripts/desktop.ts).
+# On Windows the engine is the music app's .exe as it is (scripts/desktop.ts, `packMusicWindows`): its icon is the
+# app's, for the taskbar, Explorer and the installer's shortcuts. (A Mac's app bundle is given its own when it's packed.)
+if(WIN32)
+  set(ENGINE_ICON ICON_BIG ${CMAKE_CURRENT_SOURCE_DIR}/../resources/apps/music.png)
+endif()
 juce_add_gui_app(
   VaudioEngine
   PRODUCT_NAME "YTStudio Engine"
@@ -61,7 +66,8 @@ juce_add_gui_app(
   MICROPHONE_PERMISSION_ENABLED TRUE
   MICROPHONE_PERMISSION_TEXT "YTStudio records your microphone or audio interface when you arm a mixer track."
   PLIST_TO_MERGE "<plist><dict><key>LSUIElement</key><true/></dict></plist>"
-  NEEDS_WEBVIEW2 TRUE)
+  NEEDS_WEBVIEW2 TRUE
+  ${ENGINE_ICON})
 
 target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/AutoTune.cpp src/ClipPlayer.cpp src/Convolver.cpp src/EchoBoy.cpp src/EditorWindow.cpp src/Engine.cpp src/EqDesign.cpp src/Export.cpp src/FilePreview.cpp src/GrossBeat.cpp src/Host.cpp src/MacWindow.cpp src/MidiInputs.cpp src/Ott.cpp src/PanMan.cpp src/PitchWheel.cpp src/Plugins.cpp src/ProC.cpp src/ProL.cpp src/ProQ.cpp src/Protocol.cpp src/Reverb.cpp src/ReverbNetwork.cpp src/ReverbSettings.cpp src/Recorder.cpp src/Sequencer.cpp src/Server.cpp src/HostCommands.cpp src/ShellWindow.cpp src/Song.cpp src/ShellWin.cpp src/Spectrum.cpp src/WebView.cpp)
 # The music app's window on macOS: what AppKit does for it that JUCE doesn't (ShellMac.h).

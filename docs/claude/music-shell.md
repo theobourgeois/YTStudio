@@ -128,4 +128,11 @@ does for the other apps (`electron/main.ts`), so the page can't tell them apart.
 told to run this checkout's server through tsx and show Vite's page, so the page reloads as it's edited; the server
 isn't watched: a C++ or server change means quitting and running it again). `pnpm dev:shell` is every suite there.
 
-**Still to do** (docs/apps.md): packaging on Windows (step 3's Windows half).
+- **Packaged** (`pnpm build:desktop music`, `packMusicWindows` in `scripts/desktop.ts`): the engine's `.exe` copied
+  as `YTStudio Music.exe` (its icon is the app's: `ICON_BIG` in engine/CMakeLists.txt) with `app\` beside it: Node's
+  official build for Windows (checked against its SHASUMS, cached in `build/node`), the server bundle, the page, the
+  photo helper and the music worker, in `release/music/win-unpacked/`. `pnpm package:desktop music` makes its NSIS
+  installer from that folder as it is (electron-builder's `prepackaged`): per user, the Start menu, the `.ytsng` type;
+  `pnpm update:desktop music` runs it silently. The app's data is `%APPDATA%\YTStudio Music\data`.
+
+**Still to do** (docs/apps.md): `test:desktop:music` on Windows, and carrying over YTStudio's localStorage.

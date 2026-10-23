@@ -110,9 +110,17 @@ Music runs in the engine's window, made the real app rather than the test.
 (`ServerProcess`) and they talk over a socket on 127.0.0.1 rather than a pipe (`protocol::serve`, `socketLink`), the
 server tells it where the page is (`page`), closing saves then quits both, one instance with files handed to it,
 the dialogs, the Trash and Show in Finder or Explorer (`HostCommands.cpp`), the engine's settings carried over, and
-the page's bridge `src/lib/host.ts` (replacing the test's `shell.ts`). `pnpm dev:music` runs it. What's left on
-Windows: the title bar and its buttons, panels as owned windows (`panels` in `editorDesktopInfo`), the playhead
-stalling while a window is dragged (JUCE's timers stop in Windows' move loop), and the installer.
+the page's bridge `src/lib/host.ts` (replacing the test's `shell.ts`). `pnpm dev:music` runs it.
+
+**The Windows half is built** (2026-10-23; `docs/claude/music-shell.md`, Windows): WebView2 through DirectComposition,
+the window with no title bar (the page's bars drag it, its edges resize it, the page draws Windows' buttons and the
+maximise one shows snap layouts), Explorer's drops with their paths, the page's keys (WebView2's own off), panels as
+the engine's owned windows (`PanelWindow`, `panels` in `editorDesktopInfo`), the playhead going on while a window is
+dragged, and the installer (`pnpm package:desktop music`: `YTStudio Music Setup <version>.exe`, NSIS, per user;
+`pnpm update:desktop music` installs it). To check by hand: a session with plugins instead of FL. Not yet:
+`test:desktop:music`, and the page's localStorage carried over from YTStudio's. Packages are folders on Windows, so
+Explorer opens a `.ytsng` as a folder rather than in the app (as for the other apps' types there); Open… and Home
+open them.
 
 - **Who starts whom.** The engine is the app. It starts the server: a Node shipped with it, running the server
   bundle. It talks to the server over a pipe of its own, in the same JSON lines, so stdout stays for logs. The

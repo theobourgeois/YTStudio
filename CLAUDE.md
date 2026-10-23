@@ -52,7 +52,7 @@ pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot
 pnpm dev:shell    # every suite in the engine's own window, as the music app (docs/claude/music-shell.md)
 pnpm dev:desktop [app]  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
 pnpm build:desktop [app…] && pnpm test:desktop [--app <app>]   # release/mac-<arch>/YTStudio.app (an app's in release/<app>/), then launch it, export, check
-pnpm update:desktop [app…]  # build YTStudio + Video, Photo, Visualizer (engine too; Music on a Mac), quit the installed ones, replace them (macOS: /Applications; Windows: their installers, silently), reopen
+pnpm update:desktop [app…]  # build YTStudio + Video, Photo, Visualizer and Music (engine too), quit the installed ones, replace them (macOS: /Applications; Windows: their installers, silently), reopen
 pnpm tsx scripts/make-icon.ts [--variant dark] [--app all]   # redraw the app icon (or each app's) into resources/
 ```
 

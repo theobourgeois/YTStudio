@@ -6,8 +6,8 @@
  *                               (video, photo, visualizer, music: docs/apps.md) in release/<app>/
  *   pnpm package:desktop [app…] the same as a .dmg and a .zip
  *   pnpm update:desktop [app…]  build them and install them in place of the ones installed (macOS, Windows): by
- *                               default YTStudio (every suite) and Video, Photo and the Visualizer, and on a Mac
- *                               Music (the engine's own app, no Electron: `packMusicMac`)
+ *                               default YTStudio (every suite), Video, Photo, the Visualizer and Music (the engine's
+ *                               own app, no Electron: `packMusicMac`, `packMusicWindows`)
  *
  * The main process (electron/main.ts, which runs the server) is bundled with esbuild into one file, so the
  * packaged app ships no node_modules: just that bundle, the preload script and the built web app. The photo
@@ -40,10 +40,10 @@ const LEGACY_TYPES = [
 
 /**
  * The apps that are apps of their own so far (docs/apps.md): YTStudio, with every suite, still opens their files,
- * but as a second choice, so a double-click opens them in theirs. Music is one on a Mac (the engine's own window,
- * `packMusicMac`); on Windows it joins once the engine's window is done there (step 3).
+ * but as a second choice, so a double-click opens them in theirs. Music is the engine's own window, not Electron's
+ * (`packMusicMac`, `packMusicWindows`).
  */
-const OWN_APPS: AppId[] = ["video", "photo", "visualizer", ...(process.platform === "darwin" ? (["music"] as const) : [])];
+const OWN_APPS: AppId[] = ["video", "photo", "visualizer", "music"];
 /** What `update:desktop` installs: YTStudio (every suite) and the apps of their own. */
 const INSTALLED_APPS: (AppId | null)[] = [null, ...OWN_APPS];
 
@@ -372,6 +372,7 @@ async function pack(targets: "dir" | "installers", apps: AppInfo[]) {
   cpSync(path.join(ROOT, "dist"), path.join(STAGE, "dist"), { recursive: true });
   for (const app of apps) {
     if (app.id === "music" && process.platform === "darwin") await packMusicMac(targets, app);
+    else if (app.id === "music" && process.platform === "win32") await packMusicWindows(targets, app);
     else await packApp(targets, app);
   }
 }
@@ -485,35 +486,73 @@ async function packApp(targets: "dir" | "installers", app: AppInfo) {
   console.log(`[desktop] built ${app.name} into ${path.relative(ROOT, releaseDir(app))}/`);
 }
 
-/** Where the music app's Node is kept once downloaded: `build/node/node-<version>-darwin-<arch>/bin/node`. */
+/**
+ * Where the music app's Node is kept once downloaded: `build/node/node-<version>-darwin-<arch>/bin/node`, or
+ * `node-<version>-win-<arch>/node.exe`.
+ */
 const NODE_CACHE = path.join(ROOT, "build", "node");
 
 /**
- * Node's official build for this Mac, of the version running this script (what the server is tested on), checked
- * against nodejs.org's sums and kept in build/node. Official builds stand alone (Homebrew's links libraries of its
- * own), which is what an app can ship.
+ * Node's official build for this Mac or PC, of the version running this script (what the server is tested on),
+ * checked against nodejs.org's sums and kept in build/node, with its LICENSE beside it. Official builds stand alone
+ * (Homebrew's links libraries of its own), which is what an app can ship.
  */
 async function officialNode(): Promise<string> {
-  const name = `node-${process.version}-darwin-${process.arch === "arm64" ? "arm64" : "x64"}`;
-  const binary = path.join(NODE_CACHE, name, "bin", "node");
+  const windows = process.platform === "win32";
+  const name = `node-${process.version}-${windows ? "win" : "darwin"}-${process.arch === "arm64" ? "arm64" : "x64"}`;
+  const inside = windows ? `${name}/node.exe` : `${name}/bin/node`;
+  const binary = path.join(NODE_CACHE, inside);
   if (existsSync(binary)) return binary;
+  const archive = `${name}.${windows ? "zip" : "tar.gz"}`;
   const base = `https://nodejs.org/dist/${process.version}/`;
-  console.log(`[desktop] downloading ${name} from nodejs.org`);
+  console.log(`[desktop] downloading ${archive} from nodejs.org`);
   const sums = await (await fetch(`${base}SHASUMS256.txt`)).text();
-  const expected = sums.split("\n").find((line) => line.endsWith(`  ${name}.tar.gz`))?.split(/\s+/)[0];
-  if (!expected) throw new Error(`nodejs.org lists no ${name}.tar.gz: is ${process.version} a release?`);
-  const response = await fetch(`${base}${name}.tar.gz`);
-  if (!response.ok) throw new Error(`Couldn't download ${name}.tar.gz (${response.status})`);
-  const tarball = Buffer.from(await response.arrayBuffer());
-  const actual = createHash("sha256").update(tarball).digest("hex");
-  if (actual !== expected) throw new Error(`${name}.tar.gz isn't what nodejs.org says it is (sha256 ${actual}, expected ${expected})`);
+  const expected = sums.split("\n").find((line) => line.endsWith(`  ${archive}`))?.split(/\s+/)[0];
+  if (!expected) throw new Error(`nodejs.org lists no ${archive}: is ${process.version} a release?`);
+  const response = await fetch(`${base}${archive}`);
+  if (!response.ok) throw new Error(`Couldn't download ${archive} (${response.status})`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const actual = createHash("sha256").update(bytes).digest("hex");
+  if (actual !== expected) throw new Error(`${archive} isn't what nodejs.org says it is (sha256 ${actual}, expected ${expected})`);
   mkdirSync(NODE_CACHE, { recursive: true });
-  const file = path.join(NODE_CACHE, `${name}.tar.gz`);
-  writeFileSync(file, tarball);
-  const unpacked = spawnSync("tar", ["-xzf", file, "-C", NODE_CACHE, `${name}/bin/node`, `${name}/LICENSE`], { stdio: "inherit" });
+  const file = path.join(NODE_CACHE, archive);
+  writeFileSync(file, bytes);
+  // (Windows' own tar is bsdtar, which reads zips too; a GNU tar on the PATH, Git's, takes C: for a host.)
+  const tar = windows ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+  const unpacked = spawnSync(tar, ["-xf", file, "-C", NODE_CACHE, inside, `${name}/LICENSE`], { stdio: "inherit" });
   rmSync(file);
-  if (unpacked.status !== 0 || !existsSync(binary)) throw new Error(`Couldn't unpack ${name}.tar.gz`);
+  if (unpacked.status !== 0 || !existsSync(binary)) throw new Error(`Couldn't unpack ${archive}`);
   return binary;
+}
+
+/** Node's LICENSE, beside the binary `officialNode` unpacked. */
+const nodeLicense = (node: string) => path.join(NODE_CACHE, path.relative(NODE_CACHE, node).split(path.sep)[0], "LICENSE");
+
+/**
+ * What the music app runs beside the engine (engine/src/Main.cpp's `appResources`), into `resources`: Node, the
+ * server's bundle (`server.mjs`, the same server the other apps run in Electron), the page (`dist/`), the photo helper
+ * and the models' worker.
+ */
+async function musicResources(resources: string, node: string) {
+  mkdirSync(resources, { recursive: true });
+  cpSync(node, path.join(resources, path.basename(node)));
+  cpSync(nodeLicense(node), path.join(resources, "node-LICENSE"));
+  await build({
+    entryPoints: { server: path.join(ROOT, "server/index.ts") },
+    outdir: resources,
+    bundle: true,
+    platform: "node",
+    target: "node24",
+    format: "esm",
+    outExtension: { ".js": ".mjs" },
+    banner: { js: ESM_BANNER },
+    // Exports draw video in Chromium (server/gl-browser.ts): never in a song's, and Playwright stays out.
+    external: ["playwright-core"],
+    logLevel: "warning",
+  });
+  cpSync(path.join(STAGE, "dist"), path.join(resources, "dist"), { recursive: true });
+  cpSync(PHOTO_HELPER_STAGE, path.join(resources, "photo-helper"), { recursive: true });
+  cpSync(MUSIC_WORKER_STAGE, path.join(resources, "music-worker"), { recursive: true });
 }
 
 /** A 1024 px PNG as the .icns a Mac app's Info.plist names. */
@@ -551,26 +590,7 @@ async function packMusicMac(targets: "dir" | "installers", app: AppInfo) {
   const contents = path.join(built, "Contents");
   renameSync(path.join(contents, "MacOS", "YTStudio Engine"), path.join(contents, "MacOS", app.name));
 
-  const resources = path.join(contents, "Resources", "app");
-  mkdirSync(resources, { recursive: true });
-  cpSync(node, path.join(resources, "node"));
-  cpSync(path.join(path.dirname(path.dirname(node)), "LICENSE"), path.join(resources, "node-LICENSE"));
-  await build({
-    entryPoints: { server: path.join(ROOT, "server/index.ts") },
-    outdir: resources,
-    bundle: true,
-    platform: "node",
-    target: "node24",
-    format: "esm",
-    outExtension: { ".js": ".mjs" },
-    banner: { js: ESM_BANNER },
-    // Exports draw video in Chromium (server/gl-browser.ts): never in a song's, and Playwright stays out.
-    external: ["playwright-core"],
-    logLevel: "warning",
-  });
-  cpSync(path.join(STAGE, "dist"), path.join(resources, "dist"), { recursive: true });
-  cpSync(PHOTO_HELPER_STAGE, path.join(resources, "photo-helper"), { recursive: true });
-  cpSync(MUSIC_WORKER_STAGE, path.join(resources, "music-worker"), { recursive: true });
+  await musicResources(path.join(contents, "Resources", "app"), node);
   macIcon(path.join(ROOT, "resources", "apps", `${app.id}.png`), path.join(contents, "Resources", "icon.icns"));
 
   const plist = path.join(contents, "Info.plist");
@@ -595,6 +615,40 @@ async function packMusicMac(targets: "dir" | "installers", app: AppInfo) {
     const dmg = path.join(releaseDir(app), `${app.name}-${pkg.version}-${process.arch}.dmg`);
     const made = spawnSync("hdiutil", ["create", "-volname", app.name, "-srcfolder", built, "-ov", "-format", "UDZO", dmg], { stdio: "inherit" });
     if (made.status !== 0) throw new Error(`hdiutil couldn't make ${dmg}`);
+  }
+  console.log(`[desktop] built ${app.name} into ${path.relative(ROOT, releaseDir(app))}/`);
+}
+
+/**
+ * The music app on Windows (docs/apps.md, step 3): no Electron. The engine is the app, `YTStudio Music.exe` (its icon
+ * the app's: engine/CMakeLists.txt), with what it runs in `app\` beside it (`musicResources`), in
+ * `release/music/win-unpacked/`; its installer is electron-builder's NSIS one made from that folder as it is
+ * (`prepackaged`), as the other apps' are: per user, the Start menu, the `.ytsng` type, silent with `/S`.
+ */
+async function packMusicWindows(targets: "dir" | "installers", app: AppInfo) {
+  const node = await officialNode();
+  const unpacked = path.join(releaseDir(app), "win-unpacked");
+  rmSync(releaseDir(app), { recursive: true, force: true });
+  mkdirSync(unpacked, { recursive: true });
+  cpSync(ENGINE_APP, path.join(unpacked, `${app.name}.exe`));
+  await musicResources(path.join(unpacked, "app"), node);
+  if (targets === "installers") {
+    const { build: builder } = await import("electron-builder");
+    await builder({
+      projectDir: ROOT,
+      prepackaged: unpacked,
+      win: ["nsis"],
+      config: {
+        appId: app.bundleId,
+        productName: app.name,
+        icon: path.join(ROOT, "resources", "apps", `${app.id}.png`),
+        electronVersion: electronPkg.version,
+        directories: { output: releaseDir(app) },
+        win: { fileAssociations: projectTypes(app).map((type) => ({ ext: type.ext, name: type.name, role: "Editor" })) },
+        // (Per user, it never asks to be elevated; and its helper goes in an Electron app's resources/, which this isn't.)
+        nsis: { packElevateHelper: false },
+      },
+    });
   }
   console.log(`[desktop] built ${app.name} into ${path.relative(ROOT, releaseDir(app))}/`);
 }
