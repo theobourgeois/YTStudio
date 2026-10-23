@@ -136,6 +136,7 @@ const PLATFORM = [
   "src/lib/app.ts",
   "src/lib/route.ts",
   "src/lib/desktop.ts",
+  "src/lib/host.ts",
   "src/lib/focus-rings.ts",
   // Shortcut labels and words for the computer the app runs on (⌘ or Ctrl, Finder or File Explorer).
   "src/lib/key-labels.ts",

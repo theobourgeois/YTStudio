@@ -1,10 +1,12 @@
 /**
  * The audio engine's process (`engine/`): started on the first command, asked one JSON line at a time
  * (`shared/music/engine.ts`), and started again if it dies (a plugin can take it down; the app stays up).
- * It quits when its stdin closes, so it never outlives the server.
+ * It quits when its stdin closes, so it never outlives the server. In the music app (docs/apps.md) it's the other
+ * way round: the engine is the app and started the server, which reaches it over a socket (`connect`).
  */
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
+import net from "node:net";
 import { createLimiter } from "../queue.ts";
 import path from "node:path";
 import readline from "node:readline";
@@ -93,10 +95,70 @@ export interface EngineOptions {
   adoptTake?: AdoptTake;
   /** A project's package, where its plugins' settings and recordings are kept (default: the data folder's old layout, for tests). */
   projectDir?: (projectId: string) => string;
-  /** The shell (docs/claude/music-shell.md): the engine shows the app at this address in a window of its own. */
-  window?: string;
-  /** The shell's window was closed (the engine quits with it). */
-  onWindowClosed?: () => void;
+  /**
+   * The music app (docs/apps.md): the engine is the app and started this server, and is reached on this port of
+   * 127.0.0.1 with this token (`EDITOR_ENGINE_CONNECT`). It's never started or started again from here.
+   */
+  connect?: EngineConnection;
+  /** The music app is quitting, or its engine went (a plugin crashed it): the server goes with it. */
+  onAppQuit?: () => void;
+}
+
+export interface EngineConnection {
+  port: number;
+  token: string;
+}
+
+/** How the server reaches a running engine: its process's stdin and stdout, or the music app's socket. */
+interface EngineLink {
+  send(line: string): void;
+  /** Let go of it (a process is killed; `force`: at once). */
+  close(force?: boolean): void;
+  /** For the log. */
+  name: string;
+}
+
+/** Ends a link: why, if it wasn't asked to (an error, or how a process ended). */
+type LinkEnded = (error: Error | null) => void;
+
+function processLink(argv: string[], env: Record<string, string> | undefined, onLine: (line: string) => void, onEnd: LinkEnded): EngineLink {
+  // What it and its plugins print is kept in the log alone: plugins can be chatty.
+  const { child, done } = spawnStreaming(argv, "pipe", "pipe", { env, onStderr: lineLogger(log("engine", { quiet: true })) });
+  // A write to an engine that just died must not take the server down with it.
+  child.stdin!.on("error", () => {});
+  readline.createInterface({ input: child.stdout! }).on("line", onLine);
+  done.then(
+    () => onEnd(null),
+    (err: Error) => onEnd(Object.assign(err, { exitCode: child.exitCode, signal: child.signalCode })),
+  );
+  return {
+    send: (line) => child.stdin!.write(line),
+    close: (force) => {
+      child.stdin?.end();
+      child.kill(force ? "SIGKILL" : undefined);
+    },
+    name: `pid ${child.pid}`,
+  };
+}
+
+function socketLink({ port, token }: EngineConnection, onLine: (line: string) => void, onEnd: LinkEnded): EngineLink {
+  const socket = net.connect({ host: "127.0.0.1", port });
+  let ended = false;
+  const end = (error: Error | null) => {
+    if (ended) return;
+    ended = true;
+    onEnd(error);
+  };
+  socket.on("error", (err) => end(err));
+  socket.on("close", () => end(null));
+  socket.setNoDelay(true);
+  socket.write(`${token}\n`);
+  readline.createInterface({ input: socket }).on("line", onLine);
+  return {
+    send: (line) => void socket.write(line),
+    close: () => socket.end(),
+    name: `port ${port}`,
+  };
 }
 
 /** A recording in progress: whose it is and what its takes are called. */
@@ -136,7 +198,6 @@ const START_TIMEOUT_MS = 20_000;
 const REPLY_TIMEOUT_MS = 60_000;
 const engineLog = log("engine");
 
-type Running = ReturnType<typeof spawnStreaming>["child"];
 interface Pending {
   resolve: (result: unknown) => void;
   reject: (err: Error) => void;
@@ -178,7 +239,7 @@ function slotOf(body: Record<string, unknown>): EngineSlot {
 }
 
 export class AudioEngine {
-  private child: Running | null = null;
+  private link: EngineLink | null = null;
   private starting: Promise<void> | null = null;
   private pending = new Map<number, Pending>();
   private nextId = 1;
@@ -199,7 +260,8 @@ export class AudioEngine {
   /** The desktop app's window, to tell a restarted engine too. */
   private host: HostWindow | null = null;
   private readonly adoptTake: AdoptTake | null;
-  private readonly onWindowClosed: (() => void) | null;
+  private readonly connection: EngineConnection | null;
+  private readonly onAppQuit: (() => void) | null;
   private readonly projectDir: (projectId: string) => string;
   /** The engine running was built before its source last changed (a checkout's, after a pull without `pnpm engine:build`). */
   private outdated = false;
@@ -227,9 +289,9 @@ export class AudioEngine {
     this.flags = [
       ...(options.offline ? ["--offline"] : []),
       ...(options.onlyPluginPaths ? ["--only-plugin-paths"] : []),
-      ...(options.window ? ["--window", options.window] : []),
     ];
-    this.onWindowClosed = options.onWindowClosed ?? null;
+    this.connection = options.connect ?? null;
+    this.onAppQuit = options.onAppQuit ?? null;
   }
 
   /** Run a command from the tab (`POST /api/engine/:command`): validates it, and answers with the status. */
@@ -308,7 +370,7 @@ export class AudioEngine {
   /** Stop an export rendering (what it wrote is deleted). */
   async abortExport(id: string): Promise<void> {
     if (this.queuedExports.has(id)) { this.cancelledExports.add(id); return; }
-    if (this.child) await this.request("abortExport", { exportId: id });
+    if (this.link) await this.request("abortExport", { exportId: id });
   }
 
   /** A song request's song, as the engine takes it (`SetSongRequest`; checked, compiled, its files' paths). */
@@ -349,7 +411,7 @@ export class AudioEngine {
    */
   setHost(host: HostWindow): Promise<void> {
     this.host = host;
-    if (!this.child) return Promise.resolve();
+    if (!this.link) return Promise.resolve();
     return this.request("host", { ...host }).then(
       () => {},
       () => {},
@@ -358,7 +420,7 @@ export class AudioEngine {
 
   /** Close every plugin window that's open. Nothing if the engine isn't running (it isn't started for this). */
   async closeEditors(): Promise<void> {
-    if (!this.child) return;
+    if (!this.link) return;
     const status = (await this.request("status", {})) as RawStatus;
     await Promise.all([
       ...status.channels.loaded.filter((c) => c.editorOpen).map((c) => this.request("channelEditor", { channel: c.channel, open: false })),
@@ -407,9 +469,18 @@ export class AudioEngine {
     return detectTempo(file);
   }
 
+  /**
+   * What only the music app can do, its engine being the app (`connect`): show the page (`page { url }`), put a
+   * package in the Trash or show it in Finder or Explorer (`host.trash`, `host.reveal { path }`).
+   */
+  askApp(cmd: "page" | "host.trash" | "host.reveal", params: Record<string, unknown>): Promise<unknown> {
+    if (!this.connection) return Promise.reject(new Error("Only the music app's engine does that."));
+    return this.request(cmd, params);
+  }
+
   /** Write the song's plugins' states now (the tab asks before it goes). */
   async saveStates(): Promise<void> {
-    if (this.child) await this.request("saveStates", {});
+    if (this.link) await this.request("saveStates", {});
   }
 
   /**
@@ -679,11 +750,10 @@ export class AudioEngine {
     for (const id of this.queuedExports) this.cancelledExports.add(id);
     this.stopping = true;
     // Release render waiters even on an intentional shutdown (the exit handler suppresses this event).
-    if (this.child) this.emit({ event: "stopped" });
+    if (this.link) this.emit({ event: "stopped" });
     this.keepStates(false);
-    this.child?.stdin?.end();
-    this.child?.kill();
-    this.child = null;
+    this.link?.close();
+    this.link = null;
   }
 
   /** A command's parameters for the engine, checked. Throws `HttpError(400)`. */
@@ -891,8 +961,8 @@ export class AudioEngine {
 
   private async request(cmd: string, params: Record<string, unknown>): Promise<unknown> {
     await this.start();
-    const child = this.child;
-    if (!child?.stdin) throw new HttpError(503, "The audio engine stopped. Try again.");
+    const link = this.link;
+    if (!link) throw new HttpError(503, "The audio engine stopped. Try again.");
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -900,7 +970,7 @@ export class AudioEngine {
         reject(new HttpError(504, "The audio engine didn't answer."));
       }, REPLY_TIMEOUT_MS);
       this.pending.set(id, { resolve, reject, timer });
-      child.stdin!.write(`${JSON.stringify({ ...params, id, cmd })}\n`);
+      link.send(`${JSON.stringify({ ...params, id, cmd })}\n`);
     });
   }
 
@@ -917,7 +987,7 @@ export class AudioEngine {
   }
 
   private start(): Promise<void> {
-    if (this.child) return Promise.resolve();
+    if (this.link) return Promise.resolve();
     this.starting ??= this.spawn().finally(() => {
       this.starting = null;
     });
@@ -925,25 +995,18 @@ export class AudioEngine {
   }
 
   private async spawn(): Promise<void> {
-    if (path.isAbsolute(this.argv[0]) && !existsSync(this.argv[0])) {
+    const connection = this.connection;
+    if (!connection && path.isAbsolute(this.argv[0]) && !existsSync(this.argv[0])) {
       throw new HttpError(503, "The audio engine isn't built yet: run `pnpm engine:build`.");
     }
     await fs.mkdir(this.paths.engine, { recursive: true });
-    this.outdated = await engineOutdated(this.argv[0]);
+    this.outdated = connection ? false : await engineOutdated(this.argv[0]);
     const args = ["--data", this.paths.engine, ...this.pluginPaths.filter((dir) => existsSync(dir)).flatMap((dir) => ["--plugin-path", dir])];
     args.push(...this.flags);
-    // What it and its plugins print is kept in the log alone: plugins can be chatty.
-    const { child, done } = spawnStreaming([...this.argv, ...args], "pipe", "pipe", { env: this.env, onStderr: lineLogger(log("engine", { quiet: true })) });
     const started = performance.now();
-    // A write to an engine that just died must not take the server down with it.
-    child.stdin!.on("error", () => {});
 
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        child.kill("SIGKILL");
-        reject(new HttpError(503, "The audio engine didn't start."));
-      }, START_TIMEOUT_MS);
-      readline.createInterface({ input: child.stdout! }).on("line", (line) => {
+      const onLine = (line: string) => {
         let message: Record<string, unknown>;
         try {
           message = JSON.parse(line);
@@ -952,8 +1015,8 @@ export class AudioEngine {
         }
         if (message.event === "ready") {
           clearTimeout(timer);
-          this.child = child;
-          engineLog.info(`started (pid ${child.pid}) in ${Math.round(performance.now() - started)} ms${this.outdated ? ", built before its source last changed" : ""}`);
+          this.link = link;
+          engineLog.info(`${connection ? "connected" : "started"} (${link.name}) in ${Math.round(performance.now() - started)} ms${this.outdated ? ", built before its source last changed" : ""}`);
           // A restarted engine has forgotten the song: give it back before anything else is asked.
           this.sentNotes = null;
           if (this.song) void this.request("song", { song: this.song }).catch(() => {});
@@ -976,9 +1039,9 @@ export class AudioEngine {
         ) {
           this.emit(this.inSongTicks(message as unknown as EngineEvent));
         } else if (message.event === "shellClosed") {
-          // It's quitting: that isn't a crash to start it again after.
+          // The music app is quitting: that isn't a crash to start it again after, and the server goes too.
           this.stopping = true;
-          this.onWindowClosed?.();
+          this.onAppQuit?.();
         } else if (message.event === "status" && isObject(message.status)) {
           void this.withSaved(message.status as unknown as RawStatus).then((status) => this.emit({ event: "status", status }));
         }
@@ -988,25 +1051,34 @@ export class AudioEngine {
         clearTimeout(pending.timer);
         if (message.ok) pending.resolve(message.result);
         else pending.reject(new HttpError(409, typeof message.error === "string" ? message.error : "The audio engine refused."));
-      });
-      done
-        .then(
-          () => (this.stopping ? engineLog.info("stopped") : engineLog.warn("stopped by itself")),
-          (err: Error) => (this.stopping ? engineLog.info(`stopped: ${err.message}`) : engineLog.error(`stopped unexpectedly (a plugin may have crashed it): ${err.message}`, { exitCode: child.exitCode, signal: child.signalCode })),
-        )
-        .finally(() => {
-          clearTimeout(timer);
-          if (this.child === child) this.child = null;
-          if (!this.stopping) this.emit({ event: "stopped" });
-          // Recordings it was making: what they'd written is saved as takes.
-          if (!this.stopping) for (const id of [...this.recordings.keys()]) void this.salvage(id);
-          for (const pending of this.pending.values()) {
-            clearTimeout(pending.timer);
-            pending.reject(new HttpError(503, "The audio engine stopped (a plugin may have crashed it). Try again."));
-          }
-          this.pending.clear();
-          reject(new HttpError(503, "The audio engine couldn't start."));
-        });
+      };
+      const onEnd = (error: Error | null) => {
+        if (this.stopping) engineLog.info(error ? `stopped: ${error.message}` : "stopped");
+        else if (!error) engineLog.warn("stopped by itself");
+        else {
+          const { exitCode, signal } = error as Error & { exitCode?: number | null; signal?: string | null };
+          engineLog.error(`stopped unexpectedly (a plugin may have crashed it): ${error.message}`, { exitCode, signal });
+        }
+        clearTimeout(timer);
+        if (this.link === link) this.link = null;
+        if (!this.stopping) this.emit({ event: "stopped" });
+        // Recordings it was making: what they'd written is saved as takes.
+        if (!this.stopping) for (const id of [...this.recordings.keys()]) void this.salvage(id);
+        for (const pending of this.pending.values()) {
+          clearTimeout(pending.timer);
+          pending.reject(new HttpError(503, "The audio engine stopped (a plugin may have crashed it). Try again."));
+        }
+        this.pending.clear();
+        reject(new HttpError(503, "The audio engine couldn't start."));
+        // The music app's engine is the app: with it gone (quit, or crashed), so is the server. Its song was
+        // autosaved; the next launch opens it again.
+        if (connection) this.onAppQuit?.();
+      };
+      const link = connection ? socketLink(connection, onLine, onEnd) : processLink([...this.argv, ...args], this.env, onLine, onEnd);
+      const timer = setTimeout(() => {
+        link.close(true);
+        reject(new HttpError(503, "The audio engine didn't start."));
+      }, START_TIMEOUT_MS);
     });
   }
 }

@@ -1,11 +1,13 @@
-// The shell (`--window <url>`): the app's page in a window of the engine's own, through the system's web view, so
-// the music suite and its plugins' windows are one program, as FL Studio is (docs/claude/music-shell.md). Plugin
-// windows belong to it (`EditorWindow::setShellWindow`), so nothing waits on another program to stack or focus
-// them. An experiment: the server still runs the engine and the page still talks to the server, but for what the
-// page sends straight here (`window.__JUCE__`'s "engine" function, `src/suites/music/shell.ts`).
+// The music app's window (docs/apps.md): the app's page in a window of the engine's own, through the system's web
+// view, so the music suite and its plugins' windows are one program, as FL Studio is (docs/claude/music-shell.md).
+// Plugin windows belong to it (`EditorWindow::setShellWindow`), so nothing waits on another program to stack or
+// focus them. The page talks to the server, but for what it asks the app itself (`src/lib/host.ts`: dialogs, the
+// files the app was handed) and the few commands it sends straight to the engine. On Windows the page is in a
+// WebView2 of our own (WebView.h), on macOS in JUCE's WebBrowserComponent (`window.__JUCE__`'s "engine" function).
 #pragma once
 
 #include <juce_gui_extra/juce_gui_extra.h>
+#include <map>
 
 class Engine;
 
@@ -16,16 +18,35 @@ public:
     ShellWindow (const juce::String& url, Engine& engine, const juce::File& dataDir);
     ~ShellWindow() override;
 
-    /** Closing it quits the engine, which tells the server first (`shellClosed`). */
+    /** Show `url` instead (a server restarted elsewhere); nothing if it's the page shown. */
+    void show (const juce::String& url);
+    /** Ask the page to save what it hasn't yet (`editorDesktop.flush`): `done` once it has, or after `ms` regardless. */
+    void flush (int ms, std::function<void()> done);
+    /** Files the app was handed (Finder, Explorer, its icon): the page opens them, once it's there to. */
+    void openFiles (const juce::StringArray& paths);
+
+    /** Closing it quits the app, once the page has saved (`EngineApplication::systemRequestedQuit`). */
     void closeButtonPressed() override;
     void moved() override;
     void resized() override;
+    void activeWindowStatusChanged() override;
 
 private:
-    class Browser;
+    class Page;
+    using Complete = std::function<void (const juce::Result&, const juce::var&)>;
     /** Where it is, for the plugin windows: they open over it and move with it (`PluginHost::setHost`). */
     void tellHost();
+    /** What the page asked (`hostCommand` in src/lib/host.ts). */
+    void command (const juce::String& name, const juce::var& params, Complete complete);
+    /** Tell the page something (`{ event, ... }`: `onHostEvent` in src/lib/host.ts). */
+    void post (const juce::var& event);
 
     Engine& engine;
-    std::unique_ptr<Browser> browser;
+    std::unique_ptr<Page> page;
+    juce::String url;
+    /** The page said it's listening (`host.ready`); until then, files handed to the app wait. */
+    bool pageReady = false;
+    juce::StringArray waitingFiles;
+    int nextFlush = 0;
+    std::map<int, std::function<void()>> flushes;
 };

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { createApp } from "./app.ts";
-import { APP, FFMPEG, LOG_LEVEL, RECENTS_FROM, UNKNOWN_APP, config } from "./config.ts";
+import { APP, ENGINE_CONNECT, FFMPEG, LOG_LEVEL, RECENTS_FROM, UNKNOWN_APP, config } from "./config.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { log, startLogging } from "./log.ts";
 
@@ -26,18 +26,29 @@ if (config.production) {
   else logger.warn(`${config.clientDir} not found — run \`pnpm build\` to serve the app.`);
 }
 
-const { app, shutdown } = await createApp({ dataDir: config.dataDir, clientDir, app: APP, recentsFrom: RECENTS_FROM });
+const { app, shutdown, listening } = await createApp({ dataDir: config.dataDir, clientDir, app: APP, recentsFrom: RECENTS_FROM });
 const server = http.createServer(app);
 
 server.on("error", (err: NodeJS.ErrnoException) => {
+  // The music app tells its window where the page is, so any port will do when its own is taken (another
+  // checkout's, an old copy still running). The page's storage is per port: it's only for when it must.
+  if (err.code === "EADDRINUSE" && ENGINE_CONNECT && (server.address() === null)) {
+    logger.warn(`port ${config.port} is already in use: listening on another`);
+    server.listen(0, config.host);
+    return;
+  }
   if (err.code === "EADDRINUSE") logger.error(`port ${config.port} is already in use (set EDITOR_SERVER_PORT to change it).`);
   else logger.error("the server failed", err);
   process.exit(1);
 });
 
-server.listen(config.port, config.host, () => {
-  logger.info(`listening on http://${config.host}:${config.port} (${APP ? `the ${APP} app, ` : ""}data: ${config.dataDir})`);
+server.on("listening", () => {
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : config.port;
+  logger.info(`listening on http://${config.host}:${port} (${APP ? `the ${APP} app, ` : ""}data: ${config.dataDir})`);
+  listening(`http://${config.host}:${port}/`);
 });
+server.listen(config.port, config.host);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {

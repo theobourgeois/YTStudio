@@ -32,7 +32,7 @@ FetchContent_Declare(
   SYSTEM)
 FetchContent_MakeAvailable(signalsmith-stretch)
 
-# The shell (`--window`, ShellWindow.cpp): the app's page in a window of the engine's own, through the system's
+# The music app's window (ShellWindow.cpp, docs/apps.md): the app's page in a window of the engine's own, through the system's
 # web view (WKWebView on macOS, WebView2 on Windows). WebView2's SDK comes from NuGet, fetched rather than kept
 # here or installed by hand; JUCE's FindWebView2 looks for it by name in JUCE_WEBVIEW2_PACKAGE_LOCATION, and links
 # its loader statically, so the engine ships no DLL of it (the runtime itself is part of Windows).
@@ -49,8 +49,8 @@ if(WIN32)
 endif()
 
 # An app bundle rather than a bare executable: plugin editors are windows, and macOS only gives
-# those to an application. LSUIElement keeps it out of the Dock (it's part of YTStudio, not an app; the shell,
-# `--window`, shows it again).
+# those to an application. LSUIElement keeps it out of the Dock (it's part of YTStudio, not an app; the music
+# app's window shows it again).
 # Recording reads the microphone, which macOS only allows an app that says why (YTStudio, which starts
 # the engine, says so too: scripts/desktop.ts).
 juce_add_gui_app(
@@ -63,14 +63,14 @@ juce_add_gui_app(
   PLIST_TO_MERGE "<plist><dict><key>LSUIElement</key><true/></dict></plist>"
   NEEDS_WEBVIEW2 TRUE)
 
-target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/AutoTune.cpp src/ClipPlayer.cpp src/Convolver.cpp src/EchoBoy.cpp src/EditorWindow.cpp src/Engine.cpp src/EqDesign.cpp src/Export.cpp src/FilePreview.cpp src/GrossBeat.cpp src/Host.cpp src/MacWindow.cpp src/MidiInputs.cpp src/Ott.cpp src/PanMan.cpp src/PitchWheel.cpp src/Plugins.cpp src/ProC.cpp src/ProL.cpp src/ProQ.cpp src/Protocol.cpp src/Reverb.cpp src/ReverbNetwork.cpp src/ReverbSettings.cpp src/Recorder.cpp src/Sequencer.cpp src/ShellWindow.cpp src/Song.cpp src/Spectrum.cpp)
+target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/AutoTune.cpp src/ClipPlayer.cpp src/Convolver.cpp src/EchoBoy.cpp src/EditorWindow.cpp src/Engine.cpp src/EqDesign.cpp src/Export.cpp src/FilePreview.cpp src/GrossBeat.cpp src/Host.cpp src/MacWindow.cpp src/MidiInputs.cpp src/Ott.cpp src/PanMan.cpp src/PitchWheel.cpp src/Plugins.cpp src/ProC.cpp src/ProL.cpp src/ProQ.cpp src/Protocol.cpp src/Reverb.cpp src/ReverbNetwork.cpp src/ReverbSettings.cpp src/Recorder.cpp src/Sequencer.cpp src/Server.cpp src/HostCommands.cpp src/ShellWindow.cpp src/Song.cpp src/Spectrum.cpp src/WebView.cpp)
 
 target_compile_definitions(
   VaudioEngine
   PRIVATE JUCE_PLUGINHOST_VST3=1
           $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
-          JUCE_WEB_BROWSER=1
-          $<$<PLATFORM_ID:Windows>:JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1>
+          # JUCE's web view is the shell's on macOS; on Windows the engine hosts WebView2 itself (WebView.cpp).
+          $<IF:$<PLATFORM_ID:Darwin>,JUCE_WEB_BROWSER=1,JUCE_WEB_BROWSER=0>
           JUCE_USE_CURL=0
           JUCE_DISPLAY_SPLASH_SCREEN=0)
 

@@ -37,11 +37,9 @@ own folders, and `server/architecture.test.ts` keeps them from importing each ot
 - **Music runs in the engine's window on both systems.** Video, photo and the visualizer stay on Electron, unchanged
   in how they run.
 
-## Still to decide (each before its step)
-
-- **A plugin crash.** Today a crashing plugin kills the engine and the server starts it again. In the music app the
-  engine is the app, so a crash closes it, as in FL without its bridge. Autosave and reopening on the next launch
-  cover the work. Running plugins in a process of their own (FL's "Make bridged") can come later, if needed.
+- **A plugin crash closes the music app** (decided 2026-10-23). The engine is the app, so a crash takes it, as in
+  FL without its bridge. Autosave and reopening on the next launch cover the work. Running plugins in a process of
+  their own (FL's "Make bridged") can come later, if needed.
 
 ## Steps
 
@@ -107,6 +105,14 @@ and Your taste. It still listens with Electron's grant (`answerListening`).
 ### 3. The music app on Windows
 
 Music runs in the engine's window, made the real app rather than the test.
+
+**The shared core is built** (on the Mac, 2026-10-23; `docs/claude/music-shell.md`): the engine starts the server
+(`ServerProcess`) and they talk over a socket on 127.0.0.1 rather than a pipe (`protocol::serve`, `socketLink`), the
+server tells it where the page is (`page`), closing saves then quits both, one instance with files handed to it,
+the dialogs, the Trash and Show in Finder or Explorer (`HostCommands.cpp`), the engine's settings carried over, and
+the page's bridge `src/lib/host.ts` (replacing the test's `shell.ts`). `pnpm dev:music` runs it. What's left on
+Windows: the title bar and its buttons, panels as owned windows (`panels` in `editorDesktopInfo`), the playhead
+stalling while a window is dragged (JUCE's timers stop in Windows' move loop), and the installer.
 
 - **Who starts whom.** The engine is the app. It starts the server: a Node shipped with it, running the server
   bundle. It talks to the server over a pipe of its own, in the same JSON lines, so stdout stays for logs. The
