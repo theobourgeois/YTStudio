@@ -6,10 +6,12 @@
   #define WIN32_LEAN_AND_MEAN
  #endif
  #include <windows.h>
+ #include <commctrl.h>
  #include <dwmapi.h>
  #include <ole2.h>
  #include <shlobj.h>
  #include <shobjidl.h>
+ #pragma comment(lib, "comctl32.lib")
  #pragma comment(lib, "dwmapi.lib")
  #pragma comment(lib, "ole32.lib")
  #pragma comment(lib, "shell32.lib")
@@ -182,6 +184,32 @@ void keepAwake (bool playing)
     // would stop when the computer went to sleep. Called on the message thread, whose state it is.
     SetThreadExecutionState (playing ? (ES_CONTINUOUS | ES_SYSTEM_REQUIRED) : ES_CONTINUOUS);
 }
+
+namespace
+{
+constexpr UINT_PTR dragSubclassId = 0x4d4f5645; // "MOVE"
+
+LRESULT CALLBACK dragProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR)
+{
+    if (message == WM_NCLBUTTONDOWN && wParam == HTCAPTION)
+    {
+        // Straight into the system's move loop, where the message loop runs on. (JUCE hands the press to
+        // DefWindowProc once the mouse moves, which then waits up to half a second for it to move again before
+        // moving the window: nothing is dispatched meanwhile, and the playhead stood still.)
+        SendMessageW (hwnd, WM_SYSCOMMAND, SC_MOVE | HTCAPTION, lParam);
+        return 0;
+    }
+    if (message == WM_NCDESTROY)
+        RemoveWindowSubclass (hwnd, &dragProc, dragSubclassId);
+    return DefSubclassProc (hwnd, message, wParam, lParam);
+}
+} // namespace
+
+void dragWithoutPause (juce::Component& window)
+{
+    if (auto* hwnd = static_cast<HWND> (nativeWindowOf (window)))
+        SetWindowSubclass (hwnd, &dragProc, dragSubclassId, 0);
+}
 #else
 #if JUCE_MAC
 void setWindowOwner (juce::Component& window, void* owner)
@@ -219,6 +247,7 @@ juce::Rectangle<int> nativeFrameOf (juce::Component&) { return {}; }
 void moveWindowBy (juce::Component&, juce::Point<int>) {}
 void cloakWindow (juce::Component&, bool) {}
 void keepAwake (bool) {}
+void dragWithoutPause (juce::Component&) {}
 #endif
 
 #if JUCE_MAC

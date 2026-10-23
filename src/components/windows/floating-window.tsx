@@ -668,8 +668,8 @@ function afterPaint(win: Window): Promise<void> {
 
 /**
  * Whether a `native` desktop's windows are windows of the operating system: on Windows, where the page's host
- * gives it `panels` (the music app, with step 3's Windows half: no host does yet). Each will be owned by the main
- * window, as the plugin windows are, so the two kinds stack among each other by use, as FL Studio's do. On a Mac
+ * gives it `panels` (the music app: src/lib/host.ts). Each is owned by the main window, as the plugin windows are,
+ * so the two kinds stack among each other by use, as FL Studio's do. On a Mac
  * they're drawn in the page, as in a browser: window levels there gave no hover or keyboard to the windows beside
  * the one in use (docs/windows.md).
  */

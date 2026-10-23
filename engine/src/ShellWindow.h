@@ -10,6 +10,7 @@
 #include <map>
 
 class Engine;
+class PanelWindow;
 
 class ShellWindow final : public juce::DocumentWindow
 {
@@ -30,6 +31,18 @@ public:
     void moved() override;
     void resized() override;
     void activeWindowStatusChanged() override;
+    /** No border of JUCE's: the page fills the window (on Windows its edges are the page's, `findControlAtPoint`). */
+    juce::BorderSize<int> getBorderThickness() const override { return {}; }
+    juce::BorderSize<int> getContentComponentBorder() const override { return {}; }
+   #if JUCE_WINDOWS
+    /**
+     * Windows: the window has no title bar of the system's, so it says where its parts are, for the system's hit test
+     * (dragging, Aero Snap, a double click to maximise, the snap layouts on the maximise button): its edges, the
+     * maximise button the page draws (`CaptionButtons`, at the right end of the bar that starts the window) and the
+     * page's bars (`host.dragRegions`).
+     */
+    WindowControlKind findControlAtPoint (juce::Point<float> point) const override;
+   #endif
 
 private:
     class Page;
@@ -45,6 +58,30 @@ private:
     /** A menu item (ShellMac.h): the page's commands go to it, the app's are run here. */
     void menu (const juce::String& name);
     juce::File placeFile() const { return dataDir.getChildFile ("window.txt"); }
+   #if JUCE_WINDOWS
+    /** The mouse on the page's maximise button goes to the page (`winShell::dress`): again if the peer is made anew. */
+    void dressPeer();
+    void* dressedPeer = nullptr;
+    /** How tall the bar that starts the window is (`host.titleBar`, points): the page's window buttons are as tall. */
+    int titleBarHeight = 40;
+    /**
+     * The page's panels (the music editor's windows, Settings: `DesktopPanels` in src/lib/desktop.ts), windows of the
+     * system's it opened by name and places itself (`host.panel`). Owned by this one, as the plugin windows are.
+     */
+    std::map<juce::String, std::unique_ptr<PanelWindow>> panels;
+    bool panelCommand (const juce::var& params);
+    /** Where the window is, in physical pixels, when its panels last went along with it. */
+    juce::Rectangle<int> panelsFollowed;
+    /** Where the window is, in points, and the displays' usable areas: what the page places its panels by. */
+    juce::var screenAreas();
+    /** Whether the page was last told the window is maximised (`maximized`). */
+    bool saidMaximised = false;
+    /**
+     * Where the page's bars drag the window, and what in them takes its own presses (`host.dragRegions`, CSS pixels),
+     * so the system's hit test is answered here and asks nothing of the page.
+     */
+    juce::Array<juce::Rectangle<float>> dragRegions, pressedRegions;
+   #endif
 
     Engine& engine;
     /** The engine's data folder, in the app's (`data/engine`): where the window's place is kept. */

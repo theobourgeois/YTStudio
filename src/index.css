@@ -401,6 +401,10 @@ html.desktop-win32:not(.fullscreen) {
 html.desktop-win32:not(.fullscreen) :is([data-titlebar="header"], [data-titlebar="home"], [data-titlebar="tabs"]) {
   padding-right: calc(var(--window-controls-width) + 8px);
 }
+/* The music app draws them itself (`CaptionButtons`): three of 46px, as wide as Windows' own. */
+html.desktop-win32.caption-buttons:not(.fullscreen) {
+  --window-controls-width: 138px;
+}
 /* The bar that starts the window undoes the page's zoom (above), which scales the page's px it's given too. */
 html.desktop-win32:not(.fullscreen) :is([data-titlebar="tabs"], [data-titlebar="home"]:not([data-tabs] *)) {
   padding-right: calc(var(--window-controls-width) * var(--desktop-zoom, 1) + 8px);

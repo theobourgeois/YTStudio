@@ -10,7 +10,7 @@ import { NewProjectDialog } from "@/components/home/new-project-dialog";
 import { NewProjectWindow } from "@/components/home/new-project-window";
 import { NowPlayingHost } from "@/components/now-playing/now-playing-host";
 import { ProjectTabs, useTabsShown } from "@/components/home/project-tabs";
-import { useOwnWindowButtons } from "@/components/header/window-buttons";
+import { CaptionButtons, useOwnWindowButtons } from "@/components/header/window-buttons";
 import { OpenProjectDialog } from "@/components/home/open-project-dialog";
 import { ProjectSearchDialog, useProjectShortcuts } from "@/components/home/project-search-dialog";
 import { Toaster } from "@/components/ui/sonner";
@@ -94,6 +94,8 @@ export default function App() {
       <NewProjectDialog />
       <ProjectSearchDialog />
       <OpenProjectDialog />
+      {/* Windows' window buttons, where the window has none of its own (the music app), over the bar that starts it. */}
+      <CaptionButtons height={tabs || !home ? 40 : 52} />
       <Toaster position="bottom-right" />
       {/* Every title in the app shown as one of these tooltips, not the browser's. */}
       <TitleTips />

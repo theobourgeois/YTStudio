@@ -8,6 +8,8 @@
 #include "WebView.h"
 #if JUCE_MAC
  #include "ShellMac.h"
+#elif JUCE_WINDOWS
+ #include "ShellWin.h"
 #endif
 
 namespace
@@ -20,6 +22,13 @@ const juce::StringArray directCommands { "preview" };
 
 /** The page's background while it loads (Studio Dark's `surface-0`), so the window never flashes white. */
 const juce::Colour loading { 0xff23272e };
+
+#if JUCE_WINDOWS
+/** The page's window buttons (`CaptionButtons` in header/window-buttons.tsx): each this wide, at the window's right. */
+constexpr int captionButtonWidth = 46;
+/** How far in from the window's edges a press resizes it (points), and from its corners both ways. */
+constexpr float edgeBand = 5.0f, cornerBand = 12.0f;
+#endif
 
 } // namespace
 
@@ -76,8 +85,37 @@ ShellWindow::ShellWindow (const juce::String& urlToShow, Engine& engineToUse, co
    #if JUCE_MAC
     // The engine is an app with no Dock icon (LSUIElement: it's part of YTStudio); the shell is the app itself.
     juce::Process::setDockIconVisible (true);
-   #endif
     setUsingNativeTitleBar (true);
+   #else
+    // No title bar: the page's bars are it (`findControlAtPoint`), and it draws the window's buttons.
+    setUsingNativeTitleBar (false);
+    setTitleBarHeight (0);
+    page->onDragPaths = [this] (const juce::StringArray& paths) {
+        juce::Array<juce::var> list;
+        for (const auto& path : paths)
+            list.add (path);
+        post (protocol::object ({ { "event", "dragPaths" }, { "paths", list } }));
+    };
+    page->setNonClient ([this] (juce::Point<int> screen) {
+        const auto logical = juce::Desktop::getInstance().getDisplays().physicalToLogical (screen);
+        return findControlAtPoint (getLocalPoint (nullptr, logical.toFloat())) != WindowControlKind::client;
+    });
+    // The page's panels: windows it opens by a name of theirs (`PANEL_PREFIX` in shared/panels.ts).
+    page->acceptsWindow = [] (const juce::String& name) { return name.startsWith ("vaudio-panel:"); };
+    page->onWindowOpened = [this] (const juce::String& name, std::unique_ptr<PanelWindow> panel) {
+        panel->onClosed = [this, name] {
+            // (Not inside its own callback.)
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<ShellWindow> (this), name] {
+                if (safe == nullptr || safe->panels.erase (name) == 0)
+                    return;
+                safe->post (protocol::object ({ { "event", "panelClosed" }, { "name", name } }));
+            });
+        };
+        panel->onDragPaths = page->onDragPaths;
+        panels[name] = std::move (panel);
+    };
+    page->onLeaving = [this] { panels.clear(); };
+   #endif
     setResizable (true, false);
     setContentNonOwned (page.get(), false);
     setResizeLimits (800, 500, 100000, 100000);
@@ -106,12 +144,18 @@ ShellWindow::ShellWindow (const juce::String& urlToShow, Engine& engineToUse, co
     macShell::dress (*this, "YTStudio Music", std::move (listener));
    #endif
 
+   #if JUCE_WINDOWS
+    dressPeer();
+   #endif
     EditorWindow::setShellWindow (nativeWindowOf (*this));
     tellHost();
 }
 
 ShellWindow::~ShellWindow()
 {
+   #if JUCE_WINDOWS
+    panels.clear();
+   #endif
     if (! isFullScreen())
         placeFile().replaceWithText (getWindowStateAsString());
     EditorWindow::setShellWindow (nullptr);
@@ -175,7 +219,13 @@ void ShellWindow::command (const juce::String& name, const juce::var& params, Co
        #else
         const auto zoom = 1.0;
        #endif
-        return complete (juce::Result::ok(), protocol::object ({ { "files", files }, { "zoom", zoom } }));
+       #if JUCE_WINDOWS
+        saidMaximised = isFullScreen();
+        const auto screen = screenAreas();
+       #else
+        const juce::var screen;
+       #endif
+        return complete (juce::Result::ok(), protocol::object ({ { "files", files }, { "zoom", zoom }, { "maximized", isFullScreen() }, { "screen", screen } }));
     }
     if (name == "host.flushed")
     {
@@ -208,7 +258,8 @@ bool ShellWindow::windowCommand (const juce::String& name, const juce::var& para
         else
             macShell::windowAction (*this, action);
        #else
-        else if (action == "fullscreen")
+        // (A JUCE window that isn't in kiosk mode is "full screen" on Windows when it's maximised.)
+        else if (action == "maximize" || action == "fullscreen")
             setFullScreen (! isFullScreen());
         else if (action == "minimize")
             setMinimised (true);
@@ -227,6 +278,30 @@ bool ShellWindow::windowCommand (const juce::String& name, const juce::var& para
         macShell::hide (params["which"].toString() == "others");
     else if (name == "host.recent")
         macShell::noteRecent (params["path"].toString());
+    else
+        return false;
+    complete (juce::Result::ok(), {});
+    return true;
+   #elif JUCE_WINDOWS
+    if (name == "host.titleBar")
+        titleBarHeight = juce::jlimit (20, 120, (int) params["height"]);
+    else if (name == "host.dragRegions")
+    {
+        const auto rectangles = [] (const juce::var& list) {
+            juce::Array<juce::Rectangle<float>> rects;
+            if (const auto* items = list.getArray())
+                for (const auto& r : *items)
+                    if (const auto* xywh = r.getArray(); xywh != nullptr && xywh->size() == 4)
+                        rects.add ({ (float) (*xywh)[0], (float) (*xywh)[1], (float) (*xywh)[2], (float) (*xywh)[3] });
+            return rects;
+        };
+        dragRegions = rectangles (params["drag"]);
+        pressedRegions = rectangles (params["noDrag"]);
+    }
+    else if (name == "host.recent")
+        winShell::noteRecent (params["path"].toString());
+    else if (name == "host.panel")
+        panelCommand (params);
     else
         return false;
     complete (juce::Result::ok(), {});
@@ -291,8 +366,126 @@ void ShellWindow::moved()
 void ShellWindow::resized()
 {
     DocumentWindow::resized();
+   #if JUCE_WINDOWS
+    dressPeer();
+    // The page's maximise button shows maximise or restore.
+    if (page != nullptr && isFullScreen() != saidMaximised)
+    {
+        saidMaximised = isFullScreen();
+        post (protocol::object ({ { "event", "maximized" }, { "on", saidMaximised } }));
+    }
+   #endif
     tellHost();
 }
+
+#if JUCE_WINDOWS
+ShellWindow::WindowControlKind ShellWindow::findControlAtPoint (juce::Point<float> point) const
+{
+    // (Nothing here may ask the peer: the system's hit test is what's asking. Rectangles only.)
+    const auto bounds = getLocalBounds().toFloat();
+    if (! isFullScreen() && ! isMinimised())
+    {
+        const auto left = point.x < edgeBand, right = point.x >= bounds.getRight() - edgeBand;
+        const auto top = point.y < edgeBand, bottom = point.y >= bounds.getBottom() - edgeBand;
+        const auto nearLeft = point.x < cornerBand, nearRight = point.x >= bounds.getRight() - cornerBand;
+        const auto nearTop = point.y < cornerBand, nearBottom = point.y >= bounds.getBottom() - cornerBand;
+        if ((top && nearLeft) || (left && nearTop)) return WindowControlKind::sizeTopLeft;
+        if ((top && nearRight) || (right && nearTop)) return WindowControlKind::sizeTopRight;
+        if ((bottom && nearLeft) || (left && nearBottom)) return WindowControlKind::sizeBottomLeft;
+        if ((bottom && nearRight) || (right && nearBottom)) return WindowControlKind::sizeBottomRight;
+        if (top) return WindowControlKind::sizeTop;
+        if (left) return WindowControlKind::sizeLeft;
+        if (right) return WindowControlKind::sizeRight;
+        if (bottom) return WindowControlKind::sizeBottom;
+    }
+    const juce::Rectangle<float> maximise (bounds.getRight() - 2.0f * captionButtonWidth, 0.0f, (float) captionButtonWidth, (float) titleBarHeight);
+    if (maximise.contains (point))
+        return WindowControlKind::maximise;
+    // The page fills the window, so its CSS pixels are the window's points (its zoom is off: WebView.cpp).
+    const auto in = [point] (const juce::Array<juce::Rectangle<float>>& rects) {
+        return std::any_of (rects.begin(), rects.end(), [point] (const auto& rect) { return rect.contains (point); });
+    };
+    if (in (dragRegions) && ! in (pressedRegions))
+        return WindowControlKind::caption;
+    return WindowControlKind::client;
+}
+
+namespace
+{
+juce::Rectangle<int> rectangleIn (const juce::var& r)
+{
+    return { juce::roundToInt ((double) r["x"]), juce::roundToInt ((double) r["y"]), juce::roundToInt ((double) r["width"]), juce::roundToInt ((double) r["height"]) };
+}
+
+juce::var rectangleOf (juce::Rectangle<int> r)
+{
+    return protocol::object ({ { "x", r.getX() }, { "y", r.getY() }, { "width", r.getWidth() }, { "height", r.getHeight() } });
+}
+
+/** "#rrggbb" or "#rrggbbaa", as the page gives a panel's background (`cssColour`). */
+juce::Colour colourOf (const juce::String& css)
+{
+    const auto hex = css.trimCharactersAtStart ("#");
+    if (hex.length() == 8)
+        return juce::Colour ((juce::uint32) (hex.substring (6).getHexValue32() << 24 | hex.substring (0, 6).getHexValue32()));
+    return juce::Colour ((juce::uint32) (0xff000000 | hex.getHexValue32()));
+}
+} // namespace
+
+juce::var ShellWindow::screenAreas()
+{
+    juce::Array<juce::var> areas;
+    for (const auto& display : juce::Desktop::getInstance().getDisplays().displays)
+        areas.add (rectangleOf (display.userArea));
+    return protocol::object ({ { "content", rectangleOf (getScreenBounds()) }, { "workAreas", areas } });
+}
+
+bool ShellWindow::panelCommand (const juce::var& params)
+{
+    const auto found = panels.find (params["name"].toString());
+    if (found == panels.end())
+        return false;
+    auto& panel = *found->second;
+    const auto action = params["action"].toString();
+    if (action == "show")
+        panel.show ((bool) params["focus"]);
+    else if (action == "raise")
+        panel.raise();
+    else if (action == "hide")
+        panel.hide();
+    else if (action == "close")
+        panels.erase (found);
+    else if (action == "place")
+    {
+        auto bounds = rectangleIn (params["rect"]);
+        // Worked out while the window was elsewhere (it moved meanwhile, and the panels with it): as far along.
+        if (const auto basis = params["basis"]; basis.isObject())
+            bounds += getScreenBounds().getPosition() - juce::Point<int> (juce::roundToInt ((double) basis["x"]), juce::roundToInt ((double) basis["y"]));
+        panel.place (bounds);
+    }
+    else if (action == "configure")
+    {
+        const auto options = params["options"];
+        if (options["backgroundColor"].isString())
+            panel.setBackground (colourOf (options["backgroundColor"].toString()));
+        if (options["title"].isString())
+            panel.setTitle (options["title"].toString());
+    }
+    return true;
+}
+
+void ShellWindow::dressPeer()
+{
+    auto* native = nativeWindowOf (*this);
+    if (native == nullptr || native == dressedPeer)
+        return;
+    dressedPeer = native;
+    dragWithoutPause (*this);
+    winShell::dress (
+        *this, [this] (unsigned int message, juce::Point<int> screen) { page->forwardMouse (message, screen); },
+        [this] { page->focus(); });
+}
+#endif
 
 void ShellWindow::activeWindowStatusChanged()
 {
@@ -315,7 +508,19 @@ void ShellWindow::tellHost()
         return protocol::object ({ { "x", r.getX() }, { "y", r.getY() }, { "width", r.getWidth() }, { "height", r.getHeight() } });
     };
     auto host = protocol::object ({ { "bounds", rectangle (getScreenBounds()) } });
-    if (const auto frame = nativeFrameOf (*this); ! frame.isEmpty())
+    const auto frame = nativeFrameOf (*this);
+    if (! frame.isEmpty())
         host.getDynamicObject()->setProperty ("frame", rectangle (frame));
     engine.handle ("host", host, [] (const juce::Result&, const juce::var&) {});
+   #if JUCE_WINDOWS
+    // Its panels go along as it moves (not as it's resized, maximised or minimised: the page places them again), at
+    // once and by its physical pixels, as the plugin windows do; then the page is told where it is.
+    if (! panelsFollowed.isEmpty() && frame.getWidth() == panelsFollowed.getWidth() && frame.getHeight() == panelsFollowed.getHeight())
+        if (const auto delta = frame.getPosition() - panelsFollowed.getPosition(); delta != juce::Point<int>())
+            for (auto& [name, panel] : panels)
+                panel->moveBy (delta);
+    panelsFollowed = frame;
+    if (page != nullptr && ! isMinimised())
+        post (protocol::object ({ { "event", "screen" }, { "screen", screenAreas() } }));
+   #endif
 }
