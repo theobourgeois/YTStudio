@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import type { IconType } from "react-icons";
-import { PiFolderOpen, PiImages, PiListBullets, PiMagnifyingGlass, PiSquaresFour, PiUploadSimple } from "react-icons/pi";
+import { PiFolderOpen, PiImages, PiListBullets, PiMagnifyingGlass, PiSquaresFour, PiUploadSimple, PiWaveform } from "react-icons/pi";
 import { appIconUrl } from "@shared/app-icons";
-import { SUITES, SUITE_IDS, type SuiteId, suiteNoun } from "@shared/suites";
+import { SUITES, type SuiteId, suiteNoun } from "@shared/suites";
 import { WindowButtons } from "@/components/header/window-buttons";
-import { NowPlayingPill } from "@/components/now-playing/now-playing-pill";
 import { SettingsButton } from "@/components/settings/settings-button";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { useNow } from "@/hooks/use-now";
+import { appSuites, currentApp } from "@/lib/app";
 import { cn } from "cn";
 import { useAppIcon } from "@/stores/app-icon";
+import { useNowPlaying } from "@/stores/now-playing";
 import { useProjects } from "@/stores/projects";
 import { useSettings } from "@/stores/settings";
 import { clientSuite } from "@/suites";
@@ -17,7 +18,6 @@ import { folderOf, type HomeView, LIST_COLUMNS, ProjectCard } from "./project-ca
 import { groupByWhen, searchProjects } from "./project-search";
 import { OPEN_KEYS, NEW_PROJECT_KEYS, PROJECT_SEARCH_KEYS } from "./project-search-dialog";
 import { showOpenDialog } from "./open-project-dialog";
-import { useTabsShown } from "./tabs-shown";
 
 const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
 /** Which suite's projects the Home screen lists (all of them by default), kept in this browser. */
@@ -41,13 +41,14 @@ const savedView = (): HomeView => {
 
 const savedFilter = (): Filter => {
   const saved = localStorage.getItem(FILTER_KEY);
-  return saved && (SUITE_IDS as string[]).includes(saved) ? (saved as SuiteId) : "all";
+  return saved && (appSuites() as string[]).includes(saved) ? (saved as SuiteId) : "all";
 };
 
 /**
- * The Home screen, shown while no project is open (Premiere's, Resolve's): start a project in any suite,
- * or open one of this computer's recents (each a file on disk) or any other (Open…). Files dropped here
- * start a project of the first suite that takes them; a project's package dropped here (desktop) opens.
+ * The Home screen, shown while no project is open (Premiere's, Resolve's): start a project in any of the app's
+ * suites, or open one of this computer's recents (each a file on disk) or any other (Open…). Files dropped here
+ * start a project of the first suite that takes them; a project's package dropped here (desktop) opens. An app
+ * with the visualizer (`AppInfo.visualizer`) opens it from here too.
  */
 export function Home() {
   const projects = useProjects((s) => s.projects);
@@ -56,8 +57,7 @@ export function Home() {
   const [filter, setFilter] = useState<Filter>(savedFilter);
   const [view, setView] = useState<HomeView>(savedView);
   const now = useNow(30_000);
-  // With the tab strip above, what's playing is shown there.
-  const tabs = useTabsShown();
+  const suites = appSuites();
 
   const shown = useMemo(() => {
     const ofSuite = filter === "all" ? projects : projects.filter((p) => p.suite === filter);
@@ -87,9 +87,9 @@ export function Home() {
       if (e.code === "KeyF" && !e.altKey) {
         e.preventDefault();
         document.getElementById("home-search")?.focus();
-      } else if (digit && SUITE_IDS[Number(digit[1]) - 1]) {
+      } else if (digit && appSuites()[Number(digit[1]) - 1]) {
         e.preventDefault();
-        void useProjects.getState().create({ suite: SUITE_IDS[Number(digit[1]) - 1], blank: e.altKey });
+        void useProjects.getState().create({ suite: appSuites()[Number(digit[1]) - 1], blank: e.altKey });
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -119,28 +119,34 @@ export function Home() {
           />
           <kbd className="shrink-0 font-sans text-[11px]">{MOD}F</kbd>
         </label>
-        {!tabs && <NowPlayingPill />}
         <SettingsButton />
         <WindowButtons className="-ml-1" />
       </header>
 
       <div className="flex min-h-0 flex-1">
         <aside aria-label="Start" className="flex w-60 shrink-0 flex-col gap-1.5 overflow-y-auto border-r border-line bg-surface-0 px-3.5 pt-5 pb-4">
-          {SUITE_IDS.map((id, i) => (
+          {suites.map((id, i) => (
             <NewTile key={id} suite={id} index={i} />
           ))}
-          <div className="mx-1 my-2.5 h-px bg-line shadow-[0_1px_0_var(--bevel-highlight)]" />
-          <OpenTile />
-          <p className="mt-auto px-1.5 pt-4 text-[11px] leading-[1.6] text-muted-foreground">
-            New projects are saved in
-            <br />
-            <span className="font-mono text-[11px] text-foreground/80" title={location?.path}>
-              {location ? folderOf(`${location.path}/x`) : "…"}
-            </span>{" "}
-            <button type="button" className="text-brand hover:underline" onClick={() => useSettings.getState().show("general")}>
-              Change
-            </button>
-          </p>
+          {suites.length > 0 && (
+            <>
+              <div className="mx-1 my-2.5 h-px bg-line shadow-[0_1px_0_var(--bevel-highlight)]" />
+              <OpenTile />
+            </>
+          )}
+          {currentApp().visualizer && <VisualizerTile />}
+          {suites.length > 0 && (
+            <p className="mt-auto px-1.5 pt-4 text-[11px] leading-[1.6] text-muted-foreground">
+              New projects are saved in
+              <br />
+              <span className="font-mono text-[11px] text-foreground/80" title={location?.path}>
+                {location ? folderOf(`${location.path}/x`) : "…"}
+              </span>{" "}
+              <button type="button" className="text-brand hover:underline" onClick={() => useSettings.getState().show("general")}>
+                Change
+              </button>
+            </p>
+          )}
         </aside>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Home">
@@ -148,23 +154,25 @@ export function Home() {
             <h2 id="home-recent" className="text-[17px] font-bold tracking-tight">
               Recent
             </h2>
-            <div role="radiogroup" aria-label="Show" className="flex items-center gap-0.5">
-              {(["all", ...SUITE_IDS] as Filter[]).map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  role="radio"
-                  aria-checked={filter === id}
-                  onClick={() => pickFilter(id)}
-                  className={cn(
-                    "h-7 rounded-sm border border-transparent px-2.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground",
-                    filter === id && "raised text-foreground",
-                  )}
-                >
-                  {id === "all" ? "All" : capitalise(suiteNoun(id, 2))}
-                </button>
-              ))}
-            </div>
+            {suites.length > 1 && (
+              <div role="radiogroup" aria-label="Show" className="flex items-center gap-0.5">
+                {(["all", ...suites] as Filter[]).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={filter === id}
+                    onClick={() => pickFilter(id)}
+                    className={cn(
+                      "h-7 rounded-sm border border-transparent px-2.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground",
+                      filter === id && "raised text-foreground",
+                    )}
+                  >
+                    {id === "all" ? "All" : capitalise(suiteNoun(id, 2))}
+                  </button>
+                ))}
+              </div>
+            )}
             <div role="radiogroup" aria-label="View" className="sunken ml-auto flex h-7 items-center gap-0.5 rounded-md p-0.5">
               {VIEWS.map(({ id, label, Icon }) => (
                 <button
@@ -240,7 +248,7 @@ export function Home() {
         <div className="pointer-events-none absolute inset-3 z-10 grid place-items-center rounded-md border-2 border-dashed border-brand bg-brand/8">
           <span className="floating flex items-center gap-2 rounded-md px-4 py-3 text-sm font-medium">
             <PiUploadSimple className="size-5 text-brand" />
-            Drop clips to start a new {suiteNoun(SUITE_IDS[0])}, images to start a photo, or a project to open it
+            {dropHint(suites)}
           </span>
         </div>
       )}
@@ -254,7 +262,7 @@ function AppMark() {
   return (
     <div className="flex shrink-0 items-center gap-2 select-none">
       <img src={appIconUrl(icon)} alt="" className="size-6" draggable={false} />
-      <span className="text-[14px] font-semibold tracking-tight">YTStudio</span>
+      <span className="text-[14px] font-semibold tracking-tight">{currentApp().name}</span>
     </div>
   );
 }
@@ -265,7 +273,7 @@ export function OpenTile() {
     <button
       type="button"
       onClick={() => showOpenDialog()}
-      title="Open a .yt file: a copy, a backup, one sent to you"
+      title="Open a project's file: a copy, a backup, one sent to you"
       className="flex h-9 items-center gap-2.5 rounded-sm px-3 text-left text-[13px] font-medium transition-colors hover:bg-surface-2"
     >
       <PiFolderOpen className="size-4.5 shrink-0 text-muted-foreground" />
@@ -273,6 +281,29 @@ export function OpenTile() {
       <kbd className="ml-auto font-mono text-[11px] text-muted-foreground">{OPEN_KEYS}</kbd>
     </button>
   );
+}
+
+/** The visualizer of what the computer plays (docs/now-playing.md), over the whole window. */
+function VisualizerTile() {
+  return (
+    <button
+      type="button"
+      data-visualize-sound
+      onClick={() => useNowPlaying.getState().openVisualizer()}
+      title="Visualize what the computer is playing"
+      className="flex h-9 items-center gap-2.5 rounded-sm px-3 text-left text-[13px] font-medium transition-colors hover:bg-surface-2"
+    >
+      <PiWaveform className="size-4.5 shrink-0 text-muted-foreground" />
+      Visualizer
+    </button>
+  );
+}
+
+/** What dropping files on Home does in this app. */
+function dropHint(suites: readonly SuiteId[]): string {
+  if (suites.length === 0) return "Nothing to drop here";
+  if (suites.length === 1) return `Drop files to start a new ${suiteNoun(suites[0])}, or a project to open it`;
+  return `Drop clips to start a new ${suiteNoun(suites[0])}, images to start a photo, or a project to open it`;
 }
 
 /** A suite's New button: click (⌥: blank, whatever its starting point) to make one, ⌘1, ⌘2… from anywhere on Home. */
@@ -306,6 +337,8 @@ export function NewTile({ suite, index }: { suite: SuiteId; index: number }) {
 
 function Empty({ searching, hasAny }: { searching: boolean; hasAny: boolean }) {
   if (searching && hasAny) return <p className="py-14 text-center text-[13px] text-muted-foreground">Nothing matches.</p>;
+  const suites = appSuites();
+  if (suites.length === 0) return <p className="py-14 text-center text-[13px] text-muted-foreground">Open the visualizer on the left: it moves with whatever the computer plays.</p>;
   return (
     <div className="flex flex-col items-center rounded-md border border-dashed border-muted-foreground/35 px-8 py-14 text-center">
       <span className="grid size-12 place-items-center rounded-md bg-surface-2 text-muted-foreground">
@@ -313,7 +346,7 @@ function Empty({ searching, hasAny }: { searching: boolean; hasAny: boolean }) {
       </span>
       <h3 className="mt-4 text-[15px] font-semibold">Nothing here yet</h3>
       <p className="mt-1.5 max-w-sm text-[13px] leading-5 text-muted-foreground">
-        Start something on the left, drop your clips here to start a {suiteNoun(SUITE_IDS[0])} (images alone start a photo), or open a project you already have
+        Start something on the left, {suites.length > 1 ? `drop your clips here to start a ${suiteNoun(suites[0])} (images alone start a photo)` : `drop files here to start a ${suiteNoun(suites[0])}`}, or open a project you already have
         ({OPEN_KEYS}). Projects you open show up here.
       </p>
       <p className="mt-3 text-xs text-muted-foreground">

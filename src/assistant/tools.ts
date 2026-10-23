@@ -77,7 +77,7 @@ import { useNowPlaying } from "@/stores/now-playing";
 
 /** What the music player's `unavailable` means, for the model. */
 const UNAVAILABLE: Record<NowPlayingUnavailable, string> = {
-  off: "the user turned Now Playing off (Settings › General).",
+  off: "Now Playing is turned off on this computer.",
   unsupported: "there's no music player this app can ask on this computer (Spotify on a Mac).",
   "not-running": "Spotify isn't open.",
   "not-allowed": "macOS hasn't allowed the app to control Spotify (System Settings › Privacy & Security › Automation).",
@@ -799,6 +799,8 @@ const TOOLS: Record<VideoToolName, Handler> = {
   async now_playing() {
     await useLookRatings.getState().load();
     if (!useVisualizerMedia.getState().loaded) await useVisualizerMedia.getState().load();
+    // The player is only asked while the visualizer's open.
+    if (!useNowPlaying.getState().visualizer) await useNowPlaying.getState().refresh();
     const { status, visualizer, listening } = useNowPlaying.getState();
     const prefs = useVisualizerPrefs.getState();
     const lines: string[] = [];
@@ -875,6 +877,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     return textResult(lines.join("\n"));
   },
   async control_now_playing(input) {
+    if (!useNowPlaying.getState().visualizer) await useNowPlaying.getState().refresh();
     const np = useNowPlaying.getState();
     const action = optString(input, "action");
     const seek = optNumber(input, "seek", { min: 0 });

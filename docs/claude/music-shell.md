@@ -11,7 +11,8 @@ engine's own (JUCE's `WebBrowserComponent`: WKWebView on macOS, WebView2 on Wind
 belonging to that window inside the same program.
 
 It worked on Windows (2026-10-23), so the music suite becomes an app of its own in this window: the plan is
-`docs/apps.md` (YTStudio as four apps).
+`docs/apps.md` (YTStudio as four apps). `pnpm dev:music` is that app (`EDITOR_APP=music`) in this window; `pnpm dev:shell`
+shows every suite there.
 
 **What it is (step 1, the test).**
 - `pnpm dev:shell` (`scripts/shell.ts`) runs the server and Vite as `pnpm dev` does, with `EDITOR_ENGINE_WINDOW` set

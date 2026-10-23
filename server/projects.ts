@@ -6,10 +6,11 @@ import path from "node:path";
 import { errorMessage } from "../shared/errors.ts";
 import type { SongHandoff } from "../shared/handoff.ts";
 import { createId } from "../shared/ids.ts";
-import { DEFAULT_PROJECT_NAME, DEFAULT_SUITE, type SuiteDocument, type SuiteId, isSuiteId, SUITE_IDS, suiteNoun } from "../shared/suites.ts";
+import { appOfSuite } from "../shared/apps.ts";
+import { DEFAULT_PROJECT_NAME, DEFAULT_SUITE, SUITES, type SuiteDocument, type SuiteId, isSuiteId, SUITE_IDS, suiteNoun } from "../shared/suites.ts";
 import type { MediaAsset, ProjectLocation, ProjectSummary, ProjectTemplates } from "../shared/types.ts";
 import type { MediaLibrary } from "./media.ts";
-import { PROJECT_EXTENSION, fileName, fitsName, isInside, isPackageName, moveToTrash, movePath, namedAfter, packageName, relocated, samePath, uniquePackage } from "./packages.ts";
+import { fileName, fitsName, isInside, isPackageName, moveToTrash, movePath, namedAfter, packageName, relocated, samePath, uniquePackage } from "./packages.ts";
 import { revealInFinder } from "./process.ts";
 import { createLimiter } from "./queue.ts";
 import { type DataPaths, HttpError, MAX_NAME_LENGTH, isObject, isValidId, parseName, readJson, writeJson, writeJsonDurably } from "./storage.ts";
@@ -180,6 +181,11 @@ export interface ProjectStoreOptions {
   reveal?: (dir: string) => Promise<void>;
   /** A package is about to move (the audio engine writes its plugins' settings into it first). */
   beforeMove?: (projectId: string) => Promise<void>;
+  /**
+   * The suites this app opens (`AppInfo.suites`; default: every one). Another suite's recents are kept as they
+   * are, never listed or loaded; Open… and New turn that suite's projects down, naming the app they belong to.
+   */
+  suites?: SuiteId[];
 }
 
 /**
@@ -196,6 +202,8 @@ export class ProjectStore {
   private entries = new Map<string, Entry>();
   /** Recents that aren't where they were last seen. */
   private missing = new Map<string, Recent>();
+  /** Recents of suites this app doesn't open: written back as they were. */
+  private elsewhere: Recent[] = [];
   /** Packages being made (a copy's media is copied into it before it's a project). */
   private pending = new Map<string, string>();
   /** Projects a tab has open now. */
@@ -214,6 +222,7 @@ export class ProjectStore {
   private lastTimestamp = 0;
   private location: string;
   private readonly defaultLocation: string;
+  private readonly suites: SuiteId[];
 
   constructor(
     private paths: DataPaths,
@@ -222,6 +231,13 @@ export class ProjectStore {
   ) {
     this.defaultLocation = path.resolve(options.location);
     this.location = this.defaultLocation;
+    this.suites = options.suites ?? SUITE_IDS;
+  }
+
+  /** Turn down a project of a suite this app doesn't open, saying which app does. */
+  private checkSuite(suite: SuiteId, what: string): void {
+    if (this.suites.includes(suite)) return;
+    throw new HttpError(400, `${what} is a ${suiteNoun(suite)}: open it in ${appOfSuite(suite).name}.`);
   }
 
   /** Load the starting points and the recents (a package found where it was is loaded; one that isn't is `missing`). */
@@ -233,8 +249,9 @@ export class ProjectStore {
         await this.mount(path.join(this.paths.templates, entry.name), { template: true });
       }
     }
+    this.elsewhere = saved.recent.filter((recent) => !this.suites.includes(recent.summary.suite));
     for (const recent of saved.recent) {
-      if (this.entries.has(recent.id) || this.missing.has(recent.id)) continue;
+      if (this.entries.has(recent.id) || this.missing.has(recent.id) || !this.suites.includes(recent.summary.suite)) continue;
       const entry = await this.mount(relocated(recent.path), { openedAt: recent.openedAt, follow: "document" }).catch((err) => {
         logger.warn(`couldn't open ${recent.path}: ${err instanceof Error ? err.message : err}`);
         return null;
@@ -329,7 +346,9 @@ export class ProjectStore {
     if (!isObject(input)) throw new HttpError(400, "Expected { name?, suite? }.");
     const name = input.name === undefined ? DEFAULT_PROJECT_NAME : parseName(input.name);
     if (input.suite !== undefined && !isSuiteId(input.suite)) throw new HttpError(400, `Unknown suite: use ${SUITE_IDS.join(", ")}.`);
-    const suite = (input.suite as SuiteId | undefined) ?? DEFAULT_SUITE;
+    const suite = (input.suite as SuiteId | undefined) ?? (this.suites.includes(DEFAULT_SUITE) ? DEFAULT_SUITE : this.suites[0]);
+    if (!suite) throw new HttpError(400, "This app makes no projects.");
+    this.checkSuite(suite, `A new ${suiteNoun(suite)}`);
     let template = input.blank === true ? null : this.templateId(suite);
     if (template && this.entries.get(template)?.damaged) {
       // Its copy can't be made: new projects start blank until the starting point is saved again.
@@ -340,7 +359,7 @@ export class ProjectStore {
     const adjust = (doc: SuiteDocument) => (backend.withOptions && input.options !== undefined ? backend.withOptions(doc as never, input.options) : doc);
     const summary = template
       ? await this.copy(template, { name, parent: this.location, adjust })
-      : await this.add(createId("project"), suite, adjust(backend.create(name)), this.now(), { dir: uniquePackage(this.location, name) });
+      : await this.add(createId("project"), suite, adjust(backend.create(name)), this.now(), { dir: uniquePackage(this.location, name, suite) });
     this.untouched.set(summary.id, Object.keys(this.library.byId(summary.id)));
     await this.saveRecents();
     return summary;
@@ -357,7 +376,7 @@ export class ProjectStore {
     if (!backend.fromHandoff) throw new HttpError(400, `A ${suiteNoun(suite)} can't be made from a song.`);
     const name = parseName(handoff.name || DEFAULT_PROJECT_NAME);
     const id = createId("project");
-    const dir = uniquePackage(this.location, name);
+    const dir = uniquePackage(this.location, name, suite);
     this.pending.set(id, dir);
     const files = [handoff.mix.file, ...handoff.stems.map((s) => s.file)];
     try {
@@ -382,7 +401,8 @@ export class ProjectStore {
   /**
    * Open a package from anywhere on this computer (`OpenProjectRequest`) and add it to the recents. One
    * that's a recent's new place (moved in Finder) takes its place; a copy of one that's open here (made in
-   * Finder) gets ids of its own, so both can be open. Its name is its folder's, if that was renamed.
+   * Finder) gets ids of its own, so both can be open. Its name is its folder's, if that was renamed, and an old
+   * package (`.yt`) takes its suite's extension at once. Another app's project is turned down.
    */
   async openPath(body: unknown): Promise<ProjectSummary> {
     let dir = userPath(isObject(body) ? body.path : undefined, "project");
@@ -391,6 +411,8 @@ export class ProjectStore {
     if (stat.isFile()) dir = path.dirname(dir);
     if (!existsSync(path.join(dir, META_FILE))) throw new HttpError(400, `${path.basename(dir)} isn't a project (it has no ${META_FILE}).`);
     if (isInside(dir, this.paths.templates)) throw new HttpError(400, "That's a starting point, not a project.");
+    const meta = parseMeta(await readJson<unknown>(path.join(dir, META_FILE)));
+    if (meta) this.checkSuite(meta.suite, `"${packageName(dir)}"`);
     return this.writes(async () => {
       const known = [...this.entries.values()].find((e) => samePath(e.dir, dir));
       if (known && !known.template) {
@@ -400,8 +422,9 @@ export class ProjectStore {
       }
       const entry = await this.mount(dir, { openedAt: this.now(), follow: "folder" });
       if (!entry) throw new HttpError(400, `${path.basename(dir)} couldn't be read: its ${META_FILE} is damaged.`);
+      await this.followName(entry.meta.id);
       await this.saveRecents();
-      return this.toSummary(entry);
+      return this.summary(entry.meta.id);
     });
   }
 
@@ -568,7 +591,8 @@ export class ProjectStore {
     const original = this.entry(id);
     const source = await this.readDoc(original);
     const copyId = createId("project");
-    const dir = template ? path.join(this.paths.templates, `${copyId}${PROJECT_EXTENSION}`) : uniquePackage(parent ?? path.dirname(original.dir), name);
+    const { suite } = original.meta;
+    const dir = template ? path.join(this.paths.templates, `${copyId}${SUITES[suite].extension}`) : uniquePackage(parent ?? path.dirname(original.dir), name, suite);
     this.pending.set(copyId, dir);
     try {
       await fs.mkdir(path.join(dir, "media"), { recursive: true });
@@ -715,8 +739,8 @@ export class ProjectStore {
     if (!template && follow === "document") {
       const saved = await readJson<unknown>(path.join(dir, DOC_FILE));
       const name = isObject(saved) && typeof saved.name === "string" ? saved.name : null;
-      if (name !== null && !fitsName(dir, name)) {
-        const target = uniquePackage(path.dirname(dir), name, dir);
+      if (name !== null && !fitsName(dir, name, meta.suite)) {
+        const target = uniquePackage(path.dirname(dir), name, meta.suite, dir);
         try {
           await movePath(dir, target);
           dir = target;
@@ -779,7 +803,7 @@ export class ProjectStore {
   /** Rename a project's package after it, unless it's open or busy (then later). Run inside `writes`. */
   private async followName(id: string): Promise<void> {
     const entry = this.entries.get(id);
-    if (!entry || entry.template || this.open.has(id) || fitsName(entry.dir, entry.stats.name)) return;
+    if (!entry || entry.template || this.open.has(id) || fitsName(entry.dir, entry.stats.name, entry.meta.suite)) return;
     if (this.library.busy(id)) {
       const timer = setTimeout(() => {
         this.retries.delete(timer);
@@ -789,7 +813,7 @@ export class ProjectStore {
       this.retries.add(timer);
       return;
     }
-    const target = uniquePackage(path.dirname(entry.dir), entry.stats.name, entry.dir);
+    const target = uniquePackage(path.dirname(entry.dir), entry.stats.name, entry.meta.suite, entry.dir);
     try {
       await this.options.beforeMove?.(id);
       await movePath(entry.dir, target);
@@ -828,6 +852,7 @@ export class ProjectStore {
             return { id: e.meta.id, path: e.dir, openedAt: e.openedAt, summary: this.toSummary(e), ...(untouched && { untouched }) };
           }),
         ...this.missing.values(),
+        ...this.elsewhere,
       ].sort((a, b) => b.openedAt - a.openedAt);
       const saved: SavedRecents = { ...(this.location !== this.defaultLocation && { location: this.location }), recent };
       await writeJson(this.paths.recentsFile, saved);

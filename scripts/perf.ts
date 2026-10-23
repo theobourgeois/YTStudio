@@ -8,7 +8,7 @@
  *   pnpm tsx scripts/perf.ts [clips=1500] [--profile <scenario>]
  *   pnpm tsx scripts/perf.ts --links [clips=300]
  *   pnpm tsx scripts/perf.ts --visualizers
- *   pnpm tsx scripts/perf.ts --scrub <Project.yt> [--render]
+ *   pnpm tsx scripts/perf.ts --scrub <Project.ytvid> [--render]
  *
  * `--links` is the visualizer's gate instead (V3, docs/visualizer/README.md): a song and `clips`
  * solids on ten tracks, each with its scale linked to the bass and its opacity to the kicks, played

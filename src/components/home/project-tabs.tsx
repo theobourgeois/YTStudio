@@ -3,7 +3,6 @@ import { PiFilePlus, PiPlus, PiX } from "react-icons/pi";
 import { appIconUrl } from "@shared/app-icons";
 import { DEFAULT_SUITE } from "@shared/suites";
 import { cn } from "cn";
-import { NowPlayingPill } from "@/components/now-playing/now-playing-pill";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -98,8 +97,6 @@ export function ProjectTabs() {
           <kbd className="ml-2 rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">{NEW_PROJECT_KEYS}</kbd>
         </TooltipContent>
       </Tooltip>
-
-      <NowPlayingPill className="ml-auto" />
     </div>
   );
 }

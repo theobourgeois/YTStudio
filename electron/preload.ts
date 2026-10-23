@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
   // Where to save a file (a song's export), from the Mac's save dialog; null if it's cancelled.
   saveFile: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) =>
     ipcRenderer.invoke("save-file", options) as Promise<string | null>,
-  // Projects are files (`.yt` packages): the Mac's Open dialog for one, and its folder picker (where new ones go).
+  // Projects are files (`.ytvid`, `.ytsng`, `.ytimg` packages): the Mac's Open dialog for one, and its folder picker (where new ones go).
   chooseProject: (defaultPath?: string) => ipcRenderer.invoke("choose-project", { defaultPath }) as Promise<string | null>,
   chooseFolder: (defaultPath?: string) => ipcRenderer.invoke("choose-folder", { defaultPath }) as Promise<string | null>,
   // ⌘H or ⌥⌘H that the page didn't use: macOS's Hide or Hide Others (the menu leaves those keys to the page).

@@ -54,6 +54,11 @@ Each step ends in something to try. Each is merged (a PR) before the next starts
 
 ### 1. An app shows one suite
 
+**Done** (2026-10-23). As built: `APPS` in `shared/apps.ts`, the page's side in `src/lib/app.ts`; each app's data is
+`data/apps/<app>` in development, starting with the checkout's recents (`RECENTS_FROM`, once); Home has a
+**Visualizer** button where the app has it, and the Visualizer app opens on it; music's Make Visualizer (a video) is
+only where videos open. Settings and layouts didn't move: each app starts from the page's storage as it is.
+
 The page and the server learn which app they are (`EDITOR_APP`: `music`, `video`, `photo`, `visualizer`, or none
 for every suite, which is what `pnpm dev`, the e2e suite and the gallery keep using).
 - **The page.** The server says which app it is, so one page build serves every app. Home lists only that app's

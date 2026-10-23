@@ -2,6 +2,7 @@ import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App";
+import { loadApp } from "./lib/app";
 import { exposeDesktopHooks } from "./lib/desktop";
 import { trackKeyboardNavigation } from "./lib/focus-rings";
 import { watchPageErrors } from "./lib/log";
@@ -14,6 +15,9 @@ void useAppIcon.getState().init();
 
 // The component gallery (src/gallery/), in development only: every control in every state, per theme.
 const Gallery = import.meta.env.DEV && location.pathname === "/gallery" ? lazy(() => import("./gallery/gallery")) : null;
+
+// Which app this is (Home, Settings and the menus show only its suites) is known before anything draws.
+await loadApp();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

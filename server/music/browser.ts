@@ -38,7 +38,7 @@ const RESCAN_DELAY_MS = 400;
 const MAX_FAVOURITES = 5000;
 
 /** Hidden files and folders, and what's inside a package (an app, a plugin): never a sample. */
-const skipped = (name: string) => name.startsWith(".") || /\.(app|vst3|component|bundle|logicx|yt|vaudio)$/i.test(name);
+const skipped = (name: string) => name.startsWith(".") || /\.(app|vst3|component|bundle|logicx|ytvid|ytsng|ytimg|yt|vaudio)$/i.test(name);
 /** How many entries of a folder are looked at together (a link's target, on a slow or cloud drive). */
 const STAT_CONCURRENCY = 16;
 /** Past this many folders changed at once, the whole folder added is read again rather than each. */

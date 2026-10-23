@@ -33,6 +33,7 @@ import { envelopeText, lfoText, modAmountOf, SERUM_ENVELOPE_FIELDS, SERUM_LFO_FI
 import { type ToolResult, textResult } from "@shared/tool-spec";
 import type { AspectRatio, MediaAsset, SignalRole } from "@shared/types";
 import { api } from "@/lib/api";
+import { appOpens } from "@/lib/app";
 import { FILE_MANAGER, keyLabel } from "@/lib/key-labels";
 import type { ToolRunContext } from "../types";
 import { musicApi } from "./api";
@@ -1192,6 +1193,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(lines.join("\n"));
   },
   async make_visualizer(input, ctx) {
+    if (!appOpens("video")) throw new Error("This app doesn't make videos: making a visualizer from a song isn't available here.");
     const target = await targetOf(ctx);
     // The engine has the open song's plugins: only it can be rendered.
     requireOpen(target, "Making a visualizer");

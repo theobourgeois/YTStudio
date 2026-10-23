@@ -176,13 +176,13 @@ try {
   // Projects are files: a package in the data folder's Documents/YTStudio (the user's own Documents/YTStudio when no
   // data folder is given), a type the app declares, opened by launching the app with it.
   const summary = (await api<ProjectSummary[]>("/api/projects")).find((p) => p.id === project.id);
-  const expected = path.join(tmp, "data", "Documents", "YTStudio", "Desktop smoke.yt");
+  const expected = path.join(tmp, "data", "Documents", "YTStudio", "Desktop smoke.ytvid");
   check("the project is a package", summary?.path === expected && existsSync(path.join(expected, "project.json")), summary?.path);
   if (process.platform === "darwin") {
     const plist = path.join(path.dirname(path.dirname(executablePath)), "Info.plist");
     const types = execFileSync("plutil", ["-extract", "CFBundleDocumentTypes", "json", "-o", "-", plist], { encoding: "utf8" });
-    check("associates the exported project type with YTStudio", /"LSItemContentTypes":\["gg\.jestr\.ytstudio\.project",/.test(types));
-    check("declares .yt packages", /"yt"/.test(types) && /"LSTypeIsPackage":true/.test(types));
+    check("associates the exported project types with YTStudio", /"LSItemContentTypes":\["gg\.jestr\.ytstudio\.video",/.test(types));
+    check("declares .ytvid packages", /"ytvid"/.test(types) && /"LSTypeIsPackage":true/.test(types));
   }
   await window.goto(`${base}/`);
   await window.getByRole("heading", { name: "Recent" }).waitFor({ timeout: 20_000 });
@@ -221,7 +221,7 @@ try {
   // screen there), drawn by the page, its keys its own.
   await post("/api/now-playing", { action: "play" });
   await window.goto(`${base}/`);
-  await window.locator("[data-now-playing] button").first().click();
+  await window.locator("[data-visualize-sound]").click();
   await window.locator("[data-now-playing-view]").waitFor({ timeout: 20_000 });
   const context = browser.contexts()[0];
   const popped = context.waitForEvent("page", { timeout: 20_000 });

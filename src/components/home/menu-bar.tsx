@@ -1,6 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { SUITE_IDS, SUITES } from "@shared/suites";
+import { SUITES } from "@shared/suites";
+import { appSuites } from "@/lib/app";
 import { cn } from "cn";
 import { create } from "zustand";
 import {
@@ -100,7 +101,10 @@ function appMenus(suite?: SuiteMenus): SuiteMenu[] {
   ];
 }
 
-/** The app's File menu: new and open (any suite), the suite's own (`children`), then the open project's tab. */
+/**
+ * The app's File menu: new (each of the app's suites, and the picker when there are several) and open, the suite's
+ * own (`children`), then the open project's tab.
+ */
 function FileItems({ children }: { children?: ReactNode }) {
   const open = useProjects((s) => s.openId !== null);
   const projects = useProjects.getState;
@@ -114,15 +118,17 @@ function FileItems({ children }: { children?: ReactNode }) {
   };
   return (
     <>
-      {SUITE_IDS.map((suite) => (
+      {appSuites().map((suite) => (
         <DropdownMenuItem key={suite} onSelect={() => void projects().create({ suite })}>
           New {SUITES[suite].noun[0].toUpperCase() + SUITES[suite].noun.slice(1)}
         </DropdownMenuItem>
       ))}
-      <DropdownMenuItem onSelect={() => useLayout.getState().setNewProjectOpen(true)}>
-        New Project… <DropdownMenuShortcut>{NEW_PROJECT_KEYS}</DropdownMenuShortcut>
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
+      {appSuites().length > 1 && (
+        <DropdownMenuItem onSelect={() => useLayout.getState().setNewProjectOpen(true)}>
+          New Project… <DropdownMenuShortcut>{NEW_PROJECT_KEYS}</DropdownMenuShortcut>
+        </DropdownMenuItem>
+      )}
+      {appSuites().length > 0 && <DropdownMenuSeparator />}
       <DropdownMenuItem onSelect={() => showOpenDialog()}>
         Open… <DropdownMenuShortcut>{OPEN_KEYS}</DropdownMenuShortcut>
       </DropdownMenuItem>

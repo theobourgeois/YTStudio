@@ -8,7 +8,7 @@
  * `--plugins` is a scanned plugin list to start from (default: this checkout's data/engine/plugins.xml),
  * else every plugin on this computer is scanned first.
  *
- *   pnpm tsx scripts/engine-profile.ts ~/Documents/YTStudio/bemine.yt [--seconds 30] [--from <seconds>] [--without YT-EQ] [--sample]
+ *   pnpm tsx scripts/engine-profile.ts ~/Documents/YTStudio/bemine.ytsng [--seconds 30] [--from <seconds>] [--without YT-EQ] [--sample]
  */
 import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
@@ -33,11 +33,11 @@ const { values, positionals } = parseArgs({
   },
 });
 const source = positionals[0];
-if (!source) throw new Error("Which package? pnpm tsx scripts/engine-profile.ts <Name.yt>");
+if (!source) throw new Error("Which package? pnpm tsx scripts/engine-profile.ts <Name.ytsng>");
 
 const RATE = 48_000;
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "engine-profile-"));
-const pkg = path.join(tmp, "song.yt");
+const pkg = path.join(tmp, "song.ytsng");
 await fs.cp(source, pkg, { recursive: true });
 // This computer's plugin list, so the engine doesn't scan them all again.
 await fs.mkdir(path.join(tmp, "engine"), { recursive: true });

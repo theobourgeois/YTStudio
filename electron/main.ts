@@ -152,8 +152,8 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 function isProjectPath(file: string) {
-  // `.yt`, or `.vaudio` from before the app was YTStudio (renamed `.yt` once it's opened and closed).
-  return /\.(yt|vaudio)[/\\]?$/i.test(file);
+  // A suite's, or `.yt` / `.vaudio` from before (renamed to their suite's once opened).
+  return /\.(ytvid|ytsng|ytimg|yt|vaudio)[/\\]?$/i.test(file);
 }
 
 function imageType(file: string): string | undefined {
@@ -431,8 +431,8 @@ function answerSaveDialogs() {
 }
 
 /**
- * Projects are files (`.yt` packages, which Finder shows as one file once the app is installed): the
- * Mac's Open dialog picks one (or a file inside one, where macOS doesn't know the type yet), its folder
+ * Projects are files (`.ytvid`, `.ytsng`, `.ytimg` packages, which Finder shows as one file once the app is
+ * installed): the Mac's Open dialog picks one (or a file inside one, where macOS doesn't know the type yet), its folder
  * dialog picks where new ones go, and an opened one joins the system's recent documents (File › Open Recent).
  * An image handed to the app is read here for the page, which starts a photo with it.
  */
@@ -449,7 +449,7 @@ function answerProjectDialogs() {
       defaultPath: defaultPath(options),
       // A package is a file to the dialog when the type is registered (the packaged app); otherwise its folder is picked.
       properties: isMac ? ["openFile", "openDirectory"] : ["openDirectory"],
-      filters: [{ name: "YTStudio projects", extensions: ["yt", "vaudio"] }],
+      filters: [{ name: "YTStudio projects", extensions: ["ytvid", "ytsng", "ytimg", "yt", "vaudio"] }],
     };
     const result = win ? await dialog.showOpenDialog(win, settings) : await dialog.showOpenDialog(settings);
     return result.canceled ? null : (result.filePaths[0] ?? null);

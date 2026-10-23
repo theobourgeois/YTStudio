@@ -47,6 +47,8 @@ export interface SuiteInfo {
   description: string;
   /** What the assistant works in, for its prompt ("a video editor that works like Premiere Pro"). */
   app: string;
+  /** Its packages' extension (`Summer edit.ytvid`), so Finder and Explorer open each in its own app. */
+  extension: string;
 }
 
 /** In the order the New project picker lists them. */
@@ -57,6 +59,7 @@ export const SUITES: Record<SuiteId, SuiteInfo> = {
     noun: "video",
     description: "Cut clips, add effects, captions and music. Short-form first.",
     app: "a video editor that works like Premiere Pro",
+    extension: ".ytvid",
   },
   music: {
     id: "music",
@@ -64,6 +67,7 @@ export const SUITES: Record<SuiteId, SuiteInfo> = {
     noun: "song",
     description: "Make a song: tracks, instruments, plugins and a mixer.",
     app: "a music editor (a DAW that works like FL Studio)",
+    extension: ".ytsng",
   },
   photo: {
     id: "photo",
@@ -71,6 +75,7 @@ export const SUITES: Record<SuiteId, SuiteInfo> = {
     noun: "photo",
     description: "Compose and light images: layers, transforms, light effects. Thumbnails first.",
     app: "a photo editor that works like Photoshop",
+    extension: ".ytimg",
   },
 };
 

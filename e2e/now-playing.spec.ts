@@ -1,14 +1,26 @@
-import { expect, test } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 
 // The stand-in player (EDITOR_NOW_PLAYING=stand-in, playwright.config.ts) plays made-up songs, and the visualizer
 // measures a made-up sound instead of the computer's: nothing here is ever heard.
 test.describe.configure({ mode: "serial" });
 
+/** The stand-in player, playing (on the first of its songs, if `first`). */
+async function play(page: Page, first = false) {
+  await page.request.post("/api/now-playing", { data: { action: "play" } });
+  for (let i = 0; first && i < 3; i++) {
+    const status = (await (await page.request.get("/api/now-playing")).json()) as { track?: { name: string } };
+    if (status.track?.name === "Midnight Drive") break;
+    await page.request.post("/api/now-playing", { data: { action: "next" } });
+  }
+}
+
+/** Home's Visualizer button: the visualizer of what the computer plays (the Visualizer app's, docs/apps.md). */
+const visualizerButton = (page: Page) => page.locator("[data-visualize-sound]");
+
 test("Now Playing with nothing playing: the visualizer still opens, on the computer's sound", async ({ page }) => {
   // The stand-in is closed until the next test tells it to play.
   await page.goto("/");
-  await expect(page.locator("[data-now-playing]")).toHaveCount(0);
-  const button = page.locator("[data-visualize-sound]");
+  const button = visualizerButton(page);
   await expect(button).toBeVisible();
   await button.click();
   const view = page.locator("[data-now-playing-view]");
@@ -18,40 +30,18 @@ test("Now Playing with nothing playing: the visualizer still opens, on the compu
   await expect(view).toBeHidden();
 });
 
-test("Now Playing: the song in the top bar, controlled from there, and the visualizer of it", async ({ page }) => {
+test("Now Playing: the visualizer of the song playing, from Home", async ({ page }) => {
   // The stand-in isn't open until it's told to play (the other specs never see it).
-  await page.request.post("/api/now-playing", { data: { action: "play" } });
+  await play(page, true);
   await page.goto("/");
-  // Start from the first song, playing.
-  const pill = page.locator("[data-now-playing]");
-  await expect(pill).toBeVisible();
-  for (let i = 0; i < 3 && !(await pill.textContent())?.includes("Midnight Drive"); i++) await pill.getByRole("button", { name: "Next" }).click({ force: true });
-  await expect(pill).toContainText("Midnight Drive");
-  await expect(pill).toContainText("Neon Avenue");
-  if ((await pill.getAttribute("data-now-playing")) !== "playing") await pill.getByRole("button", { name: "Play" }).click();
-  await expect(pill).toHaveAttribute("data-now-playing", "playing");
 
-  // Pause and play, and skip (always there, not only on hover).
-  await pill.getByRole("button", { name: "Pause" }).click();
-  await expect(pill).toHaveAttribute("data-now-playing", "paused");
-  await pill.getByRole("button", { name: "Play" }).click();
-  await expect(pill).toHaveAttribute("data-now-playing", "playing");
-  await expect(pill.getByRole("button", { name: "Previous" })).toBeVisible();
-  await pill.getByRole("button", { name: "Next" }).click();
-  await expect(pill).toContainText("Golden Hour");
-
-  // With a project open, it's in the tab strip.
-  await page.request.post("/api/projects", { data: { suite: "video", name: "Now Playing test", blank: true } }).then(async (r) => {
-    const { id } = await r.json();
-    await page.goto(`/p/${id}`);
-  });
-  await expect(page.locator('[data-titlebar="tabs"] [data-now-playing]')).toBeVisible();
-
-  // Clicking it fills the window with the visualizer, listening (to a made-up song) and drawing.
-  await page.locator("[data-now-playing] button[title='Open the visualizer']").click();
+  // Home's Visualizer fills the window with it, listening (to a made-up song) and drawing.
+  await visualizerButton(page).click();
   const view = page.locator("[data-now-playing-view]");
   await expect(view).toBeVisible();
-  await expect(view.locator("[data-song-card]")).toContainText("Golden Hour");
+  await expect(view).toHaveAttribute("data-player", "playing");
+  await expect(view.locator("[data-song-card]")).toContainText("Midnight Drive");
+  await expect(view.locator("[data-song-card]")).toContainText("Neon Avenue");
   await expect(view.getByText("Listening", { exact: true })).toBeVisible();
   const canvas = view.locator('[data-slot="visualizer-canvas"]');
   await expect(canvas).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
@@ -86,10 +76,11 @@ test("Now Playing: the song in the top bar, controlled from there, and the visua
   for (const key of ["z", "x", "c", "v", "3"]) await page.keyboard.press(key);
   await expect(canvas).toHaveAttribute("data-drawn", "clips");
 
-  // Space plays and pauses the song (not the video under it).
+  // Space plays and pauses the song.
   await page.keyboard.press(" ");
-  await expect(page.locator("[data-now-playing]").first()).toHaveAttribute("data-now-playing", "paused");
+  await expect(view).toHaveAttribute("data-player", "paused");
   await page.keyboard.press(" ");
+  await expect(view).toHaveAttribute("data-player", "playing");
 
   // I shows what it hears: the song's mood.
   await page.keyboard.press("i");
@@ -130,25 +121,19 @@ test("Now Playing: the song in the top bar, controlled from there, and the visua
   await page.keyboard.press("Escape");
   await expect(view).toBeHidden();
 
-  // Settings › General can turn it off.
+  // Settings › General has its sound delay.
   await page.keyboard.press("ControlOrMeta+,");
   await page.getByRole("tab", { name: "General" }).click();
-  await page.getByRole("switch", { name: "Show what's playing" }).click();
-  await expect(page.locator("[data-now-playing]")).toHaveCount(0);
-  await page.getByRole("switch", { name: "Show what's playing" }).click();
-  await expect(page.locator("[data-now-playing]")).toHaveCount(1);
+  await expect(page.getByText("Sound delay", { exact: true })).toBeVisible();
 });
 
 test("Now Playing's visualizer: the mini player, a window over the app, and its own window", async ({ page }) => {
-  await page.request.post("/api/now-playing", { data: { action: "play" } });
+  await play(page);
   await page.goto("/");
-  const pill = page.locator("[data-now-playing]");
-  if ((await pill.getAttribute("data-now-playing")) !== "playing") await pill.getByRole("button", { name: "Play" }).click();
-  await expect(pill).toHaveAttribute("data-now-playing", "playing");
-  // (The song's button: its title is the app's tooltip while the pointer's on it.)
-  const open = pill.locator("button").first();
+  const open = visualizerButton(page);
   await open.click();
   const view = page.locator("[data-now-playing-view]");
+  await expect(view).toHaveAttribute("data-player", "playing");
   await expect(view).toHaveAttribute("data-now-playing-view", "full");
   await expect(view.locator('[data-slot="visualizer-canvas"]')).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
 
@@ -161,7 +146,7 @@ test("Now Playing's visualizer: the mini player, a window over the app, and its 
   expect(mini.width).toBeCloseTo(360, -1);
   expect(mini.x + mini.width).toBeCloseTo(screen.width - 16, -1);
   expect(mini.y + mini.height).toBeCloseTo(screen.height - 16, -1);
-  await expect(pill).toBeVisible();
+  await expect(open).toBeVisible();
 
   // Its keys are its own only once it's been clicked: the app's are the app's.
   await open.click();
@@ -171,9 +156,9 @@ test("Now Playing's visualizer: the mini player, a window over the app, and its 
   await view.click();
   await expect(view).toHaveAttribute("data-engaged", "true");
   await page.keyboard.press(" ");
-  await expect(pill).toHaveAttribute("data-now-playing", "paused");
+  await expect(view).toHaveAttribute("data-player", "paused");
   await page.keyboard.press(" ");
-  await expect(pill).toHaveAttribute("data-now-playing", "playing");
+  await expect(view).toHaveAttribute("data-player", "playing");
 
   // Moved by dragging it, resized by a corner (the opposite one staying put).
   const drag = async (from: { x: number; y: number }, by: { x: number; y: number }) => {
@@ -234,9 +219,9 @@ test("Now Playing's visualizer: the mini player, a window over the app, and its 
   await expect.poll(picture).not.toBe(before);
   // Its keys are its own there: Space pauses the song.
   await stage.keyboard.press(" ");
-  await expect(pill).toHaveAttribute("data-now-playing", "paused");
+  await expect(out).toHaveAttribute("data-player", "paused");
   await stage.keyboard.press(" ");
-  await expect(pill).toHaveAttribute("data-now-playing", "playing");
+  await expect(out).toHaveAttribute("data-player", "playing");
 
   // Back into the app: its window closes, and it's the mini player again.
   await stage.mouse.move(200, 200);
@@ -259,7 +244,7 @@ test("Now Playing's visualizer: the mini player, a window over the app, and its 
 test("Now Playing's MilkDrop looks: Butterchurn's presets drawn live, as any look", async ({ page }) => {
   await page.request.post("/api/now-playing", { data: { action: "play" } });
   await page.goto("/");
-  await page.locator("[data-now-playing] button").first().click();
+  await visualizerButton(page).click();
   const view = page.locator("[data-now-playing-view]");
   const canvas = view.locator('[data-slot="visualizer-canvas"]');
   await expect(canvas).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
@@ -337,7 +322,7 @@ test("Now Playing's vibe: its model offered while it isn't here, downloaded on a
   });
   await page.request.post("/api/now-playing", { data: { action: "play" } });
   await page.goto("/");
-  const open = page.locator("[data-now-playing] button").first();
+  const open = visualizerButton(page);
   await open.click();
   const view = page.locator("[data-now-playing-view]");
   await page.mouse.move(400, 300);
@@ -355,7 +340,7 @@ test("Now Playing's vibe: its model offered while it isn't here, downloaded on a
   await offer.getByRole("button", { name: "Not now" }).first().click();
   await expect(offer).toHaveCount(0);
   await page.reload();
-  await page.locator("[data-now-playing] button").first().click();
+  await visualizerButton(page).click();
   await expect(view.locator('[data-slot="visualizer-canvas"]')).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
   await page.mouse.move(400, 300);
   await expect(offer).toHaveCount(0);
@@ -364,7 +349,7 @@ test("Now Playing's vibe: its model offered while it isn't here, downloaded on a
 test("Now Playing's ratings: L loves a look, B bins it (it goes), and the rating mode goes through the looks", async ({ page }) => {
   await page.request.post("/api/now-playing", { data: { action: "play" } });
   await page.goto("/");
-  await page.locator("[data-now-playing] button").first().click();
+  await visualizerButton(page).click();
   const view = page.locator("[data-now-playing-view]");
   await expect(view.locator('[data-slot="visualizer-canvas"]')).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
   // What the server keeps (skips aside: what the music put up and was left soon after).
@@ -434,7 +419,7 @@ test("Now Playing's ratings: L loves a look, B bins it (it goes), and the rating
 test("Now Playing's media: clips and pictures of the user's, melting into MilkDrop's feedback", async ({ page }) => {
   await page.request.post("/api/now-playing", { data: { action: "play" } });
   await page.goto("/");
-  await page.locator("[data-now-playing] button").first().click();
+  await visualizerButton(page).click();
   const view = page.locator("[data-now-playing-view]");
   await expect(view.locator('[data-slot="visualizer-canvas"]')).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
 

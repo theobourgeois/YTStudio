@@ -120,7 +120,7 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
   /** Its documents, for the assistant's checkpoints. */
   documents: SuiteDocuments;
   /**
-   * Of files dropped on the Home screen, those it starts a project with (the first suite in `SUITE_IDS` that
+   * Of files dropped on the Home screen, those it starts a project with (the first of the app's suites that
    * takes any gets them, put in the new project by `importFiles`).
    */
   startsWith?(files: File[]): File[];

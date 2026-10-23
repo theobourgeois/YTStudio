@@ -51,7 +51,7 @@ export class DataPaths {
   get recentsFile() {
     return path.join(this.root, "projects.json");
   }
-  /** Each suite's starting point, a hidden project package (`<id>.yt/`). */
+  /** Each suite's starting point, a hidden project package (`<id>.ytvid/`, its suite's extension). */
   get templates() {
     return path.join(this.root, "templates");
   }

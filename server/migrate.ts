@@ -2,10 +2,10 @@ import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { normalizeProject } from "../shared/normalize.ts";
-import { DEFAULT_PROJECT_NAME } from "../shared/suites.ts";
+import { DEFAULT_PROJECT_NAME, DEFAULT_SUITE, SUITES, type SuiteId, isSuiteId } from "../shared/suites.ts";
 import { createDefaultProject, createId } from "../shared/timeline.ts";
 import type { MediaAsset, Project } from "../shared/types.ts";
-import { LEGACY_PROJECTS_FOLDER, PROJECTS_FOLDER, PROJECT_EXTENSION, movePath, uniquePackage } from "./packages.ts";
+import { LEGACY_PROJECTS_FOLDER, PROJECTS_FOLDER, movePath, uniquePackage } from "./packages.ts";
 import { type DataPaths, isObject, isValidId, readJson, writeJson } from "./storage.ts";
 import { log } from "./log.ts";
 
@@ -23,6 +23,21 @@ export async function migrateData(paths: DataPaths, location: string): Promise<v
   await moveProjectsFolder(location);
   await migrateLegacyData(paths, location);
   await migrateToPackages(paths, location);
+}
+
+/**
+ * A new app's data folder (docs/apps.md) starts with what the folder it came from knew of its suites' projects:
+ * their recents, and where new ones go. Only once, before it has recents of its own; the other folder is only read.
+ */
+export async function adoptRecents(paths: DataPaths, from: DataPaths, suites: readonly SuiteId[]): Promise<void> {
+  if (path.resolve(from.root) === path.resolve(paths.root) || existsSync(paths.recentsFile)) return;
+  const saved = await readJson<{ location?: unknown; recent?: unknown[] }>(from.recentsFile);
+  if (!isObject(saved)) return;
+  const recent = (Array.isArray(saved.recent) ? saved.recent : []).filter(
+    (r) => isObject(r) && isObject(r.summary) && isSuiteId(r.summary.suite) && suites.includes(r.summary.suite),
+  );
+  await writeJson(paths.recentsFile, { ...(typeof saved.location === "string" && { location: saved.location }), recent });
+  logger.info(`started with ${recent.length} recent project${recent.length === 1 ? "" : "s"} from ${from.root}`);
 }
 
 /** `Documents/Vaudio` becomes the default location, `Documents/YTStudio`, unless that's there already. */
@@ -151,12 +166,13 @@ async function migrateToPackages(paths: DataPaths, location: string): Promise<vo
     await writeJson(path.join(partial, "meta.json"), rest);
     const doc = await readJson<{ name?: unknown }>(path.join(partial, "project.json"));
     const name = typeof doc?.name === "string" ? doc.name : DEFAULT_PROJECT_NAME;
-    const dir = template ? path.join(parent, `${id}${PROJECT_EXTENSION}`) : uniquePackage(parent, name);
+    const suite = isSuiteId(rest.suite) ? rest.suite : DEFAULT_SUITE;
+    const dir = template ? path.join(parent, `${id}${SUITES[suite].extension}`) : uniquePackage(parent, name, suite);
     await fs.rename(partial, dir);
     if (!template) {
       const updatedAt = typeof rest.updatedAt === "number" ? rest.updatedAt : Date.now();
       // What's known of it (`ProjectStore` works out the rest when it loads it).
-      const summary = { id, suite: rest.suite ?? "video", name, createdAt: rest.createdAt ?? updatedAt, updatedAt, openedAt: updatedAt, path: dir, duration: 0, thumbnail: null };
+      const summary = { id, suite, name, createdAt: rest.createdAt ?? updatedAt, updatedAt, openedAt: updatedAt, path: dir, duration: 0, thumbnail: null };
       recent.push({ id, path: dir, openedAt: updatedAt, summary });
       await writeJson(paths.recentsFile, { ...saved, recent });
     }

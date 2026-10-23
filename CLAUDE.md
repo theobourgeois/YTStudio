@@ -5,8 +5,9 @@ ffmpeg server (`server/`), sharing pure domain logic (`shared/`). README.md is t
 docs/guide.md the user-facing guide. This file is for working on the code.
 
 Every project belongs to one app, a *suite* (`SuiteId`: video, music, photo), picked on the Home screen or in the New
-project picker. **Every project is a file of its own**, a `.yt` package on disk (see "Projects are files"). The video
-editor lives at the roots of `shared/`, `server/` and `src/`; every other suite has folders of its own (see "Suites").
+project picker. **Every project is a file of its own**, a package on disk named by its suite (`.ytvid`, `.ytsng`,
+`.ytimg`; see "Projects are files"). The video editor lives at the roots of `shared/`, `server/` and `src/`; every
+other suite has folders of its own (see "Suites"). YTStudio is becoming four apps, each showing one suite (see "Apps").
 
 ## Guides: read the one for what you're working on
 
@@ -24,15 +25,16 @@ before working on its code** (the suite folders' own CLAUDE.md files load them f
   ([`music-engine.md`](docs/claude/music-engine.md)) and audio intelligence
   ([`audio-intelligence.md`](docs/claude/audio-intelligence.md)) have guides of their own.
 - **The photo suite** ([`docs/claude/photo.md`](docs/claude/photo.md)): a Photoshop-style image editor (WebGPU).
-- **Now Playing** ([`docs/now-playing.md`](docs/now-playing.md)): what Spotify plays, in the top bar of every suite,
-  and a full-window visualizer of it (the video editor's looks, listening to the computer's sound live).
+- **Now Playing** ([`docs/now-playing.md`](docs/now-playing.md)): the Visualizer app's full-window visualizer of what
+  Spotify plays (the video editor's looks, listening to the computer's sound live).
 
 Keep this file to what every suite shares (under 40k characters): a suite's details go in its guide.
 
 ## Commands
 
 ```bash
-pnpm dev          # server :5311 + app http://localhost:5310 (moves to 5410/5411… if taken)
+pnpm dev          # server :5311 + app http://localhost:5310 (moves to 5410/5411… if taken), every suite
+pnpm dev:video    # one app (also dev:photo, dev:visualizer; dev:music is in the engine's window): docs/apps.md
 pnpm typecheck    # tsc -b (app + node projects)
 pnpm test         # vitest: shared/, src/, server/ (the server integration tests need ffmpeg)
 pnpm test:e2e     # Playwright on :5320/5321 with a throwaway e2e/.data (serial, ~20 min: rarely the whole thing)
@@ -45,9 +47,9 @@ pnpm tsx scripts/now-playing-sheet.ts [look|kind ...] [--song f.mp3] [--moments]
 pnpm tsx scripts/milkdrop-sheet.ts --songs a.mp3,b.mp3 [--only "name|name"]   # every MilkDrop preset measured and laid out, for picking
 pnpm tsx scripts/clap-vibe.ts --songs a.mp3,b.mp3,...   # Now Playing's vibe vocabulary (CLAP's text side) into shared/signals/vibe.json
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
-pnpm tsx scripts/perf.ts --scrub <Project.yt> [--render]        # scrub and play a copy of a real project, GPU and all
+pnpm tsx scripts/perf.ts --scrub <Project.ytvid> [--render]        # scrub and play a copy of a real project, GPU and all
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
-pnpm dev:shell    # the music shell, an experiment: the page in the engine's own window (docs/claude/music-shell.md)
+pnpm dev:shell    # every suite in the engine's own window (docs/claude/music-shell.md)
 pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
 pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/YTStudio.app, then launch it, export, check
 pnpm update:desktop  # build it (engine too), quit the installed one, replace it (macOS: /Applications; Windows: its installer, silently), reopen
@@ -87,7 +89,7 @@ server/
   index.ts → app.ts  Startup wiring; routes live in routes/<resource>.ts (one Router each).
   suites/            Each suite's server side (SuiteBackend): create/normalise/summarise its documents, what its
                      assistant is told. index.ts is the registry; video.ts wraps the video editor's.
-  projects.ts        ProjectStore: every suite's projects, each a package on disk (`Name.yt`: project.json, meta.json
+  projects.ts        ProjectStore: every suite's projects, each a package on disk (`Name.ytvid`: project.json, meta.json
                      says the suite (none = video), media/, a song's plugins/ and recordings/), opaque documents, and
                      this computer's recents (`data/projects.json`). packages.ts: names, unique paths, moves, the Trash.
   migrate.ts         Older data folders: data/project.json and data/projects + data/media become packages, on startup.
@@ -188,6 +190,15 @@ src/
 Imports: `src/` uses `@/…` and `@shared/…`. `server/`, `shared/` and `scripts/` use relative paths **with the `.ts`
 extension** (Node ESM through tsx).
 
+## Apps
+
+YTStudio is becoming four apps (docs/apps.md): Video, Music, Photo and the Visualizer. `EDITOR_APP` (`server/config.ts`)
+says which this is, and the page asks (`GET /api/app`, `src/lib/app.ts`, before it draws). `APPS` (`shared/apps.ts`)
+says what each opens: its suites (Home, the tabs, New, Settings' tabs and Open… show only those; another app's file is
+turned down, naming its app) and whether it has the visualizer. With no `EDITOR_APP` it's every suite (`pnpm dev`, the
+e2e suite, the gallery). An app's data is its own (`data/apps/<app>`, which starts with the checkout's recents). Ask
+`appSuites()`/`appOpens()`, never an app's id.
+
 ## Suites
 
 - A project's suite is fixed when it's made (`POST /api/projects { suite }`) and kept in its `meta.json`.
@@ -225,13 +236,13 @@ extension** (Node ESM through tsx).
 
 ## Projects are files
 
-- A project is a package, `Name.yt/` (`server/packages.ts`): `project.json`, `meta.json` (id, suite, dates),
+- A project is a package named by its suite, `Name.ytvid/` (`SUITES[suite].extension`, `server/packages.ts`): `project.json`, `meta.json` (id, suite, dates),
   `media/<id>/` and whatever its suite keeps beside them. New ones go in the location (`~/Documents/YTStudio`; Settings ›
   General changes it; `EDITOR_PROJECTS_DIR`; a given `EDITOR_DATA_DIR` keeps them in its own `Documents/YTStudio`, so
   tests and throwaway setups never touch the user's). The server keeps the recents in `data/projects.json`: a path per
   project, and what was known of it, for when its package isn't there (`ProjectSummary.missing`).
-- The app was called Vaudio: `.vaudio` packages still open (`isPackageName`, `LEGACY_EXTENSIONS`) and become `.yt` as
-  the folder follows its name (`fitsName`); `Documents/Vaudio` moves to `Documents/YTStudio` on startup
+- The app was called Vaudio: `.vaudio` packages still open (`isPackageName`, `LEGACY_EXTENSIONS`), as do `.yt` ones (when it was one app),
+  and take their suite's extension as the folder follows its name (`fitsName`; recents at startup, `adoptRecents`); `Documents/Vaudio` moves to `Documents/YTStudio` on startup
   (`migrate.ts`), recents find theirs (`relocated`), and the desktop app moves its profile from `Vaudio` too. Internal
   ids keep the old name (`vaudio:` plugin ids, `vaudio.*` storage keys, `VAUDIO_*` env vars): they're in saved data.
 - Media keep their URLs (`/files/media/<id>/...`), served from whichever package holds them (`MediaLibrary`'s

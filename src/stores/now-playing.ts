@@ -2,8 +2,8 @@
  * Now Playing in the tab (docs/now-playing.md): what the music player is playing (asked of the server about once a
  * second, `api.nowPlaying`), the cover's colours (`AlbumPalette`), listening to the computer's sound for the
  * visualizer (`src/lib/live-audio.ts`) and hearing its vibe (`src/lib/vibe.ts`, CLAP, once its model's downloaded), and
- * whether the visualizer is open. The pill at the top of the window and
- * the visualizer (the video suite's, `ClientSuite.NowPlaying`) both read it.
+ * whether the visualizer is open. The visualizer (the video suite's, `ClientSuite.NowPlaying`) reads it: the player is
+ * only asked while it's open, or when the assistant asks.
  */
 import { create } from "zustand";
 import { toast } from "sonner";
@@ -18,7 +18,6 @@ import { log } from "@/lib/log";
 
 const logger = log("now-playing");
 
-const ENABLED_KEY = "editor-now-playing";
 const OFFSET_KEY = "editor-now-playing-offset";
 
 /** How often the player is asked: playing, paused, and while it isn't open (or answering). */
@@ -29,8 +28,6 @@ export type Listening = "off" | "starting" | "on" | "failed";
 interface NowPlayingState {
   /** The player's last answer (null before the first). */
   status: NowPlayingStatus | null;
-  /** Settings › General: show what's playing (and ask the player). */
-  enabled: boolean;
   /** The cover's colours, and the song they're of. */
   palette: AlbumPalette;
   paletteOf: string | null;
@@ -48,7 +45,6 @@ interface NowPlayingState {
   offset: number;
 
   start(): () => void;
-  setEnabled(enabled: boolean): void;
   setOffset(ms: number): void;
   refresh(): Promise<void>;
   command(command: NowPlayingCommand): Promise<void>;
@@ -78,7 +74,6 @@ const storedOffset = () => {
 
 export const useNowPlaying = create<NowPlayingState>((set, get) => ({
   status: null,
-  enabled: localStorage.getItem(ENABLED_KEY) !== "false",
   palette: DEFAULT_PALETTE,
   paletteOf: null,
   listening: "off",
@@ -94,10 +89,11 @@ export const useNowPlaying = create<NowPlayingState>((set, get) => ({
     const tick = async () => {
       timer = null;
       if (run !== mine) return;
-      if (get().enabled) await get().refresh();
+      const open = get().visualizer;
+      if (open) await get().refresh();
       if (run !== mine) return;
       const s = get().status;
-      const wait = !get().enabled || !s || s.unavailable ? POLL_MS.away : s.state === "playing" ? POLL_MS.playing : POLL_MS.paused;
+      const wait = !open || !s || s.unavailable ? POLL_MS.away : s.state === "playing" ? POLL_MS.playing : POLL_MS.paused;
       timer = setTimeout(() => void tick(), wait);
     };
     void tick();
@@ -107,13 +103,6 @@ export const useNowPlaying = create<NowPlayingState>((set, get) => ({
       if (timer) clearTimeout(timer);
       timer = null;
     };
-  },
-
-  setEnabled(enabled) {
-    localStorage.setItem(ENABLED_KEY, String(enabled));
-    set({ enabled, ...(!enabled && { status: null, visualizer: false }) });
-    if (!enabled) get().stopListening();
-    else void get().refresh();
   },
 
   setOffset(ms) {
@@ -205,7 +194,13 @@ export const useNowPlaying = create<NowPlayingState>((set, get) => ({
 
   openVisualizer() {
     set({ visualizer: true });
-    void get().listen();
+    // The player's asked at once (not at the next, slower while it was closed, tick), and first: what it says decides
+    // what's listened to (the stand-in's made-up song).
+    void get()
+      .refresh()
+      .then(() => {
+        if (get().visualizer) void get().listen();
+      });
   },
 
   closeVisualizer() {

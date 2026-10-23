@@ -143,7 +143,7 @@ test("starts a new video from the Home screen, a file of its own", async ({ page
   const [project] = await projectList(page);
   expect(await projectList(page)).toHaveLength(1);
   // In the e2e data folder's Documents/YTStudio (the user's own ~/Documents/YTStudio otherwise).
-  expect(project.path).toBe(path.resolve(DATA_DIR, "Documents", "YTStudio", "Untitled.yt"));
+  expect(project.path).toBe(path.resolve(DATA_DIR, "Documents", "YTStudio", "Untitled.ytvid"));
   expect(existsSync(path.join(project.path, "project.json"))).toBe(true);
 });
 
@@ -1232,7 +1232,7 @@ test("goes Home and back, and opens, renames, duplicates, removes and trashes pr
   await page.keyboard.press("Enter");
   await expect(card(secondId)).toContainText("Second take");
   const pathOf = async (id: string) => ((await projectList(page)) as ProjectSummary[]).find((p) => p.id === id)?.path;
-  await expect.poll(() => pathOf(secondId)).toMatch(/\/Second take\.yt$/);
+  await expect.poll(() => pathOf(secondId)).toMatch(/\/Second take\.ytvid$/);
   expect(existsSync((await pathOf(secondId))!)).toBe(true);
 
   // Search narrows the cards; the suite filter too.
@@ -1255,7 +1255,7 @@ test("goes Home and back, and opens, renames, duplicates, removes and trashes pr
   await page.getByRole("menuitem", { name: "Duplicate" }).click();
   await expect(recent.getByRole("button", { name: `${first.name} copy`, exact: true })).toBeVisible();
   const copy = ((await projectList(page)) as (ProjectSummary & { clipCount: number })[]).find((p) => p.name === `${first.name} copy`)!;
-  expect(copy).toMatchObject({ clipCount: first.suite === "video" ? first.clipCount : 0, path: path.join(path.dirname(first.path), `${first.name} copy.yt`) });
+  expect(copy).toMatchObject({ clipCount: first.suite === "video" ? first.clipCount : 0, path: path.join(path.dirname(first.path), `${first.name} copy${path.extname(first.path)}`) });
   const media = (id: string) => page.evaluate((i) => fetch(`/api/media?projectId=${i}`).then((r) => r.json()), id);
   const [originals, copies] = [await media(first.id), await media(copy.id)];
   expect(copies.map((a: { name: string }) => a.name)).toEqual(originals.map((a: { name: string }) => a.name));
@@ -2447,7 +2447,7 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
   const song = (await projectList(page)).find((p: { suite: string }) => p.suite === "music");
   expect(song).toMatchObject({ name: "Untitled", tempo: 140 });
-  expect(song.path).toMatch(/\/Documents\/YTStudio\/Untitled( \d+)?\.yt$/);
+  expect(song.path).toMatch(/\/Documents\/YTStudio\/Untitled( \d+)?\.ytsng$/);
 
   // Renamed from its header, like a video; its file takes the name once it's closed (Home shows it).
   await page.locator('[data-titlebar="header"]').getByTitle("Rename project").click();
@@ -2457,7 +2457,7 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await page.getByRole("button", { name: "Home", exact: true }).click();
   await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("Anthem");
   await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("140 BPM");
-  await expect.poll(async () => path.basename((await projectList(page)).find((p: { id: string }) => p.id === song.id).path)).toBe("Anthem.yt");
+  await expect.poll(async () => path.basename((await projectList(page)).find((p: { id: string }) => p.id === song.id).path)).toBe("Anthem.ytsng");
   await page.locator(`[data-project-id="${song.id}"]`).click();
   await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
 

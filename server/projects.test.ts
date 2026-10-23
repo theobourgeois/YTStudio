@@ -5,8 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultEffects } from "../shared/effects.ts";
-import type { MediaAsset, Project, ProjectLocation, ProjectSummary } from "../shared/types.ts";
-import { createApp, type EditorApp } from "./app.ts";
+import type { AppResponse, MediaAsset, Project, ProjectLocation, ProjectSummary } from "../shared/types.ts";
+import { type AppOptions, createApp, type EditorApp } from "./app.ts";
 import { fileName, fitsName, isPackageName, namedAfter, packageName, relocated, uniquePackage } from "./packages.ts";
 import { MAX_COVER_BYTES } from "./projects.ts";
 import { videoSuite } from "./suites/video.ts";
@@ -20,31 +20,36 @@ describe("package names", () => {
   });
 
   it("knows a folder named after its project, numbered or not", () => {
-    expect(namedAfter("/a/Song.yt", "Song")).toBe(true);
-    expect(namedAfter("/a/Song 2.yt", "Song")).toBe(true);
-    expect(namedAfter("/a/Song copy.yt", "Song")).toBe(false);
-    expect(namedAfter("/a/A - B.yt", "A / B")).toBe(true);
+    expect(namedAfter("/a/Song.ytsng", "Song")).toBe(true);
+    expect(namedAfter("/a/Song 2.ytsng", "Song")).toBe(true);
+    expect(namedAfter("/a/Song copy.ytsng", "Song")).toBe(false);
+    expect(namedAfter("/a/A - B.ytvid", "A / B")).toBe(true);
   });
 
-  it("knows packages from before the app was YTStudio, and that they're to be renamed", () => {
-    expect(isPackageName("/a/Song.yt")).toBe(true);
+  it("knows each suite's packages and older ones, and that the older ones are to be renamed", () => {
+    expect(["/a/Song.ytsng", "/a/Edit.ytvid", "/a/Shot.ytimg", "/a/Song.yt"].map(isPackageName)).toEqual([true, true, true, true]);
     expect(isPackageName("/a/Song.VAUDIO/")).toBe(true);
     expect(isPackageName("/a/Song")).toBe(false);
     expect(packageName("/a/Song.vaudio")).toBe("Song");
+    expect(packageName("/a/Song.ytsng")).toBe("Song");
     expect(namedAfter("/a/Song.vaudio", "Song")).toBe(true);
-    expect(fitsName("/a/Song.vaudio", "Song")).toBe(false);
-    expect(fitsName("/a/Song 2.yt", "Song")).toBe(true);
+    expect(fitsName("/a/Song.vaudio", "Song", "music")).toBe(false);
+    expect(fitsName("/a/Song.yt", "Song", "music")).toBe(false);
+    expect(fitsName("/a/Song 2.ytsng", "Song", "music")).toBe(true);
+    expect(fitsName("/a/Song.ytvid", "Song", "music")).toBe(false);
   });
 
   it("finds a package where the rename put it", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "editor-names-"));
     try {
       const old = path.join(dir, "Vaudio");
-      mkdirSync(path.join(dir, "YTStudio", "Song.yt"), { recursive: true });
+      mkdirSync(path.join(dir, "YTStudio", "Song.ytsng"), { recursive: true });
       mkdirSync(path.join(dir, "Elsewhere", "Mix.yt"), { recursive: true });
-      expect(relocated(path.join(old, "Song.vaudio"))).toBe(path.join(dir, "YTStudio", "Song.yt"));
+      mkdirSync(path.join(dir, "Elsewhere", "Cut.ytvid"), { recursive: true });
+      expect(relocated(path.join(old, "Song.vaudio"))).toBe(path.join(dir, "YTStudio", "Song.ytsng"));
       expect(relocated(old)).toBe(path.join(dir, "YTStudio"));
       expect(relocated(path.join(dir, "Elsewhere", "Mix.vaudio"))).toBe(path.join(dir, "Elsewhere", "Mix.yt"));
+      expect(relocated(path.join(dir, "Elsewhere", "Cut.yt"))).toBe(path.join(dir, "Elsewhere", "Cut.ytvid"));
       // Nowhere to be found: left as it was (it's missing).
       expect(relocated(path.join(old, "Gone.vaudio"))).toBe(path.join(old, "Gone.vaudio"));
     } finally {
@@ -52,13 +57,14 @@ describe("package names", () => {
     }
   });
 
-  it("finds a free name, keeping a package's own", () => {
+  it("finds a free name with its suite's extension, keeping a package's own", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "editor-names-"));
     try {
-      expect(uniquePackage(dir, "Song")).toBe(path.join(dir, "Song.yt"));
-      mkdirSync(path.join(dir, "Song.yt"));
-      expect(uniquePackage(dir, "Song")).toBe(path.join(dir, "Song 2.yt"));
-      expect(uniquePackage(dir, "Song", path.join(dir, "Song.yt"))).toBe(path.join(dir, "Song.yt"));
+      expect(uniquePackage(dir, "Song", "music")).toBe(path.join(dir, "Song.ytsng"));
+      mkdirSync(path.join(dir, "Song.ytsng"));
+      expect(uniquePackage(dir, "Song", "music")).toBe(path.join(dir, "Song 2.ytsng"));
+      expect(uniquePackage(dir, "Song", "video")).toBe(path.join(dir, "Song.ytvid"));
+      expect(uniquePackage(dir, "Song", "music", path.join(dir, "Song.ytsng"))).toBe(path.join(dir, "Song.ytsng"));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -75,10 +81,11 @@ describe("project packages", () => {
   let running: { editor: EditorApp; server: http.Server } | undefined;
   let base = "";
 
-  async function start() {
+  async function start(options: Partial<Pick<AppOptions, "app" | "dataDir" | "recentsFrom">> = {}) {
     const editor = await createApp({
-      dataDir,
       projectsDir: documents,
+      ...options,
+      dataDir: options.dataDir ?? dataDir,
       trash: async (dir) => {
         trashed.push(dir);
         rmSync(dir, { recursive: true, force: true });
@@ -137,7 +144,7 @@ describe("project packages", () => {
     expect((await send<ProjectLocation>("GET", "/api/projects/location")).body).toEqual({ path: documents, default: documents });
     const a = await create("Summer edit");
     const b = await create("Summer edit");
-    expect([a.path, b.path]).toEqual([path.join(documents, "Summer edit.yt"), path.join(documents, "Summer edit 2.yt")]);
+    expect([a.path, b.path]).toEqual([path.join(documents, "Summer edit.ytvid"), path.join(documents, "Summer edit 2.ytvid")]);
     expect(readdirSync(a.path).sort()).toEqual(["media", "meta.json", "project.json"]);
 
     // Opening one doesn't move it up the recents; saving one does.
@@ -152,7 +159,7 @@ describe("project packages", () => {
     const elsewhere = path.join(tmp, "Elsewhere");
     expect((await send<ProjectLocation>("PUT", "/api/projects/location", { path: elsewhere })).body.path).toBe(elsewhere);
     const c = await create("Third");
-    expect(c.path).toBe(path.join(elsewhere, "Third.yt"));
+    expect(c.path).toBe(path.join(elsewhere, "Third.ytvid"));
     expect((await send("PUT", "/api/projects/location", { path: "relative/dir" })).status).toBe(400);
     expect((await send("PUT", "/api/projects/location", { path: a.path })).status).toBe(400);
 
@@ -173,10 +180,10 @@ describe("project packages", () => {
     // As Vaudio left them: ~/Documents/Vaudio, `.vaudio` packages, the recents saying so.
     const legacy = path.join(tmp, "Documents", "Vaudio");
     renameSync(documents, legacy);
-    renameSync(path.join(legacy, "Summer edit.yt"), path.join(legacy, "Summer edit.vaudio"));
+    renameSync(path.join(legacy, "Summer edit.ytvid"), path.join(legacy, "Summer edit.vaudio"));
     renameSync(b.path, path.join(elsewhere, "Beat.vaudio"));
     const recentsFile = path.join(dataDir, "projects.json");
-    writeFileSync(recentsFile, readFileSync(recentsFile, "utf8").replaceAll(documents, legacy).replaceAll(".yt", ".vaudio"));
+    writeFileSync(recentsFile, readFileSync(recentsFile, "utf8").replaceAll(documents, legacy).replaceAll(".ytvid", ".vaudio"));
     // One never opened here, from a backup.
     const backup = path.join(tmp, "Backup", "Old.vaudio");
     cpSync(path.join(legacy, "Summer edit.vaudio"), backup, { recursive: true });
@@ -184,16 +191,15 @@ describe("project packages", () => {
     await start();
     expect(existsSync(legacy)).toBe(false);
     const byId = new Map((await list()).map((p) => [p.id, p]));
-    expect(byId.get(a.id)).toMatchObject({ name: "Summer edit", path: path.join(documents, "Summer edit.yt") });
-    expect(byId.get(b.id)).toMatchObject({ name: "Beat", path: path.join(elsewhere, "Beat.yt") });
-    expect(existsSync(path.join(documents, "Summer edit.yt", "project.json"))).toBe(true);
-    expect((await create("New")).path).toBe(path.join(documents, "New.yt"));
+    expect(byId.get(a.id)).toMatchObject({ name: "Summer edit", path: path.join(documents, "Summer edit.ytvid") });
+    expect(byId.get(b.id)).toMatchObject({ name: "Beat", path: path.join(elsewhere, "Beat.ytvid") });
+    expect(existsSync(path.join(documents, "Summer edit.ytvid", "project.json"))).toBe(true);
+    expect((await create("New")).path).toBe(path.join(documents, "New.ytvid"));
 
-    // Opened, an old package takes `.yt` once it's closed.
+    // Opened, an old package takes its suite's extension at once.
     const old = (await open(backup)).body;
-    expect(old.path).toBe(backup);
-    await send("POST", `/api/projects/${old.id}/opened`);
-    expect((await send<ProjectSummary>("POST", `/api/projects/${old.id}/closed`)).body.path).toBe(path.join(tmp, "Backup", "Old.yt"));
+    expect(old.path).toBe(path.join(tmp, "Backup", "Old.ytvid"));
+    expect(existsSync(backup)).toBe(false);
   });
 
   it("renames an open project's package once it's closed", async () => {
@@ -205,10 +211,53 @@ describe("project packages", () => {
     const saved = (await send<ProjectSummary>("PUT", `/api/projects/${song.id}`, { ...doc, name: "Anthem" })).body;
     expect(saved).toMatchObject({ name: "Anthem", path: song.path });
     const closed = (await send<ProjectSummary>("POST", `/api/projects/${song.id}/closed`)).body;
-    expect(closed.path).toBe(path.join(documents, "Anthem.yt"));
+    expect(closed.path).toBe(path.join(documents, "Anthem.ytsng"));
     expect(existsSync(song.path)).toBe(false);
     // Closed, a rename moves it at once.
-    expect((await send<ProjectSummary>("PATCH", `/api/projects/${song.id}`, { name: "Anthem / final" })).body.path).toBe(path.join(documents, "Anthem - final.yt"));
+    expect((await send<ProjectSummary>("PATCH", `/api/projects/${song.id}`, { name: "Anthem / final" })).body.path).toBe(path.join(documents, "Anthem - final.ytsng"));
+  });
+
+  it("shows one app's projects only, keeping the others' recents, and turns down another app's file", async () => {
+    await start();
+    const cut = await create("Cut");
+    const beat = (await send<ProjectSummary>("POST", "/api/projects", { suite: "music", name: "Beat" })).body;
+    await stop();
+    // As one YTStudio left them: `.yt`, whatever the suite.
+    const oldCut = path.join(documents, "Cut.yt");
+    const oldBeat = path.join(documents, "Beat.yt");
+    renameSync(cut.path, oldCut);
+    renameSync(beat.path, oldBeat);
+    const recentsFile = path.join(dataDir, "projects.json");
+    writeFileSync(recentsFile, readFileSync(recentsFile, "utf8").replaceAll(".ytvid", ".yt").replaceAll(".ytsng", ".yt"));
+
+    await start({ app: "video" });
+    expect((await send<AppResponse>("GET", "/api/app")).body).toEqual({ app: "video" });
+    // The video is listed and takes its extension; the song is neither.
+    expect((await list()).map((p) => [p.id, p.path])).toEqual([[cut.id, path.join(documents, "Cut.ytvid")]]);
+    expect(existsSync(oldBeat)).toBe(true);
+    const refused = await send<{ error: string }>("POST", "/api/projects/open", { path: oldBeat });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toMatch(/is a song: open it in YTStudio Music/);
+    expect((await send("POST", "/api/projects", { suite: "music", name: "No" })).status).toBe(400);
+    expect((await create("Default")).path).toBe(path.join(documents, "Default.ytvid"));
+    await stop();
+
+    // Every suite again: the song was kept, and is renamed now.
+    await start();
+    expect((await send<AppResponse>("GET", "/api/app")).body).toEqual({ app: null });
+    expect(new Map((await list()).map((p) => [p.id, p.path])).get(beat.id)).toBe(path.join(documents, "Beat.ytsng"));
+    await stop();
+
+    // A new app's data folder starts with the shared one's recents, its own suites' only, and the location.
+    const musicData = path.join(tmp, "apps", "music");
+    await start({ app: "music", dataDir: musicData, recentsFrom: dataDir });
+    expect((await list()).map((p) => p.id)).toEqual([beat.id]);
+    expect((await send("POST", "/api/music/visualizer", {})).status).toBe(400);
+    await stop();
+    // Once only: what it does then is its own.
+    writeFileSync(path.join(musicData, "projects.json"), JSON.stringify({ recent: [] }));
+    await start({ app: "music", dataDir: musicData, recentsFrom: dataDir });
+    expect(await list()).toEqual([]);
   });
 
   it("takes the document's name for a recent renamed in the app while the server stopped", async () => {
@@ -219,7 +268,7 @@ describe("project packages", () => {
     await send("PUT", `/api/projects/${a.id}`, { ...doc, name: "Second name" });
     await stop();
     await start();
-    expect((await list())[0]).toMatchObject({ name: "Second name", path: path.join(documents, "Second name.yt") });
+    expect((await list())[0]).toMatchObject({ name: "Second name", path: path.join(documents, "Second name.ytvid") });
   });
 
   it("opens a package from anywhere, by its folder or a file in it, and takes its folder's name", async () => {
@@ -227,7 +276,7 @@ describe("project packages", () => {
     const a = await create("Mine");
     await stop();
     // Moved and renamed in Finder while the app was closed: it's missing where it was.
-    const moved = path.join(tmp, "Desktop", "Renamed.yt");
+    const moved = path.join(tmp, "Desktop", "Renamed.ytvid");
     mkdirSync(path.dirname(moved));
     renameSync(a.path, moved);
     await start();
@@ -245,7 +294,7 @@ describe("project packages", () => {
     expect((await open(moved)).body.id).toBe(a.id);
 
     // Moved again while the app runs: the list says so at once.
-    const again = path.join(tmp, "Desktop", "Again.yt");
+    const again = path.join(tmp, "Desktop", "Again.ytvid");
     renameSync(moved, again);
     expect((await list())[0]).toMatchObject({ id: a.id, missing: true, path: moved });
     expect((await open(again)).body).toMatchObject({ id: a.id, name: "Again", path: again });
@@ -260,7 +309,7 @@ describe("project packages", () => {
     const a = await create("Original");
     await stop();
     const asset = seedMedia(a.path, a.id, "media_00000000000a");
-    const copy = path.join(documents, "Original copy.yt");
+    const copy = path.join(documents, "Original copy.ytvid");
     cpSync(a.path, copy, { recursive: true });
     await start();
 
@@ -346,7 +395,7 @@ describe("project packages", () => {
     await send("POST", `/api/projects/${a.id}/template`);
     expect(readdirSync(path.join(dataDir, "templates"))).toHaveLength(1);
     const next = await create("From it");
-    expect(next.path).toBe(path.join(documents, "From it.yt"));
+    expect(next.path).toBe(path.join(documents, "From it.ytvid"));
     expect((await list()).map((p) => p.name)).toEqual(["From it", "Setup"]);
     const template = path.join(dataDir, "templates", readdirSync(path.join(dataDir, "templates"))[0]);
     expect((await open(template)).status).toBe(400);
@@ -383,7 +432,7 @@ describe("project packages", () => {
     expect((await send("POST", `/api/projects/${a.id}/duplicate`)).status).toBe(422);
     expect((await send("POST", `/api/projects/${a.id}/template`)).status).toBe(422);
     expect(readFileSync(path.join(a.path, "project.json")).equals(broken)).toBe(true);
-    expect(readdirSync(documents)).toEqual(["Broken.yt"]);
+    expect(readdirSync(documents)).toEqual(["Broken.ytvid"]);
 
     // Read again and again, across restarts: still the one copy.
     await stop();
@@ -447,7 +496,7 @@ describe("project packages", () => {
     const a = await create("Original");
     await stop();
     seedMedia(a.path, a.id, "media_00000000000b");
-    const copy = path.join(documents, "Original copy.yt");
+    const copy = path.join(documents, "Original copy.ytvid");
     cpSync(a.path, copy, { recursive: true });
     writeFileSync(path.join(copy, "project.json"), "{ not json");
     const meta = readFileSync(path.join(copy, "meta.json"));
@@ -491,7 +540,7 @@ describe("project packages", () => {
     expect((await putCover(a.id, png, "image/png")).status).toBe(204);
 
     const copy = (await send<ProjectSummary>("POST", `/api/projects/${a.id}/duplicate`)).body;
-    expect(copy.path).toBe(path.join(documents, "Layers copy.yt"));
+    expect(copy.path).toBe(path.join(documents, "Layers copy.ytvid"));
     expect(readFileSync(path.join(copy.path, "photo", "resources", "x"), "utf8")).toBe("pixels");
     expect(existsSync(path.join(copy.path, "photo", "cache"))).toBe(false);
     expect(readFileSync(path.join(copy.path, "photo", "deep", "cache", "z"), "utf8")).toBe("not a top cache");

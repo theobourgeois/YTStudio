@@ -196,7 +196,7 @@ async function visualizer(look: LiveLook) {
     [look.id, song ? "yes" : "", ((recordSeconds || traceSeconds) && auto) || "off", recordSeconds ? "sharp" : "", startFx, effectsBy, pace] as const,
   );
   await page.goto(web);
-  await page.click("[data-now-playing] button[title='Open the visualizer']", { timeout: 30_000 });
+  await page.click("[data-visualize-sound]", { timeout: 30_000 });
   await page.waitForSelector("[data-now-playing-view]");
   await page.mouse.move(2, 2);
   // Without the controls (hidden, not gone).
