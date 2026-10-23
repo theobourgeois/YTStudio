@@ -10,6 +10,9 @@ none of it applies there. The shell tests whether doing the same thing fixes it:
 engine's own (JUCE's `WebBrowserComponent`: WKWebView on macOS, WebView2 on Windows), with the plugin windows
 belonging to that window inside the same program.
 
+It worked on Windows (2026-10-23), so the music suite becomes an app of its own in this window: the plan is
+`docs/apps.md` (YTStudio as four apps).
+
 **What it is (step 1, the test).**
 - `pnpm dev:shell` (`scripts/shell.ts`) runs the server and Vite as `pnpm dev` does, with `EDITOR_ENGINE_WINDOW` set
   to the app's address. The server is not watched, because restarting it would close the window.
