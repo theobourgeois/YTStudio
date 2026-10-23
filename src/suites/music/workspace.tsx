@@ -51,6 +51,8 @@ import { FillInsertsWindow } from "./mixer/fill-inserts";
 import { useMixerView } from "./mixer/view";
 import { type WindowId, useMusicUi, useMusicWindows } from "./ui";
 import { MusicDesktop } from "./window";
+import { PluginFrames } from "./plugin-frames/plugin-frames";
+import { hostPlugins } from "@/lib/host";
 import { AutomationWindow } from "./automation/automation-window";
 import { ModulatorsWindow } from "./modulation/modulators-window";
 import { useModulationUi } from "./modulation/store";
@@ -220,6 +222,7 @@ function Windows() {
       {openSerums.map((channelId, index) => (
         <SerumPlayerWindow key={channelId} channelId={channelId} index={index} />
       ))}
+      <PluginFrames />
     </MusicDesktop>
   );
 }
@@ -255,6 +258,7 @@ function frontWindow(): WindowId | null {
     : id.startsWith("panman:") ? usePanUi.getState().openIds.includes(id.slice("panman:".length))
     : id.startsWith("wheel:") ? useWheelUi.getState().openIds.includes(id.slice("wheel:".length))
     : id.startsWith("serum:") ? useSerumUi.getState().openIds.includes(id.slice("serum:".length))
+    : id.startsWith("plugin:") ? hostPlugins().get(id.slice("plugin:".length))?.shown === true
     : ui.openChannelIds.includes(id.slice("channel:".length));
   return [...useMusicWindows.getState().order].reverse().find(open) ?? null;
 }

@@ -1,9 +1,13 @@
 #include "ShellMac.h"
 
 #import <AppKit/AppKit.h>
+#import <QuartzCore/QuartzCore.h>
 #import <WebKit/WebKit.h>
+#include <algorithm>
 #include <cmath>
+#include <map>
 #include <objc/runtime.h>
+#include <vector>
 
 // (Built without ARC, as JUCE is: what's kept is retained by hand.)
 
@@ -128,6 +132,35 @@ void preparePage (WKWebView* webView)
     class_replaceMethod (juceClass, @selector (draggingEntered:), (IMP) draggingEntered, method_getTypeEncoding (entered));
 }
 } // namespace
+
+/**
+ * A plugin's view over the page (`macShell::addPluginView`): shows and takes clicks only in `visibleRects` (its
+ * own, top-left based coordinates), the parts of the plugin the page's other windows don't cover.
+ */
+@interface YTStudioPluginView : NSView
+{
+@public
+    std::vector<NSRect> visibleRects;
+}
+@end
+
+@implementation YTStudioPluginView
+- (BOOL)isFlipped
+{
+    return YES;
+}
+
+- (NSView*)hitTest:(NSPoint)point
+{
+    if ([self isHidden])
+        return nil;
+    const auto local = [self convertPoint:point fromView:[self superview]];
+    for (const auto& rect : visibleRects)
+        if (NSPointInRect (local, rect))
+            return [super hitTest:point];
+    return nil;
+}
+@end
 
 /** What the menu items call: the app's own commands go to the listener. */
 @interface YTStudioMusicMenus : NSObject
@@ -287,9 +320,23 @@ void dress (juce::Component& window, const juce::String& appName, Listener newLi
             listener.fullScreen (false);
     }];
 
-    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown handler:^NSEvent*(NSEvent* event) {
-        [lastMouseDown release];
-        lastMouseDown = [event retain];
+    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown handler:^NSEvent*(NSEvent* event) {
+        if ([event type] == NSEventTypeLeftMouseDown)
+        {
+            [lastMouseDown release];
+            lastMouseDown = [event retain];
+        }
+        // A press in a plugin's view: its frame comes to the front.
+        if (listener.pluginPressed && [event window] != nil)
+        {
+            NSView* content = [[event window] contentView];
+            for (NSView* view = [content hitTest:[content convertPoint:[event locationInWindow] fromView:nil]]; view != nil; view = [view superview])
+                if ([view isKindOfClass:[YTStudioPluginView class]])
+                {
+                    listener.pluginPressed (view);
+                    break;
+                }
+        }
         return event;
     }];
 
@@ -393,5 +440,118 @@ void hide (bool others)
 void noteRecent (const juce::String& path)
 {
     [[NSDocumentController sharedDocumentController] noteNewRecentDocumentURL:[NSURL fileURLWithPath:ns (path)]];
+}
+
+void* addPluginView (juce::Component& window)
+{
+    auto* webView = webViewOf (window);
+    NSView* parent = webView != nil ? [webView superview] : [windowOf (window) contentView];
+    auto* view = [[YTStudioPluginView alloc] initWithFrame:NSMakeRect (0, 0, 1, 1)];
+    [view setWantsLayer:YES];
+    [view setHidden:YES];
+    [parent addSubview:view positioned:NSWindowAbove relativeTo:nil];
+    [view release];
+    return view;
+}
+
+void removePluginView (void* view)
+{
+    [(NSView*) view removeFromSuperview];
+}
+
+namespace
+{
+/** Where each view goes among its siblings (`placePlugins`): the page first, then the plugins back to front. */
+NSComparisonResult byRank (__kindof NSView* a, __kindof NSView* b, void* context)
+{
+    const auto& rank = *static_cast<std::map<NSView*, int>*> (context);
+    const auto ra = rank.at (a), rb = rank.at (b);
+    return ra < rb ? NSOrderedAscending : ra > rb ? NSOrderedDescending : NSOrderedSame;
+}
+
+/** Shows only `rects` (the view's own coordinates) of a view; all of it (no mask) when they're the whole of it. */
+void maskTo (YTStudioPluginView* view, const std::vector<NSRect>& rects)
+{
+    view->visibleRects = rects;
+    auto* layer = [view layer];
+    const auto bounds = [view bounds];
+    if (rects.size() == 1 && NSEqualRects (rects[0], bounds))
+    {
+        [layer setMask:nil];
+        return;
+    }
+    auto* mask = (CAShapeLayer*) [layer mask];
+    if (mask == nil || ! [mask isKindOfClass:[CAShapeLayer class]])
+    {
+        mask = [CAShapeLayer layer];
+        [layer setMask:mask];
+    }
+    [mask setFrame:[layer bounds]];
+    // The layer's own coordinates may run up from the bottom though the view's run down.
+    const auto flip = ! [layer isGeometryFlipped] && ! [layer contentsAreFlipped];
+    auto* path = CGPathCreateMutable();
+    for (auto rect : rects)
+    {
+        if (flip)
+            rect.origin.y = NSHeight (bounds) - NSMaxY (rect);
+        CGPathAddRect (path, nullptr, NSRectToCGRect (rect));
+    }
+    [mask setPath:path];
+    CGPathRelease (path);
+}
+} // namespace
+
+void placePlugins (juce::Component& window, const std::vector<PluginPlace>& places)
+{
+    auto* webView = webViewOf (window);
+    if (webView == nil)
+        return;
+    NSView* parent = [webView superview];
+    const auto zoom = pageZoom();
+    const auto scaled = [zoom] (const juce::Rectangle<double>& r) {
+        return NSMakeRect (r.getX() * zoom, r.getY() * zoom, r.getWidth() * zoom, r.getHeight() * zoom);
+    };
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    std::map<NSView*, int> rank;
+    int next = 0;
+    for (NSView* view in [parent subviews])
+        rank[view] = [view isKindOfClass:[YTStudioPluginView class]] ? 1000000 + next++ : next++ - 1000000;
+    for (size_t i = 0; i < places.size(); ++i)
+    {
+        auto* view = (YTStudioPluginView*) places[i].view;
+        if ([view superview] != parent)
+            continue;
+        // (The page's view is flipped, as the plugins' are: its CSS pixels times its zoom are its points.)
+        const auto body = scaled (places[i].body);
+        [view setFrame:[webView convertRect:body toView:parent]];
+        std::vector<NSRect> rects;
+        for (const auto& part : places[i].visible)
+        {
+            auto rect = scaled (part);
+            rect.origin.x -= body.origin.x;
+            rect.origin.y -= body.origin.y;
+            rects.push_back (NSIntersectionRect (rect, [view bounds]));
+        }
+        rects.erase (std::remove_if (rects.begin(), rects.end(), [] (const NSRect& r) { return NSIsEmptyRect (r); }), rects.end());
+        maskTo (view, rects);
+        [view setHidden:rects.empty()];
+        rank[view] = (int) i;
+    }
+    // Plugins not listed hide (closed or not placed yet); the others go over the page, in the page's order.
+    for (NSView* view in [parent subviews])
+        if ([view isKindOfClass:[YTStudioPluginView class]] && rank[view] >= 1000000)
+            [view setHidden:YES];
+    bool ordered = true;
+    int last = -2000000;
+    for (NSView* view in [parent subviews])
+    {
+        ordered = ordered && rank[view] >= last;
+        last = rank[view];
+    }
+    if (! ordered)
+        [parent sortSubviewsUsingFunction:byRank context:&rank];
+    [CATransaction commit];
 }
 } // namespace macShell

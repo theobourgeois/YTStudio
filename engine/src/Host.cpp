@@ -205,7 +205,7 @@ bool PluginHost::showEditor (const juce::String& ownerId, bool open)
                     it->second->window.reset();
                 changed();
             });
-        });
+        }, false, ownerKey + ":" + ownerId);
         // Its preset arrows, and its wrapper button (the channel's settings, in the app).
         hosted.window->onStep = [this, ownerId] (int direction) { stepPreset (ownerId, direction); };
         hosted.window->onSettings = [this, ownerId] { protocol::send (protocol::object ({ { "event", "wrapper" }, { "owner", ownerKey }, { "id", ownerId } })); };
@@ -366,6 +366,9 @@ juce::var PluginHost::dropFiles (HostedPlugin& hosted, const juce::StringArray& 
         // Its open window, invisible for the moment of the drop (which moves it under the pointer and back).
         // (Windows: nothing moves, so it stays as it is and shows the preset it's given.)
         auto& window = *hosted.window;
+        // (In the shell's window, a drop would move the whole app's window under the pointer.)
+        if (window.isEmbedded())
+            return "Close the plugin's window to drop a file on it: its view is in the app's window.";
        #if JUCE_WINDOWS
         return ::dropFiles (window, files, 0.5, 0.5);
        #else

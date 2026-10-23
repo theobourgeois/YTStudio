@@ -1,0 +1,153 @@
+import { useEffect, useSyncExternalStore } from "react";
+import { PiCaretLeft, PiCaretRight, PiChartLine, PiSlidersHorizontal } from "react-icons/pi";
+import { type HostPlugin, type PluginPlace, embedsPlugins, hostPlugins, hostZoom, onHostPlugins, placePlugins, pluginAction } from "@/lib/host";
+import { useMusicWindows } from "../ui";
+import { MusicWindow, centredOnDesktop } from "../window";
+import { type Box, rounded, visibleParts } from "./visible";
+
+/** The title bar's height (px), as `FloatingWindow` draws it. */
+const TITLE_HEIGHT = 28;
+
+const BUTTON = "grid size-5.5 place-items-center rounded-sm border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground active:pressed";
+
+/** A plugin's window's id on the music desktop. */
+export const pluginWindow = (key: string) => `plugin:${key}` as const;
+
+/**
+ * The plugins' editors in the music app's window (macOS), as FL Studio has them: the engine puts each
+ * plugin's view in the app's window over the page, and the page draws its frame as one of its own windows,
+ * so the Channel rack, the Mixer or a menu can go in front of it. Each frame drawn, the page tells the engine
+ * where each plugin's body is and which parts of it the windows in front leave showing (`placePlugins`).
+ */
+export function PluginFrames() {
+  const plugins = useSyncExternalStore(onHostPlugins, hostPlugins);
+  const shown = [...plugins.values()].filter((plugin) => plugin.shown);
+
+  // A plugin clicked (or opened again) comes to the front; a closed one leaves the stacking order.
+  useEffect(
+    () =>
+      onHostPlugins((front) => {
+        const windows = useMusicWindows.getState();
+        if (front) windows.focus(pluginWindow(front));
+        for (const id of windows.order) if (id.startsWith("plugin:") && !hostPlugins().has(id.slice("plugin:".length))) windows.remove(id);
+      }),
+    [],
+  );
+
+  const placing = embedsPlugins && plugins.size > 0;
+  useEffect(() => (placing ? startPlacing() : undefined), [placing]);
+
+  if (!embedsPlugins) return null;
+  return shown.map((plugin) => <PluginFrame key={plugin.key} plugin={plugin} />);
+}
+
+function PluginFrame({ plugin }: { plugin: HostPlugin }) {
+  const zoom = hostZoom();
+  const width = plugin.width / zoom;
+  const height = plugin.height / zoom;
+  return (
+    <MusicWindow
+      id={pluginWindow(plugin.key)}
+      title={plugin.title}
+      initial={centredOnDesktop(width, height + TITLE_HEIGHT)}
+      onClose={() => pluginAction(plugin.key, "close")}
+      controls={<PluginControls plugin={plugin} />}
+    >
+      <div data-plugin-body={plugin.key} className="bg-black" style={{ width, height }} />
+    </MusicWindow>
+  );
+}
+
+/** FL's wrapper bar, in short: the preset and its arrows, Automate for the control last touched, and the plugin's settings. */
+function PluginControls({ plugin }: { plugin: HostPlugin }) {
+  const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+  return (
+    <div className="flex min-w-0 items-center gap-1" onPointerDown={stop}>
+      {plugin.steps && (
+        <>
+          <button type="button" className={BUTTON} title="Previous preset" onClick={() => pluginAction(plugin.key, "step", -1)}>
+            <PiCaretLeft className="size-3" />
+          </button>
+          <button type="button" className={BUTTON} title="Next preset" onClick={() => pluginAction(plugin.key, "step", 1)}>
+            <PiCaretRight className="size-3" />
+          </button>
+        </>
+      )}
+      {plugin.preset && <span className="max-w-40 truncate text-[11px] text-muted-foreground">{plugin.preset}</span>}
+      {plugin.touched && (
+        <button
+          type="button"
+          className="flex h-5 max-w-48 items-center gap-1 rounded-sm px-1.5 text-[11px] raised text-muted-foreground hover:raised-hover hover:text-foreground"
+          title={`Make an automation clip of ${plugin.touched} (the control last touched here)`}
+          onClick={() => pluginAction(plugin.key, "automate")}
+        >
+          <PiChartLine className="size-3 shrink-0" />
+          <span className="truncate">Automate “{plugin.touched}”</span>
+        </button>
+      )}
+      <button type="button" className={BUTTON} title="The plugin's settings" onClick={() => pluginAction(plugin.key, "settings")}>
+        <PiSlidersHorizontal className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+const boxOf = (element: Element): Box => {
+  const { x, y, width, height } = element.getBoundingClientRect();
+  return { x, y, width, height };
+};
+
+/** What can be in front of a plugin besides the music windows: Settings, menus and tooltips (portals), toasts. */
+function overlays(): Box[] {
+  const boxes: Box[] = [];
+  for (const element of document.querySelectorAll('[data-desktop="app"] [data-window], [data-sonner-toast]')) boxes.push(boxOf(element));
+  for (const child of document.body.children) {
+    if (child.id === "root" || child instanceof HTMLScriptElement || child instanceof HTMLStyleElement) continue;
+    const box = boxOf(child);
+    if (box.width > 0 && box.height > 0) boxes.push(box);
+    // A portal's own box can be empty while what's in it is placed: its children count.
+    else for (const inner of child.children) if (inner.getBoundingClientRect().width > 0) boxes.push(boxOf(inner));
+  }
+  return boxes;
+}
+
+/** Where every plugin's view goes, back to front: worked out from the page as it's drawn now. */
+function places(): PluginPlace[] {
+  const desktop = document.querySelector('[data-desktop="music"]');
+  if (!desktop || document.visibilityState !== "visible") return [];
+  const area = boxOf(desktop);
+  const windows = [...desktop.querySelectorAll<HTMLElement>("[data-window]")].map((element) => ({
+    element,
+    z: Number(element.style.zIndex) || 0,
+    box: boxOf(element),
+  }));
+  const extra = overlays();
+  const result: { z: number; place: PluginPlace }[] = [];
+  for (const body of desktop.querySelectorAll<HTMLElement>("[data-plugin-body]")) {
+    const frame = windows.find((w) => w.element.contains(body));
+    if (!frame) continue;
+    const box = rounded(boxOf(body));
+    const over = [...windows.filter((w) => w.z > frame.z).map((w) => w.box), ...extra];
+    const visible = visibleParts(box, [frame.box, area], over).map(rounded);
+    result.push({ z: frame.z, place: { key: body.dataset.pluginBody!, body: box, visible } });
+  }
+  return result.sort((a, b) => a.z - b.z).map((r) => r.place);
+}
+
+/** Tells the engine where the plugins go whenever that changes, checking every frame (windows move by transform, menus open). */
+function startPlacing(): () => void {
+  let last = "";
+  let frame = requestAnimationFrame(function tick() {
+    const now = places();
+    const text = JSON.stringify(now);
+    if (text !== last) {
+      last = text;
+      placePlugins(now);
+    }
+    frame = requestAnimationFrame(tick);
+  });
+  return () => {
+    cancelAnimationFrame(frame);
+    placePlugins([]);
+  };
+}

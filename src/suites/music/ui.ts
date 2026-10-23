@@ -41,7 +41,9 @@ export type WindowId =
   | `proc:${string}`
   | `prol:${string}`
   | `verb:${string}`
-  | `serum:${string}`;
+  | `serum:${string}`
+  /** A plugin's editor in the music app's window, on a Mac (`plugin-frames/`): "plugin:channel:<id>", "plugin:effect:<id>". */
+  | `plugin:${string}`;
 
 /**
  * The rack's group filter (FL Studio's): Unsorted is every channel but the audio clips' (the default),
