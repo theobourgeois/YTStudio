@@ -13,8 +13,9 @@ Read the music suite's guide (`docs/claude/music.md`) first.
   the engine's message thread (its windows are the main window's own): the two must never wait for each other.
   If it dies (a plugin crashed), the next command starts it again; what was loaded is lost until the song's
   document drives it.
-- **The shell** (`--window`, `pnpm dev:shell`): an experiment that shows the app's page in a window of the
-  engine's own, so the plugin windows and the page are one program, as FL's are. See `docs/claude/music-shell.md`.
+- **The music app** (`pnpm dev:music`): the engine is the app. It starts the server itself and talks to it over a
+  socket (`protocol::serve`, `AudioEngine`'s `connect`) and shows the page in a window of its own, so the plugin
+  windows and the page are one program, as FL's are. See `docs/claude/music-shell.md`.
 - Stop pressed while stopped (`stop { reset }`, and every stop with Settings' Reset plugins on stop) is
   FL's way to silence the effects' tails: `Engine::silence` lets go of the device as an export does,
   resets every plugin, drops our effects' states (each registry's `clear`) and the delay lines, and makes

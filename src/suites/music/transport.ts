@@ -6,7 +6,7 @@ import type { EngineChannels, EngineCommands, EngineEchoLevels, EngineEffects, E
 import { clamp } from "@shared/math";
 import { DEFAULT_VELOCITY } from "@shared/music/project";
 import { musicApi } from "./api";
-import { inShell, shellCommand } from "./shell";
+import { hosted, hostCommand } from "@/lib/host";
 import { useMusicPreferences } from "./preferences";
 
 /**
@@ -234,10 +234,10 @@ export const useTransport = create<TransportState>((set, get) => {
       void musicApi.engine("trigger", { channel: channelId, pitch }).catch(() => {});
     },
     preview(channelId, key, on, velocity) {
-      // In the shell, straight to the engine (the server's checks, done here): a key played is felt at once.
-      if (inShell) {
+      // In the music app, straight to the engine (the server's checks, done here): a key played is felt at once.
+      if (hosted) {
         const v = velocity !== undefined && Number.isFinite(velocity) ? clamp(velocity, 0, 1) : DEFAULT_VELOCITY;
-        void shellCommand("preview", { channel: channelId, key: Math.round(clamp(key, 0, 127)), on, velocity: v }).catch(() => {});
+        void hostCommand("preview", { channel: channelId, key: Math.round(clamp(key, 0, 127)), on, velocity: v }).catch(() => {});
         return;
       }
       void musicApi.engine("preview", { channel: channelId, key, on, velocity }).catch(() => {});

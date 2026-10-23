@@ -1,3 +1,5 @@
+// First: in the music app it says so (`editorDesktopInfo`) before anything asks.
+import { startHost } from "./lib/host";
 import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
@@ -18,6 +20,7 @@ const Gallery = import.meta.env.DEV && location.pathname === "/gallery" ? lazy((
 // Which app this is (Home, Settings and the menus show only its suites) is known before anything draws.
 await loadApp();
 void useAppIcon.getState().init(); // its own icon, in one of the apps
+void startHost(); // the music app: files it was handed meanwhile
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -167,7 +167,7 @@ describe("AudioEngine", () => {
 
   it("closes every plugin window that's open, instrument and effect, and doesn't start the engine to do it", async () => {
     await engine.closeEditors();
-    expect((engine as unknown as { child: unknown }).child).toBeNull();
+    expect((engine as unknown as { link: unknown }).link).toBeNull();
     const [synth, delay] = [(await engine.plugins())[0], (await engine.plugins()).find((p) => !p.isInstrument)!];
     let song = addPluginChannel(createMusicProject("Windows"), synth, "chan_synth");
     song = setEffect(song, "insert_1", 0, delay, "fx_delay");
@@ -240,12 +240,12 @@ describe("AudioEngine", () => {
     const sent: Record<string, unknown>[] = [];
     // (Started, so its input can be watched.)
     await request("status", {});
-    const child = (engine as unknown as { child: { stdin: { write(line: string): boolean } } }).child;
-    const write = child.stdin.write.bind(child.stdin);
-    child.stdin.write = (line: string) => {
+    const link = (engine as unknown as { link: { send(line: string): void } }).link;
+    const send = link.send.bind(link);
+    link.send = (line: string) => {
       const message = JSON.parse(line) as { cmd: string; song?: Record<string, unknown> };
       if (message.cmd === "song") sent.push(message.song!);
-      return write(line);
+      send(line);
     };
     await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });
     const turned = { ...song, channels: song.channels.map((c) => ({ ...c, volume: 0.3 })) };

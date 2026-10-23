@@ -29,7 +29,8 @@ export function WindowButtons({ className }: { className?: string }) {
   const own = useOwnWindowButtons();
   const tabsHidden = useWindowChrome((s) => s.tabsHidden);
   const fullScreen = useSyncExternalStore(subscribeFullScreen, isFullScreen);
-  if (tabsHidden && window.editorDesktopInfo?.platform === "win32") return <div aria-hidden data-window-controls-space />;
+  // (The Electron app's: the music app's window has a title bar of its own, with them in it.)
+  if (tabsHidden && window.editorDesktopInfo?.platform === "win32" && window.editorDesktopInfo.titleBar) return <div aria-hidden data-window-controls-space />;
   if (!own) return null;
   return (
     <div className={cn("flex shrink-0 items-center gap-0.5", className)} data-window-buttons>

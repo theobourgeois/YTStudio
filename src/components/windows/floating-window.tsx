@@ -674,7 +674,7 @@ function afterPaint(win: Window): Promise<void> {
  * (`closeEngineWindows`): window levels there gave no hover or keyboard to the windows beside the one in use
  * (docs/windows.md).
  */
-const NATIVE_WINDOWS = typeof window !== "undefined" && window.editorDesktopInfo?.platform === "win32";
+const NATIVE_WINDOWS = typeof window !== "undefined" && window.editorDesktopInfo?.platform === "win32" && window.editorDesktopInfo.panels !== undefined;
 
 /** Whether a `native` desktop's windows are windows of the system here (the desktop app, on Windows). */
 export const nativeWindowsOn = (): boolean => NATIVE_WINDOWS && desktopPanels() !== undefined;

@@ -210,6 +210,20 @@ private:
         webView->Navigate (url.toWideCharPointer());
     }
 
+    void post (const juce::var& message)
+    {
+        if (webView != nullptr)
+            webView->PostWebMessageAsJson (juce::JSON::toString (message, true).toWideCharPointer());
+    }
+
+    void navigate (const juce::String& newUrl)
+    {
+        url = newUrl;
+        // (Not made yet: it goes to `url` once it is.)
+        if (webView != nullptr)
+            webView->Navigate (url.toWideCharPointer());
+    }
+
     /** Composition: WebView2 draws into a visual of ours, shown in our window by DirectComposition. */
     void attachVisual()
     {
@@ -317,7 +331,7 @@ private:
         return DefWindowProcW (window, message, wParam, lParam);
     }
 
-    const juce::String url;
+    juce::String url;
     const juce::Colour background;
     const CommandHandler onCommand;
     const bool composition;
@@ -353,5 +367,15 @@ void WebView::focus()
 void WebView::parentMoved()
 {
     host->parentMoved();
+}
+
+void WebView::post (const juce::var& message)
+{
+    host->post (message);
+}
+
+void WebView::navigate (const juce::String& url)
+{
+    host->navigate (url);
 }
 #endif

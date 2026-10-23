@@ -14,7 +14,7 @@ class WebView : public juce::HWNDComponent
 public:
     /** Answers what the page asked: `complete` is called once, on the message thread. */
     using Complete = std::function<void (const juce::Result&, const juce::var&)>;
-    /** A command the page sent (`chrome.webview.postMessage ({ id, command, params })`, `src/suites/music/shell.ts`). */
+    /** A command the page sent (`chrome.webview.postMessage ({ id, command, params })`, `src/lib/host.ts`). */
     using CommandHandler = std::function<void (const juce::String& command, const juce::var& params, Complete complete)>;
 
     /** Shows `url`; WebView2 keeps its profile in `userDataFolder`. */
@@ -25,6 +25,10 @@ public:
     void focus();
     /** Its window moved: WebView2's popups (a select's list) open where the page now is. */
     void parentMoved();
+    /** Tells the page something (`{ event, ... }`; replies carry an `id` instead). */
+    void post (const juce::var& message);
+    /** Shows another address (the server started again elsewhere). */
+    void navigate (const juce::String& url);
 
 private:
     class Host;

@@ -43,7 +43,8 @@ export const config = {
   port: Number(process.env.EDITOR_SERVER_PORT) || 5311,
   host: "127.0.0.1",
   production: process.env.NODE_ENV === "production",
-  clientDir: path.join(REPO_ROOT, "dist"),
+  /** The page's build (the music app ships its own beside the server's bundle). */
+  clientDir: process.env.EDITOR_CLIENT_DIR ? path.resolve(process.env.EDITOR_CLIENT_DIR) : path.join(REPO_ROOT, "dist"),
 };
 
 /** How much the log keeps (`<data>/logs`, server/log.ts): debug, info (the default), warn or error. */
@@ -93,10 +94,15 @@ export const ENGINE =
   process.env.EDITOR_ENGINE_PATH ||
   engineExecutable(path.join(ENGINE_BUILD, "VaudioEngine_artefacts", "Release"));
 /**
- * The music shell (docs/claude/music-shell.md): the address of the app the engine shows in a window of its own
- * (`pnpm dev:shell` sets it). The engine is then started with the server, and closing its window stops the server.
+ * The music app (docs/apps.md): the engine is the app and started this server, telling it where to reach it
+ * (`<port>:<token>`, engine/src/Main.cpp). The server then never starts an engine of its own, and goes when it does.
  */
-export const ENGINE_WINDOW = process.env.EDITOR_ENGINE_WINDOW || null;
+export const ENGINE_CONNECT = engineConnection(process.env.EDITOR_ENGINE_CONNECT);
+
+function engineConnection(value: string | undefined): { port: number; token: string } | null {
+  const match = value?.match(/^(\d+):(\w+)$/);
+  return match ? { port: Number(match[1]), token: match[2] } : null;
+}
 /** The photo suite's helper process (decodes and encodes image files); the desktop app ships its own build. */
 export const PHOTO_HELPER = process.env.EDITOR_PHOTO_HELPER_PATH || path.join(REPO_ROOT, "server", "photo", "helper-process.mjs");
 /** The music suite's models' process (runs them with ONNX Runtime's native build); the desktop app ships its own build. */

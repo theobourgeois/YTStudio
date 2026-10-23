@@ -15,7 +15,7 @@ import { type AppId, appInfo } from "../shared/apps.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
-import { ENGINE_WINDOW, GALLERY_DL, MODELS_DIR, MUSIC_MODELS, MUSIC_WORKER, NOW_PLAYING, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, SERUM_LIBRARY, VIBE_MODEL, config } from "./config.ts";
+import { ENGINE_CONNECT, GALLERY_DL, MODELS_DIR, MUSIC_MODELS, MUSIC_WORKER, NOW_PLAYING, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, SERUM_LIBRARY, VIBE_MODEL, config } from "./config.ts";
 import { photoModels } from "./photo/models.ts";
 import { ExportManager } from "./exports.ts";
 import { RenderFiles } from "./render-files.ts";
@@ -113,6 +113,8 @@ export interface EditorApp {
   raiseEngineWindow(owner: "channel" | "effect", id: string): Promise<boolean>;
   /** Close every plugin window (the desktop app does when one of its own windows is used). */
   closeEngineWindows(): Promise<void>;
+  /** The server is listening at `url`: the music app's window shows it (nothing elsewhere). */
+  listening(url: string): void;
 }
 
 /** Content types `mime-types` gets wrong (or too exotic) for browsers. */
@@ -161,6 +163,11 @@ export async function createApp({
   const library = new MediaLibrary(paths, undefined, (id) => projects.mediaDir(id), mediaOptions);
   // The engine writes what's changed in a song's plugins before its package moves.
   let saveStates: () => Promise<void> = async () => {};
+  // The music app: its engine is the app, and the Trash and Finder (or Explorer) are its to use.
+  if (ENGINE_CONNECT) {
+    trash ??= (dir) => engine.askApp("host.trash", { path: dir }).then(() => {});
+    reveal ??= (dir) => engine.askApp("host.reveal", { path: dir }).then(() => {});
+  }
   const projects = new ProjectStore(paths, library, { location, trash, reveal, beforeMove: () => saveStates(), suites: thisApp.suites });
   await projects.load();
   const exports = new ExportManager(paths, library);
@@ -195,11 +202,11 @@ export async function createApp({
     samplePath,
     adoptTake,
     projectDir: (id) => projects.dir(id),
-    // The shell: the engine's window is the app, so it starts with the server, and the server goes when it closes.
-    ...(ENGINE_WINDOW ? { window: ENGINE_WINDOW, onWindowClosed: () => process.emit("SIGTERM", "SIGTERM") } : {}),
+    // The music app: the engine is the app and started the server, which goes when it does.
+    ...(ENGINE_CONNECT ? { connect: ENGINE_CONNECT, onAppQuit: () => process.emit("SIGTERM", "SIGTERM") } : {}),
     ...engineOptions,
   });
-  if (ENGINE_WINDOW) void engine.command("status", {}).catch(() => {});
+  if (ENGINE_CONNECT) void engine.command("status", {}).catch(() => {});
   saveStates = () => engine.saveStates().catch(() => {});
   const musicExports = new MusicExports(paths, engine, { samplePath: engineOptions?.samplePath ?? samplePath, adopt: adoptTake, ...musicExportOptions });
   // Make visualizer: a song handed over to the video suite as a project of its own.
@@ -413,6 +420,9 @@ export async function createApp({
         () => false,
       ),
     closeEngineWindows: () => engine.closeEditors(),
+    listening: (url) => {
+      if (ENGINE_CONNECT) engine.askApp("page", { url }).catch((err: Error) => log("server").error(`couldn't show the page: ${err.message}`));
+    },
     shutdown() {
       photoHelper.close();
       previews.shutdown();
