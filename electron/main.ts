@@ -5,7 +5,7 @@
  *   pnpm dev:desktop     development (Vite with hot reload, data in ./data)
  *   pnpm build:desktop   a packaged app in release/ (data in ~/Library/Application Support/YTStudio)
  */
-import { existsSync, renameSync } from "node:fs";
+import { existsSync, readFileSync, renameSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { engineExecutable } from "../server/engine-path.ts";
@@ -21,12 +21,37 @@ import { HoverRelay } from "./hover.ts";
 import { Panels, answerPanelRequests, isPanelName, panelOptions, popupOptions } from "./panels.ts";
 import { Stages, answerStageRequests, isStageName, stageOptions } from "./stage.ts";
 import { Restacker, WindowStack } from "./stacking.ts";
+import { carrySettingsOver } from "./carry-over.ts";
+import { type AppId, EVERY_APP, appInfo, isAppId } from "../shared/apps.ts";
+import { SUITES, SUITE_IDS } from "../shared/suites.ts";
 
-const APP_NAME = "YTStudio";
+/**
+ * Which of YTStudio's apps this is (docs/apps.md): a packaged one says so in its package.json (scripts/desktop.ts
+ * writes it), development in `EDITOR_APP` (`pnpm dev:desktop video`). None is every suite, as YTStudio was.
+ */
+function packagedApp(): AppId | null {
+  try {
+    const own = JSON.parse(readFileSync(path.join(app.getAppPath(), "package.json"), "utf8")) as { ytstudioApp?: unknown };
+    return isAppId(own.ytstudioApp) ? own.ytstudioApp : null;
+  } catch {
+    return null;
+  }
+}
+if (app.isPackaged) {
+  const id = packagedApp();
+  if (id) process.env.EDITOR_APP = id;
+  else delete process.env.EDITOR_APP;
+}
+const THIS_APP = appInfo(isAppId(process.env.EDITOR_APP) ? process.env.EDITOR_APP : null);
+const APP_NAME = THIS_APP.name;
 /** What the app was called before: where its data was. */
 const LEGACY_APP_NAME = "Vaudio";
-/** The packaged app's server port, kept the same across launches so the page's origin (and its saved layout) is too. */
-const PACKAGED_PORTS = [5611, 5612, 5613, 5614, 5615, 0];
+/**
+ * The packaged app's server port, kept the same across launches so the page's origin (and its saved layout) is too;
+ * each app its own, so two open at once never share one.
+ */
+const FIRST_PORT: Record<AppId | "every", number> = { every: 5611, video: 5621, photo: 5631, visualizer: 5641, music: 5651 };
+const PACKAGED_PORTS = [...Array.from({ length: 5 }, (_, i) => FIRST_PORT[THIS_APP.id ?? "every"] + i), 0];
 /** Set by scripts/desktop.ts in development: Vite's URL (it proxies /api and /files to our server). */
 const DEV_URL = process.env.EDITOR_DESKTOP_DEV_URL;
 /** How long closing waits for the page to save its last edit. */
@@ -52,13 +77,14 @@ const IMAGE_TYPES: Record<string, string> = {
 app.setName(APP_NAME);
 // Windows groups the taskbar button, its pins and notifications by this: the installer's shortcut carries
 // the same id (electron-builder's appId), so the running app is that shortcut's, not a second "Electron".
-if (isWindows) app.setAppUserModelId(app.isPackaged ? "gg.jestr.ytstudio" : process.execPath);
+if (isWindows) app.setAppUserModelId(app.isPackaged ? THIS_APP.bundleId : process.execPath);
 // Chrome stops giving a page a GPU adapter after a second GPU-process crash within two minutes; the photo editor
 // renders with WebGPU and recovers from a lost device, so it must always get one (docs/photo/architecture.md).
 app.commandLine.appendSwitch("disable-gpu-process-crash-limit");
 app.commandLine.appendSwitch("disable-domain-blocking-for-3d-apis");
 // A separate profile (window state, page storage, the single-instance lock), for tests.
 if (process.env.EDITOR_USER_DATA_DIR) app.setPath("userData", path.resolve(process.env.EDITOR_USER_DATA_DIR));
+else if (THIS_APP.id) app.setPath("userData", path.join(app.getPath("appData"), APP_NAME));
 else {
   // The app was called Vaudio: its profile and data (recents, the Library, settings, the page's storage) move
   // to YTStudio's folder the first time, or stay where they are if they can't.
@@ -81,6 +107,9 @@ else {
 if (app.isPackaged && !process.env.EDITOR_DATA_DIR) {
   process.env.EDITOR_DATA_DIR = path.join(app.getPath("userData"), "data");
   process.env.EDITOR_PROJECTS_DIR ??= path.join(app.getPath("documents"), "YTStudio");
+  // One of the apps starts with what YTStudio (every suite at once) knew of its projects: its recents.
+  const every = path.join(app.getPath("appData"), EVERY_APP.name, "data");
+  if (THIS_APP.id && existsSync(every)) process.env.EDITOR_RECENTS_FROM ??= every;
 }
 
 // The audio engine ships in the app's resources (scripts/desktop.ts); development uses engine/build.
@@ -156,8 +185,9 @@ function isProjectPath(file: string) {
   return /\.(ytvid|ytsng|ytimg|yt|vaudio)[/\\]?$/i.test(file);
 }
 
+/** An image the app takes (it starts a photo): only where photos are made. */
 function imageType(file: string): string | undefined {
-  return IMAGE_TYPES[path.extname(file).toLowerCase()];
+  return THIS_APP.suites.includes("photo") ? IMAGE_TYPES[path.extname(file).toLowerCase()] : undefined;
 }
 
 function isHandedPath(file: string) {
@@ -313,7 +343,11 @@ async function start() {
   answerProjectDialogs();
   answerMicrophone();
   answerListening();
-  initializeAppIcon();
+  initializeAppIcon(THIS_APP.id);
+  // Once, in a new app: the theme, fonts and layouts YTStudio's page kept (carry-over.ts). Packaged only: in
+  // development the page is Vite's, on an origin of its own. EDITOR_SETTINGS_FROM names another profile (tests).
+  const settingsFrom = process.env.EDITOR_SETTINGS_FROM ?? (process.env.EDITOR_USER_DATA_DIR ? null : path.join(app.getPath("appData"), EVERY_APP.name));
+  if (THIS_APP.id && app.isPackaged && settingsFrom) await carrySettingsOver(appUrl, settingsFrom, FIRST_PORT.every);
   createWindow();
 }
 
@@ -644,6 +678,32 @@ function keepLinksOutside(win: BrowserWindow) {
   });
 }
 
+/** The File menu's projects: New for each of the app's suites, Open…, Home, the tab's. */
+function projectMenuItems(): MenuItemConstructorOptions[] {
+  return [
+    ...THIS_APP.suites.map((suite): MenuItemConstructorOptions => ({
+      label: `New ${SUITES[suite].label}`,
+      accelerator: `CmdOrCtrl+${SUITE_IDS.indexOf(suite) + 1}`,
+      registerAccelerator: false,
+      click: () => pageCommand(`new:${suite}`),
+    })),
+    ...(THIS_APP.suites.length > 1
+      ? [{ label: "New Project…", accelerator: "CmdOrCtrl+Shift+O", registerAccelerator: false, click: () => pageCommand("newProject") }]
+      : []),
+    { type: "separator" },
+    { label: "Open…", accelerator: "CmdOrCtrl+O", registerAccelerator: false, click: () => pageCommand("open") },
+    ...(isMac
+      ? [{ label: "Open Recent", role: "recentDocuments" as const, submenu: [{ label: "Clear Menu", role: "clearRecentDocuments" as const }] }]
+      : []),
+    { type: "separator" },
+    { label: "Home", accelerator: "CmdOrCtrl+Shift+H", registerAccelerator: false, click: () => pageCommand("home") },
+    { label: "Show in Finder", click: () => pageCommand("reveal") },
+    { type: "separator" },
+    // ⌘W closes the project's tab (a window without tabs has nothing else to close); the window itself ⇧⌘W.
+    { label: "Close Tab", accelerator: "CmdOrCtrl+W", registerAccelerator: false, click: () => pageCommand("closeTab") },
+  ];
+}
+
 function buildMenu(): Menu {
   const template: MenuItemConstructorOptions[] = [
     // The app menu as macOS makes it, but Hide (⌘H) and Hide Others (⌥⌘H) leave their keys to the page: the photo
@@ -670,21 +730,8 @@ function buildMenu(): Menu {
       label: "File",
       // The page catches these keys itself (wherever focus is), so the menu only shows them.
       submenu: [
-        { label: "New Video", accelerator: "CmdOrCtrl+1", registerAccelerator: false, click: () => pageCommand("new:video") },
-        { label: "New Song", accelerator: "CmdOrCtrl+2", registerAccelerator: false, click: () => pageCommand("new:music") },
-        { label: "New Photo", accelerator: "CmdOrCtrl+3", registerAccelerator: false, click: () => pageCommand("new:photo") },
-        { label: "New Project…", accelerator: "CmdOrCtrl+Shift+O", registerAccelerator: false, click: () => pageCommand("newProject") },
-        { type: "separator" },
-        { label: "Open…", accelerator: "CmdOrCtrl+O", registerAccelerator: false, click: () => pageCommand("open") },
-        ...(isMac
-          ? [{ label: "Open Recent", role: "recentDocuments" as const, submenu: [{ label: "Clear Menu", role: "clearRecentDocuments" as const }] }]
-          : []),
-        { type: "separator" },
-        { label: "Home", accelerator: "CmdOrCtrl+Shift+H", registerAccelerator: false, click: () => pageCommand("home") },
-        { label: "Show in Finder", click: () => pageCommand("reveal") },
-        { type: "separator" },
-        // ⌘W closes the project's tab (a window without tabs has nothing else to close); the window itself ⇧⌘W.
-        { label: "Close Tab", accelerator: "CmdOrCtrl+W", registerAccelerator: false, click: () => pageCommand("closeTab") },
+        // The app's own suites only (the Visualizer makes no projects: it has none of these).
+        ...(THIS_APP.suites.length > 0 ? projectMenuItems() : []),
         isMac ? { role: "close", accelerator: "CmdOrCtrl+Shift+W" } : { role: "quit" },
       ],
     },

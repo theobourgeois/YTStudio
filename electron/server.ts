@@ -6,7 +6,7 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { type AppOptions, type EditorApp, createApp } from "../server/app.ts";
-import { FFMPEG } from "../server/config.ts";
+import { APP, FFMPEG, RECENTS_FROM } from "../server/config.ts";
 import { ffmpegVersion } from "../server/ffmpeg.ts";
 import { log } from "../server/log.ts";
 import { type GlPageOpener, setGlPageOpener } from "../server/gl-browser.ts";
@@ -61,7 +61,7 @@ export async function startServer({ dataDir, clientDir, ports, trash, reveal, op
   if (version) logger.info(`using ffmpeg ${version}`);
   else logger.warn(`ffmpeg not found (tried "${FFMPEG}"): importing and exporting won't work.`);
 
-  const { app, shutdown, setHostWindow, onEngineWindow, raiseEngineWindow, closeEngineWindows } = await createApp({ dataDir, clientDir, trash, reveal });
+  const { app, shutdown, setHostWindow, onEngineWindow, raiseEngineWindow, closeEngineWindows } = await createApp({ dataDir, clientDir, trash, reveal, app: APP, recentsFrom: RECENTS_FROM });
   const server = http.createServer(app);
   for (const candidate of ports) {
     const port = await listen(server, candidate);

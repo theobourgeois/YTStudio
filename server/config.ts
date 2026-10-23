@@ -23,8 +23,11 @@ export const UNKNOWN_APP = process.env.EDITOR_APP && !APP ? process.env.EDITOR_A
 /** The checkout's data folder, every suite's; an app's own is inside it (`apps/<app>`) unless one is given. */
 export const SHARED_DATA_DIR = path.join(REPO_ROOT, "data");
 const dataDir = path.resolve(process.env.EDITOR_DATA_DIR || (APP ? path.join(SHARED_DATA_DIR, "apps", APP) : SHARED_DATA_DIR));
-/** An app's own data folder in a checkout starts with the recents of its suites from the checkout's (`adoptRecents`). */
-export const RECENTS_FROM = APP && !process.env.EDITOR_DATA_DIR ? SHARED_DATA_DIR : null;
+/**
+ * An app's own data folder starts with the recents of its suites from another (`adoptRecents`): in a checkout the
+ * checkout's, in the desktop app YTStudio's (`EDITOR_RECENTS_FROM`, electron/main.ts).
+ */
+export const RECENTS_FROM = !APP ? null : process.env.EDITOR_RECENTS_FROM ? path.resolve(process.env.EDITOR_RECENTS_FROM) : !process.env.EDITOR_DATA_DIR ? SHARED_DATA_DIR : null;
 
 export const config = {
   dataDir,

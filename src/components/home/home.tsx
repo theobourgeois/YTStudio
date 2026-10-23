@@ -261,7 +261,7 @@ function AppMark() {
   const icon = useAppIcon((s) => s.choice);
   return (
     <div className="flex shrink-0 items-center gap-2 select-none">
-      <img src={appIconUrl(icon)} alt="" className="size-6" draggable={false} />
+      <img src={appIconUrl(icon, currentApp().id)} alt="" className="size-6" draggable={false} />
       <span className="text-[14px] font-semibold tracking-tight">{currentApp().name}</span>
     </div>
   );

@@ -9,7 +9,7 @@ const base = { createdAt: NOW - 86_400_000, updatedAt: NOW - 3_600_000, openedAt
 
 /** Projects in the states a recent shows: with a picture, a song's Playlist, missing, damaged. */
 const SAMPLES: ProjectSummary[] = [
-  { ...base, id: "project_000000000001", suite: "video", name: "Launch teaser", path: "/Users/me/Documents/YTStudio/Launch teaser.ytvid", thumbnail: appIconUrl("banner-blue"), aspectRatio: "9:16", clipCount: 7 },
+  { ...base, id: "project_000000000001", suite: "video", name: "Launch teaser", path: "/Users/me/Documents/YTStudio/Launch teaser.ytvid", thumbnail: appIconUrl("banner-blue", null), aspectRatio: "9:16", clipCount: 7 },
   { ...base, id: "project_000000000002", suite: "music", name: "Night drive beat", path: "/Users/me/Documents/YTStudio/Night drive beat.ytsng", thumbnail: null, tempo: 92, outline: {
     kind: "playlist", rows: 4, bars: 8,
     blocks: [[0, 0, 250, 0], [0, 250, 250, 0], [0, 500, 250, 0], [0, 750, 250, 0], [1, 250, 500, 1], [2, 500, 250, 2], [2, 750, 250, 2], [3, 0, 1000, 3]],

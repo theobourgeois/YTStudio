@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFileDrop, useFilesDragged } from "@/hooks/use-file-drop";
+import { currentApp } from "@/lib/app";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { FILE_MANAGER } from "@/lib/key-labels";
 import { useAppIcon } from "@/stores/app-icon";
@@ -33,7 +34,7 @@ export function HomeButton({ className }: { className?: string }) {
           className={cn("shrink-0", openId === null && "raised", className)}
           onClick={() => void useProjects.getState().goHome()}
         >
-          <img src={appIconUrl(icon)} alt="" className="size-5" draggable={false} />
+          <img src={appIconUrl(icon, currentApp().id)} alt="" className="size-5" draggable={false} />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
