@@ -29,7 +29,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { PERCENT, SongKnob, percent } from "../knob";
 import { useMusic, useSong } from "../store";
-import { useTransport } from "../transport";
+import { showEffectWhenLoaded, useTransport } from "../transport";
 import { openAutoTune, toggleAutoTune } from "../auto-tune/actions";
 import { useTuneUi } from "../auto-tune/store";
 import { openEchoBoy, toggleEchoBoy } from "../echo-boy/actions";
@@ -101,17 +101,18 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
   const choose = (plugin: PluginRef) => {
     const id = createId("fx");
     commit((song) => setEffect(song, trackId, slot, plugin, id));
-    // Ours opens at once (a plugin's own window is a click on its name once it's loaded).
+    // Its window opens, as FL's: ours at once, a plugin's own once the engine has loaded it.
     if (isGrossBeat(plugin)) openGrossBeat(id);
-    if (isAutoTune(plugin)) openAutoTune(id);
-    if (isEchoBoy(plugin)) openEchoBoy(id);
-    if (isProQ(plugin)) openProQ(id);
-    if (isOtt(plugin)) openOtt(id);
-    if (isProC(plugin)) openProC(id);
-    if (isProL(plugin)) openProL(id);
-    if (isPanMan(plugin)) openPanMan(id);
-    if (isPitchWheel(plugin)) openPitchWheel(id);
-    if (isReverb(plugin)) openReverb(id);
+    else if (isAutoTune(plugin)) openAutoTune(id);
+    else if (isEchoBoy(plugin)) openEchoBoy(id);
+    else if (isProQ(plugin)) openProQ(id);
+    else if (isOtt(plugin)) openOtt(id);
+    else if (isProC(plugin)) openProC(id);
+    else if (isProL(plugin)) openProL(id);
+    else if (isPanMan(plugin)) openPanMan(id);
+    else if (isPitchWheel(plugin)) openPitchWheel(id);
+    else if (isReverb(plugin)) openReverb(id);
+    else showEffectWhenLoaded(id);
   };
   // After a menu has closed (it gives the focus back first), or the picker would close at once.
   const openPicker = () => setTimeout(() => setChoosing(true), 0);
