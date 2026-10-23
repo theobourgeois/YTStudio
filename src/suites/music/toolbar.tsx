@@ -879,7 +879,11 @@ function WindowButton({ onOpen, label, title, children }: { onOpen: () => void; 
     <button
       type="button"
       className={toolFace()}
-      onClick={onOpen}
+      // On the press, as FL's: the window is up before the button's let go. The press also keeps the focus where
+      // the window put it (not on the button). Enter and Space still work (a click with no press: `detail` 0).
+      onPointerDown={(e) => e.button === 0 && onOpen()}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={(e) => e.detail === 0 && onOpen()}
       aria-label={label}
       title={title}
     >
