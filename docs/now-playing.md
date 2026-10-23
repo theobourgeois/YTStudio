@@ -1,7 +1,7 @@
 # Now Playing
 
-What the computer's music player is playing, at the top of the window, and a **visualizer** of it filling the
-window: looks made of the video editor's own effects and 3D scenes, coloured by the song's cover, reacting to the
+What the computer's music player is playing, and a **visualizer** of it filling the window (the Visualizer app's,
+docs/apps.md; Home's **Visualizer** opens it, and the Visualizer app opens on it): looks made of the video editor's own effects and 3D scenes, coloured by the song's cover, reacting to the
 sound as it plays. Built on Théo's ask (2026-10-14): Spotify in the app, the song at the top, a click to a full-screen
 visualization with presets, the cover's colours, vaudio's looks and its play keys.
 
@@ -11,7 +11,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | --- | --- | --- |
 | Asking the player, telling it what to do | `server/now-playing.ts` (Windows: `now-playing-windows.ts`), `/api/now-playing` (`server/routes/now-playing.ts`) | platform |
 | The types, positions, commands | `shared/now-playing.ts` | platform |
-| The pill (the tab strip, else Home's bar; not in a project without the tab strip) | `src/components/now-playing/` | platform |
+| Where the visualizer opens (over everything) | `src/components/now-playing/` | platform |
 | The tab's state: polling, the cover's palette, listening, the visualizer open | `src/stores/now-playing.ts` | platform |
 | Listening to the computer's sound | `src/lib/live-audio.ts`, the grant in `electron/main.ts` (`answerListening`) | platform |
 | Live signals (the analysis as it's heard), the live beat | `shared/signals/live.ts`, `live-beat.ts` | platform |
@@ -26,15 +26,16 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | vaudio's 2D visualizers | `shared/effect-library/audio.ts` (Wave Bars ... Acid Plasma) | video |
 | The assistant | `now_playing`, `control_now_playing` (`shared/assistant-tools.ts`) | video |
 
-The pill and the store are the platform's (they show in every suite); the visualizer is drawn by the video
+The store is the platform's; the visualizer is drawn by the video
 editor's preview engine, so it's the video suite's, reached through the suite registry (`nowPlayingView()`).
 
 ## The player
 
 Spotify's desktop app answers AppleScript (JavaScript for Automation, `osascript -l JavaScript`): no account, no
 developer key, no Premium. `SPOTIFY_READ` asks without starting it (`Application("Spotify").running()`), about once
-a second while it plays (slower when paused or closed); answers are shared for 400 ms. macOS asks the user once to
-let the app control Spotify (Privacy › Automation, `NSAppleEventsUsageDescription`); if they said no, the pill says
+a second while it plays and the visualizer is open (slower when paused or closed; not at all while the visualizer's
+closed, unless the assistant asks); answers are shared for 400 ms. macOS asks the user once to
+let the app control Spotify (Privacy › Automation, `NSAppleEventsUsageDescription`); if they said no, the visualizer says
 so (`not-allowed`). Spotify's AppleScript gives `duration` in milliseconds, though its dictionary says seconds.
 
 On **Windows** it's the system's media controls (GlobalSystemMediaTransportControls, what the volume flyout shows),
@@ -50,13 +51,13 @@ late: a pause reads as playing for a few hundred ms.
 Apple Music answers AppleScript too (its cover is data, not a URL): another `Player`.
 
 `EDITOR_NOW_PLAYING=stand-in` plays made-up songs (the e2e tests, the sheet): closed until told to play, so other
-specs never see a pill (only the Visualizer button, below). Its `demo` flag makes the tab measure a made-up drum loop (`demoSong`) instead of listening.
+specs never hear of it. Its `demo` flag makes the tab measure a made-up drum loop (`demoSong`) instead of listening.
 
 ## Listening
 
 The visualizer listens to the computer's sound, not to the player, so it doesn't need a song: when nothing plays
-(Spotify closed, paused on nothing, or a computer it can't ask), the pill's place has a **Visualizer** button
-(`data-visualize-sound`) that opens it on whatever the computer is playing (a browser tab, a game, another player).
+(Spotify closed, paused on nothing, or a computer it can't ask), Home's **Visualizer** button
+(`data-visualize-sound`) opens it on whatever the computer is playing (a browser tab, a game, another player).
 The song's parts of the view (its name, the transport) say it's listening instead, and the colours are the default
 palette's.
 
@@ -118,7 +119,7 @@ over the app, once it's been clicked (until something else is); out of the app, 
 
 ## Where it is
 
-Four places (`placement.ts`, kept in `useVisualizerPrefs.place`, so the pill opens it where it was left): **filling the
+Four places (`placement.ts`, kept in `useVisualizerPrefs.place`, so it opens where it was left): **filling the
 app** (the first time), **a window** over it, **the mini player** (360 × 203 in the bottom right corner), both moved by
 dragging them and resized by their edges, kept inside the app; and **out**, in a window of its own (O). Double-click goes
 between filling the app and the box it was; P between the mini player and what it was. Small (under 640 × 300) it shows

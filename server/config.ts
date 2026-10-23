@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { engineExecutable } from "./engine-path.ts";
 import { type LogLevel, isLogLevel } from "../shared/log.ts";
+import { type AppId, isAppId } from "../shared/apps.ts";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -11,12 +12,24 @@ try { loadEnvFile(path.join(REPO_ROOT, ".env")); } catch (error) {
   if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
 }
 
-const dataDir = path.resolve(process.env.EDITOR_DATA_DIR || path.join(REPO_ROOT, "data"));
+/**
+ * Which of YTStudio's apps this is (docs/apps.md, `shared/apps.ts`): `EDITOR_APP` is music, video, photo or
+ * visualizer; unset (or anything else) is every suite at once, as `pnpm dev`, the e2e suite and the gallery run.
+ */
+export const APP: AppId | null = isAppId(process.env.EDITOR_APP) ? process.env.EDITOR_APP : null;
+/** `EDITOR_APP` when it names no app (the server says so once it logs). */
+export const UNKNOWN_APP = process.env.EDITOR_APP && !APP ? process.env.EDITOR_APP : null;
+
+/** The checkout's data folder, every suite's; an app's own is inside it (`apps/<app>`) unless one is given. */
+export const SHARED_DATA_DIR = path.join(REPO_ROOT, "data");
+const dataDir = path.resolve(process.env.EDITOR_DATA_DIR || (APP ? path.join(SHARED_DATA_DIR, "apps", APP) : SHARED_DATA_DIR));
+/** An app's own data folder in a checkout starts with the recents of its suites from the checkout's (`adoptRecents`). */
+export const RECENTS_FROM = APP && !process.env.EDITOR_DATA_DIR ? SHARED_DATA_DIR : null;
 
 export const config = {
   dataDir,
   /**
-   * Where new projects are saved (each a package, `Name.yt`) until the user picks another folder:
+   * Where new projects are saved (each a package, `Name.ytvid`) until the user picks another folder:
    * `~/Documents/YTStudio`, or, when a data folder is given (tests, throwaway setups), its `Documents/YTStudio` (as the real one, `~/Documents/YTStudio`), so
    * they never reach the user's Documents. The desktop app sets it for its own data folder.
    */

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { SUITE_IDS, type SuiteId } from "@shared/suites";
+import type { SuiteId } from "@shared/suites";
+import { appSuites } from "@/lib/app";
 import { onDesktopCommand } from "@/lib/desktop";
 import { useLayout } from "@/stores/layout";
 import { useProjects } from "@/stores/projects";
@@ -19,7 +20,7 @@ export function useDesktopCommands() {
         else if (name === "reveal" && projects.openId) void projects.reveal(projects.openId);
         else if (name.startsWith("new:")) {
           const suite = name.slice("new:".length);
-          if ((SUITE_IDS as string[]).includes(suite)) void projects.create({ suite: suite as SuiteId });
+          if ((appSuites() as string[]).includes(suite)) void projects.create({ suite: suite as SuiteId });
         }
       }),
     [],

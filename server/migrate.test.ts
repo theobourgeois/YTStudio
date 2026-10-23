@@ -94,7 +94,7 @@ describe("legacy data migration", () => {
     const get = await start();
     const [summary, ...rest] = await get<ProjectSummary[]>("/api/projects");
     expect(rest).toEqual([]);
-    const pkg = path.join(projectsDir(), "My short.yt");
+    const pkg = path.join(projectsDir(), "My short.ytvid");
     expect(summary).toMatchObject({
       suite: "video", name: "My short", createdAt: MTIME.getTime(), updatedAt: MTIME.getTime(), openedAt: MTIME.getTime(),
       aspectRatio: "1:1", duration: 2, clipCount: 1, thumbnail: legacyAsset.poster, path: pkg,
@@ -126,7 +126,7 @@ describe("legacy data migration", () => {
     const get = await start();
     const [summary, ...rest] = await get<ProjectSummary[]>("/api/projects");
     expect(rest).toEqual([]);
-    expect(summary).toMatchObject({ name: "Imported media", clipCount: 0, thumbnail: null, path: path.join(projectsDir(), "Imported media.yt") });
+    expect(summary).toMatchObject({ name: "Imported media", clipCount: 0, thumbnail: null, path: path.join(projectsDir(), "Imported media.ytvid") });
     expect(JSON.parse(readFileSync(path.join(summary.path, "media", ASSET_ID, "meta.json"), "utf8")).projectId).toBe(summary.id);
   });
 
@@ -159,14 +159,14 @@ describe("legacy data migration", () => {
     const list = await get<ProjectSummary[]>("/api/projects");
     // "/" can't be in a file's name.
     expect(list.map((p) => [p.id, p.name, path.relative(projectsDir(), p.path)])).toEqual([
-      [mine, "Launch / teaser", "Launch - teaser.yt"],
-      [done, "Old one", "Old one.yt"],
+      [mine, "Launch / teaser", "Launch - teaser.ytvid"],
+      [done, "Old one", "Old one.ytvid"],
     ]);
     expect(list[0]).toMatchObject({ clipCount: 1, thumbnail: legacyAsset.poster });
     expect(readFileSync(path.join(list[0].path, "plugins", "chan_x.bin"), "utf8")).toBe("state");
     expect(JSON.parse(readFileSync(path.join(list[1].path, "meta.json"), "utf8"))).toEqual({ id: done, suite: "video", createdAt: 1, updatedAt: 20 });
     expect(await get("/api/projects/templates")).toMatchObject({ video: { name: "My setup" } });
-    expect(existsSync(path.join(dataDir, "templates", `${start2}.yt`, "plugins", "chan_x.bin"))).toBe(true);
+    expect(existsSync(path.join(dataDir, "templates", `${start2}.ytvid`, "plugins", "chan_x.bin"))).toBe(true);
     expect(existsSync(path.join(dataDir, "projects"))).toBe(false);
     expect(existsSync(path.join(dataDir, "media"))).toBe(false);
 
@@ -189,7 +189,7 @@ describe("legacy data migration", () => {
     const get = await start();
     const [summary, ...rest] = await get<ProjectSummary[]>("/api/projects");
     expect(rest).toEqual([]);
-    expect(summary).toMatchObject({ id, name: "Halfway", clipCount: 1, path: path.join(projectsDir(), "Halfway.yt") });
+    expect(summary).toMatchObject({ id, name: "Halfway", clipCount: 1, path: path.join(projectsDir(), "Halfway.ytvid") });
     expect(existsSync(partial)).toBe(false);
   });
 });

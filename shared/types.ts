@@ -2,6 +2,7 @@
  * Domain + API types shared by the web client and the local render server.
  * All times are in seconds (floating point) unless the name says otherwise.
  */
+import type { AppId } from "./apps.ts";
 import type { AssistantModelInfo, AssistantProvider } from "./assistant.ts";
 import type { BezierPath } from "./path.ts";
 import type { TextLayout } from "./text-drawing.ts";
@@ -546,7 +547,7 @@ export interface Subclip {
 }
 
 // ---------------------------------------------------------------------------
-// Projects: each one is a package on disk (`Name.yt/`, see `server/packages.ts`) of one suite (a
+// Projects: each one is a package on disk (`Name.ytvid/`, `.ytsng`, `.ytimg`, see `server/packages.ts`) of one suite (a
 // video, a song... see `shared/suites.ts`), wherever the user keeps it. The app lists the ones this
 // computer has opened, its recents, the latest first, on the Home screen.
 // ---------------------------------------------------------------------------
@@ -561,7 +562,7 @@ interface ProjectSummaryBase {
   updatedAt: number;
   /** Last time it was opened on this computer (epoch ms; when it was made or added, until then). Not its place in the recents: that's `updatedAt`. */
   openedAt: number;
-  /** Its package on this computer (`.../Summer edit.yt`). */
+  /** Its package on this computer (`.../Summer edit.ytvid`). */
   path: string;
   /**
    * It isn't where it was last seen (moved or renamed in Finder, deleted, on a drive that's gone): the rest is
@@ -1108,16 +1109,18 @@ export interface ToolCallProgressRequest {
 // HTTP API (all JSON unless noted; errors are `ApiError` with a 4xx/5xx status)
 //
 //   GET    /api/health                  -> HealthResponse
+//   GET    /api/app                     -> AppResponse: which of YTStudio's apps this is (shared/apps.ts)
 //
 //   POST   /api/log  body: { entries: PageLogEntry[] } -> 204: the tab's lines into the app's log (shared/log.ts)
 //   POST   /api/log/reveal              -> 204: the log file shown in Finder (404 when the server keeps none)
 //
-//   GET    /api/projects                -> ProjectSummary[] (this computer's recents, every suite, the
+//   GET    /api/projects                -> ProjectSummary[] (this computer's recents, the app's suites', the
 //                                        latest opened or saved first; missing ones too, flagged `missing`,
 //                                        and ones whose document is damaged, flagged `damaged`)
 //   POST   /api/projects  body: CreateProjectRequest -> ProjectSummary (201): a new package in the location
 //   POST   /api/projects/open  body: OpenProjectRequest -> ProjectSummary: a package from anywhere, added to
-//                                        the recents (a copy of one already open gets ids of its own)
+//                                        the recents (a copy of one already open gets ids of its own; an old `.yt`
+//                                        takes its suite's extension; 400 for another app's project, naming it)
 //   GET    /api/projects/location       -> ProjectLocation;  PUT body: { path } -> ProjectLocation
 //   GET    /api/projects/:id            -> SuiteDocument (its suite's; a video's normalized against its media)
 //                                        422 if its project.json is damaged (kept aside, never replaced); after
@@ -1245,4 +1248,9 @@ export interface ApiError {
 export interface HealthResponse {
   ok: true;
   ffmpeg: { available: boolean; version: string | null };
+}
+
+/** Which of YTStudio's apps the server is (`EDITOR_APP`): null is every suite at once. */
+export interface AppResponse {
+  app: AppId | null;
 }

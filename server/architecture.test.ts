@@ -84,7 +84,7 @@ const PLATFORM = [
   "server/routes/web.ts",
   "src/components/media/use-web-search.ts",
   "server/projects.ts",
-  // Now Playing (docs/now-playing.md): what the music player is playing, in every suite's top bar.
+  // Now Playing (docs/now-playing.md): what the music player is playing, for the visualizer.
   "shared/now-playing.ts",
   // The visualizer's looks as the user rated them (ids: whose looks they are is the visualizer's).
   "shared/look-ratings.ts",
@@ -131,6 +131,9 @@ const PLATFORM = [
   "src/stores/app-windows.ts",
   "src/stores/layout.ts",
   "src/lib/api.ts",
+  // Which of the apps this is (docs/apps.md): the suites it opens.
+  "shared/apps.ts",
+  "src/lib/app.ts",
   "src/lib/route.ts",
   "src/lib/desktop.ts",
   "src/lib/focus-rings.ts",

@@ -19,8 +19,19 @@ import { type BuildOptions, build, context } from "esbuild";
 import { BASE_WEB_PORT, pickPorts } from "./ports.ts";
 import { pnpmCommand, stopProcess } from "./process.ts";
 import { engineArtifactName } from "../server/engine-path.ts";
+import { SUITES, SUITE_IDS } from "../shared/suites.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
+
+/**
+ * The project types the app opens: each suite's (`.ytvid`, `.ytsng`, `.ytimg`), then `.yt` (when YTStudio was one
+ * app) and `.vaudio` (before it was YTStudio), still declared so those open too (and are renamed to their suite's).
+ */
+const PROJECT_TYPES = [
+  ...SUITE_IDS.map((id) => ({ id: `gg.jestr.ytstudio.${id}`, name: `YTStudio ${SUITES[id].label}`, ext: SUITES[id].extension.slice(1) })),
+  { id: "gg.jestr.ytstudio.project", name: "YTStudio Project (old)", ext: "yt" },
+  { id: "gg.jestr.vaudio.project", name: "YTStudio Project (old)", ext: "vaudio" },
+];
 const STAGE = path.join(ROOT, "build", "desktop");
 const pkg = (await import("../package.json", { with: { type: "json" } })).default as { version: string };
 const electronPkg = (await import("electron/package.json", { with: { type: "json" } })).default as { version: string };
@@ -343,8 +354,8 @@ async function pack(targets: "dir" | "installers") {
       afterPack: async (packed) => {
         if (packed.electronPlatformName === "darwin") adHocSign(path.join(packed.appOutDir, `${packed.packager.appInfo.productFilename}.app`), { always: true });
       },
-      // Projects are packages (`Name.yt/`): Finder shows each as one file, and double-clicking one opens it here.
-      // `.vaudio` is what they were before the app was YTStudio: still declared, so those open too (and become `.yt`).
+      // Projects are packages (`Name.ytvid/`, `PROJECT_TYPES`): Finder shows each as one file, and double-clicking one
+      // opens it here.
       mac: {
         category: "public.app-category.video",
         identity: null,
@@ -353,8 +364,8 @@ async function pack(targets: "dir" | "installers") {
           CFBundleDocumentTypes: [{
             CFBundleTypeName: "YTStudio Project",
             CFBundleTypeRole: "Editor",
-            CFBundleTypeExtensions: ["yt", "vaudio"],
-            LSItemContentTypes: ["gg.jestr.ytstudio.project", "gg.jestr.vaudio.project"],
+            CFBundleTypeExtensions: PROJECT_TYPES.map((type) => type.ext),
+            LSItemContentTypes: PROJECT_TYPES.map((type) => type.id),
             LSHandlerRank: "Owner",
             LSTypeIsPackage: true,
           }, {
@@ -370,25 +381,17 @@ async function pack(targets: "dir" | "installers") {
           NSAudioCaptureUsageDescription: "YTStudio's visualizer listens to what your computer is playing, to move with it. Nothing is recorded.",
           NSAppleEventsUsageDescription: "YTStudio asks Spotify what's playing, and plays, pauses or skips when you tell it to.",
           // The project type, a package (a folder Finder shows as one file), declared so macOS knows it.
-          UTExportedTypeDeclarations: [
-            {
-              UTTypeIdentifier: "gg.jestr.ytstudio.project",
-              UTTypeDescription: "YTStudio Project",
-              UTTypeConformsTo: ["com.apple.package", "public.composite-content"],
-              UTTypeTagSpecification: { "public.filename-extension": ["yt"] },
-            },
-            {
-              UTTypeIdentifier: "gg.jestr.vaudio.project",
-              UTTypeDescription: "YTStudio Project (old)",
-              UTTypeConformsTo: ["com.apple.package", "public.composite-content"],
-              UTTypeTagSpecification: { "public.filename-extension": ["vaudio"] },
-            },
-          ],
+          UTExportedTypeDeclarations: PROJECT_TYPES.map((type) => ({
+            UTTypeIdentifier: type.id,
+            UTTypeDescription: type.name,
+            UTTypeConformsTo: ["com.apple.package", "public.composite-content"],
+            UTTypeTagSpecification: { "public.filename-extension": [type.ext] },
+          })),
         },
         target: targets === "dir" ? ["dir"] : ["dmg", "zip"],
       },
-      linux: { target: targets === "dir" ? ["dir"] : ["AppImage"], fileAssociations: [{ ext: ["yt", "vaudio"], name: "YTStudio Project", role: "Editor" }] },
-      win: { target: targets === "dir" ? ["dir"] : ["nsis"], fileAssociations: [{ ext: ["yt", "vaudio"], name: "YTStudio Project", role: "Editor" }] },
+      linux: { target: targets === "dir" ? ["dir"] : ["AppImage"], fileAssociations: PROJECT_TYPES.map((type) => ({ ext: type.ext, name: type.name, role: "Editor" })) },
+      win: { target: targets === "dir" ? ["dir"] : ["nsis"], fileAssociations: PROJECT_TYPES.map((type) => ({ ext: type.ext, name: type.name, role: "Editor" })) },
     },
   });
   console.log(`[desktop] built into ${path.relative(ROOT, path.join(ROOT, "release"))}/`);

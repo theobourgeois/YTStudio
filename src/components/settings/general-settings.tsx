@@ -5,6 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { ScrubNumber } from "@/components/scrub-number";
 import { useNowPlaying } from "@/stores/now-playing";
 import { PROJECT_SEARCH_KEYS } from "@/components/home/project-search-dialog";
+import { currentApp } from "@/lib/app";
 import { ownWindowButtons } from "@/lib/desktop";
 import { useWindowChrome } from "@/stores/window-chrome";
 import { type FontChoice, FONTS, MONO_FONTS, THEMES, type ThemeChoice, type ThemeId, themeClasses, useTheme } from "@/stores/theme";
@@ -15,9 +16,10 @@ import { ProjectsLocation } from "./projects-location";
 
 /** Settings' own section: where projects are saved and how the whole app looks, whichever suite is open. */
 export function GeneralSettings() {
+  const app = currentApp();
   return (
     <>
-      <ProjectsLocation />
+      {app.suites.length > 0 && <ProjectsLocation />}
       <SettingsGroup title="Theme" description="System is Light or Dark, as your computer is set.">
         <SettingsBlock>
           <ThemePicker />
@@ -27,7 +29,7 @@ export function GeneralSettings() {
       <SettingsGroup title="Window">
         <TabStripRow />
       </SettingsGroup>
-      <NowPlayingGroup />
+      {app.visualizer && <NowPlayingGroup />}
       <SettingsGroup title="Text">
         <FontRow title="Interface font" description="Menus, panels, labels and the assistant's chat." fonts={FONTS} which="font" />
         <FontRow title="Numbers and code" description="Times, values, the position and tempo displays, expressions." fonts={MONO_FONTS} which="monoFont" />
@@ -38,15 +40,11 @@ export function GeneralSettings() {
   );
 }
 
-/** Now Playing (docs/now-playing.md): the song at the top of the window, and when the visualizer's pictures land. */
+/** Now Playing (docs/now-playing.md): when the visualizer's pictures land. */
 function NowPlayingGroup() {
-  const enabled = useNowPlaying((s) => s.enabled);
   const offset = useNowPlaying((s) => s.offset);
   return (
-    <SettingsGroup title="Now Playing" description="What Spotify is playing, at the top of the window (on a Mac). Click it for the visualizer.">
-      <SettingsRow title="Show what's playing" description="Asks Spotify about once a second while the app is open. macOS asks you once to let YTStudio control it.">
-        <Switch checked={enabled} onCheckedChange={(on) => useNowPlaying.getState().setEnabled(on)} aria-label="Show what's playing" />
-      </SettingsRow>
+    <SettingsGroup title="Now Playing" description="The visualizer of what Spotify is playing (macOS asks you once to let YTStudio control it).">
       <SettingsRow
         title="Sound delay"
         description="How late you hear the sound after the computer sends it: about 0 on speakers, 150–250 ms on Bluetooth headphones. The visualizer waits for it. Tap along in the visualizer (S) to measure it."

@@ -11,6 +11,7 @@ import type {
   ExportFormat,
   ExportRequest,
   FontFamily,
+  AppResponse,
   HealthResponse,
   ImportFileRequest,
   ImportWebMediaRequest,
@@ -96,6 +97,7 @@ function serverMessage(body: unknown, fallback: string): string {
 
 export const api = {
   health: () => request<HealthResponse>("/api/health"),
+  app: () => request<AppResponse>("/api/app"),
 
   projectPreview: (id: string) => request<ProjectPreview>(`/api/projects/${id}/preview`),
   prepareProjectPreview: (id: string, revision: number, inputs: { texts?: Record<string, TextLayoutAt[]> } = {}) =>

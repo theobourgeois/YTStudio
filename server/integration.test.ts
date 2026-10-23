@@ -209,7 +209,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(projects.main).toMatchObject({
       name: "Untitled", aspectRatio: "9:16", duration: 0, clipCount: 0, thumbnail: null,
       // A package of its own, in the data folder's Projects (a test's: never the user's Documents).
-      path: path.join(dataDir, "Documents", "YTStudio", "Untitled.yt"),
+      path: path.join(dataDir, "Documents", "YTStudio", "Untitled.ytvid"),
     });
     expect(existsSync(path.join(projects.main.path, "meta.json"))).toBe(true);
     expect(projects.main.id).toMatch(/^project_[0-9a-f]{12}$/);
@@ -219,7 +219,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(projects.other.name).toBe("B-roll");
     const third = await api("/api/projects", { method: "POST" }); // body is optional
     expect(third.status).toBe(201);
-    expect(path.basename(((await third.json()) as ProjectSummary).path)).toBe("Untitled 2.yt");
+    expect(path.basename(((await third.json()) as ProjectSummary).path)).toBe("Untitled 2.ytvid");
 
     const doc = await json<Project>(`/api/projects/${projects.other.id}`);
     expect(doc).toEqual({ ...createDefaultProject(), name: "B-roll" });
@@ -437,7 +437,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(renamed.updatedAt).toBeGreaterThan(projects.main.updatedAt);
     expect((await json<Project>(url)).name).toBe("Launch teaser");
     // Its package follows (no tab has it open), and its media are served from there.
-    expect(path.basename(renamed.path)).toBe("Launch teaser.yt");
+    expect(path.basename(renamed.path)).toBe("Launch teaser.ytvid");
     expect(existsSync(projects.main.path)).toBe(false);
     expect(existsSync(path.join(renamed.path, "project.json"))).toBe(true);
     expect((await api(assets.landscape.src)).status).toBe(200);
@@ -453,7 +453,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     const res = await api(`/api/projects/${projects.main.id}/duplicate`, { method: "POST" });
     expect(res.status).toBe(201);
     const copy = (await res.json()) as ProjectSummary;
-    expect(copy).toMatchObject({ name: "Launch teaser copy", clipCount: 3, aspectRatio: "16:9", path: path.join(dataDir, "Documents", "YTStudio", "Launch teaser copy.yt") });
+    expect(copy).toMatchObject({ name: "Launch teaser copy", clipCount: 3, aspectRatio: "16:9", path: path.join(dataDir, "Documents", "YTStudio", "Launch teaser copy.ytvid") });
     expect(copy.id).not.toBe(projects.main.id);
     expect(copy.duration).toBeCloseTo(projects.main.duration, 5);
     expect((await json<ProjectSummary[]>("/api/projects"))[0].id).toBe(copy.id);

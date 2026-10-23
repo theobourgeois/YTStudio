@@ -4,14 +4,15 @@ import { DEFAULT_SUITE, SUITE_IDS, type SuiteId, suiteNoun } from "@shared/suite
 import type { ProjectLocation, ProjectSummary, ProjectTemplates } from "@shared/types";
 import { errorMessage } from "@shared/errors";
 import { api } from "@/lib/api";
+import { appSuites, currentApp } from "@/lib/app";
 import { chooseProjectFile, droppedPath, noteOpenedProject } from "@/lib/desktop";
 import { projectIdFromUrl, setUrlProject } from "@/lib/route";
 import { clientSuite } from "@/suites";
 import { onProjectSaved } from "./autosave";
 import { cycleTab, moveTab, restoreTabs, tabAfterClose, withTab, withoutTab } from "./project-tabs";
 
-/** Where this computer keeps which projects are open as tabs. */
-const TABS_KEY = "editor-open-tabs";
+/** Where this computer keeps which projects are open as tabs: each app its own (they may share a page's storage). */
+const tabsKey = () => (currentApp().id ? `editor-open-tabs-${currentApp().id}` : "editor-open-tabs");
 
 /**
  * The projects this computer has opened (its recents: each a package on disk, a video, a song... see
@@ -198,12 +199,12 @@ export const useProjects = create<ProjectsState>((set, get) => {
       // The tabs open when the app was last closed, those that still exist; kept from here on.
       try {
         const known = new Set(get().projects.filter((p) => !p.missing).map((p) => p.id));
-        set({ tabs: restoreTabs(JSON.parse(localStorage.getItem(TABS_KEY) ?? "null"), (id) => known.has(id)) });
+        set({ tabs: restoreTabs(JSON.parse(localStorage.getItem(tabsKey()) ?? "null"), (id) => known.has(id)) });
       } catch {
         // No tabs restored.
       }
       useProjects.subscribe((state, before) => {
-        if (state.tabs !== before.tabs) localStorage.setItem(TABS_KEY, JSON.stringify(state.tabs));
+        if (state.tabs !== before.tabs) localStorage.setItem(tabsKey(), JSON.stringify(state.tabs));
       });
       api.getTemplates().then(
         (templates) => set({ templates }),
@@ -314,12 +315,12 @@ export const useProjects = create<ProjectsState>((set, get) => {
     },
 
     startWith(files) {
-      const packages = files.map(droppedPath).filter((p) => /\.(yt|vaudio)\/?$/i.test(p));
+      const packages = files.map(droppedPath).filter((p) => /\.(ytvid|ytsng|ytimg|yt|vaudio)\/?$/i.test(p));
       if (packages.length) {
         void get().openFile(packages[0]);
         return true;
       }
-      for (const suite of SUITE_IDS) {
+      for (const suite of appSuites()) {
         const taken = clientSuite(suite).startsWith?.(files) ?? [];
         if (taken.length) {
           void get().create({ suite, files: taken });

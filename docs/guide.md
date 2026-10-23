@@ -33,12 +33,12 @@ the rest through your shell's PATH, and draws exports in its own Chromium.
 
 ## Using it
 
-Every project (a video, a song) is a file of its own: a `.yt` package holding its document, its media and
+Every project (a video, a song, a photo) is a file of its own: a `.ytvid`, `.ytsng` or `.ytimg` package holding its document, its media and
 anything else it keeps (a song's plugin settings and recordings). New ones are saved in `~/Documents/YTStudio` (change
 it in Settings › General); move, copy, back up or send them in Finder like any other file.
 
 The app opens on **Home**: a tile per kind of project (**New video** `⌘1`, **New song** `⌘2`; `⌥`-click starts blank
-when it has a starting point), **Open a project…** (`⌘O`: any `.yt` file, from anywhere), and your recent
+when it has a starting point), **Open a project…** (`⌘O`: any project file, from anywhere), and your recent
 projects as cards, the latest first, with a search (`⌘F`) and a Videos / Songs filter. Drop clips on Home to start a
 video with them. Songs have a play button and seek bar, with the waveform of the rendered mix. Hover a video
 thumbnail to play its edited timeline silently; click the speaker to unmute. Moving away restores the thumbnail
@@ -515,7 +515,7 @@ Keyframes stay on their frame of the media when a clip is moved, trimmed or spli
 ## How it works
 
 - **Suites** — the editor is growing into a creative suite: every project belongs to one app (`SuiteId`: video, music…),
-  chosen when it's made. Projects (each a `.yt` package on disk), the Home screen, the URL, assistant chats and the MCP server are shared; each suite brings
+  chosen when it's made. Projects (each a package on disk: `.ytvid`, `.ytsng`, `.ytimg`), the Home screen, the URL, assistant chats and the MCP server are shared; each suite brings
   its document (`shared/suites.ts`, `server/suites/`), its workspace and store (`src/suites/`) and its assistant's
   prompt and tools (`shared/suite-tools.ts`). The video editor is below; music is a shell (`shared/music/`, `src/suites/music/`).
 - **`src/`** — React + Vite + Tailwind + shadcn/ui. The document lives in the zustand store `stores/editor.ts`

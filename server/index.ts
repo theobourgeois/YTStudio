@@ -2,12 +2,13 @@ import { existsSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { createApp } from "./app.ts";
-import { FFMPEG, LOG_LEVEL, config } from "./config.ts";
+import { APP, FFMPEG, LOG_LEVEL, RECENTS_FROM, UNKNOWN_APP, config } from "./config.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { log, startLogging } from "./log.ts";
 
 startLogging({ dir: path.join(config.dataDir, "logs"), level: LOG_LEVEL });
 const logger = log("server");
+if (UNKNOWN_APP) logger.warn(`EDITOR_APP=${UNKNOWN_APP} isn't an app (music, video, photo, visualizer): running every suite`);
 
 const version = await ffmpegVersion();
 if (version) {
@@ -25,7 +26,7 @@ if (config.production) {
   else logger.warn(`${config.clientDir} not found — run \`pnpm build\` to serve the app.`);
 }
 
-const { app, shutdown } = await createApp({ dataDir: config.dataDir, clientDir });
+const { app, shutdown } = await createApp({ dataDir: config.dataDir, clientDir, app: APP, recentsFrom: RECENTS_FROM });
 const server = http.createServer(app);
 
 server.on("error", (err: NodeJS.ErrnoException) => {
@@ -35,7 +36,7 @@ server.on("error", (err: NodeJS.ErrnoException) => {
 });
 
 server.listen(config.port, config.host, () => {
-  logger.info(`listening on http://${config.host}:${config.port} (data: ${config.dataDir})`);
+  logger.info(`listening on http://${config.host}:${config.port} (${APP ? `the ${APP} app, ` : ""}data: ${config.dataDir})`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

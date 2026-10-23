@@ -14,6 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu";
+import { appOpens } from "@/lib/app";
 import { IS_MAC } from "@/lib/key-labels";
 import { useBrowser } from "./browser/store";
 import type { MusicKeyAction } from "./keys";
@@ -78,7 +79,7 @@ export function MusicMenus({ run, edit }: { run: (action: MusicKeyAction) => voi
           <DropdownMenuItem onSelect={() => run({ type: "exportMp3" })}>
             Export MP3… <DropdownMenuShortcut>⇧⌘R</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => useVisualizer.getState().open()}>Make Visualizer…</DropdownMenuItem>
+          {appOpens("video") && <DropdownMenuItem onSelect={() => useVisualizer.getState().open()}>Make Visualizer…</DropdownMenuItem>}
         </>
       }
       edit={

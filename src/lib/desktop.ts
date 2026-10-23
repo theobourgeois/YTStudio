@@ -53,7 +53,7 @@ declare global {
       pathForFile?: (file: File) => string;
       saveFile?: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
       microphone?: { status(): Promise<string>; ask(): Promise<string> };
-      /** The system's Open dialog for a project (a `.yt` package); null if cancelled. */
+      /** The system's Open dialog for a project (a `.ytvid`, `.ytsng` or `.ytimg` package); null if cancelled. */
       chooseProject?: (defaultPath?: string) => Promise<string | null>;
       /** The system's dialog for a folder; null if cancelled. */
       chooseFolder?: (defaultPath?: string) => Promise<string | null>;

@@ -5,9 +5,11 @@ import { Input } from "@/components/ui/input";
 import { chooseFolder } from "@/lib/desktop";
 import { FILE_MANAGER } from "@/lib/key-labels";
 import { useProjects } from "@/stores/projects";
+import { SUITES } from "@shared/suites";
+import { appSuites } from "@/lib/app";
 import { SettingsGroup, SettingsRow } from "./settings-ui";
 
-/** Where new projects are saved (each a file of its own, `Name.yt`): the desktop app's folder picker, else a path. */
+/** Where new projects are saved (each a file of its own, `Name.ytvid`, `.ytsng`, `.ytimg`): the desktop app's folder picker, else a path. */
 export function ProjectsLocation() {
   const location = useProjects((s) => s.location);
   const [editing, setEditing] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export function ProjectsLocation() {
   };
 
   return (
-    <SettingsGroup title="Projects" description={`Each project is a file of its own (a .yt package): move, copy or back it up in ${FILE_MANAGER} like any other.`}>
+    <SettingsGroup title="Projects" description={`Each project is a file of its own (${packageKinds()}): move, copy or back it up in ${FILE_MANAGER} like any other.`}>
       <SettingsRow title="Save new projects in" description={isDefault ? "Where they go unless you pick another folder." : `By default, ${location.default}.`}>
         {editing === null ? (
           <div className="flex min-w-0 items-center gap-2">
@@ -63,4 +65,10 @@ export function ProjectsLocation() {
       </SettingsRow>
     </SettingsGroup>
   );
+}
+
+/** "a .ytvid package", or "a .ytvid, .ytsng or .ytimg package" where the app opens several suites. */
+function packageKinds() {
+  const exts = appSuites().map((s) => SUITES[s].extension);
+  return `a ${exts.length > 1 ? `${exts.slice(0, -1).join(", ")} or ${exts.at(-1)}` : exts[0]} package`;
 }

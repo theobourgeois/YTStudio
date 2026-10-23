@@ -10,7 +10,8 @@ import type { Project } from "../shared/types.ts";
 import path from "node:path";
 import express, { type ErrorRequestHandler, type Express, type Response } from "express";
 import type { HostWindow } from "../shared/music/engine.ts";
-import type { HealthResponse } from "../shared/types.ts";
+import type { AppResponse, HealthResponse } from "../shared/types.ts";
+import { type AppId, appInfo } from "../shared/apps.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
@@ -22,7 +23,7 @@ import { ffmpegVersion } from "./ffmpeg.ts";
 import { listFonts } from "./fonts.ts";
 import { LibraryStore } from "./library.ts";
 import { type ImageProbe, MediaLibrary } from "./media.ts";
-import { migrateData } from "./migrate.ts";
+import { adoptRecents, migrateData } from "./migrate.ts";
 import { LookRatings } from "./look-ratings.ts";
 import { NowPlaying, type Player, defaultPlayer } from "./now-playing.ts";
 import { AudioEngine, type EngineOptions } from "./music/engine.ts";
@@ -91,6 +92,10 @@ export interface AppOptions {
   reveal?: (dir: string) => Promise<void>;
   /** Now Playing's music player (default: Spotify on a Mac, or what `EDITOR_NOW_PLAYING` says). */
   nowPlaying?: Player | null;
+  /** Which of YTStudio's apps this is (`EDITOR_APP`, `shared/apps.ts`); null (the default) opens every suite. */
+  app?: AppId | null;
+  /** A data folder whose recents a new app's data folder starts with, its own suites' (`adoptRecents`). */
+  recentsFrom?: string | null;
 }
 
 /** What the engine's plugin windows tell the desktop app (electron/main.ts). */
@@ -137,12 +142,16 @@ export async function createApp({
   trash,
   reveal,
   nowPlaying: player,
+  app: appId = null,
+  recentsFrom = null,
 }: AppOptions): Promise<EditorApp> {
+  const thisApp = appInfo(appId);
   // Asked now (and cached) so the first import doesn't wait for ffmpeg to start (half a second on Windows).
   void ffmpegVersion();
   const paths = new DataPaths(dataDir);
   await paths.init();
   const location = projectsDir ?? (path.resolve(dataDir) === config.dataDir ? config.projectsDir : path.join(dataDir, "Documents", "YTStudio"));
+  if (recentsFrom) await adoptRecents(paths, new DataPaths(recentsFrom), thisApp.suites);
   await migrateData(paths, location);
   // The photo suite's helper process (the only code that parses image files), started on its first request.
   const photoHelper = new PhotoHelper(PHOTO_HELPER);
@@ -152,7 +161,7 @@ export async function createApp({
   const library = new MediaLibrary(paths, undefined, (id) => projects.mediaDir(id), mediaOptions);
   // The engine writes what's changed in a song's plugins before its package moves.
   let saveStates: () => Promise<void> = async () => {};
-  const projects = new ProjectStore(paths, library, { location, trash, reveal, beforeMove: () => saveStates() });
+  const projects = new ProjectStore(paths, library, { location, trash, reveal, beforeMove: () => saveStates(), suites: thisApp.suites });
   await projects.load();
   const exports = new ExportManager(paths, library);
   const renders = new RenderFiles(library, projects);
@@ -269,6 +278,11 @@ export async function createApp({
     res.json(body);
   });
 
+  app.get("/api/app", (_req, res) => {
+    const body: AppResponse = { app: appId };
+    res.json(body);
+  });
+
   app.use((req, _res, next) => {
     port = req.socket.localPort ?? port;
     next();
@@ -289,6 +303,11 @@ export async function createApp({
   app.use("/api/engine", engineRoutes(engine));
   app.use("/api/music/audio", audioIntelligenceRoutes(audioIntelligence));
   app.use("/api/music/exports", musicExportRoutes(musicExports));
+  app.use("/api/music/visualizer", (req, _res, next) => {
+    // What it makes is a video: an app that doesn't open them couldn't show it.
+    if (req.method === "POST" && !thisApp.suites.includes("video")) throw new HttpError(400, `Make visualizer makes a video, which ${thisApp.name} doesn't open.`);
+    next();
+  });
   app.use("/api/music/visualizer", musicVisualizerRoutes(visualizers));
   app.use("/api/music/models", musicModelRoutes(musicModelSet));
   app.use("/api/music/stems", stemRoutes(stems));

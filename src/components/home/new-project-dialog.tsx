@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useMemo, useState } from "react";
 import { PiArrowDown, PiArrowUp, PiMagnifyingGlass, PiPushPin, PiX } from "react-icons/pi";
-import { SUITES, SUITE_IDS, type SuiteId } from "@shared/suites";
+import { SUITES, type SuiteId } from "@shared/suites";
+import { appSuites } from "@/lib/app";
 import { cn } from "cn";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useLayout } from "@/stores/layout";
@@ -22,8 +23,9 @@ export function NewProjectDialog() {
   );
 }
 
-/** The suites as the picker lists them: the open project's first, then the others in their order. */
-export const suitesInOrder = (first: SuiteId | undefined): SuiteId[] => (first ? [first, ...SUITE_IDS.filter((id) => id !== first)] : [...SUITE_IDS]);
+/** The app's suites as the picker lists them: the open project's first, then the others in their order. */
+export const suitesInOrder = (first: SuiteId | undefined): SuiteId[] =>
+  first ? [first, ...appSuites().filter((id) => id !== first)] : [...appSuites()];
 
 function Picker() {
   const [query, setQuery] = useState("");
@@ -50,7 +52,7 @@ function Picker() {
     const digit = /^Digit([1-9])$/.exec(e.code);
     if (digit && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      pick(SUITE_IDS[Number(digit[1]) - 1], e.altKey);
+      pick(appSuites()[Number(digit[1]) - 1], e.altKey);
     } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const step = e.key === "ArrowDown" ? 1 : -1;
@@ -87,7 +89,7 @@ function Picker() {
         <p className="px-2.5 pb-1.5 text-xs font-medium text-muted-foreground">New project</p>
         <div id="new-project-options" role="listbox" aria-label="Project types" className="flex flex-col gap-0.5">
           {suites.map((id, i) => (
-            <SuiteOption key={id} suite={id} index={SUITE_IDS.indexOf(id)} active={i === current} onHover={() => setActive(i)} onPick={(blank) => pick(id, blank)} />
+            <SuiteOption key={id} suite={id} index={appSuites().indexOf(id)} active={i === current} onHover={() => setActive(i)} onPick={(blank) => pick(id, blank)} />
           ))}
           {suites.length === 0 && <p className="px-2.5 py-6 text-center text-[13px] text-muted-foreground">Nothing matches.</p>}
         </div>

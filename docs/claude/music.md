@@ -21,7 +21,7 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   the channel's PITCH in whole semitones), and shows its own window when the channel's button is clicked. Its
   settings window is FL's wrapper (`plugin-tab.tsx`): the channel's knobs, and the plugin's presets (its own
   programs, and the user's saved in the engine's data folder, `PluginHost::savePreset`; `/api/engine/presets`). **A plugin's settings aren't in the document**: they're
-  a file beside it in its package (`<project>.yt/plugins/<channel id>.bin`), written by the engine every few seconds when
+  a file beside it in its package (`<project>.ytsng/plugins/<channel id>.bin`), written by the engine every few seconds when
   they've changed, when the channel is removed (so undoing that brings the plugin back as it was) and when the
   engine quits. So what's turned inside a plugin's window isn't an undo step, as in FL Studio. **Musical time is whole ticks, `PPQ` (96) to a quarter note**, never
   seconds; a step is `STEP_TICKS` (24). A step of the sequencer is simply a note starting on the grid
@@ -310,7 +310,7 @@ The native engine (`engine/`, C++/JUCE: threads, the mixer, samples, offline ren
 
 ```bash
 pnpm tsx scripts/pro-c-sheet.ts [style ...] [--out f.png]           # Pro-C's styles measured on the engine: curves, gain, colour
-pnpm tsx scripts/engine-profile.ts <Name.yt> [--only-plugin n] [--sample]   # a song's playback load, offline (silent)
+pnpm tsx scripts/engine-profile.ts <Name.ytsng> [--only-plugin n] [--sample]   # a song's playback load, offline (silent)
 pnpm test:desktop:music # macOS: real clicks between the music windows and Serum's (or the test synth's): stacking, focus, app switching; needs Accessibility access and an unlocked screen
 pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build; needs cmake + ninja (brew)
 pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit (and Convert to notes' tone) into public/kit/

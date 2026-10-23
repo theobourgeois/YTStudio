@@ -2,7 +2,8 @@ import { type KeyboardEvent as ReactKeyboardEvent, Suspense, useEffect, useRef, 
 import { addWindowListener, queryAnywhere } from "@/lib/window-events";
 import { PiGearSix, PiPushPin, PiSpinnerGap } from "react-icons/pi";
 import { cn } from "cn";
-import { SUITE_IDS, SUITES, type SuiteId, suiteNoun } from "@shared/suites";
+import { SUITES, type SuiteId, suiteNoun } from "@shared/suites";
+import { appSuites } from "@/lib/app";
 import { Button } from "@/components/ui/button";
 import { FloatingWindow } from "@/components/windows/floating-window";
 import type { WindowPlace } from "@/components/windows/store";
@@ -23,7 +24,8 @@ function sectionInfo(section: SettingsSection) {
   return { title: suite.settings.title, description: suite.settings.description, icon: suite.icon, tint: suite.tint };
 }
 
-const SECTIONS: SettingsSection[] = ["general", ...SUITE_IDS];
+/** General, then the app's suites' own. */
+const sections = (): SettingsSection[] => ["general", ...appSuites()];
 
 /**
  * ⌘, opens Settings on the open project's suite (General when none is open), and closes it again. It's
@@ -59,7 +61,10 @@ function firstPlace(): WindowPlace {
  * shortcuts leave them alone.
  */
 export function SettingsWindow() {
-  const section = useSettings((s) => s.section);
+  const tabs = sections();
+  const chosen = useSettings((s) => s.section);
+  // A suite this app doesn't open has no tab here.
+  const section = tabs.includes(chosen) ? chosen : "general";
   const [initial] = useState(firstPlace);
   const panelRef = useRef<HTMLDivElement>(null);
   const info = sectionInfo(section);
@@ -70,17 +75,17 @@ export function SettingsWindow() {
 
   // The arrows go from tab to tab (and Home, End to the first and last), as in any list of tabs.
   const onTabKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    const at = SECTIONS.indexOf(section);
+    const at = tabs.indexOf(section);
     const to =
-      e.key === "ArrowRight" ? (at + 1) % SECTIONS.length
-      : e.key === "ArrowLeft" ? (at - 1 + SECTIONS.length) % SECTIONS.length
+      e.key === "ArrowRight" ? (at + 1) % tabs.length
+      : e.key === "ArrowLeft" ? (at - 1 + tabs.length) % tabs.length
       : e.key === "Home" ? 0
-      : e.key === "End" ? SECTIONS.length - 1
+      : e.key === "End" ? tabs.length - 1
       : null;
     if (to === null) return;
     e.preventDefault();
-    useSettings.getState().setSection(SECTIONS[to]);
-    e.currentTarget.querySelector<HTMLElement>(`[data-settings-section="${SECTIONS[to]}"]`)?.focus();
+    useSettings.getState().setSection(tabs[to]);
+    e.currentTarget.querySelector<HTMLElement>(`[data-settings-section="${tabs[to]}"]`)?.focus();
   };
 
   return (
@@ -88,7 +93,7 @@ export function SettingsWindow() {
       <div data-settings className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
         <div className="flex shrink-0 items-center gap-1 border-b border-line bg-surface-1 px-2 py-1.5">
           <div role="tablist" aria-label="Settings sections" className="flex min-w-0 items-center gap-1" onKeyDown={onTabKey}>
-            {SECTIONS.map((id) => (
+            {tabs.map((id) => (
               <SectionTab key={id} section={id} selected={id === section} />
             ))}
           </div>

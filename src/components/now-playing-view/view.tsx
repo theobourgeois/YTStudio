@@ -1089,6 +1089,7 @@ export default function NowPlayingView() {
     <div
       ref={setRoot}
       data-now-playing-view={place.out ? "out" : place.size}
+      data-player={status?.state}
       data-showing={showing}
       data-rating={rating ? "on" : undefined}
       data-engaged={boxed ? engaged : undefined}

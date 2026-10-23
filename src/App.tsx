@@ -3,6 +3,7 @@ import { PiSpinnerGap } from "react-icons/pi";
 import { SettingsWindow, useSettingsShortcut } from "@/components/settings/settings-window";
 import { ShortcutsDialog } from "@/components/shortcuts/shortcuts-dialog";
 import { Home } from "@/components/home/home";
+import { currentApp } from "@/lib/app";
 import { noteTitleBar } from "@/lib/desktop";
 import { useDesktopCommands } from "@/components/home/desktop-commands";
 import { NewProjectDialog } from "@/components/home/new-project-dialog";
@@ -39,8 +40,12 @@ export default function App() {
   }, []);
   // Agents (the assistant, or any MCP client) run their tools in this tab.
   useEffect(() => startAssistantBridge(), []);
-  // What the music player is playing, asked about once a second (the top bar's pill, the visualizer).
+  // What the music player is playing, asked about once a second while the visualizer's open.
   useEffect(() => useNowPlaying.getState().start(), []);
+  // The Visualizer app is the visualizer: it opens with it (Home is behind it, to open it again).
+  useEffect(() => {
+    if (currentApp().id === "visualizer") useNowPlaying.getState().openVisualizer();
+  }, []);
   // The bar that starts the window: the tab strip, else Home's own (taller) or the project's menu row.
   useEffect(() => noteTitleBar({ height: tabs || !home ? 40 : 52, ownButtons }), [tabs, home, ownButtons]);
   // Without a Mac's window buttons, the bars don't leave room for them (src/index.css).
