@@ -35,6 +35,16 @@ void hookThreadKeys (KeyHook handler);
 void* nativeWindowOf (juce::Component& window);
 
 /**
+ * Windows: where a window is on the screen in physical pixels (its frame, as the system has it), or empty. JUCE's
+ * bounds are in logical pixels, rounded: a window following another by them drifts a pixel every few moves when
+ * the display is scaled. Empty elsewhere.
+ */
+juce::Rectangle<int> nativeFrameOf (juce::Component& window);
+
+/** Windows: move a window by `delta` physical pixels, without activating it or changing its stacking. Nothing elsewhere. */
+void moveWindowBy (juce::Component& window, juce::Point<int> delta);
+
+/**
  * Windows: keep a window off the screen while it's shown (DWM's cloak: it's still drawn, only not composed), or
  * put it back. A plugin's window shows white until the plugin has drawn its editor (Serum's a quarter of a
  * second); cloaked meanwhile, it appears drawn. Nothing elsewhere.

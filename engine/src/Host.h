@@ -138,9 +138,9 @@ public:
     bool showEditor (const juce::String& ownerId, bool open);
     void prepare (double sampleRate, int blockSize);
     /**
-     * Where the shell's window is (`{ bounds: { x, y, width, height } }`, `ShellWindow::tellHost`) whenever it
-     * moves or resizes: plugin windows open over it and, on Windows, move with it (macOS moves child windows
-     * itself). Without a shell (a browser tab, the Electron apps) it's never said: they're ordinary windows.
+     * Where the shell's window is (`{ bounds: { x, y, width, height }, frame? }`, `ShellWindow::tellHost`) whenever
+     * it moves or resizes: plugin windows open over it and, on Windows, move with it by its `frame` (physical
+     * pixels; macOS moves child windows itself). Without a shell (a browser tab, the Electron apps) it's never said: they're ordinary windows.
      */
     void setHost (const juce::var& host);
     /** A fingerprint of the loaded plugins' reported delays, to notice one changing (a linear-phase EQ switched on). */
@@ -249,8 +249,8 @@ private:
     /** Owners whose plugin is loading: its id and the file its state comes from (`pluginId\nstate path`). */
     std::map<juce::String, juce::String> loading;
     std::map<juce::String, juce::String> failed;
-    /** Where the shell's window is (`setHost`); empty without one. */
-    juce::Rectangle<int> hostBounds;
+    /** Where the shell's window is (`setHost`); empty without one. Windows: its frame in physical pixels too. */
+    juce::Rectangle<int> hostBounds, hostFrame;
     bool exporting = false;
     juce::StringArray watchedScopes;
     double sampleRate = 48000.0;

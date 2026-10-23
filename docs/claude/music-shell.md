@@ -60,7 +60,7 @@ profile is kept in `<data>/engine/webview`.
 Plugin windows are owned by the window (`EditorWindow::setShellWindow`): an owned window on Windows, a child window
 on macOS (`setWindowOwner`, MacWindow.cpp). They stay over it, move with it and never ask another program anything.
 The window tells the engine's plugin host where it is (`host { bounds }`, `ShellWindow::tellHost`), so a plugin's
-window opens over it. What Electron needed to coordinate with the engine's windows from another program (window levels,
+window opens over it; on Windows also its `frame` in physical pixels, which the plugin windows move by. What Electron needed to coordinate with the engine's windows from another program (window levels,
 restacking, the hover relay, `whileBusy`) is gone (docs/apps.md, step 5).
 
 **macOS** (`ShellMac.mm`, Objective-C++ without ARC, as JUCE is; `ShellWindow` calls it). JUCE's

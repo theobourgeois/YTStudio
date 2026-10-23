@@ -122,6 +122,21 @@ void* nativeWindowOf (juce::Component& window)
     return peer != nullptr ? peer->getNativeHandle() : nullptr;
 }
 
+juce::Rectangle<int> nativeFrameOf (juce::Component& window)
+{
+    RECT frame;
+    if (auto* hwnd = static_cast<HWND> (nativeWindowOf (window)); hwnd != nullptr && GetWindowRect (hwnd, &frame))
+        return { frame.left, frame.top, frame.right - frame.left, frame.bottom - frame.top };
+    return {};
+}
+
+void moveWindowBy (juce::Component& window, juce::Point<int> delta)
+{
+    RECT frame;
+    if (auto* hwnd = static_cast<HWND> (nativeWindowOf (window)); hwnd != nullptr && GetWindowRect (hwnd, &frame))
+        SetWindowPos (hwnd, nullptr, frame.left + delta.x, frame.top + delta.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+}
+
 void cloakWindow (juce::Component& window, bool cloaked)
 {
     if (auto* hwnd = static_cast<HWND> (nativeWindowOf (window)))
@@ -200,6 +215,8 @@ void* nativeWindowOf (juce::Component& window)
     auto* peer = window.getPeer();
     return peer != nullptr ? peer->getNativeHandle() : nullptr;
 }
+juce::Rectangle<int> nativeFrameOf (juce::Component&) { return {}; }
+void moveWindowBy (juce::Component&, juce::Point<int>) {}
 void cloakWindow (juce::Component&, bool) {}
 void keepAwake (bool) {}
 #endif

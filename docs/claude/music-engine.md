@@ -89,7 +89,8 @@ Read the music suite's guide (`docs/claude/music.md`) first.
   window on macOS, an owned window on Windows (above it, not above other programs, minimised with it, no taskbar
   button: `EditorWindow::getDesktopWindowStyleFlags`). One program, so nothing waits on another's thread. The shell
   tells `PluginHost::setHost` where its window is (the `host` command, `{ bounds }`), so a plugin's window opens
-  centred over it and, on Windows, moves along with it. A new plugin window is cloaked (DWM) until it's drawn, so it
+  centred over it and, on Windows, moves along with it (by its `frame`'s physical pixels: logical ones, rounded on a
+  scaled display, drifted a pixel every few moves). A new plugin window is cloaked (DWM) until it's drawn, so it
   never shows white first. Started by a server with `--data` (the Electron apps' offline previews, the tests) it has
   no window to belong to, and a plugin's window is an ordinary one.
 - Keep it portable (it runs on Windows too): only JUCE's APIs, paths from the server. What a platform needs beyond

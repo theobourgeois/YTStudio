@@ -241,20 +241,19 @@ void PluginHost::setHost (const juce::var& host)
     const auto bounds = host["bounds"];
     if (! bounds.isObject())
         return;
-    const juce::Rectangle<int> now ((int) bounds["x"], (int) bounds["y"], (int) bounds["width"], (int) bounds["height"]);
-    // Moved (not resized, maximised or made full screen): its plugin windows go along. (The shell's child windows
-    // on macOS go by themselves.)
-   #if ! JUCE_MAC
-    if (! hostBounds.isEmpty() && now.getWidth() == hostBounds.getWidth() && now.getHeight() == hostBounds.getHeight())
-    {
-        const auto delta = now.getPosition() - hostBounds.getPosition();
-        if (delta != juce::Point<int>())
+    hostBounds = { (int) bounds["x"], (int) bounds["y"], (int) bounds["width"], (int) bounds["height"] };
+    // Windows: moved (not resized, maximised, minimised or made full screen), its plugin windows go along, by the
+    // physical pixels its frame moved (`frame`: logical ones drift). (macOS moves the shell's child windows itself.)
+    const auto frame = host["frame"];
+    if (! frame.isObject())
+        return;
+    const juce::Rectangle<int> now ((int) frame["x"], (int) frame["y"], (int) frame["width"], (int) frame["height"]);
+    if (! hostFrame.isEmpty() && now.getWidth() == hostFrame.getWidth() && now.getHeight() == hostFrame.getHeight())
+        if (const auto delta = now.getPosition() - hostFrame.getPosition(); delta != juce::Point<int>())
             for (auto& [id, hosted] : loaded)
                 if (hosted->window != nullptr)
-                    hosted->window->setTopLeftPosition (hosted->window->getPosition() + delta);
-    }
-   #endif
-    hostBounds = now;
+                    moveWindowBy (*hosted->window, delta);
+    hostFrame = now;
 }
 
 juce::Result PluginHost::setParameter (const juce::String& ownerId, const juce::String& id, float value, const juce::String& gesture)

@@ -311,7 +311,11 @@ void ShellWindow::tellHost()
 {
     if (! isOnDesktop())
         return;
-    const auto bounds = getScreenBounds();
-    const auto host = protocol::object ({ { "bounds", protocol::object ({ { "x", bounds.getX() }, { "y", bounds.getY() }, { "width", bounds.getWidth() }, { "height", bounds.getHeight() } }) } });
+    const auto rectangle = [] (juce::Rectangle<int> r) {
+        return protocol::object ({ { "x", r.getX() }, { "y", r.getY() }, { "width", r.getWidth() }, { "height", r.getHeight() } });
+    };
+    auto host = protocol::object ({ { "bounds", rectangle (getScreenBounds()) } });
+    if (const auto frame = nativeFrameOf (*this); ! frame.isEmpty())
+        host.getDynamicObject()->setProperty ("frame", rectangle (frame));
     engine.handle ("host", host, [] (const juce::Result&, const juce::var&) {});
 }
