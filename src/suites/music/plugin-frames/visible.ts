@@ -47,37 +47,10 @@ export const rounded = (box: Box): Box => {
   return { x, y, width: Math.ceil(box.x + box.width) - x, height: Math.ceil(box.y + box.height) - y };
 };
 
-/** A plugin's place in the page: its body, and the parts of it that show. */
-export interface Place {
-  key: string;
-  body: Box;
-  visible: Box[];
-}
 
-const sameBox = (a: Box, b: Box) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
-const inside = (a: Box, b: Box) => a.x >= b.x && a.y >= b.y && a.x + a.width <= b.x + b.width && a.y + a.height <= b.y + b.height;
-
-/**
- * Places whose parts linger: each plugin shows what shows now and what showed in the last `ms` while it stayed
- * where it is. WebKit draws a window that comes in front of a plugin a frame or two after the page knows of it
- * (its own process paints), so the plugin goes behind it a little late rather than leave a hole there till then.
- * What comes into view, and a plugin that moves, show at once.
- */
-export function lingering<P extends Place>(ms: number): (places: P[], now: number) => P[] {
-  let seen = new Map<string, { at: number; body: Box; visible: Box[] }[]>();
-  return (places, now) => {
-    const next = new Map<string, { at: number; body: Box; visible: Box[] }[]>();
-    const result = places.map((place) => {
-      const kept = (seen.get(place.key) ?? []).filter((e) => now - e.at < ms && sameBox(e.body, place.body));
-      // (Newest last; an older showing of the same parts goes, the new one standing for it.)
-      const same = JSON.stringify(place.visible);
-      const entries = [...kept.filter((e) => JSON.stringify(e.visible) !== same), { at: now, body: place.body, visible: place.visible }];
-      next.set(place.key, entries);
-      const all = entries.flatMap((e) => e.visible);
-      const visible = all.filter((part, i) => !all.some((other, j) => j !== i && inside(part, other) && (!sameBox(part, other) || j < i)));
-      return { ...place, visible };
-    });
-    seen = next;
-    return result;
-  };
+/** A `clip-path` showing all of `area` but `parts` (in the page, so moved to `area`'s corner): none when there are none. */
+export function holes(area: Box, parts: Box[]): string {
+  if (parts.length === 0) return "";
+  const rect = (b: Box) => `M${b.x - area.x} ${b.y - area.y}h${b.width}v${b.height}h${-b.width}z`;
+  return `path(evenodd, "${[rect({ x: area.x, y: area.y, width: area.width, height: area.height }), ...parts.map(rect)].join("")}")`;
 }

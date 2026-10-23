@@ -92,6 +92,9 @@ void setZoom (WKWebView* webView, double zoom)
 
 /** WKWebView's own handling of a drag from Finder, before we read its paths. */
 IMP webKitDraggingEntered = nullptr;
+/** WKWebView's own hitTest, for what isn't a plugin showing through the page (`pageHitTest`). */
+IMP webKitHitTest = nullptr;
+NSView* pageHitTest (id self, SEL selector, NSPoint point);
 
 NSDragOperation draggingEntered (id self, SEL selector, id<NSDraggingInfo> info)
 {
@@ -130,12 +133,18 @@ void preparePage (WKWebView* webView)
     Method entered = class_getInstanceMethod ([WKWebView class], @selector (draggingEntered:));
     webKitDraggingEntered = method_getImplementation (entered);
     class_replaceMethod (juceClass, @selector (draggingEntered:), (IMP) draggingEntered, method_getTypeEncoding (entered));
+    // The plugins are under the page, showing through the holes it leaves for them (`placePlugins`): a press there is theirs.
+    [webView setValue:@NO forKey:@"drawsBackground"];
+    Method hit = class_getInstanceMethod ([WKWebView class], @selector (hitTest:));
+    webKitHitTest = method_getImplementation (hit);
+    class_replaceMethod (juceClass, @selector (hitTest:), (IMP) pageHitTest, method_getTypeEncoding (hit));
 }
 } // namespace
 
 /**
- * A plugin's view over the page (`macShell::addPluginView`): shows and takes clicks only in `visibleRects` (its
- * own, top-left based coordinates), the parts of the plugin the page's other windows don't cover.
+ * A plugin's view under the page (`macShell::addPluginView`), showing through the hole the page leaves where its
+ * frame's body is: takes clicks only in `visibleRects` (its own, top-left based coordinates), the parts of the
+ * plugin the page's other windows don't cover.
  */
 @interface YTStudioPluginView : NSView
 {
@@ -166,6 +175,19 @@ void preparePage (WKWebView* webView)
     return [self shows:[self convertPoint:point fromView:[self superview]]] ? [super hitTest:point] : nil;
 }
 @end
+
+namespace
+{
+/** The page's hitTest: a point where a plugin shows through it is the plugin's (its views are the page's siblings). */
+NSView* pageHitTest (id self, SEL selector, NSPoint point)
+{
+    for (NSView* view in [[[(NSView*) self superview] subviews] reverseObjectEnumerator])
+        if ([view isKindOfClass:[YTStudioPluginView class]])
+            if (NSView* hit = [view hitTest:point])
+                return hit;
+    return reinterpret_cast<NSView* (*) (id, SEL, NSPoint)> (webKitHitTest) (self, selector, point);
+}
+} // namespace
 
 /** What the menu items call: the app's own commands go to the listener. */
 @interface YTStudioMusicMenus : NSObject
@@ -454,7 +476,7 @@ void* addPluginView (juce::Component& window)
     auto* view = [[YTStudioPluginView alloc] initWithFrame:NSMakeRect (0, 0, 1, 1)];
     [view setWantsLayer:YES];
     [view setHidden:YES];
-    [parent addSubview:view positioned:NSWindowAbove relativeTo:nil];
+    [parent addSubview:view positioned:NSWindowBelow relativeTo:webView];
     [view release];
     return view;
 }
@@ -466,7 +488,7 @@ void removePluginView (void* view)
 
 namespace
 {
-/** Where each view goes among its siblings (`placePlugins`): the page first, then the plugins back to front. */
+/** Where each view goes among its siblings (`placePlugins`): the plugins back to front, then the page over them. */
 NSComparisonResult byRank (__kindof NSView* a, __kindof NSView* b, void* context)
 {
     const auto& rank = *static_cast<std::map<NSView*, int>*> (context);
@@ -474,35 +496,10 @@ NSComparisonResult byRank (__kindof NSView* a, __kindof NSView* b, void* context
     return ra < rb ? NSOrderedAscending : ra > rb ? NSOrderedDescending : NSOrderedSame;
 }
 
-/** Shows only `rects` (the view's own coordinates) of a view; all of it (no mask) when they're the whole of it. */
-void maskTo (YTStudioPluginView* view, const std::vector<NSRect>& rects)
+/** Where a plugin takes clicks: `rects` (the view's own coordinates), what of it the page's windows leave showing. */
+void showsIn (YTStudioPluginView* view, const std::vector<NSRect>& rects)
 {
     view->visibleRects = rects;
-    auto* layer = [view layer];
-    const auto bounds = [view bounds];
-    if (rects.size() == 1 && NSEqualRects (rects[0], bounds))
-    {
-        [layer setMask:nil];
-        return;
-    }
-    auto* mask = (CAShapeLayer*) [layer mask];
-    if (mask == nil || ! [mask isKindOfClass:[CAShapeLayer class]])
-    {
-        mask = [CAShapeLayer layer];
-        [layer setMask:mask];
-    }
-    [mask setFrame:[layer bounds]];
-    // The layer's own coordinates may run up from the bottom though the view's run down.
-    const auto flip = ! [layer isGeometryFlipped] && ! [layer contentsAreFlipped];
-    auto* path = CGPathCreateMutable();
-    for (auto rect : rects)
-    {
-        if (flip)
-            rect.origin.y = NSHeight (bounds) - NSMaxY (rect);
-        CGPathAddRect (path, nullptr, NSRectToCGRect (rect));
-    }
-    [mask setPath:path];
-    CGPathRelease (path);
 }
 } // namespace
 
@@ -522,7 +519,7 @@ void placePlugins (juce::Component& window, const std::vector<PluginPlace>& plac
     std::map<NSView*, int> rank;
     int next = 0;
     for (NSView* view in [parent subviews])
-        rank[view] = [view isKindOfClass:[YTStudioPluginView class]] ? 1000000 + next++ : next++ - 1000000;
+        rank[view] = [view isKindOfClass:[YTStudioPluginView class]] ? next++ - 2000000 : next++;
     for (size_t i = 0; i < places.size(); ++i)
     {
         auto* view = (YTStudioPluginView*) places[i].view;
@@ -540,13 +537,14 @@ void placePlugins (juce::Component& window, const std::vector<PluginPlace>& plac
             rects.push_back (NSIntersectionRect (rect, [view bounds]));
         }
         rects.erase (std::remove_if (rects.begin(), rects.end(), [] (const NSRect& r) { return NSIsEmptyRect (r); }), rects.end());
-        maskTo (view, rects);
-        [view setHidden:rects.empty()];
-        rank[view] = (int) i;
+        showsIn (view, rects);
+        // (Shown even when it's all covered: the page covers it, and uncovers it without waiting for the engine.)
+        [view setHidden:NO];
+        rank[view] = (int) i - 1000000;
     }
-    // Plugins not listed hide (closed or not placed yet); the others go over the page, in the page's order.
+    // Plugins not listed hide (closed or not placed yet); the others go under the page, in the page's order.
     for (NSView* view in [parent subviews])
-        if ([view isKindOfClass:[YTStudioPluginView class]] && rank[view] >= 1000000)
+        if ([view isKindOfClass:[YTStudioPluginView class]] && rank[view] < -1000000)
             [view setHidden:YES];
     bool ordered = true;
     int last = -2000000;

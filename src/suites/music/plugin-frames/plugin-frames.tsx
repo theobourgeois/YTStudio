@@ -3,13 +3,10 @@ import { PiCaretLeft, PiCaretRight, PiChartLine, PiSlidersHorizontal } from "rea
 import { type HostPlugin, type PluginPlace, embedsPlugins, hostPlugins, hostZoom, onHostPlugins, placePlugins, pluginAction } from "@/lib/host";
 import { useMusicWindows } from "../ui";
 import { MusicWindow, centredOnDesktop } from "../window";
-import { type Box, lingering, rounded, visibleParts } from "./visible";
+import { type Box, holes, rounded, visibleParts } from "./visible";
 
 /** The title bar's height (px), as `FloatingWindow` draws it. */
 const TITLE_HEIGHT = 28;
-
-/** How long a part of a plugin a window has just covered keeps showing, till WebKit has drawn the window (ms). */
-const LINGER_MS = 100;
 
 const BUTTON = "grid size-5.5 place-items-center rounded-sm border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground active:pressed";
 
@@ -18,9 +15,11 @@ export const pluginWindow = (key: string) => `plugin:${key}` as const;
 
 /**
  * The plugins' editors in the music app's window (macOS), as FL Studio has them: the engine puts each
- * plugin's view in the app's window over the page, and the page draws its frame as one of its own windows,
- * so the Channel rack, the Mixer or a menu can go in front of it. Each frame drawn, the page tells the engine
- * where each plugin's body is and which parts of it the windows in front leave showing (`placePlugins`).
+ * plugin's view in the app's window under the page, and the page draws its frame as one of its own windows,
+ * so the Channel rack, the Mixer or a menu can go in front of it. Each frame drawn, the page cuts a hole in
+ * itself where each plugin shows (`clip-path` on #root, in the same paint as the windows that move over it)
+ * and tells the engine where each plugin's body is and which parts of it show (`placePlugins`), where a
+ * press is the plugin's.
  */
 export function PluginFrames() {
   const plugins = useSyncExternalStore(onHostPlugins, hostPlugins);
@@ -137,21 +136,32 @@ function places(): PluginPlace[] {
   return result.sort((a, b) => a.z - b.z).map((r) => r.place);
 }
 
-/** Tells the engine where the plugins go whenever that changes, checking every frame (windows move by transform, menus open). */
+/**
+ * Tells the engine where the plugins go whenever that changes, and cuts the page's holes for them, checking every
+ * frame (windows move by transform, menus open). The page is see-through where the root doesn't paint: the
+ * body's background moves to the root, which the holes are cut in.
+ */
 function startPlacing(): () => void {
+  const root = document.getElementById("root");
+  if (!root) return () => {};
+  document.body.style.background = "transparent";
+  root.style.background = "var(--background)";
   let last = "";
-  const settle = lingering<PluginPlace>(LINGER_MS);
-  let frame = requestAnimationFrame(function tick(time) {
-    const now = settle(places(), time);
+  let frame = requestAnimationFrame(function tick() {
+    const now = places();
     const text = JSON.stringify(now);
     if (text !== last) {
       last = text;
+      root.style.clipPath = holes(root.getBoundingClientRect(), now.flatMap((place) => place.visible));
       placePlugins(now);
     }
     frame = requestAnimationFrame(tick);
   });
   return () => {
     cancelAnimationFrame(frame);
+    root.style.clipPath = "";
+    root.style.background = "";
+    document.body.style.background = "";
     placePlugins([]);
   };
 }
