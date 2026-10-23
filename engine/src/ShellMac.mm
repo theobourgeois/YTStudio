@@ -1,9 +1,13 @@
 #include "ShellMac.h"
 
 #import <AppKit/AppKit.h>
+#import <QuartzCore/QuartzCore.h>
 #import <WebKit/WebKit.h>
+#include <algorithm>
 #include <cmath>
+#include <map>
 #include <objc/runtime.h>
+#include <vector>
 
 // (Built without ARC, as JUCE is: what's kept is retained by hand.)
 
@@ -88,6 +92,9 @@ void setZoom (WKWebView* webView, double zoom)
 
 /** WKWebView's own handling of a drag from Finder, before we read its paths. */
 IMP webKitDraggingEntered = nullptr;
+/** WKWebView's own hitTest, for what isn't a plugin showing through the page (`pageHitTest`). */
+IMP webKitHitTest = nullptr;
+NSView* pageHitTest (id self, SEL selector, NSPoint point);
 
 NSDragOperation draggingEntered (id self, SEL selector, id<NSDraggingInfo> info)
 {
@@ -126,6 +133,59 @@ void preparePage (WKWebView* webView)
     Method entered = class_getInstanceMethod ([WKWebView class], @selector (draggingEntered:));
     webKitDraggingEntered = method_getImplementation (entered);
     class_replaceMethod (juceClass, @selector (draggingEntered:), (IMP) draggingEntered, method_getTypeEncoding (entered));
+    // The plugins are under the page, showing through the holes it leaves for them (`placePlugins`): a press there is theirs.
+    [webView setValue:@NO forKey:@"drawsBackground"];
+    Method hit = class_getInstanceMethod ([WKWebView class], @selector (hitTest:));
+    webKitHitTest = method_getImplementation (hit);
+    class_replaceMethod (juceClass, @selector (hitTest:), (IMP) pageHitTest, method_getTypeEncoding (hit));
+}
+} // namespace
+
+/**
+ * A plugin's view under the page (`macShell::addPluginView`), showing through the hole the page leaves where its
+ * frame's body is: takes clicks only in `visibleRects` (its own, top-left based coordinates), the parts of the
+ * plugin the page's other windows don't cover.
+ */
+@interface YTStudioPluginView : NSView
+{
+@public
+    std::vector<NSRect> visibleRects;
+}
+@end
+
+@implementation YTStudioPluginView
+- (BOOL)isFlipped
+{
+    return YES;
+}
+
+/** Whether this point (in its own coordinates) is on a part of the plugin the page's windows leave showing. */
+- (BOOL)shows:(NSPoint)local
+{
+    if ([self isHidden])
+        return NO;
+    for (const auto& rect : visibleRects)
+        if (NSPointInRect (local, rect))
+            return YES;
+    return NO;
+}
+
+- (NSView*)hitTest:(NSPoint)point
+{
+    return [self shows:[self convertPoint:point fromView:[self superview]]] ? [super hitTest:point] : nil;
+}
+@end
+
+namespace
+{
+/** The page's hitTest: a point where a plugin shows through it is the plugin's (its views are the page's siblings). */
+NSView* pageHitTest (id self, SEL selector, NSPoint point)
+{
+    for (NSView* view in [[[(NSView*) self superview] subviews] reverseObjectEnumerator])
+        if ([view isKindOfClass:[YTStudioPluginView class]])
+            if (NSView* hit = [view hitTest:point])
+                return hit;
+    return reinterpret_cast<NSView* (*) (id, SEL, NSPoint)> (webKitHitTest) (self, selector, point);
 }
 } // namespace
 
@@ -287,9 +347,23 @@ void dress (juce::Component& window, const juce::String& appName, Listener newLi
             listener.fullScreen (false);
     }];
 
-    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown handler:^NSEvent*(NSEvent* event) {
-        [lastMouseDown release];
-        lastMouseDown = [event retain];
+    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown handler:^NSEvent*(NSEvent* event) {
+        if ([event type] == NSEventTypeLeftMouseDown)
+        {
+            [lastMouseDown release];
+            lastMouseDown = [event retain];
+        }
+        // A press in a plugin's view: its frame comes to the front. (Each view is asked, front to back, rather than
+        // the window's hitTest, which the plugins' and JUCE's own views answer as they like.)
+        auto* page = [event window] != nil ? webViewIn ([[event window] contentView]) : nil;
+        if (listener.pluginPressed && page != nil)
+            for (NSView* view in [[[page superview] subviews] reverseObjectEnumerator])
+                if ([view isKindOfClass:[YTStudioPluginView class]]
+                    && [(YTStudioPluginView*) view shows:[view convertPoint:[event locationInWindow] fromView:nil]])
+                {
+                    listener.pluginPressed (view);
+                    break;
+                }
         return event;
     }];
 
@@ -393,5 +467,94 @@ void hide (bool others)
 void noteRecent (const juce::String& path)
 {
     [[NSDocumentController sharedDocumentController] noteNewRecentDocumentURL:[NSURL fileURLWithPath:ns (path)]];
+}
+
+void* addPluginView (juce::Component& window)
+{
+    auto* webView = webViewOf (window);
+    NSView* parent = webView != nil ? [webView superview] : [windowOf (window) contentView];
+    auto* view = [[YTStudioPluginView alloc] initWithFrame:NSMakeRect (0, 0, 1, 1)];
+    [view setWantsLayer:YES];
+    [view setHidden:YES];
+    [parent addSubview:view positioned:NSWindowBelow relativeTo:webView];
+    [view release];
+    return view;
+}
+
+void removePluginView (void* view)
+{
+    [(NSView*) view removeFromSuperview];
+}
+
+namespace
+{
+/** Where each view goes among its siblings (`placePlugins`): the plugins back to front, then the page over them. */
+NSComparisonResult byRank (__kindof NSView* a, __kindof NSView* b, void* context)
+{
+    const auto& rank = *static_cast<std::map<NSView*, int>*> (context);
+    const auto ra = rank.at (a), rb = rank.at (b);
+    return ra < rb ? NSOrderedAscending : ra > rb ? NSOrderedDescending : NSOrderedSame;
+}
+
+/** Where a plugin takes clicks: `rects` (the view's own coordinates), what of it the page's windows leave showing. */
+void showsIn (YTStudioPluginView* view, const std::vector<NSRect>& rects)
+{
+    view->visibleRects = rects;
+}
+} // namespace
+
+void placePlugins (juce::Component& window, const std::vector<PluginPlace>& places)
+{
+    auto* webView = webViewOf (window);
+    if (webView == nil)
+        return;
+    NSView* parent = [webView superview];
+    const auto zoom = pageZoom();
+    const auto scaled = [zoom] (const juce::Rectangle<double>& r) {
+        return NSMakeRect (r.getX() * zoom, r.getY() * zoom, r.getWidth() * zoom, r.getHeight() * zoom);
+    };
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    std::map<NSView*, int> rank;
+    int next = 0;
+    for (NSView* view in [parent subviews])
+        rank[view] = [view isKindOfClass:[YTStudioPluginView class]] ? next++ - 2000000 : next++;
+    for (size_t i = 0; i < places.size(); ++i)
+    {
+        auto* view = (YTStudioPluginView*) places[i].view;
+        if ([view superview] != parent)
+            continue;
+        // (The page's view is flipped, as the plugins' are: its CSS pixels times its zoom are its points.)
+        const auto body = scaled (places[i].body);
+        [view setFrame:[webView convertRect:body toView:parent]];
+        std::vector<NSRect> rects;
+        for (const auto& part : places[i].visible)
+        {
+            auto rect = scaled (part);
+            rect.origin.x -= body.origin.x;
+            rect.origin.y -= body.origin.y;
+            rects.push_back (NSIntersectionRect (rect, [view bounds]));
+        }
+        rects.erase (std::remove_if (rects.begin(), rects.end(), [] (const NSRect& r) { return NSIsEmptyRect (r); }), rects.end());
+        showsIn (view, rects);
+        // (Shown even when it's all covered: the page covers it, and uncovers it without waiting for the engine.)
+        [view setHidden:NO];
+        rank[view] = (int) i - 1000000;
+    }
+    // Plugins not listed hide (closed or not placed yet); the others go under the page, in the page's order.
+    for (NSView* view in [parent subviews])
+        if ([view isKindOfClass:[YTStudioPluginView class]] && rank[view] < -1000000)
+            [view setHidden:YES];
+    bool ordered = true;
+    int last = -2000000;
+    for (NSView* view in [parent subviews])
+    {
+        ordered = ordered && rank[view] >= last;
+        last = rank[view];
+    }
+    if (! ordered)
+        [parent sortSubviewsUsingFunction:byRank context:&rank];
+    [CATransaction commit];
 }
 } // namespace macShell

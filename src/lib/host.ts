@@ -33,14 +33,37 @@ declare global {
 
 type Reply = { ok: true; result: unknown } | { ok: false; error: string };
 
-/** What the engine tells the page unasked (the last four only on macOS: `ShellWindow::menu`, `macShell::Listener`). */
+/**
+ * A plugin's editor in the app's window (macOS: `ShellWindow::describePlugin`). The page draws its frame as one of
+ * its windows and says where its body is (`placePlugins`); the engine puts the plugin's view there, over the page.
+ */
+export interface HostPlugin {
+  /** "channel:<id>" or "effect:<id>". */
+  key: string;
+  title: string;
+  /** The plugin's editor's size, in points (the page's CSS pixels times its zoom). */
+  width: number;
+  height: number;
+  /** False while a song exports. */
+  shown: boolean;
+  /** The preset it's on (or empty), and whether its arrows step through presets. */
+  preset: string;
+  steps: boolean;
+  /** The parameter last touched in it (its Automate button), or empty. */
+  touched: string;
+}
+
+/** What the engine tells the page unasked (all but the first two only on macOS: `ShellWindow::menu`, `macShell::Listener`). */
 type HostEvent =
   | { event: "flush"; request: number }
   | { event: "openFile"; path: string }
   | { event: "command"; name: string }
   | { event: "fullscreen"; on: boolean }
   | { event: "zoom"; factor: number }
-  | { event: "dragPaths"; paths: string[] };
+  | { event: "dragPaths"; paths: string[] }
+  | { event: "plugin"; plugin: HostPlugin }
+  | { event: "pluginGone"; key: string }
+  | { event: "pluginFront"; key: string };
 
 const juce = typeof window === "undefined" ? undefined : window.__JUCE__;
 const webview = typeof window === "undefined" ? undefined : window.chrome?.webview;
@@ -81,12 +104,54 @@ function received(event: HostEvent) {
   else if (event.event === "fullscreen") document.documentElement.classList.toggle("fullscreen", event.on);
   else if (event.event === "zoom") markZoom(event.factor);
   else if (event.event === "dragPaths") dragged = event.paths;
+  else if (event.event === "plugin") {
+    plugins = new Map(plugins).set(event.plugin.key, event.plugin);
+    pluginsChanged();
+  } else if (event.event === "pluginGone") {
+    plugins = new Map(plugins);
+    plugins.delete(event.key);
+    pluginsChanged();
+  } else if (event.event === "pluginFront") pluginsChanged(event.key);
 }
 
 /** The page's zoom, as Electron's preload marks it (`--desktop-zoom`: what's beside the window's buttons undoes it). */
 function markZoom(factor: number) {
+  zoom = factor;
   document.documentElement.style.setProperty("--desktop-zoom", String(factor));
 }
+
+let zoom = 1;
+/** The page's zoom in the music app (View › Zoom): CSS pixels times this are the window's points. */
+export const hostZoom = () => zoom;
+
+let plugins = new Map<string, HostPlugin>();
+const pluginListeners = new Set<(front?: string) => void>();
+function pluginsChanged(front?: string) {
+  for (const listener of pluginListeners) listener(front);
+}
+
+/** The plugins' editors open in the app's window (a new Map whenever one opens, changes or closes). */
+export const hostPlugins = (): ReadonlyMap<string, HostPlugin> => plugins;
+
+/** Told when a plugin opens, changes or closes, and with its key when it's to come to the front (opened again, clicked). */
+export function onHostPlugins(listener: (front?: string) => void): () => void {
+  pluginListeners.add(listener);
+  return () => void pluginListeners.delete(listener);
+}
+
+/** Where a plugin's view goes (CSS pixels): its body, and the parts of it the page's other windows leave showing. */
+export interface PluginPlace {
+  key: string;
+  body: { x: number; y: number; width: number; height: number };
+  visible: { x: number; y: number; width: number; height: number }[];
+}
+
+/** Put the plugins' views where their frames are, back to front; those not listed hide. */
+export const placePlugins = (places: PluginPlace[]) => void hostCommand("host.placePlugins", { places }).catch(() => {});
+
+/** A press in a plugin's frame: its ×, its preset arrows (`direction` -1 or 1), Automate or its wrapper button. */
+export const pluginAction = (key: string, action: "close" | "step" | "automate" | "settings", direction = 0) =>
+  void hostCommand("host.pluginAction", { key, action, direction }).catch(() => {});
 
 /** The files Finder is dragging over the page, where they are (a page only gets their names and bytes). */
 let dragged: string[] = [];
@@ -111,6 +176,9 @@ const pathOrNull = (result: unknown) => (typeof result === "string" && result ? 
 
 /** What a Mac's window does for the page as Electron's does: no title bar, so the page's bars drag it. */
 const mac = hosted && !webview;
+
+/** Whether plugins' editors are in the app's window under frames the page draws (the music app on a Mac), not windows of their own. */
+export const embedsPlugins = mac;
 
 /** A bar's parts that are pressed rather than dragged: index.css's `no-drag` (Electron's drag regions). */
 const NO_DRAG = 'button, a, input, label, select, textarea, [role="button"], [role="tab"], [role="slider"], [role="spinbutton"], [contenteditable], [data-no-drag], [data-window]';
@@ -155,7 +223,13 @@ if (mac) {
  */
 export async function startHost(): Promise<void> {
   if (!hosted) return;
-  const { files, zoom } = (await hostCommand("host.ready")) as { files: string[]; zoom?: number };
-  if (mac && zoom) markZoom(zoom);
+  const ready = (await hostCommand("host.ready")) as { files: string[]; zoom?: number; plugins?: HostPlugin[] };
+  const { files } = ready;
+  if (mac && ready.zoom) markZoom(ready.zoom);
+  // Plugins already open (the page was loaded again): their frames are drawn again.
+  if (ready.plugins?.length) {
+    plugins = new Map(ready.plugins.map((plugin) => [plugin.key, plugin]));
+    pluginsChanged();
+  }
   for (const path of files) await window.editorDesktop?.openFile(path);
 }

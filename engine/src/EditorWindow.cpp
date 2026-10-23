@@ -202,7 +202,38 @@ public:
 bool EditorWindow::typingKeyboard = false;
 void* EditorWindow::owner = nullptr;
 bool EditorWindow::shell = false;
+EditorWindow::Embedder* EditorWindow::embedder = nullptr;
 juce::Array<EditorWindow*> EditorWindow::openWindows;
+
+/**
+ * The plugin's editor in the shell's window (`Embedder`): a component of its own on a view the shell gives it, as
+ * big as the editor (which may resize itself), black where the editor hasn't drawn yet.
+ */
+class EditorWindow::Holder final : public juce::Component
+{
+public:
+    explicit Holder (EditorWindow& window) : owner (window) { setOpaque (true); }
+
+    void paint (juce::Graphics& g) override { g.fillAll (juce::Colours::black); }
+    void childBoundsChanged (juce::Component* child) override
+    {
+        if (child != nullptr && child->getBounds() != getLocalBounds())
+            setSize (child->getWidth(), child->getHeight());
+    }
+    void resized() override
+    {
+        if (embedder != nullptr)
+            embedder->changed (owner);
+    }
+    void focusOfChildComponentChanged (FocusChangeType) override
+    {
+        if (! hasKeyboardFocus (true))
+            owner.releaseKeys();
+    }
+
+private:
+    EditorWindow& owner;
+};
 
 namespace
 {
@@ -218,11 +249,42 @@ constexpr bool addToDesktopFirst = true;
 #endif
 }
 
-EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::String& title, std::function<void()> onCloseButton, bool hidden)
-    : DocumentWindow (title, juce::Colours::black, DocumentWindow::closeButton, addToDesktopFirst),
+void EditorWindow::setEmbedder (Embedder* newEmbedder)
+{
+    // (Only ever set once, before any plugin opens, and taken away as the shell's window goes: the views leave it.)
+    embedder = newEmbedder;
+    if (embedder == nullptr)
+        for (auto* open : openWindows)
+            if (open->holder != nullptr)
+                open->holder->removeFromDesktop();
+}
+
+EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::String& title, std::function<void()> onCloseButton, bool hidden, const juce::String& embedKey)
+    : DocumentWindow (title, juce::Colours::black, DocumentWindow::closeButton, addToDesktopFirst && (embedder == nullptr || embedKey.isEmpty() || hidden)),
+      key (embedKey),
       hidden (hidden),
       onClose (std::move (onCloseButton))
 {
+    if (embedder != nullptr && embedKey.isNotEmpty() && ! hidden)
+    {
+        // In the shell's window: no window of its own, only the plugin's editor on a view the shell places under
+        // the frame the page draws.
+        juce::AudioProcessorEditor* created = plugin.hasEditor() ? plugin.createEditorIfNeeded() : nullptr;
+        if (created == nullptr)
+            created = new juce::GenericAudioProcessorEditor (plugin);
+        editor = created;
+        ownedEditor.reset (created);
+        created->addKeyListener (this);
+        holder = std::make_unique<Holder> (*this);
+        holder->addKeyListener (this);
+        holder->setSize (created->getWidth(), created->getHeight());
+        holder->addToDesktop (0, embedder->attach (*this));
+        holder->addAndMakeVisible (created);
+        holder->setVisible (true);
+        openWindows.add (this);
+        embedder->changed (*this);
+        return;
+    }
     look = std::make_unique<StudioLook>();
     setLookAndFeel (look.get());
     setUsingNativeTitleBar (false);
@@ -288,6 +350,19 @@ EditorWindow::~EditorWindow()
     stopTimer();
     openWindows.removeFirstMatchingValue (this);
     releaseKeys();
+    if (holder != nullptr)
+    {
+        if (editor != nullptr)
+            editor->removeKeyListener (this);
+        holder->removeKeyListener (this);
+        // The editor goes while it's still on the screen, as it does from a window of its own.
+        ownedEditor.reset();
+        holder->removeFromDesktop();
+        holder.reset();
+        if (embedder != nullptr)
+            embedder->detach (*this);
+        return;
+    }
     automate.reset();
     presetBar.reset();
     settings.reset();
@@ -300,6 +375,14 @@ EditorWindow::~EditorWindow()
 
 void EditorWindow::setTouched (int index, const juce::String& name)
 {
+    if (holder != nullptr)
+    {
+        touched = index;
+        touchedText = name;
+        if (embedder != nullptr)
+            embedder->changed (*this);
+        return;
+    }
     if (automate == nullptr)
     {
         auto* button = new AutomateButton();
@@ -317,6 +400,14 @@ void EditorWindow::setTouched (int index, const juce::String& name)
 
 void EditorWindow::setPreset (const juce::String& label, bool canStep)
 {
+    if (holder != nullptr)
+    {
+        presetText = label;
+        canStepPreset = canStep;
+        if (embedder != nullptr)
+            embedder->changed (*this);
+        return;
+    }
     if (presetBar == nullptr)
     {
         presetBar = std::make_unique<PresetBar> ([this] (int direction) {
@@ -381,7 +472,40 @@ void EditorWindow::setShellWindow (void* window)
 
 void EditorWindow::followAppWindow()
 {
-    setWindowOwner (*this, owner);
+    // (In the shell's window it has no window to belong to anything: and its owner is the shell's window itself.)
+    if (holder == nullptr)
+        setWindowOwner (*this, owner);
+}
+
+juce::Component* EditorWindow::embeddedView() const
+{
+    return holder.get();
+}
+
+void EditorWindow::act (const juce::String& action, int direction)
+{
+    if (action == "step" && onStep != nullptr)
+        onStep (direction < 0 ? -1 : 1);
+    else if (action == "automate" && onAutomate != nullptr && touched >= 0)
+        onAutomate (touched);
+    else if (action == "settings" && onSettings != nullptr)
+        onSettings();
+}
+
+void EditorWindow::setVisible (bool shouldBeVisible)
+{
+    if (holder == nullptr)
+        return DocumentWindow::setVisible (shouldBeVisible);
+    holder->setVisible (shouldBeVisible);
+    if (embedder != nullptr)
+        embedder->changed (*this);
+}
+
+void EditorWindow::setName (const juce::String& newName)
+{
+    DocumentWindow::setName (newName);
+    if (holder != nullptr && embedder != nullptr)
+        embedder->changed (*this);
 }
 
 int EditorWindow::getDesktopWindowStyleFlags() const
@@ -402,6 +526,9 @@ void EditorWindow::parentHierarchyChanged()
 
 void EditorWindow::centreOver (juce::Rectangle<int> area)
 {
+    // (In the shell's window the page places it.)
+    if (holder != nullptr)
+        return;
     auto bounds = getBounds().withCentre (area.getCentre());
     if (const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (area))
         bounds = bounds.constrainedWithin (display->userArea);
@@ -410,6 +537,13 @@ void EditorWindow::centreOver (juce::Rectangle<int> area)
 
 void EditorWindow::show()
 {
+    if (holder != nullptr)
+    {
+        holder->setVisible (true);
+        if (embedder != nullptr)
+            embedder->raise (*this);
+        return;
+    }
     juce::Process::makeForegroundProcess();
     followAppWindow();
     setVisible (true);

@@ -6,12 +6,20 @@
 // WebView2 of our own (WebView.h), on macOS in JUCE's WebBrowserComponent (`window.__JUCE__`'s "engine" function).
 #pragma once
 
+#include "EditorWindow.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <map>
 
 class Engine;
 
-class ShellWindow final : public juce::DocumentWindow
+/**
+ * On macOS the plugins' editors are in it (`EditorWindow::Embedder`), not windows of their own: the page draws
+ * each one's frame as one of its windows, says where its body is and what covers it (`host.placePlugins`), and the
+ * plugin's view goes there over the page, so the page's windows and the plugins' stack among each other (FL Studio's
+ * plugin windows are inside its own).
+ */
+class ShellWindow final : public juce::DocumentWindow,
+                          private EditorWindow::Embedder
 {
 public:
     /** Shows `url` (the app); the web view keeps its own data (WebView2's profile) in `dataDir`. */
@@ -45,6 +53,16 @@ private:
     /** A menu item (ShellMac.h): the page's commands go to it, the app's are run here. */
     void menu (const juce::String& name);
     juce::File placeFile() const { return dataDir.getChildFile ("window.txt"); }
+
+    // The plugins in it (macOS), by their view (`macShell::addPluginView`).
+    void* attach (EditorWindow&) override;
+    void changed (EditorWindow&) override;
+    void raise (EditorWindow&) override;
+    void detach (EditorWindow&) override;
+    /** What the page draws of a plugin's frame (`HostPlugin` in src/lib/host.ts). */
+    static juce::var describePlugin (EditorWindow&);
+    EditorWindow* pluginByKey (const juce::String& key) const;
+    std::map<EditorWindow*, void*> plugins;
 
     Engine& engine;
     /** The engine's data folder, in the app's (`data/engine`): where the window's place is kept. */

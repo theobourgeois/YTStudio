@@ -289,7 +289,7 @@ useTransport.subscribe((state, previous) => {
   if (state.playing && !previous.playing) useTransport.setState({ startedAt: performance.now() });
 });
 
-/** How long a new plugin channel's window waits for its plugin to load before giving up (ms). */
+/** How long a new plugin's window waits for it to load before giving up (ms). */
 const SHOW_WHEN_LOADED_MS = 120_000;
 
 /** `id`'s window is being opened (closing is quick: nothing to wait for). Returns the ids still opening once it's answered. */
@@ -307,19 +307,39 @@ function opening(id: string, open: boolean): () => readonly string[] {
  * if it fails to load, or takes too long.
  */
 export function showPluginWhenLoaded(channelId: string) {
-  const ready = (channels: EngineChannels) => {
-    if (channels.loaded.some((c) => c.channel === channelId)) {
-      useTransport.getState().showPlugin(channelId, true);
+  whenLoaded(
+    (state) => state.channels,
+    (channels) => channels.loaded.some((c) => c.channel === channelId),
+    (channels) => channels.failed.some((c) => c.channel === channelId),
+    () => useTransport.getState().showPlugin(channelId, true),
+  );
+}
+
+/** Show an effect's plugin window once it has loaded, as FL Studio opens an effect put in a mixer slot. */
+export function showEffectWhenLoaded(effectId: string) {
+  whenLoaded(
+    (state) => state.effects,
+    (effects) => effects.loaded.some((e) => e.effect === effectId),
+    (effects) => effects.failed.some((e) => e.effect === effectId),
+    () => useTransport.getState().showEffect(effectId, true),
+  );
+}
+
+/** Runs `then` once `loaded` is true of the engine's status, unless `failed` is first, or it takes too long. */
+function whenLoaded<T>(of: (state: TransportState) => T, loaded: (status: T) => boolean, failed: (status: T) => boolean, then: () => void) {
+  const ready = (status: T) => {
+    if (loaded(status)) {
+      then();
       return true;
     }
-    return channels.failed.some((c) => c.channel === channelId);
+    return failed(status);
   };
-  if (ready(useTransport.getState().channels)) return;
+  if (ready(of(useTransport.getState()))) return;
   const stop = () => {
     unsubscribe();
     clearTimeout(timeout);
   };
-  const unsubscribe = useTransport.subscribe((state, before) => state.channels !== before.channels && ready(state.channels) && stop());
+  const unsubscribe = useTransport.subscribe((state, before) => of(state) !== of(before) && ready(of(state)) && stop());
   const timeout = setTimeout(stop, SHOW_WHEN_LOADED_MS);
 }
 

@@ -83,6 +83,19 @@ does for the other apps (`electron/main.ts`), so the page can't tell them apart.
   menu; the menu only shows them, as Electron's `registerAccelerator: false` does. A click on an item still runs it.
 - **Dropped files' paths**: the view's `draggingEntered:` tells the page where Finder's files are (`dragPaths`)
   before WebKit hands it the drop; `pathForFile` matches a dropped `File` by its name (`droppedPath`).
+- **Plugins in the window, as FL's** (a spike, `t3/music-embedded-plugins`): a plugin's editor isn't a window of
+  its own but a view in the app's window, *under* the web view (`EditorWindow`'s embedded mode: its `Holder` is a JUCE
+  peer inside a `YTStudioPluginView`, `macShell::addPluginView`), and the page, see-through where it doesn't paint
+  (`drawsBackground` off), leaves a hole where it shows. The page draws its frame as one of the music desktop's windows
+  (`src/suites/music/plugin-frames/`, `plugin:<key>`) and, each frame drawn, cuts the holes in #root (`clip-path`:
+  each body less the windows, menus and toasts in front) and says where each body is and which parts show
+  (`host.placePlugins`). The holes are drawn in the same paint as the windows that move over them: the plugins over the
+  page, masked by the engine, were masked a frame or two before or after WebKit drew the window there (a black gap, or
+  the plugin over its edge). The page's hitTest (`pageHitTest`, on JUCE's web view class) gives a press on a part that
+  shows to the plugin; the views are stacked as the page's windows are. The engine tells the page what's open
+  (`plugin`, `pluginGone`, and `pluginFront` when one is pressed: a mouse monitor asks each plugin view, front to back,
+  whether the press is on a part of it that shows); the frame's buttons are `host.pluginAction`. The PluginBench,
+  Windows and a file dropped on an open plugin (it'd move the whole window) still use windows of their own.
 - **Focus.** The window activated (⌘Tab, a plugin window closed) makes the web view first responder, so the keys go
   to the page (`focusPage`). Safari's Web Inspector works on it (`isInspectable`, Inspect Element).
 - **Packaged** (`pnpm build:desktop music`, `packMusicMac` in `scripts/desktop.ts`): the engine's bundle copied as

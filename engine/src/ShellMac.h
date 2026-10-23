@@ -3,6 +3,7 @@
 #pragma once
 
 #include <functional>
+#include <vector>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 namespace macShell
@@ -16,6 +17,8 @@ struct Listener
     std::function<void (bool fullScreen)> fullScreen;
     /** Files dragged from Finder over the page: where they are, which the page can't know (`droppedPath`). */
     std::function<void (const juce::StringArray& paths)> dragged;
+    /** A press (left or right) in a plugin's view (`addPluginView`): its frame comes to the front of the page's windows. */
+    std::function<void (void* view)> pluginPressed;
 };
 
 /**
@@ -51,4 +54,23 @@ void hide (bool others);
 
 /** A project was opened: File › Open Recent and the Dock's menu list it. */
 void noteRecent (const juce::String& path);
+
+/**
+ * A view over the page for a plugin's editor to go in (`EditorWindow::Embedder`), hidden until `placePlugins` puts it
+ * somewhere. The page draws the plugin's frame and its other windows; this view shows only the parts of the
+ * plugin those windows don't cover, and takes clicks only there.
+ */
+void* addPluginView (juce::Component& window);
+void removePluginView (void* view);
+
+/** Where a plugin's view goes, in the page's CSS pixels: its body, and the parts of it that show. */
+struct PluginPlace
+{
+    void* view;
+    juce::Rectangle<double> body;
+    std::vector<juce::Rectangle<double>> visible;
+};
+
+/** Put the plugins' views where the page says, stacked back to front as listed; the views not listed hide. */
+void placePlugins (juce::Component& window, const std::vector<PluginPlace>& places);
 } // namespace macShell

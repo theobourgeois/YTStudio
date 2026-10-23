@@ -1,6 +1,8 @@
 // A plugin's own interface in a window of ours (FL Studio's plugin wrapper: docs/fl-studio/plugin-window.md):
 // our own title bar, the keys the plugin doesn't use go to the app, and in the music app it belongs to the
-// app's window (`setShellWindow`). Elsewhere (a browser tab, the Electron apps) it's an ordinary window.
+// app's window (`setShellWindow`). Elsewhere (a browser tab, the Electron apps) it's an ordinary window. In the
+// music app on a Mac it's no window at all: the plugin's view is in the app's, under a frame the page draws
+// (`Embedder`), so the page's windows and the plugins' stack among each other, as FL Studio's do.
 #pragma once
 
 #include <functional>
@@ -18,8 +20,42 @@ public:
      * `hidden`: made fully transparent (on the screen as far as the plugin knows, so its view is attached, but never
      * seen or clicked; Windows: cloaked too, and off the taskbar), for handing the plugin files by `dropFiles`.
      */
-    EditorWindow (juce::AudioPluginInstance& plugin, const juce::String& title, std::function<void()> onCloseButton, bool hidden = false);
+    /** `embedKey` ("channel:<id>", "effect:<id>"): it goes in the shell's window, if there's an `Embedder`. */
+    EditorWindow (juce::AudioPluginInstance& plugin, const juce::String& title, std::function<void()> onCloseButton, bool hidden = false, const juce::String& embedKey = {});
     ~EditorWindow() override;
+
+    /**
+     * Where a plugin's view goes when it's in the shell's window rather than a window of its own (macOS:
+     * `ShellWindow`). The page draws its frame (title bar, preset arrows, Automate, the wrapper button) and says
+     * where it is and which parts of it its other windows cover; the shell puts the view there, over the page.
+     */
+    class Embedder
+    {
+    public:
+        virtual ~Embedder() = default;
+        /** A view of the shell's window to put this one's in, hidden until the page places it. */
+        virtual void* attach (EditorWindow&) = 0;
+        /** Its size (the plugin's editor's), title, preset or touched parameter changed: the page redraws its frame. */
+        virtual void changed (EditorWindow&) = 0;
+        /** Opened (again): its frame comes to the front of the page's windows. */
+        virtual void raise (EditorWindow&) = 0;
+        /** Closed: its view has left the one `attach` gave. */
+        virtual void detach (EditorWindow&) = 0;
+    };
+    /** Null: every plugin has a window of its own again (the views in the shell's leave it). */
+    static void setEmbedder (Embedder*);
+    /** In the shell's window (its view, the plugin's editor, is `embeddedView`). */
+    bool isEmbedded() const { return holder != nullptr; }
+    juce::Component* embeddedView() const;
+    const juce::String& embedKey() const { return key; }
+    /** What its frame shows: the preset (and whether it steps), the parameter last touched (or empty). */
+    const juce::String& presetLabel() const { return presetText; }
+    bool presetSteps() const { return canStepPreset; }
+    const juce::String& touchedName() const { return touchedText; }
+    /** A press in the page's frame: "step" (`direction` -1 or 1), "automate" or "settings". */
+    void act (const juce::String& action, int direction);
+    void setVisible (bool shouldBeVisible) override;
+    void setName (const juce::String& newName) override;
 
     void closeButtonPressed() override { onClose(); }
 
@@ -60,6 +96,13 @@ public:
 private:
     static void* owner;
     static bool shell;
+    static Embedder* embedder;
+    /** The plugin's editor alone, in the shell's window (`Embedder`), and what's shown in the frame the page draws. */
+    class Holder;
+    std::unique_ptr<Holder> holder;
+    std::unique_ptr<juce::Component> ownedEditor;
+    juce::String key, presetText, touchedText;
+    bool canStepPreset = false;
     /** Made for `dropFiles` alone: never seen, clicked or listed (Windows: cloaked for its whole life). */
     const bool hidden;
     /**

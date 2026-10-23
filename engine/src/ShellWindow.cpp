@@ -103,7 +103,13 @@ ShellWindow::ShellWindow (const juce::String& urlToShow, Engine& engineToUse, co
             list.add (path);
         post (protocol::object ({ { "event", "dragPaths" }, { "paths", list } }));
     };
+    listener.pluginPressed = [this] (void* view) {
+        for (const auto& [window, placed] : plugins)
+            if (placed == view)
+                raise (*window);
+    };
     macShell::dress (*this, "YTStudio Music", std::move (listener));
+    EditorWindow::setEmbedder (this);
    #endif
 
     EditorWindow::setShellWindow (nativeWindowOf (*this));
@@ -115,6 +121,7 @@ ShellWindow::~ShellWindow()
     if (! isFullScreen())
         placeFile().replaceWithText (getWindowStateAsString());
     EditorWindow::setShellWindow (nullptr);
+    EditorWindow::setEmbedder (nullptr);
     clearContentComponent();
 }
 
@@ -175,7 +182,11 @@ void ShellWindow::command (const juce::String& name, const juce::var& params, Co
        #else
         const auto zoom = 1.0;
        #endif
-        return complete (juce::Result::ok(), protocol::object ({ { "files", files }, { "zoom", zoom } }));
+        // The plugins open in the window (a page loaded again draws their frames again).
+        juce::Array<juce::var> open;
+        for (const auto& [window, view] : plugins)
+            open.add (describePlugin (*window));
+        return complete (juce::Result::ok(), protocol::object ({ { "files", files }, { "zoom", zoom }, { "plugins", open } }));
     }
     if (name == "host.flushed")
     {
@@ -227,6 +238,37 @@ bool ShellWindow::windowCommand (const juce::String& name, const juce::var& para
         macShell::hide (params["which"].toString() == "others");
     else if (name == "host.recent")
         macShell::noteRecent (params["path"].toString());
+    else if (name == "host.placePlugins")
+    {
+        // [{ key, body: { x, y, width, height }, visible: [rect...] }], back to front, in the page's CSS pixels.
+        const auto rect = [] (const juce::var& r) {
+            return juce::Rectangle<double> ((double) r["x"], (double) r["y"], (double) r["width"], (double) r["height"]);
+        };
+        std::vector<macShell::PluginPlace> places;
+        if (const auto* list = params["places"].getArray())
+            for (const auto& place : *list)
+                if (auto* window = pluginByKey (place["key"].toString()))
+                {
+                    macShell::PluginPlace placed { plugins[window], rect (place["body"]), {} };
+                    if (const auto* visible = place["visible"].getArray())
+                        for (const auto& part : *visible)
+                            placed.visible.push_back (rect (part));
+                    places.push_back (std::move (placed));
+                }
+        macShell::placePlugins (*this, places);
+    }
+    else if (name == "host.pluginAction")
+    {
+        // A press in the frame the page draws: its ×, preset arrows, Automate or wrapper button.
+        if (auto* window = pluginByKey (params["key"].toString()))
+        {
+            const auto action = params["action"].toString();
+            if (action == "close")
+                window->closeButtonPressed();
+            else
+                window->act (action, (int) params["direction"]);
+        }
+    }
     else
         return false;
     complete (juce::Result::ok(), {});
@@ -318,4 +360,61 @@ void ShellWindow::tellHost()
     if (const auto frame = nativeFrameOf (*this); ! frame.isEmpty())
         host.getDynamicObject()->setProperty ("frame", rectangle (frame));
     engine.handle ("host", host, [] (const juce::Result&, const juce::var&) {});
+}
+
+void* ShellWindow::attach (EditorWindow& window)
+{
+   #if JUCE_MAC
+    auto* view = macShell::addPluginView (*this);
+    plugins[&window] = view;
+    return view;
+   #else
+    juce::ignoreUnused (window);
+    return nullptr;
+   #endif
+}
+
+void ShellWindow::changed (EditorWindow& window)
+{
+    if (plugins.count (&window) != 0)
+        post (protocol::object ({ { "event", "plugin" }, { "plugin", describePlugin (window) } }));
+}
+
+void ShellWindow::raise (EditorWindow& window)
+{
+    if (plugins.count (&window) != 0)
+        post (protocol::object ({ { "event", "pluginFront" }, { "key", window.embedKey() } }));
+}
+
+void ShellWindow::detach (EditorWindow& window)
+{
+    const auto found = plugins.find (&window);
+    if (found == plugins.end())
+        return;
+   #if JUCE_MAC
+    macShell::removePluginView (found->second);
+   #endif
+    plugins.erase (found);
+    post (protocol::object ({ { "event", "pluginGone" }, { "key", window.embedKey() } }));
+}
+
+juce::var ShellWindow::describePlugin (EditorWindow& window)
+{
+    const auto* view = window.embeddedView();
+    return protocol::object ({ { "key", window.embedKey() },
+                               { "title", window.getName() },
+                               { "width", view != nullptr ? view->getWidth() : 0 },
+                               { "height", view != nullptr ? view->getHeight() : 0 },
+                               { "shown", view != nullptr && view->isVisible() },
+                               { "preset", window.presetLabel() },
+                               { "steps", window.presetSteps() },
+                               { "touched", window.touchedName() } });
+}
+
+EditorWindow* ShellWindow::pluginByKey (const juce::String& key) const
+{
+    for (const auto& [window, view] : plugins)
+        if (window->embedKey() == key)
+            return window;
+    return nullptr;
 }
