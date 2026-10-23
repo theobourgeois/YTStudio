@@ -48,9 +48,15 @@ export const rounded = (box: Box): Box => {
 };
 
 
-/** A `clip-path` showing all of `area` but `parts` (in the page, so moved to `area`'s corner): none when there are none. */
+/**
+ * A `clip-path` showing all of `area` but `parts` (in the page, so moved to `area`'s corner), all of it when there
+ * are none. Absolute and to a hundredth of a pixel, so parts that meet share their edge exactly.
+ */
 export function holes(area: Box, parts: Box[]): string {
-  if (parts.length === 0) return "";
-  const rect = (b: Box) => `M${b.x - area.x} ${b.y - area.y}h${b.width}v${b.height}h${-b.width}z`;
+  const at = (n: number) => Math.round(n * 100) / 100;
+  const rect = (b: Box) => {
+    const [x, y] = [at(b.x - area.x), at(b.y - area.y)];
+    return `M${x} ${y}H${at(b.x + b.width - area.x)}V${at(b.y + b.height - area.y)}H${x}Z`;
+  };
   return `path(evenodd, "${[rect({ x: area.x, y: area.y, width: area.width, height: area.height }), ...parts.map(rect)].join("")}")`;
 }

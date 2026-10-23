@@ -51,10 +51,16 @@ describe("rounded", () => {
 
 describe("holes", () => {
   it("cuts each part out of the whole, from its corner", () => {
-    expect(holes(box(0, 0, 800, 600), [box(10, 20, 30, 40)])).toBe('path(evenodd, "M0 0h800v600h-800zM10 20h30v40h-30z")');
-    expect(holes(box(5, 5, 100, 100), [box(10, 20, 30, 40)])).toBe('path(evenodd, "M0 0h100v100h-100zM5 15h30v40h-30z")');
+    expect(holes(box(0, 0, 800, 600), [box(10, 20, 30, 40)])).toBe('path(evenodd, "M0 0H800V600H0ZM10 20H40V60H10Z")');
+    expect(holes(box(5, 5, 100, 100), [box(10, 20, 30, 40)])).toBe('path(evenodd, "M0 0H100V100H0ZM5 15H35V55H5Z")');
   });
-  it("is nothing when nothing shows", () => {
-    expect(holes(box(0, 0, 800, 600), [])).toBe("");
+  it("gives parts that meet the same edge, so no line is left between them", () => {
+    const parts = subtract(box(0.3, 0.1, 100.7, 50.2), box(40.15, 20.35, 10.1, 100));
+    const path = holes(box(0, 0, 800, 600), parts);
+    expect(path).toContain("V20.35");
+    expect(path).not.toMatch(/20\.3[0-46-9]/);
+  });
+  it("is the whole when nothing shows", () => {
+    expect(holes(box(0, 0, 800, 600), [])).toBe('path(evenodd, "M0 0H800V600H0Z")');
   });
 });

@@ -113,10 +113,14 @@ function overlays(): Box[] {
   return boxes;
 }
 
-/** Where every plugin's view goes, back to front: worked out from the page as it's drawn now. */
-function places(): PluginPlace[] {
+/**
+ * Where every plugin's view goes, back to front, and the page's holes for them: worked out from the page as it's
+ * drawn now. The holes are the parts as they are, meeting edge to edge (the engine's are snapped out to whole pixels,
+ * so they overlap, and an overlap in an even-odd clip is drawn: a line across the plugin).
+ */
+function places(): { places: PluginPlace[]; holes: Box[] } {
   const desktop = document.querySelector('[data-desktop="music"]');
-  if (!desktop || document.visibilityState !== "visible") return [];
+  if (!desktop || document.visibilityState !== "visible") return { places: [], holes: [] };
   const area = boxOf(desktop);
   const windows = [...desktop.querySelectorAll<HTMLElement>("[data-window]")].map((element) => ({
     element,
@@ -125,21 +129,23 @@ function places(): PluginPlace[] {
   }));
   const extra = overlays();
   const result: { z: number; place: PluginPlace }[] = [];
+  const holes: Box[] = [];
   for (const body of desktop.querySelectorAll<HTMLElement>("[data-plugin-body]")) {
     const frame = windows.find((w) => w.element.contains(body));
     if (!frame) continue;
-    const box = rounded(boxOf(body));
     const over = [...windows.filter((w) => w.z > frame.z).map((w) => w.box), ...extra];
-    const visible = visibleParts(box, [frame.box, area], over).map(rounded);
-    result.push({ z: frame.z, place: { key: body.dataset.pluginBody!, body: box, visible } });
+    const parts = visibleParts(boxOf(body), [frame.box, area], over);
+    holes.push(...parts);
+    result.push({ z: frame.z, place: { key: body.dataset.pluginBody!, body: rounded(boxOf(body)), visible: parts.map(rounded) } });
   }
-  return result.sort((a, b) => a.z - b.z).map((r) => r.place);
+  return { places: result.sort((a, b) => a.z - b.z).map((r) => r.place), holes };
 }
 
 /**
  * Tells the engine where the plugins go whenever that changes, and cuts the page's holes for them, checking every
  * frame (windows move by transform, menus open). The page is see-through where the root doesn't paint: the
- * body's background moves to the root, which the holes are cut in.
+ * body's background moves to the root, which the holes are cut in. The root keeps a clip while plugins are open,
+ * holes or not: one coming and going made WebKit lay the whole page out in layers again, a stall mid-drag.
  */
 function startPlacing(): () => void {
   const root = document.getElementById("root");
@@ -147,13 +153,15 @@ function startPlacing(): () => void {
   document.body.style.background = "transparent";
   root.style.background = "var(--background)";
   let last = "";
+  let lastClip = "";
   let frame = requestAnimationFrame(function tick() {
     const now = places();
-    const text = JSON.stringify(now);
+    const clip = holes(root.getBoundingClientRect(), now.holes);
+    if (clip !== lastClip) root.style.clipPath = lastClip = clip;
+    const text = JSON.stringify(now.places);
     if (text !== last) {
       last = text;
-      root.style.clipPath = holes(root.getBoundingClientRect(), now.flatMap((place) => place.visible));
-      placePlugins(now);
+      placePlugins(now.places);
     }
     frame = requestAnimationFrame(tick);
   });
