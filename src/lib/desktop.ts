@@ -62,8 +62,13 @@ declare global {
       hideApp?: (which: "app" | "others") => void;
       /** The bar that starts the window (its height) and who draws the window's buttons: they sit in its middle. */
       titleBar?: (bar: TitleBar) => void;
-      /** Minimise, full screen or close the window, for the page's own buttons (`WindowButtons`). */
+      /** Minimise, full screen (maximise, on Windows) or close the window, for the page's own buttons (`WindowButtons`, `CaptionButtons`). */
       windowAction?: (action: WindowAction) => void;
+      /**
+       * Windows: the window has no buttons of the system's (the music app's), so the page draws them over the top-right
+       * corner of the bar that starts the window (`CaptionButtons`), where Electron's `titleBarOverlay` draws the system's.
+       */
+      captionButtons?: boolean;
       /** A project was opened: the system's recent documents (the Dock, File › Open Recent) list it. */
       projectOpened?: (path: string) => void;
       /** An image the system handed the app (`editorDesktop.openImages`): its name, type and bytes. */
@@ -202,11 +207,16 @@ export function noteTitleBar(bar: TitleBar) {
   window.editorDesktopInfo?.titleBar?.(bar);
 }
 
-/** What the page's own window buttons do. */
-export type WindowAction = "minimize" | "fullscreen" | "close";
+/** What the page's own window buttons do (`maximize`: Windows' maximise or restore). */
+export type WindowAction = "minimize" | "fullscreen" | "maximize" | "close";
 
 export function windowAction(action: WindowAction) {
   window.editorDesktopInfo?.windowAction?.(action);
+}
+
+/** Whether the page draws Windows' window buttons over the bar that starts the window (the music app on Windows). */
+export function drawsCaptionButtons(): boolean {
+  return typeof window !== "undefined" && window.editorDesktopInfo?.captionButtons === true;
 }
 
 /** Whether the page draws the window's buttons: in a Mac's desktop app, without the tab strip. */

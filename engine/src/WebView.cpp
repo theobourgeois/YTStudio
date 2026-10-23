@@ -5,10 +5,15 @@
  #include <windows.h>
  #include <windowsx.h>
  #include <dcomp.h>
+ #include <ole2.h>
+ #include <shellapi.h>
+ #include <shlobj.h>
  #include <wrl.h>
  #include <WebView2.h>
  #include <WebView2EnvironmentOptions.h>
  #pragma comment(lib, "dcomp.lib")
+ #pragma comment(lib, "ole32.lib")
+ #pragma comment(lib, "shell32.lib")
 #endif
 
 #include "WebView.h"
@@ -43,6 +48,29 @@ bool isMouseMessage (UINT message)
 {
     return (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) || message == WM_MOUSELEAVE;
 }
+
+/** The files an Explorer drag carries (`CF_HDROP`), or none. */
+juce::StringArray filesIn (IDataObject* data)
+{
+    juce::StringArray paths;
+    FORMATETC format { CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    STGMEDIUM medium {};
+    if (data == nullptr || FAILED (data->GetData (&format, &medium)))
+        return paths;
+    if (auto* drop = static_cast<HDROP> (GlobalLock (medium.hGlobal)))
+    {
+        const auto count = DragQueryFileW (drop, 0xFFFFFFFF, nullptr, 0);
+        for (UINT i = 0; i < count; ++i)
+        {
+            std::wstring path (DragQueryFileW (drop, i, nullptr, 0) + 1, L'\0');
+            DragQueryFileW (drop, i, path.data(), (UINT) path.size());
+            paths.add (juce::String (path.c_str()));
+        }
+        GlobalUnlock (medium.hGlobal);
+    }
+    ReleaseStgMedium (&medium);
+    return paths;
+}
 } // namespace
 
 /**
@@ -56,7 +84,7 @@ public:
         : url (urlToShow),
           background (backgroundToUse),
           onCommand (std::move (handler)),
-          composition (juce::SystemStats::getEnvironmentVariable ("VAUDIO_WEBVIEW_HOSTING", {}) == "composition")
+          composition (juce::SystemStats::getEnvironmentVariable ("VAUDIO_WEBVIEW_HOSTING", {}) != "windowed")
     {
         static const auto registered = [] {
             WNDCLASSEXW type {};
@@ -70,6 +98,8 @@ public:
         juce::ignoreUnused (registered);
         hwnd = CreateWindowExW (0, windowClass, L"", WS_POPUP | WS_CLIPCHILDREN, 0, 0, 0, 0, nullptr, nullptr, GetModuleHandleW (nullptr), nullptr);
         SetWindowLongPtrW (hwnd, GWLP_USERDATA, (LONG_PTR) this);
+        // (Drag and drop: OLE, on this thread. Counted, so JUCE's own is undisturbed.)
+        oleStarted = SUCCEEDED (OleInitialize (nullptr));
         std::fprintf (stderr, "[webview] %s hosting\n", composition ? "composition" : "windowed");
 
         auto options = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
@@ -91,12 +121,17 @@ public:
     ~Host()
     {
         alive.reset();
+        if (dropTarget != nullptr)
+            RevokeDragDrop (hwnd);
         SetWindowLongPtrW (hwnd, GWLP_USERDATA, 0);
         if (controller != nullptr)
             controller->Close();
+        if (oleStarted)
+            OleUninitialize();
     }
 
     HWND window() const { return hwnd; }
+    bool composited() const { return composition; }
 
     void focus()
     {
@@ -124,7 +159,91 @@ public:
             webView->Navigate (url.toWideCharPointer());
     }
 
+    void forwardMouse (UINT message, POINT screen)
+    {
+        if (compositionController == nullptr)
+            return;
+        if (message == WM_MOUSELEAVE)
+        {
+            compositionController->SendMouseInput (COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE, 0, {});
+            return;
+        }
+        ScreenToClient (hwnd, &screen);
+        const auto held = message == WM_LBUTTONDOWN || (message == WM_MOUSEMOVE && (GetKeyState (VK_LBUTTON) & 0x8000) != 0);
+        compositionController->SendMouseInput ((COREWEBVIEW2_MOUSE_EVENT_KIND) message,
+                                               held ? COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_LEFT_BUTTON : COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,
+                                               0, screen);
+    }
+
+    std::function<bool (POINT)> nonClient;
+    std::function<void (const juce::StringArray&)> dragged;
+
 private:
+    /**
+     * Composition: Explorer's drags reach our window, not WebView2's, so they're handed on (WebView2APISample's
+     * `DropTarget`), saying first where the files are (`dragged`), with the system's picture of what's dragged.
+     */
+    class DropTarget final : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IDropTarget>
+    {
+    public:
+        explicit DropTarget (Host& owner) : host (owner)
+        {
+            CoCreateInstance (CLSID_DragDropHelper, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS (&helper));
+        }
+
+        HRESULT STDMETHODCALLTYPE DragEnter (IDataObject* data, DWORD keys, POINTL at, DWORD* effect) override
+        {
+            host.dropping = true;
+            if (host.dragged != nullptr)
+                if (const auto paths = filesIn (data); ! paths.isEmpty())
+                    host.dragged (paths);
+            POINT point { at.x, at.y };
+            if (helper != nullptr)
+                helper->DragEnter (host.hwnd, data, &point, *effect);
+            ScreenToClient (host.hwnd, &point);
+            return controller()->DragEnter (data, keys, point, effect);
+        }
+
+        HRESULT STDMETHODCALLTYPE DragOver (DWORD keys, POINTL at, DWORD* effect) override
+        {
+            POINT point { at.x, at.y };
+            if (helper != nullptr)
+                helper->DragOver (&point, *effect);
+            ScreenToClient (host.hwnd, &point);
+            return controller()->DragOver (keys, point, effect);
+        }
+
+        HRESULT STDMETHODCALLTYPE DragLeave() override
+        {
+            host.dropping = false;
+            if (helper != nullptr)
+                helper->DragLeave();
+            return controller()->DragLeave();
+        }
+
+        HRESULT STDMETHODCALLTYPE Drop (IDataObject* data, DWORD keys, POINTL at, DWORD* effect) override
+        {
+            host.dropping = false;
+            POINT point { at.x, at.y };
+            if (helper != nullptr)
+                helper->Drop (data, &point, *effect);
+            ScreenToClient (host.hwnd, &point);
+            return controller()->Drop (data, keys, point, effect);
+        }
+
+    private:
+        ICoreWebView2CompositionController3* controller()
+        {
+            if (controller3 == nullptr)
+                host.compositionController.As (&controller3);
+            return controller3.Get();
+        }
+
+        Host& host;
+        ComPtr<ICoreWebView2CompositionController3> controller3;
+        ComPtr<IDropTargetHelper> helper;
+    };
+
     void createController (ICoreWebView2Environment* environmentMade)
     {
         environment = environmentMade;
@@ -172,13 +291,21 @@ private:
         if (ComPtr<ICoreWebView2Controller2> controller2; SUCCEEDED (controller.As (&controller2)))
             controller2->put_DefaultBackgroundColor ({ background.getAlpha(), background.getRed(), background.getGreen(), background.getBlue() });
         if (compositionController != nullptr)
+        {
             attachVisual();
+            dropTarget = Microsoft::WRL::Make<DropTarget> (*this);
+            if (const auto result = RegisterDragDrop (hwnd, dropTarget.Get()); FAILED (result))
+                failed ("RegisterDragDrop", result);
+        }
 
         ComPtr<ICoreWebView2Settings> settings;
         webView->get_Settings (&settings);
         settings->put_IsStatusBarEnabled (FALSE);
         // Ctrl+wheel zooms the Piano roll and the Playlist, not the page.
         settings->put_IsZoomControlEnabled (FALSE);
+        // (Not WebView2's own drag regions, `IsNonClientRegionSupportEnabled`: the page sends them again on nearly every
+        // frame while it animates, and its browser process fell behind, growing by 50 MB a second while a song played.
+        // The page says where its bars are itself: `host.dragRegions`.)
 
         EventRegistrationToken token;
         // { id, command, params } -> { id, ok, result } or { id, ok: false, error }.
@@ -310,6 +437,10 @@ private:
         }
         if (compositionController == nullptr)
             return {};
+        // The window's own parts (its title bars, edges, the maximise button): the shell's window answers there. Not
+        // while files are dragged over the page: they're dropped on its bars too (the tab strip opens songs).
+        if (message == WM_NCHITTEST && ! dropping && nonClient != nullptr && nonClient ({ GET_X_LPARAM (lParam), GET_Y_LPARAM (lParam) }))
+            return HTTRANSPARENT;
         if (message == WM_SETCURSOR && LOWORD (lParam) == HTCLIENT)
         {
             SetCursor (cursor());
@@ -337,7 +468,10 @@ private:
     const bool composition;
     std::shared_ptr<bool> alive = std::make_shared<bool> (true);
     HWND hwnd = nullptr;
+    bool oleStarted = false;
     bool pointerInside = false;
+    /** Explorer is dragging files over the page (`DropTarget`). */
+    bool dropping = false;
     ComPtr<ICoreWebView2Environment> environment;
     ComPtr<ICoreWebView2Controller> controller;
     ComPtr<ICoreWebView2CompositionController> compositionController;
@@ -345,11 +479,16 @@ private:
     ComPtr<IDCompositionDevice> composer;
     ComPtr<IDCompositionTarget> target;
     ComPtr<IDCompositionVisual> visual;
+    ComPtr<DropTarget> dropTarget;
 };
 
 WebView::WebView (const juce::String& url, const juce::File& userDataFolder, juce::Colour background, CommandHandler onCommand)
     : host (std::make_unique<Host> (url, userDataFolder, background, std::move (onCommand)))
 {
+    host->dragged = [this] (const juce::StringArray& paths) {
+        if (onDragPaths != nullptr)
+            onDragPaths (paths);
+    };
     setHWND (host->window());
 }
 
@@ -377,5 +516,20 @@ void WebView::post (const juce::var& message)
 void WebView::navigate (const juce::String& url)
 {
     host->navigate (url);
+}
+
+bool WebView::composited() const
+{
+    return host->composited();
+}
+
+void WebView::setNonClient (std::function<bool (juce::Point<int>)> isNonClient)
+{
+    host->nonClient = [isNonClient = std::move (isNonClient)] (POINT screen) { return isNonClient ({ (int) screen.x, (int) screen.y }); };
+}
+
+void WebView::forwardMouse (unsigned int message, juce::Point<int> screen)
+{
+    host->forwardMouse (message, { screen.x, screen.y });
 }
 #endif

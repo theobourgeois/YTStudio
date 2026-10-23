@@ -33,12 +33,16 @@ declare global {
 
 type Reply = { ok: true; result: unknown } | { ok: false; error: string };
 
-/** What the engine tells the page unasked (the last four only on macOS: `ShellWindow::menu`, `macShell::Listener`). */
+/**
+ * What the engine tells the page unasked: `command`, `fullscreen` and `zoom` only on macOS (`ShellWindow::menu`,
+ * `macShell::Listener`), `maximized` only on Windows.
+ */
 type HostEvent =
   | { event: "flush"; request: number }
   | { event: "openFile"; path: string }
   | { event: "command"; name: string }
   | { event: "fullscreen"; on: boolean }
+  | { event: "maximized"; on: boolean }
   | { event: "zoom"; factor: number }
   | { event: "dragPaths"; paths: string[] };
 
@@ -79,6 +83,7 @@ function received(event: HostEvent) {
   // A menu item of the page's (File's New, Open..., Close Tab): `DesktopCommand`, as Electron's menu sends them.
   else if (event.event === "command") window.editorDesktop?.command(event.name as DesktopCommand);
   else if (event.event === "fullscreen") document.documentElement.classList.toggle("fullscreen", event.on);
+  else if (event.event === "maximized") markMaximized(event.on);
   else if (event.event === "zoom") markZoom(event.factor);
   else if (event.event === "dragPaths") dragged = event.paths;
 }
@@ -88,8 +93,15 @@ function markZoom(factor: number) {
   document.documentElement.style.setProperty("--desktop-zoom", String(factor));
 }
 
-/** The files Finder is dragging over the page, where they are (a page only gets their names and bytes). */
+/** Windows: the window is maximised (`CaptionButtons` shows restore rather than maximise). */
+function markMaximized(on: boolean) {
+  document.documentElement.classList.toggle("maximized", on);
+}
+
+/** The files Finder or Explorer is dragging over the page, where they are (a page only gets their names and bytes). */
 let dragged: string[] = [];
+/** A path's last part, on either system. */
+const baseName = (path: string) => path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1);
 
 if (webview)
   webview.addEventListener("message", (message) => {
@@ -111,6 +123,8 @@ const pathOrNull = (result: unknown) => (typeof result === "string" && result ? 
 
 /** What a Mac's window does for the page as Electron's does: no title bar, so the page's bars drag it. */
 const mac = hosted && !webview;
+/** Windows' window: no title bar either, but its bars are the page's drag regions (`WebView.cpp`) and it draws the buttons. */
+const windows = hosted && !!webview;
 
 /** A bar's parts that are pressed rather than dragged: index.css's `no-drag` (Electron's drag regions). */
 const NO_DRAG = 'button, a, input, label, select, textarea, [role="button"], [role="tab"], [role="slider"], [role="spinbutton"], [contenteditable], [data-no-drag], [data-window]';
@@ -122,14 +136,68 @@ if (hosted)
     chooseProject: async (defaultPath) => pathOrNull(await hostCommand("host.chooseProject", { defaultPath })),
     chooseFolder: async (defaultPath) => pathOrNull(await hostCommand("host.chooseFolder", { defaultPath })),
     windowAction: (action) => void hostCommand("host.window", { action }),
-    ...(mac && {
-      hideApp: (which) => void hostCommand("host.hide", { which }),
-      titleBar: (bar) => void hostCommand("host.titleBar", { ...bar }),
-      projectOpened: (path) => void hostCommand("host.recent", { path }),
-      // By its name among what Finder said it's dragging (`dragPaths`), which comes before the drop.
-      pathForFile: (file) => dragged.find((path) => path.slice(path.lastIndexOf("/") + 1) === file.name) ?? "",
-    }),
+    titleBar: (bar) => void hostCommand("host.titleBar", { ...bar }),
+    projectOpened: (path) => void hostCommand("host.recent", { path }),
+    // By its name among what Finder or Explorer said it's dragging (`dragPaths`), which comes before the drop.
+    pathForFile: (file) => dragged.find((path) => baseName(path) === file.name) ?? "",
+    ...(mac && { hideApp: (which) => void hostCommand("host.hide", { which }) }),
+    ...(windows && { captionButtons: true }),
   };
+
+/**
+ * What over the page takes the pointer, wherever it is: the windows on the page's desktops, menus and popovers,
+ * dialogs, the window's buttons.
+ */
+const OVER_BARS = "[data-window], [data-caption-buttons], [data-radix-popper-content-wrapper], [role=\"dialog\"], [role=\"menu\"], [data-sonner-toaster]";
+
+/**
+ * Windows: where the page's bars drag the window, told to the engine (`host.dragRegions`, CSS pixels), which answers
+ * the system's hit test with them (`ShellWindow::findControlAtPoint`): the `[data-titlebar]` bars, less what's
+ * pressed in them (index.css's `no-drag`) and what lies over them. Not WebView2's own `app-region` (it sends them on
+ * nearly every frame while the page animates, and fell behind: WebView.cpp). Measured when the bars or what's over them
+ * change, at most every 200 ms, and sent only when they moved.
+ */
+function watchDragRegions() {
+  let sent = "";
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const rect = (el: Element) => {
+    const r = el.getBoundingClientRect();
+    return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+  };
+  const measure = () => {
+    timer = null;
+    const bars = [...document.querySelectorAll("[data-titlebar]")];
+    const drag = bars.map(rect).filter(([, , w, h]) => w > 0 && h > 0);
+    const pressed = [...bars.flatMap((bar) => [...bar.querySelectorAll(NO_DRAG)]), ...document.querySelectorAll(OVER_BARS)];
+    const noDrag = pressed.map(rect).filter(([, , w, h]) => w > 0 && h > 0);
+    const regions = JSON.stringify({ drag, noDrag });
+    if (regions === sent) return;
+    sent = regions;
+    void hostCommand("host.dragRegions", { drag, noDrag }).catch(() => (sent = ""));
+  };
+  const soon = () => {
+    timer ??= setTimeout(measure, 200);
+  };
+  const resized = new ResizeObserver(soon);
+  const watched = new WeakSet<Element>();
+  // What changes a bar: its elements coming and going, their classes and styles (not their text: a clock ticking).
+  new MutationObserver(() => {
+    for (const bar of document.querySelectorAll("[data-titlebar]"))
+      if (!watched.has(bar)) {
+        watched.add(bar);
+        resized.observe(bar);
+      }
+    soon();
+  }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "data-state", "hidden"] });
+  window.addEventListener("resize", soon);
+  soon();
+}
+
+// Room for the window's buttons, as Electron's preload marks the page (index.css), and its bars drag the window.
+if (windows) {
+  document.documentElement.classList.add("desktop", "desktop-win32", "caption-buttons");
+  watchDragRegions();
+}
 
 if (mac) {
   // What Electron's preload does: index.css makes room for the traffic lights, drag regions, the zoom.
@@ -155,7 +223,8 @@ if (mac) {
  */
 export async function startHost(): Promise<void> {
   if (!hosted) return;
-  const { files, zoom } = (await hostCommand("host.ready")) as { files: string[]; zoom?: number };
+  const { files, zoom, maximized } = (await hostCommand("host.ready")) as { files: string[]; zoom?: number; maximized?: boolean };
   if (mac && zoom) markZoom(zoom);
+  if (windows) markMaximized(maximized === true);
   for (const path of files) await window.editorDesktop?.openFile(path);
 }

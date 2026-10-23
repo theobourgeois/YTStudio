@@ -37,10 +37,10 @@ same program. It was tried on Windows first (2026-10-23) and nothing froze.
 **The page's side** (`src/lib/host.ts`, imported first by `main.tsx`). In the window it sets `editorDesktopInfo`
 (the platform and the system's dialogs: `host.saveFile`, `host.chooseProject`, `host.chooseFolder`, run by
 `engine/src/HostCommands.cpp`; the page's own window buttons, `host.window`), so `isDesktop` is true and the page acts
-as in the desktop app where it can. What Electron's preload has and this doesn't (`panels`, the microphone; on Windows
-still `titleBar` and `pathForFile`) is absent, and the page falls back to the browser's way. It answers the engine's
-events (`flush`, `openFile`; on a Mac also `command`, `fullscreen`, `zoom`, `dragPaths`) and sends `host.ready` once
-the app has loaded, getting the files it was handed meanwhile (and the page's zoom). `hostCommand` sends a command
+as in the desktop app where it can. What Electron's preload has and this doesn't (`panels`, the microphone) is absent,
+and the page falls back to the browser's way. It answers the engine's events (`flush`, `openFile`, `dragPaths`; on a
+Mac also `command`, `fullscreen`, `zoom`; on Windows `maximized`) and sends `host.ready` once the app has loaded,
+getting the files it was handed meanwhile (and the page's zoom, whether the window is maximised). `hostCommand` sends a command
 straight to the engine: the app's own (`host.*`) and those `directCommands` lets through (`preview`, a key played,
 used by `transport.preview`). WebView2's messages on Windows (replies `{ id, ok, result | error }`, events
 `{ event, ... }`), JUCE's native function `engine` and its `host` event on macOS. Everything else still goes through
@@ -49,13 +49,30 @@ the server.
 **The server's side.** `askApp` sends the engine an app command: `page`, and `host.trash` / `host.reveal` for the
 Trash and Show in Finder (the `trash` and `reveal` the Electron app gives `createApp`).
 
-**Windows** (`WebView.cpp`). The engine hosts WebView2 itself, not through JUCE's `WebBrowserComponent`. Windowed
-hosting by default; `VAUDIO_WEBVIEW_HOSTING=composition` draws it through DirectComposition and hands it the mouse,
-so no window of WebView2's browser or GPU process is inside ours. Measured on 2026-10-23 (Serum 2 open on a 5-Serum
-song playing, its window dragged, 20 clicks between it and the page): neither froze, and both were as quick (a click
-reached the page in about 10 ms, a drag step moved the window in under 1 ms, no thread stalled over 40 ms, no
-dropouts). WebView2's SDK comes from NuGet at configure time (engine/CMakeLists.txt) and is linked statically. Its
-profile is kept in `<data>/engine/webview`.
+**Windows** (`WebView.cpp`, `ShellWin.cpp`). The engine hosts WebView2 itself, not through JUCE's
+`WebBrowserComponent`, drawn through DirectComposition (composition hosting): it's handed the mouse and Explorer's drags,
+so no window of WebView2's browser or GPU process is inside ours and every hit test is the engine's.
+`VAUDIO_WEBVIEW_HOSTING=windowed` puts WebView2's own window in ours instead (measured as quick on 2026-10-23: Serum 2
+open on a 5-Serum song playing, its window dragged, 20 clicks between it and the page, neither froze; a click reached
+the page in about 10 ms, a drag step moved the window in under 1 ms), but those windows answer the hit tests, so the
+window can't be dragged by the page there. WebView2's SDK comes from NuGet at configure time (engine/CMakeLists.txt) and
+is linked statically. Its profile is kept in `<data>/engine/webview`.
+- **No title bar** (JUCE's `DocumentWindow` without one: `ShellWindow::findControlAtPoint` answers the system's hit
+  test, which the page's window passes on there with `HTTRANSPARENT`): its edges resize it (5 points in), the page's
+  bars drag it (Aero Snap, a double click maximises, as a title bar), and the maximise button is `HTMAXBUTTON`, so
+  hovering it shows Windows 11's snap layouts.
+- **The window's buttons are the page's** (`CaptionButtons` in header/window-buttons.tsx, `captionButtons` in
+  `editorDesktopInfo`): Windows' three, 46 points each, over the top-right corner of the bar that starts the window
+  (`--window-controls-width`, as Electron's `titleBarOverlay`). The window hit-tests the maximise one (from the bar's
+  height, `host.titleBar`), and hands its mouse to the page (`winShell::dress`, `WebView::forwardMouse`), so it still
+  lights up and is clicked; `host.window` maximises and restores, and `maximized` says which it shows.
+- **The bars** are told by the page (`host.dragRegions`: the `[data-titlebar]` bars, less what's pressed in them and
+  what lies over them, in CSS pixels, sent when they change), not WebView2's `app-region` support
+  (`IsNonClientRegionSupportEnabled`): it sends them again on nearly every frame while the page animates, and its
+  browser process fell behind, growing by 50 MB a second while a song played and no longer answering.
+- **Explorer's drops** go to WebView2 through `DropTarget` (with the system's drag picture), and the page is told the
+  files' paths first (`dragPaths`, `pathForFile`), as on a Mac. Meanwhile the page's bars are the page's (a song
+  dropped on the tab strip). A project opened is added to Windows' recent documents (`host.recent`).
 
 Plugin windows are owned by the window (`EditorWindow::setShellWindow`): an owned window on Windows, a child window
 on macOS (`setWindowOwner`, MacWindow.cpp). They stay over it, move with it and never ask another program anything.
@@ -99,4 +116,4 @@ does for the other apps (`electron/main.ts`), so the page can't tell them apart.
 told to run this checkout's server through tsx and show Vite's page, so the page reloads as it's edited; the server
 isn't watched: a C++ or server change means quitting and running it again). `pnpm dev:shell` is every suite there.
 
-**Still to do** (docs/apps.md): on Windows the title bar, panels as owned windows, packaging (step 3's Windows half).
+**Still to do** (docs/apps.md): on Windows panels as owned windows, packaging (step 3's Windows half).
