@@ -15,7 +15,6 @@ build/music-worker
 build/node
 release
 desktop-smoke.png
-music-window-smoke.png
 engine/build
 ui-sheet
 

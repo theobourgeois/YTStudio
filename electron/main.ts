@@ -9,18 +9,13 @@ import { existsSync, readFileSync, renameSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { engineExecutable } from "../server/engine-path.ts";
-import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, screen, session, shell, systemPreferences } from "electron";
+import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, session, shell, systemPreferences } from "electron";
 import { log, logFile, startLogging } from "../server/log.ts";
 import type { RunningServer } from "./server.ts";
 import { loadShellPath } from "./shell-path.ts";
 import { loadWindowState, trackWindowState } from "./window-state.ts";
 import { desktopIcon, initializeAppIcon } from "./app-icon.ts";
-import { FloatingGroup, type FloatingState } from "./floating.ts";
-import { POPUP_WINDOW } from "../shared/panels.ts";
-import { HoverRelay } from "./hover.ts";
-import { Panels, answerPanelRequests, isPanelName, panelOptions, popupOptions } from "./panels.ts";
 import { Stages, answerStageRequests, isStageName, stageOptions } from "./stage.ts";
-import { Restacker, WindowStack } from "./stacking.ts";
 import { carrySettingsOver } from "./carry-over.ts";
 import { type AppId, EVERY_APP, appInfo, isAppId } from "../shared/apps.ts";
 import { SUITES, SUITE_IDS } from "../shared/suites.ts";
@@ -58,10 +53,6 @@ const DEV_URL = process.env.EDITOR_DESKTOP_DEV_URL;
 const FLUSH_TIMEOUT_MS = 4000;
 const isMac = process.platform === "darwin";
 const isWindows = process.platform === "win32";
-/** How long after the app comes to the front its windows are put back in order (the system reorders them as it activates). */
-const RESTACK_DELAY_MS = 150;
-/** How often the pointer's place is read to tell it to the windows without the focus (about a frame). */
-const HOVER_INTERVAL_MS = 16;
 
 /** The images the app opens as a new photo, by extension, with their types: what scripts/desktop.ts declares to macOS. */
 const IMAGE_TYPES: Record<string, string> = {
@@ -139,23 +130,8 @@ let dataDir = "";
 let closeServer: (() => void) | null = null;
 /** Stop the server's process and wait for it (its engine saves its plugins' states as it goes). */
 let closeServerAndWait: (() => Promise<void>) | null = null;
-let setHostWindow: RunningServer["setHostWindow"] | null = null;
-/** The main window's panels (the editor's windows, one native window each: panels.ts). */
-let panels: Panels | null = null;
 /** The page's stages (the visualizer popped out: stage.ts). */
 const stages = new Stages();
-/** Which of the app's windows float, and the engine's plugin windows with them (floating.ts). */
-let group: FloatingGroup | null = null;
-let floatingState: FloatingState = { floating: false, visible: true };
-/** The order the floating windows are stacked in, ours and the engine's (stacking.ts): put back after the app is switched away from. */
-const stack = new WindowStack();
-let raiseEngineWindow: RunningServer["raiseEngineWindow"] | null = null;
-let closeEngineWindows: RunningServer["closeEngineWindows"] | null = null;
-const restacker = new Restacker(stack, async (key) => {
-  if (key.startsWith("panel:")) return panels?.moveTop(key.slice("panel:".length)) ?? false;
-  const [, owner, id] = key.split(":");
-  return (await raiseEngineWindow?.(owner as "channel" | "effect", id)) ?? false;
-}, 35);
 /** Set once the app is quitting (⌘Q, the Dock, logging out), rather than a window closing. */
 let quitting = false;
 
@@ -293,20 +269,10 @@ async function start() {
       // (songs compiled for the engine, folders indexed, files served) made them lag.
       const { startServerProcess } = await import("./server-host.ts");
       const hosted = await startServerProcess(serverOptions, !app.isPackaged);
-      // Started again after dying: the engine it started is new, and must be told where the app's window is.
-      hosted.onRestart(() => void tellEngineWhereWeAre());
       closeServerAndWait = hosted.closeAndWait;
       server = hosted;
     }
     closeServer = server.close;
-    setHostWindow = server.setHostWindow;
-    raiseEngineWindow = server.raiseEngineWindow;
-    closeEngineWindows = server.closeEngineWindows;
-    // A plugin's window taking the focus (or giving it back) is the app being in use, as one of its own is.
-    server.onEngineWindow((event) => {
-      if (event.type === "foreground") group?.setEngineForeground(event.on);
-      else stack.raise(`engine:${event.owner}:${event.id}`);
-    });
     appUrl = DEV_URL ?? `http://127.0.0.1:${server.port}`;
   } catch (err) {
     log("desktop").error("couldn't start", err);
@@ -315,29 +281,6 @@ async function start() {
     return;
   }
   Menu.setApplicationMenu(buildMenu());
-  group = new FloatingGroup((state) => {
-    floatingState = state;
-    panels?.setState(state);
-    // The levels change, which doesn't keep the windows in order across programs: they're put back in the stack's.
-    // (Windows has no levels: owned windows keep their order as the app comes and goes.)
-    void tellEngineWhereWeAre().then(async () => {
-      if (!state.floating || !state.visible || isWindows) return;
-      // The system orders the app's windows itself as it comes to the front, a moment later than it says so.
-      await new Promise((resolve) => setTimeout(resolve, RESTACK_DELAY_MS));
-      if (floatingState.floating && floatingState.visible) await restacker.run();
-    });
-  });
-  app.on("browser-window-focus", (_event, focused) => {
-    group?.setAppFocused(BrowserWindow.getFocusedWindow() !== null);
-    // A plugin's window is the engine's, not one of the editor's: on a Mac, where the editor's windows are
-    // drawn in the page (which can't come in front of it), it closes when the app's own window is used. On
-    // Windows it stays: it and the editor's windows are all the main window's own, stacked by use.
-    if (focused === mainWindow && !isWindows) void closeEngineWindows?.().catch(() => {});
-  });
-  app.on("browser-window-blur", () => group?.setAppFocused(BrowserWindow.getFocusedWindow() !== null));
-  // (Only macOS withholds mouse moves from windows without the focus: elsewhere the 60 Hz poll would be for nothing.)
-  if (isMac) relayHover();
-  answerPanelRequests(() => (mainWindow && panels ? { main: mainWindow, panels } : null));
   answerStageRequests(stages, () => mainWindow);
   answerSaveDialogs();
   answerProjectDialogs();
@@ -360,7 +303,7 @@ function createWindow() {
     title: APP_NAME,
     icon: desktopIcon(),
     show: false,
-    // A click coming back from a native plugin must also reach the clicked editor window.
+    // A click that brings the window forward also acts, as on the page's own buttons.
     acceptFirstMouse: true,
     backgroundColor: "#16191d",
     ...(isMac && { titleBarStyle: "hiddenInset", trafficLightPosition: HEADER_BUTTONS }),
@@ -384,9 +327,6 @@ function createWindow() {
   if (!isMac) win.setMenuBarVisibility(false);
   trackWindowState(win);
   mainWindow = win;
-  const winPanels = new Panels(win, stack, () => void restacker.run());
-  winPanels.setState(floatingState);
-  panels = winPanels;
   // (Maximised only now: `maximize` shows a window, which would show it empty before its page is drawn.)
   win.once("ready-to-show", () => (state.maximized ? win.maximize() : win.show()));
   // The page is up (its hooks set): projects waiting to open can now.
@@ -411,7 +351,6 @@ function createWindow() {
     stages.closeAll();
     if (mainWindow === win) {
       mainWindow = null;
-      panels = null;
       pageReady = false;
     }
     // Hidden export windows don't count: without the editor's window the app is done (except on a Mac).
@@ -424,28 +363,8 @@ function createWindow() {
   win.on("leave-full-screen", () => setFullScreen(false));
   flushBeforeClose(win);
   keepLinksOutside(win);
-  openPanels(win, winPanels);
-  followByPluginWindows(win);
+  openStages(win);
   void win.loadURL(appUrl);
-}
-
-/**
- * macOS gives a window without the keyboard focus no mouse-moved events, so the toolbar of the main window
- * shows no hover while a panel is in use (and the other way round): the pointer is told to the window under it
- * (hover.ts).
- */
-function relayHover() {
-  const relay = new HoverRelay<BrowserWindow>(
-    () => {
-      const win = mainWindow;
-      if (!win || win.isDestroyed() || !win.isVisible() || win.isMinimized()) return [];
-      // Only while there are panels: with the editor's windows in the page, the main window hears the pointer itself.
-      const shown = panels?.shownWindows() ?? [];
-      return shown.length > 0 ? [win, ...shown] : [];
-    },
-    () => floatingState.floating,
-  );
-  setInterval(() => relay.update(screen.getCursorScreenPoint()), HOVER_INTERVAL_MS);
 }
 
 /**
@@ -588,80 +507,27 @@ function flushBeforeClose(win: BrowserWindow) {
   });
 }
 
-/**
- * A system dialog sits on the window the user is working in: a panel's (the export's save dialog) rather
- * than the main window under it, which the panels float over.
- */
+/** A system dialog sits on the window the user is working in (a stage's, or the main window). */
 function dialogParent(sender: Electron.WebContents): BrowserWindow | null {
-  const focused = BrowserWindow.getFocusedWindow();
-  // (Not the window menus are drawn in: it's gone once the menu item has been chosen.)
-  if (focused && !panels?.isPopup(focused)) return focused;
-  return BrowserWindow.fromWebContents(sender);
+  return BrowserWindow.getFocusedWindow() ?? BrowserWindow.fromWebContents(sender);
 }
 
 /**
- * The editor's windows are the page's own (`window.open`, same origin: the page draws into them and moves
- * them, src/components/windows/native/); they're made here, frameless, and kept at the floating level
- * with the plugin windows (floating.ts, panels.ts).
+ * The only windows the page opens are stages (the visualizer popped out, stage.ts): framed windows of their own
+ * that it draws into. Anything else is refused, and a link to the web opens in the user's browser.
  */
-function openPanels(win: BrowserWindow, owned: Panels) {
+function openStages(win: BrowserWindow) {
   const isApp = (url: string) => url === "about:blank" || url.startsWith(appUrl);
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
-    if (isPanelName(frameName) && isApp(url)) return { action: "allow", overrideBrowserWindowOptions: frameName === POPUP_WINDOW ? popupOptions() : panelOptions() };
     if (isStageName(frameName) && isApp(url)) return { action: "allow", overrideBrowserWindowOptions: stageOptions() };
     if (/^https?:/.test(url) && !url.startsWith(appUrl)) void shell.openExternal(url);
     return { action: "deny" };
   });
-  win.webContents.on("did-create-window", (panel, details) => {
-    if (isStageName(details.frameName)) {
-      stages.adopt(details.frameName, panel);
-      keepLinksOutside(panel);
-      return;
-    }
-    if (!isPanelName(details.frameName)) return;
-    owned.adopt(details.frameName, panel);
-    keepLinksOutside(panel);
+  win.webContents.on("did-create-window", (stage, details) => {
+    if (!isStageName(details.frameName)) return;
+    stages.adopt(details.frameName, stage);
+    keepLinksOutside(stage);
   });
-}
-
-/**
- * The audio engine's plugin windows follow this one (docs/fl-studio/plugin-window.md): at the floating
- * level while the app is in use, hidden with the main window, and carried along when it moves.
- */
-async function tellEngineWhereWeAre(bounds?: Electron.Rectangle): Promise<void> {
-  const win = mainWindow;
-  if (!win || win.isDestroyed()) return setHostWindow?.({ ...floatingState, visible: false, bounds: { x: 0, y: 0, width: 0, height: 0 } });
-  // Windows: plugin windows become the main window's own (above it, not above other programs, no taskbar
-  // buttons, minimised with it), which needs its handle. The engine reads it from the message as it comes.
-  return setHostWindow?.({ ...floatingState, bounds: bounds ?? win.getBounds(), handle: nativeHandle(win) });
-}
-
-/** Windows: a window's HWND as a decimal number (a pointer: 8 bytes on 64-bit Windows). */
-function nativeHandle(win: BrowserWindow): string | undefined {
-  if (!isWindows) return undefined;
-  const handle = win.getNativeWindowHandle();
-  return handle.length >= 8 ? handle.readBigUInt64LE().toString() : handle.readUInt32LE().toString();
-}
-
-function followByPluginWindows(win: BrowserWindow) {
-  const tell = () => {
-    if (win.isDestroyed()) return;
-    group?.setMainVisible(win.isVisible() && !win.isMinimized());
-    void tellEngineWhereWeAre();
-  };
-  // (A window that isn't shown yet isn't visible: it's told again as it shows, and when the page has loaded in it.)
-  for (const event of ["show", "hide", "minimize", "restore", "move", "resize", "focus", "ready-to-show"] as const) win.on(event as "move", tell);
-  // Windows: as a move starts, not once it's done, so the plugin windows keep up with it rather than trail behind.
-  if (isWindows)
-    win.on("will-move", (_event, next) => {
-      if (!win.isDestroyed()) void tellEngineWhereWeAre(next);
-    });
-  win.webContents.on("did-finish-load", tell);
-  win.on("closed", () => {
-    group?.setMainVisible(false);
-    void tellEngineWhereWeAre();
-  });
-  tell();
 }
 
 /** Links to the web open in the user's browser; the window only ever shows the editor. */

@@ -202,7 +202,6 @@ public:
 bool EditorWindow::typingKeyboard = false;
 void* EditorWindow::owner = nullptr;
 bool EditorWindow::shell = false;
-int EditorWindow::busy = 0;
 juce::Array<EditorWindow*> EditorWindow::openWindows;
 
 namespace
@@ -230,8 +229,6 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
     setTitleBarHeight (barHeight);
     setTitleBarButtonsRequired (DocumentWindow::closeButton, false);
 
-    // Making a plugin's editor can take a while (Serum's: a second or more), and so can its first appearance.
-    const auto hold = whileBusy();
     juce::AudioProcessorEditor* created = plugin.hasEditor() ? plugin.createEditorIfNeeded() : nullptr;
     if (created == nullptr)
         created = new juce::GenericAudioProcessorEditor (plugin);
@@ -374,24 +371,6 @@ void EditorWindow::resized()
     }
 }
 
-void EditorWindow::activeWindowStatusChanged()
-{
-    DocumentWindow::activeWindowStatusChanged();
-    if (isActiveWindow() && onActivated != nullptr)
-        onActivated();
-}
-
-void EditorWindow::setAppWindow (void* window)
-{
-    if (shell)
-        return;
-   #if JUCE_WINDOWS
-    owner = window;
-   #else
-    juce::ignoreUnused (window);
-   #endif
-}
-
 void EditorWindow::setShellWindow (void* window)
 {
     shell = window != nullptr;
@@ -402,37 +381,7 @@ void EditorWindow::setShellWindow (void* window)
 
 void EditorWindow::followAppWindow()
 {
-    setWindowOwner (*this, busy > 0 ? nullptr : owner);
-}
-
-std::shared_ptr<void> EditorWindow::whileBusy()
-{
-   #if JUCE_WINDOWS
-    // (The windows are the message thread's: work elsewhere doesn't hold it up. In the shell they belong to a window
-    // of this program's, which waits for nothing.)
-    if (shell || ! juce::MessageManager::existsAndIsCurrentThread())
-        return {};
-    if (busy++ == 0)
-        for (auto* window : openWindows)
-            window->followAppWindow();
-    // Let go of later, from the message queue: busy work one after another (a song's samples read one by one,
-    // then its plugins) is one busy stretch, and the windows belong to the app again once it's all done.
-    return std::shared_ptr<void> (nullptr, [] (void*) {
-        juce::MessageManager::callAsync ([] {
-            if (--busy != 0)
-                return;
-            for (auto* window : openWindows)
-            {
-                window->followAppWindow();
-                // One shown meanwhile belonged to nothing, so the app's window (in use) stayed in front of it.
-                if (std::exchange (window->raiseWhenOwned, false) && window->isVisible())
-                    window->toFront (true);
-            }
-        });
-    });
-   #else
-    return {};
-   #endif
+    setWindowOwner (*this, owner);
 }
 
 int EditorWindow::getDesktopWindowStyleFlags() const
@@ -463,8 +412,6 @@ void EditorWindow::show()
 {
     juce::Process::makeForegroundProcess();
     followAppWindow();
-    // (Windows: while the message thread is busy it belongs to nothing, and comes in front once it belongs to the app.)
-    raiseWhenOwned = busy > 0 && owner != nullptr;
     setVisible (true);
     keepOutOfWindowSwitchers (*this);
     toFront (true);

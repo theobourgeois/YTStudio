@@ -49,14 +49,6 @@ void keepOutOfWindowSwitchers (juce::Component&) {}
 #endif
 
 #if JUCE_WINDOWS
-void* appWindowFromHandle (const juce::String& handle)
-{
-    if (handle.isEmpty() || ! handle.containsOnly ("0123456789"))
-        return nullptr;
-    auto* window = reinterpret_cast<HWND> (static_cast<uintptr_t> (handle.getLargeIntValue()));
-    return IsWindow (window) ? window : nullptr;
-}
-
 void setWindowOwner (juce::Component& window, void* owner)
 {
     auto* peer = window.getPeer();
@@ -130,6 +122,21 @@ void* nativeWindowOf (juce::Component& window)
     return peer != nullptr ? peer->getNativeHandle() : nullptr;
 }
 
+juce::Rectangle<int> nativeFrameOf (juce::Component& window)
+{
+    RECT frame;
+    if (auto* hwnd = static_cast<HWND> (nativeWindowOf (window)); hwnd != nullptr && GetWindowRect (hwnd, &frame))
+        return { frame.left, frame.top, frame.right - frame.left, frame.bottom - frame.top };
+    return {};
+}
+
+void moveWindowBy (juce::Component& window, juce::Point<int> delta)
+{
+    RECT frame;
+    if (auto* hwnd = static_cast<HWND> (nativeWindowOf (window)); hwnd != nullptr && GetWindowRect (hwnd, &frame))
+        SetWindowPos (hwnd, nullptr, frame.left + delta.x, frame.top + delta.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+}
+
 void cloakWindow (juce::Component& window, bool cloaked)
 {
     if (auto* hwnd = static_cast<HWND> (nativeWindowOf (window)))
@@ -176,12 +183,10 @@ void keepAwake (bool playing)
     SetThreadExecutionState (playing ? (ES_CONTINUOUS | ES_SYSTEM_REQUIRED) : ES_CONTINUOUS);
 }
 #else
-void* appWindowFromHandle (const juce::String&) { return nullptr; }
 #if JUCE_MAC
 void setWindowOwner (juce::Component& window, void* owner)
 {
-    // macOS's owned windows are child windows: above their parent only, moved and minimised with it. (Only the
-    // shell's window owns plugin windows here: the desktop app's is another program's, which has levels instead.)
+    // macOS's owned windows are child windows: above their parent only, moved and minimised with it.
     auto* peer = window.getPeer();
     if (peer == nullptr || peer->getNativeHandle() == nullptr)
         return;
@@ -210,6 +215,8 @@ void* nativeWindowOf (juce::Component& window)
     auto* peer = window.getPeer();
     return peer != nullptr ? peer->getNativeHandle() : nullptr;
 }
+juce::Rectangle<int> nativeFrameOf (juce::Component&) { return {}; }
+void moveWindowBy (juce::Component&, juce::Point<int>) {}
 void cloakWindow (juce::Component&, bool) {}
 void keepAwake (bool) {}
 #endif

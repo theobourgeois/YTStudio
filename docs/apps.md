@@ -176,13 +176,20 @@ exports (the engine renders songs).
 
 ### 5. Electron loses the music suite's workarounds
 
-With no music in Electron, its plugin-window code has nothing to do. These go:
-- `electron/floating.ts`, `stacking.ts`, the engine half of `hover.ts`;
-- `setHostWindow` and `raiseEngineWindow` (`server-protocol.ts`, `server/app.ts`);
-- `whileBusy`, cloaking, `setAppWindow` and pre-warmed panels for the engine;
-- the music half of `panels.ts`.
+**Built** (2026-10-23, on top of step 4; merged only after step 3's Windows half, since until then Windows' music
+is still Electron's). The music suite stays in YTStudio (every suite), but as in a browser: its windows are boxes in
+the page and a plugin's window is an ordinary window of the engine's. Gone:
+- `electron/floating.ts`, `stacking.ts`, `hover.ts` and `panels.ts` (the page's windows as Electron's: so Settings
+  and the music windows are boxes on Windows too), and `scripts/music-window-smoke.ts` (`test:desktop:music`);
+- `setHostWindow`, `raiseEngineWindow`, `onEngineWindow`, `closeEngineWindows` and the restart callback
+  (`server-protocol.ts`, `server-process.ts`, `server-host.ts`, `server/app.ts`);
+- the engine's `foreground` and `editorFocus` events, `raiseEditor`, `closeEditors`, the `HostWindow` it was told
+  (now only `host { bounds }`, the music app's own window), `whileBusy`, `setAppWindow`, `appWindowFromHandle` and
+  the window levels it kept (`placeWindows`).
 
-The guides (`docs/claude/music-engine.md`, `docs/windows.md`, CLAUDE.md) are rewritten to match.
+Kept: the cloak until a plugin's window is drawn (still white first without it), and the page's side of native
+windows (`components/windows/native/`, `DesktopPanels`, pre-warmed panel windows) for step 3's panels as the music
+app's owned windows. Stages (`electron/stage.ts`) are the Visualizer's and stay.
 - **Done when:** the Electron apps build without any of it and their tests pass.
 
 ### 6. A launcher (only if missed)

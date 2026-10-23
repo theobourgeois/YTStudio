@@ -136,18 +136,11 @@ public:
     void saveStates();
     /** False if the owner has no loaded plugin. */
     bool showEditor (const juce::String& ownerId, bool open);
-    /** The owner's window in front of the others (not given the focus); false if it has none open. */
-    bool raiseEditor (const juce::String& ownerId);
-    /** The owner whose window has the keyboard focus, or empty if none does. */
-    juce::String focusedEditor() const;
     void prepare (double sampleRate, int blockSize);
     /**
-     * What the desktop app says of itself (`{ floating, visible, bounds: { x, y, width, height } }`)
-     * whenever it changes. From then on, plugin windows act as windows of its own: they're at the level
-     * of its floating windows (the channel rack, the Piano roll...: whichever was clicked last is in front
-     * of the others) while `floating` (the app, or one of them, is the one in use), at the ordinary level
-     * otherwise, hidden while its window is minimised or hidden (`visible`), and moved when it moves
-     * (`bounds`). Without it (a browser tab) they're ordinary windows.
+     * Where the shell's window is (`{ bounds: { x, y, width, height }, frame? }`, `ShellWindow::tellHost`) whenever
+     * it moves or resizes: plugin windows open over it and, on Windows, move with it by its `frame` (physical
+     * pixels; macOS moves child windows itself). Without a shell (a browser tab, the Electron apps) it's never said: they're ordinary windows.
      */
     void setHost (const juce::var& host);
     /** A fingerprint of the loaded plugins' reported delays, to notice one changing (a linear-phase EQ switched on). */
@@ -245,8 +238,6 @@ private:
     static juce::String presetLabel (const HostedPlugin&);
     /** `{ owner, id, index, param, name, value, text }` for one of the owner's plugin's parameters, or void. */
     juce::var describeParameter (const juce::String& ownerId, int index) const;
-    /** Floats and shows the windows as the app says (`setHost`). */
-    void placeWindows();
     static juce::String titleOf (const HostedPlugin&);
 
     juce::AudioPluginFormatManager& formats;
@@ -258,9 +249,8 @@ private:
     /** Owners whose plugin is loading: its id and the file its state comes from (`pluginId\nstate path`). */
     std::map<juce::String, juce::String> loading;
     std::map<juce::String, juce::String> failed;
-    /** The app's state, once the desktop app has said. */
-    bool hostKnown = false, hostFloating = true, hostVisible = true;
-    juce::Rectangle<int> hostBounds;
+    /** Where the shell's window is (`setHost`); empty without one. Windows: its frame in physical pixels too. */
+    juce::Rectangle<int> hostBounds, hostFrame;
     bool exporting = false;
     juce::StringArray watchedScopes;
     double sampleRate = 48000.0;

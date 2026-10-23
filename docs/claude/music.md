@@ -311,7 +311,6 @@ The native engine (`engine/`, C++/JUCE: threads, the mixer, samples, offline ren
 ```bash
 pnpm tsx scripts/pro-c-sheet.ts [style ...] [--out f.png]           # Pro-C's styles measured on the engine: curves, gain, colour
 pnpm tsx scripts/engine-profile.ts <Name.ytsng> [--only-plugin n] [--sample]   # a song's playback load, offline (silent)
-pnpm test:desktop:music # macOS: real clicks between the music windows and Serum's (or the test synth's): stacking, focus, app switching; needs Accessibility access and an unlocked screen
 pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build; needs cmake + ninja (brew)
 pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit (and Convert to notes' tone) into public/kit/
 pnpm tsx scripts/make-audio-fixtures.ts [--out dir]   # the audio-intelligence fixtures as WAVs + a manifest (tests render them in memory)

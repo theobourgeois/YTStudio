@@ -74,8 +74,6 @@ std::shared_ptr<const Sample> SampleCache::get (const juce::String& path)
         return found->second;
 
     std::shared_ptr<Sample> sample;
-    // A long file takes a moment to read.
-    const auto hold = EditorWindow::whileBusy();
     if (std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor (juce::File (path)) })
     {
         if (reader->lengthInSamples > 0 && (double) reader->lengthInSamples <= maxSampleSeconds * reader->sampleRate)

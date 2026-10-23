@@ -24,7 +24,6 @@
     "samples": "tsx scripts/make-samples.ts",
     "test:e2e": "playwright test",
     "test:desktop": "tsx scripts/desktop-smoke.ts",
-    "test:desktop:music": "tsx scripts/music-window-smoke.ts",
     "engine:build": "tsx scripts/build-engine.ts"
   },
   "dependencies": {

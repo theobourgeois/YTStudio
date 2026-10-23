@@ -27,8 +27,6 @@ let metronome = false;
 let song = null;
 /** When the song started playing (ms), or null. */
 let playingSince = null;
-/** What the desktop app last said of its window (`host`). */
-let host = null;
 /**
  * The Browser's preview: what, from where, since when (ms). It plays for 4 s from where it starts (the fake reads
  * no files): long enough that a test pausing it finds it still playing on a busy computer.
@@ -716,8 +714,6 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     delete song.sameNotes;
     return send({ id, ok: true, result: { unreadable: [], channels: channels(), effects: effects() } });
   }
-  if (cmd === "host") host = params;
-  if (cmd === "whatHost") return send({ id, ok: true, result: host });
   // The song as it was last given (tests: its automation lanes).
   if (cmd === "whatSong") return send({ id, ok: true, result: song });
   if (cmd === "parameters") {
@@ -839,7 +835,6 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (params.open) editors.add(params.channel);
     else editors.delete(params.channel);
   }
-  if (cmd === "raiseEditor" && !editors.has(params.target)) return fail("That plugin has no window open.");
   if (cmd === "effectEditor") {
     if (!effects().loaded.some((e) => e.effect === params.effect)) return fail("That effect's plugin isn't loaded.");
     if (params.open) editors.add(params.effect);

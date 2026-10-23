@@ -1,16 +1,14 @@
 /**
  * The main process's side of the server's own process (server-process.ts): starts it, answers what it asks
- * (the Trash, Show in Folder, the export's drawing page), passes on what the app asks of it, writes its log
- * lines, and starts it again if it dies. To the rest of main.ts it's the server as before (`RunningServer`).
+ * (the Trash, Show in Folder, the export's drawing page), writes its log lines, and starts it again if it dies. To the rest of main.ts it's the server as before (`RunningServer`).
  */
 import path from "node:path";
 import { type UtilityProcess, shell, utilityProcess } from "electron";
-import type { EngineWindowEvent } from "../server/app.ts";
 import type { GlPage } from "../server/gl-browser.ts";
 import { log, writeLogLines } from "../server/log.ts";
 import { openWindowPage } from "./gl-window.ts";
 import type { RunningServer, ServerOptions } from "./server.ts";
-import { type HostCall, type ServerCall, type ServerMessage, type ServerStart, describeError } from "./server-protocol.ts";
+import { type HostCall, type ServerMessage, type ServerStart, describeError } from "./server-protocol.ts";
 
 /** A server that dies is started again, but not more than this many times a minute (it would only die again). */
 const MAX_RESTARTS_A_MINUTE = 3;
@@ -20,19 +18,13 @@ const CLOSE_TIMEOUT_MS = 4000;
 export interface HostedServer extends RunningServer {
   /** Stop it and wait for it to have stopped (or `CLOSE_TIMEOUT_MS`). */
   closeAndWait(): Promise<void>;
-  /** Called when it was started again after dying (the engine was told where the app's window is: it should be again). */
-  onRestart(listener: () => void): void;
 }
 
 export function startServerProcess(options: Omit<ServerOptions, "trash" | "reveal" | "openGlPage">, console: boolean): Promise<HostedServer> {
   const logger = log("desktop");
   const entry = path.join(import.meta.dirname, "server-process.mjs");
-  const engineListeners = new Set<(event: EngineWindowEvent) => void>();
-  const restartListeners = new Set<() => void>();
   const pages = new Map<number, GlPage>();
   let nextPage = 0;
-  let nextId = 0;
-  const waiting = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   let child: UtilityProcess | null = null;
   let closing = false;
   let closed: (() => void) | null = null;
@@ -66,15 +58,6 @@ export function startServerProcess(options: Omit<ServerOptions, "trash" | "revea
     }
   };
 
-  const ask = <T>(call: ServerCall): Promise<T> => {
-    if (!child) return Promise.reject(new Error("The server isn't running."));
-    const id = ++nextId;
-    return new Promise<T>((resolve, reject) => {
-      waiting.set(id, { resolve: resolve as (value: unknown) => void, reject });
-      child!.postMessage({ type: "call", id, call } satisfies ServerMessage);
-    });
-  };
-
   const launch = (onReady: (port: number) => void, onFailed: (error: Error) => void) => {
     const proc = utilityProcess.fork(entry, [], { serviceName: "YTStudio server", stdio: console ? "inherit" : "ignore" });
     child = proc;
@@ -90,18 +73,8 @@ export function startServerProcess(options: Omit<ServerOptions, "trash" | "revea
           return onFailed(new Error(message.error));
         case "log":
           return writeLogLines(message.text);
-        case "engineWindow":
-          for (const listener of engineListeners) listener(message.event);
-          return;
         case "closed":
           return closed?.();
-        case "reply": {
-          const pending = waiting.get(message.id);
-          waiting.delete(message.id);
-          if (message.ok) pending?.resolve(message.value);
-          else pending?.reject(new Error(message.error));
-          return;
-        }
         case "call":
           answer(message.call as HostCall).then(
             (value) => proc.postMessage({ type: "reply", id: message.id, ok: true, value: value ?? null } satisfies ServerMessage),
@@ -112,8 +85,6 @@ export function startServerProcess(options: Omit<ServerOptions, "trash" | "revea
     });
     proc.on("exit", (code) => {
       if (child === proc) child = null;
-      for (const pending of waiting.values()) pending.reject(new Error("The server stopped."));
-      waiting.clear();
       for (const page of pages.values()) void page.close();
       pages.clear();
       if (closing) return closed?.();
@@ -124,10 +95,7 @@ export function startServerProcess(options: Omit<ServerOptions, "trash" | "revea
       if (restarts.length >= MAX_RESTARTS_A_MINUTE) return logger.error("the server keeps stopping: not starting it again");
       restarts.push(now);
       launch(
-        () => {
-          logger.info("the server was started again");
-          for (const listener of restartListeners) listener();
-        },
+        () => logger.info("the server was started again"),
         (err) => logger.error("the server couldn't be started again", err),
       );
     });
@@ -160,14 +128,6 @@ export function startServerProcess(options: Omit<ServerOptions, "trash" | "revea
             close();
           });
         },
-        setHostWindow: (host) => ask<void>({ method: "setHostWindow", host }).catch(() => {}),
-        onEngineWindow(listener) {
-          engineListeners.add(listener);
-          return () => void engineListeners.delete(listener);
-        },
-        raiseEngineWindow: (owner, id) => ask<boolean>({ method: "raiseEngineWindow", owner, id }).catch(() => false),
-        closeEngineWindows: () => ask<void>({ method: "closeEngineWindows" }),
-        onRestart: (listener) => void restartListeners.add(listener),
       });
     }, reject);
   });

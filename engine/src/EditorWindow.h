@@ -1,7 +1,6 @@
-// A plugin's own interface in a window of ours (FL Studio's plugin wrapper: docs/fl-studio/plugin-window.md).
-// The engine is a program of its own, so the window can't be inside the app's: it's made to act as if it
-// were (our own title bar; the keys the plugin doesn't use go to the app; `PluginHost::setHost` puts it at the
-// level of the app's floating windows, hides it and moves it with the app's window).
+// A plugin's own interface in a window of ours (FL Studio's plugin wrapper: docs/fl-studio/plugin-window.md):
+// our own title bar, the keys the plugin doesn't use go to the app, and in the music app it belongs to the
+// app's window (`setShellWindow`). Elsewhere (a browser tab, the Electron apps) it's an ordinary window.
 #pragma once
 
 #include <functional>
@@ -30,30 +29,14 @@ public:
     void centreOver (juce::Rectangle<int> area);
 
     /**
-     * Windows: the desktop app's main window (`appWindowFromHandle`), or null. Plugin windows belong to it
-     * there (`setWindowOwner`: above it, not above other programs, minimised with it) and have no taskbar
-     * button or Alt+Tab entry of their own, as FL Studio's don't. Always null elsewhere.
-     */
-    static void setAppWindow (void* window);
-    static void* appWindow() { return owner; }
-    /**
-     * The shell's window (`ShellWindow`: the app's page in a window of this program's own). Plugin windows belong
-     * to it on every system (Windows: owned; macOS: its child windows), as FL Studio's belong to its main window,
-     * and the desktop app's window (`setAppWindow`) is ignored from then on. In one program nothing waits across
-     * programs, so `whileBusy` holds nothing.
+     * The shell's window (`ShellWindow`: the app's page in a window of this program's own), or null. Plugin windows
+     * belong to it (`setWindowOwner`; Windows: owned, no taskbar button or Alt+Tab entry; macOS: its child windows),
+     * as FL Studio's belong to its main window: above it, not above other programs, minimised and moved with it.
      */
     static void setShellWindow (void* window);
     static bool inShell() { return shell; }
-    /** Belong to the app's window as it is now (Windows; nothing elsewhere). */
+    /** Belong to the shell's window as it is now (none: to nothing). */
     void followAppWindow();
-    /**
-     * Windows: the message thread is about to be busy for a while (a plugin loading, its editor being made, a
-     * sample read): until the returned hold is let go (on the message thread), no plugin window belongs to the
-     * app's. Belonging to a window of another program ties the two programs' threads together: the app's
-     * thread waits for ours whenever it moves, raises or activates a window, and shares its input with it, so
-     * a plugin taking seconds to load would freeze the app for as long. Holds nest; nothing elsewhere.
-     */
-    static std::shared_ptr<void> whileBusy();
     /** The typing piano takes note keys before a plugin can consume them. */
     static bool typingKeyboard;
 
@@ -72,9 +55,6 @@ public:
     /** Its wrapper button (FL's Wrapper settings): the channel's settings window, in the app. */
     std::function<void()> onSettings;
     void resized() override;
-    /** Called when it becomes the active window (it was clicked, or opened): the app stacks its own windows by it. */
-    std::function<void()> onActivated;
-
     int getDesktopWindowStyleFlags() const override;
 
 private:
@@ -82,10 +62,6 @@ private:
     static bool shell;
     /** Made for `dropFiles` alone: never seen, clicked or listed (Windows: cloaked for its whole life). */
     const bool hidden;
-    /** How many `whileBusy` holds are out. */
-    static int busy;
-    /** Shown while busy: brought to the front once the holds are let go. */
-    bool raiseWhenOwned = false;
     /**
      * A new window is cloaked (`cloakWindow`) until it has been drawn: until the message thread, which draws it
      * and the plugin's editor, has kept time for a few ticks in a row (or a second has gone by).
@@ -93,8 +69,7 @@ private:
     void timerCallback() override;
     juce::uint32 cloakedAt = 0, lastTick = 0;
     int calmTicks = 0;
-    void activeWindowStatusChanged() override;
-    /** Its peer may be made again (a style change): the new one belongs to the app's window too. */
+    /** Its peer may be made again (a style change): the new one belongs to the shell's window too. */
     void parentHierarchyChanged() override;
     using DocumentWindow::keyPressed;
     /** Keys the plugin didn't use (Space, F6, ⌘Z…) go to the app, which runs its shortcut (`EngineEvent` "key"). */

@@ -27,7 +27,6 @@ import {
   type EngineSlot,
   type EngineStatus,
   type EngineTakeEvent,
-  type HostWindow,
   type LoadedPlugin,
   METRONOME_SOUNDS,
   type PluginPresets,
@@ -257,8 +256,6 @@ export class AudioEngine {
   /** The notes of the last song sent to the engine, as sent: a song with the same leaves them out (`sameNotes`). */
   private sentNotes: string | null = null;
   private stateTimer: NodeJS.Timeout | null = null;
-  /** The desktop app's window, to tell a restarted engine too. */
-  private host: HostWindow | null = null;
   private readonly adoptTake: AdoptTake | null;
   private readonly connection: EngineConnection | null;
   private readonly onAppQuit: (() => void) | null;
@@ -403,29 +400,6 @@ export class AudioEngine {
       })),
     };
     return { song, compiled, clock };
-  }
-
-  /**
-   * The desktop app changed (it's the one in use or not, minimised, moved): plugin windows follow. Only
-   * sent to a running engine (it's no reason to start one); a new one is told when it starts.
-   */
-  setHost(host: HostWindow): Promise<void> {
-    this.host = host;
-    if (!this.link) return Promise.resolve();
-    return this.request("host", { ...host }).then(
-      () => {},
-      () => {},
-    );
-  }
-
-  /** Close every plugin window that's open. Nothing if the engine isn't running (it isn't started for this). */
-  async closeEditors(): Promise<void> {
-    if (!this.link) return;
-    const status = (await this.request("status", {})) as RawStatus;
-    await Promise.all([
-      ...status.channels.loaded.filter((c) => c.editorOpen).map((c) => this.request("channelEditor", { channel: c.channel, open: false })),
-      ...status.effects.loaded.filter((e) => e.editorOpen).map((e) => this.request("effectEditor", { effect: e.effect, open: false })),
-    ]).catch(() => {});
   }
 
   /**
@@ -814,11 +788,6 @@ export class AudioEngine {
         const tracks = Array.isArray(body.tracks) ? body.tracks.filter((t): t is string => typeof t === "string" && /^[\w-]{1,64}$/.test(t)) : [];
         return { tracks: tracks.slice(0, 1024) };
       }
-      case "raiseEditor": {
-        if (body.owner !== "channel" && body.owner !== "effect") throw new HttpError(400, '"owner" must be "channel" or "effect".');
-        if (typeof body.target !== "string" || !body.target) throw new HttpError(400, '"target" must be the channel\'s or effect\'s id.');
-        return { owner: body.owner, target: body.target };
-      }
       case "effectEditor": {
         if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be an effect\'s id.');
         return { effect: body.effect, open: body.open === true };
@@ -1020,7 +989,6 @@ export class AudioEngine {
           // A restarted engine has forgotten the song: give it back before anything else is asked.
           this.sentNotes = null;
           if (this.song) void this.request("song", { song: this.song }).catch(() => {});
-          if (this.host) void this.request("host", { ...this.host }).catch(() => {});
           resolve();
           this.emit({ event: "ready" });
         } else if (message.event === "take") {
@@ -1028,8 +996,6 @@ export class AudioEngine {
         } else if (
           message.event === "transport" ||
           message.event === "key" ||
-          message.event === "foreground" ||
-          message.event === "editorFocus" ||
           message.event === "export" ||
           message.event === "touch" ||
           message.event === "automate" ||

@@ -4,9 +4,9 @@ Read the engine's guide (`docs/claude/music-engine.md`) first; the plan is `docs
 
 **Why.** In the Electron app the page is Electron's and the plugin windows are the engine's: two programs. On
 Windows, owning a window across programs (`GWLP_HWNDPARENT`) joins their input queues, so Electron's UI thread
-waits on the engine's message thread and the other way round. That causes the freezes, and every workaround around
-them: `whileBusy`, cloaking, the stdout writer thread, pre-warmed panels, restacking. FL Studio is one program, so
-none of it applies there. So the music app is the engine: the page in a window of its own (WKWebView through JUCE's
+waits on the engine's message thread and the other way round. That caused the freezes, and every workaround around
+them: `whileBusy`, cloaking, the stdout writer thread, pre-warmed panels, restacking (most gone with step 5). FL
+Studio is one program, so none of it applies there. So the music app is the engine: the page in a window of its own (WKWebView through JUCE's
 `WebBrowserComponent` on macOS, WebView2 hosted by `WebView.cpp` on Windows), the plugin windows beside it in the
 same program. It was tried on Windows first (2026-10-23) and nothing froze.
 
@@ -58,8 +58,10 @@ dropouts). WebView2's SDK comes from NuGet at configure time (engine/CMakeLists.
 profile is kept in `<data>/engine/webview`.
 
 Plugin windows are owned by the window (`EditorWindow::setShellWindow`): an owned window on Windows, a child window
-on macOS (`setWindowOwner`, MacWindow.cpp). They stay over it, move with it and never ask another program anything,
-so `whileBusy` does nothing there.
+on macOS (`setWindowOwner`, MacWindow.cpp). They stay over it, move with it and never ask another program anything.
+The window tells the engine's plugin host where it is (`host { bounds }`, `ShellWindow::tellHost`), so a plugin's
+window opens over it; on Windows also its `frame` in physical pixels, which the plugin windows move by. What Electron needed to coordinate with the engine's windows from another program (window levels,
+restacking, the hover relay, `whileBusy`) is gone (docs/apps.md, step 5).
 
 **macOS** (`ShellMac.mm`, Objective-C++ without ARC, as JUCE is; `ShellWindow` calls it). JUCE's
 `WebBrowserComponent` (WKWebView) is kept: what it doesn't say is done to its window and view in AppKit, as Electron

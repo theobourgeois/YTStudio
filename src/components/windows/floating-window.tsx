@@ -667,16 +667,15 @@ function afterPaint(win: Window): Promise<void> {
 }
 
 /**
- * Whether a `native` desktop's windows are windows of the operating system in the desktop app. On Windows they
- * are: each is owned by the main window, as the plugin windows are (electron/panels.ts), so the two kinds stack
- * among each other by use, as FL Studio's do. On a Mac they're drawn in the page, as in a browser, and a plugin's
- * window (the audio engine's) floats over the main window and closes when the app is clicked
- * (`closeEngineWindows`): window levels there gave no hover or keyboard to the windows beside the one in use
- * (docs/windows.md).
+ * Whether a `native` desktop's windows are windows of the operating system: on Windows, where the page's host
+ * gives it `panels` (the music app, with step 3's Windows half: no host does yet). Each will be owned by the main
+ * window, as the plugin windows are, so the two kinds stack among each other by use, as FL Studio's do. On a Mac
+ * they're drawn in the page, as in a browser: window levels there gave no hover or keyboard to the windows beside
+ * the one in use (docs/windows.md).
  */
 const NATIVE_WINDOWS = typeof window !== "undefined" && window.editorDesktopInfo?.platform === "win32" && window.editorDesktopInfo.panels !== undefined;
 
-/** Whether a `native` desktop's windows are windows of the system here (the desktop app, on Windows). */
+/** Whether a `native` desktop's windows are windows of the system here (a host with panels, on Windows). */
 export const nativeWindowsOn = (): boolean => NATIVE_WINDOWS && desktopPanels() !== undefined;
 
 /**
