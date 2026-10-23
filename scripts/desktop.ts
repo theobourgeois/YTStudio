@@ -450,7 +450,7 @@ async function packApp(targets: "dir" | "installers", app: AppInfo) {
       appId: app.bundleId,
       productName: app.name,
       // scripts/make-icon.ts draws them; electron-builder makes the .icns / .ico from the 1024 px PNG.
-      icon: path.join(ROOT, "resources", app.id ? path.join("apps", `${app.id}.png`) : "icon.png"),
+      icon: appIcon(app),
       electronVersion: electronPkg.version,
       // Reuse the installed Electron distribution; avoids a second download/extract and Windows rename locks.
       // The folder holding Electron's app: the binary's own folder on Windows, the one around Electron.app on a Mac.
@@ -555,6 +555,10 @@ async function musicResources(resources: string, node: string) {
   cpSync(MUSIC_WORKER_STAGE, path.join(resources, "music-worker"), { recursive: true });
 }
 
+/** An app's icon for this system: Windows' fills more of the picture, as its own icons do (scripts/make-icon.ts). */
+const appIcon = (app: AppInfo) =>
+  path.join(ROOT, "resources", `${app.id ? path.join("apps", app.id) : "icon"}${process.platform === "win32" ? "-win" : ""}.png`);
+
 /** A 1024 px PNG as the .icns a Mac app's Info.plist names. */
 function macIcon(png: string, icns: string) {
   const set = `${icns.slice(0, -".icns".length)}.iconset`;
@@ -641,7 +645,7 @@ async function packMusicWindows(targets: "dir" | "installers", app: AppInfo) {
       config: {
         appId: app.bundleId,
         productName: app.name,
-        icon: path.join(ROOT, "resources", "apps", `${app.id}.png`),
+        icon: appIcon(app),
         electronVersion: electronPkg.version,
         directories: { output: releaseDir(app) },
         win: { fileAssociations: projectTypes(app).map((type) => ({ ext: type.ext, name: type.name, role: "Editor" })) },

@@ -5,12 +5,18 @@
  *
  *   pnpm tsx scripts/make-icon.ts [--design yt|wave] [--variant light|dark] [--out dir]
  *   pnpm tsx scripts/make-icon.ts --app video|music|photo|visualizer|all
+ *   pnpm tsx scripts/make-icon.ts --colourways
  *
  * Writes icon.svg and icon.png (1024 px, what electron-builder turns into .icns/.ico) into resources/ by default,
  * and the light one as the web app's favicon (public/favicon.png). `--app` draws an app's own (docs/apps.md): the
- * banner in its colours, with a silver tressure, into resources/apps/<app>.svg and .png.
+ * banner in its colours, with a silver tressure, into resources/apps/<app>.svg and .png. `--colourways` renders
+ * Settings' other icons (design/icon-studies) into public/app-icons/.
+ *
+ * The SVGs are on Apple's grid; each PNG is drawn twice, a little larger than the grid for a Mac (`<name>.png`) and
+ * filling nearly the whole canvas for Windows (`<name>-win.png`, or under `win/` in public/app-icons), as each
+ * system's own icons do (see TILES).
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright-core";
 import sharp from "sharp";
@@ -29,6 +35,14 @@ const outDir = path.resolve(arg("out") ?? path.join(ROOT, "resources"));
 const SIZE = 1024;
 const TILE = 824;
 const INSET = (SIZE - TILE) / 2;
+
+/**
+ * How wide the tile is drawn in each system's PNG, of 1024. Apple's grid (824) looked smaller in the Dock than the
+ * apps beside it, the banner's frame drawing the eye inward, so a Mac's is a little larger; Windows' own icons fill
+ * the canvas, where the grid's margin left ours small on the taskbar.
+ */
+const TILES = { mac: 880, win: 960 } as const;
+type System = keyof typeof TILES;
 
 /**
  * A macOS tile: a rounded square whose corners ease into the sides (Apple's continuous corners), drawn as a
@@ -382,6 +396,33 @@ function ytSvg(p: YtPalette, LINES: number): string {
 </svg>`;
 }
 
+/** An SVG on the grid (1024 px, its tile 824) redrawn `size` px square with its tile as wide as `system` has it. */
+function sized(svg: string, system: System, size = SIZE): string {
+  const side = SIZE * (TILES[system] / TILE) * (size / SIZE);
+  const at = ((size - side) / 2).toFixed(2);
+  const inner = svg.replace(/<svg [^>]*?width="\d+" height="\d+"/, (open) =>
+    open.replace("<svg ", `<svg x="${at}" y="${at}" `).replace(/width="\d+" height="\d+"/, `width="${side.toFixed(2)}" height="${side.toFixed(2)}"`),
+  );
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${inner}</svg>`;
+}
+
+/** Where a system's copy of a PNG goes: a Mac's is `file` itself. */
+const forSystem = (file: string, system: System, layout: "suffix" | "folder") =>
+  system === "mac"
+    ? file
+    : layout === "suffix"
+      ? file.replace(/\.png$/, `-${system}.png`)
+      : path.join(path.dirname(file), system, path.basename(file));
+
+/** Draw an SVG on the grid to each system's PNG of it. */
+async function renderEach(page: import("playwright-core").Page, svg: string, file: string, layout: "suffix" | "folder", size = SIZE) {
+  for (const system of Object.keys(TILES) as System[]) {
+    const out = forSystem(file, system, layout);
+    mkdirSync(path.dirname(out), { recursive: true });
+    await render(page, sized(svg, system, size), out, size);
+  }
+}
+
 /** Draw an SVG to a PNG of its size. */
 async function render(page: import("playwright-core").Page, svg: string, file: string, size = SIZE) {
   await page.setViewportSize({ width: size, height: size });
@@ -400,7 +441,14 @@ try {
 const page = await browser.newPage({ viewport: { width: SIZE, height: SIZE } });
 
 const appArg = arg("app");
-if (appArg) {
+if (process.argv.includes("--colourways")) {
+  // Settings' colourways (shared/app-icons.ts), drawn once as studies of the banner: the PNGs follow the grid's sizes.
+  const studies = path.join(ROOT, "design", "icon-studies");
+  for (const name of readdirSync(studies).filter((f) => /^\d+-.+\.svg$/.test(f))) {
+    const id = name.replace(/^\d+-/, "").replace(/\.svg$/, "");
+    await renderEach(page, readFileSync(path.join(studies, name), "utf8"), path.join(ROOT, "public", "app-icons", `${id}.png`), "folder");
+  }
+} else if (appArg) {
   const apps = appArg === "all" ? (Object.keys(APPS) as AppId[]) : [appArg];
   const dir = path.resolve(arg("out") ?? path.join(ROOT, "resources", "apps"));
   mkdirSync(dir, { recursive: true });
@@ -410,23 +458,20 @@ if (appArg) {
     const picture = palette.picture ? await visualizerPicture() : undefined;
     const svg = ytSvg({ ...palette, picture }, Number(arg("lines") ?? 2));
     writeFileSync(path.join(dir, `${id}.svg`), svg);
-    await render(page, svg, path.join(dir, `${id}.png`));
+    await renderEach(page, svg, path.join(dir, `${id}.png`), "suffix");
     // The page's copy: the Dock's and Settings' "Its own" icon (shared/app-icons.ts), smaller.
-    if (!arg("out")) {
-      const PAGE = 512;
-      mkdirSync(path.join(ROOT, "public", "app-icons", "apps"), { recursive: true });
-      const small = svg.replace(`width="${SIZE}" height="${SIZE}"`, `width="${PAGE}" height="${PAGE}"`);
-      await render(page, small, path.join(ROOT, "public", "app-icons", "apps", `${id}.png`), PAGE);
-    }
+    if (!arg("out")) await renderEach(page, svg, path.join(ROOT, "public", "app-icons", "apps", `${id}.png`), "folder", 512);
   }
 } else {
   mkdirSync(outDir, { recursive: true });
   const svg = design === "yt" ? ytSvg(YT_PALETTES[variant], Number(arg("lines") ?? 2)) : iconSvg(PALETTES[variant]);
   const suffix = (design === "yt" ? "" : `-${design}`) + (variant === "light" ? "" : `-${variant}`);
   writeFileSync(path.join(outDir, `icon${suffix}.svg`), svg);
-  await render(page, svg, path.join(outDir, `icon${suffix}.png`));
-  // The web app's favicon is the light icon too, drawn small rather than scaled down from the PNG.
+  await renderEach(page, svg, path.join(outDir, `icon${suffix}.png`), "suffix");
   if (design === "yt" && variant === "light" && !arg("out")) {
+    // Settings' "Original", the app's own icon for YTStudio (shared/app-icons.ts).
+    await renderEach(page, svg, path.join(ROOT, "public", "app-icons", "original.png"), "folder");
+    // The web app's favicon is the light icon too, drawn small rather than scaled down from the PNG.
     const FAVICON = 128;
     const small = svg.replace(`width="${SIZE}" height="${SIZE}"`, `width="${FAVICON}" height="${FAVICON}"`);
     await render(page, small, path.join(ROOT, "public", "favicon.png"), FAVICON);

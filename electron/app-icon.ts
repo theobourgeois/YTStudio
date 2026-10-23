@@ -10,7 +10,9 @@ const file = () => path.join(app.getPath("userData"), "app-icon.json");
 
 export function desktopIcon() {
   const root = app.isPackaged ? path.join(app.getAppPath(), "dist") : path.join(import.meta.dirname, "..", "public");
-  return nativeImage.createFromPath(path.join(root, "app-icons", appIconFile(choice, ownApp)));
+  // Windows' copies fill the picture, as its own icons do (scripts/make-icon.ts).
+  const system = process.platform === "win32" ? "win" : "";
+  return nativeImage.createFromPath(path.join(root, "app-icons", system, appIconFile(choice, ownApp)));
 }
 
 function apply() {
