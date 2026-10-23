@@ -6,6 +6,9 @@
 #include "MacWindow.h"
 #include "Protocol.h"
 #include "WebView.h"
+#if JUCE_MAC
+ #include "ShellMac.h"
+#endif
 
 namespace
 {
@@ -49,8 +52,8 @@ public:
 };
 #endif
 
-ShellWindow::ShellWindow (const juce::String& urlToShow, Engine& engineToUse, const juce::File& dataDir)
-    : DocumentWindow ("YTStudio Music", loading, DocumentWindow::allButtons), engine (engineToUse), url (urlToShow)
+ShellWindow::ShellWindow (const juce::String& urlToShow, Engine& engineToUse, const juce::File& dataDirToUse)
+    : DocumentWindow ("YTStudio Music", loading, DocumentWindow::allButtons), engine (engineToUse), dataDir (dataDirToUse), url (urlToShow)
 {
    #if JUCE_WINDOWS
     page = std::make_unique<Page> (url, dataDir.getChildFile ("webview"), loading, [this] (const juce::String& name, const juce::var& params, WebView::Complete complete) {
@@ -77,13 +80,30 @@ ShellWindow::ShellWindow (const juce::String& urlToShow, Engine& engineToUse, co
     setUsingNativeTitleBar (true);
     setResizable (true, false);
     setContentNonOwned (page.get(), false);
+    setResizeLimits (800, 500, 100000, 100000);
     const auto area = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea;
     centreWithSize (juce::jmin (1600, area.getWidth() * 9 / 10), juce::jmin (1000, area.getHeight() * 9 / 10));
+    // Where it was last time (a screen since unplugged: JUCE keeps it on one that's there).
+    if (const auto place = placeFile().loadFileAsString(); place.isNotEmpty())
+        restoreWindowStateFromString (place);
     setVisible (true);
     juce::Process::makeForegroundProcess();
     toFront (true);
    #if ! JUCE_WINDOWS
     page->goToURL (url);
+   #endif
+
+   #if JUCE_MAC
+    macShell::Listener listener;
+    listener.menu = [this] (const juce::String& name) { menu (name); };
+    listener.fullScreen = [this] (bool on) { post (protocol::object ({ { "event", "fullscreen" }, { "on", on } })); };
+    listener.dragged = [this] (const juce::StringArray& paths) {
+        juce::Array<juce::var> list;
+        for (const auto& path : paths)
+            list.add (path);
+        post (protocol::object ({ { "event", "dragPaths" }, { "paths", list } }));
+    };
+    macShell::dress (*this, "YTStudio Music", std::move (listener));
    #endif
 
     EditorWindow::setShellWindow (nativeWindowOf (*this));
@@ -92,6 +112,8 @@ ShellWindow::ShellWindow (const juce::String& urlToShow, Engine& engineToUse, co
 
 ShellWindow::~ShellWindow()
 {
+    if (! isFullScreen())
+        placeFile().replaceWithText (getWindowStateAsString());
     EditorWindow::setShellWindow (nullptr);
     clearContentComponent();
 }
@@ -148,7 +170,12 @@ void ShellWindow::command (const juce::String& name, const juce::var& params, Co
         for (const auto& path : waitingFiles)
             files.add (path);
         waitingFiles.clear();
-        return complete (juce::Result::ok(), protocol::object ({ { "files", files } }));
+       #if JUCE_MAC
+        const auto zoom = macShell::pageZoom();
+       #else
+        const auto zoom = 1.0;
+       #endif
+        return complete (juce::Result::ok(), protocol::object ({ { "files", files }, { "zoom", zoom } }));
     }
     if (name == "host.flushed")
     {
@@ -160,11 +187,82 @@ void ShellWindow::command (const juce::String& name, const juce::var& params, Co
         flushes.erase (found);
         return done();
     }
+    if (windowCommand (name, params, complete))
+        return;
     if (hostCommands::runForPage (name, params, complete))
         return;
     if (! directCommands.contains (name))
         return complete (juce::Result::fail ("\"" + name + "\" goes through the server, not straight to the engine."), {});
     engine.handle (name, params, std::move (complete));
+}
+
+bool ShellWindow::windowCommand (const juce::String& name, const juce::var& params, Complete& complete)
+{
+    if (name == "host.window")
+    {
+        // The page's own window buttons (Settings › General without the tab strip).
+        const auto action = params["action"].toString();
+        if (action == "close")
+            closeButtonPressed();
+       #if JUCE_MAC
+        else
+            macShell::windowAction (*this, action);
+       #else
+        else if (action == "fullscreen")
+            setFullScreen (! isFullScreen());
+        else if (action == "minimize")
+            setMinimised (true);
+       #endif
+        complete (juce::Result::ok(), {});
+        return true;
+    }
+   #if JUCE_MAC
+    if (name == "host.titleBar")
+        macShell::titleBar (*this, juce::jlimit (20, 120, (int) params["height"]), (bool) params["ownButtons"]);
+    else if (name == "host.drag")
+        macShell::dragWindow (*this);
+    else if (name == "host.titleDoubleClick")
+        macShell::titleDoubleClicked (*this);
+    else if (name == "host.hide")
+        macShell::hide (params["which"].toString() == "others");
+    else if (name == "host.recent")
+        macShell::noteRecent (params["path"].toString());
+    else
+        return false;
+    complete (juce::Result::ok(), {});
+    return true;
+   #else
+    juce::ignoreUnused (params);
+    return false;
+   #endif
+}
+
+void ShellWindow::menu (const juce::String& name)
+{
+   #if JUCE_MAC
+    if (name.startsWith ("page:"))
+        return post (protocol::object ({ { "event", "command" }, { "name", name.fromFirstOccurrenceOf ("page:", false, false) } }));
+    if (name == "hide" || name == "hideOthers")
+        return macShell::hide (name == "hideOthers");
+    if (name == "reload")
+    {
+        pageReady = false;
+        return macShell::reloadPage (*this);
+    }
+    if (name == "zoomIn" || name == "zoomOut" || name == "zoomReset")
+    {
+        const auto zoom = macShell::zoomPage (*this, name == "zoomIn" ? 1 : name == "zoomOut" ? -1 : 0);
+        return post (protocol::object ({ { "event", "zoom" }, { "factor", zoom } }));
+    }
+    // The app's data folder (`data/`), whose `engine` folder is the engine's.
+    const auto data = dataDir.getParentDirectory();
+    if (name == "showData")
+        data.startAsProcess();
+    else if (name == "showLogs")
+        data.getChildFile ("logs").getChildFile ("ytstudio.log").revealToUser();
+   #else
+    juce::ignoreUnused (name);
+   #endif
 }
 
 void ShellWindow::post (const juce::var& event)
@@ -199,10 +297,13 @@ void ShellWindow::resized()
 void ShellWindow::activeWindowStatusChanged()
 {
     DocumentWindow::activeWindowStatusChanged();
+    // The window was activated (Alt+Tab, ⌘Tab, a plugin's window closed): the keys go to the page, not to JUCE's window.
+    if (! isActiveWindow())
+        return;
    #if JUCE_WINDOWS
-    // The window was activated (Alt+Tab, a plugin's window closed): the keys go to the page, not to JUCE's window.
-    if (isActiveWindow())
-        page->focus();
+    page->focus();
+   #elif JUCE_MAC
+    macShell::focusPage (*this);
    #endif
 }
 

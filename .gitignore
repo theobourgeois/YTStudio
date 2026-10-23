@@ -12,6 +12,7 @@ dist-electron
 build/desktop
 build/photo-helper
 build/music-worker
+build/node
 release
 desktop-smoke.png
 music-window-smoke.png

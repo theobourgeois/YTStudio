@@ -98,13 +98,16 @@ Read the music suite's guide (`docs/claude/music.md`) first.
   Owned across programs, the app's thread waits for ours, so slow work on the message thread holds
   `EditorWindow::whileBusy()` (plugin loads, editors made, presets and samples read): the windows belong to nothing
   meanwhile. Wrap any new slow message-thread work the same way.
-- Keep it portable (it runs on Windows too): only JUCE's APIs, no macOS calls of our own, paths from the server.
+- Keep it portable (it runs on Windows too): only JUCE's APIs, paths from the server. What a platform needs beyond
+  them stays in its files: `MacWindow.cpp` (plugin windows, both systems), and the music app's window `ShellMac.mm`
+  (macOS) and `WebView.cpp` (Windows).
   On Windows it's built with ASIO (Steinberg's SDK, fetched by CMake) and, until a device is chosen in
   Settings (`vaudioChosen` in its `device.xml`), opens an audio interface's own ASIO driver (`openDefaultDevice`):
   Windows' shared audio underreports its latency (takes land late) and clocks a USB interface's input apart
   from its output (crackles). Windows' drivers count the buffer in their output latency, Core Audio's
   doesn't (`outputLatency`).
-- It's an app bundle (plugin windows need one) with no Dock icon, shipped in the desktop app's resources.
+- It's an app bundle (plugin windows need one) with no Dock icon, shipped in the desktop app's resources. On a Mac
+  the music app is that bundle (`YTStudio Music.app`, `docs/claude/music-shell.md`): its window asks for the Dock icon.
   The desktop app isn't signed, so loading other people's plugins needs nothing; once it's signed with the
   hardened runtime, the engine needs the `com.apple.security.cs.disable-library-validation` entitlement.
 - JUCE is used under its free Starter licence (a personal tool); selling this changes that.

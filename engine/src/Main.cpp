@@ -76,6 +76,39 @@ void carryOver (const juce::File& from, const juce::File& to)
         from.getChildFile ("presets").copyDirectoryTo (to.getChildFile ("presets"));
 }
 
+#if JUCE_MAC
+/**
+ * An app opened from Finder or the Dock gets launchd's bare PATH, not the one the user's shell sets up, so the
+ * server wouldn't find ffmpeg, yt-dlp, claude or codex: the login shell's, then Homebrew's homes, as the Electron
+ * apps do (electron/shell-path.ts).
+ */
+void useLoginShellPath()
+{
+    const juce::String mark = "__EDITOR_PATH__";
+    const auto shell = environment ("SHELL").isNotEmpty() ? environment ("SHELL") : juce::String ("/bin/zsh");
+    juce::ChildProcess child;
+    juce::String printed;
+    if (child.start (juce::StringArray { shell, "-ilc", "printf '%s' \"" + mark + "$PATH" + mark + "\"" }, juce::ChildProcess::wantStdOut))
+    {
+        // (It prints a line: done before a pipe could fill. A shell that hangs is given up on.)
+        if (child.waitForProcessToFinish (5000))
+            printed = child.readAllProcessOutput();
+        else
+            child.kill();
+    }
+    juce::StringArray dirs;
+    const auto from = printed.indexOf (mark);
+    const auto to = from < 0 ? -1 : printed.indexOf (from + mark.length(), mark);
+    if (to > from)
+        dirs.addTokens (printed.substring (from + mark.length(), to), ":", {});
+    dirs.addTokens (environment ("PATH"), ":", {});
+    dirs.addArray ({ "/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", juce::File::getSpecialLocation (juce::File::userHomeDirectory).getChildFile (".local/bin").getFullPathName() });
+    dirs.removeEmptyStrings();
+    dirs.removeDuplicates (false);
+    ServerProcess::setEnvironment ("PATH", dirs.joinIntoString (":"));
+}
+#endif
+
 juce::String randomToken()
 {
     juce::Random random;
@@ -141,17 +174,25 @@ public:
             // Packaged: the app's own data, as the Electron apps keep theirs (electron/main.ts).
             const auto resources = appResources();
             const auto userData = appData().getChildFile ("YTStudio Music");
-            defaultEnvironment ("EDITOR_DATA_DIR", userData.getChildFile ("data").getFullPathName());
-            defaultEnvironment ("EDITOR_PROJECTS_DIR", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("YTStudio").getFullPathName());
+            // A data folder given (tests, throwaway setups) keeps its projects in its own Documents/YTStudio (server/config.ts).
+            if (environment ("EDITOR_DATA_DIR").isEmpty())
+            {
+                defaultEnvironment ("EDITOR_DATA_DIR", userData.getChildFile ("data").getFullPathName());
+                defaultEnvironment ("EDITOR_PROJECTS_DIR", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("YTStudio").getFullPathName());
+            }
             const auto every = appData().getChildFile ("YTStudio").getChildFile ("data");
             if (every.isDirectory())
                 defaultEnvironment ("EDITOR_RECENTS_FROM", every.getFullPathName());
             defaultEnvironment ("EDITOR_SERVER_PORT", "5651");
             defaultEnvironment ("EDITOR_CLIENT_DIR", resources.getChildFile ("dist").getFullPathName());
             defaultEnvironment ("EDITOR_MUSIC_WORKER_PATH", resources.getChildFile ("music-worker/ml-worker.mjs").getFullPathName());
+            defaultEnvironment ("EDITOR_PHOTO_HELPER_PATH", resources.getChildFile ("photo-helper/helper.mjs").getFullPathName());
             // (Home's previews play songs offline in engines of their own: this program, as a plain engine.)
             defaultEnvironment ("EDITOR_ENGINE_PATH", juce::File::getSpecialLocation (juce::File::currentExecutableFile).getFullPathName());
             ServerProcess::setEnvironment ("NODE_ENV", "production");
+           #if JUCE_MAC
+            useLoginShellPath();
+           #endif
             dataDir = juce::File (environment ("EDITOR_DATA_DIR")).getChildFile ("engine");
             if (carryFrom.isEmpty())
                 carryFrom = every.getChildFile ("engine").getFullPathName();
