@@ -40,8 +40,15 @@ private:
     void command (const juce::String& name, const juce::var& params, Complete complete);
     /** Tell the page something (`{ event, ... }`: `onHostEvent` in src/lib/host.ts). */
     void post (const juce::var& event);
+    /** What the window's own commands (the Mac's title bar, its menus) do, or false if `name` isn't one. */
+    bool windowCommand (const juce::String& name, const juce::var& params, Complete& complete);
+    /** A menu item (ShellMac.h): the page's commands go to it, the app's are run here. */
+    void menu (const juce::String& name);
+    juce::File placeFile() const { return dataDir.getChildFile ("window.txt"); }
 
     Engine& engine;
+    /** The engine's data folder, in the app's (`data/engine`): where the window's place is kept. */
+    const juce::File dataDir;
     std::unique_ptr<Page> page;
     juce::String url;
     /** The page said it's listening (`host.ready`); until then, files handed to the app wait. */

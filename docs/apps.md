@@ -148,6 +148,14 @@ stalling while a window is dragged (JUCE's timers stop in Windows' move loop), a
 
 ### 4. The music app on the Mac
 
+**Built** (2026-10-23; `docs/claude/music-shell.md`, macOS): JUCE's WKWebView kept, with what it doesn't say done in
+AppKit (`engine/src/ShellMac.mm`): the window without a title bar and the traffic lights in the page's bar, dragged by
+the page's bars, the menu bar (the page's keys first), file drops with their paths, the zoom, Web Inspector, App Nap
+held off; packaged by `pnpm build:desktop music` as `YTStudio Music.app` (Node, the server bundle, the page, `.ytsng`,
+a dmg). Panels stay in the page, so the page opens no windows. The page's localStorage isn't carried over from
+YTStudio's yet. To check by hand: copy, paste and undo in a text field, a sample folder dropped from Finder, a
+`.ytsng` double-clicked, a session with plugins.
+
 The same app in WKWebView (Safari's engine). Music needs little the Safari engine lacks: no WebGPU, and no drawn
 exports (the engine renders songs).
 - **Its own WKWebView host**, as on Windows, for:

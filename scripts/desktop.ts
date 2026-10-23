@@ -6,8 +6,8 @@
  *                               (video, photo, visualizer, music: docs/apps.md) in release/<app>/
  *   pnpm package:desktop [app…] the same as a .dmg and a .zip
  *   pnpm update:desktop [app…]  build them and install them in place of the ones installed (macOS, Windows): by
- *                               default YTStudio (every suite: music's until it has its own) and Video, Photo and
- *                               the Visualizer
+ *                               default YTStudio (every suite) and Video, Photo and the Visualizer, and on a Mac
+ *                               Music (the engine's own app, no Electron: `packMusicMac`)
  *
  * The main process (electron/main.ts, which runs the server) is bundled with esbuild into one file, so the
  * packaged app ships no node_modules: just that bundle, the preload script and the built web app. The photo
@@ -15,7 +15,8 @@
  * in the app's resources (`photoHelper`).
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { type BuildOptions, build, context } from "esbuild";
@@ -39,10 +40,11 @@ const LEGACY_TYPES = [
 
 /**
  * The apps that are apps of their own so far (docs/apps.md): YTStudio, with every suite, still opens their files,
- * but as a second choice, so a double-click opens them in theirs. Music joins at step 4.
+ * but as a second choice, so a double-click opens them in theirs. Music is one on a Mac (the engine's own window,
+ * `packMusicMac`); on Windows it joins once the engine's window is done there (step 3).
  */
-const OWN_APPS: AppId[] = ["video", "photo", "visualizer"];
-/** What `update:desktop` installs: YTStudio (music's, for now) and the apps of their own. */
+const OWN_APPS: AppId[] = ["video", "photo", "visualizer", ...(process.platform === "darwin" ? (["music"] as const) : [])];
+/** What `update:desktop` installs: YTStudio (every suite) and the apps of their own. */
 const INSTALLED_APPS: (AppId | null)[] = [null, ...OWN_APPS];
 
 /** The project types an app opens (none for the Visualizer), and whether it's their first choice. */
@@ -108,6 +110,15 @@ function electronApp(): string {
   return binary.slice(0, binary.indexOf(".app") + ".app".length);
 }
 
+/** Bundled CommonJS packages (Express...) still call require() and read __dirname. */
+const ESM_BANNER = [
+  'import { createRequire as __createRequire } from "node:module";',
+  'import { fileURLToPath as __fileURLToPath } from "node:url";',
+  "const require = __createRequire(import.meta.url);",
+  "const __filename = __fileURLToPath(import.meta.url);",
+  "const __dirname = import.meta.dirname;",
+].join("\n");
+
 /** The bundles for `outdir`: the main process and the server's (ESM) and the preload script (CommonJS, as sandboxed preloads must be). */
 function bundles(outdir: string): BuildOptions[] {
   const common: BuildOptions = {
@@ -127,16 +138,7 @@ function bundles(outdir: string): BuildOptions[] {
       outdir,
       format: "esm",
       outExtension: { ".js": ".mjs" },
-      // Bundled CommonJS packages (Express...) still call require() and read __dirname.
-      banner: {
-        js: [
-          'import { createRequire as __createRequire } from "node:module";',
-          'import { fileURLToPath as __fileURLToPath } from "node:url";',
-          "const require = __createRequire(import.meta.url);",
-          "const __filename = __fileURLToPath(import.meta.url);",
-          "const __dirname = import.meta.dirname;",
-        ].join("\n"),
-      },
+      banner: { js: ESM_BANNER },
     },
     {
       ...common,
@@ -368,7 +370,63 @@ async function pack(targets: "dir" | "installers", apps: AppInfo[]) {
   await photoHelper();
   if (music) await musicWorker();
   cpSync(path.join(ROOT, "dist"), path.join(STAGE, "dist"), { recursive: true });
-  for (const app of apps) await packApp(targets, app);
+  for (const app of apps) {
+    if (app.id === "music" && process.platform === "darwin") await packMusicMac(targets, app);
+    else await packApp(targets, app);
+  }
+}
+
+/**
+ * What a Mac app says of itself beyond its name: the project types it opens (packages Finder shows as one file, each
+ * opened in its app on a double-click), what it asks the system for and why. electron-builder's `extendInfo`, and the
+ * music app's own Info.plist (`packMusicMac`).
+ */
+function macInfo(app: AppInfo): Record<string, unknown> {
+  const music = app.suites.includes("music");
+  const types = projectTypes(app);
+  return {
+    CFBundleDocumentTypes: [
+      ...[true, false].flatMap((owner) => {
+        const these = types.filter((type) => type.owner === owner);
+        return these.length === 0
+          ? []
+          : [{
+              CFBundleTypeName: `${app.name} Project`,
+              CFBundleTypeRole: "Editor",
+              CFBundleTypeExtensions: these.map((type) => type.ext),
+              LSItemContentTypes: these.map((type) => type.id),
+              LSHandlerRank: owner ? "Owner" : "Alternate",
+              LSTypeIsPackage: true,
+            }];
+      }),
+      // Images dropped on the Dock icon (or Open With) start a photo: electron/main.ts's IMAGE_TYPES.
+      // An Alternate handler only, so Preview stays what opens them on a double-click.
+      ...(app.suites.includes("photo")
+        ? [{
+            CFBundleTypeName: "Image",
+            CFBundleTypeRole: "Editor",
+            LSItemContentTypes: ["public.jpeg", "public.png", "public.tiff", "org.webmproject.webp", "public.avif"],
+            LSHandlerRank: "Alternate",
+          }]
+        : []),
+    ],
+    // The engine it starts records from inputs (a mixer track armed): macOS asks the app responsible.
+    ...(music ? { NSMicrophoneUsageDescription: `${app.name} records your microphone or audio interface when you arm a mixer track.` } : {}),
+    // Now Playing: the visualizer listens to what the computer plays, and the app asks Spotify what that is.
+    ...(app.visualizer
+      ? {
+          NSAudioCaptureUsageDescription: `${app.name}'s visualizer listens to what your computer is playing, to move with it. Nothing is recorded.`,
+          NSAppleEventsUsageDescription: `${app.name} asks Spotify what's playing, and plays, pauses or skips when you tell it to.`,
+        }
+      : {}),
+    // The project types, packages (a folder Finder shows as one file), declared so macOS knows them.
+    UTExportedTypeDeclarations: types.map((type) => ({
+      UTTypeIdentifier: type.id,
+      UTTypeDescription: type.name,
+      UTTypeConformsTo: ["com.apple.package", "public.composite-content"],
+      UTTypeTagSpecification: { "public.filename-extension": [type.ext] },
+    })),
+  };
 }
 
 async function packApp(targets: "dir" | "installers", app: AppInfo) {
@@ -414,60 +472,130 @@ async function packApp(targets: "dir" | "installers", app: AppInfo) {
       afterPack: async (packed) => {
         if (packed.electronPlatformName === "darwin") adHocSign(path.join(packed.appOutDir, `${packed.packager.appInfo.productFilename}.app`), { always: true });
       },
-      // Projects are packages (`Name.ytvid/`, `projectTypes`): Finder shows each as one file, and double-clicking one
-      // opens it in its app.
       mac: {
         category: MAC_CATEGORY[app.id ?? "every"],
         identity: null,
-        extendInfo: {
-          CFBundleDocumentTypes: [
-            ...[true, false].flatMap((owner) => {
-              const these = types.filter((type) => type.owner === owner);
-              return these.length === 0
-                ? []
-                : [{
-                    CFBundleTypeName: `${app.name} Project`,
-                    CFBundleTypeRole: "Editor",
-                    CFBundleTypeExtensions: these.map((type) => type.ext),
-                    LSItemContentTypes: these.map((type) => type.id),
-                    LSHandlerRank: owner ? "Owner" : "Alternate",
-                    LSTypeIsPackage: true,
-                  }];
-            }),
-            // Images dropped on the Dock icon (or Open With) start a photo: electron/main.ts's IMAGE_TYPES.
-            // An Alternate handler only, so Preview stays what opens them on a double-click.
-            ...(app.suites.includes("photo")
-              ? [{
-                  CFBundleTypeName: "Image",
-                  CFBundleTypeRole: "Editor",
-                  LSItemContentTypes: ["public.jpeg", "public.png", "public.tiff", "org.webmproject.webp", "public.avif"],
-                  LSHandlerRank: "Alternate",
-                }]
-              : []),
-          ],
-          // The engine it starts records from inputs (a mixer track armed): macOS asks the app responsible.
-          ...(music ? { NSMicrophoneUsageDescription: `${app.name} records your microphone or audio interface when you arm a mixer track.` } : {}),
-          // Now Playing: the visualizer listens to what the computer plays, and the app asks Spotify what that is.
-          ...(app.visualizer
-            ? {
-                NSAudioCaptureUsageDescription: `${app.name}'s visualizer listens to what your computer is playing, to move with it. Nothing is recorded.`,
-                NSAppleEventsUsageDescription: `${app.name} asks Spotify what's playing, and plays, pauses or skips when you tell it to.`,
-              }
-            : {}),
-          // The project types, packages (a folder Finder shows as one file), declared so macOS knows them.
-          UTExportedTypeDeclarations: types.map((type) => ({
-            UTTypeIdentifier: type.id,
-            UTTypeDescription: type.name,
-            UTTypeConformsTo: ["com.apple.package", "public.composite-content"],
-            UTTypeTagSpecification: { "public.filename-extension": [type.ext] },
-          })),
-        },
+        extendInfo: macInfo(app),
         target: targets === "dir" ? ["dir"] : ["dmg", "zip"],
       },
       linux: { target: targets === "dir" ? ["dir"] : ["AppImage"], fileAssociations: types.map((type) => ({ ext: type.ext, name: type.name, role: "Editor" })) },
       win: { target: targets === "dir" ? ["dir"] : ["nsis"], fileAssociations: types.map((type) => ({ ext: type.ext, name: type.name, role: "Editor" })) },
     },
   });
+  console.log(`[desktop] built ${app.name} into ${path.relative(ROOT, releaseDir(app))}/`);
+}
+
+/** Where the music app's Node is kept once downloaded: `build/node/node-<version>-darwin-<arch>/bin/node`. */
+const NODE_CACHE = path.join(ROOT, "build", "node");
+
+/**
+ * Node's official build for this Mac, of the version running this script (what the server is tested on), checked
+ * against nodejs.org's sums and kept in build/node. Official builds stand alone (Homebrew's links libraries of its
+ * own), which is what an app can ship.
+ */
+async function officialNode(): Promise<string> {
+  const name = `node-${process.version}-darwin-${process.arch === "arm64" ? "arm64" : "x64"}`;
+  const binary = path.join(NODE_CACHE, name, "bin", "node");
+  if (existsSync(binary)) return binary;
+  const base = `https://nodejs.org/dist/${process.version}/`;
+  console.log(`[desktop] downloading ${name} from nodejs.org`);
+  const sums = await (await fetch(`${base}SHASUMS256.txt`)).text();
+  const expected = sums.split("\n").find((line) => line.endsWith(`  ${name}.tar.gz`))?.split(/\s+/)[0];
+  if (!expected) throw new Error(`nodejs.org lists no ${name}.tar.gz: is ${process.version} a release?`);
+  const response = await fetch(`${base}${name}.tar.gz`);
+  if (!response.ok) throw new Error(`Couldn't download ${name}.tar.gz (${response.status})`);
+  const tarball = Buffer.from(await response.arrayBuffer());
+  const actual = createHash("sha256").update(tarball).digest("hex");
+  if (actual !== expected) throw new Error(`${name}.tar.gz isn't what nodejs.org says it is (sha256 ${actual}, expected ${expected})`);
+  mkdirSync(NODE_CACHE, { recursive: true });
+  const file = path.join(NODE_CACHE, `${name}.tar.gz`);
+  writeFileSync(file, tarball);
+  const unpacked = spawnSync("tar", ["-xzf", file, "-C", NODE_CACHE, `${name}/bin/node`, `${name}/LICENSE`], { stdio: "inherit" });
+  rmSync(file);
+  if (unpacked.status !== 0 || !existsSync(binary)) throw new Error(`Couldn't unpack ${name}.tar.gz`);
+  return binary;
+}
+
+/** A 1024 px PNG as the .icns a Mac app's Info.plist names. */
+function macIcon(png: string, icns: string) {
+  const set = `${icns.slice(0, -".icns".length)}.iconset`;
+  rmSync(set, { recursive: true, force: true });
+  mkdirSync(set, { recursive: true });
+  for (const size of [16, 32, 128, 256, 512]) {
+    for (const scale of [1, 2]) {
+      const file = path.join(set, `icon_${size}x${size}${scale === 2 ? "@2x" : ""}.png`);
+      const made = spawnSync("sips", ["-z", String(size * scale), String(size * scale), png, "--out", file], { stdio: "ignore" });
+      if (made.status !== 0) throw new Error(`sips couldn't size ${png}`);
+    }
+  }
+  const made = spawnSync("iconutil", ["-c", "icns", set, "-o", icns], { stdio: "inherit" });
+  rmSync(set, { recursive: true, force: true });
+  if (made.status !== 0) throw new Error(`iconutil couldn't make ${icns}`);
+}
+
+/**
+ * The music app on a Mac (docs/apps.md, step 4): no Electron. The engine is the app, so its bundle becomes
+ * `YTStudio Music.app`, with what it runs in `Contents/Resources/app` (engine/src/Main.cpp's `appResources`): Node,
+ * the server's bundle (`server.mjs`, the same server the other apps run in Electron), the page (`dist/`), the photo
+ * helper and the models' worker. The engine's own Info.plist is given the app's name, icon and project types. It
+ * stays LSUIElement: the window shows the Dock icon (ShellWindow), and the engines the server starts for Home's
+ * previews, this same program, never flash one.
+ */
+async function packMusicMac(targets: "dir" | "installers", app: AppInfo) {
+  const node = await officialNode();
+  const built = builtMacApp(app);
+  rmSync(releaseDir(app), { recursive: true, force: true });
+  mkdirSync(path.dirname(built), { recursive: true });
+  const copied = spawnSync("ditto", [ENGINE_APP, built], { stdio: "inherit" });
+  if (copied.status !== 0) throw new Error(`Couldn't copy ${ENGINE_APP}`);
+  const contents = path.join(built, "Contents");
+  renameSync(path.join(contents, "MacOS", "YTStudio Engine"), path.join(contents, "MacOS", app.name));
+
+  const resources = path.join(contents, "Resources", "app");
+  mkdirSync(resources, { recursive: true });
+  cpSync(node, path.join(resources, "node"));
+  cpSync(path.join(path.dirname(path.dirname(node)), "LICENSE"), path.join(resources, "node-LICENSE"));
+  await build({
+    entryPoints: { server: path.join(ROOT, "server/index.ts") },
+    outdir: resources,
+    bundle: true,
+    platform: "node",
+    target: "node24",
+    format: "esm",
+    outExtension: { ".js": ".mjs" },
+    banner: { js: ESM_BANNER },
+    // Exports draw video in Chromium (server/gl-browser.ts): never in a song's, and Playwright stays out.
+    external: ["playwright-core"],
+    logLevel: "warning",
+  });
+  cpSync(path.join(STAGE, "dist"), path.join(resources, "dist"), { recursive: true });
+  cpSync(PHOTO_HELPER_STAGE, path.join(resources, "photo-helper"), { recursive: true });
+  cpSync(MUSIC_WORKER_STAGE, path.join(resources, "music-worker"), { recursive: true });
+  macIcon(path.join(ROOT, "resources", "apps", `${app.id}.png`), path.join(contents, "Resources", "icon.icns"));
+
+  const plist = path.join(contents, "Info.plist");
+  const info = JSON.parse(spawnSync("plutil", ["-convert", "json", "-o", "-", plist], { encoding: "utf8" }).stdout) as Record<string, unknown>;
+  Object.assign(info, {
+    CFBundleName: app.name,
+    CFBundleDisplayName: app.name,
+    CFBundleExecutable: app.name,
+    CFBundleIdentifier: app.bundleId,
+    CFBundleVersion: pkg.version,
+    CFBundleShortVersionString: pkg.version,
+    CFBundleIconFile: "icon.icns",
+    LSApplicationCategoryType: MAC_CATEGORY.music,
+    ...macInfo(app),
+  });
+  writeFileSync(plist, JSON.stringify(info));
+  if (spawnSync("plutil", ["-convert", "xml1", plist], { stdio: "inherit" }).status !== 0) throw new Error(`plutil couldn't write ${plist}`);
+  // Not signed with an identity yet (see packApp): ad hoc, the whole bundle, now that it's all in.
+  adHocSign(built, { always: true });
+
+  if (targets === "installers") {
+    const dmg = path.join(releaseDir(app), `${app.name}-${pkg.version}-${process.arch}.dmg`);
+    const made = spawnSync("hdiutil", ["create", "-volname", app.name, "-srcfolder", built, "-ov", "-format", "UDZO", dmg], { stdio: "inherit" });
+    if (made.status !== 0) throw new Error(`hdiutil couldn't make ${dmg}`);
+  }
   console.log(`[desktop] built ${app.name} into ${path.relative(ROOT, releaseDir(app))}/`);
 }
 

@@ -36,10 +36,11 @@ same program. It was tried on Windows first (2026-10-23) and nothing froze.
 
 **The page's side** (`src/lib/host.ts`, imported first by `main.tsx`). In the window it sets `editorDesktopInfo`
 (the platform and the system's dialogs: `host.saveFile`, `host.chooseProject`, `host.chooseFolder`, run by
-`engine/src/HostCommands.cpp`), so `isDesktop` is true and the page acts as in the desktop app where it can. What
-Electron's preload has and this doesn't yet (`panels`, `titleBar`, `windowAction`, `pathForFile`, the microphone)
-is absent, and the page falls back to the browser's way. It answers the engine's events (`flush`, `openFile`) and
-sends `host.ready` once the app has loaded, getting the files it was handed meanwhile. `hostCommand` sends a command
+`engine/src/HostCommands.cpp`; the page's own window buttons, `host.window`), so `isDesktop` is true and the page acts
+as in the desktop app where it can. What Electron's preload has and this doesn't (`panels`, the microphone; on Windows
+still `titleBar` and `pathForFile`) is absent, and the page falls back to the browser's way. It answers the engine's
+events (`flush`, `openFile`; on a Mac also `command`, `fullscreen`, `zoom`, `dragPaths`) and sends `host.ready` once
+the app has loaded, getting the files it was handed meanwhile (and the page's zoom). `hostCommand` sends a command
 straight to the engine: the app's own (`host.*`) and those `directCommands` lets through (`preview`, a key played,
 used by `transport.preview`). WebView2's messages on Windows (replies `{ id, ok, result | error }`, events
 `{ event, ... }`), JUCE's native function `engine` and its `host` event on macOS. Everything else still goes through
@@ -60,9 +61,40 @@ Plugin windows are owned by the window (`EditorWindow::setShellWindow`): an owne
 on macOS (`setWindowOwner`, MacWindow.cpp). They stay over it, move with it and never ask another program anything,
 so `whileBusy` does nothing there.
 
+**macOS** (`ShellMac.mm`, Objective-C++ without ARC, as JUCE is; `ShellWindow` calls it). JUCE's
+`WebBrowserComponent` (WKWebView) is kept: what it doesn't say is done to its window and view in AppKit, as Electron
+does for the other apps (`electron/main.ts`), so the page can't tell them apart.
+- **The window** (`macShell::dress`): no title bar, the content under where it was, the traffic lights moved into
+  the page's first bar (18 pt in, the bar's height from the page: `titleBar`, `host.titleBar`), or hidden when the
+  page draws its own (`ownButtons`). The page marks itself `desktop desktop-darwin` (index.css makes room), and
+  `fullscreen` when the window is. Its place is kept (`placeFile`, `<data>/engine/window.txt`). App Nap is held off
+  (`beginActivityWithOptions`): a DAW plays while hidden.
+- **Dragging it.** `-webkit-app-region` is Chromium's, so the page does it by hand: a press on a `[data-titlebar]`
+  (not on what's pressed in it, the same `no-drag` list as index.css) sends `host.drag`, and the window follows the
+  mouse (`performWindowDragWithEvent` with the press, kept by an event monitor); a double click sends
+  `host.titleDoubleClick`, which does what System Settings says (zoom, minimise or nothing).
+- **The menu bar** (`installMenus`): the app's menu (Hide and Hide Others leave ⌘H and ⌥⌘H to the page, which hands
+  back what it doesn't use: `hideApp`), File (the page's `DesktopCommand`s as `command` events, Open Recent filled by
+  AppKit from `host.recent`), Edit (to the web view: text fields' ⌘C, ⌘V, ⌘Z), View (zoom, kept between launches and
+  marked as `--desktop-zoom`; Reload; Show Logs and the data folder), Window and Help. **The page's keys come first**:
+  WKWebView's `performKeyEquivalent:` is replaced so a key the page caught (⌘O, ⌘W, ⌘R the export) never reaches the
+  menu; the menu only shows them, as Electron's `registerAccelerator: false` does. A click on an item still runs it.
+- **Dropped files' paths**: the view's `draggingEntered:` tells the page where Finder's files are (`dragPaths`)
+  before WebKit hands it the drop; `pathForFile` matches a dropped `File` by its name (`droppedPath`).
+- **Focus.** The window activated (⌘Tab, a plugin window closed) makes the web view first responder, so the keys go
+  to the page (`focusPage`). Safari's Web Inspector works on it (`isInspectable`, Inspect Element).
+- **Packaged** (`pnpm build:desktop music`, `packMusicMac` in `scripts/desktop.ts`): the engine's bundle copied as
+  `YTStudio Music.app` (`gg.jestr.ytstudio.music`), its executable renamed, `Contents/Resources/app/` filled with
+  Node (the official build of this Node's version, checked against its SHASUMS and cached in `build/node`), the
+  server bundled by esbuild (`server.mjs`), the page (`dist/`), the photo helper and the music worker; the `.ytsng`
+  type, its icon, signed ad hoc and a dmg. `LSUIElement` stays on: the plain engines the server starts from the same
+  bundle (Home's offline previews) must show nothing, so the app's window asks for its Dock icon itself
+  (`setDockIconVisible`). Packaged, the server finds ffmpeg on the login shell's `PATH` (`useLoginShellPath`), as
+  Electron's `shell-path.ts`.
+- Not yet: the page's localStorage (layouts, tabs, theme) isn't carried over from YTStudio's (WKWebView keeps its own).
+
 **Trying it.** `pnpm install`, `pnpm engine:build`, then `pnpm dev:music` (`scripts/shell.ts`: Vite, and the engine
 told to run this checkout's server through tsx and show Vite's page, so the page reloads as it's edited; the server
 isn't watched: a C++ or server change means quitting and running it again). `pnpm dev:shell` is every suite there.
 
-**Still to do** (docs/apps.md): on Windows the title bar, panels as owned windows, packaging (step 3's Windows half);
-on the Mac the menu bar, the window's look, file drops with paths, packaging (step 4).
+**Still to do** (docs/apps.md): on Windows the title bar, panels as owned windows, packaging (step 3's Windows half).

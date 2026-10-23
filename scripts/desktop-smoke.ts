@@ -6,7 +6,8 @@
  * (a made-up song, never heard). Leaves a screenshot of the window.
  *
  * One of the apps (docs/apps.md: `pnpm build:desktop video`) is tried on what it does: Video exports, Photo draws
- * and encodes, the Visualizer pops out; each shows only its own suites and declares only their files.
+ * and encodes, the Visualizer pops out; each shows only its own suites and declares only their files. Music on a Mac
+ * isn't Electron: `music-app-smoke.ts` tries it.
  *
  *   pnpm test:desktop [--app video|photo|visualizer|music] [--out window.png]
  */
@@ -45,6 +46,11 @@ const executablePath = process.env.EDITOR_DESKTOP_APP_PATH || (APP && path.join(
 if (!executablePath || !existsSync(executablePath)) {
   console.error(`No packaged app at ${APP}: run \`pnpm build:desktop${TRIED.id ? ` ${TRIED.id}` : ""}\` first.`);
   process.exit(1);
+}
+
+if (TRIED.id === "music" && process.platform === "darwin") {
+  const { smokeMusicApp } = await import("./music-app-smoke.ts");
+  process.exit((await smokeMusicApp(executablePath)) ? 0 : 1);
 }
 
 const tmp = mkdtempSync(path.join(os.tmpdir(), "editor-desktop-"));

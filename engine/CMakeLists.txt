@@ -64,6 +64,12 @@ juce_add_gui_app(
   NEEDS_WEBVIEW2 TRUE)
 
 target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/AutoTune.cpp src/ClipPlayer.cpp src/Convolver.cpp src/EchoBoy.cpp src/EditorWindow.cpp src/Engine.cpp src/EqDesign.cpp src/Export.cpp src/FilePreview.cpp src/GrossBeat.cpp src/Host.cpp src/MacWindow.cpp src/MidiInputs.cpp src/Ott.cpp src/PanMan.cpp src/PitchWheel.cpp src/Plugins.cpp src/ProC.cpp src/ProL.cpp src/ProQ.cpp src/Protocol.cpp src/Reverb.cpp src/ReverbNetwork.cpp src/ReverbSettings.cpp src/Recorder.cpp src/Sequencer.cpp src/Server.cpp src/HostCommands.cpp src/ShellWindow.cpp src/Song.cpp src/Spectrum.cpp src/WebView.cpp)
+# The music app's window on macOS: what AppKit does for it that JUCE doesn't (ShellMac.h).
+# Built as JUCE's own .mm files are, by the C++ compiler (clang reads the extension): enabling OBJCXX compiles
+# JUCE's modules differently in the test plugins, which then crash in their editors.
+if(APPLE)
+  target_sources(VaudioEngine PRIVATE src/ShellMac.mm)
+endif()
 
 target_compile_definitions(
   VaudioEngine

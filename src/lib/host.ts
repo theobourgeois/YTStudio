@@ -7,8 +7,9 @@
  * named "host"). Elsewhere (a browser, the Electron apps) there's no host and this does nothing.
  *
  * Imported first by main.tsx: `isDesktop` (lib/desktop.ts) is decided when that module loads, from what this sets.
- * So it imports nothing of the app's.
+ * So it imports nothing of the app's (types only).
  */
+import type { DesktopCommand } from "@/lib/desktop";
 
 /** What JUCE's web view puts on the page (juce_WebBrowserComponent's script, as of JUCE 8). */
 interface JuceBackend {
@@ -32,8 +33,14 @@ declare global {
 
 type Reply = { ok: true; result: unknown } | { ok: false; error: string };
 
-/** What the engine tells the page unasked. */
-type HostEvent = { event: "flush"; request: number } | { event: "openFile"; path: string };
+/** What the engine tells the page unasked (the last four only on macOS: `ShellWindow::menu`, `macShell::Listener`). */
+type HostEvent =
+  | { event: "flush"; request: number }
+  | { event: "openFile"; path: string }
+  | { event: "command"; name: string }
+  | { event: "fullscreen"; on: boolean }
+  | { event: "zoom"; factor: number }
+  | { event: "dragPaths"; paths: string[] };
 
 const juce = typeof window === "undefined" ? undefined : window.__JUCE__;
 const webview = typeof window === "undefined" ? undefined : window.chrome?.webview;
@@ -69,7 +76,20 @@ function received(event: HostEvent) {
       .catch(() => {})
       .then(() => hostCommand("host.flushed", { request: event.request }));
   else if (event.event === "openFile") void window.editorDesktop?.openFile(event.path);
+  // A menu item of the page's (File's New, Open..., Close Tab): `DesktopCommand`, as Electron's menu sends them.
+  else if (event.event === "command") window.editorDesktop?.command(event.name as DesktopCommand);
+  else if (event.event === "fullscreen") document.documentElement.classList.toggle("fullscreen", event.on);
+  else if (event.event === "zoom") markZoom(event.factor);
+  else if (event.event === "dragPaths") dragged = event.paths;
 }
+
+/** The page's zoom, as Electron's preload marks it (`--desktop-zoom`: what's beside the window's buttons undoes it). */
+function markZoom(factor: number) {
+  document.documentElement.style.setProperty("--desktop-zoom", String(factor));
+}
+
+/** The files Finder is dragging over the page, where they are (a page only gets their names and bytes). */
+let dragged: string[] = [];
 
 if (webview)
   webview.addEventListener("message", (message) => {
@@ -89,13 +109,45 @@ else if (hosted) {
 /** A path from a dialog: null if it was cancelled. */
 const pathOrNull = (result: unknown) => (typeof result === "string" && result ? result : null);
 
+/** What a Mac's window does for the page as Electron's does: no title bar, so the page's bars drag it. */
+const mac = hosted && !webview;
+
+/** A bar's parts that are pressed rather than dragged: index.css's `no-drag` (Electron's drag regions). */
+const NO_DRAG = 'button, a, input, label, select, textarea, [role="button"], [role="tab"], [role="slider"], [role="spinbutton"], [contenteditable], [data-no-drag], [data-window]';
+
 if (hosted)
   window.editorDesktopInfo = {
-    platform: /Windows/.test(navigator.userAgent) ? "win32" : "darwin",
+    platform: webview ? "win32" : "darwin",
     saveFile: async (options) => pathOrNull(await hostCommand("host.saveFile", options)),
     chooseProject: async (defaultPath) => pathOrNull(await hostCommand("host.chooseProject", { defaultPath })),
     chooseFolder: async (defaultPath) => pathOrNull(await hostCommand("host.chooseFolder", { defaultPath })),
+    windowAction: (action) => void hostCommand("host.window", { action }),
+    ...(mac && {
+      hideApp: (which) => void hostCommand("host.hide", { which }),
+      titleBar: (bar) => void hostCommand("host.titleBar", { ...bar }),
+      projectOpened: (path) => void hostCommand("host.recent", { path }),
+      // By its name among what Finder said it's dragging (`dragPaths`), which comes before the drop.
+      pathForFile: (file) => dragged.find((path) => path.slice(path.lastIndexOf("/") + 1) === file.name) ?? "",
+    }),
   };
+
+if (mac) {
+  // What Electron's preload does: index.css makes room for the traffic lights, drag regions, the zoom.
+  document.documentElement.classList.add("desktop", "desktop-darwin");
+  // `-webkit-app-region` is Electron's: here a press on a bar (not on what's pressed in it, nor a window over it)
+  // has the window follow the mouse, and a double click does what the system says. Only the main window's
+  // bars: the music editor's windows are in the page on a Mac.
+  window.addEventListener(
+    "mousedown",
+    (event) => {
+      const target = event.target as Element | null;
+      if (event.button !== 0 || !target?.closest?.("[data-titlebar]") || target.closest(NO_DRAG)) return;
+      event.preventDefault();
+      void hostCommand(event.detail === 2 ? "host.titleDoubleClick" : "host.drag");
+    },
+    true,
+  );
+}
 
 /**
  * The page is ready for the engine's events (main.tsx, once the app has loaded and `editorDesktop` is set): it
@@ -103,6 +155,7 @@ if (hosted)
  */
 export async function startHost(): Promise<void> {
   if (!hosted) return;
-  const { files } = (await hostCommand("host.ready")) as { files: string[] };
+  const { files, zoom } = (await hostCommand("host.ready")) as { files: string[]; zoom?: number };
+  if (mac && zoom) markZoom(zoom);
   for (const path of files) await window.editorDesktop?.openFile(path);
 }

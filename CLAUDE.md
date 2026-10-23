@@ -52,7 +52,7 @@ pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot
 pnpm dev:shell    # every suite in the engine's own window, as the music app (docs/claude/music-shell.md)
 pnpm dev:desktop [app]  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
 pnpm build:desktop [app…] && pnpm test:desktop [--app <app>]   # release/mac-<arch>/YTStudio.app (an app's in release/<app>/), then launch it, export, check
-pnpm update:desktop [app…]  # build YTStudio + Video, Photo, Visualizer (engine too), quit the installed ones, replace them (macOS: /Applications; Windows: their installers, silently), reopen
+pnpm update:desktop [app…]  # build YTStudio + Video, Photo, Visualizer (engine too; Music on a Mac), quit the installed ones, replace them (macOS: /Applications; Windows: their installers, silently), reopen
 pnpm tsx scripts/make-icon.ts [--variant dark] [--app all]   # redraw the app icon (or each app's) into resources/
 ```
 
@@ -198,9 +198,10 @@ says what each opens: its suites (Home, the tabs, New, Settings' tabs and Open�
 turned down, naming its app) and whether it has the visualizer. With no `EDITOR_APP` it's every suite (`pnpm dev`, the
 e2e suite, the gallery). An app's data is its own (`data/apps/<app>`, which starts with the checkout's recents). Ask
 `appSuites()`/`appOpens()`, never an app's id. Video, Photo and the Visualizer are desktop apps of their own
-(`pnpm build:desktop <app>`: their name, bundle id, icon, ports, userData and file types; YTStudio, every suite,
-stays as the music app until it has its own); a new one starts with YTStudio's recents and page storage
-(`electron/carry-over.ts`).
+(`pnpm build:desktop <app>`: their name, bundle id, icon, ports, userData and file types); a new one starts with
+YTStudio's recents and page storage (`electron/carry-over.ts`). Music is the engine itself, not Electron
+(`docs/claude/music-shell.md`): on a Mac `pnpm build:desktop music` packs it; on Windows YTStudio, every suite, stays
+as the music app until its installer is built.
 
 ## Suites
 
