@@ -53,7 +53,7 @@ pnpm dev:shell    # every suite in the engine's own window, as the music app (do
 pnpm dev:desktop [app]  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
 pnpm build:desktop [app…] && pnpm test:desktop [--app <app>]   # release/mac-<arch>/YTStudio.app (an app's in release/<app>/), then launch it, export, check
 pnpm update:desktop [app…]  # build YTStudio + Video, Photo, Visualizer and Music (engine too), quit the installed ones, replace them (macOS: /Applications; Windows: their installers, silently), reopen
-pnpm tsx scripts/make-icon.ts [--variant dark] [--app all]   # redraw the app icon (or each app's) into resources/
+pnpm tsx scripts/make-icon.ts [--variant dark] [--app all] [--colourways]   # redraw the app icon (or each app's, or Settings' colourways): a Mac's and a Windows PNG
 ```
 
 **Verify every change** with `pnpm typecheck && pnpm test`, and also the e2e specs of what you touched for anything

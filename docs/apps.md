@@ -76,7 +76,9 @@ for every suite, which is what `pnpm dev`, the e2e suite and the gallery keep us
   once. YTStudio, every suite at once, keeps `gg.jestr.ytstudio` and stays installed as the music app until step 4.
 - **Icons.** `pnpm tsx scripts/make-icon.ts --app all` draws each one's (the yen in its colours; the Visualizer's over
   a frame of its own looks) into `resources/apps/` for packaging and `public/app-icons/apps/` for the page, where
-  Settings › App icon offers it as **Its own**, the app's default.
+  Settings › App icon offers it as **Its own**, the app's default. Each PNG comes twice: a Mac's a little larger
+  than Apple's grid (880 of 1024), Windows' (`-win.png`, `app-icons/win/`) filling nearly the canvas (960), as each
+  system's own icons do.
 - **Which app.** The packaged app's `package.json` says (`ytstudioApp`); electron/main.ts sets `EDITOR_APP` from it,
   names the app, its userData folder (`~/Library/Application Support/YTStudio Video`), its ports (Video 5621, Photo
   5631, Visualizer 5641, Music 5651; YTStudio keeps 5611) and its File menu (New for its suites only).

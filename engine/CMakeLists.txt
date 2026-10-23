@@ -56,7 +56,7 @@ endif()
 # On Windows the engine is the music app's .exe as it is (scripts/desktop.ts, `packMusicWindows`): its icon is the
 # app's, for the taskbar, Explorer and the installer's shortcuts. (A Mac's app bundle is given its own when it's packed.)
 if(WIN32)
-  set(ENGINE_ICON ICON_BIG ${CMAKE_CURRENT_SOURCE_DIR}/../resources/apps/music.png)
+  set(ENGINE_ICON ICON_BIG ${CMAKE_CURRENT_SOURCE_DIR}/../resources/apps/music-win.png)
 endif()
 juce_add_gui_app(
   VaudioEngine

@@ -51,6 +51,16 @@ describe("desktop app icons", () => {
     expect(mock.paths.at(-1)).toBe(path.join("/packaged/app", "dist", "app-icons", "original.png"));
   });
 
+  it("takes Windows' copies on Windows", async () => {
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    try {
+      (await import("./app-icon")).initializeAppIcon("music");
+      expect(mock.paths.at(-1)).toContain(path.join("app-icons", "win", "apps", "music.png"));
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
   it("starts one of the apps on its own icon, and YTStudio's own choice on YTStudio's", async () => {
     (await import("./app-icon")).initializeAppIcon("visualizer");
     expect(mock.handlers.get("app-icon-get")!()).toBe("app");
