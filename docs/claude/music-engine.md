@@ -91,7 +91,9 @@ Read the music suite's guide (`docs/claude/music.md`) first.
   tells `PluginHost::setHost` where its window is (the `host` command, `{ bounds }`), so a plugin's window opens
   centred over it and, on Windows, moves along with it (by its `frame`'s physical pixels: logical ones, rounded on a
   scaled display, drifted a pixel every few moves). A new plugin window is cloaked (DWM) until it's drawn, so it
-  never shows white first. Started by a server with `--data` (the Electron apps' offline previews, the tests) it has
+  never shows white first, and raised again as it appears (`raiseWindow`: JUCE's `toFront` alone left one opened from
+  the Mixer behind it); the tab says it opened one (`noteWindowRaised`), so the menu it was chosen in doesn't give the
+  keyboard back to its panel over it. Started by a server with `--data` (the Electron apps' offline previews, the tests) it has
   no window to belong to, and a plugin's window is an ordinary one.
 - Keep it portable (it runs on Windows too): only JUCE's APIs, paths from the server. What a platform needs beyond
   them stays in its files: `MacWindow.cpp` (plugin windows, both systems), and the music app's window `ShellMac.mm`

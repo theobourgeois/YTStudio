@@ -52,6 +52,16 @@ void moveWindowBy (juce::Component& window, juce::Point<int> delta);
 void cloakWindow (juce::Component& window, bool cloaked);
 
 /**
+ * Windows: put a window above the app's others and give it the keyboard, as a click on it would. JUCE's
+ * `toFront` asks only `BringWindowToTop`, and a plugin's window opened from a panel (the Mixer's effect slots)
+ * came up behind that panel. Nothing elsewhere.
+ */
+void raiseWindow (juce::Component& window);
+
+/** Windows: the window in use is one of this program's (the shell's, a panel, a plugin's), not another program's. False elsewhere. */
+bool appIsInUse();
+
+/**
  * Windows: a press on the window's title bar moves it at once, in the system's move loop, rather than after the
  * system has waited to see whether the mouse goes on moving (the message loop stops meanwhile, and with it every
  * timer: the playhead). Call once it has a peer, and again for a new one (it's done once a peer). Nothing elsewhere.

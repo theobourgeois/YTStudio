@@ -148,6 +148,23 @@ void cloakWindow (juce::Component& window, bool cloaked)
     }
 }
 
+void raiseWindow (juce::Component& window)
+{
+    if (auto* hwnd = static_cast<HWND> (nativeWindowOf (window)))
+    {
+        SetWindowPos (hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        SetForegroundWindow (hwnd);
+    }
+}
+
+bool appIsInUse()
+{
+    DWORD process = 0;
+    if (auto* inUse = GetForegroundWindow())
+        GetWindowThreadProcessId (inUse, &process);
+    return process == GetCurrentProcessId();
+}
+
 namespace
 {
 /**
@@ -246,6 +263,8 @@ void* nativeWindowOf (juce::Component& window)
 juce::Rectangle<int> nativeFrameOf (juce::Component&) { return {}; }
 void moveWindowBy (juce::Component&, juce::Point<int>) {}
 void cloakWindow (juce::Component&, bool) {}
+void raiseWindow (juce::Component&) {}
+bool appIsInUse() { return false; }
 void keepAwake (bool) {}
 void dragWithoutPause (juce::Component&) {}
 #endif
