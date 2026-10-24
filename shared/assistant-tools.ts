@@ -1370,7 +1370,7 @@ export const VIDEO_TOOLS = [
         "The name of one of the user's sets of clips (from now_playing: friends for a music video, nature...) to feed from now on, turning their clips on. Pick one whose name suits the song when the user asks for clips that fit.",
       ),
       screen: str(
-        "A screen or another program's window to show in MilkDrop's looks, in place of the clips (only MilkDrop's looks are picked while it's shared): its name, or part of it, from now_playing's list (FL Studio, Screen 1...); off stops sharing. The desktop app only: in a browser the user picks it themselves (G, or the media panel's Screen).",
+        "A screen or another program's window to show in MilkDrop's looks, always, the clips coming in over it now and then (only MilkDrop's looks are picked while it's shared): its name, or part of it, from now_playing's list (FL Studio, Screen 1...); off stops sharing. The desktop app only: in a browser the user picks it themselves (G, or the media panel's Screen).",
       ),
       rating: oneOf(
         ["start", "stop"],

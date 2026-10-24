@@ -55,7 +55,7 @@ import { LiveDirector } from "./director";
 import { type Feeding, MilkDrop } from "./milkdrop";
 import { useVisualizerMedia } from "./media-library";
 import { nextSet } from "./media-sets";
-import { KickHit, mixFor, pickMedia } from "./media-mix";
+import { KickHit, type Visit, mixFor, nextVisit, pickMedia, visitFade } from "./media-mix";
 import { MediaPanel, type MediaTab } from "./media-panel";
 import { SCREEN_MEDIA, useVisualizerScreen } from "./screen";
 import { desktopScreens } from "@/lib/desktop";
@@ -88,6 +88,8 @@ function onTheBar(rhythm: MusicAnalysis | null | undefined, after: number, withi
 const beatSeconds = (rhythm: MusicAnalysis | null | undefined) => (rhythm?.bpm ? 60 / rhythm.bpm : 0.5);
 /** Seconds a bar lasts. */
 const barSeconds = (rhythm: MusicAnalysis | null | undefined) => 4 * beatSeconds(rhythm);
+/** A clip asked for over a screen shared (N, one just added) comes in for this many bars. */
+const ASKED_VISIT_BARS = 4;
 
 const logger = log("now-playing");
 /** Seconds the speed stays put before the looks are made at it (each change makes the look shown again). */
@@ -180,6 +182,9 @@ export default function NowPlayingView() {
   };
   // The user's clip melting into the MilkDrop look shown (`media-feed.ts`), and those shown lately; a kick's hit.
   const feedingRef = useRef<{ look: string; feeding: Omit<Feeding, "hit"> } | null>(null);
+  // A screen shared, under the clips in MilkDrop's looks; the clips' visits over it (now and then, a few bars each).
+  const screenRef = useRef<{ look: string; feeding: Omit<Feeding, "hit"> } | null>(null);
+  const visitRef = useRef<Visit | null>(null);
   const recentMedia = useRef<string[]>([]);
   const [kick] = useState(() => new KickHit());
   // What was just rated, for the note saying so (`n` counts them, so the same one twice shows again).
@@ -296,24 +301,34 @@ export default function NowPlayingView() {
     return mood ? asHeard(mood).character : null;
   };
 
+  /** What goes into the MilkDrop look `lookId`: a screen shared, and the user's clip (`again`: anew, even for the same look). */
+  const feedFor = (lookId: string, again = false) => {
+    screenFor(lookId, again);
+    clipFor(lookId, again);
+  };
+
+  /** A screen shared, into every MilkDrop look, going in as the moment says (`mixFor`'s screen). */
+  const screenFor = (lookId: string, again = false) => {
+    const screen = useVisualizerScreen.getState().shared;
+    if (!screen) {
+      screenRef.current = null;
+      return;
+    }
+    if (!milkdropPreset(lookId)) return;
+    const was = screenRef.current;
+    if (!again && was?.look === lookId && was.feeding.media.kind === "stream" && was.feeding.media.stream === screen.stream) return;
+    const mood = useNowPlaying.getState().live?.signals.mood;
+    const mix = mixFor(mood ? asHeard(mood) : { intensity: 0.5, slow: latest.current.prefs.pace < 1 ? 1 : 0 }, Math.random, "screen");
+    screenRef.current = { look: lookId, feeding: { media: { id: SCREEN_MEDIA, kind: "stream", stream: screen.stream }, mix } };
+    logger.debug(`${screen.name} into ${liveLook(lookId)?.name ?? lookId}'s feedback (${mix.mode})`);
+  };
+
   /**
    * The user's clip for the MilkDrop look `lookId` (`again`: another, even for the same look): not one shown lately, from
    * a moment of it at random, going in as the moment says (`mixFor`). None for any other look, or with none, or off.
+   * Over a screen shared it comes and goes (`tick`'s visits).
    */
-  const feedFor = (lookId: string, again = false) => {
-    // A screen shared goes into every MilkDrop look, in place of the clips.
-    const screen = useVisualizerScreen.getState().shared;
-    if (screen) {
-      if (!milkdropPreset(lookId)) return;
-      if (!again && feedingRef.current?.look === lookId && feedingRef.current.feeding.media.id === SCREEN_MEDIA) return;
-      const mood = useNowPlaying.getState().live?.signals.mood;
-      const mix = mixFor(mood ? asHeard(mood) : { intensity: 0.5, slow: latest.current.prefs.pace < 1 ? 1 : 0 }, Math.random, "screen");
-      feedingRef.current = { look: lookId, feeding: { media: { id: SCREEN_MEDIA, kind: "stream", stream: screen.stream }, mix } };
-      useVisualizerMedia.getState().setFeeding(null);
-      logger.debug(`${screen.name} into ${liveLook(lookId)?.name ?? lookId}'s feedback (${mix.mode})`);
-      return;
-    }
-    if (feedingRef.current?.feeding.media.id === SCREEN_MEDIA) feedingRef.current = null;
+  const clipFor = (lookId: string, again = false) => {
     const list = useVisualizerMedia.getState().media;
     if (!useVisualizerPrefs.getState().media || !list.length) {
       if (feedingRef.current) feedingRef.current = null;
@@ -527,15 +542,30 @@ export default function NowPlayingView() {
     const seconds = Math.min(0.1, Math.max(0.001, time - lastTick.current));
     lastTick.current = time;
     const shown = director.shownAt(time);
-    // The user's clip, while its MilkDrop look's on screen, pulsing in on the kicks.
+    // The user's clip, while its MilkDrop look's on screen, pulsing in on the kicks; a screen shared under it, in every
+    // MilkDrop look, the clip coming in over it now and then.
     const feeding = feedingRef.current;
-    let fed: Feeding | null = null;
-    if (feeding && shown.some((s) => s.look === feeding.look)) {
+    const screen = screenRef.current;
+    const clipShown = !!feeding && shown.some((s) => s.look === feeding.look);
+    let hit = 0;
+    if (clipShown || screen) {
       const reader = source.signals();
-      const hit = kick.step(reader ? signalValue(reader, null, MASTER, "onsetLow", time, seconds) : 0, seconds);
-      fed = { ...feeding.feeding, hit };
+      hit = kick.step(reader ? signalValue(reader, null, MASTER, "onsetLow", time, seconds) : 0, seconds);
     }
-    milkdrop.current?.draw(time, seconds, shown, useNowPlaying.getState().live?.signals ?? null, paceShown.current, fed);
+    let fade = 1;
+    if (screen && feeding) {
+      let visit = visitRef.current;
+      if (!visit || time >= visit.until) {
+        const signals = useNowPlaying.getState().live?.signals;
+        const heard = signals ? asHeard(signals.mood) : null;
+        visit = visitRef.current = nextVisit(time, barSeconds(signals?.data().header.rhythm), heard ? (isSlow(heard) ? 0 : heard.intensity) : 0.5, Math.random);
+        // Another clip each time (chosen while it's away).
+        if (director.look) clipFor(director.look, true);
+      }
+      fade = visitFade(visit, time);
+    } else visitRef.current = null;
+    const fed: Feeding | null = clipShown && feedingRef.current ? { ...feedingRef.current.feeding, hit, fade } : null;
+    milkdrop.current?.draw(time, seconds, shown, useNowPlaying.getState().live?.signals ?? null, paceShown.current, fed, screen ? { ...screen.feeding, hit } : null);
   }
 
   /** Start, follow sessions, change looks when it's time. */
@@ -662,9 +692,10 @@ export default function NowPlayingView() {
     // (Not started yet: it starts on one of MilkDrop's, `forScreen`.)
     const look = director.look;
     if (!look) return;
+    visitRef.current = null;
     const wanted = forScreen(look);
     if (wanted !== look) show(wanted, "key");
-    else feedFor(look, true);
+    else screenFor(look, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
   const mediaOn = prefs.media;
@@ -675,8 +706,13 @@ export default function NowPlayingView() {
     mediaChanged.current = { list: mediaList, on: mediaOn, next: nextMedia };
     const look = director.look;
     if (!look) return;
-    const gone = feedingRef.current && feedingRef.current.feeding.media.id !== SCREEN_MEDIA && !mediaList.some((m) => m.asset.id === feedingRef.current!.feeding.media.id);
-    if (nextMedia !== was.next || mediaOn !== was.on || gone || wantedMedia || (!feedingRef.current && mediaList.length)) feedFor(look, true);
+    const gone = feedingRef.current && !mediaList.some((m) => m.asset.id === feedingRef.current!.feeding.media.id);
+    if (nextMedia !== was.next || mediaOn !== was.on || gone || wantedMedia || (!feedingRef.current && mediaList.length)) clipFor(look, true);
+    // One asked for (N, one just added) over a screen shared comes in now, for a few bars, rather than in its turn.
+    if (useVisualizerScreen.getState().shared && (nextMedia !== was.next || wantedMedia)) {
+      const now = source.now;
+      visitRef.current = { from: now, until: now + ASKED_VISIT_BARS * barSeconds(useNowPlaying.getState().live?.signals.data().header.rhythm) };
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mediaList, mediaOn, nextMedia, wantedMedia]);
 

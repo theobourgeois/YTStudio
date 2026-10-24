@@ -136,6 +136,36 @@ export function amountOver(mix: MediaMix, hit: number, seconds: number): number 
   return 1 - (1 - perFrame) ** Math.max(0, seconds * 60);
 }
 
+/**
+ * Over a screen shared (docs/now-playing.md, "Your screen"), the clips come in now and then: for a few bars, then gone
+ * for a few, each time another. In bars (`VISIT_BARS`, `AWAY_BARS`: from, to), more often as the music gets intense.
+ */
+const VISIT_BARS = [2, 4] as const;
+const AWAY_BARS = { calm: [6, 10], intense: [3, 6] } as const;
+/** A visit fades in and out over this long (seconds), so a clip never cuts in over the screen. */
+const VISIT_FADE = 0.8;
+
+/** A clip's visit over a screen: from when, until when (seconds, the picture's clock). */
+export interface Visit {
+  from: number;
+  until: number;
+}
+
+/** The next visit, after `now`: a while away, then a few bars long (`bar`: a bar's seconds), by the music's intensity. */
+export function nextVisit(now: number, bar: number, intensity: number, random: () => number): Visit {
+  const t = Math.max(0, Math.min(1, (intensity - CALM) / (INTENSE - CALM)));
+  const between = (lo: number, hi: number) => lo + (hi - lo) * random();
+  const away = between(AWAY_BARS.calm[0] + (AWAY_BARS.intense[0] - AWAY_BARS.calm[0]) * t, AWAY_BARS.calm[1] + (AWAY_BARS.intense[1] - AWAY_BARS.calm[1]) * t);
+  const from = now + Math.round(away) * bar;
+  return { from, until: from + Math.round(between(VISIT_BARS[0], VISIT_BARS[1])) * bar };
+}
+
+/** How much of the clip shows at `time` of its visit (0..1): faded in at its start, out by its end. */
+export function visitFade(visit: Visit, time: number): number {
+  if (time <= visit.from || time >= visit.until) return 0;
+  return Math.min(1, (time - visit.from) / VISIT_FADE, (visit.until - time) / VISIT_FADE);
+}
+
 /** How fast a kick's hit falls away (to a tenth in this many seconds). */
 const KICK_FALLS = 0.25;
 

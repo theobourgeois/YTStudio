@@ -501,7 +501,8 @@ function Screen() {
     <div data-screen-panel className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
       <p className="mb-3 text-[11px] leading-4 text-white/55">
         A screen or another program's window (FL Studio as you work in it, a game...) in MilkDrop's looks, the music driving them: shown whole, flashing up on
-        the kicks, its trails streaming off it. In place of your clips while it's shared; G again stops it.
+        the kicks, its trails streaming off it. Your clips come in over it now and then, a few bars at a time (N brings one in now); G again
+        stops it.
       </p>
       {shared && <Live />}
       {access && access !== "granted" && (

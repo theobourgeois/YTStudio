@@ -873,7 +873,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     if (desktopScreens()) await screens.list();
     const sources = useVisualizerScreen.getState().sources;
     lines.push(
-      (screens.shared ? `${screens.shared.name} is shared into MilkDrop's looks (in place of the clips; only MilkDrop's looks are picked).` : "No screen or window is shared into the looks.") +
+      (screens.shared ? `${screens.shared.name} is shared into MilkDrop's looks (under the clips, which come in over it now and then; only MilkDrop's looks are picked).` : "No screen or window is shared into the looks.") +
         (sources ? ` Screens and windows to share (screen): ${sources.map((s) => s.name).join(", ") || "none"}.` : " In a browser the user picks one themselves (G, or the media panel's Screen)."),
     );
     // What each suits (step 5 of docs/now-playing.md), so a look can be picked for the music.

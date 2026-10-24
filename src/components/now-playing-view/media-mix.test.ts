@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seededRandom } from "@shared/live-looks";
-import { FLAT_SHARE, KickHit, PALE, STILL_FLAT, type MediaMode, amountOver, backdropOf, floatSize, mixFor, pickMedia, placementOf, shownAt } from "./media-mix";
+import { FLAT_SHARE, KickHit, PALE, STILL_FLAT, type MediaMode, amountOver, backdropOf, floatSize, mixFor, nextVisit, pickMedia, placementOf, shownAt, visitFade } from "./media-mix";
 
 const modes = (intensity: number, slow = 0) => {
   const random = seededRandom(`modes${intensity}${slow}`);
@@ -148,5 +148,38 @@ describe("which clip", () => {
     }
     expect(pickMedia([media[1]], [], random)!.from).toBe(0);
     expect(pickMedia([media[2]], [], random)!.from).toBe(0);
+  });
+});
+
+describe("the clips over a screen shared", () => {
+  it("come in for a few bars, a while after the last, on the bar", () => {
+    const random = seededRandom("visits");
+    for (let i = 0; i < 50; i++) {
+      const v = nextVisit(10, 2, 0.5, random);
+      expect(v.from).toBeGreaterThan(10);
+      expect(((v.from - 10) / 2) % 1).toBe(0);
+      expect((v.until - v.from) / 2).toBeGreaterThanOrEqual(2);
+      expect((v.until - v.from) / 2).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("come back sooner as the music gets intense", () => {
+    const away = (intensity: number) => {
+      const random = seededRandom(`away${intensity}`);
+      let sum = 0;
+      for (let i = 0; i < 100; i++) sum += nextVisit(0, 1, intensity, random).from;
+      return sum / 100;
+    };
+    expect(away(0.9)).toBeLessThan(away(0.2));
+  });
+
+  it("fade in and out rather than cutting over the screen", () => {
+    const v = { from: 10, until: 20 };
+    expect(visitFade(v, 9)).toBe(0);
+    expect(visitFade(v, 10.2)).toBeGreaterThan(0);
+    expect(visitFade(v, 10.2)).toBeLessThan(1);
+    expect(visitFade(v, 15)).toBe(1);
+    expect(visitFade(v, 19.9)).toBeLessThan(1);
+    expect(visitFade(v, 21)).toBe(0);
   });
 });

@@ -22,7 +22,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | The visualizer: director, source, keys, view | `src/components/now-playing-view/` | video (`ClientSuite.NowPlaying`) |
 | The looks as the user rated them (Your taste): what a rating is, its file | `shared/look-ratings.ts`, `server/look-ratings.ts` | platform |
 | The user's clips and pictures in MilkDrop's looks and feedback (Your media), found online too, in sets | `now-playing-view/media-feed.ts`, `media-mix.ts`, `media-library.ts`, `media-sets.ts`, `media-panel.tsx`; `LibraryStore.addFromWeb` | video |
-| A screen or another program's window in MilkDrop's looks (Your screen) | `now-playing-view/screen.ts`, `media-feed.ts` (`stream`), `media-panel.tsx` (Screen); `electron/screen-share.ts` | video |
+| A screen or another program's window in MilkDrop's looks (Your screen) | `now-playing-view/screen.ts`, `media-feed.ts` (`stream`), `milkdrop.ts` (`screenFeed`), `media-mix.ts` (visits), `media-panel.tsx` (Screen); `electron/screen-share.ts` | video |
 | Its own window (a stage) | `src/components/windows/native/stage-window.ts`, `electron/stage.ts` | platform |
 | vaudio's 2D visualizers | `shared/effect-library/audio.ts` (Wave Bars ... Acid Plasma) | video |
 | The assistant | `now_playing`, `control_now_playing` (`shared/assistant-tools.ts`) | video |
@@ -528,7 +528,13 @@ what the computer plays drives the looks. Only its picture: the sound is listeni
   at 0.6 calm down to 0.4 intense on top so the look shows through, flashing up more on the kicks than a clip; all of
   it most of the time, its light or edges now and then. Into the feedback as a clip is, so trails stream off it.
 - **Only MilkDrop's looks** show it, so while it's shared only they're picked (`appealNow` is 0 for the others), and
-  one comes on if another kind is showing when it starts. It's in place of the clips, which come back when it stops.
+  one comes on if another kind is showing when it starts.
+- **Your clips over it** (Théo, 2026-10-24: "the screen is always overlaid, and then the videos just come in sometimes"):
+  the screen has a feed of its own (`MilkDrop`'s `screenFeed`, under the clips', one `Brake` for both), in every
+  MilkDrop look. The clips come and go over it in visits (`nextVisit`, `visitFade` in `media-mix.ts`, run by `tick`):
+  away 6 to 10 bars when it's calm, 3 to 6 intense, then in for 2 to 4 bars, faded in and out over 0.8 s, another clip
+  each time (chosen while it's away; it keeps playing, nothing painted). One asked for (N, one just added) comes in at
+  once, for 4 bars.
   Stopped when the visualizer closes, or the share ends (the window closed, the browser's Stop sharing).
 - **The assistant**: `now_playing` says what's shared and, in the desktop app, what could be; `control_now_playing`'s
   `screen` shares one by name (or part of it), `off` stops. In a browser the user picks it.
